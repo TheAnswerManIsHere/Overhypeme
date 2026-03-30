@@ -25,6 +25,7 @@ export interface AuthUser {
   lastName?: string | null;
   profileImageUrl?: string | null;
   membershipTier?: AuthUserMembershipTier;
+  isAdmin?: boolean | null;
 }
 
 export interface AuthUserEnvelope {

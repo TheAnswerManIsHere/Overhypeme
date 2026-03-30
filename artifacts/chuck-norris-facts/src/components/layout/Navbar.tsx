@@ -1,5 +1,5 @@
 import { Link, useLocation } from "wouter";
-import { Search, Plus, User, LogIn, LogOut, Menu, X, Star } from "lucide-react";
+import { Search, Plus, User, LogIn, LogOut, Menu, X, Star, ShieldCheck } from "lucide-react";
 import { useAuth } from "@workspace/replit-auth-web";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
@@ -60,6 +60,11 @@ export function Navbar() {
             
             {isAuthenticated ? (
               <div className="flex items-center gap-3">
+                {user?.isAdmin && (
+                  <Button variant="ghost" size="icon" onClick={() => setLocation('/admin')} title="Admin Panel">
+                    <ShieldCheck className="w-5 h-5 text-primary" />
+                  </Button>
+                )}
                 <Button variant="ghost" size="icon" onClick={() => setLocation('/profile')}>
                   {user?.profileImageUrl ? (
                     <img src={user.profileImageUrl} alt="Profile" className="w-8 h-8 rounded-sm" />
@@ -114,6 +119,11 @@ export function Navbar() {
               </Button>
               {isAuthenticated ? (
                 <div className="grid grid-cols-2 gap-4">
+                  {user?.isAdmin && (
+                    <Button variant="outline" className="w-full gap-2 col-span-2 border-primary text-primary" onClick={() => { setLocation('/admin'); setMobileMenuOpen(false); }}>
+                      <ShieldCheck className="w-5 h-5" /> ADMIN PANEL
+                    </Button>
+                  )}
                   <Button variant="secondary" className="w-full gap-2" onClick={() => { setLocation('/profile'); setMobileMenuOpen(false); }}>
                     <User className="w-5 h-5" /> PROFILE
                   </Button>
