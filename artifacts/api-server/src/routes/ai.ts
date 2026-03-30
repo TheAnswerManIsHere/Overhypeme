@@ -15,6 +15,13 @@ const RATE_WINDOW_MS = 60_000;
 const RATE_MAX = 30;
 const rateCounts = new Map<string, { count: number; windowStart: number }>();
 
+setInterval(() => {
+  const cutoff = Date.now() - RATE_WINDOW_MS;
+  for (const [key, entry] of rateCounts) {
+    if (entry.windowStart < cutoff) rateCounts.delete(key);
+  }
+}, RATE_WINDOW_MS).unref();
+
 function rateLimitKey(req: Request): string {
   const sid = getSessionId(req);
   if (sid) return `sid:${sid}`;
@@ -55,6 +62,7 @@ export async function moderateComment(commentId: number, text: string): Promise<
     const response = await getOpenAIClient().chat.completions.create({
       model: "gpt-5-mini",
       max_completion_tokens: 256,
+      response_format: { type: "json_object" },
       messages: [
         {
           role: "system",
@@ -132,6 +140,7 @@ router.post("/ai/check-duplicate", requireAuth, requireRateLimit, async (req: Re
   const response = await getOpenAIClient().chat.completions.create({
     model: "gpt-5-mini",
     max_completion_tokens: 256,
+    response_format: { type: "json_object" },
     messages: [
       {
         role: "system",
@@ -189,14 +198,15 @@ router.post("/ai/suggest-hashtags", requireAuth, requireRateLimit, async (req: R
   const response = await getOpenAIClient().chat.completions.create({
     model: "gpt-5-mini",
     max_completion_tokens: 256,
+    response_format: { type: "json_object" },
     messages: [
       {
         role: "system",
         content:
           "You suggest hashtags for Chuck Norris facts on a humor website. " +
-          "Return ONLY a JSON array of 3-5 lowercase hashtag strings (no # prefix, letters/numbers/underscores only). " +
+          "Return a JSON object with a single key 'hashtags' containing an array of 3-5 lowercase strings (no # prefix, letters/numbers/underscores only). " +
           "Prefer tags from the existing list when relevant. You may add 1-2 new tags if needed. " +
-          "Example output: [\"strength\",\"supernatural\",\"wisdom\"]",
+          "Example output: {\"hashtags\": [\"strength\",\"supernatural\",\"wisdom\"]}",
       },
       {
         role: "user",
@@ -205,17 +215,16 @@ router.post("/ai/suggest-hashtags", requireAuth, requireRateLimit, async (req: R
     ],
   });
 
-  const raw = response.choices[0]?.message?.content ?? "[]";
+  const raw = response.choices[0]?.message?.content ?? "{}";
   let tags: string[] = [];
   try {
-    const parsed2 = JSON.parse(raw);
-    if (Array.isArray(parsed2)) {
-      tags = parsed2
-        .filter((t): t is string => typeof t === "string")
-        .map((t) => t.toLowerCase().replace(/[^a-z0-9_]/g, ""))
-        .filter((t) => t.length > 0)
-        .slice(0, 5);
-    }
+    const parsed2 = JSON.parse(raw) as Record<string, unknown>;
+    const arr = Array.isArray(parsed2.hashtags) ? parsed2.hashtags : [];
+    tags = (arr as unknown[])
+      .filter((t): t is string => typeof t === "string")
+      .map((t) => t.toLowerCase().replace(/[^a-z0-9_]/g, ""))
+      .filter((t) => t.length > 0)
+      .slice(0, 5);
   } catch {
     tags = [];
   }
