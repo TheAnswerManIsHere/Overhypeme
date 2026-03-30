@@ -15,7 +15,17 @@ import {
 const router: IRouter = Router();
 
 async function verifyCaptcha(token: string): Promise<boolean> {
-  const secret = process.env.HCAPTCHA_SECRET ?? "0x0000000000000000000000000000000000000000";
+  const secret = process.env.HCAPTCHA_SECRET;
+  const isProd = process.env.NODE_ENV === "production";
+
+  if (!secret) {
+    if (isProd) {
+      return false;
+    }
+    console.warn("[dev] HCAPTCHA_SECRET not set — bypassing CAPTCHA verification");
+    return true;
+  }
+
   try {
     const resp = await fetch("https://api.hcaptcha.com/siteverify", {
       method: "POST",

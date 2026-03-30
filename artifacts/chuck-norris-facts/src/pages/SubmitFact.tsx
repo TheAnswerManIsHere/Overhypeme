@@ -55,7 +55,7 @@ export default function SubmitFact() {
           setLocation(`/facts/${data.id}`);
         },
         onError: (err) => {
-          setError(err.error?.error || "Failed to submit fact");
+          setError(err.data?.error || err.message || "Failed to submit fact");
         }
       }
     );

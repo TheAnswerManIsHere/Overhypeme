@@ -7,6 +7,7 @@ import {
   LogoutMobileSessionResponse,
 } from "@workspace/api-zod";
 import { db, usersTable } from "@workspace/db";
+import { eq } from "drizzle-orm";
 import {
   clearSession,
   getOidcConfig,
@@ -57,9 +58,20 @@ function getSafeReturnTo(value: unknown): string {
   return value;
 }
 
-async function upsertUser(claims: Record<string, unknown>) {
+async function upsertUser(
+  claims: Record<string, unknown>,
+): Promise<{ user: typeof usersTable.$inferSelect; isNewUser: boolean }> {
+  const id = claims.sub as string;
+
+  const existing = await db
+    .select()
+    .from(usersTable)
+    .where(eq(usersTable.id, id))
+    .limit(1);
+  const isNewUser = existing.length === 0;
+
   const userData = {
-    id: claims.sub as string,
+    id,
     email: (claims.email as string) || null,
     firstName: (claims.first_name as string) || null,
     lastName: (claims.last_name as string) || null,
@@ -79,7 +91,7 @@ async function upsertUser(claims: Record<string, unknown>) {
       },
     })
     .returning();
-  return user;
+  return { user, isNewUser };
 }
 
 router.get("/auth/user", (req: Request, res: Response) => {
@@ -164,7 +176,7 @@ router.get("/callback", async (req: Request, res: Response) => {
     return;
   }
 
-  const dbUser = await upsertUser(
+  const { user: dbUser, isNewUser } = await upsertUser(
     claims as unknown as Record<string, unknown>,
   );
 
@@ -180,11 +192,18 @@ router.get("/callback", async (req: Request, res: Response) => {
     access_token: tokens.access_token,
     refresh_token: tokens.refresh_token,
     expires_at: tokens.expiresIn() ? now + tokens.expiresIn()! : claims.exp,
+    captchaVerified: dbUser.captchaVerified,
   };
 
   const sid = await createSession(sessionData);
   setSessionCookie(res, sid);
-  res.redirect(returnTo);
+
+  const basePath = process.env.BASE_PATH || "";
+  if (isNewUser) {
+    res.redirect(`${basePath}/onboard?returnTo=${encodeURIComponent(returnTo)}`);
+  } else {
+    res.redirect(returnTo);
+  }
 });
 
 router.get("/logout", async (req: Request, res: Response) => {
@@ -234,7 +253,7 @@ router.post(
         return;
       }
 
-      const dbUser = await upsertUser(
+      const { user: dbUser } = await upsertUser(
         claims as unknown as Record<string, unknown>,
       );
 
@@ -250,6 +269,7 @@ router.post(
         access_token: tokens.access_token,
         refresh_token: tokens.refresh_token,
         expires_at: tokens.expiresIn() ? now + tokens.expiresIn()! : claims.exp,
+        captchaVerified: dbUser.captchaVerified,
       };
 
       const sid = await createSession(sessionData);
