@@ -849,6 +849,10 @@ components:
         profileImageUrl:
           type: string
           nullable: true
+        membershipTier:
+          type: string
+          enum: [free, premium]
+          nullable: true
 
     AuthUserEnvelope:
       type: object
