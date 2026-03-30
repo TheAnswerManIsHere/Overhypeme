@@ -102,8 +102,25 @@ function dateRangeWhere(dateFrom: Date | null, dateTo: Date | null) {
 // GET /affiliate/stats — admin only: click counts per source grouped by destination
 router.get("/affiliate/stats", requireAdmin, async (req: Request, res: Response) => {
 
-  const dateFrom = req.query["from"] ? new Date(String(req.query["from"])) : null;
-  const dateTo = req.query["to"] ? new Date(String(req.query["to"])) : null;
+  let dateFrom: Date | null = null;
+  let dateTo: Date | null = null;
+
+  if (req.query["from"]) {
+    const d = new Date(String(req.query["from"]));
+    if (isNaN(d.getTime())) { res.status(400).json({ error: "Invalid 'from' date" }); return; }
+    // Start of the given day in UTC
+    d.setUTCHours(0, 0, 0, 0);
+    dateFrom = d;
+  }
+
+  if (req.query["to"]) {
+    const d = new Date(String(req.query["to"]));
+    if (isNaN(d.getTime())) { res.status(400).json({ error: "Invalid 'to' date" }); return; }
+    // End of the given day in UTC (inclusive)
+    d.setUTCHours(23, 59, 59, 999);
+    dateTo = d;
+  }
+
   const whereClause = dateRangeWhere(dateFrom, dateTo);
 
   const [rows, totals] = await Promise.all([
