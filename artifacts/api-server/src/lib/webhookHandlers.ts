@@ -58,26 +58,28 @@ async function recordHistory(
 
 // Returns true if the product/price is a recognized membership product.
 // Validates via product metadata (membership: "true") OR env allowlist.
+// ALWAYS fails closed: if neither allowlist nor metadata tag is present, membership is NOT granted.
 async function isMembershipPrice(stripe: Stripe, priceId: string): Promise<boolean> {
   try {
     const allowlist = (process.env.MEMBERSHIP_PRICE_IDS ?? "").split(",").map(s => s.trim()).filter(Boolean);
     if (allowlist.length > 0 && allowlist.includes(priceId)) return true;
 
-    // Fetch price to get its product
+    // Fetch price to get its product and check metadata
     const price = await stripe.prices.retrieve(priceId, { expand: ["product"] });
     const product = price.product as Stripe.Product | null;
     if (!product || typeof product === "string") return false;
 
-    // Accept if product metadata marks it as membership, OR if no allowlist is set (dev fallback)
+    // Accept ONLY if product metadata explicitly marks it as membership
     const isTagged = product.metadata?.membership === "true";
     if (isTagged) return true;
 
-    // No allowlist set and no metadata tag — accept in development/test mode only
-    if (allowlist.length === 0) return true;
-
+    // Fail closed: no allowlist entry and no metadata tag → deny
+    // Log as warning so operators can diagnose missing configuration
+    logger.warn({ priceId }, "Price not in membership allowlist and product has no membership=true metadata — skipping tier grant");
     return false;
-  } catch {
-    // If we can't validate, reject (fail closed)
+  } catch (err) {
+    // Fail closed on error
+    logger.error({ err, priceId }, "Could not validate membership price — denying");
     return false;
   }
 }
@@ -201,16 +203,12 @@ async function handleOneTimePayment(
   const user = await findUserByStripeCustomerId(customerId);
   if (!user) return;
 
-  // Validate: must be tagged as membership purchase OR contain a membership price
+  // Validate: must be tagged as membership purchase (fail-closed)
+  // Checkout sessions tag PI with metadata: { membership: "true", plan: "lifetime" }
   const isTaggedMembership =
     metadata?.membership === "true" || metadata?.plan === "lifetime";
 
-  // Retrieve the payment intent's line items to validate price if no metadata tag
-  // For checkout-based flow, the PI is associated with a session that has line items.
-  // We rely on metadata.plan=lifetime being set by checkout session metadata, or fall back
-  // to the allowlist-free acceptance in dev mode.
-  const allowlist = (process.env.MEMBERSHIP_PRICE_IDS ?? "").split(",").map(s => s.trim()).filter(Boolean);
-  if (!isTaggedMembership && allowlist.length > 0) {
+  if (!isTaggedMembership) {
     logger.warn({ paymentIntentId, userId: user.id }, "One-time payment not tagged as membership — skipping lifetime grant");
     return;
   }
@@ -314,6 +312,41 @@ export class WebhookHandlers {
             inv.subscription ? (typeof inv.subscription === "string" ? inv.subscription : inv.subscription.id) : undefined,
             inv.payment_intent ? (typeof inv.payment_intent === "string" ? inv.payment_intent : inv.payment_intent.id) : undefined,
           );
+          break;
+        }
+        case "invoice.payment_failed": {
+          const inv = event.data.object as unknown as {
+            id: string; customer: string | { id: string };
+            subscription?: string | { id: string } | null;
+            amount_due?: number; currency?: string;
+          };
+          const customerId = typeof inv.customer === "string" ? inv.customer : inv.customer.id;
+          const user = await findUserByStripeCustomerId(customerId);
+          if (user) {
+            const subscriptionId = inv.subscription
+              ? (typeof inv.subscription === "string" ? inv.subscription : inv.subscription.id)
+              : undefined;
+
+            // Record the failure for audit trail
+            await recordHistory(user.id, "payment_failed", {
+              amount: inv.amount_due,
+              currency: inv.currency,
+              stripeInvoiceId: inv.id,
+              stripeSubscriptionId: subscriptionId,
+            });
+
+            // Update subscription status in app table to 'past_due' if linked
+            if (subscriptionId) {
+              await db
+                .update(subscriptionsTable)
+                .set({ status: "past_due" })
+                .where(eq(subscriptionsTable.stripeSubscriptionId, subscriptionId));
+            }
+
+            // Do NOT immediately revoke premium — give the user time for retry/grace period.
+            // Stripe will fire subscription.deleted/updated when it finally cancels.
+            logger.warn({ userId: user.id, invoiceId: inv.id }, "Payment failed — subscription marked past_due");
+          }
           break;
         }
         case "payment_intent.succeeded": {
