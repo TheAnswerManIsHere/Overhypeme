@@ -1,7 +1,9 @@
-import { Switch, Route, Router as WouterRouter } from "wouter";
+import { useEffect } from "react";
+import { Switch, Route, Router as WouterRouter, useLocation } from "wouter";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { trackPageView } from "@/lib/analytics";
 
 // Pages
 import Home from "@/pages/Home";
@@ -15,6 +17,7 @@ import AdminFacts from "@/pages/admin/facts";
 import AdminUsers from "@/pages/admin/users";
 import AdminBilling from "@/pages/admin/billing";
 import AdminComments from "@/pages/admin/comments";
+import AdminAffiliate from "@/pages/admin/affiliate";
 import MemePage from "@/pages/MemePage";
 import Pricing from "@/pages/Pricing";
 import NotFound from "@/pages/not-found";
@@ -28,24 +31,36 @@ const queryClient = new QueryClient({
   },
 });
 
+function GAPageTracker() {
+  const [location] = useLocation();
+  useEffect(() => {
+    trackPageView(location);
+  }, [location]);
+  return null;
+}
+
 function Router() {
   return (
-    <Switch>
-      <Route path="/" component={Home} />
-      <Route path="/search" component={Search} />
-      <Route path="/facts/:id" component={FactDetail} />
-      <Route path="/submit" component={SubmitFact} />
-      <Route path="/profile" component={Profile} />
-      <Route path="/onboard" component={Onboard} />
-      <Route path="/admin/facts" component={AdminFacts} />
-      <Route path="/admin/users" component={AdminUsers} />
-      <Route path="/admin/billing" component={AdminBilling} />
-      <Route path="/admin/comments" component={AdminComments} />
-      <Route path="/admin" component={AdminDashboard} />
-      <Route path="/meme/:slug" component={MemePage} />
-      <Route path="/pricing" component={Pricing} />
-      <Route component={NotFound} />
-    </Switch>
+    <>
+      <GAPageTracker />
+      <Switch>
+        <Route path="/" component={Home} />
+        <Route path="/search" component={Search} />
+        <Route path="/facts/:id" component={FactDetail} />
+        <Route path="/submit" component={SubmitFact} />
+        <Route path="/profile" component={Profile} />
+        <Route path="/onboard" component={Onboard} />
+        <Route path="/admin/facts" component={AdminFacts} />
+        <Route path="/admin/users" component={AdminUsers} />
+        <Route path="/admin/billing" component={AdminBilling} />
+        <Route path="/admin/comments" component={AdminComments} />
+        <Route path="/admin/affiliate" component={AdminAffiliate} />
+        <Route path="/admin" component={AdminDashboard} />
+        <Route path="/meme/:slug" component={MemePage} />
+        <Route path="/pricing" component={Pricing} />
+        <Route component={NotFound} />
+      </Switch>
+    </>
   );
 }
 
