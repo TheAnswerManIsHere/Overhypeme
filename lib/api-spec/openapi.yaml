@@ -874,14 +874,13 @@ paths:
     post:
       operationId: bulkImportFacts
       tags: [facts]
-      summary: Bulk-import facts (API key or admin session)
+      summary: Bulk-import facts (API key required)
       description: |
         Accepts a JSON array of fact objects (or `{ "facts": [...] }`) and inserts
-        them in bulk. Protected by either a valid `X-API-Key` header or an admin
-        browser session. Supports `?dryRun=true` to validate without writing.
+        them in bulk. Protected by the `X-API-Key` header (ADMIN_API_KEY secret).
+        Supports `?dryRun=true` to validate without writing.
       security:
         - ApiKey: []
-        - SessionCookie: []
       parameters:
         - name: dryRun
           in: query
