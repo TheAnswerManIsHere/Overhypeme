@@ -11,4 +11,5 @@ export interface MemeTemplate {
   name: string;
   description: string;
   previewColors?: string[];
+  previewImageUrl?: string;
 }
