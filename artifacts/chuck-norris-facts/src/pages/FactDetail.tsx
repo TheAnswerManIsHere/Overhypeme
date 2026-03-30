@@ -11,6 +11,8 @@ import { Button } from "@/components/ui/Button";
 import { Textarea, Input } from "@/components/ui/Input";
 import { useAppMutations } from "@/hooks/use-mutations";
 import { MemeBuilder } from "@/components/MemeBuilder";
+import { MerchButtons } from "@/components/MerchButtons";
+import { AdSlot } from "@/components/AdSlot";
 import { ThumbsUp, ThumbsDown, User, Link as LinkIcon, Youtube, Instagram, AlertCircle, Plus, Trash2, ImageIcon } from "lucide-react";
 import { cn } from "@/components/ui/Button";
 
@@ -143,7 +145,15 @@ export default function FactDetail() {
               {fact.submittedBy && <div className="text-primary mt-1">BY AGENT {fact.submittedBy.substring(0,8).toUpperCase()}</div>}
             </div>
           </div>
+
+          {/* Merch buttons */}
+          <div className="mt-6 pt-4 border-t border-border/50">
+            <MerchButtons sourceType="fact" sourceId={factId} text={fact.text} />
+          </div>
         </div>
+
+        {/* Ad slot below fact card — hidden for premium users */}
+        <AdSlot slot={import.meta.env.VITE_ADSENSE_SLOT_FACT_FOOTER ?? "1234567890"} format="horizontal" className="mb-8" />
 
         {/* Layout split for Links and Comments */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-12">

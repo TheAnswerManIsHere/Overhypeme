@@ -1,4 +1,5 @@
 import { Navbar } from "./Navbar";
+import { AdSlot } from "@/components/AdSlot";
 
 export function Layout({ children }: { children: React.ReactNode }) {
   return (
@@ -7,6 +8,10 @@ export function Layout({ children }: { children: React.ReactNode }) {
       <main className="flex-1 w-full">
         {children}
       </main>
+      {/* Leaderboard ad above footer — hidden for premium users */}
+      <div className="w-full max-w-7xl mx-auto px-4 py-4">
+        <AdSlot slot={import.meta.env.VITE_ADSENSE_SLOT_LEADERBOARD ?? "0987654321"} format="horizontal" />
+      </div>
       <footer className="w-full bg-black border-t border-border py-12 mt-auto">
         <div className="max-w-7xl mx-auto px-4 text-center">
           <div className="font-display text-4xl text-border mb-4 uppercase tracking-widest">Chuck Norris Database</div>

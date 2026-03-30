@@ -2,6 +2,7 @@ import { useRoute, Link } from "wouter";
 import { useGetMemeBySlug, useGetFact, getGetMemeBySlugQueryKey, getGetFactQueryKey } from "@workspace/api-client-react";
 import { Layout } from "@/components/layout/Layout";
 import { Button } from "@/components/ui/Button";
+import { MerchButtons } from "@/components/MerchButtons";
 import { Share2, AlertCircle, ArrowLeft, Download } from "lucide-react";
 
 export default function MemePage() {
@@ -124,6 +125,16 @@ export default function MemePage() {
             <Button onClick={handleDownload} variant="secondary" className="gap-2">
               <Download className="w-4 h-4" /> Download PNG
             </Button>
+          </div>
+
+          {/* Merch buttons */}
+          <div className="border-t border-border/50 pt-4">
+            <MerchButtons
+              sourceType="meme"
+              sourceId={slug}
+              text={meme.factText ?? ""}
+              imageUrl={meme.imageUrl}
+            />
           </div>
 
           {meme.createdByName && (

@@ -10,6 +10,7 @@ import {
   Shield,
   ChevronRight,
   MessageSquareWarning,
+  ShoppingBag,
 } from "lucide-react";
 
 interface AdminLayoutProps {
@@ -23,6 +24,7 @@ const NAV_ITEMS = [
   { href: "/admin/users", label: "Users", icon: Users },
   { href: "/admin/comments", label: "Flagged", icon: MessageSquareWarning },
   { href: "/admin/billing", label: "Billing", icon: CreditCard },
+  { href: "/admin/affiliate", label: "Affiliate", icon: ShoppingBag },
 ];
 
 export function AdminLayout({ children, title }: AdminLayoutProps) {

@@ -10,6 +10,7 @@ import memesRouter from "./memes";
 import storageRouter from "./storage";
 import stripeRouter from "./stripe";
 import jobsRouter from "./jobs";
+import affiliateRouter from "./affiliate";
 
 const router: IRouter = Router();
 
@@ -24,5 +25,6 @@ router.use(memesRouter);
 router.use(storageRouter);
 router.use(stripeRouter);
 router.use(jobsRouter);
+router.use(affiliateRouter);
 
 export default router;
