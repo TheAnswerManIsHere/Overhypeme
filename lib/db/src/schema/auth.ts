@@ -1,5 +1,7 @@
 import { sql } from "drizzle-orm";
-import { boolean, index, jsonb, pgTable, timestamp, varchar } from "drizzle-orm/pg-core";
+import { boolean, index, jsonb, pgTable, pgEnum, timestamp, varchar } from "drizzle-orm/pg-core";
+
+export const membershipTierEnum = pgEnum("membership_tier", ["free", "premium"]);
 
 // (IMPORTANT) This table is mandatory for Replit Auth, don't drop it.
 export const sessionsTable = pgTable(
@@ -22,6 +24,7 @@ export const usersTable = pgTable("users", {
   captchaVerified: boolean("captcha_verified").notNull().default(false),
   isAdmin: boolean("is_admin").notNull().default(false),
   stripeCustomerId: varchar("stripe_customer_id").unique(),
+  membershipTier: membershipTierEnum("membership_tier").notNull().default("free"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
 });
