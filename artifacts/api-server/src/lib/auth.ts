@@ -15,6 +15,7 @@ export interface SessionData {
   refresh_token?: string;
   expires_at?: number;
   captchaVerified?: boolean;
+  isAdmin?: boolean;
 }
 
 let oidcConfig: client.Configuration | null = null;

@@ -10,6 +10,10 @@ import FactDetail from "@/pages/FactDetail";
 import SubmitFact from "@/pages/SubmitFact";
 import Profile from "@/pages/Profile";
 import Onboard from "@/pages/Onboard";
+import AdminDashboard from "@/pages/admin/index";
+import AdminFacts from "@/pages/admin/facts";
+import AdminUsers from "@/pages/admin/users";
+import AdminBilling from "@/pages/admin/billing";
 import NotFound from "@/pages/not-found";
 
 const queryClient = new QueryClient({
@@ -30,6 +34,10 @@ function Router() {
       <Route path="/submit" component={SubmitFact} />
       <Route path="/profile" component={Profile} />
       <Route path="/onboard" component={Onboard} />
+      <Route path="/admin/facts" component={AdminFacts} />
+      <Route path="/admin/users" component={AdminUsers} />
+      <Route path="/admin/billing" component={AdminBilling} />
+      <Route path="/admin" component={AdminDashboard} />
       <Route component={NotFound} />
     </Switch>
   );

@@ -4,6 +4,7 @@ import authRouter from "./auth";
 import factsRouter from "./facts";
 import hashtagsRouter from "./hashtags";
 import usersRouter from "./users";
+import adminRouter from "./admin";
 
 const router: IRouter = Router();
 
@@ -12,5 +13,6 @@ router.use(authRouter);
 router.use(factsRouter);
 router.use(hashtagsRouter);
 router.use(usersRouter);
+router.use(adminRouter);
 
 export default router;

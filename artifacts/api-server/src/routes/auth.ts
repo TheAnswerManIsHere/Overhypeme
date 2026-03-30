@@ -22,6 +22,11 @@ import {
 
 const OIDC_COOKIE_TTL = 10 * 60 * 1000;
 
+export function isAdminById(userId: string): boolean {
+  const ids = process.env.ADMIN_USER_IDS?.split(",").map((s) => s.trim()) ?? [];
+  return ids.includes(userId);
+}
+
 const router: IRouter = Router();
 
 function getOrigin(req: Request): string {
@@ -193,6 +198,7 @@ router.get("/callback", async (req: Request, res: Response) => {
     refresh_token: tokens.refresh_token,
     expires_at: tokens.expiresIn() ? now + tokens.expiresIn()! : claims.exp,
     captchaVerified: dbUser.captchaVerified,
+    isAdmin: dbUser.isAdmin || isAdminById(dbUser.id),
   };
 
   const sid = await createSession(sessionData);
@@ -270,6 +276,7 @@ router.post(
         refresh_token: tokens.refresh_token,
         expires_at: tokens.expiresIn() ? now + tokens.expiresIn()! : claims.exp,
         captchaVerified: dbUser.captchaVerified,
+        isAdmin: dbUser.isAdmin || isAdminById(dbUser.id),
       };
 
       const sid = await createSession(sessionData);
