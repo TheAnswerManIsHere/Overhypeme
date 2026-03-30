@@ -79,7 +79,7 @@ export default function Profile() {
             </div>
             <div className="flex flex-wrap gap-2">
               {profile.favoriteHashtags.map((tag: string) => (
-                <Link key={tag} href={`/search?hashtag=${encodeURIComponent(tag)}`}>
+                <Link key={tag} href={`/search?q=%23${encodeURIComponent(tag)}`}>
                   <span className="inline-block bg-primary/10 text-primary border border-primary/40 hover:bg-primary/20 hover:border-primary transition-colors px-4 py-1.5 rounded-sm font-bold font-display text-sm uppercase tracking-widest cursor-pointer">
                     #{tag}
                   </span>
