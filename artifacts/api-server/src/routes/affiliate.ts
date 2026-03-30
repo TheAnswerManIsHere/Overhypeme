@@ -60,8 +60,24 @@ router.post("/affiliate/click", async (req: Request, res: Response) => {
     imageUrl?: string;
   };
 
+  // Strict type checks before any string operations — prevents 500s on malformed payloads
   if (!sourceType || !sourceId || !destination || !text) {
     res.status(400).json({ error: "sourceType, sourceId, destination, and text are required" });
+    return;
+  }
+
+  if (typeof text !== "string") {
+    res.status(400).json({ error: "text must be a string" });
+    return;
+  }
+
+  if (typeof sourceId !== "string" && typeof sourceId !== "number") {
+    res.status(400).json({ error: "sourceId must be a string or number" });
+    return;
+  }
+
+  if (imageUrl !== undefined && typeof imageUrl !== "string") {
+    res.status(400).json({ error: "imageUrl must be a string" });
     return;
   }
 
