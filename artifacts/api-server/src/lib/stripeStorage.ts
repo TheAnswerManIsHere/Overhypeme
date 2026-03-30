@@ -28,15 +28,12 @@ export class StripeStorage {
   }
 
   async getActivePremiumUsers(): Promise<Array<{ id: string; email: string }>> {
-    const result = await db.execute(
-      sql`SELECT u.id, u.email
-          FROM users u
-          JOIN stripe.subscriptions s ON s.customer = u.stripe_customer_id
-          JOIN stripe.customers c ON c.id = s.customer
-          WHERE s.status IN ('active','trialing')
-          AND u.email IS NOT NULL`,
-    );
-    return result.rows as Array<{ id: string; email: string }>;
+    // Use app-level membershipTier as the source of truth — covers both subscription and lifetime members
+    const rows = await db
+      .select({ id: usersTable.id, email: usersTable.email })
+      .from(usersTable)
+      .where(eq(usersTable.membershipTier, "premium"));
+    return rows.filter(r => r.email !== null) as Array<{ id: string; email: string }>;
   }
 
   async getMembershipTierForUser(userId: string): Promise<"free" | "premium"> {

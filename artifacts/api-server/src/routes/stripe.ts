@@ -30,14 +30,26 @@ router.get("/stripe/plans", async (_req: Request, res: Response) => {
   }
 });
 
-// GET /stripe/subscription — current user's subscription
+// GET /stripe/subscription — current user's subscription + membership state
 router.get("/stripe/subscription", async (req: Request, res: Response) => {
   if (!req.isAuthenticated()) { res.status(401).json({ error: "Unauthorized" }); return; }
   try {
-    const sub = await stripeStorage.getSubscriptionForUser(req.user.id);
-    res.json({ subscription: sub });
+    const [sub, tier, history] = await Promise.all([
+      stripeStorage.getSubscriptionForUser(req.user.id),
+      stripeStorage.getMembershipTierForUser(req.user.id),
+      stripeStorage.getPaymentHistory(req.user.id),
+    ]);
+
+    // Check if user has lifetime plan from payment history
+    const hasLifetime = history.some(h => h.plan === "lifetime");
+
+    res.json({
+      subscription: sub,
+      membershipTier: tier,
+      isLifetime: hasLifetime && tier === "premium",
+    });
   } catch {
-    res.json({ subscription: null });
+    res.json({ subscription: null, membershipTier: "free", isLifetime: false });
   }
 });
 
