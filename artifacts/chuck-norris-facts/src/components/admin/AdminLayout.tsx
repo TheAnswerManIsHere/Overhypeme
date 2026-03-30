@@ -34,19 +34,9 @@ export function AdminLayout({ children, title }: AdminLayoutProps) {
       setIsAdmin(false);
       return;
     }
-    fetch("/api/admin/me", { credentials: "include" }).then((r) => {
-      if (r.ok) {
-        setIsAdmin(true);
-        return;
-      }
-      return fetch("/api/admin/bootstrap", {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-      }).then((br) => {
-        setIsAdmin(br.ok);
-      });
-    }).catch(() => setIsAdmin(false));
+    fetch("/api/admin/me", { credentials: "include" })
+      .then((r) => setIsAdmin(r.ok))
+      .catch(() => setIsAdmin(false));
   }, [isAuthenticated, isLoading]);
 
   if (isLoading || isAdmin === null) {
@@ -60,12 +50,21 @@ export function AdminLayout({ children, title }: AdminLayoutProps) {
   if (!isAuthenticated || isAdmin === false) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center p-4">
-        <div className="text-center space-y-4 max-w-sm">
+        <div className="text-center space-y-4 max-w-md">
           <Shield className="w-16 h-16 text-muted-foreground mx-auto" />
           <h1 className="text-2xl font-bold text-foreground">Access Denied</h1>
           <p className="text-muted-foreground">
             This area is restricted to administrators only.
           </p>
+          {isAuthenticated && (
+            <div className="text-left bg-card border border-border rounded-sm p-4 text-sm text-muted-foreground space-y-2">
+              <p className="font-semibold text-foreground">First-time setup?</p>
+              <p>
+                Set the <code className="bg-muted px-1 rounded">ADMIN_USER_IDS</code> environment variable to your Replit user ID (comma-separated for multiple admins). Your ID is shown in your{" "}
+                <Link href="/profile" className="text-primary hover:underline">profile page</Link>.
+              </p>
+            </div>
+          )}
           <Link href="/" className="text-primary hover:underline text-sm">
             ← Back to site
           </Link>

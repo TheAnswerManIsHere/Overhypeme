@@ -41,36 +41,6 @@ router.get("/admin/me", requireAdmin, (_req: Request, res: Response) => {
   res.json({ isAdmin: true });
 });
 
-router.post("/admin/bootstrap", async (req: Request, res: Response) => {
-  if (!req.isAuthenticated()) {
-    res.status(401).json({ error: "You must be logged in" });
-    return;
-  }
-
-  const [{ adminCount }] = await db
-    .select({ adminCount: count() })
-    .from(usersTable)
-    .where(eq(usersTable.isAdmin, true));
-
-  const envAdmins = process.env.ADMIN_USER_IDS?.split(",").filter(Boolean) ?? [];
-  if (adminCount > 0 || envAdmins.length > 0) {
-    res.status(403).json({ error: "Bootstrap unavailable — admins already exist" });
-    return;
-  }
-
-  await db
-    .update(usersTable)
-    .set({ isAdmin: true })
-    .where(eq(usersTable.id, req.user.id));
-
-  const sid = getSessionId(req);
-  if (sid) {
-    const session = await getSession(sid);
-    if (session) await updateSession(sid, { ...session, isAdmin: true });
-  }
-
-  res.json({ success: true, message: "You are now an admin. Welcome." });
-});
 
 router.get("/admin/stats", requireAdmin, async (_req: Request, res: Response) => {
   const [[{ totalFacts }], [{ totalUsers }]] = await Promise.all([
