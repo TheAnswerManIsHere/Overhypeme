@@ -21,11 +21,17 @@ pnpm workspace monorepo using TypeScript. Each package manages its own dependenc
 A community-driven Chuck Norris facts/memes site — like IMDb but for Chuck Norris. Live at `/`.
 
 ### Feature Roadmap
-- **Task 1 (DONE)**: Core platform — facts leaderboard, search, hashtag browsing, ratings, comments, Replit Auth, seeded 15 facts
+- **Task 1 (DONE)**: Core platform — facts leaderboard, search, hashtag browsing, ratings, comments, Replit Auth, hCaptcha onboarding, seeded 15 facts, admin backend
 - **Task 2**: AI features — duplicate detection, hashtag suggestions, spam moderation
 - **Task 3**: Meme generator with permalink sharing
 - **Task 4**: Memberships & payments (Stripe)
 - **Task 5**: Store affiliate links, Google Analytics/AdSense, "Fact of the Day" email
+
+### Admin Interface
+- Frontend: `/admin` route tree — Dashboard, Facts (bulk import), Users, Billing
+- Backend: `artifacts/api-server/src/routes/admin.ts` — all routes require `requireAdmin` middleware
+- **Bootstrap (first run)**: The first authenticated user to visit `/admin` is automatically promoted to admin if no admins exist yet. Subsequent attempts return 403. You can also pre-set `ADMIN_USER_IDS=<comma-separated Replit user IDs>` as an environment variable.
+- **Bulk import**: `POST /api/admin/facts/import` (JSON array) or `POST /api/admin/facts/import-csv` (CSV string)
 
 ### Auth Strategy
 - Replit Auth (OIDC) only — use `@workspace/replit-auth-web`'s `useAuth()` on the frontend

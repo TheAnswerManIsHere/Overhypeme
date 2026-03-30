@@ -74,7 +74,7 @@ async function seed() {
     .returning();
 
   const hashtagMap = new Map<string, number>(
-    insertedHashtags.map((h) => [h.name, h.id]),
+    insertedHashtags.map((h: { name: string; id: number }) => [h.name, h.id]),
   );
 
   const insertedFacts = await db
