@@ -60,7 +60,10 @@ function buildEmailHtml(factText: string, factId: number, unsubUrl: string): str
         </tr>
         <tr>
           <td style="padding:16px 32px;border-top:1px solid #333;">
-            <p style="margin:0;color:#666;font-size:11px;">You're receiving this because you have a premium Chuck Norris Facts membership. <a href="${unsubUrl}" style="color:#f97316;">Manage subscription</a></p>
+            <p style="margin:0;color:#666;font-size:11px;">
+              You're receiving this because you have a premium Chuck Norris Facts membership.
+              <a href="${unsubUrl}" style="color:#f97316;">Manage or cancel subscription</a>
+            </p>
           </td>
         </tr>
       </table>
@@ -102,7 +105,7 @@ export async function runFactOfTheDayJob(): Promise<{ sent: number; skipped: num
   for (const user of premiumUsers) {
     if (!user.email) { skipped++; continue; }
 
-    const portalUrl = `https://${SITE_DOMAIN}/chuck-norris-facts/profile`;
+    const portalUrl = `https://${SITE_DOMAIN}/chuck-norris-facts/profile#membership`;
     const html = buildEmailHtml(topFact.text, topFact.id, portalUrl);
     const ok = await sendEmail(user.email, "⚡ Your Daily Chuck Norris Fact", html);
     if (ok) sent++; else skipped++;
