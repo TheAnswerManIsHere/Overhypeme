@@ -93,7 +93,19 @@ export default function SubmitFact() {
 
   useEffect(() => {
     if (tagTimer.current) clearTimeout(tagTimer.current);
-    if (text.length < 20 || suggestionsLoaded) return;
+    if (text.length < 20) {
+      if (suggestionsLoaded) {
+        setSuggestionsLoaded(false);
+        setSuggestedTags([]);
+        lastSuggestedTextRef.current = "";
+      }
+      return;
+    }
+    const lastText = lastSuggestedTextRef.current;
+    const materiallyChanged = lastText === "" || Math.abs(text.length - lastText.length) > 20 || !text.startsWith(lastText.slice(0, 20));
+    if (!materiallyChanged) return;
+    setSuggestionsLoaded(false);
+    setSuggestedTags([]);
     tagTimer.current = setTimeout(() => { void fetchSuggestions(text); }, 2000);
     return () => { if (tagTimer.current) clearTimeout(tagTimer.current); };
   }, [text, suggestionsLoaded, fetchSuggestions]);
