@@ -3,13 +3,27 @@ info:
   # Do not change the title, if the title changes, the import paths will be broken
   title: Api
   version: 0.1.0
-  description: API specification
+  description: API specification for Chuck Norris Facts
 servers:
   - url: /api
     description: Base API path
 tags:
   - name: health
     description: Health operations
+  - name: Auth
+    description: Browser and mobile authentication endpoints.
+  - name: facts
+    description: Chuck Norris facts operations
+  - name: hashtags
+    description: Hashtag operations
+  - name: ratings
+    description: Fact rating operations
+  - name: comments
+    description: Comment operations
+  - name: links
+    description: External link operations
+  - name: users
+    description: User profile operations
 paths:
   /healthz:
     get:
@@ -24,7 +38,469 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+
+  /auth/user:
+    get:
+      tags: [Auth]
+      operationId: getCurrentAuthUser
+      summary: Get the currently authenticated user
+      parameters:
+        - $ref: '#/components/parameters/AuthorizationSessionHeader'
+        - $ref: '#/components/parameters/SessionCookie'
+      responses:
+        '200':
+          description: Auth status resolved successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthUserEnvelope'
+
+  /login:
+    get:
+      tags: [Auth]
+      operationId: beginBrowserLogin
+      summary: Start the browser OIDC login flow
+      parameters:
+        - name: returnTo
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        '302':
+          description: Redirect to the OIDC authorization endpoint.
+
+  /callback:
+    get:
+      tags: [Auth]
+      operationId: handleBrowserLoginCallback
+      summary: Complete the browser OIDC login flow
+      parameters:
+        - name: code
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: state
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: iss
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uri
+      responses:
+        '302':
+          description: Redirect to the returnTo path on success.
+
+  /logout:
+    get:
+      tags: [Auth]
+      operationId: logoutBrowserSession
+      summary: Clear the session and begin OIDC logout
+      parameters:
+        - $ref: '#/components/parameters/AuthorizationSessionHeader'
+        - $ref: '#/components/parameters/SessionCookie'
+      responses:
+        '302':
+          description: Redirect to the OIDC provider logout URL.
+
+  /mobile-auth/token-exchange:
+    post:
+      tags: [Auth]
+      operationId: exchangeMobileAuthorizationCode
+      summary: Exchange a mobile OIDC code for a session token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MobileTokenExchangeRequest'
+      responses:
+        '200':
+          description: Session created successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MobileTokenExchangeSuccess'
+        '400':
+          description: Missing or invalid required fields.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '401':
+          description: Token did not contain usable claims.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '500':
+          description: Token exchange failed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+
+  /mobile-auth/logout:
+    post:
+      tags: [Auth]
+      operationId: logoutMobileSession
+      summary: Delete a mobile session token
+      parameters:
+        - $ref: '#/components/parameters/AuthorizationSessionHeader'
+      responses:
+        '200':
+          description: Logout processed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LogoutSuccess'
+
+  /facts:
+    get:
+      operationId: listFacts
+      tags: [facts]
+      summary: List facts
+      parameters:
+        - name: search
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: hashtag
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: sort
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [top, newest, trending]
+            default: top
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 20
+            minimum: 1
+            maximum: 100
+        - name: offset
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 0
+            minimum: 0
+      responses:
+        "200":
+          description: List of facts
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FactListResponse"
+    post:
+      operationId: createFact
+      tags: [facts]
+      summary: Submit a new fact
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateFactRequest"
+      responses:
+        "201":
+          description: Fact created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FactDetail"
+        "400":
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /facts/{factId}:
+    get:
+      operationId: getFact
+      tags: [facts]
+      summary: Get a single fact with details
+      parameters:
+        - name: factId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Fact detail
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FactDetail"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /facts/{factId}/rating:
+    post:
+      operationId: rateFact
+      tags: [ratings]
+      summary: Rate a fact (upvote or downvote)
+      parameters:
+        - name: factId
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RateFactRequest"
+      responses:
+        "200":
+          description: Rating updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RatingResult"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /facts/{factId}/comments:
+    get:
+      operationId: listComments
+      tags: [comments]
+      summary: List comments for a fact
+      parameters:
+        - name: factId
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 20
+        - name: offset
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 0
+      responses:
+        "200":
+          description: List of comments
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CommentListResponse"
+    post:
+      operationId: addComment
+      tags: [comments]
+      summary: Add a comment to a fact
+      parameters:
+        - name: factId
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AddCommentRequest"
+      responses:
+        "201":
+          description: Comment created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Comment"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /facts/{factId}/links:
+    get:
+      operationId: listLinks
+      tags: [links]
+      summary: List external links for a fact
+      parameters:
+        - name: factId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: List of external links
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LinkListResponse"
+    post:
+      operationId: addLink
+      tags: [links]
+      summary: Add an external link to a fact
+      parameters:
+        - name: factId
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AddLinkRequest"
+      responses:
+        "201":
+          description: Link created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ExternalLink"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /facts/{factId}/links/{linkId}:
+    delete:
+      operationId: deleteLink
+      tags: [links]
+      summary: Delete an external link
+      parameters:
+        - name: factId
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: linkId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Link deleted
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /hashtags:
+    get:
+      operationId: listHashtags
+      tags: [hashtags]
+      summary: List all hashtags with fact counts
+      parameters:
+        - name: search
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 50
+      responses:
+        "200":
+          description: List of hashtags
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HashtagListResponse"
+
+  /users/me:
+    get:
+      operationId: getMyProfile
+      tags: [users]
+      summary: Get the current user's profile
+      responses:
+        "200":
+          description: User profile
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserProfile"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /users/me/search-history:
+    post:
+      operationId: recordSearch
+      tags: [users]
+      summary: Record a search query to history
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RecordSearchRequest"
+      responses:
+        "204":
+          description: Search recorded
+
 components:
+  parameters:
+    AuthorizationSessionHeader:
+      name: Authorization
+      in: header
+      required: false
+      description: Bearer session token (used by mobile clients).
+      schema:
+        type: string
+    SessionCookie:
+      name: sid
+      in: cookie
+      required: false
+      description: Session cookie (used by browser clients).
+      schema:
+        type: string
+
   schemas:
     HealthStatus:
       type: object
@@ -34,3 +510,315 @@ components:
       required:
         - status
 
+    AuthUser:
+      type: object
+      required: [id]
+      properties:
+        id:
+          type: string
+        email:
+          type: string
+          nullable: true
+        firstName:
+          type: string
+          nullable: true
+        lastName:
+          type: string
+          nullable: true
+        profileImageUrl:
+          type: string
+          nullable: true
+
+    AuthUserEnvelope:
+      type: object
+      required: [user]
+      properties:
+        user:
+          oneOf:
+            - $ref: '#/components/schemas/AuthUser'
+            - type: 'null'
+
+    MobileTokenExchangeRequest:
+      type: object
+      required: [code, code_verifier, redirect_uri, state]
+      properties:
+        code:
+          type: string
+          minLength: 1
+        code_verifier:
+          type: string
+          minLength: 1
+        redirect_uri:
+          type: string
+          minLength: 1
+          format: uri
+        state:
+          type: string
+          minLength: 1
+        nonce:
+          type: string
+          minLength: 1
+
+    MobileTokenExchangeSuccess:
+      type: object
+      required: [token]
+      properties:
+        token:
+          type: string
+
+    LogoutSuccess:
+      type: object
+      required: [success]
+      properties:
+        success:
+          type: boolean
+
+    ErrorEnvelope:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+
+    Hashtag:
+      type: object
+      required: [id, name, factCount]
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        factCount:
+          type: integer
+
+    HashtagListResponse:
+      type: object
+      required: [hashtags]
+      properties:
+        hashtags:
+          type: array
+          items:
+            $ref: "#/components/schemas/Hashtag"
+
+    FactSummary:
+      type: object
+      required: [id, text, upvotes, downvotes, commentCount, hashtags, createdAt]
+      properties:
+        id:
+          type: integer
+        text:
+          type: string
+        upvotes:
+          type: integer
+        downvotes:
+          type: integer
+        score:
+          type: integer
+        commentCount:
+          type: integer
+        hashtags:
+          type: array
+          items:
+            type: string
+        submittedBy:
+          type: string
+          nullable: true
+        submittedByImage:
+          type: string
+          nullable: true
+        userRating:
+          type: string
+          enum: [up, down]
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+
+    FactDetail:
+      allOf:
+        - $ref: "#/components/schemas/FactSummary"
+        - type: object
+          properties:
+            links:
+              type: array
+              items:
+                $ref: "#/components/schemas/ExternalLink"
+
+    FactListResponse:
+      type: object
+      required: [facts, total]
+      properties:
+        facts:
+          type: array
+          items:
+            $ref: "#/components/schemas/FactSummary"
+        total:
+          type: integer
+
+    CreateFactRequest:
+      type: object
+      required: [text, captchaToken]
+      properties:
+        text:
+          type: string
+          minLength: 10
+          maxLength: 1000
+        hashtags:
+          type: array
+          items:
+            type: string
+          default: []
+        captchaToken:
+          type: string
+
+    RateFactRequest:
+      type: object
+      required: [rating]
+      properties:
+        rating:
+          type: string
+          enum: [up, down, none]
+
+    RatingResult:
+      type: object
+      required: [upvotes, downvotes, userRating]
+      properties:
+        upvotes:
+          type: integer
+        downvotes:
+          type: integer
+        userRating:
+          type: string
+          enum: [up, down]
+          nullable: true
+
+    Comment:
+      type: object
+      required: [id, factId, text, createdAt]
+      properties:
+        id:
+          type: integer
+        factId:
+          type: integer
+        text:
+          type: string
+        authorId:
+          type: string
+          nullable: true
+        authorName:
+          type: string
+          nullable: true
+        authorImage:
+          type: string
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+
+    CommentListResponse:
+      type: object
+      required: [comments, total]
+      properties:
+        comments:
+          type: array
+          items:
+            $ref: "#/components/schemas/Comment"
+        total:
+          type: integer
+
+    AddCommentRequest:
+      type: object
+      required: [text, captchaToken]
+      properties:
+        text:
+          type: string
+          minLength: 1
+          maxLength: 2000
+        captchaToken:
+          type: string
+
+    ExternalLink:
+      type: object
+      required: [id, factId, url, createdAt]
+      properties:
+        id:
+          type: integer
+        factId:
+          type: integer
+        url:
+          type: string
+        title:
+          type: string
+          nullable: true
+        platform:
+          type: string
+          nullable: true
+        addedBy:
+          type: string
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+
+    LinkListResponse:
+      type: object
+      required: [links]
+      properties:
+        links:
+          type: array
+          items:
+            $ref: "#/components/schemas/ExternalLink"
+
+    AddLinkRequest:
+      type: object
+      required: [url]
+      properties:
+        url:
+          type: string
+          format: uri
+        title:
+          type: string
+          nullable: true
+
+    UserProfile:
+      type: object
+      required: [id, submittedFacts, likedFacts, favoriteHashtags, searchHistory]
+      properties:
+        id:
+          type: string
+        email:
+          type: string
+          nullable: true
+        firstName:
+          type: string
+          nullable: true
+        lastName:
+          type: string
+          nullable: true
+        profileImageUrl:
+          type: string
+          nullable: true
+        submittedFacts:
+          type: array
+          items:
+            $ref: "#/components/schemas/FactSummary"
+        likedFacts:
+          type: array
+          items:
+            $ref: "#/components/schemas/FactSummary"
+        favoriteHashtags:
+          type: array
+          items:
+            type: string
+        searchHistory:
+          type: array
+          items:
+            type: string
+
+    RecordSearchRequest:
+      type: object
+      required: [query]
+      properties:
+        query:
+          type: string
+          minLength: 1
