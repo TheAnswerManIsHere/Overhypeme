@@ -843,15 +843,13 @@ paths:
           required: false
           schema:
             type: string
-            format: date
-          description: Filter clicks from this date (YYYY-MM-DD)
+          description: "Filter clicks from this date, inclusive (YYYY-MM-DD)"
         - name: to
           in: query
           required: false
           schema:
             type: string
-            format: date
-          description: Filter clicks up to this date (YYYY-MM-DD)
+          description: "Filter clicks up to this date, inclusive (YYYY-MM-DD)"
       responses:
         "200":
           description: Affiliate click stats
