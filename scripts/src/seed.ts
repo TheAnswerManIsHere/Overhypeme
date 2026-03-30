@@ -1,6 +1,6 @@
 import { db } from "@workspace/db";
 import { factsTable, hashtagsTable, factHashtagsTable } from "@workspace/db/schema";
-import { count, eq } from "drizzle-orm";
+import { count, eq, sql } from "drizzle-orm";
 
 const FACTS = [
   "Chuck Norris doesn't read books. He stares them down until he gets the information he wants.",
@@ -99,6 +99,15 @@ async function seed() {
         .values({ factId: fact.id, hashtagId })
         .onConflictDoNothing();
     }
+  }
+
+  const joinCounts = await db
+    .select({ hashtagId: factHashtagsTable.hashtagId, cnt: sql<number>`count(*)::int` })
+    .from(factHashtagsTable)
+    .groupBy(factHashtagsTable.hashtagId);
+
+  for (const { hashtagId, cnt } of joinCounts) {
+    await db.update(hashtagsTable).set({ factCount: cnt }).where(eq(hashtagsTable.id, hashtagId));
   }
 
   console.log(
