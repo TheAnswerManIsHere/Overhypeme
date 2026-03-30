@@ -149,8 +149,10 @@ router.post("/facts", async (req: Request, res: Response) => {
       if (!ht) {
         [ht] = await db.insert(hashtagsTable).values({ name }).returning();
       }
-      await db.insert(factHashtagsTable).values({ factId: fact.id, hashtagId: ht.id }).onConflictDoNothing();
-      await db.update(hashtagsTable).set({ factCount: sql`${hashtagsTable.factCount} + 1` }).where(eq(hashtagsTable.id, ht.id));
+      const [joined] = await db.insert(factHashtagsTable).values({ factId: fact.id, hashtagId: ht.id }).onConflictDoNothing().returning();
+      if (joined) {
+        await db.update(hashtagsTable).set({ factCount: sql`${hashtagsTable.factCount} + 1` }).where(eq(hashtagsTable.id, ht.id));
+      }
     }
   }
 
@@ -168,6 +170,9 @@ router.post("/facts/:factId/rating", async (req: Request, res: Response) => {
   const factId = paramsParsed.data.factId;
   const userId = req.user.id;
   const { rating } = bodyParsed.data;
+
+  const [factExists] = await db.select({ id: factsTable.id }).from(factsTable).where(eq(factsTable.id, factId)).limit(1);
+  if (!factExists) { res.status(404).json({ error: "Fact not found" }); return; }
 
   const [existing] = await db.select().from(ratingsTable).where(and(eq(ratingsTable.factId, factId), eq(ratingsTable.userId, userId))).limit(1);
 
@@ -245,6 +250,9 @@ router.post("/facts/:factId/comments", async (req: Request, res: Response) => {
   if (!paramsParsed.success || !bodyParsed.success) { res.status(400).json({ error: "Invalid input" }); return; }
   const factId = paramsParsed.data.factId;
   const { text, captchaToken } = bodyParsed.data;
+
+  const [factExists] = await db.select({ id: factsTable.id }).from(factsTable).where(eq(factsTable.id, factId)).limit(1);
+  if (!factExists) { res.status(404).json({ error: "Fact not found" }); return; }
 
   if (!captchaToken || !(await verifyCaptcha(captchaToken))) {
     res.status(400).json({ error: "CAPTCHA verification failed" });
