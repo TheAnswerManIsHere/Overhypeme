@@ -60,7 +60,13 @@ function getSafeReturnTo(value: unknown): string {
   if (typeof value !== "string" || !value.startsWith("/") || value.startsWith("//")) {
     return "/";
   }
-  return value;
+  try {
+    const url = new URL(value, "http://localhost");
+    if (url.hostname !== "localhost") return "/";
+    return url.pathname + url.search + url.hash;
+  } catch {
+    return "/";
+  }
 }
 
 async function upsertUser(
@@ -146,6 +152,10 @@ router.get("/login", async (req: Request, res: Response) => {
   setOidcCookie(res, "state", state);
   setOidcCookie(res, "return_to", returnTo);
 
+  if (req.query.popup === "1") {
+    setOidcCookie(res, "login_popup", "1");
+  }
+
   res.redirect(redirectTo.href);
 });
 
@@ -219,7 +229,20 @@ router.get("/callback", async (req: Request, res: Response) => {
   setSessionCookie(res, sid);
 
   const basePath = process.env.BASE_PATH || "";
-  if (isNewUser) {
+  const isPopup = req.cookies?.login_popup === "1";
+  res.clearCookie("login_popup", { path: "/" });
+
+  if (isPopup) {
+    const target = isNewUser
+      ? `${basePath}/onboard?returnTo=${encodeURIComponent(returnTo)}`
+      : basePath + returnTo;
+    const safeTarget = JSON.stringify(target);
+    res.send(`<!DOCTYPE html><html><body><script>
+      var t = ${safeTarget};
+      if (window.opener) { window.opener.location.href = t; window.close(); }
+      else { window.location.href = t; }
+    </script></body></html>`);
+  } else if (isNewUser) {
     res.redirect(`${basePath}/onboard?returnTo=${encodeURIComponent(returnTo)}`);
   } else {
     res.redirect(returnTo);

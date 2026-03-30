@@ -34,8 +34,14 @@ A community-driven Chuck Norris facts/memes site — like IMDb but for Chuck Nor
 - **Bulk import**: `POST /api/admin/facts/import` (JSON array) or `POST /api/admin/facts/import-csv` (CSV string)
 
 ### Auth Strategy
-- Replit Auth (OIDC) only — use `@workspace/replit-auth-web`'s `useAuth()` on the frontend
+- **Dual auth**: Replit OIDC + local username/password login
+- Replit OIDC login opens in a popup window (fixes iframe cross-origin issues), callback closes popup and refreshes opener
+- Local auth: `POST /api/auth/register` (username, password, optional email), `POST /api/auth/local-login` (username, password) — uses bcryptjs hashing
+- Login page at `/login` with both options
+- Users table has `username` (unique, varchar 50) and `password_hash` columns
+- Frontend: `useAuth()` from `@workspace/replit-auth-web` for session state; Navbar links to `/login` page
 - Auth middleware in `artifacts/api-server/src/app.ts`
+- Local auth routes in `artifacts/api-server/src/routes/localAuth.ts`
 - **Never** use generated API client hooks for auth — always use `useAuth()` from the lib
 
 ### API Proxy

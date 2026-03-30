@@ -72,7 +72,7 @@ export function Navbar() {
                 </Button>
               </div>
             ) : (
-              <Button variant="primary" size="sm" onClick={login} className="gap-2 animate-pulse">
+              <Button variant="primary" size="sm" onClick={() => setLocation('/login')} className="gap-2 animate-pulse">
                 <LogIn className="w-4 h-4" /> LOGIN TO VOTE
               </Button>
             )}
@@ -122,7 +122,7 @@ export function Navbar() {
                   </Button>
                 </div>
               ) : (
-                <Button variant="primary" className="w-full gap-2" onClick={login}>
+                <Button variant="primary" className="w-full gap-2" onClick={() => { setLocation('/login'); setMobileMenuOpen(false); }}>
                   <LogIn className="w-5 h-5" /> LOGIN / SIGNUP
                 </Button>
               )}
