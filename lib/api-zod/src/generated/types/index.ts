@@ -17,6 +17,7 @@ export * from "./checkDuplicateBody";
 export * from "./comment";
 export * from "./commentListResponse";
 export * from "./createFactRequest";
+export * from "./duplicateConflict";
 export * from "./errorEnvelope";
 export * from "./externalLink";
 export * from "./factDetail";

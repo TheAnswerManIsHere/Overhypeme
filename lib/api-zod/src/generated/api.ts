@@ -152,6 +152,7 @@ export const CreateFactBody = zod.object({
   text: zod.string().min(createFactBodyTextMin).max(createFactBodyTextMax),
   hashtags: zod.array(zod.string()).default(createFactBodyHashtagsDefault),
   captchaToken: zod.string(),
+  skipDuplicateCheck: zod.boolean().optional(),
 });
 
 /**

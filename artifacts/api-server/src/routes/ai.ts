@@ -103,81 +103,80 @@ export async function moderateComment(commentId: number, text: string): Promise<
   }
 }
 
+export interface DuplicateCheckResult {
+  isDuplicate: boolean;
+  confidence: number;
+  matchingFactId?: number;
+  matchingFactText?: string;
+}
+
+export async function checkDuplicateInternal(text: string): Promise<DuplicateCheckResult> {
+  const words = text
+    .toLowerCase()
+    .split(/\s+/)
+    .filter((w: string) => w.length > 4)
+    .slice(0, 5);
+
+  if (words.length === 0) return { isDuplicate: false, confidence: 0 };
+
+  const conditions = words.map((w: string) => ilike(factsTable.text, `%${w}%`));
+  const candidates = await db
+    .select({ id: factsTable.id, text: factsTable.text })
+    .from(factsTable)
+    .where(or(...conditions))
+    .orderBy(desc(factsTable.score))
+    .limit(10);
+
+  if (candidates.length === 0) return { isDuplicate: false, confidence: 0 };
+
+  const candidateList = candidates.map((f, i) => `[${i + 1}] (ID:${f.id}) ${f.text}`).join("\n");
+
+  const response = await getOpenAIClient().chat.completions.create({
+    model: "gpt-5-mini",
+    max_completion_tokens: 256,
+    response_format: { type: "json_object" },
+    messages: [
+      {
+        role: "system",
+        content:
+          "You are a duplicate detector for Chuck Norris facts. " +
+          "Given a new submission and a list of existing facts, determine if the new one is a duplicate or very similar. " +
+          "Respond ONLY with JSON: {\"isDuplicate\": true/false, \"confidence\": 0-100, \"matchIndex\": number_or_null}. " +
+          "matchIndex is the 1-based index from the candidate list, or null if not a duplicate.",
+      },
+      { role: "user", content: `New submission: "${text}"\n\nExisting facts:\n${candidateList}` },
+    ],
+  });
+
+  const raw = response.choices[0]?.message?.content ?? "{}";
+  let result: { isDuplicate?: boolean; confidence?: number; matchIndex?: number | null } = {};
+  try {
+    result = JSON.parse(raw);
+  } catch {
+    return { isDuplicate: false, confidence: 0 };
+  }
+
+  if (result.isDuplicate && result.matchIndex != null) {
+    const match = candidates[result.matchIndex - 1];
+    return {
+      isDuplicate: true,
+      confidence: result.confidence ?? 90,
+      matchingFactId: match?.id,
+      matchingFactText: match?.text,
+    };
+  }
+  return { isDuplicate: false, confidence: result.confidence ?? 0 };
+}
+
 router.post("/ai/check-duplicate", requireAuth, requireRateLimit, async (req: Request, res: Response) => {
   const bodyParsed = CheckDuplicateBody.safeParse(req.body);
   if (!bodyParsed.success) {
     res.status(400).json({ error: "Invalid input" });
     return;
   }
-  const { text } = bodyParsed.data;
-
   try {
-    const words = text
-      .toLowerCase()
-      .split(/\s+/)
-      .filter((w: string) => w.length > 4)
-      .slice(0, 5);
-
-    let candidates: { id: number; text: string }[] = [];
-    if (words.length > 0) {
-      const conditions = words.map((w: string) => ilike(factsTable.text, `%${w}%`));
-      candidates = await db
-        .select({ id: factsTable.id, text: factsTable.text })
-        .from(factsTable)
-        .where(or(...conditions))
-        .orderBy(desc(factsTable.score))
-        .limit(10);
-    }
-
-    if (candidates.length === 0) {
-      res.json({ isDuplicate: false, confidence: 0 });
-      return;
-    }
-
-    const candidateList = candidates
-      .map((f, i) => `[${i + 1}] (ID:${f.id}) ${f.text}`)
-      .join("\n");
-
-    const response = await getOpenAIClient().chat.completions.create({
-      model: "gpt-5-mini",
-      max_completion_tokens: 256,
-      response_format: { type: "json_object" },
-      messages: [
-        {
-          role: "system",
-          content:
-            "You are a duplicate detector for Chuck Norris facts. " +
-            "Given a new submission and a list of existing facts, determine if the new one is a duplicate or very similar. " +
-            "Respond ONLY with JSON: {\"isDuplicate\": true/false, \"confidence\": 0-100, \"matchIndex\": number_or_null}. " +
-            "matchIndex is the 1-based index from the candidate list, or null if not a duplicate.",
-        },
-        {
-          role: "user",
-          content: `New submission: "${text}"\n\nExisting facts:\n${candidateList}`,
-        },
-      ],
-    });
-
-    const raw = response.choices[0]?.message?.content ?? "{}";
-    let result: { isDuplicate?: boolean; confidence?: number; matchIndex?: number | null } = {};
-    try {
-      result = JSON.parse(raw);
-    } catch {
-      res.json({ isDuplicate: false, confidence: 0 });
-      return;
-    }
-
-    if (result.isDuplicate && result.matchIndex != null) {
-      const match = candidates[result.matchIndex - 1];
-      res.json({
-        isDuplicate: true,
-        confidence: result.confidence ?? 90,
-        matchingFactId: match?.id,
-        matchingFactText: match?.text,
-      });
-    } else {
-      res.json({ isDuplicate: false, confidence: result.confidence ?? 0 });
-    }
+    const result = await checkDuplicateInternal(bodyParsed.data.text);
+    res.json(result);
   } catch (err) {
     console.error("[AI] check-duplicate error:", err);
     res.json({ isDuplicate: false, confidence: 0 });
