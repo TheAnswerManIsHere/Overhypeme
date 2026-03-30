@@ -30,7 +30,7 @@ A community-driven Chuck Norris facts/memes site — like IMDb but for Chuck Nor
 ### Admin Interface
 - Frontend: `/admin` route tree — Dashboard, Facts (bulk import), Users, Billing
 - Backend: `artifacts/api-server/src/routes/admin.ts` — all routes require `requireAdmin` middleware
-- **Bootstrap (first run)**: The first authenticated user to visit `/admin` is automatically promoted to admin if no admins exist yet. Subsequent attempts return 403. You can also pre-set `ADMIN_USER_IDS=<comma-separated Replit user IDs>` as an environment variable.
+- **First-time setup**: Set the `ADMIN_USER_IDS` environment variable to your Replit user ID (comma-separated for multiple). Your user ID is displayed on your profile page after logging in. There is no automatic self-promotion mechanism — admin access must be explicitly granted.
 - **Bulk import**: `POST /api/admin/facts/import` (JSON array) or `POST /api/admin/facts/import-csv` (CSV string)
 
 ### Auth Strategy

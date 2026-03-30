@@ -2,11 +2,15 @@ import { useState } from "react";
 import { useLocation } from "wouter";
 import HCaptcha from "@hcaptcha/react-hcaptcha";
 import { useAuth } from "@workspace/replit-auth-web";
+
 import { Layout } from "@/components/layout/Layout";
 import { Button } from "@/components/ui/Button";
 import { Textarea, Input } from "@/components/ui/Input";
 import { useAppMutations } from "@/hooks/use-mutations";
 import { ShieldAlert, AlertTriangle } from "lucide-react";
+
+const HCAPTCHA_SITE_KEY =
+  import.meta.env.VITE_HCAPTCHA_SITE_KEY || "10000000-ffff-ffff-ffff-000000000001";
 
 export default function SubmitFact() {
   const { isAuthenticated, login } = useAuth();
@@ -110,7 +114,7 @@ export default function SubmitFact() {
               <label className="block font-display text-xl uppercase text-foreground mb-4">Security Clearance</label>
               <div className="bg-background p-4 rounded-sm border-2 border-border inline-block">
                 <HCaptcha
-                  sitekey="10000000-ffff-ffff-ffff-000000000001"
+                  sitekey={HCAPTCHA_SITE_KEY}
                   onVerify={setCaptchaToken}
                 />
               </div>

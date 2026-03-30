@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useRoute } from "wouter";
 import { format } from "date-fns";
 import HCaptcha from "@hcaptcha/react-hcaptcha";
+
 import { useGetFact, useListComments, getGetFactQueryKey, getListCommentsQueryKey } from "@workspace/api-client-react";
 import type { ExternalLink } from "@workspace/api-client-react";
 import { useAuth } from "@workspace/replit-auth-web";
@@ -11,6 +12,9 @@ import { Textarea, Input } from "@/components/ui/Input";
 import { useAppMutations } from "@/hooks/use-mutations";
 import { ThumbsUp, ThumbsDown, User, Link as LinkIcon, Youtube, Instagram, AlertCircle, Plus, Trash2 } from "lucide-react";
 import { cn } from "@/components/ui/Button";
+
+const HCAPTCHA_SITE_KEY =
+  import.meta.env.VITE_HCAPTCHA_SITE_KEY || "10000000-ffff-ffff-ffff-000000000001";
 
 export default function FactDetail() {
   const [, params] = useRoute("/facts/:id");
@@ -138,7 +142,7 @@ export default function FactDetail() {
                 <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between">
                   <div className="overflow-hidden rounded-sm border-2 border-border">
                     <HCaptcha
-                      sitekey="10000000-ffff-ffff-ffff-000000000001"
+                      sitekey={HCAPTCHA_SITE_KEY}
                       onVerify={setCaptchaToken}
                     />
                   </div>
