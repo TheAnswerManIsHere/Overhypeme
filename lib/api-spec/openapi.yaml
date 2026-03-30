@@ -26,6 +26,8 @@ tags:
     description: User profile operations
   - name: memes
     description: Meme generator and permalink operations
+  - name: affiliate
+    description: Affiliate click-through tracking and admin stats
   - name: Storage
     description: Object storage upload and serving endpoints.
 paths:
@@ -805,6 +807,71 @@ paths:
               schema:
                 $ref: "#/components/schemas/MemeListResponse"
 
+  /affiliate/click:
+    post:
+      operationId: logAffiliateClick
+      tags: [affiliate]
+      summary: Log an affiliate click and get the destination URL
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AffiliateClickRequest"
+      responses:
+        "200":
+          description: Affiliate redirect URL
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AffiliateClickResponse"
+        "400":
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /affiliate/stats:
+    get:
+      operationId: getAffiliateStats
+      tags: [affiliate]
+      summary: Get affiliate click stats (admin only)
+      parameters:
+        - name: from
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date
+          description: Filter clicks from this date (YYYY-MM-DD)
+        - name: to
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date
+          description: Filter clicks up to this date (YYYY-MM-DD)
+      responses:
+        "200":
+          description: Affiliate click stats
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AffiliateStatsResponse"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden — admin only
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
 components:
   parameters:
     AuthorizationSessionHeader:
@@ -912,6 +979,73 @@ components:
           type: integer
         matchingFactText:
           type: string
+
+    AffiliateClickRequest:
+      type: object
+      required: [sourceType, sourceId, destination, text]
+      properties:
+        sourceType:
+          type: string
+          enum: [fact, meme]
+        sourceId:
+          type: string
+        destination:
+          type: string
+          enum: [zazzle, cafepress]
+        text:
+          type: string
+        imageUrl:
+          type: string
+          nullable: true
+
+    AffiliateClickResponse:
+      type: object
+      required: [url]
+      properties:
+        url:
+          type: string
+          format: uri
+
+    AffiliateClickRow:
+      type: object
+      required: [sourceType, sourceId, destination, clicks, lastClicked]
+      properties:
+        sourceType:
+          type: string
+          enum: [fact, meme]
+        sourceId:
+          type: string
+        destination:
+          type: string
+          enum: [zazzle, cafepress]
+        clicks:
+          type: integer
+        lastClicked:
+          type: string
+          format: date-time
+
+    AffiliateDestinationTotal:
+      type: object
+      required: [destination, total]
+      properties:
+        destination:
+          type: string
+          enum: [zazzle, cafepress]
+        total:
+          type: integer
+
+    AffiliateStatsResponse:
+      type: object
+      required: [rows, totals]
+      properties:
+        rows:
+          type: array
+          items:
+            $ref: "#/components/schemas/AffiliateClickRow"
+        totals:
+          type: array
+          items:
+            $ref: "#/components/schemas/AffiliateDestinationTotal"
 
     ErrorEnvelope:
       type: object

@@ -14,7 +14,7 @@ interface AdSlotProps {
 }
 
 export function AdSlot({ slot, format = "auto", className = "" }: AdSlotProps) {
-  const { user } = useAuth();
+  const { user, isLoading } = useAuth();
   const pushed = useRef(false);
 
   const pubId = import.meta.env.VITE_ADSENSE_PUBLISHER_ID as string | undefined;
@@ -22,7 +22,10 @@ export function AdSlot({ slot, format = "auto", className = "" }: AdSlotProps) {
     user != null &&
     "membershipTier" in user &&
     (user as { membershipTier?: string }).membershipTier === "premium";
-  const shouldShow = Boolean(pubId) && !isPremium;
+
+  // Wait until auth has resolved before deciding to show ads.
+  // While loading, render nothing to avoid flashing ads to premium users.
+  const shouldShow = !isLoading && Boolean(pubId) && !isPremium;
 
   useEffect(() => {
     if (!shouldShow) return;
