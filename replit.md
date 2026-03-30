@@ -16,23 +16,56 @@ pnpm workspace monorepo using TypeScript. Each package manages its own dependenc
 - **API codegen**: Orval (from OpenAPI spec)
 - **Build**: esbuild (CJS bundle)
 
+## Project: Chuck Norris Facts Community Database
+
+A community-driven Chuck Norris facts/memes site — like IMDb but for Chuck Norris. Live at `/`.
+
+### Feature Roadmap
+- **Task 1 (DONE)**: Core platform — facts leaderboard, search, hashtag browsing, ratings, comments, Replit Auth, seeded 15 facts
+- **Task 2**: AI features — duplicate detection, hashtag suggestions, spam moderation
+- **Task 3**: Meme generator with permalink sharing
+- **Task 4**: Memberships & payments (Stripe)
+- **Task 5**: Store affiliate links, Google Analytics/AdSense, "Fact of the Day" email
+
+### Auth Strategy
+- Replit Auth (OIDC) only — use `@workspace/replit-auth-web`'s `useAuth()` on the frontend
+- Auth middleware in `artifacts/api-server/src/app.ts`
+- **Never** use generated API client hooks for auth — always use `useAuth()` from the lib
+
+### API Proxy
+- API server runs on its own PORT (default 8080)
+- Vite proxies `/api` → API server (see `artifacts/chuck-norris-facts/vite.config.ts`)
+- In app code: always use relative `/api/...` paths (Vite handles the proxy)
+
+### Database Schema (lib/db/src/schema/)
+- `users` — Replit user profiles synced on login
+- `sessions` — express-session store
+- `facts` — user-submitted facts with upvotes/downvotes/score
+- `hashtags` — normalized tags with fact_count
+- `fact_hashtags` — many-to-many join
+- `ratings` — per-user +1/-1 votes on facts
+- `comments` — threaded comments on facts
+- `external_links` — affiliate/store link click tracking
+- `search_history` — tracks popular search terms
+
 ## Structure
 
 ```text
 artifacts-monorepo/
-├── artifacts/              # Deployable applications
-│   └── api-server/         # Express API server
-├── lib/                    # Shared libraries
-│   ├── api-spec/           # OpenAPI spec + Orval codegen config
-│   ├── api-client-react/   # Generated React Query hooks
-│   ├── api-zod/            # Generated Zod schemas from OpenAPI
-│   └── db/                 # Drizzle ORM schema + DB connection
-├── scripts/                # Utility scripts (single workspace package)
-│   └── src/                # Individual .ts scripts, run via `pnpm --filter @workspace/scripts run <script>`
-├── pnpm-workspace.yaml     # pnpm workspace (artifacts/*, lib/*, lib/integrations/*, scripts)
-├── tsconfig.base.json      # Shared TS options (composite, bundler resolution, es2022)
-├── tsconfig.json           # Root TS project references
-└── package.json            # Root package with hoisted devDeps
+├── artifacts/
+│   ├── api-server/           # Express API server (auth, facts, ratings, comments, hashtags)
+│   └── chuck-norris-facts/   # React+Vite frontend (dark theme, orange accents)
+├── lib/
+│   ├── api-spec/             # OpenAPI spec + Orval codegen config
+│   ├── api-client-react/     # Generated React Query hooks
+│   ├── api-zod/              # Generated Zod schemas from OpenAPI
+│   ├── db/                   # Drizzle ORM schema + DB connection
+│   └── replit-auth-web/      # Replit OIDC auth hook (useAuth)
+├── scripts/                  # Utility scripts
+├── pnpm-workspace.yaml
+├── tsconfig.base.json
+├── tsconfig.json
+└── package.json
 ```
 
 ## TypeScript & Composite Projects
