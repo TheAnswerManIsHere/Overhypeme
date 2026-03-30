@@ -3,10 +3,10 @@ import { z } from "zod/v4";
 import { db } from "@workspace/db";
 import { factsTable, hashtagsTable, factHashtagsTable } from "@workspace/db/schema";
 import { eq, sql, inArray } from "drizzle-orm";
-import { type PgTransaction } from "drizzle-orm/pg-core";
-import { type NodePgQueryResultHKT } from "drizzle-orm/node-postgres";
-import { type ExtractTablesWithRelations } from "drizzle-orm";
 import { requireApiKey } from "../middlewares/apiKeyAuth";
+
+// Infer the transaction type directly from the db.transaction callback parameter
+type DbTx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
 const router: IRouter = Router();
 
@@ -32,12 +32,6 @@ const ImportFactItemSchema = z.object({
 
 type ImportFactItem = z.infer<typeof ImportFactItemSchema>;
 
-type AnyTx = PgTransaction<
-  NodePgQueryResultHKT,
-  Record<string, never>,
-  ExtractTablesWithRelations<Record<string, never>>
->;
-
 type FailedItem = {
   index: number;
   errors: { field: string; message: string }[];
@@ -47,7 +41,7 @@ type FailedItem = {
  * Upsert a hashtag within a transaction. All DB operations go through `tx` so
  * they remain fully atomic with the surrounding bulk import transaction.
  */
-async function upsertHashtagInTx(tx: AnyTx, name: string): Promise<number> {
+async function upsertHashtagInTx(tx: DbTx, name: string): Promise<number> {
   const normalised = name.toLowerCase().replace(/[^a-z0-9_]/g, "");
   if (!normalised) throw new Error(`Invalid hashtag after normalisation: "${name}"`);
 
@@ -174,7 +168,7 @@ router.post("/admin/import/facts", async (req: Request, res: Response) => {
       created++;
 
       for (const tag of data.hashtags) {
-        const hashtagId = await upsertHashtagInTx(tx as unknown as AnyTx, tag);
+        const hashtagId = await upsertHashtagInTx(tx, tag);
         const [joined] = await tx
           .insert(factHashtagsTable)
           .values({ factId: inserted.id, hashtagId })
