@@ -597,3 +597,100 @@ export const GetAffiliateStatsResponse = zod.object({
     }),
   ),
 });
+
+/**
+ * Accepts a JSON array of fact objects (or `{ "facts": [...] }`) and inserts
+them in bulk. Protected by either a valid `X-API-Key` header or an admin
+browser session. Supports `?dryRun=true` to validate without writing.
+
+ * @summary Bulk-import facts (API key or admin session)
+ */
+export const BulkImportFactsQueryParams = zod.object({
+  dryRun: zod.coerce
+    .boolean()
+    .optional()
+    .describe("If true, validate items but do not write to the database."),
+});
+
+export const bulkImportFactsBodyOneItemTextMin = 10;
+export const bulkImportFactsBodyOneItemTextMax = 1000;
+
+export const bulkImportFactsBodyOneItemHashtagsItemMax = 100;
+
+export const bulkImportFactsBodyOneItemHashtagsItemRegExp = new RegExp(
+  "^[a-zA-Z0-9_]+$",
+);
+export const bulkImportFactsBodyOneItemHashtagsDefault = [];
+export const bulkImportFactsBodyOneItemHashtagsMax = 20;
+
+export const bulkImportFactsBodyOneMax = 500;
+
+export const bulkImportFactsBodyTwoFactsItemTextMin = 10;
+export const bulkImportFactsBodyTwoFactsItemTextMax = 1000;
+
+export const bulkImportFactsBodyTwoFactsItemHashtagsItemMax = 100;
+
+export const bulkImportFactsBodyTwoFactsItemHashtagsItemRegExp = new RegExp(
+  "^[a-zA-Z0-9_]+$",
+);
+export const bulkImportFactsBodyTwoFactsItemHashtagsDefault = [];
+export const bulkImportFactsBodyTwoFactsItemHashtagsMax = 20;
+
+export const bulkImportFactsBodyTwoFactsMax = 500;
+
+export const BulkImportFactsBody = zod.union([
+  zod
+    .array(
+      zod
+        .object({
+          text: zod
+            .string()
+            .min(bulkImportFactsBodyOneItemTextMin)
+            .max(bulkImportFactsBodyOneItemTextMax)
+            .describe("The fact text. Must be at least 10 characters."),
+          hashtags: zod
+            .array(
+              zod
+                .string()
+                .max(bulkImportFactsBodyOneItemHashtagsItemMax)
+                .regex(bulkImportFactsBodyOneItemHashtagsItemRegExp),
+            )
+            .max(bulkImportFactsBodyOneItemHashtagsMax)
+            .default(bulkImportFactsBodyOneItemHashtagsDefault)
+            .describe("Optional list of hashtag slugs to attach to this fact."),
+        })
+        .describe(
+          "A single fact to import. The `text` field is required; `hashtags` is optional.",
+        ),
+    )
+    .max(bulkImportFactsBodyOneMax),
+  zod.object({
+    facts: zod
+      .array(
+        zod
+          .object({
+            text: zod
+              .string()
+              .min(bulkImportFactsBodyTwoFactsItemTextMin)
+              .max(bulkImportFactsBodyTwoFactsItemTextMax)
+              .describe("The fact text. Must be at least 10 characters."),
+            hashtags: zod
+              .array(
+                zod
+                  .string()
+                  .max(bulkImportFactsBodyTwoFactsItemHashtagsItemMax)
+                  .regex(bulkImportFactsBodyTwoFactsItemHashtagsItemRegExp),
+              )
+              .max(bulkImportFactsBodyTwoFactsItemHashtagsMax)
+              .default(bulkImportFactsBodyTwoFactsItemHashtagsDefault)
+              .describe(
+                "Optional list of hashtag slugs to attach to this fact.",
+              ),
+          })
+          .describe(
+            "A single fact to import. The `text` field is required; `hashtags` is optional.",
+          ),
+      )
+      .max(bulkImportFactsBodyTwoFactsMax),
+  }),
+]);

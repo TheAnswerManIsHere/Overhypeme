@@ -363,6 +363,54 @@ export interface MemeListResponse {
 }
 
 /**
+ * A single fact to import. The `text` field is required; `hashtags` is optional.
+ */
+export interface ImportFactItem {
+  /**
+   * The fact text. Must be at least 10 characters.
+   * @minLength 10
+   * @maxLength 1000
+   */
+  text: string;
+  /**
+   * Optional list of hashtag slugs to attach to this fact.
+   * @maxItems 20
+   */
+  hashtags?: string[];
+}
+
+export interface BulkImportFactsValidationError {
+  /** The field that failed validation (e.g. "text", "hashtags.0"). */
+  field: string;
+  /** Human-readable reason the field failed validation. */
+  message: string;
+}
+
+export interface BulkImportFactsFailedItem {
+  /** Zero-based position of the item in the submitted array. */
+  index: number;
+  errors: BulkImportFactsValidationError[];
+}
+
+/**
+ * Result of a bulk import. When `dryRun` is true, `wouldCreate` is present
+instead of `created`/`skipped`.
+
+ */
+export interface BulkImportFactsResponse {
+  /** Present and true when the request was a dry run. */
+  dryRun?: boolean;
+  /** Number of facts successfully inserted (absent in dry-run mode). */
+  created?: number;
+  /** Number of valid facts skipped due to exact-text duplicates (absent in dry-run mode). */
+  skipped?: number;
+  /** Number of facts that would be created (dry-run mode only). */
+  wouldCreate?: number;
+  /** Items that failed schema validation and were not inserted. */
+  failed: BulkImportFactsFailedItem[];
+}
+
+/**
  * Bearer session token (used by mobile clients).
  */
 export type AuthorizationSessionHeaderParameter = string;
@@ -464,3 +512,17 @@ export type GetAffiliateStatsParams = {
    */
   to?: string;
 };
+
+export type BulkImportFactsParams = {
+  /**
+   * If true, validate items but do not write to the database.
+   */
+  dryRun?: boolean;
+};
+
+export type BulkImportFactsBody =
+  | ImportFactItem[]
+  | {
+      /** @maxItems 500 */
+      facts: ImportFactItem[];
+    };

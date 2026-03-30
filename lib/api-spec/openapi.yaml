@@ -870,7 +870,82 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
 
+  /admin/import/facts:
+    post:
+      operationId: bulkImportFacts
+      tags: [facts]
+      summary: Bulk-import facts (API key or admin session)
+      description: |
+        Accepts a JSON array of fact objects (or `{ "facts": [...] }`) and inserts
+        them in bulk. Protected by either a valid `X-API-Key` header or an admin
+        browser session. Supports `?dryRun=true` to validate without writing.
+      security:
+        - ApiKey: []
+        - SessionCookie: []
+      parameters:
+        - name: dryRun
+          in: query
+          required: false
+          schema:
+            type: boolean
+          description: If true, validate items but do not write to the database.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              oneOf:
+                - type: array
+                  items:
+                    $ref: "#/components/schemas/ImportFactItem"
+                  maxItems: 500
+                - type: object
+                  required: [facts]
+                  properties:
+                    facts:
+                      type: array
+                      items:
+                        $ref: "#/components/schemas/ImportFactItem"
+                      maxItems: 500
+      responses:
+        "201":
+          description: Import complete (some items may have failed validation)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BulkImportFactsResponse"
+        "400":
+          description: Malformed request body or empty array
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          description: Missing or invalid API key / session
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden — admin only
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
 components:
+  securitySchemes:
+    ApiKey:
+      type: apiKey
+      in: header
+      name: X-API-Key
+      description: Static API key set via the ADMIN_API_KEY environment variable. Used by automated callers (e.g. LLM agents) that cannot use a browser session.
+    SessionCookie:
+      type: apiKey
+      in: cookie
+      name: sid
+      description: Browser session cookie (set by the login flow).
+
   parameters:
     AuthorizationSessionHeader:
       name: Authorization
@@ -1426,3 +1501,71 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/MemeRecord"
+
+    ImportFactItem:
+      type: object
+      required: [text]
+      description: A single fact to import. The `text` field is required; `hashtags` is optional.
+      properties:
+        text:
+          type: string
+          minLength: 10
+          maxLength: 1000
+          description: The fact text. Must be at least 10 characters.
+        hashtags:
+          type: array
+          items:
+            type: string
+            maxLength: 100
+            pattern: "^[a-zA-Z0-9_]+$"
+          maxItems: 20
+          default: []
+          description: Optional list of hashtag slugs to attach to this fact.
+
+    BulkImportFactsValidationError:
+      type: object
+      required: [field, message]
+      properties:
+        field:
+          type: string
+          description: The field that failed validation (e.g. "text", "hashtags.0").
+        message:
+          type: string
+          description: Human-readable reason the field failed validation.
+
+    BulkImportFactsFailedItem:
+      type: object
+      required: [index, errors]
+      properties:
+        index:
+          type: integer
+          description: Zero-based position of the item in the submitted array.
+        errors:
+          type: array
+          items:
+            $ref: "#/components/schemas/BulkImportFactsValidationError"
+
+    BulkImportFactsResponse:
+      type: object
+      required: [failed]
+      description: |
+        Result of a bulk import. When `dryRun` is true, `wouldCreate` is present
+        instead of `created`/`skipped`.
+      properties:
+        dryRun:
+          type: boolean
+          description: Present and true when the request was a dry run.
+        created:
+          type: integer
+          description: Number of facts successfully inserted (absent in dry-run mode).
+        skipped:
+          type: integer
+          description: Number of valid facts skipped due to exact-text duplicates (absent in dry-run mode).
+        wouldCreate:
+          type: integer
+          description: Number of facts that would be created (dry-run mode only).
+        failed:
+          type: array
+          items:
+            $ref: "#/components/schemas/BulkImportFactsFailedItem"
+          description: Items that failed schema validation and were not inserted.
