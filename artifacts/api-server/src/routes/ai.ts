@@ -1,7 +1,7 @@
 import { Router, type IRouter, type Request, type Response, type NextFunction } from "express";
 import { db } from "@workspace/db";
 import { factsTable, hashtagsTable, commentsTable } from "@workspace/db/schema";
-import { desc, ilike, or, eq } from "drizzle-orm";
+import { desc, ilike, or, eq, sql } from "drizzle-orm";
 import { openai } from "@workspace/integrations-openai-ai-server";
 import { z } from "zod";
 import { getSessionId, getSession } from "../lib/auth";
@@ -78,10 +78,17 @@ export async function moderateComment(commentId: number, text: string): Promise<
     }
 
     if (parsed.spam === true) {
-      await db
+      const [flagged] = await db
         .update(commentsTable)
         .set({ flagged: true, flagReason: parsed.reason ?? "Spam detected by AI" })
-        .where(eq(commentsTable.id, commentId));
+        .where(eq(commentsTable.id, commentId))
+        .returning({ factId: commentsTable.factId });
+      if (flagged) {
+        await db
+          .update(factsTable)
+          .set({ commentCount: sql`GREATEST(${factsTable.commentCount} - 1, 0)` })
+          .where(eq(factsTable.id, flagged.factId));
+      }
     }
   } catch (err) {
     console.error("[AI] Comment moderation error:", err);
