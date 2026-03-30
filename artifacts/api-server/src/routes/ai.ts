@@ -1,14 +1,54 @@
-import { Router, type IRouter, type Request, type Response } from "express";
+import { Router, type IRouter, type Request, type Response, type NextFunction } from "express";
 import { db } from "@workspace/db";
 import { factsTable, hashtagsTable, commentsTable } from "@workspace/db/schema";
 import { desc, ilike, or, eq } from "drizzle-orm";
 import { openai } from "@workspace/integrations-openai-ai-server";
 import { z } from "zod";
+import { getSessionId, getSession } from "../lib/auth";
 
 const router: IRouter = Router();
 
 const CheckDuplicateBody = z.object({ text: z.string().min(10).max(1000) });
 const SuggestHashtagsBody = z.object({ text: z.string().min(5).max(1000) });
+
+const RATE_WINDOW_MS = 60_000;
+const RATE_MAX = 30;
+const rateCounts = new Map<string, { count: number; windowStart: number }>();
+
+function rateLimitKey(req: Request): string {
+  const sid = getSessionId(req);
+  if (sid) return `sid:${sid}`;
+  return `ip:${req.ip ?? "unknown"}`;
+}
+
+function checkRateLimit(key: string): boolean {
+  const now = Date.now();
+  const entry = rateCounts.get(key);
+  if (!entry || now - entry.windowStart > RATE_WINDOW_MS) {
+    rateCounts.set(key, { count: 1, windowStart: now });
+    return true;
+  }
+  if (entry.count >= RATE_MAX) return false;
+  entry.count++;
+  return true;
+}
+
+async function requireAuth(req: Request, res: Response, next: NextFunction): Promise<void> {
+  const sid = getSessionId(req);
+  if (!sid) { res.status(401).json({ error: "Authentication required" }); return; }
+  const session = await getSession(sid);
+  if (!session) { res.status(401).json({ error: "Authentication required" }); return; }
+  next();
+}
+
+function requireRateLimit(req: Request, res: Response, next: NextFunction): void {
+  const key = rateLimitKey(req);
+  if (!checkRateLimit(key)) {
+    res.status(429).json({ error: "Too many requests. Please slow down." });
+    return;
+  }
+  next();
+}
 
 export async function moderateComment(commentId: number, text: string): Promise<void> {
   try {
@@ -48,23 +88,23 @@ export async function moderateComment(commentId: number, text: string): Promise<
   }
 }
 
-router.post("/ai/check-duplicate", async (req: Request, res: Response) => {
-  const parsed = CheckDuplicateBody.safeParse(req.body);
-  if (!parsed.success) {
+router.post("/ai/check-duplicate", requireAuth, requireRateLimit, async (req: Request, res: Response) => {
+  const bodyParsed = CheckDuplicateBody.safeParse(req.body);
+  if (!bodyParsed.success) {
     res.status(400).json({ error: "Invalid input" });
     return;
   }
-  const { text } = parsed.data;
+  const { text } = bodyParsed.data;
 
   const words = text
     .toLowerCase()
     .split(/\s+/)
-    .filter((w) => w.length > 4)
+    .filter((w: string) => w.length > 4)
     .slice(0, 5);
 
   let candidates: { id: number; text: string }[] = [];
   if (words.length > 0) {
-    const conditions = words.map((w) => ilike(factsTable.text, `%${w}%`));
+    const conditions = words.map((w: string) => ilike(factsTable.text, `%${w}%`));
     candidates = await db
       .select({ id: factsTable.id, text: factsTable.text })
       .from(factsTable)
@@ -123,13 +163,13 @@ router.post("/ai/check-duplicate", async (req: Request, res: Response) => {
   }
 });
 
-router.post("/ai/suggest-hashtags", async (req: Request, res: Response) => {
-  const parsed = SuggestHashtagsBody.safeParse(req.body);
-  if (!parsed.success) {
+router.post("/ai/suggest-hashtags", requireAuth, requireRateLimit, async (req: Request, res: Response) => {
+  const bodyParsed = SuggestHashtagsBody.safeParse(req.body);
+  if (!bodyParsed.success) {
     res.status(400).json({ error: "Invalid input" });
     return;
   }
-  const { text } = parsed.data;
+  const { text } = bodyParsed.data;
 
   const existing = await db
     .select({ name: hashtagsTable.name })
