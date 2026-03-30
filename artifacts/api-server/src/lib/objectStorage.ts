@@ -204,6 +204,36 @@ export class ObjectStorageService {
       requestedPermission: requestedPermission ?? ObjectPermission.READ,
     });
   }
+
+  async uploadObjectBuffer({
+    subPath,
+    buffer,
+    contentType,
+  }: {
+    subPath: string;
+    buffer: Buffer;
+    contentType: string;
+  }): Promise<string> {
+    const privateObjectDir = this.getPrivateObjectDir();
+    if (!privateObjectDir) {
+      throw new Error(
+        "PRIVATE_OBJECT_DIR not set. Create a bucket in 'Object Storage' " +
+          "tool and set PRIVATE_OBJECT_DIR env var."
+      );
+    }
+
+    let dir = privateObjectDir;
+    if (!dir.endsWith("/")) dir = `${dir}/`;
+    const fullPath = `${dir}${subPath}`;
+
+    const { bucketName, objectName } = parseObjectPath(fullPath);
+    const bucket = objectStorageClient.bucket(bucketName);
+    const file = bucket.file(objectName);
+
+    await file.save(buffer, { contentType, resumable: false });
+
+    return `/objects/${subPath}`;
+  }
 }
 
 function parseObjectPath(path: string): {

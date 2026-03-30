@@ -44,6 +44,7 @@ export * from "./memeTemplate";
 export * from "./memeTemplateListResponse";
 export * from "./memeTextOptions";
 export * from "./memeTextOptionsAlign";
+export * from "./memeTextOptionsVerticalPosition";
 export * from "./mobileTokenExchangeRequest";
 export * from "./mobileTokenExchangeSuccess";
 export * from "./rateFactRequest";

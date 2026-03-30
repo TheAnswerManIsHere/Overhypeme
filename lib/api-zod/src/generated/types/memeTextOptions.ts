@@ -6,11 +6,15 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { MemeTextOptionsAlign } from "./memeTextOptionsAlign";
+import type { MemeTextOptionsVerticalPosition } from "./memeTextOptionsVerticalPosition";
 
 export interface MemeTextOptions {
-  x?: number;
-  y?: number;
+  /**
+   * @minimum 14
+   * @maximum 48
+   */
   fontSize?: number;
   color?: string;
   align?: MemeTextOptionsAlign;
+  verticalPosition?: MemeTextOptionsVerticalPosition;
 }

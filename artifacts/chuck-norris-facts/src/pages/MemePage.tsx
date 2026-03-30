@@ -42,6 +42,12 @@ export default function MemePage() {
     }
   };
 
+  const handleTwitterShare = () => {
+    const text = encodeURIComponent(`"${(meme?.factText ?? "").slice(0, 200)}" — Chuck Norris Facts`);
+    const url = encodeURIComponent(window.location.href);
+    window.open(`https://x.com/intent/tweet?text=${text}&url=${url}`, "_blank", "noopener");
+  };
+
   if (isLoading) {
     return (
       <Layout>
@@ -107,7 +113,13 @@ export default function MemePage() {
 
           <div className="flex flex-wrap gap-3 border-t-2 border-border pt-6">
             <Button onClick={handleShare} variant="outline" className="gap-2">
-              <Share2 className="w-4 h-4" /> Share
+              <Share2 className="w-4 h-4" /> Copy Link
+            </Button>
+            <Button onClick={handleTwitterShare} variant="outline" className="gap-2 border-sky-500/50 text-sky-400 hover:border-sky-400">
+              <svg className="w-4 h-4 fill-current" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-4.714-6.231-5.401 6.231H2.748l7.73-8.835L1.254 2.25H8.08l4.253 5.622zm-1.161 17.52h1.833L7.084 4.126H5.117z" />
+              </svg>
+              Share on X
             </Button>
             <Button onClick={handleDownload} variant="secondary" className="gap-2">
               <Download className="w-4 h-4" /> Download PNG
