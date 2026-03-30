@@ -12,7 +12,9 @@ import {
   clearSession,
   getOidcConfig,
   getSessionId,
+  getSession,
   createSession,
+  updateSession,
   deleteSession,
   SESSION_COOKIE,
   SESSION_TTL,
@@ -116,15 +118,56 @@ router.get("/auth/user", async (req: Request, res: Response) => {
     .from(usersTable)
     .where(eq(usersTable.id, req.user.id))
     .limit(1);
+
+  const sid = getSessionId(req);
+  const session = sid ? await getSession(sid) : null;
+  const isRealAdmin = !!(dbUser?.isAdmin || isAdminById(req.user.id));
+  const adminModeActive = isRealAdmin && !session?.adminModeDisabled;
+
   res.json(
     GetCurrentAuthUserResponse.parse({
       user: {
         ...req.user,
         membershipTier: dbUser?.membershipTier ?? req.user.membershipTier ?? "free",
-        isAdmin: dbUser?.isAdmin || isAdminById(req.user.id),
+        isAdmin: adminModeActive,
+        isRealAdmin,
       },
     }),
   );
+});
+
+router.post("/auth/toggle-admin-mode", async (req: Request, res: Response) => {
+  if (!req.isAuthenticated()) {
+    res.status(401).json({ error: "Not authenticated" });
+    return;
+  }
+  const sid = getSessionId(req);
+  if (!sid) {
+    res.status(401).json({ error: "No session" });
+    return;
+  }
+  const session = await getSession(sid);
+  if (!session) {
+    res.status(401).json({ error: "Session not found" });
+    return;
+  }
+
+  const [dbUser] = await db
+    .select({ isAdmin: usersTable.isAdmin })
+    .from(usersTable)
+    .where(eq(usersTable.id, req.user.id))
+    .limit(1);
+
+  const isRealAdmin = !!(dbUser?.isAdmin || isAdminById(req.user.id));
+  if (!isRealAdmin) {
+    res.status(403).json({ error: "Not an admin" });
+    return;
+  }
+
+  session.adminModeDisabled = !session.adminModeDisabled;
+  await updateSession(sid, session);
+
+  res.json({ adminModeActive: !session.adminModeDisabled });
 });
 
 router.get("/login", async (req: Request, res: Response) => {

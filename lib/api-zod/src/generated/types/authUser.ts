@@ -15,4 +15,5 @@ export interface AuthUser {
   profileImageUrl?: string | null;
   membershipTier?: AuthUserMembershipTier;
   isAdmin?: boolean | null;
+  isRealAdmin?: boolean | null;
 }

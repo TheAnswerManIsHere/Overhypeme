@@ -35,6 +35,7 @@ export const GetCurrentAuthUserResponse = zod.object({
       profileImageUrl: zod.string().nullish(),
       membershipTier: zod.enum(["free", "premium"]).nullish(),
       isAdmin: zod.boolean().nullish(),
+      isRealAdmin: zod.boolean().nullish(),
     }),
     zod.null(),
   ]),
