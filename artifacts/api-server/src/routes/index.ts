@@ -11,6 +11,7 @@ import storageRouter from "./storage";
 import stripeRouter from "./stripe";
 import jobsRouter from "./jobs";
 import affiliateRouter from "./affiliate";
+import importRouter from "./import";
 
 const router: IRouter = Router();
 
@@ -26,5 +27,6 @@ router.use(storageRouter);
 router.use(stripeRouter);
 router.use(jobsRouter);
 router.use(affiliateRouter);
+router.use(importRouter);
 
 export default router;

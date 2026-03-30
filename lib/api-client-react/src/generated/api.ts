@@ -24,6 +24,9 @@ import type {
   AffiliateStatsResponse,
   AuthUserEnvelope,
   BeginBrowserLoginParams,
+  BulkImportFactsBody,
+  BulkImportFactsParams,
+  BulkImportFactsResponse,
   CheckDuplicate200,
   CheckDuplicateBody,
   Comment,
@@ -2838,3 +2841,106 @@ export function useGetAffiliateStats<
 
   return { ...query, queryKey: queryOptions.queryKey };
 }
+
+/**
+ * Accepts a JSON array of fact objects (or `{ "facts": [...] }`) and inserts
+them in bulk. Protected by either a valid `X-API-Key` header or an admin
+browser session. Supports `?dryRun=true` to validate without writing.
+
+ * @summary Bulk-import facts (API key or admin session)
+ */
+export const getBulkImportFactsUrl = (params?: BulkImportFactsParams) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/admin/import/facts?${stringifiedParams}`
+    : `/api/admin/import/facts`;
+};
+
+export const bulkImportFacts = async (
+  bulkImportFactsBody: BulkImportFactsBody,
+  params?: BulkImportFactsParams,
+  options?: RequestInit,
+): Promise<BulkImportFactsResponse> => {
+  return customFetch<BulkImportFactsResponse>(getBulkImportFactsUrl(params), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(bulkImportFactsBody),
+  });
+};
+
+export const getBulkImportFactsMutationOptions = <
+  TError = ErrorType<ErrorEnvelope>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof bulkImportFacts>>,
+    TError,
+    { data: BodyType<BulkImportFactsBody>; params?: BulkImportFactsParams },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof bulkImportFacts>>,
+  TError,
+  { data: BodyType<BulkImportFactsBody>; params?: BulkImportFactsParams },
+  TContext
+> => {
+  const mutationKey = ["bulkImportFacts"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof bulkImportFacts>>,
+    { data: BodyType<BulkImportFactsBody>; params?: BulkImportFactsParams }
+  > = (props) => {
+    const { data, params } = props ?? {};
+
+    return bulkImportFacts(data, params, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type BulkImportFactsMutationResult = NonNullable<
+  Awaited<ReturnType<typeof bulkImportFacts>>
+>;
+export type BulkImportFactsMutationBody = BodyType<BulkImportFactsBody>;
+export type BulkImportFactsMutationError = ErrorType<ErrorEnvelope>;
+
+/**
+ * @summary Bulk-import facts (API key or admin session)
+ */
+export const useBulkImportFacts = <
+  TError = ErrorType<ErrorEnvelope>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof bulkImportFacts>>,
+    TError,
+    { data: BodyType<BulkImportFactsBody>; params?: BulkImportFactsParams },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof bulkImportFacts>>,
+  TError,
+  { data: BodyType<BulkImportFactsBody>; params?: BulkImportFactsParams },
+  TContext
+> => {
+  return useMutation(getBulkImportFactsMutationOptions(options));
+};
