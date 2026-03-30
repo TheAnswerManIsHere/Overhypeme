@@ -1215,27 +1215,26 @@ components:
     MemeTextOptions:
       type: object
       properties:
-        x:
-          type: number
-        y:
-          type: number
         fontSize:
           type: integer
+          minimum: 14
+          maximum: 48
         color:
           type: string
         align:
           type: string
           enum: [left, center, right]
+        verticalPosition:
+          type: string
+          enum: [top, middle, bottom]
 
     CreateMemeRequest:
       type: object
-      required: [factId, templateId, objectPath]
+      required: [factId, templateId]
       properties:
         factId:
           type: integer
         templateId:
-          type: string
-        objectPath:
           type: string
         textOptions:
           $ref: "#/components/schemas/MemeTextOptions"

@@ -231,18 +231,29 @@ export const MemeTextOptionsAlign = {
   right: "right",
 } as const;
 
+export type MemeTextOptionsVerticalPosition =
+  (typeof MemeTextOptionsVerticalPosition)[keyof typeof MemeTextOptionsVerticalPosition];
+
+export const MemeTextOptionsVerticalPosition = {
+  top: "top",
+  middle: "middle",
+  bottom: "bottom",
+} as const;
+
 export interface MemeTextOptions {
-  x?: number;
-  y?: number;
+  /**
+   * @minimum 14
+   * @maximum 48
+   */
   fontSize?: number;
   color?: string;
   align?: MemeTextOptionsAlign;
+  verticalPosition?: MemeTextOptionsVerticalPosition;
 }
 
 export interface CreateMemeRequest {
   factId: number;
   templateId: string;
-  objectPath: string;
   textOptions?: MemeTextOptions;
 }
 

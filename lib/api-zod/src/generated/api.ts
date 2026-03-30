@@ -491,17 +491,22 @@ export const ListMemeTemplatesResponse = zod.object({
 /**
  * @summary Create a meme from a fact and template
  */
+export const createMemeBodyTextOptionsFontSizeMin = 14;
+export const createMemeBodyTextOptionsFontSizeMax = 48;
+
 export const CreateMemeBody = zod.object({
   factId: zod.number(),
   templateId: zod.string(),
-  objectPath: zod.string(),
   textOptions: zod
     .object({
-      x: zod.number().optional(),
-      y: zod.number().optional(),
-      fontSize: zod.number().optional(),
+      fontSize: zod
+        .number()
+        .min(createMemeBodyTextOptionsFontSizeMin)
+        .max(createMemeBodyTextOptionsFontSizeMax)
+        .optional(),
       color: zod.string().optional(),
       align: zod.enum(["left", "center", "right"]).optional(),
+      verticalPosition: zod.enum(["top", "middle", "bottom"]).optional(),
     })
     .optional(),
 });

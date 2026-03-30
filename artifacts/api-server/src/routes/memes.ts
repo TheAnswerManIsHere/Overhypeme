@@ -1,65 +1,33 @@
 import { Router, type IRouter, type Request, type Response } from "express";
+import { randomUUID } from "crypto";
 import { db } from "@workspace/db";
 import { memesTable, factsTable, usersTable } from "@workspace/db/schema";
 import { eq, desc } from "drizzle-orm";
 import { z } from "zod";
+import { generateMemeBuffer, MEME_TEMPLATES } from "../lib/memeGenerator";
+import { ObjectStorageService } from "../lib/objectStorage";
 
 const router: IRouter = Router();
-
-function generateSlug(): string {
-  const chars = "abcdefghijklmnopqrstuvwxyz0123456789";
-  return Array.from({ length: 10 }, () => chars[Math.floor(Math.random() * chars.length)]).join("");
-}
-
-const TEMPLATES = [
-  {
-    id: "action",
-    name: "Action Hero",
-    description: "High-contrast dark blue gradient — pure action movie energy",
-    previewColors: ["#0a0e2e", "#1a237e", "#283593"],
-  },
-  {
-    id: "fire",
-    name: "On Fire",
-    description: "Blazing orange-red gradient for the most intense facts",
-    previewColors: ["#bf360c", "#e64a19", "#ff6d00"],
-  },
-  {
-    id: "night",
-    name: "Night Ops",
-    description: "Tactical dark background with subtle green accent",
-    previewColors: ["#0a0a0a", "#1b2420", "#263238"],
-  },
-  {
-    id: "gold",
-    name: "Legendary",
-    description: "Golden gradient for facts of mythical proportions",
-    previewColors: ["#4a2c00", "#f57f17", "#ffd54f"],
-  },
-  {
-    id: "cinema",
-    name: "Cinematic",
-    description: "Classic sepia-toned cinematic style",
-    previewColors: ["#2d1e00", "#5d4037", "#8d6e63"],
-  },
-];
+const objectStorageService = new ObjectStorageService();
 
 const CreateMemeBody = z.object({
   factId: z.number().int().positive(),
   templateId: z.string().min(1).max(50),
-  objectPath: z.string().min(1),
   textOptions: z.object({
-    x: z.number().optional(),
-    y: z.number().optional(),
-    fontSize: z.number().int().optional(),
-    color: z.string().optional(),
+    fontSize: z.number().int().min(14).max(48).optional(),
+    color: z.string().regex(/^#[0-9a-fA-F]{3,8}$/).optional(),
     align: z.enum(["left", "center", "right"]).optional(),
+    verticalPosition: z.enum(["top", "middle", "bottom"]).optional(),
   }).optional(),
 });
 
+function generateSlug(): string {
+  return randomUUID().replace(/-/g, "").slice(0, 12);
+}
+
 // GET /memes/templates
 router.get("/memes/templates", (_req: Request, res: Response) => {
-  res.json({ templates: TEMPLATES });
+  res.json({ templates: MEME_TEMPLATES });
 });
 
 // GET /memes/:slug
@@ -89,28 +57,37 @@ router.get("/memes/:slug", async (req: Request, res: Response) => {
   });
 });
 
-// POST /memes
+// POST /memes — generates image server-side, uploads to GCS, saves to DB
 router.post("/memes", async (req: Request, res: Response) => {
   if (!req.isAuthenticated()) { res.status(401).json({ error: "Unauthorized" }); return; }
+
   const parsed = CreateMemeBody.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: "Invalid input", details: parsed.error.flatten() }); return; }
 
-  const { factId, templateId, objectPath, textOptions } = parsed.data;
+  const { factId, templateId, textOptions } = parsed.data;
 
-  const [fact] = await db.select({ id: factsTable.id }).from(factsTable).where(eq(factsTable.id, factId)).limit(1);
+  const [fact] = await db.select({ id: factsTable.id, text: factsTable.text }).from(factsTable).where(eq(factsTable.id, factId)).limit(1);
   if (!fact) { res.status(404).json({ error: "Fact not found" }); return; }
 
-  const validTemplate = TEMPLATES.find(t => t.id === templateId);
+  const validTemplate = MEME_TEMPLATES.find(t => t.id === templateId);
   if (!validTemplate) { res.status(400).json({ error: "Invalid template ID" }); return; }
 
+  const imageBuffer = generateMemeBuffer(templateId, fact.text, textOptions);
+
+  const subPath = `memes/${randomUUID()}.png`;
+  const objectPath = await objectStorageService.uploadObjectBuffer({
+    subPath,
+    buffer: imageBuffer,
+    contentType: "image/png",
+  });
+
   const imageUrl = `/api/storage${objectPath}`;
+
   let slug = generateSlug();
-  let attempts = 0;
-  while (attempts < 5) {
+  for (let i = 0; i < 5; i++) {
     const [existing] = await db.select({ id: memesTable.id }).from(memesTable).where(eq(memesTable.permalinkSlug, slug)).limit(1);
     if (!existing) break;
     slug = generateSlug();
-    attempts++;
   }
 
   const [meme] = await db.insert(memesTable).values({
