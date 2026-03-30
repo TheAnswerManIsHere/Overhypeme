@@ -8,11 +8,11 @@
 
 export type GetAffiliateStatsParams = {
   /**
-   * Filter clicks from this date (YYYY-MM-DD)
+   * Filter clicks from this date, inclusive (YYYY-MM-DD)
    */
-  from?: Date;
+  from?: string;
   /**
-   * Filter clicks up to this date (YYYY-MM-DD)
+   * Filter clicks up to this date, inclusive (YYYY-MM-DD)
    */
-  to?: Date;
+  to?: string;
 };

@@ -456,11 +456,11 @@ export type GetAdminFlaggedComments200 = {
 
 export type GetAffiliateStatsParams = {
   /**
-   * Filter clicks from this date (YYYY-MM-DD)
+   * Filter clicks from this date, inclusive (YYYY-MM-DD)
    */
   from?: string;
   /**
-   * Filter clicks up to this date (YYYY-MM-DD)
+   * Filter clicks up to this date, inclusive (YYYY-MM-DD)
    */
   to?: string;
 };

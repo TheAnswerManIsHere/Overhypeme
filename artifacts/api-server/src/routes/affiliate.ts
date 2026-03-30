@@ -6,9 +6,19 @@ import { requireAdmin } from "./admin";
 
 const router: IRouter = Router();
 
-// Env-configured affiliate IDs — fall back to demo values if unset
+// Env-configured affiliate IDs — fall back to demo/test values if unset
 const ZAZZLE_AFFILIATE_ID = process.env.ZAZZLE_AFFILIATE_ID ?? "238527546099265388";
 const CAFEPRESS_AFFILIATE_ID = process.env.CAFEPRESS_AFFILIATE_ID ?? "chucknorrisfacts";
+
+// Warn in production if affiliate IDs are not configured
+if (process.env.NODE_ENV === "production") {
+  if (!process.env.ZAZZLE_AFFILIATE_ID) {
+    console.warn("[affiliate] ZAZZLE_AFFILIATE_ID is not set — using demo affiliate ID. Set this env var to receive real commissions.");
+  }
+  if (!process.env.CAFEPRESS_AFFILIATE_ID) {
+    console.warn("[affiliate] CAFEPRESS_AFFILIATE_ID is not set — using demo affiliate ID. Set this env var to receive real commissions.");
+  }
+}
 
 function buildZazzleUrl(text: string, imageUrl?: string): string {
   const base = `https://www.zazzle.com/api/create/at-${ZAZZLE_AFFILIATE_ID}`;
@@ -62,6 +72,22 @@ router.post("/affiliate/click", async (req: Request, res: Response) => {
 
   if (!["zazzle", "cafepress"].includes(destination)) {
     res.status(400).json({ error: "destination must be 'zazzle' or 'cafepress'" });
+    return;
+  }
+
+  // Server-side length bounds to prevent abuse/noise
+  if (text.length > 1000) {
+    res.status(400).json({ error: "text must be 1000 characters or fewer" });
+    return;
+  }
+
+  if (imageUrl && imageUrl.length > 2048) {
+    res.status(400).json({ error: "imageUrl must be 2048 characters or fewer" });
+    return;
+  }
+
+  if (String(sourceId).length > 255) {
+    res.status(400).json({ error: "sourceId must be 255 characters or fewer" });
     return;
   }
 

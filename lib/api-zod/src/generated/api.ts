@@ -570,14 +570,14 @@ export const LogAffiliateClickResponse = zod.object({
  * @summary Get affiliate click stats (admin only)
  */
 export const GetAffiliateStatsQueryParams = zod.object({
-  from: zod
-    .date()
+  from: zod.coerce
+    .string()
     .optional()
-    .describe("Filter clicks from this date (YYYY-MM-DD)"),
-  to: zod
-    .date()
+    .describe("Filter clicks from this date, inclusive (YYYY-MM-DD)"),
+  to: zod.coerce
+    .string()
     .optional()
-    .describe("Filter clicks up to this date (YYYY-MM-DD)"),
+    .describe("Filter clicks up to this date, inclusive (YYYY-MM-DD)"),
 });
 
 export const GetAffiliateStatsResponse = zod.object({
