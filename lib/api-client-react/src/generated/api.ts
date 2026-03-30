@@ -2844,10 +2844,10 @@ export function useGetAffiliateStats<
 
 /**
  * Accepts a JSON array of fact objects (or `{ "facts": [...] }`) and inserts
-them in bulk. Protected by either a valid `X-API-Key` header or an admin
-browser session. Supports `?dryRun=true` to validate without writing.
+them in bulk. Protected by the `X-API-Key` header (ADMIN_API_KEY secret).
+Supports `?dryRun=true` to validate without writing.
 
- * @summary Bulk-import facts (API key or admin session)
+ * @summary Bulk-import facts (API key required)
  */
 export const getBulkImportFactsUrl = (params?: BulkImportFactsParams) => {
   const normalizedParams = new URLSearchParams();
@@ -2923,7 +2923,7 @@ export type BulkImportFactsMutationBody = BodyType<BulkImportFactsBody>;
 export type BulkImportFactsMutationError = ErrorType<ErrorEnvelope>;
 
 /**
- * @summary Bulk-import facts (API key or admin session)
+ * @summary Bulk-import facts (API key required)
  */
 export const useBulkImportFacts = <
   TError = ErrorType<ErrorEnvelope>,
