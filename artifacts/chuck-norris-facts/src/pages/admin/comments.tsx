@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { AdminLayout } from "@/components/admin/AdminLayout";
 import { Link } from "wouter";
 import { CheckCircle, Trash2, MessageSquare, ExternalLink } from "lucide-react";
@@ -12,44 +12,40 @@ interface FlaggedComment {
   createdAt: string;
 }
 
-function useFlaggedComments() {
-  const [comments, setComments] = useState<FlaggedComment[] | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [loaded, setLoaded] = useState(false);
-
-  const load = async () => {
-    if (loaded) return;
-    setLoading(true);
-    try {
-      const r = await fetch("/api/admin/comments/flagged", { credentials: "include" });
-      if (r.ok) {
-        const data: { comments: FlaggedComment[] } = await r.json();
-        setComments(data.comments);
-        setLoaded(true);
-      }
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  return { comments, loading, load, setComments };
-}
-
 export default function AdminComments() {
-  const { comments, loading, load, setComments } = useFlaggedComments();
+  const [comments, setComments] = useState<FlaggedComment[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  if (comments === null && !loading) {
-    load();
-  }
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setError(null);
+    fetch("/api/admin/comments/flagged", { credentials: "include" })
+      .then((r) => {
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        return r.json() as Promise<{ comments: FlaggedComment[] }>;
+      })
+      .then((data) => {
+        if (!cancelled) setComments(data.comments);
+      })
+      .catch((err: unknown) => {
+        if (!cancelled) setError(err instanceof Error ? err.message : "Failed to load");
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, []);
 
   const approve = async (id: number) => {
     await fetch(`/api/admin/comments/${id}/approve`, { method: "POST", credentials: "include" });
-    setComments((prev) => prev?.filter((c) => c.id !== id) ?? null);
+    setComments((prev) => prev.filter((c) => c.id !== id));
   };
 
   const reject = async (id: number) => {
     await fetch(`/api/admin/comments/${id}`, { method: "DELETE", credentials: "include" });
-    setComments((prev) => prev?.filter((c) => c.id !== id) ?? null);
+    setComments((prev) => prev.filter((c) => c.id !== id));
   };
 
   return (
@@ -59,24 +55,30 @@ export default function AdminComments() {
           <p className="text-sm text-muted-foreground">
             Comments auto-flagged by AI for spam or abuse. Approve to restore or reject to delete.
           </p>
-          <span className="text-sm font-medium text-foreground">
-            {comments !== null ? `${comments.length} flagged` : ""}
-          </span>
+          {!loading && (
+            <span className="text-sm font-medium text-foreground">
+              {comments.length} flagged
+            </span>
+          )}
         </div>
 
         {loading && (
           <div className="text-muted-foreground text-sm">Loading flagged comments…</div>
         )}
 
-        {comments !== null && comments.length === 0 && (
+        {error && (
+          <div className="text-destructive text-sm">Error: {error}</div>
+        )}
+
+        {!loading && !error && comments.length === 0 && (
           <div className="text-center py-16 text-muted-foreground">
             <MessageSquare className="w-12 h-12 mx-auto mb-4 opacity-30" />
             <p className="text-lg font-medium">No flagged comments</p>
-            <p className="text-sm mt-1">The AI hasn't flagged any comments yet. Good sign.</p>
+            <p className="text-sm mt-1">The AI hasn&apos;t flagged any comments yet. Good sign.</p>
           </div>
         )}
 
-        {comments !== null && comments.length > 0 && (
+        {!loading && !error && comments.length > 0 && (
           <div className="space-y-4">
             {comments.map((c) => (
               <div key={c.id} className="bg-card border border-border rounded-sm p-5 space-y-3">
