@@ -222,7 +222,7 @@ export default function FactDetail() {
                       </span>
                     </a>
                     
-                    {isAuthenticated && user?.id === link.addedBy && (
+                    {isAuthenticated && user?.id === link.addedById && (
                       <button 
                         onClick={() => deleteLink.mutate({ factId, linkId: link.id })}
                         disabled={deleteLink.isPending}
