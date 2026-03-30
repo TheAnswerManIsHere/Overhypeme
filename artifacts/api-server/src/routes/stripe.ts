@@ -23,11 +23,21 @@ router.get("/stripe/config", async (_req: Request, res: Response) => {
   }
 });
 
-// GET /stripe/plans — list products+prices from Stripe (synced to local DB)
+// GET /stripe/plans — list membership products+prices from Stripe (synced to local DB)
+// Only returns products tagged with metadata.membership="true" OR in MEMBERSHIP_PRICE_IDS allowlist
 router.get("/stripe/plans", async (_req: Request, res: Response) => {
   try {
     const products = await stripeStorage.listProductsWithPrices();
-    res.json({ plans: products });
+    const allowlist = (process.env.MEMBERSHIP_PRICE_IDS ?? "").split(",").map((s: string) => s.trim()).filter(Boolean);
+
+    const membershipProducts = products.filter(p => {
+      const hasMetaTag = p.metadata?.membership === "true";
+      const hasPriceInAllowlist = allowlist.length > 0 && p.prices.some(pr => allowlist.includes(pr.id));
+      return hasMetaTag || hasPriceInAllowlist;
+    });
+
+    // Return all if no products are tagged (dev/initial setup — no products configured yet)
+    res.json({ plans: membershipProducts.length > 0 ? membershipProducts : products });
   } catch {
     res.json({ plans: [] });
   }
@@ -88,20 +98,19 @@ router.post("/stripe/checkout", async (req: Request, res: Response) => {
       customerId = customer.id;
     }
 
-    // Determine if this is a one-time (lifetime) or recurring price
-    const priceObj = await stripe.prices.retrieve(priceId);
+    // Validate + resolve price — always fetch with product expanded
+    const priceObj = await stripe.prices.retrieve(priceId, { expand: ["product"] });
     const isOneTime = priceObj.type === "one_time";
 
-    // Validate: price must belong to a membership product (metadata or allowlist)
+    // Fail-closed membership validation: price must be in allowlist OR product must have
+    // metadata.membership="true". This check always runs, regardless of allowlist presence.
     const allowlist = (process.env.MEMBERSHIP_PRICE_IDS ?? "").split(",").map((s: string) => s.trim()).filter(Boolean);
-    if (allowlist.length > 0 && !allowlist.includes(priceId)) {
-      const fullPrice = await stripe.prices.retrieve(priceId, { expand: ["product"] });
-      const prod = fullPrice.product as import("stripe").Stripe.Product | null;
-      const isTagged = prod && typeof prod !== "string" && prod.metadata?.membership === "true";
-      if (!isTagged) {
-        res.status(400).json({ error: "Invalid price: not a membership product" });
-        return;
-      }
+    const inAllowlist = allowlist.length > 0 && allowlist.includes(priceId);
+    const prod = priceObj.product as import("stripe").Stripe.Product | null;
+    const hasMetaTag = prod && typeof prod !== "string" && prod.metadata?.membership === "true";
+    if (!inAllowlist && !hasMetaTag) {
+      res.status(400).json({ error: "Invalid price: not a recognized membership product" });
+      return;
     }
 
     const base = getBaseUrl(req);
