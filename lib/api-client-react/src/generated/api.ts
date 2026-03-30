@@ -21,6 +21,8 @@ import type {
   AddLinkRequest,
   AuthUserEnvelope,
   BeginBrowserLoginParams,
+  CheckDuplicate200,
+  CheckDuplicateBody,
   Comment,
   CommentListResponse,
   CreateFactRequest,
@@ -28,6 +30,7 @@ import type {
   ExternalLink,
   FactDetail,
   FactListResponse,
+  GetAdminFlaggedComments200,
   HandleBrowserLoginCallbackParams,
   HashtagListResponse,
   HealthStatus,
@@ -41,6 +44,8 @@ import type {
   RateFactRequest,
   RatingResult,
   RecordSearchRequest,
+  SuggestHashtags200,
+  SuggestHashtagsBody,
   UserProfile,
 } from "./api.schemas";
 
@@ -1706,4 +1711,423 @@ export const useRecordSearch = <
   TContext
 > => {
   return useMutation(getRecordSearchMutationOptions(options));
+};
+
+/**
+ * @summary Check if a fact text is a duplicate (requires auth)
+ */
+export const getCheckDuplicateUrl = () => {
+  return `/api/ai/check-duplicate`;
+};
+
+export const checkDuplicate = async (
+  checkDuplicateBody: CheckDuplicateBody,
+  options?: RequestInit,
+): Promise<CheckDuplicate200> => {
+  return customFetch<CheckDuplicate200>(getCheckDuplicateUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(checkDuplicateBody),
+  });
+};
+
+export const getCheckDuplicateMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof checkDuplicate>>,
+    TError,
+    { data: BodyType<CheckDuplicateBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof checkDuplicate>>,
+  TError,
+  { data: BodyType<CheckDuplicateBody> },
+  TContext
+> => {
+  const mutationKey = ["checkDuplicate"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof checkDuplicate>>,
+    { data: BodyType<CheckDuplicateBody> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return checkDuplicate(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type CheckDuplicateMutationResult = NonNullable<
+  Awaited<ReturnType<typeof checkDuplicate>>
+>;
+export type CheckDuplicateMutationBody = BodyType<CheckDuplicateBody>;
+export type CheckDuplicateMutationError = ErrorType<void>;
+
+/**
+ * @summary Check if a fact text is a duplicate (requires auth)
+ */
+export const useCheckDuplicate = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof checkDuplicate>>,
+    TError,
+    { data: BodyType<CheckDuplicateBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof checkDuplicate>>,
+  TError,
+  { data: BodyType<CheckDuplicateBody> },
+  TContext
+> => {
+  return useMutation(getCheckDuplicateMutationOptions(options));
+};
+
+/**
+ * @summary Suggest hashtags for a fact text (requires auth)
+ */
+export const getSuggestHashtagsUrl = () => {
+  return `/api/ai/suggest-hashtags`;
+};
+
+export const suggestHashtags = async (
+  suggestHashtagsBody: SuggestHashtagsBody,
+  options?: RequestInit,
+): Promise<SuggestHashtags200> => {
+  return customFetch<SuggestHashtags200>(getSuggestHashtagsUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(suggestHashtagsBody),
+  });
+};
+
+export const getSuggestHashtagsMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof suggestHashtags>>,
+    TError,
+    { data: BodyType<SuggestHashtagsBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof suggestHashtags>>,
+  TError,
+  { data: BodyType<SuggestHashtagsBody> },
+  TContext
+> => {
+  const mutationKey = ["suggestHashtags"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof suggestHashtags>>,
+    { data: BodyType<SuggestHashtagsBody> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return suggestHashtags(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type SuggestHashtagsMutationResult = NonNullable<
+  Awaited<ReturnType<typeof suggestHashtags>>
+>;
+export type SuggestHashtagsMutationBody = BodyType<SuggestHashtagsBody>;
+export type SuggestHashtagsMutationError = ErrorType<void>;
+
+/**
+ * @summary Suggest hashtags for a fact text (requires auth)
+ */
+export const useSuggestHashtags = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof suggestHashtags>>,
+    TError,
+    { data: BodyType<SuggestHashtagsBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof suggestHashtags>>,
+  TError,
+  { data: BodyType<SuggestHashtagsBody> },
+  TContext
+> => {
+  return useMutation(getSuggestHashtagsMutationOptions(options));
+};
+
+/**
+ * @summary List AI-flagged comments (admin only)
+ */
+export const getGetAdminFlaggedCommentsUrl = () => {
+  return `/api/admin/comments/flagged`;
+};
+
+export const getAdminFlaggedComments = async (
+  options?: RequestInit,
+): Promise<GetAdminFlaggedComments200> => {
+  return customFetch<GetAdminFlaggedComments200>(
+    getGetAdminFlaggedCommentsUrl(),
+    {
+      ...options,
+      method: "GET",
+    },
+  );
+};
+
+export const getGetAdminFlaggedCommentsQueryKey = () => {
+  return [`/api/admin/comments/flagged`] as const;
+};
+
+export const getGetAdminFlaggedCommentsQueryOptions = <
+  TData = Awaited<ReturnType<typeof getAdminFlaggedComments>>,
+  TError = ErrorType<void>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getAdminFlaggedComments>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getGetAdminFlaggedCommentsQueryKey();
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getAdminFlaggedComments>>
+  > = ({ signal }) => getAdminFlaggedComments({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getAdminFlaggedComments>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetAdminFlaggedCommentsQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getAdminFlaggedComments>>
+>;
+export type GetAdminFlaggedCommentsQueryError = ErrorType<void>;
+
+/**
+ * @summary List AI-flagged comments (admin only)
+ */
+
+export function useGetAdminFlaggedComments<
+  TData = Awaited<ReturnType<typeof getAdminFlaggedComments>>,
+  TError = ErrorType<void>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getAdminFlaggedComments>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetAdminFlaggedCommentsQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Approve (unflag) a flagged comment (admin only)
+ */
+export const getApproveAdminCommentUrl = (id: number) => {
+  return `/api/admin/comments/${id}/approve`;
+};
+
+export const approveAdminComment = async (
+  id: number,
+  options?: RequestInit,
+): Promise<void> => {
+  return customFetch<void>(getApproveAdminCommentUrl(id), {
+    ...options,
+    method: "POST",
+  });
+};
+
+export const getApproveAdminCommentMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof approveAdminComment>>,
+    TError,
+    { id: number },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof approveAdminComment>>,
+  TError,
+  { id: number },
+  TContext
+> => {
+  const mutationKey = ["approveAdminComment"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof approveAdminComment>>,
+    { id: number }
+  > = (props) => {
+    const { id } = props ?? {};
+
+    return approveAdminComment(id, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type ApproveAdminCommentMutationResult = NonNullable<
+  Awaited<ReturnType<typeof approveAdminComment>>
+>;
+
+export type ApproveAdminCommentMutationError = ErrorType<void>;
+
+/**
+ * @summary Approve (unflag) a flagged comment (admin only)
+ */
+export const useApproveAdminComment = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof approveAdminComment>>,
+    TError,
+    { id: number },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof approveAdminComment>>,
+  TError,
+  { id: number },
+  TContext
+> => {
+  return useMutation(getApproveAdminCommentMutationOptions(options));
+};
+
+/**
+ * @summary Delete a flagged comment (admin only)
+ */
+export const getDeleteAdminCommentUrl = (id: number) => {
+  return `/api/admin/comments/${id}`;
+};
+
+export const deleteAdminComment = async (
+  id: number,
+  options?: RequestInit,
+): Promise<void> => {
+  return customFetch<void>(getDeleteAdminCommentUrl(id), {
+    ...options,
+    method: "DELETE",
+  });
+};
+
+export const getDeleteAdminCommentMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof deleteAdminComment>>,
+    TError,
+    { id: number },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof deleteAdminComment>>,
+  TError,
+  { id: number },
+  TContext
+> => {
+  const mutationKey = ["deleteAdminComment"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof deleteAdminComment>>,
+    { id: number }
+  > = (props) => {
+    const { id } = props ?? {};
+
+    return deleteAdminComment(id, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type DeleteAdminCommentMutationResult = NonNullable<
+  Awaited<ReturnType<typeof deleteAdminComment>>
+>;
+
+export type DeleteAdminCommentMutationError = ErrorType<void>;
+
+/**
+ * @summary Delete a flagged comment (admin only)
+ */
+export const useDeleteAdminComment = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof deleteAdminComment>>,
+    TError,
+    { id: number },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof deleteAdminComment>>,
+  TError,
+  { id: number },
+  TContext
+> => {
+  return useMutation(getDeleteAdminCommentMutationOptions(options));
 };

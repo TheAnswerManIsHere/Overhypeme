@@ -484,6 +484,172 @@ paths:
         "204":
           description: Search recorded
 
+  /ai/check-duplicate:
+    post:
+      operationId: checkDuplicate
+      tags: [facts]
+      summary: Check if a fact text is a duplicate (requires auth)
+      security:
+        - SessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [text]
+              properties:
+                text:
+                  type: string
+                  minLength: 10
+                  maxLength: 1000
+      responses:
+        "200":
+          description: Duplicate check result
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [isDuplicate, confidence]
+                properties:
+                  isDuplicate:
+                    type: boolean
+                  confidence:
+                    type: integer
+                    minimum: 0
+                    maximum: 100
+                  matchingFactId:
+                    type: integer
+                    nullable: true
+                  matchingFactText:
+                    type: string
+                    nullable: true
+        "401":
+          description: Authentication required
+        "429":
+          description: Rate limit exceeded
+
+  /ai/suggest-hashtags:
+    post:
+      operationId: suggestHashtags
+      tags: [hashtags]
+      summary: Suggest hashtags for a fact text (requires auth)
+      security:
+        - SessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [text]
+              properties:
+                text:
+                  type: string
+                  minLength: 5
+                  maxLength: 1000
+      responses:
+        "200":
+          description: Suggested hashtags
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [hashtags]
+                properties:
+                  hashtags:
+                    type: array
+                    items:
+                      type: string
+        "401":
+          description: Authentication required
+        "429":
+          description: Rate limit exceeded
+
+  /admin/comments/flagged:
+    get:
+      operationId: getAdminFlaggedComments
+      tags: [comments]
+      summary: List AI-flagged comments (admin only)
+      security:
+        - SessionCookie: []
+      responses:
+        "200":
+          description: Flagged comments list
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [comments]
+                properties:
+                  comments:
+                    type: array
+                    items:
+                      type: object
+                      required: [id, factId, text, createdAt]
+                      properties:
+                        id:
+                          type: integer
+                        factId:
+                          type: integer
+                        text:
+                          type: string
+                        authorId:
+                          type: string
+                          nullable: true
+                        flagReason:
+                          type: string
+                          nullable: true
+                        createdAt:
+                          type: string
+                          format: date-time
+        "401":
+          description: Authentication required
+        "403":
+          description: Forbidden
+
+  /admin/comments/{id}/approve:
+    post:
+      operationId: approveAdminComment
+      tags: [comments]
+      summary: Approve (unflag) a flagged comment (admin only)
+      security:
+        - SessionCookie: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Comment approved
+        "401":
+          description: Authentication required
+        "403":
+          description: Forbidden
+
+  /admin/comments/{id}:
+    delete:
+      operationId: deleteAdminComment
+      tags: [comments]
+      summary: Delete a flagged comment (admin only)
+      security:
+        - SessionCookie: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Comment deleted
+        "401":
+          description: Authentication required
+        "403":
+          description: Forbidden
+
 components:
   parameters:
     AuthorizationSessionHeader:

@@ -365,3 +365,76 @@ export const GetMyProfileResponse = zod.object({
 export const RecordSearchBody = zod.object({
   query: zod.string().min(1),
 });
+
+/**
+ * @summary Check if a fact text is a duplicate (requires auth)
+ */
+export const checkDuplicateBodyTextMin = 10;
+export const checkDuplicateBodyTextMax = 1000;
+
+export const CheckDuplicateBody = zod.object({
+  text: zod
+    .string()
+    .min(checkDuplicateBodyTextMin)
+    .max(checkDuplicateBodyTextMax),
+});
+
+export const checkDuplicateResponseConfidenceMin = 0;
+export const checkDuplicateResponseConfidenceMax = 100;
+
+export const CheckDuplicateResponse = zod.object({
+  isDuplicate: zod.boolean(),
+  confidence: zod
+    .number()
+    .min(checkDuplicateResponseConfidenceMin)
+    .max(checkDuplicateResponseConfidenceMax),
+  matchingFactId: zod.number().nullish(),
+  matchingFactText: zod.string().nullish(),
+});
+
+/**
+ * @summary Suggest hashtags for a fact text (requires auth)
+ */
+export const suggestHashtagsBodyTextMin = 5;
+export const suggestHashtagsBodyTextMax = 1000;
+
+export const SuggestHashtagsBody = zod.object({
+  text: zod
+    .string()
+    .min(suggestHashtagsBodyTextMin)
+    .max(suggestHashtagsBodyTextMax),
+});
+
+export const SuggestHashtagsResponse = zod.object({
+  hashtags: zod.array(zod.string()),
+});
+
+/**
+ * @summary List AI-flagged comments (admin only)
+ */
+export const GetAdminFlaggedCommentsResponse = zod.object({
+  comments: zod.array(
+    zod.object({
+      id: zod.number(),
+      factId: zod.number(),
+      text: zod.string(),
+      authorId: zod.string().nullish(),
+      flagReason: zod.string().nullish(),
+      createdAt: zod.coerce.date(),
+    }),
+  ),
+});
+
+/**
+ * @summary Approve (unflag) a flagged comment (admin only)
+ */
+export const ApproveAdminCommentParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+/**
+ * @summary Delete a flagged comment (admin only)
+ */
+export const DeleteAdminCommentParams = zod.object({
+  id: zod.coerce.number(),
+});
