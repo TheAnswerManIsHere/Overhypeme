@@ -39,13 +39,21 @@ export default function AdminComments() {
   }, []);
 
   const approve = async (id: number) => {
-    await fetch(`/api/admin/comments/${id}/approve`, { method: "POST", credentials: "include" });
-    setComments((prev) => prev.filter((c) => c.id !== id));
+    const r = await fetch(`/api/admin/comments/${id}/approve`, { method: "POST", credentials: "include" });
+    if (r.ok) {
+      setComments((prev) => prev.filter((c) => c.id !== id));
+    } else {
+      alert(`Failed to approve comment (${r.status})`);
+    }
   };
 
   const reject = async (id: number) => {
-    await fetch(`/api/admin/comments/${id}`, { method: "DELETE", credentials: "include" });
-    setComments((prev) => prev.filter((c) => c.id !== id));
+    const r = await fetch(`/api/admin/comments/${id}`, { method: "DELETE", credentials: "include" });
+    if (r.ok) {
+      setComments((prev) => prev.filter((c) => c.id !== id));
+    } else {
+      alert(`Failed to delete comment (${r.status})`);
+    }
   };
 
   return (

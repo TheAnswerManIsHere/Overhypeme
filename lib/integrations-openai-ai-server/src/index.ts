@@ -1,1 +1,1 @@
-export { openai } from "./client";
+export { getOpenAIClient } from "./client";
