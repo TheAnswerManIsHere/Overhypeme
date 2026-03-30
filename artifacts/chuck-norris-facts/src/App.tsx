@@ -20,6 +20,7 @@ import AdminComments from "@/pages/admin/comments";
 import AdminAffiliate from "@/pages/admin/affiliate";
 import MemePage from "@/pages/MemePage";
 import Pricing from "@/pages/Pricing";
+import Login from "@/pages/Login";
 import NotFound from "@/pages/not-found";
 
 const queryClient = new QueryClient({
@@ -58,6 +59,7 @@ function Router() {
         <Route path="/admin" component={AdminDashboard} />
         <Route path="/meme/:slug" component={MemePage} />
         <Route path="/pricing" component={Pricing} />
+        <Route path="/login" component={Login} />
         <Route component={NotFound} />
       </Switch>
     </>

@@ -21,6 +21,8 @@ export const usersTable = pgTable("users", {
   firstName: varchar("first_name"),
   lastName: varchar("last_name"),
   profileImageUrl: varchar("profile_image_url"),
+  username: varchar("username", { length: 50 }).unique(),
+  passwordHash: varchar("password_hash"),
   captchaVerified: boolean("captcha_verified").notNull().default(false),
   isAdmin: boolean("is_admin").notNull().default(false),
   stripeCustomerId: varchar("stripe_customer_id").unique(),

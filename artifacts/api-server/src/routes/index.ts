@@ -12,11 +12,13 @@ import stripeRouter from "./stripe";
 import jobsRouter from "./jobs";
 import affiliateRouter from "./affiliate";
 import importRouter from "./import";
+import localAuthRouter from "./localAuth";
 
 const router: IRouter = Router();
 
 router.use(healthRouter);
 router.use(authRouter);
+router.use(localAuthRouter);
 router.use(factsRouter);
 router.use(hashtagsRouter);
 router.use(usersRouter);
