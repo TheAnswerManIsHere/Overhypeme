@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useRoute, Link } from "wouter";
+import { useRoute, Link, useLocation } from "wouter";
 import { format } from "date-fns";
 import HCaptcha from "@hcaptcha/react-hcaptcha";
 
@@ -22,7 +22,8 @@ const HCAPTCHA_SITE_KEY =
 export default function FactDetail() {
   const [, params] = useRoute("/facts/:id");
   const factId = parseInt(params?.id || "0", 10);
-  const { isAuthenticated, user, login } = useAuth();
+  const [, setLocation] = useLocation();
+  const { isAuthenticated, user } = useAuth();
   const { rateFact, addComment, addLink, deleteLink } = useAppMutations();
 
   const { data: fact, isLoading: factLoading, error: factError } = useGetFact(factId, {
@@ -47,14 +48,14 @@ export default function FactDetail() {
   if (factError || !fact) return <Layout><div className="max-w-2xl mx-auto mt-20 p-8 bg-destructive/10 border-2 border-destructive text-center"><AlertCircle className="w-16 h-16 text-destructive mx-auto mb-4"/><h2 className="text-3xl font-display text-destructive uppercase">Classified Record Not Found</h2></div></Layout>;
 
   const handleRate = (type: "up" | "down") => {
-    if (!isAuthenticated) return login();
+    if (!isAuthenticated) return setLocation("/login");
     const newRating = fact.userRating === type ? "none" : type;
     rateFact.mutate({ factId, data: { rating: newRating } });
   };
 
   const handleCommentSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!isAuthenticated) return login();
+    if (!isAuthenticated) return setLocation("/login");
     if (!commentText.trim() || !captchaToken) return;
 
     addComment.mutate({ factId, data: { text: commentText, captchaToken } }, {
@@ -67,7 +68,7 @@ export default function FactDetail() {
 
   const handleAddLink = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!isAuthenticated) return login();
+    if (!isAuthenticated) return setLocation("/login");
     if (!linkUrl.trim()) return;
 
     addLink.mutate({ factId, data: { url: linkUrl } }, {

@@ -6,9 +6,10 @@ import { FactCard } from "@/components/facts/FactCard";
 import { Button } from "@/components/ui/Button";
 import { SubscriptionPanel } from "@/components/SubscriptionPanel";
 import { ShieldAlert, LogOut, Clock, ThumbsUp, FileText, Hash, Star, X } from "lucide-react";
-import { Link } from "wouter";
+import { Link, useLocation } from "wouter";
 
 export default function Profile() {
+  const [, setLocation] = useLocation();
   const { isAuthenticated, login, logout } = useAuth();
   const { data: profile, isLoading } = useGetMyProfile({
     query: { queryKey: getGetMyProfileQueryKey(), enabled: isAuthenticated, retry: false }
@@ -32,7 +33,10 @@ export default function Profile() {
           <ShieldAlert className="w-20 h-20 text-primary mx-auto mb-6 opacity-80" />
           <h1 className="text-4xl font-display uppercase mb-4 text-foreground">Access Denied</h1>
           <p className="text-muted-foreground text-lg mb-8">You must authenticate to access personnel records.</p>
-          <Button size="lg" onClick={login}>AUTHENTICATE NOW</Button>
+          <div className="flex gap-4 justify-center">
+            <Button size="lg" onClick={() => setLocation("/login")}>AUTHENTICATE NOW</Button>
+            <Button size="lg" variant="outline" onClick={() => window.history.length > 1 ? window.history.back() : setLocation("/")}>GO BACK</Button>
+          </div>
         </div>
       </Layout>
     );
