@@ -7,7 +7,7 @@ import { isAdminById } from "./auth";
 
 const router: IRouter = Router();
 
-async function requireAdmin(req: Request, res: Response, next: NextFunction) {
+export async function requireAdmin(req: Request, res: Response, next: NextFunction) {
   if (!req.isAuthenticated()) {
     res.status(401).json({ error: "Unauthorized" });
     return;

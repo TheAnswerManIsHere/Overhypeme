@@ -1,7 +1,8 @@
 import { Router, type IRouter, type Request, type Response } from "express";
 import { db } from "@workspace/db";
 import { affiliateClicksTable } from "@workspace/db/schema";
-import { eq, desc, count, sql } from "drizzle-orm";
+import { desc, count, sql } from "drizzle-orm";
+import { requireAdmin } from "./admin";
 
 const router: IRouter = Router();
 
@@ -11,11 +12,19 @@ const CAFEPRESS_AFFILIATE_ID = process.env.CAFEPRESS_AFFILIATE_ID ?? "chucknorri
 
 function buildZazzleUrl(text: string, imageUrl?: string): string {
   const encoded = encodeURIComponent(text.slice(0, 160));
-  const base = "https://www.zazzle.com/api/create/at-" + ZAZZLE_AFFILIATE_ID;
+  const base = `https://www.zazzle.com/api/create/at-${ZAZZLE_AFFILIATE_ID}`;
+  const params = new URLSearchParams({
+    rf: ZAZZLE_AFFILIATE_ID,
+    ax: "Linkover",
+    po: "zazzleHomepage",
+    t_text: encoded,
+  });
   if (imageUrl) {
-    return `${base}?rf=238527546099265388&ax=Linkover&po=zazzleHomepage&pd=pd_chuck_custom&ed=true&t_text=${encoded}`;
+    params.set("pd", "pd_chuck_custom");
+    params.set("ed", "true");
+    params.set("t_imageURL", encodeURIComponent(imageUrl));
   }
-  return `${base}?rf=238527546099265388&ax=Linkover&po=zazzleHomepage&t_text=${encoded}`;
+  return `${base}?${params}`;
 }
 
 function buildCafePressUrl(text: string): string {
@@ -74,11 +83,8 @@ router.post("/affiliate/click", async (req: Request, res: Response) => {
   res.json({ url });
 });
 
-// GET /affiliate/stats — admin: click counts per source grouped by destination
-router.get("/affiliate/stats", async (req: Request, res: Response) => {
-  if (!req.isAuthenticated()) { res.status(401).json({ error: "Unauthorized" }); return; }
-  // Admin check is done by the fact that only admin pages call this endpoint
-  // Additional auth is enforced in the frontend admin section
+// GET /affiliate/stats — admin only: click counts per source grouped by destination
+router.get("/affiliate/stats", requireAdmin, async (req: Request, res: Response) => {
 
   const dateFrom = req.query["from"] ? new Date(String(req.query["from"])) : null;
   const dateTo = req.query["to"] ? new Date(String(req.query["to"])) : null;

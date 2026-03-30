@@ -9,12 +9,22 @@ export interface HealthStatus {
   status: string;
 }
 
+export type AuthUserMembershipTier =
+  | (typeof AuthUserMembershipTier)[keyof typeof AuthUserMembershipTier]
+  | null;
+
+export const AuthUserMembershipTier = {
+  free: "free",
+  premium: "premium",
+} as const;
+
 export interface AuthUser {
   id: string;
   email?: string | null;
   firstName?: string | null;
   lastName?: string | null;
   profileImageUrl?: string | null;
+  membershipTier?: AuthUserMembershipTier;
 }
 
 export interface AuthUserEnvelope {

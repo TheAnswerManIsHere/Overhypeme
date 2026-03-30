@@ -11,6 +11,7 @@ export * from "./addLinkRequest";
 export * from "./authorizationSessionHeaderParameter";
 export * from "./authUser";
 export * from "./authUserEnvelope";
+export * from "./authUserMembershipTier";
 export * from "./beginBrowserLoginParams";
 export * from "./checkDuplicate200";
 export * from "./checkDuplicateBody";

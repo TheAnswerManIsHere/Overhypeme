@@ -5,6 +5,7 @@
  * API specification for Chuck Norris Facts
  * OpenAPI spec version: 0.1.0
  */
+import type { AuthUserMembershipTier } from "./authUserMembershipTier";
 
 export interface AuthUser {
   id: string;
@@ -12,4 +13,5 @@ export interface AuthUser {
   firstName?: string | null;
   lastName?: string | null;
   profileImageUrl?: string | null;
+  membershipTier?: AuthUserMembershipTier;
 }
