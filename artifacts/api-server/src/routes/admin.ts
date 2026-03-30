@@ -1,6 +1,6 @@
 import { Router, type IRouter, type Request, type Response, type NextFunction } from "express";
 import { db, usersTable } from "@workspace/db";
-import { factsTable } from "@workspace/db/schema";
+import { factsTable, commentsTable } from "@workspace/db/schema";
 import { eq, desc, count, ilike } from "drizzle-orm";
 import { getSessionId, getSession, updateSession } from "../lib/auth";
 import { isAdminById } from "./auth";
@@ -168,6 +168,43 @@ router.post("/admin/facts/import-csv", requireAdmin, async (req: Request, res: R
     .returning();
 
   res.json({ success: true, imported: inserted.length });
+});
+
+router.get("/admin/comments/flagged", requireAdmin, async (_req: Request, res: Response) => {
+  const rows = await db
+    .select({
+      id: commentsTable.id,
+      factId: commentsTable.factId,
+      text: commentsTable.text,
+      authorId: commentsTable.authorId,
+      flagReason: commentsTable.flagReason,
+      createdAt: commentsTable.createdAt,
+    })
+    .from(commentsTable)
+    .where(eq(commentsTable.flagged, true))
+    .orderBy(desc(commentsTable.createdAt))
+    .limit(100);
+
+  res.json({
+    comments: rows.map((c) => ({
+      ...c,
+      createdAt: c.createdAt.toISOString(),
+    })),
+  });
+});
+
+router.post("/admin/comments/:id/approve", requireAdmin, async (req: Request, res: Response) => {
+  const id = parseInt(String(req.params.id ?? "0"), 10);
+  if (!id) { res.status(400).json({ error: "Invalid id" }); return; }
+  await db.update(commentsTable).set({ flagged: false, flagReason: null }).where(eq(commentsTable.id, id));
+  res.json({ success: true });
+});
+
+router.delete("/admin/comments/:id", requireAdmin, async (req: Request, res: Response) => {
+  const id = parseInt(String(req.params.id ?? "0"), 10);
+  if (!id) { res.status(400).json({ error: "Invalid id" }); return; }
+  await db.delete(commentsTable).where(eq(commentsTable.id, id));
+  res.json({ success: true });
 });
 
 export default router;

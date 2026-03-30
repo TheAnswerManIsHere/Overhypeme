@@ -1,4 +1,5 @@
 import { Router, type IRouter, type Request, type Response } from "express";
+import { moderateComment } from "./ai";
 import { db } from "@workspace/db";
 import {
   factsTable, hashtagsTable, factHashtagsTable,
@@ -268,6 +269,8 @@ router.post("/facts/:factId/comments", async (req: Request, res: Response) => {
     authorImage: req.user.profileImageUrl ?? null,
     createdAt: comment.createdAt.toISOString(),
   });
+
+  moderateComment(comment.id, text).catch(() => {});
 });
 
 // GET /facts/:factId/links
