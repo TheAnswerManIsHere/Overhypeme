@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Link } from "wouter";
+import { Link, useLocation } from "wouter";
 import { useAuth } from "@workspace/replit-auth-web";
 import { Layout } from "@/components/layout/Layout";
 import { Button } from "@/components/ui/Button";
@@ -59,7 +59,8 @@ function PricingCard({ priceId, label, amount, period, savings, onSelect, loadin
 }
 
 export default function Pricing() {
-  const { isAuthenticated, login } = useAuth();
+  const [, setLocation] = useLocation();
+  const { isAuthenticated } = useAuth();
   const [loadingPriceId, setLoadingPriceId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -76,7 +77,7 @@ export default function Pricing() {
   }, []);
 
   async function handleSelect(priceId: string) {
-    if (!isAuthenticated) { login(); return; }
+    if (!isAuthenticated) { setLocation("/login"); return; }
     setLoadingPriceId(priceId);
     setError(null);
     try {

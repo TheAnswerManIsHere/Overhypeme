@@ -141,7 +141,10 @@ export default function SubmitFact() {
           <ShieldAlert className="w-20 h-20 text-primary mx-auto mb-6 opacity-80" />
           <h1 className="text-4xl font-display uppercase mb-4 text-foreground">Restricted Area</h1>
           <p className="text-muted-foreground text-lg mb-8">You must be authorized to submit facts to the database.</p>
-          <Button size="lg" onClick={login}>IDENTIFY YOURSELF (LOGIN)</Button>
+          <div className="flex gap-4 justify-center">
+            <Button size="lg" onClick={() => setLocation("/login")}>IDENTIFY YOURSELF (LOGIN)</Button>
+            <Button size="lg" variant="outline" onClick={() => window.history.length > 1 ? window.history.back() : setLocation("/")}>GO BACK</Button>
+          </div>
         </div>
       </Layout>
     );
