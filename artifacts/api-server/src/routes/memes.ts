@@ -1,11 +1,17 @@
 import { Router, type IRouter, type Request, type Response } from "express";
 import { randomUUID } from "crypto";
+import { Readable } from "stream";
+import path from "path";
+import { fileURLToPath } from "url";
 import { db } from "@workspace/db";
 import { memesTable, factsTable, usersTable } from "@workspace/db/schema";
 import { eq, desc } from "drizzle-orm";
 import { z } from "zod";
 import { generateMemeBuffer, MEME_TEMPLATES } from "../lib/memeGenerator";
 import { ObjectStorageService } from "../lib/objectStorage";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const TEMPLATES_DIR = path.resolve(__dirname, "assets/meme-templates");
 
 const router: IRouter = Router();
 const objectStorageService = new ObjectStorageService();
@@ -27,7 +33,25 @@ function generateSlug(): string {
 
 // GET /memes/templates
 router.get("/memes/templates", (_req: Request, res: Response) => {
-  res.json({ templates: MEME_TEMPLATES });
+  res.json({
+    templates: MEME_TEMPLATES.map(t => ({
+      id: t.id,
+      name: t.name,
+      description: t.description,
+      previewColors: t.previewColors,
+      previewImageUrl: `/api/memes/templates/${t.id}/preview`,
+    })),
+  });
+});
+
+// GET /memes/templates/:id/preview — serve static template background PNG
+router.get("/memes/templates/:id/preview", (req: Request, res: Response) => {
+  const id = req.params["id"] as string;
+  const template = MEME_TEMPLATES.find(t => t.id === id);
+  if (!template) { res.status(404).end(); return; }
+  res.setHeader("Content-Type", "image/png");
+  res.setHeader("Cache-Control", "public, max-age=86400");
+  res.sendFile(path.join(TEMPLATES_DIR, template.assetPath));
 });
 
 // GET /memes/:slug
@@ -72,23 +96,23 @@ router.post("/memes", async (req: Request, res: Response) => {
   const validTemplate = MEME_TEMPLATES.find(t => t.id === templateId);
   if (!validTemplate) { res.status(400).json({ error: "Invalid template ID" }); return; }
 
-  const imageBuffer = generateMemeBuffer(templateId, fact.text, textOptions);
-
-  const subPath = `memes/${randomUUID()}.png`;
-  const objectPath = await objectStorageService.uploadObjectBuffer({
-    subPath,
-    buffer: imageBuffer,
-    contentType: "image/png",
-  });
-
-  const imageUrl = `/api/storage${objectPath}`;
-
   let slug = generateSlug();
   for (let i = 0; i < 5; i++) {
     const [existing] = await db.select({ id: memesTable.id }).from(memesTable).where(eq(memesTable.permalinkSlug, slug)).limit(1);
     if (!existing) break;
     slug = generateSlug();
   }
+
+  const imageBuffer = await generateMemeBuffer(templateId, fact.text, textOptions);
+
+  const subPath = `memes/${slug}.png`;
+  await objectStorageService.uploadObjectBuffer({
+    subPath,
+    buffer: imageBuffer,
+    contentType: "image/png",
+  });
+
+  const imageUrl = `/api/memes/${slug}/image`;
 
   const [meme] = await db.insert(memesTable).values({
     factId,
@@ -126,6 +150,30 @@ router.get("/facts/:factId/memes", async (req: Request, res: Response) => {
       createdAt: m.createdAt.toISOString(),
     })),
   });
+});
+
+// GET /memes/:slug/image — publicly serve meme image (verifies slug exists in DB)
+router.get("/memes/:slug/image", async (req: Request, res: Response) => {
+  const slug = req.params["slug"] as string;
+  if (!slug) { res.status(400).end(); return; }
+
+  const [meme] = await db.select({ imageUrl: memesTable.imageUrl }).from(memesTable).where(eq(memesTable.permalinkSlug, slug)).limit(1);
+  if (!meme) { res.status(404).end(); return; }
+
+  const objectPath = `/objects/memes/${slug}.png`;
+  try {
+    const objectFile = await objectStorageService.getObjectEntityFile(objectPath);
+    const response = await objectStorageService.downloadObject(objectFile, 86400);
+    res.status(response.status);
+    response.headers.forEach((value, key) => res.setHeader(key, value));
+    if (response.body) {
+      Readable.fromWeb(response.body as ReadableStream<Uint8Array>).pipe(res);
+    } else {
+      res.end();
+    }
+  } catch {
+    res.status(404).end();
+  }
 });
 
 export default router;
