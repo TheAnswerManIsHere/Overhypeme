@@ -2,7 +2,7 @@ import { Router, type IRouter, type Request, type Response, type NextFunction } 
 import { db } from "@workspace/db";
 import { factsTable, hashtagsTable, commentsTable } from "@workspace/db/schema";
 import { desc, ilike, or, eq, sql } from "drizzle-orm";
-import { openai } from "@workspace/integrations-openai-ai-server";
+import { getOpenAIClient } from "@workspace/integrations-openai-ai-server";
 import { z } from "zod";
 import { getSessionId, getSession } from "../lib/auth";
 
@@ -52,7 +52,7 @@ function requireRateLimit(req: Request, res: Response, next: NextFunction): void
 
 export async function moderateComment(commentId: number, text: string): Promise<void> {
   try {
-    const response = await openai.chat.completions.create({
+    const response = await getOpenAIClient().chat.completions.create({
       model: "gpt-5-mini",
       max_completion_tokens: 256,
       messages: [
@@ -129,7 +129,7 @@ router.post("/ai/check-duplicate", requireAuth, requireRateLimit, async (req: Re
     .map((f, i) => `[${i + 1}] (ID:${f.id}) ${f.text}`)
     .join("\n");
 
-  const response = await openai.chat.completions.create({
+  const response = await getOpenAIClient().chat.completions.create({
     model: "gpt-5-mini",
     max_completion_tokens: 256,
     messages: [
@@ -186,7 +186,7 @@ router.post("/ai/suggest-hashtags", requireAuth, requireRateLimit, async (req: R
 
   const existingNames = existing.map((h) => h.name);
 
-  const response = await openai.chat.completions.create({
+  const response = await getOpenAIClient().chat.completions.create({
     model: "gpt-5-mini",
     max_completion_tokens: 256,
     messages: [
