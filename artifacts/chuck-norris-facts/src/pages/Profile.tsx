@@ -4,7 +4,7 @@ import { useGetMyProfile } from "@workspace/api-client-react";
 import { Layout } from "@/components/layout/Layout";
 import { FactCard } from "@/components/facts/FactCard";
 import { Button } from "@/components/ui/Button";
-import { ShieldAlert, LogOut, Clock, ThumbsUp, FileText } from "lucide-react";
+import { ShieldAlert, LogOut, Clock, ThumbsUp, FileText, Hash } from "lucide-react";
 import { Link } from "wouter";
 
 export default function Profile() {
@@ -69,6 +69,25 @@ export default function Profile() {
             </Button>
           </div>
         </div>
+
+        {/* Favorite Hashtags */}
+        {profile.favoriteHashtags && profile.favoriteHashtags.length > 0 && (
+          <div className="bg-card border-2 border-border p-6 rounded-sm shadow mb-8">
+            <div className="flex items-center gap-2 mb-4">
+              <Hash className="w-5 h-5 text-primary" />
+              <h2 className="font-display text-xl uppercase tracking-wide text-foreground">Favorite Intel Tags</h2>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {profile.favoriteHashtags.map((tag: string) => (
+                <Link key={tag} href={`/search?hashtag=${encodeURIComponent(tag)}`}>
+                  <span className="inline-block bg-primary/10 text-primary border border-primary/40 hover:bg-primary/20 hover:border-primary transition-colors px-4 py-1.5 rounded-sm font-bold font-display text-sm uppercase tracking-widest cursor-pointer">
+                    #{tag}
+                  </span>
+                </Link>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Custom Tabs */}
         <div className="flex overflow-x-auto gap-2 mb-8 border-b-2 border-border pb-[-2px] no-scrollbar">

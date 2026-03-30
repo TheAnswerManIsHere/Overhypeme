@@ -14,6 +14,21 @@ import {
 
 const router: IRouter = Router();
 
+async function verifyCaptcha(token: string): Promise<boolean> {
+  const secret = process.env.HCAPTCHA_SECRET ?? "0x0000000000000000000000000000000000000000";
+  try {
+    const resp = await fetch("https://api.hcaptcha.com/siteverify", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ secret, response: token }).toString(),
+    });
+    const data = (await resp.json()) as { success: boolean };
+    return data.success === true;
+  } catch {
+    return false;
+  }
+}
+
 function detectPlatform(url: string): string | null {
   if (url.includes("youtube.com") || url.includes("youtu.be")) return "YouTube";
   if (url.includes("tiktok.com")) return "TikTok";
@@ -97,7 +112,7 @@ router.get("/facts/:factId", async (req: Request, res: Response) => {
       const [u] = await db.select({ firstName: usersTable.firstName }).from(usersTable).where(eq(usersTable.id, l.addedById)).limit(1);
       addedBy = u?.firstName ?? null;
     }
-    return { id: l.id, factId: l.factId, url: l.url, title: l.title ?? null, platform: l.platform ?? null, addedBy, createdAt: l.createdAt.toISOString() };
+    return { id: l.id, factId: l.factId, url: l.url, title: l.title ?? null, platform: l.platform ?? null, addedBy, addedById: l.addedById ?? null, createdAt: l.createdAt.toISOString() };
   }));
   res.json({ ...summary, links });
 });
@@ -107,7 +122,12 @@ router.post("/facts", async (req: Request, res: Response) => {
   if (!req.isAuthenticated()) { res.status(401).json({ error: "Unauthorized" }); return; }
   const parsed = CreateFactBody.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: "Invalid input", details: parsed.error.flatten() }); return; }
-  const { text, hashtags = [] } = parsed.data;
+  const { text, hashtags = [], captchaToken } = parsed.data;
+
+  if (!captchaToken || !(await verifyCaptcha(captchaToken))) {
+    res.status(400).json({ error: "CAPTCHA verification failed" });
+    return;
+  }
 
   const [fact] = await db.insert(factsTable).values({ text, submittedById: req.user.id }).returning();
 
@@ -214,7 +234,12 @@ router.post("/facts/:factId/comments", async (req: Request, res: Response) => {
   const bodyParsed = AddCommentBody.safeParse(req.body);
   if (!paramsParsed.success || !bodyParsed.success) { res.status(400).json({ error: "Invalid input" }); return; }
   const factId = paramsParsed.data.factId;
-  const { text } = bodyParsed.data;
+  const { text, captchaToken } = bodyParsed.data;
+
+  if (!captchaToken || !(await verifyCaptcha(captchaToken))) {
+    res.status(400).json({ error: "CAPTCHA verification failed" });
+    return;
+  }
 
   const [comment] = await db.insert(commentsTable).values({ factId, authorId: req.user.id, text }).returning();
   await db.update(factsTable).set({ commentCount: sql`${factsTable.commentCount} + 1` }).where(eq(factsTable.id, factId));
@@ -246,7 +271,7 @@ router.post("/facts/:factId/links", async (req: Request, res: Response) => {
   const { url, title } = bodyParsed.data;
   const platform = detectPlatform(url);
   const [link] = await db.insert(externalLinksTable).values({ factId, url, title: title ?? null, platform, addedById: req.user.id }).returning();
-  res.status(201).json({ id: link.id, factId: link.factId, url: link.url, title: link.title ?? null, platform: link.platform ?? null, addedBy: req.user.firstName ?? null, createdAt: link.createdAt.toISOString() });
+  res.status(201).json({ id: link.id, factId: link.factId, url: link.url, title: link.title ?? null, platform: link.platform ?? null, addedBy: req.user.firstName ?? null, addedById: req.user.id, createdAt: link.createdAt.toISOString() });
 });
 
 // DELETE /facts/:factId/links/:linkId
