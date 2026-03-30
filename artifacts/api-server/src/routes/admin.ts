@@ -196,7 +196,18 @@ router.get("/admin/comments/flagged", requireAdmin, async (_req: Request, res: R
 router.post("/admin/comments/:id/approve", requireAdmin, async (req: Request, res: Response) => {
   const id = parseInt(String(req.params.id ?? "0"), 10);
   if (!id) { res.status(400).json({ error: "Invalid id" }); return; }
+  const [current] = await db
+    .select({ factId: commentsTable.factId, wasFlagged: commentsTable.flagged })
+    .from(commentsTable)
+    .where(eq(commentsTable.id, id));
+  if (!current) { res.status(404).json({ error: "Comment not found" }); return; }
   await db.update(commentsTable).set({ flagged: false, flagReason: null }).where(eq(commentsTable.id, id));
+  if (current.wasFlagged) {
+    await db
+      .update(factsTable)
+      .set({ commentCount: sql`${factsTable.commentCount} + 1` })
+      .where(eq(factsTable.id, current.factId));
+  }
   res.json({ success: true });
 });
 
@@ -205,8 +216,9 @@ router.delete("/admin/comments/:id", requireAdmin, async (req: Request, res: Res
   if (!id) { res.status(400).json({ error: "Invalid id" }); return; }
   const [deleted] = await db.delete(commentsTable).where(eq(commentsTable.id, id)).returning({
     factId: commentsTable.factId,
+    wasFlagged: commentsTable.flagged,
   });
-  if (deleted) {
+  if (deleted && !deleted.wasFlagged) {
     await db
       .update(factsTable)
       .set({ commentCount: sql`GREATEST(${factsTable.commentCount} - 1, 0)` })
