@@ -1,5 +1,5 @@
 import { Link, useLocation } from "wouter";
-import { Search, Plus, User, LogIn, LogOut, Menu, X } from "lucide-react";
+import { Search, Plus, User, LogIn, LogOut, Menu, X, Star } from "lucide-react";
 import { useAuth } from "@workspace/replit-auth-web";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
@@ -54,6 +54,9 @@ export function Navbar() {
             <Button variant="outline" size="sm" onClick={() => setLocation('/submit')} className="hidden lg:flex gap-2">
               <Plus className="w-4 h-4" /> SUBMIT FACT
             </Button>
+            <Button variant="ghost" size="sm" onClick={() => setLocation('/pricing')} className="hidden lg:flex gap-2 text-primary hover:text-primary">
+              <Star className="w-4 h-4" /> PREMIUM
+            </Button>
             
             {isAuthenticated ? (
               <div className="flex items-center gap-3">
@@ -105,6 +108,9 @@ export function Navbar() {
               </form>
               <Button variant="outline" className="w-full gap-2" onClick={() => { setLocation('/submit'); setMobileMenuOpen(false); }}>
                 <Plus className="w-5 h-5" /> SUBMIT NEW FACT
+              </Button>
+              <Button variant="ghost" className="w-full gap-2 text-primary" onClick={() => { setLocation('/pricing'); setMobileMenuOpen(false); }}>
+                <Star className="w-5 h-5" /> GO PREMIUM
               </Button>
               {isAuthenticated ? (
                 <div className="grid grid-cols-2 gap-4">

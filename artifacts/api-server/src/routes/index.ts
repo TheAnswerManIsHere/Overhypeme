@@ -8,6 +8,8 @@ import adminRouter from "./admin";
 import aiRouter from "./ai";
 import memesRouter from "./memes";
 import storageRouter from "./storage";
+import stripeRouter from "./stripe";
+import jobsRouter from "./jobs";
 
 const router: IRouter = Router();
 
@@ -20,5 +22,7 @@ router.use(adminRouter);
 router.use(aiRouter);
 router.use(memesRouter);
 router.use(storageRouter);
+router.use(stripeRouter);
+router.use(jobsRouter);
 
 export default router;

@@ -1,10 +1,11 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useAuth } from "@workspace/replit-auth-web";
 import { useGetMyProfile, getGetMyProfileQueryKey } from "@workspace/api-client-react";
 import { Layout } from "@/components/layout/Layout";
 import { FactCard } from "@/components/facts/FactCard";
 import { Button } from "@/components/ui/Button";
-import { ShieldAlert, LogOut, Clock, ThumbsUp, FileText, Hash } from "lucide-react";
+import { SubscriptionPanel } from "@/components/SubscriptionPanel";
+import { ShieldAlert, LogOut, Clock, ThumbsUp, FileText, Hash, Star, X } from "lucide-react";
 import { Link } from "wouter";
 
 export default function Profile() {
@@ -14,6 +15,15 @@ export default function Profile() {
   });
 
   const [activeTab, setActiveTab] = useState<"submitted" | "liked" | "history">("liked");
+  const [checkoutBanner, setCheckoutBanner] = useState<"success" | "cancel" | null>(null);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("checkout") === "success") {
+      setCheckoutBanner("success");
+      window.history.replaceState({}, "", window.location.pathname);
+    }
+  }, []);
 
   if (!isAuthenticated) {
     return (
@@ -43,6 +53,19 @@ export default function Profile() {
   return (
     <Layout>
       <div className="max-w-5xl mx-auto px-4 py-12 md:py-20">
+
+        {/* Checkout Success Banner */}
+        {checkoutBanner === "success" && (
+          <div className="flex items-center justify-between gap-4 bg-primary/20 border-2 border-primary rounded-sm p-4 mb-8">
+            <div className="flex items-center gap-3">
+              <Star className="w-5 h-5 text-primary shrink-0" />
+              <p className="font-bold text-foreground">Welcome to Premium! Your membership is now active. Daily facts incoming.</p>
+            </div>
+            <button onClick={() => setCheckoutBanner(null)} className="text-muted-foreground hover:text-foreground shrink-0">
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        )}
         
         {/* Profile Header */}
         <div className="bg-card border-2 border-border p-8 rounded-sm shadow-xl flex flex-col md:flex-row items-center gap-8 relative overflow-hidden mb-12">
@@ -69,6 +92,9 @@ export default function Profile() {
             </Button>
           </div>
         </div>
+
+        {/* Subscription Panel */}
+        <SubscriptionPanel />
 
         {/* Favorite Hashtags */}
         {profile.favoriteHashtags && profile.favoriteHashtags.length > 0 && (
