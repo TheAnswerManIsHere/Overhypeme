@@ -111,71 +111,76 @@ router.post("/ai/check-duplicate", requireAuth, requireRateLimit, async (req: Re
   }
   const { text } = bodyParsed.data;
 
-  const words = text
-    .toLowerCase()
-    .split(/\s+/)
-    .filter((w: string) => w.length > 4)
-    .slice(0, 5);
-
-  let candidates: { id: number; text: string }[] = [];
-  if (words.length > 0) {
-    const conditions = words.map((w: string) => ilike(factsTable.text, `%${w}%`));
-    candidates = await db
-      .select({ id: factsTable.id, text: factsTable.text })
-      .from(factsTable)
-      .where(or(...conditions))
-      .orderBy(desc(factsTable.score))
-      .limit(10);
-  }
-
-  if (candidates.length === 0) {
-    res.json({ isDuplicate: false, confidence: 0 });
-    return;
-  }
-
-  const candidateList = candidates
-    .map((f, i) => `[${i + 1}] (ID:${f.id}) ${f.text}`)
-    .join("\n");
-
-  const response = await getOpenAIClient().chat.completions.create({
-    model: "gpt-5-mini",
-    max_completion_tokens: 256,
-    response_format: { type: "json_object" },
-    messages: [
-      {
-        role: "system",
-        content:
-          "You are a duplicate detector for Chuck Norris facts. " +
-          "Given a new submission and a list of existing facts, determine if the new one is a duplicate or very similar. " +
-          "Respond ONLY with JSON: {\"isDuplicate\": true/false, \"confidence\": 0-100, \"matchIndex\": number_or_null}. " +
-          "matchIndex is the 1-based index from the candidate list, or null if not a duplicate.",
-      },
-      {
-        role: "user",
-        content: `New submission: "${text}"\n\nExisting facts:\n${candidateList}`,
-      },
-    ],
-  });
-
-  const raw = response.choices[0]?.message?.content ?? "{}";
-  let result: { isDuplicate?: boolean; confidence?: number; matchIndex?: number | null } = {};
   try {
-    result = JSON.parse(raw);
-  } catch {
-    res.json({ isDuplicate: false, confidence: 0 });
-    return;
-  }
+    const words = text
+      .toLowerCase()
+      .split(/\s+/)
+      .filter((w: string) => w.length > 4)
+      .slice(0, 5);
 
-  if (result.isDuplicate && result.matchIndex != null) {
-    const match = candidates[result.matchIndex - 1];
-    res.json({
-      isDuplicate: true,
-      confidence: result.confidence ?? 90,
-      matchingFactId: match?.id,
-      matchingFactText: match?.text,
+    let candidates: { id: number; text: string }[] = [];
+    if (words.length > 0) {
+      const conditions = words.map((w: string) => ilike(factsTable.text, `%${w}%`));
+      candidates = await db
+        .select({ id: factsTable.id, text: factsTable.text })
+        .from(factsTable)
+        .where(or(...conditions))
+        .orderBy(desc(factsTable.score))
+        .limit(10);
+    }
+
+    if (candidates.length === 0) {
+      res.json({ isDuplicate: false, confidence: 0 });
+      return;
+    }
+
+    const candidateList = candidates
+      .map((f, i) => `[${i + 1}] (ID:${f.id}) ${f.text}`)
+      .join("\n");
+
+    const response = await getOpenAIClient().chat.completions.create({
+      model: "gpt-5-mini",
+      max_completion_tokens: 256,
+      response_format: { type: "json_object" },
+      messages: [
+        {
+          role: "system",
+          content:
+            "You are a duplicate detector for Chuck Norris facts. " +
+            "Given a new submission and a list of existing facts, determine if the new one is a duplicate or very similar. " +
+            "Respond ONLY with JSON: {\"isDuplicate\": true/false, \"confidence\": 0-100, \"matchIndex\": number_or_null}. " +
+            "matchIndex is the 1-based index from the candidate list, or null if not a duplicate.",
+        },
+        {
+          role: "user",
+          content: `New submission: "${text}"\n\nExisting facts:\n${candidateList}`,
+        },
+      ],
     });
-  } else {
-    res.json({ isDuplicate: false, confidence: result.confidence ?? 0 });
+
+    const raw = response.choices[0]?.message?.content ?? "{}";
+    let result: { isDuplicate?: boolean; confidence?: number; matchIndex?: number | null } = {};
+    try {
+      result = JSON.parse(raw);
+    } catch {
+      res.json({ isDuplicate: false, confidence: 0 });
+      return;
+    }
+
+    if (result.isDuplicate && result.matchIndex != null) {
+      const match = candidates[result.matchIndex - 1];
+      res.json({
+        isDuplicate: true,
+        confidence: result.confidence ?? 90,
+        matchingFactId: match?.id,
+        matchingFactText: match?.text,
+      });
+    } else {
+      res.json({ isDuplicate: false, confidence: result.confidence ?? 0 });
+    }
+  } catch (err) {
+    console.error("[AI] check-duplicate error:", err);
+    res.json({ isDuplicate: false, confidence: 0 });
   }
 });
 
@@ -187,49 +192,54 @@ router.post("/ai/suggest-hashtags", requireAuth, requireRateLimit, async (req: R
   }
   const { text } = bodyParsed.data;
 
-  const existing = await db
-    .select({ name: hashtagsTable.name })
-    .from(hashtagsTable)
-    .orderBy(desc(hashtagsTable.factCount))
-    .limit(40);
-
-  const existingNames = existing.map((h) => h.name);
-
-  const response = await getOpenAIClient().chat.completions.create({
-    model: "gpt-5-mini",
-    max_completion_tokens: 256,
-    response_format: { type: "json_object" },
-    messages: [
-      {
-        role: "system",
-        content:
-          "You suggest hashtags for Chuck Norris facts on a humor website. " +
-          "Return a JSON object with a single key 'hashtags' containing an array of 3-5 lowercase strings (no # prefix, letters/numbers/underscores only). " +
-          "Prefer tags from the existing list when relevant. You may add 1-2 new tags if needed. " +
-          "Example output: {\"hashtags\": [\"strength\",\"supernatural\",\"wisdom\"]}",
-      },
-      {
-        role: "user",
-        content: `Fact: "${text}"\n\nExisting hashtags: ${existingNames.join(", ")}`,
-      },
-    ],
-  });
-
-  const raw = response.choices[0]?.message?.content ?? "{}";
-  let tags: string[] = [];
   try {
-    const parsed2 = JSON.parse(raw) as Record<string, unknown>;
-    const arr = Array.isArray(parsed2.hashtags) ? parsed2.hashtags : [];
-    tags = (arr as unknown[])
-      .filter((t): t is string => typeof t === "string")
-      .map((t) => t.toLowerCase().replace(/[^a-z0-9_]/g, ""))
-      .filter((t) => t.length > 0)
-      .slice(0, 5);
-  } catch {
-    tags = [];
-  }
+    const existing = await db
+      .select({ name: hashtagsTable.name })
+      .from(hashtagsTable)
+      .orderBy(desc(hashtagsTable.factCount))
+      .limit(40);
 
-  res.json({ hashtags: tags });
+    const existingNames = existing.map((h) => h.name);
+
+    const response = await getOpenAIClient().chat.completions.create({
+      model: "gpt-5-mini",
+      max_completion_tokens: 256,
+      response_format: { type: "json_object" },
+      messages: [
+        {
+          role: "system",
+          content:
+            "You suggest hashtags for Chuck Norris facts on a humor website. " +
+            "Return a JSON object with a single key 'hashtags' containing an array of 3-5 lowercase strings (no # prefix, letters/numbers/underscores only). " +
+            "Prefer tags from the existing list when relevant. You may add 1-2 new tags if needed. " +
+            "Example output: {\"hashtags\": [\"strength\",\"supernatural\",\"wisdom\"]}",
+        },
+        {
+          role: "user",
+          content: `Fact: "${text}"\n\nExisting hashtags: ${existingNames.join(", ")}`,
+        },
+      ],
+    });
+
+    const raw = response.choices[0]?.message?.content ?? "{}";
+    let tags: string[] = [];
+    try {
+      const parsed2 = JSON.parse(raw) as Record<string, unknown>;
+      const arr = Array.isArray(parsed2.hashtags) ? parsed2.hashtags : [];
+      tags = (arr as unknown[])
+        .filter((t): t is string => typeof t === "string")
+        .map((t) => t.toLowerCase().replace(/[^a-z0-9_]/g, ""))
+        .filter((t) => t.length > 0)
+        .slice(0, 5);
+    } catch {
+      tags = [];
+    }
+
+    res.json({ hashtags: tags });
+  } catch (err) {
+    console.error("[AI] suggest-hashtags error:", err);
+    res.json({ hashtags: [] });
+  }
 });
 
 export default router;
