@@ -16,6 +16,7 @@ export interface SessionData {
   expires_at?: number;
   captchaVerified?: boolean;
   isAdmin?: boolean;
+  adminModeDisabled?: boolean;
 }
 
 let oidcConfig: client.Configuration | null = null;

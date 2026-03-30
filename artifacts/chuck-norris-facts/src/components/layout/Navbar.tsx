@@ -1,5 +1,5 @@
 import { Link, useLocation } from "wouter";
-import { Search, Plus, User, LogIn, LogOut, Menu, X, Star, ShieldCheck } from "lucide-react";
+import { Search, Plus, User, LogIn, LogOut, Menu, X, Star, ShieldCheck, ShieldOff } from "lucide-react";
 import { useAuth } from "@workspace/replit-auth-web";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
@@ -7,10 +7,11 @@ import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 
 export function Navbar() {
-  const { user, isAuthenticated, login, logout } = useAuth();
+  const { user, isAuthenticated, logout } = useAuth();
   const [, setLocation] = useLocation();
   const [searchQuery, setSearchQuery] = useState("");
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [togglingAdmin, setTogglingAdmin] = useState(false);
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
@@ -19,6 +20,22 @@ export function Navbar() {
       setMobileMenuOpen(false);
     }
   };
+
+  const handleToggleAdminMode = async () => {
+    setTogglingAdmin(true);
+    try {
+      await fetch("/api/auth/toggle-admin-mode", {
+        method: "POST",
+        credentials: "include",
+      });
+      window.location.reload();
+    } catch {
+      setTogglingAdmin(false);
+    }
+  };
+
+  const isRealAdmin = user?.isRealAdmin;
+  const isAdminModeOn = user?.isAdmin;
 
   return (
     <nav className="sticky top-0 z-50 w-full bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80 border-b-2 border-border shadow-lg">
@@ -60,9 +77,33 @@ export function Navbar() {
             
             {isAuthenticated ? (
               <div className="flex items-center gap-3">
-                {user?.isAdmin && (
-                  <Button variant="ghost" size="icon" onClick={() => setLocation('/admin')} title="Admin Panel">
-                    <ShieldCheck className="w-5 h-5 text-primary" />
+                {isRealAdmin && isAdminModeOn && (
+                  <>
+                    <Button variant="ghost" size="icon" onClick={() => setLocation('/admin')} title="Admin Panel">
+                      <ShieldCheck className="w-5 h-5 text-primary" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={handleToggleAdminMode}
+                      isLoading={togglingAdmin}
+                      title="Exit admin mode"
+                      className="gap-1 text-xs text-muted-foreground hover:text-destructive hidden lg:flex"
+                    >
+                      <ShieldOff className="w-3.5 h-3.5" /> EXIT ADMIN
+                    </Button>
+                  </>
+                )}
+                {isRealAdmin && !isAdminModeOn && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={handleToggleAdminMode}
+                    isLoading={togglingAdmin}
+                    title="Enter admin mode"
+                    className="gap-1 text-xs text-muted-foreground hover:text-primary hidden lg:flex"
+                  >
+                    <ShieldCheck className="w-3.5 h-3.5" /> ADMIN MODE
                   </Button>
                 )}
                 <Button variant="ghost" size="icon" onClick={() => setLocation('/profile')}>
@@ -119,9 +160,29 @@ export function Navbar() {
               </Button>
               {isAuthenticated ? (
                 <div className="grid grid-cols-2 gap-4">
-                  {user?.isAdmin && (
-                    <Button variant="outline" className="w-full gap-2 col-span-2 border-primary text-primary" onClick={() => { setLocation('/admin'); setMobileMenuOpen(false); }}>
-                      <ShieldCheck className="w-5 h-5" /> ADMIN PANEL
+                  {isRealAdmin && isAdminModeOn && (
+                    <>
+                      <Button variant="outline" className="w-full gap-2 col-span-2 border-primary text-primary" onClick={() => { setLocation('/admin'); setMobileMenuOpen(false); }}>
+                        <ShieldCheck className="w-5 h-5" /> ADMIN PANEL
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        className="w-full gap-2 col-span-2 text-muted-foreground hover:text-destructive"
+                        onClick={handleToggleAdminMode}
+                        isLoading={togglingAdmin}
+                      >
+                        <ShieldOff className="w-4 h-4" /> EXIT ADMIN MODE
+                      </Button>
+                    </>
+                  )}
+                  {isRealAdmin && !isAdminModeOn && (
+                    <Button
+                      variant="ghost"
+                      className="w-full gap-2 col-span-2 text-muted-foreground hover:text-primary"
+                      onClick={handleToggleAdminMode}
+                      isLoading={togglingAdmin}
+                    >
+                      <ShieldCheck className="w-4 h-4" /> ENTER ADMIN MODE
                     </Button>
                   )}
                   <Button variant="secondary" className="w-full gap-2" onClick={() => { setLocation('/profile'); setMobileMenuOpen(false); }}>

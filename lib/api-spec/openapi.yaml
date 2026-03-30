@@ -995,6 +995,9 @@ components:
         isAdmin:
           type: boolean
           nullable: true
+        isRealAdmin:
+          type: boolean
+          nullable: true
 
     AuthUserEnvelope:
       type: object
