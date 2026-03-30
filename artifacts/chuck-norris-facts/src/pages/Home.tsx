@@ -2,6 +2,7 @@ import { useListFacts } from "@workspace/api-client-react";
 import { FactCard } from "@/components/facts/FactCard";
 import { Layout } from "@/components/layout/Layout";
 import { Button } from "@/components/ui/Button";
+import { AdSlot } from "@/components/AdSlot";
 import { Search } from "lucide-react";
 import { Link, useLocation } from "wouter";
 import { useState } from "react";
@@ -87,31 +88,46 @@ export default function Home() {
           </Button>
         </div>
 
-        {isLoading && (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-8 animate-pulse">
-            {[1, 2, 3, 4].map(i => (
-              <div key={i} className="h-64 bg-card border-2 border-border rounded-sm" />
-            ))}
-          </div>
-        )}
+        {/* Main content + sidebar ad */}
+        <div className="flex gap-8">
+          <div className="flex-1 min-w-0">
+            {isLoading && (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-8 animate-pulse">
+                {[1, 2, 3, 4].map(i => (
+                  <div key={i} className="h-64 bg-card border-2 border-border rounded-sm" />
+                ))}
+              </div>
+            )}
 
-        {error && (
-          <div className="bg-destructive/10 border-2 border-destructive p-8 text-center rounded-sm">
-            <p className="text-destructive font-bold text-xl uppercase">Error loading facts. Chuck Norris destroyed the server.</p>
-          </div>
-        )}
+            {error && (
+              <div className="bg-destructive/10 border-2 border-destructive p-8 text-center rounded-sm">
+                <p className="text-destructive font-bold text-xl uppercase">Error loading facts. Chuck Norris destroyed the server.</p>
+              </div>
+            )}
 
-        {data?.facts && (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-12">
-            {data.facts.map((fact, idx) => (
-              <FactCard key={fact.id} fact={fact} rank={idx + 1} showRank={true} />
-            ))}
-          </div>
-        )}
+            {data?.facts && (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-12">
+                {data.facts.map((fact, idx) => (
+                  <FactCard key={fact.id} fact={fact} rank={idx + 1} showRank={true} />
+                ))}
+              </div>
+            )}
 
-        {data?.facts?.length === 0 && (
-          <p className="text-muted-foreground text-center py-12 text-lg">No facts found. Better start running.</p>
-        )}
+            {data?.facts?.length === 0 && (
+              <p className="text-muted-foreground text-center py-12 text-lg">No facts found. Better start running.</p>
+            )}
+          </div>
+
+          {/* Sidebar ad — only renders on lg+ screens and for non-premium users */}
+          <aside className="hidden lg:block w-[160px] shrink-0">
+            <div className="sticky top-24">
+              <AdSlot
+                slot={import.meta.env.VITE_ADSENSE_SLOT_HOME_SIDEBAR ?? "1122334455"}
+                format="vertical"
+              />
+            </div>
+          </aside>
+        </div>
       </section>
     </Layout>
   );

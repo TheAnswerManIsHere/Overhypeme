@@ -11,25 +11,27 @@ const ZAZZLE_AFFILIATE_ID = process.env.ZAZZLE_AFFILIATE_ID ?? "2385275460992653
 const CAFEPRESS_AFFILIATE_ID = process.env.CAFEPRESS_AFFILIATE_ID ?? "chucknorrisfacts";
 
 function buildZazzleUrl(text: string, imageUrl?: string): string {
-  const encoded = encodeURIComponent(text.slice(0, 160));
   const base = `https://www.zazzle.com/api/create/at-${ZAZZLE_AFFILIATE_ID}`;
   const params = new URLSearchParams({
     rf: ZAZZLE_AFFILIATE_ID,
     ax: "Linkover",
     po: "zazzleHomepage",
-    t_text: encoded,
+    t_text: text.slice(0, 160),
   });
   if (imageUrl) {
     params.set("pd", "pd_chuck_custom");
     params.set("ed", "true");
-    params.set("t_imageURL", encodeURIComponent(imageUrl));
+    params.set("t_imageURL", imageUrl);
   }
   return `${base}?${params}`;
 }
 
 function buildCafePressUrl(text: string): string {
-  const encoded = encodeURIComponent(text.slice(0, 100));
-  return `https://www.cafepress.com/cp/design/shirt?quote=${encoded}&ref=${CAFEPRESS_AFFILIATE_ID}`;
+  const params = new URLSearchParams({
+    quote: text.slice(0, 100),
+    ref: CAFEPRESS_AFFILIATE_ID,
+  });
+  return `https://www.cafepress.com/cp/design/shirt?${params}`;
 }
 
 // POST /affiliate/click — log a click and return the destination URL

@@ -99,10 +99,23 @@ async function upsertUser(
   return { user, isNewUser };
 }
 
-router.get("/auth/user", (req: Request, res: Response) => {
+router.get("/auth/user", async (req: Request, res: Response) => {
+  if (!req.isAuthenticated()) {
+    res.json(GetCurrentAuthUserResponse.parse({ user: null }));
+    return;
+  }
+  // Fetch fresh membershipTier from DB so premium status is always current
+  const [dbUser] = await db
+    .select({ membershipTier: usersTable.membershipTier })
+    .from(usersTable)
+    .where(eq(usersTable.id, req.user.id))
+    .limit(1);
   res.json(
     GetCurrentAuthUserResponse.parse({
-      user: req.isAuthenticated() ? req.user : null,
+      user: {
+        ...req.user,
+        membershipTier: dbUser?.membershipTier ?? req.user.membershipTier ?? "free",
+      },
     }),
   );
 });
@@ -193,6 +206,7 @@ router.get("/callback", async (req: Request, res: Response) => {
       firstName: dbUser.firstName,
       lastName: dbUser.lastName,
       profileImageUrl: dbUser.profileImageUrl,
+      membershipTier: dbUser.membershipTier,
     },
     access_token: tokens.access_token,
     refresh_token: tokens.refresh_token,
@@ -271,6 +285,7 @@ router.post(
           firstName: dbUser.firstName,
           lastName: dbUser.lastName,
           profileImageUrl: dbUser.profileImageUrl,
+          membershipTier: dbUser.membershipTier,
         },
         access_token: tokens.access_token,
         refresh_token: tokens.refresh_token,
