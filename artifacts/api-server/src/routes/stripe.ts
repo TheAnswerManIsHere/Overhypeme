@@ -1,6 +1,9 @@
 import { Router, type IRouter, type Request, type Response } from "express";
 import { getUncachableStripeClient, getStripePublishableKey } from "../lib/stripeClient";
 import { stripeStorage } from "../lib/stripeStorage";
+import { db } from "@workspace/db";
+import { lifetimeEntitlementsTable, subscriptionsTable } from "@workspace/db/schema";
+import { eq, desc } from "drizzle-orm";
 
 const router: IRouter = Router();
 
@@ -34,22 +37,32 @@ router.get("/stripe/plans", async (_req: Request, res: Response) => {
 router.get("/stripe/subscription", async (req: Request, res: Response) => {
   if (!req.isAuthenticated()) { res.status(401).json({ error: "Unauthorized" }); return; }
   try {
-    const [sub, tier, history] = await Promise.all([
-      stripeStorage.getSubscriptionForUser(req.user.id),
-      stripeStorage.getMembershipTierForUser(req.user.id),
-      stripeStorage.getPaymentHistory(req.user.id),
+    const userId = req.user.id;
+    const [tier, lifetimeRows, appSubRows] = await Promise.all([
+      stripeStorage.getMembershipTierForUser(userId),
+      db.select().from(lifetimeEntitlementsTable).where(eq(lifetimeEntitlementsTable.userId, userId)).limit(1),
+      db.select().from(subscriptionsTable)
+        .where(eq(subscriptionsTable.userId, userId))
+        .orderBy(desc(subscriptionsTable.createdAt))
+        .limit(1),
     ]);
 
-    // Check if user has lifetime plan from payment history
-    const hasLifetime = history.some(h => h.plan === "lifetime");
+    const hasLifetime = lifetimeRows.length > 0;
+    const appSub = appSubRows[0] ?? null;
+
+    // Also fetch the live subscription from Stripe-synced data for renewal dates
+    const stripeSub = appSub?.stripeSubscriptionId
+      ? await stripeStorage.getSubscriptionForUser(userId)
+      : null;
 
     res.json({
-      subscription: sub,
+      subscription: stripeSub,
+      appSubscription: appSub,
       membershipTier: tier,
-      isLifetime: hasLifetime && tier === "premium",
+      isLifetime: hasLifetime,
     });
   } catch {
-    res.json({ subscription: null, membershipTier: "free", isLifetime: false });
+    res.json({ subscription: null, appSubscription: null, membershipTier: "free", isLifetime: false });
   }
 });
 
@@ -79,12 +92,26 @@ router.post("/stripe/checkout", async (req: Request, res: Response) => {
     const priceObj = await stripe.prices.retrieve(priceId);
     const isOneTime = priceObj.type === "one_time";
 
+    // Validate: price must belong to a membership product (metadata or allowlist)
+    const allowlist = (process.env.MEMBERSHIP_PRICE_IDS ?? "").split(",").map((s: string) => s.trim()).filter(Boolean);
+    if (allowlist.length > 0 && !allowlist.includes(priceId)) {
+      const fullPrice = await stripe.prices.retrieve(priceId, { expand: ["product"] });
+      const prod = fullPrice.product as import("stripe").Stripe.Product | null;
+      const isTagged = prod && typeof prod !== "string" && prod.metadata?.membership === "true";
+      if (!isTagged) {
+        res.status(400).json({ error: "Invalid price: not a membership product" });
+        return;
+      }
+    }
+
     const base = getBaseUrl(req);
     const session = await stripe.checkout.sessions.create({
       customer: customerId,
       payment_method_types: ["card"],
       line_items: [{ price: priceId, quantity: 1 }],
       mode: isOneTime ? "payment" : "subscription",
+      // Tag one-time payments so the webhook can identify lifetime purchases
+      ...(isOneTime ? { payment_intent_data: { metadata: { membership: "true", plan: "lifetime" } } } : {}),
       success_url: `${base}/chuck-norris-facts/profile?checkout=success`,
       cancel_url: `${base}/chuck-norris-facts/pricing`,
     });

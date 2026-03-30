@@ -11,8 +11,19 @@ interface Subscription {
   items?: { data: Array<{ price: { id: string; unit_amount: number; recurring: { interval: string } | null } }> };
 }
 
+interface AppSubscription {
+  id: number;
+  userId: string;
+  stripeSubscriptionId: string;
+  plan: string;
+  status: string;
+  currentPeriodEnd: string | null;
+  cancelAtPeriodEnd: boolean;
+}
+
 interface SubscriptionResponse {
   subscription: Subscription | null;
+  appSubscription: AppSubscription | null;
   membershipTier: "free" | "premium";
   isLifetime: boolean;
 }
@@ -81,18 +92,27 @@ export function SubscriptionPanel() {
   }
 
   const sub = subData?.subscription ?? null;
+  const appSub = subData?.appSubscription ?? null;
   const membershipTier = subData?.membershipTier ?? "free";
   const isLifetime = subData?.isLifetime ?? false;
   const isPremium = membershipTier === "premium";
 
   const periodEnd = sub?.current_period_end
     ? new Date(sub.current_period_end * 1000).toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" })
+    : appSub?.currentPeriodEnd
+    ? new Date(appSub.currentPeriodEnd).toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" })
     : null;
+
+  const cancelAtPeriodEnd = sub?.cancel_at_period_end ?? appSub?.cancelAtPeriodEnd ?? false;
 
   const price = sub?.items?.data?.[0]?.price;
   const planLabel = isLifetime
     ? "Lifetime"
-    : price?.recurring?.interval === "year" ? "Annual" : price?.recurring?.interval === "month" ? "Monthly" : "Premium";
+    : appSub?.plan === "annual" ? "Annual"
+    : appSub?.plan === "monthly" ? "Monthly"
+    : price?.recurring?.interval === "year" ? "Annual"
+    : price?.recurring?.interval === "month" ? "Monthly"
+    : "Premium";
 
   return (
     <div className="bg-card border-2 border-border rounded-sm p-6 mb-8">
@@ -147,7 +167,7 @@ export function SubscriptionPanel() {
           {!isLifetime && periodEnd && (
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
               <Calendar className="w-4 h-4 text-primary" />
-              {sub?.cancel_at_period_end
+              {cancelAtPeriodEnd
                 ? <span>Cancels on <strong className="text-foreground">{periodEnd}</strong></span>
                 : <span>Renews on <strong className="text-foreground">{periodEnd}</strong></span>
               }
