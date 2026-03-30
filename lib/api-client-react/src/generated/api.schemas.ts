@@ -42,6 +42,14 @@ export interface LogoutSuccess {
   success: boolean;
 }
 
+export interface DuplicateConflict {
+  error: string;
+  isDuplicate: boolean;
+  confidence: number;
+  matchingFactId?: number;
+  matchingFactText?: string;
+}
+
 export interface ErrorEnvelope {
   error: string;
 }
@@ -186,6 +194,80 @@ export interface UserProfile {
 export interface RecordSearchRequest {
   /** @minLength 1 */
   query: string;
+}
+
+export interface UploadUrlRequest {
+  /** @minLength 1 */
+  name: string;
+  /** @minimum 1 */
+  size: number;
+  /** @minLength 1 */
+  contentType: string;
+}
+
+export interface UploadUrlResponse {
+  uploadURL: string;
+  objectPath: string;
+  metadata?: UploadUrlRequest;
+}
+
+export interface MemeTemplate {
+  id: string;
+  name: string;
+  description: string;
+  previewColors?: string[];
+}
+
+export interface MemeTemplateListResponse {
+  templates: MemeTemplate[];
+}
+
+export type MemeTextOptionsAlign =
+  (typeof MemeTextOptionsAlign)[keyof typeof MemeTextOptionsAlign];
+
+export const MemeTextOptionsAlign = {
+  left: "left",
+  center: "center",
+  right: "right",
+} as const;
+
+export interface MemeTextOptions {
+  x?: number;
+  y?: number;
+  fontSize?: number;
+  color?: string;
+  align?: MemeTextOptionsAlign;
+}
+
+export interface CreateMemeRequest {
+  factId: number;
+  templateId: string;
+  objectPath: string;
+  textOptions?: MemeTextOptions;
+}
+
+export interface MemeRecord {
+  id: number;
+  factId: number;
+  templateId: string;
+  imageUrl: string;
+  permalinkSlug: string;
+  createdAt: string;
+}
+
+export interface MemeDetail {
+  id: number;
+  factId: number;
+  templateId: string;
+  imageUrl: string;
+  permalinkSlug: string;
+  factText: string;
+  createdAt: string;
+  createdByName?: string | null;
+}
+
+export interface MemeListResponse {
+  memes: MemeRecord[];
 }
 
 /**

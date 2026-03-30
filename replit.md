@@ -22,8 +22,8 @@ A community-driven Chuck Norris facts/memes site — like IMDb but for Chuck Nor
 
 ### Feature Roadmap
 - **Task 1 (DONE)**: Core platform — facts leaderboard, search, hashtag browsing, ratings, comments, Replit Auth, hCaptcha onboarding, seeded 15 facts, admin backend
-- **Task 2**: AI features — duplicate detection, hashtag suggestions, spam moderation
-- **Task 3**: Meme generator with permalink sharing
+- **Task 2 (DONE)**: AI features — duplicate detection, hashtag suggestions, spam moderation
+- **Task 3 (DONE)**: Meme generator with permalink sharing — HTML5 Canvas builder, 5 gradient themes, GCS object storage upload, `memes` table, `/meme/:slug` page
 - **Task 4**: Memberships & payments (Stripe)
 - **Task 5**: Store affiliate links, Google Analytics/AdSense, "Fact of the Day" email
 

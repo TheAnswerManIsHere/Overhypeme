@@ -6,6 +6,8 @@ import hashtagsRouter from "./hashtags";
 import usersRouter from "./users";
 import adminRouter from "./admin";
 import aiRouter from "./ai";
+import memesRouter from "./memes";
+import storageRouter from "./storage";
 
 const router: IRouter = Router();
 
@@ -16,5 +18,7 @@ router.use(hashtagsRouter);
 router.use(usersRouter);
 router.use(adminRouter);
 router.use(aiRouter);
+router.use(memesRouter);
+router.use(storageRouter);
 
 export default router;

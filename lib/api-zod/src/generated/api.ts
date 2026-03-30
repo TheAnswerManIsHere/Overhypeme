@@ -152,7 +152,12 @@ export const CreateFactBody = zod.object({
   text: zod.string().min(createFactBodyTextMin).max(createFactBodyTextMax),
   hashtags: zod.array(zod.string()).default(createFactBodyHashtagsDefault),
   captchaToken: zod.string(),
-  skipDuplicateCheck: zod.boolean().optional(),
+  skipDuplicateCheck: zod
+    .boolean()
+    .optional()
+    .describe(
+      "If true, bypasses server-side duplicate enforcement and allows submission even when a duplicate is detected.",
+    ),
 });
 
 /**
@@ -438,4 +443,103 @@ export const ApproveAdminCommentParams = zod.object({
  */
 export const DeleteAdminCommentParams = zod.object({
   id: zod.coerce.number(),
+});
+
+/**
+ * @summary Request a presigned URL for file upload
+ */
+
+export const RequestUploadUrlBody = zod.object({
+  name: zod.string().min(1),
+  size: zod.number().min(1),
+  contentType: zod.string().min(1),
+});
+
+export const RequestUploadUrlResponse = zod.object({
+  uploadURL: zod.string().url(),
+  objectPath: zod.string(),
+  metadata: zod
+    .object({
+      name: zod.string().min(1),
+      size: zod.number().min(1),
+      contentType: zod.string().min(1),
+    })
+    .optional(),
+});
+
+/**
+ * @summary Serve an object entity from PRIVATE_OBJECT_DIR
+ */
+export const GetStorageObjectParams = zod.object({
+  objectPath: zod.coerce.string(),
+});
+
+/**
+ * @summary List available meme background templates
+ */
+export const ListMemeTemplatesResponse = zod.object({
+  templates: zod.array(
+    zod.object({
+      id: zod.string(),
+      name: zod.string(),
+      description: zod.string(),
+      previewColors: zod.array(zod.string()).optional(),
+    }),
+  ),
+});
+
+/**
+ * @summary Create a meme from a fact and template
+ */
+export const CreateMemeBody = zod.object({
+  factId: zod.number(),
+  templateId: zod.string(),
+  objectPath: zod.string(),
+  textOptions: zod
+    .object({
+      x: zod.number().optional(),
+      y: zod.number().optional(),
+      fontSize: zod.number().optional(),
+      color: zod.string().optional(),
+      align: zod.enum(["left", "center", "right"]).optional(),
+    })
+    .optional(),
+});
+
+/**
+ * @summary Get a meme by its permalink slug
+ */
+export const GetMemeBySlugParams = zod.object({
+  slug: zod.coerce.string(),
+});
+
+export const GetMemeBySlugResponse = zod.object({
+  id: zod.number(),
+  factId: zod.number(),
+  templateId: zod.string(),
+  imageUrl: zod.string(),
+  permalinkSlug: zod.string(),
+  factText: zod.string(),
+  createdAt: zod.coerce.date(),
+  createdByName: zod.string().nullish(),
+});
+
+/**
+ * @summary List memes generated for a specific fact
+ */
+export const ListFactMemesParams = zod.object({
+  factId: zod.coerce.number(),
+});
+
+export const ListFactMemesResponse = zod.object({
+  memes: zod.array(
+    zod.object({
+      id: zod.number(),
+      factId: zod.number(),
+      templateId: zod.string(),
+      imageUrl: zod.string(),
+      permalinkSlug: zod.string(),
+      createdAt: zod.coerce.date(),
+    }),
+  ),
 });
