@@ -36,6 +36,8 @@ export default function SubmitFact() {
   const [loadingSuggestions, setLoadingSuggestions] = useState(false);
   const [suggestionsLoaded, setSuggestionsLoaded] = useState(false);
   const dupTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const tagTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastSuggestedTextRef = useRef("");
 
   const checkDuplicate = useCallback(async (factText: string) => {
     if (factText.length < 20) { setDuplicate(null); return; }
@@ -65,15 +67,16 @@ export default function SubmitFact() {
     return () => { if (dupTimer.current) clearTimeout(dupTimer.current); };
   }, [text, checkDuplicate]);
 
-  const fetchSuggestions = async () => {
-    if (text.length < 20) return;
+  const fetchSuggestions = useCallback(async (factText: string) => {
+    if (factText.length < 20) return;
+    lastSuggestedTextRef.current = factText;
     setLoadingSuggestions(true);
     try {
       const r = await fetch("/api/ai/suggest-hashtags", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ text }),
+        body: JSON.stringify({ text: factText }),
       });
       if (r.ok) {
         const data: { hashtags: string[] } = await r.json();
@@ -86,7 +89,14 @@ export default function SubmitFact() {
     } finally {
       setLoadingSuggestions(false);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    if (tagTimer.current) clearTimeout(tagTimer.current);
+    if (text.length < 20 || suggestionsLoaded) return;
+    tagTimer.current = setTimeout(() => { void fetchSuggestions(text); }, 2000);
+    return () => { if (tagTimer.current) clearTimeout(tagTimer.current); };
+  }, [text, suggestionsLoaded, fetchSuggestions]);
 
   const toggleTag = (tag: string) => {
     setAcceptedTags((prev) => {
@@ -211,17 +221,21 @@ export default function SubmitFact() {
             <div>
               <div className="flex items-center justify-between mb-2">
                 <label className="block font-display text-xl uppercase text-foreground">Hashtags</label>
-                {text.length >= 20 && !suggestionsLoaded && (
+                {text.length >= 20 && (
                   <button
                     type="button"
-                    onClick={fetchSuggestions}
+                    onClick={() => {
+                      setSuggestionsLoaded(false);
+                      setSuggestedTags([]);
+                      void fetchSuggestions(text);
+                    }}
                     disabled={loadingSuggestions}
                     className="flex items-center gap-1.5 text-xs text-primary hover:text-primary/80 transition-colors disabled:opacity-50"
                   >
                     {loadingSuggestions ? (
                       <><Loader2 className="w-3 h-3 animate-spin" /> Thinking…</>
                     ) : (
-                      <><Sparkles className="w-3 h-3" /> AI Suggest</>
+                      <><Sparkles className="w-3 h-3" /> {suggestionsLoaded ? "Re-suggest" : "AI Suggest"}</>
                     )}
                   </button>
                 )}
