@@ -106,6 +106,8 @@ export interface CreateFactRequest {
   text: string;
   hashtags?: string[];
   captchaToken: string;
+  /** If true, bypasses server-side duplicate enforcement and allows submission even when a duplicate is detected. */
+  skipDuplicateCheck?: boolean;
 }
 
 export type RateFactRequestRating =

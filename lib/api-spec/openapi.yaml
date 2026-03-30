@@ -234,6 +234,12 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+        "409":
+          description: Possible duplicate detected
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DuplicateConflict"
 
   /facts/{factId}:
     get:
@@ -739,6 +745,21 @@ components:
         success:
           type: boolean
 
+    DuplicateConflict:
+      type: object
+      required: [error, isDuplicate, confidence]
+      properties:
+        error:
+          type: string
+        isDuplicate:
+          type: boolean
+        confidence:
+          type: integer
+        matchingFactId:
+          type: integer
+        matchingFactText:
+          type: string
+
     ErrorEnvelope:
       type: object
       required: [error]
@@ -836,6 +857,9 @@ components:
           default: []
         captchaToken:
           type: string
+        skipDuplicateCheck:
+          type: boolean
+          description: If true, bypasses server-side duplicate enforcement and allows submission even when a duplicate is detected.
 
     RateFactRequest:
       type: object

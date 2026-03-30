@@ -1,5 +1,5 @@
 import { Router, type IRouter, type Request, type Response } from "express";
-import { moderateComment } from "./ai";
+import { moderateComment, checkDuplicateInternal } from "./ai";
 import { db } from "@workspace/db";
 import {
   factsTable, hashtagsTable, factHashtagsTable,
@@ -133,11 +133,29 @@ router.post("/facts", async (req: Request, res: Response) => {
   if (!req.isAuthenticated()) { res.status(401).json({ error: "Unauthorized" }); return; }
   const parsed = CreateFactBody.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: "Invalid input", details: parsed.error.flatten() }); return; }
-  const { text, hashtags = [], captchaToken } = parsed.data;
+  const { text, hashtags = [], captchaToken, skipDuplicateCheck } = parsed.data;
 
   if (!captchaToken || !(await verifyCaptcha(captchaToken))) {
     res.status(400).json({ error: "CAPTCHA verification failed" });
     return;
+  }
+
+  if (!skipDuplicateCheck) {
+    try {
+      const dupResult = await checkDuplicateInternal(text);
+      if (dupResult.isDuplicate && dupResult.confidence >= 80) {
+        res.status(409).json({
+          error: "Possible duplicate detected. Set skipDuplicateCheck to true to submit anyway.",
+          isDuplicate: true,
+          confidence: dupResult.confidence,
+          matchingFactId: dupResult.matchingFactId,
+          matchingFactText: dupResult.matchingFactText,
+        });
+        return;
+      }
+    } catch {
+      // If AI check fails, allow submission to proceed
+    }
   }
 
   const [fact] = await db.insert(factsTable).values({ text, submittedById: req.user.id }).returning();

@@ -19,6 +19,12 @@ interface DuplicateResult {
   matchingFactText?: string;
 }
 
+interface ServerConflict {
+  confidence: number;
+  matchingFactId?: number;
+  matchingFactText?: string;
+}
+
 export default function SubmitFact() {
   const { isAuthenticated, login } = useAuth();
   const [, setLocation] = useLocation();
@@ -29,6 +35,7 @@ export default function SubmitFact() {
   const [captchaToken, setCaptchaToken] = useState("");
   const [error, setError] = useState("");
 
+  const [serverConflict, setServerConflict] = useState<ServerConflict | null>(null);
   const [duplicate, setDuplicate] = useState<DuplicateResult | null>(null);
   const [checkingDuplicate, setCheckingDuplicate] = useState(false);
   const [suggestedTags, setSuggestedTags] = useState<string[]>([]);
@@ -140,9 +147,40 @@ export default function SubmitFact() {
     );
   }
 
+  const doSubmit = (skipDuplicate: boolean) => {
+    setError("");
+    setServerConflict(null);
+
+    const tags = hashtagsStr.split(",")
+      .map(t => t.trim().replace(/^#/, ""))
+      .filter(t => t.length > 0);
+
+    createFact.mutate(
+      { data: { text, hashtags: tags, captchaToken, skipDuplicateCheck: skipDuplicate } },
+      {
+        onSuccess: (data) => {
+          setLocation(`/facts/${data.id}`);
+        },
+        onError: (err) => {
+          const errData = err.data as { error?: string; isDuplicate?: boolean; confidence?: number; matchingFactId?: number; matchingFactText?: string } | null;
+          if (err.status === 409 && errData?.isDuplicate) {
+            setServerConflict({
+              confidence: errData.confidence ?? 90,
+              matchingFactId: errData.matchingFactId,
+              matchingFactText: errData.matchingFactText,
+            });
+          } else {
+            setError(errData?.error || err.message || "Failed to submit fact");
+          }
+        }
+      }
+    );
+  };
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
+    setServerConflict(null);
 
     if (text.length < 10) {
       setError("Fact must be at least 10 characters.");
@@ -153,21 +191,7 @@ export default function SubmitFact() {
       return;
     }
 
-    const tags = hashtagsStr.split(",")
-      .map(t => t.trim().replace(/^#/, ""))
-      .filter(t => t.length > 0);
-
-    createFact.mutate(
-      { data: { text, hashtags: tags, captchaToken } },
-      {
-        onSuccess: (data) => {
-          setLocation(`/facts/${data.id}`);
-        },
-        onError: (err) => {
-          setError(err.data?.error || err.message || "Failed to submit fact");
-        }
-      }
-    );
+    doSubmit(false);
   };
 
   return (
@@ -209,7 +233,7 @@ export default function SubmitFact() {
                 )}
               </div>
 
-              {duplicate && (
+              {duplicate && !serverConflict && (
                 <div className="mt-3 p-4 bg-yellow-500/10 border-l-4 border-yellow-500 text-yellow-700 dark:text-yellow-400 rounded-r-sm">
                   <div className="flex items-start gap-3">
                     <Copy className="w-5 h-5 shrink-0 mt-0.5" />
@@ -224,6 +248,36 @@ export default function SubmitFact() {
                         </>
                       )}
                       <p className="text-xs mt-2 opacity-70">You can still submit if you believe your version is meaningfully different.</p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {serverConflict && (
+                <div className="mt-3 p-4 bg-destructive/10 border-l-4 border-destructive text-destructive rounded-r-sm">
+                  <div className="flex items-start gap-3">
+                    <Copy className="w-5 h-5 shrink-0 mt-0.5" />
+                    <div className="flex-1">
+                      <p className="font-bold text-sm">Server rejected: duplicate detected ({serverConflict.confidence}% confidence)</p>
+                      {serverConflict.matchingFactId && (
+                        <>
+                          <p className="text-xs mt-1 opacity-80 italic">"{serverConflict.matchingFactText}"</p>
+                          <Link href={`/facts/${serverConflict.matchingFactId}`} className="text-xs underline mt-1 block hover:opacity-80">
+                            View existing fact →
+                          </Link>
+                        </>
+                      )}
+                      <p className="text-xs mt-2 opacity-70">If your fact is genuinely different, you may override and submit anyway.</p>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        className="mt-3 border-destructive text-destructive hover:bg-destructive/10"
+                        onClick={() => doSubmit(true)}
+                        isLoading={createFact.isPending}
+                      >
+                        Submit Anyway (Override)
+                      </Button>
                     </div>
                   </div>
                 </div>
