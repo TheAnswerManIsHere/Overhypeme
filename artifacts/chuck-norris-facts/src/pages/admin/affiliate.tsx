@@ -174,6 +174,11 @@ export default function AdminAffiliate() {
             ))}
           </tbody>
         </table>
+        {!loading && data?.rows && data.rows.length >= 200 && (
+          <p className="text-xs text-muted-foreground px-4 py-3 border-t border-border/50">
+            Showing the 200 most recent grouped rows. Use date filters to narrow the range and see all results.
+          </p>
+        )}
       </div>
     </AdminLayout>
   );
