@@ -233,3 +233,47 @@ export type ListHashtagsParams = {
   search?: string;
   limit?: number;
 };
+
+export type CheckDuplicateBody = {
+  /**
+   * @minLength 10
+   * @maxLength 1000
+   */
+  text: string;
+};
+
+export type CheckDuplicate200 = {
+  isDuplicate: boolean;
+  /**
+   * @minimum 0
+   * @maximum 100
+   */
+  confidence: number;
+  matchingFactId?: number | null;
+  matchingFactText?: string | null;
+};
+
+export type SuggestHashtagsBody = {
+  /**
+   * @minLength 5
+   * @maxLength 1000
+   */
+  text: string;
+};
+
+export type SuggestHashtags200 = {
+  hashtags: string[];
+};
+
+export type GetAdminFlaggedComments200CommentsItem = {
+  id: number;
+  factId: number;
+  text: string;
+  authorId?: string | null;
+  flagReason?: string | null;
+  createdAt: string;
+};
+
+export type GetAdminFlaggedComments200 = {
+  comments: GetAdminFlaggedComments200CommentsItem[];
+};

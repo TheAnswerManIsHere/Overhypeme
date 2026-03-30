@@ -1,7 +1,7 @@
 import { Router, type IRouter, type Request, type Response, type NextFunction } from "express";
 import { db, usersTable } from "@workspace/db";
 import { factsTable, commentsTable } from "@workspace/db/schema";
-import { eq, desc, count, ilike } from "drizzle-orm";
+import { eq, desc, count, ilike, sql } from "drizzle-orm";
 import { getSessionId, getSession, updateSession } from "../lib/auth";
 import { isAdminById } from "./auth";
 
@@ -203,7 +203,15 @@ router.post("/admin/comments/:id/approve", requireAdmin, async (req: Request, re
 router.delete("/admin/comments/:id", requireAdmin, async (req: Request, res: Response) => {
   const id = parseInt(String(req.params.id ?? "0"), 10);
   if (!id) { res.status(400).json({ error: "Invalid id" }); return; }
-  await db.delete(commentsTable).where(eq(commentsTable.id, id));
+  const [deleted] = await db.delete(commentsTable).where(eq(commentsTable.id, id)).returning({
+    factId: commentsTable.factId,
+  });
+  if (deleted) {
+    await db
+      .update(factsTable)
+      .set({ commentCount: sql`GREATEST(${factsTable.commentCount} - 1, 0)` })
+      .where(eq(factsTable.id, deleted.factId));
+  }
   res.json({ success: true });
 });
 
