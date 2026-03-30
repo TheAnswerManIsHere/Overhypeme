@@ -5,3 +5,4 @@ export * from "./ratings";
 export * from "./comments";
 export * from "./links";
 export * from "./search-history";
+export * from "./memes";

@@ -26,6 +26,8 @@ import type {
   Comment,
   CommentListResponse,
   CreateFactRequest,
+  CreateMemeRequest,
+  DuplicateConflict,
   ErrorEnvelope,
   ExternalLink,
   FactDetail,
@@ -39,6 +41,10 @@ import type {
   ListFactsParams,
   ListHashtagsParams,
   LogoutSuccess,
+  MemeDetail,
+  MemeListResponse,
+  MemeRecord,
+  MemeTemplateListResponse,
   MobileTokenExchangeRequest,
   MobileTokenExchangeSuccess,
   RateFactRequest,
@@ -46,6 +52,8 @@ import type {
   RecordSearchRequest,
   SuggestHashtags200,
   SuggestHashtagsBody,
+  UploadUrlRequest,
+  UploadUrlResponse,
   UserProfile,
 } from "./api.schemas";
 
@@ -772,7 +780,7 @@ export const createFact = async (
 };
 
 export const getCreateFactMutationOptions = <
-  TError = ErrorType<ErrorEnvelope>,
+  TError = ErrorType<ErrorEnvelope | DuplicateConflict>,
   TContext = unknown,
 >(options?: {
   mutation?: UseMutationOptions<
@@ -813,13 +821,15 @@ export type CreateFactMutationResult = NonNullable<
   Awaited<ReturnType<typeof createFact>>
 >;
 export type CreateFactMutationBody = BodyType<CreateFactRequest>;
-export type CreateFactMutationError = ErrorType<ErrorEnvelope>;
+export type CreateFactMutationError = ErrorType<
+  ErrorEnvelope | DuplicateConflict
+>;
 
 /**
  * @summary Submit a new fact
  */
 export const useCreateFact = <
-  TError = ErrorType<ErrorEnvelope>,
+  TError = ErrorType<ErrorEnvelope | DuplicateConflict>,
   TContext = unknown,
 >(options?: {
   mutation?: UseMutationOptions<
@@ -2131,3 +2141,513 @@ export const useDeleteAdminComment = <
 > => {
   return useMutation(getDeleteAdminCommentMutationOptions(options));
 };
+
+/**
+ * @summary Request a presigned URL for file upload
+ */
+export const getRequestUploadUrlUrl = () => {
+  return `/api/storage/uploads/request-url`;
+};
+
+export const requestUploadUrl = async (
+  uploadUrlRequest: UploadUrlRequest,
+  options?: RequestInit,
+): Promise<UploadUrlResponse> => {
+  return customFetch<UploadUrlResponse>(getRequestUploadUrlUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(uploadUrlRequest),
+  });
+};
+
+export const getRequestUploadUrlMutationOptions = <
+  TError = ErrorType<ErrorEnvelope>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof requestUploadUrl>>,
+    TError,
+    { data: BodyType<UploadUrlRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof requestUploadUrl>>,
+  TError,
+  { data: BodyType<UploadUrlRequest> },
+  TContext
+> => {
+  const mutationKey = ["requestUploadUrl"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof requestUploadUrl>>,
+    { data: BodyType<UploadUrlRequest> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return requestUploadUrl(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type RequestUploadUrlMutationResult = NonNullable<
+  Awaited<ReturnType<typeof requestUploadUrl>>
+>;
+export type RequestUploadUrlMutationBody = BodyType<UploadUrlRequest>;
+export type RequestUploadUrlMutationError = ErrorType<ErrorEnvelope>;
+
+/**
+ * @summary Request a presigned URL for file upload
+ */
+export const useRequestUploadUrl = <
+  TError = ErrorType<ErrorEnvelope>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof requestUploadUrl>>,
+    TError,
+    { data: BodyType<UploadUrlRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof requestUploadUrl>>,
+  TError,
+  { data: BodyType<UploadUrlRequest> },
+  TContext
+> => {
+  return useMutation(getRequestUploadUrlMutationOptions(options));
+};
+
+/**
+ * @summary Serve an object entity from PRIVATE_OBJECT_DIR
+ */
+export const getGetStorageObjectUrl = (objectPath: string) => {
+  return `/api/storage/objects/${objectPath}`;
+};
+
+export const getStorageObject = async (
+  objectPath: string,
+  options?: RequestInit,
+): Promise<Blob> => {
+  return customFetch<Blob>(getGetStorageObjectUrl(objectPath), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetStorageObjectQueryKey = (objectPath: string) => {
+  return [`/api/storage/objects/${objectPath}`] as const;
+};
+
+export const getGetStorageObjectQueryOptions = <
+  TData = Awaited<ReturnType<typeof getStorageObject>>,
+  TError = ErrorType<ErrorEnvelope>,
+>(
+  objectPath: string,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getStorageObject>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getGetStorageObjectQueryKey(objectPath);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getStorageObject>>
+  > = ({ signal }) =>
+    getStorageObject(objectPath, { signal, ...requestOptions });
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: !!objectPath,
+    ...queryOptions,
+  } as UseQueryOptions<
+    Awaited<ReturnType<typeof getStorageObject>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetStorageObjectQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getStorageObject>>
+>;
+export type GetStorageObjectQueryError = ErrorType<ErrorEnvelope>;
+
+/**
+ * @summary Serve an object entity from PRIVATE_OBJECT_DIR
+ */
+
+export function useGetStorageObject<
+  TData = Awaited<ReturnType<typeof getStorageObject>>,
+  TError = ErrorType<ErrorEnvelope>,
+>(
+  objectPath: string,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getStorageObject>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetStorageObjectQueryOptions(objectPath, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary List available meme background templates
+ */
+export const getListMemeTemplatesUrl = () => {
+  return `/api/memes/templates`;
+};
+
+export const listMemeTemplates = async (
+  options?: RequestInit,
+): Promise<MemeTemplateListResponse> => {
+  return customFetch<MemeTemplateListResponse>(getListMemeTemplatesUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getListMemeTemplatesQueryKey = () => {
+  return [`/api/memes/templates`] as const;
+};
+
+export const getListMemeTemplatesQueryOptions = <
+  TData = Awaited<ReturnType<typeof listMemeTemplates>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof listMemeTemplates>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getListMemeTemplatesQueryKey();
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof listMemeTemplates>>
+  > = ({ signal }) => listMemeTemplates({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof listMemeTemplates>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type ListMemeTemplatesQueryResult = NonNullable<
+  Awaited<ReturnType<typeof listMemeTemplates>>
+>;
+export type ListMemeTemplatesQueryError = ErrorType<unknown>;
+
+/**
+ * @summary List available meme background templates
+ */
+
+export function useListMemeTemplates<
+  TData = Awaited<ReturnType<typeof listMemeTemplates>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof listMemeTemplates>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getListMemeTemplatesQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Create a meme from a fact and template
+ */
+export const getCreateMemeUrl = () => {
+  return `/api/memes`;
+};
+
+export const createMeme = async (
+  createMemeRequest: CreateMemeRequest,
+  options?: RequestInit,
+): Promise<MemeRecord> => {
+  return customFetch<MemeRecord>(getCreateMemeUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(createMemeRequest),
+  });
+};
+
+export const getCreateMemeMutationOptions = <
+  TError = ErrorType<ErrorEnvelope>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof createMeme>>,
+    TError,
+    { data: BodyType<CreateMemeRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof createMeme>>,
+  TError,
+  { data: BodyType<CreateMemeRequest> },
+  TContext
+> => {
+  const mutationKey = ["createMeme"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof createMeme>>,
+    { data: BodyType<CreateMemeRequest> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return createMeme(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type CreateMemeMutationResult = NonNullable<
+  Awaited<ReturnType<typeof createMeme>>
+>;
+export type CreateMemeMutationBody = BodyType<CreateMemeRequest>;
+export type CreateMemeMutationError = ErrorType<ErrorEnvelope>;
+
+/**
+ * @summary Create a meme from a fact and template
+ */
+export const useCreateMeme = <
+  TError = ErrorType<ErrorEnvelope>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof createMeme>>,
+    TError,
+    { data: BodyType<CreateMemeRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof createMeme>>,
+  TError,
+  { data: BodyType<CreateMemeRequest> },
+  TContext
+> => {
+  return useMutation(getCreateMemeMutationOptions(options));
+};
+
+/**
+ * @summary Get a meme by its permalink slug
+ */
+export const getGetMemeBySlugUrl = (slug: string) => {
+  return `/api/memes/${slug}`;
+};
+
+export const getMemeBySlug = async (
+  slug: string,
+  options?: RequestInit,
+): Promise<MemeDetail> => {
+  return customFetch<MemeDetail>(getGetMemeBySlugUrl(slug), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetMemeBySlugQueryKey = (slug: string) => {
+  return [`/api/memes/${slug}`] as const;
+};
+
+export const getGetMemeBySlugQueryOptions = <
+  TData = Awaited<ReturnType<typeof getMemeBySlug>>,
+  TError = ErrorType<ErrorEnvelope>,
+>(
+  slug: string,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getMemeBySlug>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetMemeBySlugQueryKey(slug);
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof getMemeBySlug>>> = ({
+    signal,
+  }) => getMemeBySlug(slug, { signal, ...requestOptions });
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: !!slug,
+    ...queryOptions,
+  } as UseQueryOptions<
+    Awaited<ReturnType<typeof getMemeBySlug>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetMemeBySlugQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getMemeBySlug>>
+>;
+export type GetMemeBySlugQueryError = ErrorType<ErrorEnvelope>;
+
+/**
+ * @summary Get a meme by its permalink slug
+ */
+
+export function useGetMemeBySlug<
+  TData = Awaited<ReturnType<typeof getMemeBySlug>>,
+  TError = ErrorType<ErrorEnvelope>,
+>(
+  slug: string,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getMemeBySlug>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetMemeBySlugQueryOptions(slug, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary List memes generated for a specific fact
+ */
+export const getListFactMemesUrl = (factId: number) => {
+  return `/api/facts/${factId}/memes`;
+};
+
+export const listFactMemes = async (
+  factId: number,
+  options?: RequestInit,
+): Promise<MemeListResponse> => {
+  return customFetch<MemeListResponse>(getListFactMemesUrl(factId), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getListFactMemesQueryKey = (factId: number) => {
+  return [`/api/facts/${factId}/memes`] as const;
+};
+
+export const getListFactMemesQueryOptions = <
+  TData = Awaited<ReturnType<typeof listFactMemes>>,
+  TError = ErrorType<unknown>,
+>(
+  factId: number,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof listFactMemes>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getListFactMemesQueryKey(factId);
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof listFactMemes>>> = ({
+    signal,
+  }) => listFactMemes(factId, { signal, ...requestOptions });
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: !!factId,
+    ...queryOptions,
+  } as UseQueryOptions<
+    Awaited<ReturnType<typeof listFactMemes>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type ListFactMemesQueryResult = NonNullable<
+  Awaited<ReturnType<typeof listFactMemes>>
+>;
+export type ListFactMemesQueryError = ErrorType<unknown>;
+
+/**
+ * @summary List memes generated for a specific fact
+ */
+
+export function useListFactMemes<
+  TData = Awaited<ReturnType<typeof listFactMemes>>,
+  TError = ErrorType<unknown>,
+>(
+  factId: number,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof listFactMemes>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getListFactMemesQueryOptions(factId, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}

@@ -24,6 +24,10 @@ tags:
     description: External link operations
   - name: users
     description: User profile operations
+  - name: memes
+    description: Meme generator and permalink operations
+  - name: Storage
+    description: Object storage upload and serving endpoints.
 paths:
   /healthz:
     get:
@@ -656,6 +660,151 @@ paths:
         "403":
           description: Forbidden
 
+  /storage/uploads/request-url:
+    post:
+      tags: [Storage]
+      operationId: requestUploadUrl
+      summary: Request a presigned URL for file upload
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UploadUrlRequest'
+      responses:
+        '200':
+          description: Presigned upload URL generated.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UploadUrlResponse'
+        '400':
+          description: Missing or invalid required fields.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '500':
+          description: Failed to generate upload URL.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+
+  /storage/objects/{objectPath}:
+    get:
+      tags: [Storage]
+      operationId: getStorageObject
+      summary: Serve an object entity from PRIVATE_OBJECT_DIR
+      parameters:
+        - name: objectPath
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Object content streamed.
+          content:
+            '*/*':
+              schema:
+                type: string
+                format: binary
+        '404':
+          description: Object not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+
+  /memes/templates:
+    get:
+      operationId: listMemeTemplates
+      tags: [memes]
+      summary: List available meme background templates
+      responses:
+        "200":
+          description: List of templates
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MemeTemplateListResponse"
+
+  /memes:
+    post:
+      operationId: createMeme
+      tags: [memes]
+      summary: Create a meme from a fact and template
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateMemeRequest"
+      responses:
+        "201":
+          description: Meme created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MemeRecord"
+        "400":
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /memes/{slug}:
+    get:
+      operationId: getMemeBySlug
+      tags: [memes]
+      summary: Get a meme by its permalink slug
+      parameters:
+        - name: slug
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Meme detail
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MemeDetail"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /facts/{factId}/memes:
+    get:
+      operationId: listFactMemes
+      tags: [memes]
+      summary: List memes generated for a specific fact
+      parameters:
+        - name: factId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: List of memes
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MemeListResponse"
+
 components:
   parameters:
     AuthorizationSessionHeader:
@@ -1012,3 +1161,131 @@ components:
         query:
           type: string
           minLength: 1
+
+    UploadUrlRequest:
+      type: object
+      required: [name, size, contentType]
+      properties:
+        name:
+          type: string
+          minLength: 1
+        size:
+          type: integer
+          minimum: 1
+        contentType:
+          type: string
+          minLength: 1
+
+    UploadUrlResponse:
+      type: object
+      required: [uploadURL, objectPath]
+      properties:
+        uploadURL:
+          type: string
+          format: uri
+        objectPath:
+          type: string
+        metadata:
+          $ref: '#/components/schemas/UploadUrlRequest'
+
+    MemeTemplate:
+      type: object
+      required: [id, name, description]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        previewColors:
+          type: array
+          items:
+            type: string
+
+    MemeTemplateListResponse:
+      type: object
+      required: [templates]
+      properties:
+        templates:
+          type: array
+          items:
+            $ref: "#/components/schemas/MemeTemplate"
+
+    MemeTextOptions:
+      type: object
+      properties:
+        x:
+          type: number
+        y:
+          type: number
+        fontSize:
+          type: integer
+        color:
+          type: string
+        align:
+          type: string
+          enum: [left, center, right]
+
+    CreateMemeRequest:
+      type: object
+      required: [factId, templateId, objectPath]
+      properties:
+        factId:
+          type: integer
+        templateId:
+          type: string
+        objectPath:
+          type: string
+        textOptions:
+          $ref: "#/components/schemas/MemeTextOptions"
+
+    MemeRecord:
+      type: object
+      required: [id, factId, templateId, imageUrl, permalinkSlug, createdAt]
+      properties:
+        id:
+          type: integer
+        factId:
+          type: integer
+        templateId:
+          type: string
+        imageUrl:
+          type: string
+        permalinkSlug:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+
+    MemeDetail:
+      type: object
+      required: [id, factId, templateId, imageUrl, permalinkSlug, factText, createdAt]
+      properties:
+        id:
+          type: integer
+        factId:
+          type: integer
+        templateId:
+          type: string
+        imageUrl:
+          type: string
+        permalinkSlug:
+          type: string
+        factText:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        createdByName:
+          type: string
+          nullable: true
+
+    MemeListResponse:
+      type: object
+      required: [memes]
+      properties:
+        memes:
+          type: array
+          items:
+            $ref: "#/components/schemas/MemeRecord"

@@ -1,16 +1,17 @@
 import { useState } from "react";
-import { useRoute } from "wouter";
+import { useRoute, Link } from "wouter";
 import { format } from "date-fns";
 import HCaptcha from "@hcaptcha/react-hcaptcha";
 
-import { useGetFact, useListComments, getGetFactQueryKey, getListCommentsQueryKey } from "@workspace/api-client-react";
+import { useGetFact, useListComments, useListFactMemes, getGetFactQueryKey, getListCommentsQueryKey } from "@workspace/api-client-react";
 import type { ExternalLink } from "@workspace/api-client-react";
 import { useAuth } from "@workspace/replit-auth-web";
 import { Layout } from "@/components/layout/Layout";
 import { Button } from "@/components/ui/Button";
 import { Textarea, Input } from "@/components/ui/Input";
 import { useAppMutations } from "@/hooks/use-mutations";
-import { ThumbsUp, ThumbsDown, User, Link as LinkIcon, Youtube, Instagram, AlertCircle, Plus, Trash2 } from "lucide-react";
+import { MemeBuilder } from "@/components/MemeBuilder";
+import { ThumbsUp, ThumbsDown, User, Link as LinkIcon, Youtube, Instagram, AlertCircle, Plus, Trash2, ImageIcon } from "lucide-react";
 import { cn } from "@/components/ui/Button";
 
 const HCAPTCHA_SITE_KEY =
@@ -30,10 +31,15 @@ export default function FactDetail() {
     query: { queryKey: getListCommentsQueryKey(factId, { limit: 50 }), enabled: !!factId }
   });
 
+  const { data: memesData } = useListFactMemes(factId, {
+    query: { queryKey: ["listFactMemes", factId], enabled: !!factId }
+  });
+
   const [commentText, setCommentText] = useState("");
   const [captchaToken, setCaptchaToken] = useState("");
   const [linkUrl, setLinkUrl] = useState("");
   const [showAddLink, setShowAddLink] = useState(false);
+  const [showMemeBuilder, setShowMemeBuilder] = useState(false);
 
   if (factLoading) return <Layout><div className="flex h-[50vh] items-center justify-center"><div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin" /></div></Layout>;
   if (factError || !fact) return <Layout><div className="max-w-2xl mx-auto mt-20 p-8 bg-destructive/10 border-2 border-destructive text-center"><AlertCircle className="w-16 h-16 text-destructive mx-auto mb-4"/><h2 className="text-3xl font-display text-destructive uppercase">Classified Record Not Found</h2></div></Layout>;
@@ -72,6 +78,13 @@ export default function FactDetail() {
 
   return (
     <Layout>
+      {showMemeBuilder && (
+        <MemeBuilder
+          factId={factId}
+          factText={fact.text}
+          onClose={() => setShowMemeBuilder(false)}
+        />
+      )}
       <div className="max-w-4xl mx-auto px-4 py-12 md:py-20">
         
         {/* Main Fact Card */}
@@ -93,7 +106,7 @@ export default function FactDetail() {
           </div>
 
           <div className="flex items-center justify-between border-t-2 border-border pt-6 mt-6">
-            <div className="flex items-center gap-4">
+            <div className="flex items-center gap-4 flex-wrap">
               <Button 
                 variant="secondary" 
                 size="lg" 
@@ -113,6 +126,15 @@ export default function FactDetail() {
               >
                 <ThumbsDown className={cn("w-6 h-6", fact.userRating === "down" && "fill-current")} />
                 <span className="text-xl">{fact.downvotes}</span>
+              </Button>
+              <Button
+                variant="outline"
+                size="lg"
+                onClick={() => setShowMemeBuilder(true)}
+                className="gap-2 h-14 border-dashed hover:border-primary hover:text-primary"
+              >
+                <ImageIcon className="w-5 h-5" />
+                <span>MAKE MEME</span>
               </Button>
             </div>
             
@@ -246,6 +268,34 @@ export default function FactDetail() {
           </div>
 
         </div>
+
+        {/* Meme Gallery */}
+        {memesData && memesData.memes.length > 0 && (
+          <div className="mt-12">
+            <h3 className="text-2xl font-display uppercase tracking-wide border-b-2 border-border pb-2 mb-6 flex items-center gap-3">
+              <ImageIcon className="w-6 h-6 text-primary" />
+              Memes ({memesData.memes.length})
+            </h3>
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+              {memesData.memes.map(meme => (
+                <Link key={meme.id} href={`/meme/${meme.permalinkSlug}`}>
+                  <div className="group border-2 border-border hover:border-primary/60 rounded-sm overflow-hidden transition-all cursor-pointer">
+                    <img
+                      src={meme.imageUrl}
+                      alt="Meme"
+                      className="w-full h-auto aspect-video object-cover group-hover:scale-105 transition-transform duration-300"
+                      loading="lazy"
+                    />
+                    <div className="p-2 bg-card text-xs text-muted-foreground font-medium flex items-center justify-between">
+                      <span className="uppercase tracking-wide">{meme.templateId}</span>
+                      <span>{format(new Date(meme.createdAt), 'MMM dd')}</span>
+                    </div>
+                  </div>
+                </Link>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
     </Layout>
   );
