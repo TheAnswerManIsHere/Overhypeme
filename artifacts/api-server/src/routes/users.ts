@@ -6,6 +6,7 @@ import {
 } from "@workspace/db/schema";
 import { eq, desc, inArray, and } from "drizzle-orm";
 import { RecordSearchBody } from "@workspace/api-zod";
+import { getSessionId, getSession, updateSession } from "../lib/auth";
 
 const router: IRouter = Router();
 
@@ -85,6 +86,59 @@ router.post("/users/me/search-history", async (req: Request, res: Response) => {
   if (!parsed.success) { res.status(204).end(); return; }
   await db.insert(searchHistoryTable).values({ userId: req.user.id, query: parsed.data.query });
   res.status(204).end();
+});
+
+async function verifyCaptcha(token: string): Promise<boolean> {
+  const secret = process.env.HCAPTCHA_SECRET;
+  const isProd = process.env.NODE_ENV === "production";
+  if (!secret) {
+    if (isProd) return false;
+    return true;
+  }
+  try {
+    const resp = await fetch("https://api.hcaptcha.com/siteverify", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ secret, response: token }).toString(),
+    });
+    const data = (await resp.json()) as { success: boolean };
+    return data.success === true;
+  } catch {
+    return false;
+  }
+}
+
+router.post("/users/me/complete-onboarding", async (req: Request, res: Response) => {
+  if (!req.isAuthenticated()) {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+
+  const { captchaToken } = req.body as { captchaToken?: string };
+  if (!captchaToken) {
+    res.status(400).json({ error: "captchaToken is required" });
+    return;
+  }
+
+  const ok = await verifyCaptcha(captchaToken);
+  if (!ok) {
+    res.status(400).json({ error: "CAPTCHA verification failed" });
+    return;
+  }
+
+  await db.update(usersTable)
+    .set({ captchaVerified: true })
+    .where(eq(usersTable.id, req.user.id));
+
+  const sid = getSessionId(req);
+  if (sid) {
+    const session = await getSession(sid);
+    if (session) {
+      await updateSession(sid, { ...session, captchaVerified: true });
+    }
+  }
+
+  res.json({ success: true });
 });
 
 export default router;

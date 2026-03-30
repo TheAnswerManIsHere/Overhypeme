@@ -2,7 +2,8 @@ import { useState } from "react";
 import { useRoute } from "wouter";
 import { format } from "date-fns";
 import HCaptcha from "@hcaptcha/react-hcaptcha";
-import { useGetFact, useListComments } from "@workspace/api-client-react";
+import { useGetFact, useListComments, getGetFactQueryKey, getListCommentsQueryKey } from "@workspace/api-client-react";
+import type { ExternalLink } from "@workspace/api-client-react";
 import { useAuth } from "@workspace/replit-auth-web";
 import { Layout } from "@/components/layout/Layout";
 import { Button } from "@/components/ui/Button";
@@ -18,11 +19,11 @@ export default function FactDetail() {
   const { rateFact, addComment, addLink, deleteLink } = useAppMutations();
 
   const { data: fact, isLoading: factLoading, error: factError } = useGetFact(factId, {
-    query: { enabled: !!factId }
+    query: { queryKey: getGetFactQueryKey(factId), enabled: !!factId }
   });
   
   const { data: commentsData } = useListComments(factId, { limit: 50 }, {
-    query: { enabled: !!factId }
+    query: { queryKey: getListCommentsQueryKey(factId, { limit: 50 }), enabled: !!factId }
   });
 
   const [commentText, setCommentText] = useState("");
@@ -222,7 +223,7 @@ export default function FactDetail() {
                       </span>
                     </a>
                     
-                    {isAuthenticated && user?.id === link.addedById && (
+                    {isAuthenticated && user?.id === (link as ExternalLink & { addedById?: string | null }).addedById && (
                       <button 
                         onClick={() => deleteLink.mutate({ factId, linkId: link.id })}
                         disabled={deleteLink.isPending}

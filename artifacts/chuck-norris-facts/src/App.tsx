@@ -9,6 +9,7 @@ import Search from "@/pages/Search";
 import FactDetail from "@/pages/FactDetail";
 import SubmitFact from "@/pages/SubmitFact";
 import Profile from "@/pages/Profile";
+import Onboard from "@/pages/Onboard";
 import NotFound from "@/pages/not-found";
 
 const queryClient = new QueryClient({
@@ -28,6 +29,7 @@ function Router() {
       <Route path="/facts/:id" component={FactDetail} />
       <Route path="/submit" component={SubmitFact} />
       <Route path="/profile" component={Profile} />
+      <Route path="/onboard" component={Onboard} />
       <Route component={NotFound} />
     </Switch>
   );

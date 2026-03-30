@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useAuth } from "@workspace/replit-auth-web";
-import { useGetMyProfile } from "@workspace/api-client-react";
+import { useGetMyProfile, getGetMyProfileQueryKey } from "@workspace/api-client-react";
 import { Layout } from "@/components/layout/Layout";
 import { FactCard } from "@/components/facts/FactCard";
 import { Button } from "@/components/ui/Button";
@@ -10,7 +10,7 @@ import { Link } from "wouter";
 export default function Profile() {
   const { isAuthenticated, login, logout } = useAuth();
   const { data: profile, isLoading } = useGetMyProfile({
-    query: { enabled: isAuthenticated, retry: false }
+    query: { queryKey: getGetMyProfileQueryKey(), enabled: isAuthenticated, retry: false }
   });
 
   const [activeTab, setActiveTab] = useState<"submitted" | "liked" | "history">("liked");
