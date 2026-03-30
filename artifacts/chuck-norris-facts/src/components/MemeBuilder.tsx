@@ -179,6 +179,7 @@ export function MemeBuilder({ factId, factText, onClose }: MemeBuilderProps) {
                 const stops = GRADIENT_DEFS[tpl.id];
                 const from = stops?.[0]?.[0] ?? "#000";
                 const to = stops?.[stops.length - 1]?.[0] ?? "#333";
+                const previewImg = tpl.previewImageUrl;
                 return (
                   <button
                     key={tpl.id}
@@ -189,8 +190,16 @@ export function MemeBuilder({ factId, factText, onClose }: MemeBuilderProps) {
                         ? "border-primary ring-2 ring-primary/40 scale-105"
                         : "border-border hover:border-primary/50"
                     }`}
-                    style={{ background: `linear-gradient(135deg, ${from}, ${to})` }}
+                    style={previewImg ? undefined : { background: `linear-gradient(135deg, ${from}, ${to})` }}
                   >
+                    {previewImg && (
+                      <img
+                        src={previewImg}
+                        alt={tpl.name}
+                        className="absolute inset-0 w-full h-full object-cover"
+                        loading="lazy"
+                      />
+                    )}
                     <span className="absolute inset-0 flex items-end justify-center pb-1">
                       <span className="text-white text-[9px] font-bold drop-shadow-lg truncate px-1">{tpl.name}</span>
                     </span>

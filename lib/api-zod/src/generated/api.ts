@@ -484,6 +484,7 @@ export const ListMemeTemplatesResponse = zod.object({
       name: zod.string(),
       description: zod.string(),
       previewColors: zod.array(zod.string()).optional(),
+      previewImageUrl: zod.string().optional(),
     }),
   ),
 });
