@@ -2,7 +2,7 @@ import { Router, type IRouter, type Request, type Response } from "express";
 import { z } from "zod/v4";
 import { db } from "@workspace/db";
 import { factsTable, hashtagsTable, factHashtagsTable } from "@workspace/db/schema";
-import { eq, sql } from "drizzle-orm";
+import { eq, sql, inArray } from "drizzle-orm";
 import { requireApiKey } from "../middlewares/apiKeyAuth";
 import { requireAdmin } from "./admin";
 
@@ -116,12 +116,27 @@ router.post(
     let created = 0;
     let skipped = 0;
 
+    // Pre-fetch which texts already exist so we can skip them cleanly
+    // (facts.text has no unique constraint, so onConflictDoNothing would not fire)
+    const textsToInsert = validItems.map(({ data }) => data.text);
+    const existingRows = textsToInsert.length
+      ? await db
+          .select({ text: factsTable.text })
+          .from(factsTable)
+          .where(inArray(factsTable.text, textsToInsert))
+      : [];
+    const existingTexts = new Set(existingRows.map((r) => r.text));
+
     await db.transaction(async (tx) => {
       for (const { data } of validItems) {
+        if (existingTexts.has(data.text)) {
+          skipped++;
+          continue;
+        }
+
         const [inserted] = await tx
           .insert(factsTable)
           .values({ text: data.text })
-          .onConflictDoNothing()
           .returning({ id: factsTable.id });
 
         if (!inserted) {
@@ -129,6 +144,8 @@ router.post(
           continue;
         }
 
+        // Track so same text appearing multiple times in the payload is also skipped
+        existingTexts.add(data.text);
         created++;
 
         for (const tag of data.hashtags) {
