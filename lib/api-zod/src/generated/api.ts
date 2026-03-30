@@ -550,3 +550,50 @@ export const ListFactMemesResponse = zod.object({
     }),
   ),
 });
+
+/**
+ * @summary Log an affiliate click and get the destination URL
+ */
+export const LogAffiliateClickBody = zod.object({
+  sourceType: zod.enum(["fact", "meme"]),
+  sourceId: zod.string(),
+  destination: zod.enum(["zazzle", "cafepress"]),
+  text: zod.string(),
+  imageUrl: zod.string().nullish(),
+});
+
+export const LogAffiliateClickResponse = zod.object({
+  url: zod.string().url(),
+});
+
+/**
+ * @summary Get affiliate click stats (admin only)
+ */
+export const GetAffiliateStatsQueryParams = zod.object({
+  from: zod
+    .date()
+    .optional()
+    .describe("Filter clicks from this date (YYYY-MM-DD)"),
+  to: zod
+    .date()
+    .optional()
+    .describe("Filter clicks up to this date (YYYY-MM-DD)"),
+});
+
+export const GetAffiliateStatsResponse = zod.object({
+  rows: zod.array(
+    zod.object({
+      sourceType: zod.enum(["fact", "meme"]),
+      sourceId: zod.string(),
+      destination: zod.enum(["zazzle", "cafepress"]),
+      clicks: zod.number(),
+      lastClicked: zod.coerce.date(),
+    }),
+  ),
+  totals: zod.array(
+    zod.object({
+      destination: zod.enum(["zazzle", "cafepress"]),
+      total: zod.number(),
+    }),
+  ),
+});

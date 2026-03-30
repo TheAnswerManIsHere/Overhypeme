@@ -60,6 +60,76 @@ export interface DuplicateConflict {
   matchingFactText?: string;
 }
 
+export type AffiliateClickRequestSourceType =
+  (typeof AffiliateClickRequestSourceType)[keyof typeof AffiliateClickRequestSourceType];
+
+export const AffiliateClickRequestSourceType = {
+  fact: "fact",
+  meme: "meme",
+} as const;
+
+export type AffiliateClickRequestDestination =
+  (typeof AffiliateClickRequestDestination)[keyof typeof AffiliateClickRequestDestination];
+
+export const AffiliateClickRequestDestination = {
+  zazzle: "zazzle",
+  cafepress: "cafepress",
+} as const;
+
+export interface AffiliateClickRequest {
+  sourceType: AffiliateClickRequestSourceType;
+  sourceId: string;
+  destination: AffiliateClickRequestDestination;
+  text: string;
+  imageUrl?: string | null;
+}
+
+export interface AffiliateClickResponse {
+  url: string;
+}
+
+export type AffiliateClickRowSourceType =
+  (typeof AffiliateClickRowSourceType)[keyof typeof AffiliateClickRowSourceType];
+
+export const AffiliateClickRowSourceType = {
+  fact: "fact",
+  meme: "meme",
+} as const;
+
+export type AffiliateClickRowDestination =
+  (typeof AffiliateClickRowDestination)[keyof typeof AffiliateClickRowDestination];
+
+export const AffiliateClickRowDestination = {
+  zazzle: "zazzle",
+  cafepress: "cafepress",
+} as const;
+
+export interface AffiliateClickRow {
+  sourceType: AffiliateClickRowSourceType;
+  sourceId: string;
+  destination: AffiliateClickRowDestination;
+  clicks: number;
+  lastClicked: string;
+}
+
+export type AffiliateDestinationTotalDestination =
+  (typeof AffiliateDestinationTotalDestination)[keyof typeof AffiliateDestinationTotalDestination];
+
+export const AffiliateDestinationTotalDestination = {
+  zazzle: "zazzle",
+  cafepress: "cafepress",
+} as const;
+
+export interface AffiliateDestinationTotal {
+  destination: AffiliateDestinationTotalDestination;
+  total: number;
+}
+
+export interface AffiliateStatsResponse {
+  rows: AffiliateClickRow[];
+  totals: AffiliateDestinationTotal[];
+}
+
 export interface ErrorEnvelope {
   error: string;
 }
@@ -382,4 +452,15 @@ export type GetAdminFlaggedComments200CommentsItem = {
 
 export type GetAdminFlaggedComments200 = {
   comments: GetAdminFlaggedComments200CommentsItem[];
+};
+
+export type GetAffiliateStatsParams = {
+  /**
+   * Filter clicks from this date (YYYY-MM-DD)
+   */
+  from?: string;
+  /**
+   * Filter clicks up to this date (YYYY-MM-DD)
+   */
+  to?: string;
 };

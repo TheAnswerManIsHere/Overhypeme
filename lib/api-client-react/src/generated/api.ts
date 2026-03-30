@@ -19,6 +19,9 @@ import type {
 import type {
   AddCommentRequest,
   AddLinkRequest,
+  AffiliateClickRequest,
+  AffiliateClickResponse,
+  AffiliateStatsResponse,
   AuthUserEnvelope,
   BeginBrowserLoginParams,
   CheckDuplicate200,
@@ -33,6 +36,7 @@ import type {
   FactDetail,
   FactListResponse,
   GetAdminFlaggedComments200,
+  GetAffiliateStatsParams,
   HandleBrowserLoginCallbackParams,
   HashtagListResponse,
   HealthStatus,
@@ -2644,6 +2648,189 @@ export function useListFactMemes<
   },
 ): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
   const queryOptions = getListFactMemesQueryOptions(factId, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Log an affiliate click and get the destination URL
+ */
+export const getLogAffiliateClickUrl = () => {
+  return `/api/affiliate/click`;
+};
+
+export const logAffiliateClick = async (
+  affiliateClickRequest: AffiliateClickRequest,
+  options?: RequestInit,
+): Promise<AffiliateClickResponse> => {
+  return customFetch<AffiliateClickResponse>(getLogAffiliateClickUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(affiliateClickRequest),
+  });
+};
+
+export const getLogAffiliateClickMutationOptions = <
+  TError = ErrorType<ErrorEnvelope>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof logAffiliateClick>>,
+    TError,
+    { data: BodyType<AffiliateClickRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof logAffiliateClick>>,
+  TError,
+  { data: BodyType<AffiliateClickRequest> },
+  TContext
+> => {
+  const mutationKey = ["logAffiliateClick"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof logAffiliateClick>>,
+    { data: BodyType<AffiliateClickRequest> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return logAffiliateClick(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type LogAffiliateClickMutationResult = NonNullable<
+  Awaited<ReturnType<typeof logAffiliateClick>>
+>;
+export type LogAffiliateClickMutationBody = BodyType<AffiliateClickRequest>;
+export type LogAffiliateClickMutationError = ErrorType<ErrorEnvelope>;
+
+/**
+ * @summary Log an affiliate click and get the destination URL
+ */
+export const useLogAffiliateClick = <
+  TError = ErrorType<ErrorEnvelope>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof logAffiliateClick>>,
+    TError,
+    { data: BodyType<AffiliateClickRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof logAffiliateClick>>,
+  TError,
+  { data: BodyType<AffiliateClickRequest> },
+  TContext
+> => {
+  return useMutation(getLogAffiliateClickMutationOptions(options));
+};
+
+/**
+ * @summary Get affiliate click stats (admin only)
+ */
+export const getGetAffiliateStatsUrl = (params?: GetAffiliateStatsParams) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/affiliate/stats?${stringifiedParams}`
+    : `/api/affiliate/stats`;
+};
+
+export const getAffiliateStats = async (
+  params?: GetAffiliateStatsParams,
+  options?: RequestInit,
+): Promise<AffiliateStatsResponse> => {
+  return customFetch<AffiliateStatsResponse>(getGetAffiliateStatsUrl(params), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetAffiliateStatsQueryKey = (
+  params?: GetAffiliateStatsParams,
+) => {
+  return [`/api/affiliate/stats`, ...(params ? [params] : [])] as const;
+};
+
+export const getGetAffiliateStatsQueryOptions = <
+  TData = Awaited<ReturnType<typeof getAffiliateStats>>,
+  TError = ErrorType<ErrorEnvelope>,
+>(
+  params?: GetAffiliateStatsParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getAffiliateStats>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getGetAffiliateStatsQueryKey(params);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getAffiliateStats>>
+  > = ({ signal }) => getAffiliateStats(params, { signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getAffiliateStats>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetAffiliateStatsQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getAffiliateStats>>
+>;
+export type GetAffiliateStatsQueryError = ErrorType<ErrorEnvelope>;
+
+/**
+ * @summary Get affiliate click stats (admin only)
+ */
+
+export function useGetAffiliateStats<
+  TData = Awaited<ReturnType<typeof getAffiliateStats>>,
+  TError = ErrorType<ErrorEnvelope>,
+>(
+  params?: GetAffiliateStatsParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getAffiliateStats>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetAffiliateStatsQueryOptions(params, options);
 
   const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
     queryKey: QueryKey;

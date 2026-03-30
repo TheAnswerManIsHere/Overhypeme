@@ -85,43 +85,55 @@ router.post("/affiliate/click", async (req: Request, res: Response) => {
   res.json({ url });
 });
 
+// Build a date range WHERE clause for affiliate_clicks.clicked_at
+function dateRangeWhere(dateFrom: Date | null, dateTo: Date | null) {
+  if (dateFrom && dateTo) {
+    return sql`${affiliateClicksTable.clickedAt} BETWEEN ${dateFrom.toISOString()} AND ${dateTo.toISOString()}`;
+  }
+  if (dateFrom) {
+    return sql`${affiliateClicksTable.clickedAt} >= ${dateFrom.toISOString()}`;
+  }
+  if (dateTo) {
+    return sql`${affiliateClicksTable.clickedAt} <= ${dateTo.toISOString()}`;
+  }
+  return undefined;
+}
+
 // GET /affiliate/stats — admin only: click counts per source grouped by destination
 router.get("/affiliate/stats", requireAdmin, async (req: Request, res: Response) => {
 
   const dateFrom = req.query["from"] ? new Date(String(req.query["from"])) : null;
   const dateTo = req.query["to"] ? new Date(String(req.query["to"])) : null;
+  const whereClause = dateRangeWhere(dateFrom, dateTo);
 
-  const rows = await db
-    .select({
-      sourceType: affiliateClicksTable.sourceType,
-      sourceId: affiliateClicksTable.sourceId,
-      destination: affiliateClicksTable.destination,
-      clicks: count(),
-      lastClicked: sql<string>`max(${affiliateClicksTable.clickedAt})`,
-    })
-    .from(affiliateClicksTable)
-    .where(
-      dateFrom && dateTo
-        ? sql`${affiliateClicksTable.clickedAt} BETWEEN ${dateFrom.toISOString()} AND ${dateTo.toISOString()}`
-        : dateFrom
-        ? sql`${affiliateClicksTable.clickedAt} >= ${dateFrom.toISOString()}`
-        : undefined
-    )
-    .groupBy(
-      affiliateClicksTable.sourceType,
-      affiliateClicksTable.sourceId,
-      affiliateClicksTable.destination,
-    )
-    .orderBy(desc(sql`max(${affiliateClicksTable.clickedAt})`))
-    .limit(200);
+  const [rows, totals] = await Promise.all([
+    db
+      .select({
+        sourceType: affiliateClicksTable.sourceType,
+        sourceId: affiliateClicksTable.sourceId,
+        destination: affiliateClicksTable.destination,
+        clicks: count(),
+        lastClicked: sql<string>`max(${affiliateClicksTable.clickedAt})`,
+      })
+      .from(affiliateClicksTable)
+      .where(whereClause)
+      .groupBy(
+        affiliateClicksTable.sourceType,
+        affiliateClicksTable.sourceId,
+        affiliateClicksTable.destination,
+      )
+      .orderBy(desc(sql`max(${affiliateClicksTable.clickedAt})`))
+      .limit(200),
 
-  const totals = await db
-    .select({
-      destination: affiliateClicksTable.destination,
-      total: count(),
-    })
-    .from(affiliateClicksTable)
-    .groupBy(affiliateClicksTable.destination);
+    db
+      .select({
+        destination: affiliateClicksTable.destination,
+        total: count(),
+      })
+      .from(affiliateClicksTable)
+      .where(whereClause)
+      .groupBy(affiliateClicksTable.destination),
+  ]);
 
   res.json({ rows, totals });
 });
