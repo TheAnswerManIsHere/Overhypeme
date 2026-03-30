@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Link } from "wouter";
 import { useAuth } from "@workspace/replit-auth-web";
 import { Layout } from "@/components/layout/Layout";
@@ -67,15 +67,13 @@ export default function Pricing() {
     id: string; name: string; description: string | null;
     prices: Array<{ id: string; unit_amount: number; currency: string; recurring: { interval: string } | null }>;
   }>>([]);
-  const [plansLoaded, setPlansLoaded] = useState(false);
 
-  if (!plansLoaded) {
-    setPlansLoaded(true);
+  useEffect(() => {
     fetch("/api/stripe/plans")
       .then(r => r.json())
       .then((d: { plans: typeof plans }) => setPlans(d.plans ?? []))
       .catch(() => {});
-  }
+  }, []);
 
   async function handleSelect(priceId: string) {
     if (!isAuthenticated) { login(); return; }
