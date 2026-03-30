@@ -1,6 +1,6 @@
 import { db } from "@workspace/db";
-import { usersTable } from "@workspace/db/schema";
-import { eq, sql } from "drizzle-orm";
+import { usersTable, membershipHistoryTable } from "@workspace/db/schema";
+import { eq, desc, sql } from "drizzle-orm";
 
 export class StripeStorage {
   async getUserById(id: string) {
@@ -37,6 +37,20 @@ export class StripeStorage {
           AND u.email IS NOT NULL`,
     );
     return result.rows as Array<{ id: string; email: string }>;
+  }
+
+  async getMembershipTierForUser(userId: string): Promise<"free" | "premium"> {
+    const user = await this.getUserById(userId);
+    return user?.membershipTier ?? "free";
+  }
+
+  async getPaymentHistory(userId: string) {
+    return db
+      .select()
+      .from(membershipHistoryTable)
+      .where(eq(membershipHistoryTable.userId, userId))
+      .orderBy(desc(membershipHistoryTable.createdAt))
+      .limit(50);
   }
 
   async listProductsWithPrices() {

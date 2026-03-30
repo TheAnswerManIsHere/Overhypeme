@@ -63,12 +63,16 @@ router.post("/stripe/checkout", async (req: Request, res: Response) => {
       customerId = customer.id;
     }
 
+    // Determine if this is a one-time (lifetime) or recurring price
+    const priceObj = await stripe.prices.retrieve(priceId);
+    const isOneTime = priceObj.type === "one_time";
+
     const base = getBaseUrl(req);
     const session = await stripe.checkout.sessions.create({
       customer: customerId,
       payment_method_types: ["card"],
       line_items: [{ price: priceId, quantity: 1 }],
-      mode: "subscription",
+      mode: isOneTime ? "payment" : "subscription",
       success_url: `${base}/chuck-norris-facts/profile?checkout=success`,
       cancel_url: `${base}/chuck-norris-facts/pricing`,
     });
@@ -77,6 +81,28 @@ router.post("/stripe/checkout", async (req: Request, res: Response) => {
   } catch (err) {
     const msg = err instanceof Error ? err.message : "Checkout failed";
     res.status(500).json({ error: msg });
+  }
+});
+
+// GET /stripe/payment-history — current user's payment history
+router.get("/stripe/payment-history", async (req: Request, res: Response) => {
+  if (!req.isAuthenticated()) { res.status(401).json({ error: "Unauthorized" }); return; }
+  try {
+    const history = await stripeStorage.getPaymentHistory(req.user.id);
+    res.json({ history });
+  } catch {
+    res.json({ history: [] });
+  }
+});
+
+// GET /stripe/membership — current user's membership tier
+router.get("/stripe/membership", async (req: Request, res: Response) => {
+  if (!req.isAuthenticated()) { res.status(401).json({ tier: "free" }); return; }
+  try {
+    const tier = await stripeStorage.getMembershipTierForUser(req.user.id);
+    res.json({ tier });
+  } catch {
+    res.json({ tier: "free" });
   }
 });
 

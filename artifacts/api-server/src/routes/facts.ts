@@ -5,6 +5,7 @@ import {
   factsTable, hashtagsTable, factHashtagsTable,
   ratingsTable, commentsTable, externalLinksTable, usersTable,
 } from "@workspace/db/schema";
+import { stripeStorage } from "../lib/stripeStorage";
 import { eq, sql, desc, asc, ilike, and, inArray } from "drizzle-orm";
 import {
   ListFactsQueryParams, CreateFactBody, GetFactParams,
@@ -135,9 +136,13 @@ router.post("/facts", async (req: Request, res: Response) => {
   if (!parsed.success) { res.status(400).json({ error: "Invalid input", details: parsed.error.flatten() }); return; }
   const { text, hashtags = [], captchaToken, skipDuplicateCheck } = parsed.data;
 
-  if (!captchaToken || !(await verifyCaptcha(captchaToken))) {
-    res.status(400).json({ error: "CAPTCHA verification failed" });
-    return;
+  // Premium members bypass CAPTCHA
+  const membershipTier = await stripeStorage.getMembershipTierForUser(req.user.id);
+  if (membershipTier !== "premium") {
+    if (!captchaToken || !(await verifyCaptcha(captchaToken))) {
+      res.status(400).json({ error: "CAPTCHA verification failed" });
+      return;
+    }
   }
 
   if (!skipDuplicateCheck) {
@@ -273,9 +278,13 @@ router.post("/facts/:factId/comments", async (req: Request, res: Response) => {
   const [factExists] = await db.select({ id: factsTable.id }).from(factsTable).where(eq(factsTable.id, factId)).limit(1);
   if (!factExists) { res.status(404).json({ error: "Fact not found" }); return; }
 
-  if (!captchaToken || !(await verifyCaptcha(captchaToken))) {
-    res.status(400).json({ error: "CAPTCHA verification failed" });
-    return;
+  // Premium members bypass CAPTCHA for comments
+  const commentMembershipTier = await stripeStorage.getMembershipTierForUser(req.user.id);
+  if (commentMembershipTier !== "premium") {
+    if (!captchaToken || !(await verifyCaptcha(captchaToken))) {
+      res.status(400).json({ error: "CAPTCHA verification failed" });
+      return;
+    }
   }
 
   const [comment] = await db.insert(commentsTable).values({ factId, authorId: req.user.id, text }).returning();

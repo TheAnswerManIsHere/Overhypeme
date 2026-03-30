@@ -45,6 +45,30 @@ async function initStripe() {
 
 await initStripe();
 
+// Daily cron: send Fact of the Day at 9:00 UTC
+function scheduleDailyFactJob() {
+  const schedule = () => {
+    const now = new Date();
+    const next9am = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 9, 0, 0, 0));
+    if (next9am <= now) next9am.setUTCDate(next9am.getUTCDate() + 1);
+    const msUntilNext = next9am.getTime() - now.getTime();
+    logger.info({ nextRunAt: next9am.toISOString(), msUntilNext }, "Fact of the Day scheduled");
+    setTimeout(async () => {
+      try {
+        const { runFactOfTheDayJob } = await import("./jobs/factOfTheDay");
+        const result = await runFactOfTheDayJob();
+        logger.info(result, "Fact of the Day sent");
+      } catch (err) {
+        logger.error({ err }, "Fact of the Day job failed");
+      }
+      schedule(); // reschedule for next day
+    }, msUntilNext);
+  };
+  schedule();
+}
+
+scheduleDailyFactJob();
+
 app.listen(port, (err) => {
   if (err) {
     logger.error({ err }, "Error listening on port");

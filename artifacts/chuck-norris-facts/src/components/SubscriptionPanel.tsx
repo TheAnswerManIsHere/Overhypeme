@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { Link } from "wouter";
 import { Button } from "@/components/ui/Button";
-import { Star, CreditCard, Calendar, Zap, ExternalLink, AlertCircle } from "lucide-react";
+import { Star, CreditCard, Calendar, Zap, ExternalLink, AlertCircle, Receipt, ChevronDown, ChevronUp } from "lucide-react";
 
 interface Subscription {
   id: string;
@@ -11,8 +11,37 @@ interface Subscription {
   items?: { data: Array<{ price: { id: string; unit_amount: number; recurring: { interval: string } | null } }> };
 }
 
+interface PaymentRecord {
+  id: number;
+  event: string;
+  plan: string | null;
+  amount: number | null;
+  currency: string | null;
+  stripePaymentIntentId: string | null;
+  stripeSubscriptionId: string | null;
+  stripeInvoiceId: string | null;
+  createdAt: string;
+}
+
+function eventLabel(event: string): string {
+  switch (event) {
+    case "subscription_activated": return "Subscription Activated";
+    case "subscription_cancelled": return "Subscription Cancelled";
+    case "invoice_paid": return "Payment Received";
+    case "lifetime_purchase": return "Lifetime Purchase";
+    default: return event.replace(/_/g, " ");
+  }
+}
+
+function planLabel(plan: string | null): string {
+  if (!plan) return "";
+  return plan.charAt(0).toUpperCase() + plan.slice(1);
+}
+
 export function SubscriptionPanel() {
   const [sub, setSub] = useState<Subscription | null | undefined>(undefined);
+  const [history, setHistory] = useState<PaymentRecord[]>([]);
+  const [showHistory, setShowHistory] = useState(false);
   const [portalLoading, setPortalLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -21,6 +50,10 @@ export function SubscriptionPanel() {
       .then(r => r.json())
       .then((d: { subscription: Subscription | null }) => setSub(d.subscription))
       .catch(() => setSub(null));
+    fetch("/api/stripe/payment-history", { credentials: "include" })
+      .then(r => r.json())
+      .then((d: { history: PaymentRecord[] }) => setHistory(d.history ?? []))
+      .catch(() => {});
   }, []);
 
   async function openPortal() {
@@ -48,7 +81,7 @@ export function SubscriptionPanel() {
     : null;
 
   const price = sub?.items?.data?.[0]?.price;
-  const planLabel = price?.recurring?.interval === "year" ? "Annual" : price?.recurring?.interval === "month" ? "Monthly" : price ? "Lifetime" : "Premium";
+  const plan = price?.recurring?.interval === "year" ? "Annual" : price?.recurring?.interval === "month" ? "Monthly" : price ? "Lifetime" : "Premium";
 
   return (
     <div className="bg-card border-2 border-border rounded-sm p-6 mb-8">
@@ -87,7 +120,7 @@ export function SubscriptionPanel() {
                 Premium Member
                 <span className="text-xs bg-primary/20 text-primary px-2 py-0.5 rounded-sm uppercase tracking-wide">{sub.status}</span>
               </p>
-              <p className="text-sm text-muted-foreground">{planLabel} subscription</p>
+              <p className="text-sm text-muted-foreground">{plan} subscription</p>
             </div>
           </div>
 
@@ -131,6 +164,43 @@ export function SubscriptionPanel() {
           <Link href="/pricing">
             <Button size="sm">Resubscribe</Button>
           </Link>
+        </div>
+      )}
+
+      {/* Payment History */}
+      {history.length > 0 && (
+        <div className="mt-6 border-t border-border pt-5">
+          <button
+            onClick={() => setShowHistory(!showHistory)}
+            className="flex items-center gap-2 text-sm font-bold text-muted-foreground hover:text-foreground transition-colors w-full text-left"
+          >
+            <Receipt className="w-4 h-4 text-primary" />
+            Payment History ({history.length})
+            {showHistory ? <ChevronUp className="w-4 h-4 ml-auto" /> : <ChevronDown className="w-4 h-4 ml-auto" />}
+          </button>
+
+          {showHistory && (
+            <div className="mt-4 space-y-2">
+              {history.map(record => (
+                <div key={record.id} className="flex items-center justify-between p-3 bg-secondary/50 rounded-sm border border-border/50 text-sm">
+                  <div>
+                    <p className="font-medium text-foreground">{eventLabel(record.event)}</p>
+                    <div className="flex items-center gap-2 mt-0.5">
+                      {record.plan && <span className="text-xs text-primary uppercase">{planLabel(record.plan)}</span>}
+                      <span className="text-xs text-muted-foreground">
+                        {new Date(record.createdAt).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" })}
+                      </span>
+                    </div>
+                  </div>
+                  {record.amount != null && record.amount > 0 && (
+                    <span className="font-bold text-foreground">
+                      ${(record.amount / 100).toFixed(2)} {record.currency?.toUpperCase()}
+                    </span>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
     </div>
