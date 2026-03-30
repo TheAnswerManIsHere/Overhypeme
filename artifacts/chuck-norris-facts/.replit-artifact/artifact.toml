@@ -1,0 +1,31 @@
+kind = "web"
+previewPath = "/"
+title = "Chuck Norris Facts"
+version = "1.0.0"
+id = "artifacts/chuck-norris-facts"
+router = "path"
+
+[[integratedSkills]]
+name = "react-vite"
+version = "1.0.0"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 26169
+
+[services.development]
+run = "pnpm --filter @workspace/chuck-norris-facts run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/chuck-norris-facts", "run", "build" ]
+publicDir = "artifacts/chuck-norris-facts/dist/public"
+serve = "static"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "26169"
+BASE_PATH = "/"

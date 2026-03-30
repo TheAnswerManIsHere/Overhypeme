@@ -1,0 +1,20 @@
+packages:
+  "framer-motion": "For bold, impactful page transitions and card hover effects"
+  "@hcaptcha/react-hcaptcha": "Required for the fact submission and comment forms to block bots"
+  "date-fns": "For elegant date formatting in comments and fact cards"
+  "lucide-react": "For crisp, modern icons throughout the interface"
+  "clsx": "For conditional class name merging"
+  "tailwind-merge": "For safely merging Tailwind utility classes"
+
+images:
+  - path: "artifacts/chuck-norris-facts/public/images/hero-bg.png"
+    description: "Gritty, dark action movie background with sparks, smoke, and dramatic cinematic lighting, deep blacks and vivid orange highlights, brutalist aesthetic"
+    aspect_ratio: "16:9"
+  - path: "artifacts/chuck-norris-facts/public/images/logo.png"
+    description: "A tough, metallic, distressed logo emblem resembling a shattered concrete block with glowing orange edges"
+    aspect_ratio: "1:1"
+
+notes:
+  - "React Query hooks are imported from @workspace/api-client-react"
+  - "Replit auth is handled via @workspace/replit-auth-web"
+  - "HCaptcha is using the standard testing sitekey: 10000000-ffff-ffff-ffff-000000000001"
