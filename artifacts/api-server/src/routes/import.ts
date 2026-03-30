@@ -3,6 +3,9 @@ import { z } from "zod/v4";
 import { db } from "@workspace/db";
 import { factsTable, hashtagsTable, factHashtagsTable } from "@workspace/db/schema";
 import { eq, sql, inArray } from "drizzle-orm";
+import { type PgTransaction } from "drizzle-orm/pg-core";
+import { type NodePgQueryResultHKT } from "drizzle-orm/node-postgres";
+import { type ExtractTablesWithRelations } from "drizzle-orm";
 import { requireApiKey } from "../middlewares/apiKeyAuth";
 import { requireAdmin } from "./admin";
 
@@ -26,37 +29,65 @@ const ImportFactItemSchema = z.object({
 
 type ImportFactItem = z.infer<typeof ImportFactItemSchema>;
 
+type AnyTx = PgTransaction<NodePgQueryResultHKT, Record<string, never>, ExtractTablesWithRelations<Record<string, never>>>;
+
 type FailedItem = {
   index: number;
   errors: { field: string; message: string }[];
 };
 
 /**
- * Either a valid API key OR a logged-in admin session is accepted.
- * This lets both automated callers (LLM agents) and human admins use the endpoint.
+ * Upsert a hashtag inside a transaction. Returns the hashtag id.
+ * All DB operations run on `tx` so they are fully atomic with the surrounding import.
  */
-async function requireApiKeyOrAdmin(req: Request, res: Response, next: () => void): Promise<void> {
+async function upsertHashtagInTx(tx: AnyTx, name: string): Promise<number> {
+  const normalised = name.toLowerCase().replace(/[^a-z0-9_]/g, "");
+  if (!normalised) throw new Error(`Invalid hashtag after normalisation: "${name}"`);
+
+  let [ht] = await tx
+    .select({ id: hashtagsTable.id })
+    .from(hashtagsTable)
+    .where(eq(hashtagsTable.name, normalised))
+    .limit(1);
+
+  if (!ht) {
+    [ht] = await tx
+      .insert(hashtagsTable)
+      .values({ name: normalised })
+      .onConflictDoNothing()
+      .returning({ id: hashtagsTable.id });
+
+    // If another concurrent insert won the race, fetch the existing row
+    if (!ht) {
+      [ht] = await tx
+        .select({ id: hashtagsTable.id })
+        .from(hashtagsTable)
+        .where(eq(hashtagsTable.name, normalised))
+        .limit(1);
+    }
+  }
+
+  return ht!.id;
+}
+
+/**
+ * API key is the primary auth mechanism (for automated callers / LLM agents).
+ * A logged-in admin session is also accepted so human admins can call this
+ * endpoint without needing the key.
+ */
+function requireApiKeyOrAdmin(req: Request, res: Response, next: () => void): void {
   const apiKey = process.env.ADMIN_API_KEY;
   const providedKey = req.headers["x-api-key"];
   const key = Array.isArray(providedKey) ? providedKey[0] : providedKey;
 
+  // API key takes priority — no session overhead for automated callers
   if (apiKey && key === apiKey) {
     next();
     return;
   }
 
+  // Fall back to admin session for human admins
   requireAdmin(req, res, next);
-}
-
-async function upsertHashtag(name: string): Promise<number> {
-  const normalised = name.toLowerCase().replace(/[^a-z0-9_]/g, "");
-  if (!normalised) throw new Error(`Invalid hashtag after normalisation: "${name}"`);
-
-  let [ht] = await db.select({ id: hashtagsTable.id }).from(hashtagsTable).where(eq(hashtagsTable.name, normalised)).limit(1);
-  if (!ht) {
-    [ht] = await db.insert(hashtagsTable).values({ name: normalised }).returning({ id: hashtagsTable.id });
-  }
-  return ht.id;
 }
 
 router.post(
@@ -67,9 +98,15 @@ router.post(
 
     const body = req.body as unknown;
 
-    if (!Array.isArray(body) && (typeof body !== "object" || body === null || !Array.isArray((body as Record<string, unknown>).facts))) {
+    if (
+      !Array.isArray(body) &&
+      (typeof body !== "object" ||
+        body === null ||
+        !Array.isArray((body as Record<string, unknown>).facts))
+    ) {
       res.status(400).json({
-        error: "Request body must be a JSON array of fact objects, or an object with a `facts` array property.",
+        error:
+          "Request body must be a JSON array of fact objects, or an object with a `facts` array property.",
       });
       return;
     }
@@ -116,17 +153,18 @@ router.post(
     let created = 0;
     let skipped = 0;
 
-    // Pre-fetch which texts already exist so we can skip them cleanly
-    // (facts.text has no unique constraint, so onConflictDoNothing would not fire)
-    const textsToInsert = validItems.map(({ data }) => data.text);
-    const existingRows = textsToInsert.length
+    // Pre-fetch which texts already exist so we can skip them cleanly.
+    // (facts.text has no unique constraint, so we cannot rely on ON CONFLICT.)
+    const textsToCheck = validItems.map(({ data }) => data.text);
+    const existingRows = textsToCheck.length
       ? await db
           .select({ text: factsTable.text })
           .from(factsTable)
-          .where(inArray(factsTable.text, textsToInsert))
+          .where(inArray(factsTable.text, textsToCheck))
       : [];
     const existingTexts = new Set(existingRows.map((r) => r.text));
 
+    // All fact + hashtag writes happen inside a single transaction for atomicity.
     await db.transaction(async (tx) => {
       for (const { data } of validItems) {
         if (existingTexts.has(data.text)) {
@@ -144,12 +182,13 @@ router.post(
           continue;
         }
 
-        // Track so same text appearing multiple times in the payload is also skipped
+        // Track so the same text appearing multiple times in the payload is skipped
         existingTexts.add(data.text);
         created++;
 
         for (const tag of data.hashtags) {
-          const hashtagId = await upsertHashtag(tag);
+          // upsertHashtagInTx uses tx — all hashtag writes are part of the same transaction
+          const hashtagId = await upsertHashtagInTx(tx as unknown as AnyTx, tag);
           const [joined] = await tx
             .insert(factHashtagsTable)
             .values({ factId: inserted.id, hashtagId })
