@@ -1,7 +1,22 @@
-import { pgTable, text, serial, timestamp, varchar, integer } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, timestamp, varchar, integer, customType } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 import { usersTable } from "./auth";
+
+const vector = customType<{ data: number[]; driverData: string; config: { dimensions: number } }>({
+  dataType(config) {
+    return `vector(${config?.dimensions ?? 1536})`;
+  },
+  toDriver(value: number[]): string {
+    return `[${value.join(",")}]`;
+  },
+  fromDriver(value: string): number[] {
+    if (typeof value === "string") {
+      return value.replace(/^\[|\]$/g, "").split(",").map(Number);
+    }
+    return value as unknown as number[];
+  },
+});
 
 export const factsTable = pgTable("facts", {
   id: serial("id").primaryKey(),
@@ -11,6 +26,7 @@ export const factsTable = pgTable("facts", {
   downvotes: integer("downvotes").notNull().default(0),
   score: integer("score").notNull().default(0),
   commentCount: integer("comment_count").notNull().default(0),
+  embedding: vector("embedding", { dimensions: 384 }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
 });

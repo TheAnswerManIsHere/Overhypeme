@@ -187,7 +187,7 @@ export default function FactDetail() {
             ) : (
               <div className="bg-secondary p-6 rounded-sm border-2 border-border text-center">
                 <p className="text-muted-foreground font-medium mb-4">Authentication required to add intel.</p>
-                <Button onClick={login} variant="outline">LOGIN TO COMMENT</Button>
+                <Button onClick={() => setLocation("/login")} variant="outline">LOGIN TO COMMENT</Button>
               </div>
             )}
 

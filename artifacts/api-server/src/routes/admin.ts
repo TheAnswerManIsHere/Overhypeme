@@ -4,6 +4,7 @@ import { factsTable, commentsTable } from "@workspace/db/schema";
 import { eq, desc, count, ilike, sql, and } from "drizzle-orm";
 import { getSessionId, getSession, updateSession } from "../lib/auth";
 import { isAdminById } from "./auth";
+import { backfillEmbeddings } from "../lib/embeddings";
 
 const router: IRouter = Router();
 
@@ -223,6 +224,29 @@ router.delete("/admin/comments/:id", requireAdmin, async (req: Request, res: Res
     return;
   }
   res.json({ success: true });
+});
+
+// POST /admin/facts/backfill-embeddings
+// One-shot endpoint to generate pgvector embeddings for all facts that don't have one yet.
+// Accepts either an authenticated admin session OR the ADMIN_API_KEY header.
+async function requireAdminOrApiKey(req: Request, res: Response, next: NextFunction): Promise<void> {
+  const apiKey = req.headers["x-api-key"];
+  const adminApiKey = process.env.ADMIN_API_KEY;
+  if (adminApiKey && apiKey === adminApiKey) {
+    next();
+    return;
+  }
+  return requireAdmin(req, res, next);
+}
+
+router.post("/admin/facts/backfill-embeddings", requireAdminOrApiKey, async (_req: Request, res: Response) => {
+  try {
+    const result = await backfillEmbeddings();
+    res.json({ success: true, ...result });
+  } catch (err) {
+    console.error("[admin] Backfill embeddings error:", err);
+    res.status(500).json({ error: "Backfill failed", details: String(err) });
+  }
 });
 
 export default router;
