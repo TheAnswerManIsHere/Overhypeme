@@ -34,11 +34,14 @@ A community-driven Chuck Norris facts/memes site — like IMDb but for Chuck Nor
 - **Bulk import**: `POST /api/admin/facts/import` (JSON array) or `POST /api/admin/facts/import-csv` (CSV string)
 - **Embedding backfill**: `POST /api/admin/facts/backfill-embeddings` — accepts `x-api-key` header or admin session; requires `OPENAI_API_KEY` set
 
-### AI Duplicate Detection (Hybrid)
-Two-path architecture for duplicate checking:
-1. **Vector path** (fast, semantic): When `OPENAI_API_KEY` is set, generates 384-dim embeddings via `text-embedding-3-small` and searches pgvector using cosine distance (threshold 0.92). This is the preferred path.
-2. **GPT fallback** (default): When no key is set, uses keyword pre-filter + `gpt-5-mini` chat completion to assess similarity among the top 10 candidate facts.
-The pgvector `embedding vector(384)` column and IVFFlat cosine index are always present — connect `OPENAI_API_KEY` (direct key, NOT the Replit proxy which doesn't support `/embeddings`) and run the backfill endpoint to populate existing facts.
+### AI Duplicate Detection (pgvector)
+Pure vector-based duplicate checking via pgvector cosine similarity:
+- Generates 384-dim embeddings using `text-embedding-3-small` via a direct `OPENAI_API_KEY`
+- Searches `facts.embedding vector(384)` with IVFFlat cosine index (threshold 0.92)
+- Every new fact gets its embedding stored asynchronously after creation
+- If the embedding call fails (key not set, network error) the duplicate check is skipped and the submission proceeds
+- **Requires**: `OPENAI_API_KEY` set as an environment secret (direct OpenAI key — the Replit proxy does NOT support `/embeddings`)
+- **Backfill existing facts**: `POST /api/admin/facts/backfill-embeddings` with `x-api-key: <ADMIN_API_KEY>` header
 
 ### Auth Strategy
 - **Dual auth**: Replit OIDC + local username/password login

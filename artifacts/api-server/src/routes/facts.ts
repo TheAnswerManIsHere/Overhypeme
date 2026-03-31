@@ -149,7 +149,7 @@ router.post("/facts", async (req: Request, res: Response) => {
   if (!skipDuplicateCheck) {
     try {
       const dupResult = await checkDuplicateInternal(text);
-      if (dupResult.isDuplicate && dupResult.confidence >= 80) {
+      if (dupResult.isDuplicate) {
         res.status(409).json({
           error: "Possible duplicate detected. Set skipDuplicateCheck to true to submit anyway.",
           isDuplicate: true,
@@ -159,8 +159,9 @@ router.post("/facts", async (req: Request, res: Response) => {
         });
         return;
       }
-    } catch {
-      // If AI check fails, allow submission to proceed
+    } catch (err) {
+      // Duplicate check failed (e.g. embedding API unavailable) — allow submission
+      console.warn("[facts] Duplicate check skipped:", (err as Error).message);
     }
   }
 
