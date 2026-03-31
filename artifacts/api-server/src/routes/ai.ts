@@ -1,10 +1,11 @@
 import { Router, type IRouter, type Request, type Response, type NextFunction } from "express";
 import { db } from "@workspace/db";
 import { factsTable, hashtagsTable, commentsTable } from "@workspace/db/schema";
-import { desc, ilike, or, eq, sql } from "drizzle-orm";
+import { desc, eq, sql, ilike, or } from "drizzle-orm";
 import { getOpenAIClient } from "@workspace/integrations-openai-ai-server";
 import { z } from "zod";
 import { getSessionId, getSession } from "../lib/auth";
+import { embedText, findSimilarFacts, isEmbeddingEnabled } from "../lib/embeddings";
 
 const router: IRouter = Router();
 
@@ -110,7 +111,34 @@ export interface DuplicateCheckResult {
   matchingFactText?: string;
 }
 
+// Cosine similarity threshold above which a fact is flagged as a duplicate.
+const DUPLICATE_THRESHOLD = 0.92;
+
 export async function checkDuplicateInternal(text: string): Promise<DuplicateCheckResult> {
+  // --- Vector path: fast O(log n) search via pgvector ---
+  if (isEmbeddingEnabled()) {
+    try {
+      const embedding = await embedText(text);
+      const neighbors = await findSimilarFacts(embedding, {
+        limit: 5,
+        threshold: DUPLICATE_THRESHOLD,
+      });
+      if (neighbors.length > 0) {
+        const best = neighbors[0];
+        return {
+          isDuplicate: true,
+          confidence: Math.round(best.similarity * 100),
+          matchingFactId: best.id,
+          matchingFactText: best.text,
+        };
+      }
+      return { isDuplicate: false, confidence: 0 };
+    } catch (err) {
+      console.error("[AI] Vector duplicate check failed, falling back to GPT:", err);
+    }
+  }
+
+  // --- GPT fallback path: keyword pre-filter + chat model ---
   const words = text
     .toLowerCase()
     .split(/\s+/)

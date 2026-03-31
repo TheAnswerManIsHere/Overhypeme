@@ -4,6 +4,7 @@ import { db } from "@workspace/db";
 import { factsTable, hashtagsTable, factHashtagsTable } from "@workspace/db/schema";
 import { eq, sql, inArray } from "drizzle-orm";
 import { requireApiKey } from "../middlewares/apiKeyAuth";
+import { embedFactAsync } from "../lib/embeddings";
 
 // Infer the transaction type directly from the db.transaction callback parameter
 type DbTx = Parameters<Parameters<typeof db.transaction>[0]>[0];
@@ -145,6 +146,9 @@ router.post("/admin/import/facts", async (req: Request, res: Response) => {
     : [];
   const existingTexts = new Set(existingRows.map((r) => r.text));
 
+  // Collect newly-inserted facts for post-commit embedding generation
+  const insertedFacts: Array<{ id: number; text: string }> = [];
+
   // All fact + hashtag writes are inside a single transaction for full atomicity.
   await db.transaction(async (tx) => {
     for (const { data } of validItems) {
@@ -166,6 +170,7 @@ router.post("/admin/import/facts", async (req: Request, res: Response) => {
       // Track so the same text appearing multiple times in the payload is skipped
       existingTexts.add(data.text);
       created++;
+      insertedFacts.push({ id: inserted.id, text: data.text });
 
       for (const tag of data.hashtags) {
         const hashtagId = await upsertHashtagInTx(tx, tag);
@@ -183,6 +188,11 @@ router.post("/admin/import/facts", async (req: Request, res: Response) => {
       }
     }
   });
+
+  // Fire off embedding generation for all newly-inserted facts (non-blocking)
+  for (const fact of insertedFacts) {
+    void embedFactAsync(fact.id, fact.text);
+  }
 
   res.status(201).json({ created, skipped, failed });
 });

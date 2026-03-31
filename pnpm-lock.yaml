@@ -209,6 +209,9 @@ importers:
       google-auth-library:
         specifier: ^10.6.2
         version: 10.6.2
+      openai:
+        specifier: ^6.33.0
+        version: 6.33.0(ws@8.20.0)(zod@3.25.76)
       openid-client:
         specifier: ^6.8.2
         version: 6.8.2
@@ -5885,6 +5888,11 @@ snapshots:
   once@1.4.0:
     dependencies:
       wrappy: 1.0.2
+
+  openai@6.33.0(ws@8.20.0)(zod@3.25.76):
+    optionalDependencies:
+      ws: 8.20.0
+      zod: 3.25.76
 
   openai@6.33.0(ws@8.20.0)(zod@4.3.6):
     optionalDependencies:

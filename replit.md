@@ -32,6 +32,13 @@ A community-driven Chuck Norris facts/memes site — like IMDb but for Chuck Nor
 - Backend: `artifacts/api-server/src/routes/admin.ts` — all routes require `requireAdmin` middleware
 - **First-time setup**: Set the `ADMIN_USER_IDS` environment variable to your Replit user ID (comma-separated for multiple). Your user ID is displayed on your profile page after logging in. There is no automatic self-promotion mechanism — admin access must be explicitly granted.
 - **Bulk import**: `POST /api/admin/facts/import` (JSON array) or `POST /api/admin/facts/import-csv` (CSV string)
+- **Embedding backfill**: `POST /api/admin/facts/backfill-embeddings` — accepts `x-api-key` header or admin session; requires `OPENAI_API_KEY` set
+
+### AI Duplicate Detection (Hybrid)
+Two-path architecture for duplicate checking:
+1. **Vector path** (fast, semantic): When `OPENAI_API_KEY` is set, generates 384-dim embeddings via `text-embedding-3-small` and searches pgvector using cosine distance (threshold 0.92). This is the preferred path.
+2. **GPT fallback** (default): When no key is set, uses keyword pre-filter + `gpt-5-mini` chat completion to assess similarity among the top 10 candidate facts.
+The pgvector `embedding vector(384)` column and IVFFlat cosine index are always present — connect `OPENAI_API_KEY` (direct key, NOT the Replit proxy which doesn't support `/embeddings`) and run the backfill endpoint to populate existing facts.
 
 ### Auth Strategy
 - **Dual auth**: Replit OIDC + local username/password login
@@ -52,7 +59,7 @@ A community-driven Chuck Norris facts/memes site — like IMDb but for Chuck Nor
 ### Database Schema (lib/db/src/schema/)
 - `users` — Replit user profiles synced on login
 - `sessions` — express-session store
-- `facts` — user-submitted facts with upvotes/downvotes/score
+- `facts` — user-submitted facts with upvotes/downvotes/score; `embedding vector(384)` column + IVFFlat cosine index for semantic duplicate detection (populated when `OPENAI_API_KEY` is set)
 - `hashtags` — normalized tags with fact_count
 - `fact_hashtags` — many-to-many join
 - `ratings` — per-user +1/-1 votes on facts
