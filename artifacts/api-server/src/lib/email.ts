@@ -1,20 +1,21 @@
 /**
- * Email delivery via SendGrid.
- * Requires SENDGRID_API_KEY and SENDGRID_FROM_EMAIL environment variables.
+ * Email delivery via Resend.
+ * Requires RESEND_API_KEY and SENDGRID_FROM_EMAIL environment variables.
  * When the key is absent, emails are logged to stdout (development fallback).
  */
-import sgMail from "@sendgrid/mail";
+import { Resend } from "resend";
 
 function getFromAddress(): string {
-  return process.env.SENDGRID_FROM_EMAIL ?? "noreply@chucknorrisfacts.com";
+  return process.env.SENDGRID_FROM_EMAIL ?? "noreply@thecndb.com";
 }
 
 function isEnabled(): boolean {
-  return !!process.env.SENDGRID_API_KEY;
+  return !!process.env.RESEND_API_KEY;
 }
 
+let resend: Resend | null = null;
 if (isEnabled()) {
-  sgMail.setApiKey(process.env.SENDGRID_API_KEY!);
+  resend = new Resend(process.env.RESEND_API_KEY!);
 }
 
 export interface EmailPayload {
@@ -25,23 +26,26 @@ export interface EmailPayload {
 }
 
 export async function sendEmail(payload: EmailPayload): Promise<void> {
-  if (!isEnabled()) {
-    console.log("[email] SendGrid not configured — would have sent:");
+  if (!isEnabled() || !resend) {
+    console.log("[email] Resend not configured — would have sent:");
     console.log(`  To:      ${payload.to}`);
     console.log(`  Subject: ${payload.subject}`);
     console.log(`  Body:    ${payload.text}`);
     return;
   }
   try {
-    await sgMail.send({
+    const { error } = await resend.emails.send({
       to: payload.to,
       from: getFromAddress(),
       subject: payload.subject,
       text: payload.text,
       html: payload.html ?? payload.text,
     });
+    if (error) {
+      console.error("[email] Resend delivery failed:", error);
+    }
   } catch (err) {
-    console.error("[email] SendGrid delivery failed:", err);
+    console.error("[email] Resend delivery error:", err);
   }
 }
 
