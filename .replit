@@ -28,3 +28,8 @@ timeoutMs = 20000
 
 [nix]
 channel = "stable-25_05"
+
+[userenv]
+
+[userenv.production]
+ADMIN_USER_IDS = "6f2b1072-469b-47c8-9de0-0d5ebdaeb8eb"
