@@ -1,6 +1,7 @@
 import { Router, type IRouter, type Request, type Response } from "express";
 import { moderateComment, checkDuplicateInternal } from "./ai";
 import { embedFactAsync } from "../lib/embeddings";
+import { logActivity } from "../lib/activity";
 import { db } from "@workspace/db";
 import {
   factsTable, hashtagsTable, factHashtagsTable,
@@ -169,6 +170,14 @@ router.post("/facts", async (req: Request, res: Response) => {
 
   // Generate and persist the pgvector embedding in the background (non-blocking)
   void embedFactAsync(fact.id, fact.text);
+
+  // Log to activity feed
+  void logActivity({
+    userId: req.user.id,
+    actionType: "fact_submitted",
+    message: `You submitted a new fact to the database.`,
+    metadata: { factId: fact.id, text: text.slice(0, 120) },
+  });
 
   if (hashtags.length) {
     for (const tag of hashtags) {

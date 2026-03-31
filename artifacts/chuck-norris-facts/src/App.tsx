@@ -18,6 +18,8 @@ import AdminUsers from "@/pages/admin/users";
 import AdminBilling from "@/pages/admin/billing";
 import AdminComments from "@/pages/admin/comments";
 import AdminAffiliate from "@/pages/admin/affiliate";
+import AdminReviews from "@/pages/admin/Reviews";
+import ActivityFeed from "@/pages/ActivityFeed";
 import MemePage from "@/pages/MemePage";
 import Pricing from "@/pages/Pricing";
 import Login from "@/pages/Login";
@@ -56,7 +58,9 @@ function Router() {
         <Route path="/admin/billing" component={AdminBilling} />
         <Route path="/admin/comments" component={AdminComments} />
         <Route path="/admin/affiliate" component={AdminAffiliate} />
+        <Route path="/admin/reviews" component={AdminReviews} />
         <Route path="/admin" component={AdminDashboard} />
+        <Route path="/activity" component={ActivityFeed} />
         <Route path="/meme/:slug" component={MemePage} />
         <Route path="/pricing" component={Pricing} />
         <Route path="/login" component={Login} />
