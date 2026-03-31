@@ -11,6 +11,7 @@ import {
   ChevronRight,
   MessageSquareWarning,
   ShoppingBag,
+  ClipboardList,
 } from "lucide-react";
 
 interface AdminLayoutProps {
@@ -22,6 +23,7 @@ const NAV_ITEMS = [
   { href: "/admin", label: "Dashboard", icon: LayoutDashboard, exact: true },
   { href: "/admin/facts", label: "Facts", icon: FileText },
   { href: "/admin/users", label: "Users", icon: Users },
+  { href: "/admin/reviews", label: "Reviews", icon: ClipboardList },
   { href: "/admin/comments", label: "Flagged", icon: MessageSquareWarning },
   { href: "/admin/billing", label: "Billing", icon: CreditCard },
   { href: "/admin/affiliate", label: "Affiliate", icon: ShoppingBag },

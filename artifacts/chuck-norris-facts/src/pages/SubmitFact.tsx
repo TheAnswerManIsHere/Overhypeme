@@ -7,7 +7,7 @@ import { Layout } from "@/components/layout/Layout";
 import { Button } from "@/components/ui/Button";
 import { Textarea, Input } from "@/components/ui/Input";
 import { useAppMutations } from "@/hooks/use-mutations";
-import { ShieldAlert, AlertTriangle, Sparkles, Copy, Loader2 } from "lucide-react";
+import { ShieldAlert, AlertTriangle, Sparkles, Copy, Loader2, CheckCircle2, ClipboardList } from "lucide-react";
 
 const HCAPTCHA_SITE_KEY =
   import.meta.env.VITE_HCAPTCHA_SITE_KEY || "10000000-ffff-ffff-ffff-000000000001";
@@ -42,6 +42,8 @@ export default function SubmitFact() {
   const [acceptedTags, setAcceptedTags] = useState<Set<string>>(new Set());
   const [loadingSuggestions, setLoadingSuggestions] = useState(false);
   const [suggestionsLoaded, setSuggestionsLoaded] = useState(false);
+  const [submittingReview, setSubmittingReview] = useState(false);
+  const [reviewSubmitted, setReviewSubmitted] = useState(false);
   const dupTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const tagTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastSuggestedTextRef = useRef("");
@@ -150,20 +152,16 @@ export default function SubmitFact() {
     );
   }
 
+  const getTags = () =>
+    hashtagsStr.split(",").map((t) => t.trim().replace(/^#/, "")).filter((t) => t.length > 0);
+
   const doSubmit = (skipDuplicate: boolean) => {
     setError("");
     setServerConflict(null);
-
-    const tags = hashtagsStr.split(",")
-      .map(t => t.trim().replace(/^#/, ""))
-      .filter(t => t.length > 0);
-
     createFact.mutate(
-      { data: { text, hashtags: tags, captchaToken, skipDuplicateCheck: skipDuplicate } },
+      { data: { text, hashtags: getTags(), captchaToken, skipDuplicateCheck: skipDuplicate } },
       {
-        onSuccess: (data) => {
-          setLocation(`/facts/${data.id}`);
-        },
+        onSuccess: (data) => { setLocation(`/facts/${data.id}`); },
         onError: (err) => {
           const errData = err.data as { error?: string; isDuplicate?: boolean; confidence?: number; matchingFactId?: number; matchingFactText?: string } | null;
           if (err.status === 409 && errData?.isDuplicate) {
@@ -175,27 +173,70 @@ export default function SubmitFact() {
           } else {
             setError(errData?.error || err.message || "Failed to submit fact");
           }
-        }
+        },
       }
     );
+  };
+
+  const doSubmitForReview = async (conflict: ServerConflict) => {
+    setSubmittingReview(true);
+    setError("");
+    try {
+      const r = await fetch("/api/facts/submit-review", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          text,
+          matchingFactId: conflict.matchingFactId,
+          matchingSimilarity: conflict.confidence,
+          hashtags: getTags(),
+        }),
+      });
+      if (r.ok) {
+        setReviewSubmitted(true);
+        setServerConflict(null);
+      } else {
+        const d = await r.json() as { error?: string };
+        setError(d.error ?? "Failed to submit for review");
+      }
+    } catch {
+      setError("Network error — please try again");
+    } finally {
+      setSubmittingReview(false);
+    }
   };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
     setServerConflict(null);
-
-    if (text.length < 10) {
-      setError("Fact must be at least 10 characters.");
-      return;
-    }
-    if (!captchaToken) {
-      setError("Please prove you are not a bot.");
-      return;
-    }
-
+    if (text.length < 10) { setError("Fact must be at least 10 characters."); return; }
+    if (!captchaToken) { setError("Please prove you are not a bot."); return; }
     doSubmit(false);
   };
+
+  if (reviewSubmitted) {
+    return (
+      <Layout>
+        <div className="max-w-2xl mx-auto px-4 py-24 text-center">
+          <CheckCircle2 className="w-20 h-20 text-green-500 mx-auto mb-6" />
+          <h1 className="text-4xl font-display uppercase mb-4 text-foreground">Submitted for Review</h1>
+          <p className="text-muted-foreground text-lg mb-4">
+            Your fact has been queued for admin review. If approved, it will be added to the database and you'll be notified.
+          </p>
+          <p className="text-muted-foreground text-sm mb-8">
+            You can track the status in your{" "}
+            <Link href="/activity" className="text-primary underline">Activity Feed</Link>.
+          </p>
+          <div className="flex gap-4 justify-center">
+            <Button size="lg" onClick={() => { setText(""); setReviewSubmitted(false); }}>Submit Another</Button>
+            <Button size="lg" variant="outline" onClick={() => setLocation("/")}>Back to Home</Button>
+          </div>
+        </div>
+      </Layout>
+    );
+  }
 
   return (
     <Layout>
@@ -225,7 +266,7 @@ export default function SubmitFact() {
                 onChange={e => setText(e.target.value)}
                 placeholder="When Chuck Norris looks in a mirror, there is no reflection. There can only be one Chuck Norris."
                 className="text-lg min-h-[160px]"
-                disabled={createFact.isPending}
+                disabled={createFact.isPending || submittingReview}
               />
               <div className="flex items-center justify-between mt-2">
                 <p className="text-sm text-muted-foreground font-medium">Minimum 10 characters. Make it hit hard.</p>
@@ -236,6 +277,7 @@ export default function SubmitFact() {
                 )}
               </div>
 
+              {/* Inline duplicate warning (real-time, before submit) */}
               {duplicate && !serverConflict && (
                 <div className="mt-3 p-4 bg-yellow-500/10 border-l-4 border-yellow-500 text-yellow-700 dark:text-yellow-400 rounded-r-sm">
                   <div className="flex items-start gap-3">
@@ -250,36 +292,77 @@ export default function SubmitFact() {
                           </Link>
                         </>
                       )}
-                      <p className="text-xs mt-2 opacity-70">You can still submit if you believe your version is meaningfully different.</p>
+                      <p className="text-xs mt-2 opacity-70">You can still submit — if the server flags it you can request an admin review.</p>
                     </div>
                   </div>
                 </div>
               )}
 
+              {/* Server-confirmed duplicate — show side-by-side and options */}
               {serverConflict && (
-                <div className="mt-3 p-4 bg-destructive/10 border-l-4 border-destructive text-destructive rounded-r-sm">
-                  <div className="flex items-start gap-3">
-                    <Copy className="w-5 h-5 shrink-0 mt-0.5" />
-                    <div className="flex-1">
-                      <p className="font-bold text-sm">Server rejected: duplicate detected ({serverConflict.confidence}% confidence)</p>
-                      {serverConflict.matchingFactId && (
-                        <>
-                          <p className="text-xs mt-1 opacity-80 italic">"{serverConflict.matchingFactText}"</p>
-                          <Link href={`/facts/${serverConflict.matchingFactId}`} className="text-xs underline mt-1 block hover:opacity-80">
-                            View existing fact →
-                          </Link>
-                        </>
-                      )}
-                      <p className="text-xs mt-2 opacity-70">If your fact is genuinely different, you may override and submit anyway.</p>
+                <div className="mt-4 space-y-4">
+                  <div className="p-4 bg-destructive/10 border-l-4 border-destructive rounded-r-sm">
+                    <div className="flex items-start gap-3 mb-3">
+                      <Copy className="w-5 h-5 shrink-0 mt-0.5 text-destructive" />
+                      <p className="font-bold text-sm text-destructive">
+                        Likely duplicate detected ({serverConflict.confidence}% confidence match)
+                      </p>
+                    </div>
+
+                    {/* Side-by-side comparison */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4">
+                      <div className="bg-background border border-border rounded-sm p-3">
+                        <p className="text-xs font-bold text-muted-foreground uppercase tracking-wide mb-2">Your submission</p>
+                        <p className="text-sm text-foreground italic">"{text}"</p>
+                      </div>
+                      <div className="bg-background border border-primary/40 rounded-sm p-3">
+                        <p className="text-xs font-bold text-primary uppercase tracking-wide mb-2">
+                          Existing fact
+                          {serverConflict.matchingFactId && (
+                            <Link href={`/facts/${serverConflict.matchingFactId}`} className="ml-2 normal-case text-primary underline hover:opacity-80">
+                              View →
+                            </Link>
+                          )}
+                        </p>
+                        <p className="text-sm text-foreground italic">"{serverConflict.matchingFactText}"</p>
+                      </div>
+                    </div>
+
+                    <p className="text-xs text-muted-foreground mb-4">
+                      If you believe your fact is genuinely different, submit it for admin review. An admin will compare both and decide.
+                    </p>
+
+                    <div className="flex flex-wrap gap-3">
+                      <Button
+                        type="button"
+                        size="sm"
+                        onClick={() => doSubmitForReview(serverConflict)}
+                        isLoading={submittingReview}
+                        className="gap-2"
+                      >
+                        <ClipboardList className="w-4 h-4" />
+                        Submit for Review
+                      </Button>
                       <Button
                         type="button"
                         size="sm"
                         variant="outline"
-                        className="mt-3 border-destructive text-destructive hover:bg-destructive/10"
+                        className="border-muted-foreground/30 text-muted-foreground hover:text-foreground"
+                        onClick={() => { setServerConflict(null); setText(""); }}
+                        disabled={submittingReview}
+                      >
+                        Discard & Start Over
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        className="border-destructive/50 text-destructive hover:bg-destructive/10 text-xs"
                         onClick={() => doSubmit(true)}
                         isLoading={createFact.isPending}
+                        disabled={submittingReview}
                       >
-                        Submit Anyway (Override)
+                        Force Submit Anyway
                       </Button>
                     </div>
                   </div>
@@ -287,90 +370,91 @@ export default function SubmitFact() {
               )}
             </div>
 
-            <div>
-              <div className="flex items-center justify-between mb-2">
-                <label className="block font-display text-xl uppercase text-foreground">Hashtags</label>
-                {text.length >= 20 && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setSuggestionsLoaded(false);
-                      setSuggestedTags([]);
-                      void fetchSuggestions(text);
-                    }}
-                    disabled={loadingSuggestions}
-                    className="flex items-center gap-1.5 text-xs text-primary hover:text-primary/80 transition-colors disabled:opacity-50"
-                  >
-                    {loadingSuggestions ? (
-                      <><Loader2 className="w-3 h-3 animate-spin" /> Thinking…</>
-                    ) : (
-                      <><Sparkles className="w-3 h-3" /> {suggestionsLoaded ? "Re-suggest" : "AI Suggest"}</>
-                    )}
-                  </button>
-                )}
-              </div>
-
-              {suggestedTags.length > 0 && (
-                <div className="mb-3 p-3 bg-primary/5 border border-primary/20 rounded-sm">
-                  <p className="text-xs text-muted-foreground mb-2 flex items-center gap-1">
-                    <Sparkles className="w-3 h-3 text-primary" />
-                    AI suggestions — click to toggle, then apply:
-                  </p>
-                  <div className="flex flex-wrap gap-2 mb-3">
-                    {suggestedTags.map((tag) => (
+            {!serverConflict && (
+              <>
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <label className="block font-display text-xl uppercase text-foreground">Hashtags</label>
+                    {text.length >= 20 && (
                       <button
-                        key={tag}
                         type="button"
-                        onClick={() => toggleTag(tag)}
-                        className={`px-3 py-1 text-xs font-medium rounded-full border transition-colors ${
-                          acceptedTags.has(tag)
-                            ? "bg-primary text-primary-foreground border-primary"
-                            : "bg-muted text-muted-foreground border-border hover:border-primary"
-                        }`}
+                        onClick={() => {
+                          setSuggestionsLoaded(false);
+                          setSuggestedTags([]);
+                          void fetchSuggestions(text);
+                        }}
+                        disabled={loadingSuggestions}
+                        className="flex items-center gap-1.5 text-xs text-primary hover:text-primary/80 transition-colors disabled:opacity-50"
                       >
-                        #{tag}
+                        {loadingSuggestions ? (
+                          <><Loader2 className="w-3 h-3 animate-spin" /> Thinking…</>
+                        ) : (
+                          <><Sparkles className="w-3 h-3" /> {suggestionsLoaded ? "Re-suggest" : "AI Suggest"}</>
+                        )}
                       </button>
-                    ))}
+                    )}
                   </div>
-                  <button
-                    type="button"
-                    onClick={applyTagsToInput}
-                    className="text-xs text-primary underline hover:opacity-80"
-                  >
-                    Apply selected tags →
-                  </button>
+
+                  {suggestedTags.length > 0 && (
+                    <div className="mb-3 p-3 bg-primary/5 border border-primary/20 rounded-sm">
+                      <p className="text-xs text-muted-foreground mb-2 flex items-center gap-1">
+                        <Sparkles className="w-3 h-3 text-primary" />
+                        AI suggestions — click to toggle, then apply:
+                      </p>
+                      <div className="flex flex-wrap gap-2 mb-3">
+                        {suggestedTags.map((tag) => (
+                          <button
+                            key={tag}
+                            type="button"
+                            onClick={() => toggleTag(tag)}
+                            className={`px-3 py-1 text-xs font-medium rounded-full border transition-colors ${
+                              acceptedTags.has(tag)
+                                ? "bg-primary text-primary-foreground border-primary"
+                                : "bg-muted text-muted-foreground border-border hover:border-primary"
+                            }`}
+                          >
+                            #{tag}
+                          </button>
+                        ))}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={applyTagsToInput}
+                        className="text-xs text-primary underline hover:opacity-80"
+                      >
+                        Apply selected tags →
+                      </button>
+                    </div>
+                  )}
+
+                  <Input
+                    value={hashtagsStr}
+                    onChange={e => setHashtagsStr(e.target.value)}
+                    placeholder="impossible, strong, facts"
+                    disabled={createFact.isPending}
+                  />
+                  <p className="text-sm text-muted-foreground mt-2 font-medium">Comma separated. No need for the # symbol.</p>
                 </div>
-              )}
 
-              <Input
-                value={hashtagsStr}
-                onChange={e => setHashtagsStr(e.target.value)}
-                placeholder="impossible, strong, facts"
-                disabled={createFact.isPending}
-              />
-              <p className="text-sm text-muted-foreground mt-2 font-medium">Comma separated. No need for the # symbol.</p>
-            </div>
+                <div className="pt-4 border-t-2 border-border">
+                  <label className="block font-display text-xl uppercase text-foreground mb-4">Security Clearance</label>
+                  <div className="bg-background p-4 rounded-sm border-2 border-border inline-block">
+                    <HCaptcha sitekey={HCAPTCHA_SITE_KEY} onVerify={setCaptchaToken} />
+                  </div>
+                </div>
 
-            <div className="pt-4 border-t-2 border-border">
-              <label className="block font-display text-xl uppercase text-foreground mb-4">Security Clearance</label>
-              <div className="bg-background p-4 rounded-sm border-2 border-border inline-block">
-                <HCaptcha
-                  sitekey={HCAPTCHA_SITE_KEY}
-                  onVerify={setCaptchaToken}
-                />
-              </div>
-            </div>
-
-            <div className="pt-6">
-              <Button
-                type="submit"
-                size="lg"
-                className="w-full h-16 text-xl"
-                isLoading={createFact.isPending}
-              >
-                COMMIT TO DATABASE
-              </Button>
-            </div>
+                <div className="pt-6">
+                  <Button
+                    type="submit"
+                    size="lg"
+                    className="w-full h-16 text-xl"
+                    isLoading={createFact.isPending}
+                  >
+                    COMMIT TO DATABASE
+                  </Button>
+                </div>
+              </>
+            )}
           </div>
         </form>
       </div>

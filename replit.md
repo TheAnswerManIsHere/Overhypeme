@@ -43,6 +43,30 @@ Pure vector-based duplicate checking via pgvector cosine similarity:
 - **Requires**: `OPENAI_API_KEY` set as an environment secret (direct OpenAI key — the Replit proxy does NOT support `/embeddings`)
 - **Backfill existing facts**: `POST /api/admin/facts/backfill-embeddings` with `x-api-key: <ADMIN_API_KEY>` header
 
+### Duplicate Review Workflow
+When a fact is flagged as a duplicate at submission time, the user can:
+1. **Submit for Review** — calls `POST /api/facts/submit-review`, stores the fact in `pending_reviews` with the matching fact ID and similarity score
+2. **Force Submit** — submits with `skipDuplicateCheck: true`, bypasses the check entirely
+
+Admin review panel at `/admin/reviews`:
+- Lists all pending/approved/rejected reviews
+- Side-by-side comparison of submitted fact vs flagged duplicate
+- Admin can approve (inserts the fact to DB, notifies user) or reject (notifies user)
+- Optional admin note is sent to the user via email and activity feed
+
+### Activity Feed
+Every logged-in user has a personal activity feed at `/activity`:
+- Tracks: fact submissions, review submissions, review approvals/rejections, comments, votes, system messages
+- Stored in the `activity_feed` table; unread count shown in navbar
+- `POST /api/activity-feed/mark-read` marks all as read
+
+### Email Notifications (SendGrid)
+SendGrid is integrated via `artifacts/api-server/src/lib/email.ts`:
+- Requires `SENDGRID_API_KEY` and `SENDGRID_FROM_EMAIL` environment secrets
+- When key is not set, emails are logged to stdout (graceful dev fallback)
+- Emails sent: review approved, review rejected
+- Install `@sendgrid/mail` is already in api-server dependencies
+
 ### Auth Strategy
 - **Dual auth**: Replit OIDC + local username/password login
 - Replit OIDC login opens in a popup window (fixes iframe cross-origin issues), callback closes popup and refreshes opener

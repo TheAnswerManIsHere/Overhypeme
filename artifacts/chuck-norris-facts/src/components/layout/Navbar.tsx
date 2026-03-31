@@ -1,5 +1,5 @@
 import { Link, useLocation } from "wouter";
-import { Search, Plus, User, LogIn, LogOut, Menu, X, Star, ShieldCheck, ShieldOff } from "lucide-react";
+import { Search, Plus, User, LogIn, LogOut, Menu, X, Star, ShieldCheck, ShieldOff, Activity } from "lucide-react";
 import { useAuth } from "@workspace/replit-auth-web";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
@@ -106,6 +106,9 @@ export function Navbar() {
                     <ShieldCheck className="w-3.5 h-3.5" /> ADMIN MODE
                   </Button>
                 )}
+                <Button variant="ghost" size="icon" onClick={() => setLocation('/activity')} title="Activity Feed">
+                  <Activity className="w-5 h-5" />
+                </Button>
                 <Button variant="ghost" size="icon" onClick={() => setLocation('/profile')}>
                   {user?.profileImageUrl ? (
                     <img src={user.profileImageUrl} alt="Profile" className="w-8 h-8 rounded-sm" />
@@ -185,6 +188,9 @@ export function Navbar() {
                       <ShieldCheck className="w-4 h-4" /> ENTER ADMIN MODE
                     </Button>
                   )}
+                  <Button variant="secondary" className="w-full gap-2" onClick={() => { setLocation('/activity'); setMobileMenuOpen(false); }}>
+                    <Activity className="w-5 h-5" /> ACTIVITY
+                  </Button>
                   <Button variant="secondary" className="w-full gap-2" onClick={() => { setLocation('/profile'); setMobileMenuOpen(false); }}>
                     <User className="w-5 h-5" /> PROFILE
                   </Button>
