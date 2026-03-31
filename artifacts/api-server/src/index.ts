@@ -1,5 +1,6 @@
 import app from "./app";
 import { logger } from "./lib/logger";
+import { seedIfEmpty } from "./lib/seed";
 
 const rawPort = process.env["PORT"];
 
@@ -44,6 +45,9 @@ async function initStripe() {
 }
 
 await initStripe();
+
+// Seed the database on first boot if it's empty (e.g. fresh production deployment)
+await seedIfEmpty().catch((err: unknown) => logger.error({ err }, "Seed failed"));
 
 // Daily cron: send Fact of the Day at 9:00 UTC
 function scheduleDailyFactJob() {
