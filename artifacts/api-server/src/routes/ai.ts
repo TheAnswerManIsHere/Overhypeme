@@ -1,11 +1,11 @@
 import { Router, type IRouter, type Request, type Response, type NextFunction } from "express";
 import { db } from "@workspace/db";
 import { factsTable, hashtagsTable, commentsTable } from "@workspace/db/schema";
-import { desc, eq, sql, ilike, or } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { getOpenAIClient } from "@workspace/integrations-openai-ai-server";
 import { z } from "zod";
 import { getSessionId, getSession } from "../lib/auth";
-import { embedText, findSimilarFacts, isEmbeddingEnabled } from "../lib/embeddings";
+import { embedText, findSimilarFacts } from "../lib/embeddings";
 
 const router: IRouter = Router();
 
@@ -111,89 +111,26 @@ export interface DuplicateCheckResult {
   matchingFactText?: string;
 }
 
-// Cosine similarity threshold above which a fact is flagged as a duplicate.
+// Cosine similarity threshold above which a fact is considered a duplicate.
+// 0.92 = very close paraphrase. Lower this (e.g. 0.85) to catch more rewrites.
 const DUPLICATE_THRESHOLD = 0.92;
 
 export async function checkDuplicateInternal(text: string): Promise<DuplicateCheckResult> {
-  // --- Vector path: fast O(log n) search via pgvector ---
-  if (isEmbeddingEnabled()) {
-    try {
-      const embedding = await embedText(text);
-      const neighbors = await findSimilarFacts(embedding, {
-        limit: 5,
-        threshold: DUPLICATE_THRESHOLD,
-      });
-      if (neighbors.length > 0) {
-        const best = neighbors[0];
-        return {
-          isDuplicate: true,
-          confidence: Math.round(best.similarity * 100),
-          matchingFactId: best.id,
-          matchingFactText: best.text,
-        };
-      }
-      return { isDuplicate: false, confidence: 0 };
-    } catch (err) {
-      console.error("[AI] Vector duplicate check failed, falling back to GPT:", err);
-    }
-  }
-
-  // --- GPT fallback path: keyword pre-filter + chat model ---
-  const words = text
-    .toLowerCase()
-    .split(/\s+/)
-    .filter((w: string) => w.length > 4)
-    .slice(0, 5);
-
-  if (words.length === 0) return { isDuplicate: false, confidence: 0 };
-
-  const conditions = words.map((w: string) => ilike(factsTable.text, `%${w}%`));
-  const candidates = await db
-    .select({ id: factsTable.id, text: factsTable.text })
-    .from(factsTable)
-    .where(or(...conditions))
-    .orderBy(desc(factsTable.score))
-    .limit(10);
-
-  if (candidates.length === 0) return { isDuplicate: false, confidence: 0 };
-
-  const candidateList = candidates.map((f, i) => `[${i + 1}] (ID:${f.id}) ${f.text}`).join("\n");
-
-  const response = await getOpenAIClient().chat.completions.create({
-    model: "gpt-5-mini",
-    max_completion_tokens: 256,
-    response_format: { type: "json_object" },
-    messages: [
-      {
-        role: "system",
-        content:
-          "You are a duplicate detector for Chuck Norris facts. " +
-          "Given a new submission and a list of existing facts, determine if the new one is a duplicate or very similar. " +
-          "Respond ONLY with JSON: {\"isDuplicate\": true/false, \"confidence\": 0-100, \"matchIndex\": number_or_null}. " +
-          "matchIndex is the 1-based index from the candidate list, or null if not a duplicate.",
-      },
-      { role: "user", content: `New submission: "${text}"\n\nExisting facts:\n${candidateList}` },
-    ],
+  const embedding = await embedText(text);
+  const neighbors = await findSimilarFacts(embedding, {
+    limit: 5,
+    threshold: DUPLICATE_THRESHOLD,
   });
 
-  const raw = response.choices[0]?.message?.content ?? "{}";
-  let result: { isDuplicate?: boolean; confidence?: number; matchIndex?: number | null } = {};
-  try {
-    result = JSON.parse(raw);
-  } catch {
-    return { isDuplicate: false, confidence: 0 };
-  }
+  if (neighbors.length === 0) return { isDuplicate: false, confidence: 0 };
 
-  if (result.isDuplicate && result.matchIndex != null) {
-    const match = candidates[result.matchIndex - 1];
-    return {
-      isDuplicate: true,
-      confidence: result.confidence ?? 90,
-      matchingFactId: match?.id,
-      matchingFactText: match?.text,
-    };
-  }
-  return { isDuplicate: false, confidence: result.confidence ?? 0 };
+  const best = neighbors[0];
+  return {
+    isDuplicate: true,
+    confidence: Math.round(best.similarity * 100),
+    matchingFactId: best.id,
+    matchingFactText: best.text,
+  };
 }
 
 router.post("/ai/check-duplicate", requireAuth, requireRateLimit, async (req: Request, res: Response) => {

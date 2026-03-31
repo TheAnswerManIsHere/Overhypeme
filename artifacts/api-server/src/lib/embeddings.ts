@@ -1,12 +1,6 @@
 /**
- * pgvector embedding utilities.
- *
- * Embedding generation requires either:
- *   OPENAI_API_KEY  – direct OpenAI API key (not the Replit proxy, which doesn't support /embeddings)
- *
- * When no key is available, embedText() throws and callers silently skip embedding storage.
- * The pgvector column and IVFFlat index are kept in place so embeddings can be populated
- * later (via backfill) once a key is configured.
+ * pgvector embedding utilities using OpenAI text-embedding-3-small (384 dims).
+ * Requires OPENAI_API_KEY (a direct OpenAI key — the Replit proxy does not support /embeddings).
  */
 import OpenAI from "openai";
 import { db, factsTable } from "@workspace/db";
@@ -15,25 +9,15 @@ import { eq, isNull, sql } from "drizzle-orm";
 export const EMBEDDING_MODEL = "text-embedding-3-small";
 export const EMBEDDING_DIMENSIONS = 384;
 
-function getEmbeddingClient(): OpenAI {
+function getClient(): OpenAI {
   const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) {
-    throw new Error(
-      "OPENAI_API_KEY is not set. Embeddings are disabled. " +
-      "Set OPENAI_API_KEY (a direct OpenAI key) to enable vector duplicate detection.",
-    );
-  }
+  if (!apiKey) throw new Error("OPENAI_API_KEY is not set");
   return new OpenAI({ apiKey });
 }
 
-/**
- * Generate a 384-dimensional embedding for a piece of text.
- * Requires OPENAI_API_KEY (direct, not Replit proxy).
- * Throws when the key is absent — callers should catch and skip.
- */
+/** Generate a 384-dim embedding for a piece of text. */
 export async function embedText(text: string): Promise<number[]> {
-  const client = getEmbeddingClient();
-  const response = await client.embeddings.create({
+  const response = await getClient().embeddings.create({
     model: EMBEDDING_MODEL,
     input: text.trim(),
     dimensions: EMBEDDING_DIMENSIONS,
@@ -41,42 +25,28 @@ export async function embedText(text: string): Promise<number[]> {
   return response.data[0].embedding;
 }
 
-/**
- * Store an embedding for an existing fact row.
- */
+/** Persist an embedding for a fact row. */
 export async function storeEmbedding(factId: number, embedding: number[]): Promise<void> {
-  await db
-    .update(factsTable)
-    .set({ embedding })
-    .where(eq(factsTable.id, factId));
+  await db.update(factsTable).set({ embedding }).where(eq(factsTable.id, factId));
 }
 
 /**
- * Generate and persist the embedding for a fact — fails silently when no API key is set.
+ * Generate and persist the embedding for a fact after it is created.
+ * Errors are logged but do not surface to the caller.
  */
 export async function embedFactAsync(factId: number, text: string): Promise<void> {
   try {
     const embedding = await embedText(text);
     await storeEmbedding(factId, embedding);
   } catch (err) {
-    // Silently skip when no embedding API is configured
-    const msg = err instanceof Error ? err.message : String(err);
-    if (!msg.includes("OPENAI_API_KEY")) {
-      console.error(`[embeddings] Failed to embed fact ${factId}:`, err);
-    }
+    console.error(`[embeddings] Failed to embed fact ${factId}:`, err);
   }
 }
 
 /**
- * Returns true when an embedding API key is configured.
- */
-export function isEmbeddingEnabled(): boolean {
-  return Boolean(process.env.OPENAI_API_KEY);
-}
-
-/**
- * Find the closest facts to a given embedding using pgvector cosine similarity.
- * Returns results with similarity scores in [0, 1] — higher means more similar.
+ * Find the closest facts using pgvector cosine similarity.
+ * Only considers rows that already have an embedding stored.
+ * Returns results sorted by similarity descending, filtered to >= threshold.
  */
 export async function findSimilarFacts(
   embedding: number[],
@@ -105,16 +75,12 @@ export async function findSimilarFacts(
 }
 
 /**
- * Backfill embeddings for all facts that don't have one yet.
- * Requires OPENAI_API_KEY.
+ * Backfill embeddings for every fact that doesn't have one yet.
+ * Call POST /api/admin/facts/backfill-embeddings to trigger this.
  */
 export async function backfillEmbeddings(
   onProgress?: (done: number, total: number) => void,
-): Promise<{ processed: number; failed: number; skipped?: number }> {
-  if (!isEmbeddingEnabled()) {
-    return { processed: 0, failed: 0, skipped: -1 };
-  }
-
+): Promise<{ processed: number; failed: number }> {
   const missing = await db
     .select({ id: factsTable.id, text: factsTable.text })
     .from(factsTable)
