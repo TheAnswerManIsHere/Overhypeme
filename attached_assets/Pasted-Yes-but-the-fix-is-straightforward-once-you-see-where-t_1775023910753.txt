@@ -1,0 +1,30 @@
+Yes, but the fix is straightforward once you see where the problem is.
+The issue: your embeddings will be polluted by token syntax. The strings {NAME} {doesn't|don't} sleep and Chuck Norris doesn't sleep should be near-identical in embedding space, but the curly braces, pipes, and token names add noise that pushes them apart. Two semantically identical facts will have lower cosine similarity than they should, and your duplicate threshold will miss matches.
+The fix: embed a canonical rendering, not the raw template.
+When you store a new fact, render it with a standard canonical name and pronoun set before computing the embedding. Something like:
+
+Template: "{NAME} {doesn't|don't} sleep. {SUBJ} {waits|wait}."
+Canonical: "Alex doesn't sleep. They wait."
+
+
+“Alex” works well as a canonical name because it’s short, gender-neutral, and unlikely to add semantic weight that biases the embedding toward any particular cultural context.
+Store this canonical rendering alongside the template, and compute your embedding vector from it. Your schema gets one new field:
+
+fact_templates
+  id: 26
+  template: "{NAME} {doesn't|don't} sleep. {SUBJ} {waits|wait}."
+  canonical_text: "Alex doesn't sleep. They wait."
+  embedding: [0.023, -0.041, ...]
+  wilson_score: 0.87
+
+
+The duplicate check pipeline then works like this:
+	1.	User submits plain text: “Chuck Norris doesn’t sleep. He waits.”
+	2.	Normalize the submission: replace the submitted name with “Alex,” normalize pronouns to they/them, fix verb conjugation accordingly. This step can be a lightweight AI call, or even rule-based since you know what name the user entered (it’s in their profile or the form field) and can do a simple string replacement plus conjugation swap.
+	3.	Embed the normalized submission.
+	4.	Vector search against stored canonical embeddings.
+	5.	If similarity exceeds your threshold, flag as duplicate.
+Why this works better than embedding the raw template:
+You’re comparing apples to apples. Both the stored canonical and the incoming normalized text are plain English sentences with the same name and pronoun set. The embedding model sees what it’s good at seeing: semantic content. No token syntax noise, no name variation noise.
+One subtlety worth handling: the normalization at step 2 doesn’t need to be perfect. Embeddings are fuzzy by nature. If your normalizer occasionally misses a verb conjugation and you get “Alex doesn’t sleep. They waits.” the embedding will still be extremely close to the correct canonical. You’re looking for high similarity, not exact match. The tolerance built into vector search absorbs minor normalization errors.
+You could also skip the normalization step entirely and just embed the raw user submission as-is. “Chuck Norris doesn’t sleep. He waits.” and a stored canonical “Alex doesn’t sleep. They wait.” will still have very high cosine similarity because the semantic content is identical. The name and pronoun differences are low-signal tokens that don’t move the embedding much. This is the lazier approach but honestly might be good enough at your scale. I’d start here, measure your false negative rate, and add the normalization step only if you’re missing duplicates in practice.​​​​​​​​​​​​​​​​
