@@ -73,7 +73,7 @@ export default function Onboard() {
         <div className="text-5xl">🥊</div>
         <div>
           <h1 className="text-2xl font-bold text-foreground mb-2">
-            Welcome to TCNDB
+            Welcome to Overhype.me
           </h1>
           <p className="text-muted-foreground text-sm">
             Before you can submit facts or leave comments, we need to confirm
