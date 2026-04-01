@@ -24,6 +24,7 @@ import ActivityFeed from "@/pages/ActivityFeed";
 import MemePage from "@/pages/MemePage";
 import Pricing from "@/pages/Pricing";
 import Login from "@/pages/Login";
+import Hashtags from "@/pages/Hashtags";
 import NotFound from "@/pages/not-found";
 
 const queryClient = new QueryClient({
@@ -65,6 +66,7 @@ function Router() {
         <Route path="/meme/:slug" component={MemePage} />
         <Route path="/pricing" component={Pricing} />
         <Route path="/login" component={Login} />
+        <Route path="/hashtags" component={Hashtags} />
         <Route component={NotFound} />
       </Switch>
     </>

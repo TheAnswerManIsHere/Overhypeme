@@ -3,10 +3,12 @@ import { requireAdmin } from "./admin";
 import { moderateComment, checkDuplicateInternal } from "./ai";
 import { embedFactAsync } from "../lib/embeddings";
 import { logActivity } from "../lib/activity";
+import { validateTemplate } from "../lib/templateGrammar";
 import { db } from "@workspace/db";
 import {
   factsTable, hashtagsTable, factHashtagsTable,
   ratingsTable, commentsTable, externalLinksTable, usersTable,
+  pendingReviewsTable,
 } from "@workspace/db/schema";
 import { stripeStorage } from "../lib/stripeStorage";
 import { eq, sql, desc, asc, ilike, and, inArray, isNull } from "drizzle-orm";
@@ -165,6 +167,32 @@ router.post("/facts", requireAdmin, async (req: Request, res: Response) => {
       .replace(/\bHe\b/g, "{Subj}")
       .replace(/\bhe\b/g, "{SUBJ}");
   })();
+
+  // Validate template grammar before storage
+  const grammarResult = validateTemplate(tokenizedText);
+  if (!grammarResult.valid) {
+    const [review] = await db.insert(pendingReviewsTable).values({
+      submittedText: tokenizedText,
+      submittedById: req.user.id,
+      hashtags,
+      status: "pending",
+      reason: "malformed_template",
+    }).returning();
+
+    void logActivity({
+      userId: req.user.id,
+      actionType: "review_submitted",
+      message: `Your fact was queued for admin review due to a template grammar issue.`,
+      metadata: { reviewId: review.id, text: text.slice(0, 120) },
+    });
+
+    res.status(202).json({
+      underReview: true,
+      reviewId: review.id,
+      error: `Template grammar validation failed: ${grammarResult.error}. Your fact has been queued for admin review.`,
+    });
+    return;
+  }
 
   const hasPronounsFlag = /\{(SUBJ|OBJ|POSS|POSS_PRO|REFL|Subj|Obj|Poss|Poss_Pro|Refl|he|him|his|himself|He|Him|His|Himself|he's|He's|[^|{}]+\|[^|{}]+)\}/.test(tokenizedText);
   const [fact] = await db.insert(factsTable).values({ text: tokenizedText, hasPronouns: hasPronounsFlag, submittedById: req.user.id }).returning();

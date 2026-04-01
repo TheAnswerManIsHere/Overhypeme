@@ -28,6 +28,7 @@ const SubmitReviewBody = z.object({
   matchingFactId: z.number().int().optional(),
   matchingSimilarity: z.number().int().min(0).max(100).optional(),
   hashtags: z.array(z.string()).max(10).optional(),
+  reason: z.string().max(100).optional(),
 });
 
 router.post("/facts/submit-review", requireAuth, async (req: Request, res: Response) => {
@@ -36,7 +37,7 @@ router.post("/facts/submit-review", requireAuth, async (req: Request, res: Respo
     res.status(400).json({ error: "Invalid input", details: parsed.error.flatten() });
     return;
   }
-  const { text, matchingFactId, matchingSimilarity = 0, hashtags = [] } = parsed.data;
+  const { text, matchingFactId, matchingSimilarity = 0, hashtags = [], reason } = parsed.data;
 
   const [review] = await db.insert(pendingReviewsTable).values({
     submittedText: text,
@@ -45,6 +46,7 @@ router.post("/facts/submit-review", requireAuth, async (req: Request, res: Respo
     matchingSimilarity,
     hashtags,
     status: "pending",
+    reason: reason ?? null,
   }).returning();
 
   const isDuplicateFlagged = !!matchingFactId;

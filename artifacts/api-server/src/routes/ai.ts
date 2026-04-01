@@ -6,6 +6,7 @@ import { getOpenAIClient } from "@workspace/integrations-openai-ai-server";
 import { z } from "zod";
 import { getSessionId, getSession } from "../lib/auth";
 import { embedText, findSimilarFacts } from "../lib/embeddings";
+import { validateTemplate } from "../lib/templateGrammar";
 
 const router: IRouter = Router();
 
@@ -258,6 +259,16 @@ router.post("/ai/tokenize-fact", requireRateLimit, async (req: Request, res: Res
       }
     } catch {
       template = text;
+    }
+
+    const grammarResult = validateTemplate(template);
+    if (!grammarResult.valid) {
+      res.status(422).json({
+        error: `AI produced a template with invalid grammar: ${grammarResult.error}. Please review and correct the template manually.`,
+        template,
+        grammarError: grammarResult.error,
+      });
+      return;
     }
 
     res.json({ template });

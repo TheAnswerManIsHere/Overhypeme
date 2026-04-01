@@ -75,11 +75,35 @@ export default function Home() {
               SEARCH
             </Button>
           </motion.form>
+
+          <motion.div
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.5 }}
+            className="flex flex-col sm:flex-row gap-4 justify-center mt-6"
+          >
+            <Button
+              variant="outline"
+              size="lg"
+              className="gap-2"
+              onClick={() => {
+                const el = document.getElementById("hall-of-fame");
+                if (el) el.scrollIntoView({ behavior: "smooth" });
+              }}
+            >
+              🏆 HALL OF FAME
+            </Button>
+            <Link href="/hashtags">
+              <Button variant="outline" size="lg" className="gap-2 w-full sm:w-auto">
+                # HASHTAGS
+              </Button>
+            </Link>
+          </motion.div>
         </div>
       </section>
 
       {/* Leaderboard Section */}
-      <section className="max-w-7xl mx-auto px-4 py-20">
+      <section id="hall-of-fame" className="max-w-7xl mx-auto px-4 py-20">
         <div className="flex items-end justify-between mb-12 border-b-2 border-border pb-4">
           <div>
             <h2 className="text-4xl font-display text-foreground tracking-wide">THE HALL OF FAME</h2>

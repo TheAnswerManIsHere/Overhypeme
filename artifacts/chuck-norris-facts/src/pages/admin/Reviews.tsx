@@ -3,7 +3,7 @@ import { AdminLayout } from "@/components/admin/AdminLayout";
 import { Button } from "@/components/ui/Button";
 import {
   CheckCircle2, XCircle, Clock, ChevronLeft, ChevronRight,
-  ExternalLink, ClipboardList, Loader2,
+  ExternalLink, ClipboardList, Loader2, AlertTriangle,
 } from "lucide-react";
 
 interface Submitter {
@@ -24,6 +24,7 @@ interface Review {
   submittedText: string;
   matchingSimilarity: number;
   status: "pending" | "approved" | "rejected";
+  reason: string | null;
   adminNote: string | null;
   createdAt: string;
   reviewedAt: string | null;
@@ -78,6 +79,24 @@ function StatusBadge({ status }: { status: Review["status"] }) {
   );
 }
 
+function ReasonBadge({ reason }: { reason: string | null }) {
+  if (reason === "malformed_template") {
+    return (
+      <span className="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-semibold rounded-full border bg-orange-500/15 text-orange-600 dark:text-orange-400 border-orange-500/30">
+        <AlertTriangle className="w-3 h-3" /> Malformed Template
+      </span>
+    );
+  }
+  if (reason === "duplicate") {
+    return (
+      <span className="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-semibold rounded-full border bg-blue-500/15 text-blue-600 dark:text-blue-400 border-blue-500/30">
+        Duplicate Conflict
+      </span>
+    );
+  }
+  return null;
+}
+
 function ReviewModal({
   review,
   onClose,
@@ -103,10 +122,11 @@ function ReviewModal({
         onClick={(e) => e.stopPropagation()}
       >
         <div className="border-b border-border px-6 py-4 flex items-center justify-between">
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3 flex-wrap">
             <ClipboardList className="w-5 h-5 text-primary" />
             <h2 className="font-display font-bold uppercase tracking-wide text-foreground">Review #{review.id}</h2>
             <StatusBadge status={review.status} />
+            <ReasonBadge reason={review.reason} />
           </div>
           <button onClick={onClose} className="text-muted-foreground hover:text-foreground text-xl leading-none">×</button>
         </div>
@@ -318,8 +338,9 @@ export default function AdminReviews() {
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-3 mb-2 flex-wrap">
                       <StatusBadge status={r.status} />
+                      <ReasonBadge reason={r.reason} />
                       <span className="text-xs text-muted-foreground">
-                        {r.matchingSimilarity}% match · by {r.submitter?.username ?? r.submitter?.firstName ?? "unknown"} · {new Date(r.createdAt).toLocaleDateString()}
+                        {r.reason !== "malformed_template" && `${r.matchingSimilarity}% match · `}by {r.submitter?.username ?? r.submitter?.firstName ?? "unknown"} · {new Date(r.createdAt).toLocaleDateString()}
                       </span>
                     </div>
                     <p className="text-sm text-foreground italic line-clamp-2">"{r.submittedText}"</p>

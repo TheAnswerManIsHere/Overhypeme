@@ -12,6 +12,7 @@ export const pendingReviewsTable = pgTable("pending_reviews", {
   matchingSimilarity: integer("matching_similarity").notNull().default(0),
   hashtags: jsonb("hashtags").$type<string[]>().default([]),
   status: reviewStatusEnum("status").notNull().default("pending"),
+  reason: text("reason"),
   adminNote: text("admin_note"),
   reviewedById: varchar("reviewed_by_id").references(() => usersTable.id),
   approvedFactId: integer("approved_fact_id").references(() => factsTable.id),
