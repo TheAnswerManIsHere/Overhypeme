@@ -3,7 +3,7 @@ import { AdminLayout } from "@/components/admin/AdminLayout";
 import { Button } from "@/components/ui/Button";
 import {
   CheckCircle2, XCircle, Clock, ChevronLeft, ChevronRight,
-  ExternalLink, ClipboardList, Loader2, AlertTriangle,
+  ExternalLink, ClipboardList, Loader2, AlertTriangle, GitBranch,
 } from "lucide-react";
 
 interface Submitter {
@@ -103,14 +103,23 @@ function ReviewModal({
 }: {
   review: Review;
   onClose: () => void;
-  onDecision: (id: number, action: "approve" | "reject", note: string) => Promise<void>;
+  onDecision: (id: number, action: "approve" | "reject" | "approve-variant", note: string, parentFactId?: number) => Promise<void>;
 }) {
   const [note, setNote] = useState(review.adminNote ?? "");
   const [loading, setLoading] = useState(false);
+  const [parentFactId, setParentFactId] = useState<string>(
+    String(review.matchingFact?.id ?? "")
+  );
+  const [showVariantPanel, setShowVariantPanel] = useState(false);
 
-  const handle = async (action: "approve" | "reject") => {
+  const handle = async (action: "approve" | "reject" | "approve-variant") => {
     setLoading(true);
-    await onDecision(review.id, action, note);
+    if (action === "approve-variant") {
+      const pid = parseInt(parentFactId, 10);
+      await onDecision(review.id, action, note, isNaN(pid) ? undefined : pid);
+    } else {
+      await onDecision(review.id, action, note);
+    }
     setLoading(false);
   };
 
@@ -192,25 +201,76 @@ function ReviewModal({
 
           {/* Actions */}
           {review.status === "pending" ? (
-            <div className="flex flex-wrap gap-3 pt-2 border-t border-border">
-              <Button
-                onClick={() => handle("approve")}
-                isLoading={loading}
-                className="bg-green-600 hover:bg-green-700 text-white gap-2"
-              >
-                <CheckCircle2 className="w-4 h-4" />
-                Approve — Add to Database
-              </Button>
-              <Button
-                variant="outline"
-                onClick={() => handle("reject")}
-                isLoading={loading}
-                className="border-destructive text-destructive hover:bg-destructive/10 gap-2"
-              >
-                <XCircle className="w-4 h-4" />
-                Reject
-              </Button>
-              <Button variant="outline" onClick={onClose} disabled={loading}>Cancel</Button>
+            <div className="pt-2 border-t border-border space-y-3">
+              <div className="flex flex-wrap gap-3">
+                <Button
+                  onClick={() => handle("approve")}
+                  isLoading={loading}
+                  className="bg-green-600 hover:bg-green-700 text-white gap-2"
+                >
+                  <CheckCircle2 className="w-4 h-4" />
+                  Approve — New Fact
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={() => setShowVariantPanel((v) => !v)}
+                  disabled={loading}
+                  className="border-blue-500/50 text-blue-600 dark:text-blue-400 hover:bg-blue-500/10 gap-2"
+                >
+                  <GitBranch className="w-4 h-4" />
+                  Approve as Variant…
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={() => handle("reject")}
+                  isLoading={loading}
+                  className="border-destructive text-destructive hover:bg-destructive/10 gap-2"
+                >
+                  <XCircle className="w-4 h-4" />
+                  Reject
+                </Button>
+                <Button variant="outline" onClick={onClose} disabled={loading}>Cancel</Button>
+              </div>
+
+              {showVariantPanel && (
+                <div className="rounded-lg border border-blue-500/30 bg-blue-500/5 p-4 space-y-3">
+                  <p className="text-sm font-semibold text-blue-600 dark:text-blue-400">
+                    Approve as a variant of an existing fact
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    The new fact will be linked as a child variant of the parent. Enter the parent fact's ID below.
+                  </p>
+                  <div className="flex items-center gap-2">
+                    <label className="text-sm font-medium text-foreground whitespace-nowrap">Parent Fact ID:</label>
+                    <input
+                      type="number"
+                      min={1}
+                      value={parentFactId}
+                      onChange={(e) => setParentFactId(e.target.value)}
+                      placeholder="e.g. 42"
+                      className="w-32 px-3 py-1.5 bg-background border border-border rounded-sm text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+                    />
+                    {review.matchingFact && parentFactId !== String(review.matchingFact.id) && (
+                      <button
+                        type="button"
+                        className="text-xs text-primary underline hover:opacity-80"
+                        onClick={() => setParentFactId(String(review.matchingFact!.id))}
+                      >
+                        Reset to #{review.matchingFact.id}
+                      </button>
+                    )}
+                  </div>
+                  <Button
+                    onClick={() => handle("approve-variant")}
+                    isLoading={loading}
+                    disabled={!parentFactId || isNaN(parseInt(parentFactId, 10))}
+                    className="bg-blue-600 hover:bg-blue-700 text-white gap-2"
+                  >
+                    <GitBranch className="w-4 h-4" />
+                    Confirm — Approve as Variant of #{parentFactId || "?"}
+                  </Button>
+                </div>
+              )}
             </div>
           ) : (
             <div className="flex gap-3 pt-2 border-t border-border">
@@ -248,16 +308,26 @@ export default function AdminReviews() {
     setInitialized(false);
   };
 
-  const handleDecision = async (id: number, action: "approve" | "reject", note: string) => {
+  const handleDecision = async (
+    id: number,
+    action: "approve" | "reject" | "approve-variant",
+    note: string,
+    parentFactId?: number,
+  ) => {
     setActionMsg("");
+    const body: Record<string, unknown> = { adminNote: note || undefined };
+    if (action === "approve-variant" && parentFactId !== undefined) {
+      body.parentFactId = parentFactId;
+    }
     const r = await fetch(`/api/admin/reviews/${id}/${action}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       credentials: "include",
-      body: JSON.stringify({ adminNote: note || undefined }),
+      body: JSON.stringify(body),
     });
     if (r.ok) {
-      setActionMsg(`Review #${id} ${action}d successfully.`);
+      const label = action === "approve-variant" ? "approved as variant" : `${action}d`;
+      setActionMsg(`Review #${id} ${label} successfully.`);
       setSelectedReview(null);
       setInitialized(false);
       void load();
