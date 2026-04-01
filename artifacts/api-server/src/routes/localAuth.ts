@@ -33,10 +33,11 @@ function checkForgotPasswordRateLimit(ip: string): boolean {
 
 function setSessionCookie(res: Response, sid: string) {
   const SESSION_TTL = 7 * 24 * 60 * 60 * 1000;
+  // SameSite=None; Secure is required for the Replit preview iframe context.
   res.cookie("sid", sid, {
     httpOnly: true,
-    secure: IS_PRODUCTION,
-    sameSite: "lax",
+    secure: true,
+    sameSite: "none",
     path: "/",
     maxAge: SESSION_TTL,
   });

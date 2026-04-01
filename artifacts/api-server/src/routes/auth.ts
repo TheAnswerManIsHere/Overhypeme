@@ -39,11 +39,14 @@ function getOrigin(req: Request): string {
   return `${proto}://${host}`;
 }
 
+// SameSite=None; Secure is required for cookies to work inside the Replit
+// preview pane (an iframe embedded in a cross-origin parent). Without this,
+// browsers block cookie reads/writes in third-party iframe contexts.
 function setSessionCookie(res: Response, sid: string) {
   res.cookie(SESSION_COOKIE, sid, {
     httpOnly: true,
-    secure: IS_PRODUCTION,
-    sameSite: "lax",
+    secure: true,
+    sameSite: "none",
     path: "/",
     maxAge: SESSION_TTL,
   });
@@ -52,8 +55,8 @@ function setSessionCookie(res: Response, sid: string) {
 function setOidcCookie(res: Response, name: string, value: string) {
   res.cookie(name, value, {
     httpOnly: true,
-    secure: IS_PRODUCTION,
-    sameSite: "lax",
+    secure: true,
+    sameSite: "none",
     path: "/",
     maxAge: OIDC_COOKIE_TTL,
   });
