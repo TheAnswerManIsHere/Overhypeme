@@ -5,7 +5,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 import { db } from "@workspace/db";
 import { memesTable, factsTable, usersTable } from "@workspace/db/schema";
-import { eq, desc, and } from "drizzle-orm";
+import { eq, desc, and, inArray } from "drizzle-orm";
 import { z } from "zod";
 import { generateMemeBuffer, MEME_TEMPLATES } from "../lib/memeGenerator";
 import { ObjectStorageService } from "../lib/objectStorage";
@@ -62,7 +62,7 @@ router.get("/memes/:slug", async (req: Request, res: Response) => {
   const [meme] = await db.select().from(memesTable).where(eq(memesTable.permalinkSlug, slug)).limit(1);
   if (!meme) { res.status(404).json({ error: "Meme not found" }); return; }
 
-  const [fact] = await db.select({ text: factsTable.text }).from(factsTable).where(and(eq(factsTable.id, meme.factId), eq(factsTable.isActive, true))).limit(1);
+  const [fact] = await db.select({ text: factsTable.text, canonicalText: factsTable.canonicalText }).from(factsTable).where(and(eq(factsTable.id, meme.factId), eq(factsTable.isActive, true))).limit(1);
   let createdByName: string | null = null;
   if (meme.createdById) {
     const [user] = await db.select({ displayName: usersTable.displayName }).from(usersTable).where(and(eq(usersTable.id, meme.createdById), eq(usersTable.isActive, true))).limit(1);
@@ -75,7 +75,7 @@ router.get("/memes/:slug", async (req: Request, res: Response) => {
     templateId: meme.templateId,
     imageUrl: meme.imageUrl,
     permalinkSlug: meme.permalinkSlug,
-    factText: fact?.text ?? "",
+    factText: fact?.canonicalText ?? fact?.text ?? "",
     createdAt: meme.createdAt.toISOString(),
     createdByName,
   });
@@ -90,7 +90,7 @@ router.post("/memes", async (req: Request, res: Response) => {
 
   const { factId, templateId, textOptions } = parsed.data;
 
-  const [fact] = await db.select({ id: factsTable.id, text: factsTable.text }).from(factsTable).where(and(eq(factsTable.id, factId), eq(factsTable.isActive, true))).limit(1);
+  const [fact] = await db.select({ id: factsTable.id, text: factsTable.text, canonicalText: factsTable.canonicalText }).from(factsTable).where(and(eq(factsTable.id, factId), eq(factsTable.isActive, true))).limit(1);
   if (!fact) { res.status(404).json({ error: "Fact not found" }); return; }
 
   const validTemplate = MEME_TEMPLATES.find(t => t.id === templateId);
@@ -103,7 +103,7 @@ router.post("/memes", async (req: Request, res: Response) => {
     slug = generateSlug();
   }
 
-  const imageBuffer = await generateMemeBuffer(templateId, fact.text, textOptions);
+  const imageBuffer = await generateMemeBuffer(templateId, fact.canonicalText ?? fact.text, textOptions);
 
   const subPath = `memes/${slug}.png`;
   await objectStorageService.uploadObjectBuffer({
@@ -134,11 +134,26 @@ router.post("/memes", async (req: Request, res: Response) => {
 });
 
 // GET /facts/:factId/memes
+// When called for a parent fact, returns memes from all family members (parent + variants).
+// When called for a variant, returns memes for that variant only.
 router.get("/facts/:factId/memes", async (req: Request, res: Response) => {
   const factId = parseInt((req.params["factId"] ?? "") as string);
   if (isNaN(factId)) { res.status(400).json({ error: "Invalid factId" }); return; }
 
-  const memes = await db.select().from(memesTable).where(eq(memesTable.factId, factId)).orderBy(desc(memesTable.createdAt)).limit(20);
+  const [fact] = await db.select({ id: factsTable.id, parentId: factsTable.parentId })
+    .from(factsTable).where(and(eq(factsTable.id, factId), eq(factsTable.isActive, true))).limit(1);
+
+  let factIds: number[] = [factId];
+  if (fact && fact.parentId === null) {
+    // This is a root fact — collect all variant IDs so memes from the whole family appear
+    const variants = await db.select({ id: factsTable.id })
+      .from(factsTable).where(and(eq(factsTable.parentId, factId), eq(factsTable.isActive, true)));
+    factIds = [factId, ...variants.map(v => v.id)];
+  }
+
+  const memes = await db.select().from(memesTable)
+    .where(factIds.length === 1 ? eq(memesTable.factId, factIds[0]!) : inArray(memesTable.factId, factIds))
+    .orderBy(desc(memesTable.createdAt)).limit(40);
 
   res.json({
     memes: memes.map(m => ({
