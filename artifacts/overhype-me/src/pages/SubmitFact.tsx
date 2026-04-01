@@ -130,7 +130,7 @@ export default function SubmitFact() {
 
   async function handleTokenize() {
     if (rawText.length < 10) return;
-    if (!captchaToken && !isPremium) return;
+    if (!captchaToken && !isPremium && !isAuthenticated) return;
     setTokenizing(true);
     setTokenizeError("");
     setDuplicate(null);
@@ -168,7 +168,7 @@ export default function SubmitFact() {
     e.preventDefault();
     setError("");
     if (!template || template.length < 5) { setError("No template to submit."); return; }
-    if (!captchaToken && !isPremium) { setError("Please complete the CAPTCHA."); return; }
+    if (!captchaToken && !isPremium && !isAuthenticated) { setError("Please complete the CAPTCHA."); return; }
 
     setSubmitting(true);
     try {
@@ -332,12 +332,12 @@ export default function SubmitFact() {
 
               {/* Captcha gate */}
               {!isPremium && (
-                <div className={`rounded-lg p-5 border-2 ${captchaToken ? "border-green-500/30 bg-green-500/5" : "border-border bg-background/50"}`}>
+                <div className={`rounded-lg p-5 border-2 ${captchaToken || isPremium || isAuthenticated ? "border-green-500/30 bg-green-500/5" : "border-border bg-background/50"}`}>
                   <div className="flex items-center gap-3 mb-1">
                     <span className="text-lg font-bold text-foreground">
-                      {captchaToken ? "✓ Verified" : "Quick Verification"}
+                      {captchaToken || isPremium || isAuthenticated ? "✓ Verified" : "Quick Verification"}
                     </span>
-                    {captchaToken && (
+                    {(captchaToken || isPremium || isAuthenticated) && (
                       <span className="text-xs font-bold uppercase tracking-wider text-green-500 bg-green-500/10 px-2 py-0.5 rounded-full">
                         Ready
                       </span>
@@ -368,14 +368,14 @@ export default function SubmitFact() {
                   value={rawText}
                   onChange={(e) => setRawText(e.target.value)}
                   placeholder={
-                    !captchaToken && !isPremium
+                    !captchaToken && !isPremium && !isAuthenticated
                       ? "Complete verification above to start writing…"
                       : 'e.g. "When John does pushups, he doesn\'t push himself up — he pushes the Earth down."'
                   }
                   className={`text-lg min-h-[180px] leading-relaxed transition-opacity ${
-                    !captchaToken && !isPremium ? "opacity-40 cursor-not-allowed" : ""
+                    !captchaToken && !isPremium && !isAuthenticated ? "opacity-40 cursor-not-allowed" : ""
                   }`}
-                  disabled={!captchaToken && !isPremium}
+                  disabled={!captchaToken && !isPremium && !isAuthenticated}
                 />
               </div>
 
@@ -389,7 +389,7 @@ export default function SubmitFact() {
               <Button
                 size="lg"
                 className="w-full h-14 text-lg font-bold"
-                disabled={rawText.length < 10 || tokenizing || (!captchaToken && !isPremium)}
+                disabled={rawText.length < 10 || tokenizing || (!captchaToken && !isPremium && !isAuthenticated)}
                 onClick={() => void handleTokenize()}
               >
                 {tokenizing
