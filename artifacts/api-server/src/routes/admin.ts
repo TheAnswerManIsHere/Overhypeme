@@ -1,4 +1,4 @@
-import express, { Router, type IRouter, type Request, type Response, type NextFunction } from "express";
+import { Router, type IRouter, type Request, type Response, type NextFunction } from "express";
 import { db, usersTable } from "@workspace/db";
 import { factsTable, commentsTable } from "@workspace/db/schema";
 import { eq, desc, count, ilike, sql, and, or, inArray } from "drizzle-orm";
@@ -7,10 +7,6 @@ import { isAdminById } from "./auth";
 import { backfillEmbeddings } from "../lib/embeddings";
 import { logActivity } from "../lib/activity";
 import bcrypt from "bcryptjs";
-import { execFile, spawn } from "child_process";
-import { promisify } from "util";
-
-const execFileAsync = promisify(execFile);
 
 const router: IRouter = Router();
 
@@ -539,61 +535,5 @@ router.post("/admin/facts/backfill-embeddings", requireAdminOrApiKey, async (_re
     res.status(500).json({ error: "Backfill failed", details: String(err) });
   }
 });
-
-// ---------------------------------------------------------------------------
-// TEMPORARY DATABASE SYNC ENDPOINTS — remove after use
-// Both require x-api-key: <ADMIN_API_KEY> header
-// ---------------------------------------------------------------------------
-
-// GET /admin/db/dump — export the current database as a plain SQL dump
-router.get("/admin/db/dump", requireAdminOrApiKey, async (_req: Request, res: Response) => {
-  const dbUrl = process.env.DATABASE_URL;
-  if (!dbUrl) { res.status(500).json({ error: "DATABASE_URL not set" }); return; }
-  try {
-    const { stdout, stderr } = await execFileAsync("pg_dump", [
-      "--no-owner", "--no-acl", "--clean", "--if-exists",
-      "--exclude-schema=stripe", "--exclude-schema=_system",
-      dbUrl,
-    ], { maxBuffer: 50 * 1024 * 1024 });
-    if (stderr) console.warn("[admin/db-dump] stderr:", stderr.slice(0, 500));
-    res.setHeader("Content-Type", "text/plain; charset=utf-8");
-    res.setHeader("Content-Disposition", `attachment; filename="backup-${Date.now()}.sql"`);
-    res.send(stdout);
-  } catch (err) {
-    console.error("[admin] DB dump error:", err);
-    res.status(500).json({ error: "Dump failed", details: String(err) });
-  }
-});
-
-// POST /admin/db/restore — overwrite current database from a SQL dump in the request body
-// Send the dump as Content-Type: text/plain
-router.post(
-  "/admin/db/restore",
-  requireAdminOrApiKey,
-  express.text({ limit: "50mb", type: "*/*" }),
-  async (req: Request, res: Response) => {
-    const dbUrl = process.env.DATABASE_URL;
-    if (!dbUrl) { res.status(500).json({ error: "DATABASE_URL not set" }); return; }
-    const sqlDump = typeof req.body === "string" ? req.body : "";
-    if (!sqlDump.trim()) { res.status(400).json({ error: "Request body must be a SQL dump" }); return; }
-    try {
-      await new Promise<void>((resolve, reject) => {
-        const child = spawn("psql", [dbUrl], { stdio: ["pipe", "pipe", "pipe"] });
-        let stderr = "";
-        child.stderr.on("data", (d: Buffer) => { stderr += d.toString(); });
-        child.on("close", (code: number | null) => {
-          if (code === 0) resolve();
-          else reject(new Error(`psql exited ${code ?? "null"}: ${stderr.slice(0, 1000)}`));
-        });
-        child.stdin.write(sqlDump, "utf8");
-        child.stdin.end();
-      });
-      res.json({ success: true, message: "Database restored successfully" });
-    } catch (err) {
-      console.error("[admin] DB restore error:", err);
-      res.status(500).json({ error: "Restore failed", details: String(err) });
-    }
-  }
-);
 
 export default router;
