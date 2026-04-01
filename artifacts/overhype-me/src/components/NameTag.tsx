@@ -1,9 +1,15 @@
 import { useState, useRef, useEffect, useCallback } from "react";
-import { Pencil, Check, X, Loader2 } from "lucide-react";
+import { Pencil, Loader2 } from "lucide-react";
 import { usePersonName } from "@/hooks/use-person-name";
 import { useAuth } from "@workspace/replit-auth-web";
 import { useLocation } from "wouter";
-import { displayPronouns, PRONOUN_PRESETS, DEFAULT_PRONOUNS } from "@/lib/pronouns";
+import {
+  displayPronouns,
+  PRONOUN_PRESETS,
+  DEFAULT_PRONOUNS,
+  isCustomPronouns,
+  parseCustom,
+} from "@/lib/pronouns";
 import { PronounEditor } from "@/components/ui/PronounEditor";
 
 // ── AI pronoun suggestion ─────────────────────────────────────────────────────
@@ -22,7 +28,6 @@ async function fetchSuggestedPronouns(
     if (!res.ok) return null;
     const data = await res.json() as { subject?: string; object?: string };
     if (typeof data.subject === "string" && typeof data.object === "string") {
-      // Convert subject/object to full preset string if recognised
       const preset = `${data.subject}/${data.object}`;
       if (PRONOUN_PRESETS.includes(preset as typeof PRONOUN_PRESETS[number])) {
         return preset;
@@ -32,6 +37,16 @@ async function fetchSuggestedPronouns(
   } catch {
     return null;
   }
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+/** True when the current draftPronouns value is complete enough to save. */
+function canApply(draftPronouns: string): boolean {
+  if (!isCustomPronouns(draftPronouns)) return true; // any preset is valid
+  const p = parseCustom(draftPronouns);
+  if (!p) return false;
+  return !!(p.subj.trim() && p.obj.trim() && p.poss.trim() && p.possPro.trim() && p.refl.trim());
 }
 
 // ── Component ─────────────────────────────────────────────────────────────────
@@ -46,15 +61,18 @@ export function NameTag() {
   const [draftPronouns, setDraftPronouns] = useState(pronouns);
   const [aiLoading,     setAiLoading]     = useState(false);
 
-  // Whether the user has manually selected a pronoun option — suppresses AI override
-  const userChosenRef     = useRef(false);
-  const draftPronounsRef  = useRef(draftPronouns);
-  const debounceTimerRef  = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const userChosenRef      = useRef(false);
+  const draftPronounsRef   = useRef(draftPronouns);
+  const debounceTimerRef   = useRef<ReturnType<typeof setTimeout> | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
-  const nameRef           = useRef<HTMLInputElement>(null);
-  const panelRef          = useRef<HTMLDivElement>(null);
+  const nameRef            = useRef<HTMLInputElement>(null);
+  const panelRef           = useRef<HTMLDivElement>(null);
 
   draftPronounsRef.current = draftPronouns;
+
+  const applyEnabled = canApply(draftPronouns);
+
+  // ── Open / save / cancel ────────────────────────────────────────────────────
 
   function handleOpen() {
     if (isAuthenticated) {
@@ -68,6 +86,7 @@ export function NameTag() {
   }
 
   function save() {
+    if (!applyEnabled) return;
     if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
     abortControllerRef.current?.abort();
     setAiLoading(false);
@@ -93,7 +112,7 @@ export function NameTag() {
     return () => document.removeEventListener("mousedown", onMouseDown);
   }, [editing]);
 
-  // Cleanup timers/controllers on unmount
+  // Cleanup on unmount
   useEffect(() => () => {
     if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
     abortControllerRef.current?.abort();
@@ -103,7 +122,7 @@ export function NameTag() {
     if (editing) nameRef.current?.focus();
   }, [editing]);
 
-  // ── AI suggestion on name change ────────────────────────────────────────────
+  // ── AI suggestion ────────────────────────────────────────────────────────────
 
   const triggerSuggestion = useCallback((nameValue: string) => {
     if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
@@ -115,10 +134,8 @@ export function NameTag() {
     }
 
     debounceTimerRef.current = setTimeout(async () => {
-      // Skip if user already manually picked pronouns
       if (userChosenRef.current) return;
 
-      // Skip if pronouns are already non-default (user had custom set from before)
       const current = draftPronounsRef.current;
       const isDefault = current === DEFAULT_PRONOUNS || current === "";
       if (!isDefault) return;
@@ -144,7 +161,7 @@ export function NameTag() {
   }
 
   function handlePronounsChange(val: string) {
-    userChosenRef.current = true;       // user explicitly chose — don't override
+    userChosenRef.current = true;
     if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
     abortControllerRef.current?.abort();
     setAiLoading(false);
@@ -153,10 +170,9 @@ export function NameTag() {
 
   function onNameKeyDown(e: React.KeyboardEvent) {
     if (e.key === "Escape") cancel();
-    if (e.key === "Enter") save();
   }
 
-  // ── Render ──────────────────────────────────────────────────────────────────
+  // ── Render ───────────────────────────────────────────────────────────────────
 
   if (isLoading) {
     return (
@@ -194,6 +210,7 @@ export function NameTag() {
 
   return (
     <div className="relative">
+      {/* Trigger button */}
       <button
         onClick={handleOpen}
         className="group flex items-center gap-1.5 bg-secondary hover:bg-secondary/80 border border-border hover:border-primary/40 rounded-sm px-3 py-1.5 transition-all"
@@ -205,12 +222,13 @@ export function NameTag() {
         <Pencil className="w-3 h-3 text-muted-foreground group-hover:text-primary transition-colors" />
       </button>
 
+      {/* Dropdown panel */}
       {editing && (
         <div
           ref={panelRef}
           className="absolute top-full left-0 mt-1 z-50 bg-background border border-border rounded-sm shadow-lg p-3 w-72"
         >
-          {/* Name row */}
+          {/* Name field — no buttons here */}
           <div className="flex items-center gap-2 mb-3">
             <input
               ref={nameRef}
@@ -223,16 +241,10 @@ export function NameTag() {
             {aiLoading && (
               <Loader2 className="w-3.5 h-3.5 text-muted-foreground animate-spin shrink-0" />
             )}
-            <button onClick={save}   className="p-1 text-primary hover:text-primary/80 transition-colors" title="Save">
-              <Check className="w-4 h-4" />
-            </button>
-            <button onClick={cancel} className="p-1 text-muted-foreground hover:text-foreground transition-colors" title="Cancel">
-              <X className="w-4 h-4" />
-            </button>
           </div>
 
-          {/* Pronoun section */}
-          <div>
+          {/* Pronouns */}
+          <div className="mb-3">
             <div className="flex items-center gap-2 mb-1.5">
               <p className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Pronouns</p>
               {aiLoading && (
@@ -240,6 +252,27 @@ export function NameTag() {
               )}
             </div>
             <PronounEditor value={draftPronouns} onChange={handlePronounsChange} />
+          </div>
+
+          {/* Action buttons */}
+          <div className="flex gap-2 pt-1 border-t border-border mt-1">
+            <button
+              onClick={save}
+              disabled={!applyEnabled}
+              className={`flex-1 py-1.5 rounded-sm text-sm font-bold transition-colors ${
+                applyEnabled
+                  ? "bg-green-600 hover:bg-green-700 text-white cursor-pointer"
+                  : "bg-green-600/30 text-green-600/50 cursor-not-allowed"
+              }`}
+            >
+              Apply
+            </button>
+            <button
+              onClick={cancel}
+              className="flex-1 py-1.5 rounded-sm text-sm font-bold bg-destructive/10 hover:bg-destructive/20 text-destructive transition-colors"
+            >
+              Cancel
+            </button>
           </div>
         </div>
       )}
