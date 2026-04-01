@@ -498,6 +498,8 @@ export type CheckDuplicate200 = {
   confidence: number;
   matchingFactId?: number | null;
   matchingFactText?: string | null;
+  matchingCanonicalText?: string | null;
+  llmChecked?: boolean | null;
 };
 
 export type SuggestHashtagsBody = {

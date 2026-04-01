@@ -24,6 +24,7 @@ interface DuplicateResult {
   matchingFactId?: number;
   matchingFactText?: string;
   matchingCanonicalText?: string;
+  llmChecked?: boolean;
 }
 
 const PRONOUN_PREVIEWS: { label: string; subject: string; object: string; name: string }[] = [

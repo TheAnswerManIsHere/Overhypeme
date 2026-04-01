@@ -1,0 +1,14 @@
+Is cosine distance variance on a vector database really the best way to check for duplicates? It seems like maybe I do that with a threshold of 70% but then have the LLM do a duplicate check on the results?
+
+You’re arriving at exactly the right architecture through first principles. The two-stage pipeline is the correct approach, and here’s why:
+The fundamental problem with a single threshold
+Cosine similarity is a geometric proxy for semantic similarity. It’s lossy by nature. At any fixed threshold you’re fighting two failure modes simultaneously: too high and you miss paraphrases, too low and you get false positives from topically similar but distinct entries. For short texts (1-2 sentences), this is especially acute because the embedding vectors have less signal to differentiate nuance. Two Chuck Norris facts about roundhouse kicks could embed very close together while being completely different jokes.
+There’s no threshold that eliminates both false positives and false negatives. That’s not a tuning problem, it’s a fundamental limitation of projecting semantic meaning onto a single scalar distance.
+Why the two-stage pipeline works
+What you’re describing is a classic recall-then-precision architecture:
+	1.	Stage 1 (vector search): Cast a wide net. Use a generous threshold (0.7 cosine similarity is reasonable, maybe even lower like 0.6) to get candidates. This optimizes for recall: don’t miss any potential duplicates. This is O(log n) against your whole corpus.
+	2.	Stage 2 (LLM classification): Now you have a small candidate set (maybe 3-10 results). Feed each pair to the LLM with a prompt like “Are these two statements expressing the same fact/joke?” This optimizes for precision: the LLM understands paraphrase, negation, subtle differences in a way that geometric distance fundamentally cannot.
+The economics work because Stage 1 is cheap and fast (vector math), and Stage 2 is expensive but only runs against a tiny filtered set. You’re never sending your whole database through an LLM.
+One refinement worth considering
+You can make Stage 2 even cheaper by batching the candidates into a single LLM call rather than one per pair. Something like: “Here is a new entry and 5 candidates. Which, if any, are duplicates?” One API call handles the whole check.
+This is the same pattern used in production RAG systems, recommendation engines, and search reranking. The vector index is your retrieval layer, the LLM is your reasoning layer. Each does what it’s actually good at.​​​​​​​​​​​​​​​​
