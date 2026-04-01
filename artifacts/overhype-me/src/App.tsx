@@ -4,7 +4,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { trackPageView } from "@/lib/analytics";
-import { PersonNameProvider, usePersonName } from "@/hooks/use-person-name";
+import { PersonNameProvider, SHARE_LINK_ACTIVE } from "@/hooks/use-person-name";
 
 // Pages
 import Home from "@/pages/Home";
@@ -45,28 +45,21 @@ function HashtagsRedirect() {
 }
 
 /**
- * Reads ?displayName=...&pronouns=... URL params written by the share link
- * and pre-populates the viewer's name/pronouns context, then strips the
- * params from the URL so they don't persist on refresh.
+ * Strips ?displayName=...&pronouns=... from the address bar after they have
+ * been consumed by PersonNameProvider's initial-state logic (which runs at
+ * module load time, before any React rendering).
  */
 function ShareParamReader() {
-  const { setName, setPronouns } = usePersonName();
-
   useEffect(() => {
+    if (!SHARE_LINK_ACTIVE) return;
     const params = new URLSearchParams(window.location.search);
-    const displayName = params.get("displayName");
-    const pronouns   = params.get("pronouns");
-    if (!displayName && !pronouns) return;
-
-    if (displayName) setName(displayName);
-    if (pronouns)   setPronouns(pronouns);
-
     params.delete("displayName");
     params.delete("pronouns");
     const remaining = params.toString();
-    const clean = remaining ? `${window.location.pathname}?${remaining}` : window.location.pathname;
+    const clean = remaining
+      ? `${window.location.pathname}?${remaining}`
+      : window.location.pathname;
     window.history.replaceState({}, "", clean);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   return null;
