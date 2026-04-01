@@ -113,9 +113,11 @@ export interface DuplicateCheckResult {
   matchingFactText?: string;
 }
 
-// Cosine similarity threshold above which a fact is considered a duplicate.
-// 0.92 = very close paraphrase. Lower this (e.g. 0.85) to catch more rewrites.
-const DUPLICATE_THRESHOLD = 0.92;
+// Cosine similarity threshold for the pre-submission duplicate check.
+// Using 0.82 (not 0.92) because the query is raw plain-English text while
+// stored embeddings are from canonically-rendered templates — that surface
+// difference eats ~5-8 similarity points even for genuine duplicates.
+const DUPLICATE_THRESHOLD = 0.82;
 
 export async function checkDuplicateInternal(text: string): Promise<DuplicateCheckResult> {
   const embedding = await embedText(text);

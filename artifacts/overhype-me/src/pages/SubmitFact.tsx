@@ -85,10 +85,10 @@ export default function SubmitFact() {
 
   useEffect(() => {
     if (dupTimer.current) clearTimeout(dupTimer.current);
-    if (rawText.length < 20 || (!captchaToken && !isPremium)) { setDuplicate(null); return; }
-    dupTimer.current = setTimeout(() => { void checkDuplicate(rawText); }, 1500);
+    if (rawText.length < 20) { setDuplicate(null); return; }
+    dupTimer.current = setTimeout(() => { void checkDuplicate(rawText); }, 1200);
     return () => { if (dupTimer.current) clearTimeout(dupTimer.current); };
-  }, [rawText, captchaToken, isPremium, checkDuplicate]);
+  }, [rawText, checkDuplicate]);
 
   // ── Hashtag suggestions (trigger on entering step 3) ────────────────────────
   const fetchSuggestions = useCallback(async (factText: string) => {
