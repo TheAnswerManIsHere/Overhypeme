@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { AdminLayout } from "@/components/admin/AdminLayout";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
-import { Shield, ShieldOff, Search, Pencil, X, Save, AlertCircle, CheckCircle, Crown, Star } from "lucide-react";
+import { Shield, ShieldOff, Search, Pencil, X, Save, AlertCircle, CheckCircle, Crown, Star, UserPlus } from "lucide-react";
 
 interface User {
   id: string;
@@ -55,6 +55,26 @@ function displayName(u: User) {
   return u.username ?? u.email ?? u.id.slice(0, 12) + "…";
 }
 
+interface AddUserForm {
+  email: string;
+  password: string;
+  firstName: string;
+  lastName: string;
+  username: string;
+  membershipTier: "free" | "premium";
+  isAdmin: boolean;
+}
+
+const EMPTY_ADD_FORM: AddUserForm = {
+  email: "",
+  password: "",
+  firstName: "",
+  lastName: "",
+  username: "",
+  membershipTier: "free",
+  isAdmin: false,
+};
+
 export default function AdminUsers() {
   const [users, setUsers] = useState<User[]>([]);
   const [total, setTotal] = useState(0);
@@ -67,6 +87,11 @@ export default function AdminUsers() {
   const [draft, setDraft] = useState<EditDraft | null>(null);
   const [saving, setSaving] = useState(false);
   const [saveResult, setSaveResult] = useState<{ type: "success" | "error"; message: string } | null>(null);
+
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [addForm, setAddForm] = useState<AddUserForm>(EMPTY_ADD_FORM);
+  const [addError, setAddError] = useState<string | null>(null);
+  const [addSaving, setAddSaving] = useState(false);
 
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
@@ -144,10 +169,171 @@ export default function AdminUsers() {
     }
   }
 
+  async function addUser() {
+    setAddError(null);
+    if (!addForm.email.trim()) { setAddError("Email is required"); return; }
+    if (!addForm.password) { setAddError("Password is required"); return; }
+    if (addForm.password.length < 8) { setAddError("Password must be at least 8 characters"); return; }
+    setAddSaving(true);
+    try {
+      const res = await fetch("/api/admin/users", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: addForm.email.trim(),
+          password: addForm.password,
+          firstName: addForm.firstName.trim() || null,
+          lastName: addForm.lastName.trim() || null,
+          username: addForm.username.trim() || null,
+          membershipTier: addForm.membershipTier,
+          isAdmin: addForm.isAdmin,
+        }),
+      });
+      const data = (await res.json()) as { success?: boolean; user?: User; error?: string };
+      if (!res.ok) throw new Error(data.error ?? "Failed to create user");
+      const newUser = data.user!;
+      setUsers((prev) => [newUser, ...prev]);
+      setTotal((t) => t + 1);
+      setShowAddModal(false);
+      setAddForm(EMPTY_ADD_FORM);
+    } catch (err) {
+      setAddError(err instanceof Error ? err.message : "Failed to create user");
+    } finally {
+      setAddSaving(false);
+    }
+  }
+
   const totalPages = Math.ceil(total / LIMIT);
 
   return (
     <AdminLayout title="Users">
+      {/* Add User Modal */}
+      {showAddModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+          <div className="bg-card border border-border rounded-lg w-full max-w-md p-6 flex flex-col gap-4 shadow-xl">
+            <div className="flex items-center justify-between">
+              <h2 className="font-display font-bold text-foreground uppercase tracking-wide flex items-center gap-2">
+                <UserPlus className="w-4 h-4 text-primary" />
+                Add User
+              </h2>
+              <button
+                onClick={() => { setShowAddModal(false); setAddForm(EMPTY_ADD_FORM); setAddError(null); }}
+                className="p-1 text-muted-foreground hover:text-foreground transition-colors"
+                title="Close"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <FieldLabel>First Name</FieldLabel>
+                <Input
+                  value={addForm.firstName}
+                  onChange={(e) => setAddForm((f) => ({ ...f, firstName: e.target.value }))}
+                  placeholder="First name"
+                />
+              </div>
+              <div>
+                <FieldLabel>Last Name</FieldLabel>
+                <Input
+                  value={addForm.lastName}
+                  onChange={(e) => setAddForm((f) => ({ ...f, lastName: e.target.value }))}
+                  placeholder="Last name"
+                />
+              </div>
+            </div>
+
+            <div>
+              <FieldLabel>Email <span className="text-destructive">*</span></FieldLabel>
+              <Input
+                type="email"
+                value={addForm.email}
+                onChange={(e) => setAddForm((f) => ({ ...f, email: e.target.value }))}
+                placeholder="user@example.com"
+              />
+            </div>
+
+            <div>
+              <FieldLabel>Password <span className="text-destructive">*</span></FieldLabel>
+              <Input
+                type="password"
+                value={addForm.password}
+                onChange={(e) => setAddForm((f) => ({ ...f, password: e.target.value }))}
+                placeholder="Min. 8 characters"
+              />
+            </div>
+
+            <div>
+              <FieldLabel>Username</FieldLabel>
+              <Input
+                value={addForm.username}
+                onChange={(e) => setAddForm((f) => ({ ...f, username: e.target.value }))}
+                placeholder="username"
+              />
+            </div>
+
+            <div>
+              <FieldLabel>Membership Tier</FieldLabel>
+              <div className="flex gap-2">
+                {(["free", "premium"] as const).map((tier) => (
+                  <button
+                    key={tier}
+                    onClick={() => setAddForm((f) => ({ ...f, membershipTier: tier }))}
+                    className={`flex-1 flex items-center justify-center gap-2 h-9 rounded-sm border text-sm font-medium transition-colors ${
+                      addForm.membershipTier === tier
+                        ? tier === "premium"
+                          ? "border-yellow-500 bg-yellow-500/10 text-yellow-500"
+                          : "border-primary bg-primary/10 text-primary"
+                        : "border-border text-muted-foreground hover:border-primary/40"
+                    }`}
+                  >
+                    {tier === "premium" ? <Crown className="w-3.5 h-3.5" /> : <Star className="w-3.5 h-3.5" />}
+                    {tier.charAt(0).toUpperCase() + tier.slice(1)}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div>
+              <FieldLabel>Admin Access</FieldLabel>
+              <button
+                onClick={() => setAddForm((f) => ({ ...f, isAdmin: !f.isAdmin }))}
+                className={`w-full h-9 flex items-center justify-center gap-2 rounded-sm border text-sm font-medium transition-colors ${
+                  addForm.isAdmin
+                    ? "border-primary bg-primary/10 text-primary"
+                    : "border-border text-muted-foreground hover:border-primary/40"
+                }`}
+              >
+                {addForm.isAdmin ? <Shield className="w-4 h-4" /> : <ShieldOff className="w-4 h-4" />}
+                {addForm.isAdmin ? "Admin" : "Not Admin"}
+              </button>
+            </div>
+
+            {addError && (
+              <div className="flex items-start gap-2 text-sm px-3 py-2.5 rounded-sm bg-destructive/10 text-destructive border border-destructive/30">
+                <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                {addError}
+              </div>
+            )}
+
+            <div className="flex gap-3 pt-1">
+              <Button onClick={addUser} isLoading={addSaving} className="flex-1">
+                <UserPlus className="w-4 h-4" /> Create User
+              </Button>
+              <Button
+                variant="outline"
+                onClick={() => { setShowAddModal(false); setAddForm(EMPTY_ADD_FORM); setAddError(null); }}
+                className="flex-1"
+              >
+                Cancel
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
         {/* Left — user list */}
         <div className="bg-card border border-border rounded-lg overflow-hidden flex flex-col">
@@ -164,6 +350,9 @@ export default function AdminUsers() {
             <span className="text-sm text-muted-foreground whitespace-nowrap">
               {total} user{total !== 1 ? "s" : ""}
             </span>
+            <Button size="sm" onClick={() => { setAddForm(EMPTY_ADD_FORM); setAddError(null); setShowAddModal(true); }}>
+              <UserPlus className="w-4 h-4" /> Add User
+            </Button>
           </div>
 
           <div className="flex-1 overflow-auto divide-y divide-border">
