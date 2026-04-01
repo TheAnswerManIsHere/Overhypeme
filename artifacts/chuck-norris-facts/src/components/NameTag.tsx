@@ -1,30 +1,25 @@
 import { useState, useRef, useEffect } from "react";
 import { Pencil, Check, X } from "lucide-react";
 import { usePersonName } from "@/hooks/use-person-name";
-import type { PronounSet } from "@/lib/render-fact";
-
-const PRONOUN_OPTIONS: { value: PronounSet; label: string }[] = [
-  { value: "he/him",   label: "he/him"   },
-  { value: "she/her",  label: "she/her"  },
-  { value: "they/them", label: "they/them" },
-];
 
 export function NameTag() {
-  const { name, pronouns, setName, setPronouns } = usePersonName();
+  const { name, pronounSubject, pronounObject, setName, setPronouns } = usePersonName();
   const [editing, setEditing] = useState(false);
-  const [draftName, setDraftName] = useState(name);
-  const [draftPronouns, setDraftPronouns] = useState<PronounSet>(pronouns);
-  const inputRef = useRef<HTMLInputElement>(null);
+  const [draftName,    setDraftName]    = useState(name);
+  const [draftSubject, setDraftSubject] = useState(pronounSubject);
+  const [draftObject,  setDraftObject]  = useState(pronounObject);
+  const nameRef = useRef<HTMLInputElement>(null);
 
   function openEditor() {
     setDraftName(name);
-    setDraftPronouns(pronouns);
+    setDraftSubject(pronounSubject);
+    setDraftObject(pronounObject);
     setEditing(true);
   }
 
   function save() {
     setName(draftName);
-    setPronouns(draftPronouns);
+    setPronouns(draftSubject, draftObject);
     setEditing(false);
   }
 
@@ -33,7 +28,7 @@ export function NameTag() {
   }
 
   useEffect(() => {
-    if (editing) inputRef.current?.focus();
+    if (editing) nameRef.current?.focus();
   }, [editing]);
 
   function onKeyDown(e: React.KeyboardEvent) {
@@ -45,25 +40,31 @@ export function NameTag() {
     return (
       <div className="flex items-center gap-1.5 bg-secondary border border-primary/40 rounded-sm px-2 py-1">
         <input
-          ref={inputRef}
+          ref={nameRef}
           value={draftName}
           onChange={(e) => setDraftName(e.target.value)}
           onKeyDown={onKeyDown}
           placeholder="Your name"
-          className="w-32 bg-transparent text-sm font-bold text-foreground outline-none placeholder:text-muted-foreground"
+          className="w-28 bg-transparent text-sm font-bold text-foreground outline-none placeholder:text-muted-foreground"
         />
-        <span className="text-border text-xs">·</span>
-        <select
-          value={draftPronouns}
-          onChange={(e) => setDraftPronouns(e.target.value as PronounSet)}
-          className="bg-transparent text-xs font-bold text-muted-foreground outline-none cursor-pointer hover:text-foreground transition-colors"
-        >
-          {PRONOUN_OPTIONS.map((o) => (
-            <option key={o.value} value={o.value} className="bg-background">
-              {o.label}
-            </option>
-          ))}
-        </select>
+        <span className="text-border text-xs select-none">·</span>
+        <input
+          value={draftSubject}
+          onChange={(e) => setDraftSubject(e.target.value)}
+          onKeyDown={onKeyDown}
+          placeholder="he"
+          title="Subject pronoun (he, she, they…)"
+          className="w-9 bg-transparent text-xs font-bold text-muted-foreground outline-none placeholder:text-muted-foreground/50 text-center"
+        />
+        <span className="text-border text-xs select-none">/</span>
+        <input
+          value={draftObject}
+          onChange={(e) => setDraftObject(e.target.value)}
+          onKeyDown={onKeyDown}
+          placeholder="him"
+          title="Object pronoun (him, her, them…)"
+          className="w-9 bg-transparent text-xs font-bold text-muted-foreground outline-none placeholder:text-muted-foreground/50 text-center"
+        />
         <button onClick={save} className="p-0.5 text-primary hover:text-primary/80 transition-colors" title="Save">
           <Check className="w-3.5 h-3.5" />
         </button>
@@ -82,7 +83,7 @@ export function NameTag() {
     >
       <span className="text-xs text-muted-foreground font-medium uppercase tracking-wide hidden sm:block">As:</span>
       <span className="text-sm font-bold text-foreground font-display">{name}</span>
-      <span className="text-xs text-muted-foreground hidden lg:block">({pronouns})</span>
+      <span className="text-xs text-muted-foreground hidden lg:block">({pronounSubject}/{pronounObject})</span>
       <Pencil className="w-3 h-3 text-muted-foreground group-hover:text-primary transition-colors" />
     </button>
   );
