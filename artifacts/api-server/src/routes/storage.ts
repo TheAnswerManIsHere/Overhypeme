@@ -113,6 +113,56 @@ router.post(
 );
 
 /**
+ * POST /storage/upload-meme
+ *
+ * Server-side upload for meme background images.
+ * Accepts the raw image binary as the request body (Content-Type: image/*).
+ * Uploads directly to object storage from the server (avoids slow browser→GCS presigned PUT).
+ * Returns the objectPath for use in meme creation.
+ */
+router.post(
+  "/storage/upload-meme",
+  express.raw({ type: "image/*", limit: "10mb" }),
+  async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) {
+      res.status(401).json({ error: "Authentication required" });
+      return;
+    }
+
+    const contentType = (req.headers["content-type"] ?? "").split(";")[0].trim();
+    const allowedTypes = ["image/jpeg", "image/png", "image/webp", "image/gif"];
+    if (!allowedTypes.includes(contentType)) {
+      res.status(400).json({ error: "Only JPEG, PNG, WebP, or GIF images are accepted" });
+      return;
+    }
+
+    const buffer = req.body as Buffer;
+    if (!Buffer.isBuffer(buffer) || buffer.length === 0) {
+      res.status(400).json({ error: "No file data received" });
+      return;
+    }
+
+    try {
+      const extMap: Record<string, string> = {
+        "image/jpeg": "jpg",
+        "image/png": "png",
+        "image/webp": "webp",
+        "image/gif": "gif",
+      };
+      const ext = extMap[contentType] ?? "jpg";
+      const subPath = `uploads/${randomUUID()}.${ext}`;
+
+      const objectPath = await objectStorageService.uploadObjectBuffer({ subPath, buffer, contentType });
+
+      res.json({ objectPath });
+    } catch (error) {
+      req.log.error({ err: error }, "Error uploading meme image");
+      res.status(500).json({ error: "Upload failed" });
+    }
+  },
+);
+
+/**
  * GET /storage/public-objects/*
  *
  * Serve public assets from PUBLIC_OBJECT_SEARCH_PATHS.
