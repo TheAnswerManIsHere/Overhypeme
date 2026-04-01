@@ -86,6 +86,10 @@ export async function ensureSchema(): Promise<void> {
       label: "users.pending_email",
       ddl: `ALTER TABLE users ADD COLUMN IF NOT EXISTS pending_email varchar`,
     },
+    {
+      label: "email_verification_tokens.pending_email",
+      ddl: `ALTER TABLE email_verification_tokens ADD COLUMN IF NOT EXISTS pending_email varchar`,
+    },
   ];
 
   for (const { label, ddl } of migrations) {
