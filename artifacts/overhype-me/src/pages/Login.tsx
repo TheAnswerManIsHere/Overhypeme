@@ -216,7 +216,7 @@ export default function Login() {
 
             <div>
               <label className="block text-sm font-display font-bold text-muted-foreground mb-1 uppercase tracking-wider">
-                Password
+                Password{mode === "register" && <span className="text-destructive ml-1">*</span>}
               </label>
               <Input
                 type="password"
