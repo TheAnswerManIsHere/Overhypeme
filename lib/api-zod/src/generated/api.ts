@@ -179,6 +179,7 @@ export const GetFactResponse = zod
     downvotes: zod.number(),
     score: zod.number().optional(),
     wilsonScore: zod.number().optional(),
+    rank: zod.number().optional(),
     commentCount: zod.number(),
     hashtags: zod.array(zod.string()),
     submittedBy: zod.string().nullish(),

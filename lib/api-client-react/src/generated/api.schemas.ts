@@ -181,6 +181,7 @@ export interface ExternalLink {
 }
 
 export type FactDetail = FactSummary & {
+  rank?: number;
   links?: ExternalLink[];
 };
 

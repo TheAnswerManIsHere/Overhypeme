@@ -128,6 +128,7 @@ router.get("/facts/:factId", async (req: Request, res: Response) => {
   if (!parsed.success) { res.status(400).json({ error: "Invalid params" }); return; }
   const [fact] = await db.select().from(factsTable).where(eq(factsTable.id, parsed.data.factId)).limit(1);
   if (!fact) { res.status(404).json({ error: "Fact not found" }); return; }
+  const [{ rank }] = await db.select({ rank: sql<number>`(count(*) + 1)::int` }).from(factsTable).where(sql`${factsTable.wilsonScore} > ${fact.wilsonScore}`);
   const [summary] = await buildFactSummaries([fact], req.user?.id);
   const linkRows = await db.select().from(externalLinksTable).where(eq(externalLinksTable.factId, fact.id)).orderBy(desc(externalLinksTable.createdAt));
   const links = await Promise.all(linkRows.map(async (l) => {
@@ -138,7 +139,7 @@ router.get("/facts/:factId", async (req: Request, res: Response) => {
     }
     return { id: l.id, factId: l.factId, url: l.url, title: l.title ?? null, platform: l.platform ?? null, addedBy, addedById: l.addedById ?? null, createdAt: l.createdAt.toISOString() };
   }));
-  res.json({ ...summary, links });
+  res.json({ ...summary, rank, links });
 });
 
 // POST /facts
