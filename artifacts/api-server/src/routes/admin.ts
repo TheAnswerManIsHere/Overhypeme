@@ -5,6 +5,7 @@ import { eq, desc, count, ilike, sql, and } from "drizzle-orm";
 import { getSessionId, getSession, updateSession } from "../lib/auth";
 import { isAdminById } from "./auth";
 import { backfillEmbeddings } from "../lib/embeddings";
+import bcrypt from "bcryptjs";
 
 const router: IRouter = Router();
 
@@ -102,6 +103,62 @@ router.patch("/admin/users/:id", requireAdmin, async (req: Request, res: Respons
   }
 
   res.json({ success: true, user: updated });
+});
+
+router.post("/admin/users", requireAdmin, async (req: Request, res: Response) => {
+  const body = req.body as Record<string, unknown>;
+
+  const email = body["email"] ? String(body["email"]).trim().toLowerCase() : null;
+  const password = body["password"] ? String(body["password"]) : null;
+  const firstName = body["firstName"] ? String(body["firstName"]).trim() : null;
+  const lastName = body["lastName"] ? String(body["lastName"]).trim() : null;
+  const username = body["username"] ? String(body["username"]).trim().toLowerCase() : null;
+  const membershipTier = ["free", "premium"].includes(String(body["membershipTier"] ?? "free"))
+    ? (String(body["membershipTier"] ?? "free") as "free" | "premium")
+    : "free";
+  const isAdmin = body["isAdmin"] === true;
+
+  if (!email) {
+    res.status(400).json({ error: "Email is required" });
+    return;
+  }
+  if (!password) {
+    res.status(400).json({ error: "Password is required" });
+    return;
+  }
+  if (password.length < 8) {
+    res.status(400).json({ error: "Password must be at least 8 characters" });
+    return;
+  }
+  if (password.length > 128) {
+    res.status(400).json({ error: "Password must be at most 128 characters" });
+    return;
+  }
+
+  const passwordHash = await bcrypt.hash(password, 12);
+
+  try {
+    const [created] = await db
+      .insert(usersTable)
+      .values({ email, passwordHash, firstName, lastName, username, membershipTier, isAdmin })
+      .returning();
+    const { passwordHash: _omit, ...safeUser } = created;
+    res.status(201).json({ success: true, user: safeUser });
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (msg.includes("duplicate key") || msg.includes("unique")) {
+      if (msg.includes("email")) {
+        res.status(409).json({ error: "A user with that email already exists" });
+      } else if (msg.includes("username")) {
+        res.status(409).json({ error: "A user with that username already exists" });
+      } else {
+        res.status(409).json({ error: "A user with those details already exists" });
+      }
+      return;
+    }
+    console.error("[admin] Create user error:", err);
+    res.status(500).json({ error: "Failed to create user" });
+  }
 });
 
 router.get("/admin/facts", requireAdmin, async (req: Request, res: Response) => {

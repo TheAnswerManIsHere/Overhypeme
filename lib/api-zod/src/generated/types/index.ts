@@ -7,7 +7,6 @@
  */
 
 export * from "./addCommentRequest";
-export * from "./addLinkRequest";
 export * from "./affiliateClickRequest";
 export * from "./affiliateClickRequestDestination";
 export * from "./affiliateClickRequestSourceType";

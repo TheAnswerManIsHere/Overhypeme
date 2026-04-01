@@ -268,11 +268,6 @@ export interface LinkListResponse {
   links: ExternalLink[];
 }
 
-export interface AddLinkRequest {
-  url: string;
-  title?: string | null;
-}
-
 export interface UserProfile {
   id: string;
   email?: string | null;

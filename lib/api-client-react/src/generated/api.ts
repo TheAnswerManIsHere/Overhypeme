@@ -18,7 +18,6 @@ import type {
 
 import type {
   AddCommentRequest,
-  AddLinkRequest,
   AffiliateClickRequest,
   AffiliateClickResponse,
   AffiliateStatsResponse,
@@ -1302,93 +1301,6 @@ export function useListLinks<
 
   return { ...query, queryKey: queryOptions.queryKey };
 }
-
-/**
- * @summary Add an external link to a fact
- */
-export const getAddLinkUrl = (factId: number) => {
-  return `/api/facts/${factId}/links`;
-};
-
-export const addLink = async (
-  factId: number,
-  addLinkRequest: AddLinkRequest,
-  options?: RequestInit,
-): Promise<ExternalLink> => {
-  return customFetch<ExternalLink>(getAddLinkUrl(factId), {
-    ...options,
-    method: "POST",
-    headers: { "Content-Type": "application/json", ...options?.headers },
-    body: JSON.stringify(addLinkRequest),
-  });
-};
-
-export const getAddLinkMutationOptions = <
-  TError = ErrorType<ErrorEnvelope>,
-  TContext = unknown,
->(options?: {
-  mutation?: UseMutationOptions<
-    Awaited<ReturnType<typeof addLink>>,
-    TError,
-    { factId: number; data: BodyType<AddLinkRequest> },
-    TContext
-  >;
-  request?: SecondParameter<typeof customFetch>;
-}): UseMutationOptions<
-  Awaited<ReturnType<typeof addLink>>,
-  TError,
-  { factId: number; data: BodyType<AddLinkRequest> },
-  TContext
-> => {
-  const mutationKey = ["addLink"];
-  const { mutation: mutationOptions, request: requestOptions } = options
-    ? options.mutation &&
-      "mutationKey" in options.mutation &&
-      options.mutation.mutationKey
-      ? options
-      : { ...options, mutation: { ...options.mutation, mutationKey } }
-    : { mutation: { mutationKey }, request: undefined };
-
-  const mutationFn: MutationFunction<
-    Awaited<ReturnType<typeof addLink>>,
-    { factId: number; data: BodyType<AddLinkRequest> }
-  > = (props) => {
-    const { factId, data } = props ?? {};
-
-    return addLink(factId, data, requestOptions);
-  };
-
-  return { mutationFn, ...mutationOptions };
-};
-
-export type AddLinkMutationResult = NonNullable<
-  Awaited<ReturnType<typeof addLink>>
->;
-export type AddLinkMutationBody = BodyType<AddLinkRequest>;
-export type AddLinkMutationError = ErrorType<ErrorEnvelope>;
-
-/**
- * @summary Add an external link to a fact
- */
-export const useAddLink = <
-  TError = ErrorType<ErrorEnvelope>,
-  TContext = unknown,
->(options?: {
-  mutation?: UseMutationOptions<
-    Awaited<ReturnType<typeof addLink>>,
-    TError,
-    { factId: number; data: BodyType<AddLinkRequest> },
-    TContext
-  >;
-  request?: SecondParameter<typeof customFetch>;
-}): UseMutationResult<
-  Awaited<ReturnType<typeof addLink>>,
-  TError,
-  { factId: number; data: BodyType<AddLinkRequest> },
-  TContext
-> => {
-  return useMutation(getAddLinkMutationOptions(options));
-};
 
 /**
  * @summary Delete an external link
