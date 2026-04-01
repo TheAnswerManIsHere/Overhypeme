@@ -83,7 +83,7 @@ export function NameTag() {
     >
       <span className="text-xs text-muted-foreground font-medium uppercase tracking-wide hidden sm:block">As:</span>
       <span className="text-sm font-bold text-foreground font-display">{name}</span>
-      <span className="text-xs text-muted-foreground hidden lg:block">({pronounSubject}/{pronounObject})</span>
+      <span className="text-xs text-muted-foreground">({pronounSubject}/{pronounObject})</span>
       <Pencil className="w-3 h-3 text-muted-foreground group-hover:text-primary transition-colors" />
     </button>
   );
