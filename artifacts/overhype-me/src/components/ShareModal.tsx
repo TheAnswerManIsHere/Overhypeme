@@ -128,11 +128,15 @@ export function ShareModal({ open, onClose }: ShareModalProps) {
   const [recipientName, setRecipientName] = useState("");
   const [recipientPronouns, setRecipientPronouns] = useState(DEFAULT_PRONOUNS);
   const [recipientEmail, setRecipientEmail] = useState("");
+  const [emailError, setEmailError] = useState("");
   const [aiLoading, setAiLoading] = useState(false);
   const [sending, setSending] = useState(false);
   const [copied, setCopied] = useState(false);
   const [emailSent, setEmailSent] = useState(false);
   const { toast } = useToast();
+
+  const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  const isEmailValid = recipientEmail.trim().length > 0 && EMAIL_REGEX.test(recipientEmail.trim());
 
   const userChosenRef = useRef(false);
   const hasOverriddenRef = useRef(false);
@@ -151,6 +155,7 @@ export function ShareModal({ open, onClose }: ShareModalProps) {
       setRecipientName("");
       setRecipientPronouns(DEFAULT_PRONOUNS);
       setRecipientEmail("");
+      setEmailError("");
       setAiLoading(false);
       setSending(false);
       setCopied(false);
@@ -232,8 +237,23 @@ export function ShareModal({ open, onClose }: ShareModalProps) {
     }
   }
 
+  function handleEmailChange(e: React.ChangeEvent<HTMLInputElement>) {
+    setRecipientEmail(e.target.value);
+    if (emailError) setEmailError(""); // clear error while they're typing
+  }
+
+  function handleEmailBlur() {
+    const val = recipientEmail.trim();
+    if (!val) { setEmailError(""); return; }
+    if (!EMAIL_REGEX.test(val)) {
+      setEmailError("That doesn't look like a valid email address — please double-check it.");
+    } else {
+      setEmailError("");
+    }
+  }
+
   async function handleSendEmail() {
-    if (!recipientEmail.trim() || sending) return;
+    if (!isEmailValid || sending) return;
     setSending(true);
     try {
       const res = await fetch("/api/share/invite", {
@@ -340,120 +360,121 @@ export function ShareModal({ open, onClose }: ShareModalProps) {
                 </DialogTitle>
               </div>
               <p className="text-sm text-muted-foreground pl-3">
-                The link is personalised for <strong className="text-foreground">{recipientName}</strong>{displayPron ? ` (${displayPron})` : ""}. When they open it, their name will be set automatically.
+                Personalised for <strong className="text-foreground">{recipientName}</strong>{displayPron ? ` (${displayPron})` : ""}. Their name loads automatically when they open the link.
               </p>
             </DialogHeader>
 
-            <div className="space-y-5 py-2">
-              {/* Copy link */}
-              <div>
-                <label className="block text-xs font-bold text-muted-foreground uppercase tracking-wider mb-2">
-                  Copy Link
-                </label>
-                <div className="flex gap-2 items-center min-w-0">
-                  <div className="flex-1 min-w-0 bg-secondary border border-border rounded-sm px-3 py-2 text-xs text-muted-foreground font-mono truncate select-all">
-                    {shareUrl}
-                  </div>
-                  <button
-                    onClick={handleCopyLink}
-                    className={`flex items-center gap-1.5 px-3 py-2 rounded-sm border text-xs font-bold uppercase tracking-wider transition-all ${
-                      copied
-                        ? "bg-green-600/20 border-green-600 text-green-500"
-                        : "bg-secondary border-border text-foreground hover:border-primary hover:text-primary"
-                    }`}
-                  >
-                    {copied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
-                    {copied ? "Copied!" : "Copy"}
-                  </button>
-                </div>
+            <div className="space-y-5 py-1">
+
+              {/* ── Copy link ─────────────────────────────────────── */}
+              <div className="rounded-sm border border-border bg-secondary p-4">
+                <p className="text-xs font-bold text-muted-foreground uppercase tracking-wider mb-3">Copy Link</p>
+                <button
+                  onClick={handleCopyLink}
+                  className="w-full flex items-center justify-between gap-3 group"
+                >
+                  <span className={`text-sm font-medium underline underline-offset-2 decoration-primary transition-colors ${copied ? "text-green-500 decoration-green-500" : "text-primary group-hover:text-primary/80"}`}>
+                    Overhype.me
+                  </span>
+                  <span className={`flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider transition-colors shrink-0 ${copied ? "text-green-500" : "text-muted-foreground group-hover:text-foreground"}`}>
+                    {copied ? <><Check className="w-3.5 h-3.5" /> Copied!</> : <><Copy className="w-3.5 h-3.5" /> Copy link</>}
+                  </span>
+                </button>
               </div>
 
-              {/* Social share buttons */}
-              <div>
-                <label className="block text-xs font-bold text-muted-foreground uppercase tracking-wider mb-2">
-                  Share On
-                </label>
-                <div className="flex gap-2 flex-wrap">
+              {/* ── Share on social ───────────────────────────────── */}
+              <div className="rounded-sm border border-border bg-secondary p-4">
+                <p className="text-xs font-bold text-muted-foreground uppercase tracking-wider mb-3">Share On</p>
+                <div className="grid grid-cols-2 gap-2">
                   <button
                     onClick={() => shareTwitter(shareUrl, recipientName)}
-                    className="flex items-center gap-1.5 px-3 py-2 rounded-sm border border-border bg-secondary hover:bg-[#1d9bf0]/10 hover:border-[#1d9bf0] hover:text-[#1d9bf0] text-muted-foreground text-xs font-bold uppercase tracking-wider transition-all"
+                    className="flex items-center gap-2 px-3 py-2 rounded-sm border border-border bg-background hover:bg-[#1d9bf0]/10 hover:border-[#1d9bf0] hover:text-[#1d9bf0] text-muted-foreground text-xs font-bold transition-all"
                   >
                     <IconX /> X / Twitter
                   </button>
                   <button
                     onClick={() => shareWhatsApp(shareUrl, recipientName)}
-                    className="flex items-center gap-1.5 px-3 py-2 rounded-sm border border-border bg-secondary hover:bg-[#25d366]/10 hover:border-[#25d366] hover:text-[#25d366] text-muted-foreground text-xs font-bold uppercase tracking-wider transition-all"
+                    className="flex items-center gap-2 px-3 py-2 rounded-sm border border-border bg-background hover:bg-[#25d366]/10 hover:border-[#25d366] hover:text-[#25d366] text-muted-foreground text-xs font-bold transition-all"
                   >
                     <IconWhatsApp /> WhatsApp
                   </button>
                   <button
                     onClick={() => shareFacebook(shareUrl)}
-                    className="flex items-center gap-1.5 px-3 py-2 rounded-sm border border-border bg-secondary hover:bg-[#1877f2]/10 hover:border-[#1877f2] hover:text-[#1877f2] text-muted-foreground text-xs font-bold uppercase tracking-wider transition-all"
+                    className="flex items-center gap-2 px-3 py-2 rounded-sm border border-border bg-background hover:bg-[#1877f2]/10 hover:border-[#1877f2] hover:text-[#1877f2] text-muted-foreground text-xs font-bold transition-all"
                   >
                     <IconFacebook /> Facebook
                   </button>
                   <button
                     onClick={() => shareLinkedIn(shareUrl)}
-                    className="flex items-center gap-1.5 px-3 py-2 rounded-sm border border-border bg-secondary hover:bg-[#0a66c2]/10 hover:border-[#0a66c2] hover:text-[#0a66c2] text-muted-foreground text-xs font-bold uppercase tracking-wider transition-all"
+                    className="flex items-center gap-2 px-3 py-2 rounded-sm border border-border bg-background hover:bg-[#0a66c2]/10 hover:border-[#0a66c2] hover:text-[#0a66c2] text-muted-foreground text-xs font-bold transition-all"
                   >
                     <IconLinkedIn /> LinkedIn
                   </button>
                   <button
                     onClick={() => shareTelegram(shareUrl, recipientName)}
-                    className="flex items-center gap-1.5 px-3 py-2 rounded-sm border border-border bg-secondary hover:bg-[#0088cc]/10 hover:border-[#0088cc] hover:text-[#0088cc] text-muted-foreground text-xs font-bold uppercase tracking-wider transition-all"
+                    className="flex items-center gap-2 px-3 py-2 rounded-sm border border-border bg-background hover:bg-[#0088cc]/10 hover:border-[#0088cc] hover:text-[#0088cc] text-muted-foreground text-xs font-bold transition-all col-span-2"
                   >
                     <IconTelegram /> Telegram
                   </button>
                 </div>
               </div>
 
-              {/* Email invite */}
-              <div>
-                <label className="block text-xs font-bold text-muted-foreground uppercase tracking-wider mb-2">
-                  <span className="flex items-center gap-1.5"><Mail className="w-3.5 h-3.5" /> Send via Email</span>
-                </label>
+              {/* ── Send via email ────────────────────────────────── */}
+              <div className="rounded-sm border border-border bg-secondary p-4">
+                <p className="text-xs font-bold text-muted-foreground uppercase tracking-wider mb-3 flex items-center gap-1.5">
+                  <Mail className="w-3.5 h-3.5" /> Send via Email
+                </p>
                 {emailSent ? (
-                  <div className="flex items-center gap-2 text-green-500 text-sm font-medium">
-                    <Check className="w-4 h-4" />
-                    Invite sent! Send another?
-                    <button onClick={() => setEmailSent(false)} className="text-xs text-muted-foreground hover:text-foreground underline ml-1">
-                      Send again
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="flex items-center gap-2 text-green-500 text-sm font-medium">
+                      <Check className="w-4 h-4 shrink-0" /> Invite sent!
+                    </span>
+                    <button
+                      onClick={() => setEmailSent(false)}
+                      className="text-xs text-muted-foreground hover:text-foreground underline transition-colors"
+                    >
+                      Send another
                     </button>
                   </div>
                 ) : (
-                  <div className="flex gap-2 min-w-0">
+                  <div className="space-y-2">
                     <input
                       type="email"
                       value={recipientEmail}
-                      onChange={(e) => setRecipientEmail(e.target.value)}
-                      onKeyDown={(e) => e.key === "Enter" && !sending && handleSendEmail()}
+                      onChange={handleEmailChange}
+                      onBlur={handleEmailBlur}
+                      onKeyDown={(e) => e.key === "Enter" && isEmailValid && !sending && handleSendEmail()}
                       placeholder={`${recipientName.toLowerCase().split(" ")[0] ?? "friend"}@example.com`}
-                      className="flex-1 min-w-0 bg-secondary border border-border rounded-sm px-3 py-2 text-sm text-foreground outline-none focus:border-primary transition-colors placeholder:text-muted-foreground"
+                      className={`w-full bg-background border rounded-sm px-3 py-2 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground ${
+                        emailError ? "border-destructive focus:border-destructive" : "border-border focus:border-primary"
+                      }`}
                     />
+                    {emailError && (
+                      <p className="text-xs text-destructive leading-snug">{emailError}</p>
+                    )}
                     <Button
                       variant="primary"
-                      size="sm"
+                      className="w-full gap-2"
                       onClick={handleSendEmail}
-                      disabled={!recipientEmail.trim() || sending}
+                      disabled={!isEmailValid || sending}
                       isLoading={sending}
-                      className="gap-1.5 shrink-0"
                     >
                       <Send className="w-3.5 h-3.5" />
-                      Send
+                      Send Invite
                     </Button>
                   </div>
                 )}
               </div>
+
             </div>
 
-            <div className="flex gap-3 pt-1">
+            <div className="flex items-center justify-between pt-1">
               <button
                 onClick={() => setStep("identity")}
                 className="text-xs text-muted-foreground hover:text-foreground transition-colors"
               >
-                ← Change name/pronouns
+                ← Change name / pronouns
               </button>
-              <div className="flex-1" />
               <Button variant="secondary" size="sm" onClick={onClose}>Done</Button>
             </div>
           </>
