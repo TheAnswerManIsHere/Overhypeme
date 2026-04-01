@@ -12,6 +12,7 @@ export interface UpdateProfileRequest {
    * @maxLength 80
    */
   displayName?: string;
+  avatarStyle?: string;
   /**
    * @minLength 1
    * @maxLength 80

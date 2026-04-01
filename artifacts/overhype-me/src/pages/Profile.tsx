@@ -26,8 +26,18 @@ export default function Profile() {
   const [checkoutBanner, setCheckoutBanner] = useState<"success" | "cancel" | null>(null);
   const [emailVerifiedBanner, setEmailVerifiedBanner] = useState(false);
 
+  const AVATAR_STYLES = [
+    { id: "bottts",     label: "Robot" },
+    { id: "pixel-art",  label: "Pixel" },
+    { id: "adventurer", label: "Hero" },
+    { id: "identicon",  label: "Geo" },
+    { id: "shapes",     label: "Abstract" },
+    { id: "thumbs",     label: "Thumbs" },
+  ] as const;
+
   const [editing, setEditing] = useState(false);
   const [draftDisplayName, setDraftDisplayName] = useState("");
+  const [draftAvatarStyle, setDraftAvatarStyle] = useState("bottts");
   const [draftPronouns, setDraftPronouns] = useState("");
   const [draftEmail, setDraftEmail] = useState("");
   const [editError, setEditError] = useState("");
@@ -37,6 +47,15 @@ export default function Profile() {
   const [photoUploading, setPhotoUploading] = useState(false);
   const [photoError, setPhotoError] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  function dicebearUrl(style: string, seed: string) {
+    return `https://api.dicebear.com/9.x/${style}/svg?seed=${encodeURIComponent(seed)}`;
+  }
+
+  function getAvatarUrl() {
+    if (profile?.isPremium && profile?.profileImageUrl) return profile.profileImageUrl;
+    return dicebearUrl(profile?.avatarStyle ?? "bottts", profile?.id ?? "default");
+  }
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -52,6 +71,7 @@ export default function Profile() {
 
   function openEditor() {
     setDraftDisplayName(profile?.displayName ?? "");
+    setDraftAvatarStyle(profile?.avatarStyle ?? "bottts");
     setDraftPronouns(profile?.pronouns ?? "");
     setDraftEmail("");
     setEditError("");
@@ -71,6 +91,7 @@ export default function Profile() {
 
     const body: Record<string, string> = {};
     if (draftDisplayName.trim() !== (profile?.displayName ?? "")) body.displayName = draftDisplayName.trim();
+    if (draftAvatarStyle !== (profile?.avatarStyle ?? "bottts")) body.avatarStyle = draftAvatarStyle;
     if (draftPronouns !== (profile?.pronouns ?? "")) body.pronouns = draftPronouns;
     if (draftEmail.trim()) body.email = draftEmail.trim();
 
@@ -276,18 +297,16 @@ export default function Profile() {
               onChange={handlePhotoChange}
             />
             <button
-              onClick={() => fileInputRef.current?.click()}
+              onClick={() => profile.isPremium ? fileInputRef.current?.click() : openEditor()}
               disabled={photoUploading}
               className="relative block rounded-sm focus:outline-none focus:ring-2 focus:ring-primary"
-              title="Change profile photo"
+              title={profile.isPremium ? "Change profile photo" : "Choose avatar style"}
             >
-              {profile.profileImageUrl ? (
-                <img src={profile.profileImageUrl} alt={profile.displayName ?? "User"} className="w-24 h-24 rounded-sm border-2 border-primary object-cover shadow-[0_0_15px_rgba(249,115,22,0.3)]" />
-              ) : (
-                <div className="w-24 h-24 bg-secondary border-2 border-primary flex items-center justify-center rounded-sm font-display text-4xl text-primary font-bold shadow-[0_0_15px_rgba(249,115,22,0.3)]">
-                  {(profile.displayName?.[0] || profile.email?.[0] || "?").toUpperCase()}
-                </div>
-              )}
+              <img
+                src={getAvatarUrl()}
+                alt={profile.displayName ?? "User"}
+                className="w-24 h-24 rounded-sm border-2 border-primary object-cover bg-secondary shadow-[0_0_15px_rgba(249,115,22,0.3)]"
+              />
               <div className="absolute inset-0 bg-black/50 rounded-sm flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
                 {photoUploading
                   ? <Loader2 className="w-6 h-6 text-white animate-spin" />
@@ -323,7 +342,7 @@ export default function Profile() {
             <h2 className="font-display text-xl uppercase tracking-wide text-foreground mb-6 border-b border-border pb-4 flex items-center gap-2">
               <Pencil className="w-5 h-5 text-primary" /> Edit Profile
             </h2>
-            <div className="grid grid-cols-1 gap-4">
+            <div className="grid grid-cols-1 gap-5">
               <div>
                 <label className="block text-sm font-bold text-muted-foreground uppercase tracking-wide mb-1">Display Name</label>
                 <input
@@ -336,6 +355,64 @@ export default function Profile() {
                 />
                 <p className="text-xs text-muted-foreground mt-1">This name appears on your facts and profile.</p>
               </div>
+
+              {/* Avatar Style Picker */}
+              <div>
+                <label className="block text-sm font-bold text-muted-foreground uppercase tracking-wide mb-2">Avatar Style</label>
+                <div className="flex flex-wrap gap-3">
+                  {AVATAR_STYLES.map((style) => (
+                    <button
+                      key={style.id}
+                      type="button"
+                      onClick={() => setDraftAvatarStyle(style.id)}
+                      className={`flex flex-col items-center gap-1 p-1.5 rounded-sm border-2 transition-all ${draftAvatarStyle === style.id ? "border-primary bg-primary/10" : "border-border bg-secondary hover:border-primary/50"}`}
+                      title={style.label}
+                    >
+                      <img
+                        src={dicebearUrl(style.id, profile.id)}
+                        alt={style.label}
+                        className="w-12 h-12 rounded-sm"
+                      />
+                      <span className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground">{style.label}</span>
+                    </button>
+                  ))}
+                </div>
+                <p className="text-xs text-muted-foreground mt-1">Your avatar is generated from your unique ID — same look everywhere, no photo needed.</p>
+              </div>
+
+              {/* Photo Upload — Premium only */}
+              {profile.isPremium ? (
+                <div>
+                  <label className="block text-sm font-bold text-muted-foreground uppercase tracking-wide mb-2 flex items-center gap-2">
+                    <Camera className="w-3.5 h-3.5" /> Custom Photo <span className="text-primary text-xs">Premium</span>
+                  </label>
+                  <div className="flex items-center gap-4">
+                    {profile.profileImageUrl && (
+                      <img src={profile.profileImageUrl} alt="Current photo" className="w-12 h-12 rounded-sm border border-border object-cover" />
+                    )}
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => fileInputRef.current?.click()}
+                      disabled={photoUploading}
+                      className="gap-2 text-sm"
+                    >
+                      {photoUploading ? <><Loader2 className="w-4 h-4 animate-spin" /> Uploading…</> : <><Camera className="w-4 h-4" /> {profile.profileImageUrl ? "Change Photo" : "Upload Photo"}</>}
+                    </Button>
+                  </div>
+                  {photoError && <p className="text-xs text-destructive mt-1">{photoError}</p>}
+                  <p className="text-xs text-muted-foreground mt-1">Replaces your generated avatar. JPEG, PNG, WebP or GIF, max 5 MB.</p>
+                </div>
+              ) : (
+                <div className="flex items-start gap-3 bg-primary/5 border border-primary/20 rounded-sm p-3">
+                  <Star className="w-4 h-4 text-primary shrink-0 mt-0.5" />
+                  <div>
+                    <p className="text-sm font-bold text-foreground">Custom Photo — Premium Feature</p>
+                    <p className="text-xs text-muted-foreground mt-0.5">Upgrade to Premium to replace your generated avatar with a custom photo.</p>
+                  </div>
+                </div>
+              )}
+
               <div>
                 <label className="block text-sm font-bold text-muted-foreground uppercase tracking-wide mb-1">Pronouns</label>
                 <PronounEditor value={draftPronouns} onChange={setDraftPronouns} />
