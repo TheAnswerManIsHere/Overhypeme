@@ -9,7 +9,8 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@workspace/db": "workspace:*"
+    "@workspace/db": "workspace:*",
+    "openai": "^6.27.0"
   },
   "devDependencies": {
     "@types/node": "catalog:",
