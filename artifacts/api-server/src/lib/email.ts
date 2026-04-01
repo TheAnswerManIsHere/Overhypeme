@@ -264,7 +264,6 @@ export function buildReviewApprovedEmail(opts: {
   adminNote?: string | null;
 }): Pick<EmailPayload, "subject" | "text" | "html"> {
   const factUrl = `${getSiteBaseUrl()}/facts/${opts.factId}`;
-  const noteText = opts.adminNote ? `\n\nAdmin note: ${opts.adminNote}` : "";
   const subject = "Your Overhype.me fact has been approved!";
 
   const text = [
@@ -273,7 +272,7 @@ export function buildReviewApprovedEmail(opts: {
     "Your submitted fact has been reviewed and approved. The database grows stronger.",
     "",
     `"${opts.submittedText}"`,
-    noteText,
+    ...(opts.adminNote ? ["", `Admin note: ${opts.adminNote}`] : []),
     "",
     `View it here: ${factUrl}`,
     "",
@@ -312,7 +311,6 @@ export function buildReviewRejectedEmail(opts: {
   submittedText: string;
   adminNote?: string | null;
 }): Pick<EmailPayload, "subject" | "text" | "html"> {
-  const noteText = opts.adminNote ? `\n\nAdmin note: ${opts.adminNote}` : "";
   const subject = "Update on your submitted Overhype.me fact";
 
   const text = [
@@ -321,7 +319,7 @@ export function buildReviewRejectedEmail(opts: {
     "After review, we weren't able to add this one to the database.",
     "",
     `"${opts.submittedText}"`,
-    noteText,
+    ...(opts.adminNote ? ["", `Admin note: ${opts.adminNote}`] : []),
     "",
     "Don't sweat it. Keep submitting — greatness takes practice.",
     "",
