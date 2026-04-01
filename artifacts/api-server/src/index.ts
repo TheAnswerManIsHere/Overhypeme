@@ -1,6 +1,7 @@
 import app from "./app";
 import { logger } from "./lib/logger";
 import { ensureSchema, backfillWilsonScores } from "./lib/seed";
+import { backfillEmbeddings } from "./lib/embeddings";
 
 const rawPort = process.env["PORT"];
 
@@ -51,6 +52,13 @@ await ensureSchema().catch((err: unknown) => logger.error({ err }, "Schema migra
 
 // Backfill Wilson scores for any facts that have votes but no score yet
 await backfillWilsonScores().catch((err: unknown) => logger.error({ err }, "Wilson backfill failed"));
+
+// Non-blocking: generate embeddings for any facts that are missing them (e.g. after a DB seed/restore)
+backfillEmbeddings()
+  .then(({ processed, failed }) => {
+    if (processed > 0 || failed > 0) logger.info({ processed, failed }, "Embedding backfill complete");
+  })
+  .catch((err: unknown) => logger.warn({ err }, "Embedding backfill skipped (no OpenAI key?)"));
 
 // Daily cron: send Fact of the Day at 9:00 UTC
 function scheduleDailyFactJob() {
