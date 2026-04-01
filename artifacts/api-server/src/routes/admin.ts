@@ -268,7 +268,8 @@ router.patch("/admin/facts/:id", requireAdmin, async (req: Request, res: Respons
 
   const [updated] = await db.update(factsTable).set(updates).where(eq(factsTable.id, id)).returning();
   if (!updated) { res.status(404).json({ error: "Fact not found" }); return; }
-  res.json({ success: true, fact: updated });
+  const { embedding: _emb, ...factRow } = updated;
+  res.json({ success: true, fact: { ...factRow, hasEmbedding: updated.embedding !== null } });
 });
 
 // POST /admin/facts/:id/variants — create a variant linked to a root fact
