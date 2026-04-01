@@ -28,6 +28,7 @@ const SubmitReviewBody = z.object({
   text: z.string().min(10).max(2000),
   matchingFactId: z.number().int().optional(),
   matchingSimilarity: z.number().int().min(0).max(100).optional(),
+  isDuplicate: z.boolean().optional(),
   hashtags: z.array(z.string()).max(10).optional(),
   reason: z.string().max(100).optional(),
 });
@@ -38,7 +39,7 @@ router.post("/facts/submit-review", requireAuth, async (req: Request, res: Respo
     res.status(400).json({ error: "Invalid input", details: parsed.error.flatten() });
     return;
   }
-  const { text, matchingFactId, matchingSimilarity = 0, hashtags = [], reason } = parsed.data;
+  const { text, matchingFactId, matchingSimilarity = 0, isDuplicate = false, hashtags = [], reason } = parsed.data;
 
   const [review] = await db.insert(pendingReviewsTable).values({
     submittedText: text,
@@ -50,10 +51,10 @@ router.post("/facts/submit-review", requireAuth, async (req: Request, res: Respo
     reason: reason ?? null,
   }).returning();
 
-  const isDuplicateFlagged = !!matchingFactId;
+  const isDuplicateFlagged = !!matchingFactId && isDuplicate;
   await logActivity({
     userId: req.user.id,
-    actionType: isDuplicateFlagged ? "review_submitted" : "fact_submitted",
+    actionType: "review_submitted",
     message: isDuplicateFlagged
       ? `You submitted a fact for admin review — flagged as a possible variant at ${matchingSimilarity}% similarity.`
       : `You submitted a fact for admin review. You'll be notified when it's approved or declined.`,
