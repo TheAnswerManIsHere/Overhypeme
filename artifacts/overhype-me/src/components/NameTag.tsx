@@ -133,6 +133,18 @@ export function NameTag() {
     setEditing(false);
   }
 
+  // ── Sync logged-in user's display name into the persona context ─────────────
+
+  useEffect(() => {
+    if (!isAuthenticated || !user) return;
+    const userDisplayName = (user as { displayName?: string }).displayName;
+    const userPronouns    = (user as { pronouns?: string }).pronouns;
+    if (userDisplayName) setName(userDisplayName);
+    if (userPronouns)    setPronouns(userPronouns);
+  // We only want to run this when the auth user object changes
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAuthenticated, user]);
+
   // ── Effects ─────────────────────────────────────────────────────────────────
 
   // Close on outside click
@@ -197,7 +209,7 @@ export function NameTag() {
 
   if (isAuthenticated && user) {
     const displayName = (user as { displayName?: string }).displayName
-      || (user as { email?: string }).email
+      || name
       || "User";
     const rawPronouns = (user as { pronouns?: string }).pronouns;
     const pronounsStr = rawPronouns ? displayPronouns(rawPronouns) : null;
