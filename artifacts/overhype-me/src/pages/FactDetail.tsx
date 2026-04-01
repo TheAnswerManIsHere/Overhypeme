@@ -250,7 +250,7 @@ export default function FactDetail() {
 
             <div className="text-muted-foreground text-sm font-medium text-right">
               <div>VERIFIED: {format(new Date(fact.createdAt), 'MMM dd, yyyy')}</div>
-              {fact.submittedBy && <div className="text-primary mt-1">BY AGENT {fact.submittedBy.substring(0,8).toUpperCase()}</div>}
+              {fact.submittedBy && <div className="text-primary mt-1">BY {fact.submittedBy.substring(0,8).toUpperCase()}</div>}
             </div>
           </div>
 
@@ -319,7 +319,7 @@ export default function FactDetail() {
                           <User className="w-4 h-4 text-muted-foreground" />
                         </div>
                       )}
-                      <span className="font-bold text-primary">{comment.authorName || "UNKNOWN AGENT"}</span>
+                      <span className="font-bold text-primary">{comment.authorName || "ANONYMOUS"}</span>
                     </div>
                     <span className="text-xs text-muted-foreground font-medium">{format(new Date(comment.createdAt), 'MMM dd, yyyy')}</span>
                   </div>
