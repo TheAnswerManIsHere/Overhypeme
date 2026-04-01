@@ -7,6 +7,7 @@ import { z } from "zod";
 import { getSessionId, getSession } from "../lib/auth";
 import { embedText, findSimilarFacts } from "../lib/embeddings";
 import { validateTemplate } from "../lib/templateGrammar";
+import { renderCanonical } from "../lib/renderCanonical";
 
 const router: IRouter = Router();
 
@@ -115,13 +116,20 @@ export interface DuplicateCheckResult {
 }
 
 // Cosine similarity threshold for the pre-submission duplicate check.
-// Using 0.82 (not 0.92) because the query is raw plain-English text while
-// stored embeddings are from canonically-rendered templates — that surface
-// difference eats ~5-8 similarity points even for genuine duplicates.
-const DUPLICATE_THRESHOLD = 0.82;
+// Raw user text vs canonical embeddings loses ~5-8 points (name differences,
+// minor synonyms). 0.75 catches genuine rewrites while avoiding false positives.
+// When the caller supplies canonicalized template text the check is much more
+// accurate — this threshold still applies but hits will have much higher scores.
+const DUPLICATE_THRESHOLD = 0.75;
+
+// Token pattern: {NAME}, {SUBJ}, {does|do}, etc.
+const TEMPLATE_TOKEN_RE = /\{[A-Z_]+\}|\{[A-Za-z_]+\}|\{[^}|]+\|[^}]+\}/;
 
 export async function checkDuplicateInternal(text: string): Promise<DuplicateCheckResult> {
-  const embedding = await embedText(text);
+  // If the text contains template tokens, render it canonically before embedding
+  // so it compares apples-to-apples against stored canonical embeddings.
+  const textToEmbed = TEMPLATE_TOKEN_RE.test(text) ? renderCanonical(text) : text;
+  const embedding = await embedText(textToEmbed);
   const neighbors = await findSimilarFacts(embedding, {
     limit: 5,
     threshold: DUPLICATE_THRESHOLD,

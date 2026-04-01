@@ -151,6 +151,10 @@ export default function SubmitFact() {
       }
       setTemplate(data.template);
       setStep("preview");
+      // Re-run duplicate check with the tokenized template — the server will
+      // canonicalize tokens (replacing {NAME} → Alex, etc.) before embedding,
+      // giving a much more accurate apples-to-apples comparison.
+      void checkDuplicate(data.template);
     } catch {
       setTokenizeError("Network error — please try again.");
     } finally {
