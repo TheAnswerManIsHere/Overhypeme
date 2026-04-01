@@ -6,7 +6,7 @@ import { logger } from "../lib/logger";
 
 const RESEND_API_KEY = process.env.RESEND_API_KEY;
 const SITE_DOMAIN = process.env.REPLIT_DOMAINS?.split(",")[0] ?? "localhost";
-const FROM_EMAIL = process.env.FACT_OF_DAY_FROM ?? "noreply@chucknorrisfacts.app";
+const FROM_EMAIL = process.env.FACT_OF_DAY_FROM ?? "noreply@overhype.me";
 
 async function sendEmail(to: string, subject: string, html: string): Promise<boolean> {
   if (!RESEND_API_KEY) {
@@ -35,7 +35,7 @@ async function sendEmail(to: string, subject: string, html: string): Promise<boo
 }
 
 function buildEmailHtml(factText: string, factId: number, unsubUrl: string): string {
-  const siteUrl = `https://${SITE_DOMAIN}/chuck-norris-facts`;
+  const siteUrl = `https://${SITE_DOMAIN}/overhype-me`;
   return `<!DOCTYPE html>
 <html>
 <head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
@@ -46,7 +46,7 @@ function buildEmailHtml(factText: string, factId: number, unsubUrl: string): str
         <tr>
           <td style="background:#f97316;padding:24px 32px;">
             <h1 style="margin:0;color:#fff;font-size:22px;letter-spacing:2px;text-transform:uppercase;">⚡ Fact of the Day</h1>
-            <p style="margin:4px 0 0;color:rgba(255,255,255,0.8);font-size:13px;text-transform:uppercase;letter-spacing:1px;">Chuck Norris Facts — Daily Intel</p>
+            <p style="margin:4px 0 0;color:rgba(255,255,255,0.8);font-size:13px;text-transform:uppercase;letter-spacing:1px;">Overhype.me — Daily Intel</p>
           </td>
         </tr>
         <tr>
@@ -61,7 +61,7 @@ function buildEmailHtml(factText: string, factId: number, unsubUrl: string): str
         <tr>
           <td style="padding:16px 32px;border-top:1px solid #333;">
             <p style="margin:0;color:#666;font-size:11px;">
-              You're receiving this because you have a premium Chuck Norris Facts membership.
+              You're receiving this because you have a premium Overhype.me membership.
               <a href="${unsubUrl}" style="color:#f97316;">Manage or cancel subscription</a>
             </p>
           </td>
@@ -106,9 +106,9 @@ export async function runFactOfTheDayJob(): Promise<{ sent: number; skipped: num
   for (const user of premiumUsers) {
     if (!user.email) { skipped++; continue; }
 
-    const portalUrl = `https://${SITE_DOMAIN}/chuck-norris-facts/profile#membership`;
+    const portalUrl = `https://${SITE_DOMAIN}/overhype-me/profile#membership`;
     const html = buildEmailHtml(topFact.text, topFact.id, portalUrl);
-    const ok = await sendEmail(user.email, "⚡ Your Daily Chuck Norris Fact", html);
+    const ok = await sendEmail(user.email, "⚡ Your Daily Overhype.me Fact", html);
     if (ok) sent++; else skipped++;
 
     await new Promise(r => setTimeout(r, 50));

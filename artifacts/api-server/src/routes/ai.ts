@@ -70,10 +70,10 @@ export async function moderateComment(commentId: number, text: string): Promise<
         {
           role: "system",
           content:
-            "You are a spam and abuse detector for a humor website about Chuck Norris jokes. " +
+            "You are a spam and abuse detector for a humor website about personalized facts and jokes. " +
             "Analyze comments and determine if they are spam, abuse, hate speech, or completely off-topic. " +
             "Respond ONLY with JSON: {\"spam\": true/false, \"reason\": \"short reason or empty string\"}. " +
-            "Be lenient with playful Chuck Norris humor, rough language in a comedic context, and enthusiasm. " +
+            "Be lenient with playful humor, rough language in a comedic context, and enthusiasm. " +
             "Only flag clear spam (links, promotions), actual hate speech, or obvious abuse.",
         },
         { role: "user", content: `Comment: ${text}` },
@@ -175,7 +175,7 @@ router.post("/ai/suggest-hashtags", requireAuth, requireRateLimit, async (req: R
         {
           role: "system",
           content:
-            "You suggest hashtags for Chuck Norris facts on a humor website. " +
+            "You suggest hashtags for personalized facts on a humor website called Overhype.me. " +
             "Return a JSON object with a single key 'hashtags' containing an array of 3-5 lowercase strings (no # prefix, letters/numbers/underscores only). " +
             "Prefer tags from the existing list when relevant. You may add 1-2 new tags if needed. " +
             "Example output: {\"hashtags\": [\"strength\",\"supernatural\",\"wisdom\"]}",

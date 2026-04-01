@@ -159,7 +159,6 @@ router.post("/facts", requireAdmin, async (req: Request, res: Response) => {
   const tokenizedText = isAlreadyTokenized ? text : (() => {
     return text
       .replace(/\{First_Name\}\s*\{Last_Name\}/g, "{NAME}")
-      .replace(/\bchuck norris\b/gi, "{NAME}")
       .replace(/\bHimself\b/g, "{REFL}")
       .replace(/\bhimself\b/g, "{REFL}")
       .replace(/\bHim\b/g, "{Obj}")

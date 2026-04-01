@@ -141,7 +141,7 @@ export async function generateMemeBuffer(
   ctx.font = "bold 13px sans-serif";
   ctx.fillStyle = "rgba(255,255,255,0.45)";
   ctx.textAlign = "right";
-  ctx.fillText("chucknorrisfacts.app", CANVAS_W - 18, CANVAS_H - 14);
+  ctx.fillText("overhype.me", CANVAS_W - 18, CANVAS_H - 14);
 
   return canvas.toBuffer("image/png");
 }

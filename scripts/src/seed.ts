@@ -3,21 +3,21 @@ import { factsTable, hashtagsTable, factHashtagsTable } from "@workspace/db/sche
 import { count, eq, sql } from "drizzle-orm";
 
 const FACTS = [
-  "Chuck Norris doesn't read books. He stares them down until he gets the information he wants.",
-  "Chuck Norris can sneeze with his eyes open.",
-  "Chuck Norris counted to infinity — twice.",
-  "Chuck Norris can divide by zero.",
-  "When Chuck Norris enters a room, he doesn't turn the lights on. He turns the dark off.",
-  "Chuck Norris once kicked a horse in the chin. Its descendants are now known as giraffes.",
-  "Chuck Norris doesn't wear a watch. HE decides what time it is.",
-  "Chuck Norris can hear sign language.",
-  "Chuck Norris has a grizzly bear carpet in his room. The bear isn't dead, it's just afraid to move.",
-  "Chuck Norris once threw a grenade and killed 50 people — then it exploded.",
-  "Chuck Norris can win a game of Connect Four in only three moves.",
-  "Death once had a near-Chuck-Norris experience.",
-  "Chuck Norris can set ants on fire with a magnifying glass. At night.",
-  "When Chuck Norris does a pushup, he isn't lifting himself up. He's pushing the Earth down.",
-  "Chuck Norris once parallel parked a train.",
+  "{NAME} {doesn't|don't} read books. {Subj} stares them down until {SUBJ} gets the information {SUBJ} wants.",
+  "{NAME} can sneeze with {POSS} eyes open.",
+  "{NAME} counted to infinity — twice.",
+  "{NAME} can divide by zero.",
+  "When {NAME} enters a room, {SUBJ} {doesn't|don't} turn the lights on. {Subj} turns the dark off.",
+  "{NAME} once kicked a horse in the chin. Its descendants are now known as giraffes.",
+  "{NAME} {doesn't|don't} wear a watch. {Subj} decides what time it is.",
+  "{NAME} can hear sign language.",
+  "{NAME} {has|have} a grizzly bear carpet in {POSS} room. The bear isn't dead, it's just afraid to move.",
+  "{NAME} once threw a grenade and killed 50 people — then it exploded.",
+  "{NAME} can win a game of Connect Four in only three moves.",
+  "Death once had a near-{NAME} experience.",
+  "{NAME} can set ants on fire with a magnifying glass. At night.",
+  "When {NAME} {does|do} a pushup, {SUBJ} {isn't|aren't} lifting {REFL} up. {Subj}'s pushing the Earth down.",
+  "{NAME} once parallel parked a train.",
 ];
 
 const HASHTAGS = [

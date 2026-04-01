@@ -91,7 +91,7 @@ function drawMeme(
   ctx.font = "bold 13px sans-serif";
   ctx.fillStyle = "rgba(255,255,255,0.45)";
   ctx.textAlign = "right";
-  ctx.fillText("chucknorrisfacts.app", CANVAS_W - 18, CANVAS_H - 14);
+  ctx.fillText("overhype.me", CANVAS_W - 18, CANVAS_H - 14);
 }
 
 interface MemeBuilderProps {
@@ -147,7 +147,7 @@ export function MemeBuilder({ factId, factText, onClose }: MemeBuilderProps) {
   const handleDownload = () => {
     if (!canvasRef.current) return;
     const link = document.createElement("a");
-    link.download = `chuck-norris-fact-${factId}.png`;
+    link.download = `overhype-fact-${factId}.png`;
     link.href = canvasRef.current.toDataURL("image/png");
     link.click();
   };
