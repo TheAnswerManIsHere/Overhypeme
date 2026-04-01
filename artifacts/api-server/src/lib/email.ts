@@ -1,12 +1,12 @@
 /**
  * Email delivery via Resend.
- * Requires RESEND_API_KEY and SENDGRID_FROM_EMAIL environment variables.
+ * Requires RESEND_API_KEY. RESEND_FROM_EMAIL overrides the default sender.
  * When the key is absent, emails are logged to stdout (development fallback).
  */
 import { Resend } from "resend";
 
 function getFromAddress(): string {
-  return process.env.SENDGRID_FROM_EMAIL ?? "noreply@thecndb.com";
+  return process.env.RESEND_FROM_EMAIL ?? "noreply@overhype.me";
 }
 
 function isEnabled(): boolean {

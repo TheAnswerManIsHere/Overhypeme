@@ -60,12 +60,11 @@ Every logged-in user has a personal activity feed at `/activity`:
 - Stored in the `activity_feed` table; unread count shown in navbar
 - `POST /api/activity-feed/mark-read` marks all as read
 
-### Email Notifications (SendGrid)
-SendGrid is integrated via `artifacts/api-server/src/lib/email.ts`:
-- Requires `SENDGRID_API_KEY` and `SENDGRID_FROM_EMAIL` environment secrets
+### Email Notifications (Resend)
+Resend is integrated via `artifacts/api-server/src/lib/email.ts`:
+- Requires `RESEND_API_KEY` secret; `RESEND_FROM_EMAIL` env var overrides sender (default: `noreply@overhype.me`)
 - When key is not set, emails are logged to stdout (graceful dev fallback)
-- Emails sent: review approved, review rejected
-- Install `@sendgrid/mail` is already in api-server dependencies
+- Emails sent: email verification, email change confirmation, password reset, review approved/rejected
 
 ### Auth Strategy
 - **Dual auth**: Replit OIDC + local username/password login
