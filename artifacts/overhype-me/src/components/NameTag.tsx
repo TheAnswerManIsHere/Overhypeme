@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { Pencil, Loader2 } from "lucide-react";
-import { usePersonName } from "@/hooks/use-person-name";
+import { usePersonName, SHARE_LINK_ACTIVE } from "@/hooks/use-person-name";
 import { useAuth } from "@workspace/replit-auth-web";
 import { useLocation } from "wouter";
 import {
@@ -134,9 +134,13 @@ export function NameTag() {
   }
 
   // ── Sync logged-in user's display name into the persona context ─────────────
+  // Skip when the page was opened via a share link — in that case the
+  // recipient name from the URL should take priority over the viewer's own
+  // auth identity.
 
   useEffect(() => {
     if (!isAuthenticated || !user) return;
+    if (SHARE_LINK_ACTIVE) return;
     const userDisplayName = (user as { displayName?: string }).displayName;
     const userPronouns    = (user as { pronouns?: string }).pronouns;
     if (userDisplayName) setName(userDisplayName);
