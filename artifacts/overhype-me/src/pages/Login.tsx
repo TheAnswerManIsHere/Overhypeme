@@ -258,9 +258,6 @@ export default function Login() {
 
                 <div>
                   <label className="block text-sm font-display font-bold text-muted-foreground mb-1 uppercase tracking-wider">
-<<<<<<< HEAD
-                    Email <span className="text-destructive">*</span>
-=======
                     Pronouns{" "}
                     <span className="text-xs font-normal normal-case">(optional)</span>
                     {pronounsLoading && (
@@ -292,8 +289,7 @@ export default function Login() {
 
                 <div>
                   <label className="block text-sm font-display font-bold text-muted-foreground mb-1 uppercase tracking-wider">
-                    Email <span className="text-xs font-normal">(optional)</span>
->>>>>>> 47c04e0 (feat: Account Name & Pronouns Integration (Task #17))
+                    Email <span className="text-destructive">*</span>
                   </label>
                   <Input
                     type="email"
