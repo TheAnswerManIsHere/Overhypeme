@@ -328,14 +328,45 @@ export default function SubmitFact() {
           {/* ── STEP 1: WRITE ───────────────────────────────────────────────── */}
           {step === "write" && (
             <div className="space-y-6">
+              {/* CAPTCHA — must be completed before typing; hidden for premium members */}
+              {!isPremium && (
+                <div className={`pb-6 border-b-2 ${captchaToken ? "border-green-500/40" : "border-border"}`}>
+                  <div className="flex items-center gap-3 mb-4">
+                    <label className="block font-display text-xl uppercase text-foreground">Security Clearance</label>
+                    {captchaToken && (
+                      <span className="text-xs font-bold uppercase tracking-wider text-green-500 bg-green-500/10 border border-green-500/30 px-2 py-0.5 rounded-sm">
+                        ✓ Cleared
+                      </span>
+                    )}
+                  </div>
+                  {captchaToken ? (
+                    <p className="text-sm text-muted-foreground">Verification passed. You can now write your fact below.</p>
+                  ) : (
+                    <>
+                      <p className="text-sm text-muted-foreground mb-4">Complete the verification below to unlock the fact field.</p>
+                      <div className="bg-background p-4 rounded-sm border-2 border-border inline-block">
+                        <HCaptcha sitekey={HCAPTCHA_SITE_KEY} onVerify={setCaptchaToken} />
+                      </div>
+                    </>
+                  )}
+                </div>
+              )}
+
               <div>
                 <label className="block font-display text-xl uppercase text-foreground mb-2">The Fact</label>
-                <Textarea
-                  value={rawText}
-                  onChange={(e) => setRawText(e.target.value)}
-                  placeholder={'Write the fact using any name — e.g. "When John does pushups, he doesn\'t push himself up, he pushes the Earth down."'}
-                  className="text-lg min-h-[160px]"
-                />
+                <div className="relative">
+                  <Textarea
+                    value={rawText}
+                    onChange={(e) => setRawText(e.target.value)}
+                    placeholder={
+                      !captchaToken && !isPremium
+                        ? "Complete the Security Clearance above to unlock this field."
+                        : 'Write the fact using any name — e.g. "When John does pushups, he doesn\'t push himself up, he pushes the Earth down."'
+                    }
+                    className={`text-lg min-h-[160px] transition-opacity ${!captchaToken && !isPremium ? "opacity-40 cursor-not-allowed" : ""}`}
+                    disabled={!captchaToken && !isPremium}
+                  />
+                </div>
                 <div className="flex items-center justify-between mt-2">
                   <p className="text-sm text-muted-foreground">
                     Plain English is fine. AI will detect pronouns and verb forms automatically.
@@ -380,16 +411,6 @@ export default function SubmitFact() {
                   </div>
                 )}
               </div>
-
-              {/* CAPTCHA — hidden for premium members */}
-              {!isPremium && (
-                <div className="pt-4 border-t-2 border-border">
-                  <label className="block font-display text-xl uppercase text-foreground mb-4">Security Clearance</label>
-                  <div className="bg-background p-4 rounded-sm border-2 border-border inline-block">
-                    <HCaptcha sitekey={HCAPTCHA_SITE_KEY} onVerify={setCaptchaToken} />
-                  </div>
-                </div>
-              )}
 
               {tokenizeError && (
                 <div className="p-4 bg-destructive/10 border-l-4 border-destructive text-destructive flex items-center gap-3 rounded-r-sm">
