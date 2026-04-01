@@ -33,7 +33,7 @@ export default function Login() {
         mode === "login" ? "/api/auth/local-login" : "/api/auth/register";
       const body: Record<string, string> = { username, password };
       if (mode === "register") {
-        if (email) body.email = email;
+        body.email = email;
         body.firstName = firstName;
         body.lastName = lastName;
         body.displayName = displayName;
@@ -161,15 +161,17 @@ export default function Login() {
 
                 <div>
                   <label className="block text-sm font-display font-bold text-muted-foreground mb-1 uppercase tracking-wider">
-                    Email <span className="text-xs font-normal">(optional)</span>
+                    Email <span className="text-destructive">*</span>
                   </label>
                   <Input
                     type="email"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     placeholder="your@email.com"
+                    required
                     autoComplete="email"
                   />
+                  <p className="text-xs text-muted-foreground mt-1">You'll receive a verification link at this address.</p>
                 </div>
               </>
             )}

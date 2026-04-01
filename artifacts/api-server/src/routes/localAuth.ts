@@ -1,11 +1,11 @@
 import { Router, type IRouter, type Request, type Response } from "express";
 import bcrypt from "bcryptjs";
 import crypto from "crypto";
-import { db, usersTable, passwordResetTokensTable, sessionsTable } from "@workspace/db";
+import { db, usersTable, passwordResetTokensTable, sessionsTable, emailVerificationTokensTable } from "@workspace/db";
 import { eq, and } from "drizzle-orm";
 import { createSession, type SessionData } from "../lib/auth";
 import { isAdminById } from "./auth";
-import { sendEmail, buildPasswordResetEmail } from "../lib/email";
+import { sendEmail, buildPasswordResetEmail, buildEmailVerificationEmail } from "../lib/email";
 
 const router: IRouter = Router();
 
@@ -29,6 +29,37 @@ function checkForgotPasswordRateLimit(ip: string): boolean {
   if (entry.count >= FORGOT_PASSWORD_MAX) return false;
   entry.count += 1;
   return true;
+}
+
+// Rate limiter for resend-verification: max 3 requests per user per hour
+const resendVerificationAttempts = new Map<string, { count: number; resetAt: number }>();
+const RESEND_VERIFICATION_MAX = 3;
+const RESEND_VERIFICATION_WINDOW_MS = 60 * 60 * 1000;
+
+function checkResendVerificationRateLimit(userId: string): boolean {
+  const now = Date.now();
+  const entry = resendVerificationAttempts.get(userId);
+  if (!entry || now > entry.resetAt) {
+    resendVerificationAttempts.set(userId, { count: 1, resetAt: now + RESEND_VERIFICATION_WINDOW_MS });
+    return true;
+  }
+  if (entry.count >= RESEND_VERIFICATION_MAX) return false;
+  entry.count += 1;
+  return true;
+}
+
+async function sendVerificationEmail(userId: string, email: string): Promise<void> {
+  const rawToken = crypto.randomBytes(32).toString("hex");
+  const tokenHash = crypto.createHash("sha256").update(rawToken).digest("hex");
+  const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours
+
+  await db.insert(emailVerificationTokensTable).values({ userId, tokenHash, expiresAt });
+
+  const domain = process.env.REPLIT_DOMAINS?.split(",")[0] ?? "localhost";
+  const verifyUrl = `https://${domain}/verify-email?token=${rawToken}`;
+
+  const emailContent = buildEmailVerificationEmail(verifyUrl);
+  await sendEmail({ to: email, ...emailContent });
 }
 
 function setSessionCookie(res: Response, sid: string) {
@@ -92,16 +123,21 @@ router.post("/auth/register", async (req: Request, res: Response) => {
     return;
   }
 
-  if (email && typeof email === "string") {
-    const [existing] = await db
-      .select({ id: usersTable.id })
-      .from(usersTable)
-      .where(eq(usersTable.email, email))
-      .limit(1);
-    if (existing) {
-      res.status(409).json({ error: "Email is already in use" });
-      return;
-    }
+  if (!email || typeof email !== "string" || !email.includes("@")) {
+    res.status(400).json({ error: "A valid email address is required" });
+    return;
+  }
+
+  const emailNormalized = email.trim().toLowerCase();
+
+  const [existingEmail] = await db
+    .select({ id: usersTable.id })
+    .from(usersTable)
+    .where(eq(usersTable.email, emailNormalized))
+    .limit(1);
+  if (existingEmail) {
+    res.status(409).json({ error: "Email is already in use" });
+    return;
   }
 
   const [existing] = await db
@@ -122,7 +158,7 @@ router.post("/auth/register", async (req: Request, res: Response) => {
     .values({
       username,
       passwordHash,
-      email: email || null,
+      email: emailNormalized,
       firstName: firstNameTrimmed,
       lastName: lastNameTrimmed,
       displayName: displayNameTrimmed,
@@ -147,6 +183,11 @@ router.post("/auth/register", async (req: Request, res: Response) => {
 
   const sid = await createSession(sessionData);
   setSessionCookie(res, sid);
+
+  // Fire verification email asynchronously — don't block registration
+  sendVerificationEmail(user.id, emailNormalized).catch((err) => {
+    console.error("[auth] Failed to send verification email:", err);
+  });
 
   res.status(201).json({
     sid,
@@ -349,6 +390,115 @@ router.post("/auth/reset-password", async (req: Request, res: Response) => {
   }
 
   res.status(200).json({ message: "Password reset successfully. You can now log in with your new password." });
+});
+
+router.get("/auth/verify-email", async (req: Request, res: Response) => {
+  const { token } = req.query as { token?: string };
+
+  if (!token || typeof token !== "string") {
+    res.status(400).json({ error: "Invalid or missing token" });
+    return;
+  }
+
+  const tokenHash = crypto.createHash("sha256").update(token).digest("hex");
+
+  const [record] = await db
+    .select()
+    .from(emailVerificationTokensTable)
+    .where(eq(emailVerificationTokensTable.tokenHash, tokenHash))
+    .limit(1);
+
+  if (!record) {
+    res.status(400).json({ error: "This verification link is invalid or has expired." });
+    return;
+  }
+
+  if (record.usedAt !== null) {
+    res.status(200).json({ message: "Email already verified." });
+    return;
+  }
+
+  if (record.expiresAt < new Date()) {
+    res.status(400).json({ error: "This verification link has expired. Please request a new one." });
+    return;
+  }
+
+  await db
+    .update(usersTable)
+    .set({ emailVerifiedAt: new Date() })
+    .where(eq(usersTable.id, record.userId));
+
+  await db
+    .update(emailVerificationTokensTable)
+    .set({ usedAt: new Date() })
+    .where(eq(emailVerificationTokensTable.id, record.id));
+
+  res.status(200).json({ success: true, message: "Email verified successfully!" });
+});
+
+router.get("/auth/email-status", async (req: Request, res: Response) => {
+  if (!req.isAuthenticated()) {
+    res.status(401).json({ error: "Not authenticated" });
+    return;
+  }
+
+  const [user] = await db
+    .select({ email: usersTable.email, emailVerifiedAt: usersTable.emailVerifiedAt })
+    .from(usersTable)
+    .where(eq(usersTable.id, req.user.id))
+    .limit(1);
+
+  if (!user) {
+    res.status(404).json({ error: "User not found" });
+    return;
+  }
+
+  res.json({
+    email: user.email,
+    verified: user.emailVerifiedAt !== null,
+    verifiedAt: user.emailVerifiedAt,
+  });
+});
+
+router.post("/auth/resend-verification", async (req: Request, res: Response) => {
+  if (!req.isAuthenticated()) {
+    res.status(401).json({ error: "Not authenticated" });
+    return;
+  }
+
+  const userId = req.user.id;
+
+  if (!checkResendVerificationRateLimit(userId)) {
+    res.status(429).json({ error: "Too many requests. Please wait before requesting another verification email." });
+    return;
+  }
+
+  const [user] = await db
+    .select({ email: usersTable.email, emailVerifiedAt: usersTable.emailVerifiedAt })
+    .from(usersTable)
+    .where(eq(usersTable.id, userId))
+    .limit(1);
+
+  if (!user) {
+    res.status(404).json({ error: "User not found" });
+    return;
+  }
+
+  if (user.emailVerifiedAt !== null) {
+    res.status(200).json({ message: "Your email is already verified." });
+    return;
+  }
+
+  if (!user.email) {
+    res.status(400).json({ error: "No email address on file." });
+    return;
+  }
+
+  sendVerificationEmail(userId, user.email).catch((err) => {
+    console.error("[auth] Failed to resend verification email:", err);
+  });
+
+  res.status(200).json({ message: "Verification email sent. Please check your inbox." });
 });
 
 export default router;
