@@ -55,10 +55,15 @@ router.get("/admin/users", requireAdmin, async (req: Request, res: Response) => 
   const page = Math.max(1, parseInt(String(req.query["page"] ?? "1"), 10));
   const limit = Math.min(100, Math.max(1, parseInt(String(req.query["limit"] ?? "50"), 10)));
   const offset = (page - 1) * limit;
+  const search = String(req.query["search"] ?? "").trim();
+
+  const where = search
+    ? sql`(${usersTable.email} ilike ${`%${search}%`} OR ${usersTable.firstName} ilike ${`%${search}%`} OR ${usersTable.lastName} ilike ${`%${search}%`} OR ${usersTable.username} ilike ${`%${search}%`} OR ${usersTable.id}::text ilike ${`%${search}%`})`
+    : undefined;
 
   const [users, [{ total }]] = await Promise.all([
-    db.select().from(usersTable).orderBy(desc(usersTable.createdAt)).limit(limit).offset(offset),
-    db.select({ total: count() }).from(usersTable),
+    db.select().from(usersTable).where(where).orderBy(desc(usersTable.createdAt)).limit(limit).offset(offset),
+    db.select({ total: count() }).from(usersTable).where(where),
   ]);
 
   res.json({ users, total, page, limit });
@@ -66,16 +71,26 @@ router.get("/admin/users", requireAdmin, async (req: Request, res: Response) => 
 
 router.patch("/admin/users/:id", requireAdmin, async (req: Request, res: Response) => {
   const id = String(req.params["id"] ?? "");
-  const { isAdmin } = req.body as { isAdmin?: boolean };
+  const body = req.body as Record<string, unknown>;
 
-  if (typeof isAdmin !== "boolean") {
-    res.status(400).json({ error: "isAdmin must be a boolean" });
+  const updates: Record<string, unknown> = {};
+  if (typeof body["isAdmin"] === "boolean") updates.isAdmin = body["isAdmin"];
+  if (typeof body["captchaVerified"] === "boolean") updates.captchaVerified = body["captchaVerified"];
+  if (body["firstName"] !== undefined) updates.firstName = body["firstName"] ? String(body["firstName"]) : null;
+  if (body["lastName"] !== undefined) updates.lastName = body["lastName"] ? String(body["lastName"]) : null;
+  if (body["email"] !== undefined) updates.email = body["email"] ? String(body["email"]) : null;
+  if (body["username"] !== undefined) updates.username = body["username"] ? String(body["username"]) : null;
+  if (body["membershipTier"] !== undefined && ["free", "premium"].includes(String(body["membershipTier"])))
+    updates.membershipTier = String(body["membershipTier"]) as "free" | "premium";
+
+  if (Object.keys(updates).length === 0) {
+    res.status(400).json({ error: "No valid fields to update" });
     return;
   }
 
   const [updated] = await db
     .update(usersTable)
-    .set({ isAdmin })
+    .set(updates)
     .where(eq(usersTable.id, id))
     .returning();
 
