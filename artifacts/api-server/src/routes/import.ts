@@ -159,7 +159,7 @@ router.post("/admin/import/facts", async (req: Request, res: Response) => {
 
       const [inserted] = await tx
         .insert(factsTable)
-        .values({ text: data.text })
+        .values({ text: data.text, isActive: true })
         .returning({ id: factsTable.id });
 
       if (!inserted) {

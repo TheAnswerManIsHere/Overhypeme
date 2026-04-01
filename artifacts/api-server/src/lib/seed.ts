@@ -99,7 +99,7 @@ export async function seedIfEmpty(): Promise<void> {
   for (const item of SEED_FACTS) {
     const [fact] = await db
       .insert(factsTable)
-      .values({ text: item.text })
+      .values({ text: item.text, isActive: true })
       .returning({ id: factsTable.id });
 
     for (const tagName of item.hashtags) {

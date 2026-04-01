@@ -96,7 +96,7 @@ async function upsertUser(
 
   const [user] = await db
     .insert(usersTable)
-    .values(userData)
+    .values({ ...userData, isActive: true })
     .onConflictDoUpdate({
       target: usersTable.id,
       set: {

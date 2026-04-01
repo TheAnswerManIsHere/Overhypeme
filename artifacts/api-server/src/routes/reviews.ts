@@ -177,6 +177,7 @@ router.post("/admin/reviews/:id/approve", requireAdmin, async (req: Request, res
     submittedById: review.submittedById ?? undefined,
     hasPronouns: hasPronounsFlag,
     canonicalText,
+    isActive: true,
   }).returning();
 
   // Attach hashtags
