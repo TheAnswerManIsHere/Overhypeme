@@ -114,9 +114,17 @@ router.delete("/admin/users/:id", requireAdmin, async (req: Request, res: Respon
   const id = String(req.params["id"] ?? "");
   if (!id) { res.status(400).json({ error: "Invalid user id" }); return; }
 
-  const [updated] = await db.update(usersTable).set({ isActive: false }).where(and(eq(usersTable.id, id), eq(usersTable.isActive, true))).returning({ id: usersTable.id });
-  if (!updated) { res.status(404).json({ error: "User not found or already inactive" }); return; }
-  res.json({ success: true });
+  const hard = req.query["hard"] === "true";
+
+  if (hard) {
+    const [deleted] = await db.delete(usersTable).where(eq(usersTable.id, id)).returning({ id: usersTable.id });
+    if (!deleted) { res.status(404).json({ error: "User not found" }); return; }
+    res.json({ success: true, deleted: true });
+  } else {
+    const [updated] = await db.update(usersTable).set({ isActive: false }).where(and(eq(usersTable.id, id), eq(usersTable.isActive, true))).returning({ id: usersTable.id });
+    if (!updated) { res.status(404).json({ error: "User not found or already inactive" }); return; }
+    res.json({ success: true, deleted: false });
+  }
 });
 
 router.post("/admin/users", requireAdmin, async (req: Request, res: Response) => {

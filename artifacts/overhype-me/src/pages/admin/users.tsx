@@ -3,7 +3,7 @@ import { PronounEditor } from "@/components/ui/PronounEditor";
 import { AdminLayout } from "@/components/admin/AdminLayout";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
-import { Shield, ShieldOff, Search, Pencil, X, Save, AlertCircle, CheckCircle, Crown, Star, UserPlus, MailCheck } from "lucide-react";
+import { Shield, ShieldOff, Search, Pencil, X, Save, AlertCircle, CheckCircle, Crown, Star, UserPlus, MailCheck, Trash2, UserX } from "lucide-react";
 
 interface User {
   id: string;
@@ -98,6 +98,9 @@ export default function AdminUsers() {
   const [addForm, setAddForm] = useState<AddUserForm>(EMPTY_ADD_FORM);
   const [addError, setAddError] = useState<string | null>(null);
   const [addSaving, setAddSaving] = useState(false);
+
+  const [deleteModal, setDeleteModal] = useState<null | "choose" | "confirm-hard">(null);
+  const [deleting, setDeleting] = useState(false);
 
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
@@ -236,10 +239,112 @@ export default function AdminUsers() {
     }
   }
 
+  async function deleteUser(hard: boolean) {
+    if (!selectedUser) return;
+    setDeleting(true);
+    try {
+      const url = `/api/admin/users/${selectedUser.id}${hard ? "?hard=true" : ""}`;
+      const res = await fetch(url, { method: "DELETE", credentials: "include" });
+      const data = (await res.json()) as { success?: boolean; error?: string };
+      if (!res.ok) throw new Error(data.error ?? "Delete failed");
+      setUsers((prev) => prev.filter((u) => u.id !== selectedUser.id));
+      setTotal((t) => t - 1);
+      clearSelection();
+      setDeleteModal(null);
+    } catch (err) {
+      setSaveResult({ type: "error", message: err instanceof Error ? err.message : "Delete failed" });
+      setDeleteModal(null);
+    } finally {
+      setDeleting(false);
+    }
+  }
+
   const totalPages = Math.ceil(total / LIMIT);
 
   return (
     <AdminLayout title="Users">
+      {/* Delete Modal */}
+      {deleteModal && selectedUser && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+          <div className="bg-card border border-border rounded-lg w-full max-w-sm p-6 flex flex-col gap-5 shadow-xl">
+            {deleteModal === "choose" ? (
+              <>
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-full bg-destructive/10 flex items-center justify-center shrink-0">
+                    <Trash2 className="w-5 h-5 text-destructive" />
+                  </div>
+                  <div>
+                    <h2 className="font-display font-bold text-foreground uppercase tracking-wide">Delete User</h2>
+                    <p className="text-xs text-muted-foreground mt-0.5 truncate max-w-[220px]">
+                      {selectedUser.displayName ?? selectedUser.username ?? selectedUser.email ?? selectedUser.id}
+                    </p>
+                  </div>
+                </div>
+                <p className="text-sm text-muted-foreground">Choose how to delete this user:</p>
+                <div className="flex flex-col gap-2">
+                  <button
+                    onClick={() => deleteUser(false)}
+                    disabled={deleting}
+                    className="w-full flex items-center gap-3 px-4 py-3 rounded-sm border border-border hover:border-yellow-500/50 hover:bg-yellow-500/5 text-left transition-colors disabled:opacity-50"
+                  >
+                    <UserX className="w-5 h-5 text-yellow-500 shrink-0" />
+                    <div>
+                      <div className="text-sm font-medium text-foreground">Soft Delete</div>
+                      <div className="text-xs text-muted-foreground">Marks the user as inactive. Data is preserved.</div>
+                    </div>
+                  </button>
+                  <button
+                    onClick={() => setDeleteModal("confirm-hard")}
+                    disabled={deleting}
+                    className="w-full flex items-center gap-3 px-4 py-3 rounded-sm border border-border hover:border-destructive/50 hover:bg-destructive/5 text-left transition-colors disabled:opacity-50"
+                  >
+                    <Trash2 className="w-5 h-5 text-destructive shrink-0" />
+                    <div>
+                      <div className="text-sm font-medium text-foreground">Hard Delete</div>
+                      <div className="text-xs text-muted-foreground">Permanently removes the user row from the database.</div>
+                    </div>
+                  </button>
+                </div>
+                <Button variant="outline" onClick={() => setDeleteModal(null)} className="w-full">
+                  Cancel
+                </Button>
+              </>
+            ) : (
+              <>
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-full bg-destructive/10 flex items-center justify-center shrink-0">
+                    <Trash2 className="w-5 h-5 text-destructive" />
+                  </div>
+                  <div>
+                    <h2 className="font-display font-bold text-foreground uppercase tracking-wide">Confirm Hard Delete</h2>
+                    <p className="text-xs text-muted-foreground mt-0.5">This action cannot be undone.</p>
+                  </div>
+                </div>
+                <p className="text-sm text-muted-foreground">
+                  You are about to <span className="text-destructive font-semibold">permanently delete</span> all data for{" "}
+                  <span className="font-medium text-foreground">
+                    {selectedUser.displayName ?? selectedUser.username ?? selectedUser.email ?? selectedUser.id}
+                  </span>
+                  . This cannot be reversed.
+                </p>
+                <div className="flex gap-3">
+                  <Button
+                    onClick={() => deleteUser(true)}
+                    isLoading={deleting}
+                    className="flex-1 bg-destructive hover:bg-destructive/90 text-destructive-foreground border-destructive"
+                  >
+                    <Trash2 className="w-4 h-4" /> Delete Forever
+                  </Button>
+                  <Button variant="outline" onClick={() => setDeleteModal("choose")} className="flex-1" disabled={deleting}>
+                    Back
+                  </Button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Add User Modal */}
       {showAddModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
@@ -649,6 +754,16 @@ export default function AdminUsers() {
               </Button>
               <Button variant="outline" onClick={clearSelection} className="flex-1">
                 Cancel
+              </Button>
+            </div>
+
+            <div className="border-t border-border pt-3">
+              <Button
+                variant="outline"
+                onClick={() => setDeleteModal("choose")}
+                className="w-full text-destructive border-destructive/30 hover:bg-destructive/10 hover:border-destructive/60"
+              >
+                <Trash2 className="w-4 h-4" /> Delete User
               </Button>
             </div>
           </div>
