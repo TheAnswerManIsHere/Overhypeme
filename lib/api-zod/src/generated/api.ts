@@ -365,11 +365,14 @@ export const updateMyProfileBodyUsernameMin = 3;
 export const updateMyProfileBodyUsernameMax = 30;
 
 export const updateMyProfileBodyUsernameRegExp = new RegExp("^[a-zA-Z0-9_]+$");
-export const updateMyProfileBodyPronounsMax = 20;
+export const updateMyProfileBodyDisplayNameMax = 80;
+export const updateMyProfileBodyPronounsMax = 80;
 
 export const UpdateMyProfileBody = zod.object({
+  displayName: zod.string().min(1).max(updateMyProfileBodyDisplayNameMax).optional(),
   pronouns: zod.string().min(1).max(updateMyProfileBodyPronounsMax).optional(),
   email: zod.string().email().optional(),
+  profileImageUrl: zod.string().optional(),
 });
 
 export const UpdateMyProfileResponse = zod.object({
