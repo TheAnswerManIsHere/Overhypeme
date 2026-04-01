@@ -68,10 +68,10 @@ export function Navbar() {
 
           {/* Desktop Actions */}
           <div className="hidden md:flex items-center gap-4">
-            <Button variant="outline" size="sm" onClick={() => setLocation('/submit')} className="hidden lg:flex gap-2">
+            <Button variant="outline" size="sm" onClick={() => setLocation('/submit')} className="hidden lg:flex gap-2 whitespace-nowrap">
               <Plus className="w-4 h-4" /> SUBMIT FACT
             </Button>
-            <Button variant="ghost" size="sm" onClick={() => setLocation('/pricing')} className="hidden lg:flex gap-2 text-primary hover:text-primary">
+            <Button variant="ghost" size="sm" onClick={() => setLocation('/pricing')} className="hidden lg:flex gap-2 whitespace-nowrap text-primary hover:text-primary">
               <Star className="w-4 h-4" /> PREMIUM
             </Button>
             
@@ -121,7 +121,7 @@ export function Navbar() {
                 </Button>
               </div>
             ) : (
-              <Button variant="primary" size="sm" onClick={() => setLocation('/login')} className="gap-2 animate-pulse">
+              <Button variant="primary" size="sm" onClick={() => setLocation('/login')} className="gap-2 whitespace-nowrap animate-pulse">
                 <LogIn className="w-4 h-4" /> LOGIN TO VOTE
               </Button>
             )}
