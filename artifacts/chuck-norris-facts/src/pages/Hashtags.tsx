@@ -3,12 +3,13 @@ import { Layout } from "@/components/layout/Layout";
 import { FactCard } from "@/components/facts/FactCard";
 import { Button } from "@/components/ui/Button";
 import { Hash, ArrowLeft } from "lucide-react";
-import { useLocation } from "wouter";
+import { useLocation, useSearch } from "wouter";
 import { motion, AnimatePresence } from "framer-motion";
 
 export default function Hashtags() {
   const [, setLocation] = useLocation();
-  const params = new URLSearchParams(window.location.search);
+  const search = useSearch();
+  const params = new URLSearchParams(search);
   const selectedHashtag = params.get("tag") || null;
 
   const { data: hashtagData, isLoading: hashtagsLoading } = useListHashtags({ limit: 100 });
