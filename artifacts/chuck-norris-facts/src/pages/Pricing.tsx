@@ -115,7 +115,7 @@ export default function Pricing() {
             <h1 className="text-4xl md:text-5xl font-display uppercase tracking-widest text-foreground">Go Premium</h1>
           </div>
           <p className="text-xl text-muted-foreground max-w-xl mx-auto">
-            Unlock the full Chuck Norris experience. Because average is for other people.
+            Unlock the full experience. Because average is for other people.
           </p>
         </div>
 
@@ -213,7 +213,7 @@ export default function Pricing() {
           <Zap className="w-8 h-8 text-primary mx-auto mb-4" />
           <h3 className="text-xl font-display uppercase tracking-wide text-foreground mb-3">What is Fact of the Day?</h3>
           <p className="text-muted-foreground max-w-lg mx-auto">
-            Every morning, premium members receive a daily email featuring a randomly selected top-rated Chuck Norris fact. Start your day right.
+            Every morning, premium members receive a daily email featuring a randomly selected top-rated fact — personalized with your name. Start your day right.
           </p>
         </div>
       </div>

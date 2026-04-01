@@ -187,7 +187,8 @@ router.post("/facts", async (req: Request, res: Response) => {
     }
   }
 
-  const [fact] = await db.insert(factsTable).values({ text, submittedById: req.user.id }).returning();
+  const tokenizedText = text.replace(/\bchuck norris\b/gi, "{First_Name} {Last_Name}");
+  const [fact] = await db.insert(factsTable).values({ text: tokenizedText, submittedById: req.user.id }).returning();
 
   // Generate and persist the pgvector embedding in the background (non-blocking)
   void embedFactAsync(fact.id, fact.text);

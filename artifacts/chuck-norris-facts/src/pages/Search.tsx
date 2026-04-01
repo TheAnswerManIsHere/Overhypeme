@@ -80,7 +80,7 @@ export default function Search() {
             <div className="text-center py-20 bg-card border-2 border-dashed border-border rounded-sm">
               <SearchIcon className="w-12 h-12 text-muted-foreground mx-auto mb-4 opacity-50" />
               <h3 className="text-2xl font-display uppercase text-muted-foreground">No matches found</h3>
-              <p className="text-muted-foreground/80 mt-2">Chuck Norris already deleted these records.</p>
+              <p className="text-muted-foreground/80 mt-2">These records have been expunged from the database.</p>
             </div>
           )}
         </div>

@@ -7,11 +7,13 @@ import { Search } from "lucide-react";
 import { Link, useLocation } from "wouter";
 import { useState } from "react";
 import { motion } from "framer-motion";
+import { usePersonName } from "@/hooks/use-person-name";
 
 export default function Home() {
   const [searchQuery, setSearchQuery] = useState("");
   const [, setLocation] = useLocation();
   const { data, isLoading, error } = useListFacts({ sort: "top", limit: 10 });
+  const { fullName } = usePersonName();
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
@@ -40,7 +42,7 @@ export default function Home() {
             className="text-5xl md:text-7xl lg:text-8xl font-display font-bold uppercase tracking-tight text-white drop-shadow-[0_5px_5px_rgba(0,0,0,1)] mb-6"
           >
             The Universe Doesn't Expand. <br/>
-            <span className="text-primary block mt-2 transform -skew-x-6 drop-shadow-[0_0_30px_rgba(249,115,22,0.8)]">Chuck Norris Pushes It.</span>
+            <span className="text-primary block mt-2 transform -skew-x-6 drop-shadow-[0_0_30px_rgba(249,115,22,0.8)]">{fullName} Pushes It.</span>
           </motion.h1>
           
           <motion.p 
@@ -49,7 +51,7 @@ export default function Home() {
             transition={{ delay: 0.2 }}
             className="text-lg md:text-xl text-muted-foreground max-w-2xl mx-auto mb-10 font-medium"
           >
-            The ultimate database of Chuck Norris facts. Rated by survivors.
+            The ultimate personalized facts database. Set your name above — every fact becomes yours.
           </motion.p>
 
           <motion.form 
@@ -101,7 +103,7 @@ export default function Home() {
 
             {error && (
               <div className="bg-destructive/10 border-2 border-destructive p-8 text-center rounded-sm">
-                <p className="text-destructive font-bold text-xl uppercase">Error loading facts. Chuck Norris destroyed the server.</p>
+                <p className="text-destructive font-bold text-xl uppercase">Error loading facts. {fullName} destroyed the server.</p>
               </div>
             )}
 

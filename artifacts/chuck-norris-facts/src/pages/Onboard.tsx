@@ -73,11 +73,11 @@ export default function Onboard() {
         <div className="text-5xl">🥊</div>
         <div>
           <h1 className="text-2xl font-bold text-foreground mb-2">
-            Welcome to Chuck Norris Facts
+            Welcome to The Facts Database
           </h1>
           <p className="text-muted-foreground text-sm">
             Before you can submit facts or leave comments, we need to confirm
-            you're a human — not a robot trained by Chuck Norris.
+            you're a human — not a robot.
           </p>
         </div>
 
