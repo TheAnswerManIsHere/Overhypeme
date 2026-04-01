@@ -1,0 +1,17 @@
+This is an injection problem, and the answer falls cleanly out of thinking about where in the pipeline the tokens actually exist.
+Users should never see or interact with curly braces at all.
+Remember your pipeline: users submit plain English text. The AI tokenization step converts it to the template format. The user never writes {NAME} or {SUBJ}. They write “When Chuck does pushups, he doesn’t push himself up.” The curly brace syntax is an internal storage representation that exists only between the tokenizer and the renderer.
+So the question isn’t really about sanitization; it’s about separation of concerns. You have two completely different data flows:
+User input (plain text): Strip or escape curly braces on entry. This is a simple sanitization rule: input.replace(/[{}]/g, ''). There’s no legitimate reason for a user-submitted fact to contain curly braces. You’re not losing any real content by stripping them. Do this at form submission before anything else touches the text.
+Tokenized template (system-generated): This is produced by your AI tokenization step and confirmed by the user via the three-pronoun preview. The tokens are inserted by your system, not by the user. The user’s confirmation step is “do these three renderings look correct,” not “edit the raw template.”
+This means your schema is fine as a text field. The template string {NAME} {has|have} inside jokes with people {SUBJ}'s just met. is just text. It doesn’t need a complex relational structure because the tokens are a simple, finite, well-defined set that the renderer parses with a single regex pass. There’s no ambiguity in the grammar: {NAME}, {SUBJ}, {OBJ}, {POSS}, {POSS_PRO}, {REFL}, and {word|word} are the complete token vocabulary.
+Where a more complex schema would be warranted (and isn’t here):
+If your tokens were user-defined or variable in structure, you’d want a parsed AST or a structured representation. But your token set is closed. You’ll never add a seventh pronoun type. The conjugation pairs are always exactly two alternatives. A regex like /{NAME}|{SUBJ}|{OBJ}|{POSS_PRO}|{POSS}|{REFL}|{([^|}]+)\|([^}]+)}/g handles the entire rendering pass. Storing a parsed tree would add complexity to writes and reads for zero benefit.
+The one edge case worth handling: what if the AI tokenizer produces malformed output? A missing closing brace, a conjugation pair with three alternatives, a nested token. Validate the template after tokenization against your grammar before storing it. A simple check:
+Every { has a matching }. Every token is from the allowed set. Every conjugation pair has exactly two alternatives separated by one pipe. No nested braces.
+If validation fails, the fact goes to a manual review queue rather than being stored with a broken template. But this should be extremely rare given how constrained the tokenization prompt is.
+So the full defense is three layers:
+	1.	Strip curly braces from raw user input at form submission (prevents injection)
+	2.	AI tokenizer produces the template (users never write tokens)
+	3.	Validate template grammar before storage (catches malformed AI output)
+That’s the whole thing. No complex schema needed.​​​​​​​​​​​​​​​​
