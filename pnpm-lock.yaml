@@ -718,6 +718,9 @@ importers:
       '@workspace/db':
         specifier: workspace:*
         version: link:../lib/db
+      openai:
+        specifier: ^6.27.0
+        version: 6.33.0(ws@8.20.0)(zod@4.3.6)
     devDependencies:
       '@types/node':
         specifier: 'catalog:'
