@@ -1,13 +1,70 @@
-import { useState } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import { useLocation } from "wouter";
 import { Layout } from "@/components/layout/Layout";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
-import { LogIn, UserPlus, ArrowLeft } from "lucide-react";
+import { LogIn, UserPlus, ArrowLeft, Loader2 } from "lucide-react";
+
+const STORAGE_KEY_NAME    = "fact_db_name";
+const STORAGE_KEY_SUBJECT = "fact_db_pronoun_subject";
+const STORAGE_KEY_OBJECT  = "fact_db_pronoun_object";
+const LEGACY_KEY_PRONOUNS = "fact_db_pronouns";
+const DEFAULT_NAME        = "David Franklin";
+const DEFAULT_SUBJECT     = "he";
+const DEFAULT_OBJECT      = "him";
+
+function getStoredName(): string {
+  const v = localStorage.getItem(STORAGE_KEY_NAME);
+  return (!v || v === DEFAULT_NAME) ? "" : v;
+}
+
+function getStoredSubject(): string {
+  const v = localStorage.getItem(STORAGE_KEY_SUBJECT);
+  if (v && v !== DEFAULT_SUBJECT) return v;
+  const legacy = localStorage.getItem(LEGACY_KEY_PRONOUNS);
+  if (legacy) {
+    const part = legacy.split("/")[0];
+    if (part && part !== DEFAULT_SUBJECT) return part;
+  }
+  return "";
+}
+
+function getStoredObject(): string {
+  const v = localStorage.getItem(STORAGE_KEY_OBJECT);
+  if (v && v !== DEFAULT_OBJECT) return v;
+  const legacy = localStorage.getItem(LEGACY_KEY_PRONOUNS);
+  if (legacy) {
+    const part = legacy.split("/")[1];
+    if (part && part !== DEFAULT_OBJECT) return part;
+  }
+  return "";
+}
 
 function getResetSuccess(): boolean {
   const params = new URLSearchParams(window.location.search);
   return params.get("reset") === "success";
+}
+
+async function fetchSuggestedPronouns(
+  name: string,
+  signal: AbortSignal,
+): Promise<{ subject: string; object: string } | null> {
+  try {
+    const res = await fetch("/api/ai/suggest-pronouns", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name }),
+      signal,
+    });
+    if (!res.ok) return null;
+    const data = await res.json() as { subject?: string; object?: string };
+    if (typeof data.subject === "string" && typeof data.object === "string") {
+      return { subject: data.subject, object: data.object };
+    }
+    return null;
+  } catch {
+    return null;
+  }
 }
 
 export default function Login() {
@@ -16,12 +73,75 @@ export default function Login() {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [email, setEmail] = useState("");
-  const [firstName, setFirstName] = useState("");
-  const [lastName, setLastName] = useState("");
-  const [displayName, setDisplayName] = useState("");
+  const [displayName, setDisplayName] = useState(() => getStoredName());
+  const [pronounSubject, setPronounSubject] = useState(() => getStoredSubject());
+  const [pronounObject, setPronounObject] = useState(() => getStoredObject());
+  const [pronounsLoading, setPronounsLoading] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const resetSuccess = getResetSuccess();
+
+  const pronounsManuallyEditedRef = useRef(false);
+  const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
+      abortControllerRef.current?.abort();
+    };
+  }, []);
+
+  const pronounSubjectRef = useRef(pronounSubject);
+  const pronounObjectRef  = useRef(pronounObject);
+  useEffect(() => { pronounSubjectRef.current = pronounSubject; }, [pronounSubject]);
+  useEffect(() => { pronounObjectRef.current  = pronounObject;  }, [pronounObject]);
+
+  const triggerPronounSuggestion = useCallback((nameValue: string) => {
+    if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
+
+    if (!nameValue.trim()) {
+      abortControllerRef.current?.abort();
+      abortControllerRef.current = null;
+      setPronounsLoading(false);
+      return;
+    }
+
+    debounceTimerRef.current = setTimeout(async () => {
+      if (pronounsManuallyEditedRef.current) return;
+      if (pronounSubjectRef.current || pronounObjectRef.current) return;
+
+      abortControllerRef.current?.abort();
+      const controller = new AbortController();
+      abortControllerRef.current = controller;
+
+      setPronounsLoading(true);
+      const suggestion = await fetchSuggestedPronouns(nameValue.trim(), controller.signal);
+      if (controller.signal.aborted) return;
+      setPronounsLoading(false);
+
+      if (suggestion && !pronounsManuallyEditedRef.current) {
+        setPronounSubject(suggestion.subject);
+        setPronounObject(suggestion.object);
+      }
+    }, 400);
+  }, []);
+
+  function handleDisplayNameChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const value = e.target.value;
+    setDisplayName(value);
+    triggerPronounSuggestion(value);
+  }
+
+  function handleSubjectChange(e: React.ChangeEvent<HTMLInputElement>) {
+    pronounsManuallyEditedRef.current = true;
+    setPronounSubject(e.target.value);
+  }
+
+  function handleObjectChange(e: React.ChangeEvent<HTMLInputElement>) {
+    pronounsManuallyEditedRef.current = true;
+    setPronounObject(e.target.value);
+  }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -33,10 +153,15 @@ export default function Login() {
         mode === "login" ? "/api/auth/local-login" : "/api/auth/register";
       const body: Record<string, string> = { username, password };
       if (mode === "register") {
-        body.email = email;
-        body.firstName = firstName;
-        body.lastName = lastName;
+        if (email) body.email = email;
         body.displayName = displayName;
+        // Send pronouns if any pronoun field is non-empty at submit time (includes AI suggestions
+        // the user saw and did not clear, as well as manually typed or localStorage-prefilled values)
+        if (pronounSubject.trim() || pronounObject.trim()) {
+          const subject = pronounSubject.trim() || DEFAULT_SUBJECT;
+          const object  = pronounObject.trim()  || DEFAULT_OBJECT;
+          body.pronouns = `${subject}/${object}`;
+        }
       }
 
       const res = await fetch(endpoint, {
@@ -115,35 +240,6 @@ export default function Login() {
 
             {mode === "register" && (
               <>
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-sm font-display font-bold text-muted-foreground mb-1 uppercase tracking-wider">
-                      First Name <span className="text-destructive">*</span>
-                    </label>
-                    <Input
-                      type="text"
-                      value={firstName}
-                      onChange={(e) => setFirstName(e.target.value)}
-                      placeholder="First name"
-                      required
-                      autoComplete="given-name"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-display font-bold text-muted-foreground mb-1 uppercase tracking-wider">
-                      Last Name <span className="text-destructive">*</span>
-                    </label>
-                    <Input
-                      type="text"
-                      value={lastName}
-                      onChange={(e) => setLastName(e.target.value)}
-                      placeholder="Last name"
-                      required
-                      autoComplete="family-name"
-                    />
-                  </div>
-                </div>
-
                 <div>
                   <label className="block text-sm font-display font-bold text-muted-foreground mb-1 uppercase tracking-wider">
                     Display Name <span className="text-destructive">*</span>
@@ -151,9 +247,10 @@ export default function Login() {
                   <Input
                     type="text"
                     value={displayName}
-                    onChange={(e) => setDisplayName(e.target.value)}
+                    onChange={handleDisplayNameChange}
                     placeholder="How facts will address you (e.g. Alex Smith)"
                     required
+                    maxLength={100}
                     autoComplete="name"
                   />
                   <p className="text-xs text-muted-foreground mt-1">This is the name inserted into personalized facts.</p>
@@ -161,7 +258,42 @@ export default function Login() {
 
                 <div>
                   <label className="block text-sm font-display font-bold text-muted-foreground mb-1 uppercase tracking-wider">
+<<<<<<< HEAD
                     Email <span className="text-destructive">*</span>
+=======
+                    Pronouns{" "}
+                    <span className="text-xs font-normal normal-case">(optional)</span>
+                    {pronounsLoading && (
+                      <Loader2 className="inline w-3 h-3 ml-1 animate-spin text-muted-foreground" />
+                    )}
+                  </label>
+                  <div className="flex items-center gap-2">
+                    <Input
+                      type="text"
+                      value={pronounSubject}
+                      onChange={handleSubjectChange}
+                      placeholder="he / she / they"
+                      maxLength={10}
+                      title="Subject pronoun"
+                      className={`flex-1 ${pronounsLoading ? "opacity-50" : ""}`}
+                    />
+                    <span className="text-muted-foreground font-bold shrink-0">/</span>
+                    <Input
+                      type="text"
+                      value={pronounObject}
+                      onChange={handleObjectChange}
+                      placeholder="him / her / them"
+                      maxLength={10}
+                      title="Object pronoun"
+                      className={`flex-1 ${pronounsLoading ? "opacity-50" : ""}`}
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-display font-bold text-muted-foreground mb-1 uppercase tracking-wider">
+                    Email <span className="text-xs font-normal">(optional)</span>
+>>>>>>> 47c04e0 (feat: Account Name & Pronouns Integration (Task #17))
                   </label>
                   <Input
                     type="email"

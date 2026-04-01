@@ -969,6 +969,9 @@ components:
         isRealAdmin:
           type: boolean
           nullable: true
+        pronouns:
+          type: string
+          nullable: true
 
     AuthUserEnvelope:
       type: object

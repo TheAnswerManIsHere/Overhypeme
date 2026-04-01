@@ -16,4 +16,5 @@ export interface AuthUser {
   membershipTier?: AuthUserMembershipTier;
   isAdmin?: boolean | null;
   isRealAdmin?: boolean | null;
+  pronouns?: string | null;
 }
