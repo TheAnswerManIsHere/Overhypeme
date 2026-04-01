@@ -127,6 +127,7 @@ router.post("/auth/register", async (req: Request, res: Response) => {
   setSessionCookie(res, sid);
 
   res.status(201).json({
+    sid,
     user: {
       id: user.id,
       email: user.email,
@@ -189,6 +190,7 @@ router.post("/auth/local-login", async (req: Request, res: Response) => {
   setSessionCookie(res, sid);
 
   res.json({
+    sid,
     user: {
       id: user.id,
       email: user.email,
