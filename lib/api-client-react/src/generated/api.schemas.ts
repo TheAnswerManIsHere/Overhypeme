@@ -76,7 +76,6 @@ export type AffiliateClickRequestDestination =
 
 export const AffiliateClickRequestDestination = {
   zazzle: "zazzle",
-  cafepress: "cafepress",
 } as const;
 
 export interface AffiliateClickRequest {
@@ -104,7 +103,6 @@ export type AffiliateClickRowDestination =
 
 export const AffiliateClickRowDestination = {
   zazzle: "zazzle",
-  cafepress: "cafepress",
 } as const;
 
 export interface AffiliateClickRow {
@@ -120,7 +118,6 @@ export type AffiliateDestinationTotalDestination =
 
 export const AffiliateDestinationTotalDestination = {
   zazzle: "zazzle",
-  cafepress: "cafepress",
 } as const;
 
 export interface AffiliateDestinationTotal {

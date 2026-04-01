@@ -8,15 +8,11 @@ const router: IRouter = Router();
 
 // Env-configured affiliate IDs — fall back to demo/test values if unset
 const ZAZZLE_AFFILIATE_ID = process.env.ZAZZLE_AFFILIATE_ID ?? "238527546099265388";
-const CAFEPRESS_AFFILIATE_ID = process.env.CAFEPRESS_AFFILIATE_ID ?? "overhypeme";
 
 // Warn in production if affiliate IDs are not configured
 if (process.env.NODE_ENV === "production") {
   if (!process.env.ZAZZLE_AFFILIATE_ID) {
     console.warn("[affiliate] ZAZZLE_AFFILIATE_ID is not set — using demo affiliate ID. Set this env var to receive real commissions.");
-  }
-  if (!process.env.CAFEPRESS_AFFILIATE_ID) {
-    console.warn("[affiliate] CAFEPRESS_AFFILIATE_ID is not set — using demo affiliate ID. Set this env var to receive real commissions.");
   }
 }
 
@@ -36,14 +32,6 @@ function buildZazzleUrl(text: string, imageUrl?: string): string {
   return `${base}?${params}`;
 }
 
-function buildCafePressUrl(text: string): string {
-  const params = new URLSearchParams({
-    quote: text.slice(0, 100),
-    ref: CAFEPRESS_AFFILIATE_ID,
-  });
-  return `https://www.cafepress.com/cp/design/shirt?${params}`;
-}
-
 // POST /affiliate/click — log a click and return the destination URL
 router.post("/affiliate/click", async (req: Request, res: Response) => {
   const {
@@ -55,7 +43,7 @@ router.post("/affiliate/click", async (req: Request, res: Response) => {
   } = req.body as {
     sourceType?: "fact" | "meme";
     sourceId?: string | number;
-    destination?: "zazzle" | "cafepress";
+    destination?: "zazzle";
     text?: string;
     imageUrl?: string;
   };
@@ -86,8 +74,8 @@ router.post("/affiliate/click", async (req: Request, res: Response) => {
     return;
   }
 
-  if (!["zazzle", "cafepress"].includes(destination)) {
-    res.status(400).json({ error: "destination must be 'zazzle' or 'cafepress'" });
+  if (destination !== "zazzle") {
+    res.status(400).json({ error: "destination must be 'zazzle'" });
     return;
   }
 
@@ -119,10 +107,7 @@ router.post("/affiliate/click", async (req: Request, res: Response) => {
     // Non-fatal — still redirect
   }
 
-  const url =
-    destination === "zazzle"
-      ? buildZazzleUrl(text, imageUrl)
-      : buildCafePressUrl(text);
+  const url = buildZazzleUrl(text, imageUrl);
 
   res.json({ url });
 });

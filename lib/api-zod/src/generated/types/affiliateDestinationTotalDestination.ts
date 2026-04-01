@@ -11,5 +11,4 @@ export type AffiliateDestinationTotalDestination =
 
 export const AffiliateDestinationTotalDestination = {
   zazzle: "zazzle",
-  cafepress: "cafepress",
 } as const;

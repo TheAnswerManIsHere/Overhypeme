@@ -1,7 +1,7 @@
 import { pgTable, serial, varchar, timestamp, pgEnum } from "drizzle-orm/pg-core";
 import { usersTable } from "./auth";
 
-export const affiliateDestinationEnum = pgEnum("affiliate_destination", ["zazzle", "cafepress"]);
+export const affiliateDestinationEnum = pgEnum("affiliate_destination", ["zazzle"]);
 export const affiliateSourceTypeEnum = pgEnum("affiliate_source_type", ["fact", "meme"]);
 
 export const affiliateClicksTable = pgTable("affiliate_clicks", {

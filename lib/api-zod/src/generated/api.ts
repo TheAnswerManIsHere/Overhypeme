@@ -588,7 +588,7 @@ export const ListFactMemesResponse = zod.object({
 export const LogAffiliateClickBody = zod.object({
   sourceType: zod.enum(["fact", "meme"]),
   sourceId: zod.string(),
-  destination: zod.enum(["zazzle", "cafepress"]),
+  destination: zod.enum(["zazzle"]),
   text: zod.string(),
   imageUrl: zod.string().nullish(),
 });
@@ -616,14 +616,14 @@ export const GetAffiliateStatsResponse = zod.object({
     zod.object({
       sourceType: zod.enum(["fact", "meme"]),
       sourceId: zod.string(),
-      destination: zod.enum(["zazzle", "cafepress"]),
+      destination: zod.enum(["zazzle"]),
       clicks: zod.number(),
       lastClicked: zod.coerce.date(),
     }),
   ),
   totals: zod.array(
     zod.object({
-      destination: zod.enum(["zazzle", "cafepress"]),
+      destination: zod.enum(["zazzle"]),
       total: zod.number(),
     }),
   ),

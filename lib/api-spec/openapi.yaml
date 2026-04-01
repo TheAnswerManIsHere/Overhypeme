@@ -1078,7 +1078,7 @@ components:
           type: string
         destination:
           type: string
-          enum: [zazzle, cafepress]
+          enum: [zazzle]
         text:
           type: string
         imageUrl:
@@ -1104,7 +1104,7 @@ components:
           type: string
         destination:
           type: string
-          enum: [zazzle, cafepress]
+          enum: [zazzle]
         clicks:
           type: integer
         lastClicked:
@@ -1117,7 +1117,7 @@ components:
       properties:
         destination:
           type: string
-          enum: [zazzle, cafepress]
+          enum: [zazzle]
         total:
           type: integer
 

@@ -6,13 +6,13 @@ import { ExternalLink, TrendingUp, ShoppingBag } from "lucide-react";
 interface ClickRow {
   sourceType: "fact" | "meme";
   sourceId: string;
-  destination: "zazzle" | "cafepress";
+  destination: "zazzle";
   clicks: number;
   lastClicked: string;
 }
 
 interface DestTotal {
-  destination: "zazzle" | "cafepress";
+  destination: "zazzle";
   total: number;
 }
 
@@ -49,8 +49,7 @@ export default function AdminAffiliate() {
 
   const totals = data?.totals ?? [];
   const zazzleTotal = totals.find((t) => t.destination === "zazzle")?.total ?? 0;
-  const cafePressTotal = totals.find((t) => t.destination === "cafepress")?.total ?? 0;
-  const grandTotal = zazzleTotal + cafePressTotal;
+  const grandTotal = zazzleTotal;
 
   return (
     <AdminLayout title="Affiliate Click-Throughs">
@@ -62,11 +61,10 @@ export default function AdminAffiliate() {
       )}
 
       {/* Summary cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-8">
         {[
           { label: "Total Clicks", value: grandTotal, icon: TrendingUp, color: "text-primary" },
           { label: "Zazzle", value: zazzleTotal, icon: ShoppingBag, color: "text-orange-400" },
-          { label: "CafePress", value: cafePressTotal, icon: ShoppingBag, color: "text-blue-400" },
         ].map(({ label, value, icon: Icon, color }) => (
           <div key={label} className="bg-card border border-border rounded-lg p-5 flex items-center gap-4">
             <div className={`p-3 rounded-lg bg-muted ${color}`}>
@@ -147,7 +145,7 @@ export default function AdminAffiliate() {
                 </td>
                 <td className="px-4 py-3 font-mono text-foreground">{row.sourceId}</td>
                 <td className="px-4 py-3">
-                  <span className={`text-xs uppercase font-medium ${row.destination === "zazzle" ? "text-orange-400" : "text-blue-400"}`}>
+                  <span className="text-xs uppercase font-medium text-orange-400">
                     {row.destination}
                   </span>
                 </td>

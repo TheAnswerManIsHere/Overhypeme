@@ -11,5 +11,4 @@ export type AffiliateClickRequestDestination =
 
 export const AffiliateClickRequestDestination = {
   zazzle: "zazzle",
-  cafepress: "cafepress",
 } as const;
