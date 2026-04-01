@@ -500,6 +500,22 @@ router.delete("/admin/comments/:id", requireAdmin, async (req: Request, res: Res
   res.json({ success: true });
 });
 
+// POST /admin/users/:id/verify-email — manually mark a user's email as verified
+router.post("/admin/users/:id/verify-email", requireAdmin, async (req: Request, res: Response) => {
+  const id = String(req.params["id"] ?? "");
+  if (!id) { res.status(400).json({ error: "Invalid user id" }); return; }
+
+  const [updated] = await db
+    .update(usersTable)
+    .set({ emailVerifiedAt: new Date() })
+    .where(and(eq(usersTable.id, id), eq(usersTable.isActive, true)))
+    .returning();
+
+  if (!updated) { res.status(404).json({ error: "User not found" }); return; }
+
+  res.json({ success: true, user: updated });
+});
+
 // POST /admin/facts/backfill-embeddings
 // One-shot endpoint to generate pgvector embeddings for all facts that don't have one yet.
 // Accepts either an authenticated admin session OR the ADMIN_API_KEY header.

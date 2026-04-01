@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { AdminLayout } from "@/components/admin/AdminLayout";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
-import { Shield, ShieldOff, Search, Pencil, X, Save, AlertCircle, CheckCircle, Crown, Star, UserPlus } from "lucide-react";
+import { Shield, ShieldOff, Search, Pencil, X, Save, AlertCircle, CheckCircle, Crown, Star, UserPlus, MailCheck } from "lucide-react";
 
 interface User {
   id: string;
@@ -17,6 +17,7 @@ interface User {
   membershipTier: "free" | "premium";
   pronouns: "he/him" | "she/her" | "they/them" | null;
   stripeCustomerId: string | null;
+  emailVerifiedAt: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -90,6 +91,7 @@ export default function AdminUsers() {
   const [draft, setDraft] = useState<EditDraft | null>(null);
   const [saving, setSaving] = useState(false);
   const [saveResult, setSaveResult] = useState<{ type: "success" | "error"; message: string } | null>(null);
+  const [verifyingEmail, setVerifyingEmail] = useState(false);
 
   const [showAddModal, setShowAddModal] = useState(false);
   const [addForm, setAddForm] = useState<AddUserForm>(EMPTY_ADD_FORM);
@@ -138,6 +140,26 @@ export default function AdminUsers() {
     setSelectedUser(null);
     setDraft(null);
     setSaveResult(null);
+  }
+
+  async function verifyEmail() {
+    if (!selectedUser) return;
+    setVerifyingEmail(true);
+    try {
+      const res = await fetch(`/api/admin/users/${selectedUser.id}/verify-email`, {
+        method: "POST",
+        credentials: "include",
+      });
+      const data = (await res.json()) as { success?: boolean; user?: User; error?: string };
+      if (!res.ok) throw new Error(data.error ?? "Verification failed");
+      const updated = data.user!;
+      setUsers((prev) => prev.map((u) => (u.id === updated.id ? updated : u)));
+      setSelectedUser(updated);
+    } catch (err) {
+      setSaveResult({ type: "error", message: err instanceof Error ? err.message : "Verification failed" });
+    } finally {
+      setVerifyingEmail(false);
+    }
   }
 
   async function saveUser() {
@@ -594,6 +616,26 @@ export default function AdminUsers() {
                   {draft.captchaVerified ? "Verified" : "Unverified"}
                 </button>
               </div>
+            </div>
+
+            {/* Email verification */}
+            <div>
+              <FieldLabel>Email Verified</FieldLabel>
+              {selectedUser.emailVerifiedAt ? (
+                <div className="w-full h-9 flex items-center justify-center gap-2 rounded-sm border border-green-500 bg-green-500/10 text-green-500 text-sm font-medium">
+                  <MailCheck className="w-4 h-4" />
+                  Verified {new Date(selectedUser.emailVerifiedAt).toLocaleDateString()}
+                </div>
+              ) : (
+                <button
+                  onClick={verifyEmail}
+                  disabled={verifyingEmail}
+                  className="w-full h-9 flex items-center justify-center gap-2 rounded-sm border border-border text-muted-foreground hover:border-green-500/40 hover:text-green-500 text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <MailCheck className="w-4 h-4" />
+                  {verifyingEmail ? "Verifying…" : "Mark as Verified"}
+                </button>
+              )}
             </div>
 
             {/* Save result */}
