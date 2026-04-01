@@ -60,12 +60,13 @@ export function NameTag() {
   const [draftPronouns, setDraftPronouns] = useState(pronouns);
   const [aiLoading,     setAiLoading]     = useState(false);
 
-  const userChosenRef      = useRef(false);
-  const draftPronounsRef   = useRef(draftPronouns);
-  const debounceTimerRef   = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const abortControllerRef = useRef<AbortController | null>(null);
-  const nameRef            = useRef<HTMLInputElement>(null);
-  const panelRef           = useRef<HTMLDivElement>(null);
+  const userChosenRef       = useRef(false);   // in-session: abort ongoing suggestion if user clicks
+  const hasOverriddenRef    = useRef(false);   // persistent: user overrode AI; only cleared on name change
+  const draftPronounsRef    = useRef(draftPronouns);
+  const debounceTimerRef    = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const abortControllerRef  = useRef<AbortController | null>(null);
+  const nameRef             = useRef<HTMLInputElement>(null);
+  const panelRef            = useRef<HTMLDivElement>(null);
 
   draftPronounsRef.current = draftPronouns;
 
@@ -111,6 +112,7 @@ export function NameTag() {
     setDraftName(name);
     setDraftPronouns(pronouns);
     userChosenRef.current = false;
+    // hasOverriddenRef intentionally NOT reset here — persists across opens
     setEditing(true);
   }
 
@@ -150,26 +152,32 @@ export function NameTag() {
   }, []);
 
   // On panel open: focus the input and fire AI suggestion for the existing name
+  // (skipped if user has already overridden AI for this name)
   useEffect(() => {
     if (!editing) return;
     nameRef.current?.focus();
-    triggerSuggestion(draftName);
+    if (!hasOverriddenRef.current) {
+      triggerSuggestion(draftName);
+    }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editing]);
 
   // ── Event handlers ──────────────────────────────────────────────────────────
 
-  function handleNameChange(e: React.ChangeEvent<HTMLInputElement>) {
-    setDraftName(e.target.value);
-    triggerSuggestion(e.target.value);
-  }
-
   function handlePronounsChange(val: string) {
-    userChosenRef.current = true;       // user explicitly chose — don't override
+    userChosenRef.current    = true;  // abort any in-flight suggestion this session
+    hasOverriddenRef.current = true;  // persist: don't re-suggest on next open
     if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
     abortControllerRef.current?.abort();
     setAiLoading(false);
     setDraftPronouns(val);
+  }
+
+  function handleNameChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const val = e.target.value;
+    setDraftName(val);
+    hasOverriddenRef.current = false; // name changed → lift override so AI can suggest again
+    triggerSuggestion(val);
   }
 
   function onNameKeyDown(e: React.KeyboardEvent) {
