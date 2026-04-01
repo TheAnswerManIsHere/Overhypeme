@@ -1,10 +1,11 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { Switch, Route, Router as WouterRouter, useLocation } from "wouter";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { trackPageView } from "@/lib/analytics";
 import { PersonNameProvider, SHARE_LINK_ACTIVE } from "@/hooks/use-person-name";
+import { useAuth } from "@workspace/replit-auth-web";
 
 // Pages
 import Home from "@/pages/Home";
@@ -65,6 +66,27 @@ function ShareParamReader() {
   return null;
 }
 
+/**
+ * When a share link is opened by a logged-in user, silently log them out
+ * so they experience the page as the recipient (unauthenticated visitor).
+ * Uses a ref guard so logout is only triggered once per page load.
+ */
+function ShareLinkAutoLogout() {
+  const { isAuthenticated, isLoading, logout } = useAuth();
+  const firedRef = useRef(false);
+
+  useEffect(() => {
+    if (!SHARE_LINK_ACTIVE) return;
+    if (isLoading) return;
+    if (!isAuthenticated) return;
+    if (firedRef.current) return;
+    firedRef.current = true;
+    logout();
+  }, [isAuthenticated, isLoading, logout]);
+
+  return null;
+}
+
 function GAPageTracker() {
   const [location] = useLocation();
   useEffect(() => {
@@ -78,6 +100,7 @@ function Router() {
     <>
       <GAPageTracker />
       <ShareParamReader />
+      <ShareLinkAutoLogout />
       <Switch>
         <Route path="/" component={Home} />
         <Route path="/search" component={Search} />
