@@ -13,13 +13,109 @@ import { useAppMutations } from "@/hooks/use-mutations";
 import { MemeBuilder } from "@/components/MemeBuilder";
 import { MerchButtons } from "@/components/MerchButtons";
 import { AdSlot } from "@/components/AdSlot";
-import { ThumbsUp, ThumbsDown, User, Link as LinkIcon, Youtube, Instagram, AlertCircle, Trash2, ImageIcon, GitBranch } from "lucide-react";
+import { ThumbsUp, ThumbsDown, User, Link as LinkIcon, Youtube, Instagram, AlertCircle, Trash2, ImageIcon, GitBranch, ArrowLeft } from "lucide-react";
 import { cn } from "@/components/ui/Button";
 import { usePersonName } from "@/hooks/use-person-name";
 import { renderFact } from "@/lib/render-fact";
 
 const HCAPTCHA_SITE_KEY =
   import.meta.env.VITE_HCAPTCHA_SITE_KEY || "10000000-ffff-ffff-ffff-000000000001";
+
+function VariantFactCard({ id, useCase }: { id: number; useCase: string | null }) {
+  const { isAuthenticated } = useAuth();
+  const [, setLocation] = useLocation();
+  const { rateFact } = useAppMutations();
+  const { name, pronouns } = usePersonName();
+  const [showMemeBuilder, setShowMemeBuilder] = useState(false);
+
+  const { data: fact, isLoading } = useGetFact(id, {
+    query: { queryKey: getGetFactQueryKey(id), enabled: true }
+  });
+
+  const handleRate = (type: "up" | "down") => {
+    if (!isAuthenticated) return setLocation("/login");
+    const newRating = fact?.userRating === type ? "none" : type;
+    rateFact.mutate({ factId: id, data: { rating: newRating } });
+  };
+
+  if (isLoading || !fact) {
+    return (
+      <div className="bg-card border-l-4 border-primary/30 p-6 animate-pulse rounded-sm">
+        <div className="h-6 bg-muted rounded w-3/4 mb-4" />
+        <div className="h-4 bg-muted rounded w-1/2" />
+      </div>
+    );
+  }
+
+  const renderedText = renderFact(fact.text, name, pronouns);
+
+  return (
+    <div className="bg-card border-l-4 border-primary/60 p-6 md:p-8 shadow-lg relative">
+      {showMemeBuilder && (
+        <MemeBuilder factId={id} factText={renderedText} onClose={() => setShowMemeBuilder(false)} />
+      )}
+
+      {useCase && (
+        <span className="inline-block mb-4 text-xs font-bold font-display tracking-widest uppercase text-primary bg-primary/10 border border-primary/30 px-2 py-0.5 rounded-sm">
+          {useCase.replace(/_/g, " ")}
+        </span>
+      )}
+
+      <h2 className="text-2xl md:text-3xl font-bold leading-tight text-foreground mb-6">
+        "{renderedText}"
+      </h2>
+
+      {fact.hashtags.length > 0 && (
+        <div className="flex flex-wrap gap-2 mb-6">
+          {fact.hashtags.map(tag => (
+            <span key={tag} className="text-xs font-bold font-display tracking-wider text-muted-foreground bg-secondary border border-border px-2 py-0.5 rounded-sm uppercase">
+              #{tag}
+            </span>
+          ))}
+        </div>
+      )}
+
+      <div className="flex items-center gap-3 flex-wrap border-t-2 border-border pt-5">
+        <Button
+          variant="secondary"
+          size="sm"
+          onClick={() => handleRate("up")}
+          className={cn("gap-2", fact.userRating === "up" && "bg-primary/20 text-primary border-primary")}
+          disabled={rateFact.isPending}
+        >
+          <ThumbsUp className={cn("w-4 h-4", fact.userRating === "up" && "fill-current")} />
+          <span>{fact.upvotes}</span>
+        </Button>
+        <Button
+          variant="secondary"
+          size="sm"
+          onClick={() => handleRate("down")}
+          className={cn("gap-2", fact.userRating === "down" && "bg-destructive/20 text-destructive border-destructive")}
+          disabled={rateFact.isPending}
+        >
+          <ThumbsDown className={cn("w-4 h-4", fact.userRating === "down" && "fill-current")} />
+          <span>{fact.downvotes}</span>
+        </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => setShowMemeBuilder(true)}
+          className="gap-2 border-dashed hover:border-primary hover:text-primary"
+        >
+          <ImageIcon className="w-4 h-4" />
+          MAKE MEME
+        </Button>
+        <Link href={`/facts/${id}`} className="ml-auto text-xs text-muted-foreground hover:text-primary transition-colors font-medium underline underline-offset-4">
+          View discussion →
+        </Link>
+      </div>
+
+      <div className="mt-4 pt-4 border-t border-border/50">
+        <MerchButtons sourceType="fact" sourceId={id} text={renderedText} />
+      </div>
+    </div>
+  );
+}
 
 export default function FactDetail() {
   const [, params] = useRoute("/facts/:id");
@@ -31,7 +127,7 @@ export default function FactDetail() {
   const { data: fact, isLoading: factLoading, error: factError } = useGetFact(factId, {
     query: { queryKey: getGetFactQueryKey(factId), enabled: !!factId }
   });
-  
+
   const { data: commentsData } = useListComments(factId, { limit: 50 }, {
     query: { queryKey: getListCommentsQueryKey(factId, { limit: 50 }), enabled: !!factId }
   });
@@ -69,40 +165,48 @@ export default function FactDetail() {
     });
   };
 
+  const renderedText = renderFact(fact.text, name, pronouns);
+  const isVariant = !!fact.parentId;
+
   return (
     <Layout>
       {showMemeBuilder && (
         <MemeBuilder
           factId={factId}
-          factText={renderFact(fact.text, name, pronouns)}
+          factText={renderedText}
           onClose={() => setShowMemeBuilder(false)}
         />
       )}
       <div className="max-w-4xl mx-auto px-4 py-12 md:py-20">
-        
+
+        {/* Parent fact button — prominent banner when this fact is a variant */}
+        {isVariant && (
+          <Link href={`/facts/${fact.parentId}`}>
+            <div className="mb-8 flex items-center gap-4 bg-primary/10 border-2 border-primary/40 hover:border-primary hover:bg-primary/15 transition-all p-5 rounded-sm cursor-pointer group">
+              <div className="shrink-0 w-12 h-12 bg-primary/20 border-2 border-primary/40 group-hover:border-primary rounded-sm flex items-center justify-center transition-colors">
+                <ArrowLeft className="w-6 h-6 text-primary" />
+              </div>
+              <div>
+                <p className="text-xs font-display uppercase tracking-widest text-primary/70 mb-0.5">Variant of</p>
+                <p className="text-lg font-bold font-display uppercase tracking-wide text-primary group-hover:underline underline-offset-4">
+                  View Original Fact #{fact.parentId}
+                </p>
+              </div>
+              <GitBranch className="w-6 h-6 text-primary/40 ml-auto" />
+            </div>
+          </Link>
+        )}
+
         {/* Main Fact Card */}
         <div className="bg-card border-l-8 border-primary p-8 md:p-12 shadow-2xl relative mb-12">
           <div className="absolute top-4 right-4 text-muted-foreground/30 font-display text-8xl font-bold italic select-none pointer-events-none -mt-4">
             #{fact.rank ?? fact.id}
           </div>
 
-          {/* Parent fact link — shown when this fact is a variant */}
-          {fact.parentId && (
-            <div className="mb-6 relative z-10">
-              <Link
-                href={`/facts/${fact.parentId}`}
-                className="inline-flex items-center gap-2 text-sm font-semibold text-primary hover:opacity-80 transition-opacity"
-              >
-                <GitBranch className="w-4 h-4" />
-                Variant of fact #{fact.parentId} — view original
-              </Link>
-            </div>
-          )}
-          
           <h1 className="text-3xl md:text-5xl font-bold leading-tight text-foreground relative z-10 mb-8">
-            "{renderFact(fact.text, name, pronouns)}"
+            "{renderedText}"
           </h1>
-          
+
           <div className="flex flex-wrap gap-2 mb-10 relative z-10">
             {fact.hashtags.map(tag => (
               <span key={tag} className="text-sm font-bold font-display tracking-wider text-muted-foreground bg-secondary border border-border px-3 py-1 rounded-sm uppercase">
@@ -113,9 +217,9 @@ export default function FactDetail() {
 
           <div className="flex items-center justify-between border-t-2 border-border pt-6 mt-6">
             <div className="flex items-center gap-4 flex-wrap">
-              <Button 
-                variant="secondary" 
-                size="lg" 
+              <Button
+                variant="secondary"
+                size="lg"
                 onClick={() => handleRate("up")}
                 className={cn("gap-3 h-14", fact.userRating === "up" && "bg-primary/20 text-primary border-primary")}
                 disabled={rateFact.isPending}
@@ -123,9 +227,9 @@ export default function FactDetail() {
                 <ThumbsUp className={cn("w-6 h-6", fact.userRating === "up" && "fill-current")} />
                 <span className="text-xl">{fact.upvotes}</span>
               </Button>
-              <Button 
-                variant="secondary" 
-                size="lg" 
+              <Button
+                variant="secondary"
+                size="lg"
                 onClick={() => handleRate("down")}
                 className={cn("gap-3 h-14", fact.userRating === "down" && "bg-destructive/20 text-destructive border-destructive")}
                 disabled={rateFact.isPending}
@@ -143,7 +247,7 @@ export default function FactDetail() {
                 <span>MAKE MEME</span>
               </Button>
             </div>
-            
+
             <div className="text-muted-foreground text-sm font-medium text-right">
               <div>VERIFIED: {format(new Date(fact.createdAt), 'MMM dd, yyyy')}</div>
               {fact.submittedBy && <div className="text-primary mt-1">BY AGENT {fact.submittedBy.substring(0,8).toUpperCase()}</div>}
@@ -152,7 +256,7 @@ export default function FactDetail() {
 
           {/* Merch buttons */}
           <div className="mt-6 pt-4 border-t border-border/50">
-            <MerchButtons sourceType="fact" sourceId={factId} text={renderFact(fact.text, name, pronouns)} />
+            <MerchButtons sourceType="fact" sourceId={factId} text={renderedText} />
           </div>
         </div>
 
@@ -161,11 +265,11 @@ export default function FactDetail() {
 
         {/* Layout split for Links and Comments */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-12">
-          
+
           {/* Comments Section */}
           <div className="lg:col-span-2 space-y-8">
             <h3 className="text-2xl font-display uppercase tracking-wide border-b-2 border-border pb-2">Intel & Discussion ({fact.commentCount})</h3>
-            
+
             {/* Comment Form */}
             {isAuthenticated ? (
               commentSubmitted ? (
@@ -176,7 +280,7 @@ export default function FactDetail() {
                 </div>
               ) : (
                 <form onSubmit={handleCommentSubmit} className="bg-secondary p-6 rounded-sm border-2 border-border space-y-4">
-                  <Textarea 
+                  <Textarea
                     value={commentText}
                     onChange={e => setCommentText(e.target.value)}
                     placeholder="Drop some knowledge..."
@@ -248,9 +352,9 @@ export default function FactDetail() {
                         {link.title || new URL(link.url).hostname.replace("www.", "")}
                       </span>
                     </a>
-                    
+
                     {isAuthenticated && user?.id === (link as ExternalLink & { addedById?: string | null }).addedById && (
-                      <button 
+                      <button
                         onClick={() => deleteLink.mutate({ factId, linkId: link.id })}
                         disabled={deleteLink.isPending}
                         className="opacity-0 group-hover:opacity-100 shrink-0 p-2 text-muted-foreground hover:text-destructive transition-all"
@@ -269,30 +373,16 @@ export default function FactDetail() {
 
         </div>
 
-        {/* Variants */}
-        {fact.variants && fact.variants.length > 0 && (
-          <div className="mt-12">
-            <h3 className="text-2xl font-display uppercase tracking-wide border-b-2 border-border pb-2 mb-6 flex items-center gap-3">
+        {/* Variants — only shown on root (parent) facts, never on variants themselves */}
+        {!isVariant && fact.variants && fact.variants.length > 0 && (
+          <div className="mt-16">
+            <h3 className="text-2xl font-display uppercase tracking-wide border-b-2 border-border pb-2 mb-8 flex items-center gap-3">
               <GitBranch className="w-6 h-6 text-primary" />
-              Variants ({fact.variants.length})
+              Alternate Phrasings ({fact.variants.length})
             </h3>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="space-y-6">
               {fact.variants.map(v => (
-                <Link key={v.id} href={`/facts/${v.id}`}>
-                  <div className="group bg-card border-2 border-border hover:border-primary/50 p-5 rounded-sm transition-colors relative cursor-pointer">
-                    {v.useCase && (
-                      <span className="inline-block mb-3 text-xs font-bold font-display tracking-widest uppercase text-primary bg-primary/10 border border-primary/30 px-2 py-0.5 rounded-sm">
-                        {v.useCase.replace(/_/g, " ")}
-                      </span>
-                    )}
-                    <p className="text-foreground leading-relaxed text-base">
-                      "{renderFact(v.text, name, pronouns)}"
-                    </p>
-                    <span className="absolute bottom-3 right-3 text-xs text-primary opacity-0 group-hover:opacity-100 transition-opacity font-medium">
-                      View →
-                    </span>
-                  </div>
-                </Link>
+                <VariantFactCard key={v.id} id={v.id} useCase={v.useCase ?? null} />
               ))}
             </div>
           </div>
