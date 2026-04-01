@@ -55,6 +55,10 @@ export async function ensureSchema(): Promise<void> {
       label: "comments.status backfill approved",
       ddl: `UPDATE comments SET status = 'approved' WHERE status = 'pending' AND flagged = false AND created_at < now() - interval '1 hour'`,
     },
+    {
+      label: "users.display_name",
+      ddl: `ALTER TABLE users ADD COLUMN IF NOT EXISTS display_name varchar`,
+    },
   ];
 
   for (const { label, ddl } of migrations) {

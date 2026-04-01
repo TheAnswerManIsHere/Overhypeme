@@ -16,6 +16,9 @@ export default function Login() {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [email, setEmail] = useState("");
+  const [firstName, setFirstName] = useState("");
+  const [lastName, setLastName] = useState("");
+  const [displayName, setDisplayName] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const resetSuccess = getResetSuccess();
@@ -29,7 +32,12 @@ export default function Login() {
       const endpoint =
         mode === "login" ? "/api/auth/local-login" : "/api/auth/register";
       const body: Record<string, string> = { username, password };
-      if (mode === "register" && email) body.email = email;
+      if (mode === "register") {
+        if (email) body.email = email;
+        body.firstName = firstName;
+        body.lastName = lastName;
+        body.displayName = displayName;
+      }
 
       const res = await fetch(endpoint, {
         method: "POST",
@@ -106,18 +114,64 @@ export default function Login() {
             </div>
 
             {mode === "register" && (
-              <div>
-                <label className="block text-sm font-display font-bold text-muted-foreground mb-1 uppercase tracking-wider">
-                  Email <span className="text-xs font-normal">(optional)</span>
-                </label>
-                <Input
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  placeholder="your@email.com"
-                  autoComplete="email"
-                />
-              </div>
+              <>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-sm font-display font-bold text-muted-foreground mb-1 uppercase tracking-wider">
+                      First Name <span className="text-destructive">*</span>
+                    </label>
+                    <Input
+                      type="text"
+                      value={firstName}
+                      onChange={(e) => setFirstName(e.target.value)}
+                      placeholder="First name"
+                      required
+                      autoComplete="given-name"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-display font-bold text-muted-foreground mb-1 uppercase tracking-wider">
+                      Last Name <span className="text-destructive">*</span>
+                    </label>
+                    <Input
+                      type="text"
+                      value={lastName}
+                      onChange={(e) => setLastName(e.target.value)}
+                      placeholder="Last name"
+                      required
+                      autoComplete="family-name"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-display font-bold text-muted-foreground mb-1 uppercase tracking-wider">
+                    Display Name <span className="text-destructive">*</span>
+                  </label>
+                  <Input
+                    type="text"
+                    value={displayName}
+                    onChange={(e) => setDisplayName(e.target.value)}
+                    placeholder="How facts will address you (e.g. Alex Smith)"
+                    required
+                    autoComplete="name"
+                  />
+                  <p className="text-xs text-muted-foreground mt-1">This is the name inserted into personalized facts.</p>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-display font-bold text-muted-foreground mb-1 uppercase tracking-wider">
+                    Email <span className="text-xs font-normal">(optional)</span>
+                  </label>
+                  <Input
+                    type="email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    placeholder="your@email.com"
+                    autoComplete="email"
+                  />
+                </div>
+              </>
             )}
 
             <div>
