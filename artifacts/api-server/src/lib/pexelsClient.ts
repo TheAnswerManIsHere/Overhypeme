@@ -44,6 +44,37 @@ interface PexelsSearchResponse {
   total_results: number;
 }
 
+/**
+ * Fetch a single photo by its Pexels ID.
+ * Used when regenerating a meme from a stored recipe — more stable than
+ * relying on the CDN URL remaining valid long-term.
+ */
+export async function getPhotoById(photoId: number): Promise<PexelsPhoto> {
+  const apiKey = process.env.PEXELS_API_KEY;
+  if (!apiKey) {
+    throw new Error(
+      "PEXELS_API_KEY is not configured. Add it to your Replit secrets.",
+    );
+  }
+
+  const response = await fetch(`${PEXELS_BASE}/photos/${photoId}`, {
+    headers: { Authorization: apiKey },
+    signal: AbortSignal.timeout(10_000),
+  });
+
+  if (response.status === 401) throw new Error("Invalid PEXELS_API_KEY.");
+  if (response.status === 404) throw new Error(`Pexels photo ${photoId} not found.`);
+  if (!response.ok) throw new Error(`Pexels API error: ${response.status}`);
+
+  const photo = (await response.json()) as PexelsApiPhoto;
+  return {
+    id: photo.id,
+    photographerName: photo.photographer,
+    photographerUrl: photo.photographer_url,
+    photoUrl: photo.src.large,
+  };
+}
+
 export async function getRandomStockPhoto(
   gender: "man" | "woman" | "person",
 ): Promise<PexelsPhoto> {
