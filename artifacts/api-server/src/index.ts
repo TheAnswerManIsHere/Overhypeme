@@ -1,6 +1,6 @@
 import app from "./app";
 import { logger } from "./lib/logger";
-import { seedIfEmpty, backfillWilsonScores } from "./lib/seed";
+import { ensureSchema, seedIfEmpty, backfillWilsonScores } from "./lib/seed";
 
 const rawPort = process.env["PORT"];
 
@@ -45,6 +45,9 @@ async function initStripe() {
 }
 
 await initStripe();
+
+// Ensure all schema columns exist — safe to run on every boot (ADD COLUMN IF NOT EXISTS)
+await ensureSchema().catch((err: unknown) => logger.error({ err }, "Schema migration failed"));
 
 // Seed the database on first boot if it's empty (e.g. fresh production deployment)
 await seedIfEmpty().catch((err: unknown) => logger.error({ err }, "Seed failed"));

@@ -23,6 +23,7 @@ import {
 } from "../lib/auth";
 
 const OIDC_COOKIE_TTL = 10 * 60 * 1000;
+const IS_PRODUCTION = process.env.NODE_ENV === "production";
 
 export function isAdminById(userId: string): boolean {
   const ids = process.env.ADMIN_USER_IDS?.split(",").map((s) => s.trim()) ?? [];
@@ -41,7 +42,7 @@ function getOrigin(req: Request): string {
 function setSessionCookie(res: Response, sid: string) {
   res.cookie(SESSION_COOKIE, sid, {
     httpOnly: true,
-    secure: true,
+    secure: IS_PRODUCTION,
     sameSite: "lax",
     path: "/",
     maxAge: SESSION_TTL,
@@ -51,7 +52,7 @@ function setSessionCookie(res: Response, sid: string) {
 function setOidcCookie(res: Response, name: string, value: string) {
   res.cookie(name, value, {
     httpOnly: true,
-    secure: true,
+    secure: IS_PRODUCTION,
     sameSite: "lax",
     path: "/",
     maxAge: OIDC_COOKIE_TTL,
