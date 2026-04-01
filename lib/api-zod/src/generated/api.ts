@@ -202,6 +202,18 @@ export const GetFactResponse = zod
           }),
         )
         .optional(),
+      variants: zod
+        .array(
+          zod.object({
+            id: zod.number(),
+            text: zod.string(),
+            useCase: zod.string().nullish(),
+            createdAt: zod.string(),
+          }),
+        )
+        .optional(),
+      parentId: zod.number().nullish(),
+      useCase: zod.string().nullish(),
     }),
   );
 

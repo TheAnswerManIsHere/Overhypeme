@@ -13,7 +13,7 @@ import { useAppMutations } from "@/hooks/use-mutations";
 import { MemeBuilder } from "@/components/MemeBuilder";
 import { MerchButtons } from "@/components/MerchButtons";
 import { AdSlot } from "@/components/AdSlot";
-import { ThumbsUp, ThumbsDown, User, Link as LinkIcon, Youtube, Instagram, AlertCircle, Plus, Trash2, ImageIcon } from "lucide-react";
+import { ThumbsUp, ThumbsDown, User, Link as LinkIcon, Youtube, Instagram, AlertCircle, Plus, Trash2, ImageIcon, GitBranch, Copy } from "lucide-react";
 import { cn } from "@/components/ui/Button";
 
 const HCAPTCHA_SITE_KEY =
@@ -279,6 +279,35 @@ export default function FactDetail() {
           </div>
 
         </div>
+
+        {/* Variants */}
+        {fact.variants && fact.variants.length > 0 && (
+          <div className="mt-12">
+            <h3 className="text-2xl font-display uppercase tracking-wide border-b-2 border-border pb-2 mb-6 flex items-center gap-3">
+              <GitBranch className="w-6 h-6 text-primary" />
+              Variants ({fact.variants.length})
+            </h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {fact.variants.map(v => (
+                <div key={v.id} className="group bg-card border-2 border-border hover:border-primary/50 p-5 rounded-sm transition-colors relative">
+                  {v.useCase && (
+                    <span className="inline-block mb-3 text-xs font-bold font-display tracking-widest uppercase text-primary bg-primary/10 border border-primary/30 px-2 py-0.5 rounded-sm">
+                      {v.useCase.replace(/_/g, " ")}
+                    </span>
+                  )}
+                  <p className="text-foreground leading-relaxed text-base whitespace-pre-wrap">{v.text}</p>
+                  <button
+                    onClick={() => navigator.clipboard.writeText(v.text)}
+                    className="absolute top-3 right-3 opacity-0 group-hover:opacity-100 p-1.5 text-muted-foreground hover:text-primary transition-all"
+                    title="Copy variant text"
+                  >
+                    <Copy className="w-4 h-4" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Meme Gallery */}
         {memesData && memesData.memes.length > 0 && (
