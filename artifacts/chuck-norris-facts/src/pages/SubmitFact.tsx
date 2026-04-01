@@ -136,12 +136,13 @@ export default function SubmitFact() {
     if (!captchaToken && !isPremium) return;
     setTokenizing(true);
     setTokenizeError("");
+    const sanitizedText = rawText.replace(/[{}]/g, "");
     try {
       const r = await fetch("/api/ai/tokenize-fact", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ text: rawText }),
+        body: JSON.stringify({ text: sanitizedText }),
       });
       const data = await r.json() as { template?: string; error?: string };
       if (!r.ok || !data.template) {
