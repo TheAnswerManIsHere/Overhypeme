@@ -9,8 +9,14 @@
 export interface UpdateProfileRequest {
   /**
    * @minLength 1
-   * @maxLength 20
+   * @maxLength 80
+   */
+  displayName?: string;
+  /**
+   * @minLength 1
+   * @maxLength 80
    */
   pronouns?: string;
   email?: string;
+  profileImageUrl?: string;
 }

@@ -1,11 +1,11 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useAuth } from "@workspace/replit-auth-web";
 import { useGetMyProfile, getGetMyProfileQueryKey, useUpdateMyProfile } from "@workspace/api-client-react";
 import { Layout } from "@/components/layout/Layout";
 import { FactCard } from "@/components/facts/FactCard";
 import { Button } from "@/components/ui/Button";
 import { SubscriptionPanel } from "@/components/SubscriptionPanel";
-import { ShieldAlert, LogOut, Clock, ThumbsUp, FileText, Hash, Star, X, Pencil, Check, Mail, AlertTriangle, CheckCircle } from "lucide-react";
+import { ShieldAlert, LogOut, Clock, ThumbsUp, FileText, Hash, Star, X, Pencil, Check, Mail, AlertTriangle, CheckCircle, Camera, Loader2 } from "lucide-react";
 import { Link, useLocation } from "wouter";
 import { useQueryClient } from "@tanstack/react-query";
 import { PronounEditor } from "@/components/ui/PronounEditor";
@@ -27,11 +27,16 @@ export default function Profile() {
   const [emailVerifiedBanner, setEmailVerifiedBanner] = useState(false);
 
   const [editing, setEditing] = useState(false);
+  const [draftDisplayName, setDraftDisplayName] = useState("");
   const [draftPronouns, setDraftPronouns] = useState("");
   const [draftEmail, setDraftEmail] = useState("");
   const [editError, setEditError] = useState("");
   const [editSuccess, setEditSuccess] = useState("");
   const [resendStatus, setResendStatus] = useState("");
+
+  const [photoUploading, setPhotoUploading] = useState(false);
+  const [photoError, setPhotoError] = useState("");
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -46,6 +51,7 @@ export default function Profile() {
   }, []);
 
   function openEditor() {
+    setDraftDisplayName(profile?.displayName ?? "");
     setDraftPronouns(profile?.pronouns ?? "");
     setDraftEmail("");
     setEditError("");
@@ -64,6 +70,7 @@ export default function Profile() {
     setEditSuccess("");
 
     const body: Record<string, string> = {};
+    if (draftDisplayName.trim() !== (profile?.displayName ?? "")) body.displayName = draftDisplayName.trim();
     if (draftPronouns !== (profile?.pronouns ?? "")) body.pronouns = draftPronouns;
     if (draftEmail.trim()) body.email = draftEmail.trim();
 
@@ -84,6 +91,55 @@ export default function Profile() {
     } catch (err: unknown) {
       const errObj = err as { response?: { data?: { error?: string } }; message?: string };
       setEditError(errObj?.response?.data?.error ?? errObj?.message ?? "Failed to update profile.");
+    }
+  }
+
+  async function handlePhotoChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!fileInputRef.current) fileInputRef.current = e.target;
+    e.target.value = "";
+    if (!file) return;
+
+    const allowedTypes = ["image/jpeg", "image/png", "image/webp", "image/gif"];
+    if (!allowedTypes.includes(file.type)) {
+      setPhotoError("Please select a JPEG, PNG, WebP, or GIF image.");
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      setPhotoError("Image must be under 5 MB.");
+      return;
+    }
+
+    setPhotoError("");
+    setPhotoUploading(true);
+    try {
+      const urlRes = await fetch(`${BASE_URL}api/storage/uploads/request-url`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ name: file.name, size: file.size, contentType: file.type }),
+      });
+      if (!urlRes.ok) {
+        const errData = await urlRes.json() as { error?: string };
+        throw new Error(errData.error ?? "Failed to get upload URL");
+      }
+      const { uploadURL, objectPath } = await urlRes.json() as { uploadURL: string; objectPath: string };
+
+      const putRes = await fetch(uploadURL, {
+        method: "PUT",
+        headers: { "Content-Type": file.type },
+        body: file,
+      });
+      if (!putRes.ok) throw new Error("Upload to storage failed");
+
+      const profileImageUrl = `/api/storage${objectPath}`;
+      await updateProfile.mutateAsync({ profileImageUrl });
+      await queryClient.invalidateQueries({ queryKey: getGetMyProfileQueryKey() });
+    } catch (err: unknown) {
+      const errObj = err as { message?: string };
+      setPhotoError(errObj?.message ?? "Photo upload failed.");
+    } finally {
+      setPhotoUploading(false);
     }
   }
 
@@ -209,14 +265,40 @@ export default function Profile() {
         {/* Profile Header */}
         <div className="bg-card border-2 border-border p-8 rounded-sm shadow-xl flex flex-col md:flex-row items-center gap-8 relative overflow-hidden mb-8">
           <div className="absolute top-0 right-0 w-32 h-32 bg-primary/10 rounded-bl-full -mr-16 -mt-16 pointer-events-none" />
-          
-          {profile.profileImageUrl ? (
-            <img src={profile.profileImageUrl} alt={profile.displayName ?? "User"} className="w-24 h-24 rounded-sm border-2 border-primary object-cover shadow-[0_0_15px_rgba(249,115,22,0.3)]" />
-          ) : (
-            <div className="w-24 h-24 bg-secondary border-2 border-primary flex items-center justify-center rounded-sm font-display text-4xl text-primary font-bold shadow-[0_0_15px_rgba(249,115,22,0.3)]">
-              {(profile.displayName?.[0] || profile.email?.[0] || "?").toUpperCase()}
-            </div>
-          )}
+
+          {/* Clickable avatar */}
+          <div className="relative group shrink-0">
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/jpeg,image/png,image/webp,image/gif"
+              className="hidden"
+              onChange={handlePhotoChange}
+            />
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              disabled={photoUploading}
+              className="relative block rounded-sm focus:outline-none focus:ring-2 focus:ring-primary"
+              title="Change profile photo"
+            >
+              {profile.profileImageUrl ? (
+                <img src={profile.profileImageUrl} alt={profile.displayName ?? "User"} className="w-24 h-24 rounded-sm border-2 border-primary object-cover shadow-[0_0_15px_rgba(249,115,22,0.3)]" />
+              ) : (
+                <div className="w-24 h-24 bg-secondary border-2 border-primary flex items-center justify-center rounded-sm font-display text-4xl text-primary font-bold shadow-[0_0_15px_rgba(249,115,22,0.3)]">
+                  {(profile.displayName?.[0] || profile.email?.[0] || "?").toUpperCase()}
+                </div>
+              )}
+              <div className="absolute inset-0 bg-black/50 rounded-sm flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                {photoUploading
+                  ? <Loader2 className="w-6 h-6 text-white animate-spin" />
+                  : <Camera className="w-6 h-6 text-white" />
+                }
+              </div>
+            </button>
+            {photoError && (
+              <p className="absolute top-full mt-1 left-0 w-48 text-xs text-destructive font-medium bg-card border border-destructive/40 rounded-sm px-2 py-1 z-20">{photoError}</p>
+            )}
+          </div>
           
           <div className="flex-1 text-center md:text-left z-10">
             <h1 className="text-3xl md:text-4xl font-display uppercase tracking-wide text-foreground mb-2">
@@ -242,6 +324,18 @@ export default function Profile() {
               <Pencil className="w-5 h-5 text-primary" /> Edit Profile
             </h2>
             <div className="grid grid-cols-1 gap-4">
+              <div>
+                <label className="block text-sm font-bold text-muted-foreground uppercase tracking-wide mb-1">Display Name</label>
+                <input
+                  type="text"
+                  value={draftDisplayName}
+                  onChange={(e) => setDraftDisplayName(e.target.value)}
+                  placeholder="How you want to appear on the site"
+                  maxLength={80}
+                  className="w-full max-w-md bg-secondary border border-border rounded-sm px-3 py-2 text-foreground outline-none focus:border-primary transition-colors"
+                />
+                <p className="text-xs text-muted-foreground mt-1">This name appears on your facts and profile.</p>
+              </div>
               <div>
                 <label className="block text-sm font-bold text-muted-foreground uppercase tracking-wide mb-1">Pronouns</label>
                 <PronounEditor value={draftPronouns} onChange={setDraftPronouns} />

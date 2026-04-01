@@ -274,22 +274,18 @@ export interface UserProfile {
 }
 
 export interface UpdateProfileRequest {
-  /** @minLength 1 */
-  firstName?: string;
-  /** @minLength 1 */
-  lastName?: string;
-  /**
-   * @minLength 3
-   * @maxLength 30
-   * @pattern ^[a-zA-Z0-9_]+$
-   */
-  username?: string;
   /**
    * @minLength 1
-   * @maxLength 20
+   * @maxLength 80
+   */
+  displayName?: string;
+  /**
+   * @minLength 1
+   * @maxLength 80
    */
   pronouns?: string;
   email?: string;
+  profileImageUrl?: string;
 }
 
 export interface UpdateProfileResponse {

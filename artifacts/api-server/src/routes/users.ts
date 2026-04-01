@@ -101,25 +101,29 @@ router.patch("/users/me", async (req: Request, res: Response) => {
   if (!req.isAuthenticated()) { res.status(401).json({ error: "Unauthorized" }); return; }
   const userId = req.user.id;
 
-  const { firstName, lastName, pronouns, email } = req.body as {
-    firstName?: string;
-    lastName?: string;
+  const { displayName, pronouns, email, profileImageUrl } = req.body as {
+    displayName?: string;
     pronouns?: string;
     email?: string;
+    profileImageUrl?: string;
   };
 
   const updates: Record<string, unknown> = {};
 
-  if (firstName !== undefined) {
-    const trimmed = typeof firstName === "string" ? firstName.trim() : "";
-    if (!trimmed) { res.status(400).json({ error: "First name cannot be empty" }); return; }
-    updates.firstName = trimmed;
+  if (displayName !== undefined) {
+    const trimmed = typeof displayName === "string" ? displayName.trim() : "";
+    if (!trimmed) { res.status(400).json({ error: "Display name cannot be empty" }); return; }
+    if (trimmed.length > 80) { res.status(400).json({ error: "Display name must be 80 characters or fewer" }); return; }
+    updates.displayName = trimmed;
   }
 
-  if (lastName !== undefined) {
-    const trimmed = typeof lastName === "string" ? lastName.trim() : "";
-    if (!trimmed) { res.status(400).json({ error: "Last name cannot be empty" }); return; }
-    updates.lastName = trimmed;
+  if (profileImageUrl !== undefined) {
+    if (typeof profileImageUrl !== "string") {
+      res.status(400).json({ error: "Invalid profile image URL" }); return;
+    }
+    const valid = profileImageUrl.startsWith("/api/storage/objects/") || profileImageUrl.startsWith("https://");
+    if (!valid) { res.status(400).json({ error: "Invalid profile image URL" }); return; }
+    updates.profileImageUrl = profileImageUrl;
   }
 
   if (pronouns !== undefined) {
