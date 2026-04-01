@@ -61,7 +61,19 @@ export interface TextOptions {
   verticalPosition?: "top" | "middle" | "bottom";
 }
 
-const templateImageCache = new Map<string, Awaited<ReturnType<typeof loadImage>>>();
+/**
+ * Where the background image comes from.
+ * - template: one of the 5 built-in gradient PNGs
+ * - image:    a URL string (stock photo from Pexels) or a Buffer (user upload)
+ */
+export type BackgroundSource =
+  | { type: "template"; templateId: string }
+  | { type: "image"; imageData: string | Buffer };
+
+const templateImageCache = new Map<
+  string,
+  Awaited<ReturnType<typeof loadImage>>
+>();
 
 async function getTemplateImage(assetPath: string) {
   if (!templateImageCache.has(assetPath)) {
@@ -71,27 +83,94 @@ async function getTemplateImage(assetPath: string) {
   return templateImageCache.get(assetPath)!;
 }
 
+/** Accent sidebar colour per gradient template. */
+function templateAccentColor(templateId: string): string {
+  switch (templateId) {
+    case "fire":   return "#ff6d00";
+    case "gold":   return "#ffd54f";
+    case "night":  return "#546e7a";
+    case "cinema": return "#8d6e63";
+    default:       return "#ff6600"; // action + fallback
+  }
+}
+
+/**
+ * Center-crops src dimensions to match the target aspect ratio,
+ * returning {sx, sy, sw, sh} for ctx.drawImage.
+ */
+function centerCropParams(
+  srcW: number,
+  srcH: number,
+  dstW: number,
+  dstH: number,
+): { sx: number; sy: number; sw: number; sh: number } {
+  const srcAspect = srcW / srcH;
+  const dstAspect = dstW / dstH;
+  let sx = 0, sy = 0, sw = srcW, sh = srcH;
+  if (srcAspect > dstAspect) {
+    sw = srcH * dstAspect;
+    sx = (srcW - sw) / 2;
+  } else {
+    sh = srcW / dstAspect;
+    sy = (srcH - sh) / 2;
+  }
+  return { sx, sy, sw, sh };
+}
+
 export async function generateMemeBuffer(
-  templateId: string,
+  background: BackgroundSource,
   factText: string,
   options?: TextOptions,
 ): Promise<Buffer> {
-  const template = MEME_TEMPLATES.find(t => t.id === templateId);
-  if (!template) throw new Error(`Unknown template: ${templateId}`);
-
   const canvas: Canvas = createCanvas(CANVAS_W, CANVAS_H);
   const ctx = canvas.getContext("2d");
 
-  const bgImage = await getTemplateImage(template.assetPath);
-  ctx.drawImage(bgImage, 0, 0, CANVAS_W, CANVAS_H);
+  // ── Background ────────────────────────────────────────────────────
+  let accentColor: string;
 
-  const autoFontSize = factText.length > 120 ? 22 : factText.length > 70 ? 26 : 32;
+  if (background.type === "template") {
+    const template = MEME_TEMPLATES.find(t => t.id === background.templateId);
+    if (!template) throw new Error(`Unknown template: ${background.templateId}`);
+
+    const bgImage = await getTemplateImage(template.assetPath);
+    ctx.drawImage(bgImage, 0, 0, CANVAS_W, CANVAS_H);
+    accentColor = templateAccentColor(background.templateId);
+  } else {
+    // Photo background (stock URL or uploaded buffer)
+    const img = await loadImage(background.imageData);
+    const { sx, sy, sw, sh } = centerCropParams(
+      img.width,
+      img.height,
+      CANVAS_W,
+      CANVAS_H,
+    );
+    ctx.drawImage(img, sx, sy, sw, sh, 0, 0, CANVAS_W, CANVAS_H);
+
+    // Semi-transparent dark overlay so text stays readable over any photo
+    ctx.fillStyle = "rgba(0,0,0,0.48)";
+    ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
+    accentColor = "#FF3C00";
+  }
+
+  // ── Left accent bar ───────────────────────────────────────────────
+  const sidebarW = 12;
+  ctx.fillStyle = accentColor;
+  ctx.fillRect(0, 0, sidebarW, CANVAS_H);
+
+  // ── Ghost watermark letters ───────────────────────────────────────
+  ctx.fillStyle = "rgba(255,255,255,0.06)";
+  ctx.font = `bold ${Math.floor(CANVAS_H * 0.45)}px serif`;
+  ctx.textAlign = "right";
+  ctx.fillText("CN", CANVAS_W - 24, CANVAS_H * 0.72);
+
+  // ── Text ──────────────────────────────────────────────────────────
+  const autoFontSize =
+    factText.length > 120 ? 22 : factText.length > 70 ? 26 : 32;
   const fontSize = Math.min(Math.max(options?.fontSize ?? autoFontSize, 14), 48);
   const textColor = options?.color ?? "#ffffff";
   const textAlign = options?.align ?? "left";
   const vertPos = options?.verticalPosition ?? "middle";
 
-  const sidebarW = 12;
   const padding = 56;
   const maxW = CANVAS_W - padding * 2 - sidebarW;
 
@@ -135,6 +214,7 @@ export async function generateMemeBuffer(
     ctx.fillText(line, textX, startY + i * lineH);
   });
 
+  // ── Watermark ─────────────────────────────────────────────────────
   ctx.shadowBlur = 0;
   ctx.shadowOffsetX = 0;
   ctx.shadowOffsetY = 0;
