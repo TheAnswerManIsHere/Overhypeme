@@ -105,7 +105,17 @@ export default function SubmitFact() {
       if (r.ok) {
         const data: { hashtags: string[] } = await r.json();
         setSuggestedTags(data.hashtags);
-        setAcceptedTags(new Set(data.hashtags));
+        setHashtagsStr((current) => {
+          const trimmed = current.trim();
+          if (trimmed === "") {
+            setAcceptedTags(new Set(data.hashtags));
+            return data.hashtags.join(", ");
+          } else {
+            const inputTags = trimmed.split(",").map((t) => t.trim().replace(/^#/, "")).filter(Boolean);
+            setAcceptedTags(new Set(data.hashtags.filter((t) => inputTags.includes(t))));
+            return current;
+          }
+        });
         setSuggestionsLoaded(true);
       }
     } catch { setSuggestedTags([]); }
@@ -193,16 +203,22 @@ export default function SubmitFact() {
     setAcceptedTags((prev) => {
       const next = new Set(prev);
       if (next.has(tag)) next.delete(tag); else next.add(tag);
+      setHashtagsStr((currentStr) => {
+        const currentTags = currentStr.split(",").map((t) => t.trim().replace(/^#/, "")).filter(Boolean);
+        if (next.has(tag)) {
+          return currentTags.includes(tag) ? currentStr : [...currentTags, tag].join(", ");
+        } else {
+          return currentTags.filter((t) => t !== tag).join(", ");
+        }
+      });
       return next;
     });
   };
 
-  const applyTagsToInput = () => {
-    const existing = hashtagsStr.split(",").map((t) => t.trim().replace(/^#/, "")).filter(Boolean);
-    const combined = Array.from(new Set([...existing, ...acceptedTags])).join(", ");
-    setHashtagsStr(combined);
-    setSuggestedTags([]);
-    setSuggestionsLoaded(false);
+  const handleHashtagsChange = (value: string) => {
+    setHashtagsStr(value);
+    const inputTags = value.split(",").map((t) => t.trim().replace(/^#/, "")).filter(Boolean);
+    setAcceptedTags(new Set(suggestedTags.filter((t) => inputTags.includes(t))));
   };
 
   // ── Not logged in ────────────────────────────────────────────────────────────
@@ -547,7 +563,7 @@ export default function SubmitFact() {
                   {suggestedTags.length > 0 && (
                     <div className="mb-3 p-3 bg-background border border-primary/20 rounded-sm">
                       <p className="text-xs text-muted-foreground font-bold uppercase tracking-wide mb-2">AI Suggestions</p>
-                      <div className="flex flex-wrap gap-2 mb-2">
+                      <div className="flex flex-wrap gap-2">
                         {suggestedTags.map((tag) => (
                           <button
                             key={tag}
@@ -563,19 +579,12 @@ export default function SubmitFact() {
                           </button>
                         ))}
                       </div>
-                      <button
-                        type="button"
-                        onClick={applyTagsToInput}
-                        className="text-xs text-primary underline hover:opacity-80"
-                      >
-                        Apply selected tags →
-                      </button>
                     </div>
                   )}
 
                   <Input
                     value={hashtagsStr}
-                    onChange={(e) => setHashtagsStr(e.target.value)}
+                    onChange={(e) => handleHashtagsChange(e.target.value)}
                     placeholder="strength, gravity, physics (comma separated)"
                     className="font-mono"
                   />
