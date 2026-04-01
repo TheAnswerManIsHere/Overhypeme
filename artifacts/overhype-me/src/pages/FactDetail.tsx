@@ -154,7 +154,7 @@ export default function FactDetail() {
   const handleCommentSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!isAuthenticated) return setLocation("/login");
-    if (!commentText.trim() || !captchaToken) return;
+    if (!commentText.trim()) return;
 
     addComment.mutate({ factId, data: { text: commentText, captchaToken } }, {
       onSuccess: () => {
@@ -293,7 +293,7 @@ export default function FactDetail() {
                         onVerify={setCaptchaToken}
                       />
                     </div>
-                    <Button type="submit" isLoading={addComment.isPending} disabled={!commentText || !captchaToken} className="w-full sm:w-auto">
+                    <Button type="submit" isLoading={addComment.isPending} disabled={!commentText} className="w-full sm:w-auto">
                       POST INTEL
                     </Button>
                   </div>
