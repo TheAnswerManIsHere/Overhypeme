@@ -8,7 +8,7 @@ import {
 
 interface Submitter {
   id: string;
-  username: string | null;
+  displayName: string | null;
   firstName: string | null;
   email: string | null;
 }
@@ -134,7 +134,7 @@ function ReviewModal({
         <div className="p-6 space-y-6">
           {/* Metadata */}
           <div className="flex flex-wrap gap-4 text-sm text-muted-foreground">
-            <span>Submitted by: <strong className="text-foreground">{review.submitter?.username ?? review.submitter?.firstName ?? "Unknown"}</strong></span>
+            <span>Submitted by: <strong className="text-foreground">{review.submitter?.displayName ?? review.submitter?.firstName ?? review.submitter?.email ?? "Unknown"}</strong></span>
             {review.submitter?.email && <span>Email: <strong className="text-foreground">{review.submitter.email}</strong></span>}
             <span>Similarity: <strong className="text-foreground">{review.matchingSimilarity}%</strong></span>
             <span>Date: <strong className="text-foreground">{new Date(review.createdAt).toLocaleDateString()}</strong></span>
@@ -340,7 +340,7 @@ export default function AdminReviews() {
                       <StatusBadge status={r.status} />
                       <ReasonBadge reason={r.reason} />
                       <span className="text-xs text-muted-foreground">
-                        {r.reason !== "malformed_template" && `${r.matchingSimilarity}% match · `}by {r.submitter?.username ?? r.submitter?.firstName ?? "unknown"} · {new Date(r.createdAt).toLocaleDateString()}
+                        {r.reason !== "malformed_template" && `${r.matchingSimilarity}% match · `}by {r.submitter?.displayName ?? r.submitter?.firstName ?? r.submitter?.email ?? "unknown"} · {new Date(r.createdAt).toLocaleDateString()}
                       </span>
                     </div>
                     <p className="text-sm text-foreground italic line-clamp-2">"{r.submittedText}"</p>

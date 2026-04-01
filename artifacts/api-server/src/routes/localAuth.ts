@@ -142,8 +142,14 @@ router.post("/auth/register", async (req: Request, res: Response) => {
     sanitizedPronouns = pronouns.trim().slice(0, 80);
   }
 
-  const firstNameTrimmed = typeof firstName === "string" ? firstName.trim() || null : null;
-  const lastNameTrimmed = typeof lastName === "string" ? lastName.trim() || null : null;
+  // Derive firstName/lastName from displayName if not explicitly provided
+  let firstNameTrimmed = typeof firstName === "string" ? firstName.trim() || null : null;
+  let lastNameTrimmed = typeof lastName === "string" ? lastName.trim() || null : null;
+  if (!firstNameTrimmed && displayNameTrimmed) {
+    const parts = displayNameTrimmed.split(/\s+/);
+    firstNameTrimmed = parts[0] ?? null;
+    lastNameTrimmed = parts.length > 1 ? parts.slice(1).join(" ") : null;
+  }
 
   const [user] = await db
     .insert(usersTable)

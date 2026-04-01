@@ -5,7 +5,6 @@ import { CheckCircle, XCircle, Trash2, MessageSquare, ExternalLink, Clock, Alert
 
 interface CommentAuthor {
   authorId: string | null;
-  authorUsername: string | null;
   authorFirstName: string | null;
   authorLastName: string | null;
   authorDisplayName: string | null;
@@ -37,7 +36,6 @@ interface RejectModalState {
 function AuthorInfo({ comment }: { comment: CommentAuthor }) {
   const name = [comment.authorFirstName, comment.authorLastName].filter(Boolean).join(" ");
   const displayName = comment.authorDisplayName;
-  const username = comment.authorUsername;
   const email = comment.authorEmail;
 
   if (!comment.authorId) {
@@ -48,16 +46,14 @@ function AuthorInfo({ comment }: { comment: CommentAuthor }) {
     <div className="flex items-start gap-1.5 mt-2">
       <User className="w-3.5 h-3.5 text-muted-foreground mt-0.5 shrink-0" />
       <div className="text-xs text-muted-foreground space-y-0.5">
-        {(name || displayName) && (
+        {(displayName || name) && (
           <div>
-            {name && <span className="font-medium text-foreground">{name}</span>}
-            {displayName && name && <span className="text-muted-foreground"> ({displayName})</span>}
-            {displayName && !name && <span className="font-medium text-foreground">{displayName}</span>}
+            <span className="font-medium text-foreground">{displayName ?? name}</span>
+            {displayName && name && displayName !== name && <span className="text-muted-foreground"> ({name})</span>}
           </div>
         )}
-        {username && <div>@{username}</div>}
         {email && <div>{email}</div>}
-        {!name && !displayName && !username && !email && (
+        {!name && !displayName && !email && (
           <span className="italic">ID: {comment.authorId}</span>
         )}
       </div>
