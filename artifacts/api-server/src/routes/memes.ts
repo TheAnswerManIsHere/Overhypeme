@@ -76,10 +76,20 @@ async function resolveStockPhotoUrl(
 // ─── Validation ────────────────────────────────────────────────────────────────
 
 const TextOptionsSchema = z.object({
-  fontSize: z.number().int().min(14).max(48).optional(),
+  fontSize: z.number().int().min(14).max(100).optional(),
   color: z.string().regex(/^#[0-9a-fA-F]{3,8}$/).optional(),
   align: z.enum(["left", "center", "right"]).optional(),
   verticalPosition: z.enum(["top", "middle", "bottom"]).optional(),
+  topText: z.string().max(500).optional(),
+  bottomText: z.string().max(500).optional(),
+  fontFamily: z.string().max(50).optional(),
+  outlineColor: z.string().regex(/^#[0-9a-fA-F]{3,8}$/).optional(),
+  textEffect: z.enum(["shadow", "outline", "none"]).optional(),
+  outlineWidth: z.number().min(0).max(20).optional(),
+  allCaps: z.boolean().optional(),
+  bold: z.boolean().optional(),
+  italic: z.boolean().optional(),
+  opacity: z.number().min(0).max(1).optional(),
 }).optional();
 
 const ImageSourceSchema = z.discriminatedUnion("type", [
