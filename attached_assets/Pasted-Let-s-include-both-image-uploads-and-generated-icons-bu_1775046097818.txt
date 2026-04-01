@@ -1,0 +1,23 @@
+Let’s include both image uploads and generated icons, but default to generated and here’s why.
+Upload-first creates problems at your stage:
+You need image storage infrastructure (S3 or equivalent), resizing/cropping logic, content moderation for uploaded images (people will upload inappropriate content), and a DMCA process for people uploading photos of others without consent. That’s a lot of infrastructure for a feature that most users on a meme platform won’t bother with anyway. Look at how many Reddit users still have default avatars years into their accounts.
+The right default: deterministic identicons generated from the user’s ID.
+The concept is simple. You hash the user’s ID or email and use the hash to deterministically generate a unique visual. Same input always produces the same output, so there’s no storage needed. The avatar is computed at render time or cached.
+DiceBear is probably your best fit. It’s an open-source library that generates avatars client-side from a seed string. Multiple visual styles available: pixel art, abstract shapes, bottts (robot faces), adventurer characters. The style options fit the playful tone of overhype.me perfectly. No server-side infrastructure at all; it renders as an SVG in the browser.
+The ideal implementation for overhype.me:
+Let users pick an avatar style from a curated set (robots, pixel art, abstract, monsters), then generate it deterministically from their user ID within that style. This gives users a sense of personalization and choice without any upload infrastructure. Their contributor profile feels unique, which matters for community engagement.
+Store just the style preference:
+
+users
+  id: 4281
+  email: "david@example.com"
+  display_name: "David Franklin"
+  avatar_style: "bottts"
+
+
+The avatar URL becomes a deterministic function: https://api.dicebear.com/9.x/bottts/svg?seed=4281
+Same image every time, zero storage, zero moderation burden.
+When to add uploads:
+Make it a paid tier feature. This solves multiple problems at once. It’s a genuine perk that free users can see and want (every contributor profile with a custom photo signals “this person paid”). Your paying users are a much smaller, more invested cohort, so your moderation volume stays manageable. And it justifies the infrastructure cost since the users benefiting from it are the ones generating revenue.
+When you do add uploads, keep the generated avatar as the fallback. If someone uploads an image that gets flagged and removed by moderation, they gracefully revert to their generated avatar instead of showing a broken image or blank space.
+One nice touch: on the meme generator specifically, the user’s avatar style could optionally appear as a watermark or corner stamp on generated memes. “Made on overhype.me by [avatar + display name].” That turns the generated avatar into a portable identity mark that travels with shared content, which reinforces both the user’s identity and your brand simultaneously.​​​​​​​​​​​​​​​​

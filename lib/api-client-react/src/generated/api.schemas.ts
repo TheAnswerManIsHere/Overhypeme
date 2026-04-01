@@ -262,11 +262,11 @@ export interface UserProfile {
   email?: string | null;
   pendingEmail?: string | null;
   emailVerified?: boolean;
-  firstName?: string | null;
-  lastName?: string | null;
-  username?: string | null;
+  displayName?: string | null;
   pronouns?: string | null;
   profileImageUrl?: string | null;
+  avatarStyle?: string | null;
+  isPremium?: boolean;
   submittedFacts: FactSummary[];
   likedFacts: FactSummary[];
   favoriteHashtags: string[];
@@ -279,6 +279,7 @@ export interface UpdateProfileRequest {
    * @maxLength 80
    */
   displayName?: string;
+  avatarStyle?: string;
   /**
    * @minLength 1
    * @maxLength 80

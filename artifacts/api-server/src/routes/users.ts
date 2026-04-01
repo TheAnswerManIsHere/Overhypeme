@@ -49,7 +49,9 @@ router.get("/users/me", async (req: Request, res: Response) => {
       displayName: usersTable.displayName,
       pronouns: usersTable.pronouns,
       profileImageUrl: usersTable.profileImageUrl,
+      avatarStyle: usersTable.avatarStyle,
       emailVerifiedAt: usersTable.emailVerifiedAt,
+      membershipTier: usersTable.membershipTier,
     })
     .from(usersTable)
     .where(eq(usersTable.id, userId))
@@ -90,6 +92,8 @@ router.get("/users/me", async (req: Request, res: Response) => {
     displayName: userRow?.displayName ?? null,
     pronouns: userRow?.pronouns ?? null,
     profileImageUrl: userRow?.profileImageUrl ?? null,
+    avatarStyle: userRow?.avatarStyle ?? "bottts",
+    isPremium: userRow?.membershipTier === "premium",
     submittedFacts: submittedSummaries,
     likedFacts: likedSummaries,
     favoriteHashtags,
@@ -101,12 +105,15 @@ router.patch("/users/me", async (req: Request, res: Response) => {
   if (!req.isAuthenticated()) { res.status(401).json({ error: "Unauthorized" }); return; }
   const userId = req.user.id;
 
-  const { displayName, pronouns, email, profileImageUrl } = req.body as {
+  const { displayName, pronouns, email, profileImageUrl, avatarStyle } = req.body as {
     displayName?: string;
     pronouns?: string;
     email?: string;
     profileImageUrl?: string;
+    avatarStyle?: string;
   };
+
+  const ALLOWED_AVATAR_STYLES = ["bottts", "pixel-art", "adventurer", "identicon", "shapes", "thumbs"];
 
   const updates: Record<string, unknown> = {};
 
@@ -117,7 +124,23 @@ router.patch("/users/me", async (req: Request, res: Response) => {
     updates.displayName = trimmed;
   }
 
+  if (avatarStyle !== undefined) {
+    if (!ALLOWED_AVATAR_STYLES.includes(avatarStyle)) {
+      res.status(400).json({ error: "Invalid avatar style" }); return;
+    }
+    updates.avatarStyle = avatarStyle;
+  }
+
   if (profileImageUrl !== undefined) {
+    // Photo uploads are a premium feature
+    const [userRow] = await db
+      .select({ membershipTier: usersTable.membershipTier })
+      .from(usersTable)
+      .where(eq(usersTable.id, userId))
+      .limit(1);
+    if (userRow?.membershipTier !== "premium") {
+      res.status(403).json({ error: "Custom photo upload is a Premium feature" }); return;
+    }
     if (typeof profileImageUrl !== "string") {
       res.status(400).json({ error: "Invalid profile image URL" }); return;
     }
