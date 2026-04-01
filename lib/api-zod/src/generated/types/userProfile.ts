@@ -10,8 +10,12 @@ import type { FactSummary } from "./factSummary";
 export interface UserProfile {
   id: string;
   email?: string | null;
+  pendingEmail?: string | null;
+  emailVerified?: boolean;
   firstName?: string | null;
   lastName?: string | null;
+  username?: string | null;
+  pronouns?: string | null;
   profileImageUrl?: string | null;
   submittedFacts: FactSummary[];
   likedFacts: FactSummary[];

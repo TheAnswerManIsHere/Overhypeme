@@ -162,7 +162,6 @@ export interface FactSummary {
   upvotes: number;
   downvotes: number;
   score?: number;
-  wilsonScore?: number;
   commentCount: number;
   hashtags: string[];
   submittedBy?: string | null;
@@ -181,19 +180,8 @@ export interface ExternalLink {
   createdAt: string;
 }
 
-export interface FactVariant {
-  id: number;
-  text: string;
-  useCase?: string | null;
-  createdAt: string;
-}
-
 export type FactDetail = FactSummary & {
-  rank?: number;
   links?: ExternalLink[];
-  variants?: FactVariant[];
-  parentId?: number | null;
-  useCase?: string | null;
 };
 
 export interface FactListResponse {
@@ -272,13 +260,41 @@ export interface LinkListResponse {
 export interface UserProfile {
   id: string;
   email?: string | null;
+  pendingEmail?: string | null;
+  emailVerified?: boolean;
   firstName?: string | null;
   lastName?: string | null;
+  username?: string | null;
+  pronouns?: string | null;
   profileImageUrl?: string | null;
   submittedFacts: FactSummary[];
   likedFacts: FactSummary[];
   favoriteHashtags: string[];
   searchHistory: string[];
+}
+
+export interface UpdateProfileRequest {
+  /** @minLength 1 */
+  firstName?: string;
+  /** @minLength 1 */
+  lastName?: string;
+  /**
+   * @minLength 3
+   * @maxLength 30
+   * @pattern ^[a-zA-Z0-9_]+$
+   */
+  username?: string;
+  /**
+   * @minLength 1
+   * @maxLength 20
+   */
+  pronouns?: string;
+  email?: string;
+}
+
+export interface UpdateProfileResponse {
+  success: boolean;
+  emailVerificationPending?: boolean;
 }
 
 export interface RecordSearchRequest {

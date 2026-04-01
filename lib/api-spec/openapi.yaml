@@ -451,6 +451,41 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+    patch:
+      operationId: updateMyProfile
+      tags: [users]
+      summary: Update the current user's profile
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateProfileRequest"
+      responses:
+        "200":
+          description: Profile updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UpdateProfileResponse"
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "409":
+          description: Conflict (username or email already taken)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
 
   /users/me/search-history:
     post:
@@ -1307,10 +1342,21 @@ components:
         email:
           type: string
           nullable: true
+        pendingEmail:
+          type: string
+          nullable: true
+        emailVerified:
+          type: boolean
         firstName:
           type: string
           nullable: true
         lastName:
+          type: string
+          nullable: true
+        username:
+          type: string
+          nullable: true
+        pronouns:
           type: string
           nullable: true
         profileImageUrl:
@@ -1332,6 +1378,37 @@ components:
           type: array
           items:
             type: string
+
+    UpdateProfileRequest:
+      type: object
+      properties:
+        firstName:
+          type: string
+          minLength: 1
+        lastName:
+          type: string
+          minLength: 1
+        username:
+          type: string
+          minLength: 3
+          maxLength: 30
+          pattern: "^[a-zA-Z0-9_]+$"
+        pronouns:
+          type: string
+          minLength: 1
+          maxLength: 20
+        email:
+          type: string
+          format: email
+
+    UpdateProfileResponse:
+      type: object
+      required: [success]
+      properties:
+        success:
+          type: boolean
+        emailVerificationPending:
+          type: boolean
 
     RecordSearchRequest:
       type: object

@@ -18,6 +18,7 @@ export const sessionsTable = pgTable(
 export const usersTable = pgTable("users", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   email: varchar("email").unique(),
+  pendingEmail: varchar("pending_email"),
   firstName: varchar("first_name"),
   lastName: varchar("last_name"),
   displayName: varchar("display_name"),
@@ -44,6 +45,7 @@ export const emailVerificationTokensTable = pgTable(
     id: serial("id").primaryKey(),
     userId: varchar("user_id").notNull().references(() => usersTable.id, { onDelete: "cascade" }),
     tokenHash: text("token_hash").notNull(),
+    pendingEmail: varchar("pending_email"),
     expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
     usedAt: timestamp("used_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),

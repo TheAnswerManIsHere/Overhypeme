@@ -31,8 +31,9 @@ export default function VerifyEmail() {
             setStatus("already");
             setMessage("Your email is already verified.");
           } else {
-            setStatus("success");
-            setMessage(data.message ?? "Email verified successfully!");
+            // Redirect to profile with success indicator
+            setLocation("/profile?emailVerified=1");
+            return;
           }
         } else {
           setStatus("error");

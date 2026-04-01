@@ -3,7 +3,7 @@ import { useLocation } from "wouter";
 import { Layout } from "@/components/layout/Layout";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
-import { LogIn, UserPlus, ArrowLeft, Loader2 } from "lucide-react";
+import { LogIn, UserPlus, ArrowLeft, Loader2, Mail } from "lucide-react";
 
 const STORAGE_KEY_NAME    = "fact_db_name";
 const STORAGE_KEY_SUBJECT = "fact_db_pronoun_subject";
@@ -79,6 +79,7 @@ export default function Login() {
   const [pronounsLoading, setPronounsLoading] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [registeredEmail, setRegisteredEmail] = useState<string | null>(null);
   const resetSuccess = getResetSuccess();
 
   const pronounsManuallyEditedRef = useRef(false);
@@ -182,6 +183,11 @@ export default function Login() {
         localStorage.setItem("auth_token", data.sid);
       }
 
+      if (mode === "register" && email) {
+        setRegisteredEmail(email);
+        return;
+      }
+
       window.location.href = "/";
     } catch {
       setError("Network error. Please try again.");
@@ -198,6 +204,42 @@ export default function Login() {
       "width=600,height=700,menubar=no,toolbar=no",
     );
   };
+
+  if (registeredEmail) {
+    return (
+      <Layout>
+        <div className="min-h-[80vh] flex items-center justify-center px-4">
+          <div className="w-full max-w-md">
+            <div className="bg-card border-2 border-border rounded-sm p-10 shadow-lg text-center">
+              <Mail className="w-16 h-16 text-primary mx-auto mb-5" />
+              <h1 className="font-display text-2xl font-bold text-foreground tracking-wider mb-3">
+                CHECK YOUR EMAIL
+              </h1>
+              <p className="text-muted-foreground mb-2">
+                We sent a verification link to:
+              </p>
+              <p className="text-foreground font-bold mb-6">{registeredEmail}</p>
+              <p className="text-muted-foreground text-sm mb-8">
+                Click the link in the email to verify your account. You can browse in the meantime, but some features require a verified email.
+              </p>
+              <Button variant="primary" className="w-full mb-3" onClick={() => { window.location.href = "/"; }}>
+                CONTINUE BROWSING
+              </Button>
+              <button
+                className="text-xs text-muted-foreground hover:text-foreground underline transition-colors"
+                onClick={async () => {
+                  await fetch("/api/auth/resend-verification", { method: "POST", credentials: "include" });
+                  alert("Verification email resent. Please check your inbox.");
+                }}
+              >
+                Didn't receive it? Resend verification email
+              </button>
+            </div>
+          </div>
+        </div>
+      </Layout>
+    );
+  }
 
   return (
     <Layout>

@@ -133,7 +133,6 @@ export const ListFactsResponse = zod.object({
       upvotes: zod.number(),
       downvotes: zod.number(),
       score: zod.number().optional(),
-      wilsonScore: zod.number().optional(),
       commentCount: zod.number(),
       hashtags: zod.array(zod.string()),
       submittedBy: zod.string().nullish(),
@@ -179,8 +178,6 @@ export const GetFactResponse = zod
     upvotes: zod.number(),
     downvotes: zod.number(),
     score: zod.number().optional(),
-    wilsonScore: zod.number().optional(),
-    rank: zod.number().optional(),
     commentCount: zod.number(),
     hashtags: zod.array(zod.string()),
     submittedBy: zod.string().nullish(),
@@ -203,18 +200,6 @@ export const GetFactResponse = zod
           }),
         )
         .optional(),
-      variants: zod
-        .array(
-          zod.object({
-            id: zod.number(),
-            text: zod.string(),
-            useCase: zod.string().nullish(),
-            createdAt: zod.string(),
-          }),
-        )
-        .optional(),
-      parentId: zod.number().nullish(),
-      useCase: zod.string().nullish(),
     }),
   );
 
@@ -334,8 +319,12 @@ export const ListHashtagsResponse = zod.object({
 export const GetMyProfileResponse = zod.object({
   id: zod.string(),
   email: zod.string().nullish(),
+  pendingEmail: zod.string().nullish(),
+  emailVerified: zod.boolean().optional(),
   firstName: zod.string().nullish(),
   lastName: zod.string().nullish(),
+  username: zod.string().nullish(),
+  pronouns: zod.string().nullish(),
   profileImageUrl: zod.string().nullish(),
   submittedFacts: zod.array(
     zod.object({
@@ -344,7 +333,6 @@ export const GetMyProfileResponse = zod.object({
       upvotes: zod.number(),
       downvotes: zod.number(),
       score: zod.number().optional(),
-      wilsonScore: zod.number().optional(),
       commentCount: zod.number(),
       hashtags: zod.array(zod.string()),
       submittedBy: zod.string().nullish(),
@@ -360,7 +348,6 @@ export const GetMyProfileResponse = zod.object({
       upvotes: zod.number(),
       downvotes: zod.number(),
       score: zod.number().optional(),
-      wilsonScore: zod.number().optional(),
       commentCount: zod.number(),
       hashtags: zod.array(zod.string()),
       submittedBy: zod.string().nullish(),
@@ -371,6 +358,34 @@ export const GetMyProfileResponse = zod.object({
   ),
   favoriteHashtags: zod.array(zod.string()),
   searchHistory: zod.array(zod.string()),
+});
+
+/**
+ * @summary Update the current user's profile
+ */
+
+export const updateMyProfileBodyUsernameMin = 3;
+export const updateMyProfileBodyUsernameMax = 30;
+
+export const updateMyProfileBodyUsernameRegExp = new RegExp("^[a-zA-Z0-9_]+$");
+export const updateMyProfileBodyPronounsMax = 20;
+
+export const UpdateMyProfileBody = zod.object({
+  firstName: zod.string().min(1).optional(),
+  lastName: zod.string().min(1).optional(),
+  username: zod
+    .string()
+    .min(updateMyProfileBodyUsernameMin)
+    .max(updateMyProfileBodyUsernameMax)
+    .regex(updateMyProfileBodyUsernameRegExp)
+    .optional(),
+  pronouns: zod.string().min(1).max(updateMyProfileBodyPronounsMax).optional(),
+  email: zod.string().email().optional(),
+});
+
+export const UpdateMyProfileResponse = zod.object({
+  success: zod.boolean(),
+  emailVerificationPending: zod.boolean().optional(),
 });
 
 /**

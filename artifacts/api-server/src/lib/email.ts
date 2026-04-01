@@ -69,6 +69,26 @@ export function buildEmailVerificationEmail(verifyUrl: string): Pick<EmailPayloa
   return { subject, text, html };
 }
 
+export function buildEmailChangeVerificationEmail(pendingEmail: string, verifyUrl: string): Pick<EmailPayload, "subject" | "text" | "html"> {
+  const subject = "Confirm your new email address — Overhype.me";
+  const text = `You requested to change your Overhype.me email address to: ${pendingEmail}\n\nPlease confirm this change by clicking the link below. This link is valid for 24 hours.\n\n${verifyUrl}\n\nIf you did not request this change, you can safely ignore this email — your email address will remain unchanged.\n\n— The Overhype.me Team`;
+  const html = `
+    <h2>Confirm your new email address</h2>
+    <p>You requested to change your Overhype.me email address to: <strong>${pendingEmail}</strong></p>
+    <p>Please confirm this change by clicking the button below. This link is valid for <strong>24 hours</strong>.</p>
+    <p style="margin:24px 0;">
+      <a href="${verifyUrl}" style="background:#f59e0b;color:#000;padding:12px 24px;border-radius:4px;text-decoration:none;font-weight:bold;display:inline-block;">
+        Confirm New Email
+      </a>
+    </p>
+    <p style="font-size:0.85em;color:#666;">Or copy this link into your browser:<br>${verifyUrl}</p>
+    <hr style="margin:24px 0;border:none;border-top:1px solid #eee;" />
+    <p style="font-size:0.85em;color:#888;">If you did not request this change, you can safely ignore this email — your email address will remain unchanged.</p>
+    <p>— The Overhype.me Team</p>
+  `;
+  return { subject, text, html };
+}
+
 export function buildReviewApprovedEmail(opts: {
   username: string;
   submittedText: string;
