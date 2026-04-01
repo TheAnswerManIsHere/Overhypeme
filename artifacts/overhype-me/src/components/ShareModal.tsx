@@ -262,7 +262,7 @@ export function ShareModal({ open, onClose }: ShareModalProps) {
 
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="sm:max-w-md bg-background border-border">
+      <DialogContent className="sm:max-w-md bg-background border-border max-h-[90vh] overflow-y-auto">
         {step === "identity" ? (
           <>
             <DialogHeader>
@@ -350,8 +350,8 @@ export function ShareModal({ open, onClose }: ShareModalProps) {
                 <label className="block text-xs font-bold text-muted-foreground uppercase tracking-wider mb-2">
                   Copy Link
                 </label>
-                <div className="flex gap-2 items-center">
-                  <div className="flex-1 bg-secondary border border-border rounded-sm px-3 py-2 text-xs text-muted-foreground font-mono truncate select-all">
+                <div className="flex gap-2 items-center min-w-0">
+                  <div className="flex-1 min-w-0 bg-secondary border border-border rounded-sm px-3 py-2 text-xs text-muted-foreground font-mono truncate select-all">
                     {shareUrl}
                   </div>
                   <button
@@ -421,14 +421,14 @@ export function ShareModal({ open, onClose }: ShareModalProps) {
                     </button>
                   </div>
                 ) : (
-                  <div className="flex gap-2">
+                  <div className="flex gap-2 min-w-0">
                     <input
                       type="email"
                       value={recipientEmail}
                       onChange={(e) => setRecipientEmail(e.target.value)}
                       onKeyDown={(e) => e.key === "Enter" && !sending && handleSendEmail()}
                       placeholder={`${recipientName.toLowerCase().split(" ")[0] ?? "friend"}@example.com`}
-                      className="flex-1 bg-secondary border border-border rounded-sm px-3 py-2 text-sm text-foreground outline-none focus:border-primary transition-colors placeholder:text-muted-foreground"
+                      className="flex-1 min-w-0 bg-secondary border border-border rounded-sm px-3 py-2 text-sm text-foreground outline-none focus:border-primary transition-colors placeholder:text-muted-foreground"
                     />
                     <Button
                       variant="primary"
