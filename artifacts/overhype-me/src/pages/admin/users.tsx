@@ -11,7 +11,6 @@ interface User {
   firstName: string | null;
   lastName: string | null;
   displayName: string | null;
-  username: string | null;
   profileImageUrl: string | null;
   isAdmin: boolean;
   captchaVerified: boolean;
@@ -30,7 +29,7 @@ interface UsersResponse {
   limit: number;
 }
 
-type EditDraft = Pick<User, "firstName" | "lastName" | "displayName" | "email" | "username" | "isAdmin" | "captchaVerified" | "membershipTier" | "pronouns">;
+type EditDraft = Pick<User, "firstName" | "lastName" | "displayName" | "email" | "isAdmin" | "captchaVerified" | "membershipTier" | "pronouns">;
 
 const LIMIT = 50;
 
@@ -55,7 +54,7 @@ function ReadOnlyField({ label, value }: { label: string; value: string }) {
 
 function displayName(u: User) {
   if (u.firstName || u.lastName) return [u.firstName, u.lastName].filter(Boolean).join(" ");
-  return u.username ?? u.email ?? u.id.slice(0, 12) + "…";
+  return u.email ?? u.id.slice(0, 12) + "…";
 }
 
 interface AddUserForm {
@@ -64,7 +63,6 @@ interface AddUserForm {
   firstName: string;
   lastName: string;
   displayName: string;
-  username: string;
   membershipTier: "free" | "premium";
   isAdmin: boolean;
 }
@@ -75,7 +73,6 @@ const EMPTY_ADD_FORM: AddUserForm = {
   firstName: "",
   lastName: "",
   displayName: "",
-  username: "",
   membershipTier: "free",
   isAdmin: false,
 };
@@ -131,7 +128,6 @@ export default function AdminUsers() {
       lastName: user.lastName ?? "",
       displayName: user.displayName ?? "",
       email: user.email ?? "",
-      username: user.username ?? "",
       isAdmin: user.isAdmin,
       captchaVerified: user.captchaVerified,
       membershipTier: user.membershipTier,
@@ -180,7 +176,6 @@ export default function AdminUsers() {
           lastName: draft.lastName || null,
           displayName: draft.displayName || null,
           email: draft.email || null,
-          username: draft.username || null,
           isAdmin: draft.isAdmin,
           captchaVerified: draft.captchaVerified,
           membershipTier: draft.membershipTier,
@@ -220,7 +215,6 @@ export default function AdminUsers() {
           firstName: addForm.firstName.trim(),
           lastName: addForm.lastName.trim(),
           displayName: addForm.displayName.trim(),
-          username: addForm.username.trim() || null,
           membershipTier: addForm.membershipTier,
           isAdmin: addForm.isAdmin,
         }),
@@ -276,7 +270,7 @@ export default function AdminUsers() {
                   <div>
                     <h2 className="font-display font-bold text-foreground uppercase tracking-wide">Delete User</h2>
                     <p className="text-xs text-muted-foreground mt-0.5 truncate max-w-[220px]">
-                      {selectedUser.displayName ?? selectedUser.username ?? selectedUser.email ?? selectedUser.id}
+                      {selectedUser.displayName ?? selectedUser.email ?? selectedUser.id}
                     </p>
                   </div>
                 </div>
@@ -323,7 +317,7 @@ export default function AdminUsers() {
                 <p className="text-sm text-muted-foreground">
                   You are about to <span className="text-destructive font-semibold">permanently delete</span> all data for{" "}
                   <span className="font-medium text-foreground">
-                    {selectedUser.displayName ?? selectedUser.username ?? selectedUser.email ?? selectedUser.id}
+                    {selectedUser.displayName ?? selectedUser.email ?? selectedUser.id}
                   </span>
                   . This cannot be reversed.
                 </p>
@@ -412,15 +406,6 @@ export default function AdminUsers() {
             </div>
 
             <div>
-              <FieldLabel>Username</FieldLabel>
-              <Input
-                value={addForm.username}
-                onChange={(e) => setAddForm((f) => ({ ...f, username: e.target.value }))}
-                placeholder="username"
-              />
-            </div>
-
-            <div>
               <FieldLabel>Membership Tier</FieldLabel>
               <div className="flex gap-2">
                 {(["free", "premium"] as const).map((tier) => (
@@ -489,7 +474,7 @@ export default function AdminUsers() {
               <Input
                 value={search}
                 onChange={(e) => { setSearch(e.target.value); setPage(1); }}
-                placeholder="Search name, email, username, ID…"
+                placeholder="Search name, email, or ID…"
                 className="pl-9"
               />
             </div>
@@ -637,14 +622,6 @@ export default function AdminUsers() {
                   value={draft.email ?? ""}
                   onChange={(e) => setDraft((d) => d ? { ...d, email: e.target.value } : d)}
                   placeholder="user@example.com"
-                />
-              </div>
-              <div>
-                <FieldLabel>Username</FieldLabel>
-                <Input
-                  value={draft.username ?? ""}
-                  onChange={(e) => setDraft((d) => d ? { ...d, username: e.target.value } : d)}
-                  placeholder="username"
                 />
               </div>
             </div>

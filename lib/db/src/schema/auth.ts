@@ -23,7 +23,6 @@ export const usersTable = pgTable("users", {
   lastName: varchar("last_name"),
   displayName: varchar("display_name"),
   profileImageUrl: varchar("profile_image_url"),
-  username: varchar("username", { length: 50 }).unique(),
   passwordHash: varchar("password_hash"),
   captchaVerified: boolean("captcha_verified").notNull().default(false),
   isAdmin: boolean("is_admin").notNull().default(false),

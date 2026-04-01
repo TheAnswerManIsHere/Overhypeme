@@ -16,9 +16,11 @@ pnpm workspace monorepo using TypeScript. Each package manages its own dependenc
 - **API codegen**: Orval (from OpenAPI spec)
 - **Build**: esbuild (CJS bundle)
 
-## Project: TCNDB — The Custom Name Database
+## Project: Overhype.me
 
 A community-driven, fully personalized facts database. Facts are stored with `{First_Name}` and `{Last_Name}` tokens and render dynamically with whatever name the user sets. Live at `/`.
+
+**Auth**: Email is the primary user identifier — no username field. Login and registration both use email + password. Replit OAuth also supported.
 
 ### Feature Roadmap
 - **Task 1 (DONE)**: Core platform — facts leaderboard, search, hashtag browsing, ratings, comments, Replit Auth, hCaptcha onboarding, seeded 15 facts, admin backend

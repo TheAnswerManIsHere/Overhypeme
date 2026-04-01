@@ -27,9 +27,8 @@ function getResetSuccess(): boolean {
 export default function Login() {
   const [, setLocation] = useLocation();
   const [mode, setMode] = useState<"login" | "register">("login");
-  const [username, setUsername] = useState("");
-  const [password, setPassword] = useState("");
   const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [displayName, setDisplayName] = useState(() => getStoredName());
   const [pronouns, setPronouns] = useState(() => getStoredPronouns());
   const [error, setError] = useState("");
@@ -45,14 +44,13 @@ export default function Login() {
     try {
       const endpoint =
         mode === "login" ? "/api/auth/local-login" : "/api/auth/register";
-      const body: Record<string, string> = { username, password };
+      const body: Record<string, string> = { email, password };
       if (mode === "register") {
         if (!pronouns) {
           setError("Please select your pronouns.");
           setLoading(false);
           return;
         }
-        if (email) body.email = email;
         body.displayName = displayName;
         body.pronouns = pronouns;
       }
@@ -158,18 +156,19 @@ export default function Login() {
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
               <label className="block text-sm font-display font-bold text-muted-foreground mb-1 uppercase tracking-wider">
-                Username{mode === "register" && <span className="text-destructive ml-1">*</span>}
+                Email <span className="text-destructive">*</span>
               </label>
               <Input
-                type="text"
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
-                placeholder="Enter your username"
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="your@email.com"
                 required
-                minLength={3}
-                maxLength={30}
-                autoComplete="username"
+                autoComplete="email"
               />
+              {mode === "register" && (
+                <p className="text-xs text-muted-foreground mt-1">You'll receive a verification link at this address.</p>
+              )}
             </div>
 
             {mode === "register" && (
@@ -195,21 +194,6 @@ export default function Login() {
                     Pronouns <span className="text-destructive">*</span>
                   </label>
                   <PronounEditor value={pronouns} onChange={setPronouns} />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-display font-bold text-muted-foreground mb-1 uppercase tracking-wider">
-                    Email <span className="text-destructive">*</span>
-                  </label>
-                  <Input
-                    type="email"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    placeholder="your@email.com"
-                    required
-                    autoComplete="email"
-                  />
-                  <p className="text-xs text-muted-foreground mt-1">You'll receive a verification link at this address.</p>
                 </div>
               </>
             )}
