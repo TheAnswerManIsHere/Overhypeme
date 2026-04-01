@@ -7,10 +7,10 @@ packages:
   "tailwind-merge": "For safely merging Tailwind utility classes"
 
 images:
-  - path: "artifacts/chuck-norris-facts/public/images/hero-bg.png"
+  - path: "artifacts/overhype-me/public/images/hero-bg.png"
     description: "Gritty, dark action movie background with sparks, smoke, and dramatic cinematic lighting, deep blacks and vivid orange highlights, brutalist aesthetic"
     aspect_ratio: "16:9"
-  - path: "artifacts/chuck-norris-facts/public/images/logo.png"
+  - path: "artifacts/overhype-me/public/images/logo.png"
     description: "A tough, metallic, distressed logo emblem resembling a shattered concrete block with glowing orange edges"
     aspect_ratio: "1:1"
 

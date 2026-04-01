@@ -35,6 +35,14 @@ export async function ensureSchema(): Promise<void> {
       label: "password_reset_tokens.IDX_prt_token_hash",
       ddl: `CREATE INDEX IF NOT EXISTS "IDX_prt_token_hash" ON password_reset_tokens (token_hash)`,
     },
+    {
+      label: "facts.is_active",
+      ddl: `ALTER TABLE facts ADD COLUMN IF NOT EXISTS is_active boolean NOT NULL DEFAULT true`,
+    },
+    {
+      label: "users.is_active",
+      ddl: `ALTER TABLE users ADD COLUMN IF NOT EXISTS is_active boolean NOT NULL DEFAULT true`,
+    },
   ];
 
   for (const { label, ddl } of migrations) {
