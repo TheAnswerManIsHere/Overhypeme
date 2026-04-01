@@ -38,9 +38,11 @@ const PRONOUN_PREVIEWS: { label: string; subject: string; object: string; name: 
 ];
 
 export default function SubmitFact() {
-  const { isAuthenticated, login } = useAuth();
+  const { isAuthenticated, login, user } = useAuth();
   const [, setLocation] = useLocation();
   const { createFact } = useAppMutations();
+
+  const isPremium = user?.membershipTier === "premium";
 
   const [step, setStep] = useState<Step>("write");
 
@@ -91,10 +93,10 @@ export default function SubmitFact() {
 
   useEffect(() => {
     if (dupTimer.current) clearTimeout(dupTimer.current);
-    if (rawText.length < 20) { setDuplicate(null); return; }
+    if (rawText.length < 20 || (!captchaToken && !isPremium)) { setDuplicate(null); return; }
     dupTimer.current = setTimeout(() => { void checkDuplicate(rawText); }, 1500);
     return () => { if (dupTimer.current) clearTimeout(dupTimer.current); };
-  }, [rawText, checkDuplicate]);
+  }, [rawText, captchaToken, isPremium, checkDuplicate]);
 
   // ── Hashtag suggestions (trigger on entering step 3) ────────────────────────
   const fetchSuggestions = useCallback(async (factText: string) => {
@@ -129,6 +131,7 @@ export default function SubmitFact() {
   // ── Tokenize via AI ──────────────────────────────────────────────────────────
   async function handleTokenize() {
     if (rawText.length < 10) return;
+    if (!captchaToken && !isPremium) return;
     setTokenizing(true);
     setTokenizeError("");
     try {
@@ -210,7 +213,7 @@ export default function SubmitFact() {
     setError("");
     setServerConflict(null);
     if (!template || template.length < 5) { setError("No template to submit."); return; }
-    if (!captchaToken) { setError("Please complete the CAPTCHA."); return; }
+    if (!captchaToken && !isPremium) { setError("Please complete the CAPTCHA."); return; }
     doSubmit(false);
   }
 
@@ -350,6 +353,16 @@ export default function SubmitFact() {
                 )}
               </div>
 
+              {/* CAPTCHA — hidden for premium members */}
+              {!isPremium && (
+                <div className="pt-4 border-t-2 border-border">
+                  <label className="block font-display text-xl uppercase text-foreground mb-4">Security Clearance</label>
+                  <div className="bg-background p-4 rounded-sm border-2 border-border inline-block">
+                    <HCaptcha sitekey={HCAPTCHA_SITE_KEY} onVerify={setCaptchaToken} />
+                  </div>
+                </div>
+              )}
+
               {tokenizeError && (
                 <div className="p-4 bg-destructive/10 border-l-4 border-destructive text-destructive flex items-center gap-3 rounded-r-sm">
                   <AlertTriangle className="w-5 h-5 shrink-0" />
@@ -360,7 +373,7 @@ export default function SubmitFact() {
               <Button
                 size="lg"
                 className="w-full h-14 text-lg"
-                disabled={rawText.length < 10 || tokenizing}
+                disabled={rawText.length < 10 || tokenizing || (!captchaToken && !isPremium)}
                 onClick={() => void handleTokenize()}
               >
                 {tokenizing
@@ -554,14 +567,6 @@ export default function SubmitFact() {
                     placeholder="strength, impossible, facts"
                   />
                   <p className="text-sm text-muted-foreground mt-2">Comma separated. No # symbol needed.</p>
-                </div>
-
-                {/* CAPTCHA */}
-                <div className="pt-4 border-t-2 border-border">
-                  <label className="block font-display text-xl uppercase text-foreground mb-4">Security Clearance</label>
-                  <div className="bg-background p-4 rounded-sm border-2 border-border inline-block">
-                    <HCaptcha sitekey={HCAPTCHA_SITE_KEY} onVerify={setCaptchaToken} />
-                  </div>
                 </div>
 
                 {/* Submit */}
