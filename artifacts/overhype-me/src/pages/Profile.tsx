@@ -8,6 +8,7 @@ import { SubscriptionPanel } from "@/components/SubscriptionPanel";
 import { ShieldAlert, LogOut, Clock, ThumbsUp, FileText, Hash, Star, X, Pencil, Check, Mail, AlertTriangle, CheckCircle } from "lucide-react";
 import { Link, useLocation } from "wouter";
 import { useQueryClient } from "@tanstack/react-query";
+import { PRONOUN_PAIRS } from "@/lib/pronouns";
 
 const BASE_URL = import.meta.env.BASE_URL ?? "/";
 
@@ -283,14 +284,16 @@ export default function Profile() {
               </div>
               <div>
                 <label className="block text-sm font-bold text-muted-foreground uppercase tracking-wide mb-1">Pronouns</label>
-                <input
-                  type="text"
+                <select
                   value={draftPronouns}
                   onChange={(e) => setDraftPronouns(e.target.value)}
-                  placeholder="he/him, she/her, they/them…"
-                  maxLength={20}
-                  className="w-full bg-secondary border border-border rounded-sm px-3 py-2 text-foreground outline-none focus:border-primary transition-colors"
-                />
+                  className="w-full bg-secondary border border-border rounded-sm px-3 py-2 text-foreground outline-none focus:border-primary transition-colors appearance-none cursor-pointer"
+                >
+                  <option value="">— select pronouns —</option>
+                  {PRONOUN_PAIRS.map((p) => (
+                    <option key={p.value} value={p.value}>{p.label}</option>
+                  ))}
+                </select>
               </div>
             </div>
 

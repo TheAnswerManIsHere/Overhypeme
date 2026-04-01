@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { PRONOUN_PAIRS } from "@/lib/pronouns";
 import { AdminLayout } from "@/components/admin/AdminLayout";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
@@ -15,7 +16,7 @@ interface User {
   isAdmin: boolean;
   captchaVerified: boolean;
   membershipTier: "free" | "premium";
-  pronouns: "he/him" | "she/her" | "they/them" | null;
+  pronouns: string | null;
   stripeCustomerId: string | null;
   emailVerifiedAt: string | null;
   createdAt: string;
@@ -569,21 +570,16 @@ export default function AdminUsers() {
             {/* Pronouns */}
             <div>
               <FieldLabel>Pronouns</FieldLabel>
-              <div className="flex gap-2">
-                {(["he/him", "she/her", "they/them"] as const).map((p) => (
-                  <button
-                    key={p}
-                    onClick={() => setDraft((d) => d ? { ...d, pronouns: p } : d)}
-                    className={`flex-1 h-9 rounded-sm border text-xs font-medium transition-colors ${
-                      draft.pronouns === p
-                        ? "border-primary bg-primary/10 text-primary"
-                        : "border-border text-muted-foreground hover:border-primary/40"
-                    }`}
-                  >
-                    {p}
-                  </button>
+              <select
+                value={draft.pronouns ?? ""}
+                onChange={(e) => setDraft((d) => d ? { ...d, pronouns: e.target.value || null } : d)}
+                className="w-full bg-secondary border border-border rounded-sm px-3 py-2 text-sm text-foreground outline-none focus:border-primary transition-colors appearance-none cursor-pointer"
+              >
+                <option value="">— none —</option>
+                {PRONOUN_PAIRS.map((p) => (
+                  <option key={p.value} value={p.value}>{p.label}</option>
                 ))}
-              </div>
+              </select>
             </div>
 
             {/* Toggle flags */}
