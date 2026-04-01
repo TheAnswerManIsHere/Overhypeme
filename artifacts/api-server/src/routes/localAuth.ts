@@ -157,8 +157,8 @@ router.post("/auth/register", async (req: Request, res: Response) => {
     sanitizedPronouns = pronouns.trim().slice(0, 80);
   }
 
-  const firstNameTrimmed = typeof firstName === "string" ? firstName.trim() : "";
-  const lastNameTrimmed = typeof lastName === "string" ? lastName.trim() : "";
+  const firstNameTrimmed = typeof firstName === "string" ? firstName.trim() || null : null;
+  const lastNameTrimmed = typeof lastName === "string" ? lastName.trim() || null : null;
 
   const [user] = await db
     .insert(usersTable)
@@ -166,8 +166,8 @@ router.post("/auth/register", async (req: Request, res: Response) => {
       username,
       passwordHash,
       email: emailNormalized,
-      firstName: firstNameTrimmed || displayNameTrimmed,
-      lastName: lastNameTrimmed || null,
+      firstName: firstNameTrimmed,
+      lastName: lastNameTrimmed,
       displayName: displayNameTrimmed,
       pronouns: sanitizedPronouns,
       captchaVerified: false,
