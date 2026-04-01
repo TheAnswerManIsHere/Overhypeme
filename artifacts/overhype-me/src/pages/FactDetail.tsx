@@ -4,7 +4,6 @@ import { format } from "date-fns";
 import HCaptcha from "@hcaptcha/react-hcaptcha";
 
 import { useGetFact, useListComments, useListFactMemes, getGetFactQueryKey, getListCommentsQueryKey } from "@workspace/api-client-react";
-import type { ExternalLink } from "@workspace/api-client-react";
 import { useAuth } from "@workspace/replit-auth-web";
 import { Layout } from "@/components/layout/Layout";
 import { Button } from "@/components/ui/Button";
@@ -13,7 +12,7 @@ import { useAppMutations } from "@/hooks/use-mutations";
 import { MemeBuilder } from "@/components/MemeBuilder";
 import { MerchButtons } from "@/components/MerchButtons";
 import { AdSlot } from "@/components/AdSlot";
-import { ThumbsUp, ThumbsDown, User, Link as LinkIcon, Youtube, Instagram, AlertCircle, Trash2, ImageIcon, GitBranch, ArrowLeft } from "lucide-react";
+import { ThumbsUp, ThumbsDown, User, AlertCircle, ImageIcon, GitBranch, ArrowLeft } from "lucide-react";
 import { cn } from "@/components/ui/Button";
 import { usePersonName } from "@/hooks/use-person-name";
 import { renderFact } from "@/lib/render-fact";
@@ -122,7 +121,7 @@ export default function FactDetail() {
   const factId = parseInt(params?.id || "0", 10);
   const [, setLocation] = useLocation();
   const { isAuthenticated, user } = useAuth();
-  const { rateFact, addComment, deleteLink } = useAppMutations();
+  const { rateFact, addComment } = useAppMutations();
 
   const { data: fact, isLoading: factLoading, error: factError } = useGetFact(factId, {
     query: { queryKey: getGetFactQueryKey(factId), enabled: !!factId }
@@ -328,45 +327,6 @@ export default function FactDetail() {
               ))}
               {commentsData?.comments.length === 0 && (
                 <p className="text-muted-foreground py-8 text-center border-2 border-dashed border-border rounded-sm">No intel submitted yet.</p>
-              )}
-            </div>
-          </div>
-
-          {/* Links Section */}
-          <div className="space-y-6">
-            <div className="flex items-center justify-between border-b-2 border-border pb-2">
-              <h3 className="text-xl font-display uppercase tracking-wide">Source Links</h3>
-            </div>
-
-            <div className="space-y-3">
-              {fact.links?.map(link => {
-                const isYoutube = link.url.includes("youtube.com") || link.url.includes("youtu.be");
-                const isInsta = link.url.includes("instagram.com");
-                return (
-                  <div key={link.id} className="group relative bg-card border-2 border-border p-3 rounded-sm hover:border-primary/50 transition-colors flex items-center justify-between">
-                    <a href={link.url} target="_blank" rel="noreferrer" className="flex items-center gap-3 overflow-hidden">
-                      <div className="shrink-0 w-8 h-8 bg-background flex items-center justify-center rounded-sm">
-                        {isYoutube ? <Youtube className="w-4 h-4 text-red-500" /> : isInsta ? <Instagram className="w-4 h-4 text-pink-500" /> : <LinkIcon className="w-4 h-4 text-primary" />}
-                      </div>
-                      <span className="text-sm font-medium text-foreground truncate hover:underline underline-offset-4 decoration-primary">
-                        {link.title || new URL(link.url).hostname.replace("www.", "")}
-                      </span>
-                    </a>
-
-                    {isAuthenticated && user?.id === (link as ExternalLink & { addedById?: string | null }).addedById && (
-                      <button
-                        onClick={() => deleteLink.mutate({ factId, linkId: link.id })}
-                        disabled={deleteLink.isPending}
-                        className="opacity-0 group-hover:opacity-100 shrink-0 p-2 text-muted-foreground hover:text-destructive transition-all"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    )}
-                  </div>
-                );
-              })}
-              {fact.links?.length === 0 && (
-                <p className="text-muted-foreground text-sm py-4 italic">No external sources documented.</p>
               )}
             </div>
           </div>
