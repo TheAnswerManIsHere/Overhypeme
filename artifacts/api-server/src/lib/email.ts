@@ -49,6 +49,26 @@ export async function sendEmail(payload: EmailPayload): Promise<void> {
   }
 }
 
+export function buildEmailVerificationEmail(verifyUrl: string): Pick<EmailPayload, "subject" | "text" | "html"> {
+  const subject = "Verify your email — Overhype.me";
+  const text = `Welcome to Overhype.me!\n\nPlease verify your email address by clicking the link below. This link is valid for 24 hours.\n\n${verifyUrl}\n\nIf you did not create this account, you can safely ignore this email.\n\n— The Overhype.me Team`;
+  const html = `
+    <h2>Welcome to Overhype.me!</h2>
+    <p>Please verify your email address to complete your registration.</p>
+    <p style="margin:24px 0;">
+      <a href="${verifyUrl}" style="background:#f59e0b;color:#000;padding:12px 24px;border-radius:4px;text-decoration:none;font-weight:bold;display:inline-block;">
+        Verify My Email
+      </a>
+    </p>
+    <p style="font-size:0.85em;color:#666;">Or copy this link into your browser:<br>${verifyUrl}</p>
+    <p style="font-size:0.85em;color:#666;">This link is valid for <strong>24 hours</strong>.</p>
+    <hr style="margin:24px 0;border:none;border-top:1px solid #eee;" />
+    <p style="font-size:0.85em;color:#888;">If you did not create an Overhype.me account, you can safely ignore this email.</p>
+    <p>— The Overhype.me Team</p>
+  `;
+  return { subject, text, html };
+}
+
 export function buildReviewApprovedEmail(opts: {
   username: string;
   submittedText: string;

@@ -27,6 +27,7 @@ import Login from "@/pages/Login";
 import Hashtags from "@/pages/Hashtags";
 import ForgotPassword from "@/pages/ForgotPassword";
 import ResetPassword from "@/pages/ResetPassword";
+import VerifyEmail from "@/pages/VerifyEmail";
 import NotFound from "@/pages/not-found";
 
 const queryClient = new QueryClient({
@@ -71,6 +72,7 @@ function Router() {
         <Route path="/hashtags" component={Hashtags} />
         <Route path="/forgot-password" component={ForgotPassword} />
         <Route path="/reset-password" component={ResetPassword} />
+        <Route path="/verify-email" component={VerifyEmail} />
         <Route component={NotFound} />
       </Switch>
     </>

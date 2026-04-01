@@ -59,6 +59,25 @@ export async function ensureSchema(): Promise<void> {
       label: "users.display_name",
       ddl: `ALTER TABLE users ADD COLUMN IF NOT EXISTS display_name varchar`,
     },
+    {
+      label: "users.email_verified_at",
+      ddl: `ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verified_at timestamptz`,
+    },
+    {
+      label: "email_verification_tokens table",
+      ddl: `CREATE TABLE IF NOT EXISTS email_verification_tokens (
+        id serial PRIMARY KEY,
+        user_id varchar NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        token_hash text NOT NULL,
+        expires_at timestamptz NOT NULL,
+        used_at timestamptz,
+        created_at timestamptz NOT NULL DEFAULT now()
+      )`,
+    },
+    {
+      label: "email_verification_tokens.IDX_evt_token_hash",
+      ddl: `CREATE INDEX IF NOT EXISTS "IDX_evt_token_hash" ON email_verification_tokens (token_hash)`,
+    },
   ];
 
   for (const { label, ddl } of migrations) {
