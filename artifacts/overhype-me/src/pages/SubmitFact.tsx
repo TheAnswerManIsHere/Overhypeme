@@ -8,9 +8,9 @@ import { Button } from "@/components/ui/Button";
 import { Textarea, Input } from "@/components/ui/Input";
 import { renderFact } from "@/lib/render-fact";
 import {
-  ShieldAlert, AlertTriangle, Sparkles, Copy, Loader2,
-  CheckCircle2, ChevronRight, ChevronLeft, Pencil, ClipboardList,
-  GitBranch,
+  ShieldAlert, AlertTriangle, Sparkles, Loader2,
+  CheckCircle2, ChevronRight, ChevronLeft, CheckCheck,
+  ChevronDown, ChevronUp, GitBranch,
 } from "lucide-react";
 
 const HCAPTCHA_SITE_KEY =
@@ -41,17 +41,15 @@ export default function SubmitFact() {
 
   const [step, setStep] = useState<Step>("write");
 
-  // Step 1: raw input
   const [rawText, setRawText] = useState("");
   const [duplicate, setDuplicate] = useState<DuplicateResult | null>(null);
   const [checkingDuplicate, setCheckingDuplicate] = useState(false);
 
-  // Step 2: tokenization + preview
   const [template, setTemplate] = useState("");
   const [tokenizing, setTokenizing] = useState(false);
   const [tokenizeError, setTokenizeError] = useState("");
+  const [showAdvanced, setShowAdvanced] = useState(false);
 
-  // Step 3: hashtags / submit
   const [hashtagsStr, setHashtagsStr] = useState("");
   const [captchaToken, setCaptchaToken] = useState("");
   const [suggestedTags, setSuggestedTags] = useState<string[]>([]);
@@ -66,7 +64,6 @@ export default function SubmitFact() {
   const tagTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastSuggestedTextRef = useRef("");
 
-  // ── Duplicate check ──────────────────────────────────────────────────────────
   const checkDuplicate = useCallback(async (factText: string) => {
     if (factText.length < 20) { setDuplicate(null); return; }
     setCheckingDuplicate(true);
@@ -79,7 +76,6 @@ export default function SubmitFact() {
       });
       if (r.ok) {
         const data: DuplicateResult = await r.json();
-        // Always show the closest match (any score) so we can tune the threshold
         setDuplicate(data.matchingFactId && data.confidence > 0 ? data : null);
       }
     } catch { setDuplicate(null); }
@@ -93,7 +89,6 @@ export default function SubmitFact() {
     return () => { if (dupTimer.current) clearTimeout(dupTimer.current); };
   }, [rawText, checkDuplicate]);
 
-  // ── Hashtag suggestions (trigger on entering step 3) ────────────────────────
   const fetchSuggestions = useCallback(async (factText: string) => {
     if (factText.length < 20) return;
     lastSuggestedTextRef.current = factText;
@@ -129,16 +124,16 @@ export default function SubmitFact() {
     if (step !== "submit") return;
     if (tagTimer.current) clearTimeout(tagTimer.current);
     if (suggestionsLoaded) return;
-    tagTimer.current = setTimeout(() => { void fetchSuggestions(rawText); }, 800);
+    tagTimer.current = setTimeout(() => { void fetchSuggestions(template || rawText); }, 800);
     return () => { if (tagTimer.current) clearTimeout(tagTimer.current); };
-  }, [step, rawText, suggestionsLoaded, fetchSuggestions]);
+  }, [step, template, rawText, suggestionsLoaded, fetchSuggestions]);
 
-  // ── Tokenize via AI ──────────────────────────────────────────────────────────
   async function handleTokenize() {
     if (rawText.length < 10) return;
     if (!captchaToken && !isPremium) return;
     setTokenizing(true);
     setTokenizeError("");
+    setDuplicate(null);
     const sanitizedText = rawText.replace(/[{}]/g, "");
     try {
       const r = await fetch("/api/ai/tokenize-fact", {
@@ -149,14 +144,12 @@ export default function SubmitFact() {
       });
       const data = await r.json() as { template?: string; error?: string };
       if (!r.ok || !data.template) {
-        setTokenizeError(data.error ?? "Tokenization failed — please try again.");
+        setTokenizeError(data.error ?? "Something went wrong — please try again.");
         return;
       }
       setTemplate(data.template);
+      setShowAdvanced(false);
       setStep("preview");
-      // Re-run duplicate check with the tokenized template — the server will
-      // canonicalize tokens (replacing {NAME} → Alex, etc.) before embedding,
-      // giving a much more accurate apples-to-apples comparison.
       void checkDuplicate(data.template);
     } catch {
       setTokenizeError("Network error — please try again.");
@@ -165,7 +158,6 @@ export default function SubmitFact() {
     }
   }
 
-  // ── Submit (always routes through review queue) ──────────────────────────────
   const getTags = () => {
     const manual = hashtagsStr.split(",").map((t) => t.trim().replace(/^#/, "")).filter(Boolean);
     const auto = Array.from(acceptedTags);
@@ -229,44 +221,42 @@ export default function SubmitFact() {
     setAcceptedTags(new Set(suggestedTags.filter((t) => inputTags.includes(t))));
   };
 
-  // ── Not logged in ────────────────────────────────────────────────────────────
   if (!isAuthenticated) {
     return (
       <Layout>
         <div className="max-w-2xl mx-auto px-4 py-24 text-center">
           <ShieldAlert className="w-20 h-20 text-primary mx-auto mb-6 opacity-80" />
           <h1 className="text-4xl font-display uppercase mb-4 text-foreground">Restricted Area</h1>
-          <p className="text-muted-foreground text-lg mb-8">You must be logged in to submit facts to the database.</p>
+          <p className="text-muted-foreground text-xl mb-8">You must be logged in to submit facts.</p>
           <div className="flex gap-4 justify-center">
-            <Button size="lg" onClick={() => setLocation("/login")}>IDENTIFY YOURSELF (LOGIN)</Button>
-            <Button size="lg" variant="outline" onClick={() => setLocation("/")}>GO BACK</Button>
+            <Button size="lg" onClick={() => setLocation("/login")}>Login to Continue</Button>
+            <Button size="lg" variant="outline" onClick={() => setLocation("/")}>Go Back</Button>
           </div>
         </div>
       </Layout>
     );
   }
 
-  // ── Submitted ─────────────────────────────────────────────────────────────────
   if (submitted) {
     return (
       <Layout>
         <div className="max-w-2xl mx-auto px-4 py-24 text-center">
-          <CheckCircle2 className="w-20 h-20 text-green-500 mx-auto mb-6" />
-          <h1 className="text-4xl font-display uppercase mb-4 text-foreground">Submitted for Review</h1>
-          <p className="text-muted-foreground text-lg mb-2">
-            Your fact is in the queue. An admin will review it shortly.
+          <CheckCircle2 className="w-24 h-24 text-green-500 mx-auto mb-6" />
+          <h1 className="text-5xl font-display uppercase mb-4 text-foreground">You're Done!</h1>
+          <p className="text-muted-foreground text-xl mb-2">
+            Your fact is in the queue for review.
           </p>
-          <p className="text-muted-foreground text-sm mb-8">
-            You'll see status updates in your{" "}
+          <p className="text-muted-foreground mb-8">
+            Check your{" "}
             <Link href="/activity" className="text-primary underline hover:opacity-80">
               activity feed
             </Link>{" "}
-            once it's approved or declined.
+            to see when it goes live.
           </p>
-          {duplicate && (
-            <div className="mb-8 p-4 bg-amber-500/10 border border-amber-500/30 rounded-sm text-sm text-amber-600 dark:text-amber-400">
+          {duplicate?.isDuplicate && (
+            <div className="mb-8 p-4 bg-amber-500/10 border border-amber-500/30 rounded-sm text-amber-600 dark:text-amber-400">
               <GitBranch className="w-4 h-4 inline mr-1.5" />
-              Your fact was flagged as a potential variant of an existing entry. The admin will decide whether to keep it as a linked variant.
+              Your fact was flagged as similar to an existing one. The moderator will decide how to handle it.
             </div>
           )}
           <div className="flex gap-4 justify-center">
@@ -286,65 +276,78 @@ export default function SubmitFact() {
     );
   }
 
-  // ── Step indicator ───────────────────────────────────────────────────────────
   const steps: { id: Step; label: string }[] = [
-    { id: "write",   label: "1. Write" },
-    { id: "preview", label: "2. Preview" },
-    { id: "submit",  label: "3. Submit" },
+    { id: "write",   label: "Write" },
+    { id: "preview", label: "Preview" },
+    { id: "submit",  label: "Submit" },
   ];
   const stepIndex = steps.findIndex((s) => s.id === step);
 
   return (
     <Layout>
-      <div className="max-w-3xl mx-auto px-4 py-12 md:py-20">
-        <div className="mb-10 text-center">
-          <h1 className="text-5xl font-display uppercase tracking-wider text-foreground mb-4">Submit Protocol</h1>
-          <p className="text-muted-foreground text-lg max-w-xl mx-auto">
-            Write your fact in plain English. AI converts it to a personalized template that works for any name and pronouns.
+      <div className="max-w-2xl mx-auto px-4 py-12 md:py-16">
+
+        {/* Header */}
+        <div className="mb-8 text-center">
+          <h1 className="text-4xl md:text-5xl font-display uppercase tracking-wider text-foreground mb-3">
+            Submit a Fact
+          </h1>
+          <p className="text-muted-foreground text-lg">
+            Write it about anyone. We'll make it work for everyone.
           </p>
         </div>
 
         {/* Step indicator */}
-        <div className="flex items-center justify-center gap-0 mb-10">
+        <div className="flex items-center justify-center mb-8">
           {steps.map((s, i) => (
             <div key={s.id} className="flex items-center">
-              <div className={`px-4 py-1.5 text-sm font-bold uppercase tracking-wider rounded-sm border transition-colors ${
+              <div className={`flex items-center gap-2 px-5 py-2 rounded-full text-sm font-bold tracking-wide transition-all ${
                 step === s.id
-                  ? "bg-primary text-primary-foreground border-primary"
+                  ? "bg-primary text-primary-foreground"
                   : stepIndex > i
-                  ? "bg-green-500/10 text-green-500 border-green-500/40"
-                  : "bg-background text-muted-foreground border-border"
+                  ? "text-green-500"
+                  : "text-muted-foreground"
               }`}>
-                {stepIndex > i ? "✓ " : ""}{s.label}
+                {stepIndex > i
+                  ? <CheckCheck className="w-4 h-4" />
+                  : <span className="w-5 h-5 rounded-full border-2 flex items-center justify-center text-xs
+                      border-current">{i + 1}</span>
+                }
+                {s.label}
               </div>
-              {i < steps.length - 1 && <div className="w-8 h-px bg-border" />}
+              {i < steps.length - 1 && (
+                <div className={`w-10 h-px mx-1 ${stepIndex > i ? "bg-green-500/40" : "bg-border"}`} />
+              )}
             </div>
           ))}
         </div>
 
-        <div className="bg-card border-2 border-border p-6 md:p-10 rounded-sm shadow-2xl relative overflow-hidden">
-          <div className="absolute top-0 left-0 w-full h-2 bg-gradient-to-r from-primary to-destructive" />
+        <div className="bg-card border border-border rounded-xl shadow-xl overflow-hidden">
+          <div className="h-1 bg-gradient-to-r from-primary to-primary/40" />
 
-          {/* ── STEP 1: WRITE ───────────────────────────────────────────────── */}
+          {/* ── STEP 1: WRITE ─────────────────────────────────────────────────── */}
           {step === "write" && (
-            <div className="space-y-6">
-              {/* CAPTCHA — must be completed before typing; hidden for premium members */}
+            <div className="p-6 md:p-10 space-y-8">
+
+              {/* Captcha gate */}
               {!isPremium && (
-                <div className={`pb-6 border-b-2 ${captchaToken ? "border-green-500/40" : "border-border"}`}>
-                  <div className="flex items-center gap-3 mb-4">
-                    <label className="block font-display text-xl uppercase text-foreground">Security Clearance</label>
+                <div className={`rounded-lg p-5 border-2 ${captchaToken ? "border-green-500/30 bg-green-500/5" : "border-border bg-background/50"}`}>
+                  <div className="flex items-center gap-3 mb-1">
+                    <span className="text-lg font-bold text-foreground">
+                      {captchaToken ? "✓ Verified" : "Quick Verification"}
+                    </span>
                     {captchaToken && (
-                      <span className="text-xs font-bold uppercase tracking-wider text-green-500 bg-green-500/10 border border-green-500/30 px-2 py-0.5 rounded-sm">
-                        ✓ Cleared
+                      <span className="text-xs font-bold uppercase tracking-wider text-green-500 bg-green-500/10 px-2 py-0.5 rounded-full">
+                        Ready
                       </span>
                     )}
                   </div>
                   {captchaToken ? (
-                    <p className="text-sm text-muted-foreground">Verification passed. You can now write your fact below.</p>
+                    <p className="text-muted-foreground">You're verified — write your fact below.</p>
                   ) : (
                     <>
-                      <p className="text-sm text-muted-foreground mb-4">Complete the verification below to unlock the fact field.</p>
-                      <div className="bg-background p-4 rounded-sm border-2 border-border inline-block">
+                      <p className="text-muted-foreground mb-4">Complete this once to unlock submission.</p>
+                      <div className="bg-background rounded-lg border border-border inline-block p-3">
                         <HCaptcha sitekey={HCAPTCHA_SITE_KEY} onVerify={setCaptchaToken} />
                       </div>
                     </>
@@ -352,68 +355,31 @@ export default function SubmitFact() {
                 </div>
               )}
 
+              {/* Fact input */}
               <div>
-                <label className="block font-display text-xl uppercase text-foreground mb-2">The Fact</label>
-                <div className="relative">
-                  <Textarea
-                    value={rawText}
-                    onChange={(e) => setRawText(e.target.value)}
-                    placeholder={
-                      !captchaToken && !isPremium
-                        ? "Complete the Security Clearance above to unlock this field."
-                        : 'Write the fact using any name — e.g. "When John does pushups, he doesn\'t push himself up, he pushes the Earth down."'
-                    }
-                    className={`text-lg min-h-[160px] transition-opacity ${!captchaToken && !isPremium ? "opacity-40 cursor-not-allowed" : ""}`}
-                    disabled={!captchaToken && !isPremium}
-                  />
-                </div>
-                <div className="flex items-center justify-between mt-2">
-                  <p className="text-sm text-muted-foreground">
-                    Plain English is fine. AI will detect pronouns and verb forms automatically.
-                  </p>
-                  {checkingDuplicate && (
-                    <span className="text-xs text-muted-foreground flex items-center gap-1 shrink-0 ml-4">
-                      <Loader2 className="w-3 h-3 animate-spin" /> Checking…
-                    </span>
-                  )}
-                </div>
-
-                {duplicate && (
-                  <div className={`mt-4 p-5 rounded-sm border-l-4 ${duplicate.isDuplicate ? "bg-red-500/10 border-red-500" : "bg-amber-500/10 border-amber-500"}`}>
-                    <div className="flex items-start gap-3">
-                      <Copy className={`w-6 h-6 shrink-0 mt-0.5 ${duplicate.isDuplicate ? "text-red-500" : "text-amber-500"}`} />
-                      <div className="flex-1 min-w-0">
-                        <p className={`font-bold text-lg ${duplicate.isDuplicate ? "text-red-600 dark:text-red-400" : "text-amber-600 dark:text-amber-400"}`}>
-                          {duplicate.isDuplicate
-                            ? "⚠ Possible duplicate detected — an accurate score will appear after tokenization"
-                            : "Similar entry found — an accurate score will appear after tokenization"}
-                        </p>
-                        {duplicate.matchingFactId && (
-                          <>
-                            <p className="text-base mt-3 text-foreground/80 italic border-l-2 border-border pl-3">
-                              "{duplicate.matchingCanonicalText ?? duplicate.matchingFactText}"
-                            </p>
-                            <a
-                              href={`/facts/${duplicate.matchingFactId}`}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="text-sm text-primary underline mt-2 block hover:opacity-80"
-                            >
-                              View existing fact in new tab →
-                            </a>
-                          </>
-                        )}
-                        <p className="text-sm mt-3 text-muted-foreground">
-                          You can still continue and submit — the admin makes the final call on whether to approve or reject it.
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-                )}
+                <label className="block text-xl font-bold text-foreground mb-2">
+                  Write your fact
+                </label>
+                <p className="text-muted-foreground mb-4">
+                  Use any real name. Our AI will convert it into a universal template that works for any person.
+                </p>
+                <Textarea
+                  value={rawText}
+                  onChange={(e) => setRawText(e.target.value)}
+                  placeholder={
+                    !captchaToken && !isPremium
+                      ? "Complete verification above to start writing…"
+                      : 'e.g. "When John does pushups, he doesn\'t push himself up — he pushes the Earth down."'
+                  }
+                  className={`text-lg min-h-[180px] leading-relaxed transition-opacity ${
+                    !captchaToken && !isPremium ? "opacity-40 cursor-not-allowed" : ""
+                  }`}
+                  disabled={!captchaToken && !isPremium}
+                />
               </div>
 
               {tokenizeError && (
-                <div className="p-4 bg-destructive/10 border-l-4 border-destructive text-destructive flex items-center gap-3 rounded-r-sm">
+                <div className="p-4 bg-destructive/10 border border-destructive/30 text-destructive flex items-center gap-3 rounded-lg">
                   <AlertTriangle className="w-5 h-5 shrink-0" />
                   <span>{tokenizeError}</span>
                 </div>
@@ -421,122 +387,152 @@ export default function SubmitFact() {
 
               <Button
                 size="lg"
-                className="w-full h-14 text-lg"
+                className="w-full h-14 text-lg font-bold"
                 disabled={rawText.length < 10 || tokenizing || (!captchaToken && !isPremium)}
                 onClick={() => void handleTokenize()}
               >
                 {tokenizing
-                  ? <><Loader2 className="w-5 h-5 animate-spin mr-2" /> Tokenizing…</>
-                  : <><Sparkles className="w-5 h-5 mr-2" /> TOKENIZE & PREVIEW <ChevronRight className="w-5 h-5 ml-1" /></>
+                  ? <><Loader2 className="w-5 h-5 animate-spin mr-2" /> Converting…</>
+                  : <><Sparkles className="w-5 h-5 mr-2" /> Preview <ChevronRight className="w-5 h-5 ml-1" /></>
                 }
               </Button>
             </div>
           )}
 
-          {/* ── STEP 2: PREVIEW ─────────────────────────────────────────────── */}
+          {/* ── STEP 2: PREVIEW ───────────────────────────────────────────────── */}
           {step === "preview" && (
-            <div className="space-y-6">
+            <div className="p-6 md:p-10 space-y-8">
+
+              {/* Intro */}
               <div>
-                <div className="flex items-center justify-between mb-2">
-                  <label className="font-display text-xl uppercase text-foreground">Template</label>
-                  <span className="text-xs text-muted-foreground flex items-center gap-1">
-                    <Pencil className="w-3 h-3" /> Editable — fix any AI mistakes
-                  </span>
-                </div>
-                <Textarea
-                  value={template}
-                  onChange={(e) => setTemplate(e.target.value)}
-                  className="font-mono text-sm min-h-[100px] bg-background/50"
-                />
-                <div className="mt-2 p-3 bg-background/40 rounded-sm border border-border/50 text-xs text-muted-foreground space-y-1">
-                  <p>
-                    <span className="font-bold text-foreground/70">Pronoun tokens:</span>{" "}
-                    <code className="text-primary">{"{NAME}"}</code>{" "}
-                    <code className="text-primary">{"{SUBJ}"}</code>{" "}
-                    <code className="text-primary">{"{OBJ}"}</code>{" "}
-                    <code className="text-primary">{"{POSS}"}</code>{" "}
-                    <code className="text-primary">{"{POSS_PRO}"}</code>{" "}
-                    <code className="text-primary">{"{REFL}"}</code>
-                  </p>
-                  <p>
-                    <span className="font-bold text-foreground/70">Verb conjugation:</span>{" "}
-                    <code className="text-primary">{"{does|do}"}</code>{" "}
-                    <code className="text-primary">{"{doesn't|don't}"}</code>{" "}
-                    <code className="text-primary">{"{was|were}"}</code>{" "}
-                    — left form for he/she, right for they
-                  </p>
-                  <p>
-                    <span className="font-bold text-foreground/70">Capitalize for sentence-start:</span>{" "}
-                    <code className="text-primary">{"{Subj}"}</code> → He / She / They
-                  </p>
-                </div>
+                <h2 className="text-2xl font-bold text-foreground mb-2">Does this look right?</h2>
+                <p className="text-muted-foreground text-lg leading-relaxed">
+                  The system automatically adjusts grammar so the fact sounds natural for any person —
+                  regardless of their name or pronouns. Review the three examples below and make sure they all read correctly.
+                </p>
               </div>
 
-              <div>
-                <p className="font-display text-sm uppercase text-muted-foreground mb-3 tracking-wider">Rendered Previews — verify all three</p>
-                <div className="space-y-3">
-                  {PRONOUN_PREVIEWS.map((p) => (
-                    <div key={p.label} className="rounded-sm border border-border bg-background/60 p-4">
-                      <div className="flex items-baseline gap-2 mb-2">
-                        <span className="text-xs font-bold text-primary uppercase tracking-wider">{p.label}</span>
-                        <span className="text-xs text-muted-foreground">→ {p.name}</span>
-                      </div>
-                      <p className="text-foreground font-medium leading-snug">
-                        "{renderFact(template, p.name, p.label)}"
-                      </p>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              {/* ── Duplicate / variant warning ── */}
-              {duplicate && (
-                <div className={`p-5 rounded-sm border-l-4 ${duplicate.isDuplicate ? "bg-red-500/10 border-red-500" : "bg-amber-500/10 border-amber-500"}`}>
-                  <div className="flex items-start gap-3">
-                    <GitBranch className={`w-6 h-6 shrink-0 mt-0.5 ${duplicate.isDuplicate ? "text-red-500" : "text-amber-500"}`} />
-                    <div className="flex-1 min-w-0 space-y-3">
-                      <p className={`font-bold text-lg ${duplicate.isDuplicate ? "text-red-600 dark:text-red-400" : "text-amber-600 dark:text-amber-400"}`}>
-                        {duplicate.isDuplicate
-                          ? `⚠ Very similar to an existing fact (${duplicate.confidence}% match) — likely to be rejected by the admin`
-                          : `Closest existing fact: ${duplicate.confidence}% similarity (below duplicate threshold)`}
-                      </p>
-                      {(duplicate.matchingCanonicalText ?? duplicate.matchingFactText) && (
-                        <p className="text-base text-foreground/80 italic border-l-2 border-border pl-3">
-                          "{duplicate.matchingCanonicalText ?? duplicate.matchingFactText}"
-                        </p>
-                      )}
-                      {duplicate.matchingFactId && (
-                        <a
-                          href={`/facts/${duplicate.matchingFactId}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-sm text-primary underline block hover:opacity-80"
-                        >
-                          View existing fact in new tab →
-                        </a>
-                      )}
-                      <p className="text-sm text-muted-foreground">
-                        {duplicate.isDuplicate
-                          ? "You can still submit — the admin makes the final call. If your fact adds a genuinely different angle, it may be approved as a variant."
-                          : "This score is below the automatic duplicate threshold — your submission will not be auto-flagged."}
-                      </p>
-                    </div>
-                  </div>
+              {/* Checking indicator */}
+              {checkingDuplicate && (
+                <div className="flex items-center gap-2 text-muted-foreground text-sm">
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  Checking database for similar facts…
                 </div>
               )}
 
-              <div className="flex gap-3 pt-2">
+              {/* Duplicate warning — only shown if LLM confirmed above threshold */}
+              {!checkingDuplicate && duplicate?.isDuplicate && (
+                <div className="rounded-xl border-2 border-amber-500/40 bg-amber-500/5 p-6">
+                  <p className="text-lg font-semibold text-amber-600 dark:text-amber-400 mb-4">
+                    Your fact is very similar to another fact already in the database:
+                  </p>
+                  <div className="bg-background rounded-lg border border-border px-5 py-4 mb-4">
+                    <p className="text-xl font-bold text-foreground leading-snug">
+                      "{duplicate.matchingCanonicalText ?? duplicate.matchingFactText}"
+                    </p>
+                    {duplicate.matchingFactId && (
+                      <a
+                        href={`/facts/${duplicate.matchingFactId}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-sm text-primary underline mt-3 block hover:opacity-80"
+                      >
+                        View this fact →
+                      </a>
+                    )}
+                  </div>
+                  <p className="text-muted-foreground">
+                    You may continue to submit this fact and the moderator will decide how to handle it,
+                    or just{" "}
+                    <button
+                      type="button"
+                      onClick={() => setStep("write")}
+                      className="text-foreground font-semibold underline underline-offset-2 hover:text-primary"
+                    >
+                      give up now
+                    </button>
+                    {" "}and avoid wasting everyone's time.
+                  </p>
+                </div>
+              )}
+
+              {/* Three pronoun examples — the main UI */}
+              <div className="space-y-4">
+                {PRONOUN_PREVIEWS.map((p) => (
+                  <div key={p.label} className="rounded-lg border border-border bg-background/60 p-5">
+                    <div className="flex items-center gap-3 mb-3">
+                      <span className="text-xs font-bold text-primary uppercase tracking-wider bg-primary/10 px-3 py-1 rounded-full">
+                        {p.label}
+                      </span>
+                      <span className="text-sm text-muted-foreground">{p.name}</span>
+                    </div>
+                    <p className="text-xl font-medium text-foreground leading-snug">
+                      "{renderFact(template, p.name, p.label)}"
+                    </p>
+                  </div>
+                ))}
+              </div>
+
+              {/* Advanced — collapsible template editor */}
+              <div className="border border-border rounded-lg overflow-hidden">
+                <button
+                  type="button"
+                  onClick={() => setShowAdvanced((v) => !v)}
+                  className="w-full flex items-center justify-between px-5 py-3 text-sm font-semibold text-muted-foreground hover:text-foreground hover:bg-muted/30 transition-colors"
+                >
+                  <span>Advanced — view & edit template</span>
+                  {showAdvanced ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                </button>
+                {showAdvanced && (
+                  <div className="border-t border-border p-5 space-y-4">
+                    <div>
+                      <label className="block text-sm font-semibold text-muted-foreground mb-2">
+                        Template — edit to fix any AI mistakes
+                      </label>
+                      <Textarea
+                        value={template}
+                        onChange={(e) => setTemplate(e.target.value)}
+                        className="font-mono text-sm min-h-[100px] bg-background/50"
+                      />
+                    </div>
+                    <div className="p-3 bg-muted/30 rounded-lg text-xs text-muted-foreground space-y-1.5">
+                      <p>
+                        <span className="font-bold text-foreground/70">Pronoun tokens:</span>{" "}
+                        <code className="text-primary">{"{NAME}"}</code>{" "}
+                        <code className="text-primary">{"{SUBJ}"}</code>{" "}
+                        <code className="text-primary">{"{OBJ}"}</code>{" "}
+                        <code className="text-primary">{"{POSS}"}</code>{" "}
+                        <code className="text-primary">{"{POSS_PRO}"}</code>{" "}
+                        <code className="text-primary">{"{REFL}"}</code>
+                      </p>
+                      <p>
+                        <span className="font-bold text-foreground/70">Verb forms:</span>{" "}
+                        <code className="text-primary">{"{does|do}"}</code>{" "}
+                        <code className="text-primary">{"{doesn't|don't}"}</code>{" "}
+                        <code className="text-primary">{"{was|were}"}</code>{" "}
+                        — left for he/she, right for they
+                      </p>
+                      <p>
+                        <span className="font-bold text-foreground/70">Capitalize:</span>{" "}
+                        <code className="text-primary">{"{Subj}"}</code> → He / She / They
+                      </p>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div className="flex gap-3">
                 <Button
                   variant="outline"
                   size="lg"
                   className="flex-1"
-                  onClick={() => { setStep("write"); setTokenizeError(""); }}
+                  onClick={() => { setStep("write"); setTokenizeError(""); setDuplicate(null); }}
                 >
-                  <ChevronLeft className="w-4 h-4 mr-1" /> Edit Fact
+                  <ChevronLeft className="w-4 h-4 mr-1" /> Edit
                 </Button>
                 <Button
                   size="lg"
-                  className="flex-1"
+                  className="flex-1 text-lg font-bold"
                   disabled={!template.trim()}
                   onClick={() => setStep("submit")}
                 >
@@ -546,117 +542,128 @@ export default function SubmitFact() {
             </div>
           )}
 
-          {/* ── STEP 3: SUBMIT ──────────────────────────────────────────────── */}
+          {/* ── STEP 3: SUBMIT ────────────────────────────────────────────────── */}
           {step === "submit" && (
             <form onSubmit={(e) => void handleFinalSubmit(e)}>
+              <div className="p-6 md:p-10 space-y-8">
 
-              {/* Moderation notice */}
-              <div className="mb-6 p-4 bg-primary/5 border border-primary/20 rounded-sm flex items-start gap-3">
-                <ClipboardList className="w-5 h-5 shrink-0 text-primary mt-0.5" />
-                <div className="text-sm text-muted-foreground">
-                  <p className="font-semibold text-foreground mb-1">Facts go through review before going live</p>
-                  <p>
-                    An admin will approve or decline your submission. You'll be notified in your{" "}
-                    <Link href="/activity" className="text-primary underline hover:opacity-80">
-                      activity feed
-                    </Link>
-                    .
-                    {duplicate && (
-                      <span className={`block mt-2 font-semibold text-sm ${duplicate.isDuplicate ? "text-red-600 dark:text-red-400" : "text-amber-600 dark:text-amber-400"}`}>
-                        <GitBranch className="w-3.5 h-3.5 inline mr-1" />
-                        {duplicate.isDuplicate
-                          ? `⚠ Similarity score: ${duplicate.confidence}% — will be flagged as a likely duplicate in the review queue.`
-                          : `Closest match score: ${duplicate.confidence}% (below the duplicate threshold — no auto-flag).`}
-                      </span>
-                    )}
+                <div>
+                  <h2 className="text-2xl font-bold text-foreground mb-2">You're all set — confirm and submit</h2>
+                  <p className="text-muted-foreground text-lg">
+                    Here's how your fact will appear for each set of pronouns. Check that everything reads naturally.
                   </p>
                 </div>
-              </div>
 
-              {/* Template reminder */}
-              <div className="mb-8 p-4 bg-background/60 border border-border rounded-sm">
-                <p className="text-xs font-bold text-muted-foreground uppercase tracking-wider mb-2">Submitting Template</p>
-                <p className="text-sm font-mono text-foreground/80 break-words leading-relaxed">{template}</p>
-                <button
-                  type="button"
-                  className="text-xs text-primary underline mt-2 hover:opacity-80"
-                  onClick={() => setStep("preview")}
-                >
-                  ← Go back to edit
-                </button>
-              </div>
-
-              {error && (
-                <div className="mb-6 p-4 bg-destructive/10 border-l-4 border-destructive text-destructive flex items-center gap-3">
-                  <AlertTriangle className="w-5 h-5 shrink-0" />
-                  <span className="font-bold">{error}</span>
+                {/* Approved previews with checkmarks */}
+                <div className="space-y-3">
+                  {PRONOUN_PREVIEWS.map((p) => (
+                    <div key={p.label} className="flex items-start gap-4 rounded-lg border border-green-500/30 bg-green-500/5 p-5">
+                      <CheckCircle2 className="w-6 h-6 text-green-500 shrink-0 mt-0.5" />
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2 mb-2">
+                          <span className="text-xs font-bold text-green-600 dark:text-green-400 uppercase tracking-wider">
+                            {p.label}
+                          </span>
+                          <span className="text-xs text-muted-foreground">{p.name}</span>
+                        </div>
+                        <p className="text-lg font-medium text-foreground leading-snug">
+                          "{renderFact(template, p.name, p.label)}"
+                        </p>
+                      </div>
+                    </div>
+                  ))}
                 </div>
-              )}
 
-              <div className="space-y-8">
                 {/* Hashtags */}
                 <div>
-                  <label className="block font-display text-xl uppercase text-foreground mb-3">
-                    <Sparkles className="w-5 h-5 inline-block mr-2 text-primary" />
+                  <label className="block text-xl font-bold text-foreground mb-1">
                     Hashtags
                   </label>
+                  <p className="text-muted-foreground mb-4">
+                    Help people find your fact. We've suggested a few — toggle to add or remove them.
+                  </p>
 
                   {loadingSuggestions && (
-                    <div className="flex items-center gap-2 mb-3 text-muted-foreground text-sm">
-                      <Loader2 className="w-4 h-4 animate-spin" /> Generating tag suggestions…
+                    <div className="flex items-center gap-2 mb-4 text-muted-foreground text-sm">
+                      <Loader2 className="w-4 h-4 animate-spin" /> Generating suggestions…
                     </div>
                   )}
 
                   {suggestedTags.length > 0 && (
-                    <div className="mb-3 p-3 bg-background border border-primary/20 rounded-sm">
-                      <p className="text-xs text-muted-foreground font-bold uppercase tracking-wide mb-2">AI Suggestions</p>
-                      <div className="flex flex-wrap gap-2">
-                        {suggestedTags.map((tag) => (
-                          <button
-                            key={tag}
-                            type="button"
-                            onClick={() => toggleTag(tag)}
-                            className={`px-2 py-0.5 rounded-sm text-xs font-bold border transition-colors ${
-                              acceptedTags.has(tag)
-                                ? "bg-primary/10 border-primary text-primary"
-                                : "border-border text-muted-foreground hover:border-primary/40"
-                            }`}
-                          >
-                            #{tag}
-                          </button>
-                        ))}
-                      </div>
+                    <div className="flex flex-wrap gap-2 mb-4">
+                      {suggestedTags.map((tag) => (
+                        <button
+                          key={tag}
+                          type="button"
+                          onClick={() => toggleTag(tag)}
+                          className={`px-3 py-1.5 rounded-full text-sm font-semibold border transition-all ${
+                            acceptedTags.has(tag)
+                              ? "bg-primary/15 border-primary text-primary"
+                              : "border-border text-muted-foreground hover:border-primary/50 hover:text-foreground"
+                          }`}
+                        >
+                          #{tag}
+                        </button>
+                      ))}
                     </div>
                   )}
 
                   <Input
                     value={hashtagsStr}
                     onChange={(e) => handleHashtagsChange(e.target.value)}
-                    placeholder="strength, gravity, physics (comma separated)"
-                    className="font-mono"
+                    placeholder="Add more tags, comma-separated…"
+                    className="text-base"
                   />
-                  <p className="text-xs text-muted-foreground mt-1">Optional — add up to 5 comma-separated tags</p>
                 </div>
 
-                <Button
-                  type="submit"
-                  size="lg"
-                  className="w-full h-14 text-lg"
-                  disabled={submitting}
-                >
-                  {submitting
-                    ? <><Loader2 className="w-5 h-5 animate-spin mr-2" /> Submitting…</>
-                    : <><ClipboardList className="w-5 h-5 mr-2" /> SUBMIT FOR REVIEW</>
-                  }
-                </Button>
+                {error && (
+                  <div className="p-4 bg-destructive/10 border border-destructive/30 text-destructive flex items-center gap-3 rounded-lg">
+                    <AlertTriangle className="w-5 h-5 shrink-0" />
+                    <span className="font-semibold">{error}</span>
+                  </div>
+                )}
 
-                <button
-                  type="button"
-                  className="text-sm text-muted-foreground hover:text-foreground w-full text-center"
-                  onClick={() => setStep("preview")}
-                >
-                  <ChevronLeft className="w-4 h-4 inline" /> Back to Preview
-                </button>
+                <div className="flex gap-3">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="lg"
+                    className="flex-1"
+                    onClick={() => setStep("preview")}
+                  >
+                    <ChevronLeft className="w-4 h-4 mr-1" /> Back
+                  </Button>
+                  <Button
+                    type="submit"
+                    size="lg"
+                    className="flex-1 text-lg font-bold"
+                    disabled={submitting}
+                  >
+                    {submitting
+                      ? <><Loader2 className="w-5 h-5 animate-spin mr-2" /> Submitting…</>
+                      : "Submit for Review"
+                    }
+                  </Button>
+                </div>
+
+                {/* Moderation notice — at the bottom */}
+                <div className="pt-4 border-t border-border">
+                  <p className="text-sm text-muted-foreground text-center">
+                    All submissions go through a quick review before going live.
+                    You'll be notified in your{" "}
+                    <Link href="/activity" className="text-primary underline hover:opacity-80">
+                      activity feed
+                    </Link>{" "}
+                    once it's approved or declined.
+                    {duplicate?.isDuplicate && (
+                      <span className="block mt-2 text-amber-600 dark:text-amber-400">
+                        <GitBranch className="w-3.5 h-3.5 inline mr-1" />
+                        Flagged as similar to an existing fact ({duplicate.confidence}% match) — the moderator will decide.
+                      </span>
+                    )}
+                  </p>
+                </div>
+
               </div>
             </form>
           )}
