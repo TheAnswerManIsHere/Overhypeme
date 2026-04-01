@@ -1,8 +1,35 @@
 import { db } from "@workspace/db";
 import { factsTable, hashtagsTable, factHashtagsTable } from "@workspace/db/schema";
-import { eq, sql } from "drizzle-orm";
+import { eq, sql, gt } from "drizzle-orm";
 import { SEED_FACTS } from "../data/seed-facts";
 import { embedFactAsync } from "./embeddings";
+
+function computeWilsonScore(upvotes: number, downvotes: number): number {
+  const n = upvotes + downvotes;
+  if (n === 0) return 0;
+  const z = 1.96;
+  const pHat = upvotes / n;
+  const numerator = pHat + (z * z) / (2 * n) - z * Math.sqrt((pHat * (1 - pHat)) / n + (z * z) / (4 * n * n));
+  const denominator = 1 + (z * z) / n;
+  return numerator / denominator;
+}
+
+export async function backfillWilsonScores(): Promise<void> {
+  const facts = await db
+    .select({ id: factsTable.id, upvotes: factsTable.upvotes, downvotes: factsTable.downvotes, wilsonScore: factsTable.wilsonScore })
+    .from(factsTable)
+    .where(gt(sql`${factsTable.upvotes} + ${factsTable.downvotes}`, 0));
+
+  const toUpdate = facts.filter((f) => f.wilsonScore === 0 && (f.upvotes + f.downvotes) > 0);
+  if (!toUpdate.length) return;
+
+  console.log(`[wilson] Backfilling Wilson scores for ${toUpdate.length} facts...`);
+  for (const f of toUpdate) {
+    const wilsonScore = computeWilsonScore(f.upvotes, f.downvotes);
+    await db.update(factsTable).set({ wilsonScore }).where(eq(factsTable.id, f.id));
+  }
+  console.log("[wilson] Backfill complete.");
+}
 
 export async function seedIfEmpty(): Promise<void> {
   const [{ count }] = await db

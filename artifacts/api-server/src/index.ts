@@ -1,6 +1,6 @@
 import app from "./app";
 import { logger } from "./lib/logger";
-import { seedIfEmpty } from "./lib/seed";
+import { seedIfEmpty, backfillWilsonScores } from "./lib/seed";
 
 const rawPort = process.env["PORT"];
 
@@ -48,6 +48,9 @@ await initStripe();
 
 // Seed the database on first boot if it's empty (e.g. fresh production deployment)
 await seedIfEmpty().catch((err: unknown) => logger.error({ err }, "Seed failed"));
+
+// Backfill Wilson scores for any facts that have votes but no score yet
+await backfillWilsonScores().catch((err: unknown) => logger.error({ err }, "Wilson backfill failed"));
 
 // Daily cron: send Fact of the Day at 9:00 UTC
 function scheduleDailyFactJob() {

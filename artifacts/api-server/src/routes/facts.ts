@@ -18,6 +18,16 @@ import {
 
 const router: IRouter = Router();
 
+function computeWilsonScore(upvotes: number, downvotes: number): number {
+  const n = upvotes + downvotes;
+  if (n === 0) return 0;
+  const z = 1.96;
+  const pHat = upvotes / n;
+  const numerator = pHat + (z * z) / (2 * n) - z * Math.sqrt((pHat * (1 - pHat)) / n + (z * z) / (4 * n * n));
+  const denominator = 1 + (z * z) / n;
+  return numerator / denominator;
+}
+
 async function verifyCaptcha(token: string): Promise<boolean> {
   const secret = process.env.HCAPTCHA_SECRET;
   const isProd = process.env.NODE_ENV === "production";
@@ -79,7 +89,7 @@ async function buildFactSummaries(facts: (typeof factsTable.$inferSelect)[], use
   }
 
   return facts.map((f) => ({
-    id: f.id, text: f.text, upvotes: f.upvotes, downvotes: f.downvotes, score: f.score,
+    id: f.id, text: f.text, upvotes: f.upvotes, downvotes: f.downvotes, score: f.score, wilsonScore: f.wilsonScore,
     commentCount: f.commentCount, hashtags: hMap.get(f.id) ?? [],
     submittedBy: f.submittedById ? (sMap.get(f.submittedById)?.firstName ?? null) : null,
     submittedByImage: f.submittedById ? (sMap.get(f.submittedById)?.profileImageUrl ?? null) : null,
@@ -107,7 +117,7 @@ router.get("/facts", async (req: Request, res: Response) => {
 
   const where = conds.length ? and(...conds) : undefined;
   const [{ count }] = await db.select({ count: sql<number>`count(*)::int` }).from(factsTable).where(where);
-  const order = sort === "newest" ? desc(factsTable.createdAt) : sort === "trending" ? desc(factsTable.commentCount) : desc(factsTable.score);
+  const order = sort === "newest" ? desc(factsTable.createdAt) : sort === "trending" ? desc(factsTable.commentCount) : desc(factsTable.wilsonScore);
   const rows = await db.select().from(factsTable).where(where).orderBy(order).limit(limit).offset(offset);
   res.json({ facts: await buildFactSummaries(rows, req.user?.id), total: count });
 });
@@ -242,6 +252,9 @@ router.post("/facts/:factId/rating", async (req: Request, res: Response) => {
   }
 
   const [updated] = await db.select({ upvotes: factsTable.upvotes, downvotes: factsTable.downvotes }).from(factsTable).where(eq(factsTable.id, factId)).limit(1);
+  const wilsonScore = computeWilsonScore(updated.upvotes, updated.downvotes);
+  await db.update(factsTable).set({ wilsonScore }).where(eq(factsTable.id, factId));
+
   const [newRating] = await db.select({ rating: ratingsTable.rating }).from(ratingsTable).where(and(eq(ratingsTable.factId, factId), eq(ratingsTable.userId, userId))).limit(1);
   res.json({ upvotes: updated.upvotes, downvotes: updated.downvotes, userRating: newRating?.rating ?? null });
 });
