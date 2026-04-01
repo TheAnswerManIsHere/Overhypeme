@@ -65,7 +65,7 @@ function requireRateLimit(req: Request, res: Response, next: NextFunction): void
 export async function moderateComment(commentId: number, text: string): Promise<void> {
   try {
     const response = await getOpenAIClient().chat.completions.create({
-      model: "gpt-5-mini",
+      model: "gpt-4o-mini",
       max_completion_tokens: 256,
       response_format: { type: "json_object" },
       messages: [
@@ -248,7 +248,7 @@ router.post("/ai/suggest-hashtags", requireAuth, requireRateLimit, async (req: R
     const existingNames = existing.map((h) => h.name);
 
     const response = await getOpenAIClient().chat.completions.create({
-      model: "gpt-5-mini",
+      model: "gpt-4o-mini",
       max_completion_tokens: 256,
       response_format: { type: "json_object" },
       messages: [
