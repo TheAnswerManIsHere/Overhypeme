@@ -4,6 +4,33 @@ import { eq, sql, gt } from "drizzle-orm";
 import { SEED_FACTS } from "../data/seed-facts";
 import { embedFactAsync } from "./embeddings";
 
+/**
+ * Idempotent schema migration that adds any columns which may be missing when
+ * the production database is restored into the development environment (or when
+ * a fresh DB is used that pre-dates a schema addition).  Uses
+ * ADD COLUMN IF NOT EXISTS so it is safe to run on every startup.
+ */
+export async function ensureSchema(): Promise<void> {
+  const migrations: { label: string; ddl: string }[] = [
+    {
+      label: "facts.has_pronouns",
+      ddl: `ALTER TABLE facts ADD COLUMN IF NOT EXISTS has_pronouns boolean NOT NULL DEFAULT false`,
+    },
+    {
+      label: "users.pronouns",
+      ddl: `ALTER TABLE users ADD COLUMN IF NOT EXISTS pronouns varchar(20) DEFAULT 'he/him'`,
+    },
+  ];
+
+  for (const { label, ddl } of migrations) {
+    try {
+      await db.execute(sql.raw(ddl));
+    } catch (err) {
+      console.warn(`[schema] Could not apply migration "${label}":`, err);
+    }
+  }
+}
+
 function computeWilsonScore(upvotes: number, downvotes: number): number {
   const n = upvotes + downvotes;
   if (n === 0) return 0;

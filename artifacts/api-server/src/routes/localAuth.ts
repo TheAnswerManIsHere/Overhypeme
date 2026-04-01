@@ -10,11 +10,13 @@ const router: IRouter = Router();
 const SALT_ROUNDS = 10;
 const USERNAME_RE = /^[a-zA-Z0-9_]{3,30}$/;
 
+const IS_PRODUCTION = process.env.NODE_ENV === "production";
+
 function setSessionCookie(res: Response, sid: string) {
   const SESSION_TTL = 7 * 24 * 60 * 60 * 1000;
   res.cookie("sid", sid, {
     httpOnly: true,
-    secure: true,
+    secure: IS_PRODUCTION,
     sameSite: "lax",
     path: "/",
     maxAge: SESSION_TTL,
