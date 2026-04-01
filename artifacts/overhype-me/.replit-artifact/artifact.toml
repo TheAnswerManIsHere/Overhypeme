@@ -1,6 +1,6 @@
 kind = "web"
 previewPath = "/"
-title = "Chuck Norris Facts"
+title = "Overhype Me"
 version = "1.0.0"
 id = "artifacts/chuck-norris-facts"
 router = "path"
