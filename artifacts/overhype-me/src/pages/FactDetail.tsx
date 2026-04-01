@@ -44,6 +44,7 @@ export default function FactDetail() {
   const [commentText, setCommentText] = useState("");
   const [captchaToken, setCaptchaToken] = useState("");
   const [showMemeBuilder, setShowMemeBuilder] = useState(false);
+  const [commentSubmitted, setCommentSubmitted] = useState(false);
 
   if (factLoading) return <Layout><div className="flex h-[50vh] items-center justify-center"><div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin" /></div></Layout>;
   if (factError || !fact) return <Layout><div className="max-w-2xl mx-auto mt-20 p-8 bg-destructive/10 border-2 border-destructive text-center"><AlertCircle className="w-16 h-16 text-destructive mx-auto mb-4"/><h2 className="text-3xl font-display text-destructive uppercase">Classified Record Not Found</h2></div></Layout>;
@@ -63,6 +64,7 @@ export default function FactDetail() {
       onSuccess: () => {
         setCommentText("");
         setCaptchaToken("");
+        setCommentSubmitted(true);
       }
     });
   };
@@ -153,25 +155,33 @@ export default function FactDetail() {
             
             {/* Comment Form */}
             {isAuthenticated ? (
-              <form onSubmit={handleCommentSubmit} className="bg-secondary p-6 rounded-sm border-2 border-border space-y-4">
-                <Textarea 
-                  value={commentText}
-                  onChange={e => setCommentText(e.target.value)}
-                  placeholder="Drop some knowledge..."
-                  className="bg-background min-h-[100px]"
-                />
-                <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between">
-                  <div className="overflow-hidden rounded-sm border-2 border-border">
-                    <HCaptcha
-                      sitekey={HCAPTCHA_SITE_KEY}
-                      onVerify={setCaptchaToken}
-                    />
-                  </div>
-                  <Button type="submit" isLoading={addComment.isPending} disabled={!commentText || !captchaToken} className="w-full sm:w-auto">
-                    POST INTEL
-                  </Button>
+              commentSubmitted ? (
+                <div className="bg-secondary p-6 rounded-sm border-2 border-border text-center space-y-3">
+                  <p className="font-display font-bold text-foreground uppercase tracking-wide">Intel Received</p>
+                  <p className="text-sm text-muted-foreground">Your comment is pending review and will appear once approved.</p>
+                  <Button variant="outline" size="sm" onClick={() => setCommentSubmitted(false)}>Submit Another</Button>
                 </div>
-              </form>
+              ) : (
+                <form onSubmit={handleCommentSubmit} className="bg-secondary p-6 rounded-sm border-2 border-border space-y-4">
+                  <Textarea 
+                    value={commentText}
+                    onChange={e => setCommentText(e.target.value)}
+                    placeholder="Drop some knowledge..."
+                    className="bg-background min-h-[100px]"
+                  />
+                  <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between">
+                    <div className="overflow-hidden rounded-sm border-2 border-border">
+                      <HCaptcha
+                        sitekey={HCAPTCHA_SITE_KEY}
+                        onVerify={setCaptchaToken}
+                      />
+                    </div>
+                    <Button type="submit" isLoading={addComment.isPending} disabled={!commentText || !captchaToken} className="w-full sm:w-auto">
+                      POST INTEL
+                    </Button>
+                  </div>
+                </form>
+              )
             ) : (
               <div className="bg-secondary p-6 rounded-sm border-2 border-border text-center">
                 <p className="text-muted-foreground font-medium mb-4">Authentication required to add intel.</p>

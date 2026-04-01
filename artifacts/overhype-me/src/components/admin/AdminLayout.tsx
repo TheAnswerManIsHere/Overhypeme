@@ -20,13 +20,13 @@ interface AdminLayoutProps {
 }
 
 const NAV_ITEMS = [
-  { href: "/admin", label: "Dashboard", icon: LayoutDashboard, exact: true, badge: false },
-  { href: "/admin/facts", label: "Facts", icon: FileText, badge: false },
-  { href: "/admin/users", label: "Users", icon: Users, badge: false },
-  { href: "/admin/reviews", label: "Reviews", icon: ClipboardList, badge: true },
-  { href: "/admin/comments", label: "Flagged", icon: MessageSquareWarning, badge: false },
-  { href: "/admin/billing", label: "Billing", icon: CreditCard, badge: false },
-  { href: "/admin/affiliate", label: "Affiliate", icon: ShoppingBag, badge: false },
+  { href: "/admin", label: "Dashboard", icon: LayoutDashboard, exact: true, badge: false as const },
+  { href: "/admin/facts", label: "Facts", icon: FileText, badge: false as const },
+  { href: "/admin/users", label: "Users", icon: Users, badge: false as const },
+  { href: "/admin/reviews", label: "Reviews", icon: ClipboardList, badge: "reviews" as const },
+  { href: "/admin/comments", label: "Comments", icon: MessageSquareWarning, badge: "comments" as const },
+  { href: "/admin/billing", label: "Billing", icon: CreditCard, badge: false as const },
+  { href: "/admin/affiliate", label: "Affiliate", icon: ShoppingBag, badge: false as const },
 ];
 
 export function AdminLayout({ children, title }: AdminLayoutProps) {
@@ -34,6 +34,7 @@ export function AdminLayout({ children, title }: AdminLayoutProps) {
   const { isAuthenticated, logout, isLoading } = useAuth();
   const [isAdmin, setIsAdmin] = useState<boolean | null>(null);
   const [pendingReviews, setPendingReviews] = useState(0);
+  const [pendingComments, setPendingComments] = useState(0);
 
   useEffect(() => {
     if (isLoading) return;
@@ -48,6 +49,10 @@ export function AdminLayout({ children, title }: AdminLayoutProps) {
           fetch("/api/admin/reviews/count", { credentials: "include" })
             .then((cr) => cr.json())
             .then((d: { total?: number }) => setPendingReviews(d.total ?? 0))
+            .catch(() => {});
+          fetch("/api/admin/comments/pending/count", { credentials: "include" })
+            .then((cr) => cr.json())
+            .then((d: { total?: number }) => setPendingComments(d.total ?? 0))
             .catch(() => {});
         }
       })
@@ -105,7 +110,7 @@ export function AdminLayout({ children, title }: AdminLayoutProps) {
             const active = exact
               ? location === href
               : location.startsWith(href);
-            const badgeCount = badge ? pendingReviews : 0;
+            const badgeCount = badge === "reviews" ? pendingReviews : badge === "comments" ? pendingComments : 0;
             return (
               <Link key={href} href={href}>
                 <div

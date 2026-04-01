@@ -291,10 +291,10 @@ router.get("/facts/:factId/comments", async (req: Request, res: Response) => {
   const offset = queryParsed.success ? (queryParsed.data.offset ?? 0) : 0;
 
   const [{ count }] = await db.select({ count: sql<number>`count(*)::int` }).from(commentsTable)
-    .where(and(eq(commentsTable.factId, factId), eq(commentsTable.flagged, false)));
+    .where(and(eq(commentsTable.factId, factId), eq(commentsTable.status, "approved"), eq(commentsTable.flagged, false)));
 
   const rows = await db.select().from(commentsTable)
-    .where(and(eq(commentsTable.factId, factId), eq(commentsTable.flagged, false)))
+    .where(and(eq(commentsTable.factId, factId), eq(commentsTable.status, "approved"), eq(commentsTable.flagged, false)))
     .orderBy(asc(commentsTable.createdAt)).limit(limit).offset(offset);
 
   const authorIds = [...new Set(rows.filter((r) => r.authorId).map((r) => r.authorId!))];
@@ -336,17 +336,15 @@ router.post("/facts/:factId/comments", async (req: Request, res: Response) => {
     }
   }
 
-  const [comment] = await db.insert(commentsTable).values({ factId, authorId: req.user.id, text }).returning();
-  await db.update(factsTable).set({ commentCount: sql`${factsTable.commentCount} + 1` }).where(eq(factsTable.id, factId));
+  const [comment] = await db.insert(commentsTable).values({ factId, authorId: req.user.id, text, status: "pending" }).returning();
 
   res.status(201).json({
-    id: comment.id, factId: comment.factId, text: comment.text,
+    id: comment.id, factId: comment.factId, text: comment.text, status: "pending",
     authorId: req.user.id, authorName: req.user.firstName ?? null,
     authorImage: req.user.profileImageUrl ?? null,
     createdAt: comment.createdAt.toISOString(),
+    pending: true,
   });
-
-  moderateComment(comment.id, text).catch(() => {});
 });
 
 // GET /facts/:factId/links

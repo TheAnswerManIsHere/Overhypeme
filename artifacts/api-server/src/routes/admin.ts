@@ -307,6 +307,37 @@ router.post("/admin/facts/import-csv", requireAdmin, async (req: Request, res: R
   res.json({ success: true, imported: inserted.length });
 });
 
+// GET /admin/comments/pending — comments awaiting first moderation
+router.get("/admin/comments/pending", requireAdmin, async (_req: Request, res: Response) => {
+  const rows = await db
+    .select({
+      id: commentsTable.id,
+      factId: commentsTable.factId,
+      text: commentsTable.text,
+      authorId: commentsTable.authorId,
+      createdAt: commentsTable.createdAt,
+    })
+    .from(commentsTable)
+    .where(eq(commentsTable.status, "pending"))
+    .orderBy(desc(commentsTable.createdAt))
+    .limit(100);
+
+  res.json({
+    comments: rows.map((c) => ({ ...c, createdAt: c.createdAt.toISOString() })),
+    total: rows.length,
+  });
+});
+
+// GET /admin/comments/pending/count — badge count for nav
+router.get("/admin/comments/pending/count", requireAdmin, async (_req: Request, res: Response) => {
+  const [{ total }] = await db
+    .select({ total: sql<number>`count(*)::int` })
+    .from(commentsTable)
+    .where(eq(commentsTable.status, "pending"));
+  res.json({ total });
+});
+
+// GET /admin/comments/flagged — approved comments that were later AI-flagged
 router.get("/admin/comments/flagged", requireAdmin, async (_req: Request, res: Response) => {
   const rows = await db
     .select({
@@ -318,28 +349,26 @@ router.get("/admin/comments/flagged", requireAdmin, async (_req: Request, res: R
       createdAt: commentsTable.createdAt,
     })
     .from(commentsTable)
-    .where(eq(commentsTable.flagged, true))
+    .where(and(eq(commentsTable.status, "approved"), eq(commentsTable.flagged, true)))
     .orderBy(desc(commentsTable.createdAt))
     .limit(100);
 
   res.json({
-    comments: rows.map((c) => ({
-      ...c,
-      createdAt: c.createdAt.toISOString(),
-    })),
+    comments: rows.map((c) => ({ ...c, createdAt: c.createdAt.toISOString() })),
   });
 });
 
+// POST /admin/comments/:id/approve — approve a pending or flagged comment
 router.post("/admin/comments/:id/approve", requireAdmin, async (req: Request, res: Response) => {
   const id = parseInt(String(req.params.id ?? "0"), 10);
   if (!id) { res.status(400).json({ error: "Invalid id" }); return; }
   const [current] = await db
-    .select({ factId: commentsTable.factId, wasFlagged: commentsTable.flagged })
+    .select({ factId: commentsTable.factId, status: commentsTable.status })
     .from(commentsTable)
     .where(eq(commentsTable.id, id));
   if (!current) { res.status(404).json({ error: "Comment not found" }); return; }
-  await db.update(commentsTable).set({ flagged: false, flagReason: null }).where(eq(commentsTable.id, id));
-  if (current.wasFlagged) {
+  await db.update(commentsTable).set({ status: "approved", flagged: false, flagReason: null }).where(eq(commentsTable.id, id));
+  if (current.status === "pending") {
     await db
       .update(factsTable)
       .set({ commentCount: sql`${factsTable.commentCount} + 1` })
@@ -348,17 +377,34 @@ router.post("/admin/comments/:id/approve", requireAdmin, async (req: Request, re
   res.json({ success: true });
 });
 
+// POST /admin/comments/:id/reject — reject a pending or flagged comment (soft delete, sets status)
+router.post("/admin/comments/:id/reject", requireAdmin, async (req: Request, res: Response) => {
+  const id = parseInt(String(req.params.id ?? "0"), 10);
+  if (!id) { res.status(400).json({ error: "Invalid id" }); return; }
+  const [current] = await db
+    .select({ factId: commentsTable.factId, status: commentsTable.status })
+    .from(commentsTable)
+    .where(eq(commentsTable.id, id));
+  if (!current) { res.status(404).json({ error: "Comment not found" }); return; }
+  await db.update(commentsTable).set({ status: "rejected", flagged: true }).where(eq(commentsTable.id, id));
+  if (current.status === "approved") {
+    await db
+      .update(factsTable)
+      .set({ commentCount: sql`GREATEST(0, ${factsTable.commentCount} - 1)` })
+      .where(eq(factsTable.id, current.factId));
+  }
+  res.json({ success: true });
+});
+
+// DELETE /admin/comments/:id — permanently delete any non-approved comment
 router.delete("/admin/comments/:id", requireAdmin, async (req: Request, res: Response) => {
   const id = parseInt(String(req.params.id ?? "0"), 10);
   if (!id) { res.status(400).json({ error: "Invalid id" }); return; }
   const [deleted] = await db
     .delete(commentsTable)
-    .where(and(eq(commentsTable.id, id), eq(commentsTable.flagged, true)))
+    .where(eq(commentsTable.id, id))
     .returning({ factId: commentsTable.factId });
-  if (!deleted) {
-    res.status(404).json({ error: "Flagged comment not found" });
-    return;
-  }
+  if (!deleted) { res.status(404).json({ error: "Comment not found" }); return; }
   res.json({ success: true });
 });
 

@@ -47,6 +47,14 @@ export async function ensureSchema(): Promise<void> {
       label: "facts.canonical_text",
       ddl: `ALTER TABLE facts ADD COLUMN IF NOT EXISTS canonical_text text`,
     },
+    {
+      label: "comments.status",
+      ddl: `ALTER TABLE comments ADD COLUMN IF NOT EXISTS status varchar(20) NOT NULL DEFAULT 'pending'`,
+    },
+    {
+      label: "comments.status backfill approved",
+      ddl: `UPDATE comments SET status = 'approved' WHERE status = 'pending' AND flagged = false AND created_at < now() - interval '1 hour'`,
+    },
   ];
 
   for (const { label, ddl } of migrations) {
