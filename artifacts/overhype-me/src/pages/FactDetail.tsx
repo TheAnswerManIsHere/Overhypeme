@@ -13,7 +13,7 @@ import { useAppMutations } from "@/hooks/use-mutations";
 import { MemeBuilder } from "@/components/MemeBuilder";
 import { MerchButtons } from "@/components/MerchButtons";
 import { AdSlot } from "@/components/AdSlot";
-import { ThumbsUp, ThumbsDown, User, Link as LinkIcon, Youtube, Instagram, AlertCircle, Trash2, ImageIcon, GitBranch, Copy } from "lucide-react";
+import { ThumbsUp, ThumbsDown, User, Link as LinkIcon, Youtube, Instagram, AlertCircle, Trash2, ImageIcon, GitBranch } from "lucide-react";
 import { cn } from "@/components/ui/Button";
 import { usePersonName } from "@/hooks/use-person-name";
 import { renderFact } from "@/lib/render-fact";
@@ -85,6 +85,19 @@ export default function FactDetail() {
           <div className="absolute top-4 right-4 text-muted-foreground/30 font-display text-8xl font-bold italic select-none pointer-events-none -mt-4">
             #{fact.rank ?? fact.id}
           </div>
+
+          {/* Parent fact link — shown when this fact is a variant */}
+          {fact.parentId && (
+            <div className="mb-6 relative z-10">
+              <Link
+                href={`/facts/${fact.parentId}`}
+                className="inline-flex items-center gap-2 text-sm font-semibold text-primary hover:opacity-80 transition-opacity"
+              >
+                <GitBranch className="w-4 h-4" />
+                Variant of fact #{fact.parentId} — view original
+              </Link>
+            </div>
+          )}
           
           <h1 className="text-3xl md:text-5xl font-bold leading-tight text-foreground relative z-10 mb-8">
             "{renderFact(fact.text, name, pronouns)}"
@@ -265,21 +278,21 @@ export default function FactDetail() {
             </h3>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {fact.variants.map(v => (
-                <div key={v.id} className="group bg-card border-2 border-border hover:border-primary/50 p-5 rounded-sm transition-colors relative">
-                  {v.useCase && (
-                    <span className="inline-block mb-3 text-xs font-bold font-display tracking-widest uppercase text-primary bg-primary/10 border border-primary/30 px-2 py-0.5 rounded-sm">
-                      {v.useCase.replace(/_/g, " ")}
+                <Link key={v.id} href={`/facts/${v.id}`}>
+                  <div className="group bg-card border-2 border-border hover:border-primary/50 p-5 rounded-sm transition-colors relative cursor-pointer">
+                    {v.useCase && (
+                      <span className="inline-block mb-3 text-xs font-bold font-display tracking-widest uppercase text-primary bg-primary/10 border border-primary/30 px-2 py-0.5 rounded-sm">
+                        {v.useCase.replace(/_/g, " ")}
+                      </span>
+                    )}
+                    <p className="text-foreground leading-relaxed text-base">
+                      "{renderFact(v.text, name, pronouns)}"
+                    </p>
+                    <span className="absolute bottom-3 right-3 text-xs text-primary opacity-0 group-hover:opacity-100 transition-opacity font-medium">
+                      View →
                     </span>
-                  )}
-                  <p className="text-foreground leading-relaxed text-base whitespace-pre-wrap">{v.text}</p>
-                  <button
-                    onClick={() => navigator.clipboard.writeText(v.text)}
-                    className="absolute top-3 right-3 opacity-0 group-hover:opacity-100 p-1.5 text-muted-foreground hover:text-primary transition-all"
-                    title="Copy variant text"
-                  >
-                    <Copy className="w-4 h-4" />
-                  </button>
-                </div>
+                  </div>
+                </Link>
               ))}
             </div>
           </div>

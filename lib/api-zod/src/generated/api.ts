@@ -183,6 +183,9 @@ export const GetFactResponse = zod
     submittedByImage: zod.string().nullish(),
     userRating: zod.enum(["up", "down"]).nullish(),
     createdAt: zod.coerce.date(),
+    rank: zod.number().nullish(),
+    parentId: zod.number().nullish(),
+    useCase: zod.string().nullish(),
   })
   .and(
     zod.object({
@@ -195,6 +198,16 @@ export const GetFactResponse = zod
             title: zod.string().nullish(),
             platform: zod.string().nullish(),
             addedBy: zod.string().nullish(),
+            createdAt: zod.coerce.date(),
+          }),
+        )
+        .optional(),
+      variants: zod
+        .array(
+          zod.object({
+            id: zod.number(),
+            text: zod.string(),
+            useCase: zod.string().nullish(),
             createdAt: zod.coerce.date(),
           }),
         )

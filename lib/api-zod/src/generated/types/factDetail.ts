@@ -8,6 +8,17 @@
 import type { ExternalLink } from "./externalLink";
 import type { FactSummary } from "./factSummary";
 
+export interface FactVariant {
+  id: number;
+  text: string;
+  useCase?: string | null;
+  createdAt: string;
+}
+
 export type FactDetail = FactSummary & {
   links?: ExternalLink[];
+  variants?: FactVariant[];
+  parentId?: number | null;
+  rank?: number | null;
+  useCase?: string | null;
 };
