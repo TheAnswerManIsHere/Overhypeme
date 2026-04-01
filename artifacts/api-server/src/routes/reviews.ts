@@ -47,10 +47,13 @@ router.post("/facts/submit-review", requireAuth, async (req: Request, res: Respo
     status: "pending",
   }).returning();
 
+  const isDuplicateFlagged = !!matchingFactId;
   await logActivity({
     userId: req.user.id,
-    actionType: "review_submitted",
-    message: `You submitted a fact for admin review (possible duplicate flagged at ${matchingSimilarity}% confidence).`,
+    actionType: isDuplicateFlagged ? "review_submitted" : "fact_submitted",
+    message: isDuplicateFlagged
+      ? `You submitted a fact for admin review — flagged as a possible variant at ${matchingSimilarity}% similarity.`
+      : `You submitted a fact for admin review. You'll be notified when it's approved or declined.`,
     metadata: { reviewId: review.id, matchingFactId, text: text.slice(0, 120) },
   });
 
@@ -163,10 +166,12 @@ router.post("/admin/reviews/:id/approve", requireAdmin, async (req: Request, res
   if (!review) { res.status(404).json({ error: "Review not found" }); return; }
   if (review.status !== "pending") { res.status(409).json({ error: `Review already ${review.status}` }); return; }
 
-  // Insert the fact into the main table
+  // Insert the fact into the main table, detecting pronoun tokens from the template
+  const hasPronounsFlag = /\{(SUBJ|OBJ|POSS|POSS_PRO|REFL|Subj|Obj|Poss|Poss_Pro|Refl|[^|{}]+\|[^|{}]+)\}/.test(review.submittedText);
   const [fact] = await db.insert(factsTable).values({
     text: review.submittedText,
     submittedById: review.submittedById ?? undefined,
+    hasPronouns: hasPronounsFlag,
   }).returning();
 
   // Attach hashtags

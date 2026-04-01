@@ -1,4 +1,5 @@
 import { Router, type IRouter, type Request, type Response } from "express";
+import { requireAdmin } from "./admin";
 import { moderateComment, checkDuplicateInternal } from "./ai";
 import { embedFactAsync } from "../lib/embeddings";
 import { logActivity } from "../lib/activity";
@@ -142,40 +143,11 @@ router.get("/facts/:factId", async (req: Request, res: Response) => {
   res.json({ ...summary, rank, links, variants, parentId: fact.parentId ?? null, useCase: fact.useCase ?? null });
 });
 
-// POST /facts
-router.post("/facts", async (req: Request, res: Response) => {
-  if (!req.isAuthenticated()) { res.status(401).json({ error: "Unauthorized" }); return; }
+// POST /facts — admin-only direct insert; regular users submit via POST /facts/submit-review
+router.post("/facts", requireAdmin, async (req: Request, res: Response) => {
   const parsed = CreateFactBody.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: "Invalid input", details: parsed.error.flatten() }); return; }
-  const { text, hashtags = [], captchaToken, skipDuplicateCheck } = parsed.data;
-
-  // Premium members bypass CAPTCHA
-  const membershipTier = await stripeStorage.getMembershipTierForUser(req.user.id);
-  if (membershipTier !== "premium") {
-    if (!captchaToken || !(await verifyCaptcha(captchaToken))) {
-      res.status(400).json({ error: "CAPTCHA verification failed" });
-      return;
-    }
-  }
-
-  if (!skipDuplicateCheck) {
-    try {
-      const dupResult = await checkDuplicateInternal(text);
-      if (dupResult.isDuplicate) {
-        res.status(409).json({
-          error: "Possible duplicate detected. Set skipDuplicateCheck to true to submit anyway.",
-          isDuplicate: true,
-          confidence: dupResult.confidence,
-          matchingFactId: dupResult.matchingFactId,
-          matchingFactText: dupResult.matchingFactText,
-        });
-        return;
-      }
-    } catch (err) {
-      // Duplicate check failed (e.g. embedding API unavailable) — allow submission
-      console.warn("[facts] Duplicate check skipped:", (err as Error).message);
-    }
-  }
+  const { text, hashtags = [] } = parsed.data;
 
   // If text is already tokenized (sent from front-end AI step), use it as-is.
   // Otherwise apply the basic legacy regex tokenizer.

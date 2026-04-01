@@ -20,19 +20,20 @@ interface AdminLayoutProps {
 }
 
 const NAV_ITEMS = [
-  { href: "/admin", label: "Dashboard", icon: LayoutDashboard, exact: true },
-  { href: "/admin/facts", label: "Facts", icon: FileText },
-  { href: "/admin/users", label: "Users", icon: Users },
-  { href: "/admin/reviews", label: "Reviews", icon: ClipboardList },
-  { href: "/admin/comments", label: "Flagged", icon: MessageSquareWarning },
-  { href: "/admin/billing", label: "Billing", icon: CreditCard },
-  { href: "/admin/affiliate", label: "Affiliate", icon: ShoppingBag },
+  { href: "/admin", label: "Dashboard", icon: LayoutDashboard, exact: true, badge: false },
+  { href: "/admin/facts", label: "Facts", icon: FileText, badge: false },
+  { href: "/admin/users", label: "Users", icon: Users, badge: false },
+  { href: "/admin/reviews", label: "Reviews", icon: ClipboardList, badge: true },
+  { href: "/admin/comments", label: "Flagged", icon: MessageSquareWarning, badge: false },
+  { href: "/admin/billing", label: "Billing", icon: CreditCard, badge: false },
+  { href: "/admin/affiliate", label: "Affiliate", icon: ShoppingBag, badge: false },
 ];
 
 export function AdminLayout({ children, title }: AdminLayoutProps) {
   const [location] = useLocation();
   const { isAuthenticated, logout, isLoading } = useAuth();
   const [isAdmin, setIsAdmin] = useState<boolean | null>(null);
+  const [pendingReviews, setPendingReviews] = useState(0);
 
   useEffect(() => {
     if (isLoading) return;
@@ -41,7 +42,15 @@ export function AdminLayout({ children, title }: AdminLayoutProps) {
       return;
     }
     fetch("/api/admin/me", { credentials: "include" })
-      .then((r) => setIsAdmin(r.ok))
+      .then((r) => {
+        setIsAdmin(r.ok);
+        if (r.ok) {
+          fetch("/api/admin/reviews/count", { credentials: "include" })
+            .then((cr) => cr.json())
+            .then((d: { total?: number }) => setPendingReviews(d.total ?? 0))
+            .catch(() => {});
+        }
+      })
       .catch(() => setIsAdmin(false));
   }, [isAuthenticated, isLoading]);
 
@@ -92,10 +101,11 @@ export function AdminLayout({ children, title }: AdminLayoutProps) {
         </div>
 
         <nav className="flex-1 p-2 space-y-1">
-          {NAV_ITEMS.map(({ href, label, icon: Icon, exact }) => {
+          {NAV_ITEMS.map(({ href, label, icon: Icon, exact, badge }) => {
             const active = exact
               ? location === href
               : location.startsWith(href);
+            const badgeCount = badge ? pendingReviews : 0;
             return (
               <Link key={href} href={href}>
                 <div
@@ -106,7 +116,14 @@ export function AdminLayout({ children, title }: AdminLayoutProps) {
                   }`}
                 >
                   <Icon className="w-4 h-4 shrink-0" />
-                  <span className="text-sm font-medium">{label}</span>
+                  <span className="text-sm font-medium flex-1">{label}</span>
+                  {badgeCount > 0 && (
+                    <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full leading-none ${
+                      active ? "bg-primary-foreground/20 text-primary-foreground" : "bg-destructive text-destructive-foreground"
+                    }`}>
+                      {badgeCount}
+                    </span>
+                  )}
                 </div>
               </Link>
             );
