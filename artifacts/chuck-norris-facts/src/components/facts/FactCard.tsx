@@ -5,10 +5,13 @@ import { FactSummary } from "@workspace/api-client-react";
 import { useAppMutations } from "@/hooks/use-mutations";
 import { useAuth } from "@workspace/replit-auth-web";
 import { cn } from "@/components/ui/Button";
+import { usePersonName } from "@/hooks/use-person-name";
+import { renderFact } from "@/lib/render-fact";
 
 export function FactCard({ fact, rank, showRank = false }: { fact: FactSummary, rank?: number, showRank?: boolean }) {
   const { rateFact } = useAppMutations();
   const { isAuthenticated, login } = useAuth();
+  const { firstName, lastName } = usePersonName();
 
   const handleRate = (type: "up" | "down") => {
     if (!isAuthenticated) {
@@ -38,7 +41,7 @@ export function FactCard({ fact, rank, showRank = false }: { fact: FactSummary, 
 
       <Link href={`/facts/${fact.id}`} className="block mb-6">
         <h3 className="text-xl sm:text-2xl md:text-3xl font-bold text-foreground leading-tight">
-          "{fact.text}"
+          "{renderFact(fact.text, firstName, lastName)}"
         </h3>
       </Link>
 

@@ -34,8 +34,8 @@ export default function MemePage() {
   const handleShare = () => {
     if (navigator.share) {
       navigator.share({
-        title: "Chuck Norris Fact Meme",
-        text: meme?.factText ?? "Check out this Chuck Norris fact!",
+        title: "Facts DB Meme",
+        text: meme?.factText ?? "Check out this fact!",
         url: window.location.href,
       }).catch(console.error);
     } else {
@@ -44,7 +44,7 @@ export default function MemePage() {
   };
 
   const handleTwitterShare = () => {
-    const text = encodeURIComponent(`"${(meme?.factText ?? "").slice(0, 200)}" — Chuck Norris Facts`);
+    const text = encodeURIComponent(`"${(meme?.factText ?? "").slice(0, 200)}" — The Facts Database`);
     const url = encodeURIComponent(window.location.href);
     window.open(`https://x.com/intent/tweet?text=${text}&url=${url}`, "_blank", "noopener");
   };
@@ -89,12 +89,12 @@ export default function MemePage() {
 
         <div className="bg-card border-l-8 border-primary p-6 md:p-10 shadow-2xl space-y-8">
           <h1 className="text-2xl md:text-3xl font-display uppercase tracking-wide text-primary">
-            Chuck Norris Meme
+            Fact Meme
           </h1>
 
           <img
             src={meme.imageUrl}
-            alt="Chuck Norris fact meme"
+            alt="Fact meme"
             className="w-full rounded-sm border-2 border-border"
             loading="lazy"
           />

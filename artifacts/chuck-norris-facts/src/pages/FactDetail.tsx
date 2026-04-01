@@ -15,6 +15,8 @@ import { MerchButtons } from "@/components/MerchButtons";
 import { AdSlot } from "@/components/AdSlot";
 import { ThumbsUp, ThumbsDown, User, Link as LinkIcon, Youtube, Instagram, AlertCircle, Plus, Trash2, ImageIcon, GitBranch, Copy } from "lucide-react";
 import { cn } from "@/components/ui/Button";
+import { usePersonName } from "@/hooks/use-person-name";
+import { renderFact } from "@/lib/render-fact";
 
 const HCAPTCHA_SITE_KEY =
   import.meta.env.VITE_HCAPTCHA_SITE_KEY || "10000000-ffff-ffff-ffff-000000000001";
@@ -38,6 +40,7 @@ export default function FactDetail() {
     query: { queryKey: ["listFactMemes", factId], enabled: !!factId }
   });
 
+  const { firstName, lastName } = usePersonName();
   const [commentText, setCommentText] = useState("");
   const [captchaToken, setCaptchaToken] = useState("");
   const [linkUrl, setLinkUrl] = useState("");
@@ -97,7 +100,7 @@ export default function FactDetail() {
           </div>
           
           <h1 className="text-3xl md:text-5xl font-bold leading-tight text-foreground relative z-10 mb-8">
-            "{fact.text}"
+            "{renderFact(fact.text, firstName, lastName)}"
           </h1>
           
           <div className="flex flex-wrap gap-2 mb-10 relative z-10">

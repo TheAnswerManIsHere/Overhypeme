@@ -68,7 +68,7 @@ export default function Login() {
             <p className="text-muted-foreground mt-2">
               {mode === "login"
                 ? "Sign in to vote, comment, and submit facts"
-                : "Join the Chuck Norris community"}
+                : "Join the community and personalize every fact"}
             </p>
           </div>
 

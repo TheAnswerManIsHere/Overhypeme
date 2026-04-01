@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
+import { NameTag } from "@/components/NameTag";
 
 export function Navbar() {
   const { user, isAuthenticated, logout } = useAuth();
@@ -48,13 +49,18 @@ export function Navbar() {
               <img src={`${import.meta.env.BASE_URL}images/logo.png`} alt="Logo" className="w-full h-full object-contain mix-blend-screen" />
             </div>
             <div className="flex flex-col">
-              <span className="font-display font-bold text-xl tracking-wider leading-none text-foreground group-hover:text-primary transition-colors">CHUCK NORRIS</span>
+              <span className="font-display font-bold text-xl tracking-wider leading-none text-foreground group-hover:text-primary transition-colors">THE FACTS</span>
               <span className="font-display font-bold text-sm tracking-widest text-primary leading-none">DATABASE</span>
             </div>
           </Link>
 
+          {/* Name tag — desktop only */}
+          <div className="hidden md:flex items-center ml-4 shrink-0">
+            <NameTag />
+          </div>
+
           {/* Desktop Search */}
-          <div className="hidden md:flex flex-1 max-w-xl mx-8">
+          <div className="hidden md:flex flex-1 max-w-xl mx-4">
             <form onSubmit={handleSearch} className="w-full relative">
               <Input 
                 placeholder="Search facts, hashtags..." 

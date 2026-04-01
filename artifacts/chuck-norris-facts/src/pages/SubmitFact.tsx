@@ -264,7 +264,7 @@ export default function SubmitFact() {
               <Textarea
                 value={text}
                 onChange={e => setText(e.target.value)}
-                placeholder="When Chuck Norris looks in a mirror, there is no reflection. There can only be one Chuck Norris."
+                placeholder="When {First_Name} {Last_Name} looks in a mirror, there is no reflection. Tip: 'Chuck Norris' is auto-replaced with name tokens on submit."
                 className="text-lg min-h-[160px]"
                 disabled={createFact.isPending || submittingReview}
               />
