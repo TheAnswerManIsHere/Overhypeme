@@ -112,7 +112,6 @@ export function renderFact(
 export function tokenizeFact(text: string): string {
   return text
     .replace(/\{First_Name\}\s*\{Last_Name\}/g, "{NAME}")
-    .replace(/\bchuck norris\b/gi, "{NAME}")
     .replace(/\bHimself\b/g, "{REFL}")
     .replace(/\bhimself\b/g, "{REFL}")
     .replace(/\bHe's\b/g,    "{Subj}'s")

@@ -25,7 +25,7 @@ export default function MemePage() {
       .then(blob => {
         const a = document.createElement("a");
         a.href = URL.createObjectURL(blob);
-        a.download = `chuck-norris-${slug}.png`;
+        a.download = `overhype-${slug}.png`;
         a.click();
       })
       .catch(console.error);

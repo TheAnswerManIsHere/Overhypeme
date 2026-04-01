@@ -8,7 +8,7 @@ const router: IRouter = Router();
 
 // Env-configured affiliate IDs — fall back to demo/test values if unset
 const ZAZZLE_AFFILIATE_ID = process.env.ZAZZLE_AFFILIATE_ID ?? "238527546099265388";
-const CAFEPRESS_AFFILIATE_ID = process.env.CAFEPRESS_AFFILIATE_ID ?? "chucknorrisfacts";
+const CAFEPRESS_AFFILIATE_ID = process.env.CAFEPRESS_AFFILIATE_ID ?? "overhypeme";
 
 // Warn in production if affiliate IDs are not configured
 if (process.env.NODE_ENV === "production") {

@@ -1,4 +1,4 @@
-# LLM Bulk Import Prompt — Chuck Norris Facts
+# LLM Bulk Import Prompt — Overhype.me Facts
 
 Copy-paste the prompt below into Claude (or any capable LLM) to scrape a webpage and
 produce a JSON payload that can be submitted directly to the bulk-import API.
@@ -9,7 +9,7 @@ produce a JSON payload that can be submitted directly to the bulk-import API.
 
 ```
 You are a data-extraction assistant. Your task is to read the webpage at the URL below,
-extract all distinct Chuck Norris facts / memes / jokes, and format them as a JSON array
+extract all distinct facts / memes / jokes, and format them as a JSON array
 that can be POSTed to an import API.
 
 URL to scrape: <PASTE TARGET URL HERE>
@@ -17,7 +17,7 @@ URL to scrape: <PASTE TARGET URL HERE>
 Rules for extraction:
 1. Include every distinct fact/joke you find. If the same fact appears more than once,
    include it only once.
-2. Skip anything that is not a Chuck Norris fact (e.g. navigation text, ads, author bios).
+2. Skip anything that is not a fact or joke (e.g. navigation text, ads, author bios).
 3. For each fact, suggest up to 5 relevant hashtags from this list, or invent short
    lowercase ones if nothing fits:
    strength, fear, law, animals, math, space, time, computers, sports, cooking,

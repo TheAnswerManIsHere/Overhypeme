@@ -11,7 +11,7 @@ export const DEFAULT_PRONOUN_OBJECT  = "him";
 
 function getInitialName(): string {
   const stored = localStorage.getItem(STORAGE_KEY_NAME);
-  if (!stored || stored === "Chuck Norris" || stored === "Chuck" || stored === "Norris") {
+  if (!stored) {
     return DEFAULT_NAME;
   }
   return stored;
