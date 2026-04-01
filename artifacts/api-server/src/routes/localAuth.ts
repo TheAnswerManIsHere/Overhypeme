@@ -151,10 +151,10 @@ router.post("/auth/register", async (req: Request, res: Response) => {
 
   const passwordHash = await bcrypt.hash(password, SALT_ROUNDS);
 
-  // Sanitize pronouns: accept "subject/object" format, max 20 chars
+  // Sanitize pronouns: preset "he/him" style or pipe-delimited custom, max 80 chars
   let sanitizedPronouns: string | null = null;
   if (pronouns && typeof pronouns === "string" && pronouns.trim()) {
-    sanitizedPronouns = pronouns.trim().slice(0, 20);
+    sanitizedPronouns = pronouns.trim().slice(0, 80);
   }
 
   const firstNameTrimmed = typeof firstName === "string" ? firstName.trim() : "";

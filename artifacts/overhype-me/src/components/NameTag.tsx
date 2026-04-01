@@ -1,148 +1,58 @@
-import { useState, useRef, useEffect, useCallback } from "react";
-import { Pencil, Check, X, Loader2 } from "lucide-react";
-import { usePersonName, DEFAULT_PRONOUN_SUBJECT, DEFAULT_PRONOUN_OBJECT } from "@/hooks/use-person-name";
+import { useState, useRef, useEffect } from "react";
+import { Pencil, Check, X } from "lucide-react";
+import { usePersonName } from "@/hooks/use-person-name";
 import { useAuth } from "@workspace/replit-auth-web";
 import { useLocation } from "wouter";
-
-async function fetchSuggestedPronouns(
-  name: string,
-  signal: AbortSignal,
-): Promise<{ subject: string; object: string } | null> {
-  try {
-    const res = await fetch("/api/ai/suggest-pronouns", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name }),
-      signal,
-    });
-    if (!res.ok) return null;
-    const data = await res.json() as { subject?: string; object?: string };
-    if (typeof data.subject === "string" && typeof data.object === "string") {
-      return { subject: data.subject, object: data.object };
-    }
-    return null;
-  } catch {
-    return null;
-  }
-}
+import { PRONOUN_PRESETS, displayPronouns, isCustomPronouns } from "@/lib/pronouns";
 
 export function NameTag() {
-  const { name, pronounSubject, pronounObject, setName, setPronouns } = usePersonName();
+  const { name, pronouns, pronounSubject, pronounObject, setName, setPronouns } = usePersonName();
   const { user, isAuthenticated, isLoading } = useAuth();
   const [, setLocation] = useLocation();
   const [editing, setEditing] = useState(false);
   const [draftName,    setDraftName]    = useState(name);
   const [draftSubject, setDraftSubject] = useState(pronounSubject);
   const [draftObject,  setDraftObject]  = useState(pronounObject);
-  const [pronounsLoading, setPronounsLoading] = useState(false);
   const nameRef = useRef<HTMLInputElement>(null);
 
-  const pronounsManuallyEditedRef = useRef(false);
-  const initialSubjectRef = useRef(pronounSubject);
-  const initialObjectRef = useRef(pronounObject);
-  const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const abortControllerRef = useRef<AbortController | null>(null);
-
-  function openEditor() {
+  function handleOpen() {
     if (isAuthenticated) {
       setLocation("/profile");
       return;
     }
-    initialSubjectRef.current = pronounSubject;
-    initialObjectRef.current  = pronounObject;
     setDraftName(name);
     setDraftSubject(pronounSubject);
     setDraftObject(pronounObject);
-    pronounsManuallyEditedRef.current = false;
     setEditing(true);
   }
 
   function save() {
-    if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
-    abortControllerRef.current?.abort();
-    abortControllerRef.current = null;
-    setPronounsLoading(false);
     setName(draftName);
-    setPronouns(draftSubject, draftObject);
+    const sub = draftSubject.trim() || "he";
+    const obj = draftObject.trim()  || "him";
+    setPronouns(`${sub}/${obj}`);
     setEditing(false);
   }
 
   function cancel() {
-    if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
-    abortControllerRef.current?.abort();
-    setPronounsLoading(false);
     setEditing(false);
+  }
+
+  function selectPreset(preset: string) {
+    const [s = "he", o = "him"] = preset.split("/");
+    setDraftSubject(s);
+    setDraftObject(o);
   }
 
   useEffect(() => {
     if (editing) nameRef.current?.focus();
   }, [editing]);
 
-  useEffect(() => {
-    return () => {
-      if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
-      abortControllerRef.current?.abort();
-    };
-  }, []);
-
   function onKeyDown(e: React.KeyboardEvent) {
     if (e.key === "Enter") save();
     if (e.key === "Escape") cancel();
   }
 
-  const triggerPronounSuggestion = useCallback((nameValue: string) => {
-    if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
-
-    if (!nameValue.trim()) {
-      abortControllerRef.current?.abort();
-      abortControllerRef.current = null;
-      setPronounsLoading(false);
-      return;
-    }
-
-    debounceTimerRef.current = setTimeout(async () => {
-      if (pronounsManuallyEditedRef.current) return;
-
-      const initSubject = initialSubjectRef.current;
-      const initObject  = initialObjectRef.current;
-      const pronounsAreDefault =
-        initSubject === DEFAULT_PRONOUN_SUBJECT && initObject === DEFAULT_PRONOUN_OBJECT;
-
-      if (!pronounsAreDefault) return;
-
-      abortControllerRef.current?.abort();
-      const controller = new AbortController();
-      abortControllerRef.current = controller;
-
-      setPronounsLoading(true);
-      const suggestion = await fetchSuggestedPronouns(nameValue.trim(), controller.signal);
-      if (controller.signal.aborted) return;
-      setPronounsLoading(false);
-
-      if (suggestion && !pronounsManuallyEditedRef.current) {
-        setDraftSubject(suggestion.subject);
-        setDraftObject(suggestion.object);
-      }
-    }, 400);
-  }, []);
-
-  function handleNameChange(e: React.ChangeEvent<HTMLInputElement>) {
-    const value = e.target.value;
-    setDraftName(value);
-    triggerPronounSuggestion(value);
-  }
-
-  function handleSubjectChange(e: React.ChangeEvent<HTMLInputElement>) {
-    pronounsManuallyEditedRef.current = true;
-    setDraftSubject(e.target.value);
-  }
-
-  function handleObjectChange(e: React.ChangeEvent<HTMLInputElement>) {
-    pronounsManuallyEditedRef.current = true;
-    setDraftObject(e.target.value);
-  }
-
-  // While auth state is loading, render nothing to avoid flash of editable state
   if (isLoading) {
     return (
       <div className="flex items-center gap-1.5 bg-secondary border border-border rounded-sm px-3 py-1.5 opacity-0 pointer-events-none">
@@ -152,10 +62,9 @@ export function NameTag() {
     );
   }
 
-  // When authenticated, show account name with pencil that navigates to profile
   if (isAuthenticated && user) {
     const displayName = user.firstName || user.email || "User";
-    const pronounsDisplay = user.pronouns || null;
+    const pronounsStr = user.pronouns ? displayPronouns(user.pronouns) : null;
 
     return (
       <button
@@ -165,8 +74,8 @@ export function NameTag() {
       >
         <span className="text-xs text-muted-foreground font-medium uppercase tracking-wide hidden sm:block">As:</span>
         <span className="text-sm font-bold text-foreground font-display">{displayName}</span>
-        {pronounsDisplay && (
-          <span className="text-xs text-muted-foreground">({pronounsDisplay})</span>
+        {pronounsStr && (
+          <span className="text-xs text-muted-foreground">({pronounsStr})</span>
         )}
         <Pencil className="w-3 h-3 text-muted-foreground group-hover:text-primary transition-colors" />
       </button>
@@ -174,56 +83,85 @@ export function NameTag() {
   }
 
   if (editing) {
+    const activePreset = PRONOUN_PRESETS.find((p) => p === `${draftSubject}/${draftObject}`) ?? null;
+
     return (
-      <div className="flex items-center gap-1.5 bg-secondary border border-primary/40 rounded-sm px-2 py-1">
-        <input
-          ref={nameRef}
-          value={draftName}
-          onChange={handleNameChange}
-          onKeyDown={onKeyDown}
-          placeholder="Your name"
-          className="w-28 bg-transparent text-sm font-bold text-foreground outline-none placeholder:text-muted-foreground"
-        />
-        <span className="text-border text-xs select-none">·</span>
-        {pronounsLoading ? (
-          <Loader2 className="w-3.5 h-3.5 text-muted-foreground animate-spin shrink-0" />
-        ) : null}
-        <input
-          value={draftSubject}
-          onChange={handleSubjectChange}
-          onKeyDown={onKeyDown}
-          placeholder="he"
-          title="Subject pronoun (he, she, they…)"
-          className={`w-9 bg-transparent text-xs font-bold outline-none placeholder:text-muted-foreground/50 text-center transition-opacity ${pronounsLoading ? "text-muted-foreground/50" : "text-muted-foreground"}`}
-        />
-        <span className="text-border text-xs select-none">/</span>
-        <input
-          value={draftObject}
-          onChange={handleObjectChange}
-          onKeyDown={onKeyDown}
-          placeholder="him"
-          title="Object pronoun (him, her, them…)"
-          className={`w-9 bg-transparent text-xs font-bold outline-none placeholder:text-muted-foreground/50 text-center transition-opacity ${pronounsLoading ? "text-muted-foreground/50" : "text-muted-foreground"}`}
-        />
-        <button onClick={save} className="p-0.5 text-primary hover:text-primary/80 transition-colors" title="Save">
-          <Check className="w-3.5 h-3.5" />
-        </button>
-        <button onClick={cancel} className="p-0.5 text-muted-foreground hover:text-foreground transition-colors" title="Cancel">
-          <X className="w-3.5 h-3.5" />
-        </button>
+      <div className="flex flex-col gap-1.5 bg-secondary border border-primary/40 rounded-sm px-2 py-1.5 min-w-[180px]">
+        {/* Name row */}
+        <div className="flex items-center gap-1.5">
+          <input
+            ref={nameRef}
+            value={draftName}
+            onChange={(e) => setDraftName(e.target.value)}
+            onKeyDown={onKeyDown}
+            placeholder="Your name"
+            className="flex-1 bg-transparent text-sm font-bold text-foreground outline-none placeholder:text-muted-foreground"
+          />
+          <button onClick={save}   className="p-0.5 text-primary hover:text-primary/80 transition-colors" title="Save">
+            <Check className="w-3.5 h-3.5" />
+          </button>
+          <button onClick={cancel} className="p-0.5 text-muted-foreground hover:text-foreground transition-colors" title="Cancel">
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
+        {/* Pronoun row: 3 chips + custom subject/object inputs */}
+        <div className="flex items-center gap-1 flex-wrap">
+          {PRONOUN_PRESETS.map((p) => (
+            <button
+              key={p}
+              type="button"
+              onClick={() => selectPreset(p)}
+              className={`px-2 py-0.5 rounded-sm border text-[11px] font-medium transition-colors ${
+                activePreset === p
+                  ? "border-primary bg-primary/10 text-primary"
+                  : "border-border text-muted-foreground hover:border-primary/40"
+              }`}
+            >
+              {p}
+            </button>
+          ))}
+        </div>
+        {/* Custom subject / object (for any set not in the 3 presets) */}
+        {!activePreset && (
+          <div className="flex items-center gap-1 text-[11px]">
+            <input
+              value={draftSubject}
+              onChange={(e) => setDraftSubject(e.target.value)}
+              onKeyDown={onKeyDown}
+              placeholder="subj"
+              title="Subject pronoun"
+              className="w-9 bg-transparent font-bold outline-none placeholder:text-muted-foreground/50 text-center text-muted-foreground border-b border-border"
+              maxLength={12}
+            />
+            <span className="text-border select-none">/</span>
+            <input
+              value={draftObject}
+              onChange={(e) => setDraftObject(e.target.value)}
+              onKeyDown={onKeyDown}
+              placeholder="obj"
+              title="Object pronoun"
+              className="w-9 bg-transparent font-bold outline-none placeholder:text-muted-foreground/50 text-center text-muted-foreground border-b border-border"
+              maxLength={12}
+            />
+          </div>
+        )}
       </div>
     );
   }
 
+  const displayPron = isCustomPronouns(pronouns)
+    ? displayPronouns(pronouns)
+    : `${pronounSubject}/${pronounObject}`;
+
   return (
     <button
-      onClick={openEditor}
+      onClick={handleOpen}
       className="group flex items-center gap-1.5 bg-secondary hover:bg-secondary/80 border border-border hover:border-primary/40 rounded-sm px-3 py-1.5 transition-all"
       title="Change name & pronouns"
     >
       <span className="text-xs text-muted-foreground font-medium uppercase tracking-wide hidden sm:block">As:</span>
       <span className="text-sm font-bold text-foreground font-display">{name}</span>
-      <span className="text-xs text-muted-foreground">({pronounSubject}/{pronounObject})</span>
+      <span className="text-xs text-muted-foreground">({displayPron})</span>
       <Pencil className="w-3 h-3 text-muted-foreground group-hover:text-primary transition-colors" />
     </button>
   );

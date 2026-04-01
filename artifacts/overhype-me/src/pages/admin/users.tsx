@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { PRONOUN_PAIRS } from "@/lib/pronouns";
+import { PronounEditor } from "@/components/ui/PronounEditor";
 import { AdminLayout } from "@/components/admin/AdminLayout";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
@@ -570,16 +570,10 @@ export default function AdminUsers() {
             {/* Pronouns */}
             <div>
               <FieldLabel>Pronouns</FieldLabel>
-              <select
+              <PronounEditor
                 value={draft.pronouns ?? ""}
-                onChange={(e) => setDraft((d) => d ? { ...d, pronouns: e.target.value || null } : d)}
-                className="w-full bg-secondary border border-border rounded-sm px-3 py-2 text-sm text-foreground outline-none focus:border-primary transition-colors appearance-none cursor-pointer"
-              >
-                <option value="">— none —</option>
-                {PRONOUN_PAIRS.map((p) => (
-                  <option key={p.value} value={p.value}>{p.label}</option>
-                ))}
-              </select>
+                onChange={(val) => setDraft((d) => d ? { ...d, pronouns: val || null } : d)}
+              />
             </div>
 
             {/* Toggle flags */}

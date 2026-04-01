@@ -1,0 +1,35 @@
+The good news is your token architecture already handles them perfectly. The five tokens ({SUBJ}, {OBJ}, {POSS}, {POSS_PRO}, {REFL}) represent grammatical positions, not specific pronoun sets. Every pronoun system in English, including neopronouns, fills exactly these five slots. There’s no sixth grammatical role to worry about.
+The expanded lookup table:
+
+
+
+|Token       |he/him |she/her|they/them |ze/zir |ze/hir |xe/xem |
+|------------|-------|-------|----------|-------|-------|-------|
+|`{SUBJ}`    |he     |she    |they      |ze     |ze     |xe     |
+|`{OBJ}`     |him    |her    |them      |zir    |hir    |xem    |
+|`{POSS}`    |his    |her    |their     |zir    |hir    |xyr    |
+|`{POSS_PRO}`|his    |hers   |theirs    |zirs   |hirs   |xyrs   |
+|`{REFL}`    |himself|herself|themselves|zirself|hirself|xemself|
+
+Adding a new pronoun set is literally adding a row to a config object. Zero template changes, zero schema changes.
+The one thing worth paying attention to: verb conjugation.
+Neopronouns almost universally follow singular verb agreement. “Ze doesn’t sleep. Ze waits.” Not “ze don’t sleep.” This means they use the left side of your {doesn't|don't} conjugation pairs, same as he/she. So your renderer logic is:
+
+if (pronounSet === 'they/them') → use right value (plural)
+else → use left value (singular)
+
+
+That single conditional covers every current and future neopronoun set because the singular/plural split is the only verb conjugation axis in English third person. There’s no third conjugation pattern that any pronoun system uses.
+How to handle this in the UI:
+Don’t try to enumerate every neopronoun set in a dropdown. That list is open-ended and you’ll always be incomplete. Instead, offer the common presets (he/him, she/her, they/them) as one-click options, then provide a “custom” option with five text fields:
+
+Subject:    [xe    ]
+Object:     [xem   ]
+Possessive: [xyr   ]
+Pos. Pron:  [xyrs  ]
+Reflexive:  [xemself]
+Verb form:  (•) singular  ( ) plural
+
+
+The verb form toggle defaults to singular for custom pronouns. This way you never need to update your codebase when new pronoun sets emerge in usage. Users define their own, the system stores the five values plus a conjugation flag, and the renderer works identically.
+Store custom pronoun sets at the profile level so users only configure this once. And if you want to be thorough, you could let the community propose new “preset” pronoun sets that get promoted to one-click options once enough users have manually entered the same set. That way your preset list grows organically from actual usage rather than you guessing which sets to include.​​​​​​​​​​​​​​​​

@@ -1,64 +1,75 @@
 import { createContext, useContext, useState, useEffect, ReactNode, createElement } from "react";
+import { displayPronouns } from "@/lib/pronouns";
 
 const STORAGE_KEY_NAME    = "fact_db_name";
-const STORAGE_KEY_SUBJECT = "fact_db_pronoun_subject";
-const STORAGE_KEY_OBJECT  = "fact_db_pronoun_object";
-const LEGACY_KEY_PRONOUNS = "fact_db_pronouns";
+const STORAGE_KEY_PRONOUNS = "fact_db_pronouns";
+// Legacy keys — read-only for backward compat
+const LEGACY_KEY_SUBJECT  = "fact_db_pronoun_subject";
+const LEGACY_KEY_OBJECT   = "fact_db_pronoun_object";
 
-export const DEFAULT_NAME           = "David Franklin";
+export const DEFAULT_NAME     = "David Franklin";
+export const DEFAULT_PRONOUNS = "he/him";
+
+// Derived for callers that still need individual parts
 export const DEFAULT_PRONOUN_SUBJECT = "he";
 export const DEFAULT_PRONOUN_OBJECT  = "him";
 
 function getInitialName(): string {
-  const stored = localStorage.getItem(STORAGE_KEY_NAME);
-  if (!stored) {
-    return DEFAULT_NAME;
-  }
-  return stored;
+  return localStorage.getItem(STORAGE_KEY_NAME) || DEFAULT_NAME;
 }
 
-function getInitialSubject(): string {
-  const stored = localStorage.getItem(STORAGE_KEY_SUBJECT);
+function getInitialPronouns(): string {
+  // New unified key
+  const stored = localStorage.getItem(STORAGE_KEY_PRONOUNS);
   if (stored) return stored;
-  const legacy = localStorage.getItem(LEGACY_KEY_PRONOUNS);
-  if (legacy) {
-    const part = legacy.split("/")[0];
-    if (part) return part;
-  }
-  return DEFAULT_PRONOUN_SUBJECT;
-}
 
-function getInitialObject(): string {
-  const stored = localStorage.getItem(STORAGE_KEY_OBJECT);
-  if (stored) return stored;
-  const legacy = localStorage.getItem(LEGACY_KEY_PRONOUNS);
-  if (legacy) {
-    const part = legacy.split("/")[1];
-    if (part) return part;
+  // Migrate from legacy subject/object keys
+  const sub = localStorage.getItem(LEGACY_KEY_SUBJECT);
+  const obj = localStorage.getItem(LEGACY_KEY_OBJECT);
+  if (sub || obj) {
+    const migrated = `${sub || "he"}/${obj || "him"}`;
+    localStorage.setItem(STORAGE_KEY_PRONOUNS, migrated);
+    return migrated;
   }
-  return DEFAULT_PRONOUN_OBJECT;
+
+  return DEFAULT_PRONOUNS;
 }
 
 interface PersonNameContextValue {
   name:           string;
-  pronounSubject: string;
-  pronounObject:  string;
+  pronouns:       string;  // full stored value: "he/him" or pipe-delimited custom
+  pronounSubject: string;  // derived — for callers that only need subject
+  pronounObject:  string;  // derived — for callers that only need object
   setName:        (name: string) => void;
-  setPronouns:    (subject: string, object: string) => void;
+  setPronouns:    (pronouns: string) => void;
 }
 
 const PersonNameContext = createContext<PersonNameContextValue>({
   name:           DEFAULT_NAME,
+  pronouns:       DEFAULT_PRONOUNS,
   pronounSubject: DEFAULT_PRONOUN_SUBJECT,
   pronounObject:  DEFAULT_PRONOUN_OBJECT,
   setName:        () => {},
   setPronouns:    () => {},
 });
 
+function splitSubjectObject(pronouns: string): { subject: string; object: string } {
+  if (pronouns.includes("|")) {
+    const parts = pronouns.split("|");
+    return { subject: parts[0] || "he", object: parts[1] || "him" };
+  }
+  const slashIdx = pronouns.indexOf("/");
+  if (slashIdx >= 0) {
+    return { subject: pronouns.slice(0, slashIdx), object: pronouns.slice(slashIdx + 1) };
+  }
+  return { subject: pronouns, object: pronouns };
+}
+
 export function PersonNameProvider({ children }: { children: ReactNode }) {
-  const [name,           setNameState]    = useState<string>(getInitialName);
-  const [pronounSubject, setSubjectState] = useState<string>(getInitialSubject);
-  const [pronounObject,  setObjectState]  = useState<string>(getInitialObject);
+  const [name,     setNameState]     = useState<string>(getInitialName);
+  const [pronouns, setPronounsState] = useState<string>(getInitialPronouns);
+
+  const { subject, object } = splitSubjectObject(pronouns);
 
   function setName(value: string) {
     const n = value.trim() || DEFAULT_NAME;
@@ -68,20 +79,16 @@ export function PersonNameProvider({ children }: { children: ReactNode }) {
     setNameState(n);
   }
 
-  function setPronouns(subject: string, object: string) {
-    const sub = subject.trim() || DEFAULT_PRONOUN_SUBJECT;
-    const obj = object.trim()  || DEFAULT_PRONOUN_OBJECT;
-    localStorage.setItem(STORAGE_KEY_SUBJECT, sub);
-    localStorage.setItem(STORAGE_KEY_OBJECT,  obj);
-    setSubjectState(sub);
-    setObjectState(obj);
+  function setPronouns(value: string) {
+    const v = value.trim() || DEFAULT_PRONOUNS;
+    localStorage.setItem(STORAGE_KEY_PRONOUNS, v);
+    setPronounsState(v);
   }
 
   useEffect(() => {
     function onStorage(e: StorageEvent) {
-      if (e.key === STORAGE_KEY_NAME    && e.newValue) setNameState(e.newValue);
-      if (e.key === STORAGE_KEY_SUBJECT && e.newValue) setSubjectState(e.newValue);
-      if (e.key === STORAGE_KEY_OBJECT  && e.newValue) setObjectState(e.newValue);
+      if (e.key === STORAGE_KEY_NAME     && e.newValue) setNameState(e.newValue);
+      if (e.key === STORAGE_KEY_PRONOUNS && e.newValue) setPronounsState(e.newValue);
     }
     window.addEventListener("storage", onStorage);
     return () => window.removeEventListener("storage", onStorage);
@@ -89,7 +96,16 @@ export function PersonNameProvider({ children }: { children: ReactNode }) {
 
   return createElement(
     PersonNameContext.Provider,
-    { value: { name, pronounSubject, pronounObject, setName, setPronouns } },
+    {
+      value: {
+        name,
+        pronouns,
+        pronounSubject: subject,
+        pronounObject:  object,
+        setName,
+        setPronouns,
+      },
+    },
     children,
   );
 }
@@ -97,3 +113,6 @@ export function PersonNameProvider({ children }: { children: ReactNode }) {
 export function usePersonName() {
   return useContext(PersonNameContext);
 }
+
+// Re-export for convenience in callers that just want the display string
+export { displayPronouns };
