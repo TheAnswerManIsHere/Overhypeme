@@ -80,7 +80,7 @@ SendGrid is integrated via `artifacts/api-server/src/lib/email.ts`:
 
 ### API Proxy
 - API server runs on its own PORT (default 8080)
-- Vite proxies `/api` → API server (see `artifacts/chuck-norris-facts/vite.config.ts`)
+- Vite proxies `/api` → API server (see `artifacts/chuck-norris-facts/vite.config.ts`) — package name: `@workspace/overhype-me`
 - In app code: always use relative `/api/...` paths (Vite handles the proxy)
 
 ### Database Schema (lib/db/src/schema/)
@@ -100,7 +100,7 @@ SendGrid is integrated via `artifacts/api-server/src/lib/email.ts`:
 artifacts-monorepo/
 ├── artifacts/
 │   ├── api-server/           # Express API server (auth, facts, ratings, comments, hashtags)
-│   └── chuck-norris-facts/   # React+Vite frontend (dark theme, orange accents)
+│   └── chuck-norris-facts/   # React+Vite frontend — @workspace/overhype-me (dark theme, orange accents)
 ├── lib/
 │   ├── api-spec/             # OpenAPI spec + Orval codegen config
 │   ├── api-client-react/     # Generated React Query hooks
