@@ -135,28 +135,28 @@ export function AdminLayout({ children, title }: AdminLayoutProps) {
           })}
         </nav>
 
-        <div className="p-2 border-t border-border">
-          <Link href="/">
-            <div className="flex items-center gap-3 px-3 py-2.5 text-muted-foreground hover:text-foreground hover:bg-muted rounded-sm cursor-pointer transition-colors">
-              <ChevronRight className="w-4 h-4" />
-              <span className="text-sm font-medium">View Site</span>
-            </div>
-          </Link>
-          <button
-            onClick={() => logout()}
-            className="w-full flex items-center gap-3 px-3 py-2.5 text-muted-foreground hover:text-destructive hover:bg-muted rounded-sm cursor-pointer transition-colors"
-          >
-            <LogOut className="w-4 h-4" />
-            <span className="text-sm font-medium">Log Out</span>
-          </button>
-        </div>
       </aside>
 
       <main className="flex-1 min-w-0 flex flex-col">
-        <header className="border-b border-border px-6 py-4 bg-card">
+        <header className="border-b border-border px-6 py-3 bg-card flex items-center justify-between gap-4">
           <h1 className="text-xl font-display font-bold text-foreground uppercase tracking-wide">
             {title}
           </h1>
+          <div className="flex items-center gap-1 shrink-0">
+            <Link href="/">
+              <div className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground hover:bg-muted rounded-sm cursor-pointer transition-colors">
+                <ChevronRight className="w-4 h-4" />
+                <span>View Site</span>
+              </div>
+            </Link>
+            <button
+              onClick={() => logout()}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-muted-foreground hover:text-destructive hover:bg-muted rounded-sm cursor-pointer transition-colors"
+            >
+              <LogOut className="w-4 h-4" />
+              <span>Log Out</span>
+            </button>
+          </div>
         </header>
         <div className="flex-1 p-6 overflow-auto">{children}</div>
       </main>

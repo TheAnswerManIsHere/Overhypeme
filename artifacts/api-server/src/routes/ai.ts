@@ -13,6 +13,7 @@ const router: IRouter = Router();
 const CheckDuplicateBody    = z.object({ text: z.string().min(10).max(1000) });
 const SuggestHashtagsBody   = z.object({ text: z.string().min(5).max(1000) });
 const TokenizeFactBody      = z.object({ text: z.string().min(5).max(2000) });
+const SuggestPronounsBody   = z.object({ name: z.string().min(1).max(200) });
 
 const RATE_WINDOW_MS = 60_000;
 const RATE_MAX = 30;
@@ -277,6 +278,56 @@ router.post("/ai/tokenize-fact", requireRateLimit, async (req: Request, res: Res
   } catch (err) {
     console.error("[AI] tokenize-fact error:", err);
     res.status(500).json({ error: "Tokenization failed" });
+  }
+});
+
+router.post("/ai/suggest-pronouns", requireRateLimit, async (req: Request, res: Response) => {
+  const bodyParsed = SuggestPronounsBody.safeParse(req.body);
+  if (!bodyParsed.success) {
+    res.status(400).json({ error: "Invalid input" });
+    return;
+  }
+  const { name } = bodyParsed.data;
+
+  try {
+    const openai = getOpenAIClient();
+    const completion = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      max_tokens: 64,
+      response_format: { type: "json_object" },
+      messages: [
+        {
+          role: "system",
+          content:
+            "You infer the most likely subject and object pronouns for a given personal name. " +
+            "Return ONLY valid JSON with keys 'subject' and 'object'. " +
+            "Use 'he'/'him' for typically masculine names, 'she'/'her' for typically feminine names, " +
+            "and 'they'/'them' for ambiguous, gender-neutral, or non-binary names. " +
+            "Default to 'they'/'them' when uncertain. " +
+            "Example output: {\"subject\": \"she\", \"object\": \"her\"}",
+        },
+        {
+          role: "user",
+          content: `Name: "${name}"`,
+        },
+      ],
+    });
+
+    const raw = completion.choices[0]?.message?.content ?? "{}";
+    let subject = "they";
+    let object  = "them";
+    try {
+      const parsed = JSON.parse(raw) as Record<string, unknown>;
+      if (typeof parsed.subject === "string" && parsed.subject.length > 0) subject = parsed.subject.toLowerCase();
+      if (typeof parsed.object  === "string" && parsed.object.length  > 0) object  = parsed.object.toLowerCase();
+    } catch {
+      // fall back to they/them
+    }
+
+    res.json({ subject, object });
+  } catch (err) {
+    console.error("[AI] suggest-pronouns error:", err);
+    res.status(500).json({ error: "Suggestion failed" });
   }
 });
 
