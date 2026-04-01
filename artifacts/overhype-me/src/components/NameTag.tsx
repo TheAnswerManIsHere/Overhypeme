@@ -41,9 +41,8 @@ async function fetchSuggestedPronouns(
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-/** True when the current draftPronouns value is complete enough to save. */
 function canApply(draftPronouns: string): boolean {
-  if (!isCustomPronouns(draftPronouns)) return true; // any preset is valid
+  if (!isCustomPronouns(draftPronouns)) return true;
   const p = parseCustom(draftPronouns);
   if (!p) return false;
   return !!(p.subj.trim() && p.obj.trim() && p.poss.trim() && p.possPro.trim() && p.refl.trim());
@@ -71,6 +70,41 @@ export function NameTag() {
   draftPronounsRef.current = draftPronouns;
 
   const applyEnabled = canApply(draftPronouns);
+
+  // ── AI suggestion (defined early so effects below can reference it) ──────────
+
+  const triggerSuggestion = useCallback((nameValue: string) => {
+    if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
+
+    if (!nameValue.trim()) {
+      abortControllerRef.current?.abort();
+      setAiLoading(false);
+      return;
+    }
+
+    debounceTimerRef.current = setTimeout(async () => {
+      // Don't override a pronoun the user has explicitly clicked this session
+      if (userChosenRef.current) return;
+
+      // Only suggest when pronouns are still at the default — respect saved custom prefs
+      const current = draftPronounsRef.current;
+      const isDefault = current === DEFAULT_PRONOUNS || current === "";
+      if (!isDefault) return;
+
+      abortControllerRef.current?.abort();
+      const controller = new AbortController();
+      abortControllerRef.current = controller;
+
+      setAiLoading(true);
+      const suggestion = await fetchSuggestedPronouns(nameValue.trim(), controller.signal);
+      if (controller.signal.aborted) return;
+      setAiLoading(false);
+
+      if (suggestion && !userChosenRef.current) {
+        setDraftPronouns(suggestion);
+      }
+    }, 450);
+  }, []);
 
   // ── Open / save / cancel ────────────────────────────────────────────────────
 
@@ -102,6 +136,8 @@ export function NameTag() {
     setEditing(false);
   }
 
+  // ── Effects ─────────────────────────────────────────────────────────────────
+
   // Close on outside click
   useEffect(() => {
     if (!editing) return;
@@ -118,42 +154,15 @@ export function NameTag() {
     abortControllerRef.current?.abort();
   }, []);
 
+  // On panel open: focus the input and fire AI suggestion for the existing name
   useEffect(() => {
-    if (editing) nameRef.current?.focus();
+    if (!editing) return;
+    nameRef.current?.focus();
+    triggerSuggestion(draftName);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editing]);
 
-  // ── AI suggestion ────────────────────────────────────────────────────────────
-
-  const triggerSuggestion = useCallback((nameValue: string) => {
-    if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
-
-    if (!nameValue.trim()) {
-      abortControllerRef.current?.abort();
-      setAiLoading(false);
-      return;
-    }
-
-    debounceTimerRef.current = setTimeout(async () => {
-      if (userChosenRef.current) return;
-
-      const current = draftPronounsRef.current;
-      const isDefault = current === DEFAULT_PRONOUNS || current === "";
-      if (!isDefault) return;
-
-      abortControllerRef.current?.abort();
-      const controller = new AbortController();
-      abortControllerRef.current = controller;
-
-      setAiLoading(true);
-      const suggestion = await fetchSuggestedPronouns(nameValue.trim(), controller.signal);
-      if (controller.signal.aborted) return;
-      setAiLoading(false);
-
-      if (suggestion && !userChosenRef.current) {
-        setDraftPronouns(suggestion);
-      }
-    }, 450);
-  }, []);
+  // ── Event handlers ──────────────────────────────────────────────────────────
 
   function handleNameChange(e: React.ChangeEvent<HTMLInputElement>) {
     setDraftName(e.target.value);
@@ -161,7 +170,7 @@ export function NameTag() {
   }
 
   function handlePronounsChange(val: string) {
-    userChosenRef.current = true;
+    userChosenRef.current = true;       // user explicitly chose — don't override
     if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
     abortControllerRef.current?.abort();
     setAiLoading(false);
@@ -228,7 +237,7 @@ export function NameTag() {
           ref={panelRef}
           className="absolute top-full left-0 mt-1 z-50 bg-background border border-border rounded-sm shadow-lg p-3 w-72"
         >
-          {/* Name field — no buttons here */}
+          {/* Name field */}
           <div className="flex items-center gap-2 mb-3">
             <input
               ref={nameRef}
