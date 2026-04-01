@@ -3,7 +3,6 @@ import { db } from "@workspace/db";
 import { factsTable, hashtagsTable, commentsTable } from "@workspace/db/schema";
 import { eq, sql } from "drizzle-orm";
 import { getOpenAIClient } from "@workspace/integrations-openai-ai-server";
-import { anthropic } from "@workspace/integrations-anthropic-ai";
 import { z } from "zod";
 import { getSessionId, getSession } from "../lib/auth";
 import { embedText, findSimilarFacts } from "../lib/embeddings";
@@ -239,17 +238,18 @@ router.post("/ai/tokenize-fact", requireRateLimit, async (req: Request, res: Res
   const { text } = bodyParsed.data;
 
   try {
-    const message = await anthropic.messages.create({
-      model: "claude-haiku-4-5",
-      max_tokens: 8192,
-      messages: [{
-        role: "user",
-        content: `Convert this fact to a template:\n\n"${text}"`,
-      }],
-      system: TOKENIZE_SYSTEM_PROMPT,
+    const openai = getOpenAIClient();
+    const completion = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      max_tokens: 1024,
+      response_format: { type: "json_object" },
+      messages: [
+        { role: "system", content: TOKENIZE_SYSTEM_PROMPT },
+        { role: "user",   content: `Convert this fact to a template:\n\n"${text}"` },
+      ],
     });
 
-    const raw = message.content[0]?.type === "text" ? message.content[0].text : "{}";
+    const raw = completion.choices[0]?.message?.content ?? "{}";
     let template = text;
     try {
       const parsed = JSON.parse(raw) as Record<string, unknown>;
