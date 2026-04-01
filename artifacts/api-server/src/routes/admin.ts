@@ -61,7 +61,7 @@ router.get("/admin/users", requireAdmin, async (req: Request, res: Response) => 
 
   const activeFilter = eq(usersTable.isActive, true);
   const where = search
-    ? and(activeFilter, sql`(${usersTable.email} ilike ${`%${search}%`} OR ${usersTable.firstName} ilike ${`%${search}%`} OR ${usersTable.lastName} ilike ${`%${search}%`} OR ${usersTable.username} ilike ${`%${search}%`} OR ${usersTable.id}::text ilike ${`%${search}%`})`)
+    ? and(activeFilter, sql`(${usersTable.email} ilike ${`%${search}%`} OR ${usersTable.firstName} ilike ${`%${search}%`} OR ${usersTable.lastName} ilike ${`%${search}%`} OR ${usersTable.displayName} ilike ${`%${search}%`} OR ${usersTable.id}::text ilike ${`%${search}%`})`)
     : activeFilter;
 
   const [users, [{ total }]] = await Promise.all([
@@ -83,7 +83,6 @@ router.patch("/admin/users/:id", requireAdmin, async (req: Request, res: Respons
   if (body["lastName"] !== undefined) updates.lastName = body["lastName"] ? String(body["lastName"]) : null;
   if (body["displayName"] !== undefined) updates.displayName = body["displayName"] ? String(body["displayName"]) : null;
   if (body["email"] !== undefined) updates.email = body["email"] ? String(body["email"]) : null;
-  if (body["username"] !== undefined) updates.username = body["username"] ? String(body["username"]) : null;
   if (body["membershipTier"] !== undefined && ["free", "premium"].includes(String(body["membershipTier"])))
     updates.membershipTier = String(body["membershipTier"]) as "free" | "premium";
   if (body["pronouns"] !== undefined) {
@@ -135,7 +134,6 @@ router.post("/admin/users", requireAdmin, async (req: Request, res: Response) =>
   const firstName = body["firstName"] ? String(body["firstName"]).trim() : null;
   const lastName = body["lastName"] ? String(body["lastName"]).trim() : null;
   const displayName = body["displayName"] ? String(body["displayName"]).trim() : null;
-  const username = body["username"] ? String(body["username"]).trim().toLowerCase() : null;
   const membershipTier = ["free", "premium"].includes(String(body["membershipTier"] ?? "free"))
     ? (String(body["membershipTier"] ?? "free") as "free" | "premium")
     : "free";
@@ -175,7 +173,7 @@ router.post("/admin/users", requireAdmin, async (req: Request, res: Response) =>
   try {
     const [created] = await db
       .insert(usersTable)
-      .values({ email, passwordHash, firstName, lastName, displayName, username, membershipTier, isAdmin, isActive: true })
+      .values({ email, passwordHash, firstName, lastName, displayName, membershipTier, isAdmin, isActive: true })
       .returning();
     const { passwordHash: _omit, ...safeUser } = created;
     res.status(201).json({ success: true, user: safeUser });
@@ -184,8 +182,6 @@ router.post("/admin/users", requireAdmin, async (req: Request, res: Response) =>
     if (msg.includes("duplicate key") || msg.includes("unique")) {
       if (msg.includes("email")) {
         res.status(409).json({ error: "A user with that email already exists" });
-      } else if (msg.includes("username")) {
-        res.status(409).json({ error: "A user with that username already exists" });
       } else {
         res.status(409).json({ error: "A user with those details already exists" });
       }
@@ -376,10 +372,10 @@ router.get("/admin/comments/pending", requireAdmin, async (_req: Request, res: R
     .limit(100);
 
   const authorIds = [...new Set(rows.filter((r) => r.authorId).map((r) => r.authorId!))];
-  const authorMap = new Map<string, { username: string | null; firstName: string | null; lastName: string | null; displayName: string | null; email: string | null }>();
+  const authorMap = new Map<string, { firstName: string | null; lastName: string | null; displayName: string | null; email: string | null }>();
   if (authorIds.length) {
     const users = await db
-      .select({ id: usersTable.id, username: usersTable.username, firstName: usersTable.firstName, lastName: usersTable.lastName, displayName: usersTable.displayName, email: usersTable.email })
+      .select({ id: usersTable.id, firstName: usersTable.firstName, lastName: usersTable.lastName, displayName: usersTable.displayName, email: usersTable.email })
       .from(usersTable)
       .where(inArray(usersTable.id, authorIds));
     for (const u of users) authorMap.set(u.id, u);
@@ -389,7 +385,6 @@ router.get("/admin/comments/pending", requireAdmin, async (_req: Request, res: R
     comments: rows.map((c) => ({
       ...c,
       createdAt: c.createdAt.toISOString(),
-      authorUsername: c.authorId ? (authorMap.get(c.authorId)?.username ?? null) : null,
       authorFirstName: c.authorId ? (authorMap.get(c.authorId)?.firstName ?? null) : null,
       authorLastName: c.authorId ? (authorMap.get(c.authorId)?.lastName ?? null) : null,
       authorDisplayName: c.authorId ? (authorMap.get(c.authorId)?.displayName ?? null) : null,
@@ -425,10 +420,10 @@ router.get("/admin/comments/flagged", requireAdmin, async (_req: Request, res: R
     .limit(100);
 
   const authorIds = [...new Set(rows.filter((r) => r.authorId).map((r) => r.authorId!))];
-  const authorMap = new Map<string, { username: string | null; firstName: string | null; lastName: string | null; displayName: string | null; email: string | null }>();
+  const authorMap = new Map<string, { firstName: string | null; lastName: string | null; displayName: string | null; email: string | null }>();
   if (authorIds.length) {
     const users = await db
-      .select({ id: usersTable.id, username: usersTable.username, firstName: usersTable.firstName, lastName: usersTable.lastName, displayName: usersTable.displayName, email: usersTable.email })
+      .select({ id: usersTable.id, firstName: usersTable.firstName, lastName: usersTable.lastName, displayName: usersTable.displayName, email: usersTable.email })
       .from(usersTable)
       .where(inArray(usersTable.id, authorIds));
     for (const u of users) authorMap.set(u.id, u);
@@ -438,7 +433,6 @@ router.get("/admin/comments/flagged", requireAdmin, async (_req: Request, res: R
     comments: rows.map((c) => ({
       ...c,
       createdAt: c.createdAt.toISOString(),
-      authorUsername: c.authorId ? (authorMap.get(c.authorId)?.username ?? null) : null,
       authorFirstName: c.authorId ? (authorMap.get(c.authorId)?.firstName ?? null) : null,
       authorLastName: c.authorId ? (authorMap.get(c.authorId)?.lastName ?? null) : null,
       authorDisplayName: c.authorId ? (authorMap.get(c.authorId)?.displayName ?? null) : null,

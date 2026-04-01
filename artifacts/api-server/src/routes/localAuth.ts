@@ -10,7 +10,6 @@ import { sendEmail, buildPasswordResetEmail, buildEmailVerificationEmail, buildE
 const router: IRouter = Router();
 
 const SALT_ROUNDS = 10;
-const USERNAME_RE = /^[a-zA-Z0-9_]{3,30}$/;
 
 const IS_PRODUCTION = process.env.NODE_ENV === "production";
 
@@ -80,8 +79,7 @@ function setSessionCookie(res: Response, sid: string) {
 }
 
 router.post("/auth/register", async (req: Request, res: Response) => {
-  const { username, password, email, firstName, lastName, displayName, pronouns } = req.body as {
-    username?: string;
+  const { password, email, firstName, lastName, displayName, pronouns } = req.body as {
     password?: string;
     email?: string;
     firstName?: string;
@@ -90,15 +88,13 @@ router.post("/auth/register", async (req: Request, res: Response) => {
     pronouns?: string;
   };
 
-  if (!username || !password) {
-    res.status(400).json({ error: "Username and password are required" });
+  if (!email || !password) {
+    res.status(400).json({ error: "Email and password are required" });
     return;
   }
 
-  if (typeof username !== "string" || !USERNAME_RE.test(username)) {
-    res.status(400).json({
-      error: "Username must be 3–30 characters, letters, numbers, or underscores only",
-    });
+  if (typeof email !== "string" || !email.includes("@")) {
+    res.status(400).json({ error: "A valid email address is required" });
     return;
   }
 
@@ -138,17 +134,6 @@ router.post("/auth/register", async (req: Request, res: Response) => {
     }
   }
 
-  const [existing] = await db
-    .select({ id: usersTable.id })
-    .from(usersTable)
-    .where(eq(usersTable.username, username))
-    .limit(1);
-
-  if (existing) {
-    res.status(409).json({ error: "Username is already taken" });
-    return;
-  }
-
   const passwordHash = await bcrypt.hash(password, SALT_ROUNDS);
 
   // Sanitize pronouns: preset "he/him" style or pipe-delimited custom, max 80 chars
@@ -163,7 +148,6 @@ router.post("/auth/register", async (req: Request, res: Response) => {
   const [user] = await db
     .insert(usersTable)
     .values({
-      username,
       passwordHash,
       email: emailNormalized,
       firstName: firstNameTrimmed,
@@ -213,17 +197,17 @@ router.post("/auth/register", async (req: Request, res: Response) => {
 });
 
 router.post("/auth/local-login", async (req: Request, res: Response) => {
-  const { username, password } = req.body as {
-    username?: string;
+  const { email, password } = req.body as {
+    email?: string;
     password?: string;
   };
 
-  if (!username || !password) {
-    res.status(400).json({ error: "Username and password are required" });
+  if (!email || !password) {
+    res.status(400).json({ error: "Email and password are required" });
     return;
   }
 
-  if (typeof username !== "string" || typeof password !== "string") {
+  if (typeof email !== "string" || typeof password !== "string") {
     res.status(400).json({ error: "Invalid input types" });
     return;
   }
@@ -231,17 +215,17 @@ router.post("/auth/local-login", async (req: Request, res: Response) => {
   const [user] = await db
     .select()
     .from(usersTable)
-    .where(and(eq(usersTable.username, username), eq(usersTable.isActive, true)))
+    .where(and(eq(usersTable.email, email.trim().toLowerCase()), eq(usersTable.isActive, true)))
     .limit(1);
 
   if (!user || !user.passwordHash) {
-    res.status(401).json({ error: "Invalid username or password" });
+    res.status(401).json({ error: "Invalid email or password" });
     return;
   }
 
   const valid = await bcrypt.compare(password, user.passwordHash);
   if (!valid) {
-    res.status(401).json({ error: "Invalid username or password" });
+    res.status(401).json({ error: "Invalid email or password" });
     return;
   }
 

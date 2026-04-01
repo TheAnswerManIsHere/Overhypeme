@@ -48,7 +48,6 @@ router.get("/users/me", async (req: Request, res: Response) => {
       pendingEmail: usersTable.pendingEmail,
       firstName: usersTable.firstName,
       lastName: usersTable.lastName,
-      username: usersTable.username,
       pronouns: usersTable.pronouns,
       profileImageUrl: usersTable.profileImageUrl,
       emailVerifiedAt: usersTable.emailVerifiedAt,
@@ -91,7 +90,6 @@ router.get("/users/me", async (req: Request, res: Response) => {
     emailVerified: userRow?.emailVerifiedAt !== null && userRow?.emailVerifiedAt !== undefined,
     firstName: userRow?.firstName ?? null,
     lastName: userRow?.lastName ?? null,
-    username: userRow?.username ?? null,
     pronouns: userRow?.pronouns ?? null,
     profileImageUrl: userRow?.profileImageUrl ?? null,
     submittedFacts: submittedSummaries,
@@ -101,16 +99,13 @@ router.get("/users/me", async (req: Request, res: Response) => {
   });
 });
 
-const USERNAME_RE = /^[a-zA-Z0-9_]{3,30}$/;
-
 router.patch("/users/me", async (req: Request, res: Response) => {
   if (!req.isAuthenticated()) { res.status(401).json({ error: "Unauthorized" }); return; }
   const userId = req.user.id;
 
-  const { firstName, lastName, username, pronouns, email } = req.body as {
+  const { firstName, lastName, pronouns, email } = req.body as {
     firstName?: string;
     lastName?: string;
-    username?: string;
     pronouns?: string;
     email?: string;
   };
@@ -127,23 +122,6 @@ router.patch("/users/me", async (req: Request, res: Response) => {
     const trimmed = typeof lastName === "string" ? lastName.trim() : "";
     if (!trimmed) { res.status(400).json({ error: "Last name cannot be empty" }); return; }
     updates.lastName = trimmed;
-  }
-
-  if (username !== undefined) {
-    if (typeof username !== "string" || !USERNAME_RE.test(username)) {
-      res.status(400).json({ error: "Username must be 3–30 characters, letters, numbers, or underscores only" });
-      return;
-    }
-    const [existing] = await db
-      .select({ id: usersTable.id })
-      .from(usersTable)
-      .where(and(eq(usersTable.username, username)))
-      .limit(1);
-    if (existing && existing.id !== userId) {
-      res.status(409).json({ error: "Username is already taken" });
-      return;
-    }
-    updates.username = username;
   }
 
   if (pronouns !== undefined) {
