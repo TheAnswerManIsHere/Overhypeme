@@ -9,6 +9,10 @@ import { WebhookHandlers } from "./lib/webhookHandlers";
 
 const app: Express = express();
 
+// Trust the Replit / cloud proxy — required so req.secure is true and
+// SameSite=None; Secure cookies are correctly accepted by Express.
+app.set("trust proxy", 1);
+
 app.use(
   pinoHttp({
     logger,
