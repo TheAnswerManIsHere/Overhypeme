@@ -24,7 +24,6 @@ import ActivityFeed from "@/pages/ActivityFeed";
 import MemePage from "@/pages/MemePage";
 import Pricing from "@/pages/Pricing";
 import Login from "@/pages/Login";
-import Hashtags from "@/pages/Hashtags";
 import ForgotPassword from "@/pages/ForgotPassword";
 import ResetPassword from "@/pages/ResetPassword";
 import VerifyEmail from "@/pages/VerifyEmail";
@@ -38,6 +37,12 @@ const queryClient = new QueryClient({
     },
   },
 });
+
+function HashtagsRedirect() {
+  const [, setLocation] = useLocation();
+  useEffect(() => { setLocation("/"); }, [setLocation]);
+  return null;
+}
 
 function GAPageTracker() {
   const [location] = useLocation();
@@ -69,7 +74,7 @@ function Router() {
         <Route path="/meme/:slug" component={MemePage} />
         <Route path="/pricing" component={Pricing} />
         <Route path="/login" component={Login} />
-        <Route path="/hashtags" component={Hashtags} />
+        <Route path="/hashtags"><HashtagsRedirect /></Route>
         <Route path="/forgot-password" component={ForgotPassword} />
         <Route path="/reset-password" component={ResetPassword} />
         <Route path="/verify-email" component={VerifyEmail} />
