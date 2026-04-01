@@ -227,7 +227,7 @@ export function MemeBuilder({ factId, factText, onClose }: MemeBuilderProps) {
   // Image source state
   const [imageMode, setImageMode] = useState<ImageMode>("gradient");
   const [selectedTemplate, setSelectedTemplate] = useState("action");
-  const [stockGender, setStockGender] = useState<StockGender>("person");
+  const [stockGender, setStockGender] = useState<StockGender | null>(null);
   const [stockPhoto, setStockPhoto] = useState<StockPhoto | null>(null);
   const [isLoadingStock, setIsLoadingStock] = useState(false);
   const [stockError, setStockError] = useState<string | null>(null);
@@ -313,12 +313,6 @@ export function MemeBuilder({ factId, factText, onClose }: MemeBuilderProps) {
     }
   }, [isAuthenticated]);
 
-  // Auto-fetch when switching to stock mode
-  useEffect(() => {
-    if (imageMode === "stock" && !stockPhoto && isAuthenticated) {
-      fetchStockPhoto(stockGender);
-    }
-  }, [imageMode, isAuthenticated]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Upload flow ──────────────────────────────────────────────────
   const handleFile = useCallback(async (file: File) => {
@@ -610,8 +604,8 @@ export function MemeBuilder({ factId, factText, onClose }: MemeBuilderProps) {
 
                       <div className="flex-1 min-w-0">
                         <button
-                          onClick={() => fetchStockPhoto(stockGender)}
-                          disabled={isLoadingStock}
+                          onClick={() => stockGender && fetchStockPhoto(stockGender)}
+                          disabled={isLoadingStock || !stockGender}
                           className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-muted-foreground hover:text-primary border-2 border-border hover:border-primary/50 px-3 py-1.5 transition-all disabled:opacity-50 w-full justify-center"
                         >
                           <RefreshCw className={`w-3 h-3 ${isLoadingStock ? "animate-spin" : ""}`} />
