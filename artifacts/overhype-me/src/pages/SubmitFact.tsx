@@ -385,8 +385,8 @@ export default function SubmitFact() {
                       <div className="flex-1 min-w-0">
                         <p className={`font-bold text-lg ${duplicate.isDuplicate ? "text-red-600 dark:text-red-400" : "text-amber-600 dark:text-amber-400"}`}>
                           {duplicate.isDuplicate
-                            ? `⚠ Very similar to an existing fact (${duplicate.confidence}% match) — likely to be rejected by the admin`
-                            : `Closest existing fact: ${duplicate.confidence}% similarity (below duplicate threshold)`}
+                            ? "⚠ Possible duplicate detected — an accurate score will appear after tokenization"
+                            : "Similar entry found — an accurate score will appear after tokenization"}
                         </p>
                         {duplicate.matchingFactId && (
                           <>
