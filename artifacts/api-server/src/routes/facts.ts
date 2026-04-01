@@ -338,6 +338,13 @@ router.post("/facts/:factId/comments", async (req: Request, res: Response) => {
 
   const [comment] = await db.insert(commentsTable).values({ factId, authorId: req.user.id, text, status: "pending" }).returning();
 
+  void logActivity({
+    userId: req.user.id,
+    actionType: "comment_posted",
+    message: "Your comment was submitted and is pending review.",
+    metadata: { commentId: comment.id, factId },
+  });
+
   res.status(201).json({
     id: comment.id, factId: comment.factId, text: comment.text, status: "pending",
     authorId: req.user.id, authorName: req.user.firstName ?? null,

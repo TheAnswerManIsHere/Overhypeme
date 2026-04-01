@@ -1,10 +1,11 @@
 import { Router, type IRouter, type Request, type Response, type NextFunction } from "express";
 import { db, usersTable } from "@workspace/db";
 import { factsTable, commentsTable } from "@workspace/db/schema";
-import { eq, desc, count, ilike, sql, and, or } from "drizzle-orm";
+import { eq, desc, count, ilike, sql, and, or, inArray } from "drizzle-orm";
 import { getSessionId, getSession, updateSession } from "../lib/auth";
 import { isAdminById } from "./auth";
 import { backfillEmbeddings } from "../lib/embeddings";
+import { logActivity } from "../lib/activity";
 import bcrypt from "bcryptjs";
 
 const router: IRouter = Router();
@@ -356,8 +357,26 @@ router.get("/admin/comments/pending", requireAdmin, async (_req: Request, res: R
     .orderBy(desc(commentsTable.createdAt))
     .limit(100);
 
+  const authorIds = [...new Set(rows.filter((r) => r.authorId).map((r) => r.authorId!))];
+  const authorMap = new Map<string, { username: string | null; firstName: string | null; lastName: string | null; displayName: string | null; email: string | null }>();
+  if (authorIds.length) {
+    const users = await db
+      .select({ id: usersTable.id, username: usersTable.username, firstName: usersTable.firstName, lastName: usersTable.lastName, displayName: usersTable.displayName, email: usersTable.email })
+      .from(usersTable)
+      .where(inArray(usersTable.id, authorIds));
+    for (const u of users) authorMap.set(u.id, u);
+  }
+
   res.json({
-    comments: rows.map((c) => ({ ...c, createdAt: c.createdAt.toISOString() })),
+    comments: rows.map((c) => ({
+      ...c,
+      createdAt: c.createdAt.toISOString(),
+      authorUsername: c.authorId ? (authorMap.get(c.authorId)?.username ?? null) : null,
+      authorFirstName: c.authorId ? (authorMap.get(c.authorId)?.firstName ?? null) : null,
+      authorLastName: c.authorId ? (authorMap.get(c.authorId)?.lastName ?? null) : null,
+      authorDisplayName: c.authorId ? (authorMap.get(c.authorId)?.displayName ?? null) : null,
+      authorEmail: c.authorId ? (authorMap.get(c.authorId)?.email ?? null) : null,
+    })),
     total: rows.length,
   });
 });
@@ -387,8 +406,26 @@ router.get("/admin/comments/flagged", requireAdmin, async (_req: Request, res: R
     .orderBy(desc(commentsTable.createdAt))
     .limit(100);
 
+  const authorIds = [...new Set(rows.filter((r) => r.authorId).map((r) => r.authorId!))];
+  const authorMap = new Map<string, { username: string | null; firstName: string | null; lastName: string | null; displayName: string | null; email: string | null }>();
+  if (authorIds.length) {
+    const users = await db
+      .select({ id: usersTable.id, username: usersTable.username, firstName: usersTable.firstName, lastName: usersTable.lastName, displayName: usersTable.displayName, email: usersTable.email })
+      .from(usersTable)
+      .where(inArray(usersTable.id, authorIds));
+    for (const u of users) authorMap.set(u.id, u);
+  }
+
   res.json({
-    comments: rows.map((c) => ({ ...c, createdAt: c.createdAt.toISOString() })),
+    comments: rows.map((c) => ({
+      ...c,
+      createdAt: c.createdAt.toISOString(),
+      authorUsername: c.authorId ? (authorMap.get(c.authorId)?.username ?? null) : null,
+      authorFirstName: c.authorId ? (authorMap.get(c.authorId)?.firstName ?? null) : null,
+      authorLastName: c.authorId ? (authorMap.get(c.authorId)?.lastName ?? null) : null,
+      authorDisplayName: c.authorId ? (authorMap.get(c.authorId)?.displayName ?? null) : null,
+      authorEmail: c.authorId ? (authorMap.get(c.authorId)?.email ?? null) : null,
+    })),
   });
 });
 
@@ -397,7 +434,7 @@ router.post("/admin/comments/:id/approve", requireAdmin, async (req: Request, re
   const id = parseInt(String(req.params.id ?? "0"), 10);
   if (!id) { res.status(400).json({ error: "Invalid id" }); return; }
   const [current] = await db
-    .select({ factId: commentsTable.factId, status: commentsTable.status })
+    .select({ factId: commentsTable.factId, status: commentsTable.status, authorId: commentsTable.authorId })
     .from(commentsTable)
     .where(eq(commentsTable.id, id));
   if (!current) { res.status(404).json({ error: "Comment not found" }); return; }
@@ -408,6 +445,14 @@ router.post("/admin/comments/:id/approve", requireAdmin, async (req: Request, re
       .set({ commentCount: sql`${factsTable.commentCount} + 1` })
       .where(eq(factsTable.id, current.factId));
   }
+  if (current.authorId) {
+    void logActivity({
+      userId: current.authorId,
+      actionType: "comment_approved",
+      message: "Your comment was approved and is now visible publicly.",
+      metadata: { commentId: id, factId: current.factId },
+    });
+  }
   res.json({ success: true });
 });
 
@@ -415,17 +460,30 @@ router.post("/admin/comments/:id/approve", requireAdmin, async (req: Request, re
 router.post("/admin/comments/:id/reject", requireAdmin, async (req: Request, res: Response) => {
   const id = parseInt(String(req.params.id ?? "0"), 10);
   if (!id) { res.status(400).json({ error: "Invalid id" }); return; }
+  const body = req.body as Record<string, unknown>;
+  const note = body["note"] && typeof body["note"] === "string" ? body["note"].trim() : null;
   const [current] = await db
-    .select({ factId: commentsTable.factId, status: commentsTable.status })
+    .select({ factId: commentsTable.factId, status: commentsTable.status, authorId: commentsTable.authorId })
     .from(commentsTable)
     .where(eq(commentsTable.id, id));
   if (!current) { res.status(404).json({ error: "Comment not found" }); return; }
-  await db.update(commentsTable).set({ status: "rejected", flagged: true }).where(eq(commentsTable.id, id));
+  await db.update(commentsTable).set({ status: "rejected", flagged: true, flagReason: note || null }).where(eq(commentsTable.id, id));
   if (current.status === "approved") {
     await db
       .update(factsTable)
       .set({ commentCount: sql`GREATEST(0, ${factsTable.commentCount} - 1)` })
       .where(eq(factsTable.id, current.factId));
+  }
+  if (current.authorId) {
+    const message = note
+      ? `Your comment was rejected. Reason: ${note}`
+      : "Your comment was rejected by a moderator.";
+    void logActivity({
+      userId: current.authorId,
+      actionType: "comment_rejected",
+      message,
+      metadata: { commentId: id, factId: current.factId, ...(note ? { note } : {}) },
+    });
   }
   res.json({ success: true });
 });
