@@ -497,4 +497,42 @@ router.post("/auth/resend-verification", async (req: Request, res: Response) => 
   res.status(200).json({ message: "Verification email sent. Please check your inbox." });
 });
 
+// ── Dev-only: instant admin login ────────────────────────────────────────────
+// Disabled entirely in production. No credentials needed — just hit the
+// secret logo triple-click in the UI during local/preview development.
+router.post("/auth/dev-admin-login", async (req: Request, res: Response) => {
+  if (process.env.NODE_ENV === "production") {
+    res.status(403).json({ error: "Not available in production" });
+    return;
+  }
+
+  const ADMIN_EMAIL = "david@davidcarlos.net";
+  const [user] = await db
+    .select()
+    .from(usersTable)
+    .where(and(eq(usersTable.email, ADMIN_EMAIL), eq(usersTable.isActive, true)))
+    .limit(1);
+
+  if (!user) {
+    res.status(404).json({ error: "Admin user not found" });
+    return;
+  }
+
+  const sessionData: SessionData = {
+    user: {
+      id: user.id,
+      email: user.email,
+      profileImageUrl: user.profileImageUrl,
+      membershipTier: user.membershipTier,
+    },
+    access_token: "",
+    captchaVerified: user.captchaVerified,
+    isAdmin: user.isAdmin || isAdminById(user.id),
+  };
+
+  const sid = await createSession(sessionData);
+  setSessionCookie(res, sid);
+  res.json({ sid, user: { id: user.id, email: user.email } });
+});
+
 export default router;
