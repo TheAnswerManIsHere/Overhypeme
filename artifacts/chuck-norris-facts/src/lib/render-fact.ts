@@ -1,17 +1,18 @@
 /**
- * Replace {First_Name} and {Last_Name} tokens in a fact string.
- * Falls back to the raw token text if either name part is empty.
+ * Replace {Name} token in a fact string with the user's chosen name.
  */
-export function renderFact(text: string, firstName: string, lastName: string): string {
-  return text
-    .replace(/\{First_Name\}/g, firstName || "Chuck")
-    .replace(/\{Last_Name\}/g, lastName || "Norris");
+export function renderFact(text: string, name: string): string {
+  return text.replace(/\{Name\}/g, name || DEFAULT_NAME);
 }
 
+const DEFAULT_NAME = "David Franklin";
+
 /**
- * Tokenize "Chuck Norris" in user-submitted text so it can be
- * personalized for any name at render time.
+ * Tokenize "Chuck Norris" (or any two-word name pattern already stored
+ * as the old tokens) in user-submitted text so it can be personalized.
  */
 export function tokenizeFact(text: string): string {
-  return text.replace(/\bchuck norris\b/gi, "{First_Name} {Last_Name}");
+  return text
+    .replace(/\{First_Name\}\s*\{Last_Name\}/g, "{Name}")
+    .replace(/\bchuck norris\b/gi, "{Name}");
 }

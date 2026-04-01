@@ -264,7 +264,7 @@ export default function SubmitFact() {
               <Textarea
                 value={text}
                 onChange={e => setText(e.target.value)}
-                placeholder="When {First_Name} {Last_Name} looks in a mirror, there is no reflection. Tip: 'Chuck Norris' is auto-replaced with name tokens on submit."
+                placeholder="When {Name} looks in a mirror, there is no reflection. Tip: write any name — it's auto-replaced with a {Name} token on submit."
                 className="text-lg min-h-[160px]"
                 disabled={createFact.isPending || submittingReview}
               />

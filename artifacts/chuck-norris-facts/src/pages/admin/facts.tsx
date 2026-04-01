@@ -612,8 +612,8 @@ export default function AdminFacts() {
               onChange={(e) => setImportText(e.target.value)}
               placeholder={
                 importMode === "json"
-                  ? `["{First_Name} {Last_Name} can sneeze with their eyes open.", "{First_Name} {Last_Name} counted to infinity — twice."]`
-                  : "{First_Name} {Last_Name} can sneeze with their eyes open.\n{First_Name} {Last_Name} counted to infinity — twice."
+                  ? `["{Name} can sneeze with their eyes open.", "{Name} counted to infinity — twice."]`
+                  : "{Name} can sneeze with their eyes open.\n{Name} counted to infinity — twice."
               }
               className="flex-1 font-mono text-xs resize-none min-h-[220px]"
             />

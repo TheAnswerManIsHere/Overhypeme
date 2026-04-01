@@ -1,54 +1,49 @@
 import { createContext, useContext, useState, useEffect, ReactNode, createElement } from "react";
 
-const STORAGE_KEY_FIRST = "fact_db_first_name";
-const STORAGE_KEY_LAST  = "fact_db_last_name";
+const STORAGE_KEY = "fact_db_name";
 
-export const DEFAULT_FIRST = "David";
-export const DEFAULT_LAST  = "Franklin";
+export const DEFAULT_NAME = "David Franklin";
 
-function getInitialFirst(): string {
-  const stored = localStorage.getItem(STORAGE_KEY_FIRST);
-  if (!stored || stored === "Chuck") return DEFAULT_FIRST;
-  return stored;
-}
-
-function getInitialLast(): string {
-  const stored = localStorage.getItem(STORAGE_KEY_LAST);
-  if (!stored || stored === "Norris") return DEFAULT_LAST;
+function getInitialName(): string {
+  const stored = localStorage.getItem(STORAGE_KEY);
+  if (!stored || stored === "Chuck Norris" || stored === "Chuck" || stored === "Norris") {
+    return DEFAULT_NAME;
+  }
+  // Migrate old split-key storage
+  const oldFirst = localStorage.getItem("fact_db_first_name");
+  const oldLast  = localStorage.getItem("fact_db_last_name");
+  if (!stored && oldFirst && oldLast) {
+    if (oldFirst === "Chuck" && oldLast === "Norris") return DEFAULT_NAME;
+    return `${oldFirst} ${oldLast}`;
+  }
   return stored;
 }
 
 interface PersonNameContextValue {
-  firstName: string;
-  lastName:  string;
-  fullName:  string;
-  setName:   (first: string, last: string) => void;
+  name:    string;
+  setName: (name: string) => void;
 }
 
 const PersonNameContext = createContext<PersonNameContextValue>({
-  firstName: DEFAULT_FIRST,
-  lastName:  DEFAULT_LAST,
-  fullName:  `${DEFAULT_FIRST} ${DEFAULT_LAST}`,
-  setName:   () => {},
+  name:    DEFAULT_NAME,
+  setName: () => {},
 });
 
 export function PersonNameProvider({ children }: { children: ReactNode }) {
-  const [firstName, setFirst] = useState<string>(getInitialFirst);
-  const [lastName,  setLast]  = useState<string>(getInitialLast);
+  const [name, setNameState] = useState<string>(getInitialName);
 
-  function setName(first: string, last: string) {
-    const f = first.trim() || DEFAULT_FIRST;
-    const l = last.trim()  || DEFAULT_LAST;
-    localStorage.setItem(STORAGE_KEY_FIRST, f);
-    localStorage.setItem(STORAGE_KEY_LAST,  l);
-    setFirst(f);
-    setLast(l);
+  function setName(value: string) {
+    const n = value.trim() || DEFAULT_NAME;
+    localStorage.setItem(STORAGE_KEY, n);
+    // Clear legacy split keys
+    localStorage.removeItem("fact_db_first_name");
+    localStorage.removeItem("fact_db_last_name");
+    setNameState(n);
   }
 
   useEffect(() => {
     function onStorage(e: StorageEvent) {
-      if (e.key === STORAGE_KEY_FIRST && e.newValue) setFirst(e.newValue);
-      if (e.key === STORAGE_KEY_LAST  && e.newValue) setLast(e.newValue);
+      if (e.key === STORAGE_KEY && e.newValue) setNameState(e.newValue);
     }
     window.addEventListener("storage", onStorage);
     return () => window.removeEventListener("storage", onStorage);
@@ -56,7 +51,7 @@ export function PersonNameProvider({ children }: { children: ReactNode }) {
 
   return createElement(
     PersonNameContext.Provider,
-    { value: { firstName, lastName, fullName: `${firstName} ${lastName}`, setName } },
+    { value: { name, setName } },
     children,
   );
 }
