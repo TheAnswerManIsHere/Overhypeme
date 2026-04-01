@@ -3,8 +3,20 @@ import { createContext, useContext, useState, useEffect, ReactNode, createElemen
 const STORAGE_KEY_FIRST = "fact_db_first_name";
 const STORAGE_KEY_LAST  = "fact_db_last_name";
 
-export const DEFAULT_FIRST = "Chuck";
-export const DEFAULT_LAST  = "Norris";
+export const DEFAULT_FIRST = "David";
+export const DEFAULT_LAST  = "Franklin";
+
+function getInitialFirst(): string {
+  const stored = localStorage.getItem(STORAGE_KEY_FIRST);
+  if (!stored || stored === "Chuck") return DEFAULT_FIRST;
+  return stored;
+}
+
+function getInitialLast(): string {
+  const stored = localStorage.getItem(STORAGE_KEY_LAST);
+  if (!stored || stored === "Norris") return DEFAULT_LAST;
+  return stored;
+}
 
 interface PersonNameContextValue {
   firstName: string;
@@ -21,12 +33,8 @@ const PersonNameContext = createContext<PersonNameContextValue>({
 });
 
 export function PersonNameProvider({ children }: { children: ReactNode }) {
-  const [firstName, setFirst] = useState<string>(
-    () => localStorage.getItem(STORAGE_KEY_FIRST) ?? DEFAULT_FIRST,
-  );
-  const [lastName, setLast] = useState<string>(
-    () => localStorage.getItem(STORAGE_KEY_LAST) ?? DEFAULT_LAST,
-  );
+  const [firstName, setFirst] = useState<string>(getInitialFirst);
+  const [lastName,  setLast]  = useState<string>(getInitialLast);
 
   function setName(first: string, last: string) {
     const f = first.trim() || DEFAULT_FIRST;
