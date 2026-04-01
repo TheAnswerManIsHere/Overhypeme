@@ -43,6 +43,10 @@ export async function ensureSchema(): Promise<void> {
       label: "users.is_active",
       ddl: `ALTER TABLE users ADD COLUMN IF NOT EXISTS is_active boolean NOT NULL DEFAULT true`,
     },
+    {
+      label: "facts.canonical_text",
+      ddl: `ALTER TABLE facts ADD COLUMN IF NOT EXISTS canonical_text text`,
+    },
   ];
 
   for (const { label, ddl } of migrations) {
