@@ -80,6 +80,7 @@ router.patch("/admin/users/:id", requireAdmin, async (req: Request, res: Respons
   if (typeof body["captchaVerified"] === "boolean") updates.captchaVerified = body["captchaVerified"];
   if (body["firstName"] !== undefined) updates.firstName = body["firstName"] ? String(body["firstName"]) : null;
   if (body["lastName"] !== undefined) updates.lastName = body["lastName"] ? String(body["lastName"]) : null;
+  if (body["displayName"] !== undefined) updates.displayName = body["displayName"] ? String(body["displayName"]) : null;
   if (body["email"] !== undefined) updates.email = body["email"] ? String(body["email"]) : null;
   if (body["username"] !== undefined) updates.username = body["username"] ? String(body["username"]) : null;
   if (body["membershipTier"] !== undefined && ["free", "premium"].includes(String(body["membershipTier"])))
@@ -122,6 +123,7 @@ router.post("/admin/users", requireAdmin, async (req: Request, res: Response) =>
   const password = body["password"] ? String(body["password"]) : null;
   const firstName = body["firstName"] ? String(body["firstName"]).trim() : null;
   const lastName = body["lastName"] ? String(body["lastName"]).trim() : null;
+  const displayName = body["displayName"] ? String(body["displayName"]).trim() : null;
   const username = body["username"] ? String(body["username"]).trim().toLowerCase() : null;
   const membershipTier = ["free", "premium"].includes(String(body["membershipTier"] ?? "free"))
     ? (String(body["membershipTier"] ?? "free") as "free" | "premium")
@@ -144,13 +146,25 @@ router.post("/admin/users", requireAdmin, async (req: Request, res: Response) =>
     res.status(400).json({ error: "Password must be at most 128 characters" });
     return;
   }
+  if (!firstName) {
+    res.status(400).json({ error: "First name is required" });
+    return;
+  }
+  if (!lastName) {
+    res.status(400).json({ error: "Last name is required" });
+    return;
+  }
+  if (!displayName) {
+    res.status(400).json({ error: "Display name is required" });
+    return;
+  }
 
   const passwordHash = await bcrypt.hash(password, 12);
 
   try {
     const [created] = await db
       .insert(usersTable)
-      .values({ email, passwordHash, firstName, lastName, username, membershipTier, isAdmin, isActive: true })
+      .values({ email, passwordHash, firstName, lastName, displayName, username, membershipTier, isAdmin, isActive: true })
       .returning();
     const { passwordHash: _omit, ...safeUser } = created;
     res.status(201).json({ success: true, user: safeUser });

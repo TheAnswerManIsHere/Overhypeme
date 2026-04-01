@@ -44,10 +44,13 @@ function setSessionCookie(res: Response, sid: string) {
 }
 
 router.post("/auth/register", async (req: Request, res: Response) => {
-  const { username, password, email } = req.body as {
+  const { username, password, email, firstName, lastName, displayName } = req.body as {
     username?: string;
     password?: string;
     email?: string;
+    firstName?: string;
+    lastName?: string;
+    displayName?: string;
   };
 
   if (!username || !password) {
@@ -69,6 +72,23 @@ router.post("/auth/register", async (req: Request, res: Response) => {
 
   if (password.length > 128) {
     res.status(400).json({ error: "Password must be 128 characters or fewer" });
+    return;
+  }
+
+  const firstNameTrimmed = typeof firstName === "string" ? firstName.trim() : "";
+  const lastNameTrimmed = typeof lastName === "string" ? lastName.trim() : "";
+  const displayNameTrimmed = typeof displayName === "string" ? displayName.trim() : "";
+
+  if (!firstNameTrimmed) {
+    res.status(400).json({ error: "First name is required" });
+    return;
+  }
+  if (!lastNameTrimmed) {
+    res.status(400).json({ error: "Last name is required" });
+    return;
+  }
+  if (!displayNameTrimmed) {
+    res.status(400).json({ error: "Display name is required" });
     return;
   }
 
@@ -103,7 +123,9 @@ router.post("/auth/register", async (req: Request, res: Response) => {
       username,
       passwordHash,
       email: email || null,
-      firstName: username,
+      firstName: firstNameTrimmed,
+      lastName: lastNameTrimmed,
+      displayName: displayNameTrimmed,
       captchaVerified: false,
       isActive: true,
     })

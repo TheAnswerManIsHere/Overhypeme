@@ -9,6 +9,7 @@ interface User {
   email: string | null;
   firstName: string | null;
   lastName: string | null;
+  displayName: string | null;
   username: string | null;
   profileImageUrl: string | null;
   isAdmin: boolean;
@@ -27,7 +28,7 @@ interface UsersResponse {
   limit: number;
 }
 
-type EditDraft = Pick<User, "firstName" | "lastName" | "email" | "username" | "isAdmin" | "captchaVerified" | "membershipTier" | "pronouns">;
+type EditDraft = Pick<User, "firstName" | "lastName" | "displayName" | "email" | "username" | "isAdmin" | "captchaVerified" | "membershipTier" | "pronouns">;
 
 const LIMIT = 50;
 
@@ -60,6 +61,7 @@ interface AddUserForm {
   password: string;
   firstName: string;
   lastName: string;
+  displayName: string;
   username: string;
   membershipTier: "free" | "premium";
   isAdmin: boolean;
@@ -70,6 +72,7 @@ const EMPTY_ADD_FORM: AddUserForm = {
   password: "",
   firstName: "",
   lastName: "",
+  displayName: "",
   username: "",
   membershipTier: "free",
   isAdmin: false,
@@ -120,6 +123,7 @@ export default function AdminUsers() {
     setDraft({
       firstName: user.firstName ?? "",
       lastName: user.lastName ?? "",
+      displayName: user.displayName ?? "",
       email: user.email ?? "",
       username: user.username ?? "",
       isAdmin: user.isAdmin,
@@ -148,6 +152,7 @@ export default function AdminUsers() {
         body: JSON.stringify({
           firstName: draft.firstName || null,
           lastName: draft.lastName || null,
+          displayName: draft.displayName || null,
           email: draft.email || null,
           username: draft.username || null,
           isAdmin: draft.isAdmin,
@@ -174,6 +179,9 @@ export default function AdminUsers() {
     if (!addForm.email.trim()) { setAddError("Email is required"); return; }
     if (!addForm.password) { setAddError("Password is required"); return; }
     if (addForm.password.length < 8) { setAddError("Password must be at least 8 characters"); return; }
+    if (!addForm.firstName.trim()) { setAddError("First name is required"); return; }
+    if (!addForm.lastName.trim()) { setAddError("Last name is required"); return; }
+    if (!addForm.displayName.trim()) { setAddError("Display name is required"); return; }
     setAddSaving(true);
     try {
       const res = await fetch("/api/admin/users", {
@@ -183,8 +191,9 @@ export default function AdminUsers() {
         body: JSON.stringify({
           email: addForm.email.trim(),
           password: addForm.password,
-          firstName: addForm.firstName.trim() || null,
-          lastName: addForm.lastName.trim() || null,
+          firstName: addForm.firstName.trim(),
+          lastName: addForm.lastName.trim(),
+          displayName: addForm.displayName.trim(),
           username: addForm.username.trim() || null,
           membershipTier: addForm.membershipTier,
           isAdmin: addForm.isAdmin,
@@ -236,13 +245,22 @@ export default function AdminUsers() {
                 />
               </div>
               <div>
-                <FieldLabel>Last Name</FieldLabel>
+                <FieldLabel>Last Name <span className="text-destructive">*</span></FieldLabel>
                 <Input
                   value={addForm.lastName}
                   onChange={(e) => setAddForm((f) => ({ ...f, lastName: e.target.value }))}
                   placeholder="Last name"
                 />
               </div>
+            </div>
+
+            <div>
+              <FieldLabel>Display Name <span className="text-destructive">*</span></FieldLabel>
+              <Input
+                value={addForm.displayName}
+                onChange={(e) => setAddForm((f) => ({ ...f, displayName: e.target.value }))}
+                placeholder="Name inserted into personalized facts (e.g. Alex Smith)"
+              />
             </div>
 
             <div>
@@ -470,6 +488,16 @@ export default function AdminUsers() {
                   placeholder="Last name"
                 />
               </div>
+            </div>
+
+            {/* Display Name */}
+            <div>
+              <FieldLabel>Display Name</FieldLabel>
+              <Input
+                value={draft.displayName ?? ""}
+                onChange={(e) => setDraft((d) => d ? { ...d, displayName: e.target.value } : d)}
+                placeholder="Name inserted into personalized facts"
+              />
             </div>
 
             {/* Email + Username */}
