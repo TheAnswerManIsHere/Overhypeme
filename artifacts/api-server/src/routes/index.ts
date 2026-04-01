@@ -32,7 +32,7 @@ router.use(stripeRouter);
 router.use(jobsRouter);
 router.use(affiliateRouter);
 router.use(reviewsRouter);
-router.use(importRouter);
 router.use(shareRouter);
+router.use(importRouter);
 
 export default router;
