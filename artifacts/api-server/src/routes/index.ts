@@ -33,5 +33,6 @@ router.use(jobsRouter);
 router.use(affiliateRouter);
 router.use(reviewsRouter);
 router.use(importRouter);
+router.use(shareRouter);
 
 export default router;

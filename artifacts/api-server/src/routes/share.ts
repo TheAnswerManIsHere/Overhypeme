@@ -1,13 +1,16 @@
 import { Router, type IRouter, type Request, type Response } from "express";
 import { sendEmail, buildShareInviteEmail } from "../lib/email";
-import { getSession } from "../lib/auth";
+import { getSessionId, getSession } from "../lib/auth";
+import { db, usersTable } from "@workspace/db";
+import { eq } from "drizzle-orm";
 
 const router: IRouter = Router();
 
 /**
  * POST /share/invite
- * Sends a branded invite email to the specified recipient.
- * Caller may optionally be authenticated; if so we use their display name as the sender.
+ * Sends a branded invite email to a recipient with their personalised link.
+ * No authentication required. If the caller is logged in, we use their
+ * display name as the "from" line in the email.
  */
 router.post("/share/invite", async (req: Request, res: Response) => {
   const { recipientEmail, recipientName, shareUrl } = req.body as {
@@ -30,23 +33,27 @@ router.post("/share/invite", async (req: Request, res: Response) => {
   }
 
   const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-  if (!emailRegex.test(recipientEmail)) {
+  if (!emailRegex.test(recipientEmail.trim())) {
     res.status(400).json({ error: "Invalid email address" });
     return;
   }
 
-  // Resolve sender name from session if available
+  // Try to resolve sender display name from session (best-effort, not required)
   let senderName: string | null = null;
   try {
-    const sid = req.headers["authorization"]?.replace("Bearer ", "")
-      ?? (req.cookies as Record<string, string>)?.sid;
+    const sid = getSessionId(req);
     if (sid) {
       const session = await getSession(sid);
-      const displayName = (session?.user as { displayName?: string })?.displayName;
-      if (displayName) senderName = displayName;
+      if (session?.user?.id) {
+        const [dbUser] = await db
+          .select({ displayName: usersTable.displayName })
+          .from(usersTable)
+          .where(eq(usersTable.id, session.user.id));
+        if (dbUser?.displayName) senderName = dbUser.displayName;
+      }
     }
   } catch {
-    // not critical
+    // not critical — fallback to "Someone"
   }
 
   const payload = buildShareInviteEmail(
