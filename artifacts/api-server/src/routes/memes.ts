@@ -14,6 +14,7 @@ import {
 } from "../lib/memeGenerator";
 import { ObjectStorageService } from "../lib/objectStorage";
 import { getRandomStockPhoto, getPhotoById } from "../lib/pexelsClient";
+import { renderPersonalized } from "../lib/renderCanonical";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const TEMPLATES_DIR = path.resolve(__dirname, "assets/meme-templates");
@@ -282,14 +283,21 @@ router.get("/memes/:slug", async (req: Request, res: Response) => {
     .limit(1);
 
   let createdByName: string | null = null;
+  let creatorPronouns: string | null = null;
   if (meme.createdById) {
     const [user] = await db
-      .select({ displayName: usersTable.displayName })
+      .select({ displayName: usersTable.displayName, pronouns: usersTable.pronouns })
       .from(usersTable)
       .where(and(eq(usersTable.id, meme.createdById), eq(usersTable.isActive, true)))
       .limit(1);
     createdByName = user?.displayName ?? null;
+    creatorPronouns = user?.pronouns ?? null;
   }
+
+  const rawTemplate = fact?.text ?? fact?.canonicalText ?? "";
+  const factText = createdByName && rawTemplate
+    ? renderPersonalized(rawTemplate, createdByName, creatorPronouns)
+    : (fact?.canonicalText ?? fact?.text ?? "");
 
   res.json({
     id: meme.id,
@@ -297,7 +305,7 @@ router.get("/memes/:slug", async (req: Request, res: Response) => {
     templateId: meme.templateId,
     imageUrl: meme.imageUrl,
     permalinkSlug: meme.permalinkSlug,
-    factText: fact?.canonicalText ?? fact?.text ?? "",
+    factText,
     createdAt: meme.createdAt.toISOString(),
     createdByName,
   });
@@ -388,13 +396,27 @@ router.get("/memes/:slug/image", async (req: Request, res: Response) => {
   }
 
   // ── Recipe-based rendering ───────────────────────────────────────
-  const [fact] = await db
-    .select({ text: factsTable.text, canonicalText: factsTable.canonicalText })
-    .from(factsTable)
-    .where(eq(factsTable.id, meme.factId))
-    .limit(1);
+  const [fact, creator] = await Promise.all([
+    db
+      .select({ text: factsTable.text, canonicalText: factsTable.canonicalText })
+      .from(factsTable)
+      .where(eq(factsTable.id, meme.factId))
+      .limit(1)
+      .then(rows => rows[0]),
+    meme.createdById
+      ? db
+          .select({ displayName: usersTable.displayName, pronouns: usersTable.pronouns })
+          .from(usersTable)
+          .where(and(eq(usersTable.id, meme.createdById), eq(usersTable.isActive, true)))
+          .limit(1)
+          .then(rows => rows[0])
+      : Promise.resolve(undefined),
+  ]);
 
-  const factText = fact?.canonicalText ?? fact?.text ?? "";
+  const rawTemplate = fact?.text ?? fact?.canonicalText ?? "";
+  const factText = creator?.displayName && rawTemplate
+    ? renderPersonalized(rawTemplate, creator.displayName, creator.pronouns)
+    : (fact?.canonicalText ?? fact?.text ?? "");
   const source = meme.imageSource as StoredImageSource;
   const textOptions = (meme.textOptions ?? undefined) as Parameters<typeof generateMemeBuffer>[2];
 
