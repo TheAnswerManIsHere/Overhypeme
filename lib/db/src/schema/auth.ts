@@ -27,6 +27,7 @@ export const usersTable = pgTable("users", {
   isAdmin: boolean("is_admin").notNull().default(false),
   stripeCustomerId: varchar("stripe_customer_id").unique(),
   membershipTier: membershipTierEnum("membership_tier").notNull().default("free"),
+  pronouns: varchar("pronouns", { length: 20 }).default("he/him"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
 });

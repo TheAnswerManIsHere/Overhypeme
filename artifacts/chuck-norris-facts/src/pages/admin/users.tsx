@@ -14,6 +14,7 @@ interface User {
   isAdmin: boolean;
   captchaVerified: boolean;
   membershipTier: "free" | "premium";
+  pronouns: "he/him" | "she/her" | "they/them" | null;
   stripeCustomerId: string | null;
   createdAt: string;
   updatedAt: string;
@@ -26,7 +27,7 @@ interface UsersResponse {
   limit: number;
 }
 
-type EditDraft = Pick<User, "firstName" | "lastName" | "email" | "username" | "isAdmin" | "captchaVerified" | "membershipTier">;
+type EditDraft = Pick<User, "firstName" | "lastName" | "email" | "username" | "isAdmin" | "captchaVerified" | "membershipTier" | "pronouns">;
 
 const LIMIT = 50;
 
@@ -99,6 +100,7 @@ export default function AdminUsers() {
       isAdmin: user.isAdmin,
       captchaVerified: user.captchaVerified,
       membershipTier: user.membershipTier,
+      pronouns: user.pronouns ?? "he/him",
     });
     setSaveResult(null);
   }
@@ -126,6 +128,7 @@ export default function AdminUsers() {
           isAdmin: draft.isAdmin,
           captchaVerified: draft.captchaVerified,
           membershipTier: draft.membershipTier,
+          pronouns: draft.pronouns,
         }),
       });
       const data = (await res.json()) as { success?: boolean; user?: User; error?: string };
@@ -319,6 +322,26 @@ export default function AdminUsers() {
                   >
                     {tier === "premium" ? <Crown className="w-3.5 h-3.5" /> : <Star className="w-3.5 h-3.5" />}
                     {tier.charAt(0).toUpperCase() + tier.slice(1)}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Pronouns */}
+            <div>
+              <FieldLabel>Pronouns</FieldLabel>
+              <div className="flex gap-2">
+                {(["he/him", "she/her", "they/them"] as const).map((p) => (
+                  <button
+                    key={p}
+                    onClick={() => setDraft((d) => d ? { ...d, pronouns: p } : d)}
+                    className={`flex-1 h-9 rounded-sm border text-xs font-medium transition-colors ${
+                      draft.pronouns === p
+                        ? "border-primary bg-primary/10 text-primary"
+                        : "border-border text-muted-foreground hover:border-primary/40"
+                    }`}
+                  >
+                    {p}
                   </button>
                 ))}
               </div>

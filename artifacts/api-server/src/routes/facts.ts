@@ -187,9 +187,22 @@ router.post("/facts", async (req: Request, res: Response) => {
     }
   }
 
-  const tokenizedText = text
-    .replace(/\{First_Name\}\s*\{Last_Name\}/g, "{Name}")
-    .replace(/\bchuck norris\b/gi, "{Name}");
+  const tokenizedText = (() => {
+    let t = text
+      .replace(/\{First_Name\}\s*\{Last_Name\}/g, "{Name}")
+      .replace(/\bchuck norris\b/gi, "{Name}")
+      .replace(/\bHimself\b/g, "{Himself}")
+      .replace(/\bhimself\b/g, "{himself}")
+      .replace(/\bHe's\b/g, "{He's}")
+      .replace(/\bhe's\b/g, "{he's}")
+      .replace(/\bHim\b/g, "{Him}")
+      .replace(/\bhim\b/g, "{him}")
+      .replace(/\bHis\b/g, "{His}")
+      .replace(/\bhis\b/g, "{his}")
+      .replace(/\bHe\b/g, "{He}")
+      .replace(/\bhe\b/g, "{he}");
+    return t;
+  })();
   const [fact] = await db.insert(factsTable).values({ text: tokenizedText, submittedById: req.user.id }).returning();
 
   // Generate and persist the pgvector embedding in the background (non-blocking)

@@ -40,7 +40,7 @@ export default function FactDetail() {
     query: { queryKey: ["listFactMemes", factId], enabled: !!factId }
   });
 
-  const { name } = usePersonName();
+  const { name, pronouns } = usePersonName();
   const [commentText, setCommentText] = useState("");
   const [captchaToken, setCaptchaToken] = useState("");
   const [linkUrl, setLinkUrl] = useState("");
@@ -100,7 +100,7 @@ export default function FactDetail() {
           </div>
           
           <h1 className="text-3xl md:text-5xl font-bold leading-tight text-foreground relative z-10 mb-8">
-            "{renderFact(fact.text, name)}"
+            "{renderFact(fact.text, name, pronouns)}"
           </h1>
           
           <div className="flex flex-wrap gap-2 mb-10 relative z-10">
