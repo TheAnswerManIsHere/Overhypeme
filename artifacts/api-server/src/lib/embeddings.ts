@@ -4,7 +4,7 @@
  */
 import OpenAI from "openai";
 import { db, factsTable } from "@workspace/db";
-import { eq, isNull, sql } from "drizzle-orm";
+import { eq, isNull, sql, and } from "drizzle-orm";
 
 export const EMBEDDING_MODEL = "text-embedding-3-small";
 export const EMBEDDING_DIMENSIONS = 384;
@@ -60,7 +60,7 @@ export async function findSimilarFacts(
       text,
       1 - (embedding <=> ${vectorLiteral}::vector) AS similarity
     FROM facts
-    WHERE embedding IS NOT NULL
+    WHERE embedding IS NOT NULL AND is_active = true
     ORDER BY embedding <=> ${vectorLiteral}::vector
     LIMIT ${limit}
   `);
@@ -84,7 +84,7 @@ export async function backfillEmbeddings(
   const missing = await db
     .select({ id: factsTable.id, text: factsTable.text })
     .from(factsTable)
-    .where(isNull(factsTable.embedding));
+    .where(and(isNull(factsTable.embedding), eq(factsTable.isActive, true)));
 
   let processed = 0;
   let failed = 0;

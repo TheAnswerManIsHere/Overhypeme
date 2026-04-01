@@ -98,11 +98,11 @@ router.get("/admin/reviews", requireAdmin, async (req: Request, res: Response) =
   const [submitters, matchingFacts] = await Promise.all([
     submitterIds.length
       ? db.select({ id: usersTable.id, username: usersTable.username, email: usersTable.email, firstName: usersTable.firstName })
-          .from(usersTable).where(sql`id = ANY(ARRAY[${sql.join(submitterIds.map((id) => sql`${id}`), sql`, `)}]::varchar[])`)
+          .from(usersTable).where(and(sql`id = ANY(ARRAY[${sql.join(submitterIds.map((id) => sql`${id}`), sql`, `)}]::varchar[])`, eq(usersTable.isActive, true)))
       : Promise.resolve([]),
     matchingIds.length
       ? db.select({ id: factsTable.id, text: factsTable.text })
-          .from(factsTable).where(sql`id = ANY(ARRAY[${sql.join(matchingIds.map((id) => sql`${id}`), sql`, `)}]::integer[])`)
+          .from(factsTable).where(and(sql`id = ANY(ARRAY[${sql.join(matchingIds.map((id) => sql`${id}`), sql`, `)}]::integer[])`, eq(factsTable.isActive, true)))
       : Promise.resolve([]),
   ]);
 
@@ -132,12 +132,12 @@ router.get("/admin/reviews/:id", requireAdmin, async (req: Request, res: Respons
   const [submitter, matchingFact] = await Promise.all([
     review.submittedById
       ? db.select({ id: usersTable.id, username: usersTable.username, email: usersTable.email, firstName: usersTable.firstName })
-          .from(usersTable).where(eq(usersTable.id, review.submittedById)).limit(1)
+          .from(usersTable).where(and(eq(usersTable.id, review.submittedById), eq(usersTable.isActive, true))).limit(1)
           .then((r) => r[0] ?? null)
       : null,
     review.matchingFactId
       ? db.select({ id: factsTable.id, text: factsTable.text, score: factsTable.score, createdAt: factsTable.createdAt })
-          .from(factsTable).where(eq(factsTable.id, review.matchingFactId)).limit(1)
+          .from(factsTable).where(and(eq(factsTable.id, review.matchingFactId), eq(factsTable.isActive, true))).limit(1)
           .then((r) => r[0] ?? null)
       : null,
   ]);
@@ -206,7 +206,7 @@ router.post("/admin/reviews/:id/approve", requireAdmin, async (req: Request, res
   // Notify submitter
   if (review.submittedById) {
     const [submitter] = await db.select({ email: usersTable.email, username: usersTable.username, firstName: usersTable.firstName })
-      .from(usersTable).where(eq(usersTable.id, review.submittedById)).limit(1);
+      .from(usersTable).where(and(eq(usersTable.id, review.submittedById), eq(usersTable.isActive, true))).limit(1);
 
     await logActivity({
       userId: review.submittedById,
@@ -251,7 +251,7 @@ router.post("/admin/reviews/:id/reject", requireAdmin, async (req: Request, res:
 
   if (review.submittedById) {
     const [submitter] = await db.select({ email: usersTable.email, username: usersTable.username, firstName: usersTable.firstName })
-      .from(usersTable).where(eq(usersTable.id, review.submittedById)).limit(1);
+      .from(usersTable).where(and(eq(usersTable.id, review.submittedById), eq(usersTable.isActive, true))).limit(1);
 
     await logActivity({
       userId: review.submittedById,

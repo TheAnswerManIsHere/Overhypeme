@@ -77,7 +77,7 @@ async function buildFactSummaries(facts: (typeof factsTable.$inferSelect)[], use
   const sMap = new Map<string, { firstName: string | null; profileImageUrl: string | null }>();
   if (sIds.length) {
     const rows = await db.select({ id: usersTable.id, firstName: usersTable.firstName, profileImageUrl: usersTable.profileImageUrl })
-      .from(usersTable).where(inArray(usersTable.id, sIds));
+      .from(usersTable).where(and(inArray(usersTable.id, sIds), eq(usersTable.isActive, true)));
     for (const r of rows) sMap.set(r.id, r);
   }
 
@@ -98,6 +98,7 @@ router.get("/facts", async (req: Request, res: Response) => {
   const { search, hashtag, sort, limit, offset } = parsed.data;
   const conds = [];
 
+  conds.push(eq(factsTable.isActive, true));
   if (search) conds.push(ilike(factsTable.text, `%${search}%`));
 
   if (hashtag) {
@@ -120,15 +121,15 @@ router.get("/facts", async (req: Request, res: Response) => {
 router.get("/facts/:factId", async (req: Request, res: Response) => {
   const parsed = GetFactParams.safeParse(req.params);
   if (!parsed.success) { res.status(400).json({ error: "Invalid params" }); return; }
-  const [fact] = await db.select().from(factsTable).where(eq(factsTable.id, parsed.data.factId)).limit(1);
+  const [fact] = await db.select().from(factsTable).where(and(eq(factsTable.id, parsed.data.factId), eq(factsTable.isActive, true))).limit(1);
   if (!fact) { res.status(404).json({ error: "Fact not found" }); return; }
-  const [{ rank }] = await db.select({ rank: sql<number>`(count(*) + 1)::int` }).from(factsTable).where(sql`${factsTable.wilsonScore} > ${fact.wilsonScore}`);
+  const [{ rank }] = await db.select({ rank: sql<number>`(count(*) + 1)::int` }).from(factsTable).where(and(sql`${factsTable.wilsonScore} > ${fact.wilsonScore}`, eq(factsTable.isActive, true)));
   const [summary] = await buildFactSummaries([fact], req.user?.id);
   const linkRows = await db.select().from(externalLinksTable).where(eq(externalLinksTable.factId, fact.id)).orderBy(desc(externalLinksTable.createdAt));
   const links = await Promise.all(linkRows.map(async (l) => {
     let addedBy = null;
     if (l.addedById) {
-      const [u] = await db.select({ firstName: usersTable.firstName }).from(usersTable).where(eq(usersTable.id, l.addedById)).limit(1);
+      const [u] = await db.select({ firstName: usersTable.firstName }).from(usersTable).where(and(eq(usersTable.id, l.addedById), eq(usersTable.isActive, true))).limit(1);
       addedBy = u?.firstName ?? null;
     }
     return { id: l.id, factId: l.factId, url: l.url, title: l.title ?? null, platform: l.platform ?? null, addedBy, addedById: l.addedById ?? null, createdAt: l.createdAt.toISOString() };
@@ -138,7 +139,7 @@ router.get("/facts/:factId", async (req: Request, res: Response) => {
   const variantRows = await db.select({
     id: factsTable.id, text: factsTable.text, useCase: factsTable.useCase,
     createdAt: factsTable.createdAt, parentId: factsTable.parentId,
-  }).from(factsTable).where(eq(factsTable.parentId, rootId)).orderBy(asc(factsTable.useCase));
+  }).from(factsTable).where(and(eq(factsTable.parentId, rootId), eq(factsTable.isActive, true))).orderBy(asc(factsTable.useCase));
   const variants = variantRows.map(v => ({
     id: v.id, text: v.text, useCase: v.useCase ?? null, createdAt: v.createdAt.toISOString(),
   }));
@@ -238,7 +239,7 @@ router.post("/facts/:factId/rating", async (req: Request, res: Response) => {
   const userId = req.user.id;
   const { rating } = bodyParsed.data;
 
-  const [factExists] = await db.select({ id: factsTable.id }).from(factsTable).where(eq(factsTable.id, factId)).limit(1);
+  const [factExists] = await db.select({ id: factsTable.id }).from(factsTable).where(and(eq(factsTable.id, factId), eq(factsTable.isActive, true))).limit(1);
   if (!factExists) { res.status(404).json({ error: "Fact not found" }); return; }
 
   const [existing] = await db.select().from(ratingsTable).where(and(eq(ratingsTable.factId, factId), eq(ratingsTable.userId, userId))).limit(1);
@@ -298,7 +299,7 @@ router.get("/facts/:factId/comments", async (req: Request, res: Response) => {
   const aMap = new Map<string, { firstName: string | null; profileImageUrl: string | null }>();
   if (authorIds.length) {
     const users = await db.select({ id: usersTable.id, firstName: usersTable.firstName, profileImageUrl: usersTable.profileImageUrl })
-      .from(usersTable).where(inArray(usersTable.id, authorIds));
+      .from(usersTable).where(and(inArray(usersTable.id, authorIds), eq(usersTable.isActive, true)));
     for (const u of users) aMap.set(u.id, u);
   }
 
@@ -321,7 +322,7 @@ router.post("/facts/:factId/comments", async (req: Request, res: Response) => {
   const factId = paramsParsed.data.factId;
   const { text, captchaToken } = bodyParsed.data;
 
-  const [factExists] = await db.select({ id: factsTable.id }).from(factsTable).where(eq(factsTable.id, factId)).limit(1);
+  const [factExists] = await db.select({ id: factsTable.id }).from(factsTable).where(and(eq(factsTable.id, factId), eq(factsTable.isActive, true))).limit(1);
   if (!factExists) { res.status(404).json({ error: "Fact not found" }); return; }
 
   // Premium members bypass CAPTCHA for comments

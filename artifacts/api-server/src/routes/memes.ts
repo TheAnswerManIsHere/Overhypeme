@@ -5,7 +5,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 import { db } from "@workspace/db";
 import { memesTable, factsTable, usersTable } from "@workspace/db/schema";
-import { eq, desc } from "drizzle-orm";
+import { eq, desc, and } from "drizzle-orm";
 import { z } from "zod";
 import { generateMemeBuffer, MEME_TEMPLATES } from "../lib/memeGenerator";
 import { ObjectStorageService } from "../lib/objectStorage";
@@ -62,10 +62,10 @@ router.get("/memes/:slug", async (req: Request, res: Response) => {
   const [meme] = await db.select().from(memesTable).where(eq(memesTable.permalinkSlug, slug)).limit(1);
   if (!meme) { res.status(404).json({ error: "Meme not found" }); return; }
 
-  const [fact] = await db.select({ text: factsTable.text }).from(factsTable).where(eq(factsTable.id, meme.factId)).limit(1);
+  const [fact] = await db.select({ text: factsTable.text }).from(factsTable).where(and(eq(factsTable.id, meme.factId), eq(factsTable.isActive, true))).limit(1);
   let createdByName: string | null = null;
   if (meme.createdById) {
-    const [user] = await db.select({ firstName: usersTable.firstName }).from(usersTable).where(eq(usersTable.id, meme.createdById)).limit(1);
+    const [user] = await db.select({ firstName: usersTable.firstName }).from(usersTable).where(and(eq(usersTable.id, meme.createdById), eq(usersTable.isActive, true))).limit(1);
     createdByName = user?.firstName ?? null;
   }
 
@@ -90,7 +90,7 @@ router.post("/memes", async (req: Request, res: Response) => {
 
   const { factId, templateId, textOptions } = parsed.data;
 
-  const [fact] = await db.select({ id: factsTable.id, text: factsTable.text }).from(factsTable).where(eq(factsTable.id, factId)).limit(1);
+  const [fact] = await db.select({ id: factsTable.id, text: factsTable.text }).from(factsTable).where(and(eq(factsTable.id, factId), eq(factsTable.isActive, true))).limit(1);
   if (!fact) { res.status(404).json({ error: "Fact not found" }); return; }
 
   const validTemplate = MEME_TEMPLATES.find(t => t.id === templateId);

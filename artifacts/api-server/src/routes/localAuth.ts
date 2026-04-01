@@ -2,7 +2,7 @@ import { Router, type IRouter, type Request, type Response } from "express";
 import bcrypt from "bcryptjs";
 import crypto from "crypto";
 import { db, usersTable, passwordResetTokensTable, sessionsTable } from "@workspace/db";
-import { eq } from "drizzle-orm";
+import { eq, and } from "drizzle-orm";
 import { createSession, type SessionData } from "../lib/auth";
 import { isAdminById } from "./auth";
 import { sendEmail, buildPasswordResetEmail } from "../lib/email";
@@ -155,7 +155,7 @@ router.post("/auth/local-login", async (req: Request, res: Response) => {
   const [user] = await db
     .select()
     .from(usersTable)
-    .where(eq(usersTable.username, username))
+    .where(and(eq(usersTable.username, username), eq(usersTable.isActive, true)))
     .limit(1);
 
   if (!user || !user.passwordHash) {

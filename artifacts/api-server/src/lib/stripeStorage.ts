@@ -1,10 +1,10 @@
 import { db } from "@workspace/db";
 import { usersTable, membershipHistoryTable } from "@workspace/db/schema";
-import { eq, desc, sql } from "drizzle-orm";
+import { eq, desc, sql, and } from "drizzle-orm";
 
 export class StripeStorage {
   async getUserById(id: string) {
-    const [user] = await db.select().from(usersTable).where(eq(usersTable.id, id)).limit(1);
+    const [user] = await db.select().from(usersTable).where(and(eq(usersTable.id, id), eq(usersTable.isActive, true))).limit(1);
     return user ?? null;
   }
 
@@ -32,7 +32,7 @@ export class StripeStorage {
     const rows = await db
       .select({ id: usersTable.id, email: usersTable.email })
       .from(usersTable)
-      .where(eq(usersTable.membershipTier, "premium"));
+      .where(and(eq(usersTable.membershipTier, "premium"), eq(usersTable.isActive, true)));
     return rows.filter(r => r.email !== null) as Array<{ id: string; email: string }>;
   }
 

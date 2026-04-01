@@ -30,6 +30,7 @@ export const factsTable = pgTable("facts", {
   wilsonScore: doublePrecision("wilson_score").notNull().default(0),
   commentCount: integer("comment_count").notNull().default(0),
   hasPronouns: boolean("has_pronouns").notNull().default(false),
+  isActive: boolean("is_active").notNull().default(true),
   embedding: vector("embedding", { dimensions: 384 }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
