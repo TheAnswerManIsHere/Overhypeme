@@ -2,15 +2,18 @@ import { useEffect, useRef, useState } from "react";
 import { AdminLayout } from "@/components/admin/AdminLayout";
 import { Button } from "@/components/ui/Button";
 import { Textarea, Input } from "@/components/ui/Input";
-import { Trash2, Upload, Search, AlertCircle, CheckCircle, Pencil, X, Save, GitBranch, Plus } from "lucide-react";
+import { Trash2, Upload, Search, AlertCircle, CheckCircle, Pencil, X, Save, GitBranch, Plus, Brain, EyeOff, Eye } from "lucide-react";
 
 const USE_CASE_SUGGESTIONS = ["default", "one_line", "two_line", "short", "long", "meme_caption", "shirt_print", "social_media", "title_case"];
 
 interface Fact {
   id: number;
   text: string;
+  canonicalText: string | null;
   parentId: number | null;
   useCase: string | null;
+  isActive: boolean;
+  hasEmbedding: boolean;
   upvotes: number;
   downvotes: number;
   score: number;
@@ -37,7 +40,7 @@ interface FactsResponse {
 
 type ImportMode = "json" | "csv" | "lines";
 
-type EditDraft = Omit<Fact, "id" | "createdAt" | "updatedAt">;
+type EditDraft = Omit<Fact, "id" | "createdAt" | "updatedAt" | "hasEmbedding">;
 
 function FieldLabel({ children }: { children: React.ReactNode }) {
   return (
@@ -65,6 +68,7 @@ export default function AdminFacts() {
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [loading, setLoading] = useState(false);
+  const [showInactive, setShowInactive] = useState(false);
 
   const [selectedFact, setSelectedFact] = useState<Fact | null>(null);
   const [draft, setDraft] = useState<EditDraft | null>(null);
@@ -98,6 +102,7 @@ export default function AdminFacts() {
       page: String(page),
       limit: String(LIMIT),
       ...(debouncedSearch ? { search: debouncedSearch } : {}),
+      ...(showInactive ? { inactive: "true" } : {}),
     });
     fetch(`/api/admin/facts?${params}`, { credentials: "include" })
       .then(async (r) => {
@@ -109,14 +114,16 @@ export default function AdminFacts() {
       })
       .catch(() => {})
       .finally(() => setLoading(false));
-  }, [page, debouncedSearch]);
+  }, [page, debouncedSearch, showInactive]);
 
   function selectFact(fact: Fact) {
     setSelectedFact(fact);
     setDraft({
       text: fact.text,
+      canonicalText: fact.canonicalText ?? null,
       parentId: fact.parentId ?? null,
       useCase: fact.useCase ?? null,
+      isActive: fact.isActive,
       upvotes: fact.upvotes,
       downvotes: fact.downvotes,
       score: fact.score,
@@ -160,6 +167,7 @@ export default function AdminFacts() {
         text: draft.text,
         parentId: draft.parentId !== null && draft.parentId !== undefined && String(draft.parentId) !== "" ? Number(draft.parentId) : null,
         useCase: draft.useCase || null,
+        isActive: draft.isActive,
         upvotes: Number(draft.upvotes),
         downvotes: Number(draft.downvotes),
         score: Number(draft.score),
@@ -298,8 +306,20 @@ export default function AdminFacts() {
                 className="pl-9"
               />
             </div>
+            <button
+              onClick={() => { setShowInactive((v) => !v); setPage(1); }}
+              className={`flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium border rounded-sm transition-colors shrink-0 ${
+                showInactive
+                  ? "bg-amber-500/10 text-amber-600 border-amber-500/30"
+                  : "text-muted-foreground border-border hover:border-primary/40 hover:text-foreground"
+              }`}
+              title={showInactive ? "Hide inactive facts" : "Show inactive facts"}
+            >
+              {showInactive ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
+              {showInactive ? "All" : "Active"}
+            </button>
             <span className="text-sm text-muted-foreground whitespace-nowrap">
-              {total} fact{total !== 1 ? "s" : ""}
+              {total}
             </span>
           </div>
 
@@ -317,14 +337,21 @@ export default function AdminFacts() {
                     onClick={() => selectFact(fact)}
                     className={`flex items-start gap-3 px-4 py-3 cursor-pointer group transition-colors ${
                       isSelected ? "bg-primary/10 border-l-2 border-primary" : "hover:bg-muted/40 border-l-2 border-transparent"
-                    }`}
+                    } ${!fact.isActive ? "opacity-50" : ""}`}
                   >
+                    <div className="mt-1 shrink-0">
+                      <div className={`w-2 h-2 rounded-full ${fact.isActive ? "bg-green-500" : "bg-red-500"}`} title={fact.isActive ? "Active" : "Inactive"} />
+                    </div>
                     <div className="flex-1 min-w-0">
                       <p className="text-sm text-foreground leading-snug line-clamp-2">{fact.text}</p>
-                      <div className="flex gap-3 mt-1 text-xs text-muted-foreground">
+                      <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-1 text-xs text-muted-foreground">
                         <span className="font-mono">#{fact.id}</span>
                         <span>↑{fact.upvotes} ↓{fact.downvotes}</span>
                         <span>W:{(fact.wilsonScore ?? 0).toFixed(3)}</span>
+                        <span title={fact.hasEmbedding ? "Embedding present" : "No embedding — won't appear in duplicate check"}>
+                          <Brain className={`inline w-3 h-3 ${fact.hasEmbedding ? "text-green-500" : "text-destructive"}`} />
+                          {fact.hasEmbedding ? "" : " no embed"}
+                        </span>
                         <span>{new Date(fact.createdAt).toLocaleDateString()}</span>
                       </div>
                     </div>
@@ -333,7 +360,7 @@ export default function AdminFacts() {
                       <button
                         onClick={(e) => { e.stopPropagation(); deleteFact(fact.id); }}
                         className="p-1 text-muted-foreground hover:text-destructive opacity-0 group-hover:opacity-100 transition-all"
-                        title="Delete fact"
+                        title="Soft-delete (deactivate) fact"
                       >
                         <Trash2 className="w-4 h-4" />
                       </button>
@@ -371,6 +398,32 @@ export default function AdminFacts() {
               </button>
             </div>
 
+            {/* Status badges */}
+            <div className="flex flex-wrap gap-2 items-center">
+              <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-bold rounded-sm border ${
+                selectedFact.isActive
+                  ? "bg-green-500/10 text-green-600 border-green-500/30"
+                  : "bg-red-500/10 text-red-500 border-red-500/30"
+              }`}>
+                <div className={`w-1.5 h-1.5 rounded-full ${selectedFact.isActive ? "bg-green-500" : "bg-red-500"}`} />
+                {selectedFact.isActive ? "Active" : "Inactive"}
+              </span>
+              <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-bold rounded-sm border ${
+                selectedFact.hasEmbedding
+                  ? "bg-blue-500/10 text-blue-600 border-blue-500/30"
+                  : "bg-amber-500/10 text-amber-600 border-amber-500/30"
+              }`}>
+                <Brain className="w-3 h-3" />
+                {selectedFact.hasEmbedding ? "Embedding ✓" : "No Embedding"}
+              </span>
+              {selectedFact.parentId !== null && (
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-bold rounded-sm border bg-violet-500/10 text-violet-600 border-violet-500/30">
+                  <GitBranch className="w-3 h-3" />
+                  Variant of #{selectedFact.parentId}
+                </span>
+              )}
+            </div>
+
             {/* Read-only metadata row */}
             <div className="grid grid-cols-3 gap-3">
               <ReadOnlyField label="ID" value={selectedFact.id} />
@@ -387,6 +440,36 @@ export default function AdminFacts() {
                 rows={4}
                 className="w-full px-3 py-2 bg-background border border-border rounded-sm text-sm focus:outline-none focus:border-primary resize-none"
               />
+            </div>
+
+            {/* Canonical text (read-only) */}
+            {selectedFact.canonicalText && (
+              <div>
+                <FieldLabel>Canonical Text (used for embeddings)</FieldLabel>
+                <p className="text-xs text-muted-foreground bg-muted/50 rounded px-3 py-2 leading-relaxed border border-border italic">
+                  {selectedFact.canonicalText}
+                </p>
+              </div>
+            )}
+
+            {/* Active toggle */}
+            <div className="flex items-center justify-between py-2 border border-border rounded-md px-3">
+              <div>
+                <p className="text-sm font-medium">Active</p>
+                <p className="text-xs text-muted-foreground">Inactive facts are hidden from the public.</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setDraft((d) => d ? { ...d, isActive: !d.isActive } : d)}
+                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none ${
+                  draft.isActive ? "bg-green-500" : "bg-muted-foreground/30"
+                }`}
+                title={draft.isActive ? "Click to deactivate" : "Click to activate"}
+              >
+                <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${
+                  draft.isActive ? "translate-x-6" : "translate-x-1"
+                }`} />
+              </button>
             </div>
 
             {/* Vote / score row */}

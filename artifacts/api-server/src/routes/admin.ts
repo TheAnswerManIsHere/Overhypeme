@@ -176,12 +176,31 @@ router.get("/admin/facts", requireAdmin, async (req: Request, res: Response) => 
   const limit = Math.min(100, Math.max(1, parseInt(String(req.query["limit"] ?? "50"), 10)));
   const offset = (page - 1) * limit;
   const search = String(req.query["search"] ?? "").trim();
+  const showInactive = req.query["inactive"] === "true";
 
-  const activeFilter = eq(factsTable.isActive, true);
-  const where = search ? and(activeFilter, ilike(factsTable.text, `%${search}%`)) : activeFilter;
+  const activeFilter = showInactive ? undefined : eq(factsTable.isActive, true);
+  const searchFilter = search ? ilike(factsTable.text, `%${search}%`) : undefined;
+  const where = activeFilter && searchFilter ? and(activeFilter, searchFilter) : activeFilter ?? searchFilter;
 
-  const [facts, [{ total }]] = await Promise.all([
-    db.select().from(factsTable)
+  const [rows, [{ total }]] = await Promise.all([
+    db.select({
+      id: factsTable.id,
+      text: factsTable.text,
+      canonicalText: factsTable.canonicalText,
+      parentId: factsTable.parentId,
+      useCase: factsTable.useCase,
+      isActive: factsTable.isActive,
+      upvotes: factsTable.upvotes,
+      downvotes: factsTable.downvotes,
+      score: factsTable.score,
+      wilsonScore: factsTable.wilsonScore,
+      commentCount: factsTable.commentCount,
+      submittedById: factsTable.submittedById,
+      createdAt: factsTable.createdAt,
+      updatedAt: factsTable.updatedAt,
+      hasEmbedding: sql<boolean>`(${factsTable.embedding} IS NOT NULL)`,
+    })
+      .from(factsTable)
       .where(where)
       .orderBy(desc(factsTable.createdAt))
       .limit(limit)
@@ -189,7 +208,7 @@ router.get("/admin/facts", requireAdmin, async (req: Request, res: Response) => 
     db.select({ total: count() }).from(factsTable).where(where),
   ]);
 
-  res.json({ facts, total, page, limit });
+  res.json({ facts: rows, total, page, limit });
 });
 
 router.delete("/admin/facts/:id", requireAdmin, async (req: Request, res: Response) => {
@@ -205,7 +224,7 @@ router.patch("/admin/facts/:id", requireAdmin, async (req: Request, res: Respons
   const id = parseInt(String(req.params["id"] ?? ""), 10);
   if (isNaN(id)) { res.status(400).json({ error: "Invalid fact id" }); return; }
 
-  const { text, upvotes, downvotes, score, wilsonScore, commentCount, submittedById, parentId, useCase } = req.body as Record<string, unknown>;
+  const { text, upvotes, downvotes, score, wilsonScore, commentCount, submittedById, parentId, useCase, isActive } = req.body as Record<string, unknown>;
   const updates: Record<string, unknown> = {};
   if (text !== undefined) updates.text = String(text);
   if (upvotes !== undefined) updates.upvotes = Number(upvotes);
@@ -216,6 +235,7 @@ router.patch("/admin/facts/:id", requireAdmin, async (req: Request, res: Respons
   if (submittedById !== undefined) updates.submittedById = submittedById ? String(submittedById) : null;
   if (parentId !== undefined) updates.parentId = parentId !== null && parentId !== "" ? Number(parentId) : null;
   if (useCase !== undefined) updates.useCase = useCase ? String(useCase) : null;
+  if (isActive !== undefined) updates.isActive = Boolean(isActive);
 
   const [updated] = await db.update(factsTable).set(updates).where(eq(factsTable.id, id)).returning();
   if (!updated) { res.status(404).json({ error: "Fact not found" }); return; }
