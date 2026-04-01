@@ -3,17 +3,18 @@ import { Pencil, Check, X } from "lucide-react";
 import { usePersonName } from "@/hooks/use-person-name";
 import { useAuth } from "@workspace/replit-auth-web";
 import { useLocation } from "wouter";
-import { PRONOUN_PRESETS, displayPronouns, isCustomPronouns } from "@/lib/pronouns";
+import { displayPronouns } from "@/lib/pronouns";
+import { PronounEditor } from "@/components/ui/PronounEditor";
 
 export function NameTag() {
   const { name, pronouns, pronounSubject, pronounObject, setName, setPronouns } = usePersonName();
   const { user, isAuthenticated, isLoading } = useAuth();
   const [, setLocation] = useLocation();
   const [editing, setEditing] = useState(false);
-  const [draftName,    setDraftName]    = useState(name);
-  const [draftSubject, setDraftSubject] = useState(pronounSubject);
-  const [draftObject,  setDraftObject]  = useState(pronounObject);
+  const [draftName,     setDraftName]     = useState(name);
+  const [draftPronouns, setDraftPronouns] = useState(pronouns);
   const nameRef = useRef<HTMLInputElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
 
   function handleOpen() {
     if (isAuthenticated) {
@@ -21,16 +22,13 @@ export function NameTag() {
       return;
     }
     setDraftName(name);
-    setDraftSubject(pronounSubject);
-    setDraftObject(pronounObject);
+    setDraftPronouns(pronouns);
     setEditing(true);
   }
 
   function save() {
     setName(draftName);
-    const sub = draftSubject.trim() || "he";
-    const obj = draftObject.trim()  || "him";
-    setPronouns(`${sub}/${obj}`);
+    setPronouns(draftPronouns);
     setEditing(false);
   }
 
@@ -38,19 +36,25 @@ export function NameTag() {
     setEditing(false);
   }
 
-  function selectPreset(preset: string) {
-    const [s = "he", o = "him"] = preset.split("/");
-    setDraftSubject(s);
-    setDraftObject(o);
-  }
-
   useEffect(() => {
     if (editing) nameRef.current?.focus();
   }, [editing]);
 
-  function onKeyDown(e: React.KeyboardEvent) {
-    if (e.key === "Enter") save();
+  // Close on outside click
+  useEffect(() => {
+    if (!editing) return;
+    function handleClick(e: MouseEvent) {
+      if (panelRef.current && !panelRef.current.contains(e.target as Node)) {
+        cancel();
+      }
+    }
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, [editing]);
+
+  function onNameKeyDown(e: React.KeyboardEvent) {
     if (e.key === "Escape") cancel();
+    if (e.key === "Enter") save();
   }
 
   if (isLoading) {
@@ -63,8 +67,9 @@ export function NameTag() {
   }
 
   if (isAuthenticated && user) {
-    const displayName = user.firstName || user.email || "User";
-    const pronounsStr = user.pronouns ? displayPronouns(user.pronouns) : null;
+    const displayName = (user as { firstName?: string }).firstName || (user as { email?: string }).email || "User";
+    const rawPronouns = (user as { pronouns?: string }).pronouns;
+    const pronounsStr = rawPronouns ? displayPronouns(rawPronouns) : null;
 
     return (
       <button
@@ -82,87 +87,50 @@ export function NameTag() {
     );
   }
 
-  if (editing) {
-    const activePreset = PRONOUN_PRESETS.find((p) => p === `${draftSubject}/${draftObject}`) ?? null;
-
-    return (
-      <div className="flex flex-col gap-1.5 bg-secondary border border-primary/40 rounded-sm px-2 py-1.5 min-w-[180px]">
-        {/* Name row */}
-        <div className="flex items-center gap-1.5">
-          <input
-            ref={nameRef}
-            value={draftName}
-            onChange={(e) => setDraftName(e.target.value)}
-            onKeyDown={onKeyDown}
-            placeholder="Your name"
-            className="flex-1 bg-transparent text-sm font-bold text-foreground outline-none placeholder:text-muted-foreground"
-          />
-          <button onClick={save}   className="p-0.5 text-primary hover:text-primary/80 transition-colors" title="Save">
-            <Check className="w-3.5 h-3.5" />
-          </button>
-          <button onClick={cancel} className="p-0.5 text-muted-foreground hover:text-foreground transition-colors" title="Cancel">
-            <X className="w-3.5 h-3.5" />
-          </button>
-        </div>
-        {/* Pronoun row: 3 chips + custom subject/object inputs */}
-        <div className="flex items-center gap-1 flex-wrap">
-          {PRONOUN_PRESETS.map((p) => (
-            <button
-              key={p}
-              type="button"
-              onClick={() => selectPreset(p)}
-              className={`px-2 py-0.5 rounded-sm border text-[11px] font-medium transition-colors ${
-                activePreset === p
-                  ? "border-primary bg-primary/10 text-primary"
-                  : "border-border text-muted-foreground hover:border-primary/40"
-              }`}
-            >
-              {p}
-            </button>
-          ))}
-        </div>
-        {/* Custom subject / object (for any set not in the 3 presets) */}
-        {!activePreset && (
-          <div className="flex items-center gap-1 text-[11px]">
-            <input
-              value={draftSubject}
-              onChange={(e) => setDraftSubject(e.target.value)}
-              onKeyDown={onKeyDown}
-              placeholder="subj"
-              title="Subject pronoun"
-              className="w-9 bg-transparent font-bold outline-none placeholder:text-muted-foreground/50 text-center text-muted-foreground border-b border-border"
-              maxLength={12}
-            />
-            <span className="text-border select-none">/</span>
-            <input
-              value={draftObject}
-              onChange={(e) => setDraftObject(e.target.value)}
-              onKeyDown={onKeyDown}
-              placeholder="obj"
-              title="Object pronoun"
-              className="w-9 bg-transparent font-bold outline-none placeholder:text-muted-foreground/50 text-center text-muted-foreground border-b border-border"
-              maxLength={12}
-            />
-          </div>
-        )}
-      </div>
-    );
-  }
-
-  const displayPron = isCustomPronouns(pronouns)
-    ? displayPronouns(pronouns)
-    : `${pronounSubject}/${pronounObject}`;
+  const displayPron = displayPronouns(pronouns) || `${pronounSubject}/${pronounObject}`;
 
   return (
-    <button
-      onClick={handleOpen}
-      className="group flex items-center gap-1.5 bg-secondary hover:bg-secondary/80 border border-border hover:border-primary/40 rounded-sm px-3 py-1.5 transition-all"
-      title="Change name & pronouns"
-    >
-      <span className="text-xs text-muted-foreground font-medium uppercase tracking-wide hidden sm:block">As:</span>
-      <span className="text-sm font-bold text-foreground font-display">{name}</span>
-      <span className="text-xs text-muted-foreground">({displayPron})</span>
-      <Pencil className="w-3 h-3 text-muted-foreground group-hover:text-primary transition-colors" />
-    </button>
+    <div className="relative">
+      <button
+        onClick={handleOpen}
+        className="group flex items-center gap-1.5 bg-secondary hover:bg-secondary/80 border border-border hover:border-primary/40 rounded-sm px-3 py-1.5 transition-all"
+        title="Change name & pronouns"
+      >
+        <span className="text-xs text-muted-foreground font-medium uppercase tracking-wide hidden sm:block">As:</span>
+        <span className="text-sm font-bold text-foreground font-display">{name}</span>
+        <span className="text-xs text-muted-foreground">({displayPron})</span>
+        <Pencil className="w-3 h-3 text-muted-foreground group-hover:text-primary transition-colors" />
+      </button>
+
+      {editing && (
+        <div
+          ref={panelRef}
+          className="absolute top-full left-0 mt-1 z-50 bg-background border border-border rounded-sm shadow-lg p-3 w-72"
+        >
+          {/* Name row */}
+          <div className="flex items-center gap-2 mb-3">
+            <input
+              ref={nameRef}
+              value={draftName}
+              onChange={(e) => setDraftName(e.target.value)}
+              onKeyDown={onNameKeyDown}
+              placeholder="Your name"
+              className="flex-1 bg-secondary border border-border rounded-sm px-2 py-1 text-sm font-bold text-foreground outline-none focus:border-primary transition-colors placeholder:text-muted-foreground"
+            />
+            <button onClick={save}   className="p-1 text-primary hover:text-primary/80 transition-colors" title="Save">
+              <Check className="w-4 h-4" />
+            </button>
+            <button onClick={cancel} className="p-1 text-muted-foreground hover:text-foreground transition-colors" title="Cancel">
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+          {/* Pronoun section */}
+          <div>
+            <p className="text-xs font-bold text-muted-foreground uppercase tracking-wider mb-1.5">Pronouns</p>
+            <PronounEditor value={draftPronouns} onChange={setDraftPronouns} />
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
