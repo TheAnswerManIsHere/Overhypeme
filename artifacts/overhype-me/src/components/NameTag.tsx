@@ -83,13 +83,8 @@ export function NameTag() {
     }
 
     debounceTimerRef.current = setTimeout(async () => {
-      // Don't override a pronoun the user has explicitly clicked this session
+      // Don't override pronouns the user has explicitly clicked in this session
       if (userChosenRef.current) return;
-
-      // Only suggest when pronouns are still at the default — respect saved custom prefs
-      const current = draftPronounsRef.current;
-      const isDefault = current === DEFAULT_PRONOUNS || current === "";
-      if (!isDefault) return;
 
       abortControllerRef.current?.abort();
       const controller = new AbortController();
