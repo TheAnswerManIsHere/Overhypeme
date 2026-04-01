@@ -115,6 +115,25 @@ router.delete("/admin/facts/:id", requireAdmin, async (req: Request, res: Respon
   res.json({ success: true });
 });
 
+router.patch("/admin/facts/:id", requireAdmin, async (req: Request, res: Response) => {
+  const id = parseInt(String(req.params["id"] ?? ""), 10);
+  if (isNaN(id)) { res.status(400).json({ error: "Invalid fact id" }); return; }
+
+  const { text, upvotes, downvotes, score, wilsonScore, commentCount, submittedById } = req.body as Record<string, unknown>;
+  const updates: Record<string, unknown> = {};
+  if (text !== undefined) updates.text = String(text);
+  if (upvotes !== undefined) updates.upvotes = Number(upvotes);
+  if (downvotes !== undefined) updates.downvotes = Number(downvotes);
+  if (score !== undefined) updates.score = Number(score);
+  if (wilsonScore !== undefined) updates.wilsonScore = Number(wilsonScore);
+  if (commentCount !== undefined) updates.commentCount = Number(commentCount);
+  if (submittedById !== undefined) updates.submittedById = submittedById ? String(submittedById) : null;
+
+  const [updated] = await db.update(factsTable).set(updates).where(eq(factsTable.id, id)).returning();
+  if (!updated) { res.status(404).json({ error: "Fact not found" }); return; }
+  res.json({ success: true, fact: updated });
+});
+
 router.post("/admin/facts/import", requireAdmin, async (req: Request, res: Response) => {
   const { facts } = req.body as { facts?: unknown };
 
