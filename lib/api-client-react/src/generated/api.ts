@@ -34,7 +34,6 @@ import type {
   CreateMemeRequest,
   DuplicateConflict,
   ErrorEnvelope,
-  ExternalLink,
   FactDetail,
   FactListResponse,
   GetAdminFlaggedComments200,
@@ -58,6 +57,8 @@ import type {
   RecordSearchRequest,
   SuggestHashtags200,
   SuggestHashtagsBody,
+  UpdateProfileRequest,
+  UpdateProfileResponse,
   UploadUrlRequest,
   UploadUrlResponse,
   UserProfile,
@@ -1555,6 +1556,92 @@ export function useGetMyProfile<
 
   return { ...query, queryKey: queryOptions.queryKey };
 }
+
+/**
+ * @summary Update the current user's profile
+ */
+export const getUpdateMyProfileUrl = () => {
+  return `/api/users/me`;
+};
+
+export const updateMyProfile = async (
+  updateProfileRequest: UpdateProfileRequest,
+  options?: RequestInit,
+): Promise<UpdateProfileResponse> => {
+  return customFetch<UpdateProfileResponse>(getUpdateMyProfileUrl(), {
+    ...options,
+    method: "PATCH",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(updateProfileRequest),
+  });
+};
+
+export const getUpdateMyProfileMutationOptions = <
+  TError = ErrorType<ErrorEnvelope>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof updateMyProfile>>,
+    TError,
+    { data: BodyType<UpdateProfileRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof updateMyProfile>>,
+  TError,
+  { data: BodyType<UpdateProfileRequest> },
+  TContext
+> => {
+  const mutationKey = ["updateMyProfile"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof updateMyProfile>>,
+    { data: BodyType<UpdateProfileRequest> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return updateMyProfile(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type UpdateMyProfileMutationResult = NonNullable<
+  Awaited<ReturnType<typeof updateMyProfile>>
+>;
+export type UpdateMyProfileMutationBody = BodyType<UpdateProfileRequest>;
+export type UpdateMyProfileMutationError = ErrorType<ErrorEnvelope>;
+
+/**
+ * @summary Update the current user's profile
+ */
+export const useUpdateMyProfile = <
+  TError = ErrorType<ErrorEnvelope>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof updateMyProfile>>,
+    TError,
+    { data: BodyType<UpdateProfileRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof updateMyProfile>>,
+  TError,
+  { data: BodyType<UpdateProfileRequest> },
+  TContext
+> => {
+  return useMutation(getUpdateMyProfileMutationOptions(options));
+};
 
 /**
  * @summary Record a search query to history

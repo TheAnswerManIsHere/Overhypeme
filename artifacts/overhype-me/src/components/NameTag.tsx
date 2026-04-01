@@ -2,6 +2,7 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import { Pencil, Check, X, Loader2 } from "lucide-react";
 import { usePersonName, DEFAULT_PRONOUN_SUBJECT, DEFAULT_PRONOUN_OBJECT } from "@/hooks/use-person-name";
 import { useAuth } from "@workspace/replit-auth-web";
+import { useLocation } from "wouter";
 
 async function fetchSuggestedPronouns(
   name: string,
@@ -28,6 +29,7 @@ async function fetchSuggestedPronouns(
 export function NameTag() {
   const { name, pronounSubject, pronounObject, setName, setPronouns } = usePersonName();
   const { user, isAuthenticated, isLoading } = useAuth();
+  const [, setLocation] = useLocation();
   const [editing, setEditing] = useState(false);
   const [draftName,    setDraftName]    = useState(name);
   const [draftSubject, setDraftSubject] = useState(pronounSubject);
@@ -42,6 +44,10 @@ export function NameTag() {
   const abortControllerRef = useRef<AbortController | null>(null);
 
   function openEditor() {
+    if (isAuthenticated) {
+      setLocation("/profile");
+      return;
+    }
     initialSubjectRef.current = pronounSubject;
     initialObjectRef.current  = pronounObject;
     setDraftName(name);
@@ -146,22 +152,24 @@ export function NameTag() {
     );
   }
 
-  // When authenticated, show read-only display from account data
+  // When authenticated, show account name with pencil that navigates to profile
   if (isAuthenticated && user) {
     const displayName = user.firstName || user.email || "User";
     const pronounsDisplay = user.pronouns || null;
 
     return (
-      <div
-        className="flex items-center gap-1.5 bg-secondary border border-border rounded-sm px-3 py-1.5"
-        title="Your account name and pronouns"
+      <button
+        onClick={() => setLocation("/profile")}
+        className="group flex items-center gap-1.5 bg-secondary hover:bg-secondary/80 border border-border hover:border-primary/40 rounded-sm px-3 py-1.5 transition-all"
+        title="Edit your profile"
       >
         <span className="text-xs text-muted-foreground font-medium uppercase tracking-wide hidden sm:block">As:</span>
         <span className="text-sm font-bold text-foreground font-display">{displayName}</span>
         {pronounsDisplay && (
           <span className="text-xs text-muted-foreground">({pronounsDisplay})</span>
         )}
-      </div>
+        <Pencil className="w-3 h-3 text-muted-foreground group-hover:text-primary transition-colors" />
+      </button>
     );
   }
 

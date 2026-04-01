@@ -13,6 +13,8 @@ export type ActivityType =
   | "review_approved"
   | "review_rejected"
   | "comment_posted"
+  | "comment_approved"
+  | "comment_rejected"
   | "vote_cast"
   | "system_message";
 

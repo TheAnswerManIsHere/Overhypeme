@@ -5,7 +5,7 @@ import { db, usersTable, passwordResetTokensTable, sessionsTable, emailVerificat
 import { eq, and } from "drizzle-orm";
 import { createSession, type SessionData } from "../lib/auth";
 import { isAdminById } from "./auth";
-import { sendEmail, buildPasswordResetEmail, buildEmailVerificationEmail } from "../lib/email";
+import { sendEmail, buildPasswordResetEmail, buildEmailVerificationEmail, buildEmailChangeVerificationEmail } from "../lib/email";
 
 const router: IRouter = Router();
 
@@ -48,17 +48,22 @@ function checkResendVerificationRateLimit(userId: string): boolean {
   return true;
 }
 
-async function sendVerificationEmail(userId: string, email: string): Promise<void> {
+async function sendVerificationEmail(userId: string, email: string, pendingEmail?: string): Promise<void> {
   const rawToken = crypto.randomBytes(32).toString("hex");
   const tokenHash = crypto.createHash("sha256").update(rawToken).digest("hex");
   const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours
 
-  await db.insert(emailVerificationTokensTable).values({ userId, tokenHash, expiresAt });
+  await db.insert(emailVerificationTokensTable).values({ userId, tokenHash, expiresAt, pendingEmail: pendingEmail ?? null });
 
   const domain = process.env.REPLIT_DOMAINS?.split(",")[0] ?? "localhost";
   const verifyUrl = `https://${domain}/verify-email?token=${rawToken}`;
 
-  const emailContent = buildEmailVerificationEmail(verifyUrl);
+  let emailContent;
+  if (pendingEmail) {
+    emailContent = buildEmailChangeVerificationEmail(pendingEmail, verifyUrl);
+  } else {
+    emailContent = buildEmailVerificationEmail(verifyUrl);
+  }
   await sendEmail({ to: email, ...emailContent });
 }
 
@@ -427,10 +432,19 @@ router.get("/auth/verify-email", async (req: Request, res: Response) => {
     return;
   }
 
-  await db
-    .update(usersTable)
-    .set({ emailVerifiedAt: new Date() })
-    .where(eq(usersTable.id, record.userId));
+  if (record.pendingEmail) {
+    // Email change verification — promote pendingEmail to email
+    await db
+      .update(usersTable)
+      .set({ email: record.pendingEmail, pendingEmail: null, emailVerifiedAt: new Date() })
+      .where(eq(usersTable.id, record.userId));
+  } else {
+    // New account email verification
+    await db
+      .update(usersTable)
+      .set({ emailVerifiedAt: new Date() })
+      .where(eq(usersTable.id, record.userId));
+  }
 
   await db
     .update(emailVerificationTokensTable)
@@ -478,13 +492,22 @@ router.post("/auth/resend-verification", async (req: Request, res: Response) => 
   }
 
   const [user] = await db
-    .select({ email: usersTable.email, emailVerifiedAt: usersTable.emailVerifiedAt })
+    .select({ email: usersTable.email, pendingEmail: usersTable.pendingEmail, emailVerifiedAt: usersTable.emailVerifiedAt })
     .from(usersTable)
     .where(eq(usersTable.id, userId))
     .limit(1);
 
   if (!user) {
     res.status(404).json({ error: "User not found" });
+    return;
+  }
+
+  // If there's a pending email change, resend the change verification email
+  if (user.pendingEmail) {
+    sendVerificationEmail(userId, user.pendingEmail, user.pendingEmail).catch((err) => {
+      console.error("[auth] Failed to resend email change verification:", err);
+    });
+    res.status(200).json({ message: "Verification email sent to your new address. Please check your inbox." });
     return;
   }
 

@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from "react";
+import { PRONOUN_PAIRS } from "@/lib/pronouns";
 import { AdminLayout } from "@/components/admin/AdminLayout";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
-import { Shield, ShieldOff, Search, Pencil, X, Save, AlertCircle, CheckCircle, Crown, Star, UserPlus } from "lucide-react";
+import { Shield, ShieldOff, Search, Pencil, X, Save, AlertCircle, CheckCircle, Crown, Star, UserPlus, MailCheck } from "lucide-react";
 
 interface User {
   id: string;
@@ -15,8 +16,9 @@ interface User {
   isAdmin: boolean;
   captchaVerified: boolean;
   membershipTier: "free" | "premium";
-  pronouns: "he/him" | "she/her" | "they/them" | null;
+  pronouns: string | null;
   stripeCustomerId: string | null;
+  emailVerifiedAt: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -90,6 +92,7 @@ export default function AdminUsers() {
   const [draft, setDraft] = useState<EditDraft | null>(null);
   const [saving, setSaving] = useState(false);
   const [saveResult, setSaveResult] = useState<{ type: "success" | "error"; message: string } | null>(null);
+  const [verifyingEmail, setVerifyingEmail] = useState(false);
 
   const [showAddModal, setShowAddModal] = useState(false);
   const [addForm, setAddForm] = useState<AddUserForm>(EMPTY_ADD_FORM);
@@ -138,6 +141,26 @@ export default function AdminUsers() {
     setSelectedUser(null);
     setDraft(null);
     setSaveResult(null);
+  }
+
+  async function verifyEmail() {
+    if (!selectedUser) return;
+    setVerifyingEmail(true);
+    try {
+      const res = await fetch(`/api/admin/users/${selectedUser.id}/verify-email`, {
+        method: "POST",
+        credentials: "include",
+      });
+      const data = (await res.json()) as { success?: boolean; user?: User; error?: string };
+      if (!res.ok) throw new Error(data.error ?? "Verification failed");
+      const updated = data.user!;
+      setUsers((prev) => prev.map((u) => (u.id === updated.id ? updated : u)));
+      setSelectedUser(updated);
+    } catch (err) {
+      setSaveResult({ type: "error", message: err instanceof Error ? err.message : "Verification failed" });
+    } finally {
+      setVerifyingEmail(false);
+    }
   }
 
   async function saveUser() {
@@ -547,21 +570,16 @@ export default function AdminUsers() {
             {/* Pronouns */}
             <div>
               <FieldLabel>Pronouns</FieldLabel>
-              <div className="flex gap-2">
-                {(["he/him", "she/her", "they/them"] as const).map((p) => (
-                  <button
-                    key={p}
-                    onClick={() => setDraft((d) => d ? { ...d, pronouns: p } : d)}
-                    className={`flex-1 h-9 rounded-sm border text-xs font-medium transition-colors ${
-                      draft.pronouns === p
-                        ? "border-primary bg-primary/10 text-primary"
-                        : "border-border text-muted-foreground hover:border-primary/40"
-                    }`}
-                  >
-                    {p}
-                  </button>
+              <select
+                value={draft.pronouns ?? ""}
+                onChange={(e) => setDraft((d) => d ? { ...d, pronouns: e.target.value || null } : d)}
+                className="w-full bg-secondary border border-border rounded-sm px-3 py-2 text-sm text-foreground outline-none focus:border-primary transition-colors appearance-none cursor-pointer"
+              >
+                <option value="">— none —</option>
+                {PRONOUN_PAIRS.map((p) => (
+                  <option key={p.value} value={p.value}>{p.label}</option>
                 ))}
-              </div>
+              </select>
             </div>
 
             {/* Toggle flags */}
@@ -594,6 +612,26 @@ export default function AdminUsers() {
                   {draft.captchaVerified ? "Verified" : "Unverified"}
                 </button>
               </div>
+            </div>
+
+            {/* Email verification */}
+            <div>
+              <FieldLabel>Email Verified</FieldLabel>
+              {selectedUser.emailVerifiedAt ? (
+                <div className="w-full h-9 flex items-center justify-center gap-2 rounded-sm border border-green-500 bg-green-500/10 text-green-500 text-sm font-medium">
+                  <MailCheck className="w-4 h-4" />
+                  Verified {new Date(selectedUser.emailVerifiedAt).toLocaleDateString()}
+                </div>
+              ) : (
+                <button
+                  onClick={verifyEmail}
+                  disabled={verifyingEmail}
+                  className="w-full h-9 flex items-center justify-center gap-2 rounded-sm border border-border text-muted-foreground hover:border-green-500/40 hover:text-green-500 text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <MailCheck className="w-4 h-4" />
+                  {verifyingEmail ? "Verifying…" : "Mark as Verified"}
+                </button>
+              )}
             </div>
 
             {/* Save result */}

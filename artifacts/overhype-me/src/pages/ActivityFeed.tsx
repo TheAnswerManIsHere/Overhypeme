@@ -17,6 +17,8 @@ type ActivityType =
   | "review_approved"
   | "review_rejected"
   | "comment_posted"
+  | "comment_approved"
+  | "comment_rejected"
   | "vote_cast"
   | "system_message";
 
@@ -44,7 +46,9 @@ const ACTION_META: Record<ActivityType, { icon: React.ElementType; color: string
   review_submitted:  { icon: ClipboardList, color: "text-orange-500", label: "Review Submitted" },
   review_approved:   { icon: CheckCircle2,  color: "text-green-500",  label: "Review Approved" },
   review_rejected:   { icon: XCircle,       color: "text-red-500",    label: "Review Rejected" },
-  comment_posted:    { icon: MessageSquare, color: "text-purple-500", label: "Comment Posted" },
+  comment_posted:    { icon: MessageSquare, color: "text-purple-500", label: "Comment Submitted" },
+  comment_approved:  { icon: CheckCircle2,  color: "text-green-500",  label: "Comment Approved" },
+  comment_rejected:  { icon: XCircle,       color: "text-red-500",    label: "Comment Rejected" },
   vote_cast:         { icon: ThumbsUp,      color: "text-primary",    label: "Vote Cast" },
   system_message:    { icon: Bell,          color: "text-muted-foreground", label: "System" },
 };
