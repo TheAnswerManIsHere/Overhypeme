@@ -87,6 +87,9 @@ export default function AdminFacts() {
   const [importResult, setImportResult] = useState<{ type: "success" | "error"; message: string } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  const [deleteModal, setDeleteModal] = useState<null | "choose" | "confirm-hard">(null);
+  const [deleting, setDeleting] = useState(false);
+
   const LIMIT = 25;
 
   useEffect(() => {
@@ -223,12 +226,24 @@ export default function AdminFacts() {
     setVariants((prev) => prev.filter((v) => v.id !== variantId));
   }
 
-  async function deleteFact(id: number) {
-    if (!confirm("Delete this fact permanently?")) return;
-    await fetch(`/api/admin/facts/${id}`, { method: "DELETE", credentials: "include" });
-    setFacts((prev) => prev.filter((f) => f.id !== id));
-    setTotal((t) => t - 1);
-    if (selectedFact?.id === id) clearSelection();
+  async function deleteFact(hard: boolean) {
+    if (!selectedFact) return;
+    setDeleting(true);
+    try {
+      const url = `/api/admin/facts/${selectedFact.id}${hard ? "?hard=true" : ""}`;
+      const res = await fetch(url, { method: "DELETE", credentials: "include" });
+      const data = (await res.json()) as { success?: boolean; error?: string };
+      if (!res.ok) throw new Error(data.error ?? "Delete failed");
+      setFacts((prev) => prev.filter((f) => f.id !== selectedFact.id));
+      setTotal((t) => t - 1);
+      clearSelection();
+      setDeleteModal(null);
+    } catch (err) {
+      setSaveResult({ type: "error", message: err instanceof Error ? err.message : "Delete failed" });
+      setDeleteModal(null);
+    } finally {
+      setDeleting(false);
+    }
   }
 
   async function handleImport() {
@@ -293,6 +308,84 @@ export default function AdminFacts() {
 
   return (
     <AdminLayout title="Facts Management">
+      {/* Delete Modal */}
+      {deleteModal && selectedFact && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+          <div className="bg-card border border-border rounded-lg w-full max-w-sm p-6 flex flex-col gap-5 shadow-xl">
+            {deleteModal === "choose" ? (
+              <>
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-full bg-destructive/10 flex items-center justify-center shrink-0">
+                    <Trash2 className="w-5 h-5 text-destructive" />
+                  </div>
+                  <div>
+                    <h2 className="font-display font-bold text-foreground uppercase tracking-wide">Delete Fact</h2>
+                    <p className="text-xs text-muted-foreground mt-0.5">#{selectedFact.id}</p>
+                  </div>
+                </div>
+                <p className="text-sm text-muted-foreground line-clamp-2 italic">"{selectedFact.text}"</p>
+                <p className="text-sm text-muted-foreground">Choose how to delete this fact:</p>
+                <div className="flex flex-col gap-2">
+                  <button
+                    onClick={() => deleteFact(false)}
+                    disabled={deleting}
+                    className="w-full flex items-center gap-3 px-4 py-3 rounded-sm border border-border hover:border-yellow-500/50 hover:bg-yellow-500/5 text-left transition-colors disabled:opacity-50"
+                  >
+                    <EyeOff className="w-5 h-5 text-yellow-500 shrink-0" />
+                    <div>
+                      <div className="text-sm font-medium text-foreground">Soft Delete</div>
+                      <div className="text-xs text-muted-foreground">Marks the fact as inactive. Data is preserved.</div>
+                    </div>
+                  </button>
+                  <button
+                    onClick={() => setDeleteModal("confirm-hard")}
+                    disabled={deleting}
+                    className="w-full flex items-center gap-3 px-4 py-3 rounded-sm border border-border hover:border-destructive/50 hover:bg-destructive/5 text-left transition-colors disabled:opacity-50"
+                  >
+                    <Trash2 className="w-5 h-5 text-destructive shrink-0" />
+                    <div>
+                      <div className="text-sm font-medium text-foreground">Hard Delete</div>
+                      <div className="text-xs text-muted-foreground">Permanently removes the row from the database.</div>
+                    </div>
+                  </button>
+                </div>
+                <Button variant="outline" onClick={() => setDeleteModal(null)} className="w-full">
+                  Cancel
+                </Button>
+              </>
+            ) : (
+              <>
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-full bg-destructive/10 flex items-center justify-center shrink-0">
+                    <Trash2 className="w-5 h-5 text-destructive" />
+                  </div>
+                  <div>
+                    <h2 className="font-display font-bold text-foreground uppercase tracking-wide">Confirm Hard Delete</h2>
+                    <p className="text-xs text-muted-foreground mt-0.5">This action cannot be undone.</p>
+                  </div>
+                </div>
+                <p className="text-sm text-muted-foreground">
+                  You are about to <span className="text-destructive font-semibold">permanently delete</span> fact{" "}
+                  <span className="font-medium text-foreground">#{selectedFact.id}</span> and all its data. This cannot be reversed.
+                </p>
+                <div className="flex gap-3">
+                  <Button
+                    onClick={() => deleteFact(true)}
+                    isLoading={deleting}
+                    className="flex-1 bg-destructive hover:bg-destructive/90 text-destructive-foreground border-destructive"
+                  >
+                    <Trash2 className="w-4 h-4" /> Delete Forever
+                  </Button>
+                  <Button variant="outline" onClick={() => setDeleteModal("choose")} className="flex-1" disabled={deleting}>
+                    Back
+                  </Button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
         {/* Left — fact list */}
         <div className="bg-card border border-border rounded-lg overflow-hidden flex flex-col">
@@ -358,9 +451,9 @@ export default function AdminFacts() {
                     <div className="flex items-center gap-1 shrink-0">
                       <Pencil className={`w-3.5 h-3.5 transition-opacity ${isSelected ? "text-primary opacity-100" : "text-muted-foreground opacity-0 group-hover:opacity-100"}`} />
                       <button
-                        onClick={(e) => { e.stopPropagation(); deleteFact(fact.id); }}
+                        onClick={(e) => { e.stopPropagation(); selectFact(fact); setDeleteModal("choose"); }}
                         className="p-1 text-muted-foreground hover:text-destructive opacity-0 group-hover:opacity-100 transition-all"
-                        title="Soft-delete (deactivate) fact"
+                        title="Delete fact"
                       >
                         <Trash2 className="w-4 h-4" />
                       </button>
@@ -639,12 +732,15 @@ export default function AdminFacts() {
               <Button variant="outline" onClick={clearSelection} className="flex-1">
                 Cancel
               </Button>
+            </div>
+
+            <div className="border-t border-border pt-3">
               <Button
-                variant="danger"
-                onClick={() => deleteFact(selectedFact.id)}
-                title="Delete this fact"
+                variant="outline"
+                onClick={() => setDeleteModal("choose")}
+                className="w-full text-destructive border-destructive/30 hover:bg-destructive/10 hover:border-destructive/60"
               >
-                <Trash2 className="w-4 h-4" />
+                <Trash2 className="w-4 h-4" /> Delete Fact
               </Button>
             </div>
           </div>
