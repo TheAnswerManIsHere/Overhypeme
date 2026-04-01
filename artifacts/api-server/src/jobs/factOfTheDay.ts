@@ -1,6 +1,6 @@
 import { db } from "@workspace/db";
 import { factsTable } from "@workspace/db/schema";
-import { desc } from "drizzle-orm";
+import { desc, eq } from "drizzle-orm";
 import { stripeStorage } from "../lib/stripeStorage";
 import { logger } from "../lib/logger";
 
@@ -77,6 +77,7 @@ export async function runFactOfTheDayJob(): Promise<{ sent: number; skipped: num
   const [topFact] = await db
     .select({ id: factsTable.id, text: factsTable.text })
     .from(factsTable)
+    .where(eq(factsTable.isActive, true))
     .orderBy(desc(factsTable.score))
     .limit(100)
     .then(rows => {

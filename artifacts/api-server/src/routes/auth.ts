@@ -7,7 +7,7 @@ import {
   LogoutMobileSessionResponse,
 } from "@workspace/api-zod";
 import { db, usersTable } from "@workspace/db";
-import { eq } from "drizzle-orm";
+import { eq, and } from "drizzle-orm";
 import {
   clearSession,
   getOidcConfig,
@@ -118,7 +118,7 @@ router.get("/auth/user", async (req: Request, res: Response) => {
   const [dbUser] = await db
     .select({ membershipTier: usersTable.membershipTier, isAdmin: usersTable.isAdmin })
     .from(usersTable)
-    .where(eq(usersTable.id, req.user.id))
+    .where(and(eq(usersTable.id, req.user.id), eq(usersTable.isActive, true)))
     .limit(1);
 
   const sid = getSessionId(req);
@@ -157,7 +157,7 @@ router.post("/auth/toggle-admin-mode", async (req: Request, res: Response) => {
   const [dbUser] = await db
     .select({ isAdmin: usersTable.isAdmin })
     .from(usersTable)
-    .where(eq(usersTable.id, req.user.id))
+    .where(and(eq(usersTable.id, req.user.id), eq(usersTable.isActive, true)))
     .limit(1);
 
   const isRealAdmin = !!(dbUser?.isAdmin || isAdminById(req.user.id));
@@ -254,6 +254,11 @@ router.get("/callback", async (req: Request, res: Response) => {
     claims as unknown as Record<string, unknown>,
   );
 
+  if (!dbUser.isActive) {
+    res.status(403).send("Account deactivated");
+    return;
+  }
+
   const now = Math.floor(Date.now() / 1000);
   const sessionData: SessionData = {
     user: {
@@ -345,6 +350,11 @@ router.post(
       const { user: dbUser } = await upsertUser(
         claims as unknown as Record<string, unknown>,
       );
+
+      if (!dbUser.isActive) {
+        res.status(403).json({ error: "Account deactivated" });
+        return;
+      }
 
       const now = Math.floor(Date.now() / 1000);
       const sessionData: SessionData = {

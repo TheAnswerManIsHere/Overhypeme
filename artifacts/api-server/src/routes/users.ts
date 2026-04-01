@@ -40,17 +40,17 @@ router.get("/users/me", async (req: Request, res: Response) => {
   if (!req.isAuthenticated()) { res.status(401).json({ error: "Unauthorized" }); return; }
   const userId = req.user.id;
 
-  const submittedRows = await db.select().from(factsTable).where(eq(factsTable.submittedById, userId)).orderBy(desc(factsTable.createdAt)).limit(50);
+  const submittedRows = await db.select().from(factsTable).where(and(eq(factsTable.submittedById, userId), eq(factsTable.isActive, true))).orderBy(desc(factsTable.createdAt)).limit(50);
   const likedRatings = await db.select({ factId: ratingsTable.factId }).from(ratingsTable).where(and(eq(ratingsTable.userId, userId), eq(ratingsTable.rating, "up")));
   const likedIds = likedRatings.map((r) => r.factId);
-  const likedFacts = likedIds.length ? await db.select().from(factsTable).where(inArray(factsTable.id, likedIds)).limit(50) : [];
+  const likedFacts = likedIds.length ? await db.select().from(factsTable).where(and(inArray(factsTable.id, likedIds), eq(factsTable.isActive, true))).limit(50) : [];
 
   const favoriteHashtagRows = await db
     .select({ name: hashtagsTable.name })
     .from(factHashtagsTable)
     .innerJoin(hashtagsTable, eq(factHashtagsTable.hashtagId, hashtagsTable.id))
     .innerJoin(factsTable, eq(factHashtagsTable.factId, factsTable.id))
-    .where(eq(factsTable.submittedById, userId));
+    .where(and(eq(factsTable.submittedById, userId), eq(factsTable.isActive, true)));
 
   const hashtagCounts = new Map<string, number>();
   for (const r of favoriteHashtagRows) {

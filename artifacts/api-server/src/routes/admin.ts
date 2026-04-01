@@ -1,7 +1,7 @@
 import { Router, type IRouter, type Request, type Response, type NextFunction } from "express";
 import { db, usersTable } from "@workspace/db";
 import { factsTable, commentsTable } from "@workspace/db/schema";
-import { eq, desc, count, ilike, sql, and } from "drizzle-orm";
+import { eq, desc, count, ilike, sql, and, or } from "drizzle-orm";
 import { getSessionId, getSession, updateSession } from "../lib/auth";
 import { isAdminById } from "./auth";
 import { backfillEmbeddings } from "../lib/embeddings";
@@ -25,7 +25,7 @@ export async function requireAdmin(req: Request, res: Response, next: NextFuncti
     const [dbUser] = await db
       .select({ isAdmin: usersTable.isAdmin })
       .from(usersTable)
-      .where(eq(usersTable.id, req.user.id))
+      .where(and(eq(usersTable.id, req.user.id), eq(usersTable.isActive, true)))
       .limit(1);
     if (!dbUser?.isAdmin) {
       res.status(403).json({ error: "Forbidden" });
@@ -46,8 +46,8 @@ router.get("/admin/me", requireAdmin, (_req: Request, res: Response) => {
 
 router.get("/admin/stats", requireAdmin, async (_req: Request, res: Response) => {
   const [[{ totalFacts }], [{ totalUsers }]] = await Promise.all([
-    db.select({ totalFacts: count() }).from(factsTable),
-    db.select({ totalUsers: count() }).from(usersTable),
+    db.select({ totalFacts: count() }).from(factsTable).where(eq(factsTable.isActive, true)),
+    db.select({ totalUsers: count() }).from(usersTable).where(eq(usersTable.isActive, true)),
   ]);
   res.json({ totalFacts, totalUsers });
 });
@@ -58,9 +58,10 @@ router.get("/admin/users", requireAdmin, async (req: Request, res: Response) => 
   const offset = (page - 1) * limit;
   const search = String(req.query["search"] ?? "").trim();
 
+  const activeFilter = eq(usersTable.isActive, true);
   const where = search
-    ? sql`(${usersTable.email} ilike ${`%${search}%`} OR ${usersTable.firstName} ilike ${`%${search}%`} OR ${usersTable.lastName} ilike ${`%${search}%`} OR ${usersTable.username} ilike ${`%${search}%`} OR ${usersTable.id}::text ilike ${`%${search}%`})`
-    : undefined;
+    ? and(activeFilter, sql`(${usersTable.email} ilike ${`%${search}%`} OR ${usersTable.firstName} ilike ${`%${search}%`} OR ${usersTable.lastName} ilike ${`%${search}%`} OR ${usersTable.username} ilike ${`%${search}%`} OR ${usersTable.id}::text ilike ${`%${search}%`})`)
+    : activeFilter;
 
   const [users, [{ total }]] = await Promise.all([
     db.select().from(usersTable).where(where).orderBy(desc(usersTable.createdAt)).limit(limit).offset(offset),
@@ -103,6 +104,15 @@ router.patch("/admin/users/:id", requireAdmin, async (req: Request, res: Respons
   }
 
   res.json({ success: true, user: updated });
+});
+
+router.delete("/admin/users/:id", requireAdmin, async (req: Request, res: Response) => {
+  const id = String(req.params["id"] ?? "");
+  if (!id) { res.status(400).json({ error: "Invalid user id" }); return; }
+
+  const [updated] = await db.update(usersTable).set({ isActive: false }).where(and(eq(usersTable.id, id), eq(usersTable.isActive, true))).returning({ id: usersTable.id });
+  if (!updated) { res.status(404).json({ error: "User not found or already inactive" }); return; }
+  res.json({ success: true });
 });
 
 router.post("/admin/users", requireAdmin, async (req: Request, res: Response) => {
@@ -167,7 +177,8 @@ router.get("/admin/facts", requireAdmin, async (req: Request, res: Response) => 
   const offset = (page - 1) * limit;
   const search = String(req.query["search"] ?? "").trim();
 
-  const where = search ? ilike(factsTable.text, `%${search}%`) : undefined;
+  const activeFilter = eq(factsTable.isActive, true);
+  const where = search ? and(activeFilter, ilike(factsTable.text, `%${search}%`)) : activeFilter;
 
   const [facts, [{ total }]] = await Promise.all([
     db.select().from(factsTable)
@@ -185,7 +196,8 @@ router.delete("/admin/facts/:id", requireAdmin, async (req: Request, res: Respon
   const id = parseInt(String(req.params["id"] ?? ""), 10);
   if (isNaN(id)) { res.status(400).json({ error: "Invalid fact id" }); return; }
 
-  await db.delete(factsTable).where(eq(factsTable.id, id));
+  const [updated] = await db.update(factsTable).set({ isActive: false }).where(and(eq(factsTable.id, id), eq(factsTable.isActive, true))).returning({ id: factsTable.id });
+  if (!updated) { res.status(404).json({ error: "Fact not found" }); return; }
   res.json({ success: true });
 });
 
@@ -214,7 +226,7 @@ router.patch("/admin/facts/:id", requireAdmin, async (req: Request, res: Respons
 router.post("/admin/facts/:id/variants", requireAdmin, async (req: Request, res: Response) => {
   const rootId = parseInt(String(req.params["id"] ?? ""), 10);
   if (isNaN(rootId)) { res.status(400).json({ error: "Invalid fact id" }); return; }
-  const [root] = await db.select({ id: factsTable.id, parentId: factsTable.parentId }).from(factsTable).where(eq(factsTable.id, rootId)).limit(1);
+  const [root] = await db.select({ id: factsTable.id, parentId: factsTable.parentId }).from(factsTable).where(and(eq(factsTable.id, rootId), eq(factsTable.isActive, true))).limit(1);
   if (!root) { res.status(404).json({ error: "Fact not found" }); return; }
   if (root.parentId !== null) { res.status(400).json({ error: "Cannot add a variant to a variant. Target the root fact." }); return; }
   const { text, useCase } = req.body as Record<string, unknown>;
@@ -227,14 +239,14 @@ router.post("/admin/facts/:id/variants", requireAdmin, async (req: Request, res:
   res.status(201).json({ success: true, variant });
 });
 
-// DELETE /admin/facts/variants/:variantId — delete a single variant
+// DELETE /admin/facts/variants/:variantId — soft-delete a single variant
 router.delete("/admin/facts/variants/:variantId", requireAdmin, async (req: Request, res: Response) => {
   const variantId = parseInt(String(req.params["variantId"] ?? ""), 10);
   if (isNaN(variantId)) { res.status(400).json({ error: "Invalid variant id" }); return; }
-  const [v] = await db.select({ id: factsTable.id, parentId: factsTable.parentId }).from(factsTable).where(eq(factsTable.id, variantId)).limit(1);
-  if (!v) { res.status(404).json({ error: "Variant not found" }); return; }
+  const [v] = await db.select({ id: factsTable.id, parentId: factsTable.parentId, isActive: factsTable.isActive }).from(factsTable).where(eq(factsTable.id, variantId)).limit(1);
+  if (!v || !v.isActive) { res.status(404).json({ error: "Variant not found" }); return; }
   if (v.parentId === null) { res.status(400).json({ error: "Cannot delete a root fact via this endpoint." }); return; }
-  await db.delete(factsTable).where(eq(factsTable.id, variantId));
+  await db.update(factsTable).set({ isActive: false }).where(eq(factsTable.id, variantId));
   res.json({ success: true });
 });
 

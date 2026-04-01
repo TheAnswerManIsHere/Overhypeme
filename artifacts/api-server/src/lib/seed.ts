@@ -20,6 +20,21 @@ export async function ensureSchema(): Promise<void> {
       label: "users.pronouns",
       ddl: `ALTER TABLE users ADD COLUMN IF NOT EXISTS pronouns varchar(20) DEFAULT 'he/him'`,
     },
+    {
+      label: "password_reset_tokens table",
+      ddl: `CREATE TABLE IF NOT EXISTS password_reset_tokens (
+        id serial PRIMARY KEY,
+        user_id varchar NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        token_hash text NOT NULL,
+        expires_at timestamptz NOT NULL,
+        used_at timestamptz,
+        created_at timestamptz NOT NULL DEFAULT now()
+      )`,
+    },
+    {
+      label: "password_reset_tokens.IDX_prt_token_hash",
+      ddl: `CREATE INDEX IF NOT EXISTS "IDX_prt_token_hash" ON password_reset_tokens (token_hash)`,
+    },
   ];
 
   for (const { label, ddl } of migrations) {
