@@ -134,24 +134,17 @@ export default function Profile() {
     setPhotoError("");
     setPhotoUploading(true);
     try {
-      const urlRes = await fetch(`${BASE_URL}api/storage/uploads/request-url`, {
+      const uploadRes = await fetch(`${BASE_URL}api/storage/upload-avatar`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({ name: file.name, size: file.size, contentType: file.type }),
-      });
-      if (!urlRes.ok) {
-        const errData = await urlRes.json() as { error?: string };
-        throw new Error(errData.error ?? "Failed to get upload URL");
-      }
-      const { uploadURL, objectPath } = await urlRes.json() as { uploadURL: string; objectPath: string };
-
-      const putRes = await fetch(uploadURL, {
-        method: "PUT",
         headers: { "Content-Type": file.type },
+        credentials: "include",
         body: file,
       });
-      if (!putRes.ok) throw new Error("Upload to storage failed");
+      if (!uploadRes.ok) {
+        const errData = await uploadRes.json() as { error?: string };
+        throw new Error(errData.error ?? "Upload failed");
+      }
+      const { objectPath } = await uploadRes.json() as { objectPath: string };
 
       const profileImageUrl = `/api/storage${objectPath}`;
       await updateProfile.mutateAsync({ data: { profileImageUrl } });
