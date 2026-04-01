@@ -104,6 +104,7 @@ router.post("/auth/register", async (req: Request, res: Response) => {
       email: email || null,
       firstName: username,
       captchaVerified: false,
+      isActive: true,
     })
     .returning();
 

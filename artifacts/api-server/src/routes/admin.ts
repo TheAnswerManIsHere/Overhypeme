@@ -150,7 +150,7 @@ router.post("/admin/users", requireAdmin, async (req: Request, res: Response) =>
   try {
     const [created] = await db
       .insert(usersTable)
-      .values({ email, passwordHash, firstName, lastName, username, membershipTier, isAdmin })
+      .values({ email, passwordHash, firstName, lastName, username, membershipTier, isAdmin, isActive: true })
       .returning();
     const { passwordHash: _omit, ...safeUser } = created;
     res.status(201).json({ success: true, user: safeUser });
@@ -235,6 +235,7 @@ router.post("/admin/facts/:id/variants", requireAdmin, async (req: Request, res:
     text: text.trim(),
     parentId: rootId,
     useCase: useCase ? String(useCase) : null,
+    isActive: true,
   } as typeof factsTable.$inferInsert).returning();
   res.status(201).json({ success: true, variant });
 });
@@ -275,7 +276,7 @@ router.post("/admin/facts/import", requireAdmin, async (req: Request, res: Respo
 
   const inserted = await db
     .insert(factsTable)
-    .values(texts.map((text) => ({ text })))
+    .values(texts.map((text) => ({ text, isActive: true as const })))
     .returning();
 
   res.json({ success: true, imported: inserted.length, facts: inserted });
@@ -300,7 +301,7 @@ router.post("/admin/facts/import-csv", requireAdmin, async (req: Request, res: R
 
   const inserted = await db
     .insert(factsTable)
-    .values(lines.map((text) => ({ text })))
+    .values(lines.map((text) => ({ text, isActive: true as const })))
     .returning();
 
   res.json({ success: true, imported: inserted.length });
