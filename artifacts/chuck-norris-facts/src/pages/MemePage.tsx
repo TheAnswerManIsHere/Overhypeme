@@ -44,7 +44,7 @@ export default function MemePage() {
   };
 
   const handleTwitterShare = () => {
-    const text = encodeURIComponent(`"${(meme?.factText ?? "").slice(0, 200)}" — TCNDB`);
+    const text = encodeURIComponent(`"${(meme?.factText ?? "").slice(0, 200)}" — Overhype.me`);
     const url = encodeURIComponent(window.location.href);
     window.open(`https://x.com/intent/tweet?text=${text}&url=${url}`, "_blank", "noopener");
   };
