@@ -8,6 +8,7 @@ import {
 } from "react";
 import { Link } from "wouter";
 import { useListMemeTemplates, useRequestUploadUrl } from "@workspace/api-client-react";
+import { useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@workspace/replit-auth-web";
 import { Button } from "@/components/ui/Button";
 import {
@@ -252,6 +253,7 @@ export function MemeBuilder({ factId, factText, onClose }: MemeBuilderProps) {
   const [permalinkSlug, setPermalinkSlug] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
+  const queryClient = useQueryClient();
   const { data: tplData } = useListMemeTemplates();
   const requestUploadUrl = useRequestUploadUrl();
 
@@ -434,6 +436,7 @@ export function MemeBuilder({ factId, factText, onClose }: MemeBuilderProps) {
       const result = await res.json() as { permalinkSlug: string };
       setPermalinkSlug(result.permalinkSlug);
       setStatus("done");
+      queryClient.invalidateQueries({ queryKey: ["listFactMemes", factId] });
     } catch (e) {
       setErrorMsg(e instanceof Error ? e.message : "Something went wrong");
       setStatus("error");
