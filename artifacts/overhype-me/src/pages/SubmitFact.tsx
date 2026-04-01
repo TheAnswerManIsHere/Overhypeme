@@ -179,6 +179,7 @@ export default function SubmitFact() {
       if (duplicate?.matchingFactId) {
         body.matchingFactId = duplicate.matchingFactId;
         body.matchingSimilarity = duplicate.confidence;
+        body.isDuplicate = duplicate.isDuplicate;
       }
       const r = await fetch("/api/facts/submit-review", {
         method: "POST",
