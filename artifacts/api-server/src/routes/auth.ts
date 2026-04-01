@@ -117,9 +117,14 @@ router.get("/auth/user", async (req: Request, res: Response) => {
     res.json(GetCurrentAuthUserResponse.parse({ user: null }));
     return;
   }
-  // Fetch fresh membershipTier, isAdmin, and pronouns from DB so status is always current
+  // Fetch fresh fields from DB — session only stores id/email/profileImageUrl/membershipTier
   const [dbUser] = await db
-    .select({ membershipTier: usersTable.membershipTier, isAdmin: usersTable.isAdmin, pronouns: usersTable.pronouns })
+    .select({
+      membershipTier: usersTable.membershipTier,
+      isAdmin: usersTable.isAdmin,
+      pronouns: usersTable.pronouns,
+      displayName: usersTable.displayName,
+    })
     .from(usersTable)
     .where(and(eq(usersTable.id, req.user.id), eq(usersTable.isActive, true)))
     .limit(1);
@@ -137,6 +142,7 @@ router.get("/auth/user", async (req: Request, res: Response) => {
         isAdmin: adminModeActive,
         isRealAdmin,
         pronouns: dbUser?.pronouns ?? null,
+        displayName: dbUser?.displayName ?? null,
       },
     }),
   );
