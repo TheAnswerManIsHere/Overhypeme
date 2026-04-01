@@ -287,12 +287,14 @@ export default function FactDetail() {
                     className="bg-background min-h-[100px]"
                   />
                   <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between">
-                    <div className="overflow-hidden rounded-sm border-2 border-border">
-                      <HCaptcha
-                        sitekey={HCAPTCHA_SITE_KEY}
-                        onVerify={setCaptchaToken}
-                      />
-                    </div>
+                    {!isAuthenticated && (
+                      <div className="overflow-hidden rounded-sm border-2 border-border">
+                        <HCaptcha
+                          sitekey={HCAPTCHA_SITE_KEY}
+                          onVerify={setCaptchaToken}
+                        />
+                      </div>
+                    )}
                     <Button type="submit" isLoading={addComment.isPending} disabled={!commentText} className="w-full sm:w-auto">
                       POST INTEL
                     </Button>
