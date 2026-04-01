@@ -16,7 +16,7 @@ pnpm workspace monorepo using TypeScript. Each package manages its own dependenc
 - **API codegen**: Orval (from OpenAPI spec)
 - **Build**: esbuild (CJS bundle)
 
-## Project: The Facts Database (Personalized Facts Community)
+## Project: TCNDB — The Custom Name Database
 
 A community-driven, fully personalized facts database. Facts are stored with `{First_Name}` and `{Last_Name}` tokens and render dynamically with whatever name the user sets. Live at `/`.
 

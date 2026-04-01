@@ -14,12 +14,12 @@ export function Layout({ children }: { children: React.ReactNode }) {
       </div>
       <footer className="w-full bg-black border-t border-border py-12 mt-auto">
         <div className="max-w-7xl mx-auto px-4 text-center">
-          <div className="font-display text-4xl text-border mb-4 uppercase tracking-widest">The Facts Database</div>
+          <div className="font-display text-4xl text-border mb-4 uppercase tracking-widest">The Custom Name Database</div>
           <p className="text-muted-foreground text-sm max-w-md mx-auto">
             The world's most personalized facts database. Enter your name. Become legendary.
           </p>
           <div className="mt-8 text-xs text-border tracking-wider">
-            © {new Date().getFullYear()} THE FACTS DB. ALL RIGHTS RESERVED.
+            © {new Date().getFullYear()} TCNDB. ALL RIGHTS RESERVED.
           </div>
         </div>
       </footer>

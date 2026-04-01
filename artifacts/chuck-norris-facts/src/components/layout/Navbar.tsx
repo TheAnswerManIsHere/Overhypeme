@@ -49,7 +49,7 @@ export function Navbar() {
               <img src={`${import.meta.env.BASE_URL}images/logo.png`} alt="Logo" className="w-full h-full object-contain mix-blend-screen" />
             </div>
             <div className="flex flex-col">
-              <span className="font-display font-bold text-xl tracking-wider leading-none text-foreground group-hover:text-primary transition-colors">THE FACTS</span>
+              <span className="font-display font-bold text-xl tracking-wider leading-none text-foreground group-hover:text-primary transition-colors">THE CUSTOM NAME</span>
               <span className="font-display font-bold text-sm tracking-widest text-primary leading-none">DATABASE</span>
             </div>
           </Link>
