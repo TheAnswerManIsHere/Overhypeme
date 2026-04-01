@@ -5,6 +5,11 @@ import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { LogIn, UserPlus, ArrowLeft } from "lucide-react";
 
+function getResetSuccess(): boolean {
+  const params = new URLSearchParams(window.location.search);
+  return params.get("reset") === "success";
+}
+
 export default function Login() {
   const [, setLocation] = useLocation();
   const [mode, setMode] = useState<"login" | "register">("login");
@@ -13,6 +18,7 @@ export default function Login() {
   const [email, setEmail] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const resetSuccess = getResetSuccess();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -61,6 +67,12 @@ export default function Login() {
     <div className="min-h-[80vh] flex items-center justify-center px-4">
       <div className="w-full max-w-md">
         <div className="bg-card border-2 border-border rounded-sm p-8 shadow-lg">
+          {resetSuccess && (
+            <div className="mb-6 bg-green-500/10 text-green-700 dark:text-green-400 border border-green-500/20 rounded-sm px-4 py-3 text-sm font-medium">
+              Your password has been reset successfully. Please sign in with your new password.
+            </div>
+          )}
+
           <div className="text-center mb-8">
             <h1 className="font-display text-3xl font-bold text-foreground tracking-wider">
               {mode === "login" ? "LOGIN" : "CREATE ACCOUNT"}
@@ -119,6 +131,17 @@ export default function Login() {
                 minLength={mode === "register" ? 8 : 1}
                 autoComplete={mode === "register" ? "new-password" : "current-password"}
               />
+              {mode === "login" && (
+                <div className="text-right mt-1">
+                  <button
+                    type="button"
+                    onClick={() => setLocation("/forgot-password")}
+                    className="text-xs text-muted-foreground hover:text-primary"
+                  >
+                    Forgot password?
+                  </button>
+                </div>
+              )}
             </div>
 
             {error && (

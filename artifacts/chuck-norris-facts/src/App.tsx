@@ -25,6 +25,8 @@ import MemePage from "@/pages/MemePage";
 import Pricing from "@/pages/Pricing";
 import Login from "@/pages/Login";
 import Hashtags from "@/pages/Hashtags";
+import ForgotPassword from "@/pages/ForgotPassword";
+import ResetPassword from "@/pages/ResetPassword";
 import NotFound from "@/pages/not-found";
 
 const queryClient = new QueryClient({
@@ -67,6 +69,8 @@ function Router() {
         <Route path="/pricing" component={Pricing} />
         <Route path="/login" component={Login} />
         <Route path="/hashtags" component={Hashtags} />
+        <Route path="/forgot-password" component={ForgotPassword} />
+        <Route path="/reset-password" component={ResetPassword} />
         <Route component={NotFound} />
       </Switch>
     </>

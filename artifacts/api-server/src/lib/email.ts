@@ -70,6 +70,26 @@ export function buildReviewApprovedEmail(opts: {
   return { subject, text, html };
 }
 
+export function buildPasswordResetEmail(resetUrl: string): Pick<EmailPayload, "subject" | "text" | "html"> {
+  const subject = "Reset your password — Chuck Norris Facts";
+  const text = `You requested a password reset for your Chuck Norris Facts account.\n\nClick the link below to set a new password. This link is valid for 1 hour.\n\n${resetUrl}\n\nIf you did not request this reset, you can safely ignore this email — your password will not change.\n\n— The Chuck Norris Facts Team`;
+  const html = `
+    <h2>Password Reset Request</h2>
+    <p>You requested a password reset for your Chuck Norris Facts account.</p>
+    <p>Click the button below to set a new password. This link is valid for <strong>1 hour</strong>.</p>
+    <p style="margin:24px 0;">
+      <a href="${resetUrl}" style="background:#f59e0b;color:#000;padding:12px 24px;border-radius:4px;text-decoration:none;font-weight:bold;display:inline-block;">
+        Reset My Password
+      </a>
+    </p>
+    <p style="font-size:0.85em;color:#666;">Or copy this link into your browser:<br>${resetUrl}</p>
+    <hr style="margin:24px 0;border:none;border-top:1px solid #eee;" />
+    <p style="font-size:0.85em;color:#888;">If you did not request this reset, you can safely ignore this email — your password will not change.</p>
+    <p>— The Chuck Norris Facts Team</p>
+  `;
+  return { subject, text, html };
+}
+
 export function buildReviewRejectedEmail(opts: {
   username: string;
   submittedText: string;
