@@ -54,8 +54,8 @@ export function Navbar() {
             </div>
           </Link>
 
-          {/* Name tag — desktop only */}
-          <div className="hidden md:flex items-center ml-4 shrink-0">
+          {/* Name tag — always visible */}
+          <div className="flex items-center ml-3 shrink-0">
             <NameTag />
           </div>
 
