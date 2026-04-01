@@ -7,7 +7,7 @@ import {
   type DragEvent,
 } from "react";
 import { Link } from "wouter";
-import { useListMemeTemplates, useRequestUploadUrl } from "@workspace/api-client-react";
+import { useListMemeTemplates } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@workspace/replit-auth-web";
 import { Button } from "@/components/ui/Button";
@@ -255,7 +255,6 @@ export function MemeBuilder({ factId, factText, onClose }: MemeBuilderProps) {
 
   const queryClient = useQueryClient();
   const { data: tplData } = useListMemeTemplates();
-  const requestUploadUrl = useRequestUploadUrl();
 
   // ── Canvas redraw ────────────────────────────────────────────────
   const redraw = useCallback(() => {
@@ -331,24 +330,23 @@ export function MemeBuilder({ factId, factText, onClose }: MemeBuilderProps) {
     setUploadFile(file);
     setIsUploadingFile(true);
 
-    // Local preview immediately
+    // Show local preview immediately while the upload runs
     const localUrl = URL.createObjectURL(file);
     setUploadLocalUrl(localUrl);
 
     try {
-      // 1. Get presigned upload URL
-      const { uploadURL, objectPath } = await requestUploadUrl.mutateAsync({
-        data: { name: file.name, size: file.size, contentType: file.type },
-      });
-
-      // 2. PUT file directly to GCS
-      const putRes = await fetch(uploadURL, {
-        method: "PUT",
+      // POST binary directly to the API server — server uploads to GCS
+      // (much faster than browser→GCS presigned PUT through Replit proxy)
+      const uploadRes = await fetch("/api/storage/upload-meme", {
+        method: "POST",
         headers: { "Content-Type": file.type },
         body: file,
       });
-      if (!putRes.ok) throw new Error("Upload failed");
-
+      if (!uploadRes.ok) {
+        const body = await uploadRes.json() as { error?: string };
+        throw new Error(body.error ?? "Upload failed");
+      }
+      const { objectPath } = await uploadRes.json() as { objectPath: string };
       setUploadObjectPath(objectPath);
     } catch (e) {
       setErrorMsg(e instanceof Error ? e.message : "Upload failed");
@@ -358,7 +356,7 @@ export function MemeBuilder({ factId, factText, onClose }: MemeBuilderProps) {
     } finally {
       setIsUploadingFile(false);
     }
-  }, [requestUploadUrl]);
+  }, []);
 
   const onFileInputChange = (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
