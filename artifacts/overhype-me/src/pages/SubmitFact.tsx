@@ -23,6 +23,7 @@ interface DuplicateResult {
   confidence: number;
   matchingFactId?: number;
   matchingFactText?: string;
+  matchingCanonicalText?: string;
 }
 
 const PRONOUN_PREVIEWS: { label: string; subject: string; object: string; name: string }[] = [
@@ -77,7 +78,8 @@ export default function SubmitFact() {
       });
       if (r.ok) {
         const data: DuplicateResult = await r.json();
-        setDuplicate(data.isDuplicate && data.confidence > 65 ? data : null);
+        // Always show the closest match (any score) so we can tune the threshold
+        setDuplicate(data.matchingFactId && data.confidence > 0 ? data : null);
       }
     } catch { setDuplicate(null); }
     finally { setCheckingDuplicate(false); }
@@ -345,20 +347,33 @@ export default function SubmitFact() {
                 </div>
 
                 {duplicate && (
-                  <div className="mt-3 p-4 bg-yellow-500/10 border-l-4 border-yellow-500 text-yellow-700 dark:text-yellow-400 rounded-r-sm">
+                  <div className={`mt-4 p-5 rounded-sm border-l-4 ${duplicate.isDuplicate ? "bg-red-500/10 border-red-500" : "bg-amber-500/10 border-amber-500"}`}>
                     <div className="flex items-start gap-3">
-                      <Copy className="w-5 h-5 shrink-0 mt-0.5" />
-                      <div>
-                        <p className="font-bold text-sm">Possible duplicate ({duplicate.confidence}% match)</p>
+                      <Copy className={`w-6 h-6 shrink-0 mt-0.5 ${duplicate.isDuplicate ? "text-red-500" : "text-amber-500"}`} />
+                      <div className="flex-1 min-w-0">
+                        <p className={`font-bold text-lg ${duplicate.isDuplicate ? "text-red-600 dark:text-red-400" : "text-amber-600 dark:text-amber-400"}`}>
+                          {duplicate.isDuplicate
+                            ? `⚠ Very similar to an existing fact (${duplicate.confidence}% match) — likely to be rejected by the admin`
+                            : `Closest existing fact: ${duplicate.confidence}% similarity (below duplicate threshold)`}
+                        </p>
                         {duplicate.matchingFactId && (
                           <>
-                            <p className="text-xs mt-1 opacity-80 italic">"{duplicate.matchingFactText}"</p>
-                            <Link href={`/facts/${duplicate.matchingFactId}`} className="text-xs underline mt-1 block hover:opacity-80">
-                              View existing fact →
-                            </Link>
+                            <p className="text-base mt-3 text-foreground/80 italic border-l-2 border-border pl-3">
+                              "{duplicate.matchingCanonicalText ?? duplicate.matchingFactText}"
+                            </p>
+                            <a
+                              href={`/facts/${duplicate.matchingFactId}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-sm text-primary underline mt-2 block hover:opacity-80"
+                            >
+                              View existing fact in new tab →
+                            </a>
                           </>
                         )}
-                        <p className="text-xs mt-2 opacity-70">You can still continue — the admin will review your submission.</p>
+                        <p className="text-sm mt-3 text-muted-foreground">
+                          You can still continue and submit — the admin makes the final call on whether to approve or reject it.
+                        </p>
                       </div>
                     </div>
                   </div>
@@ -454,31 +469,34 @@ export default function SubmitFact() {
 
               {/* ── Duplicate / variant warning ── */}
               {duplicate && (
-                <div className="p-4 bg-amber-500/10 border-2 border-amber-500/30 rounded-sm">
+                <div className={`p-5 rounded-sm border-l-4 ${duplicate.isDuplicate ? "bg-red-500/10 border-red-500" : "bg-amber-500/10 border-amber-500"}`}>
                   <div className="flex items-start gap-3">
-                    <GitBranch className="w-5 h-5 shrink-0 mt-0.5 text-amber-500" />
-                    <div className="space-y-2">
-                      <p className="font-bold text-sm text-amber-600 dark:text-amber-400">
-                        Similar fact detected ({duplicate.confidence}% match)
+                    <GitBranch className={`w-6 h-6 shrink-0 mt-0.5 ${duplicate.isDuplicate ? "text-red-500" : "text-amber-500"}`} />
+                    <div className="flex-1 min-w-0 space-y-3">
+                      <p className={`font-bold text-lg ${duplicate.isDuplicate ? "text-red-600 dark:text-red-400" : "text-amber-600 dark:text-amber-400"}`}>
+                        {duplicate.isDuplicate
+                          ? `⚠ Very similar to an existing fact (${duplicate.confidence}% match) — likely to be rejected by the admin`
+                          : `Closest existing fact: ${duplicate.confidence}% similarity (below duplicate threshold)`}
                       </p>
-                      {duplicate.matchingFactText && (
-                        <p className="text-xs italic text-muted-foreground">
-                          "{duplicate.matchingFactText}"
+                      {(duplicate.matchingCanonicalText ?? duplicate.matchingFactText) && (
+                        <p className="text-base text-foreground/80 italic border-l-2 border-border pl-3">
+                          "{duplicate.matchingCanonicalText ?? duplicate.matchingFactText}"
                         </p>
                       )}
                       {duplicate.matchingFactId && (
-                        <Link
+                        <a
                           href={`/facts/${duplicate.matchingFactId}`}
-                          className="text-xs text-primary underline block hover:opacity-80"
                           target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-sm text-primary underline block hover:opacity-80"
                         >
-                          View existing fact →
-                        </Link>
+                          View existing fact in new tab →
+                        </a>
                       )}
-                      <p className="text-xs text-muted-foreground pt-1">
-                        <strong>Facts can have variants</strong> — different takes on the same idea, linked together.
-                        If your fact adds a new angle, the admin can approve it as a variant.
-                        It will be flagged in the review queue automatically.
+                      <p className="text-sm text-muted-foreground">
+                        {duplicate.isDuplicate
+                          ? "You can still submit — the admin makes the final call. If your fact adds a genuinely different angle, it may be approved as a variant."
+                          : "This score is below the automatic duplicate threshold — your submission will not be auto-flagged."}
                       </p>
                     </div>
                   </div>
@@ -522,9 +540,11 @@ export default function SubmitFact() {
                     </Link>
                     .
                     {duplicate && (
-                      <span className="block mt-1 text-amber-600 dark:text-amber-400">
+                      <span className={`block mt-2 font-semibold text-sm ${duplicate.isDuplicate ? "text-red-600 dark:text-red-400" : "text-amber-600 dark:text-amber-400"}`}>
                         <GitBranch className="w-3.5 h-3.5 inline mr-1" />
-                        Your fact will be flagged as a potential variant for admin consideration.
+                        {duplicate.isDuplicate
+                          ? `⚠ Similarity score: ${duplicate.confidence}% — will be flagged as a likely duplicate in the review queue.`
+                          : `Closest match score: ${duplicate.confidence}% (below the duplicate threshold — no auto-flag).`}
                       </span>
                     )}
                   </p>

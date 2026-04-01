@@ -113,6 +113,7 @@ export interface DuplicateCheckResult {
   confidence: number;
   matchingFactId?: number;
   matchingFactText?: string;
+  matchingCanonicalText?: string;
 }
 
 // Cosine similarity threshold for the pre-submission duplicate check.
@@ -130,19 +131,23 @@ export async function checkDuplicateInternal(text: string): Promise<DuplicateChe
   // so it compares apples-to-apples against stored canonical embeddings.
   const textToEmbed = TEMPLATE_TOKEN_RE.test(text) ? renderCanonical(text) : text;
   const embedding = await embedText(textToEmbed);
+
+  // Use threshold: 0 so we always get the closest match for debugging/tuning,
+  // regardless of whether it clears the duplicate threshold.
   const neighbors = await findSimilarFacts(embedding, {
     limit: 5,
-    threshold: DUPLICATE_THRESHOLD,
+    threshold: 0,
   });
 
   if (neighbors.length === 0) return { isDuplicate: false, confidence: 0 };
 
   const best = neighbors[0];
   return {
-    isDuplicate: true,
+    isDuplicate: best.similarity >= DUPLICATE_THRESHOLD,
     confidence: Math.round(best.similarity * 100),
     matchingFactId: best.id,
     matchingFactText: best.text,
+    matchingCanonicalText: best.canonicalText ?? best.text,
   };
 }
 
