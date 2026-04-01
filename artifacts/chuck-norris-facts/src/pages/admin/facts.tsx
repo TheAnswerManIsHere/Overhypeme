@@ -2,11 +2,15 @@ import { useEffect, useRef, useState } from "react";
 import { AdminLayout } from "@/components/admin/AdminLayout";
 import { Button } from "@/components/ui/Button";
 import { Textarea, Input } from "@/components/ui/Input";
-import { Trash2, Upload, Search, AlertCircle, CheckCircle, Pencil, X, Save } from "lucide-react";
+import { Trash2, Upload, Search, AlertCircle, CheckCircle, Pencil, X, Save, GitBranch, Plus } from "lucide-react";
+
+const USE_CASE_SUGGESTIONS = ["default", "one_line", "two_line", "short", "long", "meme_caption", "shirt_print", "social_media", "title_case"];
 
 interface Fact {
   id: number;
   text: string;
+  parentId: number | null;
+  useCase: string | null;
   upvotes: number;
   downvotes: number;
   score: number;
@@ -15,6 +19,13 @@ interface Fact {
   submittedById: string | null;
   createdAt: string;
   updatedAt: string;
+}
+
+interface FactVariant {
+  id: number;
+  text: string;
+  useCase: string | null;
+  createdAt: string;
 }
 
 interface FactsResponse {
@@ -58,6 +69,12 @@ export default function AdminFacts() {
   const [selectedFact, setSelectedFact] = useState<Fact | null>(null);
   const [draft, setDraft] = useState<EditDraft | null>(null);
   const [saving, setSaving] = useState(false);
+  const [variants, setVariants] = useState<FactVariant[]>([]);
+  const [loadingVariants, setLoadingVariants] = useState(false);
+  const [newVariantText, setNewVariantText] = useState("");
+  const [newVariantUseCase, setNewVariantUseCase] = useState("");
+  const [addingVariant, setAddingVariant] = useState(false);
+  const [showAddVariant, setShowAddVariant] = useState(false);
   const [saveResult, setSaveResult] = useState<{ type: "success" | "error"; message: string } | null>(null);
 
   const [importMode, setImportMode] = useState<ImportMode>("lines");
@@ -98,6 +115,8 @@ export default function AdminFacts() {
     setSelectedFact(fact);
     setDraft({
       text: fact.text,
+      parentId: fact.parentId ?? null,
+      useCase: fact.useCase ?? null,
       upvotes: fact.upvotes,
       downvotes: fact.downvotes,
       score: fact.score,
@@ -106,12 +125,30 @@ export default function AdminFacts() {
       submittedById: fact.submittedById ?? "",
     });
     setSaveResult(null);
+    setShowAddVariant(false);
+    setNewVariantText("");
+    setNewVariantUseCase("");
+    // Fetch variants for this fact (only if it's a root fact)
+    if (fact.parentId === null) {
+      setLoadingVariants(true);
+      fetch(`/api/facts/${fact.id}`, { credentials: "include" })
+        .then((r) => r.json())
+        .then((data: { variants?: FactVariant[] }) => {
+          setVariants(data.variants ?? []);
+        })
+        .catch(() => setVariants([]))
+        .finally(() => setLoadingVariants(false));
+    } else {
+      setVariants([]);
+    }
   }
 
   function clearSelection() {
     setSelectedFact(null);
     setDraft(null);
     setSaveResult(null);
+    setVariants([]);
+    setShowAddVariant(false);
   }
 
   async function saveFact() {
@@ -121,6 +158,8 @@ export default function AdminFacts() {
     try {
       const body = {
         text: draft.text,
+        parentId: draft.parentId !== null && draft.parentId !== undefined && String(draft.parentId) !== "" ? Number(draft.parentId) : null,
+        useCase: draft.useCase || null,
         upvotes: Number(draft.upvotes),
         downvotes: Number(draft.downvotes),
         score: Number(draft.score),
@@ -145,6 +184,35 @@ export default function AdminFacts() {
     } finally {
       setSaving(false);
     }
+  }
+
+  async function addVariant() {
+    if (!selectedFact || !newVariantText.trim()) return;
+    setAddingVariant(true);
+    try {
+      const res = await fetch(`/api/admin/facts/${selectedFact.id}/variants`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: newVariantText.trim(), useCase: newVariantUseCase || null }),
+      });
+      const data = (await res.json()) as { success?: boolean; variant?: FactVariant; error?: string };
+      if (!res.ok) throw new Error(data.error ?? "Failed to add variant");
+      setVariants((prev) => [...prev, data.variant!]);
+      setNewVariantText("");
+      setNewVariantUseCase("");
+      setShowAddVariant(false);
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Failed to add variant");
+    } finally {
+      setAddingVariant(false);
+    }
+  }
+
+  async function deleteVariant(variantId: number) {
+    if (!confirm("Delete this variant permanently?")) return;
+    await fetch(`/api/admin/facts/variants/${variantId}`, { method: "DELETE", credentials: "include" });
+    setVariants((prev) => prev.filter((v) => v.id !== variantId));
   }
 
   async function deleteFact(id: number) {
@@ -364,6 +432,107 @@ export default function AdminFacts() {
                 />
               </div>
             </div>
+
+            {/* Variant fields */}
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <FieldLabel>Parent ID (blank = root fact)</FieldLabel>
+                <input
+                  type="number"
+                  value={draft.parentId !== null && draft.parentId !== undefined ? String(draft.parentId) : ""}
+                  onChange={(e) => setDraft((d) => d ? { ...d, parentId: e.target.value ? Number(e.target.value) : null } : d)}
+                  placeholder="blank for root"
+                  className="h-9 w-full px-3 bg-background border border-border rounded-sm text-sm font-mono focus:outline-none focus:border-primary"
+                />
+              </div>
+              <div>
+                <FieldLabel>Use Case</FieldLabel>
+                <input
+                  list="use-case-options"
+                  value={draft.useCase ?? ""}
+                  onChange={(e) => setDraft((d) => d ? { ...d, useCase: e.target.value || null } : d)}
+                  placeholder="e.g. one_line, meme_caption…"
+                  className="h-9 w-full px-3 bg-background border border-border rounded-sm text-sm font-mono focus:outline-none focus:border-primary"
+                />
+                <datalist id="use-case-options">
+                  {USE_CASE_SUGGESTIONS.map(s => <option key={s} value={s} />)}
+                </datalist>
+              </div>
+            </div>
+
+            {/* Variants section — only shown for root facts */}
+            {selectedFact.parentId === null && (
+              <div className="border border-border rounded-sm overflow-hidden">
+                <div className="flex items-center justify-between px-3 py-2 bg-muted/30 border-b border-border">
+                  <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+                    <GitBranch className="w-3.5 h-3.5" />
+                    Variants {loadingVariants ? "(loading…)" : `(${variants.length})`}
+                  </span>
+                  {!showAddVariant && (
+                    <button onClick={() => setShowAddVariant(true)} className="p-1 text-primary hover:text-primary/80 transition-colors" title="Add variant">
+                      <Plus className="w-4 h-4" />
+                    </button>
+                  )}
+                </div>
+
+                {showAddVariant && (
+                  <div className="p-3 border-b border-border bg-primary/5 space-y-2">
+                    <textarea
+                      value={newVariantText}
+                      onChange={(e) => setNewVariantText(e.target.value)}
+                      rows={2}
+                      placeholder="Variant text…"
+                      className="w-full px-3 py-2 bg-background border border-border rounded-sm text-sm focus:outline-none focus:border-primary resize-none"
+                    />
+                    <div className="flex gap-2">
+                      <input
+                        list="use-case-options-new"
+                        value={newVariantUseCase}
+                        onChange={(e) => setNewVariantUseCase(e.target.value)}
+                        placeholder="use_case (e.g. one_line)"
+                        className="flex-1 h-8 px-2 bg-background border border-border rounded-sm text-xs font-mono focus:outline-none focus:border-primary"
+                      />
+                      <datalist id="use-case-options-new">
+                        {USE_CASE_SUGGESTIONS.map(s => <option key={s} value={s} />)}
+                      </datalist>
+                      <Button size="sm" onClick={addVariant} isLoading={addingVariant} disabled={!newVariantText.trim()}>
+                        Add
+                      </Button>
+                      <Button size="sm" variant="outline" onClick={() => { setShowAddVariant(false); setNewVariantText(""); setNewVariantUseCase(""); }}>
+                        Cancel
+                      </Button>
+                    </div>
+                  </div>
+                )}
+
+                <div className="divide-y divide-border max-h-40 overflow-auto">
+                  {variants.length === 0 && !loadingVariants ? (
+                    <p className="text-xs text-muted-foreground p-3 italic">No variants yet. Click + to add one.</p>
+                  ) : (
+                    variants.map((v) => (
+                      <div key={v.id} className="flex items-start gap-2 px-3 py-2 group hover:bg-muted/20">
+                        <div className="flex-1 min-w-0">
+                          {v.useCase && (
+                            <span className="inline-block text-[10px] font-bold uppercase tracking-wider text-primary bg-primary/10 border border-primary/20 px-1.5 py-0.5 rounded-sm mr-1.5 mb-1">
+                              {v.useCase.replace(/_/g, " ")}
+                            </span>
+                          )}
+                          <p className="text-xs text-foreground leading-snug line-clamp-2">{v.text}</p>
+                          <span className="text-[10px] text-muted-foreground font-mono">#{v.id}</span>
+                        </div>
+                        <button
+                          onClick={() => deleteVariant(v.id)}
+                          className="shrink-0 p-1 opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive transition-all"
+                          title="Delete variant"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+            )}
 
             {/* Save result */}
             {saveResult && (

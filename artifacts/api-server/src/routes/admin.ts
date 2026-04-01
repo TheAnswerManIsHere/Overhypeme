@@ -119,7 +119,7 @@ router.patch("/admin/facts/:id", requireAdmin, async (req: Request, res: Respons
   const id = parseInt(String(req.params["id"] ?? ""), 10);
   if (isNaN(id)) { res.status(400).json({ error: "Invalid fact id" }); return; }
 
-  const { text, upvotes, downvotes, score, wilsonScore, commentCount, submittedById } = req.body as Record<string, unknown>;
+  const { text, upvotes, downvotes, score, wilsonScore, commentCount, submittedById, parentId, useCase } = req.body as Record<string, unknown>;
   const updates: Record<string, unknown> = {};
   if (text !== undefined) updates.text = String(text);
   if (upvotes !== undefined) updates.upvotes = Number(upvotes);
@@ -128,10 +128,40 @@ router.patch("/admin/facts/:id", requireAdmin, async (req: Request, res: Respons
   if (wilsonScore !== undefined) updates.wilsonScore = Number(wilsonScore);
   if (commentCount !== undefined) updates.commentCount = Number(commentCount);
   if (submittedById !== undefined) updates.submittedById = submittedById ? String(submittedById) : null;
+  if (parentId !== undefined) updates.parentId = parentId !== null && parentId !== "" ? Number(parentId) : null;
+  if (useCase !== undefined) updates.useCase = useCase ? String(useCase) : null;
 
   const [updated] = await db.update(factsTable).set(updates).where(eq(factsTable.id, id)).returning();
   if (!updated) { res.status(404).json({ error: "Fact not found" }); return; }
   res.json({ success: true, fact: updated });
+});
+
+// POST /admin/facts/:id/variants — create a variant linked to a root fact
+router.post("/admin/facts/:id/variants", requireAdmin, async (req: Request, res: Response) => {
+  const rootId = parseInt(String(req.params["id"] ?? ""), 10);
+  if (isNaN(rootId)) { res.status(400).json({ error: "Invalid fact id" }); return; }
+  const [root] = await db.select({ id: factsTable.id, parentId: factsTable.parentId }).from(factsTable).where(eq(factsTable.id, rootId)).limit(1);
+  if (!root) { res.status(404).json({ error: "Fact not found" }); return; }
+  if (root.parentId !== null) { res.status(400).json({ error: "Cannot add a variant to a variant. Target the root fact." }); return; }
+  const { text, useCase } = req.body as Record<string, unknown>;
+  if (!text || typeof text !== "string" || text.trim().length === 0) { res.status(400).json({ error: "text is required" }); return; }
+  const [variant] = await db.insert(factsTable).values({
+    text: text.trim(),
+    parentId: rootId,
+    useCase: useCase ? String(useCase) : null,
+  } as typeof factsTable.$inferInsert).returning();
+  res.status(201).json({ success: true, variant });
+});
+
+// DELETE /admin/facts/variants/:variantId — delete a single variant
+router.delete("/admin/facts/variants/:variantId", requireAdmin, async (req: Request, res: Response) => {
+  const variantId = parseInt(String(req.params["variantId"] ?? ""), 10);
+  if (isNaN(variantId)) { res.status(400).json({ error: "Invalid variant id" }); return; }
+  const [v] = await db.select({ id: factsTable.id, parentId: factsTable.parentId }).from(factsTable).where(eq(factsTable.id, variantId)).limit(1);
+  if (!v) { res.status(404).json({ error: "Variant not found" }); return; }
+  if (v.parentId === null) { res.status(400).json({ error: "Cannot delete a root fact via this endpoint." }); return; }
+  await db.delete(factsTable).where(eq(factsTable.id, variantId));
+  res.json({ success: true });
 });
 
 router.post("/admin/facts/import", requireAdmin, async (req: Request, res: Response) => {

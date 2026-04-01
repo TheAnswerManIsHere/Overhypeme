@@ -8,7 +8,7 @@ import {
   ratingsTable, commentsTable, externalLinksTable, usersTable,
 } from "@workspace/db/schema";
 import { stripeStorage } from "../lib/stripeStorage";
-import { eq, sql, desc, asc, ilike, and, inArray } from "drizzle-orm";
+import { eq, sql, desc, asc, ilike, and, inArray, isNull } from "drizzle-orm";
 import {
   ListFactsQueryParams, CreateFactBody, GetFactParams,
   RateFactParams, RateFactBody,
@@ -115,7 +115,8 @@ router.get("/facts", async (req: Request, res: Response) => {
     conds.push(inArray(factsTable.id, fIds));
   }
 
-  const where = conds.length ? and(...conds) : undefined;
+  conds.push(isNull(factsTable.parentId));
+  const where = and(...conds);
   const [{ count }] = await db.select({ count: sql<number>`count(*)::int` }).from(factsTable).where(where);
   const order = sort === "newest" ? desc(factsTable.createdAt) : sort === "trending" ? desc(factsTable.commentCount) : desc(factsTable.wilsonScore);
   const rows = await db.select().from(factsTable).where(where).orderBy(order).limit(limit).offset(offset);
@@ -139,7 +140,16 @@ router.get("/facts/:factId", async (req: Request, res: Response) => {
     }
     return { id: l.id, factId: l.factId, url: l.url, title: l.title ?? null, platform: l.platform ?? null, addedBy, addedById: l.addedById ?? null, createdAt: l.createdAt.toISOString() };
   }));
-  res.json({ ...summary, rank, links });
+  // Fetch variants (children) — always from the canonical root
+  const rootId = fact.parentId ?? fact.id;
+  const variantRows = await db.select({
+    id: factsTable.id, text: factsTable.text, useCase: factsTable.useCase,
+    createdAt: factsTable.createdAt, parentId: factsTable.parentId,
+  }).from(factsTable).where(eq(factsTable.parentId, rootId)).orderBy(asc(factsTable.useCase));
+  const variants = variantRows.map(v => ({
+    id: v.id, text: v.text, useCase: v.useCase ?? null, createdAt: v.createdAt.toISOString(),
+  }));
+  res.json({ ...summary, rank, links, variants, parentId: fact.parentId ?? null, useCase: fact.useCase ?? null });
 });
 
 // POST /facts

@@ -22,6 +22,8 @@ export const factsTable = pgTable("facts", {
   id: serial("id").primaryKey(),
   text: text("text").notNull(),
   submittedById: varchar("submitted_by_id").references(() => usersTable.id),
+  parentId: integer("parent_id"),
+  useCase: varchar("use_case", { length: 50 }),
   upvotes: integer("upvotes").notNull().default(0),
   downvotes: integer("downvotes").notNull().default(0),
   score: integer("score").notNull().default(0),
@@ -32,6 +34,7 @@ export const factsTable = pgTable("facts", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
 }, (table) => [
   index("facts_wilson_score_idx").on(table.wilsonScore),
+  index("facts_parent_id_idx").on(table.parentId),
 ]);
 
 export const insertFactSchema = createInsertSchema(factsTable).omit({ id: true, upvotes: true, downvotes: true, score: true, wilsonScore: true, commentCount: true, createdAt: true, updatedAt: true });
