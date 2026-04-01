@@ -114,40 +114,104 @@ export interface DuplicateCheckResult {
   matchingFactId?: number;
   matchingFactText?: string;
   matchingCanonicalText?: string;
+  llmChecked?: boolean;
 }
 
-// Cosine similarity threshold for the pre-submission duplicate check.
-// Raw user text vs canonical embeddings loses ~5-8 points (name differences,
-// minor synonyms). 0.75 catches genuine rewrites while avoiding false positives.
-// When the caller supplies canonicalized template text the check is much more
-// accurate — this threshold still applies but hits will have much higher scores.
-const DUPLICATE_THRESHOLD = 0.75;
+// Stage 1: vector recall threshold — cast a wide net and pass candidates to the LLM.
+// Anything below this is geometrically too distant to be a paraphrase.
+const STAGE1_THRESHOLD = 0.65;
+
+// Stage 2 fallback: if the LLM call fails, fall back to this vector-only threshold.
+const VECTOR_FALLBACK_THRESHOLD = 0.75;
 
 // Token pattern: {NAME}, {SUBJ}, {does|do}, etc.
 const TEMPLATE_TOKEN_RE = /\{[A-Z_]+\}|\{[A-Za-z_]+\}|\{[^}|]+\|[^}]+\}/;
 
+type Neighbor = { id: number; text: string; canonicalText: string | null; similarity: number };
+
+/**
+ * Stage 2: Ask the LLM whether any of the vector candidates is a true duplicate
+ * of the new entry. One batched call handles all candidates.
+ * Returns which candidate index (1-based) is a duplicate, or null.
+ */
+async function llmDuplicateCheck(
+  newText: string,
+  candidates: Neighbor[],
+): Promise<{ isDuplicate: boolean; matchIndex: number | null }> {
+  const openai = getOpenAIClient();
+  const candidateList = candidates
+    .map((c, i) => `${i + 1}. "${c.canonicalText ?? c.text}"`)
+    .join("\n");
+
+  const prompt =
+    `You are a duplicate detector for a template-based facts database. ` +
+    `Entries may use tokens like {NAME} and {SUBJ} for the subject person.\n\n` +
+    `New entry:\n"${newText}"\n\n` +
+    `Candidate existing entries:\n${candidateList}\n\n` +
+    `Do any candidates express the same fact or joke as the new entry, ` +
+    `even if worded differently? Paraphrases and minor rewrites count as duplicates. ` +
+    `Respond with JSON only: {"isDuplicate": true|false, "matchIndex": <1-based index or null>}`;
+
+  const response = await openai.chat.completions.create({
+    model: "gpt-4o-mini",
+    messages: [{ role: "user", content: prompt }],
+    response_format: { type: "json_object" },
+    temperature: 0,
+    max_tokens: 60,
+  });
+
+  const content = response.choices[0]?.message?.content ?? "{}";
+  const parsed = JSON.parse(content) as { isDuplicate?: boolean; matchIndex?: number | null };
+  return {
+    isDuplicate: parsed.isDuplicate === true,
+    matchIndex: typeof parsed.matchIndex === "number" ? parsed.matchIndex : null,
+  };
+}
+
 export async function checkDuplicateInternal(text: string): Promise<DuplicateCheckResult> {
-  // If the text contains template tokens, render it canonically before embedding
-  // so it compares apples-to-apples against stored canonical embeddings.
+  // Render template tokens to canonical form so embeddings compare apples-to-apples.
   const textToEmbed = TEMPLATE_TOKEN_RE.test(text) ? renderCanonical(text) : text;
   const embedding = await embedText(textToEmbed);
 
-  // Use threshold: 0 so we always get the closest match for debugging/tuning,
-  // regardless of whether it clears the duplicate threshold.
-  const neighbors = await findSimilarFacts(embedding, {
-    limit: 5,
-    threshold: 0,
-  });
+  // Stage 1 — vector recall: retrieve top-5 with threshold:0 (for UI display),
+  // but only forward candidates that clear STAGE1_THRESHOLD to the LLM.
+  const neighbors = await findSimilarFacts(embedding, { limit: 5, threshold: 0 });
 
   if (neighbors.length === 0) return { isDuplicate: false, confidence: 0 };
 
   const best = neighbors[0];
+  const candidates = neighbors.filter((n) => n.similarity >= STAGE1_THRESHOLD);
+
+  // Stage 2 — LLM precision: let the model decide if any candidate is truly
+  // the same fact. Fall back to vector threshold if the LLM call fails.
+  if (candidates.length > 0) {
+    try {
+      const { isDuplicate, matchIndex } = await llmDuplicateCheck(textToEmbed, candidates);
+      const matched =
+        matchIndex !== null && matchIndex >= 1 && matchIndex <= candidates.length
+          ? candidates[matchIndex - 1]
+          : candidates[0];
+      return {
+        isDuplicate,
+        confidence: Math.round(best.similarity * 100),
+        matchingFactId: matched.id,
+        matchingFactText: matched.text,
+        matchingCanonicalText: matched.canonicalText ?? matched.text,
+        llmChecked: true,
+      };
+    } catch (err) {
+      console.error("[AI] LLM duplicate check failed, falling back to vector threshold:", err);
+    }
+  }
+
+  // Vector-only result (no candidates above Stage 1 threshold, or LLM failed)
   return {
-    isDuplicate: best.similarity >= DUPLICATE_THRESHOLD,
+    isDuplicate: best.similarity >= VECTOR_FALLBACK_THRESHOLD,
     confidence: Math.round(best.similarity * 100),
     matchingFactId: best.id,
     matchingFactText: best.text,
     matchingCanonicalText: best.canonicalText ?? best.text,
+    llmChecked: false,
   };
 }
 

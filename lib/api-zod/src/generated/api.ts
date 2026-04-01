@@ -412,6 +412,8 @@ export const CheckDuplicateResponse = zod.object({
     .max(checkDuplicateResponseConfidenceMax),
   matchingFactId: zod.number().nullish(),
   matchingFactText: zod.string().nullish(),
+  matchingCanonicalText: zod.string().nullish(),
+  llmChecked: zod.boolean().nullish(),
 });
 
 /**
