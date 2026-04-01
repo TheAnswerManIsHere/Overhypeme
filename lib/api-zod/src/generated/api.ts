@@ -383,6 +383,7 @@ export const updateMyProfileBodyPronounsMax = 80;
 
 export const UpdateMyProfileBody = zod.object({
   displayName: zod.string().min(1).max(updateMyProfileBodyDisplayNameMax).optional(),
+  avatarStyle: zod.string().optional(),
   pronouns: zod.string().min(1).max(updateMyProfileBodyPronounsMax).optional(),
   email: zod.string().email().optional(),
   profileImageUrl: zod.string().optional(),
