@@ -161,7 +161,7 @@ export async function generateMemeBuffer(
   ctx.fillStyle = "rgba(255,255,255,0.06)";
   ctx.font = `bold ${Math.floor(CANVAS_H * 0.45)}px serif`;
   ctx.textAlign = "right";
-  ctx.fillText("CN", CANVAS_W - 24, CANVAS_H * 0.72);
+  ctx.fillText("OM", CANVAS_W - 24, CANVAS_H * 0.72);
 
   // ── Text ──────────────────────────────────────────────────────────
   const autoFontSize =
