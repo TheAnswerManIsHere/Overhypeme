@@ -65,8 +65,8 @@ router.get("/memes/:slug", async (req: Request, res: Response) => {
   const [fact] = await db.select({ text: factsTable.text }).from(factsTable).where(and(eq(factsTable.id, meme.factId), eq(factsTable.isActive, true))).limit(1);
   let createdByName: string | null = null;
   if (meme.createdById) {
-    const [user] = await db.select({ firstName: usersTable.firstName }).from(usersTable).where(and(eq(usersTable.id, meme.createdById), eq(usersTable.isActive, true))).limit(1);
-    createdByName = user?.firstName ?? null;
+    const [user] = await db.select({ displayName: usersTable.displayName }).from(usersTable).where(and(eq(usersTable.id, meme.createdById), eq(usersTable.isActive, true))).limit(1);
+    createdByName = user?.displayName ?? null;
   }
 
   res.json({

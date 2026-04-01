@@ -7,16 +7,6 @@
  */
 
 export interface UpdateProfileRequest {
-  /** @minLength 1 */
-  firstName?: string;
-  /** @minLength 1 */
-  lastName?: string;
-  /**
-   * @minLength 3
-   * @maxLength 30
-   * @pattern ^[a-zA-Z0-9_]+$
-   */
-  username?: string;
   /**
    * @minLength 1
    * @maxLength 20

@@ -46,8 +46,6 @@ router.get("/users/me", async (req: Request, res: Response) => {
     .select({
       email: usersTable.email,
       pendingEmail: usersTable.pendingEmail,
-      firstName: usersTable.firstName,
-      lastName: usersTable.lastName,
       displayName: usersTable.displayName,
       pronouns: usersTable.pronouns,
       profileImageUrl: usersTable.profileImageUrl,
@@ -89,8 +87,6 @@ router.get("/users/me", async (req: Request, res: Response) => {
     email: userRow?.email ?? null,
     pendingEmail: userRow?.pendingEmail ?? null,
     emailVerified: userRow?.emailVerifiedAt !== null && userRow?.emailVerifiedAt !== undefined,
-    firstName: userRow?.firstName ?? null,
-    lastName: userRow?.lastName ?? null,
     displayName: userRow?.displayName ?? null,
     pronouns: userRow?.pronouns ?? null,
     profileImageUrl: userRow?.profileImageUrl ?? null,

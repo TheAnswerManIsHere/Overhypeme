@@ -8,8 +8,6 @@ import { Shield, ShieldOff, Search, Pencil, X, Save, AlertCircle, CheckCircle, C
 interface User {
   id: string;
   email: string | null;
-  firstName: string | null;
-  lastName: string | null;
   displayName: string | null;
   profileImageUrl: string | null;
   isAdmin: boolean;
@@ -29,7 +27,7 @@ interface UsersResponse {
   limit: number;
 }
 
-type EditDraft = Pick<User, "firstName" | "lastName" | "displayName" | "email" | "isAdmin" | "captchaVerified" | "membershipTier" | "pronouns">;
+type EditDraft = Pick<User, "displayName" | "email" | "isAdmin" | "captchaVerified" | "membershipTier" | "pronouns">;
 
 const LIMIT = 50;
 
@@ -53,15 +51,12 @@ function ReadOnlyField({ label, value }: { label: string; value: string }) {
 }
 
 function displayName(u: User) {
-  if (u.firstName || u.lastName) return [u.firstName, u.lastName].filter(Boolean).join(" ");
-  return u.email ?? u.id.slice(0, 12) + "…";
+  return u.displayName ?? u.email ?? u.id.slice(0, 12) + "…";
 }
 
 interface AddUserForm {
   email: string;
   password: string;
-  firstName: string;
-  lastName: string;
   displayName: string;
   membershipTier: "free" | "premium";
   isAdmin: boolean;
@@ -70,8 +65,6 @@ interface AddUserForm {
 const EMPTY_ADD_FORM: AddUserForm = {
   email: "",
   password: "",
-  firstName: "",
-  lastName: "",
   displayName: "",
   membershipTier: "free",
   isAdmin: false,
@@ -124,8 +117,6 @@ export default function AdminUsers() {
   function selectUser(user: User) {
     setSelectedUser(user);
     setDraft({
-      firstName: user.firstName ?? "",
-      lastName: user.lastName ?? "",
       displayName: user.displayName ?? "",
       email: user.email ?? "",
       isAdmin: user.isAdmin,
@@ -172,8 +163,6 @@ export default function AdminUsers() {
         credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          firstName: draft.firstName || null,
-          lastName: draft.lastName || null,
           displayName: draft.displayName || null,
           email: draft.email || null,
           isAdmin: draft.isAdmin,
@@ -200,8 +189,6 @@ export default function AdminUsers() {
     if (!addForm.email.trim()) { setAddError("Email is required"); return; }
     if (!addForm.password) { setAddError("Password is required"); return; }
     if (addForm.password.length < 8) { setAddError("Password must be at least 8 characters"); return; }
-    if (!addForm.firstName.trim()) { setAddError("First name is required"); return; }
-    if (!addForm.lastName.trim()) { setAddError("Last name is required"); return; }
     if (!addForm.displayName.trim()) { setAddError("Display name is required"); return; }
     setAddSaving(true);
     try {
@@ -212,8 +199,6 @@ export default function AdminUsers() {
         body: JSON.stringify({
           email: addForm.email.trim(),
           password: addForm.password,
-          firstName: addForm.firstName.trim(),
-          lastName: addForm.lastName.trim(),
           displayName: addForm.displayName.trim(),
           membershipTier: addForm.membershipTier,
           isAdmin: addForm.isAdmin,
@@ -357,25 +342,6 @@ export default function AdminUsers() {
               </button>
             </div>
 
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <FieldLabel>First Name</FieldLabel>
-                <Input
-                  value={addForm.firstName}
-                  onChange={(e) => setAddForm((f) => ({ ...f, firstName: e.target.value }))}
-                  placeholder="First name"
-                />
-              </div>
-              <div>
-                <FieldLabel>Last Name <span className="text-destructive">*</span></FieldLabel>
-                <Input
-                  value={addForm.lastName}
-                  onChange={(e) => setAddForm((f) => ({ ...f, lastName: e.target.value }))}
-                  placeholder="Last name"
-                />
-              </div>
-            </div>
-
             <div>
               <FieldLabel>Display Name <span className="text-destructive">*</span></FieldLabel>
               <Input
@@ -509,7 +475,7 @@ export default function AdminUsers() {
                       <img src={user.profileImageUrl} alt="" className="w-8 h-8 rounded-full shrink-0 object-cover" />
                     ) : (
                       <div className="w-8 h-8 rounded-full bg-muted flex items-center justify-center shrink-0 text-xs font-bold text-muted-foreground">
-                        {(user.firstName?.[0] ?? user.email?.[0] ?? "?").toUpperCase()}
+                        {(user.displayName?.[0] ?? user.email?.[0] ?? "?").toUpperCase()}
                       </div>
                     )}
 
@@ -561,7 +527,7 @@ export default function AdminUsers() {
                   <img src={selectedUser.profileImageUrl} alt="" className="w-10 h-10 rounded-full object-cover" />
                 ) : (
                   <div className="w-10 h-10 rounded-full bg-muted flex items-center justify-center text-sm font-bold text-muted-foreground">
-                    {(selectedUser.firstName?.[0] ?? selectedUser.email?.[0] ?? "?").toUpperCase()}
+                    {(selectedUser.displayName?.[0] ?? selectedUser.email?.[0] ?? "?").toUpperCase()}
                   </div>
                 )}
                 <h2 className="font-display font-bold text-foreground uppercase tracking-wide flex items-center gap-2">
@@ -581,26 +547,6 @@ export default function AdminUsers() {
             <div className="grid grid-cols-2 gap-3">
               <ReadOnlyField label="Joined" value={new Date(selectedUser.createdAt).toLocaleString()} />
               <ReadOnlyField label="Stripe Customer ID" value={selectedUser.stripeCustomerId ?? ""} />
-            </div>
-
-            {/* Name row */}
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <FieldLabel>First Name</FieldLabel>
-                <Input
-                  value={draft.firstName ?? ""}
-                  onChange={(e) => setDraft((d) => d ? { ...d, firstName: e.target.value } : d)}
-                  placeholder="First name"
-                />
-              </div>
-              <div>
-                <FieldLabel>Last Name</FieldLabel>
-                <Input
-                  value={draft.lastName ?? ""}
-                  onChange={(e) => setDraft((d) => d ? { ...d, lastName: e.target.value } : d)}
-                  placeholder="Last name"
-                />
-              </div>
             </div>
 
             {/* Display Name */}

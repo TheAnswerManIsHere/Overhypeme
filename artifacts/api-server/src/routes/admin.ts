@@ -61,7 +61,7 @@ router.get("/admin/users", requireAdmin, async (req: Request, res: Response) => 
 
   const activeFilter = eq(usersTable.isActive, true);
   const where = search
-    ? and(activeFilter, sql`(${usersTable.email} ilike ${`%${search}%`} OR ${usersTable.firstName} ilike ${`%${search}%`} OR ${usersTable.lastName} ilike ${`%${search}%`} OR ${usersTable.displayName} ilike ${`%${search}%`} OR ${usersTable.id}::text ilike ${`%${search}%`})`)
+    ? and(activeFilter, sql`(${usersTable.email} ilike ${`%${search}%`} OR ${usersTable.displayName} ilike ${`%${search}%`} OR ${usersTable.id}::text ilike ${`%${search}%`})`)
     : activeFilter;
 
   const [users, [{ total }]] = await Promise.all([
@@ -79,8 +79,6 @@ router.patch("/admin/users/:id", requireAdmin, async (req: Request, res: Respons
   const updates: Record<string, unknown> = {};
   if (typeof body["isAdmin"] === "boolean") updates.isAdmin = body["isAdmin"];
   if (typeof body["captchaVerified"] === "boolean") updates.captchaVerified = body["captchaVerified"];
-  if (body["firstName"] !== undefined) updates.firstName = body["firstName"] ? String(body["firstName"]) : null;
-  if (body["lastName"] !== undefined) updates.lastName = body["lastName"] ? String(body["lastName"]) : null;
   if (body["displayName"] !== undefined) updates.displayName = body["displayName"] ? String(body["displayName"]) : null;
   if (body["email"] !== undefined) updates.email = body["email"] ? String(body["email"]).trim().toLowerCase() : null;
   if (body["membershipTier"] !== undefined && ["free", "premium"].includes(String(body["membershipTier"])))
@@ -131,8 +129,6 @@ router.post("/admin/users", requireAdmin, async (req: Request, res: Response) =>
 
   const email = body["email"] ? String(body["email"]).trim().toLowerCase() : null;
   const password = body["password"] ? String(body["password"]) : null;
-  const firstName = body["firstName"] ? String(body["firstName"]).trim() : null;
-  const lastName = body["lastName"] ? String(body["lastName"]).trim() : null;
   const displayName = body["displayName"] ? String(body["displayName"]).trim() : null;
   const membershipTier = ["free", "premium"].includes(String(body["membershipTier"] ?? "free"))
     ? (String(body["membershipTier"] ?? "free") as "free" | "premium")
@@ -155,14 +151,6 @@ router.post("/admin/users", requireAdmin, async (req: Request, res: Response) =>
     res.status(400).json({ error: "Password must be at most 128 characters" });
     return;
   }
-  if (!firstName) {
-    res.status(400).json({ error: "First name is required" });
-    return;
-  }
-  if (!lastName) {
-    res.status(400).json({ error: "Last name is required" });
-    return;
-  }
   if (!displayName) {
     res.status(400).json({ error: "Display name is required" });
     return;
@@ -173,7 +161,7 @@ router.post("/admin/users", requireAdmin, async (req: Request, res: Response) =>
   try {
     const [created] = await db
       .insert(usersTable)
-      .values({ email, passwordHash, firstName, lastName, displayName, membershipTier, isAdmin, isActive: true })
+      .values({ email, passwordHash, displayName, membershipTier, isAdmin, isActive: true })
       .returning();
     const { passwordHash: _omit, ...safeUser } = created;
     res.status(201).json({ success: true, user: safeUser });
@@ -373,10 +361,10 @@ router.get("/admin/comments/pending", requireAdmin, async (_req: Request, res: R
     .limit(100);
 
   const authorIds = [...new Set(rows.filter((r) => r.authorId).map((r) => r.authorId!))];
-  const authorMap = new Map<string, { firstName: string | null; lastName: string | null; displayName: string | null; email: string | null }>();
+  const authorMap = new Map<string, { displayName: string | null; email: string | null }>();
   if (authorIds.length) {
     const users = await db
-      .select({ id: usersTable.id, firstName: usersTable.firstName, lastName: usersTable.lastName, displayName: usersTable.displayName, email: usersTable.email })
+      .select({ id: usersTable.id, displayName: usersTable.displayName, email: usersTable.email })
       .from(usersTable)
       .where(inArray(usersTable.id, authorIds));
     for (const u of users) authorMap.set(u.id, u);
@@ -386,8 +374,6 @@ router.get("/admin/comments/pending", requireAdmin, async (_req: Request, res: R
     comments: rows.map((c) => ({
       ...c,
       createdAt: c.createdAt.toISOString(),
-      authorFirstName: c.authorId ? (authorMap.get(c.authorId)?.firstName ?? null) : null,
-      authorLastName: c.authorId ? (authorMap.get(c.authorId)?.lastName ?? null) : null,
       authorDisplayName: c.authorId ? (authorMap.get(c.authorId)?.displayName ?? null) : null,
       authorEmail: c.authorId ? (authorMap.get(c.authorId)?.email ?? null) : null,
     })),
@@ -421,10 +407,10 @@ router.get("/admin/comments/flagged", requireAdmin, async (_req: Request, res: R
     .limit(100);
 
   const authorIds = [...new Set(rows.filter((r) => r.authorId).map((r) => r.authorId!))];
-  const authorMap = new Map<string, { firstName: string | null; lastName: string | null; displayName: string | null; email: string | null }>();
+  const authorMap = new Map<string, { displayName: string | null; email: string | null }>();
   if (authorIds.length) {
     const users = await db
-      .select({ id: usersTable.id, firstName: usersTable.firstName, lastName: usersTable.lastName, displayName: usersTable.displayName, email: usersTable.email })
+      .select({ id: usersTable.id, displayName: usersTable.displayName, email: usersTable.email })
       .from(usersTable)
       .where(inArray(usersTable.id, authorIds));
     for (const u of users) authorMap.set(u.id, u);
@@ -434,8 +420,6 @@ router.get("/admin/comments/flagged", requireAdmin, async (_req: Request, res: R
     comments: rows.map((c) => ({
       ...c,
       createdAt: c.createdAt.toISOString(),
-      authorFirstName: c.authorId ? (authorMap.get(c.authorId)?.firstName ?? null) : null,
-      authorLastName: c.authorId ? (authorMap.get(c.authorId)?.lastName ?? null) : null,
       authorDisplayName: c.authorId ? (authorMap.get(c.authorId)?.displayName ?? null) : null,
       authorEmail: c.authorId ? (authorMap.get(c.authorId)?.email ?? null) : null,
     })),
