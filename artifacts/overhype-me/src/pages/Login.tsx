@@ -3,7 +3,7 @@ import { useLocation } from "wouter";
 import { Layout } from "@/components/layout/Layout";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
-import { LogIn, UserPlus, ArrowLeft, Mail } from "lucide-react";
+import { LogIn, UserPlus, ArrowLeft, Mail, Eye, EyeOff } from "lucide-react";
 import { PronounEditor } from "@/components/ui/PronounEditor";
 
 const STORAGE_KEY_NAME    = "fact_db_name";
@@ -31,6 +31,7 @@ export default function Login() {
   const [password, setPassword] = useState("");
   const [displayName, setDisplayName] = useState(() => getStoredName());
   const [pronouns, setPronouns] = useState(() => getStoredPronouns());
+  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [registeredEmail, setRegisteredEmail] = useState("");
@@ -202,17 +203,29 @@ export default function Login() {
               <label className="block text-sm font-display font-bold text-muted-foreground mb-1 uppercase tracking-wider">
                 Password{mode === "register" && <span className="text-destructive ml-1">*</span>}
               </label>
-              <Input
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder={
-                  mode === "register" ? "Min 8 characters" : "Enter your password"
-                }
-                required
-                minLength={mode === "register" ? 8 : 1}
-                autoComplete={mode === "register" ? "new-password" : "current-password"}
-              />
+              <div className="relative">
+                <Input
+                  type={showPassword ? "text" : "password"}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder={
+                    mode === "register" ? "Min 8 characters" : "Enter your password"
+                  }
+                  required
+                  minLength={mode === "register" ? 8 : 1}
+                  autoComplete={mode === "register" ? "new-password" : "current-password"}
+                  className="pr-10"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword((v) => !v)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                  tabIndex={-1}
+                  aria-label={showPassword ? "Hide password" : "Show password"}
+                >
+                  {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
+              </div>
               {mode === "login" && (
                 <div className="text-right mt-1">
                   <button
