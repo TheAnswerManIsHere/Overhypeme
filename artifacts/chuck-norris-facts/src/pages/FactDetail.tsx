@@ -93,7 +93,7 @@ export default function FactDetail() {
         {/* Main Fact Card */}
         <div className="bg-card border-l-8 border-primary p-8 md:p-12 shadow-2xl relative mb-12">
           <div className="absolute top-4 right-4 text-muted-foreground/30 font-display text-8xl font-bold italic select-none pointer-events-none -mt-4">
-            #{fact.id}
+            #{fact.rank ?? fact.id}
           </div>
           
           <h1 className="text-3xl md:text-5xl font-bold leading-tight text-foreground relative z-10 mb-8">
