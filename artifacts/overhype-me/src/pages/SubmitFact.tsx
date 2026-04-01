@@ -331,7 +331,7 @@ export default function SubmitFact() {
             <div className="p-6 md:p-10 space-y-8">
 
               {/* Captcha gate */}
-              {!isPremium && !isAuthenticated && (
+              {!isPremium && (
                 <div className={`rounded-lg p-5 border-2 ${captchaToken || isPremium || isAuthenticated ? "border-green-500/30 bg-green-500/5" : "border-border bg-background/50"}`}>
                   <div className="flex items-center gap-3 mb-1">
                     <span className="text-lg font-bold text-foreground">

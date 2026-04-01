@@ -9,6 +9,7 @@ import { RecordSearchBody } from "@workspace/api-zod";
 import { getSessionId, getSession, updateSession } from "../lib/auth";
 import crypto from "crypto";
 import { sendEmail, buildEmailChangeVerificationEmail } from "../lib/email";
+import { ObjectStorageService } from "../lib/objectStorage";
 
 const router: IRouter = Router();
 
@@ -147,6 +148,17 @@ router.patch("/users/me", async (req: Request, res: Response) => {
     const valid = profileImageUrl.startsWith("/api/storage/objects/") || profileImageUrl.startsWith("https://");
     if (!valid) { res.status(400).json({ error: "Invalid profile image URL" }); return; }
     updates.profileImageUrl = profileImageUrl;
+
+    // Set the uploaded file as public so it can be served as an <img> to any viewer
+    if (profileImageUrl.startsWith("/api/storage/objects/")) {
+      const objectPath = profileImageUrl.replace("/api/storage", "");
+      try {
+        const objectStorageService = new ObjectStorageService();
+        await objectStorageService.trySetObjectEntityAclPolicy(objectPath, { owner: userId, visibility: "public" });
+      } catch (err) {
+        console.error("[users] Failed to set ACL on profile image:", err);
+      }
+    }
   }
 
   if (pronouns !== undefined) {

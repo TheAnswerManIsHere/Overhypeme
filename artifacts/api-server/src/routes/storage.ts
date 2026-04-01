@@ -85,15 +85,10 @@ router.get("/storage/public-objects/*filePath", async (req: Request, res: Respon
  * GET /storage/objects/*
  *
  * Serve object entities from PRIVATE_OBJECT_DIR.
- * These are served from a separate path from /public-objects and can optionally
- * be protected with authentication or ACL checks based on the use case.
+ * Public objects (e.g. profile images) are served without authentication.
+ * Private objects require the requesting user to be the owner.
  */
 router.get("/storage/objects/*path", async (req: Request, res: Response) => {
-  if (!req.isAuthenticated()) {
-    res.status(401).json({ error: "Unauthorized" });
-    return;
-  }
-
   try {
     const raw = req.params.path;
     const wildcardPath = Array.isArray(raw) ? raw.join("/") : raw;
@@ -101,12 +96,12 @@ router.get("/storage/objects/*path", async (req: Request, res: Response) => {
     const objectFile = await objectStorageService.getObjectEntityFile(objectPath);
 
     const canAccess = await objectStorageService.canAccessObjectEntity({
-      userId: req.user.id,
+      userId: req.user?.id,
       objectFile,
       requestedPermission: ObjectPermission.READ,
     });
     if (!canAccess) {
-      res.status(403).json({ error: "Forbidden" });
+      res.status(req.isAuthenticated() ? 403 : 401).json({ error: req.isAuthenticated() ? "Forbidden" : "Unauthorized" });
       return;
     }
 
