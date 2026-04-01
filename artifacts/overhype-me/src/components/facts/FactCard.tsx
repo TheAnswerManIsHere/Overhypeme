@@ -11,7 +11,7 @@ import { renderFact } from "@/lib/render-fact";
 export function FactCard({ fact, rank, showRank = false }: { fact: FactSummary, rank?: number, showRank?: boolean }) {
   const { rateFact } = useAppMutations();
   const { isAuthenticated, login } = useAuth();
-  const { name, pronounSubject, pronounObject } = usePersonName();
+  const { name, pronouns } = usePersonName();
 
   const handleRate = (type: "up" | "down") => {
     if (!isAuthenticated) {
@@ -41,7 +41,7 @@ export function FactCard({ fact, rank, showRank = false }: { fact: FactSummary, 
 
       <Link href={`/facts/${fact.id}`} className="block mb-6">
         <h3 className="text-xl sm:text-2xl md:text-3xl font-bold text-foreground leading-tight">
-          "{renderFact(fact.text, name, pronounSubject, pronounObject)}"
+          "{renderFact(fact.text, name, pronouns)}"
         </h3>
       </Link>
 

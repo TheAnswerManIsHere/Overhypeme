@@ -86,8 +86,10 @@ router.patch("/admin/users/:id", requireAdmin, async (req: Request, res: Respons
   if (body["username"] !== undefined) updates.username = body["username"] ? String(body["username"]) : null;
   if (body["membershipTier"] !== undefined && ["free", "premium"].includes(String(body["membershipTier"])))
     updates.membershipTier = String(body["membershipTier"]) as "free" | "premium";
-  if (body["pronouns"] !== undefined && ["he/him", "she/her", "they/them"].includes(String(body["pronouns"])))
-    updates.pronouns = String(body["pronouns"]);
+  if (body["pronouns"] !== undefined) {
+    const p = String(body["pronouns"]).trim();
+    if (p.length > 0 && p.length <= 80) updates.pronouns = p;
+  }
 
   if (Object.keys(updates).length === 0) {
     res.status(400).json({ error: "No valid fields to update" });

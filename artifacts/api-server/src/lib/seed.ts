@@ -21,6 +21,10 @@ export async function ensureSchema(): Promise<void> {
       ddl: `ALTER TABLE users ADD COLUMN IF NOT EXISTS pronouns varchar(20) DEFAULT 'he/him'`,
     },
     {
+      label: "users.pronouns widen to varchar(80)",
+      ddl: `ALTER TABLE users ALTER COLUMN pronouns TYPE varchar(80)`,
+    },
+    {
       label: "password_reset_tokens table",
       ddl: `CREATE TABLE IF NOT EXISTS password_reset_tokens (
         id serial PRIMARY KEY,

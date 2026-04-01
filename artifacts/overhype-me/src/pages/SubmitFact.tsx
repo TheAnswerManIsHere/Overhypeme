@@ -445,7 +445,7 @@ export default function SubmitFact() {
                         <span className="text-xs text-muted-foreground">→ {p.name}</span>
                       </div>
                       <p className="text-foreground font-medium leading-snug">
-                        "{renderFact(template, p.name, p.subject, p.object)}"
+                        "{renderFact(template, p.name, p.label)}"
                       </p>
                     </div>
                   ))}

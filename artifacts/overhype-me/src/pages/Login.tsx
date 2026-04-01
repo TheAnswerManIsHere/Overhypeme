@@ -4,12 +4,10 @@ import { Layout } from "@/components/layout/Layout";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { LogIn, UserPlus, ArrowLeft, Mail } from "lucide-react";
-import { PRONOUN_PAIRS, isKnownPronounPair } from "@/lib/pronouns";
+import { PronounEditor } from "@/components/ui/PronounEditor";
 
 const STORAGE_KEY_NAME    = "fact_db_name";
-const STORAGE_KEY_SUBJECT = "fact_db_pronoun_subject";
-const STORAGE_KEY_OBJECT  = "fact_db_pronoun_object";
-const LEGACY_KEY_PRONOUNS = "fact_db_pronouns";
+const STORAGE_KEY_PRONOUNS = "fact_db_pronouns";
 const DEFAULT_NAME        = "David Franklin";
 
 function getStoredName(): string {
@@ -18,16 +16,7 @@ function getStoredName(): string {
 }
 
 function getStoredPronouns(): string {
-  const legacy = localStorage.getItem(LEGACY_KEY_PRONOUNS);
-  if (legacy && isKnownPronounPair(legacy)) return legacy;
-
-  const subject = localStorage.getItem(STORAGE_KEY_SUBJECT);
-  const object  = localStorage.getItem(STORAGE_KEY_OBJECT);
-  if (subject && object) {
-    const pair = `${subject}/${object}`;
-    if (isKnownPronounPair(pair)) return pair;
-  }
-  return "";
+  return localStorage.getItem(STORAGE_KEY_PRONOUNS) ?? "";
 }
 
 function getResetSuccess(): boolean {
@@ -201,16 +190,7 @@ export default function Login() {
                     Pronouns{" "}
                     <span className="text-xs font-normal normal-case">(optional)</span>
                   </label>
-                  <select
-                    value={pronouns}
-                    onChange={(e) => setPronouns(e.target.value)}
-                    className="w-full bg-secondary border border-border rounded-sm px-3 py-2 text-foreground outline-none focus:border-primary transition-colors appearance-none cursor-pointer"
-                  >
-                    <option value="">— select pronouns —</option>
-                    {PRONOUN_PAIRS.map((p) => (
-                      <option key={p.value} value={p.value}>{p.label}</option>
-                    ))}
-                  </select>
+                  <PronounEditor value={pronouns} onChange={setPronouns} />
                 </div>
 
                 <div>

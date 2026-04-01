@@ -151,8 +151,8 @@ router.patch("/users/me", async (req: Request, res: Response) => {
       res.status(400).json({ error: "Pronouns cannot be empty" });
       return;
     }
-    if (pronouns.length > 20) {
-      res.status(400).json({ error: "Pronouns must be 20 characters or fewer" });
+    if (pronouns.length > 80) {
+      res.status(400).json({ error: "Pronouns must be 80 characters or fewer" });
       return;
     }
     updates.pronouns = pronouns.trim();
