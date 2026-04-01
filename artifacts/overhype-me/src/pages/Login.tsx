@@ -45,6 +45,10 @@ export default function Login() {
         return;
       }
 
+      if (data.sid) {
+        localStorage.setItem("auth_token", data.sid);
+      }
+
       window.location.href = "/";
     } catch {
       setError("Network error. Please try again.");

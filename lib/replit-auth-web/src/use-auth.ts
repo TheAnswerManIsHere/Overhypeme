@@ -8,7 +8,7 @@ interface AuthState {
   isLoading: boolean;
   isAuthenticated: boolean;
   login: () => void;
-  logout: () => void;
+  logout: () => Promise<void>;
 }
 
 export function useAuth(): AuthState {
@@ -49,8 +49,16 @@ export function useAuth(): AuthState {
     window.location.href = `/api/login?returnTo=${encodeURIComponent(window.location.pathname)}`;
   }, []);
 
-  const logout = useCallback(() => {
-    window.location.href = "/api/logout";
+  const logout = useCallback(async () => {
+    localStorage.removeItem("auth_token");
+    try {
+      // Use fetch so the global interceptor attaches the Bearer token and the
+      // server can properly delete the session record from the database.
+      await fetch("/api/auth/logout", { method: "POST", credentials: "include" });
+    } catch {
+      // Ignore network errors — token is already cleared locally.
+    }
+    window.location.href = "/";
   }, []);
 
   return {

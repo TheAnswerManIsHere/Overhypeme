@@ -318,6 +318,14 @@ router.get("/logout", async (req: Request, res: Response) => {
   res.redirect(endSessionUrl.href);
 });
 
+// JSON logout endpoint — called via fetch so the interceptor can attach the
+// Bearer token (navigation requests can't carry Authorization headers).
+router.post("/auth/logout", async (req: Request, res: Response) => {
+  const sid = getSessionId(req);
+  await clearSession(res, sid);
+  res.json({ ok: true });
+});
+
 router.post(
   "/mobile-auth/token-exchange",
   async (req: Request, res: Response) => {
