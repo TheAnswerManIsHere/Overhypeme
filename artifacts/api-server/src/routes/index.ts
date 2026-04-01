@@ -14,6 +14,7 @@ import affiliateRouter from "./affiliate";
 import importRouter from "./import";
 import localAuthRouter from "./localAuth";
 import reviewsRouter from "./reviews";
+import shareRouter from "./share";
 
 const router: IRouter = Router();
 

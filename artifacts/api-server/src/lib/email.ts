@@ -353,3 +353,49 @@ ${divider()}
 
   return { subject, text, html };
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Share / invite email
+// ─────────────────────────────────────────────────────────────────────────────
+
+export function buildShareInviteEmail(
+  recipientName: string,
+  shareUrl: string,
+  senderName: string | null,
+): Pick<EmailPayload, "subject" | "text" | "html"> {
+  const fromPhrase = senderName ? `${senderName} thinks` : "Someone thinks";
+  const subject = `${fromPhrase} you deserve to be hyped`;
+
+  const text = [
+    `${fromPhrase.toUpperCase()} YOU'RE LEGENDARY.`,
+    "",
+    `They've set up a personalized experience just for you at Overhype.me —`,
+    `a community-driven database of epic facts about real people.`,
+    "",
+    `Your personalised link (${recipientName}'s edition):`,
+    shareUrl,
+    "",
+    "— The Overhype.me Team",
+  ].join("\n");
+
+  const siteUrl = getSiteBaseUrl();
+
+  const safeFrom = fromPhrase.replace(/'/g, "&#39;");
+  const safeName = recipientName.replace(/</g, "&lt;");
+
+  const body = `
+<h1 style="margin:0 0 16px;font-family:'Oswald','Impact','Arial Narrow',sans-serif;font-size:28px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:#ffffff;line-height:1.2;mso-font-alt:'Impact';">${safeFrom} You&#39;re<br/>Legendary.</h1>
+<p style="margin:0 0 10px;font-size:15px;color:#aaaaaa;line-height:1.75;">They&#39;ve set up a personalised Overhype.me experience just for <strong style="color:#ffffff;">${safeName}</strong> — a community-driven database of epic facts about real people.</p>
+<p style="margin:0 0 32px;font-size:15px;color:#aaaaaa;line-height:1.75;">Your link is already loaded with your name and pronouns. When you open it, you&#39;ll see the world through&nbsp;your&nbsp;lens.</p>
+${ctaButton(shareUrl, "See My Facts")}
+${linkFallback(shareUrl)}
+${divider()}
+<p style="margin:0;font-size:12px;color:#555555;line-height:1.7;font-family:'Inter',-apple-system,sans-serif;">Not sure what Overhype.me is? <a href="${siteUrl}" target="_blank" style="color:#FF3C00;text-decoration:none;">Find out here.</a> If you didn&#39;t expect this, you can safely ignore&nbsp;it.</p>`;
+
+  const html = buildEmailShell(
+    body,
+    "You&#39;re receiving this because someone shared Overhype.me with you.",
+  );
+
+  return { subject, text, html };
+}
