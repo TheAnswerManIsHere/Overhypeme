@@ -75,13 +75,14 @@ function setSessionCookie(res: Response, sid: string) {
 }
 
 router.post("/auth/register", async (req: Request, res: Response) => {
-  const { username, password, email, firstName, lastName, displayName } = req.body as {
+  const { username, password, email, firstName, lastName, displayName, pronouns } = req.body as {
     username?: string;
     password?: string;
     email?: string;
     firstName?: string;
     lastName?: string;
     displayName?: string;
+    pronouns?: string;
   };
 
   if (!username || !password) {
@@ -106,38 +107,30 @@ router.post("/auth/register", async (req: Request, res: Response) => {
     return;
   }
 
-  const firstNameTrimmed = typeof firstName === "string" ? firstName.trim() : "";
-  const lastNameTrimmed = typeof lastName === "string" ? lastName.trim() : "";
   const displayNameTrimmed = typeof displayName === "string" ? displayName.trim() : "";
 
-  if (!firstNameTrimmed) {
-    res.status(400).json({ error: "First name is required" });
-    return;
-  }
-  if (!lastNameTrimmed) {
-    res.status(400).json({ error: "Last name is required" });
-    return;
-  }
   if (!displayNameTrimmed) {
     res.status(400).json({ error: "Display name is required" });
     return;
   }
 
-  if (!email || typeof email !== "string" || !email.includes("@")) {
-    res.status(400).json({ error: "A valid email address is required" });
+  if (displayNameTrimmed.length > 100) {
+    res.status(400).json({ error: "Display name must be 100 characters or fewer" });
     return;
   }
 
-  const emailNormalized = email.trim().toLowerCase();
+  const emailNormalized = (email && typeof email === "string") ? email.trim().toLowerCase() : null;
 
-  const [existingEmail] = await db
-    .select({ id: usersTable.id })
-    .from(usersTable)
-    .where(eq(usersTable.email, emailNormalized))
-    .limit(1);
-  if (existingEmail) {
-    res.status(409).json({ error: "Email is already in use" });
-    return;
+  if (emailNormalized) {
+    const [existingEmail] = await db
+      .select({ id: usersTable.id })
+      .from(usersTable)
+      .where(eq(usersTable.email, emailNormalized))
+      .limit(1);
+    if (existingEmail) {
+      res.status(409).json({ error: "Email is already in use" });
+      return;
+    }
   }
 
   const [existing] = await db
@@ -153,15 +146,25 @@ router.post("/auth/register", async (req: Request, res: Response) => {
 
   const passwordHash = await bcrypt.hash(password, SALT_ROUNDS);
 
+  // Sanitize pronouns: accept "subject/object" format, max 20 chars
+  let sanitizedPronouns: string | null = null;
+  if (pronouns && typeof pronouns === "string" && pronouns.trim()) {
+    sanitizedPronouns = pronouns.trim().slice(0, 20);
+  }
+
+  const firstNameTrimmed = typeof firstName === "string" ? firstName.trim() : "";
+  const lastNameTrimmed = typeof lastName === "string" ? lastName.trim() : "";
+
   const [user] = await db
     .insert(usersTable)
     .values({
       username,
       passwordHash,
       email: emailNormalized,
-      firstName: firstNameTrimmed,
-      lastName: lastNameTrimmed,
+      firstName: firstNameTrimmed || displayNameTrimmed,
+      lastName: lastNameTrimmed || null,
       displayName: displayNameTrimmed,
+      pronouns: sanitizedPronouns,
       captchaVerified: false,
       isActive: true,
     })
@@ -185,9 +188,11 @@ router.post("/auth/register", async (req: Request, res: Response) => {
   setSessionCookie(res, sid);
 
   // Fire verification email asynchronously — don't block registration
-  sendVerificationEmail(user.id, emailNormalized).catch((err) => {
-    console.error("[auth] Failed to send verification email:", err);
-  });
+  if (emailNormalized) {
+    sendVerificationEmail(user.id, emailNormalized).catch((err) => {
+      console.error("[auth] Failed to send verification email:", err);
+    });
+  }
 
   res.status(201).json({
     sid,
@@ -253,7 +258,6 @@ router.post("/auth/local-login", async (req: Request, res: Response) => {
   setSessionCookie(res, sid);
 
   res.json({
-    sid,
     user: {
       id: user.id,
       email: user.email,

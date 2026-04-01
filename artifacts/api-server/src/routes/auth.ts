@@ -117,9 +117,9 @@ router.get("/auth/user", async (req: Request, res: Response) => {
     res.json(GetCurrentAuthUserResponse.parse({ user: null }));
     return;
   }
-  // Fetch fresh membershipTier and isAdmin from DB so status is always current
+  // Fetch fresh membershipTier, isAdmin, and pronouns from DB so status is always current
   const [dbUser] = await db
-    .select({ membershipTier: usersTable.membershipTier, isAdmin: usersTable.isAdmin })
+    .select({ membershipTier: usersTable.membershipTier, isAdmin: usersTable.isAdmin, pronouns: usersTable.pronouns })
     .from(usersTable)
     .where(and(eq(usersTable.id, req.user.id), eq(usersTable.isActive, true)))
     .limit(1);
@@ -136,6 +136,7 @@ router.get("/auth/user", async (req: Request, res: Response) => {
         membershipTier: dbUser?.membershipTier ?? req.user.membershipTier ?? "free",
         isAdmin: adminModeActive,
         isRealAdmin,
+        pronouns: dbUser?.pronouns ?? null,
       },
     }),
   );

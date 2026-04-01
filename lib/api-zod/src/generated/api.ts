@@ -36,6 +36,7 @@ export const GetCurrentAuthUserResponse = zod.object({
       membershipTier: zod.enum(["free", "premium"]).nullish(),
       isAdmin: zod.boolean().nullish(),
       isRealAdmin: zod.boolean().nullish(),
+      pronouns: zod.string().nullish(),
     }),
     zod.null(),
   ]),

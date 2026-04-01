@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { Pencil, Check, X, Loader2 } from "lucide-react";
 import { usePersonName, DEFAULT_PRONOUN_SUBJECT, DEFAULT_PRONOUN_OBJECT } from "@/hooks/use-person-name";
+import { useAuth } from "@workspace/replit-auth-web";
 
 async function fetchSuggestedPronouns(
   name: string,
@@ -26,6 +27,7 @@ async function fetchSuggestedPronouns(
 
 export function NameTag() {
   const { name, pronounSubject, pronounObject, setName, setPronouns } = usePersonName();
+  const { user, isAuthenticated, isLoading } = useAuth();
   const [editing, setEditing] = useState(false);
   const [draftName,    setDraftName]    = useState(name);
   const [draftSubject, setDraftSubject] = useState(pronounSubject);
@@ -132,6 +134,35 @@ export function NameTag() {
   function handleObjectChange(e: React.ChangeEvent<HTMLInputElement>) {
     pronounsManuallyEditedRef.current = true;
     setDraftObject(e.target.value);
+  }
+
+  // While auth state is loading, render nothing to avoid flash of editable state
+  if (isLoading) {
+    return (
+      <div className="flex items-center gap-1.5 bg-secondary border border-border rounded-sm px-3 py-1.5 opacity-0 pointer-events-none">
+        <span className="text-xs font-medium uppercase tracking-wide hidden sm:block">As:</span>
+        <span className="text-sm font-bold font-display">···</span>
+      </div>
+    );
+  }
+
+  // When authenticated, show read-only display from account data
+  if (isAuthenticated && user) {
+    const displayName = user.firstName || user.email || "User";
+    const pronounsDisplay = user.pronouns || null;
+
+    return (
+      <div
+        className="flex items-center gap-1.5 bg-secondary border border-border rounded-sm px-3 py-1.5"
+        title="Your account name and pronouns"
+      >
+        <span className="text-xs text-muted-foreground font-medium uppercase tracking-wide hidden sm:block">As:</span>
+        <span className="text-sm font-bold text-foreground font-display">{displayName}</span>
+        {pronounsDisplay && (
+          <span className="text-xs text-muted-foreground">({pronounsDisplay})</span>
+        )}
+      </div>
+    );
   }
 
   if (editing) {
