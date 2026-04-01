@@ -1,0 +1,87 @@
+We need to handle dynamic rendering of facts based on gender/pronoun:
+
+For example, “When Malename does pushups, he doesn’t push himself up, he pushes the Earth down” would need to translate to “When Femalename does pushups, she doesn’t push herself up, she pushes the Earth down” and “When Nonbinaryname does pushups, they don’t push themselves up, they push the Earth down”. This needs to be elegantly handled by the system. We need to think about how new facts are entered and stored. I need an intelligent way for the system to parse the fact and create the right tokenization for storage in the database.
+
+This is the hardest problem in the entire system, and it’s worth getting right because it’s the difference between a polished product and one that feels broken. Let me work through it layer by layer.
+The fundamental challenge isn’t pronouns; it’s verb conjugation.
+Swapping “he” for “she” is trivial string replacement. The real problem is that “they” changes verb agreement throughout the sentence: “he doesn’t” becomes “they don’t,” “he pushes” becomes “they push,” “he was” becomes “they were.” These aren’t regular transformations you can solve with a suffix rule. English verb conjugation is riddled with irregular forms.
+The token system you need:
+Your stored template should look like this:
+
+When {NAME} {does|do} pushups, {SUBJ} {doesn't|don't}
+push {REFL} up, {SUBJ} {pushes|push} the Earth down.
+
+
+The token set for pronouns is finite and closed:
+
+
+
+|Token       |he/him |she/her|they/them |
+|------------|-------|-------|----------|
+|`{SUBJ}`    |he     |she    |they      |
+|`{OBJ}`     |him    |her    |them      |
+|`{POSS}`    |his    |her    |their     |
+|`{POSS_PRO}`|his    |hers   |theirs    |
+|`{REFL}`    |himself|herself|themselves|
+
+Those five tokens cover every pronoun position in English. The rendering engine just does a lookup based on the user’s pronoun selection.
+Verbs are the hard part, and you solve them with inline conjugation pairs.
+The {singular|plural} pattern handles every case because the grammatical split is always third-person singular (he/she) vs. third-person plural (they). The template author provides both forms inline:
+
+{NAME} {doesn't|don't} sleep. {SUBJ} {waits|wait}.
+{NAME} {was|were} once bitten by a cobra. After five days of agonizing pain, the cobra died.
+{NAME} {has|have} already been to Mars. That's why there {is|are} no signs of life.
+
+
+The renderer picks the left value for he/she, the right value for they. Simple conditional, zero NLP at render time.
+Now, the critical question: how do facts get entered?
+Asking users to manually write tokens is a non-starter. Most submissions would be broken. You need a two-stage pipeline:
+Stage 1: Natural language input. The user writes the fact in plain English using a sample name:
+
+"When Chuck does pushups, he doesn't push himself up,
+he pushes the Earth down."
+
+
+Stage 2: AI-powered tokenization. You send this to Claude’s API with a system prompt like:
+
+Convert this fact into a tokenized template. Rules:
+- Replace the subject name with {NAME}
+- Replace subject pronouns (he/she) with {SUBJ}
+- Replace object pronouns (him/her) with {OBJ}
+- Replace possessive adjectives (his/her) with {POSS}
+- Replace possessive pronouns (his/hers) with {POSS_PRO}
+- Replace reflexive pronouns (himself/herself) with {REFL}
+- For any verb that would conjugate differently with "they",
+  use {singular_form|plural_form} syntax
+- Return ONLY the tokenized template as JSON
+
+
+This is a well-constrained task that an LLM handles reliably because it’s pattern matching on a closed set of substitutions, not open-ended generation. The verb identification is where AI genuinely earns its keep: it understands that “doesn’t” needs conjugation but “pushups” doesn’t, which would be painful to solve with regex.
+Stage 3: Human confirmation. Show the submitter a preview rendered in all three pronoun sets:
+
+✅ he/him:  "When Dave does pushups, he doesn't push
+            himself up, he pushes the Earth down."
+✅ she/her: "When Dave does pushups, she doesn't push
+            herself up, she pushes the Earth down."
+✅ they:    "When Dave does pushups, they don't push
+            themselves up, they push the Earth down."
+
+
+The submitter confirms all three read correctly before the fact enters the moderation queue. This catches any AI tokenization errors with a human eye.
+Database schema for storage:
+
+fact_templates
+  id: 26
+  template: "When {NAME} {does|do} pushups, {SUBJ}
+    {doesn't|don't} push {REFL} up, {SUBJ}
+    {pushes|push} the Earth down."
+  has_pronouns: true
+  wilson_score: 0.87
+
+
+The has_pronouns boolean lets you fast-path facts that don’t use any pronoun tokens at all (”{NAME} counted to infinity. Twice.” needs zero conjugation logic). For those, rendering is just one string replace.
+Edge cases worth handling in v1:
+Capitalization: {SUBJ} at the start of a sentence needs to render as “They” not “they.” You can handle this with a {Subj} variant (capitalized first letter) or by having the renderer check if the token follows a period/newline.
+Facts that genuinely don’t work with all pronoun sets: some joke structures depend on gendered assumptions. Your moderation review should flag these, and it’s okay to mark a fact as “he/she only” or “they only” in the schema if the humor breaks otherwise. Better to exclude a fact from a pronoun set than to render a grammatically broken joke.
+The cost model works too. The AI tokenization only happens once per submission, not on every render. So you’re paying for one Claude API call per new fact, then doing pure string replacement on every page load. That’s pennies per fact for the tokenization and zero compute cost at read time.​​​​​​​​​​​​​​​​
+-David
