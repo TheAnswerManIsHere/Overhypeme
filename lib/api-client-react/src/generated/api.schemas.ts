@@ -180,8 +180,19 @@ export interface ExternalLink {
   createdAt: string;
 }
 
+export interface FactVariant {
+  id: number;
+  text: string;
+  useCase?: string | null;
+  createdAt: string;
+}
+
 export type FactDetail = FactSummary & {
   links?: ExternalLink[];
+  variants?: FactVariant[];
+  parentId?: number | null;
+  rank?: number | null;
+  useCase?: string | null;
 };
 
 export interface FactListResponse {
