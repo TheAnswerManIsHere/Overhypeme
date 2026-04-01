@@ -14,11 +14,30 @@ export { DEFAULT_PRONOUNS };
 export const DEFAULT_PRONOUN_SUBJECT = "he";
 export const DEFAULT_PRONOUN_OBJECT  = "him";
 
+// ── Read share-link URL params at module load time ────────────────────────────
+// This runs synchronously before any React rendering, so the initial state
+// is already correct on the very first render.
+const _urlParams    = new URLSearchParams(typeof window !== "undefined" ? window.location.search : "");
+const _URL_NAME     = _urlParams.get("displayName");
+const _URL_PRONOUNS = _urlParams.get("pronouns");
+
+/**
+ * True when this page load included share-link personalisation params.
+ * Used by NameTag to skip the auth-sync overwrite so the recipient name
+ * is preserved even when the visitor is logged in.
+ */
+export const SHARE_LINK_ACTIVE = !!(_URL_NAME || _URL_PRONOUNS);
+
+// ── Initial-state helpers ─────────────────────────────────────────────────────
+
 function getInitialName(): string {
+  if (_URL_NAME) return _URL_NAME;
   return localStorage.getItem(STORAGE_KEY_NAME) || DEFAULT_NAME;
 }
 
 function getInitialPronouns(): string {
+  if (_URL_PRONOUNS) return _URL_PRONOUNS;
+
   // New unified key
   const stored = localStorage.getItem(STORAGE_KEY_PRONOUNS);
   if (stored) return stored;
@@ -34,6 +53,8 @@ function getInitialPronouns(): string {
 
   return DEFAULT_PRONOUNS;
 }
+
+// ── Context ───────────────────────────────────────────────────────────────────
 
 interface PersonNameContextValue {
   name:           string;
@@ -70,6 +91,15 @@ export function PersonNameProvider({ children }: { children: ReactNode }) {
   const [pronouns, setPronounsState] = useState<string>(getInitialPronouns);
 
   const { subject, object } = splitSubjectObject(pronouns);
+
+  // Persist URL-param values to localStorage on mount so they survive
+  // URL cleanup (ShareParamReader strips the params from the address bar).
+  useEffect(() => {
+    if (!SHARE_LINK_ACTIVE) return;
+    if (_URL_NAME)     localStorage.setItem(STORAGE_KEY_NAME, _URL_NAME);
+    if (_URL_PRONOUNS) localStorage.setItem(STORAGE_KEY_PRONOUNS, _URL_PRONOUNS);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   function setName(value: string) {
     const n = value.trim() || DEFAULT_NAME;

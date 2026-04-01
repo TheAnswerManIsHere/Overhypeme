@@ -101,7 +101,7 @@ export default function Profile() {
     }
 
     try {
-      const result = await updateProfile.mutateAsync(body);
+      const result = await updateProfile.mutateAsync({ data: body });
       await queryClient.invalidateQueries({ queryKey: getGetMyProfileQueryKey() });
       if (result.emailVerificationPending) {
         setEditSuccess(`Profile saved. A verification email has been sent to ${draftEmail}. Check your inbox to confirm the change.`);
@@ -154,7 +154,7 @@ export default function Profile() {
       if (!putRes.ok) throw new Error("Upload to storage failed");
 
       const profileImageUrl = `/api/storage${objectPath}`;
-      await updateProfile.mutateAsync({ profileImageUrl });
+      await updateProfile.mutateAsync({ data: { profileImageUrl } });
       await queryClient.invalidateQueries({ queryKey: getGetMyProfileQueryKey() });
     } catch (err: unknown) {
       const errObj = err as { message?: string };

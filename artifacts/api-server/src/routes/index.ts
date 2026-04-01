@@ -14,6 +14,7 @@ import affiliateRouter from "./affiliate";
 import importRouter from "./import";
 import localAuthRouter from "./localAuth";
 import reviewsRouter from "./reviews";
+import shareRouter from "./share";
 
 const router: IRouter = Router();
 
@@ -31,6 +32,7 @@ router.use(stripeRouter);
 router.use(jobsRouter);
 router.use(affiliateRouter);
 router.use(reviewsRouter);
+router.use(shareRouter);
 router.use(importRouter);
 
 export default router;
