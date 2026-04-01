@@ -50,14 +50,15 @@ export function useAuth(): AuthState {
   }, []);
 
   const logout = useCallback(async () => {
-    localStorage.removeItem("auth_token");
     try {
-      // Use fetch so the global interceptor attaches the Bearer token and the
-      // server can properly delete the session record from the database.
+      // Fetch BEFORE removing auth_token so the global fetch interceptor can
+      // attach the Bearer token — the server needs it to identify and delete
+      // the session record from the database (cookies are blocked in iframes).
       await fetch("/api/auth/logout", { method: "POST", credentials: "include" });
     } catch {
-      // Ignore network errors — token is already cleared locally.
+      // Ignore network errors — we'll still clear the token locally.
     }
+    localStorage.removeItem("auth_token");
     window.location.href = "/";
   }, []);
 
