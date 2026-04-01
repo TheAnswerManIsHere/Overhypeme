@@ -10,8 +10,7 @@ import type { AuthUserMembershipTier } from "./authUserMembershipTier";
 export interface AuthUser {
   id: string;
   email?: string | null;
-  firstName?: string | null;
-  lastName?: string | null;
+  displayName?: string | null;
   profileImageUrl?: string | null;
   membershipTier?: AuthUserMembershipTier;
   isAdmin?: boolean | null;

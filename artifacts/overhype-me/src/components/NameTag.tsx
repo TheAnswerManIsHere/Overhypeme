@@ -196,7 +196,7 @@ export function NameTag() {
   }
 
   if (isAuthenticated && user) {
-    const displayName = (user as { firstName?: string }).firstName
+    const displayName = (user as { displayName?: string }).displayName
       || (user as { email?: string }).email
       || "User";
     const rawPronouns = (user as { pronouns?: string }).pronouns;

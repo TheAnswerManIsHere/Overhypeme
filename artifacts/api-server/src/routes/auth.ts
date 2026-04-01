@@ -268,8 +268,7 @@ router.get("/callback", async (req: Request, res: Response) => {
     user: {
       id: dbUser.id,
       email: dbUser.email,
-      firstName: dbUser.firstName,
-      lastName: dbUser.lastName,
+      displayName: dbUser.displayName,
       profileImageUrl: dbUser.profileImageUrl,
       membershipTier: dbUser.membershipTier,
     },
@@ -373,8 +372,7 @@ router.post(
         user: {
           id: dbUser.id,
           email: dbUser.email,
-          firstName: dbUser.firstName,
-          lastName: dbUser.lastName,
+          displayName: dbUser.displayName,
           profileImageUrl: dbUser.profileImageUrl,
           membershipTier: dbUser.membershipTier,
         },

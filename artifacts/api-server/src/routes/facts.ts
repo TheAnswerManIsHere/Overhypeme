@@ -75,9 +75,9 @@ async function buildFactSummaries(facts: (typeof factsTable.$inferSelect)[], use
   }
 
   const sIds = [...new Set(facts.filter((f) => f.submittedById).map((f) => f.submittedById!))];
-  const sMap = new Map<string, { firstName: string | null; profileImageUrl: string | null }>();
+  const sMap = new Map<string, { displayName: string | null; profileImageUrl: string | null }>();
   if (sIds.length) {
-    const rows = await db.select({ id: usersTable.id, firstName: usersTable.firstName, profileImageUrl: usersTable.profileImageUrl })
+    const rows = await db.select({ id: usersTable.id, displayName: usersTable.displayName, profileImageUrl: usersTable.profileImageUrl })
       .from(usersTable).where(and(inArray(usersTable.id, sIds), eq(usersTable.isActive, true)));
     for (const r of rows) sMap.set(r.id, r);
   }
@@ -85,7 +85,7 @@ async function buildFactSummaries(facts: (typeof factsTable.$inferSelect)[], use
   return facts.map((f) => ({
     id: f.id, text: f.text, upvotes: f.upvotes, downvotes: f.downvotes, score: f.score, wilsonScore: f.wilsonScore,
     commentCount: f.commentCount, hashtags: hMap.get(f.id) ?? [],
-    submittedBy: f.submittedById ? (sMap.get(f.submittedById)?.firstName ?? null) : null,
+    submittedBy: f.submittedById ? (sMap.get(f.submittedById)?.displayName ?? null) : null,
     submittedByImage: f.submittedById ? (sMap.get(f.submittedById)?.profileImageUrl ?? null) : null,
     userRating: userId ? (rMap.get(f.id) ?? null) : null,
     createdAt: f.createdAt.toISOString(),
@@ -130,8 +130,8 @@ router.get("/facts/:factId", async (req: Request, res: Response) => {
   const links = await Promise.all(linkRows.map(async (l) => {
     let addedBy = null;
     if (l.addedById) {
-      const [u] = await db.select({ firstName: usersTable.firstName }).from(usersTable).where(and(eq(usersTable.id, l.addedById), eq(usersTable.isActive, true))).limit(1);
-      addedBy = u?.firstName ?? null;
+      const [u] = await db.select({ displayName: usersTable.displayName }).from(usersTable).where(and(eq(usersTable.id, l.addedById), eq(usersTable.isActive, true))).limit(1);
+      addedBy = u?.displayName ?? null;
     }
     return { id: l.id, factId: l.factId, url: l.url, title: l.title ?? null, platform: l.platform ?? null, addedBy, addedById: l.addedById ?? null, createdAt: l.createdAt.toISOString() };
   }));
@@ -298,9 +298,9 @@ router.get("/facts/:factId/comments", async (req: Request, res: Response) => {
     .orderBy(asc(commentsTable.createdAt)).limit(limit).offset(offset);
 
   const authorIds = [...new Set(rows.filter((r) => r.authorId).map((r) => r.authorId!))];
-  const aMap = new Map<string, { firstName: string | null; profileImageUrl: string | null }>();
+  const aMap = new Map<string, { displayName: string | null; profileImageUrl: string | null }>();
   if (authorIds.length) {
-    const users = await db.select({ id: usersTable.id, firstName: usersTable.firstName, profileImageUrl: usersTable.profileImageUrl })
+    const users = await db.select({ id: usersTable.id, displayName: usersTable.displayName, profileImageUrl: usersTable.profileImageUrl })
       .from(usersTable).where(and(inArray(usersTable.id, authorIds), eq(usersTable.isActive, true)));
     for (const u of users) aMap.set(u.id, u);
   }
@@ -308,7 +308,7 @@ router.get("/facts/:factId/comments", async (req: Request, res: Response) => {
   const comments = rows.map((c) => ({
     id: c.id, factId: c.factId, text: c.text,
     authorId: c.authorId ?? null,
-    authorName: c.authorId ? (aMap.get(c.authorId)?.firstName ?? null) : null,
+    authorName: c.authorId ? (aMap.get(c.authorId)?.displayName ?? null) : null,
     authorImage: c.authorId ? (aMap.get(c.authorId)?.profileImageUrl ?? null) : null,
     createdAt: c.createdAt.toISOString(),
   }));
@@ -347,7 +347,7 @@ router.post("/facts/:factId/comments", async (req: Request, res: Response) => {
 
   res.status(201).json({
     id: comment.id, factId: comment.factId, text: comment.text, status: "pending",
-    authorId: req.user.id, authorName: req.user.firstName ?? null,
+    authorId: req.user.id, authorName: req.user.displayName ?? null,
     authorImage: req.user.profileImageUrl ?? null,
     createdAt: comment.createdAt.toISOString(),
     pending: true,

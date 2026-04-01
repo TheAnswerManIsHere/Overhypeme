@@ -27,8 +27,6 @@ export default function Profile() {
   const [emailVerifiedBanner, setEmailVerifiedBanner] = useState(false);
 
   const [editing, setEditing] = useState(false);
-  const [draftFirstName, setDraftFirstName] = useState("");
-  const [draftLastName, setDraftLastName] = useState("");
   const [draftPronouns, setDraftPronouns] = useState("");
   const [draftEmail, setDraftEmail] = useState("");
   const [editError, setEditError] = useState("");
@@ -48,8 +46,6 @@ export default function Profile() {
   }, []);
 
   function openEditor() {
-    setDraftFirstName(profile?.firstName ?? "");
-    setDraftLastName(profile?.lastName ?? "");
     setDraftPronouns(profile?.pronouns ?? "");
     setDraftEmail("");
     setEditError("");
@@ -68,8 +64,6 @@ export default function Profile() {
     setEditSuccess("");
 
     const body: Record<string, string> = {};
-    if (draftFirstName !== (profile?.firstName ?? "")) body.firstName = draftFirstName;
-    if (draftLastName !== (profile?.lastName ?? "")) body.lastName = draftLastName;
     if (draftPronouns !== (profile?.pronouns ?? "")) body.pronouns = draftPronouns;
     if (draftEmail.trim()) body.email = draftEmail.trim();
 
@@ -217,16 +211,16 @@ export default function Profile() {
           <div className="absolute top-0 right-0 w-32 h-32 bg-primary/10 rounded-bl-full -mr-16 -mt-16 pointer-events-none" />
           
           {profile.profileImageUrl ? (
-            <img src={profile.profileImageUrl} alt={profile.displayName ?? profile.firstName ?? "User"} className="w-24 h-24 rounded-sm border-2 border-primary object-cover shadow-[0_0_15px_rgba(249,115,22,0.3)]" />
+            <img src={profile.profileImageUrl} alt={profile.displayName ?? "User"} className="w-24 h-24 rounded-sm border-2 border-primary object-cover shadow-[0_0_15px_rgba(249,115,22,0.3)]" />
           ) : (
             <div className="w-24 h-24 bg-secondary border-2 border-primary flex items-center justify-center rounded-sm font-display text-4xl text-primary font-bold shadow-[0_0_15px_rgba(249,115,22,0.3)]">
-              {(profile.displayName?.[0] || profile.firstName?.[0] || profile.email?.[0] || "?").toUpperCase()}
+              {(profile.displayName?.[0] || profile.email?.[0] || "?").toUpperCase()}
             </div>
           )}
           
           <div className="flex-1 text-center md:text-left z-10">
             <h1 className="text-3xl md:text-4xl font-display uppercase tracking-wide text-foreground mb-2">
-              {profile.displayName ?? ([profile.firstName, profile.lastName].filter(Boolean).join(" ") || profile.email)}
+              {profile.displayName ?? profile.email}
             </h1>
             <p className="text-muted-foreground text-lg font-medium">{profile.email}</p>
           </div>
@@ -247,25 +241,7 @@ export default function Profile() {
             <h2 className="font-display text-xl uppercase tracking-wide text-foreground mb-6 border-b border-border pb-4 flex items-center gap-2">
               <Pencil className="w-5 h-5 text-primary" /> Edit Profile
             </h2>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-bold text-muted-foreground uppercase tracking-wide mb-1">First Name</label>
-                <input
-                  type="text"
-                  value={draftFirstName}
-                  onChange={(e) => setDraftFirstName(e.target.value)}
-                  className="w-full bg-secondary border border-border rounded-sm px-3 py-2 text-foreground outline-none focus:border-primary transition-colors"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-bold text-muted-foreground uppercase tracking-wide mb-1">Last Name</label>
-                <input
-                  type="text"
-                  value={draftLastName}
-                  onChange={(e) => setDraftLastName(e.target.value)}
-                  className="w-full bg-secondary border border-border rounded-sm px-3 py-2 text-foreground outline-none focus:border-primary transition-colors"
-                />
-              </div>
+            <div className="grid grid-cols-1 gap-4">
               <div>
                 <label className="block text-sm font-bold text-muted-foreground uppercase tracking-wide mb-1">Pronouns</label>
                 <PronounEditor value={draftPronouns} onChange={setDraftPronouns} />

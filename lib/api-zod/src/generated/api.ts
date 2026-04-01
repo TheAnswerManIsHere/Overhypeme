@@ -30,8 +30,7 @@ export const GetCurrentAuthUserResponse = zod.object({
     zod.object({
       id: zod.string(),
       email: zod.string().nullish(),
-      firstName: zod.string().nullish(),
-      lastName: zod.string().nullish(),
+      displayName: zod.string().nullish(),
       profileImageUrl: zod.string().nullish(),
       membershipTier: zod.enum(["free", "premium"]).nullish(),
       isAdmin: zod.boolean().nullish(),
@@ -321,9 +320,7 @@ export const GetMyProfileResponse = zod.object({
   email: zod.string().nullish(),
   pendingEmail: zod.string().nullish(),
   emailVerified: zod.boolean().optional(),
-  firstName: zod.string().nullish(),
-  lastName: zod.string().nullish(),
-  username: zod.string().nullish(),
+  displayName: zod.string().nullish(),
   pronouns: zod.string().nullish(),
   profileImageUrl: zod.string().nullish(),
   submittedFacts: zod.array(
@@ -371,14 +368,6 @@ export const updateMyProfileBodyUsernameRegExp = new RegExp("^[a-zA-Z0-9_]+$");
 export const updateMyProfileBodyPronounsMax = 20;
 
 export const UpdateMyProfileBody = zod.object({
-  firstName: zod.string().min(1).optional(),
-  lastName: zod.string().min(1).optional(),
-  username: zod
-    .string()
-    .min(updateMyProfileBodyUsernameMin)
-    .max(updateMyProfileBodyUsernameMax)
-    .regex(updateMyProfileBodyUsernameRegExp)
-    .optional(),
   pronouns: zod.string().min(1).max(updateMyProfileBodyPronounsMax).optional(),
   email: zod.string().email().optional(),
 });

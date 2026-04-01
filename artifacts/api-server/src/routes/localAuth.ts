@@ -79,11 +79,9 @@ function setSessionCookie(res: Response, sid: string) {
 }
 
 router.post("/auth/register", async (req: Request, res: Response) => {
-  const { password, email, firstName, lastName, displayName, pronouns } = req.body as {
+  const { password, email, displayName, pronouns } = req.body as {
     password?: string;
     email?: string;
-    firstName?: string;
-    lastName?: string;
     displayName?: string;
     pronouns?: string;
   };
@@ -142,22 +140,11 @@ router.post("/auth/register", async (req: Request, res: Response) => {
     sanitizedPronouns = pronouns.trim().slice(0, 80);
   }
 
-  // Derive firstName/lastName from displayName if not explicitly provided
-  let firstNameTrimmed = typeof firstName === "string" ? firstName.trim() || null : null;
-  let lastNameTrimmed = typeof lastName === "string" ? lastName.trim() || null : null;
-  if (!firstNameTrimmed && displayNameTrimmed) {
-    const parts = displayNameTrimmed.split(/\s+/);
-    firstNameTrimmed = parts[0] ?? null;
-    lastNameTrimmed = parts.length > 1 ? parts.slice(1).join(" ") : null;
-  }
-
   const [user] = await db
     .insert(usersTable)
     .values({
       passwordHash,
       email: emailNormalized,
-      firstName: firstNameTrimmed,
-      lastName: lastNameTrimmed,
       displayName: displayNameTrimmed,
       pronouns: sanitizedPronouns,
       captchaVerified: false,
@@ -169,8 +156,6 @@ router.post("/auth/register", async (req: Request, res: Response) => {
     user: {
       id: user.id,
       email: user.email,
-      firstName: user.firstName,
-      lastName: user.lastName,
       profileImageUrl: user.profileImageUrl,
       membershipTier: user.membershipTier,
     },
@@ -194,8 +179,6 @@ router.post("/auth/register", async (req: Request, res: Response) => {
     user: {
       id: user.id,
       email: user.email,
-      firstName: user.firstName,
-      lastName: user.lastName,
       profileImageUrl: user.profileImageUrl,
       membershipTier: user.membershipTier,
     },
@@ -239,8 +222,6 @@ router.post("/auth/local-login", async (req: Request, res: Response) => {
     user: {
       id: user.id,
       email: user.email,
-      firstName: user.firstName,
-      lastName: user.lastName,
       profileImageUrl: user.profileImageUrl,
       membershipTier: user.membershipTier,
     },
@@ -256,8 +237,6 @@ router.post("/auth/local-login", async (req: Request, res: Response) => {
     user: {
       id: user.id,
       email: user.email,
-      firstName: user.firstName,
-      lastName: user.lastName,
       profileImageUrl: user.profileImageUrl,
       membershipTier: user.membershipTier,
     },
