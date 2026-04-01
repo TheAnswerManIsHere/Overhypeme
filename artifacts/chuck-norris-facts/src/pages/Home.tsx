@@ -13,7 +13,7 @@ export default function Home() {
   const [searchQuery, setSearchQuery] = useState("");
   const [, setLocation] = useLocation();
   const { data, isLoading, error } = useListFacts({ sort: "top", limit: 10 });
-  const { fullName } = usePersonName();
+  const { name } = usePersonName();
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
@@ -42,7 +42,7 @@ export default function Home() {
             className="text-5xl md:text-7xl lg:text-8xl font-display font-bold uppercase tracking-tight text-white drop-shadow-[0_5px_5px_rgba(0,0,0,1)] mb-6"
           >
             The Universe Doesn't Expand. <br/>
-            <span className="text-primary block mt-2 transform -skew-x-6 drop-shadow-[0_0_30px_rgba(249,115,22,0.8)]">{fullName} Pushes It.</span>
+            <span className="text-primary block mt-2 transform -skew-x-6 drop-shadow-[0_0_30px_rgba(249,115,22,0.8)]">{name} Pushes It.</span>
           </motion.h1>
           
           <motion.p 
@@ -103,7 +103,7 @@ export default function Home() {
 
             {error && (
               <div className="bg-destructive/10 border-2 border-destructive p-8 text-center rounded-sm">
-                <p className="text-destructive font-bold text-xl uppercase">Error loading facts. {fullName} destroyed the server.</p>
+                <p className="text-destructive font-bold text-xl uppercase">Error loading facts. {name} destroyed the server.</p>
               </div>
             )}
 

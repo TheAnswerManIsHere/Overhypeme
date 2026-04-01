@@ -3,20 +3,18 @@ import { Pencil, Check, X } from "lucide-react";
 import { usePersonName } from "@/hooks/use-person-name";
 
 export function NameTag() {
-  const { firstName, lastName, setName } = usePersonName();
+  const { name, setName } = usePersonName();
   const [editing, setEditing] = useState(false);
-  const [draftFirst, setDraftFirst] = useState(firstName);
-  const [draftLast,  setDraftLast]  = useState(lastName);
-  const firstRef = useRef<HTMLInputElement>(null);
+  const [draft, setDraft] = useState(name);
+  const inputRef = useRef<HTMLInputElement>(null);
 
   function openEditor() {
-    setDraftFirst(firstName);
-    setDraftLast(lastName);
+    setDraft(name);
     setEditing(true);
   }
 
   function save() {
-    setName(draftFirst, draftLast);
+    setName(draft);
     setEditing(false);
   }
 
@@ -25,7 +23,7 @@ export function NameTag() {
   }
 
   useEffect(() => {
-    if (editing) firstRef.current?.focus();
+    if (editing) inputRef.current?.focus();
   }, [editing]);
 
   function onKeyDown(e: React.KeyboardEvent) {
@@ -37,20 +35,12 @@ export function NameTag() {
     return (
       <div className="flex items-center gap-1 bg-secondary border border-primary/40 rounded-sm px-2 py-1">
         <input
-          ref={firstRef}
-          value={draftFirst}
-          onChange={(e) => setDraftFirst(e.target.value)}
+          ref={inputRef}
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
           onKeyDown={onKeyDown}
-          placeholder="First"
-          className="w-20 bg-transparent text-sm font-bold text-foreground outline-none placeholder:text-muted-foreground"
-        />
-        <span className="text-muted-foreground text-xs">·</span>
-        <input
-          value={draftLast}
-          onChange={(e) => setDraftLast(e.target.value)}
-          onKeyDown={onKeyDown}
-          placeholder="Last"
-          className="w-20 bg-transparent text-sm font-bold text-foreground outline-none placeholder:text-muted-foreground"
+          placeholder="Your name"
+          className="w-36 bg-transparent text-sm font-bold text-foreground outline-none placeholder:text-muted-foreground"
         />
         <button onClick={save} className="p-0.5 text-primary hover:text-primary/80 transition-colors" title="Save">
           <Check className="w-3.5 h-3.5" />
@@ -69,9 +59,7 @@ export function NameTag() {
       title="Change name"
     >
       <span className="text-xs text-muted-foreground font-medium uppercase tracking-wide hidden sm:block">As:</span>
-      <span className="text-sm font-bold text-foreground font-display">
-        {firstName} {lastName}
-      </span>
+      <span className="text-sm font-bold text-foreground font-display">{name}</span>
       <Pencil className="w-3 h-3 text-muted-foreground group-hover:text-primary transition-colors" />
     </button>
   );
