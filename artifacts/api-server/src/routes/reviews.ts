@@ -8,6 +8,7 @@ import {
 import { eq, desc, sql, and, count } from "drizzle-orm";
 import { requireAdmin } from "./admin";
 import { embedFactAsync } from "../lib/embeddings";
+import { renderCanonical } from "../lib/renderCanonical";
 import { logActivity } from "../lib/activity";
 import { sendEmail, buildReviewApprovedEmail, buildReviewRejectedEmail } from "../lib/email";
 
@@ -170,10 +171,12 @@ router.post("/admin/reviews/:id/approve", requireAdmin, async (req: Request, res
 
   // Insert the fact into the main table, detecting pronoun tokens from the template
   const hasPronounsFlag = /\{(SUBJ|OBJ|POSS|POSS_PRO|REFL|Subj|Obj|Poss|Poss_Pro|Refl|[^|{}]+\|[^|{}]+)\}/.test(review.submittedText);
+  const canonicalText = renderCanonical(review.submittedText);
   const [fact] = await db.insert(factsTable).values({
     text: review.submittedText,
     submittedById: review.submittedById ?? undefined,
     hasPronouns: hasPronounsFlag,
+    canonicalText,
   }).returning();
 
   // Attach hashtags
@@ -200,8 +203,8 @@ router.post("/admin/reviews/:id/approve", requireAdmin, async (req: Request, res
     reviewedAt: new Date(),
   }).where(eq(pendingReviewsTable.id, id));
 
-  // Embed the new fact in the background
-  void embedFactAsync(fact.id, fact.text);
+  // Embed the new fact in the background using canonical text for cleaner duplicate matching
+  void embedFactAsync(fact.id, fact.text, canonicalText);
 
   // Notify submitter
   if (review.submittedById) {

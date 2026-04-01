@@ -2,6 +2,7 @@ import { Router, type IRouter, type Request, type Response } from "express";
 import { requireAdmin } from "./admin";
 import { moderateComment, checkDuplicateInternal } from "./ai";
 import { embedFactAsync } from "../lib/embeddings";
+import { renderCanonical } from "../lib/renderCanonical";
 import { logActivity } from "../lib/activity";
 import { validateTemplate } from "../lib/templateGrammar";
 import { db } from "@workspace/db";
@@ -196,10 +197,12 @@ router.post("/facts", requireAdmin, async (req: Request, res: Response) => {
   }
 
   const hasPronounsFlag = /\{(SUBJ|OBJ|POSS|POSS_PRO|REFL|Subj|Obj|Poss|Poss_Pro|Refl|he|him|his|himself|He|Him|His|Himself|he's|He's|[^|{}]+\|[^|{}]+)\}/.test(tokenizedText);
-  const [fact] = await db.insert(factsTable).values({ text: tokenizedText, hasPronouns: hasPronounsFlag, submittedById: req.user.id }).returning();
+  const canonicalText = renderCanonical(tokenizedText);
+  const [fact] = await db.insert(factsTable).values({ text: tokenizedText, hasPronouns: hasPronounsFlag, submittedById: req.user.id, canonicalText }).returning();
 
   // Generate and persist the pgvector embedding in the background (non-blocking)
-  void embedFactAsync(fact.id, fact.text);
+  // Embed from canonicalText so duplicate checks work against plain-English queries
+  void embedFactAsync(fact.id, fact.text, canonicalText);
 
   // Log to activity feed
   void logActivity({

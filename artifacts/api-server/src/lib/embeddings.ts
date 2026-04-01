@@ -5,6 +5,7 @@
 import OpenAI from "openai";
 import { db, factsTable } from "@workspace/db";
 import { eq, isNull, sql, and } from "drizzle-orm";
+import { renderCanonical } from "./renderCanonical";
 
 export const EMBEDDING_MODEL = "text-embedding-3-small";
 export const EMBEDDING_DIMENSIONS = 384;
@@ -25,19 +26,24 @@ export async function embedText(text: string): Promise<number[]> {
   return response.data[0].embedding;
 }
 
-/** Persist an embedding for a fact row. */
-export async function storeEmbedding(factId: number, embedding: number[]): Promise<void> {
-  await db.update(factsTable).set({ embedding }).where(eq(factsTable.id, factId));
+/** Persist an embedding (and optional canonical_text) for a fact row. */
+export async function storeEmbedding(factId: number, embedding: number[], canonicalText?: string): Promise<void> {
+  await db.update(factsTable)
+    .set({ embedding, ...(canonicalText !== undefined ? { canonicalText } : {}) })
+    .where(eq(factsTable.id, factId));
 }
 
 /**
  * Generate and persist the embedding for a fact after it is created.
+ * If canonicalText is provided, embed that instead of the raw template text,
+ * and persist it on the row.
  * Errors are logged but do not surface to the caller.
  */
-export async function embedFactAsync(factId: number, text: string): Promise<void> {
+export async function embedFactAsync(factId: number, text: string, canonicalText?: string): Promise<void> {
   try {
-    const embedding = await embedText(text);
-    await storeEmbedding(factId, embedding);
+    const textToEmbed = canonicalText ?? text;
+    const embedding = await embedText(textToEmbed);
+    await storeEmbedding(factId, embedding, canonicalText);
   } catch (err) {
     console.error(`[embeddings] Failed to embed fact ${factId}:`, err);
   }
@@ -51,13 +57,14 @@ export async function embedFactAsync(factId: number, text: string): Promise<void
 export async function findSimilarFacts(
   embedding: number[],
   { limit = 5, threshold = 0.85 }: { limit?: number; threshold?: number } = {},
-): Promise<Array<{ id: number; text: string; similarity: number }>> {
+): Promise<Array<{ id: number; text: string; canonicalText: string | null; similarity: number }>> {
   const vectorLiteral = `[${embedding.join(",")}]`;
 
   const rows = await db.execute(sql`
     SELECT
       id,
       text,
+      canonical_text,
       1 - (embedding <=> ${vectorLiteral}::vector) AS similarity
     FROM facts
     WHERE embedding IS NOT NULL AND is_active = true
@@ -65,17 +72,19 @@ export async function findSimilarFacts(
     LIMIT ${limit}
   `);
 
-  return (rows.rows as Array<{ id: number; text: string; similarity: number }>)
+  return (rows.rows as Array<{ id: number; text: string; canonical_text: string | null; similarity: number }>)
     .filter((r) => r.similarity >= threshold)
     .map((r) => ({
       id: Number(r.id),
       text: String(r.text),
+      canonicalText: r.canonical_text ? String(r.canonical_text) : null,
       similarity: Number(r.similarity),
     }));
 }
 
 /**
- * Backfill embeddings for every fact that doesn't have one yet.
+ * Backfill embeddings for every fact that lacks either an embedding or a canonical_text.
+ * Re-renders canonical_text from the template and embeds from that.
  * Call POST /api/admin/facts/backfill-embeddings to trigger this.
  */
 export async function backfillEmbeddings(
@@ -84,15 +93,19 @@ export async function backfillEmbeddings(
   const missing = await db
     .select({ id: factsTable.id, text: factsTable.text })
     .from(factsTable)
-    .where(and(isNull(factsTable.embedding), eq(factsTable.isActive, true)));
+    .where(and(
+      eq(factsTable.isActive, true),
+      sql`(${factsTable.embedding} IS NULL OR ${factsTable.canonicalText} IS NULL)`,
+    ));
 
   let processed = 0;
   let failed = 0;
 
   for (const fact of missing) {
     try {
-      const embedding = await embedText(fact.text);
-      await storeEmbedding(fact.id, embedding);
+      const canonical = renderCanonical(fact.text);
+      const embedding = await embedText(canonical);
+      await storeEmbedding(fact.id, embedding, canonical);
       processed++;
     } catch (err) {
       console.error(`[embeddings] Backfill failed for fact ${fact.id}:`, err);
