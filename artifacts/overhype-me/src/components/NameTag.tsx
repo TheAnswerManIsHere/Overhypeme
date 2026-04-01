@@ -1,20 +1,60 @@
-import { useState, useRef, useEffect } from "react";
-import { Pencil, Check, X } from "lucide-react";
+import { useState, useRef, useEffect, useCallback } from "react";
+import { Pencil, Check, X, Loader2 } from "lucide-react";
 import { usePersonName } from "@/hooks/use-person-name";
 import { useAuth } from "@workspace/replit-auth-web";
 import { useLocation } from "wouter";
-import { displayPronouns } from "@/lib/pronouns";
+import { displayPronouns, PRONOUN_PRESETS, DEFAULT_PRONOUNS } from "@/lib/pronouns";
 import { PronounEditor } from "@/components/ui/PronounEditor";
+
+// ── AI pronoun suggestion ─────────────────────────────────────────────────────
+
+async function fetchSuggestedPronouns(
+  name: string,
+  signal: AbortSignal,
+): Promise<string | null> {
+  try {
+    const res = await fetch("/api/ai/suggest-pronouns", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name }),
+      signal,
+    });
+    if (!res.ok) return null;
+    const data = await res.json() as { subject?: string; object?: string };
+    if (typeof data.subject === "string" && typeof data.object === "string") {
+      // Convert subject/object to full preset string if recognised
+      const preset = `${data.subject}/${data.object}`;
+      if (PRONOUN_PRESETS.includes(preset as typeof PRONOUN_PRESETS[number])) {
+        return preset;
+      }
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+// ── Component ─────────────────────────────────────────────────────────────────
 
 export function NameTag() {
   const { name, pronouns, pronounSubject, pronounObject, setName, setPronouns } = usePersonName();
   const { user, isAuthenticated, isLoading } = useAuth();
   const [, setLocation] = useLocation();
-  const [editing, setEditing] = useState(false);
+
+  const [editing,       setEditing]       = useState(false);
   const [draftName,     setDraftName]     = useState(name);
   const [draftPronouns, setDraftPronouns] = useState(pronouns);
-  const nameRef = useRef<HTMLInputElement>(null);
-  const panelRef = useRef<HTMLDivElement>(null);
+  const [aiLoading,     setAiLoading]     = useState(false);
+
+  // Whether the user has manually selected a pronoun option — suppresses AI override
+  const userChosenRef     = useRef(false);
+  const draftPronounsRef  = useRef(draftPronouns);
+  const debounceTimerRef  = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
+  const nameRef           = useRef<HTMLInputElement>(null);
+  const panelRef          = useRef<HTMLDivElement>(null);
+
+  draftPronounsRef.current = draftPronouns;
 
   function handleOpen() {
     if (isAuthenticated) {
@@ -23,39 +63,100 @@ export function NameTag() {
     }
     setDraftName(name);
     setDraftPronouns(pronouns);
+    userChosenRef.current = false;
     setEditing(true);
   }
 
   function save() {
+    if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
+    abortControllerRef.current?.abort();
+    setAiLoading(false);
     setName(draftName);
     setPronouns(draftPronouns);
     setEditing(false);
   }
 
   function cancel() {
+    if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
+    abortControllerRef.current?.abort();
+    setAiLoading(false);
     setEditing(false);
   }
+
+  // Close on outside click
+  useEffect(() => {
+    if (!editing) return;
+    function onMouseDown(e: MouseEvent) {
+      if (panelRef.current && !panelRef.current.contains(e.target as Node)) cancel();
+    }
+    document.addEventListener("mousedown", onMouseDown);
+    return () => document.removeEventListener("mousedown", onMouseDown);
+  }, [editing]);
+
+  // Cleanup timers/controllers on unmount
+  useEffect(() => () => {
+    if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
+    abortControllerRef.current?.abort();
+  }, []);
 
   useEffect(() => {
     if (editing) nameRef.current?.focus();
   }, [editing]);
 
-  // Close on outside click
-  useEffect(() => {
-    if (!editing) return;
-    function handleClick(e: MouseEvent) {
-      if (panelRef.current && !panelRef.current.contains(e.target as Node)) {
-        cancel();
-      }
+  // ── AI suggestion on name change ────────────────────────────────────────────
+
+  const triggerSuggestion = useCallback((nameValue: string) => {
+    if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
+
+    if (!nameValue.trim()) {
+      abortControllerRef.current?.abort();
+      setAiLoading(false);
+      return;
     }
-    document.addEventListener("mousedown", handleClick);
-    return () => document.removeEventListener("mousedown", handleClick);
-  }, [editing]);
+
+    debounceTimerRef.current = setTimeout(async () => {
+      // Skip if user already manually picked pronouns
+      if (userChosenRef.current) return;
+
+      // Skip if pronouns are already non-default (user had custom set from before)
+      const current = draftPronounsRef.current;
+      const isDefault = current === DEFAULT_PRONOUNS || current === "";
+      if (!isDefault) return;
+
+      abortControllerRef.current?.abort();
+      const controller = new AbortController();
+      abortControllerRef.current = controller;
+
+      setAiLoading(true);
+      const suggestion = await fetchSuggestedPronouns(nameValue.trim(), controller.signal);
+      if (controller.signal.aborted) return;
+      setAiLoading(false);
+
+      if (suggestion && !userChosenRef.current) {
+        setDraftPronouns(suggestion);
+      }
+    }, 450);
+  }, []);
+
+  function handleNameChange(e: React.ChangeEvent<HTMLInputElement>) {
+    setDraftName(e.target.value);
+    triggerSuggestion(e.target.value);
+  }
+
+  function handlePronounsChange(val: string) {
+    userChosenRef.current = true;       // user explicitly chose — don't override
+    if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
+    abortControllerRef.current?.abort();
+    setAiLoading(false);
+    setDraftPronouns(val);
+  }
 
   function onNameKeyDown(e: React.KeyboardEvent) {
     if (e.key === "Escape") cancel();
     if (e.key === "Enter") save();
   }
+
+  // ── Render ──────────────────────────────────────────────────────────────────
 
   if (isLoading) {
     return (
@@ -67,7 +168,9 @@ export function NameTag() {
   }
 
   if (isAuthenticated && user) {
-    const displayName = (user as { firstName?: string }).firstName || (user as { email?: string }).email || "User";
+    const displayName = (user as { firstName?: string }).firstName
+      || (user as { email?: string }).email
+      || "User";
     const rawPronouns = (user as { pronouns?: string }).pronouns;
     const pronounsStr = rawPronouns ? displayPronouns(rawPronouns) : null;
 
@@ -112,11 +215,14 @@ export function NameTag() {
             <input
               ref={nameRef}
               value={draftName}
-              onChange={(e) => setDraftName(e.target.value)}
+              onChange={handleNameChange}
               onKeyDown={onNameKeyDown}
               placeholder="Your name"
               className="flex-1 bg-secondary border border-border rounded-sm px-2 py-1 text-sm font-bold text-foreground outline-none focus:border-primary transition-colors placeholder:text-muted-foreground"
             />
+            {aiLoading && (
+              <Loader2 className="w-3.5 h-3.5 text-muted-foreground animate-spin shrink-0" />
+            )}
             <button onClick={save}   className="p-1 text-primary hover:text-primary/80 transition-colors" title="Save">
               <Check className="w-4 h-4" />
             </button>
@@ -124,10 +230,16 @@ export function NameTag() {
               <X className="w-4 h-4" />
             </button>
           </div>
+
           {/* Pronoun section */}
           <div>
-            <p className="text-xs font-bold text-muted-foreground uppercase tracking-wider mb-1.5">Pronouns</p>
-            <PronounEditor value={draftPronouns} onChange={setDraftPronouns} />
+            <div className="flex items-center gap-2 mb-1.5">
+              <p className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Pronouns</p>
+              {aiLoading && (
+                <span className="text-[10px] text-muted-foreground italic">suggesting…</span>
+              )}
+            </div>
+            <PronounEditor value={draftPronouns} onChange={handlePronounsChange} />
           </div>
         </div>
       )}

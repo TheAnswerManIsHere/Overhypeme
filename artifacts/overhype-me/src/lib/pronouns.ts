@@ -1,5 +1,8 @@
 /** The three common preset pronoun pairs shown as one-click options. */
 export const PRONOUN_PRESETS = ["he/him", "she/her", "they/them"] as const;
+
+/** Default pronouns used when no preference has been set. */
+export const DEFAULT_PRONOUNS = "he/him";
 export type PronounPreset = typeof PRONOUN_PRESETS[number];
 
 /** All five grammatical forms + verb conjugation flag for a pronoun set. */

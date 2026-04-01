@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   PRONOUN_PRESETS,
   isCustomPronouns,
@@ -31,6 +31,14 @@ export function PronounEditor({ value, onChange, className = "" }: PronounEditor
     if (isCustom) return parseCustom(value) ?? { ...EMPTY_CUSTOM };
     return { ...EMPTY_CUSTOM };
   });
+
+  // Sync mode when value is changed externally (e.g. AI suggestion)
+  useEffect(() => {
+    const ext = value as string;
+    if (!isCustomPronouns(ext) && PRONOUN_PRESETS.includes(ext as typeof PRONOUN_PRESETS[number])) {
+      setMode("preset");
+    }
+  }, [value]);
 
   function selectPreset(preset: string) {
     setMode("preset");
