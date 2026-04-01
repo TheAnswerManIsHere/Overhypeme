@@ -82,7 +82,7 @@ router.patch("/admin/users/:id", requireAdmin, async (req: Request, res: Respons
   if (body["firstName"] !== undefined) updates.firstName = body["firstName"] ? String(body["firstName"]) : null;
   if (body["lastName"] !== undefined) updates.lastName = body["lastName"] ? String(body["lastName"]) : null;
   if (body["displayName"] !== undefined) updates.displayName = body["displayName"] ? String(body["displayName"]) : null;
-  if (body["email"] !== undefined) updates.email = body["email"] ? String(body["email"]) : null;
+  if (body["email"] !== undefined) updates.email = body["email"] ? String(body["email"]).trim().toLowerCase() : null;
   if (body["membershipTier"] !== undefined && ["free", "premium"].includes(String(body["membershipTier"])))
     updates.membershipTier = String(body["membershipTier"]) as "free" | "premium";
   if (body["pronouns"] !== undefined) {
