@@ -161,6 +161,7 @@ export interface FactSummary {
   upvotes: number;
   downvotes: number;
   score?: number;
+  wilsonScore?: number;
   commentCount: number;
   hashtags: string[];
   submittedBy?: string | null;
