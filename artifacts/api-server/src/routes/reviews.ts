@@ -98,7 +98,7 @@ router.get("/admin/reviews", requireAdmin, async (req: Request, res: Response) =
 
   const [submitters, matchingFacts] = await Promise.all([
     submitterIds.length
-      ? db.select({ id: usersTable.id, email: usersTable.email, firstName: usersTable.firstName })
+      ? db.select({ id: usersTable.id, email: usersTable.email, firstName: usersTable.firstName, displayName: usersTable.displayName })
           .from(usersTable).where(and(sql`id = ANY(ARRAY[${sql.join(submitterIds.map((id) => sql`${id}`), sql`, `)}]::varchar[])`, eq(usersTable.isActive, true)))
       : Promise.resolve([]),
     matchingIds.length
@@ -132,7 +132,7 @@ router.get("/admin/reviews/:id", requireAdmin, async (req: Request, res: Respons
 
   const [submitter, matchingFact] = await Promise.all([
     review.submittedById
-      ? db.select({ id: usersTable.id, email: usersTable.email, firstName: usersTable.firstName })
+      ? db.select({ id: usersTable.id, email: usersTable.email, firstName: usersTable.firstName, displayName: usersTable.displayName })
           .from(usersTable).where(and(eq(usersTable.id, review.submittedById), eq(usersTable.isActive, true))).limit(1)
           .then((r) => r[0] ?? null)
       : null,
