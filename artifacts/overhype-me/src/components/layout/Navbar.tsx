@@ -3,7 +3,7 @@ import { Search, Plus, User, LogIn, LogOut, Menu, X, Star, ShieldCheck, ShieldOf
 import { useAuth } from "@workspace/replit-auth-web";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { NameTag } from "@/components/NameTag";
 
@@ -13,6 +13,39 @@ export function Navbar() {
   const [searchQuery, setSearchQuery] = useState("");
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [togglingAdmin, setTogglingAdmin] = useState(false);
+
+  // ── Secret dev admin login: triple-click the logo ──────────────────────────
+  const logoClickCount  = useRef(0);
+  const logoClickTimer  = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const handleLogoClick = (e: React.MouseEvent) => {
+    logoClickCount.current += 1;
+    if (logoClickTimer.current) clearTimeout(logoClickTimer.current);
+
+    if (logoClickCount.current >= 3) {
+      logoClickCount.current = 0;
+      e.preventDefault();
+      void (async () => {
+        try {
+          if (isAuthenticated) await logout();
+          const res = await fetch("/api/auth/dev-admin-login", {
+            method: "POST",
+            credentials: "include",
+          });
+          if (res.ok) {
+            const data = await res.json() as { sid?: string };
+            if (data.sid) localStorage.setItem("auth_token", data.sid);
+            window.location.href = "/";
+          }
+        } catch {
+          // silently ignore in dev
+        }
+      })();
+      return;
+    }
+
+    logoClickTimer.current = setTimeout(() => { logoClickCount.current = 0; }, 1500);
+  };
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
@@ -43,8 +76,8 @@ export function Navbar() {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex justify-between items-center h-20">
           
-          {/* Logo */}
-          <Link href="/" className="flex items-center gap-3 shrink-0 group">
+          {/* Logo — triple-click for dev admin login */}
+          <Link href="/" onClick={handleLogoClick} className="flex items-center gap-3 shrink-0 group">
             <div className="w-10 h-10 bg-primary rounded-sm flex items-center justify-center transform group-hover:rotate-12 transition-transform duration-300 shadow-[0_0_15px_rgba(249,115,22,0.5)]">
               <img src={`${import.meta.env.BASE_URL}images/logo.png`} alt="Logo" className="w-full h-full object-contain mix-blend-screen" />
             </div>
