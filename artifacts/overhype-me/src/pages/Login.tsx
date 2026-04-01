@@ -47,9 +47,14 @@ export default function Login() {
         mode === "login" ? "/api/auth/local-login" : "/api/auth/register";
       const body: Record<string, string> = { username, password };
       if (mode === "register") {
+        if (!pronouns) {
+          setError("Please select your pronouns.");
+          setLoading(false);
+          return;
+        }
         if (email) body.email = email;
         body.displayName = displayName;
-        if (pronouns) body.pronouns = pronouns;
+        body.pronouns = pronouns;
       }
 
       const res = await fetch(endpoint, {
@@ -153,7 +158,7 @@ export default function Login() {
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
               <label className="block text-sm font-display font-bold text-muted-foreground mb-1 uppercase tracking-wider">
-                Username
+                Username{mode === "register" && <span className="text-destructive ml-1">*</span>}
               </label>
               <Input
                 type="text"
@@ -187,8 +192,7 @@ export default function Login() {
 
                 <div>
                   <label className="block text-sm font-display font-bold text-muted-foreground mb-1 uppercase tracking-wider">
-                    Pronouns{" "}
-                    <span className="text-xs font-normal normal-case">(optional)</span>
+                    Pronouns <span className="text-destructive">*</span>
                   </label>
                   <PronounEditor value={pronouns} onChange={setPronouns} />
                 </div>
