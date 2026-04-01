@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, useEffect, ReactNode, createElement } from "react";
-import { displayPronouns } from "@/lib/pronouns";
+import { displayPronouns, DEFAULT_PRONOUNS } from "@/lib/pronouns";
 
 const STORAGE_KEY_NAME    = "fact_db_name";
 const STORAGE_KEY_PRONOUNS = "fact_db_pronouns";
@@ -7,8 +7,8 @@ const STORAGE_KEY_PRONOUNS = "fact_db_pronouns";
 const LEGACY_KEY_SUBJECT  = "fact_db_pronoun_subject";
 const LEGACY_KEY_OBJECT   = "fact_db_pronoun_object";
 
-export const DEFAULT_NAME     = "David Franklin";
-export const DEFAULT_PRONOUNS = "he/him";
+export const DEFAULT_NAME = "David Franklin";
+export { DEFAULT_PRONOUNS };
 
 // Derived for callers that still need individual parts
 export const DEFAULT_PRONOUN_SUBJECT = "he";
