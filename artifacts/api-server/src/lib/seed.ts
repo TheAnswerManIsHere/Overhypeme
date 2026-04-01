@@ -82,6 +82,10 @@ export async function ensureSchema(): Promise<void> {
       label: "email_verification_tokens.IDX_evt_token_hash",
       ddl: `CREATE INDEX IF NOT EXISTS "IDX_evt_token_hash" ON email_verification_tokens (token_hash)`,
     },
+    {
+      label: "users.pending_email",
+      ddl: `ALTER TABLE users ADD COLUMN IF NOT EXISTS pending_email varchar`,
+    },
   ];
 
   for (const { label, ddl } of migrations) {
