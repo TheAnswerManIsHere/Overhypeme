@@ -74,7 +74,7 @@ export default function FactDetail() {
       {showMemeBuilder && (
         <MemeBuilder
           factId={factId}
-          factText={fact.text}
+          factText={renderFact(fact.text, name, pronouns)}
           onClose={() => setShowMemeBuilder(false)}
         />
       )}
@@ -152,7 +152,7 @@ export default function FactDetail() {
 
           {/* Merch buttons */}
           <div className="mt-6 pt-4 border-t border-border/50">
-            <MerchButtons sourceType="fact" sourceId={factId} text={fact.text} />
+            <MerchButtons sourceType="fact" sourceId={factId} text={renderFact(fact.text, name, pronouns)} />
           </div>
         </div>
 

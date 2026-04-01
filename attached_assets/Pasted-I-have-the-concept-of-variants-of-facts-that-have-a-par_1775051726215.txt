@@ -1,0 +1,13 @@
+I have the concept of variants of facts that have a parent-child relationship to the original. In my ranking system, should I treat variants as their own facts that can move up and down the leaderboard independently from their parent, or should I treat a vote for the variant as a vote for the parent and have the leaderboard only apply to the parents as a whole?
+
+This is a fundamental data modeling question, and the right answer falls out of what you’re actually trying to optimize for with the leaderboard.
+The core tension: A variant is semantically dependent on its parent (it’s the same joke, reworded) but experientially independent (a user encountering it may find it funnier or worse than the original).
+Here’s how I’d reason through it:
+If variants vote for the parent, you’re treating the leaderboard as a ranking of joke concepts. The parent becomes a container, and its score is the aggregate signal across all phrasings. This is clean and simple, but it creates a problem: a brilliant variant gets buried inside a mediocre parent, and a terrible variant inflates a good parent’s score. You lose signal, not gain it. Users also can’t express “this phrasing is better than that one,” which is arguably the whole point of variants existing.
+If variants rank independently, you get a different problem: the leaderboard can get cluttered with near-duplicates occupying adjacent slots, which degrades the browsing experience. “Chuck Norris counted to infinity. Twice.” sitting at #3 and “Chuck Norris counted to infinity… twice.” at #7 is noise.
+The first-principles answer is a hybrid: variants rank independently in the database, but you deduplicate at the presentation layer. The leaderboard shows the highest-ranked member of each fact family, with a “see N variants” expansion. This way:
+	∙	Each variant earns its own score on its own merits
+	∙	The best phrasing naturally rises to represent the family
+	∙	The leaderboard stays clean
+	∙	You preserve the full signal in your data
+This also gives you a free feature: “community-refined facts,” where the original submission gets organically replaced by a better-worded variant over time. That’s a compelling engagement loop.​​​​​​​​​​​​​​​​
