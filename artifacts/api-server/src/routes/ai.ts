@@ -3,14 +3,16 @@ import { db } from "@workspace/db";
 import { factsTable, hashtagsTable, commentsTable } from "@workspace/db/schema";
 import { eq, sql } from "drizzle-orm";
 import { getOpenAIClient } from "@workspace/integrations-openai-ai-server";
+import { anthropic } from "@workspace/integrations-anthropic-ai";
 import { z } from "zod";
 import { getSessionId, getSession } from "../lib/auth";
 import { embedText, findSimilarFacts } from "../lib/embeddings";
 
 const router: IRouter = Router();
 
-const CheckDuplicateBody = z.object({ text: z.string().min(10).max(1000) });
-const SuggestHashtagsBody = z.object({ text: z.string().min(5).max(1000) });
+const CheckDuplicateBody    = z.object({ text: z.string().min(10).max(1000) });
+const SuggestHashtagsBody   = z.object({ text: z.string().min(5).max(1000) });
+const TokenizeFactBody      = z.object({ text: z.string().min(5).max(2000) });
 
 const RATE_WINDOW_MS = 60_000;
 const RATE_MAX = 30;
@@ -203,6 +205,65 @@ router.post("/ai/suggest-hashtags", requireAuth, requireRateLimit, async (req: R
   } catch (err) {
     console.error("[AI] suggest-hashtags error:", err);
     res.json({ hashtags: [] });
+  }
+});
+
+const TOKENIZE_SYSTEM_PROMPT = `You are a fact-template tokenizer for a personalized humor website called Overhype.me.
+Users write facts in plain English about a person. You convert them into a template using a closed token set.
+
+TOKEN RULES:
+1. Replace the person's name with {NAME}
+2. Replace subject pronouns (he, she) with {SUBJ}; capitalize to {Subj} when sentence-starting
+3. Replace object pronouns (him, her) with {OBJ}; capitalize to {Obj} when needed
+4. Replace possessive adjectives (his, her as adjective) with {POSS}; capitalize to {Poss} when needed
+5. Replace possessive pronouns (his, hers as standalone pronoun) with {POSS_PRO}; capitalize to {Poss_Pro} when needed
+6. Replace reflexive pronouns (himself, herself) with {REFL}; capitalize to {Refl} when needed
+7. For ANY verb or auxiliary that conjugates differently for "they" vs "he/she", use {singular_form|plural_form} syntax.
+   Examples: {doesn't|don't}  {isn't|aren't}  {was|were}  {does|do}  {has|have}  {pushes|push}  {counts|count}
+   The LEFT form is used for he/she; the RIGHT form is used for they.
+8. Keep everything else exactly as written.
+
+IMPORTANT:
+- Capitalize tokens at the start of sentences: {Subj} not {SUBJ}, etc.
+- Verb conjugation is the hardest part. Identify EVERY third-person singular verb that would change with "they". Don't miss any.
+- "they" triggers plural: "he sleeps" → "{SUBJ} {sleeps|sleep}", "he doesn't" → "{SUBJ} {doesn't|don't}", "he was" → "{SUBJ} {was|were}"
+- Return ONLY valid JSON: {"template": "...the tokenized template..."}
+- Do NOT explain, do NOT add any other keys.`;
+
+router.post("/ai/tokenize-fact", requireRateLimit, async (req: Request, res: Response) => {
+  const bodyParsed = TokenizeFactBody.safeParse(req.body);
+  if (!bodyParsed.success) {
+    res.status(400).json({ error: "Invalid input" });
+    return;
+  }
+  const { text } = bodyParsed.data;
+
+  try {
+    const message = await anthropic.messages.create({
+      model: "claude-haiku-4-5",
+      max_tokens: 8192,
+      messages: [{
+        role: "user",
+        content: `Convert this fact to a template:\n\n"${text}"`,
+      }],
+      system: TOKENIZE_SYSTEM_PROMPT,
+    });
+
+    const raw = message.content[0]?.type === "text" ? message.content[0].text : "{}";
+    let template = text;
+    try {
+      const parsed = JSON.parse(raw) as Record<string, unknown>;
+      if (typeof parsed.template === "string" && parsed.template.length > 0) {
+        template = parsed.template;
+      }
+    } catch {
+      template = text;
+    }
+
+    res.json({ template });
+  } catch (err) {
+    console.error("[AI] tokenize-fact error:", err);
+    res.status(500).json({ error: "Tokenization failed" });
   }
 });
 
