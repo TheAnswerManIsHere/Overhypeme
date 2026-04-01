@@ -212,11 +212,18 @@ export function NameTag() {
   }
 
   if (isAuthenticated && user) {
-    const displayName = (user as { displayName?: string }).displayName
-      || name
-      || "User";
-    const rawPronouns = (user as { pronouns?: string }).pronouns;
-    const pronounsStr = rawPronouns ? displayPronouns(rawPronouns) : null;
+    // When a share link is active, the context already holds the recipient's
+    // name/pronouns (URL params were applied before auth resolved). Use the
+    // context values so the AS box stays consistent with the rest of the page.
+    const displayName = SHARE_LINK_ACTIVE
+      ? name
+      : (user as { displayName?: string }).displayName || name || "User";
+    const pronounsStr = SHARE_LINK_ACTIVE
+      ? (displayPronouns(pronouns) || null)
+      : (() => {
+          const raw = (user as { pronouns?: string }).pronouns;
+          return raw ? displayPronouns(raw) : null;
+        })();
 
     return (
       <button
