@@ -3,120 +3,430 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Email Preview — Overhype.me Verification</title>
+  <title>Email Previews — Overhype.me</title>
   <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Oswald:wght@600;700&display=swap');
-    body { margin: 0; padding: 0; background: #1a1a1a; font-family: 'Inter', sans-serif; }
-    .preview-bar {
-      background: #111;
-      border-bottom: 1px solid #333;
+    * { box-sizing: border-box; }
+    body { margin: 0; padding: 0; background: #111; font-family: 'Inter', sans-serif; }
+    .nav {
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      background: #0a0a0a;
+      border-bottom: 1px solid #222;
       padding: 12px 24px;
       display: flex;
       align-items: center;
-      gap: 16px;
-      font-family: 'Inter', sans-serif;
+      gap: 8px;
+      overflow-x: auto;
+      white-space: nowrap;
+    }
+    .nav a {
+      color: #666;
+      text-decoration: none;
       font-size: 12px;
-      color: #888;
+      padding: 6px 12px;
+      border: 1px solid #333;
+      border-radius: 4px;
+      transition: all 0.15s;
     }
-    .preview-bar strong { color: #ccc; }
-    .preview-bar .subject { color: #fff; font-weight: 600; }
-    .preview-bar .from { color: #888; }
+    .nav a:hover { color: #fff; border-color: #FF3C00; }
+    .nav-label { color: #444; font-size: 11px; margin-right: 8px; }
+    .email-section {
+      padding: 0 0 0;
+    }
+    .email-label {
+      background: #0a0a0a;
+      border-bottom: 1px solid #1a1a1a;
+      border-top: 3px solid #FF3C00;
+      padding: 14px 24px;
+      display: flex;
+      align-items: baseline;
+      gap: 16px;
+    }
+    .email-label .num {
+      font-family: 'Oswald', sans-serif;
+      font-size: 11px;
+      letter-spacing: 2px;
+      color: #FF3C00;
+      text-transform: uppercase;
+    }
+    .email-label .subject {
+      font-size: 13px;
+      font-weight: 600;
+      color: #ccc;
+    }
+    .email-label .from {
+      font-size: 11px;
+      color: #555;
+      margin-left: auto;
+    }
     .email-frame {
-      padding: 32px 16px;
+      padding: 0;
     }
+    .plaintext-toggle {
+      background: #0d0d0d;
+      border-top: 1px solid #1a1a1a;
+      padding: 12px 24px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .plaintext-toggle span { font-size: 11px; color: #444; }
+    details summary {
+      font-size: 11px;
+      color: #555;
+      cursor: pointer;
+      padding: 10px 24px;
+      background: #0a0a0a;
+      border-top: 1px solid #1a1a1a;
+      list-style: none;
+      user-select: none;
+    }
+    details summary:hover { color: #FF3C00; }
+    details summary::before { content: '▶ '; font-size: 9px; }
+    details[open] summary::before { content: '▼ '; font-size: 9px; }
+    details pre {
+      margin: 0;
+      padding: 20px 24px;
+      background: #0d0d0d;
+      color: #888;
+      font-size: 12px;
+      line-height: 1.7;
+      border-top: 1px solid #1a1a1a;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+    .divider { height: 32px; background: #111; }
   </style>
 </head>
 <body>
 
-  <!-- Simulated email client header bar -->
-  <div class="preview-bar">
-    <span><strong>From:</strong> <span class="from">noreply@overhype.me</span></span>
-    <span>|</span>
-    <span><strong>Subject:</strong> <span class="subject">Verify your email — Overhype.me</span></span>
-    <span>|</span>
-    <span style="color:#555;font-style:italic;">[ preview — placeholder link used ]</span>
+  <div class="nav">
+    <span class="nav-label">JUMP TO</span>
+    <a href="#email-1">1 · Verify Email</a>
+    <a href="#email-2">2 · Email Change</a>
+    <a href="#email-3">3 · Password Reset</a>
+    <a href="#email-4">4 · Fact Approved</a>
+    <a href="#email-5">5 · Fact Rejected</a>
   </div>
 
-  <!-- Email body rendered as-is -->
-  <div class="email-frame">
 
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <style>
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Oswald:wght@600;700&display=swap');
-  </style>
-</head>
-<body style="margin:0;padding:0;background-color:#0d0d0e;font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;">
-  <table width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="#0d0d0e">
-    <tr>
-      <td align="center" style="padding:48px 16px 40px;">
+  <!-- ═══════════════════════════════════════════════════════════
+       1. EMAIL VERIFICATION
+       ═══════════════════════════════════════════════════════════ -->
+  <div class="email-section" id="email-1">
+    <div class="email-label">
+      <span class="num">01</span>
+      <span class="subject">Verify your email — Overhype.me</span>
+      <span class="from">noreply@overhype.me → new user</span>
+    </div>
+    <div class="email-frame">
 
-        <!-- STUB LOGO -->
-        <table cellpadding="0" cellspacing="0" border="0" style="margin-bottom:28px;">
-          <tr>
-            <td bgcolor="#FF3C00" style="padding:8px 16px 10px;">
-              <span style="font-family:'Oswald','Impact','Arial Narrow',sans-serif;font-size:22px;font-weight:700;letter-spacing:3px;text-transform:uppercase;color:#ffffff;">OVERHYPE</span><span style="font-family:'Oswald','Impact','Arial Narrow',sans-serif;font-size:22px;font-weight:700;letter-spacing:3px;text-transform:uppercase;color:#000000;">.ME</span>
-            </td>
-          </tr>
-        </table>
+      <table width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="#0d0d0e">
+        <tr>
+          <td align="center" style="padding:48px 16px 40px;font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;">
+            <table cellpadding="0" cellspacing="0" border="0" style="margin-bottom:28px;">
+              <tr>
+                <td bgcolor="#FF3C00" style="padding:8px 16px 10px;">
+                  <span style="font-family:'Oswald','Impact','Arial Narrow',sans-serif;font-size:22px;font-weight:700;letter-spacing:3px;text-transform:uppercase;color:#ffffff;">OVERHYPE</span><span style="font-family:'Oswald','Impact','Arial Narrow',sans-serif;font-size:22px;font-weight:700;letter-spacing:3px;text-transform:uppercase;color:#000000;">.ME</span>
+                </td>
+              </tr>
+            </table>
+            <table width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:520px;" bgcolor="#161618">
+              <tr><td height="4" bgcolor="#FF3C00" style="font-size:0;line-height:0;">&nbsp;</td></tr>
+              <tr>
+                <td style="padding:36px 40px 40px;border-left:1px solid #2a2a2a;border-right:1px solid #2a2a2a;border-bottom:1px solid #2a2a2a;">
+                  <h1 style="margin:0 0 16px;font-family:'Oswald','Impact','Arial Narrow',sans-serif;font-size:28px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:#ffffff;line-height:1.2;">Your Legend<br/>Begins Here.</h1>
+                  <p style="margin:0 0 10px;font-size:15px;color:#aaaaaa;line-height:1.75;">Before we add you to the database of greatness, we need to verify that you're actually you. (Or a reasonable facsimile. We're not picky.)</p>
+                  <p style="margin:0 0 32px;font-size:15px;color:#aaaaaa;line-height:1.75;">Hit the button. This link expires in <strong style="color:#ffffff;">24 hours</strong> — unlike your legend, which is forever.</p>
+                  <table cellpadding="0" cellspacing="0" border="0" style="margin:0 0 28px;">
+                    <tr><td align="center" bgcolor="#FF3C00"><a href="#" style="display:inline-block;padding:14px 36px;font-family:'Oswald','Impact','Arial Narrow',sans-serif;font-size:15px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:#ffffff;text-decoration:none;">VERIFY MY EMAIL</a></td></tr>
+                  </table>
+                  <p style="margin:0 0 4px;font-size:11px;color:#555555;font-family:'Inter',-apple-system,sans-serif;">Or copy this link into your browser:</p>
+                  <p style="margin:0 0 28px;font-size:11px;color:#555555;word-break:break-all;line-height:1.6;font-family:'Inter',-apple-system,sans-serif;">https://overhype.me/verify-email?token=abc123xyz456def789ghi012jkl345mno678pqr</p>
+                  <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 24px;"><tr><td height="1" bgcolor="#222222" style="font-size:0;line-height:0;">&nbsp;</td></tr></table>
+                  <p style="margin:0;font-size:12px;color:#555555;line-height:1.7;font-family:'Inter',-apple-system,sans-serif;">Didn't sign up? Someone may be trying to use your email address. Just ignore this and carry on.</p>
+                </td>
+              </tr>
+            </table>
+            <table width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:520px;">
+              <tr><td style="padding:20px 4px 0;" align="center"><p style="margin:0;font-size:11px;color:#444444;line-height:1.7;font-family:'Inter',-apple-system,sans-serif;">You're receiving this because someone created an account with this email address on Overhype.me.</p></td></tr>
+            </table>
+          </td>
+        </tr>
+      </table>
 
-        <!-- CARD -->
-        <table width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:520px;" bgcolor="#161618">
-          <!-- Top accent bar -->
-          <tr>
-            <td height="4" bgcolor="#FF3C00" style="font-size:0;line-height:0;">&nbsp;</td>
-          </tr>
-          <!-- Body -->
-          <tr>
-            <td style="padding:36px 40px 40px;border-left:1px solid #2a2a2a;border-right:1px solid #2a2a2a;border-bottom:1px solid #2a2a2a;">
+    </div>
+    <details>
+      <summary>Plain text version</summary>
+      <pre>YOUR LEGEND BEGINS HERE.
 
-              <h1 style="margin:0 0 16px;font-family:'Oswald','Impact','Arial Narrow',sans-serif;font-size:28px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:#ffffff;line-height:1.2;">Your Legend<br/>Begins Here.</h1>
-              <p style="margin:0 0 10px;font-size:15px;color:#aaaaaa;line-height:1.75;">Before we add you to the database of greatness, we need to verify that you're actually you. (Or a reasonable facsimile. We're&nbsp;not&nbsp;picky.)</p>
-              <p style="margin:0 0 32px;font-size:15px;color:#aaaaaa;line-height:1.75;">Hit the button. This link expires in <strong style="color:#ffffff;">24&nbsp;hours</strong>&nbsp;— unlike your legend, which is&nbsp;forever.</p>
+Before we add you to the database of greatness, we need to verify that
+you're actually you. (Or a reasonable facsimile. We're not picky.)
 
-              <!-- CTA Button -->
-              <table cellpadding="0" cellspacing="0" border="0" style="margin:0 0 28px;">
-                <tr>
-                  <td align="center" bgcolor="#FF3C00">
-                    <a href="#" style="display:inline-block;padding:14px 36px;font-family:'Oswald','Impact','Arial Narrow',sans-serif;font-size:15px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:#ffffff;text-decoration:none;">VERIFY MY EMAIL</a>
-                  </td>
-                </tr>
-              </table>
+Verify your email here — link valid for 24 hours:
+https://overhype.me/verify-email?token=abc123xyz456...
 
-              <!-- Link fallback -->
-              <p style="margin:0 0 4px;font-size:11px;color:#555555;font-family:'Inter',-apple-system,sans-serif;">Or copy this link into your browser:</p>
-              <p style="margin:0 0 28px;font-size:11px;color:#555555;word-break:break-all;line-height:1.6;font-family:'Inter',-apple-system,sans-serif;">https://overhype.me/verify-email?token=abc123xyz456def789ghi012jkl345mno678pqr901stu234vwx567yz</p>
+Didn't sign up? Ignore this and carry on.
 
-              <!-- Divider -->
-              <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 24px;"><tr><td height="1" bgcolor="#222222" style="font-size:0;line-height:0;">&nbsp;</td></tr></table>
-
-              <!-- Disclaimer -->
-              <p style="margin:0;font-size:12px;color:#555555;line-height:1.7;font-family:'Inter',-apple-system,sans-serif;">Didn't sign up? Someone may be trying to use your email address. Just ignore this and carry&nbsp;on.</p>
-
-            </td>
-          </tr>
-        </table>
-
-        <!-- FOOTER NOTE -->
-        <table width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:520px;">
-          <tr>
-            <td style="padding:20px 4px 0;" align="center">
-              <p style="margin:0;font-size:11px;color:#444444;line-height:1.7;font-family:'Inter',-apple-system,sans-serif;">
-                You&#39;re receiving this because someone created an account with this email address on Overhype.me.
-              </p>
-            </td>
-          </tr>
-        </table>
-
-      </td>
-    </tr>
-  </table>
-</body>
-</html>
-
+— The Overhype.me Team</pre>
+    </details>
   </div>
+
+  <div class="divider"></div>
+
+  <!-- ═══════════════════════════════════════════════════════════
+       2. EMAIL CHANGE VERIFICATION
+       ═══════════════════════════════════════════════════════════ -->
+  <div class="email-section" id="email-2">
+    <div class="email-label">
+      <span class="num">02</span>
+      <span class="subject">Confirm your new email address — Overhype.me</span>
+      <span class="from">noreply@overhype.me → existing user</span>
+    </div>
+    <div class="email-frame">
+
+      <table width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="#0d0d0e">
+        <tr>
+          <td align="center" style="padding:48px 16px 40px;font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;">
+            <table cellpadding="0" cellspacing="0" border="0" style="margin-bottom:28px;">
+              <tr>
+                <td bgcolor="#FF3C00" style="padding:8px 16px 10px;">
+                  <span style="font-family:'Oswald','Impact','Arial Narrow',sans-serif;font-size:22px;font-weight:700;letter-spacing:3px;text-transform:uppercase;color:#ffffff;">OVERHYPE</span><span style="font-family:'Oswald','Impact','Arial Narrow',sans-serif;font-size:22px;font-weight:700;letter-spacing:3px;text-transform:uppercase;color:#000000;">.ME</span>
+                </td>
+              </tr>
+            </table>
+            <table width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:520px;" bgcolor="#161618">
+              <tr><td height="4" bgcolor="#FF3C00" style="font-size:0;line-height:0;">&nbsp;</td></tr>
+              <tr>
+                <td style="padding:36px 40px 40px;border-left:1px solid #2a2a2a;border-right:1px solid #2a2a2a;border-bottom:1px solid #2a2a2a;">
+                  <h1 style="margin:0 0 16px;font-family:'Oswald','Impact','Arial Narrow',sans-serif;font-size:28px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:#ffffff;line-height:1.2;">Confirm Your<br/>New Email.</h1>
+                  <p style="margin:0 0 10px;font-size:15px;color:#aaaaaa;line-height:1.75;">You requested to change your Overhype.me email address to:</p>
+                  <p style="margin:0 0 28px;font-size:16px;font-weight:600;color:#ffffff;word-break:break-all;">janedoe-new@example.com</p>
+                  <p style="margin:0 0 32px;font-size:15px;color:#aaaaaa;line-height:1.75;">Click the button to lock it in. This link is valid for <strong style="color:#ffffff;">24 hours</strong>.</p>
+                  <table cellpadding="0" cellspacing="0" border="0" style="margin:0 0 28px;">
+                    <tr><td align="center" bgcolor="#FF3C00"><a href="#" style="display:inline-block;padding:14px 36px;font-family:'Oswald','Impact','Arial Narrow',sans-serif;font-size:15px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:#ffffff;text-decoration:none;">CONFIRM NEW EMAIL</a></td></tr>
+                  </table>
+                  <p style="margin:0 0 4px;font-size:11px;color:#555555;font-family:'Inter',-apple-system,sans-serif;">Or copy this link into your browser:</p>
+                  <p style="margin:0 0 28px;font-size:11px;color:#555555;word-break:break-all;line-height:1.6;font-family:'Inter',-apple-system,sans-serif;">https://overhype.me/verify-email-change?token=abc123xyz456def789ghi012jkl345mno678pqr</p>
+                  <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 24px;"><tr><td height="1" bgcolor="#222222" style="font-size:0;line-height:0;">&nbsp;</td></tr></table>
+                  <p style="margin:0;font-size:12px;color:#555555;line-height:1.7;font-family:'Inter',-apple-system,sans-serif;">Didn't request this change? Ignore it — your current email address will remain unchanged.</p>
+                </td>
+              </tr>
+            </table>
+            <table width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:520px;">
+              <tr><td style="padding:20px 4px 0;" align="center"><p style="margin:0;font-size:11px;color:#444444;line-height:1.7;font-family:'Inter',-apple-system,sans-serif;">You're receiving this because an email change was requested on your Overhype.me account.</p></td></tr>
+            </table>
+          </td>
+        </tr>
+      </table>
+
+    </div>
+    <details>
+      <summary>Plain text version</summary>
+      <pre>CONFIRM YOUR NEW EMAIL.
+
+You requested to change your Overhype.me email address to: janedoe-new@example.com
+
+Confirm the change here — link valid for 24 hours:
+https://overhype.me/verify-email-change?token=abc123xyz456...
+
+Didn't request this? Ignore it. Your current email stays put.
+
+— The Overhype.me Team</pre>
+    </details>
+  </div>
+
+  <div class="divider"></div>
+
+  <!-- ═══════════════════════════════════════════════════════════
+       3. PASSWORD RESET
+       ═══════════════════════════════════════════════════════════ -->
+  <div class="email-section" id="email-3">
+    <div class="email-label">
+      <span class="num">03</span>
+      <span class="subject">Reset your password — Overhype.me</span>
+      <span class="from">noreply@overhype.me → user</span>
+    </div>
+    <div class="email-frame">
+
+      <table width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="#0d0d0e">
+        <tr>
+          <td align="center" style="padding:48px 16px 40px;font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;">
+            <table cellpadding="0" cellspacing="0" border="0" style="margin-bottom:28px;">
+              <tr>
+                <td bgcolor="#FF3C00" style="padding:8px 16px 10px;">
+                  <span style="font-family:'Oswald','Impact','Arial Narrow',sans-serif;font-size:22px;font-weight:700;letter-spacing:3px;text-transform:uppercase;color:#ffffff;">OVERHYPE</span><span style="font-family:'Oswald','Impact','Arial Narrow',sans-serif;font-size:22px;font-weight:700;letter-spacing:3px;text-transform:uppercase;color:#000000;">.ME</span>
+                </td>
+              </tr>
+            </table>
+            <table width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:520px;" bgcolor="#161618">
+              <tr><td height="4" bgcolor="#FF3C00" style="font-size:0;line-height:0;">&nbsp;</td></tr>
+              <tr>
+                <td style="padding:36px 40px 40px;border-left:1px solid #2a2a2a;border-right:1px solid #2a2a2a;border-bottom:1px solid #2a2a2a;">
+                  <h1 style="margin:0 0 16px;font-family:'Oswald','Impact','Arial Narrow',sans-serif;font-size:28px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:#ffffff;line-height:1.2;">Forgot Your<br/>Password?</h1>
+                  <p style="margin:0 0 10px;font-size:15px;color:#aaaaaa;line-height:1.75;">It happens to the best of us. Even legends have off days.</p>
+                  <p style="margin:0 0 32px;font-size:15px;color:#aaaaaa;line-height:1.75;">Click the button to set a new password. This link expires in <strong style="color:#ffffff;">1 hour</strong>, so don't sit on it.</p>
+                  <table cellpadding="0" cellspacing="0" border="0" style="margin:0 0 28px;">
+                    <tr><td align="center" bgcolor="#FF3C00"><a href="#" style="display:inline-block;padding:14px 36px;font-family:'Oswald','Impact','Arial Narrow',sans-serif;font-size:15px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:#ffffff;text-decoration:none;">RESET MY PASSWORD</a></td></tr>
+                  </table>
+                  <p style="margin:0 0 4px;font-size:11px;color:#555555;font-family:'Inter',-apple-system,sans-serif;">Or copy this link into your browser:</p>
+                  <p style="margin:0 0 28px;font-size:11px;color:#555555;word-break:break-all;line-height:1.6;font-family:'Inter',-apple-system,sans-serif;">https://overhype.me/reset-password?token=abc123xyz456def789ghi012jkl345mno678pqr</p>
+                  <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 24px;"><tr><td height="1" bgcolor="#222222" style="font-size:0;line-height:0;">&nbsp;</td></tr></table>
+                  <p style="margin:0;font-size:12px;color:#555555;line-height:1.7;font-family:'Inter',-apple-system,sans-serif;">Didn't request a password reset? Ignore this — your password will not change.</p>
+                </td>
+              </tr>
+            </table>
+            <table width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:520px;">
+              <tr><td style="padding:20px 4px 0;" align="center"><p style="margin:0;font-size:11px;color:#444444;line-height:1.7;font-family:'Inter',-apple-system,sans-serif;">You're receiving this because a password reset was requested for your Overhype.me account.</p></td></tr>
+            </table>
+          </td>
+        </tr>
+      </table>
+
+    </div>
+    <details>
+      <summary>Plain text version</summary>
+      <pre>FORGOT YOUR PASSWORD? IT HAPPENS TO THE BEST OF US.
+
+Click the link below to set a new password. This link is valid for 1 hour.
+https://overhype.me/reset-password?token=abc123xyz456...
+
+Didn't request this? Ignore it. Your password won't change.
+
+— The Overhype.me Team</pre>
+    </details>
+  </div>
+
+  <div class="divider"></div>
+
+  <!-- ═══════════════════════════════════════════════════════════
+       4. FACT APPROVED (with admin note)
+       ═══════════════════════════════════════════════════════════ -->
+  <div class="email-section" id="email-4">
+    <div class="email-label">
+      <span class="num">04</span>
+      <span class="subject">Your Overhype.me fact has been approved!</span>
+      <span class="from">noreply@overhype.me → ChuckN</span>
+    </div>
+    <div class="email-frame">
+
+      <table width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="#0d0d0e">
+        <tr>
+          <td align="center" style="padding:48px 16px 40px;font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;">
+            <table cellpadding="0" cellspacing="0" border="0" style="margin-bottom:28px;">
+              <tr>
+                <td bgcolor="#FF3C00" style="padding:8px 16px 10px;">
+                  <span style="font-family:'Oswald','Impact','Arial Narrow',sans-serif;font-size:22px;font-weight:700;letter-spacing:3px;text-transform:uppercase;color:#ffffff;">OVERHYPE</span><span style="font-family:'Oswald','Impact','Arial Narrow',sans-serif;font-size:22px;font-weight:700;letter-spacing:3px;text-transform:uppercase;color:#000000;">.ME</span>
+                </td>
+              </tr>
+            </table>
+            <table width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:520px;" bgcolor="#161618">
+              <tr><td height="4" bgcolor="#FF3C00" style="font-size:0;line-height:0;">&nbsp;</td></tr>
+              <tr>
+                <td style="padding:36px 40px 40px;border-left:1px solid #2a2a2a;border-right:1px solid #2a2a2a;border-bottom:1px solid #2a2a2a;">
+                  <h1 style="margin:0 0 16px;font-family:'Oswald','Impact','Arial Narrow',sans-serif;font-size:28px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:#ffffff;line-height:1.2;">It's Official,<br/>ChuckN.</h1>
+                  <p style="margin:0 0 24px;font-size:15px;color:#aaaaaa;line-height:1.75;">Your submitted fact has been reviewed and approved. The database grows stronger.</p>
+                  <table cellpadding="0" cellspacing="0" border="0" width="100%" style="margin:0 0 28px;">
+                    <tr><td style="border-left:4px solid #FF3C00;padding:12px 16px;background:#1c1c1e;"><p style="margin:0;font-size:15px;color:#dddddd;line-height:1.7;font-style:italic;">Chuck Norris can divide by zero.</p></td></tr>
+                  </table>
+                  <p style="margin:0 0 28px;font-size:13px;color:#888888;line-height:1.7;border-left:3px solid #2a2a2a;padding-left:14px;"><strong style="color:#aaaaaa;">Note from the team:</strong> This one is a certified classic. Well done.</p>
+                  <table cellpadding="0" cellspacing="0" border="0" style="margin:0 0 28px;">
+                    <tr><td align="center" bgcolor="#FF3C00"><a href="#" style="display:inline-block;padding:14px 36px;font-family:'Oswald','Impact','Arial Narrow',sans-serif;font-size:15px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:#ffffff;text-decoration:none;">VIEW YOUR FACT</a></td></tr>
+                  </table>
+                  <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 24px;"><tr><td height="1" bgcolor="#222222" style="font-size:0;line-height:0;">&nbsp;</td></tr></table>
+                  <p style="margin:0;font-size:12px;color:#555555;line-height:1.7;font-family:'Inter',-apple-system,sans-serif;">Keep submitting. Every legend needs material.</p>
+                </td>
+              </tr>
+            </table>
+            <table width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:520px;">
+              <tr><td style="padding:20px 4px 0;" align="center"><p style="margin:0;font-size:11px;color:#444444;line-height:1.7;font-family:'Inter',-apple-system,sans-serif;">You're receiving this because you submitted a fact on Overhype.me.</p></td></tr>
+            </table>
+          </td>
+        </tr>
+      </table>
+
+    </div>
+    <details>
+      <summary>Plain text version</summary>
+      <pre>IT'S OFFICIAL, CHUCKN.
+
+Your submitted fact has been reviewed and approved. The database grows stronger.
+
+"Chuck Norris can divide by zero."
+
+Admin note: This one is a certified classic. Well done.
+
+View it here: https://overhype.me/facts/42
+
+— The Overhype.me Team</pre>
+    </details>
+  </div>
+
+  <div class="divider"></div>
+
+  <!-- ═══════════════════════════════════════════════════════════
+       5. FACT REJECTED (with admin note)
+       ═══════════════════════════════════════════════════════════ -->
+  <div class="email-section" id="email-5">
+    <div class="email-label">
+      <span class="num">05</span>
+      <span class="subject">Update on your submitted Overhype.me fact</span>
+      <span class="from">noreply@overhype.me → ChuckN</span>
+    </div>
+    <div class="email-frame">
+
+      <table width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="#0d0d0e">
+        <tr>
+          <td align="center" style="padding:48px 16px 40px;font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;">
+            <table cellpadding="0" cellspacing="0" border="0" style="margin-bottom:28px;">
+              <tr>
+                <td bgcolor="#FF3C00" style="padding:8px 16px 10px;">
+                  <span style="font-family:'Oswald','Impact','Arial Narrow',sans-serif;font-size:22px;font-weight:700;letter-spacing:3px;text-transform:uppercase;color:#ffffff;">OVERHYPE</span><span style="font-family:'Oswald','Impact','Arial Narrow',sans-serif;font-size:22px;font-weight:700;letter-spacing:3px;text-transform:uppercase;color:#000000;">.ME</span>
+                </td>
+              </tr>
+            </table>
+            <table width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:520px;" bgcolor="#161618">
+              <tr><td height="4" bgcolor="#FF3C00" style="font-size:0;line-height:0;">&nbsp;</td></tr>
+              <tr>
+                <td style="padding:36px 40px 40px;border-left:1px solid #2a2a2a;border-right:1px solid #2a2a2a;border-bottom:1px solid #2a2a2a;">
+                  <h1 style="margin:0 0 16px;font-family:'Oswald','Impact','Arial Narrow',sans-serif;font-size:28px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:#ffffff;line-height:1.2;">Not Every Legend<br/>Makes the Cut.</h1>
+                  <p style="margin:0 0 24px;font-size:15px;color:#aaaaaa;line-height:1.75;">Hey <strong style="color:#ffffff;">ChuckN</strong> — after review, we weren't able to add this one to the database.</p>
+                  <table cellpadding="0" cellspacing="0" border="0" width="100%" style="margin:0 0 28px;">
+                    <tr><td style="border-left:4px solid #555555;padding:12px 16px;background:#1c1c1e;"><p style="margin:0;font-size:15px;color:#888888;line-height:1.7;font-style:italic;">Chuck Norris invented the internet just so he could have somewhere to store his memes.</p></td></tr>
+                  </table>
+                  <p style="margin:0 0 28px;font-size:13px;color:#888888;line-height:1.7;border-left:3px solid #2a2a2a;padding-left:14px;"><strong style="color:#aaaaaa;">Note from the team:</strong> Already in the database under a slightly different wording.</p>
+                  <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 24px;"><tr><td height="1" bgcolor="#222222" style="font-size:0;line-height:0;">&nbsp;</td></tr></table>
+                  <p style="margin:0;font-size:12px;color:#555555;line-height:1.7;font-family:'Inter',-apple-system,sans-serif;">Don't sweat it. Greatness takes practice. Keep submitting.</p>
+                </td>
+              </tr>
+            </table>
+            <table width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:520px;">
+              <tr><td style="padding:20px 4px 0;" align="center"><p style="margin:0;font-size:11px;color:#444444;line-height:1.7;font-family:'Inter',-apple-system,sans-serif;">You're receiving this because you submitted a fact on Overhype.me.</p></td></tr>
+            </table>
+          </td>
+        </tr>
+      </table>
+
+    </div>
+    <details>
+      <summary>Plain text version</summary>
+      <pre>HEY CHUCKN, NOT EVERY LEGEND MAKES THE CUT.
+
+After review, we weren't able to add this one to the database.
+
+"Chuck Norris invented the internet just so he could have somewhere to store his memes."
+
+Admin note: Already in the database under a slightly different wording.
+
+Don't sweat it. Keep submitting — greatness takes practice.
+
+— The Overhype.me Team</pre>
+    </details>
+  </div>
+
+  <div style="height:48px;background:#111;"></div>
+
 </body>
 </html>
