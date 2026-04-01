@@ -158,6 +158,88 @@ router.get("/admin/reviews/:id", requireAdmin, async (req: Request, res: Respons
 // ─── Approve Review (admin) ───────────────────────────────────────────────────
 
 const ReviewDecisionBody = z.object({ adminNote: z.string().max(500).optional() });
+const ApproveVariantBody = z.object({
+  parentFactId: z.number().int().positive(),
+  adminNote: z.string().max(500).optional(),
+});
+
+router.post("/admin/reviews/:id/approve-variant", requireAdmin, async (req: Request, res: Response) => {
+  const id = parseInt(String(req.params["id"] ?? ""), 10);
+  if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
+
+  const bodyParsed = ApproveVariantBody.safeParse(req.body);
+  if (!bodyParsed.success) { res.status(400).json({ error: "parentFactId is required" }); return; }
+  const { parentFactId, adminNote = null } = bodyParsed.data;
+
+  const [review] = await db.select().from(pendingReviewsTable).where(eq(pendingReviewsTable.id, id));
+  if (!review) { res.status(404).json({ error: "Review not found" }); return; }
+  if (review.status !== "pending") { res.status(409).json({ error: `Review already ${review.status}` }); return; }
+
+  // Verify the parent fact exists and is active
+  const [parentFact] = await db.select({ id: factsTable.id })
+    .from(factsTable)
+    .where(and(eq(factsTable.id, parentFactId), eq(factsTable.isActive, true)))
+    .limit(1);
+  if (!parentFact) { res.status(404).json({ error: `Fact #${parentFactId} not found or inactive` }); return; }
+
+  const hasPronounsFlag = /\{(SUBJ|OBJ|POSS|POSS_PRO|REFL|Subj|Obj|Poss|Poss_Pro|Refl|[^|{}]+\|[^|{}]+)\}/.test(review.submittedText);
+  const canonicalText = renderCanonical(review.submittedText);
+  const [fact] = await db.insert(factsTable).values({
+    text: review.submittedText,
+    submittedById: review.submittedById ?? undefined,
+    hasPronouns: hasPronounsFlag,
+    canonicalText,
+    isActive: true,
+    parentId: parentFactId,
+  }).returning();
+
+  // Attach hashtags
+  const tags = (review.hashtags as string[] | null) ?? [];
+  for (const tag of tags) {
+    const name = tag.toLowerCase().replace(/[^a-z0-9_]/g, "");
+    if (!name) continue;
+    let [ht] = await db.select().from(hashtagsTable).where(eq(hashtagsTable.name, name)).limit(1);
+    if (!ht) { [ht] = await db.insert(hashtagsTable).values({ name }).returning(); }
+    const [joined] = await db.insert(factHashtagsTable).values({ factId: fact.id, hashtagId: ht.id }).onConflictDoNothing().returning();
+    if (joined) {
+      await db.update(hashtagsTable).set({ factCount: sql`${hashtagsTable.factCount} + 1` }).where(eq(hashtagsTable.id, ht.id));
+    }
+  }
+
+  await db.update(pendingReviewsTable).set({
+    status: "approved",
+    reviewedById: req.user.id,
+    approvedFactId: fact.id,
+    adminNote,
+    reviewedAt: new Date(),
+  }).where(eq(pendingReviewsTable.id, id));
+
+  void embedFactAsync(fact.id, fact.text, canonicalText);
+
+  if (review.submittedById) {
+    const [submitter] = await db.select({ email: usersTable.email, displayName: usersTable.displayName })
+      .from(usersTable).where(and(eq(usersTable.id, review.submittedById), eq(usersTable.isActive, true))).limit(1);
+
+    await logActivity({
+      userId: review.submittedById,
+      actionType: "review_approved",
+      message: `Your submitted fact was approved as a variant of fact #${parentFactId} and added to the database!`,
+      metadata: { reviewId: id, factId: fact.id, parentFactId, adminNote },
+    });
+
+    if (submitter?.email) {
+      const emailContent = buildReviewApprovedEmail({
+        username: submitter.displayName ?? "there",
+        submittedText: review.submittedText,
+        factId: fact.id,
+        adminNote,
+      });
+      void sendEmail({ to: submitter.email, ...emailContent });
+    }
+  }
+
+  res.json({ success: true, factId: fact.id, parentFactId });
+});
 
 router.post("/admin/reviews/:id/approve", requireAdmin, async (req: Request, res: Response) => {
   const id = parseInt(String(req.params["id"] ?? ""), 10);
