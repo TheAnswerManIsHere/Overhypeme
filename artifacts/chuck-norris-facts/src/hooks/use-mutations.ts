@@ -3,7 +3,6 @@ import {
   useCreateFact, 
   useRateFact, 
   useAddComment, 
-  useAddLink, 
   useDeleteLink,
   useRecordSearch,
   getListFactsQueryKey,
@@ -44,15 +43,6 @@ export function useAppMutations() {
     }
   });
 
-  const addLinkMutation = useAddLink({
-    mutation: {
-      onSuccess: (_, variables) => {
-        queryClient.invalidateQueries({ queryKey: getListLinksQueryKey(variables.factId) });
-        queryClient.invalidateQueries({ queryKey: getGetFactQueryKey(variables.factId) });
-      }
-    }
-  });
-
   const deleteLinkMutation = useDeleteLink({
     mutation: {
       onSuccess: (_, variables) => {
@@ -74,7 +64,6 @@ export function useAppMutations() {
     createFact: createFactMutation,
     rateFact: rateFactMutation,
     addComment: addCommentMutation,
-    addLink: addLinkMutation,
     deleteLink: deleteLinkMutation,
     recordSearch: recordSearchMutation
   };

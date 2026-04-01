@@ -300,18 +300,6 @@ export const ListLinksResponse = zod.object({
 });
 
 /**
- * @summary Add an external link to a fact
- */
-export const AddLinkParams = zod.object({
-  factId: zod.coerce.number(),
-});
-
-export const AddLinkBody = zod.object({
-  url: zod.string().url(),
-  title: zod.string().nullish(),
-});
-
-/**
  * @summary Delete an external link
  */
 export const DeleteLinkParams = zod.object({

@@ -8,12 +8,12 @@ import type { ExternalLink } from "@workspace/api-client-react";
 import { useAuth } from "@workspace/replit-auth-web";
 import { Layout } from "@/components/layout/Layout";
 import { Button } from "@/components/ui/Button";
-import { Textarea, Input } from "@/components/ui/Input";
+import { Textarea } from "@/components/ui/Input";
 import { useAppMutations } from "@/hooks/use-mutations";
 import { MemeBuilder } from "@/components/MemeBuilder";
 import { MerchButtons } from "@/components/MerchButtons";
 import { AdSlot } from "@/components/AdSlot";
-import { ThumbsUp, ThumbsDown, User, Link as LinkIcon, Youtube, Instagram, AlertCircle, Plus, Trash2, ImageIcon, GitBranch, Copy } from "lucide-react";
+import { ThumbsUp, ThumbsDown, User, Link as LinkIcon, Youtube, Instagram, AlertCircle, Trash2, ImageIcon, GitBranch, Copy } from "lucide-react";
 import { cn } from "@/components/ui/Button";
 import { usePersonName } from "@/hooks/use-person-name";
 import { renderFact } from "@/lib/render-fact";
@@ -26,7 +26,7 @@ export default function FactDetail() {
   const factId = parseInt(params?.id || "0", 10);
   const [, setLocation] = useLocation();
   const { isAuthenticated, user } = useAuth();
-  const { rateFact, addComment, addLink, deleteLink } = useAppMutations();
+  const { rateFact, addComment, deleteLink } = useAppMutations();
 
   const { data: fact, isLoading: factLoading, error: factError } = useGetFact(factId, {
     query: { queryKey: getGetFactQueryKey(factId), enabled: !!factId }
@@ -43,8 +43,6 @@ export default function FactDetail() {
   const { name, pronounSubject, pronounObject } = usePersonName();
   const [commentText, setCommentText] = useState("");
   const [captchaToken, setCaptchaToken] = useState("");
-  const [linkUrl, setLinkUrl] = useState("");
-  const [showAddLink, setShowAddLink] = useState(false);
   const [showMemeBuilder, setShowMemeBuilder] = useState(false);
 
   if (factLoading) return <Layout><div className="flex h-[50vh] items-center justify-center"><div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin" /></div></Layout>;
@@ -65,19 +63,6 @@ export default function FactDetail() {
       onSuccess: () => {
         setCommentText("");
         setCaptchaToken("");
-      }
-    });
-  };
-
-  const handleAddLink = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!isAuthenticated) return setLocation("/login");
-    if (!linkUrl.trim()) return;
-
-    addLink.mutate({ factId, data: { url: linkUrl } }, {
-      onSuccess: () => {
-        setLinkUrl("");
-        setShowAddLink(false);
       }
     });
   };
@@ -224,29 +209,7 @@ export default function FactDetail() {
           <div className="space-y-6">
             <div className="flex items-center justify-between border-b-2 border-border pb-2">
               <h3 className="text-xl font-display uppercase tracking-wide">Source Links</h3>
-              {isAuthenticated && !showAddLink && (
-                <Button variant="ghost" size="icon" className="h-8 w-8 text-primary" onClick={() => setShowAddLink(true)}>
-                  <Plus className="w-5 h-5" />
-                </Button>
-              )}
             </div>
-
-            {showAddLink && (
-              <form onSubmit={handleAddLink} className="bg-secondary p-4 rounded-sm border-2 border-primary/50 space-y-3">
-                <Input 
-                  placeholder="https://youtube.com/..." 
-                  value={linkUrl}
-                  onChange={e => setLinkUrl(e.target.value)}
-                  type="url"
-                  required
-                  className="bg-background text-sm h-10"
-                />
-                <div className="flex gap-2">
-                  <Button type="submit" size="sm" className="flex-1" isLoading={addLink.isPending}>SAVE</Button>
-                  <Button type="button" variant="outline" size="sm" onClick={() => setShowAddLink(false)}>CANCEL</Button>
-                </div>
-              </form>
-            )}
 
             <div className="space-y-3">
               {fact.links?.map(link => {

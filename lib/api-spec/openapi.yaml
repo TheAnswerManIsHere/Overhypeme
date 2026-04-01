@@ -381,35 +381,6 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/LinkListResponse"
-    post:
-      operationId: addLink
-      tags: [links]
-      summary: Add an external link to a fact
-      parameters:
-        - name: factId
-          in: path
-          required: true
-          schema:
-            type: integer
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/AddLinkRequest"
-      responses:
-        "201":
-          description: Link created
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ExternalLink"
-        "401":
-          description: Unauthorized
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorEnvelope"
 
   /facts/{factId}/links/{linkId}:
     delete:
@@ -1323,17 +1294,6 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/ExternalLink"
-
-    AddLinkRequest:
-      type: object
-      required: [url]
-      properties:
-        url:
-          type: string
-          format: uri
-        title:
-          type: string
-          nullable: true
 
     UserProfile:
       type: object

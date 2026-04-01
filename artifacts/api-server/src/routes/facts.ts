@@ -13,7 +13,7 @@ import {
   ListFactsQueryParams, CreateFactBody, GetFactParams,
   RateFactParams, RateFactBody,
   ListCommentsParams, ListCommentsQueryParams, AddCommentParams, AddCommentBody,
-  ListLinksParams, AddLinkParams, AddLinkBody, DeleteLinkParams,
+  ListLinksParams, DeleteLinkParams,
 } from "@workspace/api-zod";
 
 const router: IRouter = Router();
@@ -51,16 +51,6 @@ async function verifyCaptcha(token: string): Promise<boolean> {
   } catch {
     return false;
   }
-}
-
-function detectPlatform(url: string): string | null {
-  if (url.includes("youtube.com") || url.includes("youtu.be")) return "YouTube";
-  if (url.includes("tiktok.com")) return "TikTok";
-  if (url.includes("instagram.com")) return "Instagram";
-  if (url.includes("vimeo.com")) return "Vimeo";
-  if (url.includes("twitter.com") || url.includes("x.com")) return "X/Twitter";
-  if (url.includes("facebook.com")) return "Facebook";
-  return null;
 }
 
 async function buildFactSummaries(facts: (typeof factsTable.$inferSelect)[], userId?: string) {
@@ -363,19 +353,6 @@ router.get("/facts/:factId/links", async (req: Request, res: Response) => {
   const rows = await db.select().from(externalLinksTable).where(eq(externalLinksTable.factId, parsed.data.factId)).orderBy(desc(externalLinksTable.createdAt));
   const links = rows.map((l) => ({ id: l.id, factId: l.factId, url: l.url, title: l.title ?? null, platform: l.platform ?? null, addedBy: null, createdAt: l.createdAt.toISOString() }));
   res.json({ links });
-});
-
-// POST /facts/:factId/links
-router.post("/facts/:factId/links", async (req: Request, res: Response) => {
-  if (!req.isAuthenticated()) { res.status(401).json({ error: "Unauthorized" }); return; }
-  const paramsParsed = AddLinkParams.safeParse(req.params);
-  const bodyParsed = AddLinkBody.safeParse(req.body);
-  if (!paramsParsed.success || !bodyParsed.success) { res.status(400).json({ error: "Invalid input" }); return; }
-  const factId = paramsParsed.data.factId;
-  const { url, title } = bodyParsed.data;
-  const platform = detectPlatform(url);
-  const [link] = await db.insert(externalLinksTable).values({ factId, url, title: title ?? null, platform, addedById: req.user.id }).returning();
-  res.status(201).json({ id: link.id, factId: link.factId, url: link.url, title: link.title ?? null, platform: link.platform ?? null, addedBy: req.user.firstName ?? null, addedById: req.user.id, createdAt: link.createdAt.toISOString() });
 });
 
 // DELETE /facts/:factId/links/:linkId
