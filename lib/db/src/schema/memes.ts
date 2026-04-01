@@ -9,6 +9,8 @@ export const memesTable = pgTable("memes", {
   imageUrl: text("image_url").notNull(),
   permalinkSlug: varchar("permalink_slug", { length: 16 }).notNull().unique(),
   textOptions: jsonb("text_options"),
+  /** Populated for photo-based memes; null means gradient template background. */
+  imageSource: jsonb("image_source"),
   createdById: varchar("created_by_id").references(() => usersTable.id),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
