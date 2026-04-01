@@ -4,7 +4,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { trackPageView } from "@/lib/analytics";
-import { PersonNameProvider } from "@/hooks/use-person-name";
+import { PersonNameProvider, usePersonName } from "@/hooks/use-person-name";
 
 // Pages
 import Home from "@/pages/Home";
@@ -44,6 +44,34 @@ function HashtagsRedirect() {
   return null;
 }
 
+/**
+ * Reads ?displayName=...&pronouns=... URL params written by the share link
+ * and pre-populates the viewer's name/pronouns context, then strips the
+ * params from the URL so they don't persist on refresh.
+ */
+function ShareParamReader() {
+  const { setName, setPronouns } = usePersonName();
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const displayName = params.get("displayName");
+    const pronouns   = params.get("pronouns");
+    if (!displayName && !pronouns) return;
+
+    if (displayName) setName(displayName);
+    if (pronouns)   setPronouns(pronouns);
+
+    params.delete("displayName");
+    params.delete("pronouns");
+    const remaining = params.toString();
+    const clean = remaining ? `${window.location.pathname}?${remaining}` : window.location.pathname;
+    window.history.replaceState({}, "", clean);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  return null;
+}
+
 function GAPageTracker() {
   const [location] = useLocation();
   useEffect(() => {
@@ -56,6 +84,7 @@ function Router() {
   return (
     <>
       <GAPageTracker />
+      <ShareParamReader />
       <Switch>
         <Route path="/" component={Home} />
         <Route path="/search" component={Search} />

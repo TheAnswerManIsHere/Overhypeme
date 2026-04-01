@@ -1,11 +1,12 @@
 import { Link, useLocation } from "wouter";
-import { Search, Plus, User, LogIn, LogOut, Menu, X, Star, ShieldCheck, ShieldOff, Activity } from "lucide-react";
+import { Search, Plus, User, LogIn, LogOut, Menu, X, Star, ShieldCheck, ShieldOff, Activity, Share2 } from "lucide-react";
 import { useAuth } from "@workspace/replit-auth-web";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { useState, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { NameTag } from "@/components/NameTag";
+import { ShareModal } from "@/components/ShareModal";
 
 export function Navbar() {
   const { user, isAuthenticated, logout } = useAuth();
@@ -13,6 +14,7 @@ export function Navbar() {
   const [searchQuery, setSearchQuery] = useState("");
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [togglingAdmin, setTogglingAdmin] = useState(false);
+  const [shareOpen, setShareOpen] = useState(false);
 
   // ── Secret dev admin login: triple-click the logo ──────────────────────────
   const logoClickCount  = useRef(0);
@@ -107,6 +109,14 @@ export function Navbar() {
 
           {/* Desktop Actions */}
           <div className="hidden md:flex items-center gap-4">
+            <Button
+              variant="primary"
+              size="sm"
+              onClick={() => setShareOpen(true)}
+              className="gap-2 whitespace-nowrap font-bold uppercase tracking-wider shadow-[0_0_18px_rgba(249,115,22,0.45)] hover:shadow-[0_0_24px_rgba(249,115,22,0.7)] transition-shadow"
+            >
+              <Share2 className="w-4 h-4" /> SHARE THIS
+            </Button>
             <Button variant="outline" size="sm" onClick={() => setLocation('/submit')} className="hidden lg:flex gap-2 whitespace-nowrap">
               <Plus className="w-4 h-4" /> SUBMIT FACT
             </Button>
@@ -194,6 +204,13 @@ export function Navbar() {
                   className="bg-secondary"
                 />
               </form>
+              <Button
+                variant="primary"
+                className="w-full gap-2 font-bold uppercase tracking-wider shadow-[0_0_18px_rgba(249,115,22,0.4)]"
+                onClick={() => { setMobileMenuOpen(false); setShareOpen(true); }}
+              >
+                <Share2 className="w-5 h-5" /> SHARE THIS
+              </Button>
               <Button variant="outline" className="w-full gap-2" onClick={() => { setLocation('/submit'); setMobileMenuOpen(false); }}>
                 <Plus className="w-5 h-5" /> SUBMIT NEW FACT
               </Button>
@@ -246,6 +263,8 @@ export function Navbar() {
           </motion.div>
         )}
       </AnimatePresence>
+
+      <ShareModal open={shareOpen} onClose={() => setShareOpen(false)} />
     </nav>
   );
 }
