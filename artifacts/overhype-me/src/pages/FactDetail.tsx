@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import { useRoute, Link, useLocation } from "wouter";
 import { format } from "date-fns";
 import HCaptcha from "@hcaptcha/react-hcaptcha";
@@ -13,7 +13,7 @@ import { useAppMutations } from "@/hooks/use-mutations";
 import { MemeBuilder } from "@/components/MemeBuilder";
 import { MerchButtons } from "@/components/MerchButtons";
 import { AdSlot } from "@/components/AdSlot";
-import { ThumbsUp, ThumbsDown, User, Link as LinkIcon, Youtube, Instagram, AlertCircle, Trash2, ImageIcon, GitBranch, ArrowLeft } from "lucide-react";
+import { ThumbsUp, ThumbsDown, User, Link as LinkIcon, Youtube, Instagram, AlertCircle, Trash2, ImageIcon, GitBranch, ArrowLeft, RefreshCw } from "lucide-react";
 import { cn } from "@/components/ui/Button";
 import { usePersonName } from "@/hooks/use-person-name";
 import { renderFact } from "@/lib/render-fact";
@@ -117,6 +117,36 @@ function VariantFactCard({ id, useCase }: { id: number; useCase: string | null }
   );
 }
 
+// ── Pexels image helpers ──────────────────────────────────────────────────────
+
+interface FactPexelsImages {
+  fact_type: "action" | "abstract";
+  male:    number[];
+  female:  number[];
+  neutral: number[];
+}
+
+function pexelsVariant(pronouns: string): "male" | "female" | "neutral" {
+  const subject = pronouns.split(/[/|]/)[0]?.toLowerCase() ?? "";
+  if (subject === "he") return "male";
+  if (subject === "she") return "female";
+  return "neutral";
+}
+
+function pexelsUrl(photoId: number, width = 1260, height = 630): string {
+  return `https://images.pexels.com/photos/${photoId}/pexels-photo-${photoId}.jpeg?auto=compress&cs=tinysrgb&w=${width}&h=${height}&fit=crop&dpr=1`;
+}
+
+const PREF_KEY = (factId: number) => `pref_img_${factId}`;
+function loadStoredIndex(factId: number) {
+  try { const n = parseInt(localStorage.getItem(PREF_KEY(factId)) ?? "", 10); return isNaN(n) ? 0 : n; } catch { return 0; }
+}
+function saveStoredIndex(factId: number, idx: number) {
+  try { localStorage.setItem(PREF_KEY(factId), String(idx)); } catch { /* ignore */ }
+}
+
+// ── FactDetail ────────────────────────────────────────────────────────────────
+
 export default function FactDetail() {
   const [, params] = useRoute("/facts/:id");
   const factId = parseInt(params?.id || "0", 10);
@@ -141,6 +171,31 @@ export default function FactDetail() {
   const [captchaToken, setCaptchaToken] = useState("");
   const [showMemeBuilder, setShowMemeBuilder] = useState(false);
   const [commentSubmitted, setCommentSubmitted] = useState(false);
+
+  // ── Pexels background image ────────────────────────────────────────────────
+  const pexelsImages = ((fact as unknown as { pexelsImages?: FactPexelsImages | null })?.pexelsImages) ?? null;
+  const imgVariant = pexelsVariant(pronouns);
+  const photoIds = pexelsImages ? (pexelsImages[imgVariant] ?? []) : [];
+  const [imgIndex, setImgIndex] = useState(() =>
+    photoIds.length > 0 ? loadStoredIndex(factId) % photoIds.length : 0
+  );
+  const currentPhotoId = photoIds[imgIndex] ?? null;
+
+  const handleRotateImage = useCallback(() => {
+    if (!photoIds.length) return;
+    const next = (imgIndex + 1) % photoIds.length;
+    setImgIndex(next);
+    saveStoredIndex(factId, next);
+    // Persist to server for logged-in users (fire-and-forget)
+    if (isAuthenticated) {
+      fetch(`/api/facts/${factId}/image-preference`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ imageIndex: next }),
+      }).catch(() => { /* non-critical */ });
+    }
+  }, [imgIndex, photoIds, factId, isAuthenticated]);
 
   if (factLoading) return <Layout><div className="flex h-[50vh] items-center justify-center"><div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin" /></div></Layout>;
   if (factError || !fact) return <Layout><div className="max-w-2xl mx-auto mt-20 p-8 bg-destructive/10 border-2 border-destructive text-center"><AlertCircle className="w-16 h-16 text-destructive mx-auto mb-4"/><h2 className="text-3xl font-display text-destructive uppercase">Classified Record Not Found</h2></div></Layout>;
@@ -198,12 +253,36 @@ export default function FactDetail() {
         )}
 
         {/* Main Fact Card */}
-        <div className="bg-card border-l-8 border-primary p-8 md:p-12 shadow-2xl relative mb-12">
-          <div className="absolute top-4 right-4 text-muted-foreground/30 font-display text-8xl font-bold italic select-none pointer-events-none -mt-4">
+        <div className="bg-card border-l-8 border-primary p-8 md:p-12 shadow-2xl relative mb-12 overflow-hidden">
+          {/* Pexels background image */}
+          {currentPhotoId && (
+            <div className="absolute inset-0 z-0" aria-hidden="true">
+              <img
+                src={pexelsUrl(currentPhotoId)}
+                alt=""
+                className="w-full h-full object-cover opacity-10 transition-opacity duration-500"
+              />
+              <div className="absolute inset-0 bg-gradient-to-t from-card via-card/80 to-card/50" />
+            </div>
+          )}
+
+          {/* Rotate button */}
+          {photoIds.length > 1 && (
+            <button
+              onClick={handleRotateImage}
+              title="Try another background image"
+              className="absolute top-4 right-28 z-20 flex items-center gap-1.5 px-2.5 py-1.5 rounded-sm bg-black/30 text-white/40 hover:text-primary hover:bg-black/50 transition-all text-xs font-bold font-display tracking-wider uppercase"
+            >
+              <RefreshCw className="w-3 h-3" />
+              <span className="hidden sm:inline">Photo</span>
+            </button>
+          )}
+
+          <div className="absolute top-4 right-4 text-muted-foreground/30 font-display text-8xl font-bold italic select-none pointer-events-none -mt-4 z-10">
             #{fact.rank ?? fact.id}
           </div>
 
-          <h1 className="text-3xl md:text-5xl font-bold leading-tight text-foreground relative z-10 mb-8">
+          <h1 className="text-3xl md:text-5xl font-bold leading-tight text-foreground relative z-10 mb-8 mt-4">
             "{renderedText}"
           </h1>
 

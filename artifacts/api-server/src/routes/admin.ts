@@ -5,6 +5,7 @@ import { eq, desc, count, ilike, sql, and, or, inArray } from "drizzle-orm";
 import { getSessionId, getSession, updateSession } from "../lib/auth";
 import { isAdminById } from "./auth";
 import { backfillEmbeddings } from "../lib/embeddings";
+import { runFactImagePipeline } from "../lib/factImagePipeline";
 import { logActivity } from "../lib/activity";
 import bcrypt from "bcryptjs";
 
@@ -256,6 +257,12 @@ router.patch("/admin/facts/:id", requireAdmin, async (req: Request, res: Respons
 
   const [updated] = await db.update(factsTable).set(updates).where(eq(factsTable.id, id)).returning();
   if (!updated) { res.status(404).json({ error: "Fact not found" }); return; }
+
+  // Re-run image pipeline when the fact text changes and it's a root fact
+  if (text !== undefined && updated.parentId === null) {
+    void runFactImagePipeline(updated.id, updated.text);
+  }
+
   const { embedding: _emb, ...factRow } = updated;
   res.json({ success: true, fact: { ...factRow, hasEmbedding: updated.embedding !== null } });
 });
@@ -525,6 +532,18 @@ async function requireAdminOrApiKey(req: Request, res: Response, next: NextFunct
   }
   return requireAdmin(req, res, next);
 }
+
+// POST /admin/facts/:id/refresh-images — manually re-run the image pipeline for one fact
+router.post("/admin/facts/:id/refresh-images", requireAdmin, async (req: Request, res: Response) => {
+  const id = parseInt(String(req.params["id"] ?? ""), 10);
+  if (isNaN(id)) { res.status(400).json({ error: "Invalid fact id" }); return; }
+  const [fact] = await db.select({ id: factsTable.id, text: factsTable.text, parentId: factsTable.parentId })
+    .from(factsTable).where(eq(factsTable.id, id)).limit(1);
+  if (!fact) { res.status(404).json({ error: "Fact not found" }); return; }
+  if (fact.parentId !== null) { res.status(400).json({ error: "Images are only stored on root facts, not variants." }); return; }
+  void runFactImagePipeline(fact.id, fact.text);
+  res.json({ success: true, message: "Image pipeline started. Results will appear shortly." });
+});
 
 router.post("/admin/facts/backfill-embeddings", requireAdminOrApiKey, async (_req: Request, res: Response) => {
   try {

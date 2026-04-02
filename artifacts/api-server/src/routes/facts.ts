@@ -5,11 +5,12 @@ import { embedFactAsync } from "../lib/embeddings";
 import { renderCanonical } from "../lib/renderCanonical";
 import { logActivity } from "../lib/activity";
 import { validateTemplate } from "../lib/templateGrammar";
+import { runFactImagePipeline } from "../lib/factImagePipeline";
 import { db } from "@workspace/db";
 import {
   factsTable, hashtagsTable, factHashtagsTable,
   ratingsTable, commentsTable, externalLinksTable, usersTable,
-  pendingReviewsTable,
+  pendingReviewsTable, userFactPreferencesTable,
 } from "@workspace/db/schema";
 import { stripeStorage } from "../lib/stripeStorage";
 import { eq, sql, desc, asc, ilike, and, inArray, isNull } from "drizzle-orm";
@@ -89,6 +90,7 @@ async function buildFactSummaries(facts: (typeof factsTable.$inferSelect)[], use
     submittedByImage: f.submittedById ? (sMap.get(f.submittedById)?.profileImageUrl ?? null) : null,
     userRating: userId ? (rMap.get(f.id) ?? null) : null,
     createdAt: f.createdAt.toISOString(),
+    pexelsImages: (f.pexelsImages as import("../lib/factImagePipeline").FactPexelsImages | null) ?? null,
   }));
 }
 
@@ -202,6 +204,12 @@ router.post("/facts", requireAdmin, async (req: Request, res: Response) => {
   // Generate and persist the pgvector embedding in the background (non-blocking)
   // Embed from canonicalText so duplicate checks work against plain-English queries
   void embedFactAsync(fact.id, fact.text, canonicalText);
+
+  // Populate Pexels background images via LLM keyword extraction (non-blocking)
+  // Only runs on root facts; variants inherit the parent's image pool.
+  if (!parsed.data.parentId) {
+    void runFactImagePipeline(fact.id, fact.text);
+  }
 
   // Log to activity feed
   void logActivity({
@@ -361,6 +369,36 @@ router.get("/facts/:factId/links", async (req: Request, res: Response) => {
   const rows = await db.select().from(externalLinksTable).where(eq(externalLinksTable.factId, parsed.data.factId)).orderBy(desc(externalLinksTable.createdAt));
   const links = rows.map((l) => ({ id: l.id, factId: l.factId, url: l.url, title: l.title ?? null, platform: l.platform ?? null, addedBy: null, createdAt: l.createdAt.toISOString() }));
   res.json({ links });
+});
+
+// GET /facts/:factId/image-preference — authenticated user's saved image index
+router.get("/facts/:factId/image-preference", async (req: Request, res: Response) => {
+  if (!req.isAuthenticated()) { res.json({ imageIndex: 0 }); return; }
+  const factId = parseInt(String(req.params["factId"] ?? ""), 10);
+  if (isNaN(factId)) { res.status(400).json({ error: "Invalid factId" }); return; }
+  const [pref] = await db
+    .select({ imageIndex: userFactPreferencesTable.imageIndex })
+    .from(userFactPreferencesTable)
+    .where(and(eq(userFactPreferencesTable.userId, req.user.id), eq(userFactPreferencesTable.factId, factId)))
+    .limit(1);
+  res.json({ imageIndex: pref?.imageIndex ?? 0 });
+});
+
+// PUT /facts/:factId/image-preference — save authenticated user's image index
+router.put("/facts/:factId/image-preference", async (req: Request, res: Response) => {
+  if (!req.isAuthenticated()) { res.status(401).json({ error: "Unauthorized" }); return; }
+  const factId = parseInt(String(req.params["factId"] ?? ""), 10);
+  if (isNaN(factId)) { res.status(400).json({ error: "Invalid factId" }); return; }
+  const imageIndex = parseInt(String((req.body as Record<string, unknown>)["imageIndex"] ?? "0"), 10);
+  if (isNaN(imageIndex) || imageIndex < 0 || imageIndex > 99) { res.status(400).json({ error: "Invalid imageIndex" }); return; }
+  await db
+    .insert(userFactPreferencesTable)
+    .values({ userId: req.user.id, factId, imageIndex })
+    .onConflictDoUpdate({
+      target: [userFactPreferencesTable.userId, userFactPreferencesTable.factId],
+      set: { imageIndex, updatedAt: new Date() },
+    });
+  res.json({ success: true, imageIndex });
 });
 
 // DELETE /facts/:factId/links/:linkId
