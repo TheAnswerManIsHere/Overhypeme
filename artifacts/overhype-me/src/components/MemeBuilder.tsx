@@ -8,6 +8,7 @@ import {
   type DragEvent,
 } from "react";
 import { Link } from "wouter";
+import { usePersonName } from "@/hooks/use-person-name";
 import { useListMemeTemplates } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@workspace/replit-auth-web";
@@ -275,6 +276,11 @@ interface FactPexelsImages {
   male:    number[];
   female:  number[];
   neutral: number[];
+  keywords?: {
+    male:    string;
+    female:  string;
+    neutral: string;
+  };
 }
 
 interface MemeBuilderProps {
@@ -291,6 +297,7 @@ export function MemeBuilder({ factId, factText, pexelsImages, onClose }: MemeBui
     user?: { membershipTier?: string };
   };
   const isPremium = user?.membershipTier === "premium";
+  const { pronouns } = usePersonName();
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -301,6 +308,13 @@ export function MemeBuilder({ factId, factText, pexelsImages, onClose }: MemeBui
 
   const pexelsCdnUrl = (photoId: number, w = 940, h = 500) =>
     `https://images.pexels.com/photos/${photoId}/pexels-photo-${photoId}.jpeg?auto=compress&cs=tinysrgb&w=${w}&h=${h}&fit=crop&dpr=1`;
+
+  const inferredGender = useMemo<StockGender>(() => {
+    const p = (pronouns ?? "").toLowerCase();
+    if (p.startsWith("he")) return "man";
+    if (p.startsWith("she")) return "woman";
+    return "person";
+  }, [pronouns]);
 
   // Image source state
   const [imageMode, setImageMode] = useState<ImageMode>("gradient");
@@ -675,7 +689,13 @@ export function MemeBuilder({ factId, factText, pexelsImages, onClose }: MemeBui
                   </ModeTab>
                   <ModeTab
                     active={imageMode === "stock"}
-                    onClick={() => setImageMode("stock")}
+                    onClick={() => {
+                      setImageMode("stock");
+                      if (!stockGender) {
+                        setStockGender(inferredGender);
+                        fetchStockPhoto(inferredGender);
+                      }
+                    }}
                   >
                     Stock Photo
                   </ModeTab>
@@ -727,25 +747,11 @@ export function MemeBuilder({ factId, factText, pexelsImages, onClose }: MemeBui
                 {/* Stock photo mode */}
                 {imageMode === "stock" && (
                   <div className="space-y-3">
-                    {/* Gender tabs */}
-                    <div className="flex gap-2">
-                      {(["man", "woman", "person"] as StockGender[]).map(g => (
-                        <button
-                          key={g}
-                          onClick={() => {
-                            setStockGender(g);
-                            fetchStockPhoto(g);
-                          }}
-                          className={`flex-1 py-1.5 text-xs font-bold uppercase tracking-wider border-2 transition-all ${
-                            stockGender === g
-                              ? "border-primary bg-primary/15 text-primary"
-                              : "border-border text-muted-foreground hover:border-primary/40 hover:text-foreground"
-                          }`}
-                        >
-                          {g}
-                        </button>
-                      ))}
-                    </div>
+                    {stockGender && (
+                      <p className="text-[10px] font-display uppercase tracking-widest text-muted-foreground">
+                        Showing: <span className="text-primary">{stockGender}</span> (from {pronouns || "they/them"} pronouns)
+                      </p>
+                    )}
 
                     {/* Pre-fetched thumbnail gallery */}
                     {prefetchedIds.length > 0 && (
@@ -777,6 +783,13 @@ export function MemeBuilder({ factId, factText, pexelsImages, onClose }: MemeBui
                           ))}
                         </div>
                       </div>
+                    )}
+
+                    {/* Debug: show search keywords */}
+                    {pexelsImages?.keywords && stockGender && (
+                      <p className="text-[10px] text-muted-foreground/60 italic border border-dashed border-border/50 px-2 py-1 rounded-sm">
+                        Search: "{pexelsImages.keywords[GENDER_TO_VARIANT[stockGender]]}"
+                      </p>
                     )}
 
                     {/* Shuffle for random photo */}

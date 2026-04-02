@@ -1,7 +1,7 @@
 import { Router, type IRouter, type Request, type Response, type NextFunction } from "express";
 import { db, usersTable } from "@workspace/db";
 import { factsTable, commentsTable } from "@workspace/db/schema";
-import { eq, desc, count, ilike, sql, and, or, inArray } from "drizzle-orm";
+import { eq, desc, count, ilike, sql, and, or, inArray, isNull } from "drizzle-orm";
 import { getSessionId, getSession, updateSession } from "../lib/auth";
 import { isAdminById } from "./auth";
 import { backfillEmbeddings } from "../lib/embeddings";
@@ -543,6 +543,22 @@ router.post("/admin/facts/:id/refresh-images", requireAdmin, async (req: Request
   if (fact.parentId !== null) { res.status(400).json({ error: "Images are only stored on root facts, not variants." }); return; }
   void runFactImagePipeline(fact.id, fact.text);
   res.json({ success: true, message: "Image pipeline started. Results will appear shortly." });
+});
+
+router.post("/admin/facts/backfill-images", requireAdminOrApiKey, async (_req: Request, res: Response) => {
+  try {
+    const rootFacts = await db.select({ id: factsTable.id, text: factsTable.text })
+      .from(factsTable).where(isNull(factsTable.parentId));
+    let triggered = 0;
+    for (const fact of rootFacts) {
+      void runFactImagePipeline(fact.id, fact.text);
+      triggered++;
+    }
+    res.json({ success: true, triggered });
+  } catch (err) {
+    console.error("[admin] Backfill images error:", err);
+    res.status(500).json({ error: "Backfill failed", details: String(err) });
+  }
 });
 
 router.post("/admin/facts/backfill-embeddings", requireAdminOrApiKey, async (_req: Request, res: Response) => {
