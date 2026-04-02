@@ -105,7 +105,7 @@ async function main() {
   const dbUrl = process.env.DATABASE_URL;
   if (!dbUrl) { console.error("DATABASE_URL is not set"); process.exit(1); }
 
-  const sql = postgres(dbUrl, { ssl: "require", max: 2 });
+  const sql = postgres(dbUrl, { ssl: false, max: 2 });
 
   // Fetch root facts that need processing
   const rows = ALL

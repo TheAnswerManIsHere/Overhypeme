@@ -16,6 +16,7 @@
     "typescript": "~5.9.2"
   },
   "dependencies": {
+    "postgres": "^3.4.8",
     "stripe": "20.0.0",
     "stripe-replit-sync": "1.0.0"
   }
