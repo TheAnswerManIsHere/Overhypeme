@@ -12,10 +12,9 @@
  * - Word-wrapped to fit within 85% of the 1024px width
  */
 
-import { createCanvas, loadImage, registerFont } from "@napi-rs/canvas";
+import { createCanvas, loadImage, GlobalFonts } from "@napi-rs/canvas";
 import path from "path";
 import { fileURLToPath } from "url";
-import { Readable } from "stream";
 import { ObjectStorageService } from "./objectStorage";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -24,7 +23,7 @@ const FONT_PATH = path.resolve(__dirname, "assets/fonts/Anton-Regular.ttf");
 let fontRegistered = false;
 function ensureFontRegistered() {
   if (!fontRegistered) {
-    registerFont(FONT_PATH, { family: "Anton" });
+    GlobalFonts.registerFromPath(FONT_PATH, "Anton");
     fontRegistered = true;
   }
 }
