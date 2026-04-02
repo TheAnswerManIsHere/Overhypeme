@@ -514,16 +514,16 @@ export function MemeBuilder({ factId, factText, pexelsImages, onClose }: MemeBui
     setIsBackfilling(true);
     setBackfillResult(null);
     try {
-      const res = await fetch("/api/admin/facts/backfill-images", { method: "POST", credentials: "include" });
-      const data = await res.json() as { triggered?: number; error?: string };
-      if (!res.ok) setBackfillResult({ error: data.error ?? "Backfill failed" });
-      else setBackfillResult({ triggered: data.triggered });
+      const res = await fetch(`/api/admin/facts/${factId}/refresh-images`, { method: "POST", credentials: "include" });
+      const data = await res.json() as { success?: boolean; message?: string; error?: string };
+      if (!res.ok) setBackfillResult({ error: data.error ?? "Regeneration failed" });
+      else setBackfillResult({ triggered: 1 });
     } catch {
       setBackfillResult({ error: "Network error" });
     } finally {
       setIsBackfilling(false);
     }
-  }, [isBackfilling]);
+  }, [isBackfilling, factId]);
 
   const fetchRandomStockPhoto = useCallback(async () => {
     if (!isAuthenticated || !stockGender || photoLibraryExhausted || rateLimitedUntil) return;
@@ -911,13 +911,13 @@ export function MemeBuilder({ factId, factText, pexelsImages, onClose }: MemeBui
                           className="flex items-center gap-1.5 text-[11px] font-medium text-amber-700 hover:text-amber-900 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                         >
                           <RefreshCw className={`w-3 h-3 ${isBackfilling ? "animate-spin" : ""}`} />
-                          {isBackfilling ? "Regenerating…" : "Regenerate All Images"}
+                          {isBackfilling ? "Regenerating…" : "Regenerate Images"}
                         </button>
                         {backfillResult && (
                           <p className={`text-[10px] ${backfillResult.error ? "text-destructive" : "text-green-600"}`}>
                             {backfillResult.error
                               ? `Error: ${backfillResult.error}`
-                              : `Started for ${backfillResult.triggered} fact${backfillResult.triggered === 1 ? "" : "s"} — runs in background.`}
+                              : "Regeneration started — new photos will appear shortly."}
                           </p>
                         )}
                       </div>
