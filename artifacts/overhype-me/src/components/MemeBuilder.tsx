@@ -579,7 +579,7 @@ export function MemeBuilder({ factId, factText, onClose }: MemeBuilderProps) {
         <div className="p-4 md:p-5 space-y-5">
 
           {/* ── Canvas preview ── */}
-          <div className="relative">
+          <div className="relative sticky top-14 z-10 bg-card pb-2">
             <canvas
               ref={canvasRef}
               width={CANVAS_W}
