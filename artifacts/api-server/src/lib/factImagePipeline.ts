@@ -2,8 +2,13 @@
  * Fact Image Pipeline
  *
  * For each fact template, calls gpt-4o-mini to extract contextually relevant
- * Pexels search keywords (three gender variants), then fetches the top 5 photo
- * IDs per variant and stores them on the fact record.
+ * Pexels search keywords (three gender variants), then fetches up to 80 photos
+ * per variant in a single request (Pexels max per_page) and stores them on the
+ * fact record.
+ *
+ * One HTTP request per gender variant — no retry loops, no deduplication,
+ * no exhaustion tracking. The full photo library is seeded at fact creation
+ * time. The client shuffles locally and cycles through the stored list.
  *
  * Runs async (non-blocking) on fact create/edit. Should never throw — callers
  * fire-and-forget with void.
@@ -18,16 +23,13 @@ import { eq } from "drizzle-orm";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-export interface PexelsPhotoEntry {
-  id: number;
-  url: string;
-}
+export type { PexelsPhotoEntry };
 
 export interface FactPexelsImages {
   fact_type: "action" | "abstract";
-  male:    number[] | PexelsPhotoEntry[];
-  female:  number[] | PexelsPhotoEntry[];
-  neutral: number[] | PexelsPhotoEntry[];
+  male:    PexelsPhotoEntry[];
+  female:  PexelsPhotoEntry[];
+  neutral: PexelsPhotoEntry[];
   keywords?: {
     male:    string;
     female:  string;
@@ -89,7 +91,6 @@ async function extractImageKeywords(factText: string): Promise<LLMKeywordResult>
   const factType = parsed.fact_type === "abstract" ? "abstract" : "action";
   const keywords = parsed.keywords ?? {};
 
-  // Fallbacks if the model omits a variant
   const fallback = factType === "abstract"
     ? "dramatic cinematic landscape atmosphere"
     : "person professional portrait";
@@ -108,7 +109,8 @@ async function extractImageKeywords(factText: string): Promise<LLMKeywordResult>
 
 /**
  * Runs the full LLM → Pexels pipeline for a single fact and persists the result.
- * Only operates on root facts (parentId = null) — variants inherit the parent's images.
+ * Fetches up to 80 photos per gender variant in one request each (Pexels max).
+ * Only operates on root facts (parentId = null) — variants inherit parent images.
  * Safe to call fire-and-forget: catches all errors internally.
  */
 export async function runFactImagePipeline(factId: number, factText: string): Promise<void> {
@@ -116,11 +118,11 @@ export async function runFactImagePipeline(factId: number, factText: string): Pr
     // 1. Extract keywords via OpenAI
     const { fact_type, keywords } = await extractImageKeywords(factText);
 
-    // 2. Search Pexels for each gender variant in parallel (store URLs, not just IDs)
+    // 2. Fetch up to 80 photos per variant in parallel — one request each
     const [male, female, neutral] = await Promise.all([
-      searchPhotos(keywords.male,    5, 1),
-      searchPhotos(keywords.female,  5, 1),
-      searchPhotos(keywords.neutral, 5, 1),
+      searchPhotos(keywords.male,    80),
+      searchPhotos(keywords.female,  80),
+      searchPhotos(keywords.neutral, 80),
     ]);
 
     const pexelsImages: FactPexelsImages = { fact_type, male, female, neutral, keywords };
@@ -131,8 +133,7 @@ export async function runFactImagePipeline(factId: number, factText: string): Pr
       .set({ pexelsImages })
       .where(eq(factsTable.id, factId));
 
-    const total = male.length + female.length + neutral.length;
-    console.log(`[factImagePipeline] fact ${factId}: ${total} photo IDs (type=${fact_type}, keywords=${JSON.stringify(keywords)})`);
+    console.log(`[factImagePipeline] fact ${factId}: ${male.length}m/${female.length}f/${neutral.length}n photos (type=${fact_type}, keywords=${JSON.stringify(keywords)})`);
   } catch (err) {
     console.error(`[factImagePipeline] Failed for fact ${factId}:`, err);
   }
