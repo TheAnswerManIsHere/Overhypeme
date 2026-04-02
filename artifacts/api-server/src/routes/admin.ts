@@ -562,6 +562,40 @@ router.post("/admin/facts/backfill-images", requireAdminOrApiKey, async (_req: R
   }
 });
 
+router.post("/admin/facts/backfill-ai-memes", requireAdminOrApiKey, async (req: Request, res: Response) => {
+  try {
+    const force = String((req.query as Record<string, unknown>)["force"] ?? "") === "true";
+
+    let rootFacts;
+    if (force) {
+      rootFacts = await db
+        .select({ id: factsTable.id, text: factsTable.text })
+        .from(factsTable)
+        .where(isNull(factsTable.parentId));
+    } else {
+      rootFacts = await db
+        .select({ id: factsTable.id, text: factsTable.text })
+        .from(factsTable)
+        .where(and(isNull(factsTable.parentId), isNull(factsTable.aiMemeImages)));
+    }
+
+    const total = rootFacts.length;
+    res.json({ success: true, queued: total, message: `Processing ${total} facts sequentially in the background.` });
+
+    // Process sequentially so we don't hammer OpenAI rate limits
+    void (async () => {
+      console.log(`[admin] backfill-ai-memes: starting ${total} facts (force=${force})`);
+      for (const fact of rootFacts) {
+        await generateAiMemeBackgrounds(fact.id, fact.text);
+      }
+      console.log(`[admin] backfill-ai-memes: done — processed ${total} facts`);
+    })();
+  } catch (err) {
+    console.error("[admin] Backfill AI memes error:", err);
+    res.status(500).json({ error: "Backfill failed", details: String(err) });
+  }
+});
+
 router.post("/admin/facts/backfill-embeddings", requireAdminOrApiKey, async (_req: Request, res: Response) => {
   try {
     const result = await backfillEmbeddings();
