@@ -12,7 +12,7 @@ import { useAppMutations } from "@/hooks/use-mutations";
 import { MemeBuilder } from "@/components/MemeBuilder";
 import { MerchButtons } from "@/components/MerchButtons";
 import { AdSlot } from "@/components/AdSlot";
-import { ThumbsUp, ThumbsDown, User, AlertCircle, ImageIcon, GitBranch, ArrowLeft, Crown } from "lucide-react";
+import { ThumbsUp, ThumbsDown, User, AlertCircle, ImageIcon, GitBranch, ArrowLeft, Crown, Flame } from "lucide-react";
 import { cn } from "@/components/ui/Button";
 import { usePersonName } from "@/hooks/use-person-name";
 import { renderFact } from "@/lib/render-fact";
@@ -96,12 +96,12 @@ function VariantFactCard({ id, useCase }: { id: number; useCase: string | null }
           <span>{fact.downvotes}</span>
         </Button>
         <Button
-          variant="outline"
+          variant="primary"
           size="sm"
           onClick={() => setShowMemeBuilder(true)}
-          className="gap-2 border-dashed hover:border-primary hover:text-primary"
+          className="gap-2"
         >
-          <ImageIcon className="w-4 h-4" />
+          <Flame className="w-4 h-4" />
           MAKE MEME
         </Button>
         <Link href={`/facts/${id}`} className="ml-auto text-xs text-muted-foreground hover:text-primary transition-colors font-medium underline underline-offset-4">
@@ -250,12 +250,12 @@ export default function FactDetail() {
                 <span className="text-xl">{fact.downvotes}</span>
               </Button>
               <Button
-                variant="outline"
+                variant="primary"
                 size="lg"
                 onClick={() => setShowMemeBuilder(true)}
-                className="gap-2 h-14 border-dashed hover:border-primary hover:text-primary"
+                className="gap-2 h-14"
               >
-                <ImageIcon className="w-5 h-5" />
+                <Flame className="w-5 h-5" />
                 <span>MAKE MEME</span>
               </Button>
             </div>

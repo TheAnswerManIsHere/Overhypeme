@@ -27,6 +27,7 @@ import {
   Sparkles,
   AlertCircle,
   Copy,
+  Flame,
 } from "lucide-react";
 
 // ─── Canvas constants ──────────────────────────────────────────────────────────
@@ -1524,19 +1525,21 @@ export function MemeBuilder({ factId, factText, pexelsImages, onClose }: MemeBui
               <Button
                 onClick={handleGenerate}
                 disabled={status === "generating" || isUploadingFile}
-                className="flex-1"
+                variant="primary"
+                size="lg"
+                className="flex-1 gap-2"
               >
                 {status === "generating" ? (
-                  <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Generating…</>
+                  <><Loader2 className="w-5 h-5 animate-spin" />Generating…</>
                 ) : !isAuthenticated ? (
-                  "Login to Generate"
+                  <><Lock className="w-5 h-5" />Login to Generate</>
                 ) : (
-                  "Generate Meme"
+                  <><Flame className="w-5 h-5" />Make My Meme</>
                 )}
               </Button>
-              <Button variant="secondary" className="gap-2 shrink-0" onClick={handleDownload}>
-                <Download className="w-4 h-4" />
-                <span className="hidden sm:inline">Download Preview</span>
+              <Button variant="secondary" size="lg" className="gap-2 shrink-0" onClick={handleDownload}>
+                <Download className="w-5 h-5" />
+                <span className="hidden sm:inline">Download</span>
               </Button>
             </div>
           )}
