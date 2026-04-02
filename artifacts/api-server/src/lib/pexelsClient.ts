@@ -18,7 +18,20 @@ const GENDER_QUERIES: Record<"man" | "woman" | "person", string> = {
 };
 
 // Spread page selection across a wide range for variety.
-const MAX_PAGE = 12;
+// With per_page=15, pages 1–40 cover up to 600 unique results.
+const MAX_PAGE = 40;
+
+// ── Typed errors ─────────────────────────────────────────────────────────────
+
+/** Thrown when Pexels returns 429. Callers should surface a rate-limit UX. */
+export class PexelsRateLimitError extends Error {
+  constructor() {
+    super("Pexels rate limit reached. Try again shortly.");
+    this.name = "PexelsRateLimitError";
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 
 export interface PexelsPhoto {
   id: number;
@@ -76,9 +89,12 @@ export async function getPhotoById(photoId: number): Promise<PexelsPhoto> {
 }
 
 /**
- * Search Pexels by keyword and return the top N photo IDs.
+ * Search Pexels by keyword and return up to `count` photos.
  * Used by factImagePipeline to pre-populate fact image libraries.
- * Returns an empty array (not throws) on any error — callers handle degradation.
+ *
+ * Throws PexelsRateLimitError on 429 — callers that want rate-limit awareness
+ * should catch it explicitly; others can let it propagate.
+ * Returns [] (not throws) for all other errors — callers handle degradation.
  */
 export interface PexelsPhotoEntry {
   id: number;
@@ -107,6 +123,15 @@ export async function searchPhotos(query: string, count: number = 5, page?: numb
       signal: AbortSignal.timeout(10_000),
     });
 
+    // Rate limit: throw so callers can surface proper UX
+    if (response.status === 429) throw new PexelsRateLimitError();
+
+    // Auth error: log loudly, return graceful empty
+    if (response.status === 401) {
+      console.error("[pexels] 401 Unauthorized — check PEXELS_API_KEY secret.");
+      return [];
+    }
+
     if (!response.ok) {
       console.warn(`[pexels] searchPhotos("${query}") failed with status ${response.status}`);
       return [];
@@ -115,6 +140,7 @@ export async function searchPhotos(query: string, count: number = 5, page?: numb
     const data = (await response.json()) as PexelsSearchResponse;
     return data.photos.slice(0, count).map((p) => ({ id: p.id, url: p.src.large }));
   } catch (err) {
+    if (err instanceof PexelsRateLimitError) throw err; // re-throw, don't swallow
     console.warn(`[pexels] searchPhotos("${query}") error:`, err);
     return [];
   }
@@ -146,10 +172,11 @@ export async function getRandomStockPhoto(
   });
 
   if (response.status === 401) {
-    throw new Error("Invalid PEXELS_API_KEY — check your Replit secrets.");
+    console.error("[pexels] 401 Unauthorized — check PEXELS_API_KEY secret.");
+    throw new Error("Image service is currently unavailable.");
   }
   if (response.status === 429) {
-    throw new Error("Pexels API rate limit hit. Try again shortly.");
+    throw new PexelsRateLimitError();
   }
   if (!response.ok) {
     throw new Error(`Pexels API error: ${response.status}`);

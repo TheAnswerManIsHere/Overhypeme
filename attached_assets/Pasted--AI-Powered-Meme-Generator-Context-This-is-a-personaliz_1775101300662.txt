@@ -1,0 +1,184 @@
+# AI-Powered Meme Generator
+
+## Context
+
+This is a personalized “impossible facts” platform. Users enter their name and pronouns, and fact templates are dynamically rendered with that name/pronouns. Example: the template “When [Name] does pushups, [pronoun] doesn’t push [pronoun-self] up, [pronoun] pushes the Earth down” renders as “When David Franklin does pushups, he doesn’t push himself up, he pushes the Earth down.”
+
+The platform already has (or is building) a “Classic Meme Generator” that uses Pexels stock photos as backgrounds. This feature is a second meme generator: the “AI-Powered Meme Generator” that uses OpenAI’s image generation API to create a unique scene image as the background, then composites the personalized fact text on top using server-side rendering.
+
+## Architecture Overview
+
+The pipeline has three stages:
+
+1. **Scene Prompt Generation** — An LLM (OpenAI) reads the fact template and generates a descriptive image prompt for the background scene.
+1. **Image Generation** — GPT Image 1 Mini generates the background image from that prompt.
+1. **Text Compositing** — node-canvas overlays the personalized fact text onto the generated background image, producing the final meme.
+
+## Stage 1: Scene Prompt Generation
+
+Use the OpenAI chat completions API (gpt-4o-mini) to convert a fact template into an image generation prompt. This should run once at fact creation/authoring time and be stored on the fact template record.
+
+The LLM prompt should instruct the model to:
+
+- Read the fact template and identify the core visual concept, action, or subject matter — ignoring the humor and impossibility.
+- Generate a descriptive scene prompt optimized for AI image generation (vivid, specific, compositional language — not just keywords).
+- The scene should work as a background behind overlaid text, so it should avoid overly busy center compositions. Prefer scenes with visual weight distributed toward edges or with natural negative space in the center or upper portion where text will sit.
+- Flag whether the fact is “action-based” (a person doing something) or “abstract” (cosmic, conceptual, metaphysical). Abstract facts should get dramatic/atmospheric scene prompts (landscapes, space, weather, abstract visuals) rather than person-doing-thing prompts.
+- Return three scene prompt variants: male, female, and gender-neutral (for action-based facts where a person appears in the scene). For abstract facts, all three can be identical.
+- Return structured JSON.
+
+Example response for an action-based fact:
+
+```json
+{
+  "fact_type": "action",
+  "scene_prompts": {
+    "male": "A dramatic low-angle photograph of a muscular man doing pushups outdoors on cracked earth, golden hour lighting, dust particles in the air, the ground appears to bend beneath his hands, cinematic composition with open sky above",
+    "female": "A dramatic low-angle photograph of a strong woman doing pushups outdoors on cracked earth, golden hour lighting, dust particles in the air, the ground appears to bend beneath her hands, cinematic composition with open sky above",
+    "neutral": "A dramatic low-angle photograph of an athletic person doing pushups outdoors on cracked earth, golden hour lighting, dust particles in the air, the ground appears to bend beneath their hands, cinematic composition with open sky above"
+  }
+}
+```
+
+Example response for an abstract fact:
+
+```json
+{
+  "fact_type": "abstract",
+  "scene_prompts": {
+    "male": "A surreal cosmic landscape with swirling galaxies and a massive hourglass floating in space, dramatic purple and gold nebula lighting, vast sense of scale, open composition with negative space in the upper third",
+    "female": "A surreal cosmic landscape with swirling galaxies and a massive hourglass floating in space, dramatic purple and gold nebula lighting, vast sense of scale, open composition with negative space in the upper third",
+    "neutral": "A surreal cosmic landscape with swirling galaxies and a massive hourglass floating in space, dramatic purple and gold nebula lighting, vast sense of scale, open composition with negative space in the upper third"
+  }
+}
+```
+
+Store the scene prompts on the fact template record (see schema below).
+
+## Stage 2: Image Generation
+
+Use the OpenAI Images API with model `gpt-image-1-mini` at `low` quality to generate background images.
+
+- Resolution: 1024x1024 (square) as the default. Consider also supporting 1536x1024 (landscape) for wider meme formats if the platform UI supports it.
+- Generate and cache images at fact authoring time, similar to the Pexels integration. Generate 3 images per gender variant (9 total per fact template) to give users rotation options without hitting the API at render time.
+- Store the generated images. Since these are AI-generated (not Pexels-hosted), you need to actually store the image files, not just IDs. Save them to whatever file/object storage the platform uses (local filesystem on Replit during development, plan for S3 or equivalent in production).
+- Use a consistent naming convention: `ai_meme_{fact_id}_{gender}_{index}.png` (e.g., `ai_meme_42_male_0.png`).
+
+### Cost Projection
+
+At $0.005/image, generating 9 images per fact template costs $0.045 per fact. For a library of 500 facts, the full backfill costs $22.50 total. This is trivially cheap.
+
+## Stage 3: Text Compositing with node-canvas
+
+Install `canvas` (the node-canvas npm package) for server-side text rendering.
+
+### Text Rendering Specifications
+
+- **Font**: Use a bold, high-impact sans-serif font. Impact is the classic meme font and is a safe default. Bundle the font file with the project (do not rely on system fonts, as they vary across environments). Consider also supporting a secondary font option for a cleaner/modern look (e.g., Anton, Bebas Neue, or Oswald — download from Google Fonts and bundle).
+- **Text color**: White with a black stroke/outline. This is the universal meme text style and ensures readability on any background.
+- **Stroke width**: 2-3px proportional to font size.
+- **Text position**: Meme text traditionally goes at the top and/or bottom of the image. For a single fact, center the text in the upper third of the image with word-wrapping.
+- **Word wrapping**: Implement automatic word wrapping that measures text width against the canvas width (with horizontal padding of ~5% on each side) and breaks lines accordingly.
+- **Font size**: Auto-scale based on text length. Start large (e.g., 48px on a 1024px canvas) and reduce until the text fits within the available area. Set a minimum font size floor (e.g., 24px) — if text still doesn’t fit at minimum size, allow it to extend into more lines.
+- **Drop shadow**: Optional subtle black drop shadow behind text for additional readability. Offset 2px down and right, with slight blur.
+- **Text transform**: ALL CAPS is traditional for memes. Apply `.toUpperCase()` to the rendered fact text.
+
+### Compositing Pipeline
+
+```
+loadBackgroundImage(imagePath)
+  → create canvas at image dimensions
+  → draw background image
+  → apply slight darkening overlay (semi-transparent black, ~15-20% opacity) to improve text contrast
+  → measure and word-wrap the fact text
+  → auto-scale font size
+  → draw text with stroke outline
+  → export final composited image as PNG or JPEG
+```
+
+### Compositing Endpoint
+
+Build an API endpoint or service function that:
+
+- Accepts: `fact_id`, `user_name`, `user_pronouns`, and optionally `image_index` (0-2, default 0)
+- Resolves the fact template text and interpolates the user’s name/pronouns
+- Selects the appropriate gender variant and image index
+- Composites the text onto the background
+- Returns the final image (or a URL/path to the cached composite)
+
+### Caching Strategy for Composites
+
+Since every user gets unique text (their name), you cannot pre-generate final composites. However, you can cache them after first generation:
+
+- Cache key: `{fact_id}_{gender}_{image_index}_{user_id}` (or a hash thereof)
+- Cache the composited output image so subsequent views don’t re-render
+- Invalidate cache if the user changes their name or pronouns
+
+If caching composites per-user becomes storage-heavy, an alternative is to make the compositing fast enough to do on-the-fly (node-canvas compositing a single image should be <100ms, so this may be acceptable without caching).
+
+## Database Schema Changes
+
+Add to the fact templates table/model:
+
+```json
+{
+  "ai_scene_prompts": {
+    "fact_type": "action",
+    "male": "scene prompt string...",
+    "female": "scene prompt string...",
+    "neutral": "scene prompt string..."
+  },
+  "ai_meme_images": {
+    "male": ["path_or_url_0", "path_or_url_1", "path_or_url_2"],
+    "female": ["path_or_url_0", "path_or_url_1", "path_or_url_2"],
+    "neutral": ["path_or_url_0", "path_or_url_1", "path_or_url_2"]
+  }
+}
+```
+
+Extend the existing user fact preferences table (if created for the Pexels integration) or create one:
+
+```
+user_fact_preferences
+  user_id
+  fact_id
+  pexels_image_index (integer, 0-4, default 0)    — for classic meme generator
+  ai_meme_image_index (integer, 0-2, default 0)   — for AI meme generator
+```
+
+## Frontend Integration
+
+- Add an “AI Meme” tab or toggle alongside the existing “Classic Meme” option in the meme generator UI.
+- Display the composited meme image.
+- Include a “Try Another” / rotate button that cycles through the 3 available background images for the user’s gender variant, saves the preference, and re-composites.
+- Include a download button so users can save their meme.
+- Include a share button (or at minimum, generate a shareable URL/image link).
+
+## Admin/Author Tooling
+
+- When creating or editing a fact template, add a section for the AI meme pipeline.
+- Show a “Generate AI Meme Backgrounds” button that triggers the LLM scene prompt generation and subsequent image generation.
+- Display previews of all 9 generated backgrounds (3 per gender) so the author can verify quality.
+- Allow the author to regenerate individual images or all images if results are poor.
+- Allow the author to manually edit the scene prompts before (re)generating images.
+
+## Environment Variables
+
+- `OPENAI_API_KEY` — already needed for the Pexels keyword extraction feature; same key is used here for both gpt-4o-mini (scene prompts) and gpt-image-1-mini (image generation).
+
+## Bundled Assets
+
+- Include at least one meme font file (Impact.ttf or equivalent) in the project’s assets/fonts directory. node-canvas requires font files to be registered explicitly — do not assume system font availability.
+
+## Implementation Order
+
+1. Install `canvas` npm package and verify it works in the Replit environment (Cairo dependencies may need attention).
+1. Build the scene prompt generation service (OpenAI chat completions call with structured JSON output).
+1. Build the image generation service (OpenAI images API call with gpt-image-1-mini, low quality).
+1. Build the image storage layer (save generated PNGs to disk with consistent naming).
+1. Wire stages 1-3 into a pipeline function: `generateAiMemeBackgrounds(factTemplate)` → stores scene prompts and image paths on the fact template record.
+1. Build the text compositing service with node-canvas (font registration, word wrapping, auto-scaling, stroke rendering, darkening overlay).
+1. Build the compositing API endpoint that accepts fact/user params and returns the final meme image.
+1. Integrate the pipeline into the fact authoring/admin UI with previews.
+1. Build the frontend AI meme display with gender-based image selection, rotate button, and download.
+1. Build a backfill migration script for existing fact templates.
