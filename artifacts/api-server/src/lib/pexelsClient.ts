@@ -75,6 +75,40 @@ export async function getPhotoById(photoId: number): Promise<PexelsPhoto> {
   };
 }
 
+/**
+ * Search Pexels by keyword and return the top N photo IDs.
+ * Used by factImagePipeline to pre-populate fact image libraries.
+ * Returns an empty array (not throws) on any error — callers handle degradation.
+ */
+export async function searchPhotoIds(query: string, count: number = 5): Promise<number[]> {
+  const apiKey = process.env.PEXELS_API_KEY;
+  if (!apiKey) return [];
+
+  const url = new URL(`${PEXELS_BASE}/search`);
+  url.searchParams.set("query", query);
+  url.searchParams.set("orientation", "landscape");
+  url.searchParams.set("per_page", String(Math.min(count, 80)));
+  url.searchParams.set("page", "1");
+
+  try {
+    const response = await fetch(url.toString(), {
+      headers: { Authorization: apiKey },
+      signal: AbortSignal.timeout(10_000),
+    });
+
+    if (!response.ok) {
+      console.warn(`[pexels] searchPhotoIds("${query}") failed with status ${response.status}`);
+      return [];
+    }
+
+    const data = (await response.json()) as PexelsSearchResponse;
+    return data.photos.slice(0, count).map((p) => p.id);
+  } catch (err) {
+    console.warn(`[pexels] searchPhotoIds("${query}") error:`, err);
+    return [];
+  }
+}
+
 export async function getRandomStockPhoto(
   gender: "man" | "woman" | "person",
 ): Promise<PexelsPhoto> {

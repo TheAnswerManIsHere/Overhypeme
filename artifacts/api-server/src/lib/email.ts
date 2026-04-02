@@ -67,7 +67,7 @@ export async function sendEmail(payload: EmailPayload): Promise<void> {
  * Once a hosted logo image is available, replace the stub block with:
  *   <img src="https://overhype.me/images/logo.png" width="48" height="48" alt="Overhype.me" style="display:block;" />
  */
-function buildEmailShell(bodyContent: string, footerNote: string): string {
+export function buildEmailShell(bodyContent: string, footerNote: string): string {
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -133,7 +133,7 @@ function buildEmailShell(bodyContent: string, footerNote: string): string {
 }
 
 /** Renders an orange CTA button compatible with most email clients. */
-function ctaButton(href: string, label: string): string {
+export function ctaButton(href: string, label: string): string {
   return `<table cellpadding="0" cellspacing="0" border="0" style="margin:0 0 28px;">
   <tr>
     <td align="center" bgcolor="#FF3C00">
@@ -150,7 +150,7 @@ function linkFallback(url: string): string {
 }
 
 /** Renders a hairline divider. */
-function divider(): string {
+export function divider(): string {
   return `<table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 24px;"><tr><td height="1" bgcolor="#222222" style="font-size:0;line-height:0;mso-line-height-rule:exactly;">&nbsp;</td></tr></table>`;
 }
 
