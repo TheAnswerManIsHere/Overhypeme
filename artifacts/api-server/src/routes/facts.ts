@@ -441,16 +441,16 @@ router.post("/facts/:id/fresh-photo", async (req: Request, res: Response) => {
     searchPhotos(keywords.neutral, 1),
   ]);
 
-  function normalize(raw: number[] | PexelsPhotoEntry[]): PexelsPhotoEntry[] {
-    return (raw as Array<number | PexelsPhotoEntry>).map(e =>
-      typeof e === "number" ? { id: e, url: "" } : e
-    );
-  }
-
   const MAX_LIST = 50;
 
-  function appendAndCap(existing: number[] | PexelsPhotoEntry[], newEntry: PexelsPhotoEntry): PexelsPhotoEntry[] {
-    const list = normalize(existing);
+  // Append a new entry to a variant list, cap at MAX_LIST (drop oldest).
+  // Preserves the existing entries in their original format (number or object)
+  // so legacy numeric IDs are NOT converted to broken {id, url:""} objects.
+  function appendAndCap(
+    existing: number[] | PexelsPhotoEntry[],
+    newEntry: PexelsPhotoEntry,
+  ): (number | PexelsPhotoEntry)[] {
+    const list: (number | PexelsPhotoEntry)[] = [...(existing as (number | PexelsPhotoEntry)[])];
     list.push(newEntry);
     return list.length > MAX_LIST ? list.slice(list.length - MAX_LIST) : list;
   }
@@ -458,9 +458,9 @@ router.post("/facts/:id/fresh-photo", async (req: Request, res: Response) => {
   const updated: FactPexelsImages = {
     fact_type: stored?.fact_type ?? "action",
     keywords:  stored?.keywords ?? keywords,
-    male:    newMale[0]    ? appendAndCap(stored?.male    ?? [], newMale[0])    : normalize(stored?.male    ?? []),
-    female:  newFemale[0]  ? appendAndCap(stored?.female  ?? [], newFemale[0])  : normalize(stored?.female  ?? []),
-    neutral: newNeutral[0] ? appendAndCap(stored?.neutral ?? [], newNeutral[0]) : normalize(stored?.neutral ?? []),
+    male:    newMale[0]    ? appendAndCap(stored?.male    ?? [], newMale[0])    as PexelsPhotoEntry[] : (stored?.male    ?? []),
+    female:  newFemale[0]  ? appendAndCap(stored?.female  ?? [], newFemale[0])  as PexelsPhotoEntry[] : (stored?.female  ?? []),
+    neutral: newNeutral[0] ? appendAndCap(stored?.neutral ?? [], newNeutral[0]) as PexelsPhotoEntry[] : (stored?.neutral ?? []),
   };
 
   await db.update(factsTable)
