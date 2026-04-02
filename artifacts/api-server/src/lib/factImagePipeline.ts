@@ -114,9 +114,9 @@ export async function runFactImagePipeline(factId: number, factText: string): Pr
 
     // 2. Search Pexels for each gender variant in parallel (store URLs, not just IDs)
     const [male, female, neutral] = await Promise.all([
-      searchPhotos(keywords.male,    5),
-      searchPhotos(keywords.female,  5),
-      searchPhotos(keywords.neutral, 5),
+      searchPhotos(keywords.male,    5, 1),
+      searchPhotos(keywords.female,  5, 1),
+      searchPhotos(keywords.neutral, 5, 1),
     ]);
 
     const pexelsImages: FactPexelsImages = { fact_type, male, female, neutral, keywords };

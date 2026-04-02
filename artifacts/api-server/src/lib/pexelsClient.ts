@@ -89,15 +89,17 @@ export async function searchPhotoIds(query: string, count: number = 5): Promise<
   return (await searchPhotos(query, count)).map(p => p.id);
 }
 
-export async function searchPhotos(query: string, count: number = 5): Promise<PexelsPhotoEntry[]> {
+export async function searchPhotos(query: string, count: number = 5, page?: number): Promise<PexelsPhotoEntry[]> {
   const apiKey = process.env.PEXELS_API_KEY;
   if (!apiKey) return [];
+
+  const resolvedPage = page ?? (Math.floor(Math.random() * MAX_PAGE) + 1);
 
   const url = new URL(`${PEXELS_BASE}/search`);
   url.searchParams.set("query", query);
   url.searchParams.set("orientation", "landscape");
   url.searchParams.set("per_page", String(Math.min(count, 80)));
-  url.searchParams.set("page", "1");
+  url.searchParams.set("page", String(resolvedPage));
 
   try {
     const response = await fetch(url.toString(), {
