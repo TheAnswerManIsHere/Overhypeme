@@ -192,7 +192,7 @@ export async function generateMemeBuffer(
   const padding = 40;
   const maxW = CANVAS_W - padding * 2 - sidebarW;
   const fontStyle = `${isItalic ? "italic " : ""}${isBold ? "bold " : ""}`;
-  const fontStr = `${fontStyle}${fontSize}px "${fontFamily}", Impact, sans-serif`;
+  const fontStr = `${fontStyle}${fontSize}px "${fontFamily}", sans-serif`;
 
   const textAreaLeft = padding + sidebarW;
   const textAreaRight = CANVAS_W - padding;
