@@ -392,6 +392,63 @@ export function MemeBuilder({ factId, factText, pexelsImages, onClose }: MemeBui
   const [opacity, setOpacity] = useState(1);
   const [topY, setTopY] = useState(17);
   const [bottomY, setBottomY] = useState(88);
+  const [topLines, setTopLines]       = useState(1);
+  const [bottomLines, setBottomLines] = useState(1);
+
+  // Measure wrapped line counts whenever text or font options change.
+  // Uses a hidden canvas for pixel-accurate measurement (same logic as drawMeme).
+  useEffect(() => {
+    const canvas = document.createElement("canvas");
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    const fontStyle = `${bold ? "bold " : ""}${italic ? "italic " : ""}`;
+    ctx.font = `${fontStyle}${fontSize}px "${fontFamily}", sans-serif`;
+    const maxW = 800 - 40 * 2 - 12; // CANVAS_W - padding*2 - sidebarW
+
+    function countLines(text: string): number {
+      const display = allCaps ? text.toUpperCase() : text;
+      const words = display.split(" ");
+      let lines = 1;
+      let current = "";
+      for (const w of words) {
+        const test = current ? `${current} ${w}` : w;
+        if (ctx.measureText(test).width > maxW && current) { lines++; current = w; }
+        else { current = test; }
+      }
+      return lines;
+    }
+
+    setTopLines(topText.trim()    ? countLines(topText)    : 0);
+    setBottomLines(bottomText.trim() ? countLines(bottomText) : 0);
+  }, [topText, bottomText, fontSize, fontFamily, bold, italic, allCaps]);
+
+  // Collision constraints — keep the two text blocks from overlapping.
+  // lineH, cap-height (0.85×fontSize) and descender (0.25×fontSize) match drawMeme.
+  const GAP_PX = 12;
+  const textCollisionConstraints = useMemo(() => {
+    const lineH = fontSize * 1.25;
+    const blockHeightPx = (lines: number) =>
+      (Math.max(1, lines) - 1) * lineH   // extra lines below first baseline
+      + fontSize * 0.85                   // cap height above first baseline
+      + fontSize * 0.25                   // descenders below last baseline
+      + GAP_PX;                           // visual breathing room
+    const topBlockPx = blockHeightPx(topLines);
+    // maxTopY: top block's bottom must clear the bottom block's visual top
+    const maxTopY   = Math.max(0,   Math.floor(bottomY - (topBlockPx / 420) * 100));
+    // minBottomY: bottom block's visual top must clear the top block's bottom
+    const minBottomY = Math.min(100, Math.ceil(topY    + (topBlockPx / 420) * 100));
+    return { maxTopY, minBottomY };
+  }, [topLines, fontSize, topY, bottomY]);
+
+  // Clamp Y positions when constraints tighten (e.g. font size increase, text added).
+  useEffect(() => {
+    if (topY > textCollisionConstraints.maxTopY)
+      setTopY(textCollisionConstraints.maxTopY);
+  }, [topY, textCollisionConstraints.maxTopY]);
+  useEffect(() => {
+    if (bottomY < textCollisionConstraints.minBottomY)
+      setBottomY(textCollisionConstraints.minBottomY);
+  }, [bottomY, textCollisionConstraints.minBottomY]);
 
   // Generation state
   const [status, setStatus] = useState<"idle" | "generating" | "done" | "error">("idle");
@@ -1183,8 +1240,8 @@ export function MemeBuilder({ factId, factText, pexelsImages, onClose }: MemeBui
                       <input
                         type="range"
                         min={0}
-                        max={bottomY}
-                        value={topY}
+                        max={textCollisionConstraints.maxTopY}
+                        value={Math.min(topY, textCollisionConstraints.maxTopY)}
                         onChange={e => setTopY(parseInt(e.target.value))}
                         className="w-full accent-primary"
                       />
@@ -1210,9 +1267,9 @@ export function MemeBuilder({ factId, factText, pexelsImages, onClose }: MemeBui
                       </label>
                       <input
                         type="range"
-                        min={topY}
+                        min={textCollisionConstraints.minBottomY}
                         max={100}
-                        value={bottomY}
+                        value={Math.max(bottomY, textCollisionConstraints.minBottomY)}
                         onChange={e => setBottomY(parseInt(e.target.value))}
                         className="w-full accent-primary"
                       />
