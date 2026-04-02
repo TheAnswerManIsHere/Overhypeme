@@ -116,6 +116,7 @@ const CreateMemeBody = z.object({
   imageSource: ImageSourceSchema,
   textOptions: TextOptionsSchema,
   previewImageBase64: z.string().max(700_000).optional(),
+  isPublic: z.boolean().optional(),
 });
 
 // Stored imageSource shape from the DB (jsonb — we cast and validate manually)
@@ -190,7 +191,7 @@ router.post("/memes", async (req: Request, res: Response) => {
     return;
   }
 
-  const { factId, imageSource, textOptions, previewImageBase64 } = parsed.data;
+  const { factId, imageSource, textOptions, previewImageBase64, isPublic: isPublicReq } = parsed.data;
 
   // ── Membership check ────────────────────────────────────────────
   const [userRow] = await db
@@ -199,6 +200,9 @@ router.post("/memes", async (req: Request, res: Response) => {
     .where(eq(usersTable.id, req.user.id))
     .limit(1);
   const isPremium = userRow?.membershipTier === "premium";
+
+  // Free users always get public memes; premium users can choose
+  const isPublic = isPremium ? (isPublicReq ?? true) : true;
 
   // ── Rate limit ───────────────────────────────────────────────────
   const rl = checkRateLimit(req.user.id, isPremium);
@@ -282,6 +286,7 @@ router.post("/memes", async (req: Request, res: Response) => {
       permalinkSlug: slug,
       textOptions: textOptions ?? null,
       imageSource: storedImageSource,
+      isPublic,
       createdById: req.user.id,
     })
     .returning();
@@ -343,10 +348,18 @@ router.get("/memes/:slug", async (req: Request, res: Response) => {
   });
 });
 
-// GET /facts/:factId/memes
+// GET /facts/:factId/memes?visibility=public|mine
 router.get("/facts/:factId/memes", async (req: Request, res: Response) => {
   const factId = parseInt((req.params["factId"] ?? "") as string);
   if (isNaN(factId)) { res.status(400).json({ error: "Invalid factId" }); return; }
+
+  const visibility = req.query["visibility"] === "mine" ? "mine" : "public";
+
+  // "mine" requires authentication
+  if (visibility === "mine" && !req.isAuthenticated()) {
+    res.status(401).json({ error: "Authentication required" });
+    return;
+  }
 
   const [fact] = await db
     .select({ id: factsTable.id, parentId: factsTable.parentId })
@@ -363,14 +376,18 @@ router.get("/facts/:factId/memes", async (req: Request, res: Response) => {
     factIds = [factId, ...variants.map(v => v.id)];
   }
 
+  const factFilter = factIds.length === 1
+    ? eq(memesTable.factId, factIds[0]!)
+    : inArray(memesTable.factId, factIds);
+
+  const visibilityFilter = visibility === "mine"
+    ? and(factFilter, eq(memesTable.createdById, req.user!.id))
+    : and(factFilter, eq(memesTable.isPublic, true));
+
   const memes = await db
     .select()
     .from(memesTable)
-    .where(
-      factIds.length === 1
-        ? eq(memesTable.factId, factIds[0]!)
-        : inArray(memesTable.factId, factIds),
-    )
+    .where(visibilityFilter)
     .orderBy(desc(memesTable.createdAt))
     .limit(40);
 
@@ -381,6 +398,7 @@ router.get("/facts/:factId/memes", async (req: Request, res: Response) => {
       templateId: m.templateId,
       imageUrl: m.imageUrl,
       permalinkSlug: m.permalinkSlug,
+      isPublic: m.isPublic,
       createdAt: m.createdAt.toISOString(),
     })),
   });

@@ -22,6 +22,7 @@ import {
   RefreshCw,
   Upload,
   Lock,
+  Globe,
   ImageIcon,
   Layers,
   Sparkles,
@@ -395,6 +396,9 @@ export function MemeBuilder({ factId, factText, pexelsImages, onClose }: MemeBui
   const [bottomY, setBottomY] = useState(88);
   const [topLines, setTopLines]       = useState(1);
   const [bottomLines, setBottomLines] = useState(1);
+
+  // Visibility (premium-only private memes)
+  const [isPublic, setIsPublic] = useState(true);
 
   // Measure wrapped line counts whenever text or font options change.
   // Uses a hidden canvas for pixel-accurate measurement (same logic as drawMeme).
@@ -799,6 +803,7 @@ export function MemeBuilder({ factId, factText, pexelsImages, onClose }: MemeBui
             align: textAlign,
             opacity,
           },
+          isPublic,
         }),
       });
 
@@ -1492,6 +1497,36 @@ export function MemeBuilder({ factId, factText, pexelsImages, onClose }: MemeBui
               </div>
             </div>
           </div>
+
+          {/* ── Visibility toggle (premium) ── */}
+          {isPremium && status !== "done" && (
+            <div className="flex items-center justify-between px-4 py-2 bg-muted/30 border border-border/50">
+              <div className="flex items-center gap-2">
+                {isPublic ? (
+                  <Globe className="w-4 h-4 text-primary" />
+                ) : (
+                  <Lock className="w-4 h-4 text-muted-foreground" />
+                )}
+                <span className="text-sm font-medium">
+                  {isPublic ? "Public" : "Private"}
+                </span>
+                <span className="text-xs text-muted-foreground">
+                  {isPublic ? "Visible in the gallery" : "Only visible to you"}
+                </span>
+              </div>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={isPublic}
+                onClick={() => setIsPublic(p => !p)}
+                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none ${isPublic ? "bg-primary" : "bg-muted-foreground/40"}`}
+              >
+                <span
+                  className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${isPublic ? "translate-x-6" : "translate-x-1"}`}
+                />
+              </button>
+            </div>
+          )}
 
           {/* ── Error ── */}
           {errorMsg && (
