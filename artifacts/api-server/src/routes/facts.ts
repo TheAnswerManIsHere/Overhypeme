@@ -463,22 +463,22 @@ router.post("/facts/:id/fresh-photo", async (req: Request, res: Response) => {
     neutral: newNeutral[0] ? appendAndCap(stored?.neutral ?? [], newNeutral[0]) as PexelsPhotoEntry[] : (stored?.neutral ?? []),
   };
 
+  // Identify the newly fetched photo for the requested gender — used as the
+  // return value. If Pexels returned nothing for that variant, send 503 so
+  // the frontend can fall back to the generic stock-photo endpoint.
+  const genderToNew = { man: newMale[0], woman: newFemale[0], person: newNeutral[0] } as const;
+  const freshEntry = genderToNew[gender as "man" | "woman" | "person"] ?? null;
+
+  if (!freshEntry) {
+    res.status(503).json({ error: "No photo returned by Pexels for this variant" });
+    return;
+  }
+
   await db.update(factsTable)
     .set({ pexelsImages: updated as unknown as typeof factsTable.pexelsImages._.data, updatedAt: new Date() })
     .where(eq(factsTable.id, factId));
 
-  const genderToVariant = { man: "male", woman: "female", person: "neutral" } as const;
-  const variant = genderToVariant[gender as "man" | "woman" | "person"];
-  const returnedPhoto = (updated[variant] as PexelsPhotoEntry[])[
-    (updated[variant] as PexelsPhotoEntry[]).length - 1
-  ] ?? null;
-
-  if (!returnedPhoto) {
-    res.status(503).json({ error: "No photo available for this variant" });
-    return;
-  }
-
-  res.json(returnedPhoto);
+  res.json(freshEntry);
 });
 
 // DELETE /facts/:factId/links/:linkId
