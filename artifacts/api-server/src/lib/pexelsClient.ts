@@ -5,11 +5,14 @@
  * Get a free key at https://www.pexels.com/api/
  *
  * Free tier: 200 requests/hour, 20,000/month.
- * License: Pexels license — free to use in projects/apps, no attribution required
- * (though we surface photographer credit in the UI as good practice).
+ * License: Pexels license — free to use in projects/apps, attribution
+ * not required (we surface photographer credit in the UI as good practice).
  */
 
 const PEXELS_BASE = "https://api.pexels.com/v1";
+
+// Used only by getRandomStockPhoto for the generic gender fallback
+const MAX_PAGE = 40;
 
 const GENDER_QUERIES: Record<"man" | "woman" | "person", string> = {
   man: "man portrait professional",
@@ -17,13 +20,9 @@ const GENDER_QUERIES: Record<"man" | "woman" | "person", string> = {
   person: "person portrait professional",
 };
 
-// Spread page selection across a wide range for variety.
-// With per_page=15, pages 1–40 cover up to 600 unique results.
-const MAX_PAGE = 40;
+// ── Types ─────────────────────────────────────────────────────────────────────
 
-// ── Typed errors ─────────────────────────────────────────────────────────────
-
-/** Thrown when Pexels returns 429. Callers should surface a rate-limit UX. */
+/** Thrown by getRandomStockPhoto on 429. */
 export class PexelsRateLimitError extends Error {
   constructor() {
     super("Pexels rate limit reached. Try again shortly.");
@@ -31,13 +30,36 @@ export class PexelsRateLimitError extends Error {
   }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
+/** All resolution URLs Pexels provides for a photo. */
+export interface PexelsPhotoSrc {
+  original: string;
+  large2x: string;
+  large: string;
+  medium: string;
+  small: string;
+  portrait: string;
+  landscape: string;
+  tiny: string;
+}
 
+/**
+ * Stored photo entry. `url` = src.large for backward compat with legacy data.
+ * `src`, `photographer`, `photographer_url` present on all new entries.
+ */
+export interface PexelsPhotoEntry {
+  id: number;
+  url: string;
+  photographer?: string;
+  photographer_url?: string;
+  src?: PexelsPhotoSrc;
+}
+
+/** Rich photo returned by getPhotoById / getRandomStockPhoto. */
 export interface PexelsPhoto {
   id: number;
   photographerName: string;
   photographerUrl: string;
-  /** ~940px wide — large enough for the 800×420 meme canvas. */
+  /** ~940px wide — large enough for the meme canvas. */
   photoUrl: string;
 }
 
@@ -45,11 +67,7 @@ interface PexelsApiPhoto {
   id: number;
   photographer: string;
   photographer_url: string;
-  src: {
-    large2x: string;
-    large: string;
-    medium: string;
-  };
+  src: PexelsPhotoSrc;
 }
 
 interface PexelsSearchResponse {
@@ -57,18 +75,64 @@ interface PexelsSearchResponse {
   total_results: number;
 }
 
+// ── searchPhotos ──────────────────────────────────────────────────────────────
+
+/**
+ * Search Pexels for up to `count` photos (max 80 — Pexels' per_page limit).
+ * Always fetches page 1 for stable, deterministic seeding.
+ * Stores the full src object so callers can serve any resolution without
+ * additional API calls or reconstructing CDN URLs.
+ *
+ * Returns [] on any error — callers handle degradation gracefully.
+ */
+export async function searchPhotos(query: string, count: number = 80): Promise<PexelsPhotoEntry[]> {
+  const apiKey = process.env.PEXELS_API_KEY;
+  if (!apiKey) return [];
+
+  const url = new URL(`${PEXELS_BASE}/search`);
+  url.searchParams.set("query", query);
+  url.searchParams.set("orientation", "landscape");
+  url.searchParams.set("per_page", String(Math.min(count, 80)));
+  url.searchParams.set("page", "1");
+
+  try {
+    const response = await fetch(url.toString(), {
+      headers: { Authorization: apiKey },
+      signal: AbortSignal.timeout(15_000),
+    });
+
+    if (response.status === 401) {
+      console.error("[pexels] 401 Unauthorized — check PEXELS_API_KEY secret.");
+      return [];
+    }
+    if (!response.ok) {
+      console.warn(`[pexels] searchPhotos("${query}") failed with status ${response.status}`);
+      return [];
+    }
+
+    const data = (await response.json()) as PexelsSearchResponse;
+    return data.photos.slice(0, count).map((p) => ({
+      id: p.id,
+      url: p.src.large,
+      photographer: p.photographer,
+      photographer_url: p.photographer_url,
+      src: p.src,
+    }));
+  } catch (err) {
+    console.warn(`[pexels] searchPhotos("${query}") error:`, err);
+    return [];
+  }
+}
+
+// ── getPhotoById ──────────────────────────────────────────────────────────────
+
 /**
  * Fetch a single photo by its Pexels ID.
- * Used when regenerating a meme from a stored recipe — more stable than
- * relying on the CDN URL remaining valid long-term.
+ * Useful when re-rendering a meme from a stored recipe.
  */
 export async function getPhotoById(photoId: number): Promise<PexelsPhoto> {
   const apiKey = process.env.PEXELS_API_KEY;
-  if (!apiKey) {
-    throw new Error(
-      "PEXELS_API_KEY is not configured. Add it to your Replit secrets.",
-    );
-  }
+  if (!apiKey) throw new Error("PEXELS_API_KEY is not configured.");
 
   const response = await fetch(`${PEXELS_BASE}/photos/${photoId}`, {
     headers: { Authorization: apiKey },
@@ -88,73 +152,18 @@ export async function getPhotoById(photoId: number): Promise<PexelsPhoto> {
   };
 }
 
+// ── getRandomStockPhoto ───────────────────────────────────────────────────────
+
 /**
- * Search Pexels by keyword and return up to `count` photos.
- * Used by factImagePipeline to pre-populate fact image libraries.
- *
- * Throws PexelsRateLimitError on 429 — callers that want rate-limit awareness
- * should catch it explicitly; others can let it propagate.
- * Returns [] (not throws) for all other errors — callers handle degradation.
+ * Fetch one random stock photo for the given gender.
+ * Used as a fallback when a fact has no stored images yet.
+ * Throws PexelsRateLimitError on 429.
  */
-export interface PexelsPhotoEntry {
-  id: number;
-  url: string;
-}
-
-export async function searchPhotoIds(query: string, count: number = 5): Promise<number[]> {
-  return (await searchPhotos(query, count)).map(p => p.id);
-}
-
-export async function searchPhotos(query: string, count: number = 5, page?: number): Promise<PexelsPhotoEntry[]> {
-  const apiKey = process.env.PEXELS_API_KEY;
-  if (!apiKey) return [];
-
-  const resolvedPage = page ?? (Math.floor(Math.random() * MAX_PAGE) + 1);
-
-  const url = new URL(`${PEXELS_BASE}/search`);
-  url.searchParams.set("query", query);
-  url.searchParams.set("orientation", "landscape");
-  url.searchParams.set("per_page", String(Math.min(count, 80)));
-  url.searchParams.set("page", String(resolvedPage));
-
-  try {
-    const response = await fetch(url.toString(), {
-      headers: { Authorization: apiKey },
-      signal: AbortSignal.timeout(10_000),
-    });
-
-    // Rate limit: throw so callers can surface proper UX
-    if (response.status === 429) throw new PexelsRateLimitError();
-
-    // Auth error: log loudly, return graceful empty
-    if (response.status === 401) {
-      console.error("[pexels] 401 Unauthorized — check PEXELS_API_KEY secret.");
-      return [];
-    }
-
-    if (!response.ok) {
-      console.warn(`[pexels] searchPhotos("${query}") failed with status ${response.status}`);
-      return [];
-    }
-
-    const data = (await response.json()) as PexelsSearchResponse;
-    return data.photos.slice(0, count).map((p) => ({ id: p.id, url: p.src.large }));
-  } catch (err) {
-    if (err instanceof PexelsRateLimitError) throw err; // re-throw, don't swallow
-    console.warn(`[pexels] searchPhotos("${query}") error:`, err);
-    return [];
-  }
-}
-
 export async function getRandomStockPhoto(
   gender: "man" | "woman" | "person",
 ): Promise<PexelsPhoto> {
   const apiKey = process.env.PEXELS_API_KEY;
-  if (!apiKey) {
-    throw new Error(
-      "PEXELS_API_KEY is not configured. Add it to your Replit secrets.",
-    );
-  }
+  if (!apiKey) throw new Error("PEXELS_API_KEY is not configured.");
 
   const query = GENDER_QUERIES[gender];
   const page = Math.floor(Math.random() * MAX_PAGE) + 1;
@@ -162,7 +171,7 @@ export async function getRandomStockPhoto(
   const url = new URL(`${PEXELS_BASE}/search`);
   url.searchParams.set("query", query);
   url.searchParams.set("orientation", "landscape");
-  url.searchParams.set("size", "medium"); // at least 1280×960
+  url.searchParams.set("size", "medium");
   url.searchParams.set("per_page", "15");
   url.searchParams.set("page", String(page));
 
@@ -175,27 +184,17 @@ export async function getRandomStockPhoto(
     console.error("[pexels] 401 Unauthorized — check PEXELS_API_KEY secret.");
     throw new Error("Image service is currently unavailable.");
   }
-  if (response.status === 429) {
-    throw new PexelsRateLimitError();
-  }
-  if (!response.ok) {
-    throw new Error(`Pexels API error: ${response.status}`);
-  }
+  if (response.status === 429) throw new PexelsRateLimitError();
+  if (!response.ok) throw new Error(`Pexels API error: ${response.status}`);
 
   const data = (await response.json()) as PexelsSearchResponse;
+  if (!data.photos?.length) return getRandomStockPhoto(gender);
 
-  if (!data.photos?.length) {
-    // Retry with page 1 if random page had no results
-    return getRandomStockPhoto(gender);
-  }
-
-  const photo =
-    data.photos[Math.floor(Math.random() * data.photos.length)]!;
-
+  const photo = data.photos[Math.floor(Math.random() * data.photos.length)]!;
   return {
     id: photo.id,
     photographerName: photo.photographer,
     photographerUrl: photo.photographer_url,
-    photoUrl: photo.src.large, // 940px wide
+    photoUrl: photo.src.large,
   };
 }
