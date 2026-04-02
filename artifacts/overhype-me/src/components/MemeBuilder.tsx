@@ -424,7 +424,7 @@ export function MemeBuilder({ factId, factText, pexelsImages, onClose }: MemeBui
     img.src = photoUrl;
   }, [imageMode, stockPhoto, uploadLocalUrl]);
 
-  const prefetchedPhotos = useMemo<PexelsPhotoEntry[]>(() => {
+  const [prefetchedPhotos, setPrefetchedPhotos] = useState<PexelsPhotoEntry[]>(() => {
     if (!pexelsImages || !stockGender) return [];
     const variant = GENDER_TO_VARIANT[stockGender];
     const raw = pexelsImages[variant] ?? [];
@@ -433,6 +433,17 @@ export function MemeBuilder({ factId, factText, pexelsImages, onClose }: MemeBui
         ? { id: entry, url: pexelsCdnUrl(entry) }
         : entry
     );
+  });
+
+  useEffect(() => {
+    if (!pexelsImages || !stockGender) { setPrefetchedPhotos([]); return; }
+    const variant = GENDER_TO_VARIANT[stockGender];
+    const raw = pexelsImages[variant] ?? [];
+    setPrefetchedPhotos(raw.map(entry =>
+      typeof entry === "number"
+        ? { id: entry, url: pexelsCdnUrl(entry) }
+        : entry
+    ));
   }, [pexelsImages, stockGender]);
 
   const selectPrefetchedPhoto = useCallback((photo: PexelsPhotoEntry, index: number) => {
@@ -480,21 +491,31 @@ export function MemeBuilder({ factId, factText, pexelsImages, onClose }: MemeBui
     if (!isAuthenticated || !stockGender) return;
     setIsLoadingStock(true);
     setStockError(null);
-    setPrefetchedIndex(null);
     try {
-      const res = await fetch(`/api/memes/stock-photo?gender=${stockGender}`);
+      const res = await fetch(`/api/facts/${factId}/fresh-photo?gender=${stockGender}`, { method: "POST" });
       if (!res.ok) {
         const body = await res.json() as { error?: string };
         throw new Error(body.error ?? "Failed to fetch photo");
       }
-      const photo = await res.json() as StockPhoto;
-      setStockPhoto(photo);
+      const entry = await res.json() as PexelsPhotoEntry;
+      setPrefetchedPhotos(prev => {
+        const next = [...prev, entry];
+        const newIndex = next.length - 1;
+        setPrefetchedIndex(newIndex);
+        return next;
+      });
+      setStockPhoto({
+        id: entry.id,
+        photographerName: "Pexels",
+        photographerUrl: "https://www.pexels.com",
+        photoUrl: entry.url,
+      });
     } catch (e) {
       setStockError(e instanceof Error ? e.message : "Could not load photo");
     } finally {
       setIsLoadingStock(false);
     }
-  }, [isAuthenticated, stockGender]);
+  }, [isAuthenticated, stockGender, factId]);
 
 
   // ── Upload flow ──────────────────────────────────────────────────

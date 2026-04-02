@@ -5,7 +5,8 @@ import { embedFactAsync } from "../lib/embeddings";
 import { renderCanonical } from "../lib/renderCanonical";
 import { logActivity } from "../lib/activity";
 import { validateTemplate } from "../lib/templateGrammar";
-import { runFactImagePipeline } from "../lib/factImagePipeline";
+import { runFactImagePipeline, type FactPexelsImages } from "../lib/factImagePipeline";
+import { searchPhotos, type PexelsPhotoEntry } from "../lib/pexelsClient";
 import { db } from "@workspace/db";
 import {
   factsTable, hashtagsTable, factHashtagsTable,
@@ -400,6 +401,84 @@ router.put("/facts/:factId/image-preference", async (req: Request, res: Response
       set: { imageIndex, updatedAt: new Date() },
     });
   res.json({ success: true, imageIndex });
+});
+
+// POST /facts/:id/fresh-photo?gender=man|woman|person
+// Fetches one new photo per gender variant using the fact's stored keywords,
+// appends each to its respective list (cap 50), persists to DB, and returns
+// the new entry for the requested gender.
+router.post("/facts/:id/fresh-photo", async (req: Request, res: Response) => {
+  if (!req.isAuthenticated()) { res.status(401).json({ error: "Unauthorized" }); return; }
+
+  const factId = parseInt(req.params.id, 10);
+  if (isNaN(factId)) { res.status(400).json({ error: "Invalid fact id" }); return; }
+
+  const gender = req.query.gender as string;
+  if (!["man", "woman", "person"].includes(gender)) {
+    res.status(400).json({ error: "gender must be man, woman, or person" });
+    return;
+  }
+
+  const [fact] = await db.select({ pexelsImages: factsTable.pexelsImages })
+    .from(factsTable)
+    .where(eq(factsTable.id, factId))
+    .limit(1);
+
+  if (!fact) { res.status(404).json({ error: "Fact not found" }); return; }
+
+  const stored = (fact.pexelsImages as FactPexelsImages | null) ?? null;
+
+  const keywords = {
+    male:    stored?.keywords?.male    ?? "man portrait professional",
+    female:  stored?.keywords?.female  ?? "woman portrait professional",
+    neutral: stored?.keywords?.neutral ?? "person portrait professional",
+  };
+
+  // Fetch one fresh photo per variant in parallel, each on a random page.
+  const [newMale, newFemale, newNeutral] = await Promise.all([
+    searchPhotos(keywords.male,    1),
+    searchPhotos(keywords.female,  1),
+    searchPhotos(keywords.neutral, 1),
+  ]);
+
+  function normalize(raw: number[] | PexelsPhotoEntry[]): PexelsPhotoEntry[] {
+    return (raw as Array<number | PexelsPhotoEntry>).map(e =>
+      typeof e === "number" ? { id: e, url: "" } : e
+    );
+  }
+
+  const MAX_LIST = 50;
+
+  function appendAndCap(existing: number[] | PexelsPhotoEntry[], newEntry: PexelsPhotoEntry): PexelsPhotoEntry[] {
+    const list = normalize(existing);
+    list.push(newEntry);
+    return list.length > MAX_LIST ? list.slice(list.length - MAX_LIST) : list;
+  }
+
+  const updated: FactPexelsImages = {
+    fact_type: stored?.fact_type ?? "action",
+    keywords:  stored?.keywords ?? keywords,
+    male:    newMale[0]    ? appendAndCap(stored?.male    ?? [], newMale[0])    : normalize(stored?.male    ?? []),
+    female:  newFemale[0]  ? appendAndCap(stored?.female  ?? [], newFemale[0])  : normalize(stored?.female  ?? []),
+    neutral: newNeutral[0] ? appendAndCap(stored?.neutral ?? [], newNeutral[0]) : normalize(stored?.neutral ?? []),
+  };
+
+  await db.update(factsTable)
+    .set({ pexelsImages: updated as unknown as typeof factsTable.pexelsImages._.data, updatedAt: new Date() })
+    .where(eq(factsTable.id, factId));
+
+  const genderToVariant = { man: "male", woman: "female", person: "neutral" } as const;
+  const variant = genderToVariant[gender as "man" | "woman" | "person"];
+  const returnedPhoto = (updated[variant] as PexelsPhotoEntry[])[
+    (updated[variant] as PexelsPhotoEntry[]).length - 1
+  ] ?? null;
+
+  if (!returnedPhoto) {
+    res.status(503).json({ error: "No photo available for this variant" });
+    return;
+  }
+
+  res.json(returnedPhoto);
 });
 
 // DELETE /facts/:factId/links/:linkId
