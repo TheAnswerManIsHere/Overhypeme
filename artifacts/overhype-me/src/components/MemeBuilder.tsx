@@ -510,8 +510,20 @@ export function MemeBuilder({ factId, factText, pexelsImages, onClose }: MemeBui
         photographerUrl: "https://www.pexels.com",
         photoUrl: entry.url,
       });
-    } catch (e) {
-      setStockError(e instanceof Error ? e.message : "Could not load photo");
+    } catch {
+      // Fallback: generic gender-based stock photo
+      try {
+        const res = await fetch(`/api/memes/stock-photo?gender=${stockGender}`);
+        if (!res.ok) {
+          const body = await res.json() as { error?: string };
+          throw new Error(body.error ?? "Failed to fetch photo");
+        }
+        const photo = await res.json() as StockPhoto;
+        setPrefetchedIndex(null);
+        setStockPhoto(photo);
+      } catch (e2) {
+        setStockError(e2 instanceof Error ? e2.message : "Could not load photo");
+      }
     } finally {
       setIsLoadingStock(false);
     }
