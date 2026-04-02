@@ -271,11 +271,16 @@ function ModeTab({
 
 // ─── Main component ────────────────────────────────────────────────────────────
 
+interface PexelsPhotoEntry {
+  id: number;
+  url: string;
+}
+
 interface FactPexelsImages {
   fact_type: "action" | "abstract";
-  male:    number[];
-  female:  number[];
-  neutral: number[];
+  male:    (number | PexelsPhotoEntry)[];
+  female:  (number | PexelsPhotoEntry)[];
+  neutral: (number | PexelsPhotoEntry)[];
   keywords?: {
     male:    string;
     female:  string;
@@ -419,19 +424,24 @@ export function MemeBuilder({ factId, factText, pexelsImages, onClose }: MemeBui
     img.src = photoUrl;
   }, [imageMode, stockPhoto, uploadLocalUrl]);
 
-  const prefetchedIds = useMemo(() => {
+  const prefetchedPhotos = useMemo<PexelsPhotoEntry[]>(() => {
     if (!pexelsImages || !stockGender) return [];
     const variant = GENDER_TO_VARIANT[stockGender];
-    return pexelsImages[variant] ?? [];
+    const raw = pexelsImages[variant] ?? [];
+    return raw.map(entry =>
+      typeof entry === "number"
+        ? { id: entry, url: pexelsCdnUrl(entry) }
+        : entry
+    );
   }, [pexelsImages, stockGender]);
 
-  const selectPrefetchedPhoto = useCallback((photoId: number, index: number) => {
+  const selectPrefetchedPhoto = useCallback((photo: PexelsPhotoEntry, index: number) => {
     setPrefetchedIndex(index);
     setStockPhoto({
-      id: photoId,
+      id: photo.id,
       photographerName: "Pexels",
       photographerUrl: "https://www.pexels.com",
-      photoUrl: pexelsCdnUrl(photoId),
+      photoUrl: photo.url,
     });
   }, []);
 
@@ -439,9 +449,12 @@ export function MemeBuilder({ factId, factText, pexelsImages, onClose }: MemeBui
     if (!isAuthenticated) return;
 
     const variant = GENDER_TO_VARIANT[gender];
-    const ids = pexelsImages?.[variant] ?? [];
-    if (ids.length > 0) {
-      selectPrefetchedPhoto(ids[0]!, 0);
+    const raw = pexelsImages?.[variant] ?? [];
+    if (raw.length > 0) {
+      const first = typeof raw[0] === "number"
+        ? { id: raw[0], url: pexelsCdnUrl(raw[0]) }
+        : raw[0]!;
+      selectPrefetchedPhoto(first, 0);
       return;
     }
 
@@ -754,16 +767,16 @@ export function MemeBuilder({ factId, factText, pexelsImages, onClose }: MemeBui
                     )}
 
                     {/* Pre-fetched thumbnail gallery */}
-                    {prefetchedIds.length > 0 && (
+                    {prefetchedPhotos.length > 0 && (
                       <div className="space-y-2">
                         <p className="text-[10px] font-display uppercase tracking-widest text-muted-foreground">
                           Matched photos for this fact
                         </p>
                         <div className="grid grid-cols-5 gap-1.5">
-                          {prefetchedIds.map((photoId, i) => (
+                          {prefetchedPhotos.map((photo, i) => (
                             <button
-                              key={photoId}
-                              onClick={() => selectPrefetchedPhoto(photoId, i)}
+                              key={photo.id}
+                              onClick={() => selectPrefetchedPhoto(photo, i)}
                               className={`relative aspect-video border-2 overflow-hidden transition-all ${
                                 prefetchedIndex === i
                                   ? "border-primary ring-2 ring-primary/30 scale-105"
@@ -771,7 +784,7 @@ export function MemeBuilder({ factId, factText, pexelsImages, onClose }: MemeBui
                               }`}
                             >
                               <img
-                                src={pexelsCdnUrl(photoId, 200, 120)}
+                                src={photo.url}
                                 alt={`Option ${i + 1}`}
                                 className="w-full h-full object-cover"
                                 loading="lazy"
@@ -811,7 +824,7 @@ export function MemeBuilder({ factId, factText, pexelsImages, onClose }: MemeBui
                           className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-muted-foreground hover:text-primary border-2 border-border hover:border-primary/50 px-3 py-1.5 transition-all disabled:opacity-50 w-full justify-center"
                         >
                           <RefreshCw className={`w-3 h-3 ${isLoadingStock ? "animate-spin" : ""}`} />
-                          {prefetchedIds.length > 0 ? "Random Photo" : "Shuffle"}
+                          {prefetchedPhotos.length > 0 ? "Random Photo" : "Shuffle"}
                         </button>
                         {stockPhoto && (
                           <p className="text-[10px] text-muted-foreground mt-2 truncate">
