@@ -773,7 +773,7 @@ export function MemeBuilder({ factId, factText, pexelsImages, onClose }: MemeBui
 
       const canvasEl = canvasRef.current;
       const previewImageBase64 = canvasEl
-        ? canvasEl.toDataURL("image/jpeg", 0.9).split(",")[1] ?? null
+        ? canvasEl.toDataURL("image/jpeg", 0.82).split(",")[1] ?? null
         : null;
 
       const res = await fetch("/api/memes", {
