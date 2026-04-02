@@ -63,6 +63,8 @@ interface StockPhoto {
 }
 
 interface MemeTextOpts {
+  topYPct: number;
+  bottomYPct: number;
   fontFamily: string;
   fontSize: number;
   textColor: string;
@@ -182,16 +184,10 @@ function drawMeme(
     return lines;
   }
 
-  function renderBlock(lines: string[], position: "top" | "bottom") {
+  function renderBlock(lines: string[], yPct: number) {
     if (lines.length === 0) return;
     const lineH = opts.fontSize * 1.25;
-    const totalH = lines.length * lineH;
-    let startY: number;
-    if (position === "top") {
-      startY = padding + opts.fontSize;
-    } else {
-      startY = CANVAS_H - padding - totalH + opts.fontSize;
-    }
+    const startY = (yPct / 100) * CANVAS_H;
 
     ctx.save();
     ctx.globalAlpha = opts.opacity;
@@ -222,8 +218,8 @@ function drawMeme(
     ctx.restore();
   }
 
-  if (topText.trim()) renderBlock(wrapText(topText), "top");
-  if (bottomText.trim()) renderBlock(wrapText(bottomText), "bottom");
+  if (topText.trim()) renderBlock(wrapText(topText), opts.topYPct);
+  if (bottomText.trim()) renderBlock(wrapText(bottomText), opts.bottomYPct);
 
   ctx.font = "bold 13px sans-serif";
   ctx.fillStyle = "rgba(255,255,255,0.45)";
@@ -394,6 +390,8 @@ export function MemeBuilder({ factId, factText, pexelsImages, onClose }: MemeBui
   const [italic, setItalic] = useState(false);
   const [textAlign, setTextAlign] = useState<TextAlign>("center");
   const [opacity, setOpacity] = useState(1);
+  const [topY, setTopY] = useState(17);
+  const [bottomY, setBottomY] = useState(88);
 
   // Generation state
   const [status, setStatus] = useState<"idle" | "generating" | "done" | "error">("idle");
@@ -483,7 +481,8 @@ export function MemeBuilder({ factId, factText, pexelsImages, onClose }: MemeBui
   const memeOpts: MemeTextOpts = useMemo(() => ({
     fontFamily, fontSize, textColor, outlineColor, textEffect,
     outlineWidth, allCaps, bold, italic, textAlign, opacity,
-  }), [fontFamily, fontSize, textColor, outlineColor, textEffect, outlineWidth, allCaps, bold, italic, textAlign, opacity]);
+    topYPct: topY, bottomYPct: bottomY,
+  }), [fontFamily, fontSize, textColor, outlineColor, textEffect, outlineWidth, allCaps, bold, italic, textAlign, opacity, topY, bottomY]);
 
   const redraw = useCallback(() => {
     if (canvasRef.current) {
@@ -1176,6 +1175,20 @@ export function MemeBuilder({ factId, factText, pexelsImages, onClose }: MemeBui
                       className="w-full bg-background border-2 border-border text-foreground text-sm px-3 py-2 resize-none focus:border-primary focus:outline-none"
                       placeholder="Top text…"
                     />
+                    <div className="mt-1.5">
+                      <label className="text-[10px] font-display uppercase tracking-widest text-muted-foreground flex justify-between mb-1">
+                        <span>Vertical Position</span>
+                        <span className="tabular-nums">{topY}%</span>
+                      </label>
+                      <input
+                        type="range"
+                        min={0}
+                        max={bottomY}
+                        value={topY}
+                        onChange={e => setTopY(parseInt(e.target.value))}
+                        className="w-full accent-primary"
+                      />
+                    </div>
                   </div>
 
                   {/* Bottom text */}
@@ -1190,6 +1203,20 @@ export function MemeBuilder({ factId, factText, pexelsImages, onClose }: MemeBui
                       className="w-full bg-background border-2 border-border text-foreground text-sm px-3 py-2 resize-none focus:border-primary focus:outline-none"
                       placeholder="Bottom text…"
                     />
+                    <div className="mt-1.5">
+                      <label className="text-[10px] font-display uppercase tracking-widest text-muted-foreground flex justify-between mb-1">
+                        <span>Vertical Position</span>
+                        <span className="tabular-nums">{bottomY}%</span>
+                      </label>
+                      <input
+                        type="range"
+                        min={topY}
+                        max={100}
+                        value={bottomY}
+                        onChange={e => setBottomY(parseInt(e.target.value))}
+                        className="w-full accent-primary"
+                      />
+                    </div>
                   </div>
 
                   {/* Font family */}
