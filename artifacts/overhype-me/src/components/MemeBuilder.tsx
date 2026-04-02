@@ -24,6 +24,9 @@ import {
   Lock,
   ImageIcon,
   Layers,
+  Sparkles,
+  AlertCircle,
+  Copy,
 } from "lucide-react";
 
 // ─── Canvas constants ──────────────────────────────────────────────────────────
@@ -299,7 +302,7 @@ export function MemeBuilder({ factId, factText, pexelsImages, onClose }: MemeBui
   const { isAuthenticated, login, user } = useAuth() as {
     isAuthenticated: boolean;
     login: () => void;
-    user?: { membershipTier?: string; isAdmin?: boolean; isRealAdmin?: boolean };
+    user?: { id?: string; membershipTier?: string; isAdmin?: boolean; isRealAdmin?: boolean };
   };
   const isPremium = user?.membershipTier === "premium";
   const isAdmin = !!(user?.isAdmin && user?.isRealAdmin);
@@ -385,6 +388,75 @@ export function MemeBuilder({ factId, factText, pexelsImages, onClose }: MemeBui
   const [status, setStatus] = useState<"idle" | "generating" | "done" | "error">("idle");
   const [permalinkSlug, setPermalinkSlug] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
+  // Top-level mode: "classic" | "ai"
+  const [builderMode, setBuilderMode] = useState<"classic" | "ai">("classic");
+
+  // AI Meme state
+  const aiGender = useMemo<"male" | "female" | "neutral">(() => {
+    const p = (pronouns ?? "").toLowerCase();
+    if (p.startsWith("he")) return "male";
+    if (p.startsWith("she")) return "female";
+    return "neutral";
+  }, [pronouns]);
+  const [aiMemeImageIndex, setAiMemeImageIndex] = useState(0);
+  const [aiMemeHasImages, setAiMemeHasImages] = useState(false);
+  const [aiMemeLoading, setAiMemeLoading] = useState(false);
+  const [aiMemeCopied, setAiMemeCopied] = useState(false);
+
+  // Load AI meme preference and check if images exist
+  useEffect(() => {
+    if (!factId) return;
+    // Check if AI meme image is available by fetching the endpoint (HEAD-like check)
+    fetch(`/api/memes/ai/${factId}/image?gender=${aiGender}&imageIndex=0`)
+      .then(r => { setAiMemeHasImages(r.ok); })
+      .catch(() => { setAiMemeHasImages(false); });
+    // Load saved preference
+    fetch(`/api/facts/${factId}/ai-meme-preference`, { credentials: "include" })
+      .then(r => r.ok ? r.json() as Promise<{ aiMemeImageIndex: number }> : null)
+      .then(data => { if (data) setAiMemeImageIndex(Math.min(2, Math.max(0, data.aiMemeImageIndex))); })
+      .catch(() => {});
+  }, [factId, aiGender]);
+
+  const aiMemeImageUrl = useMemo(() => {
+    if (!factId) return null;
+    const uid = user?.id ?? "";
+    return `/api/memes/ai/${factId}/image?gender=${aiGender}&imageIndex=${aiMemeImageIndex}${uid ? `&userId=${uid}` : ""}`;
+  }, [factId, aiGender, aiMemeImageIndex, user]);
+
+  const handleAiTryAnother = async () => {
+    const next = (aiMemeImageIndex + 1) % 3;
+    setAiMemeImageIndex(next);
+    setAiMemeLoading(true);
+    if (user) {
+      await fetch(`/api/facts/${factId}/ai-meme-preference`, {
+        method: "PUT",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ aiMemeImageIndex: next }),
+      }).catch(() => {});
+    }
+  };
+
+  const handleAiDownload = () => {
+    if (!aiMemeImageUrl) return;
+    fetch(aiMemeImageUrl, { credentials: "include" })
+      .then(r => r.blob())
+      .then(blob => {
+        const a = document.createElement("a");
+        a.href = URL.createObjectURL(blob);
+        a.download = `overhype-ai-meme-${factId}.jpg`;
+        a.click();
+      })
+      .catch(console.error);
+  };
+
+  const handleAiCopyLink = () => {
+    navigator.clipboard.writeText(window.location.href).then(() => {
+      setAiMemeCopied(true);
+      setTimeout(() => setAiMemeCopied(false), 2000);
+    });
+  };
 
   const queryClient = useQueryClient();
   const { data: tplData } = useListMemeTemplates();
@@ -741,7 +813,90 @@ export function MemeBuilder({ factId, factText, pexelsImages, onClose }: MemeBui
           </button>
         </div>
 
-        <div className="p-4 md:p-5 space-y-5">
+        {/* ── Top-level tabs: Classic / AI Meme ── */}
+        <div className="flex border-b-2 border-border px-5">
+          <button
+            onClick={() => setBuilderMode("classic")}
+            className={`px-4 py-3 text-sm font-display uppercase tracking-wider border-b-2 -mb-[2px] transition-all flex items-center gap-2 ${
+              builderMode === "classic"
+                ? "border-primary text-primary"
+                : "border-transparent text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            <Layers className="w-3.5 h-3.5" />
+            Classic Meme
+          </button>
+          <button
+            onClick={() => setBuilderMode("ai")}
+            className={`px-4 py-3 text-sm font-display uppercase tracking-wider border-b-2 -mb-[2px] transition-all flex items-center gap-2 ${
+              builderMode === "ai"
+                ? "border-violet-400 text-violet-400"
+                : "border-transparent text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            <Sparkles className="w-3.5 h-3.5" />
+            AI Meme
+          </button>
+        </div>
+
+        {/* ── AI Meme Panel ── */}
+        {builderMode === "ai" && (
+          <div className="p-4 md:p-5 space-y-5">
+            {!aiMemeHasImages ? (
+              <div className="flex flex-col items-center justify-center gap-4 py-12 text-center">
+                <Sparkles className="w-12 h-12 text-violet-400/50" />
+                <p className="text-muted-foreground text-sm max-w-xs">
+                  AI-generated backgrounds haven't been created for this fact yet.
+                  Ask an admin to generate them from the admin panel.
+                </p>
+              </div>
+            ) : (
+              <>
+                {/* AI Meme Image Display */}
+                <div className="relative bg-black/20 border-2 border-violet-500/30 overflow-hidden">
+                  <img
+                    key={aiMemeImageUrl ?? ""}
+                    src={aiMemeImageUrl ?? ""}
+                    alt="AI generated meme"
+                    className="w-full h-auto"
+                    onLoad={() => setAiMemeLoading(false)}
+                    onError={() => setAiMemeLoading(false)}
+                  />
+                  {aiMemeLoading && (
+                    <div className="absolute inset-0 flex items-center justify-center bg-black/60">
+                      <Loader2 className="w-8 h-8 text-violet-400 animate-spin" />
+                    </div>
+                  )}
+                </div>
+
+                {/* Actions */}
+                <div className="flex flex-wrap gap-3">
+                  <Button
+                    onClick={() => { setAiMemeLoading(true); void handleAiTryAnother(); }}
+                    variant="outline"
+                    className="gap-2 border-violet-500/50 text-violet-400 hover:border-violet-400"
+                  >
+                    <RefreshCw className="w-4 h-4" />
+                    Try Another <span className="text-xs opacity-60">({aiMemeImageIndex + 1}/3)</span>
+                  </Button>
+                  <Button onClick={handleAiDownload} variant="secondary" className="gap-2">
+                    <Download className="w-4 h-4" /> Download
+                  </Button>
+                  <Button onClick={handleAiCopyLink} variant="outline" className="gap-2">
+                    {aiMemeCopied ? <CheckCircle className="w-4 h-4 text-green-400" /> : <Copy className="w-4 h-4" />}
+                    {aiMemeCopied ? "Copied!" : "Copy Link"}
+                  </Button>
+                </div>
+
+                <p className="text-xs text-muted-foreground/60">
+                  AI-generated scene • Powered by OpenAI gpt-image-1
+                </p>
+              </>
+            )}
+          </div>
+        )}
+
+        <div className={`p-4 md:p-5 space-y-5 ${builderMode === "ai" ? "hidden" : ""}`}>
 
           {/* ── Canvas preview ── */}
           <div className="relative sticky top-14 z-10 bg-card pb-2">
