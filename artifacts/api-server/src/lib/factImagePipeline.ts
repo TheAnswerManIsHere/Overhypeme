@@ -56,11 +56,15 @@ Your job:
    - "action" = a person doing something physical, social, or occupational
    - "abstract" = cosmic, metaphysical, conceptual, or impossible to photograph (e.g. controlling gravity, being the internet, existing since the beginning of time)
 3. Return THREE search keyword strings optimized for Pexels stock photo results:
-   - "male"    — best query to get male-presenting photos of the concept
-   - "female"  — best query to get female-presenting photos of the concept
-   - "neutral" — best query that doesn't imply gender (uses "person" or is concept-only)
-   For abstract facts, all three can be identical (dramatic/conceptual backgrounds).
-   The queries should NOT just be the same string with a different gender prefix — consider what will produce the best stock photo results for each.
+   - "male"    — always include "man" naturally in the phrase (even for abstract facts — e.g. "man gravity concept", "man dark energy power")
+   - "female"  — always include "woman" naturally in the phrase (e.g. "woman gravity concept", "woman space power")
+   - "neutral" — use "person" or omit the gender term; can be concept-only for pure abstracts
+
+   RULES:
+   - NEVER make male and female identical — they must reflect the right gender.
+   - DO NOT just prepend "man"/"woman" mechanically — integrate the gender naturally.
+   - For abstract facts the neutral keyword can be concept-only, but male/female must still show a person of that gender in the scene.
+   - Think about what Pexels will actually return: specific, visual, photographic language works better than abstract nouns alone.
 
 Return ONLY valid JSON — no explanation, no markdown:
 {"fact_type":"action","keywords":{"male":"man lifting weights gym","female":"woman lifting weights gym","neutral":"person strength training gym"}}`;
