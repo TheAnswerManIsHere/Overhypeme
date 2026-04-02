@@ -22,6 +22,11 @@ export interface FactPexelsImages {
   male:    number[];
   female:  number[];
   neutral: number[];
+  keywords?: {
+    male:    string;
+    female:  string;
+    neutral: string;
+  };
 }
 
 interface LLMKeywordResult {
@@ -108,7 +113,7 @@ export async function runFactImagePipeline(factId: number, factText: string): Pr
       searchPhotoIds(keywords.neutral, 5),
     ]);
 
-    const pexelsImages: FactPexelsImages = { fact_type, male, female, neutral };
+    const pexelsImages: FactPexelsImages = { fact_type, male, female, neutral, keywords };
 
     // 3. Persist to DB
     await db
