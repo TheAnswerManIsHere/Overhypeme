@@ -34,6 +34,10 @@ export const factsTable = pgTable("facts", {
   canonicalText: text("canonical_text"),
   /** LLM-extracted Pexels image IDs per gender variant. Populated by factImagePipeline. */
   pexelsImages: jsonb("pexels_images"),
+  /** LLM-generated scene prompts for AI meme backgrounds (3 gender variants). */
+  aiScenePrompts: jsonb("ai_scene_prompts"),
+  /** Object storage paths for generated AI meme background images (9 total: 3 genders × 3 each). */
+  aiMemeImages: jsonb("ai_meme_images"),
   embedding: vector("embedding", { dimensions: 384 }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),

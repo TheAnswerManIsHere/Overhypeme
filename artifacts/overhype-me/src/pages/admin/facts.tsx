@@ -1,8 +1,8 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import { AdminLayout } from "@/components/admin/AdminLayout";
 import { Button } from "@/components/ui/Button";
 import { Textarea, Input } from "@/components/ui/Input";
-import { Trash2, Upload, Search, AlertCircle, CheckCircle, Pencil, X, Save, GitBranch, Plus, Brain, EyeOff, Eye } from "lucide-react";
+import { Trash2, Upload, Search, AlertCircle, CheckCircle, Pencil, X, Save, GitBranch, Plus, Brain, EyeOff, Eye, Sparkles, RefreshCw, ImageIcon } from "lucide-react";
 
 const USE_CASE_SUGGESTIONS = ["default", "one_line", "two_line", "short", "long", "meme_caption", "shirt_print", "social_media", "title_case"];
 
@@ -90,6 +90,18 @@ export default function AdminFacts() {
   const [deleteModal, setDeleteModal] = useState<null | "choose" | "confirm-hard">(null);
   const [deleting, setDeleting] = useState(false);
 
+  // AI Meme Backgrounds state
+  interface AiScenePrompts { fact_type: string; male: string; female: string; neutral: string; }
+  interface AiMemeImages { male: string[]; female: string[]; neutral: string[]; }
+  const [aiMemeData, setAiMemeData] = useState<{ aiScenePrompts: AiScenePrompts | null; aiMemeImages: AiMemeImages | null } | null>(null);
+  const [aiMemeLoading, setAiMemeLoading] = useState(false);
+  const [aiMemeGenerating, setAiMemeGenerating] = useState(false);
+  const [aiMemeError, setAiMemeError] = useState<string | null>(null);
+  const [aiMemeSuccess, setAiMemeSuccess] = useState<string | null>(null);
+  const [editedPrompts, setEditedPrompts] = useState<AiScenePrompts | null>(null);
+  const [regeneratingImage, setRegeneratingImage] = useState<string | null>(null); // "gender-index"
+  const [aiImageTimestamps, setAiImageTimestamps] = useState<Record<string, number>>({}); // cache-busting
+
   const LIMIT = 25;
 
   useEffect(() => {
@@ -138,7 +150,11 @@ export default function AdminFacts() {
     setShowAddVariant(false);
     setNewVariantText("");
     setNewVariantUseCase("");
-    // Fetch variants for this fact (only if it's a root fact)
+    setAiMemeData(null);
+    setEditedPrompts(null);
+    setAiMemeError(null);
+    setAiMemeSuccess(null);
+    // Fetch variants and AI meme data for root facts
     if (fact.parentId === null) {
       setLoadingVariants(true);
       fetch(`/api/facts/${fact.id}`, { credentials: "include" })
@@ -148,6 +164,8 @@ export default function AdminFacts() {
         })
         .catch(() => setVariants([]))
         .finally(() => setLoadingVariants(false));
+      // Load AI meme data
+      void loadAiMemeData(fact.id);
     } else {
       setVariants([]);
     }
@@ -159,6 +177,101 @@ export default function AdminFacts() {
     setSaveResult(null);
     setVariants([]);
     setShowAddVariant(false);
+    setAiMemeData(null);
+    setEditedPrompts(null);
+    setAiMemeError(null);
+    setAiMemeSuccess(null);
+  }
+
+  const loadAiMemeData = useCallback(async (factId: number) => {
+    setAiMemeLoading(true);
+    setAiMemeError(null);
+    try {
+      const res = await fetch(`/api/admin/facts/${factId}/ai-meme`, { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to load AI meme data");
+      const data = await res.json() as { aiScenePrompts: AiScenePrompts | null; aiMemeImages: AiMemeImages | null };
+      setAiMemeData(data);
+      setEditedPrompts(data.aiScenePrompts ? { ...data.aiScenePrompts } : null);
+    } catch {
+      setAiMemeError("Failed to load AI meme backgrounds data");
+    } finally {
+      setAiMemeLoading(false);
+    }
+  }, []);
+
+  async function generateAiMemeBackgrounds(factId: number) {
+    setAiMemeGenerating(true);
+    setAiMemeError(null);
+    setAiMemeSuccess(null);
+    try {
+      const res = await fetch(`/api/admin/facts/${factId}/ai-meme/generate`, {
+        method: "PUT",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ scenePrompts: editedPrompts ?? undefined }),
+      });
+      if (!res.ok) {
+        const err = (await res.json()) as { error?: string };
+        throw new Error(err.error ?? "Generation failed");
+      }
+      setAiMemeSuccess("AI background generation started! Images will appear in 1-2 minutes.");
+      // Poll for updates after a delay
+      setTimeout(async () => {
+        await loadAiMemeData(factId);
+        setAiMemeSuccess(null);
+      }, 90000);
+    } catch (err) {
+      setAiMemeError(err instanceof Error ? err.message : "Generation failed");
+    } finally {
+      setAiMemeGenerating(false);
+    }
+  }
+
+  async function regenerateAiImage(factId: number, gender: string, imageIndex: number) {
+    const key = `${gender}-${imageIndex}`;
+    setRegeneratingImage(key);
+    setAiMemeError(null);
+    setAiMemeSuccess(null);
+    try {
+      const res = await fetch(`/api/admin/facts/${factId}/ai-meme/regenerate-image`, {
+        method: "PUT",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ gender, imageIndex }),
+      });
+      if (!res.ok) {
+        const err = (await res.json()) as { error?: string };
+        throw new Error(err.error ?? "Regeneration failed");
+      }
+      setAiMemeSuccess(`Regenerating ${gender} image ${imageIndex + 1}… Takes ~30 seconds.`);
+      setTimeout(async () => {
+        await loadAiMemeData(factId);
+        setAiImageTimestamps(prev => ({ ...prev, [key]: Date.now() }));
+        setAiMemeSuccess(null);
+      }, 60000);
+    } catch (err) {
+      setAiMemeError(err instanceof Error ? err.message : "Regeneration failed");
+    } finally {
+      setRegeneratingImage(null);
+    }
+  }
+
+  async function savePrompts(factId: number) {
+    if (!editedPrompts) return;
+    setAiMemeError(null);
+    try {
+      const res = await fetch(`/api/admin/facts/${factId}/ai-scene-prompts`, {
+        method: "PUT",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ prompts: editedPrompts }),
+      });
+      if (!res.ok) throw new Error("Failed to save prompts");
+      setAiMemeSuccess("Scene prompts saved.");
+      setTimeout(() => setAiMemeSuccess(null), 3000);
+    } catch (err) {
+      setAiMemeError(err instanceof Error ? err.message : "Save failed");
+    }
   }
 
   async function saveFact() {
@@ -707,6 +820,118 @@ export default function AdminFacts() {
                     ))
                   )}
                 </div>
+              </div>
+            )}
+
+            {/* AI Meme Backgrounds section (root facts only) */}
+            {selectedFact.parentId === null && (
+              <div className="border-t border-border pt-4">
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="font-display font-bold text-sm uppercase tracking-wide text-foreground flex items-center gap-2">
+                    <Sparkles className="w-4 h-4 text-violet-400" />
+                    AI Meme Backgrounds
+                  </h3>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => void generateAiMemeBackgrounds(selectedFact.id)}
+                    isLoading={aiMemeGenerating}
+                    disabled={aiMemeGenerating}
+                    className="gap-1.5 border-violet-500/40 text-violet-400 hover:border-violet-400 hover:bg-violet-500/10 text-xs"
+                  >
+                    <Sparkles className="w-3.5 h-3.5" />
+                    {aiMemeData?.aiMemeImages ? "Regenerate All" : "Generate AI Backgrounds"}
+                  </Button>
+                </div>
+
+                {aiMemeLoading && (
+                  <div className="text-xs text-muted-foreground py-2">Loading AI meme data…</div>
+                )}
+
+                {aiMemeError && (
+                  <div className="flex items-center gap-2 text-xs text-destructive bg-destructive/10 border border-destructive/30 rounded-sm px-3 py-2 mb-3">
+                    <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                    {aiMemeError}
+                  </div>
+                )}
+
+                {aiMemeSuccess && (
+                  <div className="flex items-center gap-2 text-xs text-green-400 bg-green-500/10 border border-green-500/30 rounded-sm px-3 py-2 mb-3">
+                    <CheckCircle className="w-3.5 h-3.5 shrink-0" />
+                    {aiMemeSuccess}
+                  </div>
+                )}
+
+                {/* Scene Prompts */}
+                {editedPrompts && (
+                  <div className="space-y-2 mb-3">
+                    <p className="text-xs text-muted-foreground font-medium uppercase tracking-wide">Scene Prompts</p>
+                    {(["male", "female", "neutral"] as const).map((gender) => (
+                      <div key={gender}>
+                        <label className="text-xs text-muted-foreground capitalize mb-0.5 block">{gender}</label>
+                        <textarea
+                          value={editedPrompts[gender]}
+                          onChange={(e) => setEditedPrompts(prev => prev ? { ...prev, [gender]: e.target.value } : prev)}
+                          rows={2}
+                          className="w-full px-2.5 py-1.5 text-xs bg-background border border-border rounded-sm font-mono focus:outline-none focus:border-violet-500/60 resize-none"
+                        />
+                      </div>
+                    ))}
+                    <Button size="sm" variant="outline" onClick={() => void savePrompts(selectedFact.id)} className="text-xs">
+                      Save Prompts
+                    </Button>
+                  </div>
+                )}
+
+                {/* Image Grid 3x3 */}
+                {aiMemeData?.aiMemeImages && (
+                  <div className="space-y-3">
+                    {(["male", "female", "neutral"] as const).map((gender) => (
+                      <div key={gender}>
+                        <p className="text-xs text-muted-foreground font-medium uppercase tracking-wide mb-1.5">{gender}</p>
+                        <div className="grid grid-cols-3 gap-2">
+                          {[0, 1, 2].map((idx) => {
+                            const imgPath = aiMemeData.aiMemeImages![gender]?.[idx];
+                            const key = `${gender}-${idx}`;
+                            const ts = aiImageTimestamps[key];
+                            const isRegen = regeneratingImage === key;
+                            return (
+                              <div key={idx} className="relative group rounded-sm overflow-hidden border border-border aspect-square bg-muted/40">
+                                {imgPath ? (
+                                  <img
+                                    src={`/api/memes/ai/${selectedFact.id}/image?gender=${gender}&imageIndex=${idx}${ts ? `&_ts=${ts}` : ""}`}
+                                    alt={`${gender} ${idx + 1}`}
+                                    className="w-full h-full object-cover"
+                                    loading="lazy"
+                                  />
+                                ) : (
+                                  <div className="flex items-center justify-center h-full">
+                                    <ImageIcon className="w-6 h-6 text-muted-foreground/40" />
+                                  </div>
+                                )}
+                                <button
+                                  onClick={() => void regenerateAiImage(selectedFact.id, gender, idx)}
+                                  disabled={isRegen || !!regeneratingImage}
+                                  title="Regenerate this image"
+                                  className="absolute top-1 right-1 p-1 bg-black/60 rounded-sm opacity-0 group-hover:opacity-100 transition-opacity hover:bg-black/80 disabled:opacity-50"
+                                >
+                                  <RefreshCw className={`w-3 h-3 text-white ${isRegen ? "animate-spin" : ""}`} />
+                                </button>
+                                <span className="absolute bottom-1 left-1 text-[10px] text-white/60 font-mono">{idx + 1}</span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {!aiMemeLoading && !aiMemeData?.aiMemeImages && !aiMemeGenerating && (
+                  <p className="text-xs text-muted-foreground italic py-1">
+                    No AI meme backgrounds generated yet. Click "Generate AI Backgrounds" to create them.
+                  </p>
+                )}
               </div>
             )}
 

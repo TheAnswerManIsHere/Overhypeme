@@ -4,7 +4,7 @@ import { Readable } from "stream";
 import path from "path";
 import { fileURLToPath } from "url";
 import { db } from "@workspace/db";
-import { memesTable, factsTable, usersTable } from "@workspace/db/schema";
+import { memesTable, factsTable, usersTable, userFactPreferencesTable } from "@workspace/db/schema";
 import { eq, desc, and, inArray } from "drizzle-orm";
 import { z } from "zod";
 import {
@@ -15,6 +15,8 @@ import {
 import { ObjectStorageService } from "../lib/objectStorage";
 import { getRandomStockPhoto, getPhotoById } from "../lib/pexelsClient";
 import { renderPersonalized } from "../lib/renderCanonical";
+import { compositeAiMeme } from "../lib/aiMemeCompositor";
+import type { AiMemeImages } from "../lib/aiMemePipeline";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const TEMPLATES_DIR = path.resolve(__dirname, "assets/meme-templates");
@@ -461,6 +463,115 @@ router.get("/memes/:slug/image", async (req: Request, res: Response) => {
     req.log.error({ err, slug }, "Meme render failed");
     res.status(502).end();
   }
+});
+
+// ─── AI Meme endpoints ─────────────────────────────────────────────────────────
+
+/**
+ * GET /memes/ai/:factId/image
+ *
+ * Composites the AI meme on-the-fly:
+ * - Loads the appropriate AI background from object storage
+ * - Renders the personalized fact text as bold, all-caps white text with outline
+ * - Streams back a JPEG
+ *
+ * Query params:
+ *   userId   — user ID to personalize the fact text for
+ *   gender   — "male" | "female" | "neutral" (defaults to "neutral")
+ *   imageIndex — 0..2 (defaults to 0)
+ */
+router.get("/memes/ai/:factId/image", async (req: Request, res: Response) => {
+  const factId = parseInt(String(req.params["factId"] ?? ""), 10);
+  if (isNaN(factId)) { res.status(400).end(); return; }
+
+  const gender = (["male", "female", "neutral"].includes(String(req.query["gender"] ?? ""))
+    ? req.query["gender"]
+    : "neutral") as "male" | "female" | "neutral";
+
+  const imageIndex = Math.max(0, Math.min(2, parseInt(String(req.query["imageIndex"] ?? "0"), 10) || 0));
+
+  try {
+    const [fact] = await db
+      .select({ text: factsTable.text, canonicalText: factsTable.canonicalText, aiMemeImages: factsTable.aiMemeImages })
+      .from(factsTable)
+      .where(and(eq(factsTable.id, factId), eq(factsTable.isActive, true)))
+      .limit(1);
+
+    if (!fact) { res.status(404).end(); return; }
+
+    const aiImages = fact.aiMemeImages as AiMemeImages | null;
+    if (!aiImages || !aiImages[gender]?.[imageIndex]) {
+      res.status(404).json({ error: "AI meme background not yet generated for this fact" });
+      return;
+    }
+
+    const backgroundPath = aiImages[gender][imageIndex]!;
+
+    // Personalize fact text for the user if userId provided
+    let factText: string;
+    const userId = String(req.query["userId"] ?? "").trim();
+    if (userId) {
+      const [user] = await db
+        .select({ displayName: usersTable.displayName, pronouns: usersTable.pronouns })
+        .from(usersTable)
+        .where(and(eq(usersTable.id, userId), eq(usersTable.isActive, true)))
+        .limit(1);
+      const rawTemplate = fact.text ?? fact.canonicalText ?? "";
+      factText = user?.displayName && rawTemplate
+        ? renderPersonalized(rawTemplate, user.displayName, user.pronouns)
+        : (fact.canonicalText ?? fact.text ?? "");
+    } else {
+      factText = fact.canonicalText ?? fact.text ?? "";
+    }
+
+    const jpegBuffer = await compositeAiMeme(backgroundPath, factText);
+
+    res.setHeader("Content-Type", "image/jpeg");
+    res.setHeader("Cache-Control", "private, max-age=60");
+    res.setHeader("Content-Length", jpegBuffer.length);
+    res.status(200).send(jpegBuffer);
+
+  } catch (err) {
+    req.log.error({ err, factId }, "AI meme compositing failed");
+    res.status(502).end();
+  }
+});
+
+/**
+ * GET /facts/:factId/ai-meme-preference — get user's AI meme image index preference
+ */
+router.get("/facts/:factId/ai-meme-preference", async (req: Request, res: Response) => {
+  if (!req.isAuthenticated()) { res.json({ aiMemeImageIndex: 0 }); return; }
+  const factId = parseInt(String(req.params["factId"] ?? ""), 10);
+  if (isNaN(factId)) { res.status(400).json({ error: "Invalid factId" }); return; }
+  const [pref] = await db
+    .select({ aiMemeImageIndex: userFactPreferencesTable.aiMemeImageIndex })
+    .from(userFactPreferencesTable)
+    .where(and(eq(userFactPreferencesTable.userId, req.user.id), eq(userFactPreferencesTable.factId, factId)))
+    .limit(1);
+  res.json({ aiMemeImageIndex: pref?.aiMemeImageIndex ?? 0 });
+});
+
+/**
+ * PUT /facts/:factId/ai-meme-preference — save user's AI meme image index preference
+ */
+router.put("/facts/:factId/ai-meme-preference", async (req: Request, res: Response) => {
+  if (!req.isAuthenticated()) { res.status(401).json({ error: "Unauthorized" }); return; }
+  const factId = parseInt(String(req.params["factId"] ?? ""), 10);
+  if (isNaN(factId)) { res.status(400).json({ error: "Invalid factId" }); return; }
+  const aiMemeImageIndex = parseInt(String((req.body as Record<string, unknown>)["aiMemeImageIndex"] ?? "0"), 10);
+  if (isNaN(aiMemeImageIndex) || aiMemeImageIndex < 0 || aiMemeImageIndex > 2) {
+    res.status(400).json({ error: "Invalid aiMemeImageIndex (must be 0, 1, or 2)" });
+    return;
+  }
+  await db
+    .insert(userFactPreferencesTable)
+    .values({ userId: req.user.id, factId, aiMemeImageIndex })
+    .onConflictDoUpdate({
+      target: [userFactPreferencesTable.userId, userFactPreferencesTable.factId],
+      set: { aiMemeImageIndex, updatedAt: new Date() },
+    });
+  res.json({ success: true, aiMemeImageIndex });
 });
 
 export default router;
