@@ -149,7 +149,7 @@ function drawMeme(
   const padding = 40;
   const maxW = CANVAS_W - padding * 2 - sidebarW;
   const fontStyle = `${opts.italic ? "italic " : ""}${opts.bold ? "bold " : ""}`;
-  const fontStr = `${fontStyle}${opts.fontSize}px "${opts.fontFamily}", Impact, sans-serif`;
+  const fontStr = `${fontStyle}${opts.fontSize}px "${opts.fontFamily}", sans-serif`;
   ctx.font = fontStr;
 
   const textAreaLeft = padding + sidebarW;
