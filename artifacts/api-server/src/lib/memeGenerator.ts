@@ -59,6 +59,16 @@ export interface TextOptions {
   color?: string;
   align?: "left" | "center" | "right";
   verticalPosition?: "top" | "middle" | "bottom";
+  topText?: string;
+  bottomText?: string;
+  fontFamily?: string;
+  outlineColor?: string;
+  textEffect?: "shadow" | "outline" | "none";
+  outlineWidth?: number;
+  allCaps?: boolean;
+  bold?: boolean;
+  italic?: boolean;
+  opacity?: number;
 }
 
 /**
@@ -161,58 +171,99 @@ export async function generateMemeBuffer(
   ctx.fillStyle = "rgba(255,255,255,0.06)";
   ctx.font = `bold ${Math.floor(CANVAS_H * 0.45)}px serif`;
   ctx.textAlign = "right";
-  ctx.fillText("CN", CANVAS_W - 24, CANVAS_H * 0.72);
+  ctx.fillText("OM", CANVAS_W - 24, CANVAS_H * 0.72);
 
   // ── Text ──────────────────────────────────────────────────────────
-  const autoFontSize =
-    factText.length > 120 ? 22 : factText.length > 70 ? 26 : 32;
-  const fontSize = Math.min(Math.max(options?.fontSize ?? autoFontSize, 14), 48);
+  const hasNewFormat = !!(options?.topText !== undefined || options?.bottomText !== undefined);
+  const autoLegacySize = factText.length > 120 ? 22 : factText.length > 70 ? 26 : 32;
+  const defaultSize = hasNewFormat ? 30 : autoLegacySize;
+  const fontSize = Math.min(Math.max(options?.fontSize ?? defaultSize, 14), 100);
   const textColor = options?.color ?? "#ffffff";
-  const textAlign = options?.align ?? "left";
-  const vertPos = options?.verticalPosition ?? "middle";
+  const textAlign = options?.align ?? (hasNewFormat ? "center" : "left");
+  const fontFamily = options?.fontFamily ?? (hasNewFormat ? "Impact" : "sans-serif");
+  const textEffect = options?.textEffect ?? (hasNewFormat ? "outline" : "shadow");
+  const outlineColor = options?.outlineColor ?? "#000000";
+  const outlineWidthVal = options?.outlineWidth ?? 5;
+  const allCaps = options?.allCaps ?? hasNewFormat;
+  const isBold = options?.bold ?? true;
+  const isItalic = options?.italic ?? false;
+  const textOpacity = options?.opacity ?? 1;
 
-  const padding = 56;
+  const padding = 40;
   const maxW = CANVAS_W - padding * 2 - sidebarW;
+  const fontStyle = `${isItalic ? "italic " : ""}${isBold ? "bold " : ""}`;
+  const fontStr = `${fontStyle}${fontSize}px "${fontFamily}", sans-serif`;
 
-  ctx.font = `bold ${fontSize}px sans-serif`;
-  ctx.fillStyle = textColor;
-  ctx.textAlign = textAlign;
-  ctx.shadowColor = "rgba(0,0,0,0.9)";
-  ctx.shadowBlur = 12;
-  ctx.shadowOffsetX = 1;
-  ctx.shadowOffsetY = 1;
-
-  const words = factText.split(" ");
-  const lines: string[] = [];
-  let current = "";
-  for (const w of words) {
-    const test = current ? `${current} ${w}` : w;
-    if (ctx.measureText(test).width > maxW && current) {
-      lines.push(current);
-      current = w;
-    } else {
-      current = test;
-    }
-  }
-  if (current) lines.push(current);
-
-  const lineH = fontSize * 1.45;
-  const totalH = lines.length * lineH;
-  let startY: number;
-  if (vertPos === "top") startY = padding + fontSize;
-  else if (vertPos === "bottom") startY = CANVAS_H - padding - totalH + fontSize;
-  else startY = (CANVAS_H - totalH) / 2 + fontSize;
-
+  const textAreaLeft = padding + sidebarW;
+  const textAreaRight = CANVAS_W - padding;
   const textX =
-    textAlign === "right"
-      ? CANVAS_W - padding
-      : textAlign === "center"
-      ? padding + sidebarW + maxW / 2
-      : padding + sidebarW + 4;
+    textAlign === "right" ? textAreaRight
+    : textAlign === "center" ? (textAreaLeft + textAreaRight) / 2
+    : textAreaLeft + 4;
 
-  lines.forEach((line, i) => {
-    ctx.fillText(line, textX, startY + i * lineH);
-  });
+  function wrapText(text: string): string[] {
+    const display = allCaps ? text.toUpperCase() : text;
+    ctx.font = fontStr;
+    const words = display.split(" ");
+    const lines: string[] = [];
+    let cur = "";
+    for (const w of words) {
+      const test = cur ? `${cur} ${w}` : w;
+      if (ctx.measureText(test).width > maxW && cur) {
+        lines.push(cur);
+        cur = w;
+      } else {
+        cur = test;
+      }
+    }
+    if (cur) lines.push(cur);
+    return lines;
+  }
+
+  function renderBlock(lines: string[], position: "top" | "middle" | "bottom") {
+    if (lines.length === 0) return;
+    const lineH = fontSize * 1.25;
+    const totalH = lines.length * lineH;
+    let startY: number;
+    if (position === "top") startY = padding + fontSize;
+    else if (position === "bottom") startY = CANVAS_H - padding - totalH + fontSize;
+    else startY = (CANVAS_H - totalH) / 2 + fontSize;
+
+    ctx.save();
+    ctx.globalAlpha = textOpacity;
+    ctx.font = fontStr;
+    ctx.textAlign = textAlign;
+
+    lines.forEach((line, i) => {
+      const y = startY + i * lineH;
+      if (textEffect === "outline") {
+        ctx.strokeStyle = outlineColor;
+        ctx.lineWidth = outlineWidthVal * 2;
+        ctx.lineJoin = "round";
+        ctx.miterLimit = 2;
+        ctx.strokeText(line, textX, y);
+      }
+      if (textEffect === "shadow") {
+        ctx.shadowColor = "rgba(0,0,0,0.9)";
+        ctx.shadowBlur = 12;
+        ctx.shadowOffsetX = 1;
+        ctx.shadowOffsetY = 1;
+      }
+      ctx.fillStyle = textColor;
+      ctx.fillText(line, textX, y);
+      ctx.shadowBlur = 0;
+      ctx.shadowOffsetX = 0;
+      ctx.shadowOffsetY = 0;
+    });
+    ctx.restore();
+  }
+
+  if (hasNewFormat) {
+    if ((options?.topText ?? "").trim()) renderBlock(wrapText(options!.topText!), "top");
+    if ((options?.bottomText ?? "").trim()) renderBlock(wrapText(options!.bottomText!), "bottom");
+  } else {
+    renderBlock(wrapText(factText), options?.verticalPosition ?? "middle");
+  }
 
   // ── Watermark ─────────────────────────────────────────────────────
   ctx.shadowBlur = 0;

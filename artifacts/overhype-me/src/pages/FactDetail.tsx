@@ -4,7 +4,6 @@ import { format } from "date-fns";
 import HCaptcha from "@hcaptcha/react-hcaptcha";
 
 import { useGetFact, useListComments, useListFactMemes, getGetFactQueryKey, getListCommentsQueryKey } from "@workspace/api-client-react";
-import type { ExternalLink } from "@workspace/api-client-react";
 import { useAuth } from "@workspace/replit-auth-web";
 import { Layout } from "@/components/layout/Layout";
 import { Button } from "@/components/ui/Button";
@@ -152,7 +151,7 @@ export default function FactDetail() {
   const factId = parseInt(params?.id || "0", 10);
   const [, setLocation] = useLocation();
   const { isAuthenticated, user } = useAuth();
-  const { rateFact, addComment, deleteLink } = useAppMutations();
+  const { rateFact, addComment } = useAppMutations();
 
   const { data: fact, isLoading: factLoading, error: factError } = useGetFact(factId, {
     query: { queryKey: getGetFactQueryKey(factId), enabled: !!factId }
@@ -209,7 +208,7 @@ export default function FactDetail() {
   const handleCommentSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!isAuthenticated) return setLocation("/login");
-    if (!commentText.trim() || !captchaToken) return;
+    if (!commentText.trim()) return;
 
     addComment.mutate({ factId, data: { text: commentText, captchaToken } }, {
       onSuccess: () => {
@@ -329,7 +328,7 @@ export default function FactDetail() {
 
             <div className="text-muted-foreground text-sm font-medium text-right">
               <div>VERIFIED: {format(new Date(fact.createdAt), 'MMM dd, yyyy')}</div>
-              {fact.submittedBy && <div className="text-primary mt-1">BY AGENT {fact.submittedBy.substring(0,8).toUpperCase()}</div>}
+              {fact.submittedBy && <div className="text-primary mt-1">BY {fact.submittedBy.substring(0,8).toUpperCase()}</div>}
             </div>
           </div>
 
@@ -372,7 +371,7 @@ export default function FactDetail() {
                         onVerify={setCaptchaToken}
                       />
                     </div>
-                    <Button type="submit" isLoading={addComment.isPending} disabled={!commentText || !captchaToken} className="w-full sm:w-auto">
+                    <Button type="submit" isLoading={addComment.isPending} disabled={!commentText} className="w-full sm:w-auto">
                       POST INTEL
                     </Button>
                   </div>
@@ -398,7 +397,7 @@ export default function FactDetail() {
                           <User className="w-4 h-4 text-muted-foreground" />
                         </div>
                       )}
-                      <span className="font-bold text-primary">{comment.authorName || "UNKNOWN AGENT"}</span>
+                      <span className="font-bold text-primary">{comment.authorName || "ANONYMOUS"}</span>
                     </div>
                     <span className="text-xs text-muted-foreground font-medium">{format(new Date(comment.createdAt), 'MMM dd, yyyy')}</span>
                   </div>
@@ -407,45 +406,6 @@ export default function FactDetail() {
               ))}
               {commentsData?.comments.length === 0 && (
                 <p className="text-muted-foreground py-8 text-center border-2 border-dashed border-border rounded-sm">No intel submitted yet.</p>
-              )}
-            </div>
-          </div>
-
-          {/* Links Section */}
-          <div className="space-y-6">
-            <div className="flex items-center justify-between border-b-2 border-border pb-2">
-              <h3 className="text-xl font-display uppercase tracking-wide">Source Links</h3>
-            </div>
-
-            <div className="space-y-3">
-              {fact.links?.map(link => {
-                const isYoutube = link.url.includes("youtube.com") || link.url.includes("youtu.be");
-                const isInsta = link.url.includes("instagram.com");
-                return (
-                  <div key={link.id} className="group relative bg-card border-2 border-border p-3 rounded-sm hover:border-primary/50 transition-colors flex items-center justify-between">
-                    <a href={link.url} target="_blank" rel="noreferrer" className="flex items-center gap-3 overflow-hidden">
-                      <div className="shrink-0 w-8 h-8 bg-background flex items-center justify-center rounded-sm">
-                        {isYoutube ? <Youtube className="w-4 h-4 text-red-500" /> : isInsta ? <Instagram className="w-4 h-4 text-pink-500" /> : <LinkIcon className="w-4 h-4 text-primary" />}
-                      </div>
-                      <span className="text-sm font-medium text-foreground truncate hover:underline underline-offset-4 decoration-primary">
-                        {link.title || new URL(link.url).hostname.replace("www.", "")}
-                      </span>
-                    </a>
-
-                    {isAuthenticated && user?.id === (link as ExternalLink & { addedById?: string | null }).addedById && (
-                      <button
-                        onClick={() => deleteLink.mutate({ factId, linkId: link.id })}
-                        disabled={deleteLink.isPending}
-                        className="opacity-0 group-hover:opacity-100 shrink-0 p-2 text-muted-foreground hover:text-destructive transition-all"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    )}
-                  </div>
-                );
-              })}
-              {fact.links?.length === 0 && (
-                <p className="text-muted-foreground text-sm py-4 italic">No external sources documented.</p>
               )}
             </div>
           </div>

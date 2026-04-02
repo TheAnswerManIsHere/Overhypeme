@@ -14,6 +14,7 @@ import {
 } from "../lib/memeGenerator";
 import { ObjectStorageService } from "../lib/objectStorage";
 import { getRandomStockPhoto, getPhotoById } from "../lib/pexelsClient";
+import { renderPersonalized } from "../lib/renderCanonical";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const TEMPLATES_DIR = path.resolve(__dirname, "assets/meme-templates");
@@ -75,10 +76,20 @@ async function resolveStockPhotoUrl(
 // ─── Validation ────────────────────────────────────────────────────────────────
 
 const TextOptionsSchema = z.object({
-  fontSize: z.number().int().min(14).max(48).optional(),
+  fontSize: z.number().int().min(14).max(100).optional(),
   color: z.string().regex(/^#[0-9a-fA-F]{3,8}$/).optional(),
   align: z.enum(["left", "center", "right"]).optional(),
   verticalPosition: z.enum(["top", "middle", "bottom"]).optional(),
+  topText: z.string().max(500).optional(),
+  bottomText: z.string().max(500).optional(),
+  fontFamily: z.string().max(50).optional(),
+  outlineColor: z.string().regex(/^#[0-9a-fA-F]{3,8}$/).optional(),
+  textEffect: z.enum(["shadow", "outline", "none"]).optional(),
+  outlineWidth: z.number().min(0).max(20).optional(),
+  allCaps: z.boolean().optional(),
+  bold: z.boolean().optional(),
+  italic: z.boolean().optional(),
+  opacity: z.number().min(0).max(1).optional(),
 }).optional();
 
 const ImageSourceSchema = z.discriminatedUnion("type", [
@@ -282,14 +293,21 @@ router.get("/memes/:slug", async (req: Request, res: Response) => {
     .limit(1);
 
   let createdByName: string | null = null;
+  let creatorPronouns: string | null = null;
   if (meme.createdById) {
     const [user] = await db
-      .select({ displayName: usersTable.displayName })
+      .select({ displayName: usersTable.displayName, pronouns: usersTable.pronouns })
       .from(usersTable)
       .where(and(eq(usersTable.id, meme.createdById), eq(usersTable.isActive, true)))
       .limit(1);
     createdByName = user?.displayName ?? null;
+    creatorPronouns = user?.pronouns ?? null;
   }
+
+  const rawTemplate = fact?.text ?? fact?.canonicalText ?? "";
+  const factText = createdByName && rawTemplate
+    ? renderPersonalized(rawTemplate, createdByName, creatorPronouns)
+    : (fact?.canonicalText ?? fact?.text ?? "");
 
   res.json({
     id: meme.id,
@@ -297,7 +315,7 @@ router.get("/memes/:slug", async (req: Request, res: Response) => {
     templateId: meme.templateId,
     imageUrl: meme.imageUrl,
     permalinkSlug: meme.permalinkSlug,
-    factText: fact?.canonicalText ?? fact?.text ?? "",
+    factText,
     createdAt: meme.createdAt.toISOString(),
     createdByName,
   });
@@ -388,13 +406,27 @@ router.get("/memes/:slug/image", async (req: Request, res: Response) => {
   }
 
   // ── Recipe-based rendering ───────────────────────────────────────
-  const [fact] = await db
-    .select({ text: factsTable.text, canonicalText: factsTable.canonicalText })
-    .from(factsTable)
-    .where(eq(factsTable.id, meme.factId))
-    .limit(1);
+  const [fact, creator] = await Promise.all([
+    db
+      .select({ text: factsTable.text, canonicalText: factsTable.canonicalText })
+      .from(factsTable)
+      .where(eq(factsTable.id, meme.factId))
+      .limit(1)
+      .then(rows => rows[0]),
+    meme.createdById
+      ? db
+          .select({ displayName: usersTable.displayName, pronouns: usersTable.pronouns })
+          .from(usersTable)
+          .where(and(eq(usersTable.id, meme.createdById), eq(usersTable.isActive, true)))
+          .limit(1)
+          .then(rows => rows[0])
+      : Promise.resolve(undefined),
+  ]);
 
-  const factText = fact?.canonicalText ?? fact?.text ?? "";
+  const rawTemplate = fact?.text ?? fact?.canonicalText ?? "";
+  const factText = creator?.displayName && rawTemplate
+    ? renderPersonalized(rawTemplate, creator.displayName, creator.pronouns)
+    : (fact?.canonicalText ?? fact?.text ?? "");
   const source = meme.imageSource as StoredImageSource;
   const textOptions = (meme.textOptions ?? undefined) as Parameters<typeof generateMemeBuffer>[2];
 

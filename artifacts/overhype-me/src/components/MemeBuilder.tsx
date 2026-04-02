@@ -3,11 +3,13 @@ import {
   useEffect,
   useState,
   useCallback,
+  useMemo,
   type ChangeEvent,
   type DragEvent,
 } from "react";
 import { Link } from "wouter";
-import { useListMemeTemplates, useRequestUploadUrl } from "@workspace/api-client-react";
+import { useListMemeTemplates } from "@workspace/api-client-react";
+import { useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@workspace/replit-auth-web";
 import { Button } from "@/components/ui/Button";
 import {
@@ -45,9 +47,9 @@ const ACCENT_COLORS: Record<string, string> = {
 };
 
 type TextAlign = "left" | "center" | "right";
-type VertPos   = "top" | "middle" | "bottom";
 type ImageMode = "gradient" | "stock" | "upload";
 type StockGender = "man" | "woman" | "person";
+type TextEffect = "shadow" | "outline" | "none";
 
 interface StockPhoto {
   id: number;
@@ -56,9 +58,42 @@ interface StockPhoto {
   photoUrl: string;
 }
 
+interface MemeTextOpts {
+  fontFamily: string;
+  fontSize: number;
+  textColor: string;
+  outlineColor: string;
+  textEffect: TextEffect;
+  outlineWidth: number;
+  allCaps: boolean;
+  bold: boolean;
+  italic: boolean;
+  textAlign: TextAlign;
+  opacity: number;
+}
+
+const FONT_LIST = [
+  "Impact", "Arial", "Comic Sans MS", "Helvetica", "Times New Roman",
+  "Times", "Courier New", "Courier", "Verdana", "Georgia",
+  "Palatino", "Garamond", "Trebuchet MS", "Arial Black",
+];
+
+function intelligentSplit(text: string): number {
+  const words = text.split(/\s+/).filter(w => w);
+  if (words.length <= 2) return words.length;
+  const mid = Math.ceil(words.length / 2);
+  for (const delta of [0, -1, 1, -2, 2, -3, 3]) {
+    const idx = mid + delta;
+    if (idx > 0 && idx < words.length) {
+      const word = words[idx - 1];
+      if (/[,.\-!?;:—–]$/.test(word ?? "")) return idx;
+    }
+  }
+  return mid;
+}
+
 // ─── Canvas drawing ────────────────────────────────────────────────────────────
 
-/** Center-crop an image onto the canvas, preserving aspect ratio. */
 function drawCroppedImage(
   ctx: CanvasRenderingContext2D,
   img: HTMLImageElement,
@@ -80,16 +115,13 @@ function drawMeme(
   canvas: HTMLCanvasElement,
   bgImage: HTMLImageElement | null,
   templateId: string,
-  text: string,
-  fontSize: number,
-  color: string,
-  align: TextAlign,
-  vertPos: VertPos,
+  topText: string,
+  bottomText: string,
+  opts: MemeTextOpts,
 ) {
   const ctx = canvas.getContext("2d");
   if (!ctx) return;
 
-  // Background
   if (bgImage) {
     drawCroppedImage(ctx, bgImage);
     ctx.fillStyle = "rgba(0,0,0,0.48)";
@@ -104,60 +136,91 @@ function drawMeme(
     ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
   }
 
-  // Left accent bar
   const sidebarW = 12;
-  const accent = bgImage
-    ? "#FF3C00"
-    : (ACCENT_COLORS[templateId] ?? "#ff6600");
+  const accent = bgImage ? "#FF3C00" : (ACCENT_COLORS[templateId] ?? "#ff6600");
   ctx.fillStyle = accent;
   ctx.fillRect(0, 0, sidebarW, CANVAS_H);
 
-  // Ghost watermark
   ctx.fillStyle = "rgba(255,255,255,0.06)";
   ctx.font = `bold ${Math.floor(CANVAS_H * 0.45)}px serif`;
   ctx.textAlign = "right";
-  ctx.fillText("CN", CANVAS_W - 24, CANVAS_H * 0.72);
+  ctx.fillText("OM", CANVAS_W - 24, CANVAS_H * 0.72);
 
-  // Text
-  const padding = 56;
+  const padding = 40;
   const maxW = CANVAS_W - padding * 2 - sidebarW;
-  ctx.font = `bold ${fontSize}px sans-serif`;
-  ctx.fillStyle = color;
-  ctx.textAlign = align;
-  ctx.shadowColor = "rgba(0,0,0,0.85)";
-  ctx.shadowBlur = 10;
+  const fontStyle = `${opts.italic ? "italic " : ""}${opts.bold ? "bold " : ""}`;
+  const fontStr = `${fontStyle}${opts.fontSize}px "${opts.fontFamily}", sans-serif`;
+  ctx.font = fontStr;
 
-  const words = text.split(" ");
-  const lines: string[] = [];
-  let current = "";
-  for (const w of words) {
-    const test = current ? `${current} ${w}` : w;
-    if (ctx.measureText(test).width > maxW && current) {
-      lines.push(current);
-      current = w;
-    } else {
-      current = test;
-    }
-  }
-  if (current) lines.push(current);
-
-  const lineH = fontSize * 1.45;
-  const totalH = lines.length * lineH;
-  let startY: number;
-  if (vertPos === "top")         startY = padding + fontSize;
-  else if (vertPos === "bottom") startY = CANVAS_H - padding - totalH + fontSize;
-  else                           startY = (CANVAS_H - totalH) / 2 + fontSize;
-
+  const textAreaLeft = padding + sidebarW;
+  const textAreaRight = CANVAS_W - padding;
   const textX =
-    align === "right"
-      ? CANVAS_W - padding
-      : align === "center"
-      ? padding + sidebarW + maxW / 2
-      : padding + sidebarW + 4;
+    opts.textAlign === "right" ? textAreaRight
+    : opts.textAlign === "center" ? (textAreaLeft + textAreaRight) / 2
+    : textAreaLeft + 4;
 
-  lines.forEach((line, i) => ctx.fillText(line, textX, startY + i * lineH));
+  function wrapText(text: string): string[] {
+    const display = opts.allCaps ? text.toUpperCase() : text;
+    ctx.font = fontStr;
+    const words = display.split(" ");
+    const lines: string[] = [];
+    let current = "";
+    for (const w of words) {
+      const test = current ? `${current} ${w}` : w;
+      if (ctx.measureText(test).width > maxW && current) {
+        lines.push(current);
+        current = w;
+      } else {
+        current = test;
+      }
+    }
+    if (current) lines.push(current);
+    return lines;
+  }
 
-  ctx.shadowBlur = 0;
+  function renderBlock(lines: string[], position: "top" | "bottom") {
+    if (lines.length === 0) return;
+    const lineH = opts.fontSize * 1.25;
+    const totalH = lines.length * lineH;
+    let startY: number;
+    if (position === "top") {
+      startY = padding + opts.fontSize;
+    } else {
+      startY = CANVAS_H - padding - totalH + opts.fontSize;
+    }
+
+    ctx.save();
+    ctx.globalAlpha = opts.opacity;
+    ctx.font = fontStr;
+    ctx.textAlign = opts.textAlign;
+
+    lines.forEach((line, i) => {
+      const y = startY + i * lineH;
+      if (opts.textEffect === "outline") {
+        ctx.strokeStyle = opts.outlineColor;
+        ctx.lineWidth = opts.outlineWidth * 2;
+        ctx.lineJoin = "round";
+        ctx.miterLimit = 2;
+        ctx.strokeText(line, textX, y);
+      }
+      if (opts.textEffect === "shadow") {
+        ctx.shadowColor = "rgba(0,0,0,0.85)";
+        ctx.shadowBlur = 8;
+        ctx.shadowOffsetX = 2;
+        ctx.shadowOffsetY = 2;
+      }
+      ctx.fillStyle = opts.textColor;
+      ctx.fillText(line, textX, y);
+      ctx.shadowBlur = 0;
+      ctx.shadowOffsetX = 0;
+      ctx.shadowOffsetY = 0;
+    });
+    ctx.restore();
+  }
+
+  if (topText.trim()) renderBlock(wrapText(topText), "top");
+  if (bottomText.trim()) renderBlock(wrapText(bottomText), "bottom");
+
   ctx.font = "bold 13px sans-serif";
   ctx.fillStyle = "rgba(255,255,255,0.45)";
   ctx.textAlign = "right";
@@ -227,7 +290,7 @@ export function MemeBuilder({ factId, factText, onClose }: MemeBuilderProps) {
   // Image source state
   const [imageMode, setImageMode] = useState<ImageMode>("gradient");
   const [selectedTemplate, setSelectedTemplate] = useState("action");
-  const [stockGender, setStockGender] = useState<StockGender>("person");
+  const [stockGender, setStockGender] = useState<StockGender | null>(null);
   const [stockPhoto, setStockPhoto] = useState<StockPhoto | null>(null);
   const [isLoadingStock, setIsLoadingStock] = useState(false);
   const [stockError, setStockError] = useState<string | null>(null);
@@ -241,35 +304,68 @@ export function MemeBuilder({ factId, factText, onClose }: MemeBuilderProps) {
   const [bgImage, setBgImage] = useState<HTMLImageElement | null>(null);
   const [isBgLoading, setIsBgLoading] = useState(false);
 
-  // Text options
-  const [fontSize, setFontSize] = useState(28);
+  // Text split + content
+  const factWords = useMemo(() => factText.split(/\s+/).filter(w => w), [factText]);
+  const defaultSplit = useMemo(() => intelligentSplit(factText), [factText]);
+  const [splitPos, setSplitPos] = useState(defaultSplit);
+  const [topText, setTopText] = useState(() => {
+    const w = factText.split(/\s+/).filter(v => v);
+    return w.slice(0, intelligentSplit(factText)).join(" ");
+  });
+  const [bottomText, setBottomText] = useState(() => {
+    const w = factText.split(/\s+/).filter(v => v);
+    return w.slice(intelligentSplit(factText)).join(" ");
+  });
+  const [textManuallyEdited, setTextManuallyEdited] = useState(false);
+
+  useEffect(() => {
+    const sp = intelligentSplit(factText);
+    const words = factText.split(/\s+/).filter(w => w);
+    setSplitPos(sp);
+    setTopText(words.slice(0, sp).join(" "));
+    setBottomText(words.slice(sp).join(" "));
+    setTextManuallyEdited(false);
+  }, [factText]);
+
+  // Text styling
+  const [fontFamily, setFontFamily] = useState("Impact");
+  const [fontSize, setFontSize] = useState(30);
   const [textColor, setTextColor] = useState("#ffffff");
-  const [textAlign, setTextAlign] = useState<TextAlign>("left");
-  const [vertPos, setVertPos] = useState<VertPos>("middle");
+  const [outlineColor, setOutlineColor] = useState("#000000");
+  const [textEffect, setTextEffect] = useState<TextEffect>("outline");
+  const [outlineWidth, setOutlineWidth] = useState(5);
+  const [allCaps, setAllCaps] = useState(true);
+  const [bold, setBold] = useState(true);
+  const [italic, setItalic] = useState(false);
+  const [textAlign, setTextAlign] = useState<TextAlign>("center");
+  const [opacity, setOpacity] = useState(1);
 
   // Generation state
   const [status, setStatus] = useState<"idle" | "generating" | "done" | "error">("idle");
   const [permalinkSlug, setPermalinkSlug] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
+  const queryClient = useQueryClient();
   const { data: tplData } = useListMemeTemplates();
-  const requestUploadUrl = useRequestUploadUrl();
+
+  const handleSplitChange = useCallback((newPos: number) => {
+    setSplitPos(newPos);
+    setTopText(factWords.slice(0, newPos).join(" "));
+    setBottomText(factWords.slice(newPos).join(" "));
+    setTextManuallyEdited(false);
+  }, [factWords]);
 
   // ── Canvas redraw ────────────────────────────────────────────────
+  const memeOpts: MemeTextOpts = useMemo(() => ({
+    fontFamily, fontSize, textColor, outlineColor, textEffect,
+    outlineWidth, allCaps, bold, italic, textAlign, opacity,
+  }), [fontFamily, fontSize, textColor, outlineColor, textEffect, outlineWidth, allCaps, bold, italic, textAlign, opacity]);
+
   const redraw = useCallback(() => {
     if (canvasRef.current) {
-      drawMeme(
-        canvasRef.current,
-        bgImage,
-        selectedTemplate,
-        factText,
-        fontSize,
-        textColor,
-        textAlign,
-        vertPos,
-      );
+      drawMeme(canvasRef.current, bgImage, selectedTemplate, topText, bottomText, memeOpts);
     }
-  }, [bgImage, selectedTemplate, factText, fontSize, textColor, textAlign, vertPos]);
+  }, [bgImage, selectedTemplate, topText, bottomText, memeOpts]);
 
   useEffect(() => { redraw(); }, [redraw]);
 
@@ -313,12 +409,6 @@ export function MemeBuilder({ factId, factText, onClose }: MemeBuilderProps) {
     }
   }, [isAuthenticated]);
 
-  // Auto-fetch when switching to stock mode
-  useEffect(() => {
-    if (imageMode === "stock" && !stockPhoto && isAuthenticated) {
-      fetchStockPhoto(stockGender);
-    }
-  }, [imageMode, isAuthenticated]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Upload flow ──────────────────────────────────────────────────
   const handleFile = useCallback(async (file: File) => {
@@ -335,24 +425,23 @@ export function MemeBuilder({ factId, factText, onClose }: MemeBuilderProps) {
     setUploadFile(file);
     setIsUploadingFile(true);
 
-    // Local preview immediately
+    // Show local preview immediately while the upload runs
     const localUrl = URL.createObjectURL(file);
     setUploadLocalUrl(localUrl);
 
     try {
-      // 1. Get presigned upload URL
-      const { uploadURL, objectPath } = await requestUploadUrl.mutateAsync({
-        data: { name: file.name, size: file.size, contentType: file.type },
-      });
-
-      // 2. PUT file directly to GCS
-      const putRes = await fetch(uploadURL, {
-        method: "PUT",
+      // POST binary directly to the API server — server uploads to GCS
+      // (much faster than browser→GCS presigned PUT through Replit proxy)
+      const uploadRes = await fetch("/api/storage/upload-meme", {
+        method: "POST",
         headers: { "Content-Type": file.type },
         body: file,
       });
-      if (!putRes.ok) throw new Error("Upload failed");
-
+      if (!uploadRes.ok) {
+        const body = await uploadRes.json() as { error?: string };
+        throw new Error(body.error ?? "Upload failed");
+      }
+      const { objectPath } = await uploadRes.json() as { objectPath: string };
       setUploadObjectPath(objectPath);
     } catch (e) {
       setErrorMsg(e instanceof Error ? e.message : "Upload failed");
@@ -362,7 +451,7 @@ export function MemeBuilder({ factId, factText, onClose }: MemeBuilderProps) {
     } finally {
       setIsUploadingFile(false);
     }
-  }, [requestUploadUrl]);
+  }, []);
 
   const onFileInputChange = (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -424,10 +513,19 @@ export function MemeBuilder({ factId, factText, onClose }: MemeBuilderProps) {
           factId,
           imageSource,
           textOptions: {
+            topText,
+            bottomText,
+            fontFamily,
             fontSize,
             color: textColor,
+            outlineColor,
+            textEffect,
+            outlineWidth,
+            allCaps,
+            bold,
+            italic,
             align: textAlign,
-            verticalPosition: vertPos,
+            opacity,
           },
         }),
       });
@@ -440,6 +538,7 @@ export function MemeBuilder({ factId, factText, onClose }: MemeBuilderProps) {
       const result = await res.json() as { permalinkSlug: string };
       setPermalinkSlug(result.permalinkSlug);
       setStatus("done");
+      queryClient.invalidateQueries({ queryKey: ["listFactMemes", factId] });
     } catch (e) {
       setErrorMsg(e instanceof Error ? e.message : "Something went wrong");
       setStatus("error");
@@ -480,7 +579,7 @@ export function MemeBuilder({ factId, factText, onClose }: MemeBuilderProps) {
         <div className="p-4 md:p-5 space-y-5">
 
           {/* ── Canvas preview ── */}
-          <div className="relative">
+          <div className="relative sticky top-14 z-10 bg-card pb-2">
             <canvas
               ref={canvasRef}
               width={CANVAS_W}
@@ -610,8 +709,8 @@ export function MemeBuilder({ factId, factText, onClose }: MemeBuilderProps) {
 
                       <div className="flex-1 min-w-0">
                         <button
-                          onClick={() => fetchStockPhoto(stockGender)}
-                          disabled={isLoadingStock}
+                          onClick={() => stockGender && fetchStockPhoto(stockGender)}
+                          disabled={isLoadingStock || !stockGender}
                           className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-muted-foreground hover:text-primary border-2 border-border hover:border-primary/50 px-3 py-1.5 transition-all disabled:opacity-50 w-full justify-center"
                         >
                           <RefreshCw className={`w-3 h-3 ${isLoadingStock ? "animate-spin" : ""}`} />
@@ -736,6 +835,126 @@ export function MemeBuilder({ factId, factText, onClose }: MemeBuilderProps) {
                 </SectionLabel>
 
                 <div className="space-y-4">
+                  {/* Split slider */}
+                  <div>
+                    <label className="text-[10px] font-display uppercase tracking-widest text-muted-foreground block mb-2">
+                      Split Position: {splitPos} / {factWords.length} words
+                      {textManuallyEdited && <span className="text-yellow-500 ml-2">(resets custom edits)</span>}
+                    </label>
+                    <input
+                      type="range"
+                      min={0}
+                      max={factWords.length}
+                      value={splitPos}
+                      onChange={e => handleSplitChange(parseInt(e.target.value))}
+                      className="w-full accent-primary"
+                    />
+                  </div>
+
+                  {/* Top text */}
+                  <div>
+                    <label className="text-[10px] font-display uppercase tracking-widest text-muted-foreground block mb-1">
+                      Top Text
+                    </label>
+                    <textarea
+                      value={topText}
+                      onChange={e => { setTopText(e.target.value); setTextManuallyEdited(true); }}
+                      rows={2}
+                      className="w-full bg-background border-2 border-border text-foreground text-sm px-3 py-2 resize-none focus:border-primary focus:outline-none"
+                      placeholder="Top text…"
+                    />
+                  </div>
+
+                  {/* Bottom text */}
+                  <div>
+                    <label className="text-[10px] font-display uppercase tracking-widest text-muted-foreground block mb-1">
+                      Bottom Text
+                    </label>
+                    <textarea
+                      value={bottomText}
+                      onChange={e => { setBottomText(e.target.value); setTextManuallyEdited(true); }}
+                      rows={2}
+                      className="w-full bg-background border-2 border-border text-foreground text-sm px-3 py-2 resize-none focus:border-primary focus:outline-none"
+                      placeholder="Bottom text…"
+                    />
+                  </div>
+
+                  {/* Font family */}
+                  <div>
+                    <label className="text-[10px] font-display uppercase tracking-widest text-muted-foreground block mb-1">
+                      Font
+                    </label>
+                    <select
+                      value={fontFamily}
+                      onChange={e => setFontFamily(e.target.value)}
+                      className="w-full bg-background border-2 border-border text-foreground text-sm px-3 py-2 focus:border-primary focus:outline-none"
+                    >
+                      {FONT_LIST.map(f => (
+                        <option key={f} value={f} style={{ fontFamily: f }}>{f}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {/* ALL CAPS / Bold / Italic */}
+                  <div className="flex gap-3">
+                    {([
+                      ["ALL CAPS", allCaps, setAllCaps],
+                      ["Bold", bold, setBold],
+                      ["Italic", italic, setItalic],
+                    ] as [string, boolean, (v: boolean) => void][]).map(([label, val, setter]) => (
+                      <label key={label} className="flex items-center gap-1.5 cursor-pointer select-none">
+                        <input
+                          type="checkbox"
+                          checked={val}
+                          onChange={e => setter(e.target.checked)}
+                          className="accent-primary w-3.5 h-3.5"
+                        />
+                        <span className={`text-[11px] font-bold uppercase tracking-wider ${val ? "text-primary" : "text-muted-foreground"}`}>
+                          {label}
+                        </span>
+                      </label>
+                    ))}
+                  </div>
+
+                  {/* Text Effect: Shadow / Outline / None */}
+                  <div>
+                    <p className="text-[10px] font-display uppercase tracking-widest text-muted-foreground mb-2">
+                      Text Effect
+                    </p>
+                    <div className="flex gap-2">
+                      {(["shadow", "outline", "none"] as TextEffect[]).map(e => (
+                        <button
+                          key={e}
+                          onClick={() => setTextEffect(e)}
+                          className={`flex-1 py-1.5 text-[11px] font-bold uppercase tracking-wider border-2 transition-all ${
+                            textEffect === e
+                              ? "border-primary bg-primary/15 text-primary"
+                              : "border-border text-muted-foreground hover:border-primary/40"
+                          }`}
+                        >
+                          {e}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Outline width (visible when outline selected) */}
+                  {textEffect === "outline" && (
+                    <div>
+                      <label className="text-[10px] font-display uppercase tracking-widest text-muted-foreground block mb-2">
+                        Outline Width: {outlineWidth}
+                      </label>
+                      <input
+                        type="range"
+                        min={1}
+                        max={10}
+                        value={outlineWidth}
+                        onChange={e => setOutlineWidth(parseInt(e.target.value))}
+                        className="w-full accent-primary"
+                      />
+                    </div>
+                  )}
+
                   {/* Font size */}
                   <div>
                     <label className="text-[10px] font-display uppercase tracking-widest text-muted-foreground block mb-2">
@@ -743,47 +962,70 @@ export function MemeBuilder({ factId, factText, onClose }: MemeBuilderProps) {
                     </label>
                     <input
                       type="range"
-                      min={14}
-                      max={48}
+                      min={30}
+                      max={100}
                       value={fontSize}
                       onChange={e => setFontSize(parseInt(e.target.value))}
                       className="w-full accent-primary"
                     />
                   </div>
 
-                  {/* Color */}
-                  <div>
-                    <label className="text-[10px] font-display uppercase tracking-widest text-muted-foreground block mb-2">
-                      Text Color
-                    </label>
-                    <div className="flex gap-2 flex-wrap items-center">
-                      {["#ffffff", "#ffcc00", "#FF3C00", "#00ff88", "#ff4466"].map(c => (
-                        <button
-                          key={c}
-                          onClick={() => setTextColor(c)}
-                          className={`w-7 h-7 rounded-full border-2 transition-all ${
-                            textColor === c
-                              ? "border-white scale-110 ring-2 ring-white/30"
-                              : "border-transparent hover:scale-105 hover:border-white/30"
-                          }`}
-                          style={{ background: c }}
-                          title={c}
+                  {/* Colors row */}
+                  <div className="flex gap-4">
+                    <div className="flex-1">
+                      <label className="text-[10px] font-display uppercase tracking-widest text-muted-foreground block mb-1">
+                        Text Color
+                      </label>
+                      <div className="flex gap-1.5 items-center flex-wrap">
+                        {["#ffffff", "#ffcc00", "#FF3C00", "#00ff88", "#000000"].map(c => (
+                          <button
+                            key={c}
+                            onClick={() => setTextColor(c)}
+                            className={`w-6 h-6 rounded-full border-2 transition-all ${
+                              textColor === c ? "border-white scale-110 ring-2 ring-white/30" : "border-transparent hover:scale-105"
+                            }`}
+                            style={{ background: c }}
+                          />
+                        ))}
+                        <input
+                          type="color"
+                          value={textColor}
+                          onChange={e => setTextColor(e.target.value)}
+                          className="w-6 h-6 rounded-full border-2 border-border cursor-pointer bg-transparent"
                         />
-                      ))}
-                      <input
-                        type="color"
-                        value={textColor}
-                        onChange={e => setTextColor(e.target.value)}
-                        className="w-7 h-7 rounded-full border-2 border-border cursor-pointer bg-transparent"
-                        title="Custom color"
-                      />
+                      </div>
                     </div>
+                    {textEffect === "outline" && (
+                      <div className="flex-1">
+                        <label className="text-[10px] font-display uppercase tracking-widest text-muted-foreground block mb-1">
+                          Outline Color
+                        </label>
+                        <div className="flex gap-1.5 items-center flex-wrap">
+                          {["#000000", "#333333", "#1a237e", "#bf360c", "#ffffff"].map(c => (
+                            <button
+                              key={c}
+                              onClick={() => setOutlineColor(c)}
+                              className={`w-6 h-6 rounded-full border-2 transition-all ${
+                                outlineColor === c ? "border-primary scale-110 ring-2 ring-primary/30" : "border-transparent hover:scale-105"
+                              }`}
+                              style={{ background: c }}
+                            />
+                          ))}
+                          <input
+                            type="color"
+                            value={outlineColor}
+                            onChange={e => setOutlineColor(e.target.value)}
+                            className="w-6 h-6 rounded-full border-2 border-border cursor-pointer bg-transparent"
+                          />
+                        </div>
+                      </div>
+                    )}
                   </div>
 
-                  {/* Alignment */}
+                  {/* Text align */}
                   <div>
                     <p className="text-[10px] font-display uppercase tracking-widest text-muted-foreground mb-2">
-                      Alignment
+                      Text Align
                     </p>
                     <div className="flex gap-2">
                       {(["left", "center", "right"] as TextAlign[]).map(a => (
@@ -802,26 +1044,20 @@ export function MemeBuilder({ factId, factText, onClose }: MemeBuilderProps) {
                     </div>
                   </div>
 
-                  {/* Vertical position */}
+                  {/* Opacity */}
                   <div>
-                    <p className="text-[10px] font-display uppercase tracking-widest text-muted-foreground mb-2">
-                      Position
-                    </p>
-                    <div className="flex gap-2">
-                      {(["top", "middle", "bottom"] as VertPos[]).map(p => (
-                        <button
-                          key={p}
-                          onClick={() => setVertPos(p)}
-                          className={`flex-1 py-1.5 text-[11px] font-bold uppercase tracking-wider border-2 transition-all ${
-                            vertPos === p
-                              ? "border-primary bg-primary/15 text-primary"
-                              : "border-border text-muted-foreground hover:border-primary/40"
-                          }`}
-                        >
-                          {p}
-                        </button>
-                      ))}
-                    </div>
+                    <label className="text-[10px] font-display uppercase tracking-widest text-muted-foreground block mb-2">
+                      Opacity: {opacity.toFixed(1)}
+                    </label>
+                    <input
+                      type="range"
+                      min={0}
+                      max={1}
+                      step={0.1}
+                      value={opacity}
+                      onChange={e => setOpacity(parseFloat(e.target.value))}
+                      className="w-full accent-primary"
+                    />
                   </div>
                 </div>
               </div>
