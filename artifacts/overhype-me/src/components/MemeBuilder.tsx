@@ -270,13 +270,21 @@ function ModeTab({
 
 // ─── Main component ────────────────────────────────────────────────────────────
 
+interface FactPexelsImages {
+  fact_type: "action" | "abstract";
+  male:    number[];
+  female:  number[];
+  neutral: number[];
+}
+
 interface MemeBuilderProps {
   factId: number;
   factText: string;
+  pexelsImages?: FactPexelsImages | null;
   onClose: () => void;
 }
 
-export function MemeBuilder({ factId, factText, onClose }: MemeBuilderProps) {
+export function MemeBuilder({ factId, factText, pexelsImages, onClose }: MemeBuilderProps) {
   const { isAuthenticated, login, user } = useAuth() as {
     isAuthenticated: boolean;
     login: () => void;
@@ -287,6 +295,13 @@ export function MemeBuilder({ factId, factText, onClose }: MemeBuilderProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  const GENDER_TO_VARIANT: Record<StockGender, "male" | "female" | "neutral"> = {
+    man: "male", woman: "female", person: "neutral",
+  };
+
+  const pexelsCdnUrl = (photoId: number, w = 940, h = 500) =>
+    `https://images.pexels.com/photos/${photoId}/pexels-photo-${photoId}.jpeg?auto=compress&cs=tinysrgb&w=${w}&h=${h}&fit=crop&dpr=1`;
+
   // Image source state
   const [imageMode, setImageMode] = useState<ImageMode>("gradient");
   const [selectedTemplate, setSelectedTemplate] = useState("action");
@@ -294,6 +309,7 @@ export function MemeBuilder({ factId, factText, onClose }: MemeBuilderProps) {
   const [stockPhoto, setStockPhoto] = useState<StockPhoto | null>(null);
   const [isLoadingStock, setIsLoadingStock] = useState(false);
   const [stockError, setStockError] = useState<string | null>(null);
+  const [prefetchedIndex, setPrefetchedIndex] = useState<number | null>(null);
   const [uploadFile, setUploadFile] = useState<File | null>(null);
   const [uploadObjectPath, setUploadObjectPath] = useState<string | null>(null);
   const [uploadLocalUrl, setUploadLocalUrl] = useState<string | null>(null);
@@ -389,11 +405,35 @@ export function MemeBuilder({ factId, factText, onClose }: MemeBuilderProps) {
     img.src = photoUrl;
   }, [imageMode, stockPhoto, uploadLocalUrl]);
 
-  // ── Fetch a stock photo ──────────────────────────────────────────
+  const prefetchedIds = useMemo(() => {
+    if (!pexelsImages || !stockGender) return [];
+    const variant = GENDER_TO_VARIANT[stockGender];
+    return pexelsImages[variant] ?? [];
+  }, [pexelsImages, stockGender]);
+
+  const selectPrefetchedPhoto = useCallback((photoId: number, index: number) => {
+    setPrefetchedIndex(index);
+    setStockPhoto({
+      id: photoId,
+      photographerName: "Pexels",
+      photographerUrl: "https://www.pexels.com",
+      photoUrl: pexelsCdnUrl(photoId),
+    });
+  }, []);
+
   const fetchStockPhoto = useCallback(async (gender: StockGender) => {
     if (!isAuthenticated) return;
+
+    const variant = GENDER_TO_VARIANT[gender];
+    const ids = pexelsImages?.[variant] ?? [];
+    if (ids.length > 0) {
+      selectPrefetchedPhoto(ids[0]!, 0);
+      return;
+    }
+
     setIsLoadingStock(true);
     setStockError(null);
+    setPrefetchedIndex(null);
     try {
       const res = await fetch(`/api/memes/stock-photo?gender=${gender}`);
       if (!res.ok) {
@@ -407,7 +447,27 @@ export function MemeBuilder({ factId, factText, onClose }: MemeBuilderProps) {
     } finally {
       setIsLoadingStock(false);
     }
-  }, [isAuthenticated]);
+  }, [isAuthenticated, pexelsImages, selectPrefetchedPhoto]);
+
+  const fetchRandomStockPhoto = useCallback(async () => {
+    if (!isAuthenticated || !stockGender) return;
+    setIsLoadingStock(true);
+    setStockError(null);
+    setPrefetchedIndex(null);
+    try {
+      const res = await fetch(`/api/memes/stock-photo?gender=${stockGender}`);
+      if (!res.ok) {
+        const body = await res.json() as { error?: string };
+        throw new Error(body.error ?? "Failed to fetch photo");
+      }
+      const photo = await res.json() as StockPhoto;
+      setStockPhoto(photo);
+    } catch (e) {
+      setStockError(e instanceof Error ? e.message : "Could not load photo");
+    } finally {
+      setIsLoadingStock(false);
+    }
+  }, [isAuthenticated, stockGender]);
 
 
   // ── Upload flow ──────────────────────────────────────────────────
@@ -425,7 +485,7 @@ export function MemeBuilder({ factId, factText, onClose }: MemeBuilderProps) {
     setUploadFile(file);
     setIsUploadingFile(true);
 
-    // Show local preview immediately while the upload runs
+    if (uploadLocalUrl) URL.revokeObjectURL(uploadLocalUrl);
     const localUrl = URL.createObjectURL(file);
     setUploadLocalUrl(localUrl);
 
@@ -491,7 +551,7 @@ export function MemeBuilder({ factId, factText, onClose }: MemeBuilderProps) {
 
     try {
       const imageSource =
-        imageMode === "template"
+        imageMode === "gradient"
           ? { type: "template" as const, templateId: selectedTemplate }
           : imageMode === "stock"
           ? {
@@ -687,34 +747,58 @@ export function MemeBuilder({ factId, factText, onClose }: MemeBuilderProps) {
                       ))}
                     </div>
 
-                    {/* Photo preview + shuffle */}
+                    {/* Pre-fetched thumbnail gallery */}
+                    {prefetchedIds.length > 0 && (
+                      <div className="space-y-2">
+                        <p className="text-[10px] font-display uppercase tracking-widest text-muted-foreground">
+                          Matched photos for this fact
+                        </p>
+                        <div className="grid grid-cols-5 gap-1.5">
+                          {prefetchedIds.map((photoId, i) => (
+                            <button
+                              key={photoId}
+                              onClick={() => selectPrefetchedPhoto(photoId, i)}
+                              className={`relative aspect-video border-2 overflow-hidden transition-all ${
+                                prefetchedIndex === i
+                                  ? "border-primary ring-2 ring-primary/30 scale-105"
+                                  : "border-border hover:border-primary/50"
+                              }`}
+                            >
+                              <img
+                                src={pexelsCdnUrl(photoId, 200, 120)}
+                                alt={`Option ${i + 1}`}
+                                className="w-full h-full object-cover"
+                                loading="lazy"
+                              />
+                              {prefetchedIndex === i && (
+                                <span className="absolute top-0.5 right-0.5 w-2 h-2 bg-primary rounded-full border border-white" />
+                              )}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Shuffle for random photo */}
                     <div className="flex gap-3 items-start">
-                      <div className="w-24 h-16 flex-shrink-0 border-2 border-border overflow-hidden bg-muted relative">
-                        {isLoadingStock ? (
-                          <div className="absolute inset-0 flex items-center justify-center">
-                            <Loader2 className="w-4 h-4 text-primary animate-spin" />
-                          </div>
-                        ) : stockPhoto ? (
+                      {stockPhoto && prefetchedIndex === null && (
+                        <div className="w-24 h-16 flex-shrink-0 border-2 border-border overflow-hidden bg-muted relative">
                           <img
                             src={stockPhoto.photoUrl}
                             alt="Stock photo preview"
                             className="w-full h-full object-cover"
                           />
-                        ) : (
-                          <div className="absolute inset-0 flex items-center justify-center">
-                            <ImageIcon className="w-5 h-5 text-muted-foreground/40" />
-                          </div>
-                        )}
-                      </div>
+                        </div>
+                      )}
 
                       <div className="flex-1 min-w-0">
                         <button
-                          onClick={() => stockGender && fetchStockPhoto(stockGender)}
+                          onClick={fetchRandomStockPhoto}
                           disabled={isLoadingStock || !stockGender}
                           className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-muted-foreground hover:text-primary border-2 border-border hover:border-primary/50 px-3 py-1.5 transition-all disabled:opacity-50 w-full justify-center"
                         >
                           <RefreshCw className={`w-3 h-3 ${isLoadingStock ? "animate-spin" : ""}`} />
-                          Shuffle
+                          {prefetchedIds.length > 0 ? "Random Photo" : "Shuffle"}
                         </button>
                         {stockPhoto && (
                           <p className="text-[10px] text-muted-foreground mt-2 truncate">
@@ -735,6 +819,12 @@ export function MemeBuilder({ factId, factText, onClose }: MemeBuilderProps) {
                         )}
                       </div>
                     </div>
+
+                    {isLoadingStock && (
+                      <div className="flex items-center justify-center py-2">
+                        <Loader2 className="w-4 h-4 text-primary animate-spin" />
+                      </div>
+                    )}
                   </div>
                 )}
 
