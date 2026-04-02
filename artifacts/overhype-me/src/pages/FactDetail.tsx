@@ -2,8 +2,9 @@ import { useState } from "react";
 import { useRoute, Link, useLocation } from "wouter";
 import { format } from "date-fns";
 import HCaptcha from "@hcaptcha/react-hcaptcha";
+import { useQuery } from "@tanstack/react-query";
 
-import { useGetFact, useListComments, useListFactMemes, getGetFactQueryKey, getListCommentsQueryKey } from "@workspace/api-client-react";
+import { useGetFact, useListComments, getGetFactQueryKey, getListCommentsQueryKey } from "@workspace/api-client-react";
 import { useAuth } from "@workspace/replit-auth-web";
 import { Layout } from "@/components/layout/Layout";
 import { Button } from "@/components/ui/Button";
@@ -12,10 +13,26 @@ import { useAppMutations } from "@/hooks/use-mutations";
 import { MemeBuilder } from "@/components/MemeBuilder";
 import { MerchButtons } from "@/components/MerchButtons";
 import { AdSlot } from "@/components/AdSlot";
-import { ThumbsUp, ThumbsDown, User, AlertCircle, ImageIcon, GitBranch, ArrowLeft, Crown, Flame } from "lucide-react";
+import { ThumbsUp, ThumbsDown, User, AlertCircle, ImageIcon, GitBranch, ArrowLeft, Crown, Flame, Globe, Lock } from "lucide-react";
 import { cn } from "@/components/ui/Button";
 import { usePersonName } from "@/hooks/use-person-name";
 import { renderFact } from "@/lib/render-fact";
+
+type MemeItem = {
+  id: number;
+  factId: number;
+  templateId: string;
+  imageUrl: string;
+  permalinkSlug: string;
+  isPublic: boolean;
+  createdAt: string;
+};
+
+async function fetchMemes(factId: number, visibility: "public" | "mine"): Promise<{ memes: MemeItem[] }> {
+  const res = await fetch(`/api/facts/${factId}/memes?visibility=${visibility}`, { credentials: "include" });
+  if (!res.ok) throw new Error("Failed to fetch memes");
+  return res.json() as Promise<{ memes: MemeItem[] }>;
+}
 
 const HCAPTCHA_SITE_KEY =
   import.meta.env.VITE_HCAPTCHA_SITE_KEY || "10000000-ffff-ffff-ffff-000000000001";
@@ -141,9 +158,21 @@ export default function FactDetail() {
     query: { queryKey: getListCommentsQueryKey(factId, { limit: 50 }), enabled: !!factId }
   });
 
-  const { data: memesData } = useListFactMemes(factId, {
-    query: { queryKey: ["listFactMemes", factId], enabled: !!factId }
+  const [memeTab, setMemeTab] = useState<"public" | "mine">("public");
+
+  const { data: publicMemesData } = useQuery({
+    queryKey: ["listFactMemes", factId, "public"],
+    queryFn: () => fetchMemes(factId, "public"),
+    enabled: !!factId,
   });
+
+  const { data: myMemesData } = useQuery({
+    queryKey: ["listFactMemes", factId, "mine"],
+    queryFn: () => fetchMemes(factId, "mine"),
+    enabled: !!factId && isAuthenticated,
+  });
+
+  const activeMemes = memeTab === "mine" ? myMemesData : publicMemesData;
 
   const { name, pronouns } = usePersonName();
   const [commentText, setCommentText] = useState("");
@@ -275,12 +304,75 @@ export default function FactDetail() {
         {/* Ad slot below fact card — hidden for premium users */}
         <AdSlot slot={import.meta.env.VITE_ADSENSE_SLOT_FACT_FOOTER ?? "1234567890"} format="horizontal" className="mb-8" />
 
+        {/* Meme Gallery — above comments */}
+        <div className="mb-12">
+          {/* Gallery header with tabs */}
+          <div className="flex items-center justify-between border-b-2 border-border pb-2 mb-6 flex-wrap gap-3">
+            <h3 className="text-2xl font-display uppercase tracking-wide flex items-center gap-3">
+              <ImageIcon className="w-6 h-6 text-primary" />
+              Memes
+            </h3>
+            <div className="flex items-center gap-1 bg-secondary border border-border rounded-sm p-1">
+              <button
+                onClick={() => setMemeTab("public")}
+                className={cn(
+                  "flex items-center gap-1.5 text-xs font-display font-bold uppercase tracking-wider px-3 py-1.5 rounded-sm transition-colors",
+                  memeTab === "public" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"
+                )}
+              >
+                <Globe className="w-3.5 h-3.5" /> Public {publicMemesData ? `(${publicMemesData.memes.length})` : ""}
+              </button>
+              {isAuthenticated && (
+                <button
+                  onClick={() => setMemeTab("mine")}
+                  className={cn(
+                    "flex items-center gap-1.5 text-xs font-display font-bold uppercase tracking-wider px-3 py-1.5 rounded-sm transition-colors",
+                    memeTab === "mine" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"
+                  )}
+                >
+                  <Lock className="w-3.5 h-3.5" /> My Memes {myMemesData ? `(${myMemesData.memes.length})` : ""}
+                </button>
+              )}
+            </div>
+          </div>
+
+          {activeMemes && activeMemes.memes.length > 0 ? (
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+              {activeMemes.memes.map(meme => (
+                <Link key={meme.id} href={`/meme/${meme.permalinkSlug}`}>
+                  <div className="group border-2 border-border hover:border-primary/60 rounded-sm overflow-hidden transition-all cursor-pointer">
+                    <img
+                      src={meme.imageUrl}
+                      alt="Meme"
+                      className="w-full h-auto aspect-video object-cover group-hover:scale-105 transition-transform duration-300"
+                      loading="lazy"
+                    />
+                    <div className="p-2 bg-card text-xs text-muted-foreground font-medium flex items-center justify-between">
+                      <span className="uppercase tracking-wide">{meme.templateId}</span>
+                      <div className="flex items-center gap-1.5">
+                        {!meme.isPublic && <Lock className="w-3 h-3" title="Private" />}
+                        <span>{format(new Date(meme.createdAt), 'MMM dd')}</span>
+                      </div>
+                    </div>
+                  </div>
+                </Link>
+              ))}
+            </div>
+          ) : (
+            <p className="text-muted-foreground py-10 text-center border-2 border-dashed border-border rounded-sm">
+              {memeTab === "mine"
+                ? "You haven't made any memes for this fact yet."
+                : "No public memes yet. Be the first!"}
+            </p>
+          )}
+        </div>
+
         {/* Layout split for Links and Comments */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-12">
 
           {/* Comments Section */}
           <div className="lg:col-span-2 space-y-8">
-            <h3 className="text-2xl font-display uppercase tracking-wide border-b-2 border-border pb-2">Intel & Discussion ({fact.commentCount})</h3>
+            <h3 className="text-2xl font-display uppercase tracking-wide border-b-2 border-border pb-2">Comments ({fact.commentCount})</h3>
 
             {/* Comment Form */}
             {isAuthenticated ? (
@@ -367,33 +459,6 @@ export default function FactDetail() {
           </div>
         )}
 
-        {/* Meme Gallery */}
-        {memesData && memesData.memes.length > 0 && (
-          <div className="mt-12">
-            <h3 className="text-2xl font-display uppercase tracking-wide border-b-2 border-border pb-2 mb-6 flex items-center gap-3">
-              <ImageIcon className="w-6 h-6 text-primary" />
-              Memes ({memesData.memes.length})
-            </h3>
-            <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-              {memesData.memes.map(meme => (
-                <Link key={meme.id} href={`/meme/${meme.permalinkSlug}`}>
-                  <div className="group border-2 border-border hover:border-primary/60 rounded-sm overflow-hidden transition-all cursor-pointer">
-                    <img
-                      src={meme.imageUrl}
-                      alt="Meme"
-                      className="w-full h-auto aspect-video object-cover group-hover:scale-105 transition-transform duration-300"
-                      loading="lazy"
-                    />
-                    <div className="p-2 bg-card text-xs text-muted-foreground font-medium flex items-center justify-between">
-                      <span className="uppercase tracking-wide">{meme.templateId}</span>
-                      <span>{format(new Date(meme.createdAt), 'MMM dd')}</span>
-                    </div>
-                  </div>
-                </Link>
-              ))}
-            </div>
-          </div>
-        )}
       </div>
     </Layout>
   );
