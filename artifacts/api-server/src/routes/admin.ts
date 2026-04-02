@@ -562,6 +562,65 @@ router.post("/admin/facts/backfill-images", requireAdminOrApiKey, async (_req: R
   }
 });
 
+// POST /admin/backfill-pexels
+// Backfill Pexels images for all root facts that currently have NULL pexelsImages.
+// Idempotent: skips facts that already have images.
+// Returns 202 immediately with the count of facts queued; processes sequentially in the background.
+router.post("/admin/backfill-pexels", requireAdmin, async (_req: Request, res: Response) => {
+  try {
+    const nullFacts = await db
+      .select({ id: factsTable.id, text: factsTable.text })
+      .from(factsTable)
+      .where(and(isNull(factsTable.parentId), isNull(factsTable.pexelsImages)));
+
+    const queued = nullFacts.length;
+    res.status(202).json({ success: true, queued, message: `Backfilling Pexels images for ${queued} fact(s) in the background.` });
+
+    if (queued === 0) {
+      console.log("[admin] backfill-pexels: all root facts already have images, nothing to do.");
+      return;
+    }
+
+    void (async () => {
+      console.log(`[admin] backfill-pexels: starting — ${queued} root fact(s) with NULL pexelsImages`);
+      let succeeded = 0;
+      let failed = 0;
+
+      for (let i = 0; i < nullFacts.length; i++) {
+        const fact = nullFacts[i]!;
+        console.log(`[admin] backfill-pexels: [${i + 1}/${queued}] fact ${fact.id}: "${fact.text.slice(0, 60)}"`);
+
+        await runFactImagePipeline(fact.id, fact.text);
+
+        // runFactImagePipeline catches all errors internally — verify success via DB
+        const [updated] = await db
+          .select({ pexelsImages: factsTable.pexelsImages })
+          .from(factsTable)
+          .where(eq(factsTable.id, fact.id))
+          .limit(1);
+
+        if (updated?.pexelsImages != null) {
+          succeeded++;
+          console.log(`[admin] backfill-pexels: [${i + 1}/${queued}] fact ${fact.id} — OK`);
+        } else {
+          failed++;
+          console.error(`[admin] backfill-pexels: [${i + 1}/${queued}] fact ${fact.id} — FAILED (pexelsImages still null)`);
+        }
+
+        // 1-second delay between requests to respect Pexels rate limits
+        if (i < nullFacts.length - 1) {
+          await new Promise<void>((resolve) => setTimeout(resolve, 1_000));
+        }
+      }
+
+      console.log(`[admin] backfill-pexels: done — ${succeeded} succeeded, ${failed} failed out of ${queued} total`);
+    })();
+  } catch (err) {
+    console.error("[admin] backfill-pexels error:", err);
+    res.status(500).json({ error: "Backfill failed", details: String(err) });
+  }
+});
+
 router.post("/admin/facts/backfill-ai-memes", requireAdminOrApiKey, async (req: Request, res: Response) => {
   try {
     const force = String((req.query as Record<string, unknown>)["force"] ?? "") === "true";
