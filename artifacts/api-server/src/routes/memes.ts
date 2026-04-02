@@ -115,6 +115,7 @@ const CreateMemeBody = z.object({
   factId: z.number().int().positive(),
   imageSource: ImageSourceSchema,
   textOptions: TextOptionsSchema,
+  previewImageBase64: z.string().max(700_000).optional(),
 });
 
 // Stored imageSource shape from the DB (jsonb — we cast and validate manually)
@@ -189,7 +190,7 @@ router.post("/memes", async (req: Request, res: Response) => {
     return;
   }
 
-  const { factId, imageSource, textOptions } = parsed.data;
+  const { factId, imageSource, textOptions, previewImageBase64 } = parsed.data;
 
   // ── Membership check ────────────────────────────────────────────
   const [userRow] = await db
@@ -247,11 +248,30 @@ router.post("/memes", async (req: Request, res: Response) => {
     slug = generateSlug();
   }
 
-  // ── Persist recipe only — no image generated or stored ──────────
+  // ── Persist ──────────────────────────────────────────────────────
   const templateIdForDb =
     imageSource.type === "template" ? imageSource.templateId :
     imageSource.type === "stock"    ? "photo_stock" :
     "photo_upload";
+
+  // If the client sent a pre-rendered canvas image, store it directly so
+  // the saved meme is pixel-for-pixel identical to the preview.
+  let storedImageSource: z.infer<typeof ImageSourceSchema> | null = imageSource;
+  if (previewImageBase64) {
+    try {
+      const imgBuffer = Buffer.from(previewImageBase64, "base64");
+      await objectStorageService.uploadObjectBuffer({
+        subPath: `memes/${slug}.png`,
+        buffer: imgBuffer,
+        contentType: "image/jpeg",
+      });
+      // Setting imageSource to null triggers the legacy serving path which
+      // reads the pre-rendered file from object storage.
+      storedImageSource = null;
+    } catch (uploadErr) {
+      req.log.warn({ uploadErr }, "Preview image upload failed — falling back to server-side render");
+    }
+  }
 
   const [meme] = await db
     .insert(memesTable)
@@ -261,7 +281,7 @@ router.post("/memes", async (req: Request, res: Response) => {
       imageUrl: `/api/memes/${slug}/image`,
       permalinkSlug: slug,
       textOptions: textOptions ?? null,
-      imageSource,
+      imageSource: storedImageSource,
       createdById: req.user.id,
     })
     .returning();

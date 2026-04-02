@@ -771,6 +771,11 @@ export function MemeBuilder({ factId, factText, pexelsImages, onClose }: MemeBui
               uploadKey: uploadObjectPath!,
             };
 
+      const canvasEl = canvasRef.current;
+      const previewImageBase64 = canvasEl
+        ? canvasEl.toDataURL("image/jpeg", 0.9).split(",")[1] ?? null
+        : null;
+
       const res = await fetch("/api/memes", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -778,6 +783,7 @@ export function MemeBuilder({ factId, factText, pexelsImages, onClose }: MemeBui
         body: JSON.stringify({
           factId,
           imageSource,
+          previewImageBase64,
           textOptions: {
             topText,
             bottomText,
