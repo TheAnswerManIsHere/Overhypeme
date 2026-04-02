@@ -299,9 +299,10 @@ export function MemeBuilder({ factId, factText, pexelsImages, onClose }: MemeBui
   const { isAuthenticated, login, user } = useAuth() as {
     isAuthenticated: boolean;
     login: () => void;
-    user?: { membershipTier?: string };
+    user?: { membershipTier?: string; isAdmin?: boolean; isRealAdmin?: boolean };
   };
   const isPremium = user?.membershipTier === "premium";
+  const isAdmin = !!(user?.isAdmin && user?.isRealAdmin);
   const { pronouns } = usePersonName();
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -329,6 +330,8 @@ export function MemeBuilder({ factId, factText, pexelsImages, onClose }: MemeBui
   const [isLoadingStock, setIsLoadingStock] = useState(false);
   const [stockError, setStockError] = useState<string | null>(null);
   const [photoLibraryExhausted, setPhotoLibraryExhausted] = useState(false);
+  const [isBackfilling, setIsBackfilling] = useState(false);
+  const [backfillResult, setBackfillResult] = useState<{ triggered?: number; error?: string } | null>(null);
   const [rateLimitedUntil, setRateLimitedUntil] = useState<number | null>(null);
   const [rateLimitCountdown, setRateLimitCountdown] = useState(0);
   const [prefetchedIndex, setPrefetchedIndex] = useState<number | null>(null);
@@ -505,6 +508,22 @@ export function MemeBuilder({ factId, factText, pexelsImages, onClose }: MemeBui
       setIsLoadingStock(false);
     }
   }, [isAuthenticated, pexelsImages, selectPrefetchedPhoto]);
+
+  const handleBackfillAllImages = useCallback(async () => {
+    if (isBackfilling) return;
+    setIsBackfilling(true);
+    setBackfillResult(null);
+    try {
+      const res = await fetch("/api/admin/facts/backfill-images", { method: "POST", credentials: "include" });
+      const data = await res.json() as { triggered?: number; error?: string };
+      if (!res.ok) setBackfillResult({ error: data.error ?? "Backfill failed" });
+      else setBackfillResult({ triggered: data.triggered });
+    } catch {
+      setBackfillResult({ error: "Network error" });
+    } finally {
+      setIsBackfilling(false);
+    }
+  }, [isBackfilling]);
 
   const fetchRandomStockPhoto = useCallback(async () => {
     if (!isAuthenticated || !stockGender || photoLibraryExhausted || rateLimitedUntil) return;
@@ -880,6 +899,28 @@ export function MemeBuilder({ factId, factText, pexelsImages, onClose }: MemeBui
                       <p className="text-[10px] text-muted-foreground/60 italic border border-dashed border-border/50 px-2 py-1 rounded-sm">
                         Search: "{pexelsImages.keywords[GENDER_TO_VARIANT[stockGender]]}"
                       </p>
+                    )}
+
+                    {/* Admin: regenerate all facts' images */}
+                    {isAdmin && (
+                      <div className="border border-dashed border-amber-500/40 bg-amber-500/5 rounded-sm px-2 py-1.5 flex flex-col gap-1">
+                        <p className="text-[10px] font-semibold text-amber-600 uppercase tracking-wider">Admin</p>
+                        <button
+                          onClick={handleBackfillAllImages}
+                          disabled={isBackfilling}
+                          className="flex items-center gap-1.5 text-[11px] font-medium text-amber-700 hover:text-amber-900 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                        >
+                          <RefreshCw className={`w-3 h-3 ${isBackfilling ? "animate-spin" : ""}`} />
+                          {isBackfilling ? "Regenerating…" : "Regenerate All Images"}
+                        </button>
+                        {backfillResult && (
+                          <p className={`text-[10px] ${backfillResult.error ? "text-destructive" : "text-green-600"}`}>
+                            {backfillResult.error
+                              ? `Error: ${backfillResult.error}`
+                              : `Started for ${backfillResult.triggered} fact${backfillResult.triggered === 1 ? "" : "s"} — runs in background.`}
+                          </p>
+                        )}
+                      </div>
                     )}
 
                     {/* Shuffle for random photo */}
