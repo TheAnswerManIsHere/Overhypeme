@@ -80,7 +80,16 @@ export async function getPhotoById(photoId: number): Promise<PexelsPhoto> {
  * Used by factImagePipeline to pre-populate fact image libraries.
  * Returns an empty array (not throws) on any error — callers handle degradation.
  */
+export interface PexelsPhotoEntry {
+  id: number;
+  url: string;
+}
+
 export async function searchPhotoIds(query: string, count: number = 5): Promise<number[]> {
+  return (await searchPhotos(query, count)).map(p => p.id);
+}
+
+export async function searchPhotos(query: string, count: number = 5): Promise<PexelsPhotoEntry[]> {
   const apiKey = process.env.PEXELS_API_KEY;
   if (!apiKey) return [];
 
@@ -97,14 +106,14 @@ export async function searchPhotoIds(query: string, count: number = 5): Promise<
     });
 
     if (!response.ok) {
-      console.warn(`[pexels] searchPhotoIds("${query}") failed with status ${response.status}`);
+      console.warn(`[pexels] searchPhotos("${query}") failed with status ${response.status}`);
       return [];
     }
 
     const data = (await response.json()) as PexelsSearchResponse;
-    return data.photos.slice(0, count).map((p) => p.id);
+    return data.photos.slice(0, count).map((p) => ({ id: p.id, url: p.src.large }));
   } catch (err) {
-    console.warn(`[pexels] searchPhotoIds("${query}") error:`, err);
+    console.warn(`[pexels] searchPhotos("${query}") error:`, err);
     return [];
   }
 }

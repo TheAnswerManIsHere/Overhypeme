@@ -10,18 +10,24 @@
  */
 
 import { getOpenAIClient } from "@workspace/integrations-openai-ai-server";
-import { searchPhotoIds } from "./pexelsClient";
+import { searchPhotos } from "./pexelsClient";
+import type { PexelsPhotoEntry } from "./pexelsClient";
 import { db } from "@workspace/db";
 import { factsTable } from "@workspace/db/schema";
 import { eq } from "drizzle-orm";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
+export interface PexelsPhotoEntry {
+  id: number;
+  url: string;
+}
+
 export interface FactPexelsImages {
   fact_type: "action" | "abstract";
-  male:    number[];
-  female:  number[];
-  neutral: number[];
+  male:    number[] | PexelsPhotoEntry[];
+  female:  number[] | PexelsPhotoEntry[];
+  neutral: number[] | PexelsPhotoEntry[];
   keywords?: {
     male:    string;
     female:  string;
@@ -106,11 +112,11 @@ export async function runFactImagePipeline(factId: number, factText: string): Pr
     // 1. Extract keywords via OpenAI
     const { fact_type, keywords } = await extractImageKeywords(factText);
 
-    // 2. Search Pexels for each gender variant in parallel
+    // 2. Search Pexels for each gender variant in parallel (store URLs, not just IDs)
     const [male, female, neutral] = await Promise.all([
-      searchPhotoIds(keywords.male,    5),
-      searchPhotoIds(keywords.female,  5),
-      searchPhotoIds(keywords.neutral, 5),
+      searchPhotos(keywords.male,    5),
+      searchPhotos(keywords.female,  5),
+      searchPhotos(keywords.neutral, 5),
     ]);
 
     const pexelsImages: FactPexelsImages = { fact_type, male, female, neutral, keywords };
