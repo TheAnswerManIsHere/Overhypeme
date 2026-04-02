@@ -470,18 +470,42 @@ export function MemeBuilder({ factId, factText, pexelsImages, onClose }: MemeBui
   const [aiMemeLoading, setAiMemeLoading] = useState(false);
   const [aiMemeCopied, setAiMemeCopied] = useState(false);
 
-  // Load AI meme preference and check if images exist
+  // Load AI meme preference and check if images exist.
+  // If they aren't ready yet, poll every 30 s so the UI auto-updates when
+  // the background generation pipeline finishes.
   useEffect(() => {
     if (!factId) return;
-    // Check if AI meme image is available by fetching the endpoint (HEAD-like check)
-    fetch(`/api/memes/ai/${factId}/image?gender=${aiGender}&imageIndex=0`)
-      .then(r => { setAiMemeHasImages(r.ok); })
-      .catch(() => { setAiMemeHasImages(false); });
+
+    let cancelled = false;
+    let pollTimer: ReturnType<typeof setTimeout> | null = null;
+
+    function checkAvailability() {
+      fetch(`/api/memes/ai/${factId}/image?gender=${aiGender}&imageIndex=0`)
+        .then(r => {
+          if (cancelled) return;
+          setAiMemeHasImages(r.ok);
+          // If images aren't ready yet, poll again in 30 s
+          if (!r.ok) {
+            pollTimer = setTimeout(checkAvailability, 30_000);
+          }
+        })
+        .catch(() => {
+          if (!cancelled) pollTimer = setTimeout(checkAvailability, 30_000);
+        });
+    }
+
+    checkAvailability();
+
     // Load saved preference
     fetch(`/api/facts/${factId}/ai-meme-preference`, { credentials: "include" })
       .then(r => r.ok ? r.json() as Promise<{ aiMemeImageIndex: number }> : null)
       .then(data => { if (data) setAiMemeImageIndex(Math.min(2, Math.max(0, data.aiMemeImageIndex))); })
       .catch(() => {});
+
+    return () => {
+      cancelled = true;
+      if (pollTimer !== null) clearTimeout(pollTimer);
+    };
   }, [factId, aiGender]);
 
   const aiMemeImageUrl = useMemo(() => {
@@ -848,11 +872,12 @@ export function MemeBuilder({ factId, factText, pexelsImages, onClose }: MemeBui
           <div className="p-4 md:p-5 space-y-5">
             {!aiMemeHasImages ? (
               <div className="flex flex-col items-center justify-center gap-4 py-12 text-center">
-                <Sparkles className="w-12 h-12 text-violet-400/50" />
+                <Sparkles className="w-12 h-12 text-violet-400/50 animate-pulse" />
                 <p className="text-muted-foreground text-sm max-w-xs">
-                  AI-generated backgrounds haven't been created for this fact yet.
-                  Ask an admin to generate them from the admin panel.
+                  AI-generated backgrounds are being created for this fact.
+                  This page will update automatically when they're ready.
                 </p>
+                <p className="text-muted-foreground/50 text-xs">Checking every 30 seconds…</p>
               </div>
             ) : (
               <>
