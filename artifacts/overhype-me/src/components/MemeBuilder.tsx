@@ -328,6 +328,7 @@ export function MemeBuilder({ factId, factText, pexelsImages, onClose }: MemeBui
   const [stockPhoto, setStockPhoto] = useState<StockPhoto | null>(null);
   const [isLoadingStock, setIsLoadingStock] = useState(false);
   const [stockError, setStockError] = useState<string | null>(null);
+  const [photoLibraryExhausted, setPhotoLibraryExhausted] = useState(false);
   const [prefetchedIndex, setPrefetchedIndex] = useState<number | null>(null);
   const [uploadFile, setUploadFile] = useState<File | null>(null);
   const [uploadObjectPath, setUploadObjectPath] = useState<string | null>(null);
@@ -436,6 +437,8 @@ export function MemeBuilder({ factId, factText, pexelsImages, onClose }: MemeBui
   });
 
   useEffect(() => {
+    setPhotoLibraryExhausted(false);
+    setStockError(null);
     if (!pexelsImages || !stockGender) { setPrefetchedPhotos([]); return; }
     const variant = GENDER_TO_VARIANT[stockGender];
     const raw = pexelsImages[variant] ?? [];
@@ -488,20 +491,24 @@ export function MemeBuilder({ factId, factText, pexelsImages, onClose }: MemeBui
   }, [isAuthenticated, pexelsImages, selectPrefetchedPhoto]);
 
   const fetchRandomStockPhoto = useCallback(async () => {
-    if (!isAuthenticated || !stockGender) return;
+    if (!isAuthenticated || !stockGender || photoLibraryExhausted) return;
     setIsLoadingStock(true);
     setStockError(null);
     try {
       const res = await fetch(`/api/facts/${factId}/fresh-photo?gender=${stockGender}`, { method: "POST" });
-      if (!res.ok) {
-        const body = await res.json() as { error?: string };
-        throw new Error(body.error ?? "Failed to fetch photo");
+
+      // 409 = library exhausted — disable the button; don't fall back to generic
+      if (res.status === 409) {
+        setPhotoLibraryExhausted(true);
+        return;
       }
+
+      if (!res.ok) throw new Error((await res.json() as { error?: string }).error ?? "Failed to fetch photo");
+
       const entry = await res.json() as PexelsPhotoEntry;
       setPrefetchedPhotos(prev => {
         const next = [...prev, entry];
-        const newIndex = next.length - 1;
-        setPrefetchedIndex(newIndex);
+        setPrefetchedIndex(next.length - 1);
         return next;
       });
       setStockPhoto({
@@ -511,13 +518,10 @@ export function MemeBuilder({ factId, factText, pexelsImages, onClose }: MemeBui
         photoUrl: entry.url,
       });
     } catch {
-      // Fallback: generic gender-based stock photo
+      // Network or unexpected server error — fall back to the generic endpoint
       try {
         const res = await fetch(`/api/memes/stock-photo?gender=${stockGender}`);
-        if (!res.ok) {
-          const body = await res.json() as { error?: string };
-          throw new Error(body.error ?? "Failed to fetch photo");
-        }
+        if (!res.ok) throw new Error((await res.json() as { error?: string }).error ?? "Failed to fetch photo");
         const photo = await res.json() as StockPhoto;
         setPrefetchedIndex(null);
         setStockPhoto(photo);
@@ -527,7 +531,7 @@ export function MemeBuilder({ factId, factText, pexelsImages, onClose }: MemeBui
     } finally {
       setIsLoadingStock(false);
     }
-  }, [isAuthenticated, stockGender, factId]);
+  }, [isAuthenticated, stockGender, factId, photoLibraryExhausted]);
 
 
   // ── Upload flow ──────────────────────────────────────────────────
@@ -853,13 +857,19 @@ export function MemeBuilder({ factId, factText, pexelsImages, onClose }: MemeBui
                       <div className="flex-1 min-w-0">
                         <button
                           onClick={fetchRandomStockPhoto}
-                          disabled={isLoadingStock || !stockGender}
-                          className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-muted-foreground hover:text-primary border-2 border-border hover:border-primary/50 px-3 py-1.5 transition-all disabled:opacity-50 w-full justify-center"
+                          disabled={isLoadingStock || !stockGender || photoLibraryExhausted}
+                          title={photoLibraryExhausted ? "No more unique photos available for this topic" : undefined}
+                          className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-muted-foreground hover:text-primary border-2 border-border hover:border-primary/50 px-3 py-1.5 transition-all disabled:opacity-50 disabled:cursor-not-allowed w-full justify-center"
                         >
                           <RefreshCw className={`w-3 h-3 ${isLoadingStock ? "animate-spin" : ""}`} />
                           {prefetchedPhotos.length > 0 ? "Random Photo" : "Shuffle"}
                         </button>
-                        {stockPhoto && (
+                        {photoLibraryExhausted && (
+                          <p className="text-[10px] text-muted-foreground mt-2 text-center">
+                            All available photos for this topic have been added.
+                          </p>
+                        )}
+                        {stockPhoto && !photoLibraryExhausted && (
                           <p className="text-[10px] text-muted-foreground mt-2 truncate">
                             Photo by{" "}
                             <a

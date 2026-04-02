@@ -403,10 +403,68 @@ router.put("/facts/:factId/image-preference", async (req: Request, res: Response
   res.json({ success: true, imageIndex });
 });
 
+// ── Helpers for fresh-photo endpoint ─────────────────────────────────────────
+
+/** Collect all stored photo IDs for a variant (handles both legacy number[] and PexelsPhotoEntry[]). */
+function getExistingIds(variant: number[] | PexelsPhotoEntry[]): Set<number> {
+  const ids = new Set<number>();
+  for (const e of variant as (number | PexelsPhotoEntry)[]) {
+    ids.add(typeof e === "number" ? e : e.id);
+  }
+  return ids;
+}
+
+/**
+ * Fetch one unique photo for a keyword, retrying up to maxAttempts times
+ * if every returned photo is already in existingIds.
+ *
+ * Returns:
+ *   { photo, exhausted: false } — a brand-new photo was found
+ *   { photo: null, exhausted: true }  — every attempt was a duplicate (library exhausted)
+ *   { photo: null, exhausted: false } — Pexels returned no results at all (API issue)
+ */
+async function fetchUniquePhoto(
+  keyword: string,
+  existingIds: Set<number>,
+  maxAttempts = 3,
+): Promise<{ photo: PexelsPhotoEntry | null; exhausted: boolean }> {
+  let sawAtLeastOneResult = false;
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    const results = await searchPhotos(keyword, 1); // picks a fresh random page each call
+    const photo = results[0];
+    if (!photo) continue; // empty page — try again on a different random page
+    sawAtLeastOneResult = true;
+    if (!existingIds.has(photo.id)) return { photo, exhausted: false };
+    // photo is a duplicate — loop and try another page
+  }
+  // If we always got results but they were all duplicates → exhausted.
+  // If Pexels never returned anything → API/rate-limit issue (exhausted: false).
+  return { photo: null, exhausted: sawAtLeastOneResult };
+}
+
+/** Append a new entry to a variant list, cap at MAX_LIST (drop oldest).
+ *  Preserves legacy numeric IDs as-is — does NOT convert them to {id, url:""}. */
+function appendAndCap(
+  existing: number[] | PexelsPhotoEntry[],
+  newEntry: PexelsPhotoEntry,
+  maxList = 50,
+): (number | PexelsPhotoEntry)[] {
+  const list: (number | PexelsPhotoEntry)[] = [...(existing as (number | PexelsPhotoEntry)[])];
+  list.push(newEntry);
+  return list.length > maxList ? list.slice(list.length - maxList) : list;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+
 // POST /facts/:id/fresh-photo?gender=man|woman|person
-// Fetches one new photo per gender variant using the fact's stored keywords,
-// appends each to its respective list (cap 50), persists to DB, and returns
-// the new entry for the requested gender.
+// Fetches one NEW (non-duplicate) photo for each gender variant using the
+// fact's stored keywords. Retries up to 3× for the requested variant to ensure
+// uniqueness. Appends all new entries (cap 50), persists to DB, and returns
+// the fresh entry for the requested gender.
+//
+// Error responses:
+//   409 { error: "library_exhausted" }  — 3 attempts, all duplicates
+//   503 { error: "no_results" }         — Pexels returned nothing (API issue)
 router.post("/facts/:id/fresh-photo", async (req: Request, res: Response) => {
   if (!req.isAuthenticated()) { res.status(401).json({ error: "Unauthorized" }); return; }
 
@@ -434,51 +492,77 @@ router.post("/facts/:id/fresh-photo", async (req: Request, res: Response) => {
     neutral: stored?.keywords?.neutral ?? "person portrait professional",
   };
 
-  // Fetch one fresh photo per variant in parallel, each on a random page.
-  const [newMale, newFemale, newNeutral] = await Promise.all([
-    searchPhotos(keywords.male,    1),
-    searchPhotos(keywords.female,  1),
-    searchPhotos(keywords.neutral, 1),
+  const existingMale    = getExistingIds(stored?.male    ?? []);
+  const existingFemale  = getExistingIds(stored?.female  ?? []);
+  const existingNeutral = getExistingIds(stored?.neutral ?? []);
+
+  // Fetch the requested variant first with full duplicate-retry logic.
+  // The other two variants are seeded in parallel (single attempt, best effort).
+  const genderToVariant = { man: "male", woman: "female", person: "neutral" } as const;
+  const requestedVariant = genderToVariant[gender as "man" | "woman" | "person"];
+
+  const requestedKeyword  = keywords[requestedVariant];
+  const requestedExisting = { male: existingMale, female: existingFemale, neutral: existingNeutral }[requestedVariant];
+
+  const [primaryResult, sideResults] = await Promise.all([
+    fetchUniquePhoto(requestedKeyword, requestedExisting, 3),
+    Promise.all([
+      requestedVariant !== "male"    ? searchPhotos(keywords.male,    1) : Promise.resolve([] as PexelsPhotoEntry[]),
+      requestedVariant !== "female"  ? searchPhotos(keywords.female,  1) : Promise.resolve([] as PexelsPhotoEntry[]),
+      requestedVariant !== "neutral" ? searchPhotos(keywords.neutral, 1) : Promise.resolve([] as PexelsPhotoEntry[]),
+    ]),
   ]);
 
-  const MAX_LIST = 50;
+  // Handle primary variant outcome.
+  if (!primaryResult.photo) {
+    if (primaryResult.exhausted) {
+      res.status(409).json({
+        error: "library_exhausted",
+        message: "All available photos for this topic have already been added. No new photos could be found.",
+      });
+    } else {
+      res.status(503).json({
+        error: "no_results",
+        message: "Pexels returned no photos for this search. Try again later.",
+      });
+    }
+    return;
+  }
 
-  // Append a new entry to a variant list, cap at MAX_LIST (drop oldest).
-  // Preserves the existing entries in their original format (number or object)
-  // so legacy numeric IDs are NOT converted to broken {id, url:""} objects.
-  function appendAndCap(
+  // Build updated lists for all three variants.
+  const [sideMale, sideFemale, sideNeutral] = sideResults;
+  const newMale    = requestedVariant === "male"    ? primaryResult.photo : (sideMale[0]    ?? null);
+  const newFemale  = requestedVariant === "female"  ? primaryResult.photo : (sideFemale[0]  ?? null);
+  const newNeutral = requestedVariant === "neutral" ? primaryResult.photo : (sideNeutral[0] ?? null);
+
+  // For side variants, only append if the photo is not already present.
+  function appendIfUnique(
     existing: number[] | PexelsPhotoEntry[],
-    newEntry: PexelsPhotoEntry,
-  ): (number | PexelsPhotoEntry)[] {
-    const list: (number | PexelsPhotoEntry)[] = [...(existing as (number | PexelsPhotoEntry)[])];
-    list.push(newEntry);
-    return list.length > MAX_LIST ? list.slice(list.length - MAX_LIST) : list;
+    existingIds: Set<number>,
+    newEntry: PexelsPhotoEntry | null,
+  ): number[] | PexelsPhotoEntry[] {
+    if (!newEntry || existingIds.has(newEntry.id)) return existing;
+    return appendAndCap(existing, newEntry) as PexelsPhotoEntry[];
   }
 
   const updated: FactPexelsImages = {
     fact_type: stored?.fact_type ?? "action",
-    keywords:  stored?.keywords ?? keywords,
-    male:    newMale[0]    ? appendAndCap(stored?.male    ?? [], newMale[0])    as PexelsPhotoEntry[] : (stored?.male    ?? []),
-    female:  newFemale[0]  ? appendAndCap(stored?.female  ?? [], newFemale[0])  as PexelsPhotoEntry[] : (stored?.female  ?? []),
-    neutral: newNeutral[0] ? appendAndCap(stored?.neutral ?? [], newNeutral[0]) as PexelsPhotoEntry[] : (stored?.neutral ?? []),
+    keywords:  stored?.keywords  ?? keywords,
+    male:    newMale    ? appendAndCap(stored?.male    ?? [], newMale)    as PexelsPhotoEntry[] : appendIfUnique(stored?.male    ?? [], existingMale,    null),
+    female:  newFemale  ? appendAndCap(stored?.female  ?? [], newFemale)  as PexelsPhotoEntry[] : appendIfUnique(stored?.female  ?? [], existingFemale,  null),
+    neutral: newNeutral ? appendAndCap(stored?.neutral ?? [], newNeutral) as PexelsPhotoEntry[] : appendIfUnique(stored?.neutral ?? [], existingNeutral, null),
   };
 
-  // Identify the newly fetched photo for the requested gender — used as the
-  // return value. If Pexels returned nothing for that variant, send 503 so
-  // the frontend can fall back to the generic stock-photo endpoint.
-  const genderToNew = { man: newMale[0], woman: newFemale[0], person: newNeutral[0] } as const;
-  const freshEntry = genderToNew[gender as "man" | "woman" | "person"] ?? null;
-
-  if (!freshEntry) {
-    res.status(503).json({ error: "No photo returned by Pexels for this variant" });
-    return;
-  }
+  // For side variants, skip duplicates.
+  if (requestedVariant !== "male"    && newMale    && existingMale.has(newMale.id))       updated.male    = stored?.male    ?? [];
+  if (requestedVariant !== "female"  && newFemale  && existingFemale.has(newFemale.id))   updated.female  = stored?.female  ?? [];
+  if (requestedVariant !== "neutral" && newNeutral && existingNeutral.has(newNeutral.id)) updated.neutral = stored?.neutral ?? [];
 
   await db.update(factsTable)
     .set({ pexelsImages: updated as unknown as typeof factsTable.pexelsImages._.data, updatedAt: new Date() })
     .where(eq(factsTable.id, factId));
 
-  res.json(freshEntry);
+  res.json(primaryResult.photo);
 });
 
 // DELETE /facts/:factId/links/:linkId
