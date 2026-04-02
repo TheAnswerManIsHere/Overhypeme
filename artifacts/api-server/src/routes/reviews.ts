@@ -11,6 +11,8 @@ import { embedFactAsync } from "../lib/embeddings";
 import { renderCanonical } from "../lib/renderCanonical";
 import { logActivity } from "../lib/activity";
 import { sendEmail, buildReviewApprovedEmail, buildReviewRejectedEmail } from "../lib/email";
+import { runFactImagePipeline } from "../lib/factImagePipeline";
+import { generateAiMemeBackgrounds } from "../lib/aiMemePipeline";
 
 const router: IRouter = Router();
 
@@ -289,6 +291,10 @@ router.post("/admin/reviews/:id/approve", requireAdmin, async (req: Request, res
 
   // Embed the new fact in the background using canonical text for cleaner duplicate matching
   void embedFactAsync(fact.id, fact.text, canonicalText);
+
+  // Seed both Pexels and AI meme images now that the fact is approved
+  void runFactImagePipeline(fact.id, fact.text);
+  void generateAiMemeBackgrounds(fact.id, fact.text);
 
   // Notify submitter
   if (review.submittedById) {

@@ -26,8 +26,6 @@ import {
   ImageIcon,
   Layers,
   Sparkles,
-  AlertCircle,
-  Copy,
   Flame,
 } from "lucide-react";
 
@@ -53,7 +51,7 @@ const ACCENT_COLORS: Record<string, string> = {
 };
 
 type TextAlign = "left" | "center" | "right";
-type ImageMode = "gradient" | "stock" | "upload";
+type ImageMode = "gradient" | "stock" | "upload" | "ai";
 type StockGender = "man" | "woman" | "person";
 type TextEffect = "shadow" | "outline" | "none";
 
@@ -303,14 +301,23 @@ interface FactPexelsImages {
   };
 }
 
+export interface AiMemeImages {
+  male:    string[];
+  female:  string[];
+  neutral: string[];
+}
+
 interface MemeBuilderProps {
   factId: number;
   factText: string;
+  /** Raw un-expanded template text (with tokens like {NAME}, {SUBJ}), used for scope detection */
+  rawFactText?: string;
   pexelsImages?: FactPexelsImages | null;
+  aiMemeImages?: AiMemeImages | null;
   onClose: () => void;
 }
 
-export function MemeBuilder({ factId, factText, pexelsImages, onClose }: MemeBuilderProps) {
+export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMemeImages, onClose }: MemeBuilderProps) {
   const { isAuthenticated, login, user } = useAuth() as {
     isAuthenticated: boolean;
     login: () => void;
@@ -460,97 +467,135 @@ export function MemeBuilder({ factId, factText, pexelsImages, onClose }: MemeBui
   const [permalinkSlug, setPermalinkSlug] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  // Top-level mode: "classic" | "ai"
-  const [builderMode, setBuilderMode] = useState<"classic" | "ai">("classic");
+  // Whether this fact has gender tokens (for determining generation scope)
+  // Must use rawFactText (unexpanded template) since factText is already personalized
+  const factIsGendered = useMemo(() => {
+    const textToCheck = rawFactText ?? factText;
+    return /\{(NAME|SUBJ|OBJ|POSS|POSS_PRO|REFL|Subj|Obj|Poss|Poss_Pro|Refl|[^|{}]+\|[^|{}]+)\}/.test(textToCheck);
+  }, [rawFactText, factText]);
 
-  // AI Meme state
+  // AI image mode gender mapping
+  // Abstract facts always use neutral (only neutral images are generated for them)
   const aiGender = useMemo<"male" | "female" | "neutral">(() => {
+    if (!factIsGendered) return "neutral";
     const p = (pronouns ?? "").toLowerCase();
     if (p.startsWith("he")) return "male";
     if (p.startsWith("she")) return "female";
     return "neutral";
-  }, [pronouns]);
-  const [aiMemeImageIndex, setAiMemeImageIndex] = useState(0);
-  const [aiMemeHasImages, setAiMemeHasImages] = useState(false);
-  const [aiMemeLoading, setAiMemeLoading] = useState(false);
-  const [aiMemeCopied, setAiMemeCopied] = useState(false);
+  }, [pronouns, factIsGendered]);
 
-  // Load AI meme preference and check if images exist.
-  // If they aren't ready yet, poll every 30 s so the UI auto-updates when
-  // the background generation pipeline finishes.
+  // AI image panel state
+  const [selectedAiIndex, setSelectedAiIndex] = useState<number | null>(null);
+  const [isGeneratingAi, setIsGeneratingAi] = useState(false);
+  const [aiGenerateError, setAiGenerateError] = useState<string | null>(null);
+  const [localAiMemeImages, setLocalAiMemeImages] = useState<AiMemeImages | null>(aiMemeImages ?? null);
+
+  // Sync localAiMemeImages when prop changes
   useEffect(() => {
-    if (!factId) return;
+    setLocalAiMemeImages(aiMemeImages ?? null);
+  }, [aiMemeImages]);
 
-    let cancelled = false;
-    let pollTimer: ReturnType<typeof setTimeout> | null = null;
+  // The AI image paths for the current gender variant (preserves original indices — no filter compression)
+  const aiImageSlots = useMemo<string[]>(() => {
+    if (!localAiMemeImages) return [];
+    const arr = localAiMemeImages[aiGender] ?? [];
+    // Always return full array (up to 3 slots) so gallery indices match storage indices
+    return arr.slice(0, 3);
+  }, [localAiMemeImages, aiGender]);
 
-    function checkAvailability() {
-      fetch(`/api/memes/ai/${factId}/image?gender=${aiGender}&imageIndex=0`)
-        .then(r => {
-          if (cancelled) return;
-          setAiMemeHasImages(r.ok);
-          // If images aren't ready yet, poll again in 30 s
-          if (!r.ok) {
-            pollTimer = setTimeout(checkAvailability, 30_000);
-          }
-        })
-        .catch(() => {
-          if (!cancelled) pollTimer = setTimeout(checkAvailability, 30_000);
-        });
+  // Whether any AI images exist for the current gender (used for conditional UI)
+  const aiImagePaths = useMemo(() => aiImageSlots.filter(Boolean), [aiImageSlots]);
+
+  // Auto-select first AI image when entering AI mode or when images load
+  useEffect(() => {
+    if (imageMode === "ai" && aiImagePaths.length > 0 && selectedAiIndex === null) {
+      setSelectedAiIndex(0);
     }
+  }, [imageMode, aiImagePaths, selectedAiIndex]);
 
-    checkAvailability();
+  // Thumbnail URL for AI images — serve via the meme endpoint with raw=true
+  // This bypasses ACL checks (works for all existing/new images regardless of ACL metadata)
+  const getAiThumbnailUrl = useCallback((index: number) => {
+    if (!localAiMemeImages) return "";
+    const storagePath = localAiMemeImages[aiGender]?.[index] ?? "";
+    if (!storagePath) return "";
+    return `/api/memes/ai/${factId}/image?gender=${aiGender}&imageIndex=${index}&raw=true`;
+  }, [localAiMemeImages, aiGender, factId]);
 
-    // Load saved preference
-    fetch(`/api/facts/${factId}/ai-meme-preference`, { credentials: "include" })
-      .then(r => r.ok ? r.json() as Promise<{ aiMemeImageIndex: number }> : null)
-      .then(data => { if (data) setAiMemeImageIndex(Math.min(2, Math.max(0, data.aiMemeImageIndex))); })
-      .catch(() => {});
+  const handleGenerateNewAi = async () => {
+    if (isGeneratingAi) return;
+    setIsGeneratingAi(true);
+    setAiGenerateError(null);
+    try {
+      // Capture baseline BEFORE firing generation to detect actual image completion.
+      // - First-time: detect slot going from null → non-null (image slot populated)
+      // - Regen: paths are deterministic (same key), so we use updatedAt change as signal.
+      //   updatedAt changes when images are stored (final DB write), not on prompt write.
+      let baselineSlotPath: string | null = null;
+      let baselineUpdatedAt: string | null = null;
+      try {
+        const initRes = await fetch(`/api/facts/${factId}`, { credentials: "include" });
+        if (initRes.ok) {
+          const init = await initRes.json() as { updatedAt?: string; aiMemeImages?: AiMemeImages | null };
+          baselineSlotPath = init.aiMemeImages?.[aiGender]?.[0] ?? null;
+          baselineUpdatedAt = init.updatedAt ?? null;
+        }
+      } catch { /* proceed without baseline */ }
 
-    return () => {
-      cancelled = true;
-      if (pollTimer !== null) clearTimeout(pollTimer);
-    };
-  }, [factId, aiGender]);
-
-  const aiMemeImageUrl = useMemo(() => {
-    if (!factId) return null;
-    const uid = user?.id ?? "";
-    return `/api/memes/ai/${factId}/image?gender=${aiGender}&imageIndex=${aiMemeImageIndex}${uid ? `&userId=${uid}` : ""}`;
-  }, [factId, aiGender, aiMemeImageIndex, user]);
-
-  const handleAiTryAnother = async () => {
-    const next = (aiMemeImageIndex + 1) % 3;
-    setAiMemeImageIndex(next);
-    setAiMemeLoading(true);
-    if (user) {
-      await fetch(`/api/facts/${factId}/ai-meme-preference`, {
-        method: "PUT",
-        credentials: "include",
+      const res = await fetch(`/api/memes/ai/${factId}/generate`, {
+        method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ aiMemeImageIndex: next }),
-      }).catch(() => {});
+        credentials: "include",
+        body: JSON.stringify({ scope: factIsGendered ? "gendered" : "abstract" }),
+      });
+      if (!res.ok) {
+        const body = await res.json() as { error?: string };
+        throw new Error(body.error ?? "Generation failed");
+      }
+      // Poll until images are confirmed written to DB.
+      // First-time: slot changes from null → path. Regen: updatedAt changes (same path key).
+      const POLL_INTERVAL = 4_000;
+      const MAX_POLLS = 22; // ~88s
+      let polls = 0;
+
+      const poll = async () => {
+        polls++;
+        try {
+          const factRes = await fetch(`/api/facts/${factId}`, { credentials: "include" });
+          if (factRes.ok) {
+            const data = await factRes.json() as { updatedAt?: string; aiMemeImages?: AiMemeImages | null };
+            const newSlotPath = data.aiMemeImages?.[aiGender]?.[0] ?? null;
+            const newUpdatedAt = data.updatedAt ?? null;
+            let done: boolean;
+            if (baselineSlotPath === null) {
+              // First-time: slot goes from null to populated
+              done = newSlotPath !== null;
+            } else {
+              // Regen: paths are deterministic; updatedAt must change to confirm image re-written
+              done = newUpdatedAt !== baselineUpdatedAt && newSlotPath !== null;
+            }
+            if (done) {
+              setLocalAiMemeImages(data.aiMemeImages ?? null);
+              setSelectedAiIndex(0);
+              setIsGeneratingAi(false);
+              return;
+            }
+          }
+        } catch { /* network error — keep polling */ }
+
+        if (polls >= MAX_POLLS) {
+          setAiGenerateError("Generation is taking longer than expected. Click 'Generate New' again or refresh the page.");
+          setIsGeneratingAi(false);
+          return;
+        }
+        setTimeout(() => void poll(), POLL_INTERVAL);
+      };
+
+      setTimeout(() => void poll(), POLL_INTERVAL);
+    } catch (e) {
+      setAiGenerateError(e instanceof Error ? e.message : "Generation failed");
+      setIsGeneratingAi(false);
     }
-  };
-
-  const handleAiDownload = () => {
-    if (!aiMemeImageUrl) return;
-    fetch(aiMemeImageUrl, { credentials: "include" })
-      .then(r => r.blob())
-      .then(blob => {
-        const a = document.createElement("a");
-        a.href = URL.createObjectURL(blob);
-        a.download = `overhype-ai-meme-${factId}.jpg`;
-        a.click();
-      })
-      .catch(console.error);
-  };
-
-  const handleAiCopyLink = () => {
-    navigator.clipboard.writeText(window.location.href).then(() => {
-      setAiMemeCopied(true);
-      setTimeout(() => setAiMemeCopied(false), 2000);
-    });
   };
 
   const queryClient = useQueryClient();
@@ -578,11 +623,17 @@ export function MemeBuilder({ factId, factText, pexelsImages, onClose }: MemeBui
 
   useEffect(() => { redraw(); }, [redraw]);
 
-  // ── Load stock photo into canvas ─────────────────────────────────
+  // ── Load stock/AI/upload image into canvas ───────────────────────
+  const aiSelectedUrl = useMemo(() => {
+    if (imageMode !== "ai" || selectedAiIndex === null) return null;
+    return getAiThumbnailUrl(selectedAiIndex);
+  }, [imageMode, selectedAiIndex, getAiThumbnailUrl]);
+
   useEffect(() => {
     const photoUrl =
       imageMode === "stock" ? stockPhoto?.photoUrl ?? null :
       imageMode === "upload" ? uploadLocalUrl :
+      imageMode === "ai" ? aiSelectedUrl :
       null;
 
     if (!photoUrl) {
@@ -596,7 +647,7 @@ export function MemeBuilder({ factId, factText, pexelsImages, onClose }: MemeBui
     img.onload = () => { setBgImage(img); setIsBgLoading(false); };
     img.onerror = () => { setBgImage(null); setIsBgLoading(false); };
     img.src = photoUrl;
-  }, [imageMode, stockPhoto, uploadLocalUrl]);
+  }, [imageMode, stockPhoto, uploadLocalUrl, aiSelectedUrl]);
 
   const [prefetchedPhotos, setPrefetchedPhotos] = useState<PexelsPhotoEntry[]>(() => {
     if (!pexelsImages || !stockGender) return [];
@@ -751,8 +802,25 @@ export function MemeBuilder({ factId, factText, pexelsImages, onClose }: MemeBui
       setErrorMsg("Please wait for a stock photo to load, or shuffle to try again.");
       return;
     }
+    if ((imageMode === "upload" || imageMode === "ai") && !isPremium) {
+      setErrorMsg("This image source requires a Premium membership.");
+      return;
+    }
     if (imageMode === "upload" && !uploadObjectPath) {
       setErrorMsg(isUploadingFile ? "Please wait for the upload to finish." : "Please select an image to upload.");
+      return;
+    }
+    if (imageMode === "ai" && selectedAiIndex === null) {
+      setErrorMsg("Please select an AI background image first.");
+      return;
+    }
+
+    // Get the AI image object storage path for the selected index
+    const aiStoragePath = imageMode === "ai" && selectedAiIndex !== null && localAiMemeImages
+      ? (localAiMemeImages[aiGender]?.[selectedAiIndex] ?? null)
+      : null;
+    if (imageMode === "ai" && !aiStoragePath) {
+      setErrorMsg("Selected AI image is not available. Please try Generate New.");
       return;
     }
 
@@ -769,6 +837,11 @@ export function MemeBuilder({ factId, factText, pexelsImages, onClose }: MemeBui
               photoUrl: stockPhoto!.photoUrl,
               pexelsPhotoId: stockPhoto!.id,
               photographerName: stockPhoto!.photographerName,
+            }
+          : imageMode === "ai"
+          ? {
+              type: "upload" as const,
+              uploadKey: aiStoragePath!,
             }
           : {
               type: "upload" as const,
@@ -853,91 +926,7 @@ export function MemeBuilder({ factId, factText, pexelsImages, onClose }: MemeBui
           </button>
         </div>
 
-        {/* ── Top-level tabs: Classic / AI Meme ── */}
-        <div className="flex border-b-2 border-border px-5">
-          <button
-            onClick={() => setBuilderMode("classic")}
-            className={`px-4 py-3 text-sm font-display uppercase tracking-wider border-b-2 -mb-[2px] transition-all flex items-center gap-2 ${
-              builderMode === "classic"
-                ? "border-primary text-primary"
-                : "border-transparent text-muted-foreground hover:text-foreground"
-            }`}
-          >
-            <Layers className="w-3.5 h-3.5" />
-            Classic Meme
-          </button>
-          <button
-            onClick={() => setBuilderMode("ai")}
-            className={`px-4 py-3 text-sm font-display uppercase tracking-wider border-b-2 -mb-[2px] transition-all flex items-center gap-2 ${
-              builderMode === "ai"
-                ? "border-violet-400 text-violet-400"
-                : "border-transparent text-muted-foreground hover:text-foreground"
-            }`}
-          >
-            <Sparkles className="w-3.5 h-3.5" />
-            AI Meme
-          </button>
-        </div>
-
-        {/* ── AI Meme Panel ── */}
-        {builderMode === "ai" && (
-          <div className="p-4 md:p-5 space-y-5">
-            {!aiMemeHasImages ? (
-              <div className="flex flex-col items-center justify-center gap-4 py-12 text-center">
-                <Sparkles className="w-12 h-12 text-violet-400/50 animate-pulse" />
-                <p className="text-muted-foreground text-sm max-w-xs">
-                  AI-generated backgrounds are being created for this fact.
-                  This page will update automatically when they're ready.
-                </p>
-                <p className="text-muted-foreground/50 text-xs">Checking every 30 seconds…</p>
-              </div>
-            ) : (
-              <>
-                {/* AI Meme Image Display */}
-                <div className="relative bg-black/20 border-2 border-violet-500/30 overflow-hidden">
-                  <img
-                    key={aiMemeImageUrl ?? ""}
-                    src={aiMemeImageUrl ?? ""}
-                    alt="AI generated meme"
-                    className="w-full h-auto"
-                    onLoad={() => setAiMemeLoading(false)}
-                    onError={() => setAiMemeLoading(false)}
-                  />
-                  {aiMemeLoading && (
-                    <div className="absolute inset-0 flex items-center justify-center bg-black/60">
-                      <Loader2 className="w-8 h-8 text-violet-400 animate-spin" />
-                    </div>
-                  )}
-                </div>
-
-                {/* Actions */}
-                <div className="flex flex-wrap gap-3">
-                  <Button
-                    onClick={() => { setAiMemeLoading(true); void handleAiTryAnother(); }}
-                    variant="outline"
-                    className="gap-2 border-violet-500/50 text-violet-400 hover:border-violet-400"
-                  >
-                    <RefreshCw className="w-4 h-4" />
-                    Try Another <span className="text-xs opacity-60">({aiMemeImageIndex + 1}/3)</span>
-                  </Button>
-                  <Button onClick={handleAiDownload} variant="secondary" className="gap-2">
-                    <Download className="w-4 h-4" /> Download
-                  </Button>
-                  <Button onClick={handleAiCopyLink} variant="outline" className="gap-2">
-                    {aiMemeCopied ? <CheckCircle className="w-4 h-4 text-green-400" /> : <Copy className="w-4 h-4" />}
-                    {aiMemeCopied ? "Copied!" : "Copy Link"}
-                  </Button>
-                </div>
-
-                <p className="text-xs text-muted-foreground/60">
-                  AI-generated scene • Powered by OpenAI gpt-image-1
-                </p>
-              </>
-            )}
-          </div>
-        )}
-
-        <div className={`p-4 md:p-5 space-y-5 ${builderMode === "ai" ? "hidden" : ""}`}>
+        <div className="p-4 md:p-5 space-y-5">
 
           {/* ── Canvas preview ── */}
           <div className="relative sticky top-14 z-10 bg-card pb-2">
@@ -985,6 +974,15 @@ export function MemeBuilder({ factId, factText, pexelsImages, onClose }: MemeBui
                     }}
                   >
                     Stock Photo
+                  </ModeTab>
+                  <ModeTab
+                    active={imageMode === "ai"}
+                    onClick={() => {
+                      setImageMode("ai");
+                    }}
+                    badge="PRO"
+                  >
+                    AI Generated
                   </ModeTab>
                   <ModeTab
                     active={imageMode === "upload"}
@@ -1142,6 +1140,102 @@ export function MemeBuilder({ factId, factText, pexelsImages, onClose }: MemeBui
                       </div>
                     )}
                   </div>
+                )}
+
+                {/* AI Generated mode */}
+                {imageMode === "ai" && (
+                  <>
+                    {!isPremium ? (
+                      <div className="border-2 border-dashed border-amber-400/30 bg-amber-400/5 p-5 text-center space-y-2">
+                        <Lock className="w-6 h-6 text-amber-400 mx-auto" />
+                        <p className="text-sm font-bold text-amber-400 uppercase tracking-wider">
+                          Premium Feature
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          AI-generated backgrounds require a Premium membership.
+                        </p>
+                        <Link href="/membership">
+                          <Button size="sm" className="mt-2">Upgrade to Premium</Button>
+                        </Link>
+                      </div>
+                    ) : (
+                      <div className="space-y-3">
+                        {aiImagePaths.length > 0 ? (
+                          <>
+                            <p className="text-[10px] font-display uppercase tracking-widest text-muted-foreground">
+                              AI backgrounds for this fact
+                              <span className="ml-1 text-primary">({aiGender})</span>
+                            </p>
+                            <div className="grid grid-cols-3 gap-2">
+                              {aiImageSlots.map((storagePath, i) => storagePath ? (
+                                <button
+                                  key={i}
+                                  onClick={() => setSelectedAiIndex(i)}
+                                  className={`relative aspect-square border-2 overflow-hidden transition-all ${
+                                    selectedAiIndex === i
+                                      ? "border-primary ring-2 ring-primary/30 scale-105"
+                                      : "border-border hover:border-primary/50"
+                                  }`}
+                                >
+                                  <img
+                                    src={getAiThumbnailUrl(i)}
+                                    alt={`AI option ${i + 1}`}
+                                    className="w-full h-full object-cover"
+                                    loading="lazy"
+                                    crossOrigin="anonymous"
+                                    onError={e => { (e.target as HTMLImageElement).style.display = "none"; }}
+                                  />
+                                  {selectedAiIndex === i && (
+                                    <span className="absolute top-0.5 right-0.5 w-2 h-2 bg-primary rounded-full border border-white" />
+                                  )}
+                                </button>
+                              ) : null)}
+                            </div>
+                          </>
+                        ) : (
+                          <div className="flex flex-col items-center gap-2 py-4 text-center">
+                            <Sparkles className="w-8 h-8 text-violet-400/50" />
+                            <p className="text-xs text-muted-foreground">
+                              No AI backgrounds yet for this fact.
+                            </p>
+                          </div>
+                        )}
+
+                        {/* Generate New button */}
+                        <div className="flex items-center gap-2">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => void handleGenerateNewAi()}
+                            disabled={isGeneratingAi}
+                            className="gap-2 border-violet-500/50 text-violet-400 hover:border-violet-400"
+                          >
+                            {isGeneratingAi ? (
+                              <><Loader2 className="w-3.5 h-3.5 animate-spin" />Generating…</>
+                            ) : (
+                              <><Sparkles className="w-3.5 h-3.5" />Generate New</>
+                            )}
+                          </Button>
+                          <span className="text-[10px] text-muted-foreground">
+                            {factIsGendered ? "3 images (gendered)" : "1 image (abstract)"}
+                          </span>
+                        </div>
+
+                        {aiGenerateError && (
+                          <p className="text-[10px] text-destructive">{aiGenerateError}</p>
+                        )}
+                        {isGeneratingAi && (
+                          <p className="text-[10px] text-muted-foreground/60">
+                            Generation takes ~30 seconds. Thumbnails will refresh automatically.
+                          </p>
+                        )}
+
+                        <p className="text-[10px] text-muted-foreground/50">
+                          AI-generated scene • Powered by OpenAI gpt-image-1
+                        </p>
+                      </div>
+                    )}
+                  </>
                 )}
 
                 {/* Upload mode */}

@@ -16,7 +16,9 @@ import { ObjectStorageService } from "../lib/objectStorage";
 import { getRandomStockPhoto, getPhotoById } from "../lib/pexelsClient";
 import { renderPersonalized } from "../lib/renderCanonical";
 import { compositeAiMeme } from "../lib/aiMemeCompositor";
+import { generateAiMemeBackgrounds } from "../lib/aiMemePipeline";
 import type { AiMemeImages } from "../lib/aiMemePipeline";
+import { requirePremium } from "../middlewares/premiumMiddleware";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const TEMPLATES_DIR = path.resolve(__dirname, "assets/meme-templates");
@@ -514,9 +516,10 @@ router.get("/memes/:slug/image", async (req: Request, res: Response) => {
  * - Streams back a JPEG
  *
  * Query params:
- *   userId   — user ID to personalize the fact text for
- *   gender   — "male" | "female" | "neutral" (defaults to "neutral")
+ *   userId     — user ID to personalize the fact text for
+ *   gender     — "male" | "female" | "neutral" (defaults to "neutral")
  *   imageIndex — 0..2 (defaults to 0)
+ *   raw        — if "true", streams the raw background PNG without text overlay (for thumbnails)
  */
 router.get("/memes/ai/:factId/image", async (req: Request, res: Response) => {
   const factId = parseInt(String(req.params["factId"] ?? ""), 10);
@@ -527,6 +530,7 @@ router.get("/memes/ai/:factId/image", async (req: Request, res: Response) => {
     : "neutral") as "male" | "female" | "neutral";
 
   const imageIndex = Math.max(0, Math.min(2, parseInt(String(req.query["imageIndex"] ?? "0"), 10) || 0));
+  const rawMode = req.query["raw"] === "true";
 
   try {
     const [fact] = await db
@@ -544,6 +548,28 @@ router.get("/memes/ai/:factId/image", async (req: Request, res: Response) => {
     }
 
     const backgroundPath = aiImages[gender][imageIndex]!;
+
+    if (rawMode) {
+      // Serve the raw background PNG directly (used for gallery thumbnails)
+      const objectStorageService = new ObjectStorageService();
+      const normalizedPath = objectStorageService.normalizeObjectEntityPath(backgroundPath);
+      const objectFile = await objectStorageService.getObjectEntityFile(normalizedPath);
+      const response = await objectStorageService.downloadObject(objectFile);
+      res.setHeader("Content-Type", "image/png");
+      res.setHeader("Cache-Control", "public, max-age=86400");
+      response.headers.forEach((value: string, key: string) => {
+        if (key.toLowerCase() !== "content-type") res.setHeader(key, value);
+      });
+      res.status(200);
+      if (response.body) {
+        const { Readable } = await import("stream");
+        const nodeStream = Readable.fromWeb(response.body as import("stream/web").ReadableStream<Uint8Array>);
+        nodeStream.pipe(res);
+      } else {
+        res.end();
+      }
+      return;
+    }
 
     // Personalize fact text for the user if userId provided
     let factText: string;
@@ -610,6 +636,37 @@ router.put("/facts/:factId/ai-meme-preference", async (req: Request, res: Respon
       set: { aiMemeImageIndex, updatedAt: new Date() },
     });
   res.json({ success: true, aiMemeImageIndex });
+});
+
+// POST /memes/ai/:factId/generate — premium user triggers AI image generation for a fact
+router.post("/memes/ai/:factId/generate", requirePremium, async (req: Request, res: Response) => {
+  const factId = parseInt(String(req.params["factId"] ?? ""), 10);
+  if (isNaN(factId)) { res.status(400).json({ error: "Invalid factId" }); return; }
+
+  const body = req.body as Record<string, unknown>;
+  const scope = body["scope"] === "abstract" ? "abstract" : "gendered";
+
+  const [fact] = await db
+    .select({ id: factsTable.id, text: factsTable.text, parentId: factsTable.parentId, aiScenePrompts: factsTable.aiScenePrompts, aiMemeImages: factsTable.aiMemeImages })
+    .from(factsTable)
+    .where(and(eq(factsTable.id, factId), eq(factsTable.isActive, true)))
+    .limit(1);
+
+  if (!fact) { res.status(404).json({ error: "Fact not found" }); return; }
+  if (fact.parentId !== null) { res.status(400).json({ error: "AI meme generation only supported on root facts" }); return; }
+
+  const existingPrompts = fact.aiScenePrompts as import("../lib/aiMemePipeline").AiScenePrompts | undefined;
+  const existingImages = fact.aiMemeImages as AiMemeImages | undefined;
+
+  // scope="abstract" → 1 new image (neutral, index 0)
+  // scope="gendered" → 3 new images (index 0 per gender), single pipeline call to avoid DB race
+  void generateAiMemeBackgrounds(fact.id, fact.text, {
+    scope,
+    existingPrompts,
+    existingImages,
+  });
+
+  res.json({ success: true, message: "AI meme generation started. Refresh in a moment to see new images." });
 });
 
 export default router;

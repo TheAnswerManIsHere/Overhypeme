@@ -5,7 +5,7 @@ import { embedFactAsync } from "../lib/embeddings";
 import { renderCanonical } from "../lib/renderCanonical";
 import { logActivity } from "../lib/activity";
 import { validateTemplate } from "../lib/templateGrammar";
-import { runFactImagePipeline, type FactPexelsImages } from "../lib/factImagePipeline";
+import { type FactPexelsImages } from "../lib/factImagePipeline";
 import { db } from "@workspace/db";
 import {
   factsTable, hashtagsTable, factHashtagsTable,
@@ -90,7 +90,9 @@ async function buildFactSummaries(facts: (typeof factsTable.$inferSelect)[], use
     submittedByImage: f.submittedById ? (sMap.get(f.submittedById)?.profileImageUrl ?? null) : null,
     userRating: userId ? (rMap.get(f.id) ?? null) : null,
     createdAt: f.createdAt.toISOString(),
+    updatedAt: f.updatedAt.toISOString(),
     pexelsImages: (f.pexelsImages as import("../lib/factImagePipeline").FactPexelsImages | null) ?? null,
+    aiMemeImages: (f.aiMemeImages as import("../lib/aiMemePipeline").AiMemeImages | null) ?? null,
   }));
 }
 
@@ -204,12 +206,6 @@ router.post("/facts", requireAdmin, async (req: Request, res: Response) => {
   // Generate and persist the pgvector embedding in the background (non-blocking)
   // Embed from canonicalText so duplicate checks work against plain-English queries
   void embedFactAsync(fact.id, fact.text, canonicalText);
-
-  // Populate Pexels background images via LLM keyword extraction (non-blocking)
-  // Only runs on root facts; variants inherit the parent's image pool.
-  if (!parsed.data.parentId) {
-    void runFactImagePipeline(fact.id, fact.text);
-  }
 
   // Log to activity feed
   void logActivity({
