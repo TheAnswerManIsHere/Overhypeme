@@ -3,74 +3,52 @@ import { factsTable } from "@workspace/db/schema";
 import { desc, eq } from "drizzle-orm";
 import { stripeStorage } from "../lib/stripeStorage";
 import { logger } from "../lib/logger";
+import { sendEmail, buildEmailShell, ctaButton, divider } from "../lib/email";
 
-const RESEND_API_KEY = process.env.RESEND_API_KEY;
 const SITE_DOMAIN = process.env.REPLIT_DOMAINS?.split(",")[0] ?? "localhost";
-const FROM_EMAIL = process.env.FACT_OF_DAY_FROM ?? "noreply@overhype.me";
 
-async function sendEmail(to: string, subject: string, html: string): Promise<boolean> {
-  if (!RESEND_API_KEY) {
-    logger.warn("RESEND_API_KEY not set — skipping email send");
-    return false;
-  }
-  try {
-    const resp = await fetch("https://api.resend.com/emails", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${RESEND_API_KEY}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ from: FROM_EMAIL, to, subject, html }),
-    });
-    if (!resp.ok) {
-      const text = await resp.text();
-      logger.error({ status: resp.status, body: text }, "Resend error");
-      return false;
-    }
-    return true;
-  } catch (err) {
-    logger.error({ err }, "Email send failed");
-    return false;
-  }
-}
-
-function buildEmailHtml(factText: string, factId: number, unsubUrl: string): string {
+function buildFactOfTheDayEmail(
+  factText: string,
+  factId: number,
+  manageUrl: string,
+): { subject: string; text: string; html: string } {
   const siteUrl = `https://${SITE_DOMAIN}/overhype-me`;
-  return `<!DOCTYPE html>
-<html>
-<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
-<body style="margin:0;padding:0;background:#111;font-family:Arial,sans-serif;">
-  <table width="100%" cellpadding="0" cellspacing="0" style="background:#111;padding:40px 20px;">
-    <tr><td align="center">
-      <table width="600" cellpadding="0" cellspacing="0" style="background:#1a1a1a;border:2px solid #f97316;border-radius:4px;overflow:hidden;max-width:600px;">
-        <tr>
-          <td style="background:#f97316;padding:24px 32px;">
-            <h1 style="margin:0;color:#fff;font-size:22px;letter-spacing:2px;text-transform:uppercase;">⚡ Fact of the Day</h1>
-            <p style="margin:4px 0 0;color:rgba(255,255,255,0.8);font-size:13px;text-transform:uppercase;letter-spacing:1px;">Overhype.me — Daily Intel</p>
-          </td>
-        </tr>
-        <tr>
-          <td style="padding:40px 32px;">
-            <p style="margin:0 0 24px;color:#f97316;font-size:13px;text-transform:uppercase;letter-spacing:1px;">Top-Rated Fact #${factId}</p>
-            <blockquote style="margin:0 0 32px;padding:20px 24px;background:#111;border-left:4px solid #f97316;border-radius:2px;">
-              <p style="margin:0;color:#fff;font-size:18px;line-height:1.7;">"${factText}"</p>
-            </blockquote>
-            <a href="${siteUrl}/facts/${factId}" style="display:inline-block;background:#f97316;color:#fff;padding:12px 28px;text-decoration:none;font-size:13px;font-weight:bold;letter-spacing:1px;text-transform:uppercase;border-radius:2px;">VIEW FULL FACT</a>
-          </td>
-        </tr>
-        <tr>
-          <td style="padding:16px 32px;border-top:1px solid #333;">
-            <p style="margin:0;color:#666;font-size:11px;">
-              You're receiving this because you have a premium Overhype.me membership.
-              <a href="${unsubUrl}" style="color:#f97316;">Manage or cancel subscription</a>
-            </p>
-          </td>
-        </tr>
-      </table>
-    </td></tr>
-  </table>
-</body>
-</html>`;
+  const factUrl = `${siteUrl}/facts/${factId}`;
+
+  const subject = "⚡ Your Daily Overhype.me Fact";
+
+  const text = [
+    "TODAY'S FACT.",
+    "",
+    `"${factText}"`,
+    "",
+    `Read it here: ${factUrl}`,
+    "",
+    "— The Overhype.me Team",
+    "",
+    `Manage your Premium subscription: ${manageUrl}`,
+  ].join("\n");
+
+  const body = `
+<h1 style="margin:0 0 6px;font-family:'Oswald','Impact','Arial Narrow',sans-serif;font-size:28px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:#ffffff;line-height:1.2;mso-font-alt:'Impact';">Today's Fact.</h1>
+<p style="margin:0 0 28px;font-size:13px;color:#555555;text-transform:uppercase;letter-spacing:2px;font-family:'Inter',-apple-system,sans-serif;">Hand-picked from the database of greatness</p>
+<table cellpadding="0" cellspacing="0" border="0" width="100%" style="margin:0 0 32px;">
+  <tr>
+    <td style="border-left:4px solid #FF3C00;padding:16px 20px;background:#1c1c1e;">
+      <p style="margin:0;font-size:17px;color:#dddddd;line-height:1.75;font-style:italic;font-family:'Inter',-apple-system,sans-serif;">"${factText}"</p>
+    </td>
+  </tr>
+</table>
+${ctaButton(factUrl, "View the Full Fact")}
+${divider()}
+<p style="margin:0;font-size:12px;color:#555555;line-height:1.7;font-family:'Inter',-apple-system,sans-serif;">Keep&nbsp;submitting. Every legend needs&nbsp;material.</p>`;
+
+  const footerNote = `You&#39;re receiving this because you&#39;re a Premium member — good taste.&nbsp;
+<a href="${manageUrl}" style="color:#FF3C00;text-decoration:none;">Manage&nbsp;subscription</a>`;
+
+  const html = buildEmailShell(body, footerNote);
+
+  return { subject, text, html };
 }
 
 export async function runFactOfTheDayJob(): Promise<{ sent: number; skipped: number }> {
@@ -106,10 +84,14 @@ export async function runFactOfTheDayJob(): Promise<{ sent: number; skipped: num
   for (const user of premiumUsers) {
     if (!user.email) { skipped++; continue; }
 
-    const portalUrl = `https://${SITE_DOMAIN}/overhype-me/profile#membership`;
-    const html = buildEmailHtml(topFact.text, topFact.id, portalUrl);
-    const ok = await sendEmail(user.email, "⚡ Your Daily Overhype.me Fact", html);
-    if (ok) sent++; else skipped++;
+    const manageUrl = `https://${SITE_DOMAIN}/overhype-me/profile#membership`;
+    const { subject, text, html } = buildFactOfTheDayEmail(topFact.text, topFact.id, manageUrl);
+    try {
+      await sendEmail({ to: user.email, subject, text, html });
+      sent++;
+    } catch {
+      skipped++;
+    }
 
     await new Promise(r => setTimeout(r, 50));
   }

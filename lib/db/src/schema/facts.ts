@@ -1,4 +1,4 @@
-import { pgTable, text, serial, timestamp, varchar, integer, doublePrecision, customType, index, boolean } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, timestamp, varchar, integer, doublePrecision, customType, index, boolean, jsonb } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 import { usersTable } from "./auth";
@@ -32,6 +32,8 @@ export const factsTable = pgTable("facts", {
   hasPronouns: boolean("has_pronouns").notNull().default(false),
   isActive: boolean("is_active").notNull().default(true),
   canonicalText: text("canonical_text"),
+  /** LLM-extracted Pexels image IDs per gender variant. Populated by factImagePipeline. */
+  pexelsImages: jsonb("pexels_images"),
   embedding: vector("embedding", { dimensions: 384 }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
