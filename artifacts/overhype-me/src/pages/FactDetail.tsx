@@ -12,7 +12,7 @@ import { useAppMutations } from "@/hooks/use-mutations";
 import { MemeBuilder } from "@/components/MemeBuilder";
 import { MerchButtons } from "@/components/MerchButtons";
 import { AdSlot } from "@/components/AdSlot";
-import { ThumbsUp, ThumbsDown, User, Link as LinkIcon, Youtube, Instagram, AlertCircle, Trash2, ImageIcon, GitBranch, ArrowLeft, RefreshCw } from "lucide-react";
+import { ThumbsUp, ThumbsDown, User, Link as LinkIcon, Youtube, Instagram, AlertCircle, Trash2, ImageIcon, GitBranch, ArrowLeft, RefreshCw, Crown } from "lucide-react";
 import { cn } from "@/components/ui/Button";
 import { usePersonName } from "@/hooks/use-person-name";
 import { renderFact } from "@/lib/render-fact";
@@ -151,6 +151,7 @@ export default function FactDetail() {
   const factId = parseInt(params?.id || "0", 10);
   const [, setLocation] = useLocation();
   const { isAuthenticated, user } = useAuth();
+  const isPremium = user?.membershipTier === "premium";
   const { rateFact, addComment } = useAppMutations();
 
   const { data: fact, isLoading: factLoading, error: factError } = useGetFact(factId, {
@@ -365,13 +366,19 @@ export default function FactDetail() {
                     className="bg-background min-h-[100px]"
                   />
                   <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between">
-                    <div className="overflow-hidden rounded-sm border-2 border-border">
-                      <HCaptcha
-                        sitekey={HCAPTCHA_SITE_KEY}
-                        onVerify={setCaptchaToken}
-                      />
-                    </div>
-                    <Button type="submit" isLoading={addComment.isPending} disabled={!commentText} className="w-full sm:w-auto">
+                    {isPremium ? (
+                      <div className="flex items-center gap-2 text-yellow-500 text-sm font-display font-bold uppercase tracking-wider">
+                        <Crown className="w-4 h-4" /> Captcha skipped (Premium)
+                      </div>
+                    ) : (
+                      <div className="overflow-hidden rounded-sm border-2 border-border">
+                        <HCaptcha
+                          sitekey={HCAPTCHA_SITE_KEY}
+                          onVerify={setCaptchaToken}
+                        />
+                      </div>
+                    )}
+                    <Button type="submit" isLoading={addComment.isPending} disabled={!commentText.trim()} className="w-full sm:w-auto">
                       POST INTEL
                     </Button>
                   </div>

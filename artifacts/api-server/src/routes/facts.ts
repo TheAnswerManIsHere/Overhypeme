@@ -335,10 +335,14 @@ router.post("/facts/:factId/comments", async (req: Request, res: Response) => {
   const [factExists] = await db.select({ id: factsTable.id }).from(factsTable).where(and(eq(factsTable.id, factId), eq(factsTable.isActive, true))).limit(1);
   if (!factExists) { res.status(404).json({ error: "Fact not found" }); return; }
 
-  // Authenticated users bypass CAPTCHA for comments
-  if (!captchaToken || !(await verifyCaptcha(captchaToken))) {
-    res.status(400).json({ error: "CAPTCHA verification failed" });
-    return;
+  const [commentUser] = await db.select({ membershipTier: usersTable.membershipTier }).from(usersTable).where(eq(usersTable.id, req.user.id)).limit(1);
+  const isUserPremium = commentUser?.membershipTier === "premium";
+
+  if (!isUserPremium) {
+    if (!captchaToken || !(await verifyCaptcha(captchaToken))) {
+      res.status(400).json({ error: "CAPTCHA verification failed" });
+      return;
+    }
   }
 
   const [comment] = await db.insert(commentsTable).values({ factId, authorId: req.user.id, text, status: "pending" }).returning();

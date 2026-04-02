@@ -1,5 +1,5 @@
 import { Link, useLocation } from "wouter";
-import { Search, Plus, User, LogIn, LogOut, Menu, X, Star, ShieldCheck, ShieldOff, Activity, Share2 } from "lucide-react";
+import { Search, Plus, User, LogIn, LogOut, Menu, X, Star, Crown, ShieldCheck, ShieldOff, Activity, Share2 } from "lucide-react";
 import { useAuth } from "@workspace/replit-auth-web";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
@@ -72,6 +72,7 @@ export function Navbar() {
 
   const isRealAdmin = user?.isRealAdmin;
   const isAdminModeOn = user?.isAdmin;
+  const isPremium = user?.membershipTier === "premium";
 
   return (
     <nav className="sticky top-0 z-50 w-full bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80 border-b-2 border-border shadow-lg">
@@ -120,9 +121,16 @@ export function Navbar() {
             <Button variant="outline" size="sm" onClick={() => setLocation('/submit')} className="hidden lg:flex gap-2 whitespace-nowrap">
               <Plus className="w-4 h-4" /> SUBMIT FACT
             </Button>
-            <Button variant="ghost" size="sm" onClick={() => setLocation('/pricing')} className="hidden lg:flex gap-2 whitespace-nowrap text-primary hover:text-primary">
-              <Star className="w-4 h-4" /> PREMIUM
-            </Button>
+            {isPremium ? (
+              <div className="hidden lg:flex items-center gap-1.5 px-3 py-1.5 bg-yellow-500/15 border border-yellow-500/40 rounded-sm">
+                <Crown className="w-4 h-4 text-yellow-500" />
+                <span className="text-xs font-display font-bold uppercase tracking-wider text-yellow-500">Premium</span>
+              </div>
+            ) : (
+              <Button variant="ghost" size="sm" onClick={() => setLocation('/pricing')} className="hidden lg:flex gap-2 whitespace-nowrap text-primary hover:text-primary">
+                <Star className="w-4 h-4" /> PREMIUM
+              </Button>
+            )}
             
             {isAuthenticated ? (
               <div className="flex items-center gap-3">
@@ -214,9 +222,16 @@ export function Navbar() {
               <Button variant="outline" className="w-full gap-2" onClick={() => { setLocation('/submit'); setMobileMenuOpen(false); }}>
                 <Plus className="w-5 h-5" /> SUBMIT NEW FACT
               </Button>
-              <Button variant="ghost" className="w-full gap-2 text-primary" onClick={() => { setLocation('/pricing'); setMobileMenuOpen(false); }}>
-                <Star className="w-5 h-5" /> GO PREMIUM
-              </Button>
+              {isPremium ? (
+                <div className="flex items-center justify-center gap-2 py-2 bg-yellow-500/15 border border-yellow-500/40 rounded-sm">
+                  <Crown className="w-5 h-5 text-yellow-500" />
+                  <span className="text-sm font-display font-bold uppercase tracking-wider text-yellow-500">Premium Member</span>
+                </div>
+              ) : (
+                <Button variant="ghost" className="w-full gap-2 text-primary" onClick={() => { setLocation('/pricing'); setMobileMenuOpen(false); }}>
+                  <Star className="w-5 h-5" /> GO PREMIUM
+                </Button>
+              )}
               {isAuthenticated ? (
                 <div className="grid grid-cols-2 gap-4">
                   {isRealAdmin && isAdminModeOn && (
