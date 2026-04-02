@@ -329,6 +329,8 @@ export function MemeBuilder({ factId, factText, pexelsImages, onClose }: MemeBui
   const [isLoadingStock, setIsLoadingStock] = useState(false);
   const [stockError, setStockError] = useState<string | null>(null);
   const [photoLibraryExhausted, setPhotoLibraryExhausted] = useState(false);
+  const [rateLimitedUntil, setRateLimitedUntil] = useState<number | null>(null);
+  const [rateLimitCountdown, setRateLimitCountdown] = useState(0);
   const [prefetchedIndex, setPrefetchedIndex] = useState<number | null>(null);
   const [uploadFile, setUploadFile] = useState<File | null>(null);
   const [uploadObjectPath, setUploadObjectPath] = useState<string | null>(null);
@@ -438,6 +440,7 @@ export function MemeBuilder({ factId, factText, pexelsImages, onClose }: MemeBui
 
   useEffect(() => {
     setPhotoLibraryExhausted(false);
+    setRateLimitedUntil(null);
     setStockError(null);
     if (!pexelsImages || !stockGender) { setPrefetchedPhotos([]); return; }
     const variant = GENDER_TO_VARIANT[stockGender];
@@ -448,6 +451,19 @@ export function MemeBuilder({ factId, factText, pexelsImages, onClose }: MemeBui
         : entry
     ));
   }, [pexelsImages, stockGender]);
+
+  // Countdown ticker for rate-limit cooldown
+  useEffect(() => {
+    if (!rateLimitedUntil) return;
+    const tick = () => {
+      const remaining = Math.ceil((rateLimitedUntil - Date.now()) / 1000);
+      if (remaining <= 0) { setRateLimitedUntil(null); setRateLimitCountdown(0); }
+      else setRateLimitCountdown(remaining);
+    };
+    tick();
+    const id = setInterval(tick, 1000);
+    return () => clearInterval(id);
+  }, [rateLimitedUntil]);
 
   const selectPrefetchedPhoto = useCallback((photo: PexelsPhotoEntry, index: number) => {
     setPrefetchedIndex(index);
@@ -491,7 +507,7 @@ export function MemeBuilder({ factId, factText, pexelsImages, onClose }: MemeBui
   }, [isAuthenticated, pexelsImages, selectPrefetchedPhoto]);
 
   const fetchRandomStockPhoto = useCallback(async () => {
-    if (!isAuthenticated || !stockGender || photoLibraryExhausted) return;
+    if (!isAuthenticated || !stockGender || photoLibraryExhausted || rateLimitedUntil) return;
     setIsLoadingStock(true);
     setStockError(null);
     try {
@@ -500,6 +516,12 @@ export function MemeBuilder({ factId, factText, pexelsImages, onClose }: MemeBui
       // 409 = library exhausted — disable the button; don't fall back to generic
       if (res.status === 409) {
         setPhotoLibraryExhausted(true);
+        return;
+      }
+
+      // 429 = rate limited — start 60-second cooldown; don't fall back to generic
+      if (res.status === 429) {
+        setRateLimitedUntil(Date.now() + 60_000);
         return;
       }
 
@@ -531,7 +553,7 @@ export function MemeBuilder({ factId, factText, pexelsImages, onClose }: MemeBui
     } finally {
       setIsLoadingStock(false);
     }
-  }, [isAuthenticated, stockGender, factId, photoLibraryExhausted]);
+  }, [isAuthenticated, stockGender, factId, photoLibraryExhausted, rateLimitedUntil]);
 
 
   // ── Upload flow ──────────────────────────────────────────────────
@@ -825,6 +847,24 @@ export function MemeBuilder({ factId, factText, pexelsImages, onClose }: MemeBui
                                 alt={`Option ${i + 1}`}
                                 className="w-full h-full object-cover"
                                 loading="lazy"
+                                onError={() => {
+                                  setPrefetchedPhotos(prev => {
+                                    const next = prev.filter((_, idx) => idx !== i);
+                                    if (prefetchedIndex === i) {
+                                      const adjacent = next[Math.min(i, next.length - 1)];
+                                      if (adjacent) {
+                                        const newIdx = Math.min(i, next.length - 1);
+                                        setPrefetchedIndex(newIdx);
+                                        setStockPhoto({ id: adjacent.id, photographerName: "Pexels", photographerUrl: "https://www.pexels.com", photoUrl: adjacent.url });
+                                      } else {
+                                        setPrefetchedIndex(null);
+                                      }
+                                    } else if (prefetchedIndex !== null && prefetchedIndex > i) {
+                                      setPrefetchedIndex(prefetchedIndex - 1);
+                                    }
+                                    return next;
+                                  });
+                                }}
                               />
                               {prefetchedIndex === i && (
                                 <span className="absolute top-0.5 right-0.5 w-2 h-2 bg-primary rounded-full border border-white" />
@@ -857,8 +897,12 @@ export function MemeBuilder({ factId, factText, pexelsImages, onClose }: MemeBui
                       <div className="flex-1 min-w-0">
                         <button
                           onClick={fetchRandomStockPhoto}
-                          disabled={isLoadingStock || !stockGender || photoLibraryExhausted}
-                          title={photoLibraryExhausted ? "No more unique photos available for this topic" : undefined}
+                          disabled={isLoadingStock || !stockGender || photoLibraryExhausted || !!rateLimitedUntil}
+                          title={
+                            photoLibraryExhausted ? "No more unique photos available for this topic" :
+                            rateLimitedUntil ? `Image service busy — retry in ${rateLimitCountdown}s` :
+                            undefined
+                          }
                           className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-muted-foreground hover:text-primary border-2 border-border hover:border-primary/50 px-3 py-1.5 transition-all disabled:opacity-50 disabled:cursor-not-allowed w-full justify-center"
                         >
                           <RefreshCw className={`w-3 h-3 ${isLoadingStock ? "animate-spin" : ""}`} />
@@ -869,7 +913,12 @@ export function MemeBuilder({ factId, factText, pexelsImages, onClose }: MemeBui
                             All available photos for this topic have been added.
                           </p>
                         )}
-                        {stockPhoto && !photoLibraryExhausted && (
+                        {rateLimitedUntil && !photoLibraryExhausted && (
+                          <p className="text-[10px] text-amber-600 mt-2 text-center">
+                            Image service busy — retry in {rateLimitCountdown}s
+                          </p>
+                        )}
+                        {stockPhoto && !photoLibraryExhausted && !rateLimitedUntil && (
                           <p className="text-[10px] text-muted-foreground mt-2 truncate">
                             Photo by{" "}
                             <a
