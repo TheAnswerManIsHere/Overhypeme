@@ -1,0 +1,224 @@
+# Replit Prompt: Meme Image Storage, Lifecycle & CDN Strategy
+
+## Context
+
+This is an “impossible facts” platform where users enter their name and pronouns, and personalized facts are dynamically rendered (e.g., “When [Name] does pushups, [pronoun] doesn’t push [pronoun-self] up, [pronoun] pushes the Earth down.”). Users can generate meme images from these facts. We need infrastructure to store, serve, track, and lifecycle-manage those meme images with a free/paid tier split.
+
+-----
+
+## 1. Associate Generated Memes with Users
+
+### Database Schema
+
+Add a `memes` table (or equivalent model) with the following columns:
+
+|Column           |Type                  |Description                                                                                     |
+|-----------------|----------------------|------------------------------------------------------------------------------------------------|
+|`id`             |UUID / CUID           |Primary key, used in permalink slug                                                             |
+|`user_id`        |FK → users            |The user who generated this meme (nullable for anonymous/unauthed generations if you allow them)|
+|`fact_id`        |FK → facts            |The fact this meme was generated from (if applicable)                                           |
+|`storage_key`    |string                |The object storage key (e.g., S3 path or R2 key) for the image file                             |
+|`file_size_bytes`|integer               |Size of the stored image in bytes                                                               |
+|`mime_type`      |string                |e.g., `image/png`, `image/jpeg`, `image/webp`                                                   |
+|`created_at`     |timestamp             |When the meme was generated                                                                     |
+|`last_viewed_at` |timestamp             |Updated on every permalink hit — this is the critical field for pruning decisions               |
+|`view_count`     |integer, default 0    |Total lifetime views                                                                            |
+|`is_expired`     |boolean, default false|Set to true when the image has been pruned from storage                                         |
+|`expired_at`     |timestamp, nullable   |When the image was pruned                                                                       |
+
+### User-Level Aggregates
+
+Add a query or materialized view that lets us answer these questions per user at any time:
+
+- Total memes generated (lifetime)
+- Total storage consumed (sum of `file_size_bytes` where `is_expired = false`)
+- Number of active (non-expired) memes
+- Number of expired memes
+- Distribution of `last_viewed_at` ages across their memes (so we can analyze what pruning thresholds make sense before we commit to a policy)
+
+These aggregates will inform future pruning policy tuning. Do NOT hardcode a specific pruning threshold yet — we want to collect data first.
+
+### On Meme Generation
+
+When a user generates a meme:
+
+1. Generate the image (existing flow).
+1. Upload the image to object storage (see Section 4 for CDN details).
+1. Insert a row into the `memes` table with `user_id`, `storage_key`, `file_size_bytes`, `created_at`, and `last_viewed_at` set to `now()`.
+1. Return the permalink URL to the user.
+
+-----
+
+## 2. View Tracking & Expiration Metadata for Free Users
+
+### View Tracking
+
+Every time a meme permalink is hit (including direct image loads and page views), update:
+
+```
+UPDATE memes
+SET last_viewed_at = now(),
+    view_count = view_count + 1
+WHERE id = :meme_id
+```
+
+**Performance note:** If write volume becomes a concern, batch these updates using a write-behind queue (e.g., buffer increments in memory or Redis and flush every N seconds). But start with direct updates — premature optimization isn’t needed at early scale.
+
+### Pruning Job (Background / Cron)
+
+Create a scheduled job (cron, or a Replit scheduled function) that runs daily and does the following:
+
+1. **Identify candidates for pruning.** Select memes where:
+- The owning user is on the free tier (join against users table)
+- `is_expired = false`
+- `last_viewed_at < now() - INTERVAL :pruning_threshold`
+1. **The pruning threshold should be a configurable environment variable**, defaulting to `90 days`. This lets us tune it without redeploying. We may also want to add a `max_free_memes_per_user` config in the future, but don’t implement that constraint yet — just make sure the schema supports it.
+1. **For each candidate:**
+- Delete the image file from object storage.
+- Set `is_expired = true` and `expired_at = now()` on the meme row.
+- Do NOT delete the meme row itself. We keep the metadata for analytics and so the permalink route can serve the placeholder.
+1. **Never prune memes belonging to paid users.** Paid user memes persist as long as their subscription is active.
+1. **On subscription cancellation / churn:** When a paying user downgrades to free, their memes should NOT be immediately pruned. Instead, their memes become subject to the same `last_viewed_at` pruning rules as any free user’s memes, starting from that point forward. This provides a natural grace period — actively viewed memes survive indefinitely regardless of tier.
+
+### Logging
+
+Log every pruning run: how many candidates were found, how many were pruned, total bytes reclaimed. Store this in a `pruning_logs` table:
+
+|Column                  |Type     |
+|------------------------|---------|
+|`id`                    |UUID     |
+|`run_at`                |timestamp|
+|`candidates_found`      |integer  |
+|`memes_pruned`          |integer  |
+|`bytes_reclaimed`       |bigint   |
+|`pruning_threshold_days`|integer  |
+
+-----
+
+## 3. Expired Permalink Handling
+
+### Permalink Route Behavior
+
+The permalink route (e.g., `GET /m/:id` or `GET /meme/:id`) should work as follows:
+
+```
+1. Look up the meme row by id.
+
+2. If no row found:
+   → Return HTTP 404 with a generic "not found" page.
+
+3. If row found AND is_expired = false:
+   → Update last_viewed_at and view_count (see Section 2).
+   → Serve the image (redirect to CDN URL or proxy it).
+
+4. If row found AND is_expired = true:
+   → Return HTTP 410 (Gone).
+   → Serve a branded placeholder image.
+   → The placeholder should be a static image (not dynamically generated)
+     that says something like:
+       "This fact has expired.
+        Create your own impossible facts at [site URL]"
+   → Include an HTML page wrapper (not just the raw image) with:
+     - The placeholder image prominently displayed
+     - A CTA button linking to the meme generator
+     - OpenGraph meta tags so if someone shares the expired link,
+       the social preview shows the placeholder + CTA, not a broken link
+```
+
+### Placeholder Image
+
+Create a single static placeholder image and store it in your public assets (served from CDN). It should be:
+
+- Visually on-brand (use the site’s design language)
+- Clearly communicative (“This fact has expired”)
+- Include the site URL as a call to action
+- Reasonable dimensions (e.g., 1200x630 — the standard OG image size)
+
+This image is served for ALL expired permalinks — it’s a single static asset, not per-meme.
+
+### Direct Image URL Handling
+
+If meme images are also served at a direct image URL (e.g., `GET /img/:id.png` for embedding), the same logic applies:
+
+- Active meme → serve the actual image with appropriate `Cache-Control` headers.
+- Expired meme → serve the placeholder image with HTTP 410 and `Cache-Control: no-cache` (so CDN doesn’t cache the placeholder at the original URL indefinitely).
+- Not found → HTTP 404 with a 1x1 transparent pixel or the placeholder.
+
+-----
+
+## 4. Cloudflare CDN Integration
+
+### Architecture
+
+```
+User Request
+    ↓
+Cloudflare CDN (free tier)
+    ↓ (cache miss)
+Origin Server (Replit app)
+    ↓ (fetches image)
+Object Storage (R2, S3, or Replit's object store)
+```
+
+### Setup Steps
+
+1. **Domain Configuration**
+- Point the site’s domain DNS to Cloudflare (use Cloudflare as the DNS provider).
+- Enable Cloudflare’s proxy (orange cloud) on the relevant DNS records.
+- This automatically enables Cloudflare’s CDN for all assets served through that domain.
+1. **Image Serving Path**
+- All meme images should be served through a consistent URL pattern under the main domain, e.g.:
+  - `https://yourdomain.com/img/:id.png` (for direct image embeds)
+  - `https://yourdomain.com/m/:id` (for the permalink page)
+- Do NOT serve images from a separate storage domain (e.g., raw S3 URLs). Always proxy through your domain so Cloudflare caches them.
+1. **Cache-Control Headers**
+- For active meme images: `Cache-Control: public, max-age=86400, s-maxage=604800` (CDN caches for 7 days, browser caches for 1 day). Meme images are immutable once generated, so aggressive caching is safe.
+- For the expired placeholder image: `Cache-Control: public, max-age=2592000` (30 days — it’s a static asset).
+- For expired permalink responses (the 410 page): `Cache-Control: no-store` (don’t cache the 410 itself at the edge, because if the user upgrades or we change policy, we want the route to be re-evaluated).
+- For HTML pages (permalink pages, homepage, etc.): `Cache-Control: public, max-age=0, s-maxage=60` (short CDN cache, no browser cache).
+1. **Cloudflare Page Rules / Cache Rules (Free Tier)**
+- Create a cache rule for `/img/*` to cache everything and set edge TTL to 7 days.
+- Create a cache rule for `/assets/*` and `/static/*` to cache everything with a 30-day edge TTL.
+- Let HTML routes use the default behavior (respect origin headers).
+1. **Object Storage Recommendations**
+- **Cloudflare R2** is the ideal pairing if available — it’s S3-compatible, has zero egress fees, and lives on the same network as the CDN. This is the cost-optimal choice.
+- If R2 isn’t practical from Replit, use any S3-compatible store (AWS S3, DigitalOcean Spaces, Backblaze B2) and serve through Cloudflare. Egress costs will be low because Cloudflare’s cache hit ratio will be high for popular images.
+1. **All Hosted Content**
+- This CDN setup applies to everything, not just meme images: static assets (JS, CSS, fonts), the placeholder image, user avatars if any, and all page responses. Cloudflare’s free tier handles all of this with no configuration beyond the DNS proxy.
+
+### Cost Estimate at Early Scale
+
+For reference, here’s the math at modest scale:
+
+- 10,000 memes × 300KB average = ~3GB storage → ~$0.07/month on S3, ~$0.045/month on R2
+- Cloudflare free tier: unlimited bandwidth, unlimited requests
+- The pruning job keeps storage from growing unboundedly for free-tier users
+- Your primary cost driver at early scale is compute (the Replit app itself), not storage or bandwidth
+
+-----
+
+## 5. Summary of Environment Variables / Config
+
+|Variable                |Default                   |Description                                                         |
+|------------------------|--------------------------|--------------------------------------------------------------------|
+|`PRUNING_THRESHOLD_DAYS`|90                        |Days since last view before a free-tier meme is eligible for pruning|
+|`PRUNING_CRON_SCHEDULE` |`0 3 * * *`               |When to run the pruning job (default: 3am daily)                    |
+|`STORAGE_PROVIDER`      |`r2`                      |Which object store to use (`r2`, `s3`, `spaces`, etc.)              |
+|`STORAGE_BUCKET`        |—                         |Bucket name                                                         |
+|`STORAGE_REGION`        |—                         |Region (if applicable)                                              |
+|`STORAGE_ACCESS_KEY`    |—                         |Access key for object storage                                       |
+|`STORAGE_SECRET_KEY`    |—                         |Secret key for object storage                                       |
+|`CDN_BASE_URL`          |`https://yourdomain.com`  |Base URL for constructing image/permalink URLs                      |
+|`PLACEHOLDER_IMAGE_PATH`|`/assets/expired-fact.png`|Path to the static expired placeholder image                        |
+
+-----
+
+## 6. What NOT to Build Yet
+
+To avoid premature complexity, explicitly defer these:
+
+- **Hard per-user storage caps for free tier.** Collect data first via the aggregates in Section 1, then decide on limits.
+- **Re-generation of expired memes.** If a user wants a pruned meme back, they can regenerate it. Don’t build “restore from archive” yet.
+- **Tiered pruning thresholds** (e.g., different thresholds for 0-view vs. low-view memes). The single `PRUNING_THRESHOLD_DAYS` is sufficient for now. The `view_count` and `last_viewed_at` data will let us get smarter later.
+- **Image optimization / format conversion** (WebP, AVIF). Cloudflare can handle some of this automatically via Polish (paid) or we can add it later. Generate in one format (PNG or JPEG) for now.
+- **Rate limiting on meme generation.** Worth adding eventually but not part of this storage/lifecycle scope.
