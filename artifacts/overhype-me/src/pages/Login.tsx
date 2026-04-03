@@ -24,8 +24,18 @@ function getResetSuccess(): boolean {
   return params.get("reset") === "success";
 }
 
+function getBackDestination(): { path: string; label: string } {
+  const params = new URLSearchParams(window.location.search);
+  const from = params.get("from");
+  if (!from) return { path: "/", label: "BACK TO FACTS" };
+  if (from.startsWith("/facts/")) return { path: from, label: "BACK TO FACT" };
+  if (from === "/profile") return { path: "/profile", label: "BACK TO PROFILE" };
+  return { path: from, label: "GO BACK" };
+}
+
 export default function Login() {
   const [, setLocation] = useLocation();
+  const backDest = getBackDestination();
   const [mode, setMode] = useState<"login" | "register">("login");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -323,9 +333,9 @@ export default function Login() {
             variant="ghost"
             size="sm"
             className="w-full mt-4 gap-2"
-            onClick={() => setLocation("/")}
+            onClick={() => setLocation(backDest.path)}
           >
-            <ArrowLeft className="w-4 h-4" /> BACK TO FACTS
+            <ArrowLeft className="w-4 h-4" /> {backDest.label}
           </Button>
         </div>
       </div>
