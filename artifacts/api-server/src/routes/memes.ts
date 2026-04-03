@@ -552,7 +552,7 @@ router.get("/memes/ai/:factId/image", async (req: Request, res: Response) => {
     ? req.query["gender"]
     : "neutral") as "male" | "female" | "neutral";
 
-  const imageIndex = Math.max(0, Math.min(2, parseInt(String(req.query["imageIndex"] ?? "0"), 10) || 0));
+  const imageIndex = Math.max(0, Math.min(999, parseInt(String(req.query["imageIndex"] ?? "0"), 10) || 0));
   const rawMode = req.query["raw"] === "true";
 
   try {

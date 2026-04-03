@@ -82,6 +82,14 @@ async function generateScenePrompts(factText: string): Promise<AiScenePrompts> {
   };
 }
 
+// ─── Constants ─────────────────────────────────────────────────────────────────
+
+/**
+ * Maximum AI-generated images stored per gender per fact.
+ * 3 genders × 334 = 1002 total ≈ the 1000-image paid storage limit.
+ */
+const MAX_IMAGES_PER_GENDER = 334;
+
 // ─── Image generation ─────────────────────────────────────────────────────────
 
 const objectStorage = new ObjectStorageService();
@@ -89,7 +97,7 @@ const objectStorage = new ObjectStorageService();
 async function generateAndStoreImage(
   factId: number,
   gender: "male" | "female" | "neutral",
-  index: number,
+  uniqueKey: string,
   prompt: string,
 ): Promise<string> {
   const openai = getOpenAIClient();
@@ -117,7 +125,7 @@ async function generateAndStoreImage(
     throw new Error("No image URL or b64_json in response");
   }
 
-  const subPath = `ai_meme_${factId}_${gender}_${index}.png`;
+  const subPath = `ai_meme_${factId}_${gender}_${uniqueKey}.png`;
   const storedPath = await objectStorage.uploadObjectBuffer({
     subPath,
     buffer: imageBuffer,
@@ -207,21 +215,28 @@ export async function generateAiMemeBackgrounds(
     }
 
     // 3. Generate images for resolved slots
-    const genders = ["male", "female", "neutral"] as const;
+    // Start from existing images (filtered to remove legacy empty-string placeholders)
     const result: AiMemeImages = {
-      male:    [...(options?.existingImages?.male    ?? ["", "", ""])],
-      female:  [...(options?.existingImages?.female  ?? ["", "", ""])],
-      neutral: [...(options?.existingImages?.neutral ?? ["", "", ""])],
+      male:    (options?.existingImages?.male    ?? []).filter(Boolean),
+      female:  (options?.existingImages?.female  ?? []).filter(Boolean),
+      neutral: (options?.existingImages?.neutral ?? []).filter(Boolean),
     };
-    for (const g of genders) {
-      while (result[g].length < 3) result[g].push("");
-    }
 
-    for (const { gender, index } of slots) {
+    // Each generation creates a unique filename using timestamp so no two images collide
+    const batchKey = Date.now();
+    let slotCounter = 0;
+
+    for (const { gender } of slots) {
+      const uniqueKey = `${batchKey}_${slotCounter++}`;
       const prompt = prompts[gender];
-      console.log(`[aiMemePipeline] Generating image for fact ${factId}, gender=${gender}, index=${index}`);
-      const storedPath = await generateAndStoreImage(factId, gender, index, prompt);
-      result[gender][index] = storedPath;
+      console.log(`[aiMemePipeline] Generating image for fact ${factId}, gender=${gender}, key=${uniqueKey}`);
+      const storedPath = await generateAndStoreImage(factId, gender, uniqueKey, prompt);
+      // Prepend newest image at the front — gallery always shows newest-first
+      result[gender].unshift(storedPath);
+      // Trim to paid storage limit per gender
+      if (result[gender].length > MAX_IMAGES_PER_GENDER) {
+        result[gender] = result[gender].slice(0, MAX_IMAGES_PER_GENDER);
+      }
     }
 
     // 4. Persist image paths — explicitly set updatedAt so polling detection always works
