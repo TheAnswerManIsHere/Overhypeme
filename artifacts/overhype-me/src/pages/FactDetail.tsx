@@ -149,8 +149,9 @@ interface FactPexelsImages {
 // ── FactDetail ────────────────────────────────────────────────────────────────
 
 export default function FactDetail() {
-  const [, params] = useRoute("/facts/:id");
+  const [, params] = useRoute("/facts/:id/:sub?");
   const factId = parseInt(params?.id || "0", 10);
+  const isMemeRoute = params?.sub === "meme";
   const [, setLocation] = useLocation();
   const { isAuthenticated, user } = useAuth();
   const isPremium = user?.membershipTier === "premium";
@@ -183,8 +184,13 @@ export default function FactDetail() {
   const { name, pronouns } = usePersonName();
   const [commentText, setCommentText] = useState("");
   const [captchaToken, setCaptchaToken] = useState("");
-  const [showMemeBuilder, setShowMemeBuilder] = useState(false);
   const [commentSubmitted, setCommentSubmitted] = useState(false);
+
+  // Meme builder open state is derived from URL (/facts/:id/meme)
+  // so that mobile browsers reloading the tab re-open the builder automatically.
+  const showMemeBuilder = isMemeRoute;
+  const openMemeBuilder = () => setLocation(`/facts/${factId}/meme`);
+  const closeMemeBuilder = () => setLocation(`/facts/${factId}`);
 
   const pexelsImages = ((fact as unknown as { pexelsImages?: FactPexelsImages | null })?.pexelsImages) ?? null;
   const aiMemeImages = ((fact as unknown as { aiMemeImages?: import("@/components/MemeBuilder").AiMemeImages | null })?.aiMemeImages) ?? null;
@@ -224,7 +230,7 @@ export default function FactDetail() {
           rawFactText={fact.text}
           pexelsImages={pexelsImages}
           aiMemeImages={aiMemeImages}
-          onClose={() => setShowMemeBuilder(false)}
+          onClose={closeMemeBuilder}
         />
       )}
       <div className="max-w-4xl mx-auto px-4 py-12 md:py-20">
@@ -290,7 +296,7 @@ export default function FactDetail() {
               <Button
                 variant="primary"
                 size="lg"
-                onClick={() => setShowMemeBuilder(true)}
+                onClick={openMemeBuilder}
                 className="gap-2 h-14"
               >
                 <Flame className="w-5 h-5" />

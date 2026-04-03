@@ -105,7 +105,7 @@ function Router() {
       <Switch>
         <Route path="/" component={Home} />
         <Route path="/search" component={Search} />
-        <Route path="/facts/:id" component={FactDetail} />
+        <Route path="/facts/:id/:sub?" component={FactDetail} />
         <Route path="/submit" component={SubmitFact} />
         <Route path="/profile" component={Profile} />
         <Route path="/onboard" component={Onboard} />
