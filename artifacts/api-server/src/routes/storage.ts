@@ -245,6 +245,8 @@ router.post(
         contentType: "image/jpeg",
       });
 
+      await objectStorageService.trySetObjectEntityAclPolicy(objectPath, { owner: req.user.id, visibility: "private" });
+
       await saveUploadImageMetadata(objectPath, {
         width: processed.width,
         height: processed.height,
