@@ -16,7 +16,11 @@ import { ObjectStorageService } from "../lib/objectStorage";
 import { getRandomStockPhoto, getPhotoById } from "../lib/pexelsClient";
 import { renderPersonalized } from "../lib/renderCanonical";
 import { compositeAiMeme } from "../lib/aiMemeCompositor";
+import { generateAiMemeBackgrounds } from "../lib/aiMemePipeline";
 import type { AiMemeImages } from "../lib/aiMemePipeline";
+import { requirePremium } from "../middlewares/premiumMiddleware";
+import { getUploadImageMetadata } from "./storage";
+import { CACHE, setPublicCache, setPublicCors, checkConditional, setNoStore } from "../lib/cacheHeaders";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const TEMPLATES_DIR = path.resolve(__dirname, "assets/meme-templates");
@@ -130,6 +134,7 @@ function generateSlug(): string {
 
 // GET /memes/templates
 router.get("/memes/templates", (_req: Request, res: Response) => {
+  setNoStore(res);
   res.json({
     templates: MEME_TEMPLATES.map(t => ({
       id: t.id,
@@ -146,8 +151,13 @@ router.get("/memes/templates/:id/preview", (req: Request, res: Response) => {
   const id = req.params["id"] as string;
   const template = MEME_TEMPLATES.find(t => t.id === id);
   if (!template) { res.status(404).end(); return; }
+
+  const etag = `"template-${id}"`;
+  if (checkConditional(req, res, etag)) return;
+
+  setPublicCors(res);
   res.setHeader("Content-Type", "image/png");
-  res.setHeader("Cache-Control", "public, max-age=86400");
+  setPublicCache(res, CACHE.MEME_TEMPLATE, etag);
   res.sendFile(path.join(TEMPLATES_DIR, template.assetPath));
 });
 
@@ -180,6 +190,7 @@ router.get("/memes/stock-photo", async (req: Request, res: Response) => {
  * GET /memes/:slug/image so we never pay for image storage.
  */
 router.post("/memes", async (req: Request, res: Response) => {
+  setNoStore(res);
   if (!req.isAuthenticated()) {
     res.status(401).json({ error: "Unauthorized" });
     return;
@@ -277,6 +288,10 @@ router.post("/memes", async (req: Request, res: Response) => {
     }
   }
 
+  const uploadMeta = imageSource.type === "upload"
+    ? await getUploadImageMetadata(imageSource.uploadKey)
+    : null;
+
   const [meme] = await db
     .insert(memesTable)
     .values({
@@ -287,6 +302,10 @@ router.post("/memes", async (req: Request, res: Response) => {
       textOptions: textOptions ?? null,
       imageSource: storedImageSource,
       isPublic,
+      isLowRes: uploadMeta?.isLowRes ?? false,
+      originalWidth: uploadMeta?.width ?? null,
+      originalHeight: uploadMeta?.height ?? null,
+      uploadFileSizeBytes: uploadMeta?.fileSizeBytes ?? null,
       createdById: req.user.id,
     })
     .returning();
@@ -431,9 +450,13 @@ router.get("/memes/:slug/image", async (req: Request, res: Response) => {
     const objectPath = `/objects/memes/${slug}.png`;
     try {
       const objectFile = await objectStorageService.getObjectEntityFile(objectPath);
+      const etag = `"legacy-${slug}"`;
+      if (checkConditional(req, res, etag)) return;
       const response = await objectStorageService.downloadObject(objectFile, 86400);
       res.status(response.status);
       response.headers.forEach((value, key) => res.setHeader(key, value));
+      setPublicCache(res, CACHE.MEME_IMAGE, etag);
+      setPublicCors(res);
       if (response.body) {
         Readable.fromWeb(response.body as ReadableStream<Uint8Array>).pipe(res);
       } else {
@@ -490,10 +513,12 @@ router.get("/memes/:slug/image", async (req: Request, res: Response) => {
 
     const imageBuffer = await generateMemeBuffer(background, factText, textOptions);
 
-    // 7-day public cache — browsers and CDNs will serve this without hitting
-    // the server again, so the render cost is paid only once per slug.
+    const etag = `"meme-${slug}"`;
+    if (checkConditional(req, res, etag)) return;
+
+    setPublicCors(res);
     res.setHeader("Content-Type", "image/png");
-    res.setHeader("Cache-Control", "public, max-age=604800, stale-while-revalidate=86400");
+    setPublicCache(res, CACHE.MEME_IMAGE, etag);
     res.setHeader("Content-Length", imageBuffer.length);
     res.status(200).send(imageBuffer);
 
@@ -514,9 +539,10 @@ router.get("/memes/:slug/image", async (req: Request, res: Response) => {
  * - Streams back a JPEG
  *
  * Query params:
- *   userId   — user ID to personalize the fact text for
- *   gender   — "male" | "female" | "neutral" (defaults to "neutral")
+ *   userId     — user ID to personalize the fact text for
+ *   gender     — "male" | "female" | "neutral" (defaults to "neutral")
  *   imageIndex — 0..2 (defaults to 0)
+ *   raw        — if "true", streams the raw background PNG without text overlay (for thumbnails)
  */
 router.get("/memes/ai/:factId/image", async (req: Request, res: Response) => {
   const factId = parseInt(String(req.params["factId"] ?? ""), 10);
@@ -527,6 +553,7 @@ router.get("/memes/ai/:factId/image", async (req: Request, res: Response) => {
     : "neutral") as "male" | "female" | "neutral";
 
   const imageIndex = Math.max(0, Math.min(2, parseInt(String(req.query["imageIndex"] ?? "0"), 10) || 0));
+  const rawMode = req.query["raw"] === "true";
 
   try {
     const [fact] = await db
@@ -544,6 +571,31 @@ router.get("/memes/ai/:factId/image", async (req: Request, res: Response) => {
     }
 
     const backgroundPath = aiImages[gender][imageIndex]!;
+
+    if (rawMode) {
+      // Serve the raw background PNG directly (used for gallery thumbnails)
+      const objectStorageService = new ObjectStorageService();
+      const normalizedPath = objectStorageService.normalizeObjectEntityPath(backgroundPath);
+      const objectFile = await objectStorageService.getObjectEntityFile(normalizedPath);
+      const aiEtag = `"ai-bg-${factId}-${gender}-${imageIndex}"`;
+      if (checkConditional(req, res, aiEtag)) return;
+      const response = await objectStorageService.downloadObject(objectFile, 86400);
+      res.setHeader("Content-Type", "image/png");
+      setPublicCache(res, CACHE.MEME_TEMPLATE, aiEtag);
+      setPublicCors(res);
+      response.headers.forEach((value: string, key: string) => {
+        if (key.toLowerCase() !== "content-type" && key.toLowerCase() !== "cache-control") res.setHeader(key, value);
+      });
+      res.status(200);
+      if (response.body) {
+        const { Readable } = await import("stream");
+        const nodeStream = Readable.fromWeb(response.body as import("stream/web").ReadableStream<Uint8Array>);
+        nodeStream.pipe(res);
+      } else {
+        res.end();
+      }
+      return;
+    }
 
     // Personalize fact text for the user if userId provided
     let factText: string;
@@ -565,7 +617,7 @@ router.get("/memes/ai/:factId/image", async (req: Request, res: Response) => {
     const jpegBuffer = await compositeAiMeme(backgroundPath, factText);
 
     res.setHeader("Content-Type", "image/jpeg");
-    res.setHeader("Cache-Control", "private, max-age=60");
+    res.setHeader("Cache-Control", CACHE.NO_STORE);
     res.setHeader("Content-Length", jpegBuffer.length);
     res.status(200).send(jpegBuffer);
 
@@ -610,6 +662,37 @@ router.put("/facts/:factId/ai-meme-preference", async (req: Request, res: Respon
       set: { aiMemeImageIndex, updatedAt: new Date() },
     });
   res.json({ success: true, aiMemeImageIndex });
+});
+
+// POST /memes/ai/:factId/generate — premium user triggers AI image generation for a fact
+router.post("/memes/ai/:factId/generate", requirePremium, async (req: Request, res: Response) => {
+  const factId = parseInt(String(req.params["factId"] ?? ""), 10);
+  if (isNaN(factId)) { res.status(400).json({ error: "Invalid factId" }); return; }
+
+  const body = req.body as Record<string, unknown>;
+  const scope = body["scope"] === "abstract" ? "abstract" : "gendered";
+
+  const [fact] = await db
+    .select({ id: factsTable.id, text: factsTable.text, parentId: factsTable.parentId, aiScenePrompts: factsTable.aiScenePrompts, aiMemeImages: factsTable.aiMemeImages })
+    .from(factsTable)
+    .where(and(eq(factsTable.id, factId), eq(factsTable.isActive, true)))
+    .limit(1);
+
+  if (!fact) { res.status(404).json({ error: "Fact not found" }); return; }
+  if (fact.parentId !== null) { res.status(400).json({ error: "AI meme generation only supported on root facts" }); return; }
+
+  const existingPrompts = fact.aiScenePrompts as import("../lib/aiMemePipeline").AiScenePrompts | undefined;
+  const existingImages = fact.aiMemeImages as AiMemeImages | undefined;
+
+  // scope="abstract" → 1 new image (neutral, index 0)
+  // scope="gendered" → 3 new images (index 0 per gender), single pipeline call to avoid DB race
+  void generateAiMemeBackgrounds(fact.id, fact.text, {
+    scope,
+    existingPrompts,
+    existingImages,
+  });
+
+  res.json({ success: true, message: "AI meme generation started. Refresh in a moment to see new images." });
 });
 
 export default router;

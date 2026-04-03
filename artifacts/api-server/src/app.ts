@@ -6,6 +6,7 @@ import router from "./routes";
 import { logger } from "./lib/logger";
 import { authMiddleware } from "./middlewares/authMiddleware";
 import { WebhookHandlers } from "./lib/webhookHandlers";
+import { noStore } from "./lib/cacheHeaders";
 
 const app: Express = express();
 
@@ -50,6 +51,25 @@ app.use(cookieParser());
 app.use(express.json({ limit: "2mb" }));
 app.use(express.urlencoded({ extended: true }));
 app.use(authMiddleware);
+
+// Ensure auth, admin, mutation, and webhook routes are never cached
+app.use([
+  "/api/auth",
+  "/api/login",
+  "/api/logout",
+  "/api/callback",
+  "/api/mobile-auth",
+  "/api/admin",
+  "/api/stripe/checkout",
+  "/api/stripe/portal",
+  "/api/stripe/subscription",
+  "/api/stripe/webhook",
+  "/api/share",
+  "/api/storage/uploads",
+  "/api/storage/upload-avatar",
+  "/api/storage/upload-meme",
+  "/api/memes/stock-photo",
+], noStore);
 
 app.use("/api", router);
 

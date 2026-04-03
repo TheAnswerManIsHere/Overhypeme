@@ -1,0 +1,143 @@
+# Replit Prompt: Image File Storage Optimization
+
+## Context
+
+This is an “impossible facts” meme platform. Users upload images that get turned into memes. These memes are stored and served via permalinks, and also integrate with Zazzle for print-on-demand merchandise (t-shirts, mugs, posters, phone cases). The meme storage tracking system (user association, view tracking, expiration, pruning) is already built. This prompt covers **only** the image upload pipeline — constraining, normalizing, and optimizing the image files themselves before they hit storage.
+
+### Core Constraint
+
+Print-on-demand requires ~300 DPI. A standard Zazzle print area is 10-12 inches on the longest side, so we need 3000-3600px to avoid visible pixelation on merchandise. We must keep images large enough for print while preventing absurdly large raw uploads (phone cameras produce 8-50MB RAW/HEIC files) from consuming storage and bandwidth.
+
+-----
+
+## 1. Client-Side Pre-Upload Processing
+
+This is a UX optimization — it reduces upload time on slow connections. Treat it as best-effort. If it’s bypassed (direct API calls, broken JS), the server catches everything in Section 2.
+
+|Parameter                    |Value                                                                                                            |
+|-----------------------------|-----------------------------------------------------------------------------------------------------------------|
+|Max upload size before resize|8MB                                                                                                              |
+|Max dimension                |3600px on longest edge                                                                                           |
+|Output format                |JPEG at 90% quality                                                                                              |
+|Min dimension                |Show a warning if below 1500px (“Image may appear low-resolution on printed products”) but still allow the upload|
+
+### Implementation
+
+Use the canvas API to resize and compress before uploading:
+
+```javascript
+async function preprocessImage(file) {
+  const img = await createImageBitmap(file);
+  const MAX_DIM = 3600;
+  let { width, height } = img;
+
+  // Scale down if either dimension exceeds MAX_DIM
+  if (width > MAX_DIM || height > MAX_DIM) {
+    const scale = MAX_DIM / Math.max(width, height);
+    width = Math.round(width * scale);
+    height = Math.round(height * scale);
+  }
+
+  // Warn if low resolution
+  if (Math.max(img.width, img.height) < 1500) {
+    // Show UI warning: "Image may appear low-resolution on printed products"
+    // Do NOT block the upload
+  }
+
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext('2d');
+  ctx.drawImage(img, 0, 0, width, height);
+
+  return new Promise(resolve => {
+    canvas.toBlob(blob => resolve(blob), 'image/jpeg', 0.9);
+  });
+}
+```
+
+This runs in <500ms on any modern device and can turn a 15MB phone photo into a ~1.5MB JPEG before it ever hits the network.
+
+-----
+
+## 2. Server-Side Processing (Authoritative)
+
+This is the trust boundary. Every upload must pass through this pipeline regardless of what the client did or didn’t do.
+
+### Processing Steps (in order)
+
+1. **Hard size reject:** If the raw upload exceeds `MAX_UPLOAD_SIZE_MB` (default: 15MB), return HTTP 413 immediately. Do not read the full body. Do not attempt to process it.
+1. **Decode and validate:** Attempt to decode the uploaded file as an image. Accept JPEG, PNG, WebP, HEIC, BMP, TIFF, GIF (first frame only). If the file isn’t a valid image, return HTTP 422 with a clear error message.
+1. **Resize:** Scale to `MAX_IMAGE_DIMENSION_PX` (default: 3000px) on the longest edge, maintaining aspect ratio. If the image is already at or below this dimension, skip resizing — do not upscale.
+1. **Format conversion:** Convert to JPEG at `IMAGE_QUALITY_PERCENT` (default: 85%) quality. Regardless of input format, the stored artifact is always JPEG. This normalizes storage and makes CDN caching predictable.
+1. **Strip EXIF metadata:** Always strip ALL EXIF/XMP/IPTC metadata before storing. Users unknowingly upload GPS coordinates, device serial numbers, timestamps, and other PII embedded in phone photos. This is both a privacy protection and a slight size reduction. Use a library that handles this reliably (e.g., Sharp in Node.js does this with `rotate()` which auto-applies orientation before stripping, avoiding the rotated-photo bug).
+1. **Low-resolution flagging:** If the image (after any resize, i.e., its final stored dimensions) is below `LOW_RES_THRESHOLD_PX` (default: 1500px) on its longest edge, flag it. This flag is stored in the database, not in the image file.
+1. **Store the result:** Upload the normalized JPEG to object storage. Record the file size, dimensions, and low-res flag in the meme’s database row.
+
+### Expected Output Sizes
+
+|Input type                         |Typical input size|Output after pipeline         |
+|-----------------------------------|------------------|------------------------------|
+|iPhone photo (HEIC)                |3-8MB             |600KB-1.2MB                   |
+|Android photo (JPEG)               |2-5MB             |400KB-900KB                   |
+|Screenshot (PNG)                   |500KB-3MB         |200KB-600KB                   |
+|Meme template (JPEG, already small)|100-500KB         |100-400KB (may stay same size)|
+
+Average stored meme: ~800KB. At 10,000 memes this is ~8GB of storage.
+
+-----
+
+## 3. Schema Additions
+
+Add these columns to the existing `memes` table:
+
+|Column           |Type                  |Description                                                                                 |
+|-----------------|----------------------|--------------------------------------------------------------------------------------------|
+|`is_low_res`     |boolean, default false|True if stored image is below 1500px on longest edge. Used to warn users at Zazzle checkout.|
+|`original_width` |integer               |Width of the image as stored (after normalization)                                          |
+|`original_height`|integer               |Height of the image as stored (after normalization)                                         |
+
+The `file_size_bytes` and `mime_type` columns should already exist from the meme tracking system. `mime_type` will now always be `image/jpeg` for newly created memes.
+
+-----
+
+## 4. Environment Variables
+
+|Variable                |Default|Description                                            |
+|------------------------|-------|-------------------------------------------------------|
+|`MAX_UPLOAD_SIZE_MB`    |15     |Hard reject limit for raw uploads (HTTP 413)           |
+|`MAX_IMAGE_DIMENSION_PX`|3000   |Longest edge dimension after server-side resize        |
+|`IMAGE_QUALITY_PERCENT` |85     |JPEG compression quality for stored images             |
+|`LOW_RES_THRESHOLD_PX`  |1500   |Below this longest-edge dimension, flag as `is_low_res`|
+
+-----
+
+## 5. Important Implementation Notes
+
+### EXIF Orientation Bug
+
+Many phone photos are stored as landscape pixels with an EXIF orientation tag that tells viewers to rotate them. If you strip EXIF without first applying the orientation, the stored image will appear rotated 90°. The correct sequence is: read orientation → rotate pixel data to match → strip EXIF → resize → compress. In Sharp (Node.js), calling `.rotate()` with no arguments does this automatically.
+
+### Don’t Upscale
+
+If a user uploads a 800x600 image, store it at 800x600. Upscaling to 3000px creates a larger file with no additional detail — it’s wasted bytes. The resize step should only ever scale DOWN.
+
+### GIF Handling
+
+For animated GIFs, extract and process only the first frame. We’re storing static meme images, not animations. If animated meme support is added later, that’s a separate storage path.
+
+### Error Responses
+
+|Condition                              |HTTP Status|Response                                                 |
+|---------------------------------------|-----------|---------------------------------------------------------|
+|File exceeds MAX_UPLOAD_SIZE_MB        |413        |`"File too large. Maximum upload size is 15MB."`         |
+|File is not a valid image              |422        |`"Uploaded file is not a recognized image format."`      |
+|Processing failure (corrupt file, etc.)|500        |`"Failed to process image. Please try a different file."`|
+
+-----
+
+## 6. What to Defer
+
+- **On-the-fly web-display downscaling.** We store 3000px print-resolution masters, but screen display rarely needs more than 800px. In the future, add a downscaled variant served at the image route (or use Cloudflare Image Resizing) and cache it at the CDN edge. The master file stays unchanged — this is purely a bandwidth optimization. No schema changes required.
+- **Next-gen format serving (WebP, AVIF).** We store JPEG masters. Serving modern formats for web display can be layered on later via Cloudflare Polish, a format-negotiation middleware, or on-the-fly conversion. This is independent of the storage format.
+- **Multiple stored variants** (thumbnail, medium, print). Start with one master file. Generating and storing multiple sizes adds complexity and storage cost. It’s only worth it if CDN cache miss rates on dynamically resized images become a measurable problem.

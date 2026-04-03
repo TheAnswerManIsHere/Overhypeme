@@ -124,41 +124,18 @@ async function generateAndStoreImage(
     contentType: "image/png",
   });
 
+  // Set public-read ACL so thumbnails can be served via /api/storage/objects/*
+  // AI meme backgrounds are non-personal scene images — public read is safe
+  try {
+    await objectStorage.trySetObjectEntityAclPolicy(storedPath, {
+      owner: `system`,
+      visibility: "public",
+    });
+  } catch (aclErr) {
+    console.warn(`[aiMemePipeline] Failed to set ACL for ${storedPath}:`, aclErr);
+  }
+
   return storedPath;
-}
-
-async function generateImagesForFact(
-  factId: number,
-  prompts: AiScenePrompts,
-  existingImages?: AiMemeImages,
-  targetGender?: "male" | "female" | "neutral",
-  targetIndex?: number,
-): Promise<AiMemeImages> {
-  const genders: Array<"male" | "female" | "neutral"> = ["male", "female", "neutral"];
-  const result: AiMemeImages = {
-    male:    [...(existingImages?.male    ?? ["", "", ""])],
-    female:  [...(existingImages?.female  ?? ["", "", ""])],
-    neutral: [...(existingImages?.neutral ?? ["", "", ""])],
-  };
-
-  // Ensure each array has exactly 3 slots
-  for (const g of genders) {
-    while (result[g].length < 3) result[g].push("");
-  }
-
-  for (const gender of genders) {
-    for (let i = 0; i < 3; i++) {
-      // If targeting a specific gender+index, skip others
-      if (targetGender !== undefined && (gender !== targetGender || i !== targetIndex)) continue;
-
-      const prompt = prompts[gender];
-      console.log(`[aiMemePipeline] Generating image for fact ${factId}, gender=${gender}, index=${i}`);
-      const path = await generateAndStoreImage(factId, gender, i, prompt);
-      result[gender][i] = path;
-    }
-  }
-
-  return result;
 }
 
 // ─── Pipeline orchestration ───────────────────────────────────────────────────
@@ -167,12 +144,20 @@ async function generateImagesForFact(
  * Generates AI meme backgrounds for a fact.
  * Runs the full pipeline: scene prompts → image generation → persistence.
  * Safe to call fire-and-forget: catches all errors internally.
+ *
+ * scope:
+ *   - undefined / "full"  → generate all 9 images (3 genders × 3 indices)
+ *   - "gendered"          → generate exactly 3 images (index 0 for each gender)
+ *   - "abstract"          → generate exactly 1 image (neutral gender, index 0)
+ *   - targetGender+targetIndex → generate a single specific image (legacy partial regen)
  */
 export async function generateAiMemeBackgrounds(
   factId: number,
   factText: string,
   options?: {
-    /** If provided, only regenerate one specific image */
+    /** High-level scope shorthand; takes precedence over targetGender/targetIndex */
+    scope?: "full" | "gendered" | "abstract";
+    /** If provided, only regenerate one specific image (use with targetIndex) */
     targetGender?: "male" | "female" | "neutral";
     targetIndex?: number;
     /** If provided, use existing prompts from DB (skip prompt regen) */
@@ -197,25 +182,58 @@ export async function generateAiMemeBackgrounds(
         .where(eq(factsTable.id, factId));
     }
 
-    // 2. Generate images
-    const images = await generateImagesForFact(
-      factId,
-      prompts,
-      options?.existingImages,
-      options?.targetGender,
-      options?.targetIndex,
-    );
+    // 2. Resolve which (gender, index) slots to generate based on scope
+    const scope = options?.scope ?? "full";
+    let slots: Array<{ gender: "male" | "female" | "neutral"; index: number }>;
 
-    // 3. Persist image paths
+    if (scope === "abstract") {
+      // 1 image: neutral, index 0
+      slots = [{ gender: "neutral", index: 0 }];
+    } else if (scope === "gendered") {
+      // 3 images: one per gender, all at index 0
+      slots = [
+        { gender: "male",    index: 0 },
+        { gender: "female",  index: 0 },
+        { gender: "neutral", index: 0 },
+      ];
+    } else if (options?.targetGender !== undefined && options?.targetIndex !== undefined) {
+      // Legacy single-slot regen
+      slots = [{ gender: options.targetGender, index: options.targetIndex }];
+    } else {
+      // Full: all 9 images
+      slots = (["male", "female", "neutral"] as const).flatMap(g =>
+        [0, 1, 2].map(i => ({ gender: g, index: i })),
+      );
+    }
+
+    // 3. Generate images for resolved slots
+    const genders = ["male", "female", "neutral"] as const;
+    const result: AiMemeImages = {
+      male:    [...(options?.existingImages?.male    ?? ["", "", ""])],
+      female:  [...(options?.existingImages?.female  ?? ["", "", ""])],
+      neutral: [...(options?.existingImages?.neutral ?? ["", "", ""])],
+    };
+    for (const g of genders) {
+      while (result[g].length < 3) result[g].push("");
+    }
+
+    for (const { gender, index } of slots) {
+      const prompt = prompts[gender];
+      console.log(`[aiMemePipeline] Generating image for fact ${factId}, gender=${gender}, index=${index}`);
+      const storedPath = await generateAndStoreImage(factId, gender, index, prompt);
+      result[gender][index] = storedPath;
+    }
+
+    // 4. Persist image paths
     await db
       .update(factsTable)
-      .set({ aiMemeImages: images })
+      .set({ aiMemeImages: result })
       .where(eq(factsTable.id, factId));
 
-    const totalImages = images.male.filter(Boolean).length +
-      images.female.filter(Boolean).length +
-      images.neutral.filter(Boolean).length;
-    console.log(`[aiMemePipeline] fact ${factId}: ${totalImages} AI meme images generated`);
+    const totalImages = result.male.filter(Boolean).length +
+      result.female.filter(Boolean).length +
+      result.neutral.filter(Boolean).length;
+    console.log(`[aiMemePipeline] fact ${factId}: ${totalImages} AI meme images stored (scope=${scope})`);
   } catch (err) {
     console.error(`[aiMemePipeline] Failed for fact ${factId}:`, err);
   }
