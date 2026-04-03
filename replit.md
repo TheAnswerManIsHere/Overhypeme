@@ -71,6 +71,7 @@ The app supports animating meme images into short videos using fal.ai's Kling im
 - **UI surfaces**: "Generate Video" button on meme permalink pages (`/meme/:slug`) and in MemeBuilder
 - **Model**: `fal-ai/kling-video/v2.6/standard/image-to-video` — 5-second clips, 16:9 aspect ratio
 - Route ordering matters: `videosRouter` must come before `importRouter` in `routes/index.ts` because `importRouter` applies global `requireApiKey` middleware that would intercept unmatched routes
+- Route ordering matters in `memes.ts`: specific routes like `/memes/ai-user/image` must be registered BEFORE wildcard routes like `/memes/:slug/image`, otherwise the wildcard captures the specific path first
 
 ### Email Notifications (Resend)
 Resend is integrated via `artifacts/api-server/src/lib/email.ts`:

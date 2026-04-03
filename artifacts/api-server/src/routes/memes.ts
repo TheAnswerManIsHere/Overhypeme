@@ -438,6 +438,51 @@ router.get("/facts/:factId/memes", async (req: Request, res: Response) => {
  * Backwards-compatible: memes created before the recipe-based architecture
  * (imageSource === null) are served from GCS as before.
  */
+/**
+ * GET /memes/ai-user/image — serve a user-owned reference AI image by storage path.
+ * Requires auth and ownership (row must exist in user_ai_images for this user).
+ * IMPORTANT: must be registered before /memes/:slug/image to avoid wildcard capture.
+ */
+router.get("/memes/ai-user/image", async (req: Request, res: Response) => {
+  if (!req.isAuthenticated()) { res.status(401).json({ error: "Unauthorized" }); return; }
+
+  const storagePath = String(req.query["storagePath"] ?? "").trim();
+  if (!storagePath || !storagePath.startsWith("/objects/")) {
+    res.status(400).json({ error: "Invalid storagePath" }); return;
+  }
+
+  // Verify ownership
+  const ownership = await db.execute<{ count: string }>(sql`
+    SELECT COUNT(*)::text AS count FROM user_ai_images
+    WHERE user_id = ${req.user.id} AND storage_path = ${storagePath} AND image_type = 'reference'
+  `);
+  if (parseInt(ownership.rows[0]?.count ?? "0", 10) === 0) {
+    res.status(403).json({ error: "Image not found or not owned by you" }); return;
+  }
+
+  try {
+    const normalized = objectStorageService.normalizeObjectEntityPath(storagePath);
+    const objectFile = await objectStorageService.getObjectEntityFile(normalized);
+    const response = await objectStorageService.downloadObject(objectFile, 3600);
+    res.setHeader("Content-Type", "image/png");
+    res.setHeader("Cache-Control", "private, max-age=3600");
+    response.headers.forEach((value: string, key: string) => {
+      if (key.toLowerCase() !== "content-type" && key.toLowerCase() !== "cache-control") res.setHeader(key, value);
+    });
+    res.status(200);
+    if (response.body) {
+      const { Readable } = await import("stream");
+      const nodeStream = Readable.fromWeb(response.body as import("stream/web").ReadableStream<Uint8Array>);
+      nodeStream.pipe(res);
+    } else {
+      res.end();
+    }
+  } catch (err) {
+    req.log.error({ err, storagePath }, "Failed to serve user AI reference image");
+    res.status(404).json({ error: "Image not found" });
+  }
+});
+
 router.get("/memes/:slug/image", async (req: Request, res: Response) => {
   const slug = req.params["slug"] as string;
   if (!slug) { res.status(400).end(); return; }
@@ -633,49 +678,6 @@ router.get("/memes/ai/:factId/image", async (req: Request, res: Response) => {
   }
 });
 
-/**
- * GET /memes/ai-user/image — serve a user-owned reference AI image by storage path.
- * Requires auth and ownership (row must exist in user_ai_images for this user).
- */
-router.get("/memes/ai-user/image", async (req: Request, res: Response) => {
-  if (!req.isAuthenticated()) { res.status(401).json({ error: "Unauthorized" }); return; }
-
-  const storagePath = String(req.query["storagePath"] ?? "").trim();
-  if (!storagePath || !storagePath.startsWith("/objects/")) {
-    res.status(400).json({ error: "Invalid storagePath" }); return;
-  }
-
-  // Verify ownership
-  const ownership = await db.execute<{ count: string }>(sql`
-    SELECT COUNT(*)::text AS count FROM user_ai_images
-    WHERE user_id = ${req.user.id} AND storage_path = ${storagePath} AND image_type = 'reference'
-  `);
-  if (parseInt(ownership.rows[0]?.count ?? "0", 10) === 0) {
-    res.status(403).json({ error: "Image not found or not owned by you" }); return;
-  }
-
-  try {
-    const normalized = objectStorageService.normalizeObjectEntityPath(storagePath);
-    const objectFile = await objectStorageService.getObjectEntityFile(normalized);
-    const response = await objectStorageService.downloadObject(objectFile, 3600);
-    res.setHeader("Content-Type", "image/png");
-    res.setHeader("Cache-Control", "private, max-age=3600");
-    response.headers.forEach((value: string, key: string) => {
-      if (key.toLowerCase() !== "content-type" && key.toLowerCase() !== "cache-control") res.setHeader(key, value);
-    });
-    res.status(200);
-    if (response.body) {
-      const { Readable } = await import("stream");
-      const nodeStream = Readable.fromWeb(response.body as import("stream/web").ReadableStream<Uint8Array>);
-      nodeStream.pipe(res);
-    } else {
-      res.end();
-    }
-  } catch (err) {
-    req.log.error({ err, storagePath }, "Failed to serve user AI reference image");
-    res.status(404).json({ error: "Image not found" });
-  }
-});
 
 /**
  * GET /facts/:factId/ai-meme-preference — get user's AI meme image index preference
