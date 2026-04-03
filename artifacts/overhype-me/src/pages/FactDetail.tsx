@@ -52,7 +52,7 @@ function VariantFactCard({ id, useCase }: { id: number; useCase: string | null }
   });
 
   const handleRate = (type: "up" | "down") => {
-    if (!isAuthenticated) return setLocation("/login");
+    if (!isAuthenticated) return setLocation(`/login?from=/facts/${id}`);
     const newRating = fact?.userRating === type ? "none" : type;
     rateFact.mutate({ factId: id, data: { rating: newRating } });
   };
@@ -237,14 +237,14 @@ export default function FactDetail() {
   if (factError || !fact) return <Layout><div className="max-w-2xl mx-auto mt-20 p-8 bg-destructive/10 border-2 border-destructive text-center"><AlertCircle className="w-16 h-16 text-destructive mx-auto mb-4"/><h2 className="text-3xl font-display text-destructive uppercase">Classified Record Not Found</h2></div></Layout>;
 
   const handleRate = (type: "up" | "down") => {
-    if (!isAuthenticated) return setLocation("/login");
+    if (!isAuthenticated) return setLocation(`/login?from=/facts/${factId}`);
     const newRating = fact.userRating === type ? "none" : type;
     rateFact.mutate({ factId, data: { rating: newRating } });
   };
 
   const handleCommentSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!isAuthenticated) return setLocation("/login");
+    if (!isAuthenticated) return setLocation(`/login?from=/facts/${factId}`);
     if (!commentText.trim()) return;
 
     addComment.mutate({ factId, data: { text: commentText, captchaToken } }, {
@@ -503,7 +503,7 @@ export default function FactDetail() {
             ) : (
               <div className="bg-secondary p-6 rounded-sm border-2 border-border text-center">
                 <p className="text-muted-foreground font-medium mb-4">Authentication required to add intel.</p>
-                <Button onClick={() => setLocation("/login")} variant="outline">LOGIN TO COMMENT</Button>
+                <Button onClick={() => setLocation(`/login?from=/facts/${factId}`)} variant="outline">LOGIN TO COMMENT</Button>
               </div>
             )}
 

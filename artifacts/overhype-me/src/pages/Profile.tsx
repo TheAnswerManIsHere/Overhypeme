@@ -316,7 +316,7 @@ export default function Profile() {
           <h1 className="text-4xl font-display uppercase mb-4 text-foreground">Access Denied</h1>
           <p className="text-muted-foreground text-lg mb-8">You must authenticate to access personnel records.</p>
           <div className="flex gap-4 justify-center">
-            <Button size="lg" onClick={() => setLocation("/login")}>AUTHENTICATE NOW</Button>
+            <Button size="lg" onClick={() => setLocation("/login?from=/profile")}>AUTHENTICATE NOW</Button>
             <Button size="lg" variant="outline" onClick={() => window.history.length > 1 ? window.history.back() : setLocation("/")}>GO BACK</Button>
           </div>
         </div>
