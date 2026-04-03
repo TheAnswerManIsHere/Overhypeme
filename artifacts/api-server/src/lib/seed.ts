@@ -198,6 +198,37 @@ export async function ensureSchema(): Promise<void> {
          1, 500, true)
       ON CONFLICT (key) DO NOTHING`,
     },
+    {
+      label: "video_job_status enum",
+      ddl: `DO $$ BEGIN
+        CREATE TYPE video_job_status AS ENUM ('pending', 'completed', 'failed');
+      EXCEPTION WHEN duplicate_object THEN NULL;
+      END $$`,
+    },
+    {
+      label: "video_jobs table",
+      ddl: `CREATE TABLE IF NOT EXISTS video_jobs (
+        id serial PRIMARY KEY,
+        fact_id integer NOT NULL REFERENCES facts(id) ON DELETE CASCADE,
+        image_url text NOT NULL,
+        video_url text,
+        status video_job_status NOT NULL DEFAULT 'pending',
+        ip_address varchar(45) NOT NULL,
+        created_at timestamptz NOT NULL DEFAULT now()
+      )`,
+    },
+    {
+      label: "video_jobs.video_jobs_fact_id_idx",
+      ddl: `CREATE INDEX IF NOT EXISTS "video_jobs_fact_id_idx" ON video_jobs (fact_id)`,
+    },
+    {
+      label: "video_jobs.video_jobs_ip_address_idx",
+      ddl: `CREATE INDEX IF NOT EXISTS "video_jobs_ip_address_idx" ON video_jobs (ip_address)`,
+    },
+    {
+      label: "video_jobs.video_jobs_created_at_idx",
+      ddl: `CREATE INDEX IF NOT EXISTS "video_jobs_created_at_idx" ON video_jobs (created_at)`,
+    },
   ];
 
   for (const { label, ddl } of migrations) {
