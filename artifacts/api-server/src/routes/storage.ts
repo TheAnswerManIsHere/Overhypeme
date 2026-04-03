@@ -43,10 +43,10 @@ export interface UploadImageMetadata {
   fileSizeBytes: number;
 }
 
-async function saveUploadImageMetadata(objectPath: string, meta: UploadImageMetadata): Promise<void> {
+async function saveUploadImageMetadata(objectPath: string, meta: UploadImageMetadata, userId?: string): Promise<void> {
   await db.execute(sql`
-    INSERT INTO upload_image_metadata (object_path, width, height, is_low_res, file_size_bytes)
-    VALUES (${objectPath}, ${meta.width}, ${meta.height}, ${meta.isLowRes}, ${meta.fileSizeBytes})
+    INSERT INTO upload_image_metadata (object_path, width, height, is_low_res, file_size_bytes, user_id)
+    VALUES (${objectPath}, ${meta.width}, ${meta.height}, ${meta.isLowRes}, ${meta.fileSizeBytes}, ${userId ?? null})
     ON CONFLICT (object_path) DO NOTHING
   `);
 }
@@ -250,7 +250,7 @@ router.post(
         height: processed.height,
         isLowRes: processed.isLowRes,
         fileSizeBytes: processed.fileSizeBytes,
-      });
+      }, req.user.id);
 
       res.json({
         objectPath,
