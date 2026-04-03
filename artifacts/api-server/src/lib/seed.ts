@@ -174,6 +174,14 @@ export async function ensureSchema(): Promise<void> {
          1, 80, false)
       ON CONFLICT (key) DO NOTHING`,
     },
+    {
+      label: "admin_config seed max_memes_per_fact",
+      ddl: `INSERT INTO admin_config (key, value, data_type, label, description, min_value, max_value, is_public)
+        VALUES ('max_memes_per_fact', '40', 'integer', 'Max Memes Per Fact',
+         'Maximum number of memes returned per fact in the gallery (applies to both public and personal views).',
+         1, 500, false)
+      ON CONFLICT (key) DO NOTHING`,
+    },
   ];
 
   for (const { label, ddl } of migrations) {
