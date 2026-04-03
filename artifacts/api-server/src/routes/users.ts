@@ -341,19 +341,21 @@ router.delete("/users/me/uploads", async (req: Request, res: Response) => {
     return;
   }
 
-  // Remove metadata row
-  await db.execute(sql`
-    DELETE FROM upload_image_metadata
-    WHERE user_id = ${req.user.id} AND object_path = ${objectPath}
-  `);
-
-  // Hard-delete from object storage (best-effort)
+  // Hard-delete from storage FIRST — if this fails, do not touch DB (strict hard-delete)
   try {
     const storageService = new ObjectStorageService();
     await storageService.deleteObject(objectPath);
   } catch (e) {
-    console.warn("[DELETE /users/me/uploads] Storage delete failed:", e);
+    console.error("[DELETE /users/me/uploads] Storage delete failed:", e);
+    res.status(500).json({ error: "Failed to delete image from storage. Please try again." });
+    return;
   }
+
+  // Remove metadata row only after confirmed storage delete
+  await db.execute(sql`
+    DELETE FROM upload_image_metadata
+    WHERE user_id = ${req.user.id} AND object_path = ${objectPath}
+  `);
 
   res.json({ success: true });
 });
