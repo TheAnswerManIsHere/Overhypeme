@@ -691,6 +691,13 @@ router.post("/memes/ai/:factId/generate", requirePremium, async (req: Request, r
 
   // targetGender for reference mode (which gender slot to generate for)
   const rawGender = body["targetGender"];
+  // In reference mode, targetGender is required and must be a valid value
+  if (rawRefPath !== undefined && rawRefPath !== null) {
+    if (rawGender !== "male" && rawGender !== "female" && rawGender !== "neutral") {
+      res.status(400).json({ error: "targetGender is required and must be 'male', 'female', or 'neutral' when using referenceImagePath." });
+      return;
+    }
+  }
   const targetGender: "male" | "female" | "neutral" =
     rawGender === "male" ? "male" :
     rawGender === "female" ? "female" : "neutral";
