@@ -12,6 +12,7 @@ import {
   MessageSquareWarning,
   ShoppingBag,
   ClipboardList,
+  Settings,
 } from "lucide-react";
 
 interface AdminLayoutProps {
@@ -27,6 +28,7 @@ const NAV_ITEMS = [
   { href: "/admin/comments", label: "Comments", icon: MessageSquareWarning, badge: "comments" as const },
   { href: "/admin/billing", label: "Billing", icon: CreditCard, badge: false as const },
   { href: "/admin/affiliate", label: "Affiliate", icon: ShoppingBag, badge: false as const },
+  { href: "/admin/config", label: "Configuration", icon: Settings, badge: false as const },
 ];
 
 export function AdminLayout({ children, title }: AdminLayoutProps) {

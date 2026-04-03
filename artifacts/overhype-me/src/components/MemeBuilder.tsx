@@ -330,6 +330,18 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // AI gallery display limit — fetched once from the admin-managed public config endpoint
+  const [aiGalleryDisplayLimit, setAiGalleryDisplayLimit] = useState(50);
+  useEffect(() => {
+    fetch("/api/config")
+      .then((r) => r.json())
+      .then((cfg: Record<string, number | string | boolean>) => {
+        const val = cfg["ai_gallery_display_limit"];
+        if (typeof val === "number" && val > 0) setAiGalleryDisplayLimit(val);
+      })
+      .catch(() => {});
+  }, []);
+
   const GENDER_TO_VARIANT: Record<StockGender, "male" | "female" | "neutral"> = {
     man: "male", woman: "female", person: "neutral",
   };
@@ -500,15 +512,14 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
     setLocalAiMemeImages(aiMemeImages ?? null);
   }, [aiMemeImages]);
 
-  // The AI image slots for the current gender variant — newest-first, up to 50 shown in gallery.
+  // The AI image slots for the current gender variant — newest-first, up to the admin-configured limit shown in gallery.
   // Each slot tracks path + original array index so the API imageIndex param remains correct
   // even for legacy data with empty-string placeholders at some positions.
-  const AI_GALLERY_DISPLAY_LIMIT = 50;
   const aiImageSlots = useMemo<Array<{ path: string; origIdx: number }>>(() => {
     if (!localAiMemeImages) return [];
     const arr = localAiMemeImages[aiGender] ?? [];
     const slots: Array<{ path: string; origIdx: number }> = [];
-    for (let i = 0; i < arr.length && slots.length < AI_GALLERY_DISPLAY_LIMIT; i++) {
+    for (let i = 0; i < arr.length && slots.length < aiGalleryDisplayLimit; i++) {
       if (arr[i]) slots.push({ path: arr[i], origIdx: i });
     }
     return slots;
@@ -1243,9 +1254,9 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
                             <p className="text-[10px] font-display uppercase tracking-widest text-muted-foreground">
                               AI backgrounds for this fact
                               <span className="ml-1 text-primary">({aiGender})</span>
-                              {(localAiMemeImages?.[aiGender]?.filter(Boolean).length ?? 0) > AI_GALLERY_DISPLAY_LIMIT && (
+                              {(localAiMemeImages?.[aiGender]?.filter(Boolean).length ?? 0) > aiGalleryDisplayLimit && (
                                 <span className="ml-1 text-muted-foreground/60">
-                                  — showing {AI_GALLERY_DISPLAY_LIMIT} of {localAiMemeImages![aiGender]!.filter(Boolean).length}
+                                  — showing {aiGalleryDisplayLimit} of {localAiMemeImages![aiGender]!.filter(Boolean).length}
                                 </span>
                               )}
                             </p>
