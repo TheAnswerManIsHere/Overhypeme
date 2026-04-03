@@ -151,13 +151,13 @@ async function generateAndStoreImage(
  * Counts both AI-generated images and uploaded photos.
  */
 export async function isUserAtImageLimit(userId: string): Promise<boolean> {
-  const [countResult] = await db.execute<{ total: string }>(sql`
+  const result = await db.execute<{ total: string }>(sql`
     SELECT (
       (SELECT count(*) FROM user_ai_images WHERE user_id = ${userId}) +
       (SELECT count(*) FROM upload_image_metadata WHERE user_id = ${userId})
     )::text AS total
   `);
-  const total = parseInt(countResult?.total ?? "0", 10);
+  const total = parseInt(result.rows[0]?.total ?? "0", 10);
   const limit = await getConfigInt("user_max_images", DEFAULT_USER_STORAGE_LIMIT);
   return total >= limit;
 }
