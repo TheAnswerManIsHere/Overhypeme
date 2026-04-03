@@ -175,6 +175,14 @@ export async function ensureSchema(): Promise<void> {
       ON CONFLICT (key) DO NOTHING`,
     },
     {
+      label: "memes.deleted_at",
+      ddl: `ALTER TABLE memes ADD COLUMN IF NOT EXISTS deleted_at timestamptz`,
+    },
+    {
+      label: "memes.IDX_memes_deleted_at",
+      ddl: `CREATE INDEX IF NOT EXISTS "IDX_memes_deleted_at" ON memes (deleted_at) WHERE deleted_at IS NULL`,
+    },
+    {
       label: "admin_config seed max_memes_per_fact",
       ddl: `INSERT INTO admin_config (key, value, data_type, label, description, min_value, max_value, is_public)
         VALUES ('max_memes_per_fact', '40', 'integer', 'Max Memes Per Fact',

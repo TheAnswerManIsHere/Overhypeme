@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useRoute, Link, useLocation } from "wouter";
 import { format } from "date-fns";
 import HCaptcha from "@hcaptcha/react-hcaptcha";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 
 import { useGetFact, useListComments, getGetFactQueryKey, getListCommentsQueryKey } from "@workspace/api-client-react";
 import { useAuth } from "@workspace/replit-auth-web";
@@ -13,7 +13,7 @@ import { useAppMutations } from "@/hooks/use-mutations";
 import { MemeBuilder } from "@/components/MemeBuilder";
 import { MerchButtons } from "@/components/MerchButtons";
 import { AdSlot } from "@/components/AdSlot";
-import { ThumbsUp, ThumbsDown, User, AlertCircle, ImageIcon, GitBranch, ArrowLeft, Crown, Flame, Globe, Lock } from "lucide-react";
+import { ThumbsUp, ThumbsDown, User, AlertCircle, ImageIcon, GitBranch, ArrowLeft, Crown, Flame, Globe, Lock, Trash2 } from "lucide-react";
 import { cn } from "@/components/ui/Button";
 import { usePersonName } from "@/hooks/use-person-name";
 import { renderFact } from "@/lib/render-fact";
@@ -25,6 +25,7 @@ type MemeItem = {
   imageUrl: string;
   permalinkSlug: string;
   isPublic: boolean;
+  createdById: string | null;
   createdAt: string;
 };
 
@@ -166,6 +167,8 @@ export default function FactDetail() {
   });
 
   const [memeTab, setMemeTab] = useState<"public" | "mine">("public");
+  const [deletingMemeSlug, setDeletingMemeSlug] = useState<string | null>(null);
+  const queryClient = useQueryClient();
 
   const { data: publicMemesData } = useQuery({
     queryKey: ["listFactMemes", factId, "public"],
@@ -191,6 +194,18 @@ export default function FactDetail() {
   const showMemeBuilder = isMemeRoute;
   const openMemeBuilder = () => setLocation(`/facts/${factId}/meme`);
   const closeMemeBuilder = () => setLocation(`/facts/${factId}`);
+
+  const deleteMeme = useMutation({
+    mutationFn: async (slug: string) => {
+      const res = await fetch(`/api/memes/${slug}`, { method: "DELETE", credentials: "include" });
+      if (!res.ok) throw new Error("Failed to delete meme");
+    },
+    onMutate: (slug) => setDeletingMemeSlug(slug),
+    onSettled: () => setDeletingMemeSlug(null),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["listFactMemes", factId] });
+    },
+  });
 
   const pexelsImages = ((fact as unknown as { pexelsImages?: FactPexelsImages | null })?.pexelsImages) ?? null;
   const aiMemeImages = ((fact as unknown as { aiMemeImages?: import("@/components/MemeBuilder").AiMemeImages | null })?.aiMemeImages) ?? null;
@@ -353,25 +368,47 @@ export default function FactDetail() {
 
           {activeMemes && activeMemes.memes.length > 0 ? (
             <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-              {activeMemes.memes.map(meme => (
-                <Link key={meme.id} href={`/meme/${meme.permalinkSlug}`}>
-                  <div className="group border-2 border-border hover:border-primary/60 rounded-sm overflow-hidden transition-all cursor-pointer">
-                    <img
-                      src={meme.imageUrl}
-                      alt="Meme"
-                      className="w-full h-auto aspect-video object-cover group-hover:scale-105 transition-transform duration-300"
-                      loading="lazy"
-                    />
-                    <div className="p-2 bg-card text-xs text-muted-foreground font-medium flex items-center justify-between">
-                      <span className="uppercase tracking-wide">{meme.templateId}</span>
-                      <div className="flex items-center gap-1.5">
-                        {!meme.isPublic && <Lock className="w-3 h-3" title="Private" />}
-                        <span>{format(new Date(meme.createdAt), 'MMM dd')}</span>
+              {activeMemes.memes.map(meme => {
+                const isMyMeme = !!user?.id && meme.createdById === user.id;
+                const isDeleting = deletingMemeSlug === meme.permalinkSlug;
+                return (
+                  <div key={meme.id} className="group relative border-2 border-border hover:border-primary/60 rounded-sm overflow-hidden transition-all">
+                    <Link href={`/meme/${meme.permalinkSlug}`} className="block">
+                      <img
+                        src={meme.imageUrl}
+                        alt="Meme"
+                        className="w-full h-auto aspect-video object-cover group-hover:scale-105 transition-transform duration-300"
+                        loading="lazy"
+                      />
+                      <div className="p-2 bg-card text-xs text-muted-foreground font-medium flex items-center justify-between">
+                        <span className="uppercase tracking-wide">{meme.templateId}</span>
+                        <div className="flex items-center gap-1.5">
+                          {!meme.isPublic && <Lock className="w-3 h-3" title="Private" />}
+                          <span>{format(new Date(meme.createdAt), 'MMM dd')}</span>
+                        </div>
                       </div>
-                    </div>
+                    </Link>
+                    {isMyMeme && (
+                      <button
+                        onClick={(e) => {
+                          e.preventDefault();
+                          if (confirm("Remove this meme? It will no longer be visible to anyone.")) {
+                            deleteMeme.mutate(meme.permalinkSlug);
+                          }
+                        }}
+                        disabled={isDeleting}
+                        className="absolute top-2 right-2 p-1.5 bg-black/60 hover:bg-destructive text-white rounded-sm opacity-0 group-hover:opacity-100 transition-opacity disabled:opacity-50"
+                        title="Delete meme"
+                      >
+                        {isDeleting
+                          ? <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                          : <Trash2 className="w-3.5 h-3.5" />
+                        }
+                      </button>
+                    )}
                   </div>
-                </Link>
-              ))}
+                );
+              })}
             </div>
           ) : (
             <p className="text-muted-foreground py-10 text-center border-2 border-dashed border-border rounded-sm">

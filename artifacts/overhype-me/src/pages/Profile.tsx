@@ -5,7 +5,7 @@ import { Layout } from "@/components/layout/Layout";
 import { FactCard } from "@/components/facts/FactCard";
 import { Button } from "@/components/ui/Button";
 import { SubscriptionPanel } from "@/components/SubscriptionPanel";
-import { ShieldAlert, LogOut, Clock, ThumbsUp, FileText, Hash, Star, X, Pencil, Check, Mail, AlertTriangle, CheckCircle, Camera, Loader2, Images, Copy, ExternalLink } from "lucide-react";
+import { ShieldAlert, LogOut, Clock, ThumbsUp, FileText, Hash, Star, X, Pencil, Check, Mail, AlertTriangle, CheckCircle, Camera, Loader2, Images, Copy, ExternalLink, Trash2 } from "lucide-react";
 import { Link, useLocation } from "wouter";
 import { useQueryClient, useQuery } from "@tanstack/react-query";
 import { PronounEditor } from "@/components/ui/PronounEditor";
@@ -24,6 +24,7 @@ export default function Profile() {
 
   const [activeTab, setActiveTab] = useState<"submitted" | "liked" | "history" | "images">("liked");
   const [copiedPath, setCopiedPath] = useState<string | null>(null);
+  const [deletingUploadPath, setDeletingUploadPath] = useState<string | null>(null);
   const [checkoutBanner, setCheckoutBanner] = useState<"success" | "cancel" | null>(null);
   const [emailVerifiedBanner, setEmailVerifiedBanner] = useState(false);
 
@@ -78,6 +79,28 @@ export default function Profile() {
     } catch {
       setCopiedPath(objectPath);
       setTimeout(() => setCopiedPath(null), 2000);
+    }
+  }
+
+  async function deleteUpload(objectPath: string) {
+    if (deletingUploadPath) return;
+    if (!confirm("Permanently delete this uploaded image? This cannot be undone.")) return;
+    setDeletingUploadPath(objectPath);
+    try {
+      const encodedPath = encodeURIComponent(objectPath);
+      const res = await fetch(`${BASE_URL}api/users/me/uploads?path=${encodedPath}`, {
+        method: "DELETE",
+        credentials: "include",
+      });
+      if (!res.ok) {
+        const body = await res.json() as { error?: string };
+        throw new Error(body.error ?? "Delete failed");
+      }
+      void queryClient.invalidateQueries({ queryKey: ["my-uploads"] });
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "Failed to delete image");
+    } finally {
+      setDeletingUploadPath(null);
     }
   }
 
@@ -618,6 +641,16 @@ export default function Profile() {
                           >
                             <ExternalLink className="w-3.5 h-3.5" /> View Full
                           </a>
+                          <button
+                            onClick={() => void deleteUpload(upload.objectPath)}
+                            disabled={deletingUploadPath === upload.objectPath}
+                            className="flex items-center gap-1.5 bg-destructive/80 hover:bg-destructive text-white text-xs font-bold px-3 py-1.5 rounded-sm transition-colors w-full justify-center disabled:opacity-50"
+                          >
+                            {deletingUploadPath === upload.objectPath
+                              ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Deleting…</>
+                              : <><Trash2 className="w-3.5 h-3.5" /> Delete</>
+                            }
+                          </button>
                         </div>
                         {upload.isLowRes && (
                           <div className="absolute top-1 right-1 bg-amber-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-sm">
