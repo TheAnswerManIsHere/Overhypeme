@@ -328,6 +328,48 @@ router.get("/users/me/memes", async (req: Request, res: Response) => {
   });
 });
 
+// GET /users/me/ai-images — list AI-generated images owned by the current user
+// Query params: factId (optional), imageType (optional, default 'reference')
+router.get("/users/me/ai-images", async (req: Request, res: Response) => {
+  if (!req.isAuthenticated()) { res.status(401).json({ error: "Unauthorized" }); return; }
+
+  const factIdRaw = req.query["factId"];
+  const factId = factIdRaw ? parseInt(String(factIdRaw), 10) : null;
+  if (factIdRaw !== undefined && (factId === null || isNaN(factId))) {
+    res.status(400).json({ error: "Invalid factId" }); return;
+  }
+
+  const imageType = String(req.query["imageType"] ?? "reference");
+
+  const rows = await db.execute<{
+    id: number;
+    fact_id: number;
+    gender: string;
+    storage_path: string;
+    image_type: string;
+    created_at: string;
+  }>(sql`
+    SELECT id, fact_id, gender, storage_path, image_type, created_at
+    FROM user_ai_images
+    WHERE user_id = ${req.user.id}
+      ${factId !== null ? sql`AND fact_id = ${factId}` : sql``}
+      AND image_type = ${imageType}
+    ORDER BY created_at DESC
+    LIMIT 200
+  `);
+
+  const images = rows.rows.map(r => ({
+    id: r.id,
+    factId: r.fact_id,
+    gender: r.gender,
+    storagePath: r.storage_path,
+    imageType: r.image_type,
+    createdAt: r.created_at,
+  }));
+
+  res.json({ images });
+});
+
 // DELETE /users/me/uploads — hard-delete an uploaded image owned by the current user
 // Query param: path (the object_path value from GET /users/me/uploads)
 router.delete("/users/me/uploads", async (req: Request, res: Response) => {

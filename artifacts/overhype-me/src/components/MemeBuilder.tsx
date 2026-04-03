@@ -548,6 +548,13 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
   const [isLoadingRefUploads, setIsLoadingRefUploads] = useState(false);
   const [isUploadingRefPhoto, setIsUploadingRefPhoto] = useState(false);
 
+  // Reference-generated AI images (only images generated via the reference photo flow)
+  interface RefGenImage { id: number; storagePath: string; gender: string; createdAt: string; }
+  const [refGenImages, setRefGenImages] = useState<RefGenImage[]>([]);
+  const [isLoadingRefGenImages, setIsLoadingRefGenImages] = useState(false);
+  // The storage path of the selected reference-generated image (for meme creation)
+  const [selectedRefGenPath, setSelectedRefGenPath] = useState<string | null>(null);
+
   // Video generation state
   const [videoState, setVideoState] = useState<VideoState>({ status: "idle" });
 
@@ -604,8 +611,7 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
     }
   }, [imageMode, aiImageSlots, selectedAiIndex]);
 
-  // Thumbnail URL for AI images — serve via the meme endpoint with raw=true
-  // This bypasses ACL checks (works for all existing/new images regardless of ACL metadata)
+  // Thumbnail URL for generic AI images — serve via the meme endpoint with raw=true
   // Cache-buster is appended after regen so the browser skips the cached old image
   const getAiThumbnailUrl = useCallback((index: number) => {
     if (!localAiMemeImages) return "";
@@ -614,6 +620,12 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
     const cb = aiCacheBuster ? `&cb=${aiCacheBuster}` : "";
     return `/api/memes/ai/${factId}/image?gender=${aiGender}&imageIndex=${index}&raw=true${cb}`;
   }, [localAiMemeImages, aiGender, factId, aiCacheBuster]);
+
+  // Thumbnail URL for reference-generated images — served via user-specific authenticated endpoint
+  const getRefAiThumbnailUrl = useCallback((storagePath: string) => {
+    const cb = aiCacheBuster ? `&cb=${aiCacheBuster}` : "";
+    return `/api/memes/ai-user/image?storagePath=${encodeURIComponent(storagePath)}${cb}`;
+  }, [aiCacheBuster]);
 
   const handleGenerateNewAi = async () => {
     if (isGeneratingAi) return;
@@ -645,20 +657,8 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
     }, 250);
 
     try {
-      // Capture baseline BEFORE firing generation to detect actual image completion.
-      // - First-time: detect slot going from null → non-null (image slot populated)
-      // - Regen: paths are deterministic (same key), so we use updatedAt change as signal.
-      //   updatedAt changes when images are stored (final DB write), not on prompt write.
-      let baselineSlotPath: string | null = null;
-      let baselineUpdatedAt: string | null = null;
-      try {
-        const initRes = await fetch(`/api/facts/${factId}`, { credentials: "include", cache: "no-store" });
-        if (initRes.ok) {
-          const init = await initRes.json() as { updatedAt?: string; aiMemeImages?: AiMemeImages | null };
-          baselineSlotPath = init.aiMemeImages?.[aiGender]?.[0] ?? null;
-          baselineUpdatedAt = init.updatedAt ?? null;
-        }
-      } catch { /* proceed without baseline */ }
+      const POLL_INTERVAL = 4_000;
+      const MAX_POLLS = 22; // ~88s
 
       const res = await fetch(`/api/memes/ai/${factId}/generate`, {
         method: "POST",
@@ -674,62 +674,96 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
         const body = await res.json() as { error?: string; limitExceeded?: boolean };
         throw new Error(body.error ?? "Generation failed");
       }
-      // Poll until images are confirmed written to DB.
-      // First-time: slot changes from null → path. Regen: updatedAt changes (same path key).
-      const POLL_INTERVAL = 4_000;
-      const MAX_POLLS = 22; // ~88s
-      let polls = 0;
 
-      const poll = async () => {
-        polls++;
-        try {
-          const factRes = await fetch(`/api/facts/${factId}`, { credentials: "include", cache: "no-store" });
-          if (factRes.ok) {
-            const data = await factRes.json() as { updatedAt?: string; aiMemeImages?: AiMemeImages | null };
-            const newSlotPath = data.aiMemeImages?.[aiGender]?.[0] ?? null;
-            const newUpdatedAt = data.updatedAt ?? null;
-            let done: boolean;
-            if (baselineSlotPath === null) {
-              // First-time: slot goes from null to populated
-              done = newSlotPath !== null;
-            } else {
-              // Regen: paths are deterministic; updatedAt must change to confirm image re-written
-              done = newUpdatedAt !== baselineUpdatedAt && newSlotPath !== null;
-            }
-            if (done) {
-              if (generationTimerRef.current) {
-                clearInterval(generationTimerRef.current);
-                generationTimerRef.current = null;
+      if (aiSubMode === "reference") {
+        // Reference mode: poll user_ai_images until a new image appears for this fact+gender
+        const baselineImages = await fetchRefGenImages().catch(() => null) ?? [];
+        const baselineCount = baselineImages.filter(img => img.gender === aiGender).length;
+        let polls = 0;
+
+        const pollRef = async () => {
+          polls++;
+          try {
+            const images = await fetchRefGenImages();
+            if (images) {
+              const newCount = images.filter(img => img.gender === aiGender).length;
+              if (newCount > baselineCount) {
+                if (generationTimerRef.current) { clearInterval(generationTimerRef.current); generationTimerRef.current = null; }
+                setRefGenImages(images);
+                // Auto-select the first (newest) image for this gender
+                const newest = images.find(img => img.gender === aiGender);
+                if (newest) setSelectedRefGenPath(newest.storagePath);
+                setAiCacheBuster(Date.now());
+                setTimeout(() => { setIsGeneratingAi(false); setGenerationProgress(0); setGenerationElapsed(0); }, 400);
+                setGenerationProgress(100);
+                return;
               }
-              setGenerationProgress(100);
-              setLocalAiMemeImages(data.aiMemeImages ?? null);
-              setSelectedAiIndex(0);
-              setAiCacheBuster(Date.now()); // force browser to bypass cached old image
-              setTimeout(() => {
-                setIsGeneratingAi(false);
-                setGenerationProgress(0);
-                setGenerationElapsed(0);
-              }, 400);
-              return;
             }
-          }
-        } catch { /* network error — keep polling */ }
+          } catch { /* keep polling */ }
 
-        if (polls >= MAX_POLLS) {
-          if (generationTimerRef.current) {
-            clearInterval(generationTimerRef.current);
-            generationTimerRef.current = null;
+          if (polls >= MAX_POLLS) {
+            if (generationTimerRef.current) { clearInterval(generationTimerRef.current); generationTimerRef.current = null; }
+            setGenerationProgress(0);
+            setGenerationElapsed(0);
+            setAiGenerateError("Generation is taking longer than expected. Click 'Generate New' again or refresh the page.");
+            setIsGeneratingAi(false);
+            return;
           }
-          setGenerationProgress(0);
-          setGenerationElapsed(0);
-          setAiGenerateError("Generation is taking longer than expected. Click 'Generate New' again or refresh the page.");
-          setIsGeneratingAi(false);
-          return;
-        }
+          setTimeout(() => void pollRef(), POLL_INTERVAL);
+        };
+        setTimeout(() => void pollRef(), POLL_INTERVAL);
+      } else {
+        // Generic mode: poll aiMemeImages on the fact
+        let baselineSlotPath: string | null = null;
+        let baselineUpdatedAt: string | null = null;
+        try {
+          const initRes = await fetch(`/api/facts/${factId}`, { credentials: "include", cache: "no-store" });
+          if (initRes.ok) {
+            const init = await initRes.json() as { updatedAt?: string; aiMemeImages?: AiMemeImages | null };
+            baselineSlotPath = init.aiMemeImages?.[aiGender]?.[0] ?? null;
+            baselineUpdatedAt = init.updatedAt ?? null;
+          }
+        } catch { /* proceed without baseline */ }
+
+        let polls = 0;
+        const poll = async () => {
+          polls++;
+          try {
+            const factRes = await fetch(`/api/facts/${factId}`, { credentials: "include", cache: "no-store" });
+            if (factRes.ok) {
+              const data = await factRes.json() as { updatedAt?: string; aiMemeImages?: AiMemeImages | null };
+              const newSlotPath = data.aiMemeImages?.[aiGender]?.[0] ?? null;
+              const newUpdatedAt = data.updatedAt ?? null;
+              let done: boolean;
+              if (baselineSlotPath === null) {
+                done = newSlotPath !== null;
+              } else {
+                done = newUpdatedAt !== baselineUpdatedAt && newSlotPath !== null;
+              }
+              if (done) {
+                if (generationTimerRef.current) { clearInterval(generationTimerRef.current); generationTimerRef.current = null; }
+                setGenerationProgress(100);
+                setLocalAiMemeImages(data.aiMemeImages ?? null);
+                setSelectedAiIndex(0);
+                setAiCacheBuster(Date.now());
+                setTimeout(() => { setIsGeneratingAi(false); setGenerationProgress(0); setGenerationElapsed(0); }, 400);
+                return;
+              }
+            }
+          } catch { /* keep polling */ }
+
+          if (polls >= MAX_POLLS) {
+            if (generationTimerRef.current) { clearInterval(generationTimerRef.current); generationTimerRef.current = null; }
+            setGenerationProgress(0);
+            setGenerationElapsed(0);
+            setAiGenerateError("Generation is taking longer than expected. Click 'Generate New' again or refresh the page.");
+            setIsGeneratingAi(false);
+            return;
+          }
+          setTimeout(() => void poll(), POLL_INTERVAL);
+        };
         setTimeout(() => void poll(), POLL_INTERVAL);
-      };
-
-      setTimeout(() => void poll(), POLL_INTERVAL);
+      }
     } catch (e) {
       if (generationTimerRef.current) {
         clearInterval(generationTimerRef.current);
@@ -806,9 +840,13 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
 
   // ── Load stock/AI/upload image into canvas ───────────────────────
   const aiSelectedUrl = useMemo(() => {
-    if (imageMode !== "ai" || selectedAiIndex === null) return null;
+    if (imageMode !== "ai") return null;
+    if (aiSubMode === "reference") {
+      return selectedRefGenPath ? getRefAiThumbnailUrl(selectedRefGenPath) : null;
+    }
+    if (selectedAiIndex === null) return null;
     return getAiThumbnailUrl(selectedAiIndex);
-  }, [imageMode, selectedAiIndex, getAiThumbnailUrl]);
+  }, [imageMode, aiSubMode, selectedAiIndex, selectedRefGenPath, getAiThumbnailUrl, getRefAiThumbnailUrl]);
 
   useEffect(() => {
     const photoUrl =
@@ -1092,6 +1130,28 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
     return () => { cancelled = true; };
   }, [isPremium, imageMode, aiSubMode]);
 
+  // Fetch reference-generated AI images for this fact when in AI reference sub-mode
+  const fetchRefGenImages = useCallback(async (signal?: AbortSignal) => {
+    const res = await fetch(`/api/users/me/ai-images?factId=${factId}&imageType=reference`, {
+      credentials: "include",
+      signal,
+    });
+    if (!res.ok) return null;
+    const data = await res.json() as { images: Array<{ id: number; storagePath: string; gender: string; createdAt: string }> };
+    return data.images;
+  }, [factId]);
+
+  useEffect(() => {
+    if (!isPremium || imageMode !== "ai" || aiSubMode !== "reference") return;
+    const controller = new AbortController();
+    setIsLoadingRefGenImages(true);
+    fetchRefGenImages(controller.signal)
+      .then(images => { if (images) setRefGenImages(images); })
+      .catch(() => {})
+      .finally(() => setIsLoadingRefGenImages(false));
+    return () => { controller.abort(); };
+  }, [isPremium, imageMode, aiSubMode, fetchRefGenImages]);
+
   // Upload a new reference photo (inline in AI reference sub-mode picker)
   const handleRefPhotoUpload = useCallback(async (file: File) => {
     if (!file.type.startsWith("image/")) return;
@@ -1199,14 +1259,22 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
       setErrorMsg(isUploadingFile ? "Please wait for the upload to finish." : "Please select an image to upload.");
       return;
     }
-    if (imageMode === "ai" && selectedAiIndex === null) {
+    if (imageMode === "ai" && aiSubMode === "reference" && !selectedRefGenPath) {
+      setErrorMsg("Please select a reference-generated AI background first.");
+      return;
+    }
+    if (imageMode === "ai" && aiSubMode === "generic" && selectedAiIndex === null) {
       setErrorMsg("Please select an AI background image first.");
       return;
     }
 
-    // Get the AI image object storage path for the selected index
-    const aiStoragePath = imageMode === "ai" && selectedAiIndex !== null && localAiMemeImages
-      ? (localAiMemeImages[aiGender]?.[selectedAiIndex] ?? null)
+    // Get the AI image object storage path
+    const aiStoragePath = imageMode === "ai"
+      ? aiSubMode === "reference"
+        ? selectedRefGenPath
+        : (selectedAiIndex !== null && localAiMemeImages
+          ? (localAiMemeImages[aiGender]?.[selectedAiIndex] ?? null)
+          : null)
       : null;
     if (imageMode === "ai" && !aiStoragePath) {
       setErrorMsg("Selected AI image is not available. Please try Generate New.");
@@ -1624,94 +1692,130 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
                           </button>
                         </div>
 
-                        {aiImagePaths.length > 0 ? (
-                          <>
-                            <p className="text-[10px] font-display uppercase tracking-widest text-muted-foreground">
-                              AI backgrounds for this fact
-                              <span className="ml-1 text-primary">({aiGender})</span>
-                              {(localAiMemeImages?.[aiGender]?.filter(Boolean).length ?? 0) > aiGalleryDisplayLimit && (
-                                <span className="ml-1 text-muted-foreground/60">
-                                  — showing {aiGalleryDisplayLimit} of {localAiMemeImages![aiGender]!.filter(Boolean).length}
-                                </span>
-                              )}
-                            </p>
-                            <div className="grid gap-1.5" style={{ gridTemplateColumns: `repeat(auto-fill, minmax(${thumbPx}px, 1fr))` }}>
-                              {aiImageSlots.map((slot, displayIdx) => {
-                                const isDeleting = deletingAiImageOrigIdx === slot.origIdx;
-                                const isConfirming = confirmingAiImageOrigIdx === slot.origIdx;
-                                return (
-                                  <div key={slot.path} className="relative">
-                                    <div
-                                      className={`aspect-video border-2 overflow-hidden transition-all cursor-pointer ${
-                                        selectedAiIndex === slot.origIdx && !isConfirming
-                                          ? "border-primary ring-2 ring-primary/30 scale-105"
-                                          : "border-border hover:border-primary/50"
-                                      } ${isDeleting ? "opacity-40" : ""}`}
-                                      onClick={() => {
-                                        if (isConfirming) { setConfirmingAiImageOrigIdx(null); return; }
-                                        setSelectedAiIndex(slot.origIdx);
-                                      }}
-                                    >
-                                      <img
-                                        src={getAiThumbnailUrl(slot.origIdx)}
-                                        alt={`AI option ${displayIdx + 1}`}
-                                        className="w-full h-full object-cover"
-                                        loading="lazy"
-                                        crossOrigin="anonymous"
-                                        onError={e => { (e.target as HTMLImageElement).style.display = "none"; }}
-                                      />
-                                      {selectedAiIndex === slot.origIdx && !isConfirming && (
-                                        <span className="absolute top-0.5 right-0.5 w-2 h-2 bg-primary rounded-full border border-white" />
+                        {/* Generic sub-mode: show shared fact-level AI backgrounds */}
+                        {aiSubMode === "generic" && (
+                          aiImagePaths.length > 0 ? (
+                            <>
+                              <p className="text-[10px] font-display uppercase tracking-widest text-muted-foreground">
+                                AI backgrounds for this fact
+                                <span className="ml-1 text-primary">({aiGender})</span>
+                                {(localAiMemeImages?.[aiGender]?.filter(Boolean).length ?? 0) > aiGalleryDisplayLimit && (
+                                  <span className="ml-1 text-muted-foreground/60">
+                                    — showing {aiGalleryDisplayLimit} of {localAiMemeImages![aiGender]!.filter(Boolean).length}
+                                  </span>
+                                )}
+                              </p>
+                              <div className="grid gap-1.5" style={{ gridTemplateColumns: `repeat(auto-fill, minmax(${thumbPx}px, 1fr))` }}>
+                                {aiImageSlots.map((slot, displayIdx) => {
+                                  const isDeleting = deletingAiImageOrigIdx === slot.origIdx;
+                                  const isConfirming = confirmingAiImageOrigIdx === slot.origIdx;
+                                  return (
+                                    <div key={slot.path} className="relative">
+                                      <div
+                                        className={`aspect-video border-2 overflow-hidden transition-all cursor-pointer ${
+                                          selectedAiIndex === slot.origIdx && !isConfirming
+                                            ? "border-primary ring-2 ring-primary/30 scale-105"
+                                            : "border-border hover:border-primary/50"
+                                        } ${isDeleting ? "opacity-40" : ""}`}
+                                        onClick={() => {
+                                          if (isConfirming) { setConfirmingAiImageOrigIdx(null); return; }
+                                          setSelectedAiIndex(slot.origIdx);
+                                        }}
+                                      >
+                                        <img
+                                          src={getAiThumbnailUrl(slot.origIdx)}
+                                          alt={`AI option ${displayIdx + 1}`}
+                                          className="w-full h-full object-cover"
+                                          loading="lazy"
+                                          crossOrigin="anonymous"
+                                          onError={e => { (e.target as HTMLImageElement).style.display = "none"; }}
+                                        />
+                                        {selectedAiIndex === slot.origIdx && !isConfirming && (
+                                          <span className="absolute top-0.5 right-0.5 w-2 h-2 bg-primary rounded-full border border-white" />
+                                        )}
+                                      </div>
+                                      {!isConfirming && (
+                                        <button
+                                          onClick={(e) => { e.stopPropagation(); setConfirmingAiImageOrigIdx(slot.origIdx); }}
+                                          disabled={isDeleting}
+                                          className="absolute top-0.5 right-0.5 z-10 w-5 h-5 rounded-full bg-black/60 flex items-center justify-center text-white hover:bg-red-600 transition-colors disabled:cursor-not-allowed"
+                                          title="Delete this AI background"
+                                        >
+                                          {isDeleting ? <Loader2 className="w-2.5 h-2.5 animate-spin" /> : <X className="w-2.5 h-2.5" />}
+                                        </button>
+                                      )}
+                                      {isConfirming && (
+                                        <div className="absolute inset-0 z-20 bg-black/75 flex flex-col items-center justify-center gap-1.5 p-1">
+                                          <span className="text-[9px] font-bold text-white uppercase tracking-wide">Delete?</span>
+                                          <div className="flex gap-1">
+                                            <button onClick={(e) => { e.stopPropagation(); setConfirmingAiImageOrigIdx(null); }} className="px-2 py-0.5 text-[9px] font-semibold rounded bg-white/20 text-white hover:bg-white/30 transition-colors">Cancel</button>
+                                            <button onClick={(e) => { e.stopPropagation(); setConfirmingAiImageOrigIdx(null); void handleDeleteAiImage(slot.origIdx); }} className="px-2 py-0.5 text-[9px] font-semibold rounded bg-red-600 text-white hover:bg-red-500 transition-colors">Delete</button>
+                                          </div>
+                                        </div>
                                       )}
                                     </div>
-
-                                    {/* Always-visible delete button */}
-                                    {!isConfirming && (
-                                      <button
-                                        onClick={(e) => { e.stopPropagation(); setConfirmingAiImageOrigIdx(slot.origIdx); }}
-                                        disabled={isDeleting}
-                                        className="absolute top-0.5 right-0.5 z-10 w-5 h-5 rounded-full bg-black/60 flex items-center justify-center text-white hover:bg-red-600 transition-colors disabled:cursor-not-allowed"
-                                        title="Delete this AI background"
-                                      >
-                                        {isDeleting
-                                          ? <Loader2 className="w-2.5 h-2.5 animate-spin" />
-                                          : <X className="w-2.5 h-2.5" />
-                                        }
-                                      </button>
-                                    )}
-
-                                    {/* Inline confirmation overlay */}
-                                    {isConfirming && (
-                                      <div className="absolute inset-0 z-20 bg-black/75 flex flex-col items-center justify-center gap-1.5 p-1">
-                                        <span className="text-[9px] font-bold text-white uppercase tracking-wide">Delete?</span>
-                                        <div className="flex gap-1">
-                                          <button
-                                            onClick={(e) => { e.stopPropagation(); setConfirmingAiImageOrigIdx(null); }}
-                                            className="px-2 py-0.5 text-[9px] font-semibold rounded bg-white/20 text-white hover:bg-white/30 transition-colors"
-                                          >
-                                            Cancel
-                                          </button>
-                                          <button
-                                            onClick={(e) => { e.stopPropagation(); setConfirmingAiImageOrigIdx(null); void handleDeleteAiImage(slot.origIdx); }}
-                                            className="px-2 py-0.5 text-[9px] font-semibold rounded bg-red-600 text-white hover:bg-red-500 transition-colors"
-                                          >
-                                            Delete
-                                          </button>
-                                        </div>
-                                      </div>
-                                    )}
-                                  </div>
-                                );
-                              })}
+                                  );
+                                })}
+                              </div>
+                            </>
+                          ) : (
+                            <div className="flex flex-col items-center gap-2 py-4 text-center">
+                              <Sparkles className="w-8 h-8 text-violet-400/50" />
+                              <p className="text-xs text-muted-foreground">No AI backgrounds yet for this fact.</p>
                             </div>
-                          </>
-                        ) : (
-                          <div className="flex flex-col items-center gap-2 py-4 text-center">
-                            <Sparkles className="w-8 h-8 text-violet-400/50" />
-                            <p className="text-xs text-muted-foreground">
-                              No AI backgrounds yet for this fact.
-                            </p>
-                          </div>
+                          )
+                        )}
+
+                        {/* Reference sub-mode: show only images generated by this user via reference photo */}
+                        {aiSubMode === "reference" && (
+                          isLoadingRefGenImages ? (
+                            <div className="flex items-center justify-center py-4">
+                              <Loader2 className="w-4 h-4 text-muted-foreground animate-spin" />
+                            </div>
+                          ) : (() => {
+                            const myRefImages = refGenImages.filter(img => img.gender === aiGender);
+                            return myRefImages.length > 0 ? (
+                              <>
+                                <p className="text-[10px] font-display uppercase tracking-widest text-muted-foreground">
+                                  Your reference-generated backgrounds
+                                  <span className="ml-1 text-primary">({aiGender})</span>
+                                </p>
+                                <div className="grid gap-1.5" style={{ gridTemplateColumns: `repeat(auto-fill, minmax(${thumbPx}px, 1fr))` }}>
+                                  {myRefImages.map((img, displayIdx) => (
+                                    <div key={img.storagePath} className="relative">
+                                      <div
+                                        className={`aspect-video border-2 overflow-hidden transition-all cursor-pointer ${
+                                          selectedRefGenPath === img.storagePath
+                                            ? "border-primary ring-2 ring-primary/30 scale-105"
+                                            : "border-border hover:border-primary/50"
+                                        }`}
+                                        onClick={() => setSelectedRefGenPath(img.storagePath)}
+                                      >
+                                        <img
+                                          src={getRefAiThumbnailUrl(img.storagePath)}
+                                          alt={`Reference AI option ${displayIdx + 1}`}
+                                          className="w-full h-full object-cover"
+                                          loading="lazy"
+                                          crossOrigin="anonymous"
+                                          onError={e => { (e.target as HTMLImageElement).style.display = "none"; }}
+                                        />
+                                        {selectedRefGenPath === img.storagePath && (
+                                          <span className="absolute top-0.5 right-0.5 w-2 h-2 bg-primary rounded-full border border-white" />
+                                        )}
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              </>
+                            ) : (
+                              <div className="flex flex-col items-center gap-2 py-4 text-center">
+                                <Sparkles className="w-8 h-8 text-violet-400/50" />
+                                <p className="text-xs text-muted-foreground">
+                                  No reference-generated images yet. Pick a photo below and click Generate New.
+                                </p>
+                              </div>
+                            );
+                          })()
                         )}
 
                         {/* Reference photo picker — shown in reference sub-mode */}

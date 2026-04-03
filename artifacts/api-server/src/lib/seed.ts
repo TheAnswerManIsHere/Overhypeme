@@ -229,6 +229,10 @@ export async function ensureSchema(): Promise<void> {
       label: "video_jobs.video_jobs_created_at_idx",
       ddl: `CREATE INDEX IF NOT EXISTS "video_jobs_created_at_idx" ON video_jobs (created_at)`,
     },
+    {
+      label: "user_ai_images.add_image_type",
+      ddl: `ALTER TABLE user_ai_images ADD COLUMN IF NOT EXISTS image_type varchar(20) NOT NULL DEFAULT 'generic'`,
+    },
   ];
 
   for (const { label, ddl } of migrations) {
