@@ -500,16 +500,22 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
     setLocalAiMemeImages(aiMemeImages ?? null);
   }, [aiMemeImages]);
 
-  // The AI image paths for the current gender variant (preserves original indices — no filter compression)
-  const aiImageSlots = useMemo<string[]>(() => {
+  // The AI image slots for the current gender variant — newest-first, up to 50 shown in gallery.
+  // Each slot tracks path + original array index so the API imageIndex param remains correct
+  // even for legacy data with empty-string placeholders at some positions.
+  const AI_GALLERY_DISPLAY_LIMIT = 50;
+  const aiImageSlots = useMemo<Array<{ path: string; origIdx: number }>>(() => {
     if (!localAiMemeImages) return [];
     const arr = localAiMemeImages[aiGender] ?? [];
-    // Always return full array (up to 3 slots) so gallery indices match storage indices
-    return arr.slice(0, 3);
+    const slots: Array<{ path: string; origIdx: number }> = [];
+    for (let i = 0; i < arr.length && slots.length < AI_GALLERY_DISPLAY_LIMIT; i++) {
+      if (arr[i]) slots.push({ path: arr[i], origIdx: i });
+    }
+    return slots;
   }, [localAiMemeImages, aiGender]);
 
   // Whether any AI images exist for the current gender (used for conditional UI)
-  const aiImagePaths = useMemo(() => aiImageSlots.filter(Boolean), [aiImageSlots]);
+  const aiImagePaths = useMemo(() => aiImageSlots.map(s => s.path), [aiImageSlots]);
 
   // Auto-select first AI image when entering AI mode or when images load
   useEffect(() => {
@@ -1237,31 +1243,36 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
                             <p className="text-[10px] font-display uppercase tracking-widest text-muted-foreground">
                               AI backgrounds for this fact
                               <span className="ml-1 text-primary">({aiGender})</span>
+                              {(localAiMemeImages?.[aiGender]?.filter(Boolean).length ?? 0) > AI_GALLERY_DISPLAY_LIMIT && (
+                                <span className="ml-1 text-muted-foreground/60">
+                                  — showing {AI_GALLERY_DISPLAY_LIMIT} of {localAiMemeImages![aiGender]!.filter(Boolean).length}
+                                </span>
+                              )}
                             </p>
-                            <div className="grid grid-cols-3 gap-2">
-                              {aiImageSlots.map((storagePath, i) => storagePath ? (
+                            <div className="grid grid-cols-5 gap-1.5">
+                              {aiImageSlots.map((slot, displayIdx) => (
                                 <button
-                                  key={i}
-                                  onClick={() => setSelectedAiIndex(i)}
-                                  className={`relative aspect-square border-2 overflow-hidden transition-all ${
-                                    selectedAiIndex === i
+                                  key={slot.path}
+                                  onClick={() => setSelectedAiIndex(slot.origIdx)}
+                                  className={`relative aspect-video border-2 overflow-hidden transition-all ${
+                                    selectedAiIndex === slot.origIdx
                                       ? "border-primary ring-2 ring-primary/30 scale-105"
                                       : "border-border hover:border-primary/50"
                                   }`}
                                 >
                                   <img
-                                    src={getAiThumbnailUrl(i)}
-                                    alt={`AI option ${i + 1}`}
+                                    src={getAiThumbnailUrl(slot.origIdx)}
+                                    alt={`AI option ${displayIdx + 1}`}
                                     className="w-full h-full object-cover"
                                     loading="lazy"
                                     crossOrigin="anonymous"
                                     onError={e => { (e.target as HTMLImageElement).style.display = "none"; }}
                                   />
-                                  {selectedAiIndex === i && (
+                                  {selectedAiIndex === slot.origIdx && (
                                     <span className="absolute top-0.5 right-0.5 w-2 h-2 bg-primary rounded-full border border-white" />
                                   )}
                                 </button>
-                              ) : null)}
+                              ))}
                             </div>
                           </>
                         ) : (
