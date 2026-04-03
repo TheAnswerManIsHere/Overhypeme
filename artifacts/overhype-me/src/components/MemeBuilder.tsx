@@ -9,6 +9,7 @@ import {
 } from "react";
 import { Link } from "wouter";
 import { IMAGE_STYLES } from "@/config/imageStyles";
+import { AuthenticatedImage } from "@/components/ui/AuthenticatedImage";
 import { usePersonName } from "@/hooks/use-person-name";
 import { useListMemeTemplates } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -324,25 +325,6 @@ interface MemeBuilderProps {
   pexelsImages?: FactPexelsImages | null;
   aiMemeImages?: AiMemeImages | null;
   onClose: () => void;
-}
-
-/** Renders an auth-protected image URL by fetching it via the global auth interceptor and creating a blob URL. */
-function AuthenticatedImage({ src, alt, className, loading, onError }: {
-  src: string; alt?: string; className?: string; loading?: "lazy" | "eager"; onError?: React.EventHandler<React.SyntheticEvent<HTMLImageElement>>;
-}) {
-  const [blobUrl, setBlobUrl] = useState<string | null>(null);
-  useEffect(() => {
-    if (!src) return;
-    let url: string | null = null;
-    fetch(src, { credentials: "include" })
-      .then(r => r.ok ? r.blob() : null)
-      .then(blob => {
-        if (blob) { url = URL.createObjectURL(blob); setBlobUrl(url); }
-      })
-      .catch(() => {});
-    return () => { if (url) URL.revokeObjectURL(url); };
-  }, [src]);
-  return <img src={blobUrl ?? undefined} alt={alt} className={className} loading={loading} onError={onError} />;
 }
 
 export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMemeImages, onClose }: MemeBuilderProps) {

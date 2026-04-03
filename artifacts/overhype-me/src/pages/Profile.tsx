@@ -7,6 +7,7 @@ import { FactCard } from "@/components/facts/FactCard";
 import { Button } from "@/components/ui/Button";
 import { SubscriptionPanel } from "@/components/SubscriptionPanel";
 import { ShieldAlert, LogOut, Clock, ThumbsUp, FileText, Hash, Star, X, Pencil, Check, Mail, AlertTriangle, CheckCircle, Camera, Loader2, Images, Copy, ExternalLink, Trash2, ImageIcon, Lock } from "lucide-react";
+import { AuthenticatedImage } from "@/components/ui/AuthenticatedImage";
 import { Link, useLocation } from "wouter";
 import { useQueryClient, useQuery } from "@tanstack/react-query";
 import { PronounEditor } from "@/components/ui/PronounEditor";
@@ -837,7 +838,7 @@ export default function Profile() {
                         const imgUrl = `${BASE_URL}api/memes/ai-user/image?storagePath=${encodeURIComponent(img.storagePath)}`;
                         return (
                           <div key={img.id} className="group relative aspect-square bg-card border-2 border-border rounded-sm overflow-hidden">
-                            <img
+                            <AuthenticatedImage
                               src={imgUrl}
                               alt="AI reference background"
                               className="w-full h-full object-cover"
