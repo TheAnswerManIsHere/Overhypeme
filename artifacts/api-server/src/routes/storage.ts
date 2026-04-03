@@ -333,11 +333,33 @@ router.get("/storage/objects/*path", async (req: Request, res: Response) => {
     const objectPath = `/objects/${wildcardPath}`;
     const objectFile = await objectStorageService.getObjectEntityFile(objectPath);
 
-    const canAccess = await objectStorageService.canAccessObjectEntity({
+    let canAccess = await objectStorageService.canAccessObjectEntity({
       userId: req.user?.id,
       objectFile,
       requestedPermission: ObjectPermission.READ,
     });
+
+    // Fallback for uploads without ACL (pre-fix uploads): check upload_image_metadata ownership.
+    // If the authenticated user owns this upload, grant access and retroactively set ACL so future
+    // requests hit the fast path.
+    if (!canAccess && req.isAuthenticated() && wildcardPath.startsWith("uploads/")) {
+      const uploadOwnerCheck = await db.execute<{ count: string }>(sql`
+        SELECT COUNT(*)::text AS count
+        FROM upload_image_metadata
+        WHERE object_path = ${objectPath}
+          AND user_id = ${req.user!.id}
+      `);
+      const owned = parseInt(uploadOwnerCheck.rows[0]?.count ?? "0", 10) > 0;
+      if (owned) {
+        canAccess = true;
+        // Heal the missing ACL so subsequent requests skip this fallback
+        objectStorageService.trySetObjectEntityAclPolicy(objectPath, {
+          owner: req.user!.id,
+          visibility: "private",
+        }).catch(() => { /* non-critical */ });
+      }
+    }
+
     if (!canAccess) {
       res.status(req.isAuthenticated() ? 403 : 401).json({ error: req.isAuthenticated() ? "Forbidden" : "Unauthorized" });
       return;
