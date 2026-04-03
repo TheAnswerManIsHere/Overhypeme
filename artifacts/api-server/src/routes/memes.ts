@@ -678,11 +678,16 @@ router.post("/memes/ai/:factId/generate", requirePremium, async (req: Request, r
   const body = req.body as Record<string, unknown>;
   const scope = body["scope"] === "abstract" ? "abstract" : "gendered";
 
-  // Optional reference image path for reference-based generation
+  // Optional reference image path for reference-based generation.
+  // If the caller provides *any* referenceImagePath value, validate strictly — no silent fallback.
   const rawRefPath = body["referenceImagePath"];
-  const referenceImagePath = typeof rawRefPath === "string" && rawRefPath.startsWith("/objects/")
-    ? rawRefPath
-    : null;
+  if (rawRefPath !== undefined && rawRefPath !== null) {
+    if (typeof rawRefPath !== "string" || !rawRefPath.startsWith("/objects/")) {
+      res.status(400).json({ error: "Invalid referenceImagePath: must be a string starting with /objects/." });
+      return;
+    }
+  }
+  const referenceImagePath = typeof rawRefPath === "string" ? rawRefPath : null;
 
   // targetGender for reference mode (which gender slot to generate for)
   const rawGender = body["targetGender"];
