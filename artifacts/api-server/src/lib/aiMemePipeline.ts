@@ -224,10 +224,10 @@ export async function generateAiMemeBackgrounds(
       result[gender][index] = storedPath;
     }
 
-    // 4. Persist image paths
+    // 4. Persist image paths — explicitly set updatedAt so polling detection always works
     await db
       .update(factsTable)
-      .set({ aiMemeImages: result })
+      .set({ aiMemeImages: result, updatedAt: new Date() })
       .where(eq(factsTable.id, factId));
 
     const totalImages = result.male.filter(Boolean).length +

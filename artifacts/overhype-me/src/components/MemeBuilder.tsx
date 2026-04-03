@@ -541,7 +541,7 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
       let baselineSlotPath: string | null = null;
       let baselineUpdatedAt: string | null = null;
       try {
-        const initRes = await fetch(`/api/facts/${factId}`, { credentials: "include" });
+        const initRes = await fetch(`/api/facts/${factId}`, { credentials: "include", cache: "no-store" });
         if (initRes.ok) {
           const init = await initRes.json() as { updatedAt?: string; aiMemeImages?: AiMemeImages | null };
           baselineSlotPath = init.aiMemeImages?.[aiGender]?.[0] ?? null;
@@ -568,7 +568,7 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
       const poll = async () => {
         polls++;
         try {
-          const factRes = await fetch(`/api/facts/${factId}`, { credentials: "include" });
+          const factRes = await fetch(`/api/facts/${factId}`, { credentials: "include", cache: "no-store" });
           if (factRes.ok) {
             const data = await factRes.json() as { updatedAt?: string; aiMemeImages?: AiMemeImages | null };
             const newSlotPath = data.aiMemeImages?.[aiGender]?.[0] ?? null;
