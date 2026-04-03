@@ -11,6 +11,7 @@
  */
 
 import { getOpenAIClient } from "@workspace/integrations-openai-ai-server";
+import { toFile } from "openai/core/uploads";
 import { ObjectStorageService } from "./objectStorage";
 import { db } from "@workspace/db";
 import { factsTable, userAiImagesTable } from "@workspace/db/schema";
@@ -173,6 +174,134 @@ async function trackUserAiImage(
   storagePath: string,
 ): Promise<void> {
   await db.insert(userAiImagesTable).values({ userId, factId, gender, storagePath });
+}
+
+// ─── Reference-photo image generation ────────────────────────────────────────
+
+/**
+ * Generates a single AI image using openai.images.edit with a reference photo.
+ * The reference photo is stylized into a cinematic meme background matching the scene prompt.
+ */
+async function generateAndStoreImageFromReference(
+  factId: number,
+  gender: "male" | "female" | "neutral",
+  uniqueKey: string,
+  prompt: string,
+  referenceBuffer: Buffer,
+): Promise<string> {
+  const openai = getOpenAIClient();
+
+  const referenceFile = await toFile(referenceBuffer, "reference.png", { type: "image/png" });
+
+  const editPrompt = `${prompt} — transform the provided reference photo into a cinematic meme background with dramatic lighting and high contrast. No text or letters.`;
+
+  const response = await (openai.images.edit as Function)({
+    model: "gpt-image-1",
+    image: referenceFile,
+    prompt: editPrompt,
+    n: 1,
+    size: "1024x1024",
+    quality: "low",
+    output_format: "png",
+  });
+
+  const imageData = response.data?.[0];
+  if (!imageData) throw new Error("No image data returned from OpenAI images.edit");
+
+  let imageBuffer: Buffer;
+  if (imageData.b64_json) {
+    imageBuffer = Buffer.from(imageData.b64_json, "base64");
+  } else if (imageData.url) {
+    const imgRes = await fetch(imageData.url);
+    if (!imgRes.ok) throw new Error(`Failed to fetch image from URL: ${imgRes.status}`);
+    imageBuffer = Buffer.from(await imgRes.arrayBuffer());
+  } else {
+    throw new Error("No image URL or b64_json in response");
+  }
+
+  const subPath = `ai_meme_${factId}_${gender}_ref_${uniqueKey}.png`;
+  const storedPath = await objectStorage.uploadObjectBuffer({
+    subPath,
+    buffer: imageBuffer,
+    contentType: "image/png",
+  });
+
+  try {
+    await objectStorage.trySetObjectEntityAclPolicy(storedPath, {
+      owner: "system",
+      visibility: "public",
+    });
+  } catch (aclErr) {
+    console.warn(`[aiMemePipeline] Failed to set ACL for ${storedPath}:`, aclErr);
+  }
+
+  return storedPath;
+}
+
+/**
+ * Generates a single AI meme background from a reference photo.
+ * Generates exactly 1 image for the given targetGender, prepended to aiMemeImages.
+ * Safe to call fire-and-forget: catches all errors internally.
+ */
+export async function generateAiMemeBackgroundFromReference(
+  factId: number,
+  factText: string,
+  referenceBuffer: Buffer,
+  targetGender: "male" | "female" | "neutral",
+  options?: {
+    existingPrompts?: AiScenePrompts;
+    existingImages?: AiMemeImages;
+    userId?: string;
+  },
+): Promise<void> {
+  try {
+    let prompts: AiScenePrompts;
+    if (options?.existingPrompts) {
+      prompts = options.existingPrompts;
+    } else {
+      console.log(`[aiMemePipeline] Generating scene prompts for fact ${factId} (reference mode)`);
+      prompts = await generateScenePrompts(factText);
+      await db
+        .update(factsTable)
+        .set({ aiScenePrompts: prompts })
+        .where(eq(factsTable.id, factId));
+    }
+
+    const result: AiMemeImages = {
+      male:    (options?.existingImages?.male    ?? []).filter(Boolean),
+      female:  (options?.existingImages?.female  ?? []).filter(Boolean),
+      neutral: (options?.existingImages?.neutral ?? []).filter(Boolean),
+    };
+
+    const uniqueKey = `${Date.now()}`;
+    const prompt = prompts[targetGender];
+    console.log(`[aiMemePipeline] Generating reference-based image for fact ${factId}, gender=${targetGender}`);
+    const storedPath = await generateAndStoreImageFromReference(factId, targetGender, uniqueKey, prompt, referenceBuffer);
+
+    result[targetGender].unshift(storedPath);
+
+    const maxPerGender = await getConfigInt("ai_max_images_per_gender", DEFAULT_MAX_IMAGES_PER_GENDER);
+    if (result[targetGender].length > maxPerGender) {
+      result[targetGender] = result[targetGender].slice(0, maxPerGender);
+    }
+
+    if (options?.userId) {
+      try {
+        await trackUserAiImage(options.userId, factId, targetGender, storedPath);
+      } catch (trackErr) {
+        console.warn(`[aiMemePipeline] Failed to track user image for ${options.userId}:`, trackErr);
+      }
+    }
+
+    await db
+      .update(factsTable)
+      .set({ aiMemeImages: result, updatedAt: new Date() })
+      .where(eq(factsTable.id, factId));
+
+    console.log(`[aiMemePipeline] fact ${factId}: reference-based AI image stored (gender=${targetGender})`);
+  } catch (err) {
+    console.error(`[aiMemePipeline] Reference generation failed for fact ${factId}:`, err);
+  }
 }
 
 // ─── Pipeline orchestration ───────────────────────────────────────────────────
