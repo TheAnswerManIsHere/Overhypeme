@@ -13,6 +13,7 @@ export const userAiImagesTable = pgTable("user_ai_images", {
   factId: integer("fact_id").notNull().references(() => factsTable.id, { onDelete: "cascade" }),
   gender: varchar("gender", { length: 10 }).notNull(),
   storagePath: text("storage_path").notNull(),
+  imageType: varchar("image_type", { length: 20 }).notNull().default("generic"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [
   index("IDX_uai_user_id").on(table.userId),

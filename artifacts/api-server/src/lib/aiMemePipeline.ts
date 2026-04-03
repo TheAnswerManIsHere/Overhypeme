@@ -172,8 +172,9 @@ async function trackUserAiImage(
   factId: number,
   gender: "male" | "female" | "neutral",
   storagePath: string,
+  imageType: "generic" | "reference" = "generic",
 ): Promise<void> {
-  await db.insert(userAiImagesTable).values({ userId, factId, gender, storagePath });
+  await db.insert(userAiImagesTable).values({ userId, factId, gender, storagePath, imageType });
 }
 
 // ─── Reference-photo image generation ────────────────────────────────────────
@@ -241,7 +242,8 @@ async function generateAndStoreImageFromReference(
 
 /**
  * Generates a single AI meme background from a reference photo.
- * Generates exactly 1 image for the given targetGender, prepended to aiMemeImages.
+ * Generates exactly 1 image for the given targetGender, stored ONLY in user_ai_images
+ * (with image_type='reference') so it does not pollute the shared fact-level aiMemeImages.
  * Safe to call fire-and-forget: catches all errors internally.
  */
 export async function generateAiMemeBackgroundFromReference(
@@ -251,11 +253,15 @@ export async function generateAiMemeBackgroundFromReference(
   targetGender: "male" | "female" | "neutral",
   options?: {
     existingPrompts?: AiScenePrompts;
-    existingImages?: AiMemeImages;
     userId?: string;
   },
 ): Promise<void> {
   try {
+    if (!options?.userId) {
+      console.warn(`[aiMemePipeline] Reference generation for fact ${factId} called without userId — skipping`);
+      return;
+    }
+
     let prompts: AiScenePrompts;
     if (options?.existingPrompts) {
       prompts = options.existingPrompts;
@@ -268,38 +274,19 @@ export async function generateAiMemeBackgroundFromReference(
         .where(eq(factsTable.id, factId));
     }
 
-    const result: AiMemeImages = {
-      male:    (options?.existingImages?.male    ?? []).filter(Boolean),
-      female:  (options?.existingImages?.female  ?? []).filter(Boolean),
-      neutral: (options?.existingImages?.neutral ?? []).filter(Boolean),
-    };
-
     const uniqueKey = `${Date.now()}`;
     const prompt = prompts[targetGender];
     console.log(`[aiMemePipeline] Generating reference-based image for fact ${factId}, gender=${targetGender}`);
     const storedPath = await generateAndStoreImageFromReference(factId, targetGender, uniqueKey, prompt, referenceBuffer);
 
-    result[targetGender].unshift(storedPath);
-
-    const maxPerGender = await getConfigInt("ai_max_images_per_gender", DEFAULT_MAX_IMAGES_PER_GENDER);
-    if (result[targetGender].length > maxPerGender) {
-      result[targetGender] = result[targetGender].slice(0, maxPerGender);
+    // Track only in user_ai_images (type='reference') — NOT in the shared aiMemeImages on the fact
+    try {
+      await trackUserAiImage(options.userId, factId, targetGender, storedPath, "reference");
+    } catch (trackErr) {
+      console.warn(`[aiMemePipeline] Failed to track reference image for user ${options.userId}:`, trackErr);
     }
 
-    if (options?.userId) {
-      try {
-        await trackUserAiImage(options.userId, factId, targetGender, storedPath);
-      } catch (trackErr) {
-        console.warn(`[aiMemePipeline] Failed to track user image for ${options.userId}:`, trackErr);
-      }
-    }
-
-    await db
-      .update(factsTable)
-      .set({ aiMemeImages: result, updatedAt: new Date() })
-      .where(eq(factsTable.id, factId));
-
-    console.log(`[aiMemePipeline] fact ${factId}: reference-based AI image stored (gender=${targetGender})`);
+    console.log(`[aiMemePipeline] fact ${factId}: reference-based AI image stored for user ${options.userId} (gender=${targetGender})`);
   } catch (err) {
     console.error(`[aiMemePipeline] Reference generation failed for fact ${factId}:`, err);
   }

@@ -74,6 +74,18 @@ export default function Profile() {
     staleTime: 30_000,
   });
 
+  interface AiImageItem { id: number; factId: number; gender: string; storagePath: string; imageType: string; createdAt: string; }
+  const { data: aiImagesData, isLoading: isAiImagesLoading } = useQuery<{ images: AiImageItem[] }>({
+    queryKey: ["my-ai-images"],
+    queryFn: async () => {
+      const res = await fetch(`${BASE_URL}api/users/me/ai-images?imageType=reference`, { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to fetch AI images");
+      return res.json() as Promise<{ images: AiImageItem[] }>;
+    },
+    enabled: isAuthenticated && activeTab === "images",
+    staleTime: 30_000,
+  });
+
   type MyMemeItem = {
     id: number;
     factId: number;
@@ -769,6 +781,40 @@ export default function Profile() {
                   <p className="text-muted-foreground text-lg font-medium mb-2">No images uploaded yet.</p>
                   <p className="text-muted-foreground text-sm mb-6">Upload a custom photo in the meme builder and it will appear here for easy reuse.</p>
                   <Link href="/"><Button variant="outline">GO TO MEME BUILDER</Button></Link>
+                </div>
+              )}
+
+              {/* AI-Generated Reference Backgrounds section */}
+              {(isAiImagesLoading || (aiImagesData && aiImagesData.images.length > 0)) && (
+                <div className="mt-10">
+                  <h3 className="text-lg font-display uppercase tracking-wider text-foreground mb-1">AI Reference Backgrounds</h3>
+                  <p className="text-sm text-muted-foreground mb-6">Images generated from your reference photos in the meme builder.</p>
+                  {isAiImagesLoading ? (
+                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
+                      {Array.from({ length: 4 }).map((_, i) => (
+                        <div key={i} className="aspect-square bg-card border-2 border-border rounded-sm animate-pulse" />
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
+                      {aiImagesData!.images.map((img) => {
+                        const imgUrl = `${BASE_URL}api/memes/ai-user/image?storagePath=${encodeURIComponent(img.storagePath)}`;
+                        return (
+                          <div key={img.id} className="group relative aspect-square bg-card border-2 border-border rounded-sm overflow-hidden">
+                            <img
+                              src={imgUrl}
+                              alt="AI reference background"
+                              className="w-full h-full object-cover"
+                              loading="lazy"
+                            />
+                            <div className="absolute bottom-0 left-0 right-0 bg-black/50 px-1.5 py-0.5">
+                              <span className="text-[10px] text-white/70 uppercase tracking-wider">{img.gender}</span>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
               )}
             </div>
