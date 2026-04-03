@@ -259,13 +259,15 @@ router.get("/users/me/uploads", async (req: Request, res: Response) => {
     return;
   }
 
+  const displayLimit = await getConfigInt("upload_gallery_display_limit", 50);
+
   const [rows, countResult, maxUploads] = await Promise.all([
     db.execute(sql`
       SELECT object_path, width, height, is_low_res, file_size_bytes, created_at
       FROM upload_image_metadata
       WHERE user_id = ${req.user.id}
       ORDER BY created_at DESC
-      LIMIT 50
+      LIMIT ${displayLimit}
     `),
     db.execute(sql`
       SELECT COUNT(*)::integer AS total
@@ -293,7 +295,7 @@ router.get("/users/me/uploads", async (req: Request, res: Response) => {
 
   const uploadCount = (countResult.rows[0] as { total: number } | undefined)?.total ?? 0;
 
-  res.json({ uploads, uploadCount, maxUploads });
+  res.json({ uploads, uploadCount, maxUploads, displayLimit });
 });
 
 // GET /users/me/memes — list all non-deleted memes created by the current user

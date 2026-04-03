@@ -390,6 +390,7 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
   const [uploadGallery, setUploadGallery] = useState<UploadEntry[]>([]);
   const [uploadGalleryCount, setUploadGalleryCount] = useState(0);
   const [uploadGalleryMax, setUploadGalleryMax] = useState(1000);
+  const [uploadGalleryDisplayLimit, setUploadGalleryDisplayLimit] = useState(50);
   const [isLoadingGallery, setIsLoadingGallery] = useState(false);
   // The URL to use for canvas preview — local blob URL for new uploads, storage URL for gallery picks
   const [uploadDisplayUrl, setUploadDisplayUrl] = useState<string | null>(null);
@@ -992,10 +993,11 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
       // Refresh gallery so the newly uploaded image appears in the grid
       fetch("/api/users/me/uploads", { credentials: "include" })
         .then(r => r.json())
-        .then((data: { uploads?: UploadEntry[]; uploadCount?: number; maxUploads?: number }) => {
+        .then((data: { uploads?: UploadEntry[]; uploadCount?: number; maxUploads?: number; displayLimit?: number }) => {
           setUploadGallery(data.uploads ?? []);
           setUploadGalleryCount(data.uploadCount ?? 0);
           setUploadGalleryMax(data.maxUploads ?? 1000);
+          if (data.displayLimit) setUploadGalleryDisplayLimit(data.displayLimit);
         })
         .catch(() => {});
     } catch (e) {
@@ -1035,11 +1037,12 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
     setIsLoadingGallery(true);
     fetch("/api/users/me/uploads", { credentials: "include" })
       .then(r => r.json())
-      .then((data: { uploads?: UploadEntry[]; uploadCount?: number; maxUploads?: number }) => {
+      .then((data: { uploads?: UploadEntry[]; uploadCount?: number; maxUploads?: number; displayLimit?: number }) => {
         if (cancelled) return;
         setUploadGallery(data.uploads ?? []);
         setUploadGalleryCount(data.uploadCount ?? 0);
         setUploadGalleryMax(data.maxUploads ?? 1000);
+        if (data.displayLimit) setUploadGalleryDisplayLimit(data.displayLimit);
       })
       .catch(() => {})
       .finally(() => { if (!cancelled) setIsLoadingGallery(false); });
@@ -1799,6 +1802,9 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
                             </p>
                             {!isLoadingGallery && (
                               <p className="text-[10px] text-muted-foreground tabular-nums">
+                                {uploadGalleryCount > uploadGalleryDisplayLimit
+                                  ? `showing ${uploadGalleryDisplayLimit} of ${uploadGalleryCount} · `
+                                  : ""}
                                 {uploadGalleryCount} / {uploadGalleryMax}
                               </p>
                             )}

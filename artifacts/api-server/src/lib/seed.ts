@@ -190,6 +190,14 @@ export async function ensureSchema(): Promise<void> {
          1, 500, false)
       ON CONFLICT (key) DO NOTHING`,
     },
+    {
+      label: "admin_config seed upload_gallery_display_limit",
+      ddl: `INSERT INTO admin_config (key, value, data_type, label, description, min_value, max_value, is_public)
+        VALUES ('upload_gallery_display_limit', '50', 'integer', 'Upload Gallery Display Limit',
+         'Maximum number of uploaded images shown in the Meme Builder reference photo picker. Does not affect storage — users can still upload up to their storage limit.',
+         1, 500, true)
+      ON CONFLICT (key) DO NOTHING`,
+    },
   ];
 
   for (const { label, ddl } of migrations) {
