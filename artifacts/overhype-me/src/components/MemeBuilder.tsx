@@ -326,6 +326,25 @@ interface MemeBuilderProps {
   onClose: () => void;
 }
 
+/** Renders an auth-protected image URL by fetching it via the global auth interceptor and creating a blob URL. */
+function AuthenticatedImage({ src, alt, className, loading, onError }: {
+  src: string; alt?: string; className?: string; loading?: "lazy" | "eager"; onError?: React.EventHandler<React.SyntheticEvent<HTMLImageElement>>;
+}) {
+  const [blobUrl, setBlobUrl] = useState<string | null>(null);
+  useEffect(() => {
+    if (!src) return;
+    let url: string | null = null;
+    fetch(src, { credentials: "include" })
+      .then(r => r.ok ? r.blob() : null)
+      .then(blob => {
+        if (blob) { url = URL.createObjectURL(blob); setBlobUrl(url); }
+      })
+      .catch(() => {});
+    return () => { if (url) URL.revokeObjectURL(url); };
+  }, [src]);
+  return <img src={blobUrl ?? undefined} alt={alt} className={className} loading={loading} onError={onError} />;
+}
+
 export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMemeImages, onClose }: MemeBuilderProps) {
   const { isAuthenticated, login, role, user } = useAuth();
   const isPremium = role === "premium" || role === "admin";
@@ -869,11 +888,30 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
     }
 
     setIsBgLoading(true);
-    const img = new Image();
-    img.crossOrigin = "anonymous";
-    img.onload = () => { setBgImage(img); setIsBgLoading(false); };
-    img.onerror = () => { setBgImage(null); setIsBgLoading(false); };
-    img.src = photoUrl;
+    let blobUrl: string | null = null;
+
+    if (photoUrl.includes("/api/memes/ai-user/image")) {
+      // Auth-protected route — must fetch via the auth interceptor, then load as blob URL
+      fetch(photoUrl, { credentials: "include" })
+        .then(r => r.ok ? r.blob() : null)
+        .then(blob => {
+          if (!blob) { setBgImage(null); setIsBgLoading(false); return; }
+          blobUrl = URL.createObjectURL(blob);
+          const img = new Image();
+          img.onload = () => { setBgImage(img); setIsBgLoading(false); };
+          img.onerror = () => { setBgImage(null); setIsBgLoading(false); };
+          img.src = blobUrl;
+        })
+        .catch(() => { setBgImage(null); setIsBgLoading(false); });
+    } else {
+      const img = new Image();
+      img.crossOrigin = "anonymous";
+      img.onload = () => { setBgImage(img); setIsBgLoading(false); };
+      img.onerror = () => { setBgImage(null); setIsBgLoading(false); };
+      img.src = photoUrl;
+    }
+
+    return () => { if (blobUrl) URL.revokeObjectURL(blobUrl); };
   }, [imageMode, stockPhoto, uploadDisplayUrl, aiSelectedUrl]);
 
   const [prefetchedPhotos, setPrefetchedPhotos] = useState<PexelsPhotoEntry[]>(() => {
@@ -1813,13 +1851,11 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
                                         }`}
                                         onClick={() => setSelectedRefGenPath(img.storagePath)}
                                       >
-                                        <img
+                                        <AuthenticatedImage
                                           src={getRefAiThumbnailUrl(img.storagePath)}
                                           alt={`Reference AI option ${displayIdx + 1}`}
                                           className="w-full h-full object-cover"
                                           loading="lazy"
-                                          crossOrigin="anonymous"
-                                          onError={e => { (e.target as HTMLImageElement).style.display = "none"; }}
                                         />
                                         {selectedRefGenPath === img.storagePath && (
                                           <span className="absolute top-0.5 right-0.5 w-2 h-2 bg-primary rounded-full border border-white" />
