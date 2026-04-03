@@ -1,0 +1,32 @@
+Now we need to persist generated videos and prevent abuse. Right now every generated video is fire-and-forget — if the user refreshes the page, the video is gone. And there’s nothing stopping someone from hammering the endpoint and running up your fal.ai bill.
+Here’s the next prompt:
+
+Persist generated videos in the database and add basic rate limiting.
+Database: Video jobs table
+Create a table to store video generation records with these fields:
+	∙	id (primary key)
+	∙	factId (references the fact/meme this video was generated for)
+	∙	imageUrl (the source image that was sent to fal.ai)
+	∙	videoUrl (the URL returned by fal.ai after generation completes)
+	∙	status (enum: pending, completed, failed)
+	∙	createdAt (timestamp)
+	∙	ipAddress (the requester’s IP — we’ll use this for rate limiting until we have user accounts wired in)
+Backend changes to /api/videos/generate:
+	1.	Before calling fal.ai, create a record in the videos table with status pending
+	2.	After fal.ai returns successfully, update the record to completed and store the videoUrl
+	3.	If fal.ai fails, update the record to failed
+	4.	Return the video record (including its id) in the response
+Add a GET endpoint /api/videos/:factId:
+	∙	Returns all completed videos for a given fact, ordered by newest first
+	∙	This lets us show previously generated videos without re-generating them
+Rate limiting:
+	∙	Before creating a new video job, count how many videos this IP address has generated in the last 24 hours
+	∙	If the count is >= 3, reject the request with a 429 status and a message like “You’ve reached the daily video generation limit. Create an account to generate more.”
+	∙	This is a temporary abuse-prevention measure — we’ll replace IP-based limiting with account-based quotas later
+Frontend changes:
+	∙	When a fact/meme loads, call GET /api/videos/:factId to check if videos already exist for it
+	∙	If they do, show the most recent video immediately (no need to regenerate)
+	∙	Still allow the user to click “Generate Video” to create a new one (subject to rate limits)
+	∙	If rate limited, show the 429 message to the user
+
+After this lands, check two things: first, that the pending → completed status update actually happens inside a try/catch so failures get recorded as failed rather than staying pending forever. Second, that the IP address being captured is the real client IP and not 127.0.0.1 — on Replit the real IP is usually in the x-forwarded-for header.​​​​​​​​​​​​​​​​
