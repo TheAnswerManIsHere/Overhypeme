@@ -272,6 +272,12 @@ function ModeTab({
 
 // ─── Main component ────────────────────────────────────────────────────────────
 
+type VideoState =
+  | { status: "idle" }
+  | { status: "generating" }
+  | { status: "done"; url: string }
+  | { status: "error"; message: string };
+
 interface PexelsPhotoSrc {
   original: string;
   large2x: string;
@@ -541,6 +547,9 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
   const [refUploads, setRefUploads] = useState<UploadEntry[]>([]);
   const [isLoadingRefUploads, setIsLoadingRefUploads] = useState(false);
   const [isUploadingRefPhoto, setIsUploadingRefPhoto] = useState(false);
+
+  // Video generation state
+  const [videoState, setVideoState] = useState<VideoState>({ status: "idle" });
 
   // Sync localAiMemeImages when prop changes
   useEffect(() => {
