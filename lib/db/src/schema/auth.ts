@@ -19,6 +19,9 @@ export const usersTable = pgTable("users", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   email: varchar("email").unique(),
   pendingEmail: varchar("pending_email"),
+  // Used for billing (Stripe customer name on invoices) and order fulfillment
+  // (Zazzle shipping/personalization). Distinct from displayName, which is a
+  // public-facing display alias. These should reflect the user's legal name.
   firstName: varchar("first_name"),
   lastName: varchar("last_name"),
   displayName: varchar("display_name"),

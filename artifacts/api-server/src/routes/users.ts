@@ -48,6 +48,8 @@ router.get("/users/me", async (req: Request, res: Response) => {
     .select({
       email: usersTable.email,
       pendingEmail: usersTable.pendingEmail,
+      firstName: usersTable.firstName,
+      lastName: usersTable.lastName,
       displayName: usersTable.displayName,
       pronouns: usersTable.pronouns,
       profileImageUrl: usersTable.profileImageUrl,
@@ -91,6 +93,9 @@ router.get("/users/me", async (req: Request, res: Response) => {
     email: userRow?.email ?? null,
     pendingEmail: userRow?.pendingEmail ?? null,
     emailVerified: userRow?.emailVerifiedAt !== null && userRow?.emailVerifiedAt !== undefined,
+    // Billing/fulfillment name fields (used for Stripe invoices and Zazzle orders)
+    firstName: userRow?.firstName ?? null,
+    lastName: userRow?.lastName ?? null,
     displayName: userRow?.displayName ?? null,
     pronouns: userRow?.pronouns ?? null,
     profileImageUrl: userRow?.profileImageUrl ?? null,
@@ -107,8 +112,10 @@ router.patch("/users/me", async (req: Request, res: Response) => {
   if (!req.isAuthenticated()) { res.status(401).json({ error: "Unauthorized" }); return; }
   const userId = req.user.id;
 
-  const { displayName, pronouns, email, profileImageUrl, avatarStyle } = req.body as {
+  const { displayName, firstName, lastName, pronouns, email, profileImageUrl, avatarStyle } = req.body as {
     displayName?: string;
+    firstName?: string;
+    lastName?: string;
     pronouns?: string;
     email?: string;
     profileImageUrl?: string;
@@ -124,6 +131,19 @@ router.patch("/users/me", async (req: Request, res: Response) => {
     if (!trimmed) { res.status(400).json({ error: "Display name cannot be empty" }); return; }
     if (trimmed.length > 80) { res.status(400).json({ error: "Display name must be 80 characters or fewer" }); return; }
     updates.displayName = trimmed;
+  }
+
+  // Billing/fulfillment name fields (used for Stripe invoices and Zazzle orders)
+  if (firstName !== undefined) {
+    const trimmed = typeof firstName === "string" ? firstName.trim() : "";
+    if (trimmed.length > 80) { res.status(400).json({ error: "First name must be 80 characters or fewer" }); return; }
+    updates.firstName = trimmed || null;
+  }
+
+  if (lastName !== undefined) {
+    const trimmed = typeof lastName === "string" ? lastName.trim() : "";
+    if (trimmed.length > 80) { res.status(400).json({ error: "Last name must be 80 characters or fewer" }); return; }
+    updates.lastName = trimmed || null;
   }
 
   if (avatarStyle !== undefined) {

@@ -898,8 +898,6 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
   }, []);
 
   const fetchStockPhoto = useCallback(async (gender: StockGender) => {
-    if (!isAuthenticated) return;
-
     const variant = GENDER_TO_VARIANT[gender];
     const raw = pexelsImages?.[variant] ?? [];
     if (raw.length > 0) {
@@ -909,6 +907,8 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
       selectPrefetchedPhoto(first, 0);
       return;
     }
+
+    if (!isAuthenticated) return;
 
     setIsLoadingStock(true);
     setStockError(null);
@@ -931,11 +931,9 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
   useEffect(() => {
     if (!stockGender) {
       setStockGender(inferredGender);
-      if (isAuthenticated) {
-        fetchStockPhoto(inferredGender);
-      }
+      fetchStockPhoto(inferredGender);
     }
-  }, [isAuthenticated, stockGender, inferredGender, fetchStockPhoto]);
+  }, [stockGender, inferredGender, fetchStockPhoto]);
 
   const handleBackfillAllImages = useCallback(async () => {
     if (isBackfilling) return;
