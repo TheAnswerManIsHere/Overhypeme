@@ -391,8 +391,8 @@ export function ImageCard({
     >
       {clickableArea}
 
-      {/* Kebab button — top-right, non-compact only */}
-      {!compact && hasActions && !confirmingDelete && (
+      {/* Kebab button — top-right, always shown when there are actions */}
+      {hasActions && !confirmingDelete && (
         <button
           ref={kebabRef}
           aria-label="Image actions"
