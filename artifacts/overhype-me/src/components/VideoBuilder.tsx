@@ -184,6 +184,11 @@ export function VideoBuilder({ factId, factText, onClose }: VideoBuilderProps) {
     setGenericBase64(renderFactImage(factText));
   }, [factText]);
 
+  // Clear stale video state when the source image changes
+  useEffect(() => {
+    setVideoState({ status: "idle" });
+  }, [sourceMode, selectedObjectPath]);
+
   // Cleanup blob URLs on unmount
   useEffect(() => {
     return () => {
@@ -296,7 +301,7 @@ export function VideoBuilder({ factId, factText, onClose }: VideoBuilderProps) {
     } catch (e) {
       setUploadErrorMsg(e instanceof Error ? e.message : "Upload failed");
       setUploadFile(null);
-      if (uploadLocalUrl) URL.revokeObjectURL(uploadLocalUrl);
+      URL.revokeObjectURL(localUrl);
       setUploadLocalUrl(null);
     } finally {
       setIsUploadingFile(false);
