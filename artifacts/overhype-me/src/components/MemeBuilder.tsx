@@ -359,7 +359,7 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
   }, [pronouns]);
 
   // Image source state
-  const [imageMode, setImageMode] = useState<ImageMode>("gradient");
+  const [imageMode, setImageMode] = useState<ImageMode>("stock");
   const [selectedTemplate, setSelectedTemplate] = useState("action");
   const [stockGender, setStockGender] = useState<StockGender | null>(null);
   const [stockPhoto, setStockPhoto] = useState<StockPhoto | null>(null);
@@ -832,6 +832,13 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
     }
   }, [isAuthenticated, pexelsImages, selectPrefetchedPhoto]);
 
+  useEffect(() => {
+    if (isAuthenticated && !stockGender) {
+      setStockGender(inferredGender);
+      fetchStockPhoto(inferredGender);
+    }
+  }, [isAuthenticated, stockGender, inferredGender, fetchStockPhoto]);
+
   const handleBackfillAllImages = useCallback(async () => {
     if (isBackfilling) return;
     setIsBackfilling(true);
@@ -1141,12 +1148,6 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
                 {/* Mode tabs */}
                 <div className="flex border-b border-border mb-4">
                   <ModeTab
-                    active={imageMode === "gradient"}
-                    onClick={() => setImageMode("gradient")}
-                  >
-                    Gradient
-                  </ModeTab>
-                  <ModeTab
                     active={imageMode === "stock"}
                     onClick={() => {
                       setImageMode("stock");
@@ -1157,6 +1158,12 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
                     }}
                   >
                     Stock Photo
+                  </ModeTab>
+                  <ModeTab
+                    active={imageMode === "gradient"}
+                    onClick={() => setImageMode("gradient")}
+                  >
+                    Gradient
                   </ModeTab>
                   <ModeTab
                     active={imageMode === "ai"}
