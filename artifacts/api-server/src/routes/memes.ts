@@ -20,6 +20,7 @@ import { compositeAiMeme } from "../lib/aiMemeCompositor";
 import { generateAiMemeBackgrounds, generateAiMemeBackgroundFromReference, isUserAtImageLimit } from "../lib/aiMemePipeline";
 import type { AiMemeImages } from "../lib/aiMemePipeline";
 import { requirePremium } from "../middlewares/premiumMiddleware";
+import { requireAdmin } from "./admin";
 import { getUploadImageMetadata } from "./storage";
 import { CACHE, setPublicCache, setPublicCors, checkConditional, setNoStore } from "../lib/cacheHeaders";
 
@@ -716,8 +717,8 @@ router.put("/facts/:factId/ai-meme-preference", async (req: Request, res: Respon
   res.json({ success: true, aiMemeImageIndex });
 });
 
-// GET /memes/ai/:factId/prompts — return stored scene prompts for debugging (premium only)
-router.get("/memes/ai/:factId/prompts", requirePremium, async (req: Request, res: Response) => {
+// GET /memes/ai/:factId/prompts — return stored scene prompts for debugging (admin only)
+router.get("/memes/ai/:factId/prompts", requireAdmin, async (req: Request, res: Response) => {
   const factId = parseInt(String(req.params["factId"] ?? ""), 10);
   if (isNaN(factId)) { res.status(400).json({ error: "Invalid factId" }); return; }
   const [fact] = await db
