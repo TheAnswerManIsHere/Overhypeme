@@ -393,6 +393,7 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
   const [uploadGalleryDisplayLimit, setUploadGalleryDisplayLimit] = useState(50);
   const [isLoadingGallery, setIsLoadingGallery] = useState(false);
   const [deletingUploadPath, setDeletingUploadPath] = useState<string | null>(null);
+  const [confirmingDeletePath, setConfirmingDeletePath] = useState<string | null>(null);
   // The URL to use for canvas preview — local blob URL for new uploads, storage URL for gallery picks
   const [uploadDisplayUrl, setUploadDisplayUrl] = useState<string | null>(null);
 
@@ -1857,13 +1858,18 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
                               {uploadGallery.map((entry) => {
                                 const isSelected = uploadObjectPath === entry.objectPath && !uploadFile;
                                 const isDeleting = deletingUploadPath === entry.objectPath;
+                                const isConfirming = confirmingDeletePath === entry.objectPath;
                                 return (
                                   <div key={entry.objectPath} className="relative">
                                     <button
-                                      onClick={() => !isDeleting && selectExistingUpload(entry)}
+                                      onClick={() => {
+                                        if (isDeleting) return;
+                                        if (isConfirming) { setConfirmingDeletePath(null); return; }
+                                        selectExistingUpload(entry);
+                                      }}
                                       disabled={isDeleting}
                                       className={`relative w-full aspect-video overflow-hidden border-2 transition-all ${
-                                        isSelected
+                                        isSelected && !isConfirming
                                           ? "border-primary"
                                           : "border-transparent hover:border-primary/50"
                                       } ${isDeleting ? "opacity-40" : ""}`}
@@ -1875,29 +1881,54 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
                                         className="w-full h-full object-cover"
                                         loading="lazy"
                                       />
-                                      {isSelected && (
+                                      {isSelected && !isConfirming && (
                                         <div className="absolute inset-0 bg-primary/20 flex items-center justify-center">
                                           <CheckCircle className="w-4 h-4 text-primary drop-shadow" />
                                         </div>
                                       )}
-                                      {entry.isLowRes && (
+                                      {entry.isLowRes && !isConfirming && (
                                         <div className="absolute bottom-0 left-0 right-0 bg-amber-400/80 text-[8px] font-bold text-black text-center leading-tight py-0.5">
                                           LOW RES
                                         </div>
                                       )}
                                     </button>
-                                    <button
-                                      onClick={(e) => { e.stopPropagation(); void deleteUpload(entry.objectPath); }}
-                                      disabled={isDeleting}
-                                      className="absolute top-0.5 right-0.5 z-10 w-5 h-5 rounded-full bg-black/60 flex items-center justify-center text-white hover:bg-red-600 transition-colors disabled:cursor-not-allowed"
-                                      title="Delete image"
-                                      aria-label="Delete image"
-                                    >
-                                      {isDeleting
-                                        ? <Loader2 className="w-2.5 h-2.5 animate-spin" />
-                                        : <X className="w-2.5 h-2.5" />
-                                      }
-                                    </button>
+
+                                    {/* Delete button — always visible */}
+                                    {!isConfirming && (
+                                      <button
+                                        onClick={(e) => { e.stopPropagation(); setConfirmingDeletePath(entry.objectPath); }}
+                                        disabled={isDeleting}
+                                        className="absolute top-0.5 right-0.5 z-10 w-5 h-5 rounded-full bg-black/60 flex items-center justify-center text-white hover:bg-red-600 transition-colors disabled:cursor-not-allowed"
+                                        title="Delete image"
+                                        aria-label="Delete image"
+                                      >
+                                        {isDeleting
+                                          ? <Loader2 className="w-2.5 h-2.5 animate-spin" />
+                                          : <X className="w-2.5 h-2.5" />
+                                        }
+                                      </button>
+                                    )}
+
+                                    {/* Inline confirmation overlay */}
+                                    {isConfirming && (
+                                      <div className="absolute inset-0 z-20 bg-black/75 flex flex-col items-center justify-center gap-1.5 p-1">
+                                        <span className="text-[9px] font-bold text-white uppercase tracking-wide">Delete?</span>
+                                        <div className="flex gap-1">
+                                          <button
+                                            onClick={(e) => { e.stopPropagation(); setConfirmingDeletePath(null); }}
+                                            className="px-2 py-0.5 text-[9px] font-semibold rounded bg-white/20 text-white hover:bg-white/30 transition-colors"
+                                          >
+                                            Cancel
+                                          </button>
+                                          <button
+                                            onClick={(e) => { e.stopPropagation(); setConfirmingDeletePath(null); void deleteUpload(entry.objectPath); }}
+                                            className="px-2 py-0.5 text-[9px] font-semibold rounded bg-red-600 text-white hover:bg-red-500 transition-colors"
+                                          >
+                                            Delete
+                                          </button>
+                                        </div>
+                                      </div>
+                                    )}
                                   </div>
                                 );
                               })}
