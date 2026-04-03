@@ -1278,6 +1278,7 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
       setPermalinkSlug(result.permalinkSlug);
       setStatus("done");
       queryClient.invalidateQueries({ queryKey: ["listFactMemes", factId] });
+      queryClient.invalidateQueries({ queryKey: ["profile-my-memes"] });
     } catch (e) {
       setErrorMsg(e instanceof Error ? e.message : "Something went wrong");
       setStatus("error");
