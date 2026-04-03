@@ -327,12 +327,6 @@ export function ImageCard({
     finally { setDeleting(false); setConfirmingDelete(false); }
   }, [onDelete, toast]);
 
-  // compact thumbnails: action bar is always visible
-  // non-compact: only appears on desktop hover
-  const showActionBar = compact
-    ? hasActions && !confirmingDelete
-    : !isMobile && isHovered && !confirmingDelete && !menuOpen;
-
   const visibleActions = actions.filter(a => {
     if (a === "delete" && !onDelete) return false;
     if (a === "copyLink" && !permalink) return false;
@@ -340,6 +334,12 @@ export function ImageCard({
   });
 
   const hasActions = visibleActions.length > 0;
+
+  // compact thumbnails: action bar is always visible
+  // non-compact: only appears on desktop hover
+  const showActionBar = compact
+    ? hasActions && !confirmingDelete
+    : !isMobile && isHovered && !confirmingDelete && !menuOpen;
 
   const imageEl = displaySrc ? (
     <img
