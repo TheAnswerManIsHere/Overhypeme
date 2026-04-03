@@ -361,6 +361,8 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
 
   // Image source state
   const [imageMode, setImageMode] = useState<ImageMode>("stock");
+  const [thumbSize, setThumbSize] = useState(40); // 0–100 slider value
+  const thumbPx = Math.round(70 + (thumbSize / 100) * (290 - 70)); // 70px–290px
   const [selectedTemplate, setSelectedTemplate] = useState("action");
   const [stockGender, setStockGender] = useState<StockGender | null>(null);
   const [stockPhoto, setStockPhoto] = useState<StockPhoto | null>(null);
@@ -555,6 +557,20 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
       }
     };
   }, []);
+
+  // Load most recent completed video on open
+  useEffect(() => {
+    setVideoState({ status: "idle" });
+    fetch(`/api/videos/${factId}`, { credentials: "include" })
+      .then(r => r.json())
+      .then((data: { videos?: Array<{ id: number; videoUrl: string | null }> }) => {
+        const latest = data.videos?.[0];
+        if (latest?.videoUrl) {
+          setVideoState({ status: "done", url: latest.videoUrl });
+        }
+      })
+      .catch(() => {});
+  }, [factId]);
 
   // The AI image slots for the current gender variant — newest-first, up to the admin-configured limit shown in gallery.
   // Each slot tracks path + original array index so the API imageIndex param remains correct
@@ -1267,6 +1283,41 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
     link.click();
   };
 
+  const handleGenerateVideo = async () => {
+    if (videoState.status === "generating") return;
+
+    if (!canvasRef.current) {
+      setVideoState({ status: "error", message: "No meme preview available for video generation." });
+      return;
+    }
+
+    setVideoState({ status: "generating" });
+
+    const imageBase64 = canvasRef.current.toDataURL("image/jpeg", 0.85);
+
+    try {
+      const res = await fetch("/api/videos/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ imageBase64, factId }),
+      });
+      const body = await res.json() as { videoUrl?: string; error?: string };
+      if (res.status === 429) {
+        setVideoState({ status: "error", message: body.error ?? "Rate limit exceeded. You have generated too many videos in the past 24 hours." });
+        return;
+      }
+      if (!res.ok || !body.videoUrl) {
+        setVideoState({ status: "error", message: body.error ?? "Video generation failed. Please try again." });
+        return;
+      }
+      setVideoState({ status: "done", url: body.videoUrl });
+    } catch {
+      setVideoState({ status: "error", message: "Network error. Please check your connection and try again." });
+    }
+  };
+
+
   const templates = tplData?.templates ?? [];
 
   // ── Render ───────────────────────────────────────────────────────
@@ -1360,9 +1411,24 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
                   </ModeTab>
                 </div>
 
+                {/* Thumbnail size slider — shown for all image modes */}
+                <div className="flex items-center gap-2 py-1">
+                  <svg xmlns="http://www.w3.org/2000/svg" className="w-3 h-3 text-muted-foreground shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 9h6v6H9z"/></svg>
+                  <input
+                    type="range"
+                    min={0}
+                    max={100}
+                    value={thumbSize}
+                    onChange={e => setThumbSize(Number(e.target.value))}
+                    className="flex-1 h-1 accent-primary cursor-pointer"
+                    aria-label="Thumbnail size"
+                  />
+                  <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4 text-muted-foreground shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/></svg>
+                </div>
+
                 {/* Gradient mode: template picker */}
                 {imageMode === "gradient" && (
-                  <div className="grid grid-cols-5 gap-2">
+                  <div className="grid gap-2" style={{ gridTemplateColumns: `repeat(auto-fill, minmax(${thumbPx}px, 1fr))` }}>
                     {templates.map(tpl => {
                       const stops = GRADIENT_DEFS[tpl.id];
                       const from = stops?.[0]?.[0] ?? "#000";
@@ -1408,7 +1474,7 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
                         <p className="text-[10px] font-display uppercase tracking-widest text-muted-foreground">
                           Matched photos for this fact
                         </p>
-                        <div className="grid grid-cols-5 gap-1.5">
+                        <div className="grid gap-1.5" style={{ gridTemplateColumns: `repeat(auto-fill, minmax(${thumbPx}px, 1fr))` }}>
                           {prefetchedPhotos.map((photo, i) => (
                             <button
                               key={photo.id}
@@ -1559,7 +1625,7 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
                                 </span>
                               )}
                             </p>
-                            <div className="grid grid-cols-5 gap-1.5">
+                            <div className="grid gap-1.5" style={{ gridTemplateColumns: `repeat(auto-fill, minmax(${thumbPx}px, 1fr))` }}>
                               {aiImageSlots.map((slot, displayIdx) => {
                                 const isDeleting = deletingAiImageOrigIdx === slot.origIdx;
                                 const isConfirming = confirmingAiImageOrigIdx === slot.origIdx;
@@ -1661,7 +1727,7 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
                                 <Loader2 className="w-4 h-4 text-muted-foreground animate-spin" />
                               </div>
                             ) : (
-                              <div className="grid grid-cols-3 gap-1.5 max-h-40 overflow-y-auto pr-0.5">
+                              <div className="grid gap-1.5 max-h-40 overflow-y-auto pr-0.5" style={{ gridTemplateColumns: `repeat(auto-fill, minmax(${thumbPx}px, 1fr))` }}>
                                 {/* Upload New tile */}
                                 <button
                                   onClick={() => refFileInputRef.current?.click()}
@@ -1884,7 +1950,7 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
                               No uploads yet. Drop an image above to get started.
                             </p>
                           ) : (
-                            <div className="grid grid-cols-3 gap-1.5 max-h-52 overflow-y-auto pr-0.5">
+                            <div className="grid gap-1.5 max-h-52 overflow-y-auto pr-0.5" style={{ gridTemplateColumns: `repeat(auto-fill, minmax(${thumbPx}px, 1fr))` }}>
                               {uploadGallery.map((entry) => {
                                 const isSelected = uploadObjectPath === entry.objectPath && !uploadFile;
                                 const isDeleting = deletingUploadPath === entry.objectPath;

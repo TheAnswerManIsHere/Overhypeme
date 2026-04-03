@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRoute, Link } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { useGetFact, getGetFactQueryKey } from "@workspace/api-client-react";
@@ -19,8 +19,19 @@ type MemeData = {
   createdByName: string | null;
 };
 
+type VideoJob = {
+  id: number;
+  factId: number;
+  imageUrl: string;
+  videoUrl: string | null;
+  status: "pending" | "completed" | "failed";
+  ipAddress: string;
+  createdAt: string;
+};
+
 type VideoState =
   | { status: "idle" }
+  | { status: "loading" }
   | { status: "generating" }
   | { status: "done"; url: string }
   | { status: "error"; message: string };
@@ -28,7 +39,7 @@ type VideoState =
 export default function MemePage() {
   const [, params] = useRoute("/meme/:slug");
   const slug = params?.slug ?? "";
-  const [videoState, setVideoState] = useState<VideoState>({ status: "idle" });
+  const [videoState, setVideoState] = useState<VideoState>({ status: "loading" });
 
   const { data: memeResult, isLoading, error } = useQuery<
     { meme: MemeData; deleted: false } | { meme: null; deleted: true }
@@ -51,6 +62,24 @@ export default function MemePage() {
   const { data: fact } = useGetFact(factId ?? 0, {
     query: { queryKey: getGetFactQueryKey(factId ?? 0), enabled: !!factId }
   });
+
+  useEffect(() => {
+    if (!factId) return;
+    setVideoState({ status: "loading" });
+    fetch(`/api/videos/${factId}`, { credentials: "include" })
+      .then(r => r.json())
+      .then((data: { videos?: VideoJob[] }) => {
+        const latest = data.videos?.[0];
+        if (latest?.videoUrl) {
+          setVideoState({ status: "done", url: latest.videoUrl });
+        } else {
+          setVideoState({ status: "idle" });
+        }
+      })
+      .catch(() => {
+        setVideoState({ status: "idle" });
+      });
+  }, [factId]);
 
   const handleDownload = () => {
     if (!meme?.imageUrl) return;
@@ -94,6 +123,10 @@ export default function MemePage() {
         body: JSON.stringify({ imageUrl: meme.imageUrl, factId: meme.factId }),
       });
       const body = await res.json() as { videoUrl?: string; error?: string };
+      if (res.status === 429) {
+        setVideoState({ status: "error", message: body.error ?? "Rate limit exceeded. You have generated too many videos in the past 24 hours." });
+        return;
+      }
       if (!res.ok || !body.videoUrl) {
         setVideoState({ status: "error", message: body.error ?? "Video generation failed. Please try again." });
         return;
@@ -201,6 +234,13 @@ export default function MemePage() {
 
           {/* ── Generate Video ── */}
           <div className="border-t border-border/50 pt-4 space-y-3">
+            {videoState.status === "loading" && (
+              <div className="flex items-center gap-3 px-4 py-3 bg-muted/30 border border-border/50 rounded-sm text-sm text-muted-foreground">
+                <Loader2 className="w-4 h-4 animate-spin shrink-0" />
+                <span>Checking for existing video…</span>
+              </div>
+            )}
+
             {videoState.status === "generating" && (
               <div className="flex items-center gap-3 px-4 py-3 bg-primary/10 border border-primary/30 rounded-sm text-sm text-primary">
                 <Loader2 className="w-4 h-4 animate-spin shrink-0" />
@@ -242,18 +282,20 @@ export default function MemePage() {
               </div>
             )}
 
-            <Button
-              onClick={handleGenerateVideo}
-              disabled={videoState.status === "generating"}
-              variant="secondary"
-              className="gap-2"
-            >
-              {videoState.status === "generating" ? (
-                <><Loader2 className="w-4 h-4 animate-spin" />Generating Video…</>
-              ) : (
-                <><Video className="w-4 h-4" />{videoState.status === "done" ? "Regenerate Video" : "Generate Video"}</>
-              )}
-            </Button>
+            {videoState.status !== "loading" && (
+              <Button
+                onClick={handleGenerateVideo}
+                disabled={videoState.status === "generating"}
+                variant="secondary"
+                className="gap-2"
+              >
+                {videoState.status === "generating" ? (
+                  <><Loader2 className="w-4 h-4 animate-spin" />Generating Video…</>
+                ) : (
+                  <><Video className="w-4 h-4" />{videoState.status === "done" ? "Regenerate Video" : "Generate Video"}</>
+                )}
+              </Button>
+            )}
           </div>
 
           {/* Merch buttons */}
