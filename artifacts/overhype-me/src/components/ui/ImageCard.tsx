@@ -29,6 +29,9 @@ export interface ImageCardProps {
   isAuthProtected?: boolean;
   aspectRatio?: string;
   href?: string;
+  onSelect?: () => void;
+  selected?: boolean;
+  compact?: boolean;
   actions?: ActionType[];
   onDelete?: () => Promise<void> | void;
   deleteConfirmMessage?: string;
@@ -274,6 +277,9 @@ export function ImageCard({
   isAuthProtected = false,
   aspectRatio = "aspect-square",
   href,
+  onSelect,
+  selected = false,
+  compact = false,
   actions = ["delete", "copyLink", "openFull"],
   onDelete,
   deleteConfirmMessage = "Permanently delete this image? This cannot be undone.",
@@ -321,7 +327,7 @@ export function ImageCard({
     finally { setDeleting(false); setConfirmingDelete(false); }
   }, [onDelete, toast]);
 
-  const showHoverBar = !isMobile && isHovered && !confirmingDelete && !menuOpen;
+  const showHoverBar = !isMobile && !compact && isHovered && !confirmingDelete && !menuOpen;
 
   const visibleActions = actions.filter(a => {
     if (a === "delete" && !onDelete) return false;
@@ -335,12 +341,18 @@ export function ImageCard({
     <img
       src={displaySrc}
       alt={alt}
-      className={cn("w-full h-full object-cover transition-transform duration-300", isHovered && "scale-105")}
+      className={cn("w-full h-full object-cover transition-transform duration-300", isHovered && !compact && "scale-105")}
       loading="lazy"
     />
   ) : (
     <div className="w-full h-full bg-muted animate-pulse" />
   );
+
+  const handleImageClick = useCallback(() => {
+    if (confirmingDelete) return;
+    if (onSelect) { onSelect(); return; }
+    openLightbox();
+  }, [confirmingDelete, onSelect, openLightbox]);
 
   const clickableArea = href ? (
     <Link href={href} className="block">
@@ -353,8 +365,8 @@ export function ImageCard({
   ) : (
     <>
       <div
-        className={cn("relative overflow-hidden cursor-zoom-in", aspectRatio)}
-        onClick={() => { if (!confirmingDelete) openLightbox(); }}
+        className={cn("relative overflow-hidden", aspectRatio, onSelect ? "cursor-pointer" : "cursor-zoom-in")}
+        onClick={handleImageClick}
       >
         {imageEl}
         {imageOverlay}
@@ -363,9 +375,13 @@ export function ImageCard({
     </>
   );
 
+  const borderClass = selected
+    ? "border-primary ring-2 ring-primary/30 scale-[1.03]"
+    : "border-border hover:border-primary/60";
+
   return (
     <div
-      className={cn("group relative border-2 border-border hover:border-primary/60 rounded-sm overflow-hidden transition-all", className)}
+      className={cn("group relative border-2 rounded-sm overflow-hidden transition-all", borderClass, className)}
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
     >
@@ -379,14 +395,17 @@ export function ImageCard({
           aria-haspopup="true"
           aria-expanded={menuOpen}
           onClick={e => { e.preventDefault(); e.stopPropagation(); setMenuOpen(o => !o); }}
-          className="absolute top-1.5 right-1.5 z-20 w-8 h-8 rounded-full flex items-center justify-center text-white transition-opacity"
+          className={cn(
+            "absolute top-1 right-1 z-20 rounded-full flex items-center justify-center text-white transition-opacity",
+            compact ? "w-5 h-5" : "top-1.5 right-1.5 w-8 h-8"
+          )}
           style={{ background: "rgba(0,0,0,0.55)", backdropFilter: "blur(4px)" }}
         >
-          <MoreVertical className="w-4 h-4 shrink-0" />
+          <MoreVertical className={compact ? "w-3 h-3 shrink-0" : "w-4 h-4 shrink-0"} />
         </button>
       )}
 
-      {/* Desktop hover action bar — bottom edge */}
+      {/* Desktop hover action bar — bottom edge (not shown in compact mode) */}
       {showHoverBar && hasActions && (
         <div
           className="absolute bottom-0 left-0 right-0 z-10 flex items-center justify-end gap-1 px-2 py-1.5 pointer-events-none"
@@ -430,27 +449,49 @@ export function ImageCard({
 
       {/* Delete confirmation overlay */}
       {confirmingDelete && (
-        <div className="absolute inset-0 z-30 bg-black/85 flex flex-col items-center justify-center gap-3 p-4">
-          <Trash2 className="w-6 h-6 text-red-400" />
-          <p className="text-xs font-bold text-white text-center uppercase tracking-wider">Delete image?</p>
-          <p className="text-[11px] text-white/60 text-center leading-relaxed">{deleteConfirmMessage}</p>
-          <div className="flex gap-2 w-full">
-            <button
-              onClick={e => { e.stopPropagation(); setConfirmingDelete(false); }}
-              className="flex-1 py-2 text-xs font-semibold rounded-sm bg-white/20 text-white hover:bg-white/30 transition-colors"
-            >
-              Cancel
-            </button>
-            <button
-              onClick={e => { e.stopPropagation(); void handleDeleteConfirm(); }}
-              disabled={deleting}
-              className="flex-1 py-2 text-xs font-semibold rounded-sm bg-red-600 text-white hover:bg-red-500 transition-colors flex items-center justify-center gap-1 disabled:opacity-60"
-            >
-              {deleting && <Loader2 className="w-3 h-3 animate-spin" />}
-              Delete
-            </button>
+        compact ? (
+          <div className="absolute inset-0 z-30 bg-black/80 flex flex-col items-center justify-center gap-1 p-1">
+            <p className="text-[9px] font-bold text-white uppercase tracking-wide">Delete?</p>
+            <div className="flex gap-1">
+              <button
+                onClick={e => { e.stopPropagation(); setConfirmingDelete(false); }}
+                className="px-2 py-0.5 text-[9px] font-semibold rounded bg-white/20 text-white hover:bg-white/30 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={e => { e.stopPropagation(); void handleDeleteConfirm(); }}
+                disabled={deleting}
+                className="px-2 py-0.5 text-[9px] font-semibold rounded bg-red-600 text-white hover:bg-red-500 transition-colors flex items-center gap-0.5 disabled:opacity-60"
+              >
+                {deleting && <Loader2 className="w-2.5 h-2.5 animate-spin" />}
+                Delete
+              </button>
+            </div>
           </div>
-        </div>
+        ) : (
+          <div className="absolute inset-0 z-30 bg-black/85 flex flex-col items-center justify-center gap-3 p-4">
+            <Trash2 className="w-6 h-6 text-red-400" />
+            <p className="text-xs font-bold text-white text-center uppercase tracking-wider">Delete image?</p>
+            <p className="text-[11px] text-white/60 text-center leading-relaxed">{deleteConfirmMessage}</p>
+            <div className="flex gap-2 w-full">
+              <button
+                onClick={e => { e.stopPropagation(); setConfirmingDelete(false); }}
+                className="flex-1 py-2 text-xs font-semibold rounded-sm bg-white/20 text-white hover:bg-white/30 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={e => { e.stopPropagation(); void handleDeleteConfirm(); }}
+                disabled={deleting}
+                className="flex-1 py-2 text-xs font-semibold rounded-sm bg-red-600 text-white hover:bg-red-500 transition-colors flex items-center justify-center gap-1 disabled:opacity-60"
+              >
+                {deleting && <Loader2 className="w-3 h-3 animate-spin" />}
+                Delete
+              </button>
+            </div>
+          </div>
+        )
       )}
 
       {/* Action menu (bottom sheet mobile / dropdown desktop) */}
