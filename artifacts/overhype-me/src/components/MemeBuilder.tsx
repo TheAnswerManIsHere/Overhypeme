@@ -358,6 +358,9 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
   const [uploadObjectPath, setUploadObjectPath] = useState<string | null>(null);
   const [uploadLocalUrl, setUploadLocalUrl] = useState<string | null>(null);
   const [isUploadingFile, setIsUploadingFile] = useState(false);
+  const [uploadIsLowRes, setUploadIsLowRes] = useState(false);
+  const [uploadWidth, setUploadWidth] = useState<number | null>(null);
+  const [uploadHeight, setUploadHeight] = useState<number | null>(null);
   const [isDragOver, setIsDragOver] = useState(false);
 
   // Canvas background image (loaded from stock/upload for preview)
@@ -732,38 +735,102 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
 
 
   // ── Upload flow ──────────────────────────────────────────────────
+
+  const CLIENT_MAX_DIMENSION = 3600;
+  const CLIENT_JPEG_QUALITY = 0.9;
+  const LOW_RES_WARNING_PX = 1500;
+  const CLIENT_MAX_UPLOAD_MB = 15;
+
+  async function preProcessImageFile(file: File): Promise<{ blob: Blob; width: number; height: number }> {
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      const url = URL.createObjectURL(file);
+      img.onload = () => {
+        URL.revokeObjectURL(url);
+        let { naturalWidth: w, naturalHeight: h } = img;
+        const longestEdge = Math.max(w, h);
+        if (longestEdge > CLIENT_MAX_DIMENSION) {
+          const scale = CLIENT_MAX_DIMENSION / longestEdge;
+          w = Math.round(w * scale);
+          h = Math.round(h * scale);
+        }
+        const canvas = document.createElement("canvas");
+        canvas.width = w;
+        canvas.height = h;
+        const ctx = canvas.getContext("2d");
+        if (!ctx) { reject(new Error("Canvas unavailable")); return; }
+        ctx.drawImage(img, 0, 0, w, h);
+        canvas.toBlob(
+          (blob) => {
+            if (!blob) { reject(new Error("Image encoding failed")); return; }
+            resolve({ blob, width: w, height: h });
+          },
+          "image/jpeg",
+          CLIENT_JPEG_QUALITY,
+        );
+      };
+      img.onerror = () => { URL.revokeObjectURL(url); reject(new Error("Failed to load image")); };
+      img.src = url;
+    });
+  }
+
   const handleFile = useCallback(async (file: File) => {
     if (!file.type.startsWith("image/")) {
-      setErrorMsg("Please select an image file (PNG, JPG, or WebP).");
-      return;
-    }
-    if (file.size > 10 * 1024 * 1024) {
-      setErrorMsg("Image must be under 10 MB.");
+      setErrorMsg("Please select an image file (JPEG, PNG, WebP, HEIC, or similar).");
       return;
     }
 
     setErrorMsg(null);
     setUploadFile(file);
     setIsUploadingFile(true);
+    setUploadIsLowRes(false);
+    setUploadWidth(null);
+    setUploadHeight(null);
 
     if (uploadLocalUrl) URL.revokeObjectURL(uploadLocalUrl);
     const localUrl = URL.createObjectURL(file);
     setUploadLocalUrl(localUrl);
 
     try {
-      // POST binary directly to the API server — server uploads to GCS
-      // (much faster than browser→GCS presigned PUT through Replit proxy)
+      let uploadBlob: Blob = file;
+      let imgWidth: number | null = null;
+      let imgHeight: number | null = null;
+
+      try {
+        const processed = await preProcessImageFile(file);
+        uploadBlob = processed.blob;
+        imgWidth = processed.width;
+        imgHeight = processed.height;
+
+        const longestEdge = Math.max(processed.width, processed.height);
+        if (longestEdge < LOW_RES_WARNING_PX) {
+          setErrorMsg(
+            `This image is ${processed.width}×${processed.height}px, which may appear blurry on printed merchandise.`
+          );
+        }
+      } catch {
+        uploadBlob = file;
+      }
+
       const uploadRes = await fetch("/api/storage/upload-meme", {
         method: "POST",
-        headers: { "Content-Type": file.type },
-        body: file,
+        headers: { "Content-Type": "image/jpeg" },
+        body: uploadBlob,
       });
       if (!uploadRes.ok) {
         const body = await uploadRes.json() as { error?: string };
         throw new Error(body.error ?? "Upload failed");
       }
-      const { objectPath } = await uploadRes.json() as { objectPath: string };
-      setUploadObjectPath(objectPath);
+      const result = await uploadRes.json() as {
+        objectPath: string;
+        width?: number;
+        height?: number;
+        isLowRes?: boolean;
+      };
+      setUploadObjectPath(result.objectPath);
+      setUploadIsLowRes(result.isLowRes ?? false);
+      setUploadWidth(result.width ?? imgWidth);
+      setUploadHeight(result.height ?? imgHeight);
     } catch (e) {
       setErrorMsg(e instanceof Error ? e.message : "Upload failed");
       setUploadFile(null);
@@ -772,7 +839,7 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
     } finally {
       setIsUploadingFile(false);
     }
-  }, []);
+  }, [uploadLocalUrl]);
 
   const onFileInputChange = (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -1271,7 +1338,7 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
                         <input
                           ref={fileInputRef}
                           type="file"
-                          accept="image/png,image/jpeg,image/webp"
+                          accept="image/*"
                           className="hidden"
                           onChange={onFileInputChange}
                         />
@@ -1294,6 +1361,9 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
                               <p className="text-[10px] text-muted-foreground">
                                 {(uploadFile.size / 1024 / 1024).toFixed(1)} MB
                                 {uploadObjectPath ? " · Uploaded ✓" : " · Uploading…"}
+                                {uploadObjectPath && uploadIsLowRes && (
+                                  <span className="ml-1 text-amber-400"> · Low res</span>
+                                )}
                               </p>
                             </div>
                             <button
@@ -1316,7 +1386,7 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
                               Drop an image here, or click to browse
                             </p>
                             <p className="text-[10px] text-muted-foreground/60">
-                              PNG · JPG · WebP · max 10 MB
+                              PNG · JPG · WebP · HEIC · max {CLIENT_MAX_UPLOAD_MB} MB
                             </p>
                           </div>
                         )}

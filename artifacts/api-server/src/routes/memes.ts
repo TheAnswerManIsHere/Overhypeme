@@ -19,6 +19,7 @@ import { compositeAiMeme } from "../lib/aiMemeCompositor";
 import { generateAiMemeBackgrounds } from "../lib/aiMemePipeline";
 import type { AiMemeImages } from "../lib/aiMemePipeline";
 import { requirePremium } from "../middlewares/premiumMiddleware";
+import { getUploadImageMetadata } from "./storage";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const TEMPLATES_DIR = path.resolve(__dirname, "assets/meme-templates");
@@ -279,6 +280,10 @@ router.post("/memes", async (req: Request, res: Response) => {
     }
   }
 
+  const uploadMeta = imageSource.type === "upload"
+    ? await getUploadImageMetadata(imageSource.uploadKey)
+    : null;
+
   const [meme] = await db
     .insert(memesTable)
     .values({
@@ -289,6 +294,10 @@ router.post("/memes", async (req: Request, res: Response) => {
       textOptions: textOptions ?? null,
       imageSource: storedImageSource,
       isPublic,
+      isLowRes: uploadMeta?.isLowRes ?? false,
+      originalWidth: uploadMeta?.width ?? null,
+      originalHeight: uploadMeta?.height ?? null,
+      uploadFileSizeBytes: uploadMeta?.fileSizeBytes ?? null,
       createdById: req.user.id,
     })
     .returning();

@@ -1,6 +1,7 @@
 import express, { Router, type IRouter, type Request, type Response } from "express";
 import { Readable } from "stream";
 import { randomUUID } from "crypto";
+import sharp from "sharp";
 import {
   RequestUploadUrlBody,
   RequestUploadUrlResponse,
@@ -9,7 +10,62 @@ import { ObjectStorageService, ObjectNotFoundError } from "../lib/objectStorage"
 import { ObjectPermission } from "../lib/objectAcl";
 import { db } from "@workspace/db";
 import { usersTable } from "@workspace/db/schema";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
+
+function parseEnvInt(name: string, defaultValue: number, min?: number, max?: number): number {
+  const raw = process.env[name];
+  if (!raw) return defaultValue;
+  const parsed = parseInt(raw, 10);
+  if (isNaN(parsed)) return defaultValue;
+  if (min !== undefined && parsed < min) return defaultValue;
+  if (max !== undefined && parsed > max) return defaultValue;
+  return parsed;
+}
+
+const MAX_UPLOAD_SIZE_MB = parseEnvInt("MAX_UPLOAD_SIZE_MB", 15, 1);
+const MAX_IMAGE_DIMENSION_PX = parseEnvInt("MAX_IMAGE_DIMENSION_PX", 3000, 100);
+const IMAGE_QUALITY_PERCENT = parseEnvInt("IMAGE_QUALITY_PERCENT", 85, 1, 100);
+const LOW_RES_THRESHOLD_PX = parseEnvInt("LOW_RES_THRESHOLD_PX", 1500, 1);
+
+export interface ProcessedImageResult {
+  buffer: Buffer;
+  width: number;
+  height: number;
+  isLowRes: boolean;
+  fileSizeBytes: number;
+}
+
+export interface UploadImageMetadata {
+  width: number;
+  height: number;
+  isLowRes: boolean;
+  fileSizeBytes: number;
+}
+
+async function saveUploadImageMetadata(objectPath: string, meta: UploadImageMetadata): Promise<void> {
+  await db.execute(sql`
+    INSERT INTO upload_image_metadata (object_path, width, height, is_low_res, file_size_bytes)
+    VALUES (${objectPath}, ${meta.width}, ${meta.height}, ${meta.isLowRes}, ${meta.fileSizeBytes})
+    ON CONFLICT (object_path) DO NOTHING
+  `);
+}
+
+export async function getUploadImageMetadata(objectPath: string): Promise<UploadImageMetadata | null> {
+  const rows = await db.execute(sql`
+    SELECT width, height, is_low_res, file_size_bytes
+    FROM upload_image_metadata
+    WHERE object_path = ${objectPath}
+    LIMIT 1
+  `);
+  const row = rows.rows[0] as { width: number; height: number; is_low_res: boolean; file_size_bytes: number } | undefined;
+  if (!row) return null;
+  return {
+    width: row.width,
+    height: row.height,
+    isLowRes: row.is_low_res,
+    fileSizeBytes: row.file_size_bytes,
+  };
+}
 
 const router: IRouter = Router();
 const objectStorageService = new ObjectStorageService();
@@ -118,49 +174,108 @@ router.post(
  * Server-side upload for meme background images.
  * Accepts the raw image binary as the request body (Content-Type: image/*).
  * Uploads directly to object storage from the server (avoids slow browser→GCS presigned PUT).
- * Returns the objectPath for use in meme creation.
+ * Returns the objectPath, dimensions, and low-res flag for use in meme creation.
+ *
+ * Processing pipeline:
+ *  1. Hard-reject over MAX_UPLOAD_SIZE_MB (default 15MB) → 413
+ *  2. Validate recognized image format → 422 on failure
+ *  3. Auto-orient and strip EXIF via sharp().rotate()
+ *  4. Resize down to MAX_IMAGE_DIMENSION_PX (default 3000px) on longest edge (no upscale)
+ *  5. Convert to JPEG at IMAGE_QUALITY_PERCENT (default 85%)
+ *  6. Flag is_low_res if output longest edge < LOW_RES_THRESHOLD_PX (default 1500px)
  */
 router.post(
   "/storage/upload-meme",
-  express.raw({ type: "image/*", limit: "10mb" }),
+  express.raw({ type: "*/*", limit: `${MAX_UPLOAD_SIZE_MB}mb` }),
   async (req: Request, res: Response) => {
     if (!req.isAuthenticated()) {
       res.status(401).json({ error: "Authentication required" });
       return;
     }
 
-    const contentType = (req.headers["content-type"] ?? "").split(";")[0].trim();
-    const allowedTypes = ["image/jpeg", "image/png", "image/webp", "image/gif"];
-    if (!allowedTypes.includes(contentType)) {
-      res.status(400).json({ error: "Only JPEG, PNG, WebP, or GIF images are accepted" });
-      return;
-    }
-
-    const buffer = req.body as Buffer;
-    if (!Buffer.isBuffer(buffer) || buffer.length === 0) {
+    const rawBuffer = req.body as Buffer;
+    if (!Buffer.isBuffer(rawBuffer) || rawBuffer.length === 0) {
       res.status(400).json({ error: "No file data received" });
       return;
     }
 
+    if (rawBuffer.length > MAX_UPLOAD_SIZE_MB * 1024 * 1024) {
+      res.status(413).json({ error: `File too large. Maximum upload size is ${MAX_UPLOAD_SIZE_MB}MB.` });
+      return;
+    }
+
+    let processed: ProcessedImageResult;
     try {
-      const extMap: Record<string, string> = {
-        "image/jpeg": "jpg",
-        "image/png": "png",
-        "image/webp": "webp",
-        "image/gif": "gif",
+      const pipeline = sharp(rawBuffer, { failOn: "error" })
+        .rotate()
+        .resize({
+          width: MAX_IMAGE_DIMENSION_PX,
+          height: MAX_IMAGE_DIMENSION_PX,
+          fit: "inside",
+          withoutEnlargement: true,
+        })
+        .jpeg({ quality: IMAGE_QUALITY_PERCENT, mozjpeg: false });
+
+      const outputBuffer = await pipeline.toBuffer({ resolveWithObject: true });
+      const { width, height } = outputBuffer.info;
+
+      const longestEdge = Math.max(width, height);
+      const isLowRes = longestEdge < LOW_RES_THRESHOLD_PX;
+
+      processed = {
+        buffer: outputBuffer.data,
+        width,
+        height,
+        isLowRes,
+        fileSizeBytes: outputBuffer.data.length,
       };
-      const ext = extMap[contentType] ?? "jpg";
-      const subPath = `uploads/${randomUUID()}.${ext}`;
+    } catch (err) {
+      req.log.warn({ err }, "Image processing failed — not a valid image");
+      res.status(422).json({ error: "The uploaded file is not a recognized image format." });
+      return;
+    }
 
-      const objectPath = await objectStorageService.uploadObjectBuffer({ subPath, buffer, contentType });
+    try {
+      const subPath = `uploads/${randomUUID()}.jpg`;
+      const objectPath = await objectStorageService.uploadObjectBuffer({
+        subPath,
+        buffer: processed.buffer,
+        contentType: "image/jpeg",
+      });
 
-      res.json({ objectPath });
+      await saveUploadImageMetadata(objectPath, {
+        width: processed.width,
+        height: processed.height,
+        isLowRes: processed.isLowRes,
+        fileSizeBytes: processed.fileSizeBytes,
+      });
+
+      res.json({
+        objectPath,
+        width: processed.width,
+        height: processed.height,
+        isLowRes: processed.isLowRes,
+        fileSizeBytes: processed.fileSizeBytes,
+      });
     } catch (error) {
       req.log.error({ err: error }, "Error uploading meme image");
       res.status(500).json({ error: "Upload failed" });
     }
   },
 );
+
+router.use("/storage/upload-meme", (
+  err: Error & { type?: string; status?: number },
+  _req: Request,
+  res: Response,
+  _next: express.NextFunction,
+) => {
+  if (err.type === "entity.too.large" || err.status === 413) {
+    res.status(413).json({ error: `File too large. Maximum upload size is ${MAX_UPLOAD_SIZE_MB}MB.` });
+    return;
+  }
+  res.status(500).json({ error: "Upload failed" });
+});
 
 /**
  * GET /storage/public-objects/*

@@ -94,6 +94,33 @@ export async function ensureSchema(): Promise<void> {
       label: "users.drop_username",
       ddl: `ALTER TABLE users DROP COLUMN IF EXISTS username`,
     },
+    {
+      label: "memes.is_low_res",
+      ddl: `ALTER TABLE memes ADD COLUMN IF NOT EXISTS is_low_res boolean NOT NULL DEFAULT false`,
+    },
+    {
+      label: "memes.original_width",
+      ddl: `ALTER TABLE memes ADD COLUMN IF NOT EXISTS original_width integer`,
+    },
+    {
+      label: "memes.original_height",
+      ddl: `ALTER TABLE memes ADD COLUMN IF NOT EXISTS original_height integer`,
+    },
+    {
+      label: "memes.upload_file_size_bytes",
+      ddl: `ALTER TABLE memes ADD COLUMN IF NOT EXISTS upload_file_size_bytes integer`,
+    },
+    {
+      label: "upload_image_metadata table",
+      ddl: `CREATE TABLE IF NOT EXISTS upload_image_metadata (
+        object_path text PRIMARY KEY,
+        width integer NOT NULL,
+        height integer NOT NULL,
+        is_low_res boolean NOT NULL DEFAULT false,
+        file_size_bytes integer NOT NULL,
+        created_at timestamptz NOT NULL DEFAULT now()
+      )`,
+    },
   ];
 
   for (const { label, ddl } of migrations) {
