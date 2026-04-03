@@ -639,18 +639,16 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
         const body = await res.json() as { error?: string };
         throw new Error(body.error ?? "Delete failed");
       }
-      // Remove the slot from local state
+      // Null out the slot to preserve array indices of remaining images
       setLocalAiMemeImages(prev => {
         if (!prev) return prev;
         const arr = [...(prev[aiGender] ?? [])];
-        arr.splice(origIdx, 1);
+        arr[origIdx] = ""; // empty sentinel — preserves positions of other slots
         return { ...prev, [aiGender]: arr };
       });
       // If the deleted slot was selected, reset selection
       if (selectedAiIndex === origIdx) {
         setSelectedAiIndex(null);
-      } else if (selectedAiIndex !== null && selectedAiIndex > origIdx) {
-        setSelectedAiIndex(selectedAiIndex - 1);
       }
     } catch (e) {
       alert(e instanceof Error ? e.message : "Failed to delete image");

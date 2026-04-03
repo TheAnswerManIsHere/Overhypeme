@@ -772,8 +772,16 @@ router.delete("/memes/ai/:factId/image", requirePremium, async (req: Request, re
     res.status(403).json({ error: "You do not own this AI background image" }); return;
   }
 
-  // Remove slot from the array
-  genderImages.splice(imageIndex, 1);
+  // Hard-delete from storage FIRST — if this fails, do not touch DB (strict hard-delete)
+  try {
+    await objectStorageService.deleteObject(storagePath);
+  } catch (e) {
+    console.error("[DELETE /memes/ai/:factId/image] Storage delete failed:", e);
+    res.status(500).json({ error: "Failed to delete image from storage. Please try again." }); return;
+  }
+
+  // Null out the slot to preserve array indices of remaining images
+  genderImages[imageIndex] = "";
   const updatedImages: AiMemeImages = { ...images, [gender]: genderImages };
   await db
     .update(factsTable)
@@ -786,13 +794,6 @@ router.delete("/memes/ai/:factId/image", requirePremium, async (req: Request, re
       SELECT id FROM user_ai_images WHERE user_id = ${req.user!.id} AND storage_path = ${storagePath} LIMIT 1
     )
   `);
-
-  // Hard-delete from object storage (best-effort)
-  try {
-    await objectStorageService.deleteObject(storagePath);
-  } catch (e) {
-    console.warn("[DELETE /memes/ai/:factId/image] Storage delete failed:", e);
-  }
 
   res.json({ success: true });
 });
