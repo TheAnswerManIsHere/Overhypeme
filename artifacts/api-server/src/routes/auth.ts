@@ -21,6 +21,7 @@ import {
   ISSUER_URL,
   type SessionData,
 } from "../lib/auth";
+import { deriveUserRole } from "../lib/userRole";
 
 const OIDC_COOKIE_TTL = 10 * 60 * 1000;
 const IS_PRODUCTION = process.env.NODE_ENV === "production";
@@ -133,16 +134,19 @@ router.get("/auth/user", async (req: Request, res: Response) => {
   const session = sid ? await getSession(sid) : null;
   const isRealAdmin = !!(dbUser?.isAdmin || isAdminById(req.user.id));
   const adminModeActive = isRealAdmin && !session?.adminModeDisabled;
+  const effectiveTier = dbUser?.membershipTier ?? req.user.membershipTier ?? "free";
+  const userRole = deriveUserRole(effectiveTier, adminModeActive);
 
   res.json(
     GetCurrentAuthUserResponse.parse({
       user: {
         ...req.user,
-        membershipTier: dbUser?.membershipTier ?? req.user.membershipTier ?? "free",
+        membershipTier: effectiveTier,
         isAdmin: adminModeActive,
         isRealAdmin,
         pronouns: dbUser?.pronouns ?? null,
         displayName: dbUser?.displayName ?? null,
+        userRole,
       },
     }),
   );

@@ -1,9 +1,12 @@
 import { type Request, type Response, type NextFunction } from "express";
 import { stripeStorage } from "../lib/stripeStorage";
+import { deriveUserRole } from "../lib/userRole";
+import { getSessionId, getSession } from "../lib/auth";
 
 /**
  * Middleware that requires the user to be a premium member.
  * Returns 403 with { error: "premium_required" } if user is free tier.
+ * Admin users (determined via session) bypass this check.
  */
 export async function requirePremium(req: Request, res: Response, next: NextFunction) {
   if (!req.isAuthenticated()) {
@@ -11,8 +14,12 @@ export async function requirePremium(req: Request, res: Response, next: NextFunc
     return;
   }
   try {
+    const sid = getSessionId(req);
+    const session = sid ? await getSession(sid) : null;
+    const isAdmin = !!(session?.isAdmin);
     const tier = await stripeStorage.getMembershipTierForUser(req.user.id);
-    if (tier !== "premium") {
+    const role = deriveUserRole(tier, isAdmin);
+    if (role !== "premium" && role !== "admin") {
       res.status(403).json({ error: "premium_required", message: "This feature requires a premium membership." });
       return;
     }
@@ -28,10 +35,16 @@ export async function requirePremium(req: Request, res: Response, next: NextFunc
 export async function injectMembershipTier(req: Request, _res: Response, next: NextFunction) {
   if (req.isAuthenticated()) {
     try {
+      const sid = getSessionId(req);
+      const session = sid ? await getSession(sid) : null;
+      const isAdmin = !!(session?.isAdmin);
       const tier = await stripeStorage.getMembershipTierForUser(req.user.id);
-      (req as Request & { membershipTier?: string }).membershipTier = tier;
+      const role = deriveUserRole(tier, isAdmin);
+      (req as Request & { membershipTier?: string; userRole?: string }).membershipTier = tier;
+      (req as Request & { membershipTier?: string; userRole?: string }).userRole = role;
     } catch {
-      (req as Request & { membershipTier?: string }).membershipTier = "free";
+      (req as Request & { membershipTier?: string; userRole?: string }).membershipTier = "free";
+      (req as Request & { membershipTier?: string; userRole?: string }).userRole = "free";
     }
   }
   next();

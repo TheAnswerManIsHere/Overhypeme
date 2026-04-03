@@ -21,6 +21,7 @@ export * from "./authorizationSessionHeaderParameter";
 export * from "./authUser";
 export * from "./authUserEnvelope";
 export * from "./authUserMembershipTier";
+export * from "./authUserUserRole";
 export * from "./beginBrowserLoginParams";
 export * from "./bulkImportFactsBody";
 export * from "./bulkImportFactsFailedItem";

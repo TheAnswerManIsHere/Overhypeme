@@ -4,6 +4,7 @@ import { factsTable, commentsTable, adminConfigTable } from "@workspace/db/schem
 import { eq, desc, count, ilike, sql, and, or, inArray, isNull } from "drizzle-orm";
 import { getSessionId, getSession, updateSession } from "../lib/auth";
 import { isAdminById } from "./auth";
+import { deriveUserRole } from "../lib/userRole";
 import { backfillEmbeddings } from "../lib/embeddings";
 import { runFactImagePipeline } from "../lib/factImagePipeline";
 import { generateAiMemeBackgrounds, type AiScenePrompts, type AiMemeImages } from "../lib/aiMemePipeline";
@@ -27,11 +28,12 @@ export async function requireAdmin(req: Request, res: Response, next: NextFuncti
 
   if (!adminViaEnv && !adminViaSession) {
     const [dbUser] = await db
-      .select({ isAdmin: usersTable.isAdmin })
+      .select({ isAdmin: usersTable.isAdmin, membershipTier: usersTable.membershipTier })
       .from(usersTable)
       .where(and(eq(usersTable.id, req.user.id), eq(usersTable.isActive, true)))
       .limit(1);
-    if (!dbUser?.isAdmin) {
+    const role = deriveUserRole(dbUser?.membershipTier, dbUser?.isAdmin);
+    if (role !== "admin") {
       res.status(403).json({ error: "Forbidden" });
       return;
     }

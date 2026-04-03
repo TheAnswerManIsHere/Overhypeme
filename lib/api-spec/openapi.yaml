@@ -1007,6 +1007,10 @@ components:
         pronouns:
           type: string
           nullable: true
+        userRole:
+          type: string
+          enum: [free, premium, admin]
+          nullable: true
 
     AuthUserEnvelope:
       type: object

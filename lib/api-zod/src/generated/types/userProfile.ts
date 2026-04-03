@@ -12,7 +12,9 @@ export interface UserProfile {
   email?: string | null;
   pendingEmail?: string | null;
   emailVerified?: boolean;
-  displayName?: string | null;
+  firstName?: string | null;
+  lastName?: string | null;
+  username?: string | null;
   pronouns?: string | null;
   profileImageUrl?: string | null;
   submittedFacts: FactSummary[];
