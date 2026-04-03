@@ -1,13 +1,12 @@
 import { useState, useEffect, useRef } from "react";
-import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@workspace/replit-auth-web";
 import { useGetMyProfile, getGetMyProfileQueryKey, useUpdateMyProfile } from "@workspace/api-client-react";
 import { Layout } from "@/components/layout/Layout";
 import { FactCard } from "@/components/facts/FactCard";
 import { Button } from "@/components/ui/Button";
 import { SubscriptionPanel } from "@/components/SubscriptionPanel";
-import { ShieldAlert, LogOut, Clock, ThumbsUp, FileText, Hash, Star, X, Pencil, Check, Mail, AlertTriangle, CheckCircle, Camera, Loader2, Images, Copy, ExternalLink, Trash2, ImageIcon, Lock } from "lucide-react";
-import { AuthenticatedImage } from "@/components/ui/AuthenticatedImage";
+import { ShieldAlert, LogOut, Clock, ThumbsUp, FileText, Hash, Star, X, Pencil, Check, Mail, AlertTriangle, CheckCircle, Camera, Loader2, Images, ImageIcon, Lock } from "lucide-react";
+import { ImageCard } from "@/components/ui/ImageCard";
 import { Link, useLocation } from "wouter";
 import { useQueryClient, useQuery } from "@tanstack/react-query";
 import { PronounEditor } from "@/components/ui/PronounEditor";
@@ -17,7 +16,6 @@ const BASE_URL = import.meta.env.BASE_URL ?? "/";
 export default function Profile() {
   const [, setLocation] = useLocation();
   const { isAuthenticated, isLoading: authLoading, login, logout } = useAuth();
-  const { toast } = useToast();
   const queryClient = useQueryClient();
   const { data: profile, isLoading } = useGetMyProfile({
     query: { queryKey: getGetMyProfileQueryKey(), enabled: isAuthenticated, retry: false }
@@ -26,10 +24,6 @@ export default function Profile() {
   const updateProfile = useUpdateMyProfile();
 
   const [activeTab, setActiveTab] = useState<"submitted" | "liked" | "history" | "images" | "memes">("liked");
-  const [deletingMemeSlug, setDeletingMemeSlug] = useState<string | null>(null);
-  const [copiedPath, setCopiedPath] = useState<string | null>(null);
-  const [deletingUploadPath, setDeletingUploadPath] = useState<string | null>(null);
-  const [confirmingUploadPath, setConfirmingUploadPath] = useState<string | null>(null);
   const [checkoutBanner, setCheckoutBanner] = useState<"success" | "cancel" | null>(null);
   const [emailVerifiedBanner, setEmailVerifiedBanner] = useState(false);
 
@@ -110,64 +104,21 @@ export default function Profile() {
     staleTime: 30_000,
   });
 
-  async function copyImageLink(objectPath: string) {
-    const url = `${window.location.origin}${BASE_URL}api/storage${objectPath}`;
-    try {
-      await navigator.clipboard.writeText(url);
-      setCopiedPath(objectPath);
-      setTimeout(() => setCopiedPath(null), 2000);
-    } catch {
-      setCopiedPath(objectPath);
-      setTimeout(() => setCopiedPath(null), 2000);
-    }
-  }
 
   async function deleteMemeFromProfile(slug: string) {
-    if (deletingMemeSlug) return;
-    if (!confirm("Remove this meme? It will no longer be visible to anyone.")) return;
-    setDeletingMemeSlug(slug);
-    try {
-      const res = await fetch(`${BASE_URL}api/memes/${slug}`, {
-        method: "DELETE",
-        credentials: "include",
-      });
-      if (!res.ok) throw new Error("Failed to delete meme");
-      void queryClient.invalidateQueries({ queryKey: ["profile-my-memes"] });
-    } catch (e) {
-      toast({
-        variant: "destructive",
-        title: "Delete failed",
-        description: e instanceof Error ? e.message : "Failed to delete meme",
-      });
-    } finally {
-      setDeletingMemeSlug(null);
-    }
+    const res = await fetch(`${BASE_URL}api/memes/${slug}`, { method: "DELETE", credentials: "include" });
+    if (!res.ok) throw new Error("Failed to delete meme");
+    await queryClient.invalidateQueries({ queryKey: ["profile-my-memes"] });
   }
 
   async function deleteUpload(objectPath: string) {
-    if (deletingUploadPath) return;
-    if (!confirm("Permanently delete this uploaded image? This cannot be undone.")) return;
-    setDeletingUploadPath(objectPath);
-    try {
-      const encodedPath = encodeURIComponent(objectPath);
-      const res = await fetch(`${BASE_URL}api/users/me/uploads?path=${encodedPath}`, {
-        method: "DELETE",
-        credentials: "include",
-      });
-      if (!res.ok) {
-        const body = await res.json() as { error?: string };
-        throw new Error(body.error ?? "Delete failed");
-      }
-      void queryClient.invalidateQueries({ queryKey: ["my-uploads"] });
-    } catch (e) {
-      toast({
-        variant: "destructive",
-        title: "Delete failed",
-        description: e instanceof Error ? e.message : "Failed to delete image",
-      });
-    } finally {
-      setDeletingUploadPath(null);
+    const encodedPath = encodeURIComponent(objectPath);
+    const res = await fetch(`${BASE_URL}api/users/me/uploads?path=${encodedPath}`, { method: "DELETE", credentials: "include" });
+    if (!res.ok) {
+      const body = await res.json() as { error?: string };
+      throw new Error(body.error ?? "Delete failed");
     }
+    await queryClient.invalidateQueries({ queryKey: ["my-uploads"] });
   }
 
   function dicebearUrl(style: string, seed: string) {
@@ -735,80 +686,23 @@ export default function Profile() {
                 <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
                   {uploadsData.uploads.map((upload) => {
                     const imgUrl = `${BASE_URL}api/storage${upload.objectPath}`;
-                    const isCopied = copiedPath === upload.objectPath;
+                    const permalink = `${window.location.origin}${BASE_URL}api/storage${upload.objectPath}`;
                     return (
-                      <div key={upload.objectPath} className="group relative aspect-square bg-card border-2 border-border rounded-sm overflow-hidden">
-                        <img
-                          src={imgUrl}
-                          alt="Uploaded image"
-                          className="w-full h-full object-cover"
-                          loading="lazy"
-                        />
-
-                        {/* Hover overlay — copy/view actions (desktop) */}
-                        {confirmingUploadPath !== upload.objectPath && (
-                          <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center gap-2 p-2">
-                            <button
-                              onClick={() => copyImageLink(upload.objectPath)}
-                              className="flex items-center gap-1.5 bg-primary text-primary-foreground text-xs font-bold px-3 py-1.5 rounded-sm hover:bg-primary/80 transition-colors w-full justify-center"
-                            >
-                              {isCopied ? <><CheckCircle className="w-3.5 h-3.5" /> Copied!</> : <><Copy className="w-3.5 h-3.5" /> Copy Link</>}
-                            </button>
-                            <a
-                              href={imgUrl}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="flex items-center gap-1.5 bg-secondary text-foreground text-xs font-bold px-3 py-1.5 rounded-sm hover:bg-secondary/80 transition-colors w-full justify-center"
-                            >
-                              <ExternalLink className="w-3.5 h-3.5" /> View Full
-                            </a>
-                          </div>
-                        )}
-
-                        {/* Always-visible delete button */}
-                        {confirmingUploadPath !== upload.objectPath && (
-                          <button
-                            onClick={() => setConfirmingUploadPath(upload.objectPath)}
-                            disabled={deletingUploadPath === upload.objectPath}
-                            className="absolute top-1.5 right-1.5 z-10 w-7 h-7 rounded-full bg-black/60 flex items-center justify-center text-white hover:bg-red-600 transition-colors disabled:cursor-not-allowed"
-                            title="Delete image"
-                            aria-label="Delete image"
-                          >
-                            {deletingUploadPath === upload.objectPath
-                              ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                              : <X className="w-3.5 h-3.5" />
-                            }
-                          </button>
-                        )}
-
-                        {/* Inline confirmation overlay */}
-                        {confirmingUploadPath === upload.objectPath && (
-                          <div className="absolute inset-0 z-20 bg-black/80 flex flex-col items-center justify-center gap-3 p-3">
-                            <span className="text-xs font-bold text-white uppercase tracking-wider">Delete image?</span>
-                            <p className="text-[11px] text-white/70 text-center">This cannot be undone.</p>
-                            <div className="flex gap-2 w-full">
-                              <button
-                                onClick={() => setConfirmingUploadPath(null)}
-                                className="flex-1 py-1.5 text-xs font-semibold rounded-sm bg-white/20 text-white hover:bg-white/30 transition-colors"
-                              >
-                                Cancel
-                              </button>
-                              <button
-                                onClick={() => { setConfirmingUploadPath(null); void deleteUpload(upload.objectPath); }}
-                                className="flex-1 py-1.5 text-xs font-semibold rounded-sm bg-red-600 text-white hover:bg-red-500 transition-colors"
-                              >
-                                Delete
-                              </button>
-                            </div>
-                          </div>
-                        )}
-
-                        {upload.isLowRes && confirmingUploadPath !== upload.objectPath && (
-                          <div className="absolute top-1 left-1 bg-amber-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-sm">
+                      <ImageCard
+                        key={upload.objectPath}
+                        src={imgUrl}
+                        alt="Uploaded image"
+                        aspectRatio="aspect-square"
+                        actions={["delete", "copyLink", "openFull"]}
+                        onDelete={() => deleteUpload(upload.objectPath)}
+                        deleteConfirmMessage="Permanently delete this uploaded image? This cannot be undone."
+                        permalink={permalink}
+                        imageOverlay={upload.isLowRes ? (
+                          <div className="absolute top-1 left-1 bg-amber-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-sm z-10">
                             LOW RES
                           </div>
-                        )}
-                      </div>
+                        ) : undefined}
+                      />
                     );
                   })}
                 </div>
@@ -837,17 +731,19 @@ export default function Profile() {
                       {aiImagesData!.images.map((img) => {
                         const imgUrl = `${BASE_URL}api/memes/ai-user/image?storagePath=${encodeURIComponent(img.storagePath)}`;
                         return (
-                          <div key={img.id} className="group relative aspect-square bg-card border-2 border-border rounded-sm overflow-hidden">
-                            <AuthenticatedImage
-                              src={imgUrl}
-                              alt="AI reference background"
-                              className="w-full h-full object-cover"
-                              loading="lazy"
-                            />
-                            <div className="absolute bottom-0 left-0 right-0 bg-black/50 px-1.5 py-0.5">
-                              <span className="text-[10px] text-white/70 uppercase tracking-wider">{img.gender}</span>
-                            </div>
-                          </div>
+                          <ImageCard
+                            key={img.id}
+                            src={imgUrl}
+                            alt="AI reference background"
+                            isAuthProtected
+                            aspectRatio="aspect-square"
+                            actions={["openFull"]}
+                            imageOverlay={
+                              <div className="absolute bottom-0 left-0 right-0 bg-black/50 px-1.5 py-0.5 z-10">
+                                <span className="text-[10px] text-white/70 uppercase tracking-wider">{img.gender}</span>
+                              </div>
+                            }
+                          />
                         );
                       })}
                     </div>
@@ -859,7 +755,7 @@ export default function Profile() {
 
           {activeTab === "memes" && (
             <div>
-              <p className="text-sm text-muted-foreground mb-6">Memes you've created. Hover over a meme to delete it.</p>
+              <p className="text-sm text-muted-foreground mb-6">Memes you've created.</p>
               {isMyMemesLoading ? (
                 <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
                   {Array.from({ length: 6 }).map((_, i) => (
@@ -869,16 +765,19 @@ export default function Profile() {
               ) : myMemesData && myMemesData.memes.length > 0 ? (
                 <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
                   {myMemesData.memes.map(meme => {
-                    const isDeleting = deletingMemeSlug === meme.permalinkSlug;
+                    const memePermalink = `${window.location.origin}/meme/${meme.permalinkSlug}`;
                     return (
-                      <div key={meme.id} className="group relative border-2 border-border hover:border-primary/60 rounded-sm overflow-hidden transition-all">
-                        <Link href={`/meme/${meme.permalinkSlug}`} className="block">
-                          <img
-                            src={meme.imageUrl}
-                            alt="Meme"
-                            className="w-full h-auto aspect-video object-cover group-hover:scale-105 transition-transform duration-300"
-                            loading="lazy"
-                          />
+                      <ImageCard
+                        key={meme.id}
+                        src={meme.imageUrl}
+                        alt="Meme"
+                        href={`/meme/${meme.permalinkSlug}`}
+                        aspectRatio="aspect-video"
+                        actions={["delete", "copyLink", "openFull"]}
+                        onDelete={() => deleteMemeFromProfile(meme.permalinkSlug)}
+                        deleteConfirmMessage="Remove this meme? It will no longer be visible to anyone."
+                        permalink={memePermalink}
+                        footer={
                           <div className="p-2 bg-card text-xs text-muted-foreground font-medium flex items-center justify-between">
                             <span className="uppercase tracking-wide">{meme.templateId}</span>
                             <div className="flex items-center gap-1.5">
@@ -886,19 +785,8 @@ export default function Profile() {
                               <span>{new Date(meme.createdAt).toLocaleDateString()}</span>
                             </div>
                           </div>
-                        </Link>
-                        <button
-                          onClick={(e) => { e.preventDefault(); void deleteMemeFromProfile(meme.permalinkSlug); }}
-                          disabled={isDeleting}
-                          className="absolute top-2 right-2 p-1.5 bg-black/60 hover:bg-destructive text-white rounded-sm opacity-0 group-hover:opacity-100 transition-opacity disabled:opacity-50"
-                          title="Delete meme"
-                        >
-                          {isDeleting
-                            ? <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                            : <Trash2 className="w-3.5 h-3.5" />
-                          }
-                        </button>
-                      </div>
+                        }
+                      />
                     );
                   })}
                 </div>

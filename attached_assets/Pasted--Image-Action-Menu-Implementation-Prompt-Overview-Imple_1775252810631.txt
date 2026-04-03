@@ -1,0 +1,131 @@
+# Image Action Menu — Implementation Prompt
+
+## Overview
+
+Implement a universal image action system that works consistently across the entire site, on both desktop and mobile. Every image that supports user actions (delete, copy link, open full resolution) should use this single pattern. The system has three layers: a persistent kebab trigger, a desktop hover enhancement, and a platform-appropriate menu container.
+
+---
+
+## Architecture
+
+### Layer 1: Persistent Kebab Trigger (All Platforms)
+
+Every actionable image gets a small kebab icon (⋮) positioned in the **top-right corner** of the image container.
+
+- The icon sits on a semi-transparent dark pill/badge (`background: rgba(0, 0, 0, 0.5)`, `backdrop-filter: blur(4px)`) so it reads over any image content — light or dark.
+- Minimum touch target: **44×44px** (Apple HIG minimum), even if the visible icon is smaller (~20px). Use padding to fill the touch target.
+- The icon should have `border-radius: 50%` or a rounded pill shape.
+- On tap/click, it opens the **action menu** (see Layer 3).
+- This icon is **always visible** — it is not hidden behind hover on any platform. This ensures discoverability on mobile and touch devices.
+- Use `position: absolute` within a `position: relative` image wrapper. Apply `z-index` to keep it above any image overlays.
+- On very small image thumbnails (< 80px wide), hide the kebab entirely — these images should expand to full-res on tap and surface actions in the lightbox instead.
+
+### Layer 2: Desktop Hover Enhancement (Desktop Only)
+
+On desktop (detect via `@media (hover: hover) and (pointer: fine)`), add a hover overlay to the image container:
+
+- On `mouseenter`, fade in an action bar along the **bottom edge** of the image. Use a gradient scrim (`background: linear-gradient(transparent, rgba(0, 0, 0, 0.6))`) so it doesn't hard-clip the image.
+- The action bar contains **inline icon buttons** for each action:
+  - 🗑️ Delete (trash icon)
+  - 🔗 Copy Link (link icon)
+  - 🔍 Open Full Resolution (expand/maximize icon)
+- Each icon button has a tooltip on hover.
+- On `mouseleave`, fade the bar out (`opacity` transition, ~150ms).
+- This is a **progressive enhancement** — it provides one-click shortcuts on desktop but is not the only path to these actions. The kebab menu (Layer 1) still works identically on desktop.
+- The kebab icon (Layer 1) remains visible during hover — don't hide it.
+
+### Layer 3: Action Menu (Platform-Adaptive Container)
+
+When the kebab icon is tapped/clicked, open a contextual menu with the available actions. The **trigger and content** are identical on all platforms. Only the **container rendering** adapts:
+
+#### Mobile (detect via `@media (hover: none) and (pointer: coarse)` or viewport width ≤ 768px):
+- Render as a **bottom sheet** that slides up from the bottom edge of the viewport.
+- The bottom sheet should have:
+  - A drag handle bar at the top (small rounded rectangle, centered).
+  - Each action as a full-width row: icon on the left, label text on the right.
+  - Generous row height (~56px) for easy thumb targeting.
+  - A "Cancel" row at the bottom, or allow dismiss by tapping the scrim overlay / swiping down.
+  - A semi-transparent scrim overlay behind the sheet (`background: rgba(0, 0, 0, 0.4)`).
+  - Slide-up entrance animation (~250ms ease-out), slide-down dismiss (~200ms ease-in).
+- The bottom sheet should trap focus for accessibility.
+
+#### Desktop:
+- Render as a **dropdown menu** anchored to the kebab icon.
+- Standard dropdown behavior: appears below/beside the icon, dismissed on outside click or Escape key.
+- Each action as a row: icon + label.
+- Subtle shadow and border for depth (`box-shadow`, `border: 1px solid rgba(...)`).
+- Minimum row width: ~180px.
+
+### Image Tap/Click Behavior
+
+- Tapping/clicking the **image itself** (not the kebab, not the action bar icons) always opens the **full-resolution view** (lightbox/modal).
+- This keeps the highest-frequency action (viewing the image larger) at the lowest interaction cost: one tap, zero menus.
+- The lightbox/modal should **also** surface Delete and Copy Link actions in its own toolbar/header, giving users a second path to those actions from within the full-res view.
+- Make sure click/tap events on the kebab icon and action bar buttons call `e.stopPropagation()` so they don't also trigger the lightbox.
+
+---
+
+## Component Structure
+
+```
+<ImageCard>                         // position: relative; overflow: hidden;
+  <img />                           // the image itself; onClick → open lightbox
+  <KebabButton />                   // position: absolute; top-right; always visible
+  <HoverActionBar />                // desktop only; position: absolute; bottom; fade on hover
+  <ActionMenu />                    // bottom sheet (mobile) or dropdown (desktop); portal-rendered
+</ImageCard>
+
+<Lightbox>                          // triggered by image click
+  <FullResImage />
+  <LightboxToolbar>                 // contains Delete, Copy Link, Close actions
+  </LightboxToolbar>
+</Lightbox>
+```
+
+Build `ImageCard` as a **single reusable component** that accepts props for:
+- `src` / `alt` — image source and alt text
+- `fullResSrc` — full resolution image URL (if different from `src`)
+- `onDelete` — callback when delete is confirmed
+- `permalink` — the URL to copy for "Copy Link"
+- `actions` — optional array to control which actions are available (e.g., non-owners shouldn't see Delete). Default: all actions shown.
+
+This component should be used **everywhere** an actionable image appears on the site — galleries, user profiles, fact detail pages, meme generator output, etc.
+
+---
+
+## Action Behaviors
+
+### Delete
+- **Never delete immediately.** Always show a confirmation dialog first.
+- Confirmation should clearly state what's being deleted.
+- On confirm, call `onDelete` callback, which handles the API call and removes the image from the UI (optimistic update with rollback on failure).
+
+### Copy Link
+- Copy `permalink` to clipboard using `navigator.clipboard.writeText()`.
+- Show a brief toast/snackbar confirmation: "Link copied" (~2 seconds, auto-dismiss).
+- No confirmation dialog needed — this action is non-destructive and reversible (they just copy again).
+
+### Open Full Resolution
+- Opens the lightbox/modal with the full-res image.
+- Same behavior as tapping the image directly — this menu option exists for discoverability, so users who find the menu first still have a clear path to it.
+
+---
+
+## Accessibility Requirements
+
+- Kebab button: `aria-label="Image actions"`, `aria-haspopup="true"`, `aria-expanded="true/false"`.
+- Menu items: proper `role="menuitem"`, keyboard navigable with arrow keys.
+- Bottom sheet: focus trap while open, restore focus to kebab on close.
+- Lightbox: focus trap, Escape to close, `role="dialog"`, `aria-modal="true"`.
+- All icon buttons must have `aria-label` text (not just visual icons).
+- Hover action bar icons: `tabindex="0"` so keyboard users can reach them.
+
+---
+
+## Styling Notes
+
+- Use the existing site design system colors and typography.
+- Icon set: use a consistent icon library (Lucide, Heroicons, or whatever is already in use on the site). Don't mix icon sets.
+- Transitions: keep all animations ≤ 250ms. Use `ease-out` for entrances, `ease-in` for exits.
+- The semi-transparent pill on the kebab should be subtle enough to not distract from the image content but visible enough to be findable. Test against both very light and very dark images.
+- On hover states (desktop), icon buttons should have a visible background change (e.g., slightly lighter/darker circle behind the icon) to confirm interactivity.
