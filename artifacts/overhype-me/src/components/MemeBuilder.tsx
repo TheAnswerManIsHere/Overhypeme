@@ -1815,6 +1815,7 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
                                       src={`/api/storage${entry.objectPath}`}
                                       alt={`${entry.width}×${entry.height}px`}
                                       aspectRatio="aspect-video"
+                                      isAuthProtected
                                       selected={isSelected}
                                       onSelect={() => setSelectedRefUpload(isSelected ? null : entry)}
                                       compact
@@ -2093,6 +2094,7 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
                                     src={`/api/storage${entry.objectPath}`}
                                     alt={`${entry.width}×${entry.height}px${entry.isLowRes ? " · Low res" : ""}`}
                                     aspectRatio="aspect-video"
+                                    isAuthProtected
                                     selected={isSelected}
                                     onSelect={() => selectExistingUpload(entry)}
                                     compact
