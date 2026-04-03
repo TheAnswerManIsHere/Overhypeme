@@ -11,9 +11,10 @@ import { Button } from "@/components/ui/Button";
 import { Textarea } from "@/components/ui/Input";
 import { useAppMutations } from "@/hooks/use-mutations";
 import { MemeBuilder } from "@/components/MemeBuilder";
+import { VideoBuilder } from "@/components/VideoBuilder";
 import { MerchButtons } from "@/components/MerchButtons";
 import { AdSlot } from "@/components/AdSlot";
-import { ThumbsUp, ThumbsDown, User, AlertCircle, ImageIcon, GitBranch, ArrowLeft, Crown, Flame, Globe, Lock, Trash2 } from "lucide-react";
+import { ThumbsUp, ThumbsDown, User, AlertCircle, ImageIcon, GitBranch, ArrowLeft, Crown, Flame, Globe, Lock, Trash2, Video } from "lucide-react";
 import { cn } from "@/components/ui/Button";
 import { usePersonName } from "@/hooks/use-person-name";
 import { renderFact } from "@/lib/render-fact";
@@ -44,6 +45,7 @@ function VariantFactCard({ id, useCase }: { id: number; useCase: string | null }
   const { rateFact } = useAppMutations();
   const { name, pronouns } = usePersonName();
   const [showMemeBuilder, setShowMemeBuilder] = useState(false);
+  const [showVideoBuilder, setShowVideoBuilder] = useState(false);
 
   const { data: fact, isLoading } = useGetFact(id, {
     query: { queryKey: getGetFactQueryKey(id), enabled: true }
@@ -75,6 +77,13 @@ function VariantFactCard({ id, useCase }: { id: number; useCase: string | null }
           rawFactText={fact.text}
           aiMemeImages={(fact as unknown as { aiMemeImages?: import("@/components/MemeBuilder").AiMemeImages | null })?.aiMemeImages ?? null}
           onClose={() => setShowMemeBuilder(false)}
+        />
+      )}
+      {showVideoBuilder && (
+        <VideoBuilder
+          factId={id}
+          factText={renderedText}
+          onClose={() => setShowVideoBuilder(false)}
         />
       )}
 
@@ -128,6 +137,15 @@ function VariantFactCard({ id, useCase }: { id: number; useCase: string | null }
           <Flame className="w-4 h-4" />
           MAKE MEME
         </Button>
+        <Button
+          variant="secondary"
+          size="sm"
+          onClick={() => setShowVideoBuilder(true)}
+          className="gap-2"
+        >
+          <Video className="w-4 h-4" />
+          MAKE VIDEO
+        </Button>
         <Link href={`/facts/${id}`} className="ml-auto text-xs text-muted-foreground hover:text-primary transition-colors font-medium underline underline-offset-4">
           View discussion →
         </Link>
@@ -153,6 +171,7 @@ export default function FactDetail() {
   const [, params] = useRoute("/facts/:id/:sub?");
   const factId = parseInt(params?.id || "0", 10);
   const isMemeRoute = params?.sub === "meme";
+  const isVideoRoute = params?.sub === "video";
   const [, setLocation] = useLocation();
   const { isAuthenticated, user } = useAuth();
   const isPremium = user?.membershipTier === "premium";
@@ -194,6 +213,10 @@ export default function FactDetail() {
   const showMemeBuilder = isMemeRoute;
   const openMemeBuilder = () => setLocation(`/facts/${factId}/meme`);
   const closeMemeBuilder = () => setLocation(`/facts/${factId}`);
+
+  const showVideoBuilder = isVideoRoute;
+  const openVideoBuilder = () => setLocation(`/facts/${factId}/video`);
+  const closeVideoBuilder = () => setLocation(`/facts/${factId}`);
 
   const deleteMeme = useMutation({
     mutationFn: async (slug: string) => {
@@ -246,6 +269,13 @@ export default function FactDetail() {
           pexelsImages={pexelsImages}
           aiMemeImages={aiMemeImages}
           onClose={closeMemeBuilder}
+        />
+      )}
+      {showVideoBuilder && (
+        <VideoBuilder
+          factId={factId}
+          factText={renderedText}
+          onClose={closeVideoBuilder}
         />
       )}
       <div className="max-w-4xl mx-auto px-4 py-12 md:py-20">
@@ -316,6 +346,15 @@ export default function FactDetail() {
               >
                 <Flame className="w-5 h-5" />
                 <span>MAKE MEME</span>
+              </Button>
+              <Button
+                variant="secondary"
+                size="lg"
+                onClick={openVideoBuilder}
+                className="gap-2 h-14"
+              >
+                <Video className="w-5 h-5" />
+                <span>MAKE VIDEO</span>
               </Button>
             </div>
 
