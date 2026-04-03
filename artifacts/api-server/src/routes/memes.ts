@@ -712,7 +712,20 @@ router.post("/memes/ai/:factId/generate", requirePremium, async (req: Request, r
   const existingImages = fact.aiMemeImages as AiMemeImages | undefined;
 
   if (referenceImagePath) {
-    // Reference-based: read the image from storage and fire the reference pipeline
+    // Reference-based: validate path belongs to this user's uploads BEFORE reading storage.
+    // This enforces both authorization (no IDOR) and the "uploaded photos only" source requirement.
+    const uploadCheck = await db.execute<{ count: string }>(sql`
+      SELECT COUNT(*)::text AS count
+      FROM upload_image_metadata
+      WHERE object_path = ${referenceImagePath}
+        AND user_id = ${req.user?.id ?? ""}
+    `);
+    const uploadCount = parseInt(uploadCheck.rows[0]?.count ?? "0", 10);
+    if (uploadCount === 0) {
+      res.status(403).json({ error: "Reference image not found in your uploads." });
+      return;
+    }
+
     let referenceBuffer: Buffer;
     try {
       const file = await objectStorageService.getObjectEntityFile(referenceImagePath);
