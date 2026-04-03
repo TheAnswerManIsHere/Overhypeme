@@ -2,9 +2,9 @@ import { Router, type IRouter, type Request, type Response } from "express";
 import { db } from "@workspace/db";
 import {
   factsTable, hashtagsTable, factHashtagsTable,
-  ratingsTable, searchHistoryTable, usersTable, emailVerificationTokensTable,
+  ratingsTable, searchHistoryTable, usersTable, emailVerificationTokensTable, memesTable,
 } from "@workspace/db/schema";
-import { eq, desc, inArray, and, sql } from "drizzle-orm";
+import { eq, desc, inArray, and, sql, isNull } from "drizzle-orm";
 import { RecordSearchBody } from "@workspace/api-zod";
 import { getSessionId, getSession, updateSession } from "../lib/auth";
 import crypto from "crypto";
@@ -283,6 +283,36 @@ router.get("/users/me/uploads", async (req: Request, res: Response) => {
   }));
 
   res.json({ uploads });
+});
+
+// GET /users/me/memes — list all non-deleted memes created by the current user
+router.get("/users/me/memes", async (req: Request, res: Response) => {
+  if (!req.isAuthenticated()) {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+
+  const memes = await db
+    .select({
+      id: memesTable.id,
+      factId: memesTable.factId,
+      templateId: memesTable.templateId,
+      imageUrl: memesTable.imageUrl,
+      permalinkSlug: memesTable.permalinkSlug,
+      isPublic: memesTable.isPublic,
+      createdAt: memesTable.createdAt,
+    })
+    .from(memesTable)
+    .where(and(eq(memesTable.createdById, req.user.id), isNull(memesTable.deletedAt)))
+    .orderBy(desc(memesTable.createdAt))
+    .limit(100);
+
+  res.json({
+    memes: memes.map(m => ({
+      ...m,
+      createdAt: m.createdAt.toISOString(),
+    })),
+  });
 });
 
 // DELETE /users/me/uploads — hard-delete an uploaded image owned by the current user
