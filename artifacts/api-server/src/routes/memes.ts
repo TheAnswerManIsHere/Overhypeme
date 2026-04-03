@@ -733,7 +733,7 @@ router.delete("/memes/:slug", async (req: Request, res: Response) => {
   res.json({ success: true });
 });
 
-// DELETE /memes/ai/:factId/image — hard-delete an AI background image slot
+// DELETE /memes/ai/:factId/image — hard-delete an AI background image slot (owner only)
 // Query params: gender (male|female|neutral), imageIndex (0-based)
 router.delete("/memes/ai/:factId/image", requirePremium, async (req: Request, res: Response) => {
   const factId = parseInt(String(req.params["factId"] ?? ""), 10);
@@ -762,7 +762,17 @@ router.delete("/memes/ai/:factId/image", requirePremium, async (req: Request, re
 
   if (!storagePath) { res.status(404).json({ error: "Image slot not found" }); return; }
 
-  // Remove slot from the array (null out to preserve indices, then compact later)
+  // Ownership check: only the user who generated this image can delete it
+  const ownerRows = await db.execute(sql`
+    SELECT id FROM user_ai_images
+    WHERE user_id = ${req.user!.id} AND storage_path = ${storagePath}
+    LIMIT 1
+  `);
+  if (!ownerRows.rows.length) {
+    res.status(403).json({ error: "You do not own this AI background image" }); return;
+  }
+
+  // Remove slot from the array
   genderImages.splice(imageIndex, 1);
   const updatedImages: AiMemeImages = { ...images, [gender]: genderImages };
   await db
@@ -773,7 +783,7 @@ router.delete("/memes/ai/:factId/image", requirePremium, async (req: Request, re
   // Remove from user tracking table
   await db.execute(sql`
     DELETE FROM user_ai_images WHERE id = (
-      SELECT id FROM user_ai_images WHERE storage_path = ${storagePath} LIMIT 1
+      SELECT id FROM user_ai_images WHERE user_id = ${req.user!.id} AND storage_path = ${storagePath} LIMIT 1
     )
   `);
 

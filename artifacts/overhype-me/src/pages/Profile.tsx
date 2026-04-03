@@ -5,7 +5,7 @@ import { Layout } from "@/components/layout/Layout";
 import { FactCard } from "@/components/facts/FactCard";
 import { Button } from "@/components/ui/Button";
 import { SubscriptionPanel } from "@/components/SubscriptionPanel";
-import { ShieldAlert, LogOut, Clock, ThumbsUp, FileText, Hash, Star, X, Pencil, Check, Mail, AlertTriangle, CheckCircle, Camera, Loader2, Images, Copy, ExternalLink, Trash2 } from "lucide-react";
+import { ShieldAlert, LogOut, Clock, ThumbsUp, FileText, Hash, Star, X, Pencil, Check, Mail, AlertTriangle, CheckCircle, Camera, Loader2, Images, Copy, ExternalLink, Trash2, ImageIcon, Lock } from "lucide-react";
 import { Link, useLocation } from "wouter";
 import { useQueryClient, useQuery } from "@tanstack/react-query";
 import { PronounEditor } from "@/components/ui/PronounEditor";
@@ -22,7 +22,8 @@ export default function Profile() {
 
   const updateProfile = useUpdateMyProfile();
 
-  const [activeTab, setActiveTab] = useState<"submitted" | "liked" | "history" | "images">("liked");
+  const [activeTab, setActiveTab] = useState<"submitted" | "liked" | "history" | "images" | "memes">("liked");
+  const [deletingMemeSlug, setDeletingMemeSlug] = useState<string | null>(null);
   const [copiedPath, setCopiedPath] = useState<string | null>(null);
   const [deletingUploadPath, setDeletingUploadPath] = useState<string | null>(null);
   const [checkoutBanner, setCheckoutBanner] = useState<"success" | "cancel" | null>(null);
@@ -70,6 +71,27 @@ export default function Profile() {
     staleTime: 30_000,
   });
 
+  type MyMemeItem = {
+    id: number;
+    factId: number;
+    templateId: string;
+    imageUrl: string;
+    permalinkSlug: string;
+    isPublic: boolean;
+    createdAt: string;
+  };
+
+  const { data: myMemesData, isLoading: isMyMemesLoading } = useQuery<{ memes: MyMemeItem[] }>({
+    queryKey: ["profile-my-memes"],
+    queryFn: async () => {
+      const res = await fetch(`${BASE_URL}api/users/me/memes`, { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to fetch memes");
+      return res.json() as Promise<{ memes: MyMemeItem[] }>;
+    },
+    enabled: isAuthenticated && activeTab === "memes",
+    staleTime: 30_000,
+  });
+
   async function copyImageLink(objectPath: string) {
     const url = `${window.location.origin}${BASE_URL}api/storage${objectPath}`;
     try {
@@ -79,6 +101,24 @@ export default function Profile() {
     } catch {
       setCopiedPath(objectPath);
       setTimeout(() => setCopiedPath(null), 2000);
+    }
+  }
+
+  async function deleteMemeFromProfile(slug: string) {
+    if (deletingMemeSlug) return;
+    if (!confirm("Remove this meme? It will no longer be visible to anyone.")) return;
+    setDeletingMemeSlug(slug);
+    try {
+      const res = await fetch(`${BASE_URL}api/memes/${slug}`, {
+        method: "DELETE",
+        credentials: "include",
+      });
+      if (!res.ok) throw new Error("Failed to delete meme");
+      void queryClient.invalidateQueries({ queryKey: ["profile-my-memes"] });
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "Failed to delete meme");
+    } finally {
+      setDeletingMemeSlug(null);
     }
   }
 
@@ -562,6 +602,12 @@ export default function Profile() {
               <Images className="w-5 h-5" /> My Images
             </button>
           )}
+          <button 
+            onClick={() => setActiveTab("memes")}
+            className={`flex items-center gap-2 px-6 py-4 font-display text-lg uppercase tracking-wider transition-colors border-b-2 whitespace-nowrap ${activeTab === "memes" ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground hover:border-border"}`}
+          >
+            <ImageIcon className="w-5 h-5" /> My Memes
+          </button>
         </div>
 
         {/* Tab Content */}
@@ -667,6 +713,62 @@ export default function Profile() {
                   <p className="text-muted-foreground text-lg font-medium mb-2">No images uploaded yet.</p>
                   <p className="text-muted-foreground text-sm mb-6">Upload a custom photo in the meme builder and it will appear here for easy reuse.</p>
                   <Link href="/"><Button variant="outline">GO TO MEME BUILDER</Button></Link>
+                </div>
+              )}
+            </div>
+          )}
+
+          {activeTab === "memes" && (
+            <div>
+              <p className="text-sm text-muted-foreground mb-6">Memes you've created. Hover over a meme to delete it.</p>
+              {isMyMemesLoading ? (
+                <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                  {Array.from({ length: 6 }).map((_, i) => (
+                    <div key={i} className="aspect-video bg-card border-2 border-border rounded-sm animate-pulse" />
+                  ))}
+                </div>
+              ) : myMemesData && myMemesData.memes.length > 0 ? (
+                <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                  {myMemesData.memes.map(meme => {
+                    const isDeleting = deletingMemeSlug === meme.permalinkSlug;
+                    return (
+                      <div key={meme.id} className="group relative border-2 border-border hover:border-primary/60 rounded-sm overflow-hidden transition-all">
+                        <Link href={`/meme/${meme.permalinkSlug}`} className="block">
+                          <img
+                            src={meme.imageUrl}
+                            alt="Meme"
+                            className="w-full h-auto aspect-video object-cover group-hover:scale-105 transition-transform duration-300"
+                            loading="lazy"
+                          />
+                          <div className="p-2 bg-card text-xs text-muted-foreground font-medium flex items-center justify-between">
+                            <span className="uppercase tracking-wide">{meme.templateId}</span>
+                            <div className="flex items-center gap-1.5">
+                              {!meme.isPublic && <Lock className="w-3 h-3" />}
+                              <span>{new Date(meme.createdAt).toLocaleDateString()}</span>
+                            </div>
+                          </div>
+                        </Link>
+                        <button
+                          onClick={(e) => { e.preventDefault(); void deleteMemeFromProfile(meme.permalinkSlug); }}
+                          disabled={isDeleting}
+                          className="absolute top-2 right-2 p-1.5 bg-black/60 hover:bg-destructive text-white rounded-sm opacity-0 group-hover:opacity-100 transition-opacity disabled:opacity-50"
+                          title="Delete meme"
+                        >
+                          {isDeleting
+                            ? <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                            : <Trash2 className="w-3.5 h-3.5" />
+                          }
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="text-center py-16 bg-card border-2 border-dashed border-border rounded-sm">
+                  <ImageIcon className="w-16 h-16 text-muted-foreground/40 mx-auto mb-4" />
+                  <p className="text-muted-foreground text-lg font-medium mb-2">No memes created yet.</p>
+                  <p className="text-muted-foreground text-sm mb-6">Head to a fact page and build your first meme.</p>
+                  <Link href="/"><Button variant="outline">BROWSE FACTS</Button></Link>
                 </div>
               )}
             </div>
