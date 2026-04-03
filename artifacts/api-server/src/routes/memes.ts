@@ -17,7 +17,7 @@ import { getConfigInt } from "../lib/adminConfig";
 import { getRandomStockPhoto, getPhotoById } from "../lib/pexelsClient";
 import { renderPersonalized } from "../lib/renderCanonical";
 import { compositeAiMeme } from "../lib/aiMemeCompositor";
-import { generateAiMemeBackgrounds, isUserAtImageLimit } from "../lib/aiMemePipeline";
+import { generateAiMemeBackgrounds, generateAiMemeBackgroundFromReference, isUserAtImageLimit } from "../lib/aiMemePipeline";
 import type { AiMemeImages } from "../lib/aiMemePipeline";
 import { requirePremium } from "../middlewares/premiumMiddleware";
 import { getUploadImageMetadata } from "./storage";
@@ -678,6 +678,18 @@ router.post("/memes/ai/:factId/generate", requirePremium, async (req: Request, r
   const body = req.body as Record<string, unknown>;
   const scope = body["scope"] === "abstract" ? "abstract" : "gendered";
 
+  // Optional reference image path for reference-based generation
+  const rawRefPath = body["referenceImagePath"];
+  const referenceImagePath = typeof rawRefPath === "string" && rawRefPath.startsWith("/objects/")
+    ? rawRefPath
+    : null;
+
+  // targetGender for reference mode (which gender slot to generate for)
+  const rawGender = body["targetGender"];
+  const targetGender: "male" | "female" | "neutral" =
+    rawGender === "male" ? "male" :
+    rawGender === "female" ? "female" : "neutral";
+
   const [fact] = await db
     .select({ id: factsTable.id, text: factsTable.text, parentId: factsTable.parentId, aiScenePrompts: factsTable.aiScenePrompts, aiMemeImages: factsTable.aiMemeImages })
     .from(factsTable)
@@ -699,12 +711,30 @@ router.post("/memes/ai/:factId/generate", requirePremium, async (req: Request, r
   const existingPrompts = fact.aiScenePrompts as import("../lib/aiMemePipeline").AiScenePrompts | undefined;
   const existingImages = fact.aiMemeImages as AiMemeImages | undefined;
 
-  void generateAiMemeBackgrounds(fact.id, fact.text, {
-    scope,
-    existingPrompts,
-    existingImages,
-    userId: req.user?.id,
-  });
+  if (referenceImagePath) {
+    // Reference-based: read the image from storage and fire the reference pipeline
+    let referenceBuffer: Buffer;
+    try {
+      const file = await objectStorageService.getObjectEntityFile(referenceImagePath);
+      const [content] = await file.download();
+      referenceBuffer = content;
+    } catch {
+      res.status(400).json({ error: "Could not read reference image from storage." });
+      return;
+    }
+    void generateAiMemeBackgroundFromReference(fact.id, fact.text, referenceBuffer, targetGender, {
+      existingPrompts,
+      existingImages,
+      userId: req.user?.id,
+    });
+  } else {
+    void generateAiMemeBackgrounds(fact.id, fact.text, {
+      scope,
+      existingPrompts,
+      existingImages,
+      userId: req.user?.id,
+    });
+  }
 
   res.json({ success: true, message: "AI meme generation started. Refresh in a moment to see new images." });
 });

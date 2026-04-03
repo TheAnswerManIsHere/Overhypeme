@@ -331,6 +331,7 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const refFileInputRef = useRef<HTMLInputElement>(null);
 
   // AI gallery display limit — fetched once from the admin-managed public config endpoint
   const [aiGalleryDisplayLimit, setAiGalleryDisplayLimit] = useState(50);
@@ -528,6 +529,14 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
   // Cache-buster timestamp: bumped after every successful regen so browser re-fetches the new image
   const [aiCacheBuster, setAiCacheBuster] = useState<number>(0);
 
+  // AI sub-mode: generic (text-prompted) or reference (photo-based)
+  const [aiSubMode, setAiSubMode] = useState<"generic" | "reference">("generic");
+  // Reference photo picker state
+  const [selectedRefUpload, setSelectedRefUpload] = useState<UploadEntry | null>(null);
+  const [refUploads, setRefUploads] = useState<UploadEntry[]>([]);
+  const [isLoadingRefUploads, setIsLoadingRefUploads] = useState(false);
+  const [isUploadingRefPhoto, setIsUploadingRefPhoto] = useState(false);
+
   // Sync localAiMemeImages when prop changes
   useEffect(() => {
     setLocalAiMemeImages(aiMemeImages ?? null);
@@ -580,6 +589,11 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
 
   const handleGenerateNewAi = async () => {
     if (isGeneratingAi) return;
+    // In reference sub-mode, require a photo to be selected
+    if (aiSubMode === "reference" && !selectedRefUpload) {
+      setAiGenerateError("Select a reference photo below before generating.");
+      return;
+    }
     setIsGeneratingAi(true);
     setAiGenerateError(null);
     setGenerationProgress(0);
@@ -622,7 +636,11 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ scope: factIsGendered ? "gendered" : "abstract" }),
+        body: JSON.stringify(
+          aiSubMode === "reference" && selectedRefUpload
+            ? { referenceImagePath: selectedRefUpload.objectPath, targetGender: aiGender }
+            : { scope: factIsGendered ? "gendered" : "abstract" },
+        ),
       });
       if (!res.ok) {
         const body = await res.json() as { error?: string; limitExceeded?: boolean };
@@ -1028,6 +1046,65 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
     return () => { cancelled = true; };
   }, [isPremium, imageMode]);
 
+  // Fetch reference photo uploads when in AI reference sub-mode
+  useEffect(() => {
+    if (!isPremium || imageMode !== "ai" || aiSubMode !== "reference") return;
+    let cancelled = false;
+    setIsLoadingRefUploads(true);
+    fetch("/api/users/me/uploads", { credentials: "include" })
+      .then(r => r.json())
+      .then((data: { uploads?: UploadEntry[] }) => {
+        if (cancelled) return;
+        setRefUploads(data.uploads ?? []);
+      })
+      .catch(() => {})
+      .finally(() => { if (!cancelled) setIsLoadingRefUploads(false); });
+    return () => { cancelled = true; };
+  }, [isPremium, imageMode, aiSubMode]);
+
+  // Upload a new reference photo (inline in AI reference sub-mode picker)
+  const handleRefPhotoUpload = useCallback(async (file: File) => {
+    if (!file.type.startsWith("image/")) return;
+    setIsUploadingRefPhoto(true);
+    try {
+      let uploadBlob: Blob = file;
+      try {
+        const processed = await preProcessImageFile(file);
+        uploadBlob = processed.blob;
+      } catch { /* use original */ }
+
+      const uploadRes = await fetch("/api/storage/upload-meme", {
+        method: "POST",
+        headers: { "Content-Type": "image/jpeg" },
+        body: uploadBlob,
+      });
+      if (!uploadRes.ok) {
+        const errBody = await uploadRes.json() as { error?: string };
+        throw new Error(errBody.error ?? "Upload failed");
+      }
+      const result = await uploadRes.json() as {
+        objectPath: string;
+        width?: number;
+        height?: number;
+        isLowRes?: boolean;
+      };
+      const newEntry: UploadEntry = {
+        objectPath: result.objectPath,
+        width: result.width ?? 0,
+        height: result.height ?? 0,
+        isLowRes: result.isLowRes ?? false,
+        fileSizeBytes: 0,
+        createdAt: new Date().toISOString(),
+      };
+      setRefUploads(prev => [newEntry, ...prev]);
+      setSelectedRefUpload(newEntry);
+    } catch (e) {
+      setAiGenerateError(e instanceof Error ? e.message : "Upload failed");
+    } finally {
+      setIsUploadingRefPhoto(false);
+    }
+  }, []);
+
   // Select an existing uploaded image as the meme background (no re-upload)
   const selectExistingUpload = useCallback((entry: UploadEntry) => {
     if (uploadLocalUrl) URL.revokeObjectURL(uploadLocalUrl);
@@ -1408,6 +1485,30 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
                       </div>
                     ) : (
                       <div className="space-y-3">
+                        {/* Sub-mode toggle: Generic / With Reference Photo */}
+                        <div className="flex gap-1 p-0.5 bg-muted/40 rounded-sm">
+                          <button
+                            onClick={() => { setAiSubMode("generic"); setAiGenerateError(null); }}
+                            className={`flex-1 text-[10px] font-display uppercase tracking-widest py-1 rounded-sm transition-colors ${
+                              aiSubMode === "generic"
+                                ? "bg-violet-500 text-white"
+                                : "text-muted-foreground hover:text-foreground"
+                            }`}
+                          >
+                            Generic
+                          </button>
+                          <button
+                            onClick={() => { setAiSubMode("reference"); setAiGenerateError(null); }}
+                            className={`flex-1 text-[10px] font-display uppercase tracking-widest py-1 rounded-sm transition-colors ${
+                              aiSubMode === "reference"
+                                ? "bg-violet-500 text-white"
+                                : "text-muted-foreground hover:text-foreground"
+                            }`}
+                          >
+                            Reference Photo
+                          </button>
+                        </div>
+
                         {aiImagePaths.length > 0 ? (
                           <>
                             <p className="text-[10px] font-display uppercase tracking-widest text-muted-foreground">
@@ -1468,14 +1569,95 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
                           </div>
                         )}
 
+                        {/* Reference photo picker — shown in reference sub-mode */}
+                        {aiSubMode === "reference" && (
+                          <div className="space-y-2">
+                            <p className="text-[10px] font-display uppercase tracking-widest text-muted-foreground">
+                              Pick a reference photo
+                            </p>
+                            {/* Hidden file input for Upload New tile */}
+                            <input
+                              ref={refFileInputRef}
+                              type="file"
+                              accept="image/*"
+                              className="hidden"
+                              onChange={e => {
+                                const f = e.target.files?.[0];
+                                if (f) void handleRefPhotoUpload(f);
+                                e.target.value = "";
+                              }}
+                            />
+                            {isLoadingRefUploads ? (
+                              <div className="flex items-center justify-center py-4">
+                                <Loader2 className="w-4 h-4 text-muted-foreground animate-spin" />
+                              </div>
+                            ) : (
+                              <div className="grid grid-cols-3 gap-1.5 max-h-40 overflow-y-auto pr-0.5">
+                                {/* Upload New tile */}
+                                <button
+                                  onClick={() => refFileInputRef.current?.click()}
+                                  disabled={isUploadingRefPhoto}
+                                  className="relative aspect-video border-2 border-dashed border-border hover:border-violet-400 transition-colors flex flex-col items-center justify-center gap-0.5 text-muted-foreground hover:text-violet-400 disabled:opacity-50"
+                                  title="Upload a new photo"
+                                >
+                                  {isUploadingRefPhoto
+                                    ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                    : <Upload className="w-3.5 h-3.5" />
+                                  }
+                                  <span className="text-[8px] font-display uppercase tracking-wider leading-tight">
+                                    {isUploadingRefPhoto ? "Uploading…" : "Upload New"}
+                                  </span>
+                                </button>
+                                {refUploads.map(entry => {
+                                  const isSelected = selectedRefUpload?.objectPath === entry.objectPath;
+                                  return (
+                                    <button
+                                      key={entry.objectPath}
+                                      onClick={() => setSelectedRefUpload(isSelected ? null : entry)}
+                                      className={`relative aspect-video overflow-hidden border-2 transition-all ${
+                                        isSelected
+                                          ? "border-violet-500 ring-2 ring-violet-500/30"
+                                          : "border-transparent hover:border-violet-400/50"
+                                      }`}
+                                      title={`${entry.width}×${entry.height}px`}
+                                    >
+                                      <img
+                                        src={`/api/storage${entry.objectPath}`}
+                                        alt="Upload"
+                                        className="w-full h-full object-cover"
+                                        loading="lazy"
+                                      />
+                                      {isSelected && (
+                                        <div className="absolute inset-0 bg-violet-500/20 flex items-center justify-center">
+                                          <CheckCircle className="w-3.5 h-3.5 text-violet-400 drop-shadow" />
+                                        </div>
+                                      )}
+                                    </button>
+                                  );
+                                })}
+                                {refUploads.length === 0 && !isUploadingRefPhoto && (
+                                  <p className="col-span-2 text-[10px] text-muted-foreground/60 py-2">
+                                    No uploads yet — click Upload New above.
+                                  </p>
+                                )}
+                              </div>
+                            )}
+                            {selectedRefUpload && (
+                              <p className="text-[10px] text-violet-400">
+                                Reference selected · 1 image will be generated ({aiGender})
+                              </p>
+                            )}
+                          </div>
+                        )}
+
                         {/* Generate New button */}
                         <div className="flex items-center gap-2">
                           <Button
                             size="sm"
                             variant="outline"
                             onClick={() => void handleGenerateNewAi()}
-                            disabled={isGeneratingAi}
-                            className="gap-2 border-violet-500/50 text-violet-400 hover:border-violet-400"
+                            disabled={isGeneratingAi || (aiSubMode === "reference" && !selectedRefUpload)}
+                            className="gap-2 border-violet-500/50 text-violet-400 hover:border-violet-400 disabled:opacity-50"
                           >
                             {isGeneratingAi ? (
                               <><Loader2 className="w-3.5 h-3.5 animate-spin" />Generating…</>
@@ -1484,7 +1666,9 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
                             )}
                           </Button>
                           <span className="text-[10px] text-muted-foreground">
-                            {factIsGendered ? "3 images (gendered)" : "1 image (abstract)"}
+                            {aiSubMode === "reference"
+                              ? "1 image from your photo"
+                              : factIsGendered ? "3 images (gendered)" : "1 image (abstract)"}
                           </span>
                         </div>
 
