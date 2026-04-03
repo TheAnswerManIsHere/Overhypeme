@@ -392,6 +392,7 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
   const [uploadGalleryMax, setUploadGalleryMax] = useState(1000);
   const [uploadGalleryDisplayLimit, setUploadGalleryDisplayLimit] = useState(50);
   const [isLoadingGallery, setIsLoadingGallery] = useState(false);
+  const [deletingUploadPath, setDeletingUploadPath] = useState<string | null>(null);
   // The URL to use for canvas preview — local blob URL for new uploads, storage URL for gallery picks
   const [uploadDisplayUrl, setUploadDisplayUrl] = useState<string | null>(null);
 
@@ -1121,6 +1122,40 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
     setUploadDisplayUrl(`/api/storage${entry.objectPath}`);
   }, [uploadLocalUrl]);
 
+  const deleteUpload = useCallback(async (objectPath: string) => {
+    setDeletingUploadPath(objectPath);
+    try {
+      const res = await fetch(`/api/users/me/uploads?path=${encodeURIComponent(objectPath)}`, {
+        method: "DELETE",
+        credentials: "include",
+      });
+      if (!res.ok) return;
+      // If the deleted image was selected, clear selection
+      if (uploadObjectPath === objectPath) {
+        setUploadObjectPath(null);
+        setUploadDisplayUrl(null);
+        setUploadIsLowRes(false);
+        setUploadWidth(null);
+        setUploadHeight(null);
+      }
+      // Refresh gallery
+      const data = await fetch("/api/users/me/uploads", { credentials: "include" }).then(r => r.json()) as {
+        uploads?: UploadEntry[];
+        uploadCount?: number;
+        maxUploads?: number;
+        displayLimit?: number;
+      };
+      setUploadGallery(data.uploads ?? []);
+      setUploadGalleryCount(data.uploadCount ?? 0);
+      setUploadGalleryMax(data.maxUploads ?? 1000);
+      if (data.displayLimit) setUploadGalleryDisplayLimit(data.displayLimit);
+    } catch {
+      // silent
+    } finally {
+      setDeletingUploadPath(null);
+    }
+  }, [uploadObjectPath]);
+
   // ── Generate ─────────────────────────────────────────────────────
   const handleGenerate = async () => {
     if (!isAuthenticated) { login(); return; }
@@ -1821,34 +1856,49 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
                             <div className="grid grid-cols-3 gap-1.5 max-h-52 overflow-y-auto pr-0.5">
                               {uploadGallery.map((entry) => {
                                 const isSelected = uploadObjectPath === entry.objectPath && !uploadFile;
+                                const isDeleting = deletingUploadPath === entry.objectPath;
                                 return (
-                                  <button
-                                    key={entry.objectPath}
-                                    onClick={() => selectExistingUpload(entry)}
-                                    className={`relative aspect-video overflow-hidden border-2 transition-all ${
-                                      isSelected
-                                        ? "border-primary"
-                                        : "border-transparent hover:border-primary/50"
-                                    }`}
-                                    title={`${entry.width}×${entry.height}px${entry.isLowRes ? " · Low res" : ""}`}
-                                  >
-                                    <img
-                                      src={`/api/storage${entry.objectPath}`}
-                                      alt="Uploaded image"
-                                      className="w-full h-full object-cover"
-                                      loading="lazy"
-                                    />
-                                    {isSelected && (
-                                      <div className="absolute inset-0 bg-primary/20 flex items-center justify-center">
-                                        <CheckCircle className="w-4 h-4 text-primary drop-shadow" />
-                                      </div>
-                                    )}
-                                    {entry.isLowRes && (
-                                      <div className="absolute bottom-0 left-0 right-0 bg-amber-400/80 text-[8px] font-bold text-black text-center leading-tight py-0.5">
-                                        LOW RES
-                                      </div>
-                                    )}
-                                  </button>
+                                  <div key={entry.objectPath} className="relative">
+                                    <button
+                                      onClick={() => !isDeleting && selectExistingUpload(entry)}
+                                      disabled={isDeleting}
+                                      className={`relative w-full aspect-video overflow-hidden border-2 transition-all ${
+                                        isSelected
+                                          ? "border-primary"
+                                          : "border-transparent hover:border-primary/50"
+                                      } ${isDeleting ? "opacity-40" : ""}`}
+                                      title={`${entry.width}×${entry.height}px${entry.isLowRes ? " · Low res" : ""}`}
+                                    >
+                                      <img
+                                        src={`/api/storage${entry.objectPath}`}
+                                        alt="Uploaded image"
+                                        className="w-full h-full object-cover"
+                                        loading="lazy"
+                                      />
+                                      {isSelected && (
+                                        <div className="absolute inset-0 bg-primary/20 flex items-center justify-center">
+                                          <CheckCircle className="w-4 h-4 text-primary drop-shadow" />
+                                        </div>
+                                      )}
+                                      {entry.isLowRes && (
+                                        <div className="absolute bottom-0 left-0 right-0 bg-amber-400/80 text-[8px] font-bold text-black text-center leading-tight py-0.5">
+                                          LOW RES
+                                        </div>
+                                      )}
+                                    </button>
+                                    <button
+                                      onClick={(e) => { e.stopPropagation(); void deleteUpload(entry.objectPath); }}
+                                      disabled={isDeleting}
+                                      className="absolute top-0.5 right-0.5 z-10 w-5 h-5 rounded-full bg-black/60 flex items-center justify-center text-white hover:bg-red-600 transition-colors disabled:cursor-not-allowed"
+                                      title="Delete image"
+                                      aria-label="Delete image"
+                                    >
+                                      {isDeleting
+                                        ? <Loader2 className="w-2.5 h-2.5 animate-spin" />
+                                        : <X className="w-2.5 h-2.5" />
+                                      }
+                                    </button>
+                                  </div>
                                 );
                               })}
                             </div>
