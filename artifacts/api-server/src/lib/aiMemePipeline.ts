@@ -191,7 +191,8 @@ async function generateAndStoreImageFromReference(
 ): Promise<string> {
   const openai = getOpenAIClient();
 
-  const referenceFile = await toFile(referenceBuffer, "reference.png", { type: "image/png" });
+  // Uploads stored via /storage/upload-meme are always JPEG
+  const referenceFile = await toFile(referenceBuffer, "reference.jpg", { type: "image/jpeg" });
 
   const editPrompt = `${prompt} — transform the provided reference photo into a cinematic meme background with dramatic lighting and high contrast. No text or letters.`;
 
