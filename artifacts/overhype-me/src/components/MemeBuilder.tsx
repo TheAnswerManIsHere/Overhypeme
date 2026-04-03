@@ -505,6 +505,9 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
   const [selectedAiIndex, setSelectedAiIndex] = useState<number | null>(null);
   const [isGeneratingAi, setIsGeneratingAi] = useState(false);
   const [aiGenerateError, setAiGenerateError] = useState<string | null>(null);
+  const [generationProgress, setGenerationProgress] = useState(0);
+  const [generationElapsed, setGenerationElapsed] = useState(0);
+  const generationTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [localAiMemeImages, setLocalAiMemeImages] = useState<AiMemeImages | null>(aiMemeImages ?? null);
   // Cache-buster timestamp: bumped after every successful regen so browser re-fetches the new image
   const [aiCacheBuster, setAiCacheBuster] = useState<number>(0);
@@ -515,6 +518,15 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
   }, [aiMemeImages]);
 
   const { toast } = useToast();
+
+  useEffect(() => {
+    return () => {
+      if (generationTimerRef.current) {
+        clearInterval(generationTimerRef.current);
+        generationTimerRef.current = null;
+      }
+    };
+  }, []);
 
   // The AI image slots for the current gender variant — newest-first, up to the admin-configured limit shown in gallery.
   // Each slot tracks path + original array index so the API imageIndex param remains correct
@@ -554,6 +566,26 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
     if (isGeneratingAi) return;
     setIsGeneratingAi(true);
     setAiGenerateError(null);
+    setGenerationProgress(0);
+    setGenerationElapsed(0);
+
+    const startTime = Date.now();
+    if (generationTimerRef.current) clearInterval(generationTimerRef.current);
+    generationTimerRef.current = setInterval(() => {
+      const elapsed = (Date.now() - startTime) / 1000;
+      setGenerationElapsed(Math.floor(elapsed));
+      // Phase 1: 0→80% over 30s (linear)
+      // Phase 2: 80→99% decaying (never reaches 100 on its own)
+      let progress: number;
+      if (elapsed <= 30) {
+        progress = (elapsed / 30) * 80;
+      } else {
+        const extra = elapsed - 30;
+        progress = 80 + 19 * (1 - Math.exp(-extra / 60));
+      }
+      setGenerationProgress(Math.min(progress, 99));
+    }, 250);
+
     try {
       // Capture baseline BEFORE firing generation to detect actual image completion.
       // - First-time: detect slot going from null → non-null (image slot populated)
@@ -603,16 +635,31 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
               done = newUpdatedAt !== baselineUpdatedAt && newSlotPath !== null;
             }
             if (done) {
+              if (generationTimerRef.current) {
+                clearInterval(generationTimerRef.current);
+                generationTimerRef.current = null;
+              }
+              setGenerationProgress(100);
               setLocalAiMemeImages(data.aiMemeImages ?? null);
               setSelectedAiIndex(0);
               setAiCacheBuster(Date.now()); // force browser to bypass cached old image
-              setIsGeneratingAi(false);
+              setTimeout(() => {
+                setIsGeneratingAi(false);
+                setGenerationProgress(0);
+                setGenerationElapsed(0);
+              }, 400);
               return;
             }
           }
         } catch { /* network error — keep polling */ }
 
         if (polls >= MAX_POLLS) {
+          if (generationTimerRef.current) {
+            clearInterval(generationTimerRef.current);
+            generationTimerRef.current = null;
+          }
+          setGenerationProgress(0);
+          setGenerationElapsed(0);
           setAiGenerateError("Generation is taking longer than expected. Click 'Generate New' again or refresh the page.");
           setIsGeneratingAi(false);
           return;
@@ -622,6 +669,12 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
 
       setTimeout(() => void poll(), POLL_INTERVAL);
     } catch (e) {
+      if (generationTimerRef.current) {
+        clearInterval(generationTimerRef.current);
+        generationTimerRef.current = null;
+      }
+      setGenerationProgress(0);
+      setGenerationElapsed(0);
       setAiGenerateError(e instanceof Error ? e.message : "Generation failed");
       setIsGeneratingAi(false);
     }
@@ -1374,9 +1427,21 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
                           <p className="text-[10px] text-destructive">{aiGenerateError}</p>
                         )}
                         {isGeneratingAi && (
-                          <p className="text-[10px] text-muted-foreground/60">
-                            Generation takes ~30 seconds. Thumbnails will refresh automatically.
-                          </p>
+                          <div className="space-y-1.5">
+                            <div className="w-full h-1.5 rounded-full bg-violet-500/15 overflow-hidden">
+                              <div
+                                className={`h-full rounded-full transition-all duration-300 ${
+                                  generationProgress >= 100
+                                    ? "bg-green-500"
+                                    : "bg-violet-500"
+                                }`}
+                                style={{ width: `${generationProgress}%` }}
+                              />
+                            </div>
+                            <p className="text-[10px] text-muted-foreground/60">
+                              Generating… {generationElapsed}s — thumbnails will refresh automatically.
+                            </p>
+                          </div>
                         )}
 
                         <p className="text-[10px] text-muted-foreground/50">
