@@ -769,6 +769,18 @@ router.post("/memes/ai/:factId/generate", requirePremium, async (req: Request, r
   const existingPrompts = fact.aiScenePrompts as import("../lib/aiMemePipeline").AiScenePrompts | undefined;
   const existingImages = fact.aiMemeImages as AiMemeImages | undefined;
 
+  // Resolve optional style suffix from styleId
+  const rawStyleId = body["styleId"];
+  let styleSuffix: string | undefined;
+  if (typeof rawStyleId === "string" && rawStyleId !== "none") {
+    const { IMAGE_STYLE_MAP } = await import("../config/imageStyles.js");
+    const styleDef = IMAGE_STYLE_MAP.get(rawStyleId);
+    if (styleDef) {
+      styleSuffix = referenceImagePath ? styleDef.promptSuffixReference : styleDef.promptSuffix;
+      if (!styleSuffix) styleSuffix = undefined;
+    }
+  }
+
   if (referenceImagePath) {
     // Reference-based: validate path belongs to this user's uploads BEFORE reading storage.
     // This enforces both authorization (no IDOR) and the "uploaded photos only" source requirement.
@@ -796,6 +808,7 @@ router.post("/memes/ai/:factId/generate", requirePremium, async (req: Request, r
     void generateAiMemeBackgroundFromReference(fact.id, fact.text, referenceBuffer, targetGender, {
       existingPrompts,
       userId: req.user?.id,
+      styleSuffix,
     });
   } else {
     void generateAiMemeBackgrounds(fact.id, fact.text, {
@@ -803,6 +816,7 @@ router.post("/memes/ai/:factId/generate", requirePremium, async (req: Request, r
       existingPrompts,
       existingImages,
       userId: req.user?.id,
+      styleSuffix,
     });
   }
 

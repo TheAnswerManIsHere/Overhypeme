@@ -1,0 +1,244 @@
+# Feature Request: Add Style Modifier Dropdown to AI Image Generator
+
+## Overview
+
+Add a “Style” dropdown selector to the AI image generation system that appears in both the **generic image generator** (text-to-image) and the **reference-based image generator** (image edit/transform). The dropdown lets users choose a visual style that gets appended to their prompt before it’s sent to the OpenAI API.
+
+The OpenAI GPT Image models (gpt-image-1, gpt-image-1.5) do **not** have a native `style` API parameter — style is controlled entirely through prompt text. So the implementation is a prompt-concatenation pattern: whatever base prompt exists gets the selected style’s prompt suffix appended to it before the API call.
+
+-----
+
+## Style Data
+
+Create a centralized styles configuration (e.g. `src/config/imageStyles.ts` or `src/constants/imageStyles.js` — wherever the project’s config pattern lives) that exports the following styles array. Each entry has:
+
+- `id` — unique key for state management
+- `label` — user-facing display name in the dropdown
+- `promptSuffix` — the text appended to the base prompt
+- `promptSuffixReference` — the text appended when a reference image is provided (includes a “Reimagine/Transform” framing for better edit fidelity)
+
+```typescript
+export const IMAGE_STYLES = [
+  {
+    id: "none",
+    label: "Default (No Style)",
+    promptSuffix: "",
+    promptSuffixReference: "",
+  },
+  {
+    id: "cinematic",
+    label: "Cinematic",
+    promptSuffix:
+      "Rendered in a dramatic cinematic style with deep shadows, volumetric lighting, lens flare, and a dark moody color palette with warm orange and amber highlights. Composition resembles a widescreen movie still.",
+    promptSuffixReference:
+      "Reimagine this scene in a dramatic cinematic style with deep shadows, volumetric lighting, lens flare, and a dark moody color palette with warm orange and amber highlights. Composition resembles a widescreen movie still.",
+  },
+  {
+    id: "epic",
+    label: "Epic / Mythological",
+    promptSuffix:
+      "Depicted as an epic mythological scene with divine lighting breaking through storm clouds, dramatic scale, and a sense of legendary power. Renaissance composition with baroque intensity.",
+    promptSuffixReference:
+      "Transform this into an epic mythological scene with divine lighting breaking through storm clouds, dramatic scale, and a sense of legendary power. Renaissance composition with baroque intensity.",
+  },
+  {
+    id: "anime",
+    label: "Anime",
+    promptSuffix:
+      "Illustrated in detailed Japanese anime style with dynamic action lines, expressive features, vibrant color saturation, and dramatic shading. Bold outlines with cel-shaded rendering.",
+    promptSuffixReference:
+      "Reimagine this person/scene in detailed Japanese anime style with dynamic action lines, expressive features, vibrant color saturation, and dramatic shading. Bold outlines with cel-shaded rendering.",
+  },
+  {
+    id: "comic",
+    label: "Comic Book",
+    promptSuffix:
+      "Drawn in bold American comic book style with heavy black ink outlines, dynamic perspective, halftone dot shading, vivid flat colors, and dramatic foreshortening. Speech-bubble-ready composition.",
+    promptSuffixReference:
+      "Transform this into bold American comic book style with heavy black ink outlines, dynamic perspective, halftone dot shading, vivid flat colors, and dramatic foreshortening.",
+  },
+  {
+    id: "cyberpunk",
+    label: "Cyberpunk",
+    promptSuffix:
+      "Rendered in a cyberpunk aesthetic with neon-soaked lighting in magenta and cyan, rain-slicked reflective surfaces, holographic elements, and a gritty dystopian urban atmosphere.",
+    promptSuffixReference:
+      "Reimagine this scene in a cyberpunk aesthetic with neon-soaked lighting in magenta and cyan, rain-slicked reflective surfaces, holographic elements, and a gritty dystopian urban atmosphere.",
+  },
+  {
+    id: "pixel-art",
+    label: "Pixel Art",
+    promptSuffix:
+      "Created as detailed 32-bit pixel art with clean sprite work, limited color palette, visible pixel grid, and retro video game aesthetic reminiscent of classic arcade games.",
+    promptSuffixReference:
+      "Reimagine this as detailed 32-bit pixel art with clean sprite work, limited color palette, visible pixel grid, and retro video game aesthetic reminiscent of classic arcade games.",
+  },
+  {
+    id: "oil-painting",
+    label: "Oil Painting",
+    promptSuffix:
+      "Rendered as a classical oil painting with visible brushstrokes, rich impasto texture, Rembrandt-style chiaroscuro lighting, and the gravitas of a museum masterpiece.",
+    promptSuffixReference:
+      "Transform this into a classical oil painting with visible brushstrokes, rich impasto texture, Rembrandt-style chiaroscuro lighting, and the gravitas of a museum masterpiece.",
+  },
+  {
+    id: "propaganda",
+    label: "Propaganda Poster",
+    promptSuffix:
+      "Designed as a bold Soviet-era propaganda poster with limited flat color palette of red, black, cream, and gold. Strong geometric composition, heroic upward angles, and blocky stylized figures.",
+    promptSuffixReference:
+      "Reimagine this as a bold Soviet-era propaganda poster with limited flat color palette of red, black, cream, and gold. Strong geometric composition, heroic upward angles, and blocky stylized figures.",
+  },
+  {
+    id: "pop-art",
+    label: "Pop Art",
+    promptSuffix:
+      "Illustrated in Andy Warhol-inspired pop art style with bold primary colors, Ben-Day dots, thick black outlines, flat graphic shapes, and high-contrast repetition.",
+    promptSuffixReference:
+      "Transform this into Andy Warhol-inspired pop art style with bold primary colors, Ben-Day dots, thick black outlines, flat graphic shapes, and high-contrast repetition.",
+  },
+  {
+    id: "watercolor",
+    label: "Watercolor",
+    promptSuffix:
+      "Painted in loose expressive watercolor style with soft wet-on-wet color bleeds, visible paper texture, delicate washes, and areas of intentional white space where the paper shows through.",
+    promptSuffixReference:
+      "Reimagine this in loose expressive watercolor style with soft wet-on-wet color bleeds, visible paper texture, delicate washes, and areas of intentional white space where the paper shows through.",
+  },
+  {
+    id: "photorealistic",
+    label: "Photorealistic",
+    promptSuffix:
+      "Rendered as a hyper-photorealistic image with natural lighting, accurate material textures, shallow depth of field, and the quality of a high-end DSLR photograph.",
+    promptSuffixReference:
+      "Reimagine this as a hyper-photorealistic image with natural lighting, accurate material textures, shallow depth of field, and the quality of a high-end DSLR photograph.",
+  },
+  {
+    id: "graffiti",
+    label: "Graffiti / Street Art",
+    promptSuffix:
+      "Created as vibrant street art on a weathered concrete wall with spray paint drips, stencil layers, bold tagging elements, and a raw urban energy. Mixed media collage feel.",
+    promptSuffixReference:
+      "Transform this into vibrant street art on a weathered concrete wall with spray paint drips, stencil layers, bold tagging elements, and a raw urban energy. Mixed media collage feel.",
+  },
+  {
+    id: "sketch",
+    label: "Sketch / Blueprint",
+    promptSuffix:
+      "Drawn as a detailed technical pencil sketch on aged parchment with cross-hatching, construction lines, annotated measurements, and the feel of a genius inventor's notebook.",
+    promptSuffixReference:
+      "Reimagine this as a detailed technical pencil sketch on aged parchment with cross-hatching, construction lines, annotated measurements, and the feel of a genius inventor's notebook.",
+  },
+  {
+    id: "pulp-fiction",
+    label: "Retro Pulp Fiction",
+    promptSuffix:
+      "Illustrated in 1950s pulp fiction magazine cover style with exaggerated dramatic poses, saturated lurid colors, painted texture, and sensational vintage typography framing.",
+    promptSuffixReference:
+      "Transform this into a 1950s pulp fiction magazine cover style with exaggerated dramatic poses, saturated lurid colors, painted texture, and sensational vintage typography framing.",
+  },
+  {
+    id: "stained-glass",
+    label: "Stained Glass",
+    promptSuffix:
+      "Depicted as an ornate cathedral stained glass window with bold black leading lines, jewel-tone translucent color segments, radiant backlighting, and gothic architectural framing.",
+    promptSuffixReference:
+      "Reimagine this as an ornate cathedral stained glass window with bold black leading lines, jewel-tone translucent color segments, radiant backlighting, and gothic architectural framing.",
+  },
+  {
+    id: "claymation",
+    label: "Claymation",
+    promptSuffix:
+      "Rendered to look like a stop-motion claymation scene with visible fingerprint textures on clay surfaces, slightly imperfect sculpted forms, miniature set design, and soft directional studio lighting.",
+    promptSuffixReference:
+      "Reimagine this as a stop-motion claymation scene with visible fingerprint textures on clay surfaces, slightly imperfect sculpted forms, miniature set design, and soft directional studio lighting.",
+  },
+  {
+    id: "ukiyo-e",
+    label: "Ukiyo-e (Japanese Woodblock)",
+    promptSuffix:
+      "Illustrated in traditional Japanese ukiyo-e woodblock print style with flat color areas, bold flowing outlines, stylized wave and cloud motifs, and a muted natural pigment palette.",
+    promptSuffixReference:
+      "Reimagine this in traditional Japanese ukiyo-e woodblock print style with flat color areas, bold flowing outlines, stylized wave and cloud motifs, and a muted natural pigment palette.",
+  },
+  {
+    id: "neon-noir",
+    label: "Neon Noir",
+    promptSuffix:
+      "Rendered in neon noir style with a rain-drenched nighttime setting, deep black shadows pierced only by harsh neon signage reflections, film grain, and a moody detective-thriller atmosphere.",
+    promptSuffixReference:
+      "Reimagine this scene in neon noir style with a rain-drenched nighttime setting, deep black shadows pierced only by harsh neon signage reflections, film grain, and a moody detective-thriller atmosphere.",
+  },
+];
+```
+
+-----
+
+## UI Implementation
+
+### Dropdown Component
+
+Add a styled `<select>` dropdown (or a custom dropdown component consistent with the existing site design — dark background, fire-orange `#ff6b35` accent, DM Sans font) in both image generation forms:
+
+1. **Generic / Text-to-Image generator** — place the Style dropdown near the prompt input field, before the “Generate” button.
+1. **Reference-based / Image Edit generator** — same placement, near the prompt and image upload controls.
+
+The dropdown should:
+
+- Default to “Default (No Style)” which is the first item in the array.
+- Show all style labels in the dropdown list.
+- Store the selected style `id` in component state.
+
+### Prompt Assembly Logic
+
+When the user submits a generation request, assemble the final prompt as follows:
+
+```typescript
+function buildFinalPrompt(
+  basePrompt: string,
+  selectedStyleId: string,
+  hasReferenceImage: boolean
+): string {
+  const style = IMAGE_STYLES.find((s) => s.id === selectedStyleId);
+
+  if (!style || style.id === "none") {
+    return basePrompt;
+  }
+
+  const suffix = hasReferenceImage
+    ? style.promptSuffixReference
+    : style.promptSuffix;
+
+  return `${basePrompt.trim()} ${suffix}`;
+}
+```
+
+This assembled prompt is what gets sent to the OpenAI API in the `prompt` field. No other API parameters need to change — the style is entirely prompt-driven.
+
+### Important: Do NOT use the API’s `style` parameter
+
+The `style` parameter in the OpenAI API only exists for DALL-E 3 (with values `vivid` or `natural`). The GPT Image models (gpt-image-1, gpt-image-1.5) do not support it. All style control is done through prompt text, which is what this implementation does.
+
+-----
+
+## Styling Guidelines
+
+Match the existing site aesthetic:
+
+- Dropdown background: dark (`#1a1a2e` or similar from existing palette)
+- Text color: light/white
+- Accent/focus border: `#ff6b35` (fire-orange)
+- Font: DM Sans (body font used across the site)
+- Border radius and spacing should match existing form controls
+- On mobile, the dropdown should be full-width within its container
+
+-----
+
+## File Placement Summary
+
+|What                    |Where                                                                                                                                |
+|------------------------|-------------------------------------------------------------------------------------------------------------------------------------|
+|Styles config/data      |New file in config or constants directory (e.g. `imageStyles.ts`)                                                                    |
+|Dropdown component      |Either inline in existing generator forms, or as a shared `<StyleSelector>` component if both generators exist as separate components|
+|Prompt assembly function|Utility/helper file or co-located with the API call logic                                                                            |
+|No new API routes needed|This is purely frontend prompt manipulation before the existing API call                                                             |
