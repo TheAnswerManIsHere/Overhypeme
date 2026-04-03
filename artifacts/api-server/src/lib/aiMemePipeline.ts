@@ -13,8 +13,8 @@
 import { getOpenAIClient } from "@workspace/integrations-openai-ai-server";
 import { ObjectStorageService } from "./objectStorage";
 import { db } from "@workspace/db";
-import { factsTable } from "@workspace/db/schema";
-import { eq } from "drizzle-orm";
+import { factsTable, userAiImagesTable } from "@workspace/db/schema";
+import { eq, sql, asc } from "drizzle-orm";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -85,10 +85,18 @@ async function generateScenePrompts(factText: string): Promise<AiScenePrompts> {
 // ─── Constants ─────────────────────────────────────────────────────────────────
 
 /**
- * Maximum AI-generated images stored per gender per fact.
- * 3 genders × 334 = 1002 total ≈ the 1000-image paid storage limit.
+ * Maximum AI-generated images stored per gender per fact (for the fact gallery).
+ * 3 genders × 34 = 102 ≈ the 100-image per-fact display cap.
+ * Oldest images are evicted when this limit is reached.
  */
-const MAX_IMAGES_PER_GENDER = 334;
+const MAX_IMAGES_PER_GENDER = 34;
+
+/**
+ * Paid user total image storage limit (AI-generated + uploaded photos combined).
+ * When reached, the oldest AI image tracked for that user is evicted
+ * from the per-user tracking table before adding the new one.
+ */
+const USER_STORAGE_LIMIT = 1000;
 
 // ─── Image generation ─────────────────────────────────────────────────────────
 
@@ -146,6 +154,46 @@ async function generateAndStoreImage(
   return storedPath;
 }
 
+// ─── Per-user storage tracking ────────────────────────────────────────────────
+
+/**
+ * Records a newly generated AI image for a user and enforces the paid storage
+ * limit (USER_STORAGE_LIMIT images total, counting both AI-generated and uploaded
+ * photos). When the limit is reached, the oldest tracked AI image for this user
+ * is evicted from the tracking table (the physical file remains in storage).
+ */
+async function trackUserAiImage(
+  userId: string,
+  factId: number,
+  gender: "male" | "female" | "neutral",
+  storagePath: string,
+): Promise<void> {
+  // Count current totals: AI-generated images + uploaded photos
+  const [countResult] = await db.execute<{ total: string }>(sql`
+    SELECT (
+      (SELECT count(*) FROM user_ai_images WHERE user_id = ${userId}) +
+      (SELECT count(*) FROM upload_image_metadata WHERE user_id = ${userId})
+    )::text AS total
+  `);
+  const total = parseInt(countResult?.total ?? "0", 10);
+
+  // If at limit, evict the oldest AI-generated image for this user
+  if (total >= USER_STORAGE_LIMIT) {
+    await db.execute(sql`
+      DELETE FROM user_ai_images
+      WHERE id = (
+        SELECT id FROM user_ai_images
+        WHERE user_id = ${userId}
+        ORDER BY created_at ASC
+        LIMIT 1
+      )
+    `);
+  }
+
+  // Record the new image
+  await db.insert(userAiImagesTable).values({ userId, factId, gender, storagePath });
+}
+
 // ─── Pipeline orchestration ───────────────────────────────────────────────────
 
 /**
@@ -172,6 +220,13 @@ export async function generateAiMemeBackgrounds(
     existingPrompts?: AiScenePrompts;
     /** Existing images to preserve when doing partial regen */
     existingImages?: AiMemeImages;
+    /**
+     * ID of the premium user triggering the generation.
+     * When provided, each generated image is tracked in user_ai_images and
+     * the per-user 1000-image storage limit is enforced.
+     * Omit for admin/system backfill operations.
+     */
+    userId?: string;
   },
 ): Promise<void> {
   try {
@@ -226,6 +281,8 @@ export async function generateAiMemeBackgrounds(
     const batchKey = Date.now();
     let slotCounter = 0;
 
+    const userId = options?.userId;
+
     for (const { gender } of slots) {
       const uniqueKey = `${batchKey}_${slotCounter++}`;
       const prompt = prompts[gender];
@@ -233,9 +290,17 @@ export async function generateAiMemeBackgrounds(
       const storedPath = await generateAndStoreImage(factId, gender, uniqueKey, prompt);
       // Prepend newest image at the front — gallery always shows newest-first
       result[gender].unshift(storedPath);
-      // Trim to paid storage limit per gender
+      // Trim per-fact gallery to 34 per gender (~100 total)
       if (result[gender].length > MAX_IMAGES_PER_GENDER) {
         result[gender] = result[gender].slice(0, MAX_IMAGES_PER_GENDER);
+      }
+      // Track per-user storage and enforce 1000-image limit (AI + uploads combined)
+      if (userId) {
+        try {
+          await trackUserAiImage(userId, factId, gender, storedPath);
+        } catch (trackErr) {
+          console.warn(`[aiMemePipeline] Failed to track user image for ${userId}:`, trackErr);
+        }
       }
     }
 
