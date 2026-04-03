@@ -18,6 +18,16 @@ export const AuthUserMembershipTier = {
   premium: "premium",
 } as const;
 
+export type AuthUserUserRole =
+  | (typeof AuthUserUserRole)[keyof typeof AuthUserUserRole]
+  | null;
+
+export const AuthUserUserRole = {
+  free: "free",
+  premium: "premium",
+  admin: "admin",
+} as const;
+
 export interface AuthUser {
   id: string;
   email?: string | null;
@@ -28,6 +38,7 @@ export interface AuthUser {
   isAdmin?: boolean | null;
   isRealAdmin?: boolean | null;
   pronouns?: string | null;
+  userRole?: AuthUserUserRole;
 }
 
 export interface AuthUserEnvelope {
@@ -177,19 +188,8 @@ export interface ExternalLink {
   createdAt: string;
 }
 
-export interface FactVariant {
-  id: number;
-  text: string;
-  useCase?: string | null;
-  createdAt: string;
-}
-
 export type FactDetail = FactSummary & {
   links?: ExternalLink[];
-  variants?: FactVariant[];
-  parentId?: number | null;
-  rank?: number | null;
-  useCase?: string | null;
 };
 
 export interface FactListResponse {
@@ -270,11 +270,11 @@ export interface UserProfile {
   email?: string | null;
   pendingEmail?: string | null;
   emailVerified?: boolean;
-  displayName?: string | null;
+  firstName?: string | null;
+  lastName?: string | null;
+  username?: string | null;
   pronouns?: string | null;
   profileImageUrl?: string | null;
-  avatarStyle?: string | null;
-  isPremium?: boolean;
   submittedFacts: FactSummary[];
   likedFacts: FactSummary[];
   favoriteHashtags: string[];
@@ -282,19 +282,22 @@ export interface UserProfile {
 }
 
 export interface UpdateProfileRequest {
+  /** @minLength 1 */
+  firstName?: string;
+  /** @minLength 1 */
+  lastName?: string;
   /**
-   * @minLength 1
-   * @maxLength 80
+   * @minLength 3
+   * @maxLength 30
+   * @pattern ^[a-zA-Z0-9_]+$
    */
-  displayName?: string;
-  avatarStyle?: string;
+  username?: string;
   /**
    * @minLength 1
-   * @maxLength 80
+   * @maxLength 20
    */
   pronouns?: string;
   email?: string;
-  profileImageUrl?: string;
 }
 
 export interface UpdateProfileResponse {
@@ -506,8 +509,6 @@ export type CheckDuplicate200 = {
   confidence: number;
   matchingFactId?: number | null;
   matchingFactText?: string | null;
-  matchingCanonicalText?: string | null;
-  llmChecked?: boolean | null;
 };
 
 export type SuggestHashtagsBody = {

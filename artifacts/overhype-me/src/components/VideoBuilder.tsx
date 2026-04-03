@@ -146,11 +146,8 @@ function ModeTab({
 // ─── Main component ────────────────────────────────────────────────────────────
 
 export function VideoBuilder({ factId, factText, onClose }: VideoBuilderProps) {
-  const { isAuthenticated, user } = useAuth() as {
-    isAuthenticated: boolean;
-    user?: { membershipTier?: string };
-  };
-  const isPremium = user?.membershipTier === "premium";
+  const { isAuthenticated, role } = useAuth();
+  const isPremium = role === "premium" || role === "admin";
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 

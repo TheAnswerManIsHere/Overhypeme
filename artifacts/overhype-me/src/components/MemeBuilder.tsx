@@ -326,13 +326,9 @@ interface MemeBuilderProps {
 }
 
 export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMemeImages, onClose }: MemeBuilderProps) {
-  const { isAuthenticated, login, user } = useAuth() as {
-    isAuthenticated: boolean;
-    login: () => void;
-    user?: { id?: string; membershipTier?: string; isAdmin?: boolean; isRealAdmin?: boolean };
-  };
-  const isPremium = user?.membershipTier === "premium";
-  const isAdmin = !!(user?.isAdmin && user?.isRealAdmin);
+  const { isAuthenticated, login, role, user } = useAuth();
+  const isPremium = role === "premium" || role === "admin";
+  const isAdmin = role === "admin";
   const { pronouns } = usePersonName();
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -933,9 +929,11 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
   }, [isAuthenticated, pexelsImages, selectPrefetchedPhoto]);
 
   useEffect(() => {
-    if (isAuthenticated && !stockGender) {
+    if (!stockGender) {
       setStockGender(inferredGender);
-      fetchStockPhoto(inferredGender);
+      if (isAuthenticated) {
+        fetchStockPhoto(inferredGender);
+      }
     }
   }, [isAuthenticated, stockGender, inferredGender, fetchStockPhoto]);
 

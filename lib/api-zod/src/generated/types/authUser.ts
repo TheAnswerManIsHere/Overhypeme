@@ -6,14 +6,17 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { AuthUserMembershipTier } from "./authUserMembershipTier";
+import type { AuthUserUserRole } from "./authUserUserRole";
 
 export interface AuthUser {
   id: string;
   email?: string | null;
-  displayName?: string | null;
+  firstName?: string | null;
+  lastName?: string | null;
   profileImageUrl?: string | null;
   membershipTier?: AuthUserMembershipTier;
   isAdmin?: boolean | null;
   isRealAdmin?: boolean | null;
   pronouns?: string | null;
+  userRole?: AuthUserUserRole;
 }

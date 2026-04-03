@@ -34,10 +34,10 @@ const PRONOUN_PREVIEWS: { label: string; subject: string; object: string; name: 
 ];
 
 export default function SubmitFact() {
-  const { isAuthenticated, isLoading: authLoading, user } = useAuth();
+  const { isAuthenticated, isLoading: authLoading, role } = useAuth();
   const [, setLocation] = useLocation();
 
-  const isPremium = user?.membershipTier === "premium";
+  const isPremium = role === "premium" || role === "admin";
 
   const [step, setStep] = useState<Step>("write");
 
