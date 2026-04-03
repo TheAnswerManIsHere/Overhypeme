@@ -15,7 +15,7 @@ const BASE_URL = import.meta.env.BASE_URL ?? "/";
 
 export default function Profile() {
   const [, setLocation] = useLocation();
-  const { isAuthenticated, login, logout } = useAuth();
+  const { isAuthenticated, isLoading: authLoading, login, logout } = useAuth();
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const { data: profile, isLoading } = useGetMyProfile({
@@ -276,6 +276,18 @@ export default function Profile() {
     } catch {
       setResendStatus("Failed to resend. Please try again.");
     }
+  }
+
+  if (authLoading) {
+    return (
+      <Layout>
+        <div className="max-w-5xl mx-auto px-4 py-12 animate-pulse space-y-8">
+          <div className="h-32 bg-card border-2 border-border rounded-sm" />
+          <div className="h-12 bg-card border-2 border-border rounded-sm w-full max-w-md" />
+          <div className="h-64 bg-card border-2 border-border rounded-sm" />
+        </div>
+      </Layout>
+    );
   }
 
   if (!isAuthenticated) {
