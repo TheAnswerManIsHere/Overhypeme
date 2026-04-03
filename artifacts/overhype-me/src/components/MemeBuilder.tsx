@@ -492,6 +492,8 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
   const [isGeneratingAi, setIsGeneratingAi] = useState(false);
   const [aiGenerateError, setAiGenerateError] = useState<string | null>(null);
   const [localAiMemeImages, setLocalAiMemeImages] = useState<AiMemeImages | null>(aiMemeImages ?? null);
+  // Cache-buster timestamp: bumped after every successful regen so browser re-fetches the new image
+  const [aiCacheBuster, setAiCacheBuster] = useState<number>(0);
 
   // Sync localAiMemeImages when prop changes
   useEffect(() => {
@@ -518,12 +520,14 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
 
   // Thumbnail URL for AI images — serve via the meme endpoint with raw=true
   // This bypasses ACL checks (works for all existing/new images regardless of ACL metadata)
+  // Cache-buster is appended after regen so the browser skips the cached old image
   const getAiThumbnailUrl = useCallback((index: number) => {
     if (!localAiMemeImages) return "";
     const storagePath = localAiMemeImages[aiGender]?.[index] ?? "";
     if (!storagePath) return "";
-    return `/api/memes/ai/${factId}/image?gender=${aiGender}&imageIndex=${index}&raw=true`;
-  }, [localAiMemeImages, aiGender, factId]);
+    const cb = aiCacheBuster ? `&cb=${aiCacheBuster}` : "";
+    return `/api/memes/ai/${factId}/image?gender=${aiGender}&imageIndex=${index}&raw=true${cb}`;
+  }, [localAiMemeImages, aiGender, factId, aiCacheBuster]);
 
   const handleGenerateNewAi = async () => {
     if (isGeneratingAi) return;
@@ -580,6 +584,7 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
             if (done) {
               setLocalAiMemeImages(data.aiMemeImages ?? null);
               setSelectedAiIndex(0);
+              setAiCacheBuster(Date.now()); // force browser to bypass cached old image
               setIsGeneratingAi(false);
               return;
             }
