@@ -20,6 +20,7 @@ import { generateAiMemeBackgrounds } from "../lib/aiMemePipeline";
 import type { AiMemeImages } from "../lib/aiMemePipeline";
 import { requirePremium } from "../middlewares/premiumMiddleware";
 import { getUploadImageMetadata } from "./storage";
+import { CACHE, setPublicCache, setPublicCors, checkConditional, setNoStore } from "../lib/cacheHeaders";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const TEMPLATES_DIR = path.resolve(__dirname, "assets/meme-templates");
@@ -133,6 +134,7 @@ function generateSlug(): string {
 
 // GET /memes/templates
 router.get("/memes/templates", (_req: Request, res: Response) => {
+  setNoStore(res);
   res.json({
     templates: MEME_TEMPLATES.map(t => ({
       id: t.id,
@@ -149,8 +151,13 @@ router.get("/memes/templates/:id/preview", (req: Request, res: Response) => {
   const id = req.params["id"] as string;
   const template = MEME_TEMPLATES.find(t => t.id === id);
   if (!template) { res.status(404).end(); return; }
+
+  const etag = `"template-${id}"`;
+  if (checkConditional(req, res, etag)) return;
+
+  setPublicCors(res);
   res.setHeader("Content-Type", "image/png");
-  res.setHeader("Cache-Control", "public, max-age=86400");
+  setPublicCache(res, CACHE.MEME_TEMPLATE, etag);
   res.sendFile(path.join(TEMPLATES_DIR, template.assetPath));
 });
 
@@ -183,6 +190,7 @@ router.get("/memes/stock-photo", async (req: Request, res: Response) => {
  * GET /memes/:slug/image so we never pay for image storage.
  */
 router.post("/memes", async (req: Request, res: Response) => {
+  setNoStore(res);
   if (!req.isAuthenticated()) {
     res.status(401).json({ error: "Unauthorized" });
     return;
@@ -442,9 +450,13 @@ router.get("/memes/:slug/image", async (req: Request, res: Response) => {
     const objectPath = `/objects/memes/${slug}.png`;
     try {
       const objectFile = await objectStorageService.getObjectEntityFile(objectPath);
+      const etag = `"legacy-${slug}"`;
+      if (checkConditional(req, res, etag)) return;
       const response = await objectStorageService.downloadObject(objectFile, 86400);
       res.status(response.status);
       response.headers.forEach((value, key) => res.setHeader(key, value));
+      setPublicCache(res, CACHE.MEME_IMAGE, etag);
+      setPublicCors(res);
       if (response.body) {
         Readable.fromWeb(response.body as ReadableStream<Uint8Array>).pipe(res);
       } else {
@@ -501,10 +513,12 @@ router.get("/memes/:slug/image", async (req: Request, res: Response) => {
 
     const imageBuffer = await generateMemeBuffer(background, factText, textOptions);
 
-    // 7-day public cache — browsers and CDNs will serve this without hitting
-    // the server again, so the render cost is paid only once per slug.
+    const etag = `"meme-${slug}"`;
+    if (checkConditional(req, res, etag)) return;
+
+    setPublicCors(res);
     res.setHeader("Content-Type", "image/png");
-    res.setHeader("Cache-Control", "public, max-age=604800, stale-while-revalidate=86400");
+    setPublicCache(res, CACHE.MEME_IMAGE, etag);
     res.setHeader("Content-Length", imageBuffer.length);
     res.status(200).send(imageBuffer);
 
@@ -563,11 +577,14 @@ router.get("/memes/ai/:factId/image", async (req: Request, res: Response) => {
       const objectStorageService = new ObjectStorageService();
       const normalizedPath = objectStorageService.normalizeObjectEntityPath(backgroundPath);
       const objectFile = await objectStorageService.getObjectEntityFile(normalizedPath);
-      const response = await objectStorageService.downloadObject(objectFile);
+      const aiEtag = `"ai-bg-${factId}-${gender}-${imageIndex}"`;
+      if (checkConditional(req, res, aiEtag)) return;
+      const response = await objectStorageService.downloadObject(objectFile, 86400);
       res.setHeader("Content-Type", "image/png");
-      res.setHeader("Cache-Control", "public, max-age=86400");
+      setPublicCache(res, CACHE.MEME_TEMPLATE, aiEtag);
+      setPublicCors(res);
       response.headers.forEach((value: string, key: string) => {
-        if (key.toLowerCase() !== "content-type") res.setHeader(key, value);
+        if (key.toLowerCase() !== "content-type" && key.toLowerCase() !== "cache-control") res.setHeader(key, value);
       });
       res.status(200);
       if (response.body) {
@@ -600,7 +617,7 @@ router.get("/memes/ai/:factId/image", async (req: Request, res: Response) => {
     const jpegBuffer = await compositeAiMeme(backgroundPath, factText);
 
     res.setHeader("Content-Type", "image/jpeg");
-    res.setHeader("Cache-Control", "private, max-age=60");
+    res.setHeader("Cache-Control", CACHE.NO_STORE);
     res.setHeader("Content-Length", jpegBuffer.length);
     res.status(200).send(jpegBuffer);
 

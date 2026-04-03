@@ -11,6 +11,7 @@ import { ObjectPermission } from "../lib/objectAcl";
 import { db } from "@workspace/db";
 import { usersTable } from "@workspace/db/schema";
 import { eq, sql } from "drizzle-orm";
+import { CACHE, setPublicCache, setPublicCors, setNoStore } from "../lib/cacheHeaders";
 
 function parseEnvInt(name: string, defaultValue: number, min?: number, max?: number): number {
   const raw = process.env[name];
@@ -78,6 +79,7 @@ const objectStorageService = new ObjectStorageService();
  * Then uploads the file directly to the returned presigned URL.
  */
 router.post("/storage/uploads/request-url", async (req: Request, res: Response) => {
+  setNoStore(res);
   if (!req.isAuthenticated()) {
     res.status(401).json({ error: "Authentication required" });
     return;
@@ -294,10 +296,14 @@ router.get("/storage/public-objects/*filePath", async (req: Request, res: Respon
       return;
     }
 
-    const response = await objectStorageService.downloadObject(file);
+    const response = await objectStorageService.downloadObject(file, 86400);
 
     res.status(response.status);
-    response.headers.forEach((value, key) => res.setHeader(key, value));
+    response.headers.forEach((value, key) => {
+      if (key.toLowerCase() !== "cache-control") res.setHeader(key, value);
+    });
+    setPublicCache(res, CACHE.PUBLIC_OBJECT);
+    setPublicCors(res);
 
     if (response.body) {
       const nodeStream = Readable.fromWeb(response.body as ReadableStream<Uint8Array>);
@@ -335,10 +341,25 @@ router.get("/storage/objects/*path", async (req: Request, res: Response) => {
       return;
     }
 
-    const response = await objectStorageService.downloadObject(objectFile);
+    const isPublic = await objectStorageService.canAccessObjectEntity({
+      userId: undefined,
+      objectFile,
+      requestedPermission: ObjectPermission.READ,
+    });
+
+    const response = await objectStorageService.downloadObject(objectFile, isPublic ? 86400 : 3600);
 
     res.status(response.status);
-    response.headers.forEach((value, key) => res.setHeader(key, value));
+    response.headers.forEach((value, key) => {
+      if (key.toLowerCase() !== "cache-control") res.setHeader(key, value);
+    });
+
+    if (isPublic) {
+      setPublicCache(res, CACHE.PUBLIC_OBJECT);
+      setPublicCors(res);
+    } else {
+      res.setHeader("Cache-Control", CACHE.PRIVATE_OBJECT);
+    }
 
     if (response.body) {
       const nodeStream = Readable.fromWeb(response.body as ReadableStream<Uint8Array>);
