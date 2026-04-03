@@ -558,6 +558,20 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
     };
   }, []);
 
+  // Load most recent completed video on open
+  useEffect(() => {
+    setVideoState({ status: "idle" });
+    fetch(`/api/videos/${factId}`, { credentials: "include" })
+      .then(r => r.json())
+      .then((data: { videos?: Array<{ id: number; videoUrl: string | null }> }) => {
+        const latest = data.videos?.[0];
+        if (latest?.videoUrl) {
+          setVideoState({ status: "done", url: latest.videoUrl });
+        }
+      })
+      .catch(() => {});
+  }, [factId]);
+
   // The AI image slots for the current gender variant — newest-first, up to the admin-configured limit shown in gallery.
   // Each slot tracks path + original array index so the API imageIndex param remains correct
   // even for legacy data with empty-string placeholders at some positions.
@@ -1268,6 +1282,41 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
     link.href = canvasRef.current.toDataURL("image/png");
     link.click();
   };
+
+  const handleGenerateVideo = async () => {
+    if (videoState.status === "generating") return;
+
+    if (!canvasRef.current) {
+      setVideoState({ status: "error", message: "No meme preview available for video generation." });
+      return;
+    }
+
+    setVideoState({ status: "generating" });
+
+    const imageBase64 = canvasRef.current.toDataURL("image/jpeg", 0.85);
+
+    try {
+      const res = await fetch("/api/videos/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ imageBase64, factId }),
+      });
+      const body = await res.json() as { videoUrl?: string; error?: string };
+      if (res.status === 429) {
+        setVideoState({ status: "error", message: body.error ?? "Rate limit exceeded. You have generated too many videos in the past 24 hours." });
+        return;
+      }
+      if (!res.ok || !body.videoUrl) {
+        setVideoState({ status: "error", message: body.error ?? "Video generation failed. Please try again." });
+        return;
+      }
+      setVideoState({ status: "done", url: body.videoUrl });
+    } catch {
+      setVideoState({ status: "error", message: "Network error. Please check your connection and try again." });
+    }
+  };
+
 
   const templates = tplData?.templates ?? [];
 
