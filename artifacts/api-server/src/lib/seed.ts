@@ -121,6 +121,14 @@ export async function ensureSchema(): Promise<void> {
         created_at timestamptz NOT NULL DEFAULT now()
       )`,
     },
+    {
+      label: "upload_image_metadata.user_id",
+      ddl: `ALTER TABLE upload_image_metadata ADD COLUMN IF NOT EXISTS user_id varchar REFERENCES users(id) ON DELETE SET NULL`,
+    },
+    {
+      label: "upload_image_metadata.IDX_uim_user_id",
+      ddl: `CREATE INDEX IF NOT EXISTS "IDX_uim_user_id" ON upload_image_metadata (user_id)`,
+    },
   ];
 
   for (const { label, ddl } of migrations) {

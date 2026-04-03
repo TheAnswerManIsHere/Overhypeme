@@ -4,7 +4,7 @@ import {
   factsTable, hashtagsTable, factHashtagsTable,
   ratingsTable, searchHistoryTable, usersTable, emailVerificationTokensTable,
 } from "@workspace/db/schema";
-import { eq, desc, inArray, and } from "drizzle-orm";
+import { eq, desc, inArray, and, sql } from "drizzle-orm";
 import { RecordSearchBody } from "@workspace/api-zod";
 import { getSessionId, getSession, updateSession } from "../lib/auth";
 import crypto from "crypto";
@@ -251,6 +251,39 @@ async function verifyCaptcha(token: string): Promise<boolean> {
     return false;
   }
 }
+
+router.get("/users/me/uploads", async (req: Request, res: Response) => {
+  if (!req.isAuthenticated()) {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+
+  const rows = await db.execute(sql`
+    SELECT object_path, width, height, is_low_res, file_size_bytes, created_at
+    FROM upload_image_metadata
+    WHERE user_id = ${req.user.id}
+    ORDER BY created_at DESC
+    LIMIT 50
+  `);
+
+  const uploads = (rows.rows as Array<{
+    object_path: string;
+    width: number;
+    height: number;
+    is_low_res: boolean;
+    file_size_bytes: number;
+    created_at: string;
+  }>).map(r => ({
+    objectPath: r.object_path,
+    width: r.width,
+    height: r.height,
+    isLowRes: r.is_low_res,
+    fileSizeBytes: r.file_size_bytes,
+    createdAt: r.created_at,
+  }));
+
+  res.json({ uploads });
+});
 
 router.post("/users/me/complete-onboarding", async (req: Request, res: Response) => {
   if (!req.isAuthenticated()) {

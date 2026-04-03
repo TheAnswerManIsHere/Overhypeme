@@ -691,6 +691,7 @@ router.post("/memes/ai/:factId/generate", requirePremium, async (req: Request, r
     scope,
     existingPrompts,
     existingImages,
+    userId: req.user?.id,
   });
 
   res.json({ success: true, message: "AI meme generation started. Refresh in a moment to see new images." });

@@ -5,9 +5,9 @@ import { Layout } from "@/components/layout/Layout";
 import { FactCard } from "@/components/facts/FactCard";
 import { Button } from "@/components/ui/Button";
 import { SubscriptionPanel } from "@/components/SubscriptionPanel";
-import { ShieldAlert, LogOut, Clock, ThumbsUp, FileText, Hash, Star, X, Pencil, Check, Mail, AlertTriangle, CheckCircle, Camera, Loader2 } from "lucide-react";
+import { ShieldAlert, LogOut, Clock, ThumbsUp, FileText, Hash, Star, X, Pencil, Check, Mail, AlertTriangle, CheckCircle, Camera, Loader2, Images, Copy, ExternalLink } from "lucide-react";
 import { Link, useLocation } from "wouter";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQueryClient, useQuery } from "@tanstack/react-query";
 import { PronounEditor } from "@/components/ui/PronounEditor";
 
 const BASE_URL = import.meta.env.BASE_URL ?? "/";
@@ -22,7 +22,8 @@ export default function Profile() {
 
   const updateProfile = useUpdateMyProfile();
 
-  const [activeTab, setActiveTab] = useState<"submitted" | "liked" | "history">("liked");
+  const [activeTab, setActiveTab] = useState<"submitted" | "liked" | "history" | "images">("liked");
+  const [copiedPath, setCopiedPath] = useState<string | null>(null);
   const [checkoutBanner, setCheckoutBanner] = useState<"success" | "cancel" | null>(null);
   const [emailVerifiedBanner, setEmailVerifiedBanner] = useState(false);
 
@@ -47,6 +48,38 @@ export default function Profile() {
   const [photoUploading, setPhotoUploading] = useState(false);
   const [photoError, setPhotoError] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  interface UploadItem {
+    objectPath: string;
+    width: number;
+    height: number;
+    isLowRes: boolean;
+    fileSizeBytes: number;
+    createdAt: string;
+  }
+
+  const { data: uploadsData, isLoading: isUploadsLoading, isError: isUploadsError } = useQuery<{ uploads: UploadItem[] }>({
+    queryKey: ["my-uploads"],
+    queryFn: async () => {
+      const res = await fetch(`${BASE_URL}api/users/me/uploads`, { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to fetch uploads");
+      return res.json() as Promise<{ uploads: UploadItem[] }>;
+    },
+    enabled: isAuthenticated && activeTab === "images",
+    staleTime: 30_000,
+  });
+
+  async function copyImageLink(objectPath: string) {
+    const url = `${window.location.origin}${BASE_URL}api/storage${objectPath}`;
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopiedPath(objectPath);
+      setTimeout(() => setCopiedPath(null), 2000);
+    } catch {
+      setCopiedPath(objectPath);
+      setTimeout(() => setCopiedPath(null), 2000);
+    }
+  }
 
   function dicebearUrl(style: string, seed: string) {
     return `https://api.dicebear.com/9.x/${style}/svg?seed=${encodeURIComponent(seed)}`;
@@ -498,6 +531,14 @@ export default function Profile() {
           >
             <Clock className="w-5 h-5" /> Search History
           </button>
+          {profile.isPremium && (
+            <button 
+              onClick={() => setActiveTab("images")}
+              className={`flex items-center gap-2 px-6 py-4 font-display text-lg uppercase tracking-wider transition-colors border-b-2 whitespace-nowrap ${activeTab === "images" ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground hover:border-border"}`}
+            >
+              <Images className="w-5 h-5" /> My Images
+            </button>
+          )}
         </div>
 
         {/* Tab Content */}
@@ -532,6 +573,69 @@ export default function Profile() {
                 ))}
                 {profile.searchHistory.length === 0 && <p className="text-muted-foreground italic">Memory wiped. No history found.</p>}
               </div>
+            </div>
+          )}
+
+          {activeTab === "images" && (
+            <div>
+              <p className="text-sm text-muted-foreground mb-6">Images you've uploaded for meme creation. Click an image to copy its link for reuse in the meme builder.</p>
+              {isUploadsError ? (
+                <div className="text-center py-12 bg-card border-2 border-destructive/30 rounded-sm">
+                  <AlertTriangle className="w-10 h-10 text-destructive/60 mx-auto mb-3" />
+                  <p className="text-muted-foreground font-medium">Could not load your images. Please try again later.</p>
+                </div>
+              ) : isUploadsLoading ? (
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
+                  {Array.from({ length: 6 }).map((_, i) => (
+                    <div key={i} className="aspect-square bg-card border-2 border-border rounded-sm animate-pulse" />
+                  ))}
+                </div>
+              ) : uploadsData && uploadsData.uploads.length > 0 ? (
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
+                  {uploadsData.uploads.map((upload) => {
+                    const imgUrl = `${BASE_URL}api/storage${upload.objectPath}`;
+                    const isCopied = copiedPath === upload.objectPath;
+                    return (
+                      <div key={upload.objectPath} className="group relative aspect-square bg-card border-2 border-border rounded-sm overflow-hidden">
+                        <img
+                          src={imgUrl}
+                          alt="Uploaded image"
+                          className="w-full h-full object-cover"
+                          loading="lazy"
+                        />
+                        <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center gap-2 p-2">
+                          <button
+                            onClick={() => copyImageLink(upload.objectPath)}
+                            className="flex items-center gap-1.5 bg-primary text-primary-foreground text-xs font-bold px-3 py-1.5 rounded-sm hover:bg-primary/80 transition-colors w-full justify-center"
+                          >
+                            {isCopied ? <><CheckCircle className="w-3.5 h-3.5" /> Copied!</> : <><Copy className="w-3.5 h-3.5" /> Copy Link</>}
+                          </button>
+                          <a
+                            href={imgUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="flex items-center gap-1.5 bg-secondary text-foreground text-xs font-bold px-3 py-1.5 rounded-sm hover:bg-secondary/80 transition-colors w-full justify-center"
+                          >
+                            <ExternalLink className="w-3.5 h-3.5" /> View Full
+                          </a>
+                        </div>
+                        {upload.isLowRes && (
+                          <div className="absolute top-1 right-1 bg-amber-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-sm">
+                            LOW RES
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="text-center py-16 bg-card border-2 border-dashed border-border rounded-sm">
+                  <Images className="w-16 h-16 text-muted-foreground/40 mx-auto mb-4" />
+                  <p className="text-muted-foreground text-lg font-medium mb-2">No images uploaded yet.</p>
+                  <p className="text-muted-foreground text-sm mb-6">Upload a custom photo in the meme builder and it will appear here for easy reuse.</p>
+                  <Link href="/"><Button variant="outline">GO TO MEME BUILDER</Button></Link>
+                </div>
+              )}
             </div>
           )}
         </div>

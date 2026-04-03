@@ -11,3 +11,4 @@ export * from "./affiliate";
 export * from "./reviews";
 export * from "./activity-feed";
 export * from "./userFactPreferences";
+export * from "./userAiImages";
