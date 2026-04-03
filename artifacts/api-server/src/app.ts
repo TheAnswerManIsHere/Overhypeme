@@ -73,4 +73,15 @@ app.use([
 
 app.use("/api", router);
 
+// Public config endpoint — no auth required, returns only is_public=true values
+app.get("/api/config", async (_req, res) => {
+  try {
+    const { getPublicConfig } = await import("./lib/adminConfig");
+    const config = await getPublicConfig();
+    res.json(config);
+  } catch {
+    res.json({});
+  }
+});
+
 export default app;

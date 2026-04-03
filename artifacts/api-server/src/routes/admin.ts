@@ -1,6 +1,6 @@
 import { Router, type IRouter, type Request, type Response, type NextFunction } from "express";
 import { db, usersTable } from "@workspace/db";
-import { factsTable, commentsTable } from "@workspace/db/schema";
+import { factsTable, commentsTable, adminConfigTable } from "@workspace/db/schema";
 import { eq, desc, count, ilike, sql, and, or, inArray, isNull } from "drizzle-orm";
 import { getSessionId, getSession, updateSession } from "../lib/auth";
 import { isAdminById } from "./auth";
@@ -8,6 +8,7 @@ import { backfillEmbeddings } from "../lib/embeddings";
 import { runFactImagePipeline } from "../lib/factImagePipeline";
 import { generateAiMemeBackgrounds, type AiScenePrompts, type AiMemeImages } from "../lib/aiMemePipeline";
 import { logActivity } from "../lib/activity";
+import { getAllConfig, bustConfigCache } from "../lib/adminConfig";
 import bcrypt from "bcryptjs";
 
 const router: IRouter = Router();
@@ -781,6 +782,70 @@ router.put("/admin/facts/:id/ai-scene-prompts", requireAdmin, async (req: Reques
     .where(eq(factsTable.id, id));
 
   res.json({ success: true });
+});
+
+// ─── Config ───────────────────────────────────────────────────────────────────
+
+router.get("/admin/config", requireAdmin, async (_req: Request, res: Response) => {
+  try {
+    const rows = await getAllConfig();
+    res.json(rows);
+  } catch (err) {
+    res.status(500).json({ error: "Failed to load config" });
+  }
+});
+
+router.patch("/admin/config/:key", requireAdmin, async (req: Request, res: Response) => {
+  const { key } = req.params;
+  const { value } = req.body as { value: unknown };
+
+  if (value === undefined || value === null || String(value).trim() === "") {
+    res.status(400).json({ error: "value is required" });
+    return;
+  }
+
+  const [existing] = await db
+    .select()
+    .from(adminConfigTable)
+    .where(eq(adminConfigTable.key, key))
+    .limit(1);
+
+  if (!existing) {
+    res.status(404).json({ error: "Config key not found" });
+    return;
+  }
+
+  const rawValue = String(value).trim();
+
+  if (existing.dataType === "integer") {
+    const parsed = parseInt(rawValue, 10);
+    if (isNaN(parsed)) {
+      res.status(400).json({ error: "Value must be an integer" });
+      return;
+    }
+    if (existing.minValue !== null && parsed < existing.minValue) {
+      res.status(400).json({ error: `Value must be at least ${existing.minValue}` });
+      return;
+    }
+    if (existing.maxValue !== null && parsed > existing.maxValue) {
+      res.status(400).json({ error: `Value must be at most ${existing.maxValue}` });
+      return;
+    }
+  }
+
+  const [updated] = await db
+    .update(adminConfigTable)
+    .set({
+      value: rawValue,
+      updatedAt: new Date(),
+      updatedById: req.user?.id ?? null,
+    })
+    .where(eq(adminConfigTable.key, key))
+    .returning();
+
+  bustConfigCache();
+
+  res.json(updated);
 });
 
 export default router;

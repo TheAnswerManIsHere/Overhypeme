@@ -118,11 +118,13 @@ export async function runFactImagePipeline(factId: number, factText: string): Pr
     // 1. Extract keywords via OpenAI
     const { fact_type, keywords } = await extractImageKeywords(factText);
 
-    // 2. Fetch up to 80 photos per variant in parallel — one request each
+    // 2. Fetch photos per variant — count comes from admin config
+    const { getConfigInt } = await import("./adminConfig");
+    const pexelsCount = await getConfigInt("pexels_photos_per_gender", 80);
     const [male, female, neutral] = await Promise.all([
-      searchPhotos(keywords.male,    80),
-      searchPhotos(keywords.female,  80),
-      searchPhotos(keywords.neutral, 80),
+      searchPhotos(keywords.male,    pexelsCount),
+      searchPhotos(keywords.female,  pexelsCount),
+      searchPhotos(keywords.neutral, pexelsCount),
     ]);
 
     const pexelsImages: FactPexelsImages = { fact_type, male, female, neutral, keywords };

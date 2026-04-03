@@ -15,6 +15,7 @@ import { ObjectStorageService } from "./objectStorage";
 import { db } from "@workspace/db";
 import { factsTable, userAiImagesTable } from "@workspace/db/schema";
 import { eq, sql, asc } from "drizzle-orm";
+import { getConfigInt } from "./adminConfig";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -82,21 +83,10 @@ async function generateScenePrompts(factText: string): Promise<AiScenePrompts> {
   };
 }
 
-// ─── Constants ─────────────────────────────────────────────────────────────────
+// ─── Constants (defaults — overridden at runtime by admin_config table) ────────
 
-/**
- * Maximum AI-generated images stored per gender per fact (for the fact gallery).
- * 3 genders × 34 = 102 ≈ the 100-image per-fact display cap.
- * Oldest images are evicted when this limit is reached.
- */
-const MAX_IMAGES_PER_GENDER = 34;
-
-/**
- * Paid user total image storage limit (AI-generated + uploaded photos combined).
- * When reached, the oldest AI image tracked for that user is evicted
- * from the per-user tracking table before adding the new one.
- */
-const USER_STORAGE_LIMIT = 1000;
+const DEFAULT_MAX_IMAGES_PER_GENDER = 34;
+const DEFAULT_USER_STORAGE_LIMIT = 1000;
 
 // ─── Image generation ─────────────────────────────────────────────────────────
 
@@ -177,8 +167,9 @@ async function trackUserAiImage(
   `);
   const total = parseInt(countResult?.total ?? "0", 10);
 
+  const userStorageLimit = await getConfigInt("user_max_images", DEFAULT_USER_STORAGE_LIMIT);
   // If at limit, evict the oldest AI-generated image for this user
-  if (total >= USER_STORAGE_LIMIT) {
+  if (total >= userStorageLimit) {
     await db.execute(sql`
       DELETE FROM user_ai_images
       WHERE id = (
@@ -282,6 +273,7 @@ export async function generateAiMemeBackgrounds(
     let slotCounter = 0;
 
     const userId = options?.userId;
+    const maxPerGender = await getConfigInt("ai_max_images_per_gender", DEFAULT_MAX_IMAGES_PER_GENDER);
 
     for (const { gender } of slots) {
       const uniqueKey = `${batchKey}_${slotCounter++}`;
@@ -290,9 +282,9 @@ export async function generateAiMemeBackgrounds(
       const storedPath = await generateAndStoreImage(factId, gender, uniqueKey, prompt);
       // Prepend newest image at the front — gallery always shows newest-first
       result[gender].unshift(storedPath);
-      // Trim per-fact gallery to 34 per gender (~100 total)
-      if (result[gender].length > MAX_IMAGES_PER_GENDER) {
-        result[gender] = result[gender].slice(0, MAX_IMAGES_PER_GENDER);
+      // Trim per-fact gallery to max per gender
+      if (result[gender].length > maxPerGender) {
+        result[gender] = result[gender].slice(0, maxPerGender);
       }
       // Track per-user storage and enforce 1000-image limit (AI + uploads combined)
       if (userId) {
