@@ -557,7 +557,7 @@ router.get("/memes/ai/:factId/image", async (req: Request, res: Response) => {
 
   try {
     const [fact] = await db
-      .select({ text: factsTable.text, canonicalText: factsTable.canonicalText, aiMemeImages: factsTable.aiMemeImages })
+      .select({ text: factsTable.text, canonicalText: factsTable.canonicalText, aiMemeImages: factsTable.aiMemeImages, updatedAt: factsTable.updatedAt })
       .from(factsTable)
       .where(and(eq(factsTable.id, factId), eq(factsTable.isActive, true)))
       .limit(1);
@@ -577,7 +577,8 @@ router.get("/memes/ai/:factId/image", async (req: Request, res: Response) => {
       const objectStorageService = new ObjectStorageService();
       const normalizedPath = objectStorageService.normalizeObjectEntityPath(backgroundPath);
       const objectFile = await objectStorageService.getObjectEntityFile(normalizedPath);
-      const aiEtag = `"ai-bg-${factId}-${gender}-${imageIndex}"`;
+      // ETag includes updatedAt so it invalidates automatically after regen overwrites the image
+      const aiEtag = `"ai-bg-${factId}-${gender}-${imageIndex}-${fact.updatedAt.getTime()}"`;
       if (checkConditional(req, res, aiEtag)) return;
       const response = await objectStorageService.downloadObject(objectFile, 86400);
       res.setHeader("Content-Type", "image/png");
