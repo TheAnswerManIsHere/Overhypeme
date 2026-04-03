@@ -377,6 +377,22 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
   const [uploadHeight, setUploadHeight] = useState<number | null>(null);
   const [isDragOver, setIsDragOver] = useState(false);
 
+  // Upload gallery — existing uploads for premium users
+  interface UploadEntry {
+    objectPath: string;
+    width: number;
+    height: number;
+    isLowRes: boolean;
+    fileSizeBytes: number;
+    createdAt: string;
+  }
+  const [uploadGallery, setUploadGallery] = useState<UploadEntry[]>([]);
+  const [uploadGalleryCount, setUploadGalleryCount] = useState(0);
+  const [uploadGalleryMax, setUploadGalleryMax] = useState(1000);
+  const [isLoadingGallery, setIsLoadingGallery] = useState(false);
+  // The URL to use for canvas preview — local blob URL for new uploads, storage URL for gallery picks
+  const [uploadDisplayUrl, setUploadDisplayUrl] = useState<string | null>(null);
+
   // Canvas background image (loaded from stock/upload for preview)
   const [bgImage, setBgImage] = useState<HTMLImageElement | null>(null);
   const [isBgLoading, setIsBgLoading] = useState(false);
@@ -751,7 +767,7 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
   useEffect(() => {
     const photoUrl =
       imageMode === "stock" ? stockPhoto?.photoUrl ?? null :
-      imageMode === "upload" ? uploadLocalUrl :
+      imageMode === "upload" ? uploadDisplayUrl :
       imageMode === "ai" ? aiSelectedUrl :
       null;
 
@@ -766,7 +782,7 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
     img.onload = () => { setBgImage(img); setIsBgLoading(false); };
     img.onerror = () => { setBgImage(null); setIsBgLoading(false); };
     img.src = photoUrl;
-  }, [imageMode, stockPhoto, uploadLocalUrl, aiSelectedUrl]);
+  }, [imageMode, stockPhoto, uploadDisplayUrl, aiSelectedUrl]);
 
   const [prefetchedPhotos, setPrefetchedPhotos] = useState<PexelsPhotoEntry[]>(() => {
     if (!pexelsImages || !stockGender) return [];
@@ -913,6 +929,7 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
     if (uploadLocalUrl) URL.revokeObjectURL(uploadLocalUrl);
     const localUrl = URL.createObjectURL(file);
     setUploadLocalUrl(localUrl);
+    setUploadDisplayUrl(localUrl);
 
     try {
       let uploadBlob: Blob = file;
@@ -954,10 +971,20 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
       setUploadIsLowRes(result.isLowRes ?? false);
       setUploadWidth(result.width ?? imgWidth);
       setUploadHeight(result.height ?? imgHeight);
+      // Refresh gallery so the newly uploaded image appears in the grid
+      fetch("/api/users/me/uploads", { credentials: "include" })
+        .then(r => r.json())
+        .then((data: { uploads?: UploadEntry[]; uploadCount?: number; maxUploads?: number }) => {
+          setUploadGallery(data.uploads ?? []);
+          setUploadGalleryCount(data.uploadCount ?? 0);
+          setUploadGalleryMax(data.maxUploads ?? 1000);
+        })
+        .catch(() => {});
     } catch (e) {
       setErrorMsg(e instanceof Error ? e.message : "Upload failed");
       setUploadFile(null);
       setUploadLocalUrl(null);
+      setUploadDisplayUrl(null);
       URL.revokeObjectURL(localUrl);
     } finally {
       setIsUploadingFile(false);
@@ -981,6 +1008,37 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
     return () => {
       if (uploadLocalUrl) URL.revokeObjectURL(uploadLocalUrl);
     };
+  }, [uploadLocalUrl]);
+
+  // Fetch the existing upload gallery when premium user is in upload mode
+  useEffect(() => {
+    if (!isPremium || imageMode !== "upload") return;
+    let cancelled = false;
+    setIsLoadingGallery(true);
+    fetch("/api/users/me/uploads", { credentials: "include" })
+      .then(r => r.json())
+      .then((data: { uploads?: UploadEntry[]; uploadCount?: number; maxUploads?: number }) => {
+        if (cancelled) return;
+        setUploadGallery(data.uploads ?? []);
+        setUploadGalleryCount(data.uploadCount ?? 0);
+        setUploadGalleryMax(data.maxUploads ?? 1000);
+      })
+      .catch(() => {})
+      .finally(() => { if (!cancelled) setIsLoadingGallery(false); });
+    return () => { cancelled = true; };
+  }, [isPremium, imageMode]);
+
+  // Select an existing uploaded image as the meme background (no re-upload)
+  const selectExistingUpload = useCallback((entry: UploadEntry) => {
+    if (uploadLocalUrl) URL.revokeObjectURL(uploadLocalUrl);
+    setUploadFile(null);
+    setUploadLocalUrl(null);
+    setUploadObjectPath(entry.objectPath);
+    setUploadIsLowRes(entry.isLowRes);
+    setUploadWidth(entry.width);
+    setUploadHeight(entry.height);
+    // Set the display URL — the canvas background effect will pick it up automatically
+    setUploadDisplayUrl(`/api/storage${entry.objectPath}`);
   }, [uploadLocalUrl]);
 
   // ── Generate ─────────────────────────────────────────────────────
@@ -1476,74 +1534,136 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
                         </Link>
                       </div>
                     ) : (
-                      <div
-                        onDragOver={e => { e.preventDefault(); setIsDragOver(true); }}
-                        onDragLeave={() => setIsDragOver(false)}
-                        onDrop={onDrop}
-                        onClick={() => fileInputRef.current?.click()}
-                        className={`border-2 border-dashed cursor-pointer transition-all p-5 text-center ${
-                          isDragOver
-                            ? "border-primary bg-primary/10"
-                            : uploadFile
-                            ? "border-primary/40 bg-primary/5"
-                            : "border-border hover:border-primary/50 hover:bg-muted/30"
-                        }`}
-                      >
-                        <input
-                          ref={fileInputRef}
-                          type="file"
-                          accept="image/*"
-                          className="hidden"
-                          onChange={onFileInputChange}
-                        />
-                        {isUploadingFile ? (
-                          <div className="flex flex-col items-center gap-2">
-                            <Loader2 className="w-6 h-6 text-primary animate-spin" />
-                            <p className="text-xs text-muted-foreground">Uploading…</p>
-                          </div>
-                        ) : uploadFile ? (
-                          <div className="flex items-center gap-3">
-                            {uploadLocalUrl && (
-                              <img
-                                src={uploadLocalUrl}
-                                alt="Upload preview"
-                                className="w-16 h-10 object-cover border border-border flex-shrink-0"
-                              />
-                            )}
-                            <div className="min-w-0 text-left">
-                              <p className="text-xs font-bold text-foreground truncate">{uploadFile.name}</p>
-                              <p className="text-[10px] text-muted-foreground">
-                                {(uploadFile.size / 1024 / 1024).toFixed(1)} MB
-                                {uploadObjectPath ? " · Uploaded ✓" : " · Uploading…"}
-                                {uploadObjectPath && uploadIsLowRes && (
-                                  <span className="ml-1 text-amber-400"> · Low res</span>
-                                )}
+                      <div className="space-y-4">
+                        {/* Drop zone / new upload */}
+                        <div
+                          onDragOver={e => { e.preventDefault(); setIsDragOver(true); }}
+                          onDragLeave={() => setIsDragOver(false)}
+                          onDrop={onDrop}
+                          onClick={() => fileInputRef.current?.click()}
+                          className={`border-2 border-dashed cursor-pointer transition-all p-5 text-center ${
+                            isDragOver
+                              ? "border-primary bg-primary/10"
+                              : uploadFile
+                              ? "border-primary/40 bg-primary/5"
+                              : "border-border hover:border-primary/50 hover:bg-muted/30"
+                          }`}
+                        >
+                          <input
+                            ref={fileInputRef}
+                            type="file"
+                            accept="image/*"
+                            className="hidden"
+                            onChange={onFileInputChange}
+                          />
+                          {isUploadingFile ? (
+                            <div className="flex flex-col items-center gap-2">
+                              <Loader2 className="w-6 h-6 text-primary animate-spin" />
+                              <p className="text-xs text-muted-foreground">Uploading…</p>
+                            </div>
+                          ) : uploadFile ? (
+                            <div className="flex items-center gap-3">
+                              {uploadLocalUrl && (
+                                <img
+                                  src={uploadLocalUrl}
+                                  alt="Upload preview"
+                                  className="w-16 h-10 object-cover border border-border flex-shrink-0"
+                                />
+                              )}
+                              <div className="min-w-0 text-left">
+                                <p className="text-xs font-bold text-foreground truncate">{uploadFile.name}</p>
+                                <p className="text-[10px] text-muted-foreground">
+                                  {(uploadFile.size / 1024 / 1024).toFixed(1)} MB
+                                  {uploadObjectPath ? " · Uploaded ✓" : " · Uploading…"}
+                                  {uploadObjectPath && uploadIsLowRes && (
+                                    <span className="ml-1 text-amber-400"> · Low res</span>
+                                  )}
+                                </p>
+                              </div>
+                              <button
+                                onClick={e => {
+                                  e.stopPropagation();
+                                  setUploadFile(null);
+                                  setUploadObjectPath(null);
+                                  if (uploadLocalUrl) URL.revokeObjectURL(uploadLocalUrl);
+                                  setUploadLocalUrl(null);
+                                  setUploadDisplayUrl(null);
+                                }}
+                                className="ml-auto text-muted-foreground hover:text-foreground"
+                              >
+                                <X className="w-4 h-4" />
+                              </button>
+                            </div>
+                          ) : (
+                            <div className="flex flex-col items-center gap-2">
+                              <Upload className="w-6 h-6 text-muted-foreground" />
+                              <p className="text-xs text-muted-foreground">
+                                Drop an image here, or click to browse
+                              </p>
+                              <p className="text-[10px] text-muted-foreground/60">
+                                PNG · JPG · WebP · HEIC · max {CLIENT_MAX_UPLOAD_MB} MB
                               </p>
                             </div>
-                            <button
-                              onClick={e => {
-                                e.stopPropagation();
-                                setUploadFile(null);
-                                setUploadObjectPath(null);
-                                if (uploadLocalUrl) URL.revokeObjectURL(uploadLocalUrl);
-                                setUploadLocalUrl(null);
-                              }}
-                              className="ml-auto text-muted-foreground hover:text-foreground"
-                            >
-                              <X className="w-4 h-4" />
-                            </button>
-                          </div>
-                        ) : (
-                          <div className="flex flex-col items-center gap-2">
-                            <Upload className="w-6 h-6 text-muted-foreground" />
-                            <p className="text-xs text-muted-foreground">
-                              Drop an image here, or click to browse
+                          )}
+                        </div>
+
+                        {/* Existing uploads gallery */}
+                        <div>
+                          <div className="flex items-center justify-between mb-2">
+                            <p className="text-[10px] font-display uppercase tracking-[0.2em] text-muted-foreground">
+                              My Uploads
                             </p>
-                            <p className="text-[10px] text-muted-foreground/60">
-                              PNG · JPG · WebP · HEIC · max {CLIENT_MAX_UPLOAD_MB} MB
-                            </p>
+                            {!isLoadingGallery && (
+                              <p className="text-[10px] text-muted-foreground tabular-nums">
+                                {uploadGalleryCount} / {uploadGalleryMax}
+                              </p>
+                            )}
                           </div>
-                        )}
+                          {isLoadingGallery ? (
+                            <div className="flex items-center justify-center py-6">
+                              <Loader2 className="w-4 h-4 text-muted-foreground animate-spin" />
+                            </div>
+                          ) : uploadGallery.length === 0 ? (
+                            <p className="text-[11px] text-muted-foreground/60 text-center py-4">
+                              No uploads yet. Drop an image above to get started.
+                            </p>
+                          ) : (
+                            <div className="grid grid-cols-3 gap-1.5 max-h-52 overflow-y-auto pr-0.5">
+                              {uploadGallery.map((entry) => {
+                                const isSelected = uploadObjectPath === entry.objectPath && !uploadFile;
+                                return (
+                                  <button
+                                    key={entry.objectPath}
+                                    onClick={() => selectExistingUpload(entry)}
+                                    className={`relative aspect-video overflow-hidden border-2 transition-all ${
+                                      isSelected
+                                        ? "border-primary"
+                                        : "border-transparent hover:border-primary/50"
+                                    }`}
+                                    title={`${entry.width}×${entry.height}px${entry.isLowRes ? " · Low res" : ""}`}
+                                  >
+                                    <img
+                                      src={`/api/storage${entry.objectPath}`}
+                                      alt="Uploaded image"
+                                      className="w-full h-full object-cover"
+                                      loading="lazy"
+                                    />
+                                    {isSelected && (
+                                      <div className="absolute inset-0 bg-primary/20 flex items-center justify-center">
+                                        <CheckCircle className="w-4 h-4 text-primary drop-shadow" />
+                                      </div>
+                                    )}
+                                    {entry.isLowRes && (
+                                      <div className="absolute bottom-0 left-0 right-0 bg-amber-400/80 text-[8px] font-bold text-black text-center leading-tight py-0.5">
+                                        LOW RES
+                                      </div>
+                                    )}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </div>
                       </div>
                     )}
                   </>

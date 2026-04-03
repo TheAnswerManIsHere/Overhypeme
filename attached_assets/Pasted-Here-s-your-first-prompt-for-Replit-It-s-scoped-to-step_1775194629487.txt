@@ -1,0 +1,40 @@
+Here’s your first prompt for Replit. It’s scoped to step 1+2 — get a video generating and displaying before adding any tier logic or quota tracking:
+
+Add AI video generation for memes using fal.ai as the video generation provider.
+What this feature does
+Users can click a “Generate Video” button on any meme/fact. The app sends the meme image to fal.ai’s image-to-video API, and when the video is ready, it displays in a video player inline on the page.
+Architecture requirements
+Backend:
+	∙	Create a POST endpoint /api/videos/generate that accepts { imageUrl, factId } and:
+	1.	Calls fal.ai’s image-to-video API using the @fal-ai/client npm package
+	2.	Uses the fal-ai/kling-video/v2.6/standard/image-to-video model endpoint
+	3.	Passes the meme image URL as the source image and a hardcoded motion prompt for now: "Subtle cinematic motion, dramatic lighting, slow camera push-in, epic atmosphere"
+	4.	Uses fal.subscribe() which handles polling internally and returns the completed result
+	5.	Returns the generated video URL in the response
+	∙	Store the FAL_AI_API_KEY in environment secrets/env vars (I will add the actual key manually)
+Frontend:
+	∙	Add a “Generate Video” button to meme/fact cards
+	∙	When clicked, show a loading state (this will take 30-120 seconds — show a progress indicator or animated message like “Generating your video…”)
+	∙	When the response comes back, display the video in an inline <video> player with controls
+	∙	Handle errors gracefully — show a user-friendly message if generation fails
+Important constraints:
+	∙	Do NOT use localStorage or sessionStorage
+	∙	The fal.ai call is long-running (30-120s). The frontend should indicate this to the user so they don’t think it’s broken
+	∙	Keep this simple for now — no user authentication checks, no quota limits, no database storage of generated videos. We’ll add those layers later
+	∙	Do not use OpenAI/Sora for video generation — it’s being shut down
+fal.ai client usage pattern:
+
+import { fal } from "@fal-ai/client";
+
+fal.config({ credentials: process.env.FAL_AI_API_KEY });
+
+const result = await fal.subscribe("fal-ai/kling-video/v2.6/standard/image-to-video", {
+  input: {
+    image_url: imageUrl,
+    prompt: "your motion prompt here"
+  }
+});
+// result.data.video.url contains the generated video URL
+
+
+One thing to watch for when Replit generates the code: make sure the fal.ai call happens server-side only (the API key must never be exposed to the browser). If Replit puts the fal client call in a React component instead of a backend route, flag it and ask it to move the call to the server. That would be the most likely mistake here.​​​​​​​​​​​​​​​​
