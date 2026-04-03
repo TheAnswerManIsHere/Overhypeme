@@ -8,6 +8,7 @@ import {
   type DragEvent,
 } from "react";
 import { Link } from "wouter";
+import { IMAGE_STYLES } from "@/config/imageStyles";
 import { usePersonName } from "@/hooks/use-person-name";
 import { useListMemeTemplates } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -373,6 +374,7 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
   const [isBackfilling, setIsBackfilling] = useState(false);
   const [backfillResult, setBackfillResult] = useState<{ triggered?: number; error?: string } | null>(null);
   const [prefetchedIndex, setPrefetchedIndex] = useState<number | null>(null);
+  const [selectedStyleId, setSelectedStyleId] = useState("none");
   const [uploadFile, setUploadFile] = useState<File | null>(null);
   const [uploadObjectPath, setUploadObjectPath] = useState<string | null>(null);
   const [uploadLocalUrl, setUploadLocalUrl] = useState<string | null>(null);
@@ -662,8 +664,8 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
         credentials: "include",
         body: JSON.stringify(
           aiSubMode === "reference" && selectedRefUpload
-            ? { referenceImagePath: selectedRefUpload.objectPath, targetGender: aiGender }
-            : { scope: factIsGendered ? "gendered" : "abstract" },
+            ? { referenceImagePath: selectedRefUpload.objectPath, targetGender: aiGender, styleId: selectedStyleId }
+            : { scope: factIsGendered ? "gendered" : "abstract", styleId: selectedStyleId },
         ),
       });
       if (!res.ok) {
@@ -1894,6 +1896,20 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
                             )}
                           </div>
                         )}
+
+                        {/* Style selector */}
+                        <div className="space-y-1">
+                          <p className="text-[10px] font-display uppercase tracking-widest text-muted-foreground">Style</p>
+                          <select
+                            value={selectedStyleId}
+                            onChange={e => setSelectedStyleId(e.target.value)}
+                            className="w-full bg-secondary border border-border text-foreground text-xs rounded-sm px-2 py-1.5 focus:outline-none focus:border-primary transition-colors"
+                          >
+                            {IMAGE_STYLES.map(style => (
+                              <option key={style.id} value={style.id}>{style.label}</option>
+                            ))}
+                          </select>
+                        </div>
 
                         {/* Generate New button */}
                         <div className="flex items-center gap-2">

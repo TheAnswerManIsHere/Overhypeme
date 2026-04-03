@@ -254,6 +254,7 @@ export async function generateAiMemeBackgroundFromReference(
   options?: {
     existingPrompts?: AiScenePrompts;
     userId?: string;
+    styleSuffix?: string;
   },
 ): Promise<void> {
   try {
@@ -275,7 +276,8 @@ export async function generateAiMemeBackgroundFromReference(
     }
 
     const uniqueKey = `${Date.now()}`;
-    const prompt = prompts[targetGender];
+    const basePrompt = prompts[targetGender];
+    const prompt = options?.styleSuffix ? `${basePrompt.trim()} ${options.styleSuffix}` : basePrompt;
     console.log(`[aiMemePipeline] Generating reference-based image for fact ${factId}, gender=${targetGender}`);
     const storedPath = await generateAndStoreImageFromReference(factId, targetGender, uniqueKey, prompt, referenceBuffer);
 
@@ -325,6 +327,8 @@ export async function generateAiMemeBackgrounds(
      * Omit for admin/system backfill operations.
      */
     userId?: string;
+    /** Optional style suffix appended to each scene prompt before image generation. */
+    styleSuffix?: string;
   },
 ): Promise<void> {
   try {
@@ -384,7 +388,8 @@ export async function generateAiMemeBackgrounds(
 
     for (const { gender } of slots) {
       const uniqueKey = `${batchKey}_${slotCounter++}`;
-      const prompt = prompts[gender];
+      const basePrompt = prompts[gender];
+      const prompt = options?.styleSuffix ? `${basePrompt.trim()} ${options.styleSuffix}` : basePrompt;
       console.log(`[aiMemePipeline] Generating image for fact ${factId}, gender=${gender}, key=${uniqueKey}`);
       const storedPath = await generateAndStoreImage(factId, gender, uniqueKey, prompt);
       // Prepend newest image at the front — gallery always shows newest-first
