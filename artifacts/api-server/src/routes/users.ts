@@ -285,6 +285,49 @@ router.get("/users/me/uploads", async (req: Request, res: Response) => {
   res.json({ uploads });
 });
 
+// DELETE /users/me/uploads — hard-delete an uploaded image owned by the current user
+// Query param: path (the object_path value from GET /users/me/uploads)
+router.delete("/users/me/uploads", async (req: Request, res: Response) => {
+  if (!req.isAuthenticated()) {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+
+  const objectPath = String(req.query["path"] ?? "").trim();
+  if (!objectPath) {
+    res.status(400).json({ error: "path query parameter is required" });
+    return;
+  }
+
+  // Verify the upload belongs to the requesting user
+  const rows = await db.execute(sql`
+    SELECT id FROM upload_image_metadata
+    WHERE user_id = ${req.user.id} AND object_path = ${objectPath}
+    LIMIT 1
+  `);
+
+  if (!rows.rows.length) {
+    res.status(404).json({ error: "Upload not found or does not belong to you" });
+    return;
+  }
+
+  // Remove metadata row
+  await db.execute(sql`
+    DELETE FROM upload_image_metadata
+    WHERE user_id = ${req.user.id} AND object_path = ${objectPath}
+  `);
+
+  // Hard-delete from object storage (best-effort)
+  try {
+    const storageService = new ObjectStorageService();
+    await storageService.deleteObject(objectPath);
+  } catch (e) {
+    console.warn("[DELETE /users/me/uploads] Storage delete failed:", e);
+  }
+
+  res.json({ success: true });
+});
+
 router.post("/users/me/complete-onboarding", async (req: Request, res: Response) => {
   if (!req.isAuthenticated()) {
     res.status(401).json({ error: "Unauthorized" });

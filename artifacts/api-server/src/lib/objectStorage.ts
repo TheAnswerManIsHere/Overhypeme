@@ -205,6 +205,24 @@ export class ObjectStorageService {
     });
   }
 
+  /**
+   * Delete an object from storage by its /objects/... path.
+   * Silently succeeds if the object does not exist.
+   */
+  async deleteObject(objectPath: string): Promise<void> {
+    let file: File;
+    try {
+      file = await this.getObjectEntityFile(objectPath);
+    } catch {
+      return; // already gone
+    }
+    try {
+      await file.delete();
+    } catch {
+      // best-effort — log but don't throw
+    }
+  }
+
   async uploadObjectBuffer({
     subPath,
     buffer,

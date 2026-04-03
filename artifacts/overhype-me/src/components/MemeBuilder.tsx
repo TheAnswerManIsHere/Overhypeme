@@ -27,6 +27,7 @@ import {
   Layers,
   Sparkles,
   Flame,
+  Trash2,
 } from "lucide-react";
 
 // ─── Canvas constants ──────────────────────────────────────────────────────────
@@ -573,7 +574,7 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
         body: JSON.stringify({ scope: factIsGendered ? "gendered" : "abstract" }),
       });
       if (!res.ok) {
-        const body = await res.json() as { error?: string };
+        const body = await res.json() as { error?: string; limitExceeded?: boolean };
         throw new Error(body.error ?? "Generation failed");
       }
       // Poll until images are confirmed written to DB.
@@ -620,6 +621,41 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
     } catch (e) {
       setAiGenerateError(e instanceof Error ? e.message : "Generation failed");
       setIsGeneratingAi(false);
+    }
+  };
+
+  const [deletingAiImageOrigIdx, setDeletingAiImageOrigIdx] = useState<number | null>(null);
+
+  const handleDeleteAiImage = async (origIdx: number) => {
+    if (deletingAiImageOrigIdx !== null) return;
+    if (!confirm("Permanently delete this AI background? This cannot be undone.")) return;
+    setDeletingAiImageOrigIdx(origIdx);
+    try {
+      const res = await fetch(
+        `/api/memes/ai/${factId}/image?gender=${aiGender}&imageIndex=${origIdx}`,
+        { method: "DELETE", credentials: "include" }
+      );
+      if (!res.ok) {
+        const body = await res.json() as { error?: string };
+        throw new Error(body.error ?? "Delete failed");
+      }
+      // Remove the slot from local state
+      setLocalAiMemeImages(prev => {
+        if (!prev) return prev;
+        const arr = [...(prev[aiGender] ?? [])];
+        arr.splice(origIdx, 1);
+        return { ...prev, [aiGender]: arr };
+      });
+      // If the deleted slot was selected, reset selection
+      if (selectedAiIndex === origIdx) {
+        setSelectedAiIndex(null);
+      } else if (selectedAiIndex !== null && selectedAiIndex > origIdx) {
+        setSelectedAiIndex(selectedAiIndex - 1);
+      }
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "Failed to delete image");
+    } finally {
+      setDeletingAiImageOrigIdx(null);
     }
   };
 
@@ -1261,29 +1297,43 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
                               )}
                             </p>
                             <div className="grid grid-cols-5 gap-1.5">
-                              {aiImageSlots.map((slot, displayIdx) => (
-                                <button
-                                  key={slot.path}
-                                  onClick={() => setSelectedAiIndex(slot.origIdx)}
-                                  className={`relative aspect-video border-2 overflow-hidden transition-all ${
-                                    selectedAiIndex === slot.origIdx
-                                      ? "border-primary ring-2 ring-primary/30 scale-105"
-                                      : "border-border hover:border-primary/50"
-                                  }`}
-                                >
-                                  <img
-                                    src={getAiThumbnailUrl(slot.origIdx)}
-                                    alt={`AI option ${displayIdx + 1}`}
-                                    className="w-full h-full object-cover"
-                                    loading="lazy"
-                                    crossOrigin="anonymous"
-                                    onError={e => { (e.target as HTMLImageElement).style.display = "none"; }}
-                                  />
-                                  {selectedAiIndex === slot.origIdx && (
-                                    <span className="absolute top-0.5 right-0.5 w-2 h-2 bg-primary rounded-full border border-white" />
-                                  )}
-                                </button>
-                              ))}
+                              {aiImageSlots.map((slot, displayIdx) => {
+                                const isDeleting = deletingAiImageOrigIdx === slot.origIdx;
+                                return (
+                                  <div
+                                    key={slot.path}
+                                    className={`group/ai-thumb relative aspect-video border-2 overflow-hidden transition-all cursor-pointer ${
+                                      selectedAiIndex === slot.origIdx
+                                        ? "border-primary ring-2 ring-primary/30 scale-105"
+                                        : "border-border hover:border-primary/50"
+                                    }`}
+                                    onClick={() => setSelectedAiIndex(slot.origIdx)}
+                                  >
+                                    <img
+                                      src={getAiThumbnailUrl(slot.origIdx)}
+                                      alt={`AI option ${displayIdx + 1}`}
+                                      className="w-full h-full object-cover"
+                                      loading="lazy"
+                                      crossOrigin="anonymous"
+                                      onError={e => { (e.target as HTMLImageElement).style.display = "none"; }}
+                                    />
+                                    {selectedAiIndex === slot.origIdx && (
+                                      <span className="absolute top-0.5 right-0.5 w-2 h-2 bg-primary rounded-full border border-white" />
+                                    )}
+                                    <button
+                                      onClick={(e) => { e.stopPropagation(); void handleDeleteAiImage(slot.origIdx); }}
+                                      disabled={isDeleting}
+                                      className="absolute bottom-0 right-0 p-1 bg-black/70 hover:bg-destructive text-white opacity-0 group-hover/ai-thumb:opacity-100 transition-opacity rounded-tl-sm disabled:opacity-50"
+                                      title="Delete this AI background"
+                                    >
+                                      {isDeleting
+                                        ? <div className="w-2.5 h-2.5 border border-white border-t-transparent rounded-full animate-spin" />
+                                        : <Trash2 className="w-2.5 h-2.5" />
+                                      }
+                                    </button>
+                                  </div>
+                                );
+                              })}
                             </div>
                           </>
                         ) : (

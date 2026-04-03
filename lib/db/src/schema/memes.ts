@@ -23,6 +23,8 @@ export const memesTable = pgTable("memes", {
   uploadFileSizeBytes: integer("upload_file_size_bytes"),
   createdById: varchar("created_by_id").references(() => usersTable.id),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  /** Soft-delete tombstone. NULL = live; non-NULL = deleted by creator. Row is kept for referential integrity. */
+  deletedAt: timestamp("deleted_at", { withTimezone: true }),
 });
 
 export type Meme = typeof memesTable.$inferSelect;

@@ -5,7 +5,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 import { db } from "@workspace/db";
 import { memesTable, factsTable, usersTable, userFactPreferencesTable } from "@workspace/db/schema";
-import { eq, desc, and, inArray } from "drizzle-orm";
+import { eq, desc, and, inArray, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 import {
   generateMemeBuffer,
@@ -17,7 +17,7 @@ import { getConfigInt } from "../lib/adminConfig";
 import { getRandomStockPhoto, getPhotoById } from "../lib/pexelsClient";
 import { renderPersonalized } from "../lib/renderCanonical";
 import { compositeAiMeme } from "../lib/aiMemeCompositor";
-import { generateAiMemeBackgrounds } from "../lib/aiMemePipeline";
+import { generateAiMemeBackgrounds, isUserAtImageLimit } from "../lib/aiMemePipeline";
 import type { AiMemeImages } from "../lib/aiMemePipeline";
 import { requirePremium } from "../middlewares/premiumMiddleware";
 import { getUploadImageMetadata } from "./storage";
@@ -332,6 +332,7 @@ router.get("/memes/:slug", async (req: Request, res: Response) => {
     .where(eq(memesTable.permalinkSlug, slug))
     .limit(1);
   if (!meme) { res.status(404).json({ error: "Meme not found" }); return; }
+  if (meme.deletedAt) { res.status(410).json({ error: "This meme has been removed by its creator.", deleted: true }); return; }
 
   const [fact] = await db
     .select({ text: factsTable.text, canonicalText: factsTable.canonicalText })
@@ -401,8 +402,8 @@ router.get("/facts/:factId/memes", async (req: Request, res: Response) => {
     : inArray(memesTable.factId, factIds);
 
   const visibilityFilter = visibility === "mine"
-    ? and(factFilter, eq(memesTable.createdById, req.user!.id))
-    : and(factFilter, eq(memesTable.isPublic, true));
+    ? and(factFilter, eq(memesTable.createdById, req.user!.id), isNull(memesTable.deletedAt))
+    : and(factFilter, eq(memesTable.isPublic, true), isNull(memesTable.deletedAt));
 
   const maxMemes = await getConfigInt("max_memes_per_fact", 40);
   const memes = await db
@@ -420,6 +421,7 @@ router.get("/facts/:factId/memes", async (req: Request, res: Response) => {
       imageUrl: m.imageUrl,
       permalinkSlug: m.permalinkSlug,
       isPublic: m.isPublic,
+      createdById: m.createdById,
       createdAt: m.createdAt.toISOString(),
     })),
   });
@@ -446,6 +448,7 @@ router.get("/memes/:slug/image", async (req: Request, res: Response) => {
     .where(eq(memesTable.permalinkSlug, slug))
     .limit(1);
   if (!meme) { res.status(404).end(); return; }
+  if (meme.deletedAt) { res.status(410).end(); return; }
 
   // ── Legacy path: memes stored before recipe-based rendering ─────
   if (!meme.imageSource) {
@@ -684,11 +687,18 @@ router.post("/memes/ai/:factId/generate", requirePremium, async (req: Request, r
   if (!fact) { res.status(404).json({ error: "Fact not found" }); return; }
   if (fact.parentId !== null) { res.status(400).json({ error: "AI meme generation only supported on root facts" }); return; }
 
+  // Check storage limit before firing pipeline
+  if (req.user?.id && await isUserAtImageLimit(req.user.id)) {
+    res.status(429).json({
+      error: "You have reached your image storage limit. Delete some of your existing AI backgrounds or uploaded images to generate new ones.",
+      limitExceeded: true,
+    });
+    return;
+  }
+
   const existingPrompts = fact.aiScenePrompts as import("../lib/aiMemePipeline").AiScenePrompts | undefined;
   const existingImages = fact.aiMemeImages as AiMemeImages | undefined;
 
-  // scope="abstract" → 1 new image (neutral, index 0)
-  // scope="gendered" → 3 new images (index 0 per gender), single pipeline call to avoid DB race
   void generateAiMemeBackgrounds(fact.id, fact.text, {
     scope,
     existingPrompts,
@@ -697,6 +707,84 @@ router.post("/memes/ai/:factId/generate", requirePremium, async (req: Request, r
   });
 
   res.json({ success: true, message: "AI meme generation started. Refresh in a moment to see new images." });
+});
+
+// DELETE /memes/:slug — soft-delete a meme (creator only)
+router.delete("/memes/:slug", async (req: Request, res: Response) => {
+  if (!req.user) { res.status(401).json({ error: "Authentication required" }); return; }
+  const slug = req.params["slug"] as string;
+  if (!slug) { res.status(400).json({ error: "Slug required" }); return; }
+
+  const [meme] = await db
+    .select({ id: memesTable.id, createdById: memesTable.createdById, deletedAt: memesTable.deletedAt })
+    .from(memesTable)
+    .where(eq(memesTable.permalinkSlug, slug))
+    .limit(1);
+
+  if (!meme) { res.status(404).json({ error: "Meme not found" }); return; }
+  if (meme.createdById !== req.user.id) { res.status(403).json({ error: "You can only delete your own memes" }); return; }
+  if (meme.deletedAt) { res.status(410).json({ error: "Meme already deleted" }); return; }
+
+  await db
+    .update(memesTable)
+    .set({ deletedAt: new Date() })
+    .where(eq(memesTable.id, meme.id));
+
+  res.json({ success: true });
+});
+
+// DELETE /memes/ai/:factId/image — hard-delete an AI background image slot
+// Query params: gender (male|female|neutral), imageIndex (0-based)
+router.delete("/memes/ai/:factId/image", requirePremium, async (req: Request, res: Response) => {
+  const factId = parseInt(String(req.params["factId"] ?? ""), 10);
+  if (isNaN(factId)) { res.status(400).json({ error: "Invalid factId" }); return; }
+
+  const gender = String(req.query["gender"] ?? "") as "male" | "female" | "neutral";
+  if (!["male", "female", "neutral"].includes(gender)) {
+    res.status(400).json({ error: "gender must be male, female, or neutral" }); return;
+  }
+  const imageIndex = parseInt(String(req.query["imageIndex"] ?? ""), 10);
+  if (isNaN(imageIndex) || imageIndex < 0) {
+    res.status(400).json({ error: "imageIndex must be a non-negative integer" }); return;
+  }
+
+  const [fact] = await db
+    .select({ id: factsTable.id, aiMemeImages: factsTable.aiMemeImages })
+    .from(factsTable)
+    .where(eq(factsTable.id, factId))
+    .limit(1);
+
+  if (!fact) { res.status(404).json({ error: "Fact not found" }); return; }
+
+  const images = (fact.aiMemeImages ?? {}) as AiMemeImages;
+  const genderImages: string[] = Array.isArray(images[gender]) ? [...images[gender]] : [];
+  const storagePath = genderImages[imageIndex];
+
+  if (!storagePath) { res.status(404).json({ error: "Image slot not found" }); return; }
+
+  // Remove slot from the array (null out to preserve indices, then compact later)
+  genderImages.splice(imageIndex, 1);
+  const updatedImages: AiMemeImages = { ...images, [gender]: genderImages };
+  await db
+    .update(factsTable)
+    .set({ aiMemeImages: updatedImages })
+    .where(eq(factsTable.id, factId));
+
+  // Remove from user tracking table
+  await db.execute(sql`
+    DELETE FROM user_ai_images WHERE id = (
+      SELECT id FROM user_ai_images WHERE storage_path = ${storagePath} LIMIT 1
+    )
+  `);
+
+  // Hard-delete from object storage (best-effort)
+  try {
+    await objectStorageService.deleteObject(storagePath);
+  } catch (e) {
+    console.warn("[DELETE /memes/ai/:factId/image] Storage delete failed:", e);
+  }
+
+  res.json({ success: true });
 });
 
 export default router;

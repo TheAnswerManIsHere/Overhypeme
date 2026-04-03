@@ -14,7 +14,7 @@ import { getOpenAIClient } from "@workspace/integrations-openai-ai-server";
 import { ObjectStorageService } from "./objectStorage";
 import { db } from "@workspace/db";
 import { factsTable, userAiImagesTable } from "@workspace/db/schema";
-import { eq, sql, asc } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { getConfigInt } from "./adminConfig";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -147,18 +147,10 @@ async function generateAndStoreImage(
 // ─── Per-user storage tracking ────────────────────────────────────────────────
 
 /**
- * Records a newly generated AI image for a user and enforces the paid storage
- * limit (USER_STORAGE_LIMIT images total, counting both AI-generated and uploaded
- * photos). When the limit is reached, the oldest tracked AI image for this user
- * is evicted from the tracking table (the physical file remains in storage).
+ * Returns true if the user is currently AT OR OVER their image storage limit.
+ * Counts both AI-generated images and uploaded photos.
  */
-async function trackUserAiImage(
-  userId: string,
-  factId: number,
-  gender: "male" | "female" | "neutral",
-  storagePath: string,
-): Promise<void> {
-  // Count current totals: AI-generated images + uploaded photos
+export async function isUserAtImageLimit(userId: string): Promise<boolean> {
   const [countResult] = await db.execute<{ total: string }>(sql`
     SELECT (
       (SELECT count(*) FROM user_ai_images WHERE user_id = ${userId}) +
@@ -166,22 +158,20 @@ async function trackUserAiImage(
     )::text AS total
   `);
   const total = parseInt(countResult?.total ?? "0", 10);
+  const limit = await getConfigInt("user_max_images", DEFAULT_USER_STORAGE_LIMIT);
+  return total >= limit;
+}
 
-  const userStorageLimit = await getConfigInt("user_max_images", DEFAULT_USER_STORAGE_LIMIT);
-  // If at limit, evict the oldest AI-generated image for this user
-  if (total >= userStorageLimit) {
-    await db.execute(sql`
-      DELETE FROM user_ai_images
-      WHERE id = (
-        SELECT id FROM user_ai_images
-        WHERE user_id = ${userId}
-        ORDER BY created_at ASC
-        LIMIT 1
-      )
-    `);
-  }
-
-  // Record the new image
+/**
+ * Records a newly generated AI image for a user.
+ * Does NOT enforce the storage limit (callers must check first via isUserAtImageLimit).
+ */
+async function trackUserAiImage(
+  userId: string,
+  factId: number,
+  gender: "male" | "female" | "neutral",
+  storagePath: string,
+): Promise<void> {
   await db.insert(userAiImagesTable).values({ userId, factId, gender, storagePath });
 }
 
