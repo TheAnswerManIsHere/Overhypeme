@@ -12,6 +12,7 @@
     "backfill:pexels": "tsx scripts/backfill-pexels.ts"
   },
   "dependencies": {
+    "@fal-ai/client": "^1.9.5",
     "@google-cloud/storage": "^7.19.0",
     "@napi-rs/canvas": "^0.1.97",
     "@types/bcryptjs": "^3.0.0",

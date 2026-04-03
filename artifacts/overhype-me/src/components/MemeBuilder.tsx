@@ -29,6 +29,7 @@ import {
   Sparkles,
   Flame,
   Trash2,
+  Video,
 } from "lucide-react";
 
 // ─── Canvas constants ──────────────────────────────────────────────────────────
@@ -503,6 +504,14 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
   const [status, setStatus] = useState<"idle" | "generating" | "done" | "error">("idle");
   const [permalinkSlug, setPermalinkSlug] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
+  // Video generation state
+  type VideoState =
+    | { status: "idle" }
+    | { status: "generating" }
+    | { status: "done"; url: string }
+    | { status: "error"; message: string };
+  const [videoState, setVideoState] = useState<VideoState>({ status: "idle" });
 
   // Whether this fact has gender tokens (for determining generation scope)
   // Must use rawFactText (unexpanded template) since factText is already personalized
@@ -1265,6 +1274,36 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
     link.download = `overhype-fact-${factId}.png`;
     link.href = canvasRef.current.toDataURL("image/png");
     link.click();
+  };
+
+  const handleGenerateVideo = async () => {
+    if (videoState.status === "generating") return;
+
+    if (!canvasRef.current) {
+      setVideoState({ status: "error", message: "No meme preview available for video generation." });
+      return;
+    }
+
+    setVideoState({ status: "generating" });
+
+    const imageBase64 = canvasRef.current.toDataURL("image/jpeg", 0.85);
+
+    try {
+      const res = await fetch("/api/videos/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ imageBase64, factId }),
+      });
+      const body = await res.json() as { videoUrl?: string; error?: string };
+      if (!res.ok || !body.videoUrl) {
+        setVideoState({ status: "error", message: body.error ?? "Video generation failed. Please try again." });
+        return;
+      }
+      setVideoState({ status: "done", url: body.videoUrl });
+    } catch {
+      setVideoState({ status: "error", message: "Network error. Please check your connection and try again." });
+    }
   };
 
   const templates = tplData?.templates ?? [];
@@ -2323,6 +2362,64 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
               </Button>
             </div>
           )}
+
+          {/* ── Generate Video ── */}
+          <div className="border-t border-border/50 pt-3 space-y-3">
+            {videoState.status === "generating" && (
+              <div className="flex items-center gap-3 px-4 py-3 bg-primary/10 border border-primary/30 rounded-sm text-sm text-primary">
+                <Loader2 className="w-4 h-4 animate-spin shrink-0" />
+                <span>Generating your video… this takes 30–120 seconds</span>
+              </div>
+            )}
+
+            {videoState.status === "error" && (
+              <div className="flex items-start gap-3 px-4 py-3 bg-destructive/10 border border-destructive/30 rounded-sm text-sm text-destructive">
+                <X className="w-4 h-4 shrink-0 mt-0.5" />
+                <div className="flex-1">
+                  <p>{videoState.message}</p>
+                  <button
+                    onClick={() => setVideoState({ status: "idle" })}
+                    className="mt-1 text-xs underline hover:no-underline"
+                  >
+                    Dismiss
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {videoState.status === "done" && (
+              <div className="rounded-sm overflow-hidden border border-border">
+                <video
+                  src={videoState.url}
+                  controls
+                  autoPlay
+                  className="w-full"
+                />
+                <div className="flex justify-end px-2 py-1 bg-muted/30">
+                  <button
+                    onClick={() => setVideoState({ status: "idle" })}
+                    className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1 transition-colors"
+                  >
+                    <X className="w-3 h-3" /> Dismiss
+                  </button>
+                </div>
+              </div>
+            )}
+
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={handleGenerateVideo}
+              disabled={videoState.status === "generating"}
+              className="w-full gap-2"
+            >
+              {videoState.status === "generating" ? (
+                <><Loader2 className="w-4 h-4 animate-spin" />Generating Video…</>
+              ) : (
+                <><Video className="w-4 h-4" />{videoState.status === "done" ? "Regenerate Video" : "Generate Video"}</>
+              )}
+            </Button>
+          </div>
 
           {/* Pexels attribution (shown when stock photo is used) */}
           {imageMode === "stock" && stockPhoto && (

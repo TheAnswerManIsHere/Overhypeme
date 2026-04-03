@@ -62,6 +62,16 @@ Every logged-in user has a personal activity feed at `/activity`:
 - Stored in the `activity_feed` table; unread count shown in navbar
 - `POST /api/activity-feed/mark-read` marks all as read
 
+### AI Video Generation (fal.ai)
+The app supports animating meme images into short videos using fal.ai's Kling image-to-video model:
+- **Endpoint**: `POST /api/videos/generate` — accepts `{ imageUrl, factId }` or `{ imageBase64, factId }`; returns `{ videoUrl }`
+- **API key**: `FAL_AI_API_KEY` must be set as a Replit secret (never sent to the browser)
+- If `FAL_AI_API_KEY` is not set, the endpoint returns 503 with a clear error message
+- If `imageBase64` is provided instead of a URL, the backend uploads it to fal.ai storage and gets a public URL before calling the model
+- **UI surfaces**: "Generate Video" button on meme permalink pages (`/meme/:slug`) and in MemeBuilder
+- **Model**: `fal-ai/kling-video/v2.6/standard/image-to-video` — 5-second clips, 16:9 aspect ratio
+- Route ordering matters: `videosRouter` must come before `importRouter` in `routes/index.ts` because `importRouter` applies global `requireApiKey` middleware that would intercept unmatched routes
+
 ### Email Notifications (Resend)
 Resend is integrated via `artifacts/api-server/src/lib/email.ts`:
 - Requires `RESEND_API_KEY` secret; `RESEND_FROM_EMAIL` env var overrides sender (default: `noreply@overhype.me`)
