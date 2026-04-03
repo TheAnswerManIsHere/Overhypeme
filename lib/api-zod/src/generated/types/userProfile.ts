@@ -14,9 +14,11 @@ export interface UserProfile {
   emailVerified?: boolean;
   firstName?: string | null;
   lastName?: string | null;
-  username?: string | null;
+  displayName?: string | null;
   pronouns?: string | null;
   profileImageUrl?: string | null;
+  avatarStyle?: string | null;
+  isPremium?: boolean;
   submittedFacts: FactSummary[];
   likedFacts: FactSummary[];
   favoriteHashtags: string[];

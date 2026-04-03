@@ -88,25 +88,44 @@ async function upsertUser(
     .limit(1);
   const isNewUser = existing.length === 0;
 
+  // Billing/fulfillment name fields: only set from OIDC claims when they are
+  // currently null/empty, so that values the user has explicitly set are never
+  // overwritten by the identity provider on subsequent logins.
+  const oidcFirstName = (claims.first_name as string) || null;
+  const oidcLastName = (claims.last_name as string) || null;
+  const existingFirstName = existing[0]?.firstName ?? null;
+  const existingLastName = existing[0]?.lastName ?? null;
+
   const userData = {
     id,
     email: (claims.email as string) || null,
-    firstName: (claims.first_name as string) || null,
-    lastName: (claims.last_name as string) || null,
     profileImageUrl: (claims.profile_image_url || claims.picture) as
       | string
       | null,
   };
 
+  // For new users, seed firstName/lastName from OIDC; for existing users only
+  // write these if the user has never set them (preserves user-edited values).
+  const insertValues = {
+    ...userData,
+    firstName: oidcFirstName,
+    lastName: oidcLastName,
+    isActive: true,
+  };
+
+  const conflictSet: Record<string, unknown> = {
+    ...userData,
+    updatedAt: new Date(),
+  };
+  if (!existingFirstName) conflictSet.firstName = oidcFirstName;
+  if (!existingLastName) conflictSet.lastName = oidcLastName;
+
   const [user] = await db
     .insert(usersTable)
-    .values({ ...userData, isActive: true })
+    .values(insertValues)
     .onConflictDoUpdate({
       target: usersTable.id,
-      set: {
-        ...userData,
-        updatedAt: new Date(),
-      },
+      set: conflictSet,
     })
     .returning();
   return { user, isNewUser };

@@ -43,6 +43,8 @@ export default function Profile() {
 
   const [editing, setEditing] = useState(false);
   const [draftDisplayName, setDraftDisplayName] = useState("");
+  const [draftFirstName, setDraftFirstName] = useState("");
+  const [draftLastName, setDraftLastName] = useState("");
   const [draftAvatarStyle, setDraftAvatarStyle] = useState("bottts");
   const [draftPronouns, setDraftPronouns] = useState("");
   const [draftEmail, setDraftEmail] = useState("");
@@ -190,6 +192,8 @@ export default function Profile() {
 
   function openEditor() {
     setDraftDisplayName(profile?.displayName ?? "");
+    setDraftFirstName(profile?.firstName ?? "");
+    setDraftLastName(profile?.lastName ?? "");
     setDraftAvatarStyle(profile?.avatarStyle ?? "bottts");
     setDraftPronouns(profile?.pronouns ?? "");
     setDraftEmail("");
@@ -210,6 +214,8 @@ export default function Profile() {
 
     const body: Record<string, string> = {};
     if (draftDisplayName.trim() !== (profile?.displayName ?? "")) body.displayName = draftDisplayName.trim();
+    if (draftFirstName.trim() !== (profile?.firstName ?? "")) body.firstName = draftFirstName.trim();
+    if (draftLastName.trim() !== (profile?.lastName ?? "")) body.lastName = draftLastName.trim();
     if (draftAvatarStyle !== (profile?.avatarStyle ?? "bottts")) body.avatarStyle = draftAvatarStyle;
     if (draftPronouns !== (profile?.pronouns ?? "")) body.pronouns = draftPronouns;
     if (draftEmail.trim()) body.email = draftEmail.trim();
@@ -478,6 +484,36 @@ export default function Profile() {
                   className="w-full max-w-md bg-secondary border border-border rounded-sm px-3 py-2 text-foreground outline-none focus:border-primary transition-colors"
                 />
                 <p className="text-xs text-muted-foreground mt-1">This name appears on your facts and profile.</p>
+              </div>
+
+              {/* Billing & Fulfillment Name */}
+              <div className="border border-border/50 rounded-sm p-4 bg-secondary/30">
+                <p className="text-xs font-bold text-muted-foreground uppercase tracking-wide mb-3">Billing &amp; Store Orders</p>
+                <p className="text-xs text-muted-foreground mb-4">Used for payment invoices and personalized store orders. Not shown publicly.</p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-bold text-muted-foreground uppercase tracking-wide mb-1">First Name</label>
+                    <input
+                      type="text"
+                      value={draftFirstName}
+                      onChange={(e) => setDraftFirstName(e.target.value)}
+                      placeholder="Legal first name"
+                      maxLength={80}
+                      className="w-full bg-secondary border border-border rounded-sm px-3 py-2 text-foreground outline-none focus:border-primary transition-colors"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-bold text-muted-foreground uppercase tracking-wide mb-1">Last Name</label>
+                    <input
+                      type="text"
+                      value={draftLastName}
+                      onChange={(e) => setDraftLastName(e.target.value)}
+                      placeholder="Legal last name"
+                      maxLength={80}
+                      className="w-full bg-secondary border border-border rounded-sm px-3 py-2 text-foreground outline-none focus:border-primary transition-colors"
+                    />
+                  </div>
+                </div>
               </div>
 
               {/* Avatar Style Picker */}

@@ -1351,13 +1351,15 @@ components:
           nullable: true
         emailVerified:
           type: boolean
+        # Billing/fulfillment fields: used for Stripe customer name on invoices
+        # and Zazzle order personalization. Distinct from displayName.
         firstName:
           type: string
           nullable: true
         lastName:
           type: string
           nullable: true
-        username:
+        displayName:
           type: string
           nullable: true
         pronouns:
@@ -1366,6 +1368,11 @@ components:
         profileImageUrl:
           type: string
           nullable: true
+        avatarStyle:
+          type: string
+          nullable: true
+        isPremium:
+          type: boolean
         submittedFacts:
           type: array
           items:
@@ -1386,24 +1393,28 @@ components:
     UpdateProfileRequest:
       type: object
       properties:
+        displayName:
+          type: string
+          minLength: 1
+          maxLength: 80
+        # Billing/fulfillment fields: used for Stripe customer name on invoices
+        # and Zazzle order personalization. Distinct from displayName.
         firstName:
           type: string
-          minLength: 1
+          maxLength: 80
         lastName:
           type: string
-          minLength: 1
-        username:
-          type: string
-          minLength: 3
-          maxLength: 30
-          pattern: "^[a-zA-Z0-9_]+$"
+          maxLength: 80
         pronouns:
           type: string
           minLength: 1
-          maxLength: 20
+          maxLength: 80
         email:
           type: string
-          format: email
+        avatarStyle:
+          type: string
+        profileImageUrl:
+          type: string
 
     UpdateProfileResponse:
       type: object
