@@ -344,7 +344,7 @@ router.delete("/users/me/uploads", async (req: Request, res: Response) => {
 
   // Verify the upload belongs to the requesting user
   const rows = await db.execute(sql`
-    SELECT id FROM upload_image_metadata
+    SELECT object_path FROM upload_image_metadata
     WHERE user_id = ${req.user.id} AND object_path = ${objectPath}
     LIMIT 1
   `);
