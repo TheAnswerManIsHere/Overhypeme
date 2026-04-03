@@ -1160,9 +1160,9 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
     return () => { controller.abort(); };
   }, [isPremium, imageMode, aiSubMode, fetchRefGenImages]);
 
-  // Fetch scene prompts for debug panel when in AI mode (premium only)
+  // Fetch scene prompts for debug panel when in AI mode (admin only)
   useEffect(() => {
-    if (!isPremium || imageMode !== "ai" || !factId) return;
+    if (!isAdmin || imageMode !== "ai" || !factId) return;
     let cancelled = false;
     fetch(`/api/memes/ai/${factId}/prompts`, { credentials: "include" })
       .then(r => r.ok ? r.json() : null)
@@ -1172,7 +1172,7 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
       })
       .catch(() => {});
     return () => { cancelled = true; };
-  }, [isPremium, imageMode, factId]);
+  }, [isAdmin, imageMode, factId]);
 
   // Upload a new reference photo (inline in AI reference sub-mode picker)
   const handleRefPhotoUpload = useCallback(async (file: File) => {
@@ -1957,8 +1957,8 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
                           </span>
                         </div>
 
-                        {/* Debug: full prompt preview */}
-                        {(() => {
+                        {/* Debug: full prompt preview (admin only) */}
+                        {isAdmin && (() => {
                           const styleDef = IMAGE_STYLES.find(s => s.id === selectedStyleId);
                           const suffix = aiSubMode === "reference"
                             ? (styleDef?.promptSuffixReference ?? "")
