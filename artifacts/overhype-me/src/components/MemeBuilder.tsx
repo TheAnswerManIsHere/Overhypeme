@@ -2012,9 +2012,8 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
                           const genderKey = aiGender as string;
                           const sceneBase = aiScenePromptsDebug?.[genderKey] ?? null;
                           const referenceFrame = " — transform the provided reference photo into a cinematic meme background with dramatic lighting and high contrast. No text or letters.";
-                          const finalPrompt = aiSubMode === "reference"
-                            ? `${sceneBase ?? "(scene prompt will be generated)"}${suffix ? ` ${suffix}` : ""}${referenceFrame}`
-                            : `${sceneBase ?? "(scene prompt will be generated)"}${suffix ? ` ${suffix}` : ""}`;
+                          const includeReferenceFrame = aiSubMode === "reference" && !!suffix;
+                          const finalPrompt = `${sceneBase ?? "(scene prompt will be generated)"}${suffix ? ` ${suffix}` : ""}${includeReferenceFrame ? referenceFrame : ""}`;
                           return (
                             <div className="mt-1 space-y-1">
                               <button
@@ -2038,7 +2037,7 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
                                           <p className="mt-0.5 text-foreground/80 font-mono leading-relaxed">{suffix}</p>
                                         </div>
                                       )}
-                                      {aiSubMode === "reference" && (
+                                      {includeReferenceFrame && (
                                         <div>
                                           <span className="text-muted-foreground font-semibold uppercase tracking-wide">Reference frame</span>
                                           <p className="mt-0.5 text-foreground/80 font-mono leading-relaxed">{referenceFrame.trim()}</p>
@@ -2058,7 +2057,7 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
                                           <p className="mt-0.5 text-foreground/80 font-mono leading-relaxed">{suffix}</p>
                                         </div>
                                       )}
-                                      {aiSubMode === "reference" && (
+                                      {includeReferenceFrame && (
                                         <div>
                                           <span className="text-muted-foreground font-semibold uppercase tracking-wide">Reference frame that will be appended</span>
                                           <p className="mt-0.5 text-foreground/80 font-mono leading-relaxed">{referenceFrame.trim()}</p>
