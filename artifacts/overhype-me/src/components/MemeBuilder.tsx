@@ -1494,6 +1494,16 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
                 <Loader2 className="w-8 h-8 text-primary animate-spin" />
               </div>
             )}
+            {!isBgLoading && imageMode === "ai" && aiSubMode === "reference" && !selectedRefGenPath && (
+              <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/80 border-2 border-border gap-3 px-6 text-center">
+                <ImageIcon className="w-8 h-8 text-muted-foreground opacity-50" />
+                <p className="text-sm font-semibold text-foreground">No background generated yet</p>
+                <p className="text-xs text-muted-foreground leading-relaxed">
+                  Pick a reference photo below (or upload your own), then click{" "}
+                  <span className="text-violet-400 font-semibold">Generate New</span> to create a personalised AI background from it.
+                </p>
+              </div>
+            )}
           </div>
 
           {/* ── Controls (two columns on md+) ── */}
