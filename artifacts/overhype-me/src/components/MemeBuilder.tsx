@@ -9,7 +9,7 @@ import {
 } from "react";
 import { Link } from "wouter";
 import { IMAGE_STYLES } from "@/config/imageStyles";
-import { AuthenticatedImage } from "@/components/ui/AuthenticatedImage";
+import { ImageCard } from "@/components/ui/ImageCard";
 import { usePersonName } from "@/hooks/use-person-name";
 import { useListMemeTemplates } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -399,8 +399,6 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
   const [uploadGalleryMax, setUploadGalleryMax] = useState(1000);
   const [uploadGalleryDisplayLimit, setUploadGalleryDisplayLimit] = useState(50);
   const [isLoadingGallery, setIsLoadingGallery] = useState(false);
-  const [deletingUploadPath, setDeletingUploadPath] = useState<string | null>(null);
-  const [confirmingDeletePath, setConfirmingDeletePath] = useState<string | null>(null);
   // The URL to use for canvas preview — local blob URL for new uploads, storage URL for gallery picks
   const [uploadDisplayUrl, setUploadDisplayUrl] = useState<string | null>(null);
 
@@ -785,41 +783,24 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
     }
   };
 
-  const [deletingAiImageOrigIdx, setDeletingAiImageOrigIdx] = useState<number | null>(null);
-  const [confirmingAiImageOrigIdx, setConfirmingAiImageOrigIdx] = useState<number | null>(null);
+
 
   const handleDeleteAiImage = async (origIdx: number) => {
-    if (deletingAiImageOrigIdx !== null) return;
-    setDeletingAiImageOrigIdx(origIdx);
-    try {
-      const res = await fetch(
-        `/api/memes/ai/${factId}/image?gender=${aiGender}&imageIndex=${origIdx}`,
-        { method: "DELETE", credentials: "include" }
-      );
-      if (!res.ok) {
-        const body = await res.json() as { error?: string };
-        throw new Error(body.error ?? "Delete failed");
-      }
-      // Null out the slot to preserve array indices of remaining images
-      setLocalAiMemeImages(prev => {
-        if (!prev) return prev;
-        const arr = [...(prev[aiGender] ?? [])];
-        arr[origIdx] = ""; // empty sentinel — preserves positions of other slots
-        return { ...prev, [aiGender]: arr };
-      });
-      // If the deleted slot was selected, reset selection
-      if (selectedAiIndex === origIdx) {
-        setSelectedAiIndex(null);
-      }
-    } catch (e) {
-      toast({
-        variant: "destructive",
-        title: "Delete failed",
-        description: e instanceof Error ? e.message : "Failed to delete image",
-      });
-    } finally {
-      setDeletingAiImageOrigIdx(null);
+    const res = await fetch(
+      `/api/memes/ai/${factId}/image?gender=${aiGender}&imageIndex=${origIdx}`,
+      { method: "DELETE", credentials: "include" }
+    );
+    if (!res.ok) {
+      const body = await res.json() as { error?: string };
+      throw new Error(body.error ?? "Delete failed");
     }
+    setLocalAiMemeImages(prev => {
+      if (!prev) return prev;
+      const arr = [...(prev[aiGender] ?? [])];
+      arr[origIdx] = "";
+      return { ...prev, [aiGender]: arr };
+    });
+    if (selectedAiIndex === origIdx) setSelectedAiIndex(null);
   };
 
   const queryClient = useQueryClient();
@@ -1251,37 +1232,28 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
   }, [uploadLocalUrl]);
 
   const deleteUpload = useCallback(async (objectPath: string) => {
-    setDeletingUploadPath(objectPath);
-    try {
-      const res = await fetch(`/api/users/me/uploads?path=${encodeURIComponent(objectPath)}`, {
-        method: "DELETE",
-        credentials: "include",
-      });
-      if (!res.ok) return;
-      // If the deleted image was selected, clear selection
-      if (uploadObjectPath === objectPath) {
-        setUploadObjectPath(null);
-        setUploadDisplayUrl(null);
-        setUploadIsLowRes(false);
-        setUploadWidth(null);
-        setUploadHeight(null);
-      }
-      // Refresh gallery
-      const data = await fetch("/api/users/me/uploads", { credentials: "include" }).then(r => r.json()) as {
-        uploads?: UploadEntry[];
-        uploadCount?: number;
-        maxUploads?: number;
-        displayLimit?: number;
-      };
-      setUploadGallery(data.uploads ?? []);
-      setUploadGalleryCount(data.uploadCount ?? 0);
-      setUploadGalleryMax(data.maxUploads ?? 1000);
-      if (data.displayLimit) setUploadGalleryDisplayLimit(data.displayLimit);
-    } catch {
-      // silent
-    } finally {
-      setDeletingUploadPath(null);
+    const res = await fetch(`/api/users/me/uploads?path=${encodeURIComponent(objectPath)}`, {
+      method: "DELETE",
+      credentials: "include",
+    });
+    if (!res.ok) throw new Error("Delete failed");
+    if (uploadObjectPath === objectPath) {
+      setUploadObjectPath(null);
+      setUploadDisplayUrl(null);
+      setUploadIsLowRes(false);
+      setUploadWidth(null);
+      setUploadHeight(null);
     }
+    const data = await fetch("/api/users/me/uploads", { credentials: "include" }).then(r => r.json()) as {
+      uploads?: UploadEntry[];
+      uploadCount?: number;
+      maxUploads?: number;
+      displayLimit?: number;
+    };
+    setUploadGallery(data.uploads ?? []);
+    setUploadGalleryCount(data.uploadCount ?? 0);
+    setUploadGalleryMax(data.maxUploads ?? 1000);
+    if (data.displayLimit) setUploadGalleryDisplayLimit(data.displayLimit);
   }, [uploadObjectPath]);
 
   // ── Generate ─────────────────────────────────────────────────────
@@ -1606,43 +1578,16 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
                         </p>
                         <div className="grid gap-1.5" style={{ gridTemplateColumns: `repeat(auto-fill, minmax(${thumbPx}px, 1fr))` }}>
                           {prefetchedPhotos.map((photo, i) => (
-                            <button
+                            <ImageCard
                               key={photo.id}
-                              onClick={() => selectPrefetchedPhoto(photo, i)}
-                              className={`relative aspect-video border-2 overflow-hidden transition-all ${
-                                prefetchedIndex === i
-                                  ? "border-primary ring-2 ring-primary/30 scale-105"
-                                  : "border-border hover:border-primary/50"
-                              }`}
-                            >
-                              <img
-                                src={photo.src?.small ?? photo.url}
-                                alt={`Option ${i + 1}`}
-                                className="w-full h-full object-cover"
-                                loading="lazy"
-                                onError={() => {
-                                  setPrefetchedPhotos(prev => {
-                                    const next = prev.filter((_, idx) => idx !== i);
-                                    if (prefetchedIndex === i) {
-                                      const adjacent = next[Math.min(i, next.length - 1)];
-                                      if (adjacent) {
-                                        const newIdx = Math.min(i, next.length - 1);
-                                        setPrefetchedIndex(newIdx);
-                                        setStockPhoto({ id: adjacent.id, photographerName: adjacent.photographer ?? "Pexels", photographerUrl: adjacent.photographer_url ?? "https://www.pexels.com", photoUrl: adjacent.src?.large ?? adjacent.url });
-                                      } else {
-                                        setPrefetchedIndex(null);
-                                      }
-                                    } else if (prefetchedIndex !== null && prefetchedIndex > i) {
-                                      setPrefetchedIndex(prefetchedIndex - 1);
-                                    }
-                                    return next;
-                                  });
-                                }}
-                              />
-                              {prefetchedIndex === i && (
-                                <span className="absolute top-0.5 right-0.5 w-2 h-2 bg-primary rounded-full border border-white" />
-                              )}
-                            </button>
+                              src={photo.src?.small ?? photo.url}
+                              alt={`Option ${i + 1}`}
+                              aspectRatio="aspect-video"
+                              selected={prefetchedIndex === i}
+                              onSelect={() => selectPrefetchedPhoto(photo, i)}
+                              compact
+                              actions={[]}
+                            />
                           ))}
                         </div>
                       </div>
@@ -1758,56 +1703,20 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
                                 )}
                               </p>
                               <div className="grid gap-1.5" style={{ gridTemplateColumns: `repeat(auto-fill, minmax(${thumbPx}px, 1fr))` }}>
-                                {aiImageSlots.map((slot, displayIdx) => {
-                                  const isDeleting = deletingAiImageOrigIdx === slot.origIdx;
-                                  const isConfirming = confirmingAiImageOrigIdx === slot.origIdx;
-                                  return (
-                                    <div key={slot.path} className="relative">
-                                      <div
-                                        className={`aspect-video border-2 overflow-hidden transition-all cursor-pointer ${
-                                          selectedAiIndex === slot.origIdx && !isConfirming
-                                            ? "border-primary ring-2 ring-primary/30 scale-105"
-                                            : "border-border hover:border-primary/50"
-                                        } ${isDeleting ? "opacity-40" : ""}`}
-                                        onClick={() => {
-                                          if (isConfirming) { setConfirmingAiImageOrigIdx(null); return; }
-                                          setSelectedAiIndex(slot.origIdx);
-                                        }}
-                                      >
-                                        <img
-                                          src={getAiThumbnailUrl(slot.origIdx)}
-                                          alt={`AI option ${displayIdx + 1}`}
-                                          className="w-full h-full object-cover"
-                                          loading="lazy"
-                                          crossOrigin="anonymous"
-                                          onError={e => { (e.target as HTMLImageElement).style.display = "none"; }}
-                                        />
-                                        {selectedAiIndex === slot.origIdx && !isConfirming && (
-                                          <span className="absolute top-0.5 right-0.5 w-2 h-2 bg-primary rounded-full border border-white" />
-                                        )}
-                                      </div>
-                                      {!isConfirming && (
-                                        <button
-                                          onClick={(e) => { e.stopPropagation(); setConfirmingAiImageOrigIdx(slot.origIdx); }}
-                                          disabled={isDeleting}
-                                          className="absolute top-0.5 right-0.5 z-10 w-5 h-5 rounded-full bg-black/60 flex items-center justify-center text-white hover:bg-red-600 transition-colors disabled:cursor-not-allowed"
-                                          title="Delete this AI background"
-                                        >
-                                          {isDeleting ? <Loader2 className="w-2.5 h-2.5 animate-spin" /> : <X className="w-2.5 h-2.5" />}
-                                        </button>
-                                      )}
-                                      {isConfirming && (
-                                        <div className="absolute inset-0 z-20 bg-black/75 flex flex-col items-center justify-center gap-1.5 p-1">
-                                          <span className="text-[9px] font-bold text-white uppercase tracking-wide">Delete?</span>
-                                          <div className="flex gap-1">
-                                            <button onClick={(e) => { e.stopPropagation(); setConfirmingAiImageOrigIdx(null); }} className="px-2 py-0.5 text-[9px] font-semibold rounded bg-white/20 text-white hover:bg-white/30 transition-colors">Cancel</button>
-                                            <button onClick={(e) => { e.stopPropagation(); setConfirmingAiImageOrigIdx(null); void handleDeleteAiImage(slot.origIdx); }} className="px-2 py-0.5 text-[9px] font-semibold rounded bg-red-600 text-white hover:bg-red-500 transition-colors">Delete</button>
-                                          </div>
-                                        </div>
-                                      )}
-                                    </div>
-                                  );
-                                })}
+                                {aiImageSlots.map((slot, displayIdx) => (
+                                  <ImageCard
+                                    key={slot.path}
+                                    src={getAiThumbnailUrl(slot.origIdx)}
+                                    alt={`AI option ${displayIdx + 1}`}
+                                    aspectRatio="aspect-video"
+                                    selected={selectedAiIndex === slot.origIdx}
+                                    onSelect={() => setSelectedAiIndex(slot.origIdx)}
+                                    compact
+                                    actions={["delete", "openFull"]}
+                                    onDelete={() => handleDeleteAiImage(slot.origIdx)}
+                                    deleteConfirmMessage="Remove this AI background? This cannot be undone."
+                                  />
+                                ))}
                               </div>
                             </>
                           ) : (
@@ -1834,26 +1743,17 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
                                 </p>
                                 <div className="grid gap-1.5" style={{ gridTemplateColumns: `repeat(auto-fill, minmax(${thumbPx}px, 1fr))` }}>
                                   {myRefImages.map((img, displayIdx) => (
-                                    <div key={img.storagePath} className="relative">
-                                      <div
-                                        className={`aspect-video border-2 overflow-hidden transition-all cursor-pointer ${
-                                          selectedRefGenPath === img.storagePath
-                                            ? "border-primary ring-2 ring-primary/30 scale-105"
-                                            : "border-border hover:border-primary/50"
-                                        }`}
-                                        onClick={() => setSelectedRefGenPath(img.storagePath)}
-                                      >
-                                        <AuthenticatedImage
-                                          src={getRefAiThumbnailUrl(img.storagePath)}
-                                          alt={`Reference AI option ${displayIdx + 1}`}
-                                          className="w-full h-full object-cover"
-                                          loading="lazy"
-                                        />
-                                        {selectedRefGenPath === img.storagePath && (
-                                          <span className="absolute top-0.5 right-0.5 w-2 h-2 bg-primary rounded-full border border-white" />
-                                        )}
-                                      </div>
-                                    </div>
+                                    <ImageCard
+                                      key={img.storagePath}
+                                      src={getRefAiThumbnailUrl(img.storagePath)}
+                                      alt={`Reference AI option ${displayIdx + 1}`}
+                                      aspectRatio="aspect-video"
+                                      isAuthProtected
+                                      selected={selectedRefGenPath === img.storagePath}
+                                      onSelect={() => setSelectedRefGenPath(img.storagePath)}
+                                      compact
+                                      actions={["openFull"]}
+                                    />
                                   ))}
                                 </div>
                               </>
@@ -1910,28 +1810,16 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
                                 {refUploads.map(entry => {
                                   const isSelected = selectedRefUpload?.objectPath === entry.objectPath;
                                   return (
-                                    <button
+                                    <ImageCard
                                       key={entry.objectPath}
-                                      onClick={() => setSelectedRefUpload(isSelected ? null : entry)}
-                                      className={`relative aspect-video overflow-hidden border-2 transition-all ${
-                                        isSelected
-                                          ? "border-violet-500 ring-2 ring-violet-500/30"
-                                          : "border-transparent hover:border-violet-400/50"
-                                      }`}
-                                      title={`${entry.width}×${entry.height}px`}
-                                    >
-                                      <img
-                                        src={`/api/storage${entry.objectPath}`}
-                                        alt="Upload"
-                                        className="w-full h-full object-cover"
-                                        loading="lazy"
-                                      />
-                                      {isSelected && (
-                                        <div className="absolute inset-0 bg-violet-500/20 flex items-center justify-center">
-                                          <CheckCircle className="w-3.5 h-3.5 text-violet-400 drop-shadow" />
-                                        </div>
-                                      )}
-                                    </button>
+                                      src={`/api/storage${entry.objectPath}`}
+                                      alt={`${entry.width}×${entry.height}px`}
+                                      aspectRatio="aspect-video"
+                                      selected={isSelected}
+                                      onSelect={() => setSelectedRefUpload(isSelected ? null : entry)}
+                                      compact
+                                      actions={[]}
+                                    />
                                   );
                                 })}
                                 {refUploads.length === 0 && !isUploadingRefPhoto && (
@@ -2199,79 +2087,24 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
                             <div className="grid gap-1.5 max-h-52 overflow-y-auto pr-0.5" style={{ gridTemplateColumns: `repeat(auto-fill, minmax(${thumbPx}px, 1fr))` }}>
                               {uploadGallery.map((entry) => {
                                 const isSelected = uploadObjectPath === entry.objectPath && !uploadFile;
-                                const isDeleting = deletingUploadPath === entry.objectPath;
-                                const isConfirming = confirmingDeletePath === entry.objectPath;
                                 return (
-                                  <div key={entry.objectPath} className="relative">
-                                    <button
-                                      onClick={() => {
-                                        if (isDeleting) return;
-                                        if (isConfirming) { setConfirmingDeletePath(null); return; }
-                                        selectExistingUpload(entry);
-                                      }}
-                                      disabled={isDeleting}
-                                      className={`relative w-full aspect-video overflow-hidden border-2 transition-all ${
-                                        isSelected && !isConfirming
-                                          ? "border-primary"
-                                          : "border-transparent hover:border-primary/50"
-                                      } ${isDeleting ? "opacity-40" : ""}`}
-                                      title={`${entry.width}×${entry.height}px${entry.isLowRes ? " · Low res" : ""}`}
-                                    >
-                                      <img
-                                        src={`/api/storage${entry.objectPath}`}
-                                        alt="Uploaded image"
-                                        className="w-full h-full object-cover"
-                                        loading="lazy"
-                                      />
-                                      {isSelected && !isConfirming && (
-                                        <div className="absolute inset-0 bg-primary/20 flex items-center justify-center">
-                                          <CheckCircle className="w-4 h-4 text-primary drop-shadow" />
-                                        </div>
-                                      )}
-                                      {entry.isLowRes && !isConfirming && (
-                                        <div className="absolute bottom-0 left-0 right-0 bg-amber-400/80 text-[8px] font-bold text-black text-center leading-tight py-0.5">
-                                          LOW RES
-                                        </div>
-                                      )}
-                                    </button>
-
-                                    {/* Delete button — always visible */}
-                                    {!isConfirming && (
-                                      <button
-                                        onClick={(e) => { e.stopPropagation(); setConfirmingDeletePath(entry.objectPath); }}
-                                        disabled={isDeleting}
-                                        className="absolute top-0.5 right-0.5 z-10 w-5 h-5 rounded-full bg-black/60 flex items-center justify-center text-white hover:bg-red-600 transition-colors disabled:cursor-not-allowed"
-                                        title="Delete image"
-                                        aria-label="Delete image"
-                                      >
-                                        {isDeleting
-                                          ? <Loader2 className="w-2.5 h-2.5 animate-spin" />
-                                          : <X className="w-2.5 h-2.5" />
-                                        }
-                                      </button>
-                                    )}
-
-                                    {/* Inline confirmation overlay */}
-                                    {isConfirming && (
-                                      <div className="absolute inset-0 z-20 bg-black/75 flex flex-col items-center justify-center gap-1.5 p-1">
-                                        <span className="text-[9px] font-bold text-white uppercase tracking-wide">Delete?</span>
-                                        <div className="flex gap-1">
-                                          <button
-                                            onClick={(e) => { e.stopPropagation(); setConfirmingDeletePath(null); }}
-                                            className="px-2 py-0.5 text-[9px] font-semibold rounded bg-white/20 text-white hover:bg-white/30 transition-colors"
-                                          >
-                                            Cancel
-                                          </button>
-                                          <button
-                                            onClick={(e) => { e.stopPropagation(); setConfirmingDeletePath(null); void deleteUpload(entry.objectPath); }}
-                                            className="px-2 py-0.5 text-[9px] font-semibold rounded bg-red-600 text-white hover:bg-red-500 transition-colors"
-                                          >
-                                            Delete
-                                          </button>
-                                        </div>
+                                  <ImageCard
+                                    key={entry.objectPath}
+                                    src={`/api/storage${entry.objectPath}`}
+                                    alt={`${entry.width}×${entry.height}px${entry.isLowRes ? " · Low res" : ""}`}
+                                    aspectRatio="aspect-video"
+                                    selected={isSelected}
+                                    onSelect={() => selectExistingUpload(entry)}
+                                    compact
+                                    actions={["delete", "openFull"]}
+                                    onDelete={() => deleteUpload(entry.objectPath)}
+                                    deleteConfirmMessage="Remove this upload? This cannot be undone."
+                                    imageOverlay={entry.isLowRes ? (
+                                      <div className="absolute bottom-0 left-0 right-0 bg-amber-400/80 text-[8px] font-bold text-black text-center leading-tight py-0.5">
+                                        LOW RES
                                       </div>
-                                    )}
-                                  </div>
+                                    ) : undefined}
+                                  />
                                 );
                               })}
                             </div>
