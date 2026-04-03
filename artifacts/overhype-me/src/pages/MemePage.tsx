@@ -1,18 +1,44 @@
 import { useRoute, Link } from "wouter";
-import { useGetMemeBySlug, useGetFact, getGetMemeBySlugQueryKey, getGetFactQueryKey } from "@workspace/api-client-react";
+import { useQuery } from "@tanstack/react-query";
+import { useGetFact, getGetFactQueryKey } from "@workspace/api-client-react";
 import { Layout } from "@/components/layout/Layout";
 import { Button } from "@/components/ui/Button";
 import { MerchButtons } from "@/components/MerchButtons";
-import { Share2, AlertCircle, ArrowLeft, Download } from "lucide-react";
+import { Share2, AlertCircle, ArrowLeft, Download, Ban } from "lucide-react";
+
+type MemeData = {
+  id: number;
+  factId: number;
+  templateId: string;
+  imageUrl: string;
+  permalinkSlug: string;
+  isPublic: boolean;
+  factText: string;
+  createdAt: string;
+  createdByName: string | null;
+};
 
 export default function MemePage() {
   const [, params] = useRoute("/meme/:slug");
   const slug = params?.slug ?? "";
 
-  const { data: meme, isLoading, error } = useGetMemeBySlug(slug, {
-    query: { queryKey: getGetMemeBySlugQueryKey(slug), enabled: !!slug }
+  const { data: memeResult, isLoading, error } = useQuery<
+    { meme: MemeData; deleted: false } | { meme: null; deleted: true }
+  >({
+    queryKey: ["meme-page", slug],
+    queryFn: async () => {
+      const res = await fetch(`/api/memes/${slug}`, { credentials: "include" });
+      if (res.status === 410) return { meme: null, deleted: true as const };
+      if (!res.ok) throw new Error("Meme not found");
+      const data = await res.json() as MemeData;
+      return { meme: data, deleted: false as const };
+    },
+    enabled: !!slug,
+    retry: false,
   });
 
+  const meme = memeResult?.meme ?? null;
+  const isDeleted = memeResult?.deleted === true;
   const factId = meme?.factId;
   const { data: fact } = useGetFact(factId ?? 0, {
     query: { queryKey: getGetFactQueryKey(factId ?? 0), enabled: !!factId }
@@ -54,6 +80,23 @@ export default function MemePage() {
       <Layout>
         <div className="flex h-[50vh] items-center justify-center">
           <div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin" />
+        </div>
+      </Layout>
+    );
+  }
+
+  if (isDeleted) {
+    return (
+      <Layout>
+        <div className="max-w-xl mx-auto mt-20 p-8 bg-secondary border-2 border-border text-center">
+          <Ban className="w-16 h-16 text-muted-foreground mx-auto mb-4" />
+          <h2 className="text-3xl font-display uppercase mb-2">Meme Removed</h2>
+          <p className="text-muted-foreground mb-6">This meme has been removed by its creator.</p>
+          <Link href="/">
+            <Button variant="outline" className="gap-2">
+              <ArrowLeft className="w-4 h-4" /> Return to Base
+            </Button>
+          </Link>
         </div>
       </Layout>
     );

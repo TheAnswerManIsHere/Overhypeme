@@ -207,20 +207,18 @@ export class ObjectStorageService {
 
   /**
    * Delete an object from storage by its /objects/... path.
-   * Silently succeeds if the object does not exist.
+   * Silently succeeds if the object does not exist (already gone = success).
+   * Throws if the object exists but cannot be deleted, so callers can abort DB mutations.
    */
   async deleteObject(objectPath: string): Promise<void> {
     let file: File;
     try {
       file = await this.getObjectEntityFile(objectPath);
     } catch {
-      return; // already gone
+      return; // object does not exist — treat as success
     }
-    try {
-      await file.delete();
-    } catch {
-      // best-effort — log but don't throw
-    }
+    // Object exists; attempt deletion and throw on failure so callers can fail fast
+    await file.delete();
   }
 
   async uploadObjectBuffer({
