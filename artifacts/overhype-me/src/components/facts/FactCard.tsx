@@ -1,4 +1,4 @@
-import { Link } from "wouter";
+import { Link, useLocation } from "wouter";
 import { motion } from "framer-motion";
 import { ThumbsUp, ThumbsDown, MessageSquare } from "lucide-react";
 import { FactSummary } from "@workspace/api-client-react";
@@ -10,11 +10,12 @@ import { renderFact } from "@/lib/render-fact";
 
 export function FactCard({ fact, rank, showRank = false }: { fact: FactSummary, rank?: number, showRank?: boolean }) {
   const { rateFact } = useAppMutations();
-  const { isAuthenticated, login } = useAuth();
+  const { isAuthenticated } = useAuth();
+  const [, setLocation] = useLocation();
   const { name, pronouns } = usePersonName();
 
   const handleRate = (type: "up" | "down") => {
-    if (!isAuthenticated) { login(); return; }
+    if (!isAuthenticated) { setLocation(`/login?from=/facts/${fact.id}`); return; }
     const newRating = fact.userRating === type ? "none" : type;
     rateFact.mutate({ factId: fact.id, data: { rating: newRating } });
   };
