@@ -34,7 +34,7 @@ const PRONOUN_PREVIEWS: { label: string; subject: string; object: string; name: 
 ];
 
 export default function SubmitFact() {
-  const { isAuthenticated, user } = useAuth();
+  const { isAuthenticated, isLoading: authLoading, user } = useAuth();
   const [, setLocation] = useLocation();
 
   const isPremium = user?.membershipTier === "premium";
@@ -221,6 +221,16 @@ export default function SubmitFact() {
     const inputTags = value.split(",").map((t) => t.trim().replace(/^#/, "")).filter(Boolean);
     setAcceptedTags(new Set(suggestedTags.filter((t) => inputTags.includes(t))));
   };
+
+  if (authLoading) {
+    return (
+      <Layout>
+        <div className="flex h-[50vh] items-center justify-center">
+          <div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin" />
+        </div>
+      </Layout>
+    );
+  }
 
   if (!isAuthenticated) {
     return (
