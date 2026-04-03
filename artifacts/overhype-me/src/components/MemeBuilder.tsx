@@ -531,6 +531,8 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
   const [selectedAiIndex, setSelectedAiIndex] = useState<number | null>(null);
   const [isGeneratingAi, setIsGeneratingAi] = useState(false);
   const [aiGenerateError, setAiGenerateError] = useState<string | null>(null);
+  const [aiScenePromptsDebug, setAiScenePromptsDebug] = useState<Record<string, string> | null>(null);
+  const [showPromptDebug, setShowPromptDebug] = useState(false);
   const [generationProgress, setGenerationProgress] = useState(0);
   const [generationElapsed, setGenerationElapsed] = useState(0);
   const generationTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -694,6 +696,10 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
                 setAiCacheBuster(Date.now());
                 setTimeout(() => { setIsGeneratingAi(false); setGenerationProgress(0); setGenerationElapsed(0); }, 400);
                 setGenerationProgress(100);
+                fetch(`/api/memes/ai/${factId}/prompts`, { credentials: "include" })
+                  .then(r => r.ok ? r.json() : null)
+                  .then((d: { prompts: Record<string, string> | null } | null) => { if (d?.prompts) setAiScenePromptsDebug(d.prompts); })
+                  .catch(() => {});
                 return;
               }
             }
@@ -745,6 +751,10 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
                 setSelectedAiIndex(0);
                 setAiCacheBuster(Date.now());
                 setTimeout(() => { setIsGeneratingAi(false); setGenerationProgress(0); setGenerationElapsed(0); }, 400);
+                fetch(`/api/memes/ai/${factId}/prompts`, { credentials: "include" })
+                  .then(r => r.ok ? r.json() : null)
+                  .then((d: { prompts: Record<string, string> | null } | null) => { if (d?.prompts) setAiScenePromptsDebug(d.prompts); })
+                  .catch(() => {});
                 return;
               }
             }
@@ -1149,6 +1159,20 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
       .finally(() => setIsLoadingRefGenImages(false));
     return () => { controller.abort(); };
   }, [isPremium, imageMode, aiSubMode, fetchRefGenImages]);
+
+  // Fetch scene prompts for debug panel when in AI mode (premium only)
+  useEffect(() => {
+    if (!isPremium || imageMode !== "ai" || !factId) return;
+    let cancelled = false;
+    fetch(`/api/memes/ai/${factId}/prompts`, { credentials: "include" })
+      .then(r => r.ok ? r.json() : null)
+      .then((data: { prompts: Record<string, string> | null } | null) => {
+        if (cancelled) return;
+        setAiScenePromptsDebug(data?.prompts ?? null);
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [isPremium, imageMode, factId]);
 
   // Upload a new reference photo (inline in AI reference sub-mode picker)
   const handleRefPhotoUpload = useCallback(async (file: File) => {
@@ -1932,6 +1956,75 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
                               : factIsGendered ? "3 images (gendered)" : "1 image (abstract)"}
                           </span>
                         </div>
+
+                        {/* Debug: full prompt preview */}
+                        {(() => {
+                          const styleDef = IMAGE_STYLES.find(s => s.id === selectedStyleId);
+                          const suffix = aiSubMode === "reference"
+                            ? (styleDef?.promptSuffixReference ?? "")
+                            : (styleDef?.promptSuffix ?? "");
+                          const genderKey = aiGender as string;
+                          const sceneBase = aiScenePromptsDebug?.[genderKey] ?? null;
+                          const referenceFrame = " — transform the provided reference photo into a cinematic meme background with dramatic lighting and high contrast. No text or letters.";
+                          const finalPrompt = aiSubMode === "reference"
+                            ? `${sceneBase ?? "(scene prompt will be generated)"}${suffix ? ` ${suffix}` : ""}${referenceFrame}`
+                            : `${sceneBase ?? "(scene prompt will be generated)"}${suffix ? ` ${suffix}` : ""}`;
+                          return (
+                            <div className="mt-1 space-y-1">
+                              <button
+                                type="button"
+                                onClick={() => setShowPromptDebug(v => !v)}
+                                className="text-[10px] text-muted-foreground underline underline-offset-2 hover:text-foreground transition-colors"
+                              >
+                                {showPromptDebug ? "Hide prompt" : "Show prompt"}
+                              </button>
+                              {showPromptDebug && (
+                                <div className="rounded border border-border bg-muted/30 p-2 space-y-2 text-[10px]">
+                                  {sceneBase ? (
+                                    <>
+                                      <div>
+                                        <span className="text-muted-foreground font-semibold uppercase tracking-wide">Scene prompt ({genderKey})</span>
+                                        <p className="mt-0.5 text-foreground/80 font-mono leading-relaxed">{sceneBase}</p>
+                                      </div>
+                                      {suffix && (
+                                        <div>
+                                          <span className="text-muted-foreground font-semibold uppercase tracking-wide">Style suffix ({styleDef?.label})</span>
+                                          <p className="mt-0.5 text-foreground/80 font-mono leading-relaxed">{suffix}</p>
+                                        </div>
+                                      )}
+                                      {aiSubMode === "reference" && (
+                                        <div>
+                                          <span className="text-muted-foreground font-semibold uppercase tracking-wide">Reference frame</span>
+                                          <p className="mt-0.5 text-foreground/80 font-mono leading-relaxed">{referenceFrame.trim()}</p>
+                                        </div>
+                                      )}
+                                      <div className="border-t border-border pt-2">
+                                        <span className="text-violet-400 font-semibold uppercase tracking-wide">Full prompt sent to AI</span>
+                                        <p className="mt-0.5 text-foreground font-mono leading-relaxed break-words">{finalPrompt}</p>
+                                      </div>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <p className="text-muted-foreground italic">No scene prompt stored yet — it will be generated by GPT on first run, then cached.</p>
+                                      {suffix && (
+                                        <div>
+                                          <span className="text-muted-foreground font-semibold uppercase tracking-wide">Style suffix that will be appended ({styleDef?.label})</span>
+                                          <p className="mt-0.5 text-foreground/80 font-mono leading-relaxed">{suffix}</p>
+                                        </div>
+                                      )}
+                                      {aiSubMode === "reference" && (
+                                        <div>
+                                          <span className="text-muted-foreground font-semibold uppercase tracking-wide">Reference frame that will be appended</span>
+                                          <p className="mt-0.5 text-foreground/80 font-mono leading-relaxed">{referenceFrame.trim()}</p>
+                                        </div>
+                                      )}
+                                    </>
+                                  )}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })()}
 
                         {aiGenerateError && (
                           <p className="text-[10px] text-destructive">{aiGenerateError}</p>
