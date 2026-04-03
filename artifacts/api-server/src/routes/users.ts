@@ -10,6 +10,7 @@ import { getSessionId, getSession, updateSession } from "../lib/auth";
 import crypto from "crypto";
 import { sendEmail, buildEmailChangeVerificationEmail } from "../lib/email";
 import { ObjectStorageService } from "../lib/objectStorage";
+import { getConfigInt } from "../lib/adminConfig";
 
 const router: IRouter = Router();
 
@@ -258,13 +259,21 @@ router.get("/users/me/uploads", async (req: Request, res: Response) => {
     return;
   }
 
-  const rows = await db.execute(sql`
-    SELECT object_path, width, height, is_low_res, file_size_bytes, created_at
-    FROM upload_image_metadata
-    WHERE user_id = ${req.user.id}
-    ORDER BY created_at DESC
-    LIMIT 50
-  `);
+  const [rows, countResult, maxUploads] = await Promise.all([
+    db.execute(sql`
+      SELECT object_path, width, height, is_low_res, file_size_bytes, created_at
+      FROM upload_image_metadata
+      WHERE user_id = ${req.user.id}
+      ORDER BY created_at DESC
+      LIMIT 50
+    `),
+    db.execute(sql`
+      SELECT COUNT(*)::integer AS total
+      FROM upload_image_metadata
+      WHERE user_id = ${req.user.id}
+    `),
+    getConfigInt("user_max_images", 1000),
+  ]);
 
   const uploads = (rows.rows as Array<{
     object_path: string;
@@ -282,7 +291,9 @@ router.get("/users/me/uploads", async (req: Request, res: Response) => {
     createdAt: r.created_at,
   }));
 
-  res.json({ uploads });
+  const uploadCount = (countResult.rows[0] as { total: number } | undefined)?.total ?? 0;
+
+  res.json({ uploads, uploadCount, maxUploads });
 });
 
 // GET /users/me/memes — list all non-deleted memes created by the current user
