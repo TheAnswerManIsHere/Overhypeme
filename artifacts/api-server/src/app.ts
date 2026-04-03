@@ -69,6 +69,7 @@ app.use([
   "/api/storage/upload-avatar",
   "/api/storage/upload-meme",
   "/api/memes/stock-photo",
+  "/api/videos/generate",
 ], noStore);
 
 app.use("/api", router);

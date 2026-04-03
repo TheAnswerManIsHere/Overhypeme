@@ -1,10 +1,11 @@
+import { useState } from "react";
 import { useRoute, Link } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { useGetFact, getGetFactQueryKey } from "@workspace/api-client-react";
 import { Layout } from "@/components/layout/Layout";
 import { Button } from "@/components/ui/Button";
 import { MerchButtons } from "@/components/MerchButtons";
-import { Share2, AlertCircle, ArrowLeft, Download, Ban } from "lucide-react";
+import { Share2, AlertCircle, ArrowLeft, Download, Ban, Video, Loader2, X } from "lucide-react";
 
 type MemeData = {
   id: number;
@@ -18,9 +19,16 @@ type MemeData = {
   createdByName: string | null;
 };
 
+type VideoState =
+  | { status: "idle" }
+  | { status: "generating" }
+  | { status: "done"; url: string }
+  | { status: "error"; message: string };
+
 export default function MemePage() {
   const [, params] = useRoute("/meme/:slug");
   const slug = params?.slug ?? "";
+  const [videoState, setVideoState] = useState<VideoState>({ status: "idle" });
 
   const { data: memeResult, isLoading, error } = useQuery<
     { meme: MemeData; deleted: false } | { meme: null; deleted: true }
@@ -73,6 +81,27 @@ export default function MemePage() {
     const text = encodeURIComponent(`"${(meme?.factText ?? "").slice(0, 200)}" — Overhype.me`);
     const url = encodeURIComponent(window.location.href);
     window.open(`https://x.com/intent/tweet?text=${text}&url=${url}`, "_blank", "noopener");
+  };
+
+  const handleGenerateVideo = async () => {
+    if (!meme?.imageUrl || videoState.status === "generating") return;
+    setVideoState({ status: "generating" });
+    try {
+      const res = await fetch("/api/videos/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ imageUrl: meme.imageUrl, factId: meme.factId }),
+      });
+      const body = await res.json() as { videoUrl?: string; error?: string };
+      if (!res.ok || !body.videoUrl) {
+        setVideoState({ status: "error", message: body.error ?? "Video generation failed. Please try again." });
+        return;
+      }
+      setVideoState({ status: "done", url: body.videoUrl });
+    } catch {
+      setVideoState({ status: "error", message: "Network error. Please check your connection and try again." });
+    }
   };
 
   if (isLoading) {
@@ -167,6 +196,63 @@ export default function MemePage() {
             </Button>
             <Button onClick={handleDownload} variant="secondary" className="gap-2">
               <Download className="w-4 h-4" /> Download PNG
+            </Button>
+          </div>
+
+          {/* ── Generate Video ── */}
+          <div className="border-t border-border/50 pt-4 space-y-3">
+            {videoState.status === "generating" && (
+              <div className="flex items-center gap-3 px-4 py-3 bg-primary/10 border border-primary/30 rounded-sm text-sm text-primary">
+                <Loader2 className="w-4 h-4 animate-spin shrink-0" />
+                <span>Generating your video… this takes 30–120 seconds</span>
+              </div>
+            )}
+
+            {videoState.status === "error" && (
+              <div className="flex items-start gap-3 px-4 py-3 bg-destructive/10 border border-destructive/30 rounded-sm text-sm text-destructive">
+                <X className="w-4 h-4 shrink-0 mt-0.5" />
+                <div className="flex-1">
+                  <p>{videoState.message}</p>
+                  <button
+                    onClick={() => setVideoState({ status: "idle" })}
+                    className="mt-1 text-xs underline hover:no-underline"
+                  >
+                    Dismiss
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {videoState.status === "done" && (
+              <div className="rounded-sm overflow-hidden border border-border">
+                <video
+                  src={videoState.url}
+                  controls
+                  autoPlay
+                  className="w-full"
+                />
+                <div className="flex justify-end px-2 py-1 bg-muted/30">
+                  <button
+                    onClick={() => setVideoState({ status: "idle" })}
+                    className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1 transition-colors"
+                  >
+                    <X className="w-3 h-3" /> Dismiss
+                  </button>
+                </div>
+              </div>
+            )}
+
+            <Button
+              onClick={handleGenerateVideo}
+              disabled={videoState.status === "generating"}
+              variant="secondary"
+              className="gap-2"
+            >
+              {videoState.status === "generating" ? (
+                <><Loader2 className="w-4 h-4 animate-spin" />Generating Video…</>
+              ) : (
+                <><Video className="w-4 h-4" />{videoState.status === "done" ? "Regenerate Video" : "Generate Video"}</>
+              )}
             </Button>
           </div>
 
