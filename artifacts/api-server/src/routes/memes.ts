@@ -13,6 +13,7 @@ import {
   type BackgroundSource,
 } from "../lib/memeGenerator";
 import { ObjectStorageService } from "../lib/objectStorage";
+import { getConfigInt } from "../lib/adminConfig";
 import { getRandomStockPhoto, getPhotoById } from "../lib/pexelsClient";
 import { renderPersonalized } from "../lib/renderCanonical";
 import { compositeAiMeme } from "../lib/aiMemeCompositor";
@@ -403,12 +404,13 @@ router.get("/facts/:factId/memes", async (req: Request, res: Response) => {
     ? and(factFilter, eq(memesTable.createdById, req.user!.id))
     : and(factFilter, eq(memesTable.isPublic, true));
 
+  const maxMemes = await getConfigInt("max_memes_per_fact", 40);
   const memes = await db
     .select()
     .from(memesTable)
     .where(visibilityFilter)
     .orderBy(desc(memesTable.createdAt))
-    .limit(40);
+    .limit(maxMemes);
 
   res.json({
     memes: memes.map(m => ({
