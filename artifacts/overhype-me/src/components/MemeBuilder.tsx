@@ -11,6 +11,7 @@ import { Link } from "wouter";
 import { usePersonName } from "@/hooks/use-person-name";
 import { useListMemeTemplates } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
+import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@workspace/replit-auth-web";
 import { Button } from "@/components/ui/Button";
 import {
@@ -513,6 +514,8 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
     setLocalAiMemeImages(aiMemeImages ?? null);
   }, [aiMemeImages]);
 
+  const { toast } = useToast();
+
   // The AI image slots for the current gender variant — newest-first, up to the admin-configured limit shown in gallery.
   // Each slot tracks path + original array index so the API imageIndex param remains correct
   // even for legacy data with empty-string placeholders at some positions.
@@ -529,12 +532,12 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
   // Whether any AI images exist for the current gender (used for conditional UI)
   const aiImagePaths = useMemo(() => aiImageSlots.map(s => s.path), [aiImageSlots]);
 
-  // Auto-select first AI image when entering AI mode or when images load
+  // Auto-select first valid AI image when entering AI mode, images load, or selection is cleared
   useEffect(() => {
-    if (imageMode === "ai" && aiImagePaths.length > 0 && selectedAiIndex === null) {
-      setSelectedAiIndex(0);
+    if (imageMode === "ai" && aiImageSlots.length > 0 && selectedAiIndex === null) {
+      setSelectedAiIndex(aiImageSlots[0].origIdx);
     }
-  }, [imageMode, aiImagePaths, selectedAiIndex]);
+  }, [imageMode, aiImageSlots, selectedAiIndex]);
 
   // Thumbnail URL for AI images — serve via the meme endpoint with raw=true
   // This bypasses ACL checks (works for all existing/new images regardless of ACL metadata)
@@ -651,7 +654,11 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
         setSelectedAiIndex(null);
       }
     } catch (e) {
-      alert(e instanceof Error ? e.message : "Failed to delete image");
+      toast({
+        variant: "destructive",
+        title: "Delete failed",
+        description: e instanceof Error ? e.message : "Failed to delete image",
+      });
     } finally {
       setDeletingAiImageOrigIdx(null);
     }

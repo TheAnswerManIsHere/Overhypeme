@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@workspace/replit-auth-web";
 import { useGetMyProfile, getGetMyProfileQueryKey, useUpdateMyProfile } from "@workspace/api-client-react";
 import { Layout } from "@/components/layout/Layout";
@@ -15,6 +16,7 @@ const BASE_URL = import.meta.env.BASE_URL ?? "/";
 export default function Profile() {
   const [, setLocation] = useLocation();
   const { isAuthenticated, login, logout } = useAuth();
+  const { toast } = useToast();
   const queryClient = useQueryClient();
   const { data: profile, isLoading } = useGetMyProfile({
     query: { queryKey: getGetMyProfileQueryKey(), enabled: isAuthenticated, retry: false }
@@ -116,7 +118,11 @@ export default function Profile() {
       if (!res.ok) throw new Error("Failed to delete meme");
       void queryClient.invalidateQueries({ queryKey: ["profile-my-memes"] });
     } catch (e) {
-      alert(e instanceof Error ? e.message : "Failed to delete meme");
+      toast({
+        variant: "destructive",
+        title: "Delete failed",
+        description: e instanceof Error ? e.message : "Failed to delete meme",
+      });
     } finally {
       setDeletingMemeSlug(null);
     }
@@ -138,7 +144,11 @@ export default function Profile() {
       }
       void queryClient.invalidateQueries({ queryKey: ["my-uploads"] });
     } catch (e) {
-      alert(e instanceof Error ? e.message : "Failed to delete image");
+      toast({
+        variant: "destructive",
+        title: "Delete failed",
+        description: e instanceof Error ? e.message : "Failed to delete image",
+      });
     } finally {
       setDeletingUploadPath(null);
     }
