@@ -327,7 +327,11 @@ export function ImageCard({
     finally { setDeleting(false); setConfirmingDelete(false); }
   }, [onDelete, toast]);
 
-  const showHoverBar = !isMobile && !compact && isHovered && !confirmingDelete && !menuOpen;
+  // compact thumbnails: action bar is always visible
+  // non-compact: only appears on desktop hover
+  const showActionBar = compact
+    ? hasActions && !confirmingDelete
+    : !isMobile && isHovered && !confirmingDelete && !menuOpen;
 
   const visibleActions = actions.filter(a => {
     if (a === "delete" && !onDelete) return false;
@@ -387,39 +391,48 @@ export function ImageCard({
     >
       {clickableArea}
 
-      {/* Kebab button — always visible, top-right */}
-      {hasActions && !confirmingDelete && (
+      {/* Kebab button — top-right, non-compact only */}
+      {!compact && hasActions && !confirmingDelete && (
         <button
           ref={kebabRef}
           aria-label="Image actions"
           aria-haspopup="true"
           aria-expanded={menuOpen}
           onClick={e => { e.preventDefault(); e.stopPropagation(); setMenuOpen(o => !o); }}
-          className={cn(
-            "absolute top-1 right-1 z-20 rounded-full flex items-center justify-center text-white transition-opacity",
-            compact ? "w-5 h-5" : "top-1.5 right-1.5 w-8 h-8"
-          )}
+          className="absolute top-1.5 right-1.5 z-20 w-8 h-8 rounded-full flex items-center justify-center text-white transition-opacity"
           style={{ background: "rgba(0,0,0,0.55)", backdropFilter: "blur(4px)" }}
         >
-          <MoreVertical className={compact ? "w-3 h-3 shrink-0" : "w-4 h-4 shrink-0"} />
+          <MoreVertical className="w-4 h-4 shrink-0" />
         </button>
       )}
 
-      {/* Desktop hover action bar — bottom edge (not shown in compact mode) */}
-      {showHoverBar && hasActions && (
+      {/* Action bar — bottom edge
+           compact: always visible, small corner icons
+           non-compact: desktop hover only, full-width gradient */}
+      {showActionBar && (
         <div
-          className="absolute bottom-0 left-0 right-0 z-10 flex items-center justify-end gap-1 px-2 py-1.5 pointer-events-none"
-          style={{ background: "linear-gradient(transparent, rgba(0,0,0,0.65))" }}
+          className={cn(
+            "absolute bottom-0 z-10 flex items-center justify-end pointer-events-none",
+            compact
+              ? "right-0 gap-0.5 px-1 py-1"
+              : "left-0 right-0 gap-1 px-2 py-1.5"
+          )}
+          style={compact ? undefined : { background: "linear-gradient(transparent, rgba(0,0,0,0.65))" }}
         >
           {visibleActions.includes("openFull") && !href && (
             <button
               aria-label="Open full resolution"
               tabIndex={0}
               onClick={e => { e.preventDefault(); e.stopPropagation(); openLightbox(); }}
-              className="pointer-events-auto p-1.5 rounded-full bg-white/10 hover:bg-white/25 text-white transition-colors"
+              className={cn(
+                "pointer-events-auto rounded-full text-white transition-colors",
+                compact
+                  ? "p-1 bg-black/55 hover:bg-black/75"
+                  : "p-1.5 bg-white/10 hover:bg-white/25"
+              )}
               title="Open full resolution"
             >
-              <Maximize2 className="w-3.5 h-3.5" />
+              <Maximize2 className={compact ? "w-3 h-3" : "w-3.5 h-3.5"} />
             </button>
           )}
           {visibleActions.includes("copyLink") && permalink && (
@@ -427,10 +440,15 @@ export function ImageCard({
               aria-label="Copy link"
               tabIndex={0}
               onClick={e => { e.preventDefault(); e.stopPropagation(); void handleCopy(); }}
-              className="pointer-events-auto p-1.5 rounded-full bg-white/10 hover:bg-white/25 text-white transition-colors"
+              className={cn(
+                "pointer-events-auto rounded-full text-white transition-colors",
+                compact
+                  ? "p-1 bg-black/55 hover:bg-black/75"
+                  : "p-1.5 bg-white/10 hover:bg-white/25"
+              )}
               title={copied ? "Copied!" : "Copy link"}
             >
-              {copied ? <CheckCircle2 className="w-3.5 h-3.5 text-green-400" /> : <Link2 className="w-3.5 h-3.5" />}
+              {copied ? <CheckCircle2 className={compact ? "w-3 h-3 text-green-400" : "w-3.5 h-3.5 text-green-400"} /> : <Link2 className={compact ? "w-3 h-3" : "w-3.5 h-3.5"} />}
             </button>
           )}
           {visibleActions.includes("delete") && onDelete && (
@@ -438,10 +456,15 @@ export function ImageCard({
               aria-label="Delete"
               tabIndex={0}
               onClick={e => { e.preventDefault(); e.stopPropagation(); handleDeleteRequest(); }}
-              className="pointer-events-auto p-1.5 rounded-full bg-white/10 hover:bg-red-600/80 text-white transition-colors"
+              className={cn(
+                "pointer-events-auto rounded-full text-white transition-colors",
+                compact
+                  ? "p-1 bg-black/55 hover:bg-red-600"
+                  : "p-1.5 bg-white/10 hover:bg-red-600/80"
+              )}
               title="Delete"
             >
-              <Trash2 className="w-3.5 h-3.5" />
+              <Trash2 className={compact ? "w-3 h-3" : "w-3.5 h-3.5"} />
             </button>
           )}
         </div>
