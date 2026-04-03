@@ -112,7 +112,7 @@ function EntryCard({ entry }: { entry: ActivityEntry }) {
 }
 
 export default function ActivityFeed() {
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, isLoading: authLoading } = useAuth();
   const [, setLocation] = useLocation();
   const [data, setData] = useState<FeedResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -136,6 +136,16 @@ export default function ActivityFeed() {
   useEffect(() => {
     if (isAuthenticated) void load(page);
   }, [isAuthenticated, page]);
+
+  if (authLoading) {
+    return (
+      <Layout>
+        <div className="flex h-[50vh] items-center justify-center">
+          <div className="w-10 h-10 border-4 border-primary border-t-transparent rounded-full animate-spin" />
+        </div>
+      </Layout>
+    );
+  }
 
   if (!isAuthenticated) {
     return (
