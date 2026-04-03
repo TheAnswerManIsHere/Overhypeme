@@ -1580,13 +1580,13 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
                           {prefetchedPhotos.map((photo, i) => (
                             <ImageCard
                               key={photo.id}
-                              src={photo.src?.small ?? photo.url}
+                              src={photo.src?.large ?? photo.src?.small ?? photo.url}
                               alt={`Option ${i + 1}`}
                               aspectRatio="aspect-video"
                               selected={prefetchedIndex === i}
                               onSelect={() => selectPrefetchedPhoto(photo, i)}
                               compact
-                              actions={[]}
+                              actions={["openFull"]}
                             />
                           ))}
                         </div>
@@ -1819,7 +1819,7 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
                                       selected={isSelected}
                                       onSelect={() => setSelectedRefUpload(isSelected ? null : entry)}
                                       compact
-                                      actions={[]}
+                                      actions={["openFull"]}
                                     />
                                   );
                                 })}
