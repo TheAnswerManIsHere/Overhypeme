@@ -173,7 +173,7 @@ export default function FactDetail() {
   const isMemeRoute = params?.sub === "meme";
   const isVideoRoute = params?.sub === "video";
   const [, setLocation] = useLocation();
-  const { isAuthenticated, role } = useAuth();
+  const { isAuthenticated, role, user } = useAuth();
   const isPremium = role === "premium" || role === "admin";
   const { rateFact, addComment } = useAppMutations();
 
