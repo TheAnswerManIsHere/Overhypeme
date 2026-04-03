@@ -28,6 +28,7 @@ export default function Profile() {
   const [deletingMemeSlug, setDeletingMemeSlug] = useState<string | null>(null);
   const [copiedPath, setCopiedPath] = useState<string | null>(null);
   const [deletingUploadPath, setDeletingUploadPath] = useState<string | null>(null);
+  const [confirmingUploadPath, setConfirmingUploadPath] = useState<string | null>(null);
   const [checkoutBanner, setCheckoutBanner] = useState<"success" | "cancel" | null>(null);
   const [emailVerifiedBanner, setEmailVerifiedBanner] = useState(false);
 
@@ -682,34 +683,67 @@ export default function Profile() {
                           className="w-full h-full object-cover"
                           loading="lazy"
                         />
-                        <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center gap-2 p-2">
+
+                        {/* Hover overlay — copy/view actions (desktop) */}
+                        {confirmingUploadPath !== upload.objectPath && (
+                          <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center gap-2 p-2">
+                            <button
+                              onClick={() => copyImageLink(upload.objectPath)}
+                              className="flex items-center gap-1.5 bg-primary text-primary-foreground text-xs font-bold px-3 py-1.5 rounded-sm hover:bg-primary/80 transition-colors w-full justify-center"
+                            >
+                              {isCopied ? <><CheckCircle className="w-3.5 h-3.5" /> Copied!</> : <><Copy className="w-3.5 h-3.5" /> Copy Link</>}
+                            </button>
+                            <a
+                              href={imgUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="flex items-center gap-1.5 bg-secondary text-foreground text-xs font-bold px-3 py-1.5 rounded-sm hover:bg-secondary/80 transition-colors w-full justify-center"
+                            >
+                              <ExternalLink className="w-3.5 h-3.5" /> View Full
+                            </a>
+                          </div>
+                        )}
+
+                        {/* Always-visible delete button */}
+                        {confirmingUploadPath !== upload.objectPath && (
                           <button
-                            onClick={() => copyImageLink(upload.objectPath)}
-                            className="flex items-center gap-1.5 bg-primary text-primary-foreground text-xs font-bold px-3 py-1.5 rounded-sm hover:bg-primary/80 transition-colors w-full justify-center"
-                          >
-                            {isCopied ? <><CheckCircle className="w-3.5 h-3.5" /> Copied!</> : <><Copy className="w-3.5 h-3.5" /> Copy Link</>}
-                          </button>
-                          <a
-                            href={imgUrl}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="flex items-center gap-1.5 bg-secondary text-foreground text-xs font-bold px-3 py-1.5 rounded-sm hover:bg-secondary/80 transition-colors w-full justify-center"
-                          >
-                            <ExternalLink className="w-3.5 h-3.5" /> View Full
-                          </a>
-                          <button
-                            onClick={() => void deleteUpload(upload.objectPath)}
+                            onClick={() => setConfirmingUploadPath(upload.objectPath)}
                             disabled={deletingUploadPath === upload.objectPath}
-                            className="flex items-center gap-1.5 bg-destructive/80 hover:bg-destructive text-white text-xs font-bold px-3 py-1.5 rounded-sm transition-colors w-full justify-center disabled:opacity-50"
+                            className="absolute top-1.5 right-1.5 z-10 w-7 h-7 rounded-full bg-black/60 flex items-center justify-center text-white hover:bg-red-600 transition-colors disabled:cursor-not-allowed"
+                            title="Delete image"
+                            aria-label="Delete image"
                           >
                             {deletingUploadPath === upload.objectPath
-                              ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Deleting…</>
-                              : <><Trash2 className="w-3.5 h-3.5" /> Delete</>
+                              ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                              : <X className="w-3.5 h-3.5" />
                             }
                           </button>
-                        </div>
-                        {upload.isLowRes && (
-                          <div className="absolute top-1 right-1 bg-amber-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-sm">
+                        )}
+
+                        {/* Inline confirmation overlay */}
+                        {confirmingUploadPath === upload.objectPath && (
+                          <div className="absolute inset-0 z-20 bg-black/80 flex flex-col items-center justify-center gap-3 p-3">
+                            <span className="text-xs font-bold text-white uppercase tracking-wider">Delete image?</span>
+                            <p className="text-[11px] text-white/70 text-center">This cannot be undone.</p>
+                            <div className="flex gap-2 w-full">
+                              <button
+                                onClick={() => setConfirmingUploadPath(null)}
+                                className="flex-1 py-1.5 text-xs font-semibold rounded-sm bg-white/20 text-white hover:bg-white/30 transition-colors"
+                              >
+                                Cancel
+                              </button>
+                              <button
+                                onClick={() => { setConfirmingUploadPath(null); void deleteUpload(upload.objectPath); }}
+                                className="flex-1 py-1.5 text-xs font-semibold rounded-sm bg-red-600 text-white hover:bg-red-500 transition-colors"
+                              >
+                                Delete
+                              </button>
+                            </div>
+                          </div>
+                        )}
+
+                        {upload.isLowRes && confirmingUploadPath !== upload.objectPath && (
+                          <div className="absolute top-1 left-1 bg-amber-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-sm">
                             LOW RES
                           </div>
                         )}

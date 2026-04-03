@@ -718,10 +718,10 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
   };
 
   const [deletingAiImageOrigIdx, setDeletingAiImageOrigIdx] = useState<number | null>(null);
+  const [confirmingAiImageOrigIdx, setConfirmingAiImageOrigIdx] = useState<number | null>(null);
 
   const handleDeleteAiImage = async (origIdx: number) => {
     if (deletingAiImageOrigIdx !== null) return;
-    if (!confirm("Permanently delete this AI background? This cannot be undone.")) return;
     setDeletingAiImageOrigIdx(origIdx);
     try {
       const res = await fetch(
@@ -1562,38 +1562,68 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
                             <div className="grid grid-cols-5 gap-1.5">
                               {aiImageSlots.map((slot, displayIdx) => {
                                 const isDeleting = deletingAiImageOrigIdx === slot.origIdx;
+                                const isConfirming = confirmingAiImageOrigIdx === slot.origIdx;
                                 return (
-                                  <div
-                                    key={slot.path}
-                                    className={`group/ai-thumb relative aspect-video border-2 overflow-hidden transition-all cursor-pointer ${
-                                      selectedAiIndex === slot.origIdx
-                                        ? "border-primary ring-2 ring-primary/30 scale-105"
-                                        : "border-border hover:border-primary/50"
-                                    }`}
-                                    onClick={() => setSelectedAiIndex(slot.origIdx)}
-                                  >
-                                    <img
-                                      src={getAiThumbnailUrl(slot.origIdx)}
-                                      alt={`AI option ${displayIdx + 1}`}
-                                      className="w-full h-full object-cover"
-                                      loading="lazy"
-                                      crossOrigin="anonymous"
-                                      onError={e => { (e.target as HTMLImageElement).style.display = "none"; }}
-                                    />
-                                    {selectedAiIndex === slot.origIdx && (
-                                      <span className="absolute top-0.5 right-0.5 w-2 h-2 bg-primary rounded-full border border-white" />
-                                    )}
-                                    <button
-                                      onClick={(e) => { e.stopPropagation(); void handleDeleteAiImage(slot.origIdx); }}
-                                      disabled={isDeleting}
-                                      className="absolute bottom-0 right-0 p-1 bg-black/70 hover:bg-destructive text-white opacity-0 group-hover/ai-thumb:opacity-100 transition-opacity rounded-tl-sm disabled:opacity-50"
-                                      title="Delete this AI background"
+                                  <div key={slot.path} className="relative">
+                                    <div
+                                      className={`aspect-video border-2 overflow-hidden transition-all cursor-pointer ${
+                                        selectedAiIndex === slot.origIdx && !isConfirming
+                                          ? "border-primary ring-2 ring-primary/30 scale-105"
+                                          : "border-border hover:border-primary/50"
+                                      } ${isDeleting ? "opacity-40" : ""}`}
+                                      onClick={() => {
+                                        if (isConfirming) { setConfirmingAiImageOrigIdx(null); return; }
+                                        setSelectedAiIndex(slot.origIdx);
+                                      }}
                                     >
-                                      {isDeleting
-                                        ? <div className="w-2.5 h-2.5 border border-white border-t-transparent rounded-full animate-spin" />
-                                        : <Trash2 className="w-2.5 h-2.5" />
-                                      }
-                                    </button>
+                                      <img
+                                        src={getAiThumbnailUrl(slot.origIdx)}
+                                        alt={`AI option ${displayIdx + 1}`}
+                                        className="w-full h-full object-cover"
+                                        loading="lazy"
+                                        crossOrigin="anonymous"
+                                        onError={e => { (e.target as HTMLImageElement).style.display = "none"; }}
+                                      />
+                                      {selectedAiIndex === slot.origIdx && !isConfirming && (
+                                        <span className="absolute top-0.5 right-0.5 w-2 h-2 bg-primary rounded-full border border-white" />
+                                      )}
+                                    </div>
+
+                                    {/* Always-visible delete button */}
+                                    {!isConfirming && (
+                                      <button
+                                        onClick={(e) => { e.stopPropagation(); setConfirmingAiImageOrigIdx(slot.origIdx); }}
+                                        disabled={isDeleting}
+                                        className="absolute top-0.5 right-0.5 z-10 w-5 h-5 rounded-full bg-black/60 flex items-center justify-center text-white hover:bg-red-600 transition-colors disabled:cursor-not-allowed"
+                                        title="Delete this AI background"
+                                      >
+                                        {isDeleting
+                                          ? <Loader2 className="w-2.5 h-2.5 animate-spin" />
+                                          : <X className="w-2.5 h-2.5" />
+                                        }
+                                      </button>
+                                    )}
+
+                                    {/* Inline confirmation overlay */}
+                                    {isConfirming && (
+                                      <div className="absolute inset-0 z-20 bg-black/75 flex flex-col items-center justify-center gap-1.5 p-1">
+                                        <span className="text-[9px] font-bold text-white uppercase tracking-wide">Delete?</span>
+                                        <div className="flex gap-1">
+                                          <button
+                                            onClick={(e) => { e.stopPropagation(); setConfirmingAiImageOrigIdx(null); }}
+                                            className="px-2 py-0.5 text-[9px] font-semibold rounded bg-white/20 text-white hover:bg-white/30 transition-colors"
+                                          >
+                                            Cancel
+                                          </button>
+                                          <button
+                                            onClick={(e) => { e.stopPropagation(); setConfirmingAiImageOrigIdx(null); void handleDeleteAiImage(slot.origIdx); }}
+                                            className="px-2 py-0.5 text-[9px] font-semibold rounded bg-red-600 text-white hover:bg-red-500 transition-colors"
+                                          >
+                                            Delete
+                                          </button>
+                                        </div>
+                                      </div>
+                                    )}
                                   </div>
                                 );
                               })}
