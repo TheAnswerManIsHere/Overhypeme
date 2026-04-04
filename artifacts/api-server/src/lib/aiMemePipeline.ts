@@ -289,7 +289,7 @@ export async function generateAiMemeBackgroundFromReference(
     const basePrompt = prompts[targetGender];
     const prompt = options?.styleSuffix ? `${basePrompt.trim()} ${options.styleSuffix}` : basePrompt;
     console.log(`[aiMemePipeline] Generating reference-based image for fact ${factId}, gender=${targetGender}`);
-    const storedPath = await generateAndStoreImageFromReference(factId, targetGender, uniqueKey, prompt, referenceBuffer, !!(options?.styleSuffix));
+    const storedPath = await generateAndStoreImageFromReference(factId, targetGender, uniqueKey, prompt, referenceBuffer, true);
 
     // Track only in user_ai_images (type='reference') — NOT in the shared aiMemeImages on the fact
     try {
