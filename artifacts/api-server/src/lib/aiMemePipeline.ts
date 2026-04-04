@@ -16,7 +16,10 @@ import { ObjectStorageService } from "./objectStorage";
 import { db } from "@workspace/db";
 import { factsTable, userAiImagesTable } from "@workspace/db/schema";
 import { eq, sql } from "drizzle-orm";
-import { getConfigInt } from "./adminConfig";
+import { getConfigInt, getConfigString } from "./adminConfig";
+
+const DEFAULT_REFERENCE_FRAME_PROMPT =
+  "Generate an image using the provided reference photo. The person's face, facial structure, skin tone, eye shape, hair, and all distinguishing features must be preserved with photorealistic accuracy and remain visually identical to the reference — this is the highest priority. Do not alter, stylize, or idealize the person's facial features in any way. The person should be placed into the scene as described. The scene and environment should be stylized as described, but the person's face and likeness must remain untouched by any stylization. No text, words, or letters anywhere in the image.";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -196,8 +199,12 @@ async function generateAndStoreImageFromReference(
   // Uploads stored via /storage/upload-meme are always JPEG
   const referenceFile = await toFile(referenceBuffer, "reference.jpg", { type: "image/jpeg" });
 
+  const referenceFramePrompt = await getConfigString(
+    "ai_reference_frame_prompt",
+    DEFAULT_REFERENCE_FRAME_PROMPT,
+  );
   const editPrompt = includeReferenceFrame
-    ? `${prompt} — transform the provided reference photo into a cinematic meme background with dramatic lighting and high contrast. No text or letters.`
+    ? `${referenceFramePrompt} ${prompt}`
     : prompt;
 
   const response = await (openai.images.edit as Function)({
