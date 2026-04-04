@@ -31,6 +31,7 @@ import {
   Sparkles,
   Flame,
   Trash2,
+  Clapperboard,
 } from "lucide-react";
 
 // ─── Canvas constants ──────────────────────────────────────────────────────────
@@ -359,9 +360,11 @@ interface MemeBuilderProps {
   defaultPrivate?: boolean;
   /** When true, renders without the outer modal wrapper (for use inside MemeStudio) */
   embedded?: boolean;
+  /** Called when the user clicks "Turn This Into a Video". Receives the meme image as a data URL. */
+  onMakeVideo?: (sourceImageDataUrl: string) => void;
 }
 
-export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMemeImages, onClose, defaultPrivate, embedded }: MemeBuilderProps) {
+export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMemeImages, onClose, defaultPrivate, embedded, onMakeVideo }: MemeBuilderProps) {
   const { isAuthenticated, login, role, user } = useAuth();
   const isPremium = role === "premium" || role === "admin";
   const isAdmin = role === "admin";
@@ -542,6 +545,10 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
   const [status, setStatus] = useState<"idle" | "generating" | "done" | "error">("idle");
   const [permalinkSlug, setPermalinkSlug] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
+  // First-time nudge: shown once per MemeBuilder session after first successful static meme
+  const nudgeShownRef = useRef(false);
+  const [showNudge, setShowNudge] = useState(false);
 
   // Whether this fact has gender tokens (for determining generation scope)
   // Must use rawFactText (unexpanded template) since factText is already personalized
@@ -1395,6 +1402,10 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
       setStatus("done");
       queryClient.invalidateQueries({ queryKey: ["listFactMemes", factId] });
       queryClient.invalidateQueries({ queryKey: ["profile-my-memes"] });
+      if (onMakeVideo && !nudgeShownRef.current) {
+        nudgeShownRef.current = true;
+        setShowNudge(true);
+      }
     } catch (e) {
       setErrorMsg(e instanceof Error ? e.message : "Something went wrong");
       setStatus("error");
@@ -2438,29 +2449,67 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
 
           {/* ── Success / Actions ── */}
           {status === "done" && permalinkSlug ? (
-            <div className="bg-primary/10 border-2 border-primary p-4 space-y-3">
-              <div className="flex items-center gap-3 text-primary">
-                <CheckCircle className="w-5 h-5 shrink-0" />
-                <span className="font-display uppercase tracking-wide font-bold text-sm">
-                  Meme Created!
-                </span>
-              </div>
-              <div className="flex flex-wrap gap-3">
-                <Link href={`/meme/${permalinkSlug}`}>
-                  <Button size="sm" variant="outline" className="gap-2">
-                    <Share2 className="w-4 h-4" /> View Permalink
+            <div className="space-y-3">
+              <div className="bg-primary/10 border-2 border-primary p-4 space-y-3">
+                <div className="flex items-center gap-3 text-primary">
+                  <CheckCircle className="w-5 h-5 shrink-0" />
+                  <span className="font-display uppercase tracking-wide font-bold text-sm">
+                    Meme Created!
+                  </span>
+                </div>
+                <div className="flex flex-wrap gap-3">
+                  <Link href={`/meme/${permalinkSlug}`}>
+                    <Button size="sm" variant="outline" className="gap-2">
+                      <Share2 className="w-4 h-4" /> View Permalink
+                    </Button>
+                  </Link>
+                  <Button size="sm" variant="secondary" className="gap-2" onClick={handleDownload}>
+                    <Download className="w-4 h-4" /> Download Preview
                   </Button>
-                </Link>
-                <Button size="sm" variant="secondary" className="gap-2" onClick={handleDownload}>
-                  <Download className="w-4 h-4" /> Download Preview
-                </Button>
-                <Button
-                  size="sm"
-                  onClick={() => { setStatus("idle"); setPermalinkSlug(null); }}
-                >
-                  Make Another
-                </Button>
+                  <Button
+                    size="sm"
+                    onClick={() => { setStatus("idle"); setPermalinkSlug(null); setShowNudge(false); }}
+                  >
+                    Make Another
+                  </Button>
+                </div>
               </div>
+              {onMakeVideo && (
+                <div className="relative">
+                  <button
+                    onClick={() => {
+                      setShowNudge(false);
+                      const dataUrl = canvasRef.current?.toDataURL("image/jpeg", 0.85) ?? "";
+                      onMakeVideo(dataUrl);
+                    }}
+                    className="w-full flex items-center justify-center gap-2 px-4 py-3 border-2 text-sm font-bold uppercase tracking-wider transition-colors"
+                    style={{ borderColor: "#f97316", color: "#f97316" }}
+                    onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.backgroundColor = "rgba(249,115,22,0.08)"; }}
+                    onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.backgroundColor = ""; }}
+                  >
+                    <Clapperboard className="w-4 h-4" />
+                    Turn This Into a Video →
+                  </button>
+                  {showNudge && (
+                    <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-64 bg-foreground text-background rounded-sm px-3 py-2 shadow-xl z-20 text-center">
+                      <div className="flex items-center justify-between gap-2 mb-0.5">
+                        <span className="text-[11px] font-bold uppercase tracking-wider animate-pulse" style={{ color: "#f97316" }}>
+                          New!
+                        </span>
+                        <button
+                          onClick={() => setShowNudge(false)}
+                          className="text-background/60 hover:text-background transition-colors"
+                          aria-label="Dismiss"
+                        >
+                          <X className="w-3 h-3" />
+                        </button>
+                      </div>
+                      <p className="text-[11px] leading-snug">See your meme come to life</p>
+                      <div className="absolute top-full left-1/2 -translate-x-1/2 w-0 h-0" style={{ borderLeft: "6px solid transparent", borderRight: "6px solid transparent", borderTop: "6px solid var(--foreground)" }} />
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           ) : (
             <div className="flex gap-3">

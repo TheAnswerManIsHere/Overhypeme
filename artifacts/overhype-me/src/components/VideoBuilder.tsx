@@ -57,6 +57,8 @@ interface VideoBuilderProps {
   factId: number;
   factText: string;
   onClose: () => void;
+  /** Pre-loaded meme image data URL (from MemeBuilder). When provided, the generic source is replaced with this image. */
+  initialImageDataUrl?: string;
 }
 
 // ─── Helpers ───────────────────────────────────────────────────────────────────
@@ -154,7 +156,7 @@ function ModeTab({
 
 // ─── Main component ────────────────────────────────────────────────────────────
 
-export function VideoBuilder({ factId, factText, onClose }: VideoBuilderProps) {
+export function VideoBuilder({ factId, factText, onClose, initialImageDataUrl }: VideoBuilderProps) {
   const { isAuthenticated, role } = useAuth();
   const isPremium = role === "premium" || role === "admin";
 
@@ -163,8 +165,8 @@ export function VideoBuilder({ factId, factText, onClose }: VideoBuilderProps) {
   // Source tab
   const [sourceMode, setSourceMode] = useState<SourceMode>("generic");
 
-  // Generic: canvas-rendered image
-  const [genericBase64, setGenericBase64] = useState<string>("");
+  // Generic: canvas-rendered image (may be replaced by initialImageDataUrl from MemeBuilder)
+  const [genericBase64, setGenericBase64] = useState<string>(initialImageDataUrl ?? "");
 
   // Upload state
   const [selectedObjectPath, setSelectedObjectPath] = useState<string | null>(null);
@@ -202,10 +204,12 @@ export function VideoBuilder({ factId, factText, onClose }: VideoBuilderProps) {
     return () => { cancelled = true; };
   }, [factId]);
 
-  // Render the generic canvas image on mount
+  // Render the generic canvas image on mount, but not when we received a pre-loaded meme image
   useEffect(() => {
-    setGenericBase64(renderFactImage(factText));
-  }, [factText]);
+    if (!initialImageDataUrl) {
+      setGenericBase64(renderFactImage(factText));
+    }
+  }, [factText, initialImageDataUrl]);
 
   // Clear stale video state when the source image changes
   useEffect(() => {
@@ -528,7 +532,9 @@ export function VideoBuilder({ factId, factText, onClose }: VideoBuilderProps) {
             {sourceMode === "generic" && (
               <div className="space-y-2">
                 <p className="text-xs text-muted-foreground">
-                  The fact text is rendered onto a branded gradient background and animated into a short video.
+                  {initialImageDataUrl
+                    ? "Your meme image will be animated into a short video."
+                    : "The fact text is rendered onto a branded gradient background and animated into a short video."}
                 </p>
               </div>
             )}

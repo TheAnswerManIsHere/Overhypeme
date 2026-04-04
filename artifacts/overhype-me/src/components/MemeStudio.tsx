@@ -68,6 +68,8 @@ interface MemeStudioProps {
   onClose: () => void;
   defaultPrivate?: boolean;
   defaultTab?: StudioTab;
+  /** Pre-loaded meme image data URL to use as video source (from external "Turn Into Video" flow) */
+  initialVideoImageDataUrl?: string;
 }
 
 // ─── Render helper: generate a branded fact image for video ─────────────────
@@ -218,9 +220,11 @@ function StyleCard({
 interface VideoTabProps {
   factId: number;
   factText: string;
+  /** Pre-loaded meme image data URL passed from MemeBuilder's "Turn Into Video" button */
+  initialImageDataUrl?: string;
 }
 
-function VideoTab({ factId, factText }: VideoTabProps) {
+function VideoTab({ factId, factText, initialImageDataUrl }: VideoTabProps) {
   const [step, setStep] = useState<VideoStep>(2);
   const [selectedFact, setSelectedFact] = useState<SuggestedFact>({
     id: factId,
@@ -259,7 +263,7 @@ function VideoTab({ factId, factText }: VideoTabProps) {
   const handleGenerateVideo = async () => {
     if (videoState.status === "generating") return;
 
-    const imageBase64 = renderFactImage(selectedFact.text);
+    const imageBase64 = initialImageDataUrl ?? renderFactImage(selectedFact.text);
     if (!imageBase64) return;
 
     setVideoState({ status: "generating" });
@@ -599,8 +603,15 @@ export function MemeStudio({
   onClose,
   defaultPrivate,
   defaultTab = "image",
+  initialVideoImageDataUrl,
 }: MemeStudioProps) {
   const [activeTab, setActiveTab] = useState<StudioTab>(defaultTab);
+  const [videoImageDataUrl, setVideoImageDataUrl] = useState<string | undefined>(initialVideoImageDataUrl);
+
+  const handleMakeVideo = (dataUrl: string) => {
+    setVideoImageDataUrl(dataUrl);
+    setActiveTab("video");
+  };
 
   return (
     <div
@@ -651,10 +662,11 @@ export function MemeStudio({
               onClose={onClose}
               defaultPrivate={defaultPrivate}
               embedded
+              onMakeVideo={handleMakeVideo}
             />
           ) : (
             <div className="p-4 md:p-5">
-              <VideoTab factId={factId} factText={factText} />
+              <VideoTab factId={factId} factText={factText} initialImageDataUrl={videoImageDataUrl} />
             </div>
           )}
         </div>
