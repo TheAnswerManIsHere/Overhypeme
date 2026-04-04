@@ -298,7 +298,7 @@ router.post("/memes", async (req: Request, res: Response) => {
     try {
       const imgBuffer = Buffer.from(previewImageBase64, "base64");
       await objectStorageService.uploadObjectBuffer({
-        subPath: `memes/${slug}.png`,
+        subPath: `memes/${slug}.jpg`,
         buffer: imgBuffer,
         contentType: "image/jpeg",
       });
@@ -537,24 +537,31 @@ router.get("/memes/:slug/image", async (req: Request, res: Response) => {
 
   // ── Legacy path: memes stored before recipe-based rendering ─────
   if (!meme.imageSource) {
-    const objectPath = `/objects/memes/${slug}.png`;
-    try {
-      const objectFile = await objectStorageService.getObjectEntityFile(objectPath);
-      const etag = `"legacy-${slug}"`;
-      if (checkConditional(req, res, etag)) return;
-      const response = await objectStorageService.downloadObject(objectFile, 86400);
-      res.status(response.status);
-      response.headers.forEach((value, key) => res.setHeader(key, value));
-      setPublicCache(res, CACHE.MEME_IMAGE, etag);
-      setPublicCors(res);
-      if (response.body) {
-        Readable.fromWeb(response.body as ReadableStream<Uint8Array>).pipe(res);
-      } else {
-        res.end();
+    // Try .jpg first (new memes), fall back to .png (memes created before the jpg migration)
+    const candidates = [`/objects/memes/${slug}.jpg`, `/objects/memes/${slug}.png`];
+    let served = false;
+    for (const objectPath of candidates) {
+      try {
+        const objectFile = await objectStorageService.getObjectEntityFile(objectPath);
+        const etag = `"legacy-${slug}"`;
+        if (checkConditional(req, res, etag)) return;
+        const response = await objectStorageService.downloadObject(objectFile, 86400);
+        res.status(response.status);
+        response.headers.forEach((value, key) => res.setHeader(key, value));
+        setPublicCache(res, CACHE.MEME_IMAGE, etag);
+        setPublicCors(res);
+        if (response.body) {
+          Readable.fromWeb(response.body as ReadableStream<Uint8Array>).pipe(res);
+        } else {
+          res.end();
+        }
+        served = true;
+        break;
+      } catch {
+        // try next candidate
       }
-    } catch {
-      res.status(404).end();
     }
+    if (!served) res.status(404).end();
     return;
   }
 
@@ -607,7 +614,7 @@ router.get("/memes/:slug/image", async (req: Request, res: Response) => {
     if (checkConditional(req, res, etag)) return;
 
     setPublicCors(res);
-    res.setHeader("Content-Type", "image/png");
+    res.setHeader("Content-Type", "image/jpeg");
     setPublicCache(res, CACHE.MEME_IMAGE, etag);
     res.setHeader("Content-Length", imageBuffer.length);
     res.status(200).send(imageBuffer);
@@ -671,11 +678,10 @@ router.get("/memes/ai/:factId/image", async (req: Request, res: Response) => {
       const aiEtag = `"ai-bg-${factId}-${gender}-${imageIndex}-${fact.updatedAt.getTime()}"`;
       if (checkConditional(req, res, aiEtag)) return;
       const response = await objectStorageService.downloadObject(objectFile, 86400);
-      res.setHeader("Content-Type", "image/png");
       setPublicCache(res, CACHE.MEME_TEMPLATE, aiEtag);
       setPublicCors(res);
       response.headers.forEach((value: string, key: string) => {
-        if (key.toLowerCase() !== "content-type" && key.toLowerCase() !== "cache-control") res.setHeader(key, value);
+        if (key.toLowerCase() !== "cache-control") res.setHeader(key, value);
       });
       res.status(200);
       if (response.body) {
