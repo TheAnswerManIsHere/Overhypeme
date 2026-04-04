@@ -27,6 +27,19 @@ interface FieldState {
 
 const STYLE_OPTIONS = IMAGE_STYLES.filter((s) => s.id !== "none");
 
+const FAL_IMAGE_SIZES: { value: string; label: string }[] = [
+  { value: "square_hd",     label: "Square HD (1024×1024)" },
+  { value: "square",        label: "Square (512×512)" },
+  { value: "portrait_4_3",  label: "Portrait 4:3 (768×1024)" },
+  { value: "portrait_16_9", label: "Portrait 16:9 (576×1024)" },
+  { value: "landscape_4_3", label: "Landscape 4:3 (1024×768)" },
+  { value: "landscape_16_9",label: "Landscape 16:9 (1024×576)" },
+];
+
+const SELECT_CONFIGS: Record<string, { value: string; label: string }[]> = {
+  ai_image_size: FAL_IMAGE_SIZES,
+};
+
 function SaveButton({
   dirty, saving, saved, onClick,
 }: { dirty: boolean; saving: boolean; saved: boolean; onClick: () => void }) {
@@ -199,6 +212,26 @@ export default function AdminConfig() {
     };
     const onSave = () => kind === "std" ? void saveStd(configKey) : void saveDbg(configKey);
 
+    const selectOptions = SELECT_CONFIGS[configKey];
+
+    if (selectOptions) {
+      return (
+        <div className="flex items-center gap-3">
+          <select
+            value={state.value}
+            onChange={(e) => onChange(e.target.value)}
+            className={`flex-1 bg-background border rounded px-3 py-1.5 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-primary ${borderClass}`}
+          >
+            {selectOptions.map((opt) => (
+              <option key={opt.value} value={opt.value}>{opt.label}</option>
+            ))}
+          </select>
+          <SaveButton dirty={dirty} saving={state.saving} saved={state.saved} onClick={onSave} />
+          {state.error && <p className="text-destructive text-xs flex items-center gap-1"><AlertCircle className="w-3 h-3" />{state.error}</p>}
+        </div>
+      );
+    }
+
     return (
       <div className={isLong ? "space-y-2" : "flex items-center gap-3"}>
         {isLong ? (
@@ -315,54 +348,76 @@ export default function AdminConfig() {
               </span>
               {debugActive && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-amber-500/20 text-amber-400 font-medium">Active</span>}
             </div>
-            {dbgState && (
-              <div className={row.dataType === "text" ? "space-y-2" : "flex items-center gap-3"}>
-                {row.dataType === "text" ? (
-                  <>
-                    <textarea
-                      rows={4}
+            {dbgState && (() => {
+              const dbgSelectOptions = SELECT_CONFIGS[row.key];
+              const dbgBorderClass = debugActive ? "border-amber-500/40" : "border-border";
+              const onDbgChange = (val: string) => setDbgEdits((p) => ({ ...p, [row.key]: { ...p[row.key]!, value: val, error: null, saved: false } }));
+
+              if (dbgSelectOptions) {
+                return (
+                  <div className="flex items-center gap-3">
+                    <select
                       value={dbgState.value}
-                      onChange={(e) => setDbgEdits((p) => ({ ...p, [row.key]: { ...p[row.key]!, value: e.target.value, error: null, saved: false } }))}
-                      placeholder="Leave empty to use standard value"
-                      className={`w-full bg-background border rounded px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-amber-500/50 resize-y placeholder:text-muted-foreground/40 ${debugActive ? "border-amber-500/40" : "border-border"}`}
-                    />
-                    <div className="flex items-center gap-3">
-                      <SaveButton dirty={dbgDirty(row.key)} saving={dbgState.saving} saved={dbgState.saved} onClick={() => void saveDbg(row.key)} />
-                      {dbgState.value !== "" && (
-                        <button
-                          onClick={() => {
-                            setDbgEdits((p) => ({ ...p, [row.key]: { ...p[row.key]!, value: "" } }));
-                          }}
-                          className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1"
-                          title="Clear debug value (fall back to standard)"
-                        >
-                          <X className="w-3 h-3" /> Clear
-                        </button>
-                      )}
-                      {dbgState.error && <p className="text-destructive text-xs flex items-center gap-1"><AlertCircle className="w-3 h-3" />{dbgState.error}</p>}
-                    </div>
-                  </>
-                ) : (
-                  <>
-                    <input
-                      type={row.dataType === "integer" ? "number" : "text"}
-                      min={row.minValue ?? undefined}
-                      max={row.maxValue ?? undefined}
-                      value={dbgState.value}
-                      onChange={(e) => setDbgEdits((p) => ({ ...p, [row.key]: { ...p[row.key]!, value: e.target.value, error: null, saved: false } }))}
-                      placeholder="— standard"
-                      onKeyDown={(e) => { if (e.key === "Enter" && dbgDirty(row.key)) void saveDbg(row.key); }}
-                      className={`w-36 bg-background border rounded px-3 py-1.5 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-amber-500/50 placeholder:text-muted-foreground/40 ${debugActive ? "border-amber-500/40" : "border-border"}`}
-                    />
-                    {row.minValue !== null && row.maxValue !== null && (
-                      <span className="text-xs text-muted-foreground">{row.minValue}–{row.maxValue}</span>
-                    )}
+                      onChange={(e) => onDbgChange(e.target.value)}
+                      className={`flex-1 bg-background border rounded px-3 py-1.5 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-amber-500/50 ${dbgBorderClass}`}
+                    >
+                      {dbgSelectOptions.map((opt) => (
+                        <option key={opt.value} value={opt.value}>{opt.label}</option>
+                      ))}
+                    </select>
                     <SaveButton dirty={dbgDirty(row.key)} saving={dbgState.saving} saved={dbgState.saved} onClick={() => void saveDbg(row.key)} />
                     {dbgState.error && <p className="text-destructive text-xs flex items-center gap-1"><AlertCircle className="w-3 h-3" />{dbgState.error}</p>}
-                  </>
-                )}
-              </div>
-            )}
+                  </div>
+                );
+              }
+
+              return (
+                <div className={row.dataType === "text" ? "space-y-2" : "flex items-center gap-3"}>
+                  {row.dataType === "text" ? (
+                    <>
+                      <textarea
+                        rows={4}
+                        value={dbgState.value}
+                        onChange={(e) => onDbgChange(e.target.value)}
+                        placeholder="Leave empty to use standard value"
+                        className={`w-full bg-background border rounded px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-amber-500/50 resize-y placeholder:text-muted-foreground/40 ${dbgBorderClass}`}
+                      />
+                      <div className="flex items-center gap-3">
+                        <SaveButton dirty={dbgDirty(row.key)} saving={dbgState.saving} saved={dbgState.saved} onClick={() => void saveDbg(row.key)} />
+                        {dbgState.value !== "" && (
+                          <button
+                            onClick={() => onDbgChange("")}
+                            className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1"
+                            title="Clear debug value (fall back to standard)"
+                          >
+                            <X className="w-3 h-3" /> Clear
+                          </button>
+                        )}
+                        {dbgState.error && <p className="text-destructive text-xs flex items-center gap-1"><AlertCircle className="w-3 h-3" />{dbgState.error}</p>}
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <input
+                        type={row.dataType === "integer" ? "number" : "text"}
+                        min={row.minValue ?? undefined}
+                        max={row.maxValue ?? undefined}
+                        value={dbgState.value}
+                        onChange={(e) => onDbgChange(e.target.value)}
+                        placeholder="— standard"
+                        onKeyDown={(e) => { if (e.key === "Enter" && dbgDirty(row.key)) void saveDbg(row.key); }}
+                        className={`w-36 bg-background border rounded px-3 py-1.5 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-amber-500/50 placeholder:text-muted-foreground/40 ${dbgBorderClass}`}
+                      />
+                      {row.minValue !== null && row.maxValue !== null && (
+                        <span className="text-xs text-muted-foreground">{row.minValue}–{row.maxValue}</span>
+                      )}
+                      <SaveButton dirty={dbgDirty(row.key)} saving={dbgState.saving} saved={dbgState.saved} onClick={() => void saveDbg(row.key)} />
+                      {dbgState.error && <p className="text-destructive text-xs flex items-center gap-1"><AlertCircle className="w-3 h-3" />{dbgState.error}</p>}
+                    </>
+                  )}
+                </div>
+              );
+            })()}
           </div>
         </div>
       </div>
