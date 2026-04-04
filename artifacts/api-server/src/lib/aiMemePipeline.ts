@@ -153,15 +153,42 @@ async function generateAndStoreImage(
 ): Promise<string> {
   configureFal();
 
-  const model     = modelOverride || await getConfigString("ai_image_model_standard", DEFAULT_IMAGE_MODEL_STANDARD);
-  const imageSize = await getConfigString("ai_image_size", DEFAULT_IMAGE_SIZE);
+  const model             = modelOverride || await getConfigString("ai_image_model_standard", DEFAULT_IMAGE_MODEL_STANDARD);
+  const imageSize         = await getConfigString("ai_image_size", DEFAULT_IMAGE_SIZE);
+  const numInferenceSteps = await getConfigInt("ai_std_num_inference_steps", 28);
+  const guidanceScale     = parseFloat(await getConfigString("ai_std_guidance_scale", "3.5"));
+  const safetyTolerance   = await getConfigString("ai_std_safety_tolerance", "2");
+  const seedStr           = await getConfigString("ai_std_seed", "");
+  const outputFormat      = await getConfigString("ai_std_output_format", "jpeg");
+  const aspectRatio       = await getConfigString("ai_std_aspect_ratio", "1:1");
+  const ultraRaw          = await getConfigString("ai_std_ultra_raw", "false");
+
+  const input: Record<string, unknown> = { prompt, num_images: 1 };
+
+  if (model === "fal-ai/flux-pro/v1.1-ultra") {
+    input["aspect_ratio"]      = aspectRatio;
+    input["safety_tolerance"]  = safetyTolerance;
+    input["raw"]               = ultraRaw === "true";
+    input["output_format"]     = outputFormat;
+  } else if (model === "fal-ai/flux-2-pro" || model === "fal-ai/flux-2-max") {
+    input["aspect_ratio"]  = aspectRatio;
+    input["output_format"] = outputFormat;
+  } else {
+    // FLUX 1 models: dev, schnell, flux-pro, flux-pro/v1.1
+    input["image_size"]            = imageSize;
+    input["num_inference_steps"]   = numInferenceSteps;
+    input["guidance_scale"]        = isNaN(guidanceScale) ? 3.5 : guidanceScale;
+    input["output_format"]         = outputFormat;
+    if (model === "fal-ai/flux-pro" || model === "fal-ai/flux-pro/v1.1") {
+      input["safety_tolerance"] = safetyTolerance;
+    }
+  }
+
+  const seedNum = seedStr.trim() ? parseInt(seedStr.trim(), 10) : NaN;
+  if (!isNaN(seedNum)) input["seed"] = seedNum;
 
   const result = await fal.subscribe(model, {
-    input: {
-      prompt,
-      image_size: imageSize,
-      num_images: 1,
-    },
+    input,
     logs: false,
   }) as { data: { images: Array<{ url: string }> } };
 
@@ -267,19 +294,11 @@ async function generateAndStoreImageFromReference(
   // Each reference model uses a different parameter name for the face image URL.
   const faceParamName = REFERENCE_MODEL_INPUT_PARAM[model]!;
 
-  // id_scale controls face fidelity vs scene quality for PuLID.
-  // Lower = more scene detail, higher = stronger face likeness.
-  // Default 0.7; configurable via admin_config "ai_pulid_id_scale_pct".
-  const idScale = await getConfigInt("ai_pulid_id_scale_pct", 70) / 100;
-
-  // Append an explicit wide-shot composition instruction to the scene prompt.
-  // Scene prompts are authored without knowing whether they'll be used in reference
-  // mode — the composition suffix is what tells PuLID to show the full scene rather
-  // than defaulting to a portrait.
-  const COMPOSITION_SUFFIX =
+  // Append composition suffix so PuLID shows a full scene rather than a portrait close-up.
+  const DEFAULT_COMPOSITION_SUFFIX =
     "Full body wide angle shot. Person shown in action within the scene environment. " +
     "Show the full setting and context. NOT a portrait or close-up.";
-  const compositionSuffix = await getConfigString("ai_pulid_composition_suffix", COMPOSITION_SUFFIX);
+  const compositionSuffix = await getConfigString("ai_pulid_composition_suffix", DEFAULT_COMPOSITION_SUFFIX);
   const finalPrompt = compositionSuffix ? `${prompt.trim()} ${compositionSuffix}` : prompt;
 
   const input: Record<string, unknown> = {
@@ -289,14 +308,25 @@ async function generateAndStoreImageFromReference(
     num_images: 1,
   };
 
-  // PuLID-specific parameters
+  // PuLID-specific parameters — all read from admin_config
   if (model === "fal-ai/flux-pulid") {
-    input["id_scale"] = idScale;
-    // Higher guidance_scale gives the text prompt more control over the composition.
-    // PuLID's default (3.5) is too low — the face embedding dominates. 5.5 gives
-    // the scene description meaningful influence without sacrificing face accuracy.
-    input["guidance_scale"]      = 5.5;
-    input["num_inference_steps"] = 30;
+    const idScale        = parseFloat(await getConfigString("ai_ref_pulid_id_scale", "0.70"));
+    const guidanceScale  = parseFloat(await getConfigString("ai_ref_pulid_guidance_scale", "5.5"));
+    const numSteps       = await getConfigInt("ai_ref_pulid_num_inference_steps", 30);
+    const trueCfgStr     = await getConfigString("ai_ref_pulid_true_cfg_scale", "");
+    const startStepStr   = await getConfigString("ai_ref_pulid_start_step", "");
+
+    input["id_scale"]            = isNaN(idScale) ? 0.70 : idScale;
+    input["guidance_scale"]      = isNaN(guidanceScale) ? 5.5 : guidanceScale;
+    input["num_inference_steps"] = numSteps;
+    if (trueCfgStr.trim()) {
+      const trueCfg = parseFloat(trueCfgStr.trim());
+      if (!isNaN(trueCfg)) input["true_cfg_scale"] = trueCfg;
+    }
+    if (startStepStr.trim()) {
+      const startStep = parseInt(startStepStr.trim(), 10);
+      if (!isNaN(startStep)) input["start_step"] = startStep;
+    }
     // Note: FLUX-based models (including PuLID) do NOT support negative_prompt.
   }
 
