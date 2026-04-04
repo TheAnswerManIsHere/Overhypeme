@@ -677,6 +677,9 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
   // The storage path of the selected reference-generated image (for meme creation)
   const [selectedRefGenPath, setSelectedRefGenPath] = useState<string | null>(null);
 
+  // Admin-only: override the fal.ai model for this generation session
+  const [adminModelOverride, setAdminModelOverride] = useState<string>("");
+
   // Video generation state
   const [videoState, setVideoState] = useState<VideoState>({ status: "idle" });
 
@@ -839,11 +842,12 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
         headers: { "Content-Type": "application/json" },
         credentials: "include",
         signal: controller.signal,
-        body: JSON.stringify(
-          aiSubMode === "reference" && selectedRefUpload
+        body: JSON.stringify({
+          ...(aiSubMode === "reference" && selectedRefUpload
             ? { referenceImagePath: selectedRefUpload.objectPath, targetGender: aiGender, styleId: selectedStyleId }
-            : { scope: factIsGendered ? "gendered" : "abstract", styleId: selectedStyleId },
-        ),
+            : { scope: factIsGendered ? "gendered" : "abstract", styleId: selectedStyleId }),
+          ...(isAdmin && adminModelOverride.trim() ? { modelOverride: adminModelOverride.trim() } : {}),
+        }),
       });
 
       // Stale response guard: if cancelled, bail out silently
@@ -2320,8 +2324,34 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
                           </div>
                         )}
 
+                        {/* Admin-only: model override input */}
+                        {isAdmin && (
+                          <div className="flex items-center gap-2 mt-1">
+                            <span className="text-[10px] text-muted-foreground/70 shrink-0">Model override:</span>
+                            <input
+                              type="text"
+                              value={adminModelOverride}
+                              onChange={e => setAdminModelOverride(e.target.value)}
+                              placeholder={aiSubMode === "reference" ? aiModelReference : aiModelStandard}
+                              className="flex-1 min-w-0 text-[10px] font-mono px-1.5 py-0.5 rounded border border-border bg-muted/30 text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:border-violet-500/60"
+                            />
+                            {adminModelOverride.trim() && (
+                              <button
+                                type="button"
+                                onClick={() => setAdminModelOverride("")}
+                                className="text-[10px] text-muted-foreground hover:text-foreground shrink-0"
+                                title="Clear override (use default model)"
+                              >
+                                <X className="w-3 h-3" />
+                              </button>
+                            )}
+                          </div>
+                        )}
+
                         <p className="text-[10px] text-muted-foreground/50">
-                          AI-generated scene • {aiSubMode === "reference" ? aiModelReference : aiModelStandard}
+                          AI-generated scene • {adminModelOverride.trim() && isAdmin
+                            ? adminModelOverride.trim()
+                            : (aiSubMode === "reference" ? aiModelReference : aiModelStandard)}
                         </p>
                       </div>
                     )}

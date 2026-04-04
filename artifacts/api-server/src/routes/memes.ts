@@ -874,6 +874,13 @@ router.post("/memes/ai/:factId/generate", requirePremium, async (req: Request, r
     }
   }
 
+  // Admin-only: allow model override for testing different fal.ai models
+  const rawModelOverride = body["modelOverride"];
+  const modelOverride =
+    req.user?.role === "admin" && typeof rawModelOverride === "string" && rawModelOverride.trim()
+      ? rawModelOverride.trim()
+      : undefined;
+
   if (referenceImagePath) {
     // Reference-based: validate path belongs to this user's uploads BEFORE reading storage.
     // This enforces both authorization (no IDOR) and the "uploaded photos only" source requirement.
@@ -903,6 +910,7 @@ router.post("/memes/ai/:factId/generate", requirePremium, async (req: Request, r
         existingPrompts,
         userId: req.user?.id,
         styleSuffix,
+        modelOverride,
       });
     } catch (err) {
       res.status(500).json({ error: extractGenerationError(err) });
@@ -916,6 +924,7 @@ router.post("/memes/ai/:factId/generate", requirePremium, async (req: Request, r
         existingImages,
         userId: req.user?.id,
         styleSuffix,
+        modelOverride,
       });
     } catch (err) {
       res.status(500).json({ error: extractGenerationError(err) });
