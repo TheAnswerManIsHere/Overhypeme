@@ -861,6 +861,27 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
       const POLL_INTERVAL = 4_000;
       const MAX_POLLS = 22; // ~88s
 
+      // Capture baseline BEFORE posting so polling can detect the change.
+      // Generation is synchronous on the server — if we fetch baseline after
+      // the POST returns the new images are already stored and the baseline
+      // equals the new state, causing the poll to time out.
+      let baselineRefCount = 0;
+      let baselineSlotPath: string | null = null;
+      let baselineUpdatedAt: string | null = null;
+      if (aiSubMode === "reference") {
+        const baseline = await fetchRefGenImages().catch(() => null) ?? [];
+        baselineRefCount = baseline.filter(img => img.gender === aiGender).length;
+      } else {
+        try {
+          const initRes = await fetch(`/api/facts/${factId}`, { credentials: "include", cache: "no-store" });
+          if (initRes.ok) {
+            const init = await initRes.json() as { updatedAt?: string; aiMemeImages?: AiMemeImages | null };
+            baselineSlotPath = init.aiMemeImages?.[aiGender]?.[0] ?? null;
+            baselineUpdatedAt = init.updatedAt ?? null;
+          }
+        } catch { /* proceed without baseline */ }
+      }
+
       const res = await fetch(`/api/memes/ai/${factId}/generate`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -883,9 +904,8 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
       }
 
       if (aiSubMode === "reference") {
-        // Reference mode: poll user_ai_images until a new image appears for this fact+gender
-        const baselineImages = await fetchRefGenImages().catch(() => null) ?? [];
-        const baselineCount = baselineImages.filter(img => img.gender === aiGender).length;
+        // Reference mode: poll user_ai_images until a new image appears for this fact+gender.
+        // baselineRefCount was captured before the POST above.
         let polls = 0;
 
         const pollRef = async () => {
@@ -897,7 +917,7 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
             const images = await fetchRefGenImages();
             if (images) {
               const newCount = images.filter(img => img.gender === aiGender).length;
-              if (newCount > baselineCount) {
+              if (newCount > baselineRefCount) {
                 if (generationIdRef.current !== myGenerationId) return;
                 if (generationTimerRef.current) { clearInterval(generationTimerRef.current); generationTimerRef.current = null; }
                 abortControllerRef.current = null;
@@ -935,18 +955,8 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
         };
         setTimeout(() => void pollRef(), POLL_INTERVAL);
       } else {
-        // Generic mode: poll aiMemeImages on the fact
-        let baselineSlotPath: string | null = null;
-        let baselineUpdatedAt: string | null = null;
-        try {
-          const initRes = await fetch(`/api/facts/${factId}`, { credentials: "include", cache: "no-store" });
-          if (initRes.ok) {
-            const init = await initRes.json() as { updatedAt?: string; aiMemeImages?: AiMemeImages | null };
-            baselineSlotPath = init.aiMemeImages?.[aiGender]?.[0] ?? null;
-            baselineUpdatedAt = init.updatedAt ?? null;
-          }
-        } catch { /* proceed without baseline */ }
-
+        // Generic mode: poll aiMemeImages on the fact.
+        // baselineSlotPath / baselineUpdatedAt were captured before the POST above.
         let polls = 0;
         const poll = async () => {
           // Stale generation guard
