@@ -2005,7 +2005,12 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
                           const referenceFrame = aiScenePromptsDebug?.referenceFramePrompt
                             ?? "Generate an image using the provided reference photo. The person's face, facial structure, skin tone, eye shape, hair, and all distinguishing features must be preserved with photorealistic accuracy and remain visually identical to the reference — this is the highest priority. Do not alter, stylize, or idealize the person's facial features in any way. The person should be placed into the scene as described. The scene and environment should be stylized as described, but the person's face and likeness must remain untouched by any stylization. No text, words, or letters anywhere in the image.";
                           const includeReferenceFrame = aiSubMode === "reference";
-                          const finalPrompt = `${includeReferenceFrame ? referenceFrame + " " : ""}${sceneBase ?? "(scene prompt will be generated)"}${suffix ? ` ${suffix}` : ""}`;
+                          // Mirror backend exactly:
+                          //   prompt = suffix ? basePrompt.trim() + " " + suffix : basePrompt
+                          //   editPrompt = includeRef ? referenceFramePrompt + " " + prompt : prompt
+                          const scenePart = sceneBase ?? "(scene prompt will be generated)";
+                          const promptPart = suffix ? `${scenePart.trim()} ${suffix}` : scenePart;
+                          const finalPrompt = includeReferenceFrame ? `${referenceFrame} ${promptPart}` : promptPart;
                           return (
                             <div className="mt-1 space-y-1">
                               <button
