@@ -421,9 +421,20 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
     startX: number; startY: number;
     startOX: number; startOY: number;
   } | null>(null);
-  // User-controlled canvas preview height (null = use default)
-  const [resizeMaxH, setResizeMaxH] = useState<number | null>(null);
+  // User-controlled canvas preview height — persisted to localStorage so it
+  // survives navigation and is restored on the next visit.
+  const CANVAS_HEIGHT_KEY = "meme_canvas_height";
+  const [resizeMaxH, setResizeMaxH] = useState<number | null>(() => {
+    const saved = localStorage.getItem(CANVAS_HEIGHT_KEY);
+    const parsed = saved ? parseInt(saved, 10) : NaN;
+    return Number.isFinite(parsed) ? Math.max(80, Math.min(1200, parsed)) : null;
+  });
   const resizeDragRef = useRef<{ startY: number; startH: number } | null>(null);
+  function applyResizeMaxH(h: number) {
+    const clamped = Math.max(80, Math.min(1200, h));
+    localStorage.setItem(CANVAS_HEIGHT_KEY, String(clamped));
+    setResizeMaxH(clamped);
+  }
 
   // AI gallery display limit — fetched once from the admin-managed public config endpoint
   const [aiGalleryDisplayLimit, setAiGalleryDisplayLimit] = useState(50);
@@ -1748,7 +1759,7 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
                 const onMove = (ev: MouseEvent) => {
                   if (!resizeDragRef.current) return;
                   const delta = ev.clientY - resizeDragRef.current.startY;
-                  setResizeMaxH(Math.max(80, Math.min(1200, resizeDragRef.current.startH + delta)));
+                  applyResizeMaxH(resizeDragRef.current.startH + delta);
                 };
                 const onUp = () => {
                   resizeDragRef.current = null;
@@ -1765,7 +1776,7 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
                 const onMove = (ev: TouchEvent) => {
                   if (!resizeDragRef.current) return;
                   const delta = ev.touches[0].clientY - resizeDragRef.current.startY;
-                  setResizeMaxH(Math.max(80, Math.min(1200, resizeDragRef.current.startH + delta)));
+                  applyResizeMaxH(resizeDragRef.current.startH + delta);
                 };
                 const onUp = () => {
                   resizeDragRef.current = null;
