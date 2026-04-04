@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useRoute, Link, useLocation } from "wouter";
 import { format } from "date-fns";
 import HCaptcha from "@hcaptcha/react-hcaptcha";
@@ -186,7 +186,7 @@ export default function FactDetail() {
     query: { queryKey: getListCommentsQueryKey(factId, { limit: 50 }), enabled: !!factId }
   });
 
-  const [memeTab, setMemeTab] = useState<"public" | "mine">("public");
+  const [memeTab, setMemeTab] = useState<"all" | "public" | "mine">("all");
   const queryClient = useQueryClient();
 
   const { data: publicMemesData } = useQuery({
@@ -201,7 +201,19 @@ export default function FactDetail() {
     enabled: !!factId && isAuthenticated,
   });
 
-  const activeMemes = memeTab === "mine" ? myMemesData : publicMemesData;
+  const allMemes = useMemo(() => {
+    const seen = new Set<number>();
+    const combined: MemeItem[] = [];
+    for (const m of [...(publicMemesData?.memes ?? []), ...(myMemesData?.memes ?? [])]) {
+      if (!seen.has(m.id)) { seen.add(m.id); combined.push(m); }
+    }
+    return { memes: combined };
+  }, [publicMemesData, myMemesData]);
+
+  const activeMemes =
+    memeTab === "mine" ? myMemesData :
+    memeTab === "public" ? publicMemesData :
+    allMemes;
 
   const { name, pronouns } = usePersonName();
   const [commentText, setCommentText] = useState("");
@@ -377,6 +389,15 @@ export default function FactDetail() {
             </h3>
             <div className="flex items-center gap-1 bg-secondary border border-border rounded-sm p-1">
               <button
+                onClick={() => setMemeTab("all")}
+                className={cn(
+                  "flex items-center gap-1.5 text-xs font-display font-bold uppercase tracking-wider px-3 py-1.5 rounded-sm transition-colors",
+                  memeTab === "all" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"
+                )}
+              >
+                All {allMemes.memes.length > 0 ? `(${allMemes.memes.length})` : ""}
+              </button>
+              <button
                 onClick={() => setMemeTab("public")}
                 className={cn(
                   "flex items-center gap-1.5 text-xs font-display font-bold uppercase tracking-wider px-3 py-1.5 rounded-sm transition-colors",
@@ -432,7 +453,9 @@ export default function FactDetail() {
             <p className="text-muted-foreground py-10 text-center border-2 border-dashed border-border rounded-sm">
               {memeTab === "mine"
                 ? "You haven't made any memes for this fact yet."
-                : "No public memes yet. Be the first!"}
+                : memeTab === "public"
+                ? "No public memes yet. Be the first!"
+                : "No memes yet. Be the first!"}
             </p>
           )}
         </div>
