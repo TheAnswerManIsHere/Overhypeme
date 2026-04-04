@@ -1,0 +1,439 @@
+import { useState, useRef, useEffect } from "react";
+
+const ACCENT = "#ff6b35";
+const ACCENT_HOVER = "#ff8555";
+const DANGER = "#ff4757";
+const DANGER_HOVER = "#ff6b81";
+const BG_SURFACE = "rgba(18, 18, 22, 0.92)";
+const BG_HOVER = "rgba(255, 255, 255, 0.06)";
+const BORDER = "rgba(255, 255, 255, 0.08)";
+const TEXT_PRIMARY = "rgba(255, 255, 255, 0.92)";
+const TEXT_SECONDARY = "rgba(255, 255, 255, 0.5)";
+
+// ─── Icons (inline SVG for zero deps) ────────────────────────────
+const Icon = ({ d, size = 16, color = "currentColor", ...props }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
+    stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" {...props}>
+    <path d={d} />
+  </svg>
+);
+
+const icons = {
+  expand: "M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7",
+  link: "M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71 M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71",
+  download: "M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3",
+  share: "M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8M16 6l-4-4-4 4M12 2v13",
+  trash: "M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2",
+  kebab: "M12 5v.01M12 12v.01M12 19v.01",
+};
+
+// ─── Kebab Menu Dropdown ─────────────────────────────────────────
+function KebabMenu({ onAction, position = "bottom-left" }) {
+  const [open, setOpen] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const menuRef = useRef(null);
+  const btnRef = useRef(null);
+
+  // Close on outside click
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e) => {
+      if (menuRef.current && !menuRef.current.contains(e.target) &&
+          btnRef.current && !btnRef.current.contains(e.target)) {
+        setOpen(false);
+        setConfirmDelete(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [open]);
+
+  // Close on Escape
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e) => {
+      if (e.key === "Escape") { setOpen(false); setConfirmDelete(false); }
+    };
+    document.addEventListener("keydown", handler);
+    return () => document.removeEventListener("keydown", handler);
+  }, [open]);
+
+  const handleAction = (action) => {
+    if (action === "delete" && !confirmDelete) {
+      setConfirmDelete(true);
+      return;
+    }
+    onAction?.(action);
+    setOpen(false);
+    setConfirmDelete(false);
+  };
+
+  const positionStyles = {
+    "bottom-left": { top: "calc(100% + 6px)", right: 0 },
+    "bottom-right": { top: "calc(100% + 6px)", left: 0 },
+    "top-left": { bottom: "calc(100% + 6px)", right: 0 },
+    "top-right": { bottom: "calc(100% + 6px)", left: 0 },
+  };
+
+  const menuItems = [
+    { id: "fullres", icon: icons.expand, label: "Open Full Resolution" },
+    { id: "link", icon: icons.link, label: "Copy Link" },
+    { id: "download", icon: icons.download, label: "Download" },
+    { id: "share", icon: icons.share, label: "Share" },
+    { type: "divider" },
+    { id: "delete", icon: icons.trash, label: "Delete", danger: true },
+  ];
+
+  return (
+    <div style={{ position: "relative", zIndex: 10 }}>
+      {/* Trigger Button */}
+      <button
+        ref={btnRef}
+        onClick={(e) => { e.stopPropagation(); setOpen(!open); setConfirmDelete(false); }}
+        aria-label="More actions"
+        aria-expanded={open}
+        style={{
+          width: 32, height: 32,
+          borderRadius: 8,
+          border: "none",
+          background: open ? "rgba(255,255,255,0.15)" : "rgba(0,0,0,0.45)",
+          backdropFilter: "blur(8px)",
+          WebkitBackdropFilter: "blur(8px)",
+          color: TEXT_PRIMARY,
+          cursor: "pointer",
+          display: "flex", alignItems: "center", justifyContent: "center",
+          transition: "all 0.2s ease",
+          outline: "none",
+        }}
+        onMouseEnter={(e) => {
+          if (!open) e.currentTarget.style.background = "rgba(255,255,255,0.12)";
+        }}
+        onMouseLeave={(e) => {
+          if (!open) e.currentTarget.style.background = "rgba(0,0,0,0.45)";
+        }}
+      >
+        {/* Three dots - vertical */}
+        <svg width="16" height="16" viewBox="0 0 24 24" fill={TEXT_PRIMARY}>
+          <circle cx="12" cy="5" r="1.8" />
+          <circle cx="12" cy="12" r="1.8" />
+          <circle cx="12" cy="19" r="1.8" />
+        </svg>
+      </button>
+
+      {/* Dropdown */}
+      {open && (
+        <div
+          ref={menuRef}
+          role="menu"
+          style={{
+            position: "absolute",
+            ...positionStyles[position],
+            minWidth: 200,
+            background: BG_SURFACE,
+            backdropFilter: "blur(24px) saturate(1.4)",
+            WebkitBackdropFilter: "blur(24px) saturate(1.4)",
+            border: `1px solid ${BORDER}`,
+            borderRadius: 12,
+            padding: "4px",
+            boxShadow: "0 8px 32px rgba(0,0,0,0.5), 0 2px 8px rgba(0,0,0,0.3)",
+            animation: "kebabSlideIn 0.18s cubic-bezier(0.16, 1, 0.3, 1)",
+          }}
+        >
+          {menuItems.map((item, i) => {
+            if (item.type === "divider") {
+              return <div key={i} style={{
+                height: 1, background: BORDER,
+                margin: "4px 8px",
+              }} />;
+            }
+
+            const isDanger = item.danger;
+            const isDeleteConfirm = item.id === "delete" && confirmDelete;
+
+            return (
+              <button
+                key={item.id}
+                role="menuitem"
+                onClick={(e) => { e.stopPropagation(); handleAction(item.id); }}
+                style={{
+                  display: "flex", alignItems: "center", gap: 10,
+                  width: "100%",
+                  padding: "8px 12px",
+                  border: "none",
+                  borderRadius: 8,
+                  background: isDeleteConfirm ? "rgba(255,71,87,0.15)" : "transparent",
+                  color: isDanger ? DANGER : TEXT_PRIMARY,
+                  fontFamily: "'DM Sans', sans-serif",
+                  fontSize: 13,
+                  fontWeight: 500,
+                  cursor: "pointer",
+                  transition: "all 0.15s ease",
+                  textAlign: "left",
+                  outline: "none",
+                  letterSpacing: "0.01em",
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = isDanger
+                    ? "rgba(255,71,87,0.12)"
+                    : BG_HOVER;
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = isDeleteConfirm
+                    ? "rgba(255,71,87,0.15)"
+                    : "transparent";
+                }}
+              >
+                <Icon d={item.icon} size={15}
+                  color={isDanger ? DANGER : TEXT_SECONDARY}
+                  style={{ flexShrink: 0 }} />
+                <span>{isDeleteConfirm ? "Confirm Delete" : item.label}</span>
+                {item.id === "link" && (
+                  <span style={{
+                    marginLeft: "auto",
+                    fontSize: 10,
+                    color: TEXT_SECONDARY,
+                    fontFamily: "'JetBrains Mono', monospace",
+                    opacity: 0.6,
+                    letterSpacing: "0.05em",
+                  }}>⌘C</span>
+                )}
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Image Card ──────────────────────────────────────────────────
+function ImageCard({ src, label, index }) {
+  const [hovered, setHovered] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const [toast, setToast] = useState(null);
+
+  const showToast = (msg) => {
+    setToast(msg);
+    setTimeout(() => setToast(null), 2000);
+  };
+
+  const handleAction = (action) => {
+    const messages = {
+      fullres: "Opening full resolution…",
+      link: "Link copied to clipboard",
+      download: "Download started",
+      share: "Share dialog opened",
+      delete: "Image deleted",
+    };
+    showToast(messages[action] || action);
+  };
+
+  return (
+    <div
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      style={{
+        position: "relative",
+        borderRadius: 12,
+        overflow: "hidden",
+        aspectRatio: "1",
+        cursor: "pointer",
+        boxShadow: hovered
+          ? `0 0 0 1.5px ${ACCENT}40, 0 8px 24px rgba(0,0,0,0.4)`
+          : "0 2px 8px rgba(0,0,0,0.3)",
+        transition: "box-shadow 0.25s ease, transform 0.25s ease",
+        transform: hovered ? "translateY(-2px)" : "none",
+      }}
+    >
+      {/* Image */}
+      <img
+        src={src}
+        alt={label}
+        style={{
+          width: "100%", height: "100%",
+          objectFit: "cover",
+          display: "block",
+          transition: "transform 0.4s cubic-bezier(0.16, 1, 0.3, 1)",
+          transform: hovered ? "scale(1.04)" : "scale(1)",
+        }}
+      />
+
+      {/* Gradient scrim for kebab visibility */}
+      <div style={{
+        position: "absolute", inset: 0,
+        background: hovered
+          ? "linear-gradient(180deg, rgba(0,0,0,0.5) 0%, transparent 35%, transparent 70%, rgba(0,0,0,0.6) 100%)"
+          : "linear-gradient(180deg, rgba(0,0,0,0.25) 0%, transparent 30%)",
+        transition: "opacity 0.25s ease",
+        pointerEvents: "none",
+      }} />
+
+      {/* Kebab - always visible but more prominent on hover */}
+      <div style={{
+        position: "absolute",
+        top: 8, right: 8,
+        opacity: hovered ? 1 : 0.6,
+        transition: "opacity 0.2s ease",
+      }}>
+        <KebabMenu onAction={handleAction} position="bottom-left" />
+      </div>
+
+      {/* Bottom label on hover */}
+      <div style={{
+        position: "absolute",
+        bottom: 0, left: 0, right: 0,
+        padding: "12px",
+        opacity: hovered ? 1 : 0,
+        transform: hovered ? "translateY(0)" : "translateY(4px)",
+        transition: "all 0.25s ease",
+        pointerEvents: "none",
+      }}>
+        <span style={{
+          fontFamily: "'DM Sans', sans-serif",
+          fontSize: 12,
+          fontWeight: 600,
+          color: TEXT_PRIMARY,
+          letterSpacing: "0.02em",
+        }}>{label}</span>
+        <span style={{
+          display: "block",
+          fontFamily: "'JetBrains Mono', monospace",
+          fontSize: 10,
+          color: TEXT_SECONDARY,
+          marginTop: 2,
+        }}>1024 × 1024</span>
+      </div>
+
+      {/* Toast */}
+      {toast && (
+        <div style={{
+          position: "absolute",
+          bottom: 12, left: "50%",
+          transform: "translateX(-50%)",
+          background: BG_SURFACE,
+          backdropFilter: "blur(16px)",
+          WebkitBackdropFilter: "blur(16px)",
+          border: `1px solid ${BORDER}`,
+          borderRadius: 8,
+          padding: "6px 14px",
+          fontFamily: "'DM Sans', sans-serif",
+          fontSize: 12,
+          fontWeight: 500,
+          color: ACCENT,
+          whiteSpace: "nowrap",
+          boxShadow: "0 4px 16px rgba(0,0,0,0.4)",
+          animation: "toastIn 0.25s cubic-bezier(0.16, 1, 0.3, 1)",
+          zIndex: 20,
+        }}>
+          {toast}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Demo App ────────────────────────────────────────────────────
+const SAMPLE_IMAGES = [
+  { src: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=400&h=400&fit=crop&crop=face", label: "Portrait A" },
+  { src: "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=400&h=400&fit=crop&crop=face", label: "Portrait B" },
+  { src: "https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=400&h=400&fit=crop&crop=face", label: "Portrait C" },
+  { src: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=400&h=400&fit=crop&crop=face", label: "Portrait D" },
+  { src: "https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?w=400&h=400&fit=crop&crop=face", label: "Portrait E" },
+  { src: "https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=400&h=400&fit=crop&crop=face", label: "Portrait F" },
+];
+
+export default function KebabMenuDemo() {
+  return (
+    <>
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap');
+
+        @keyframes kebabSlideIn {
+          from { opacity: 0; transform: scale(0.92) translateY(-4px); }
+          to   { opacity: 1; transform: scale(1)    translateY(0); }
+        }
+
+        @keyframes toastIn {
+          from { opacity: 0; transform: translateX(-50%) translateY(8px); }
+          to   { opacity: 1; transform: translateX(-50%) translateY(0); }
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+      `}</style>
+
+      <div style={{
+        minHeight: "100vh",
+        background: "#0a0a0e",
+        padding: "40px 24px",
+        fontFamily: "'DM Sans', sans-serif",
+      }}>
+        {/* Header */}
+        <div style={{ maxWidth: 680, margin: "0 auto 32px" }}>
+          <h2 style={{
+            fontFamily: "'Bebas Neue', sans-serif",
+            fontSize: 28,
+            color: ACCENT,
+            letterSpacing: "0.06em",
+            marginBottom: 4,
+          }}>Meme Image Library</h2>
+          <p style={{
+            fontSize: 13,
+            color: TEXT_SECONDARY,
+            fontWeight: 400,
+          }}>Select an image for meme creation. Hover for actions.</p>
+        </div>
+
+        {/* Grid */}
+        <div style={{
+          maxWidth: 680,
+          margin: "0 auto",
+          display: "grid",
+          gridTemplateColumns: "repeat(3, 1fr)",
+          gap: 12,
+        }}>
+          {SAMPLE_IMAGES.map((img, i) => (
+            <ImageCard key={i} {...img} index={i} />
+          ))}
+        </div>
+
+        {/* Comparison note */}
+        <div style={{
+          maxWidth: 680,
+          margin: "40px auto 0",
+          padding: "20px 24px",
+          background: "rgba(255,255,255,0.03)",
+          border: `1px solid ${BORDER}`,
+          borderRadius: 12,
+        }}>
+          <h3 style={{
+            fontFamily: "'Bebas Neue', sans-serif",
+            fontSize: 18,
+            color: TEXT_PRIMARY,
+            letterSpacing: "0.04em",
+            marginBottom: 8,
+          }}>What Changed</h3>
+          <div style={{
+            fontSize: 13, color: TEXT_SECONDARY, lineHeight: 1.7,
+          }}>
+            <p style={{ marginBottom: 8 }}>
+              <span style={{ color: ACCENT, fontWeight: 600 }}>Dropdown, not overlay.</span>{" "}
+              The menu floats from the kebab button instead of blanketing the image. You can still see what you're acting on.
+            </p>
+            <p style={{ marginBottom: 8 }}>
+              <span style={{ color: ACCENT, fontWeight: 600 }}>Glassmorphic surface.</span>{" "}
+              Backdrop blur + low-opacity dark fill gives depth without opaqueness. Fits the cinematic theme.
+            </p>
+            <p style={{ marginBottom: 8 }}>
+              <span style={{ color: ACCENT, fontWeight: 600 }}>Two-step delete.</span>{" "}
+              Destructive action requires confirmation inline — no separate modal, no lost context.
+            </p>
+            <p>
+              <span style={{ color: ACCENT, fontWeight: 600 }}>Spring animation.</span>{" "}
+              Menu enters with scale + translate on a cubic-bezier curve (0.16, 1, 0.3, 1) — fast in, gentle settle.
+            </p>
+          </div>
+        </div>
+      </div>
+    </>
+  );
+}
