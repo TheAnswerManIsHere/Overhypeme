@@ -112,7 +112,7 @@ export function SubscriptionPanel() {
     : appSub?.plan === "monthly" ? "Monthly"
     : price?.recurring?.interval === "year" ? "Annual"
     : price?.recurring?.interval === "month" ? "Monthly"
-    : "Premium";
+    : "Legendary";
 
   return (
     <div className="bg-card border-2 border-border rounded-sm p-6 mb-8">
@@ -137,7 +137,7 @@ export function SubscriptionPanel() {
             </div>
           </div>
           <Link href="/pricing">
-            <Button size="sm">Upgrade to Premium</Button>
+            <Button size="sm">Go Legendary</Button>
           </Link>
         </div>
       )}
@@ -148,7 +148,7 @@ export function SubscriptionPanel() {
             <Star className="w-6 h-6 text-primary shrink-0" />
             <div>
               <p className="font-bold text-foreground flex items-center gap-2">
-                Premium Member
+                Legendary Member
                 <span className="text-xs bg-primary/20 text-primary px-2 py-0.5 rounded-sm uppercase tracking-wide">
                   {isLifetime ? "lifetime" : sub?.status ?? "active"}
                 </span>

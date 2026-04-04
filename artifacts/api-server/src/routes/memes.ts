@@ -238,7 +238,7 @@ router.post("/memes", async (req: Request, res: Response) => {
   }
 
   if (imageSource.type === "upload" && !isPremium) {
-    res.status(403).json({ error: "Custom photo upload is a Premium feature" });
+    res.status(403).json({ error: "Custom photo upload is a Legendary feature" });
     return;
   }
 

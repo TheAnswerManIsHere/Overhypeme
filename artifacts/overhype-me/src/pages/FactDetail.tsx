@@ -498,7 +498,7 @@ export default function FactDetail() {
                   <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between">
                     {isPremium ? (
                       <div className="flex items-center gap-2 text-yellow-500 text-sm font-display font-bold uppercase tracking-wider">
-                        <Crown className="w-4 h-4" /> Captcha skipped (Premium)
+                        <Crown className="w-4 h-4" /> Captcha skipped (Legendary)
                       </div>
                     ) : (
                       <div className="overflow-hidden rounded-sm border-2 border-border">

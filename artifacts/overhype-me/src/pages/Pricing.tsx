@@ -112,7 +112,7 @@ export default function Pricing() {
         <div className="text-center mb-16">
           <div className="flex items-center justify-center gap-2 mb-4">
             <Zap className="w-8 h-8 text-primary" />
-            <h1 className="text-4xl md:text-5xl font-display uppercase tracking-widest text-foreground">Go Premium</h1>
+            <h1 className="text-4xl md:text-5xl font-display uppercase tracking-widest text-foreground">Go Legendary</h1>
           </div>
           <p className="text-xl text-muted-foreground max-w-xl mx-auto">
             Unlock the full experience. Because average is for other people.
@@ -147,7 +147,7 @@ export default function Pricing() {
                 <Star className="w-5 h-5 text-primary" />
               </div>
               <div>
-                <h2 className="text-xl font-display uppercase tracking-wide text-primary">Premium</h2>
+                <h2 className="text-xl font-display uppercase tracking-wide text-primary">Legendary</h2>
                 <p className="text-2xl font-bold text-foreground">
                   {monthly ? `$${(monthly.unit_amount / 100).toFixed(2)}` : "$4.99"}
                   <span className="text-sm text-muted-foreground font-normal">/month</span>
@@ -213,7 +213,7 @@ export default function Pricing() {
           <Zap className="w-8 h-8 text-primary mx-auto mb-4" />
           <h3 className="text-xl font-display uppercase tracking-wide text-foreground mb-3">What is Fact of the Day?</h3>
           <p className="text-muted-foreground max-w-lg mx-auto">
-            Every morning, premium members receive a daily email featuring a randomly selected top-rated fact — personalized with your name. Start your day right.
+            Every morning, Legendary members receive a daily email featuring a randomly selected top-rated fact — personalized with your name. Start your day right.
           </p>
         </div>
       </div>

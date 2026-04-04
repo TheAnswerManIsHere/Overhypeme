@@ -132,7 +132,7 @@ router.post(
       .limit(1);
 
     if (userRow?.membershipTier !== "premium") {
-      res.status(403).json({ error: "Custom photo upload is a Premium feature" });
+      res.status(403).json({ error: "Custom photo upload is a Legendary feature" });
       return;
     }
 
