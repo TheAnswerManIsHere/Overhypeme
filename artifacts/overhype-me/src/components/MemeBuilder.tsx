@@ -1908,9 +1908,9 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
                             : (styleDef?.promptSuffix ?? "");
                           const genderKey = aiGender as string;
                           const sceneBase = aiScenePromptsDebug?.[genderKey] ?? null;
-                          const referenceFrame = " — transform the provided reference photo into a cinematic meme background with dramatic lighting and high contrast. No text or letters.";
-                          const includeReferenceFrame = aiSubMode === "reference" && !!suffix;
-                          const finalPrompt = `${sceneBase ?? "(scene prompt will be generated)"}${suffix ? ` ${suffix}` : ""}${includeReferenceFrame ? referenceFrame : ""}`;
+                          const referenceFrame = "Generate an image using the provided reference photo. The person's face, facial structure, skin tone, eye shape, hair, and all distinguishing features must be preserved with photorealistic accuracy and remain visually identical to the reference — this is the highest priority. Do not alter, stylize, or idealize the person's facial features in any way. The person should be placed into the scene as described. The scene and environment should be stylized as described, but the person's face and likeness must remain untouched by any stylization. No text, words, or letters anywhere in the image.";
+                          const includeReferenceFrame = aiSubMode === "reference";
+                          const finalPrompt = `${includeReferenceFrame ? referenceFrame + " " : ""}${sceneBase ?? "(scene prompt will be generated)"}${suffix ? ` ${suffix}` : ""}`;
                           return (
                             <div className="mt-1 space-y-1">
                               <button
@@ -1936,7 +1936,7 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
                                       )}
                                       {includeReferenceFrame && (
                                         <div>
-                                          <span className="text-muted-foreground font-semibold uppercase tracking-wide">Reference frame</span>
+                                          <span className="text-muted-foreground font-semibold uppercase tracking-wide">Reference frame (prepended)</span>
                                           <p className="mt-0.5 text-foreground/80 font-mono leading-relaxed">{referenceFrame.trim()}</p>
                                         </div>
                                       )}
@@ -1956,7 +1956,7 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
                                       )}
                                       {includeReferenceFrame && (
                                         <div>
-                                          <span className="text-muted-foreground font-semibold uppercase tracking-wide">Reference frame that will be appended</span>
+                                          <span className="text-muted-foreground font-semibold uppercase tracking-wide">Reference frame (prepended)</span>
                                           <p className="mt-0.5 text-foreground/80 font-mono leading-relaxed">{referenceFrame.trim()}</p>
                                         </div>
                                       )}

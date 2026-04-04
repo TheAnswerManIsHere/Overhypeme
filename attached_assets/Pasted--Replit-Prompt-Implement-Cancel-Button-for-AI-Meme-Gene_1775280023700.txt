@@ -1,0 +1,142 @@
+# Replit Prompt: Implement Cancel Button for AI Meme Generation
+
+## Context
+
+The meme generator supports two image generation flows:
+1. **Generic generation** — AI generates an image from a text prompt alone
+2. **Reference photo generation** — AI generates an image using a user-uploaded reference photo + text prompt
+
+Both flows make asynchronous API calls to an AI image generation service. Once a request is fired, the server-side computation cannot be stopped — "cancellation" means **client-side discard and cleanup**, not server-side abort.
+
+## Requirements
+
+### 1. AbortController Integration
+
+Implement `AbortController` on every outbound image generation fetch call (both generic and reference photo flows). Wire the controller's `signal` into the fetch request so that calling `controller.abort()` tears down the connection immediately.
+
+- Store the active `AbortController` instance in a ref (`useRef`) so it persists across renders without triggering re-renders.
+- When a new generation is initiated, **abort any in-flight request first** before creating a new controller and firing the new request.
+- Catch `AbortError` by name and treat it as an expected non-error condition — do **not** surface it as an error toast, log it to an error tracker, or set error state.
+
+### 2. Generation ID / Stale Response Guard
+
+Protect against the race condition where a slow response from a previous request arrives after the user has already cancelled or started a new generation.
+
+- Maintain a generation counter (incrementing integer). Use both a state variable and a ref — the ref is what you check inside the async callback closure (closures capture stale state values, refs don't).
+- On every new generation attempt (including retries), increment the counter.
+- When a response arrives, compare the request's generation ID against the **current** ref value. If they don't match, silently discard the result — do not write it to state or to the database.
+
+### 3. UI State Machine
+
+The meme generator UI should have a clean state machine with these states:
+
+- `idle` — default state, generate button visible
+- `generating` — spinner/progress indicator visible, **cancel button visible**, generate button hidden or disabled
+- `completed` — generated image displayed, generate button resets to allow new generation
+- `error` — error message displayed with retry option
+
+**Critical:** Cancellation transitions from `generating` → `idle`, NOT `generating` → `error`. The user chose to cancel; that is not a failure. Clear any partial/preview state when transitioning back to idle.
+
+### 4. Database Record Lifecycle — Avoid Orphaned Records
+
+This is the most important architectural decision: **do NOT write a meme record to the database before the image generation API call succeeds.** Use a two-phase approach:
+
+#### Phase 1: Optimistic UI, No Database Write
+- When the user clicks "Generate", transition the UI to `generating` state.
+- Fire the API call.
+- Do **not** create a database record yet. There is nothing to persist until we have a result.
+
+#### Phase 2: Persist Only on Success
+- **On success:** Write the completed meme record to the database (prompt, image URL/blob, metadata, timestamps, user ID, etc.) in a single transaction. Only after the DB write succeeds, transition UI to `completed`.
+- **On cancel:** Transition UI to `idle`. No database write ever happened, so there is nothing to clean up. No orphaned records.
+- **On error:** Transition UI to `error`. No database write happened, so again no orphans.
+
+#### If Pre-creation Is Unavoidable
+If for some reason a database record MUST be created before the generation call (e.g., to reserve a slug, generate a shareable URL, or track usage quota), then:
+- Create the record with a status field set to `pending`.
+- On success: update the record status to `completed` and attach the image data.
+- On cancel or error: **delete the pending record immediately** in the cancel/error handler. Also implement a background cleanup job (cron or scheduled function) that sweeps and deletes any `pending` records older than a reasonable TTL (e.g., 5-10 minutes) as a safety net for edge cases where the client-side cleanup fails (browser crash, network loss, tab closed).
+
+### 5. Reference Photo Cleanup
+
+For the reference photo flow specifically:
+- If the user uploaded a reference photo and it was stored in temporary/staging storage (e.g., a temp S3 prefix or local upload directory) for the purpose of the generation request, **clean up that temp file on cancel**. Don't leave orphaned uploads accumulating.
+- If the photo was already stored as part of the user's permanent uploads (e.g., profile photos), leave it alone — only clean up generation-specific temp artifacts.
+
+### 6. Cancel Button UX
+
+- The cancel button should be clearly visible and easily tappable during the `generating` state.
+- Disable the cancel button briefly (~200ms) after it's clicked to prevent double-fires while the abort + state transition propagates.
+- After cancel, return the form to its pre-generation state with the user's inputs (prompt text, reference photo) still populated so they don't have to re-enter everything.
+- Do not show a confirmation dialog for cancel — it should be instant. The cost of an accidental cancel (re-click generate) is much lower than the annoyance of a modal interrupting a time-sensitive action.
+
+### 7. Implementation Skeleton
+
+Here's the structural pattern to follow (adapt to the project's existing code style and state management):
+
+```jsx
+// Refs that persist across renders
+const abortControllerRef = useRef(null);
+const generationIdRef = useRef(0);
+
+// State
+const [genState, setGenState] = useState('idle'); // 'idle' | 'generating' | 'completed' | 'error'
+const [generatedImage, setGeneratedImage] = useState(null);
+const [error, setError] = useState(null);
+
+async function handleGenerate(prompt, referencePhoto = null) {
+  // Abort any in-flight request
+  abortControllerRef.current?.abort();
+
+  // New generation
+  const controller = new AbortController();
+  abortControllerRef.current = controller;
+  const thisGenId = ++generationIdRef.current;
+
+  setGenState('generating');
+  setError(null);
+
+  try {
+    const result = await generateMemeImage(prompt, referencePhoto, controller.signal);
+
+    // Stale response guard
+    if (thisGenId !== generationIdRef.current) return;
+
+    // Success — NOW write to database
+    await saveMemeToDatabase({ prompt, imageData: result, referencePhoto, /* ... */ });
+
+    setGeneratedImage(result);
+    setGenState('completed');
+  } catch (err) {
+    if (err.name === 'AbortError') return; // Expected, not an error
+
+    if (thisGenId !== generationIdRef.current) return; // Stale error
+
+    setError(err.message);
+    setGenState('error');
+  }
+}
+
+function handleCancel() {
+  abortControllerRef.current?.abort();
+  abortControllerRef.current = null;
+  setGenState('idle');
+  // Do NOT clear form inputs — user may want to retry
+  // No DB cleanup needed if we followed the two-phase approach
+}
+```
+
+### 8. Edge Cases to Handle
+
+- **Rapid fire:** User clicks Generate, then Cancel, then Generate again quickly. The abort + generation ID pattern handles this — the first request is aborted, the second gets a new ID, and any stale responses from the first are discarded.
+- **Cancel during database write:** If the user cancels *after* the image was received but *during* the database save, the `generationIdRef` guard should prevent state updates, but the DB write may have already fired. Wrap the save in a check, or accept that a completed generation that was "cancelled" at the last moment may still persist (it was successfully generated — arguably not an orphan).
+- **Network loss during generation:** The fetch will reject with a `TypeError` (network error), not an `AbortError`. Handle this in the catch block as a real error, distinct from cancellation.
+- **Component unmount during generation:** Add a cleanup function in a `useEffect` that aborts any in-flight request when the component unmounts to prevent state updates on an unmounted component.
+
+```jsx
+useEffect(() => {
+  return () => {
+    abortControllerRef.current?.abort();
+  };
+}, []);
+```
