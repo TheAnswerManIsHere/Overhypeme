@@ -142,6 +142,7 @@ const CreateMemeBody = z.object({
   textOptions: TextOptionsSchema,
   previewImageBase64: z.string().max(700_000).optional(),
   isPublic: z.boolean().optional(),
+  aspectRatio: z.enum(["landscape", "square", "portrait"]).optional(),
 });
 
 // Stored imageSource shape from the DB (jsonb — we cast and validate manually)
@@ -223,7 +224,7 @@ router.post("/memes", async (req: Request, res: Response) => {
     return;
   }
 
-  const { factId, imageSource, textOptions, previewImageBase64, isPublic: isPublicReq } = parsed.data;
+  const { factId, imageSource, textOptions, previewImageBase64, isPublic: isPublicReq, aspectRatio: aspectRatioReq } = parsed.data;
 
   // ── Membership check ────────────────────────────────────────────
   const [userRow] = await db
@@ -328,6 +329,7 @@ router.post("/memes", async (req: Request, res: Response) => {
       originalHeight: uploadMeta?.height ?? null,
       uploadFileSizeBytes: uploadMeta?.fileSizeBytes ?? null,
       createdById: req.user.id,
+      aspectRatio: aspectRatioReq ?? "landscape",
     })
     .returning();
 
@@ -460,6 +462,7 @@ router.get("/facts/:factId/memes", async (req: Request, res: Response) => {
       isPublic: m.isPublic,
       createdById: m.createdById,
       createdAt: m.createdAt.toISOString(),
+      aspectRatio: m.aspectRatio ?? "landscape",
     })),
   });
 });
