@@ -144,12 +144,27 @@ const DEFAULT_USER_STORAGE_LIMIT = 1000;
 
 const objectStorage = new ObjectStorageService();
 
+/**
+ * Merges admin-supplied string overrides into the fal.ai input object.
+ * Numeric coercion: if the value looks like a finite number, it's cast to number.
+ * Values set to "" are ignored (admin left the field blank = use default).
+ */
+function applyParamOverrides(input: Record<string, unknown>, overrides?: Record<string, string>): void {
+  if (!overrides) return;
+  for (const [key, raw] of Object.entries(overrides)) {
+    if (raw === "" || raw === undefined) continue;
+    const num = Number(raw);
+    input[key] = Number.isFinite(num) ? num : raw;
+  }
+}
+
 async function generateAndStoreImage(
   factId: number,
   gender: "male" | "female" | "neutral",
   uniqueKey: string,
   prompt: string,
   modelOverride?: string,
+  paramsOverride?: Record<string, string>,
 ): Promise<string> {
   configureFal();
 
@@ -186,6 +201,9 @@ async function generateAndStoreImage(
 
   const seedNum = seedStr.trim() ? parseInt(seedStr.trim(), 10) : NaN;
   if (!isNaN(seedNum)) input["seed"] = seedNum;
+
+  // Apply admin per-request overrides last — they win over all config values
+  applyParamOverrides(input, paramsOverride);
 
   const result = await fal.subscribe(model, {
     input,
@@ -267,6 +285,7 @@ async function generateAndStoreImageFromReference(
   prompt: string,
   referenceBuffer: Buffer,
   modelOverride?: string,
+  paramsOverride?: Record<string, string>,
 ): Promise<string> {
   configureFal();
 
@@ -277,7 +296,7 @@ async function generateAndStoreImageFromReference(
   // fall through to standard generation — don't upload the reference photo or pass a face param.
   if (!isReferenceCapableModel(model)) {
     console.log(`[aiMemePipeline] model "${model}" is not reference-capable — falling back to standard generation`);
-    return generateAndStoreImage(factId, gender, uniqueKey, prompt, model);
+    return generateAndStoreImage(factId, gender, uniqueKey, prompt, model, paramsOverride);
   }
 
   // Upload reference photo to fal.ai transient storage so we have a URL to pass
@@ -330,6 +349,9 @@ async function generateAndStoreImageFromReference(
     // Note: FLUX-based models (including PuLID) do NOT support negative_prompt.
   }
 
+  // Apply admin per-request overrides last — they win over all config values
+  applyParamOverrides(input, paramsOverride);
+
   const result = await fal.subscribe(model, {
     input,
     logs: false,
@@ -379,6 +401,8 @@ export async function generateAiMemeBackgroundFromReference(
     styleSuffix?: string;
     /** Override the fal.ai model for this request (admin-only) */
     modelOverride?: string;
+    /** Per-request param overrides for fal.ai (admin-only) */
+    paramsOverride?: Record<string, string>;
     /** When true, errors are caught internally and logged; when false (default), errors propagate to caller */
     suppressErrors?: boolean;
   },
@@ -405,7 +429,7 @@ export async function generateAiMemeBackgroundFromReference(
     const basePrompt = prompts[targetGender];
     const prompt = options?.styleSuffix ? `${basePrompt.trim()} ${options.styleSuffix}` : basePrompt;
     console.log(`[aiMemePipeline] Generating reference-based image for fact ${factId}, gender=${targetGender}${options?.modelOverride ? ` (model override: ${options.modelOverride})` : ""}`);
-    const storedPath = await generateAndStoreImageFromReference(factId, targetGender, uniqueKey, prompt, referenceBuffer, options?.modelOverride);
+    const storedPath = await generateAndStoreImageFromReference(factId, targetGender, uniqueKey, prompt, referenceBuffer, options?.modelOverride, options?.paramsOverride);
 
     // Track only in user_ai_images (type='reference') — NOT in the shared aiMemeImages on the fact
     try {
@@ -458,6 +482,8 @@ export async function generateAiMemeBackgrounds(
     styleSuffix?: string;
     /** Override the fal.ai model for this request (admin-only) */
     modelOverride?: string;
+    /** Per-request param overrides for fal.ai (admin-only) */
+    paramsOverride?: Record<string, string>;
     /** When true, errors are caught internally and logged; when false (default), errors propagate to caller */
     suppressErrors?: boolean;
   },
@@ -522,7 +548,7 @@ export async function generateAiMemeBackgrounds(
       const basePrompt = prompts[gender];
       const prompt = options?.styleSuffix ? `${basePrompt.trim()} ${options.styleSuffix}` : basePrompt;
       console.log(`[aiMemePipeline] Generating image for fact ${factId}, gender=${gender}, key=${uniqueKey}${options?.modelOverride ? ` (model override: ${options.modelOverride})` : ""}`);
-      const storedPath = await generateAndStoreImage(factId, gender, uniqueKey, prompt, options?.modelOverride);
+      const storedPath = await generateAndStoreImage(factId, gender, uniqueKey, prompt, options?.modelOverride, options?.paramsOverride);
       // Prepend newest image at the front — gallery always shows newest-first
       result[gender].unshift(storedPath);
       // Trim per-fact gallery to max per gender
