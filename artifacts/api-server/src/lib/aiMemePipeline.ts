@@ -26,6 +26,20 @@ const DEFAULT_IMAGE_MODEL_STANDARD  = "fal-ai/flux-pro/v1.1";
 const DEFAULT_IMAGE_MODEL_REFERENCE = "fal-ai/flux-pulid";
 const DEFAULT_IMAGE_SIZE            = "square_hd";
 
+/**
+ * Models that accept a face-reference image input.
+ * Each uses a different parameter name for the reference URL.
+ */
+const REFERENCE_MODEL_INPUT_PARAM: Record<string, string> = {
+  "fal-ai/flux-pulid":              "image_url",
+  "fal-ai/ip-adapter-face-id-plus": "face_image_url",
+};
+
+/** Returns true if the model supports a face reference image input. */
+function isReferenceCapableModel(model: string): boolean {
+  return model in REFERENCE_MODEL_INPUT_PARAM;
+}
+
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 export interface AiScenePrompts {
@@ -225,33 +239,53 @@ async function generateAndStoreImageFromReference(
   uniqueKey: string,
   prompt: string,
   referenceBuffer: Buffer,
-  includeReferenceFrame: boolean,
   modelOverride?: string,
 ): Promise<string> {
   configureFal();
+
+  const model     = modelOverride || await getConfigString("ai_image_model_reference", DEFAULT_IMAGE_MODEL_REFERENCE);
+  const imageSize = await getConfigString("ai_image_size", DEFAULT_IMAGE_SIZE);
+
+  // If the selected model is not reference-capable (e.g. FLUX Pro 1.1 chosen via admin override),
+  // fall through to standard generation — don't upload the reference photo or pass a face param.
+  if (!isReferenceCapableModel(model)) {
+    console.log(`[aiMemePipeline] model "${model}" is not reference-capable — falling back to standard generation`);
+    return generateAndStoreImage(factId, gender, uniqueKey, prompt, model);
+  }
 
   // Upload reference photo to fal.ai transient storage so we have a URL to pass
   const referenceBlob = new Blob([referenceBuffer], { type: "image/jpeg" });
   const faceImageUrl = await fal.storage.upload(referenceBlob, { lifecycle: { expiresIn: "1h" } });
 
-  const referenceFramePrompt = await getConfigString(
-    "ai_reference_frame_prompt",
-    DEFAULT_REFERENCE_FRAME_PROMPT,
-  );
-  const finalPrompt = includeReferenceFrame
-    ? `${referenceFramePrompt} ${prompt}`
-    : prompt;
+  // IMPORTANT: For PuLID and IP-Adapter models, face likeness comes from the image embedding,
+  // NOT from text. Adding face-preservation instructions to the text prompt crowds out the scene
+  // description and produces headshots. Keep the prompt focused on the scene only.
+  //
+  // The reference_frame_prompt (face preservation text) is intentionally NOT used here.
+  // It is kept in admin_config for legacy use cases but should not be prepended to the scene prompt.
 
-  const model     = modelOverride || await getConfigString("ai_image_model_reference", DEFAULT_IMAGE_MODEL_REFERENCE);
-  const imageSize = await getConfigString("ai_image_size", DEFAULT_IMAGE_SIZE);
+  // Each reference model uses a different parameter name for the face image URL.
+  const faceParamName = REFERENCE_MODEL_INPUT_PARAM[model]!;
+
+  // id_scale controls face fidelity vs scene quality for PuLID.
+  // Lower = more scene detail, higher = stronger face likeness.
+  // 0.7 gives a good balance; configurable via admin_config.
+  const idScale = await getConfigInt("ai_pulid_id_scale_pct", 70) / 100;
+
+  const input: Record<string, unknown> = {
+    [faceParamName]: faceImageUrl,
+    prompt,         // scene prompt only — do NOT prepend face-preservation instructions
+    image_size: imageSize,
+    num_images: 1,
+  };
+
+  // id_scale is only meaningful for PuLID models
+  if (model === "fal-ai/flux-pulid") {
+    input["id_scale"] = idScale;
+  }
 
   const result = await fal.subscribe(model, {
-    input: {
-      reference_image_url: faceImageUrl,
-      prompt: finalPrompt,
-      image_size: imageSize,
-      num_images: 1,
-    },
+    input,
     logs: false,
   }) as { data: { images: Array<{ url: string }> } };
 
@@ -324,8 +358,8 @@ export async function generateAiMemeBackgroundFromReference(
     const uniqueKey = `${Date.now()}`;
     const basePrompt = prompts[targetGender];
     const prompt = options?.styleSuffix ? `${basePrompt.trim()} ${options.styleSuffix}` : basePrompt;
-    console.log(`[aiMemePipeline] Generating reference-based image for fact ${factId}, gender=${targetGender}`);
-    const storedPath = await generateAndStoreImageFromReference(factId, targetGender, uniqueKey, prompt, referenceBuffer, true, options?.modelOverride);
+    console.log(`[aiMemePipeline] Generating reference-based image for fact ${factId}, gender=${targetGender}${options?.modelOverride ? ` (model override: ${options.modelOverride})` : ""}`);
+    const storedPath = await generateAndStoreImageFromReference(factId, targetGender, uniqueKey, prompt, referenceBuffer, options?.modelOverride);
 
     // Track only in user_ai_images (type='reference') — NOT in the shared aiMemeImages on the fact
     try {
