@@ -580,3 +580,90 @@ export async function generateAiMemeBackgrounds(
     if (!options?.suppressErrors) throw err;
   }
 }
+
+// ─── Debug preview ────────────────────────────────────────────────────────────
+
+/**
+ * Builds a preview of the fal.ai call that would be made for a given prompt,
+ * reading all params from admin_config. Does NOT call fal.ai — for debug display only.
+ */
+export async function buildFalInputPreview(
+  prompt: string,
+  options?: {
+    modelOverride?: string;
+    isReference?: boolean;
+    paramsOverride?: Record<string, string>;
+  },
+): Promise<{ model: string; input: Record<string, unknown> }> {
+  const isRef = options?.isReference ?? false;
+  const model = options?.modelOverride ||
+    await getConfigString(
+      isRef ? "ai_image_model_reference" : "ai_image_model_standard",
+      isRef ? DEFAULT_IMAGE_MODEL_REFERENCE : DEFAULT_IMAGE_MODEL_STANDARD,
+    );
+
+  const imageSize         = await getConfigString("ai_image_size", DEFAULT_IMAGE_SIZE);
+
+  if (isRef && isReferenceCapableModel(model)) {
+    // Reference path (PuLID / IP-Adapter)
+    const idScale       = parseFloat(await getConfigString("ai_ref_pulid_id_scale", "0.70"));
+    const guidanceScale = parseFloat(await getConfigString("ai_ref_pulid_guidance_scale", "5.5"));
+    const numSteps      = await getConfigInt("ai_ref_pulid_num_inference_steps", 30);
+    const trueCfgStr    = await getConfigString("ai_ref_pulid_true_cfg_scale", "");
+    const startStepStr  = await getConfigString("ai_ref_pulid_start_step", "");
+    const DEFAULT_COMPOSITION_SUFFIX =
+      "Full body wide angle shot. Person shown in action within the scene environment. " +
+      "Show the full setting and context. NOT a portrait or close-up.";
+    const compositionSuffix = await getConfigString("ai_pulid_composition_suffix", DEFAULT_COMPOSITION_SUFFIX);
+    const finalPrompt = compositionSuffix ? `${prompt.trim()} ${compositionSuffix}` : prompt;
+    const faceParamName = REFERENCE_MODEL_INPUT_PARAM[model]!;
+    const input: Record<string, unknown> = {
+      [faceParamName]: "<reference_image_url>",
+      prompt: finalPrompt,
+      image_size: imageSize,
+      num_images: 1,
+    };
+    if (model === "fal-ai/flux-pulid") {
+      input["id_scale"]            = isNaN(idScale) ? 0.70 : idScale;
+      input["guidance_scale"]      = isNaN(guidanceScale) ? 5.5 : guidanceScale;
+      input["num_inference_steps"] = numSteps;
+      if (trueCfgStr.trim()) { const v = parseFloat(trueCfgStr.trim()); if (!isNaN(v)) input["true_cfg_scale"] = v; }
+      if (startStepStr.trim()) { const v = parseInt(startStepStr.trim(), 10); if (!isNaN(v)) input["start_step"] = v; }
+    }
+    applyParamOverrides(input, options?.paramsOverride);
+    return { model, input };
+  }
+
+  // Standard path
+  const numInferenceSteps = await getConfigInt("ai_std_num_inference_steps", 28);
+  const guidanceScale     = parseFloat(await getConfigString("ai_std_guidance_scale", "3.5"));
+  const safetyTolerance   = await getConfigString("ai_std_safety_tolerance", "2");
+  const seedStr           = await getConfigString("ai_std_seed", "");
+  const outputFormat      = await getConfigString("ai_std_output_format", "jpeg");
+  const aspectRatio       = await getConfigString("ai_std_aspect_ratio", "1:1");
+  const ultraRaw          = await getConfigString("ai_std_ultra_raw", "false");
+
+  const input: Record<string, unknown> = { prompt, num_images: 1 };
+
+  if (model === "fal-ai/flux-pro/v1.1-ultra") {
+    input["aspect_ratio"]     = aspectRatio;
+    input["safety_tolerance"] = safetyTolerance;
+    input["raw"]              = ultraRaw === "true";
+    input["output_format"]    = outputFormat;
+  } else if (model === "fal-ai/flux-2-pro" || model === "fal-ai/flux-2-max") {
+    input["aspect_ratio"]  = aspectRatio;
+    input["output_format"] = outputFormat;
+  } else {
+    input["image_size"]          = imageSize;
+    input["num_inference_steps"] = numInferenceSteps;
+    input["guidance_scale"]      = isNaN(guidanceScale) ? 3.5 : guidanceScale;
+    input["output_format"]       = outputFormat;
+    if (model === "fal-ai/flux-pro" || model === "fal-ai/flux-pro/v1.1") {
+      input["safety_tolerance"] = safetyTolerance;
+    }
+  }
+  const seedNum = seedStr.trim() ? parseInt(seedStr.trim(), 10) : NaN;
+  if (!isNaN(seedNum)) input["seed"] = seedNum;
+  applyParamOverrides(input, options?.paramsOverride);
+  return { model, input };
+}
