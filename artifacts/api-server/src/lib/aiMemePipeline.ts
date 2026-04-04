@@ -135,10 +135,11 @@ async function generateAndStoreImage(
   gender: "male" | "female" | "neutral",
   uniqueKey: string,
   prompt: string,
+  modelOverride?: string,
 ): Promise<string> {
   configureFal();
 
-  const model     = await getConfigString("ai_image_model_standard", DEFAULT_IMAGE_MODEL_STANDARD);
+  const model     = modelOverride || await getConfigString("ai_image_model_standard", DEFAULT_IMAGE_MODEL_STANDARD);
   const imageSize = await getConfigString("ai_image_size", DEFAULT_IMAGE_SIZE);
 
   const result = await fal.subscribe(model, {
@@ -225,6 +226,7 @@ async function generateAndStoreImageFromReference(
   prompt: string,
   referenceBuffer: Buffer,
   includeReferenceFrame: boolean,
+  modelOverride?: string,
 ): Promise<string> {
   configureFal();
 
@@ -240,7 +242,7 @@ async function generateAndStoreImageFromReference(
     ? `${referenceFramePrompt} ${prompt}`
     : prompt;
 
-  const model     = await getConfigString("ai_image_model_reference", DEFAULT_IMAGE_MODEL_REFERENCE);
+  const model     = modelOverride || await getConfigString("ai_image_model_reference", DEFAULT_IMAGE_MODEL_REFERENCE);
   const imageSize = await getConfigString("ai_image_size", DEFAULT_IMAGE_SIZE);
 
   const result = await fal.subscribe(model, {
@@ -295,6 +297,8 @@ export async function generateAiMemeBackgroundFromReference(
     existingPrompts?: AiScenePrompts;
     userId?: string;
     styleSuffix?: string;
+    /** Override the fal.ai model for this request (admin-only) */
+    modelOverride?: string;
     /** When true, errors are caught internally and logged; when false (default), errors propagate to caller */
     suppressErrors?: boolean;
   },
@@ -321,7 +325,7 @@ export async function generateAiMemeBackgroundFromReference(
     const basePrompt = prompts[targetGender];
     const prompt = options?.styleSuffix ? `${basePrompt.trim()} ${options.styleSuffix}` : basePrompt;
     console.log(`[aiMemePipeline] Generating reference-based image for fact ${factId}, gender=${targetGender}`);
-    const storedPath = await generateAndStoreImageFromReference(factId, targetGender, uniqueKey, prompt, referenceBuffer, true);
+    const storedPath = await generateAndStoreImageFromReference(factId, targetGender, uniqueKey, prompt, referenceBuffer, true, options?.modelOverride);
 
     // Track only in user_ai_images (type='reference') — NOT in the shared aiMemeImages on the fact
     try {
@@ -372,6 +376,8 @@ export async function generateAiMemeBackgrounds(
     userId?: string;
     /** Optional style suffix appended to each scene prompt before image generation. */
     styleSuffix?: string;
+    /** Override the fal.ai model for this request (admin-only) */
+    modelOverride?: string;
     /** When true, errors are caught internally and logged; when false (default), errors propagate to caller */
     suppressErrors?: boolean;
   },
@@ -435,8 +441,8 @@ export async function generateAiMemeBackgrounds(
       const uniqueKey = `${batchKey}_${slotCounter++}`;
       const basePrompt = prompts[gender];
       const prompt = options?.styleSuffix ? `${basePrompt.trim()} ${options.styleSuffix}` : basePrompt;
-      console.log(`[aiMemePipeline] Generating image for fact ${factId}, gender=${gender}, key=${uniqueKey}`);
-      const storedPath = await generateAndStoreImage(factId, gender, uniqueKey, prompt);
+      console.log(`[aiMemePipeline] Generating image for fact ${factId}, gender=${gender}, key=${uniqueKey}${options?.modelOverride ? ` (model override: ${options.modelOverride})` : ""}`);
+      const storedPath = await generateAndStoreImage(factId, gender, uniqueKey, prompt, options?.modelOverride);
       // Prepend newest image at the front — gallery always shows newest-first
       result[gender].unshift(storedPath);
       // Trim per-fact gallery to max per gender
