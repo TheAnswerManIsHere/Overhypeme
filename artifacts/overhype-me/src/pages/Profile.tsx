@@ -5,7 +5,7 @@ import { Layout } from "@/components/layout/Layout";
 import { FactCard } from "@/components/facts/FactCard";
 import { Button } from "@/components/ui/Button";
 import { SubscriptionPanel } from "@/components/SubscriptionPanel";
-import { ShieldAlert, LogOut, Clock, ThumbsUp, FileText, Hash, Star, X, Pencil, Check, Mail, AlertTriangle, CheckCircle, Camera, Loader2, Images, ImageIcon, Lock } from "lucide-react";
+import { ShieldAlert, LogOut, Clock, ThumbsUp, FileText, Hash, Star, X, Pencil, Check, Mail, AlertTriangle, CheckCircle, Camera, Loader2, Images, ImageIcon } from "lucide-react";
 import { ImageCard } from "@/components/ui/ImageCard";
 import { Link, useLocation } from "wouter";
 import { useQueryClient, useQuery } from "@tanstack/react-query";
@@ -778,15 +778,6 @@ export default function Profile() {
                         onDelete={() => deleteMemeFromProfile(meme.permalinkSlug)}
                         deleteConfirmMessage="Remove this meme? It will no longer be visible to anyone."
                         permalink={memePermalink}
-                        footer={
-                          <div className="p-2 bg-card text-xs text-muted-foreground font-medium flex items-center justify-between">
-                            <span className="uppercase tracking-wide">{meme.templateId}</span>
-                            <div className="flex items-center gap-1.5">
-                              {!meme.isPublic && <Lock className="w-3 h-3" />}
-                              <span>{new Date(meme.createdAt).toLocaleDateString()}</span>
-                            </div>
-                          </div>
-                        }
                       />
                     );
                   })}
