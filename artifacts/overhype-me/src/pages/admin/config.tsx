@@ -37,11 +37,17 @@ const FAL_IMAGE_SIZES: { value: string; label: string }[] = [
 ];
 
 const FAL_IMAGE_MODELS_STANDARD: { value: string; label: string }[] = [
-  { value: "fal-ai/flux-pro/v1.1", label: "FLUX Pro v1.1" },
+  { value: "fal-ai/flux-pro/v1.1",       label: "FLUX 1.1 Pro — best quality/speed (recommended)" },
+  { value: "fal-ai/flux-pro/v1.1-ultra", label: "FLUX 1.1 Pro Ultra — max resolution" },
+  { value: "fal-ai/flux-pro",            label: "FLUX 1 Pro — production grade" },
+  { value: "fal-ai/flux/dev",            label: "FLUX 1 Dev — balanced quality" },
+  { value: "fal-ai/flux/schnell",        label: "FLUX 1 Schnell — fastest" },
+  { value: "fal-ai/flux-2-pro",          label: "FLUX 2 Pro — zero-config production" },
+  { value: "fal-ai/flux-2-max",          label: "FLUX 2 Max — SOTA realism" },
 ];
 
 const FAL_IMAGE_MODELS_REFERENCE: { value: string; label: string }[] = [
-  { value: "fal-ai/flux-pulid", label: "FLUX PuLID (Face-Preserving)" },
+  { value: "fal-ai/flux-pulid",              label: "FLUX PuLID — face-preserving (recommended)" },
   { value: "fal-ai/ip-adapter-face-id-plus", label: "IP-Adapter Face ID Plus" },
 ];
 
