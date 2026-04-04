@@ -457,7 +457,7 @@ export default function FactDetail() {
                     onClick={openMemeBuilder}
                     className="inline-flex items-center gap-2 px-4 py-2 text-sm font-display font-bold uppercase tracking-wider bg-primary text-primary-foreground rounded-sm hover:opacity-90 transition-opacity"
                   >
-                    Create your first private meme
+                    Create your first private meme for this fact
                   </button>
                 </>
               ) : memeTab === "my-public" ? (
