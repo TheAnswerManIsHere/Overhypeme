@@ -436,14 +436,20 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
     setResizeMaxH(clamped);
   }
 
-  // AI gallery display limit — fetched once from the admin-managed public config endpoint
+  // AI gallery display limit + active model names — fetched from the public config endpoint
   const [aiGalleryDisplayLimit, setAiGalleryDisplayLimit] = useState(50);
+  const [aiModelStandard,  setAiModelStandard]  = useState("fal-ai/flux-pro/v1.1");
+  const [aiModelReference, setAiModelReference] = useState("fal-ai/flux-pulid");
   useEffect(() => {
     fetch("/api/config")
       .then((r) => r.json())
       .then((cfg: Record<string, number | string | boolean>) => {
-        const val = cfg["ai_gallery_display_limit"];
-        if (typeof val === "number" && val > 0) setAiGalleryDisplayLimit(val);
+        const limit = cfg["ai_gallery_display_limit"];
+        if (typeof limit === "number" && limit > 0) setAiGalleryDisplayLimit(limit);
+        const std = cfg["ai_image_model_standard"];
+        if (typeof std === "string" && std) setAiModelStandard(std);
+        const ref = cfg["ai_image_model_reference"];
+        if (typeof ref === "string" && ref) setAiModelReference(ref);
       })
       .catch(() => {});
   }, []);
@@ -2315,7 +2321,7 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
                         )}
 
                         <p className="text-[10px] text-muted-foreground/50">
-                          AI-generated scene • Powered by OpenAI gpt-image-1
+                          AI-generated scene • {aiSubMode === "reference" ? aiModelReference : aiModelStandard}
                         </p>
                       </div>
                     )}
