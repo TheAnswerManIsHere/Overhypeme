@@ -238,6 +238,14 @@ export async function ensureSchema(): Promise<void> {
       ddl: `ALTER TABLE admin_config ALTER COLUMN value TYPE text`,
     },
     {
+      label: "admin_config.value_label column",
+      ddl: `ALTER TABLE admin_config ADD COLUMN IF NOT EXISTS value_label text`,
+    },
+    {
+      label: "admin_config.debug_value_label column",
+      ddl: `ALTER TABLE admin_config ADD COLUMN IF NOT EXISTS debug_value_label text`,
+    },
+    {
       label: "admin_config seed ai_reference_frame_prompt",
       ddl: `INSERT INTO admin_config (key, value, data_type, label, description, is_public)
         VALUES ('ai_reference_frame_prompt',
