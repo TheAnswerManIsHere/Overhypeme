@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { AdminLayout } from "@/components/admin/AdminLayout";
 import {
-  Settings, Clock, Check, AlertCircle, Loader2, Palette, Bug, X,
+  Settings, Clock, Check, AlertCircle, Loader2, Palette, Bug, X, Bot,
 } from "lucide-react";
 import { IMAGE_STYLES } from "@/config/imageStyles";
 
@@ -51,11 +51,115 @@ const FAL_IMAGE_MODELS_REFERENCE: { value: string; label: string }[] = [
   { value: "fal-ai/ip-adapter-face-id-plus", label: "fal-ai/ip-adapter-face-id-plus" },
 ];
 
+const FAL_SAFETY_TOLERANCE: { value: string; label: string }[] = [
+  { value: "1", label: "1 — Most strict" },
+  { value: "2", label: "2 — Strict (default)" },
+  { value: "3", label: "3 — Moderate" },
+  { value: "4", label: "4 — Permissive" },
+  { value: "5", label: "5 — Very permissive" },
+  { value: "6", label: "6 — Most permissive" },
+];
+
+const FAL_OUTPUT_FORMAT: { value: string; label: string }[] = [
+  { value: "jpeg", label: "jpeg — smaller, faster (default)" },
+  { value: "png",  label: "png — lossless, larger" },
+];
+
+const FAL_ASPECT_RATIO: { value: string; label: string }[] = [
+  { value: "1:1",  label: "1:1 — Square" },
+  { value: "4:3",  label: "4:3 — Landscape standard" },
+  { value: "3:4",  label: "3:4 — Portrait standard" },
+  { value: "16:9", label: "16:9 — Wide" },
+  { value: "9:16", label: "9:16 — Tall" },
+  { value: "21:9", label: "21:9 — Ultrawide" },
+  { value: "9:21", label: "9:21 — Ultra tall" },
+  { value: "3:2",  label: "3:2 — Landscape photo" },
+  { value: "2:3",  label: "2:3 — Portrait photo" },
+];
+
+const FAL_RAW_MODE: { value: string; label: string }[] = [
+  { value: "false", label: "false — processed output (default)" },
+  { value: "true",  label: "true — natural, less processed" },
+];
+
 const SELECT_CONFIGS: Record<string, { value: string; label: string }[]> = {
-  ai_image_size: FAL_IMAGE_SIZES,
-  ai_image_model_standard: FAL_IMAGE_MODELS_STANDARD,
-  ai_image_model_reference: FAL_IMAGE_MODELS_REFERENCE,
+  ai_image_size:             FAL_IMAGE_SIZES,
+  ai_image_model_standard:   FAL_IMAGE_MODELS_STANDARD,
+  ai_image_model_reference:  FAL_IMAGE_MODELS_REFERENCE,
+  ai_std_safety_tolerance:   FAL_SAFETY_TOLERANCE,
+  ai_std_output_format:      FAL_OUTPUT_FORMAT,
+  ai_std_aspect_ratio:       FAL_ASPECT_RATIO,
+  ai_std_ultra_raw:          FAL_RAW_MODE,
 };
+
+// Which config keys belong to each model (shown contextually below the model dropdown)
+interface ParamDef { key: string }
+const MODEL_PARAMS: Record<string, ParamDef[]> = {
+  "fal-ai/flux-pro/v1.1": [
+    { key: "ai_std_num_inference_steps" },
+    { key: "ai_std_guidance_scale" },
+    { key: "ai_std_safety_tolerance" },
+    { key: "ai_std_output_format" },
+    { key: "ai_std_seed" },
+  ],
+  "fal-ai/flux-pro": [
+    { key: "ai_std_num_inference_steps" },
+    { key: "ai_std_guidance_scale" },
+    { key: "ai_std_safety_tolerance" },
+    { key: "ai_std_output_format" },
+    { key: "ai_std_seed" },
+  ],
+  "fal-ai/flux/dev": [
+    { key: "ai_std_num_inference_steps" },
+    { key: "ai_std_guidance_scale" },
+    { key: "ai_std_output_format" },
+    { key: "ai_std_seed" },
+  ],
+  "fal-ai/flux/schnell": [
+    { key: "ai_std_num_inference_steps" },
+    { key: "ai_std_output_format" },
+    { key: "ai_std_seed" },
+  ],
+  "fal-ai/flux-pro/v1.1-ultra": [
+    { key: "ai_std_aspect_ratio" },
+    { key: "ai_std_ultra_raw" },
+    { key: "ai_std_safety_tolerance" },
+    { key: "ai_std_output_format" },
+    { key: "ai_std_seed" },
+  ],
+  "fal-ai/flux-2-pro": [
+    { key: "ai_std_aspect_ratio" },
+    { key: "ai_std_output_format" },
+  ],
+  "fal-ai/flux-2-max": [
+    { key: "ai_std_aspect_ratio" },
+    { key: "ai_std_output_format" },
+  ],
+  "fal-ai/flux-pulid": [
+    { key: "ai_ref_pulid_id_scale" },
+    { key: "ai_ref_pulid_guidance_scale" },
+    { key: "ai_ref_pulid_num_inference_steps" },
+    { key: "ai_ref_pulid_true_cfg_scale" },
+    { key: "ai_ref_pulid_start_step" },
+    { key: "ai_pulid_composition_suffix" },
+  ],
+  "fal-ai/ip-adapter-face-id-plus": [
+    { key: "ai_std_num_inference_steps" },
+    { key: "ai_std_guidance_scale" },
+    { key: "ai_std_output_format" },
+    { key: "ai_std_seed" },
+  ],
+};
+
+// Keys managed by the AI Image Generation panel — excluded from the generic row list
+const MODEL_CONFIG_KEYS = new Set([
+  "ai_image_model_standard", "ai_image_model_reference", "ai_image_size",
+  "ai_std_num_inference_steps", "ai_std_guidance_scale", "ai_std_safety_tolerance",
+  "ai_std_seed", "ai_std_output_format", "ai_std_aspect_ratio", "ai_std_ultra_raw",
+  "ai_ref_pulid_id_scale", "ai_ref_pulid_guidance_scale", "ai_ref_pulid_num_inference_steps",
+  "ai_ref_pulid_true_cfg_scale", "ai_ref_pulid_start_step", "ai_pulid_composition_suffix",
+  "ai_pulid_id_scale_pct",
+]);
 
 function SaveButton({
   dirty, saving, saved, onClick,
@@ -204,8 +308,12 @@ export default function AdminConfig() {
     return row ? (dbgEdits[key]?.value ?? "") !== (row.debugValue ?? "") : false;
   }
 
-  // Split style_suffix rows from generic rows, exclude debug_mode_active
-  const genericRows = rows.filter((r) => !r.key.startsWith("style_suffix_") && r.key !== "debug_mode_active");
+  // Split style_suffix rows from generic rows, exclude debug_mode_active and model config keys
+  const genericRows = rows.filter((r) =>
+    !r.key.startsWith("style_suffix_") &&
+    r.key !== "debug_mode_active" &&
+    !MODEL_CONFIG_KEYS.has(r.key)
+  );
   const standardKey = `style_suffix_${selectedStyleId}`;
   const referenceKey = `style_suffix_ref_${selectedStyleId}`;
   const selectedStyleDef = STYLE_OPTIONS.find((s) => s.id === selectedStyleId);
@@ -441,6 +549,67 @@ export default function AdminConfig() {
     );
   }
 
+  // ── Per-param row (label + std/debug columns) ──────────────────────────────
+  function ModelParamRow({ paramKey }: { paramKey: string }) {
+    const row = rows.find((r) => r.key === paramKey);
+    if (!row) return null;
+    return (
+      <div className="space-y-1.5">
+        <div className="flex items-center justify-between gap-3">
+          <div className="min-w-0">
+            <span className="text-sm font-medium text-foreground">{row.label}</span>
+            {row.description && <p className="text-xs text-muted-foreground mt-0.5">{row.description}</p>}
+          </div>
+          <code className="text-xs text-muted-foreground bg-muted px-2 py-1 rounded shrink-0">{row.key}</code>
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <div className={`rounded-lg border p-3 space-y-2 ${!debugActive ? "border-primary/40 bg-primary/5" : "border-border"}`}>
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Standard</span>
+              {!debugActive && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-primary/15 text-primary font-medium">Active</span>}
+            </div>
+            <ConfigInput configKey={paramKey} kind="std" />
+          </div>
+          <div className={`rounded-lg border p-3 space-y-2 ${debugActive ? "border-amber-500/50 bg-amber-500/5" : "border-border"}`}>
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1">
+                <Bug className="w-3 h-3" /> Debug
+              </span>
+              {debugActive && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-amber-500/20 text-amber-400 font-medium">Active</span>}
+            </div>
+            <ConfigInput configKey={paramKey} kind="dbg" />
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ── Model selector + contextual parameters ─────────────────────────────────
+  function ModelConfigSection({ title, subtitle, modelKey }: {
+    title: string; subtitle: string;
+    modelKey: "ai_image_model_standard" | "ai_image_model_reference";
+  }) {
+    const selectedModel = stdEdits[modelKey]?.value ?? rows.find((r) => r.key === modelKey)?.value ?? "";
+    const params = MODEL_PARAMS[selectedModel] ?? [];
+    return (
+      <div className="space-y-3">
+        <div>
+          <p className="text-sm font-semibold text-foreground">{title}</p>
+          <p className="text-xs text-muted-foreground">{subtitle}</p>
+        </div>
+        <ModelParamRow paramKey={modelKey} />
+        {params.length > 0 && (
+          <div className="border-l-2 border-muted/60 pl-4 space-y-4">
+            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+              Parameters — <span className="font-mono normal-case">{selectedModel}</span>
+            </p>
+            {params.map((p) => <ModelParamRow key={p.key} paramKey={p.key} />)}
+          </div>
+        )}
+      </div>
+    );
+  }
+
   return (
     <AdminLayout title="Configuration">
       <div className="max-w-5xl space-y-4">
@@ -570,6 +739,39 @@ export default function AdminConfig() {
                   </div>
                 </div>
               )}
+            </div>
+
+            {/* ── AI Image Generation ──────────────────────────────────────── */}
+            <div className="bg-card border border-border rounded-lg p-5 space-y-5">
+              <div className="flex items-center gap-2">
+                <Bot className="w-4 h-4 text-muted-foreground" />
+                <h3 className="font-semibold text-foreground">AI Image Generation</h3>
+              </div>
+              <p className="text-sm text-muted-foreground -mt-2">
+                fal.ai model selection and per-model tuning parameters. Select a model from the dropdown to reveal its configurable parameters below.
+              </p>
+
+              {/* Shared: image size */}
+              <div className="space-y-3">
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Shared Settings</p>
+                <ModelParamRow paramKey="ai_image_size" />
+              </div>
+
+              <div className="border-t border-border" />
+
+              <ModelConfigSection
+                title="Standard Model"
+                subtitle="Text-to-image generation without a reference photo"
+                modelKey="ai_image_model_standard"
+              />
+
+              <div className="border-t border-border" />
+
+              <ModelConfigSection
+                title="Reference Photo Model"
+                subtitle="Face-preserving generation from an uploaded reference photo"
+                modelKey="ai_image_model_reference"
+              />
             </div>
 
             {/* ── Generic config rows ───────────────────────────────────────── */}
