@@ -492,7 +492,7 @@ export function VideoBuilder({ factId, factText, onClose }: VideoBuilderProps) {
                     <p className="text-xs text-muted-foreground">
                       Upload your own photos with a Legendary membership.
                     </p>
-                    <Link href="/membership">
+                    <Link href="/pricing">
                       <Button size="sm" className="mt-2">Go Legendary</Button>
                     </Link>
                   </div>
