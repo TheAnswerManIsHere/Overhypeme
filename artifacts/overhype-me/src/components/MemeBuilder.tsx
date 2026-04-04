@@ -424,6 +424,55 @@ const ADMIN_FAL_MODELS: { group: string; models: { value: string; label: string 
   },
 ];
 
+type AdminParamDef = {
+  key: string;
+  label: string;
+  placeholder: string;
+  type: "number" | "select";
+  options?: { value: string; label: string }[];
+};
+
+const ADMIN_MODEL_PARAMS: Record<string, AdminParamDef[]> = {
+  "fal-ai/flux-pro/v1.1": [
+    { key: "num_inference_steps", label: "Inference Steps", placeholder: "28", type: "number" },
+    { key: "guidance_scale",      label: "Guidance Scale",  placeholder: "3.5", type: "number" },
+    { key: "safety_tolerance",    label: "Safety Tolerance (1–6)", placeholder: "2", type: "number" },
+    { key: "output_format",       label: "Output Format",   placeholder: "jpeg", type: "select", options: [{ value: "", label: "default" }, { value: "jpeg", label: "jpeg" }, { value: "png", label: "png" }] },
+    { key: "seed",                label: "Seed",            placeholder: "random", type: "number" },
+  ],
+  "fal-ai/flux-pro": [
+    { key: "num_inference_steps", label: "Inference Steps", placeholder: "28", type: "number" },
+    { key: "guidance_scale",      label: "Guidance Scale",  placeholder: "3.5", type: "number" },
+    { key: "safety_tolerance",    label: "Safety Tolerance (1–6)", placeholder: "2", type: "number" },
+    { key: "output_format",       label: "Output Format",   placeholder: "jpeg", type: "select", options: [{ value: "", label: "default" }, { value: "jpeg", label: "jpeg" }, { value: "png", label: "png" }] },
+    { key: "seed",                label: "Seed",            placeholder: "random", type: "number" },
+  ],
+  "fal-ai/flux/dev": [
+    { key: "num_inference_steps", label: "Inference Steps", placeholder: "28", type: "number" },
+    { key: "guidance_scale",      label: "Guidance Scale",  placeholder: "3.5", type: "number" },
+    { key: "output_format",       label: "Output Format",   placeholder: "jpeg", type: "select", options: [{ value: "", label: "default" }, { value: "jpeg", label: "jpeg" }, { value: "png", label: "png" }] },
+    { key: "seed",                label: "Seed",            placeholder: "random", type: "number" },
+  ],
+  "fal-ai/flux/schnell": [
+    { key: "num_inference_steps", label: "Inference Steps", placeholder: "4", type: "number" },
+    { key: "output_format",       label: "Output Format",   placeholder: "jpeg", type: "select", options: [{ value: "", label: "default" }, { value: "jpeg", label: "jpeg" }, { value: "png", label: "png" }] },
+    { key: "seed",                label: "Seed",            placeholder: "random", type: "number" },
+  ],
+  "fal-ai/flux-pro/v1.1-ultra": [
+    { key: "aspect_ratio",     label: "Aspect Ratio",       placeholder: "1:1", type: "select", options: [{ value: "", label: "default" }, { value: "1:1", label: "1:1" }, { value: "16:9", label: "16:9" }, { value: "9:16", label: "9:16" }, { value: "4:3", label: "4:3" }, { value: "3:4", label: "3:4" }] },
+    { key: "safety_tolerance", label: "Safety Tolerance (1–6)", placeholder: "2", type: "number" },
+    { key: "output_format",    label: "Output Format",      placeholder: "jpeg", type: "select", options: [{ value: "", label: "default" }, { value: "jpeg", label: "jpeg" }, { value: "png", label: "png" }] },
+    { key: "seed",             label: "Seed",               placeholder: "random", type: "number" },
+  ],
+  "fal-ai/flux-pulid": [
+    { key: "id_scale",             label: "ID Scale (face similarity)",  placeholder: "0.70", type: "number" },
+    { key: "guidance_scale",       label: "Guidance Scale",              placeholder: "5.5",  type: "number" },
+    { key: "num_inference_steps",  label: "Inference Steps",             placeholder: "30",   type: "number" },
+    { key: "true_cfg_scale",       label: "True CFG Scale",              placeholder: "off",  type: "number" },
+    { key: "start_step",           label: "Start Step",                  placeholder: "off",  type: "number" },
+  ],
+};
+
 export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMemeImages, onClose, defaultPrivate, embedded, fullScreen, onMakeVideo }: MemeBuilderProps) {
   const { isAuthenticated, login, role, user } = useAuth();
   const isPremium = role === "premium" || role === "admin";
@@ -703,6 +752,10 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
 
   // Admin-only: override the fal.ai model for this generation session
   const [adminModelOverride, setAdminModelOverride] = useState<string>("");
+  // Admin-only: per-request parameter overrides; keyed by fal.ai param name, value is string input
+  const [adminParamOverrides, setAdminParamOverrides] = useState<Record<string, string>>({});
+  // Reset param overrides whenever the model selection changes
+  useEffect(() => { setAdminParamOverrides({}); }, [adminModelOverride]);
 
   // Video generation state
   const [videoState, setVideoState] = useState<VideoState>({ status: "idle" });
@@ -892,6 +945,7 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
             ? { referenceImagePath: selectedRefUpload.objectPath, targetGender: aiGender, styleId: selectedStyleId }
             : { scope: factIsGendered ? "gendered" : "abstract", styleId: selectedStyleId }),
           ...(isAdmin && adminModelOverride.trim() ? { modelOverride: adminModelOverride.trim() } : {}),
+          ...(isAdmin && Object.keys(adminParamOverrides).some(k => adminParamOverrides[k] !== "") ? { paramsOverride: Object.fromEntries(Object.entries(adminParamOverrides).filter(([, v]) => v !== "")) } : {}),
         }),
       });
 
@@ -2360,22 +2414,56 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
 
                         {/* Admin-only: model override dropdown */}
                         {isAdmin && (
-                          <div className="flex items-center gap-2 mt-1">
-                            <span className="text-[10px] text-muted-foreground/70 shrink-0">Model override:</span>
-                            <select
-                              value={adminModelOverride}
-                              onChange={e => setAdminModelOverride(e.target.value)}
-                              className="flex-1 min-w-0 text-[10px] font-mono px-1.5 py-0.5 rounded border border-border bg-muted/30 text-foreground focus:outline-none focus:border-violet-500/60"
-                            >
-                              <option value="">Use default (from config)</option>
-                              {ADMIN_FAL_MODELS.map(group => (
-                                <optgroup key={group.group} label={group.group}>
-                                  {group.models.map(m => (
-                                    <option key={m.value} value={m.value}>{m.label}</option>
+                          <div className="space-y-1.5 mt-1 p-2 rounded border border-violet-500/20 bg-violet-500/5">
+                            <div className="flex items-center gap-2">
+                              <span className="text-[10px] text-violet-400/80 font-semibold uppercase tracking-wide shrink-0">⚡ Admin</span>
+                              <span className="text-[10px] text-muted-foreground/60 shrink-0">Model:</span>
+                              <select
+                                value={adminModelOverride}
+                                onChange={e => setAdminModelOverride(e.target.value)}
+                                className="flex-1 min-w-0 text-[10px] font-mono px-1.5 py-0.5 rounded border border-border bg-muted/30 text-foreground focus:outline-none focus:border-violet-500/60"
+                              >
+                                <option value="">Use default (from config)</option>
+                                {ADMIN_FAL_MODELS.map(group => (
+                                  <optgroup key={group.group} label={group.group}>
+                                    {group.models.map(m => (
+                                      <option key={m.value} value={m.value}>{m.label}</option>
+                                    ))}
+                                  </optgroup>
+                                ))}
+                              </select>
+                            </div>
+                            {(() => {
+                              const effectiveModel = adminModelOverride.trim() || (aiSubMode === "reference" ? aiModelReference : aiModelStandard);
+                              const params = ADMIN_MODEL_PARAMS[effectiveModel] ?? [];
+                              if (params.length === 0) return null;
+                              return (
+                                <div className="grid grid-cols-2 gap-x-3 gap-y-1 pt-1 border-t border-violet-500/10">
+                                  {params.map(p => (
+                                    <div key={p.key} className="flex items-center gap-1.5">
+                                      <span className="text-[9px] text-muted-foreground/60 shrink-0 w-24 leading-tight">{p.label}</span>
+                                      {p.type === "select" && p.options ? (
+                                        <select
+                                          value={adminParamOverrides[p.key] ?? ""}
+                                          onChange={e => setAdminParamOverrides(prev => ({ ...prev, [p.key]: e.target.value }))}
+                                          className="flex-1 min-w-0 text-[9px] font-mono px-1 py-0.5 rounded border border-border bg-muted/30 text-foreground focus:outline-none focus:border-violet-500/60"
+                                        >
+                                          {p.options.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                                        </select>
+                                      ) : (
+                                        <input
+                                          type="number"
+                                          value={adminParamOverrides[p.key] ?? ""}
+                                          onChange={e => setAdminParamOverrides(prev => ({ ...prev, [p.key]: e.target.value }))}
+                                          placeholder={p.placeholder}
+                                          className="flex-1 min-w-0 text-[9px] font-mono px-1 py-0.5 rounded border border-border bg-muted/30 text-foreground focus:outline-none focus:border-violet-500/60 placeholder:text-muted-foreground/30"
+                                        />
+                                      )}
+                                    </div>
                                   ))}
-                                </optgroup>
-                              ))}
-                            </select>
+                                </div>
+                              );
+                            })()}
                           </div>
                         )}
 

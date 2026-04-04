@@ -881,6 +881,20 @@ router.post("/memes/ai/:factId/generate", requirePremium, async (req: Request, r
       ? rawModelOverride.trim()
       : undefined;
 
+  // Admin-only: per-request parameter overrides (e.g. guidance_scale, num_inference_steps)
+  const rawParamsOverride = body["paramsOverride"];
+  const paramsOverride: Record<string, string> | undefined =
+    req.user?.role === "admin" &&
+    rawParamsOverride !== null &&
+    typeof rawParamsOverride === "object" &&
+    !Array.isArray(rawParamsOverride)
+      ? Object.fromEntries(
+          Object.entries(rawParamsOverride as Record<string, unknown>)
+            .filter(([, v]) => typeof v === "string" || typeof v === "number")
+            .map(([k, v]) => [k, String(v)])
+        )
+      : undefined;
+
   if (referenceImagePath) {
     // Reference-based: validate path belongs to this user's uploads BEFORE reading storage.
     // This enforces both authorization (no IDOR) and the "uploaded photos only" source requirement.
@@ -911,6 +925,7 @@ router.post("/memes/ai/:factId/generate", requirePremium, async (req: Request, r
         userId: req.user?.id,
         styleSuffix,
         modelOverride,
+        paramsOverride,
       });
     } catch (err) {
       res.status(500).json({ error: extractGenerationError(err) });
@@ -925,6 +940,7 @@ router.post("/memes/ai/:factId/generate", requirePremium, async (req: Request, r
         userId: req.user?.id,
         styleSuffix,
         modelOverride,
+        paramsOverride,
       });
     } catch (err) {
       res.status(500).json({ error: extractGenerationError(err) });
