@@ -294,7 +294,7 @@ export async function ensureSchema(): Promise<void> {
         VALUES ('ai_scene_prompt_system',
           $$You generate cinematic scene prompts for AI image generation for meme backgrounds.
 
-Given a personalized fact template (using tokens like {NAME}, {SUBJ}, {OBJ}, {POSS}), produce three scene prompts for DALL-E style image generation.
+Given a personalized fact template (using tokens like {NAME}, {SUBJ}, {OBJ}, {POSS}), produce three scene prompts for cinematic AI image generation.
 
 Rules:
 1. Classify the fact:
@@ -303,7 +303,7 @@ Rules:
 2. For "action" facts: produce 3 different prompts (male, female, neutral subject).
    For "abstract" facts: all 3 prompts can be identical dramatic cinematic scenes.
 3. Each prompt must:
-   - Describe a SQUARE 1024x1024 cinematic scene
+   - Describe a SQUARE cinematic scene
    - Have dramatic lighting, high contrast, cinematic quality
    - NOT contain any text or letters
    - Be 20-40 words
@@ -314,6 +314,20 @@ Return ONLY valid JSON:
           'text', 'AI Scene Prompt (System)',
           'The system prompt sent to gpt-4o-mini when generating cinematic scene descriptions for AI meme backgrounds. Must instruct the model to return JSON with fact_type, male, female, and neutral keys.',
           false)
+      ON CONFLICT (key) DO NOTHING`,
+    },
+    {
+      label: "admin_config seed fal_ai_image_models",
+      ddl: `INSERT INTO admin_config (key, value, data_type, label, description, is_public) VALUES
+        ('ai_image_model_standard', 'fal-ai/flux-pro/v1.1', 'text', 'AI Image Model (Standard)',
+         'fal.ai model ID used for standard text-to-image generation (no reference photo). Change to swap the generation model without a code deploy.',
+         false),
+        ('ai_image_model_reference', 'fal-ai/ip-adapter-face-id-plus', 'text', 'AI Image Model (Reference Photo)',
+         'fal.ai model ID used when generating from a reference photo. Should be a face-preserving model such as ip-adapter-face-id-plus.',
+         false),
+        ('ai_image_size', 'square_hd', 'text', 'AI Image Size',
+         'Image size token passed to fal.ai models (e.g. square_hd, landscape_4_3, portrait_4_3). Must be a size supported by the chosen model.',
+         false)
       ON CONFLICT (key) DO NOTHING`,
     },
   ];

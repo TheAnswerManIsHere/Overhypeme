@@ -2,16 +2,17 @@
  * AI Meme Pipeline
  *
  * 1. Calls gpt-4o-mini to generate three scene prompt variants (male/female/neutral).
- * 2. Calls OpenAI Images API (gpt-image-1, low quality, 1024x1024) to generate
- *    3 images per gender variant = 9 images total.
- * 3. Saves each PNG to object storage and persists the paths on the fact record.
+ * 2. Calls fal.ai to generate images using the scene prompts.
+ *    - Standard generation: fal-ai/flux-pro/v1.1 (or admin_config override)
+ *    - Reference-photo generation: fal-ai/ip-adapter-face-id-plus (or admin_config override)
+ * 3. Saves each image to object storage and persists the paths on the fact record.
  *
  * Runs async (non-blocking) — callers fire-and-forget with void.
  * Should never throw — catches all errors internally.
  */
 
+import { fal } from "@fal-ai/client";
 import { getOpenAIClient } from "@workspace/integrations-openai-ai-server";
-import { toFile } from "openai/core/uploads";
 import { ObjectStorageService } from "./objectStorage";
 import { db } from "@workspace/db";
 import { factsTable, userAiImagesTable } from "@workspace/db/schema";
@@ -19,7 +20,11 @@ import { eq, sql } from "drizzle-orm";
 import { getConfigInt, getConfigString } from "./adminConfig";
 
 const DEFAULT_REFERENCE_FRAME_PROMPT =
-  "Generate an image using the provided reference photo. The person's face, facial structure, skin tone, eye shape, hair, and all distinguishing features must be preserved with photorealistic accuracy and remain visually identical to the reference — this is the highest priority. Do not alter, stylize, or idealize the person's facial features in any way. The person should be placed into the scene as described. The scene and environment should be stylized as described, but the person's face and likeness must remain untouched by any stylization. No text, words, or letters anywhere in the image.";
+  "The person's face, facial structure, skin tone, eye shape, hair, and all distinguishing features must be preserved with photorealistic accuracy and remain visually identical to the reference — this is the highest priority. Do not alter, stylize, or idealize the person's facial features in any way. The person should be placed into the scene as described. The scene and environment should be stylized as described, but the person's face and likeness must remain untouched by any stylization. No text, words, or letters anywhere in the image.";
+
+const DEFAULT_IMAGE_MODEL_STANDARD  = "fal-ai/flux-pro/v1.1";
+const DEFAULT_IMAGE_MODEL_REFERENCE = "fal-ai/ip-adapter-face-id-plus";
+const DEFAULT_IMAGE_SIZE            = "square_hd";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -36,11 +41,23 @@ export interface AiMemeImages {
   neutral: string[];
 }
 
-// ─── LLM scene prompt generation ──────────────────────────────────────────────
+// ─── fal.ai client initialisation ────────────────────────────────────────────
+
+function getFalApiKey(): string {
+  const key = process.env.FAL_AI_API_KEY;
+  if (!key) throw new Error("FAL_AI_API_KEY environment variable is not set — image generation unavailable");
+  return key;
+}
+
+function configureFal(): void {
+  fal.config({ credentials: getFalApiKey() });
+}
+
+// ─── LLM scene prompt generation ─────────────────────────────────────────────
 
 const SCENE_PROMPT_SYSTEM = `You generate cinematic scene prompts for AI image generation for meme backgrounds.
 
-Given a personalized fact template (using tokens like {NAME}, {SUBJ}, {OBJ}, {POSS}), produce three scene prompts for DALL-E style image generation.
+Given a personalized fact template (using tokens like {NAME}, {SUBJ}, {OBJ}, {POSS}), produce three scene prompts for cinematic AI image generation.
 
 Rules:
 1. Classify the fact:
@@ -49,7 +66,7 @@ Rules:
 2. For "action" facts: produce 3 different prompts (male, female, neutral subject).
    For "abstract" facts: all 3 prompts can be identical dramatic cinematic scenes.
 3. Each prompt must:
-   - Describe a SQUARE 1024x1024 cinematic scene
+   - Describe a SQUARE cinematic scene
    - Have dramatic lighting, high contrast, cinematic quality
    - NOT contain any text or letters
    - Be 20-40 words
@@ -103,30 +120,26 @@ async function generateAndStoreImage(
   uniqueKey: string,
   prompt: string,
 ): Promise<string> {
-  const openai = getOpenAIClient();
+  configureFal();
 
-  const response = await (openai.images.generate as Function)({
-    model: "gpt-image-1",
-    prompt,
-    n: 1,
-    size: "1024x1024",
-    quality: "low",
-    output_format: "png",
-  });
+  const model     = await getConfigString("ai_image_model_standard", DEFAULT_IMAGE_MODEL_STANDARD);
+  const imageSize = await getConfigString("ai_image_size", DEFAULT_IMAGE_SIZE);
 
-  const imageData = response.data?.[0];
-  if (!imageData) throw new Error("No image data returned from OpenAI");
+  const result = await fal.subscribe(model, {
+    input: {
+      prompt,
+      image_size: imageSize,
+      num_images: 1,
+    },
+    logs: false,
+  }) as { data: { images: Array<{ url: string }> } };
 
-  let imageBuffer: Buffer;
-  if (imageData.b64_json) {
-    imageBuffer = Buffer.from(imageData.b64_json, "base64");
-  } else if (imageData.url) {
-    const imgRes = await fetch(imageData.url);
-    if (!imgRes.ok) throw new Error(`Failed to fetch image from URL: ${imgRes.status}`);
-    imageBuffer = Buffer.from(await imgRes.arrayBuffer());
-  } else {
-    throw new Error("No image URL or b64_json in response");
-  }
+  const imageUrl = result.data?.images?.[0]?.url;
+  if (!imageUrl) throw new Error(`No image URL returned from fal.ai model ${model}`);
+
+  const imgRes = await fetch(imageUrl);
+  if (!imgRes.ok) throw new Error(`Failed to download image from fal.ai: ${imgRes.status}`);
+  const imageBuffer = Buffer.from(await imgRes.arrayBuffer());
 
   const subPath = `ai_meme_${factId}_${gender}_${uniqueKey}.png`;
   const storedPath = await objectStorage.uploadObjectBuffer({
@@ -184,8 +197,9 @@ async function trackUserAiImage(
 // ─── Reference-photo image generation ────────────────────────────────────────
 
 /**
- * Generates a single AI image using openai.images.edit with a reference photo.
- * The reference photo is stylized into a cinematic meme background matching the scene prompt.
+ * Generates a single AI image using fal.ai IP-Adapter with a reference photo.
+ * The reference photo is uploaded to fal.ai storage, then used as a face_image_url
+ * to place the person into a cinematic meme background matching the scene prompt.
  */
 async function generateAndStoreImageFromReference(
   factId: number,
@@ -195,42 +209,39 @@ async function generateAndStoreImageFromReference(
   referenceBuffer: Buffer,
   includeReferenceFrame: boolean,
 ): Promise<string> {
-  const openai = getOpenAIClient();
+  configureFal();
 
-  // Uploads stored via /storage/upload-meme are always JPEG
-  const referenceFile = await toFile(referenceBuffer, "reference.jpg", { type: "image/jpeg" });
+  // Upload reference photo to fal.ai transient storage so we have a URL to pass
+  const referenceBlob = new Blob([referenceBuffer], { type: "image/jpeg" });
+  const faceImageUrl = await fal.storage.upload(referenceBlob, { lifecycle: { expiresIn: "1h" } });
 
   const referenceFramePrompt = await getConfigString(
     "ai_reference_frame_prompt",
     DEFAULT_REFERENCE_FRAME_PROMPT,
   );
-  const editPrompt = includeReferenceFrame
+  const finalPrompt = includeReferenceFrame
     ? `${referenceFramePrompt} ${prompt}`
     : prompt;
 
-  const response = await (openai.images.edit as Function)({
-    model: "gpt-image-1",
-    image: referenceFile,
-    prompt: editPrompt,
-    n: 1,
-    size: "1024x1024",
-    quality: "low",
-    output_format: "png",
-  });
+  const model     = await getConfigString("ai_image_model_reference", DEFAULT_IMAGE_MODEL_REFERENCE);
+  const imageSize = await getConfigString("ai_image_size", DEFAULT_IMAGE_SIZE);
 
-  const imageData = response.data?.[0];
-  if (!imageData) throw new Error("No image data returned from OpenAI images.edit");
+  const result = await fal.subscribe(model, {
+    input: {
+      face_image_url: faceImageUrl,
+      prompt: finalPrompt,
+      image_size: imageSize,
+      num_images: 1,
+    },
+    logs: false,
+  }) as { data: { images: Array<{ url: string }> } };
 
-  let imageBuffer: Buffer;
-  if (imageData.b64_json) {
-    imageBuffer = Buffer.from(imageData.b64_json, "base64");
-  } else if (imageData.url) {
-    const imgRes = await fetch(imageData.url);
-    if (!imgRes.ok) throw new Error(`Failed to fetch image from URL: ${imgRes.status}`);
-    imageBuffer = Buffer.from(await imgRes.arrayBuffer());
-  } else {
-    throw new Error("No image URL or b64_json in response");
-  }
+  const imageUrl = result.data?.images?.[0]?.url;
+  if (!imageUrl) throw new Error(`No image URL returned from fal.ai reference model ${model}`);
+
+  const imgRes = await fetch(imageUrl);
+  if (!imgRes.ok) throw new Error(`Failed to download reference image from fal.ai: ${imgRes.status}`);
+  const imageBuffer = Buffer.from(await imgRes.arrayBuffer());
 
   const subPath = `ai_meme_${factId}_${gender}_ref_${uniqueKey}.png`;
   const storedPath = await objectStorage.uploadObjectBuffer({
