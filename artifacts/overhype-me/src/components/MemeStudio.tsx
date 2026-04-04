@@ -614,62 +614,59 @@ export function MemeStudio({
   };
 
   return (
-    <div
-      className="fixed inset-0 z-50 bg-black/85 flex items-center justify-center p-0 md:p-6"
-      onClick={(e) => e.target === e.currentTarget && onClose()}
-    >
-      <div className="bg-card border-2 border-border w-full max-w-[800px] h-full md:h-auto md:max-h-[96vh] flex flex-col shadow-2xl shadow-black/60">
+    <div className="fixed inset-0 z-50 flex flex-col bg-card">
 
-        {/* ── Header ── */}
-        <div className="flex items-center justify-between px-5 py-4 border-b-2 border-border shrink-0">
-          <h2 className="text-lg font-display uppercase tracking-[0.15em] text-foreground flex items-center gap-2">
-            <Sparkles className="w-4 h-4 text-[#ff6b35]" />
-            Meme Studio
-          </h2>
-          <button
-            onClick={onClose}
-            className="text-muted-foreground hover:text-foreground transition-colors p-1"
-          >
-            <X className="w-5 h-5" />
-          </button>
-        </div>
+      {/* ── Header ── */}
+      <div className="flex items-center justify-between px-5 py-3 border-b-2 border-border shrink-0">
+        <h2 className="text-base font-display uppercase tracking-[0.15em] text-foreground flex items-center gap-2">
+          <Sparkles className="w-4 h-4 text-[#ff6b35]" />
+          Meme Studio
+        </h2>
+        <button
+          onClick={onClose}
+          className="text-muted-foreground hover:text-foreground transition-colors p-1"
+          aria-label="Close"
+        >
+          <X className="w-5 h-5" />
+        </button>
+      </div>
 
-        {/* ── Tab bar ── */}
-        <div className="flex border-b-2 border-border shrink-0">
-          <TabButton
-            active={activeTab === "image"}
-            onClick={() => setActiveTab("image")}
-            icon={<ImageIcon className="w-3.5 h-3.5" />}
-            label="Image"
+      {/* ── Tab bar ── */}
+      <div className="flex border-b-2 border-border shrink-0">
+        <TabButton
+          active={activeTab === "image"}
+          onClick={() => setActiveTab("image")}
+          icon={<ImageIcon className="w-3.5 h-3.5" />}
+          label="Image"
+        />
+        <TabButton
+          active={activeTab === "video"}
+          onClick={() => setActiveTab("video")}
+          icon={<Video className="w-3.5 h-3.5" />}
+          label="Video"
+        />
+      </div>
+
+      {/* ── Tab content ── */}
+      <div className="flex-1 overflow-y-auto min-h-0">
+        {activeTab === "image" ? (
+          <MemeBuilder
+            factId={factId}
+            factText={factText}
+            rawFactText={rawFactText}
+            pexelsImages={pexelsImages}
+            aiMemeImages={aiMemeImages}
+            onClose={onClose}
+            defaultPrivate={defaultPrivate}
+            embedded
+            fullScreen
+            onMakeVideo={handleMakeVideo}
           />
-          <TabButton
-            active={activeTab === "video"}
-            onClick={() => setActiveTab("video")}
-            icon={<Video className="w-3.5 h-3.5" />}
-            label="Video"
-          />
-        </div>
-
-        {/* ── Tab content ── */}
-        <div className="flex-1 overflow-y-auto min-h-0">
-          {activeTab === "image" ? (
-            <MemeBuilder
-              factId={factId}
-              factText={factText}
-              rawFactText={rawFactText}
-              pexelsImages={pexelsImages}
-              aiMemeImages={aiMemeImages}
-              onClose={onClose}
-              defaultPrivate={defaultPrivate}
-              embedded
-              onMakeVideo={handleMakeVideo}
-            />
-          ) : (
-            <div className="p-4 md:p-5">
-              <VideoTab factId={factId} factText={factText} initialImageDataUrl={videoImageDataUrl} />
-            </div>
-          )}
-        </div>
+        ) : (
+          <div className="p-4 md:p-5 max-w-2xl mx-auto">
+            <VideoTab factId={factId} factText={factText} initialImageDataUrl={videoImageDataUrl} />
+          </div>
+        )}
       </div>
     </div>
   );
