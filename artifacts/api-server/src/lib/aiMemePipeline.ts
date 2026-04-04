@@ -60,13 +60,14 @@ Return ONLY valid JSON:
 
 async function generateScenePrompts(factText: string): Promise<AiScenePrompts> {
   const openai = getOpenAIClient();
+  const systemPrompt = await getConfigString("ai_scene_prompt_system", SCENE_PROMPT_SYSTEM);
   const response = await openai.chat.completions.create({
     model: "gpt-4o-mini",
     max_tokens: 400,
     temperature: 0.7,
     response_format: { type: "json_object" },
     messages: [
-      { role: "system", content: SCENE_PROMPT_SYSTEM },
+      { role: "system", content: systemPrompt },
       { role: "user", content: `Fact template: "${factText}"` },
     ],
   });

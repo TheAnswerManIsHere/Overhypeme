@@ -247,6 +247,34 @@ export async function ensureSchema(): Promise<void> {
           false)
       ON CONFLICT (key) DO NOTHING`,
     },
+    {
+      label: "admin_config seed ai_scene_prompt_system",
+      ddl: `INSERT INTO admin_config (key, value, data_type, label, description, is_public)
+        VALUES ('ai_scene_prompt_system',
+          $$You generate cinematic scene prompts for AI image generation for meme backgrounds.
+
+Given a personalized fact template (using tokens like {NAME}, {SUBJ}, {OBJ}, {POSS}), produce three scene prompts for DALL-E style image generation.
+
+Rules:
+1. Classify the fact:
+   - "action" = a person doing something physical, social, or occupational
+   - "abstract" = cosmic, metaphysical, or impossible to photograph
+2. For "action" facts: produce 3 different prompts (male, female, neutral subject).
+   For "abstract" facts: all 3 prompts can be identical dramatic cinematic scenes.
+3. Each prompt must:
+   - Describe a SQUARE 1024x1024 cinematic scene
+   - Have dramatic lighting, high contrast, cinematic quality
+   - NOT contain any text or letters
+   - Be 20-40 words
+   - Start with "Cinematic " or "Epic " or "Dramatic "
+
+Return ONLY valid JSON:
+{"fact_type":"action","male":"Cinematic shot of a muscular man...","female":"Cinematic shot of a strong woman...","neutral":"Dramatic scene of a person..."}$$,
+          'text', 'AI Scene Prompt (System)',
+          'The system prompt sent to gpt-4o-mini when generating cinematic scene descriptions for AI meme backgrounds. Must instruct the model to return JSON with fact_type, male, female, and neutral keys.',
+          false)
+      ON CONFLICT (key) DO NOTHING`,
+    },
   ];
 
   for (const { label, ddl } of migrations) {
