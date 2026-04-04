@@ -31,7 +31,7 @@ const DEFAULT_IMAGE_SIZE            = "square_hd";
  * Each uses a different parameter name for the reference URL.
  */
 const REFERENCE_MODEL_INPUT_PARAM: Record<string, string> = {
-  "fal-ai/flux-pulid":              "image_url",
+  "fal-ai/flux-pulid":              "reference_image_url",
   "fal-ai/ip-adapter-face-id-plus": "face_image_url",
 };
 
