@@ -724,6 +724,7 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
     prompts: Record<string, string> | null;
     styleSuffix: string | null;
     referenceFramePrompt: string | null;
+    falCallPreview: { model: string; input: Record<string, unknown> } | null;
   } | null>(null);
   const [showPromptDebug, setShowPromptDebug] = useState(false);
   const [isRefreshingScenePrompt, setIsRefreshingScenePrompt] = useState(false);
@@ -989,7 +990,9 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
                 }, 400);
                 fetch(`/api/memes/ai/${factId}/prompts`, { credentials: "include" })
                   .then(r => r.ok ? r.json() : null)
-                  .then((d: { prompts: Record<string, string> | null } | null) => { if (d?.prompts) setAiScenePromptsDebug(d.prompts); })
+                  .then((d: { prompts: Record<string, string> | null; falCallPreview?: { model: string; input: Record<string, unknown> } | null } | null) => {
+                    if (d?.prompts) setAiScenePromptsDebug(prev => ({ ...prev!, prompts: d.prompts!, falCallPreview: d.falCallPreview ?? prev?.falCallPreview ?? null }));
+                  })
                   .catch(() => {});
                 return;
               }
@@ -1045,7 +1048,9 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
                 }, 400);
                 fetch(`/api/memes/ai/${factId}/prompts`, { credentials: "include" })
                   .then(r => r.ok ? r.json() : null)
-                  .then((d: { prompts: Record<string, string> | null } | null) => { if (d?.prompts) setAiScenePromptsDebug(d.prompts); })
+                  .then((d: { prompts: Record<string, string> | null; falCallPreview?: { model: string; input: Record<string, unknown> } | null } | null) => {
+                    if (d?.prompts) setAiScenePromptsDebug(prev => ({ ...prev!, prompts: d.prompts!, falCallPreview: d.falCallPreview ?? prev?.falCallPreview ?? null }));
+                  })
                   .catch(() => {});
                 return;
               }
@@ -1498,28 +1503,32 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
   }, [isPremium, imageMode, aiSubMode, fetchRefGenImages]);
 
   // Fetch scene prompts + live admin config values for debug panel (admin only).
-  // Re-runs when styleId, subMode, or genState changes so values are always fresh.
+  // Re-runs when styleId, subMode, genState, model override, or param overrides change.
   useEffect(() => {
     if (!isAdmin || imageMode !== "ai" || !factId) return;
     // Don't re-fetch mid-generation — wait for completion/error
     if (aiGenState === "generating") return;
     let cancelled = false;
     const isRef = aiSubMode === "reference";
-    const params = new URLSearchParams({ styleId: selectedStyleId });
+    const params = new URLSearchParams({ styleId: selectedStyleId, gender: aiGender });
     if (isRef) params.set("isRef", "1");
+    if (adminModelOverride.trim()) params.set("modelOverride", adminModelOverride.trim());
+    const nonEmptyOverrides = Object.fromEntries(Object.entries(adminParamOverrides).filter(([, v]) => v !== ""));
+    if (Object.keys(nonEmptyOverrides).length > 0) params.set("paramsOverride", JSON.stringify(nonEmptyOverrides));
     fetch(`/api/memes/ai/${factId}/prompts?${params}`, { credentials: "include" })
       .then(r => r.ok ? r.json() : null)
-      .then((data: { prompts: Record<string, string> | null; styleSuffix: string | null; referenceFramePrompt: string | null } | null) => {
+      .then((data: { prompts: Record<string, string> | null; styleSuffix: string | null; referenceFramePrompt: string | null; falCallPreview: { model: string; input: Record<string, unknown> } | null } | null) => {
         if (cancelled || !data) return;
         setAiScenePromptsDebug({
           prompts: data.prompts,
           styleSuffix: data.styleSuffix,
           referenceFramePrompt: data.referenceFramePrompt,
+          falCallPreview: data.falCallPreview ?? null,
         });
       })
       .catch(() => {});
     return () => { cancelled = true; };
-  }, [isAdmin, imageMode, factId, selectedStyleId, aiSubMode, aiGenState, scenePromptVersion]);
+  }, [isAdmin, imageMode, factId, selectedStyleId, aiSubMode, aiGender, aiGenState, scenePromptVersion, adminModelOverride, adminParamOverrides]);
 
   // Upload a new reference photo (inline in AI reference sub-mode picker)
   const handleRefPhotoUpload = useCallback(async (file: File) => {
@@ -2385,6 +2394,17 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
                                     <span className="text-violet-400 font-semibold uppercase tracking-wide">Full prompt sent to AI</span>
                                     <p className="mt-0.5 text-foreground font-mono leading-relaxed break-words">{finalPrompt}</p>
                                   </div>
+                                  {aiScenePromptsDebug?.falCallPreview && (
+                                    <div className="border-t border-border pt-2 space-y-1">
+                                      <div className="flex items-center justify-between gap-2">
+                                        <span className="text-amber-400 font-semibold uppercase tracking-wide">fal.ai API call</span>
+                                        <span className="text-[9px] font-mono text-muted-foreground/60 bg-muted/40 px-1.5 py-0.5 rounded">fal.subscribe("{aiScenePromptsDebug.falCallPreview.model}", …)</span>
+                                      </div>
+                                      <pre className="mt-0.5 text-foreground/90 font-mono text-[9px] leading-relaxed break-words whitespace-pre-wrap bg-black/20 rounded p-2 overflow-x-auto">
+                                        {JSON.stringify({ model: aiScenePromptsDebug.falCallPreview.model, input: aiScenePromptsDebug.falCallPreview.input }, null, 2)}
+                                      </pre>
+                                    </div>
+                                  )}
                                 </div>
                               )}
                             </div>
