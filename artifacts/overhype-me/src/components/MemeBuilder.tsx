@@ -569,7 +569,11 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
 
   // AI image panel state
   const [selectedAiIndex, setSelectedAiIndex] = useState<number | null>(null);
-  const [isGeneratingAi, setIsGeneratingAi] = useState(false);
+  const [aiGenState, setAiGenState] = useState<"idle" | "generating" | "completed" | "error">("idle");
+  const isGeneratingAi = aiGenState === "generating";
+  const abortControllerRef = useRef<AbortController | null>(null);
+  const generationIdRef = useRef<number>(0);
+  const [cancelDisabled, setCancelDisabled] = useState(false);
   const [aiGenerateError, setAiGenerateError] = useState<string | null>(null);
   const [aiScenePromptsDebug, setAiScenePromptsDebug] = useState<Record<string, string> | null>(null);
   const [showPromptDebug, setShowPromptDebug] = useState(false);
@@ -610,6 +614,10 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
       if (generationTimerRef.current) {
         clearInterval(generationTimerRef.current);
         generationTimerRef.current = null;
+      }
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+        abortControllerRef.current = null;
       }
     };
   }, []);
@@ -667,6 +675,23 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
     return `/api/memes/ai-user/image?storagePath=${encodeURIComponent(storagePath)}${cb}`;
   }, [aiCacheBuster]);
 
+  const handleCancelAiGeneration = () => {
+    setCancelDisabled(true);
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+    }
+    generationIdRef.current += 1;
+    if (generationTimerRef.current) {
+      clearInterval(generationTimerRef.current);
+      generationTimerRef.current = null;
+    }
+    setAiGenState("idle");
+    setGenerationProgress(0);
+    setGenerationElapsed(0);
+    setTimeout(() => setCancelDisabled(false), 200);
+  };
+
   const handleGenerateNewAi = async () => {
     if (isGeneratingAi) return;
     // In reference sub-mode, require a photo to be selected
@@ -674,7 +699,17 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
       setAiGenerateError("Select a reference photo below before generating.");
       return;
     }
-    setIsGeneratingAi(true);
+
+    // Abort any in-flight request and capture a unique generation ID
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+    const myGenerationId = generationIdRef.current + 1;
+    generationIdRef.current = myGenerationId;
+
+    setAiGenState("generating");
     setAiGenerateError(null);
     setGenerationProgress(0);
     setGenerationElapsed(0);
@@ -704,12 +739,17 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
+        signal: controller.signal,
         body: JSON.stringify(
           aiSubMode === "reference" && selectedRefUpload
             ? { referenceImagePath: selectedRefUpload.objectPath, targetGender: aiGender, styleId: selectedStyleId }
             : { scope: factIsGendered ? "gendered" : "abstract", styleId: selectedStyleId },
         ),
       });
+
+      // Stale response guard: if cancelled, bail out silently
+      if (generationIdRef.current !== myGenerationId) return;
+
       if (!res.ok) {
         const body = await res.json() as { error?: string; limitExceeded?: boolean };
         throw new Error(body.error ?? "Generation failed");
@@ -722,20 +762,30 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
         let polls = 0;
 
         const pollRef = async () => {
+          // Stale generation guard
+          if (generationIdRef.current !== myGenerationId) return;
+
           polls++;
           try {
             const images = await fetchRefGenImages();
             if (images) {
               const newCount = images.filter(img => img.gender === aiGender).length;
               if (newCount > baselineCount) {
+                if (generationIdRef.current !== myGenerationId) return;
                 if (generationTimerRef.current) { clearInterval(generationTimerRef.current); generationTimerRef.current = null; }
+                abortControllerRef.current = null;
                 setRefGenImages(images);
                 // Auto-select the first (newest) image for this gender
                 const newest = images.find(img => img.gender === aiGender);
                 if (newest) setSelectedRefGenPath(newest.storagePath);
                 setAiCacheBuster(Date.now());
-                setTimeout(() => { setIsGeneratingAi(false); setGenerationProgress(0); setGenerationElapsed(0); }, 400);
                 setGenerationProgress(100);
+                setTimeout(() => {
+                  if (generationIdRef.current !== myGenerationId) return;
+                  setAiGenState("completed");
+                  setGenerationProgress(0);
+                  setGenerationElapsed(0);
+                }, 400);
                 fetch(`/api/memes/ai/${factId}/prompts`, { credentials: "include" })
                   .then(r => r.ok ? r.json() : null)
                   .then((d: { prompts: Record<string, string> | null } | null) => { if (d?.prompts) setAiScenePromptsDebug(d.prompts); })
@@ -746,11 +796,12 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
           } catch { /* keep polling */ }
 
           if (polls >= MAX_POLLS) {
+            if (generationIdRef.current !== myGenerationId) return;
             if (generationTimerRef.current) { clearInterval(generationTimerRef.current); generationTimerRef.current = null; }
             setGenerationProgress(0);
             setGenerationElapsed(0);
             setAiGenerateError("Generation is taking longer than expected. Click 'Generate New' again or refresh the page.");
-            setIsGeneratingAi(false);
+            setAiGenState("error");
             return;
           }
           setTimeout(() => void pollRef(), POLL_INTERVAL);
@@ -771,6 +822,9 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
 
         let polls = 0;
         const poll = async () => {
+          // Stale generation guard
+          if (generationIdRef.current !== myGenerationId) return;
+
           polls++;
           try {
             const factRes = await fetch(`/api/facts/${factId}`, { credentials: "include", cache: "no-store" });
@@ -785,12 +839,19 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
                 done = newUpdatedAt !== baselineUpdatedAt && newSlotPath !== null;
               }
               if (done) {
+                if (generationIdRef.current !== myGenerationId) return;
                 if (generationTimerRef.current) { clearInterval(generationTimerRef.current); generationTimerRef.current = null; }
+                abortControllerRef.current = null;
                 setGenerationProgress(100);
                 setLocalAiMemeImages(data.aiMemeImages ?? null);
                 setSelectedAiIndex(0);
                 setAiCacheBuster(Date.now());
-                setTimeout(() => { setIsGeneratingAi(false); setGenerationProgress(0); setGenerationElapsed(0); }, 400);
+                setTimeout(() => {
+                  if (generationIdRef.current !== myGenerationId) return;
+                  setAiGenState("completed");
+                  setGenerationProgress(0);
+                  setGenerationElapsed(0);
+                }, 400);
                 fetch(`/api/memes/ai/${factId}/prompts`, { credentials: "include" })
                   .then(r => r.ok ? r.json() : null)
                   .then((d: { prompts: Record<string, string> | null } | null) => { if (d?.prompts) setAiScenePromptsDebug(d.prompts); })
@@ -801,11 +862,12 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
           } catch { /* keep polling */ }
 
           if (polls >= MAX_POLLS) {
+            if (generationIdRef.current !== myGenerationId) return;
             if (generationTimerRef.current) { clearInterval(generationTimerRef.current); generationTimerRef.current = null; }
             setGenerationProgress(0);
             setGenerationElapsed(0);
             setAiGenerateError("Generation is taking longer than expected. Click 'Generate New' again or refresh the page.");
-            setIsGeneratingAi(false);
+            setAiGenState("error");
             return;
           }
           setTimeout(() => void poll(), POLL_INTERVAL);
@@ -813,6 +875,9 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
         setTimeout(() => void poll(), POLL_INTERVAL);
       }
     } catch (e) {
+      // Ignore AbortError — it means the user cancelled, treat as normal
+      if (e instanceof Error && e.name === "AbortError") return;
+      if (generationIdRef.current !== myGenerationId) return;
       if (generationTimerRef.current) {
         clearInterval(generationTimerRef.current);
         generationTimerRef.current = null;
@@ -820,7 +885,7 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
       setGenerationProgress(0);
       setGenerationElapsed(0);
       setAiGenerateError(e instanceof Error ? e.message : "Generation failed");
-      setIsGeneratingAi(false);
+      setAiGenState("error");
     }
   };
 
@@ -1893,11 +1958,24 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
                               <><Sparkles className="w-3.5 h-3.5" />Generate New</>
                             )}
                           </Button>
-                          <span className="text-[10px] text-muted-foreground">
-                            {aiSubMode === "reference"
-                              ? "1 image from your photo"
-                              : factIsGendered ? "3 images (gendered)" : "1 image (abstract)"}
-                          </span>
+                          {isGeneratingAi && (
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={handleCancelAiGeneration}
+                              disabled={cancelDisabled}
+                              className="gap-1.5 text-muted-foreground hover:text-foreground disabled:opacity-50"
+                            >
+                              <X className="w-3.5 h-3.5" />Cancel
+                            </Button>
+                          )}
+                          {!isGeneratingAi && (
+                            <span className="text-[10px] text-muted-foreground">
+                              {aiSubMode === "reference"
+                                ? "1 image from your photo"
+                                : factIsGendered ? "3 images (gendered)" : "1 image (abstract)"}
+                            </span>
+                          )}
                         </div>
 
                         {/* Debug: full prompt preview (admin only) */}
