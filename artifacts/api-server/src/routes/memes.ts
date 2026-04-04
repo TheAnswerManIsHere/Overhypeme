@@ -13,7 +13,7 @@ import {
   type BackgroundSource,
 } from "../lib/memeGenerator";
 import { ObjectStorageService } from "../lib/objectStorage";
-import { getConfigInt } from "../lib/adminConfig";
+import { getConfigInt, getConfigString } from "../lib/adminConfig";
 import { getRandomStockPhoto, getPhotoById } from "../lib/pexelsClient";
 import { renderPersonalized } from "../lib/renderCanonical";
 import { compositeAiMeme } from "../lib/aiMemeCompositor";
@@ -807,8 +807,9 @@ router.post("/memes/ai/:factId/generate", requirePremium, async (req: Request, r
     const { IMAGE_STYLE_MAP } = await import("../config/imageStyles.js");
     const styleDef = IMAGE_STYLE_MAP.get(rawStyleId);
     if (styleDef) {
-      styleSuffix = referenceImagePath ? styleDef.promptSuffixReference : styleDef.promptSuffix;
-      if (!styleSuffix) styleSuffix = undefined;
+      const defaultSuffix = referenceImagePath ? styleDef.promptSuffixReference : styleDef.promptSuffix;
+      const configKey = referenceImagePath ? `style_suffix_ref_${rawStyleId}` : `style_suffix_${rawStyleId}`;
+      styleSuffix = (await getConfigString(configKey, defaultSuffix)) || undefined;
     }
   }
 

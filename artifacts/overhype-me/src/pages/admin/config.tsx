@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { AdminLayout } from "@/components/admin/AdminLayout";
-import { Settings, Clock, Check, AlertCircle, Loader2 } from "lucide-react";
+import { Settings, Clock, Check, AlertCircle, Loader2, Palette } from "lucide-react";
+import { IMAGE_STYLES } from "@/config/imageStyles";
 
 interface ConfigRow {
   key: string;
@@ -21,10 +22,13 @@ interface EditState {
   saved: boolean;
 }
 
+const STYLE_OPTIONS = IMAGE_STYLES.filter((s) => s.id !== "none");
+
 export default function AdminConfig() {
   const [rows, setRows] = useState<ConfigRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [edits, setEdits] = useState<Record<string, EditState>>({});
+  const [selectedStyleId, setSelectedStyleId] = useState<string>(STYLE_OPTIONS[0]?.id ?? "");
 
   useEffect(() => {
     fetch("/api/admin/config", { credentials: "include" })
@@ -46,14 +50,14 @@ export default function AdminConfig() {
   function handleChange(key: string, val: string) {
     setEdits((prev) => ({
       ...prev,
-      [key]: { ...prev[key], value: val, error: null, saved: false },
+      [key]: { ...prev[key]!, value: val, error: null, saved: false },
     }));
   }
 
   async function handleSave(key: string) {
     const edit = edits[key];
     if (!edit) return;
-    setEdits((prev) => ({ ...prev, [key]: { ...prev[key], saving: true, error: null, saved: false } }));
+    setEdits((prev) => ({ ...prev, [key]: { ...prev[key]!, saving: true, error: null, saved: false } }));
 
     try {
       const res = await fetch(`/api/admin/config/${key}`, {
@@ -64,21 +68,54 @@ export default function AdminConfig() {
       });
       const data = (await res.json()) as { error?: string; value?: string };
       if (!res.ok) {
-        setEdits((prev) => ({ ...prev, [key]: { ...prev[key], saving: false, error: data.error ?? "Save failed" } }));
+        setEdits((prev) => ({ ...prev, [key]: { ...prev[key]!, saving: false, error: data.error ?? "Save failed" } }));
       } else {
-        setEdits((prev) => ({ ...prev, [key]: { ...prev[key], saving: false, saved: true } }));
+        setEdits((prev) => ({ ...prev, [key]: { ...prev[key]!, saving: false, saved: true } }));
         setRows((prev) => prev.map((r) => (r.key === key ? { ...r, value: data.value ?? edit.value, updatedAt: new Date().toISOString() } : r)));
         setTimeout(() => {
-          setEdits((prev) => ({ ...prev, [key]: { ...prev[key], saved: false } }));
+          setEdits((prev) => ({ ...prev, [key]: { ...prev[key]!, saved: false } }));
         }, 2500);
       }
     } catch {
-      setEdits((prev) => ({ ...prev, [key]: { ...prev[key], saving: false, error: "Network error" } }));
+      setEdits((prev) => ({ ...prev, [key]: { ...prev[key]!, saving: false, error: "Network error" } }));
     }
+  }
+
+  function isDirtyKey(key: string) {
+    const row = rows.find((r) => r.key === key);
+    return row ? edits[key]?.value !== row.value : false;
   }
 
   function isDirty(row: ConfigRow) {
     return edits[row.key]?.value !== row.value;
+  }
+
+  const standardKey = `style_suffix_${selectedStyleId}`;
+  const referenceKey = `style_suffix_ref_${selectedStyleId}`;
+  const standardEdit = edits[standardKey];
+  const referenceEdit = edits[referenceKey];
+  const selectedStyleDef = STYLE_OPTIONS.find((s) => s.id === selectedStyleId);
+
+  const genericRows = rows.filter((r) => !r.key.startsWith("style_suffix_"));
+
+  function SaveButton({ configKey }: { configKey: string }) {
+    const edit = edits[configKey];
+    const dirty = isDirtyKey(configKey);
+    return (
+      <button
+        onClick={() => void handleSave(configKey)}
+        disabled={!edit || edit.saving || !dirty}
+        className="px-4 py-1.5 rounded text-sm font-medium bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-40 disabled:cursor-not-allowed transition-colors flex items-center gap-1.5"
+      >
+        {edit?.saving ? (
+          <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Saving…</>
+        ) : edit?.saved ? (
+          <><Check className="w-3.5 h-3.5" /> Saved</>
+        ) : (
+          "Save"
+        )}
+      </button>
+    );
   }
 
   return (
@@ -96,7 +133,89 @@ export default function AdminConfig() {
           </div>
         ) : (
           <div className="space-y-3">
-            {rows.map((row) => {
+
+            {/* ── Image Style Suffixes ───────────────────────────────────────── */}
+            <div className="bg-card border border-border rounded-lg p-5 space-y-4">
+              <div className="flex items-center gap-2">
+                <Palette className="w-4 h-4 text-muted-foreground" />
+                <h3 className="font-semibold text-foreground">Image Style Suffixes</h3>
+              </div>
+              <p className="text-sm text-muted-foreground -mt-2">
+                Text appended to the scene prompt when a style is selected. "Standard" is used for generic AI generation; "Reference" is used when the user uploads a photo.
+              </p>
+
+              <div>
+                <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide block mb-1.5">
+                  Style
+                </label>
+                <select
+                  value={selectedStyleId}
+                  onChange={(e) => setSelectedStyleId(e.target.value)}
+                  className="w-full bg-background border border-border rounded px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+                >
+                  {STYLE_OPTIONS.map((s) => (
+                    <option key={s.id} value={s.id}>{s.label}</option>
+                  ))}
+                </select>
+              </div>
+
+              {selectedStyleDef && (
+                <div className="space-y-4 pt-1">
+                  {/* Standard Suffix */}
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                        Standard Suffix
+                      </label>
+                      <code className="text-xs text-muted-foreground bg-muted px-2 py-0.5 rounded">{standardKey}</code>
+                    </div>
+                    <textarea
+                      rows={3}
+                      value={standardEdit?.value ?? ""}
+                      onChange={(e) => handleChange(standardKey, e.target.value)}
+                      className="w-full bg-background border border-border rounded px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-primary resize-y"
+                    />
+                    <div className="flex items-center gap-3">
+                      <SaveButton configKey={standardKey} />
+                      {standardEdit?.error && (
+                        <div className="flex items-center gap-1 text-destructive text-sm">
+                          <AlertCircle className="w-3.5 h-3.5" />
+                          <span>{standardEdit.error}</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Reference Suffix */}
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                        Reference Photo Suffix
+                      </label>
+                      <code className="text-xs text-muted-foreground bg-muted px-2 py-0.5 rounded">{referenceKey}</code>
+                    </div>
+                    <textarea
+                      rows={3}
+                      value={referenceEdit?.value ?? ""}
+                      onChange={(e) => handleChange(referenceKey, e.target.value)}
+                      className="w-full bg-background border border-border rounded px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-primary resize-y"
+                    />
+                    <div className="flex items-center gap-3">
+                      <SaveButton configKey={referenceKey} />
+                      {referenceEdit?.error && (
+                        <div className="flex items-center gap-1 text-destructive text-sm">
+                          <AlertCircle className="w-3.5 h-3.5" />
+                          <span>{referenceEdit.error}</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* ── Generic config rows (style_suffix_ rows excluded) ─────────── */}
+            {genericRows.map((row) => {
               const edit = edits[row.key];
               if (!edit) return null;
               return (
