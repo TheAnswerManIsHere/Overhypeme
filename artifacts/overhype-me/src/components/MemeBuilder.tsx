@@ -357,9 +357,11 @@ interface MemeBuilderProps {
   onClose: () => void;
   /** When true, the Public/Private toggle is initialised to Private */
   defaultPrivate?: boolean;
+  /** When true, renders without the outer modal wrapper (for use inside MemeStudio) */
+  embedded?: boolean;
 }
 
-export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMemeImages, onClose, defaultPrivate }: MemeBuilderProps) {
+export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMemeImages, onClose, defaultPrivate, embedded }: MemeBuilderProps) {
   const { isAuthenticated, login, role, user } = useAuth();
   const isPremium = role === "premium" || role === "admin";
   const isAdmin = role === "admin";
@@ -1445,27 +1447,8 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
   const templates = tplData?.templates ?? [];
 
   // ── Render ───────────────────────────────────────────────────────
-  return (
-    <div
-      className="fixed inset-0 z-50 bg-black/85 flex items-center justify-center p-3 md:p-6"
-      onClick={e => e.target === e.currentTarget && onClose()}
-    >
-      <div className="bg-card border-2 border-border w-full max-w-4xl max-h-[96vh] overflow-y-auto shadow-2xl shadow-black/60">
-
-        {/* ── Header ── */}
-        <div className="flex items-center justify-between px-5 py-4 border-b-2 border-border sticky top-0 bg-card z-10">
-          <h2 className="text-xl font-display uppercase tracking-[0.15em] text-primary">
-            Meme Generator
-          </h2>
-          <button
-            onClick={onClose}
-            className="text-muted-foreground hover:text-foreground transition-colors p-1"
-          >
-            <X className="w-5 h-5" />
-          </button>
-        </div>
-
-        <div className="p-4 md:p-5 space-y-5">
+  const innerContent = (
+    <div className="p-4 md:p-5 space-y-5">
 
           {/* ── Canvas preview ── */}
           <div className="relative sticky top-14 z-10 bg-card pb-2">
@@ -2518,6 +2501,31 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
             </p>
           )}
         </div>
+  );
+
+  if (embedded) {
+    return innerContent;
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-50 bg-black/85 flex items-center justify-center p-3 md:p-6"
+      onClick={e => e.target === e.currentTarget && onClose()}
+    >
+      <div className="bg-card border-2 border-border w-full max-w-4xl max-h-[96vh] overflow-y-auto shadow-2xl shadow-black/60">
+        {/* ── Header ── */}
+        <div className="flex items-center justify-between px-5 py-4 border-b-2 border-border sticky top-0 bg-card z-10">
+          <h2 className="text-xl font-display uppercase tracking-[0.15em] text-primary">
+            Meme Generator
+          </h2>
+          <button
+            onClick={onClose}
+            className="text-muted-foreground hover:text-foreground transition-colors p-1"
+          >
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+        {innerContent}
       </div>
     </div>
   );

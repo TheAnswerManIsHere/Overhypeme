@@ -10,8 +10,7 @@ import { Layout } from "@/components/layout/Layout";
 import { Button } from "@/components/ui/Button";
 import { Textarea } from "@/components/ui/Input";
 import { useAppMutations } from "@/hooks/use-mutations";
-import { MemeBuilder } from "@/components/MemeBuilder";
-import { VideoBuilder } from "@/components/VideoBuilder";
+import { MemeStudio } from "@/components/MemeStudio";
 import { MerchButtons } from "@/components/MerchButtons";
 import { AdSlot } from "@/components/AdSlot";
 import { ThumbsUp, ThumbsDown, User, AlertCircle, ImageIcon, GitBranch, ArrowLeft, Crown, Flame, Globe, Lock, Video } from "lucide-react";
@@ -45,8 +44,8 @@ function VariantFactCard({ id, useCase }: { id: number; useCase: string | null }
   const [, setLocation] = useLocation();
   const { rateFact } = useAppMutations();
   const { name, pronouns } = usePersonName();
-  const [showMemeBuilder, setShowMemeBuilder] = useState(false);
-  const [showVideoBuilder, setShowVideoBuilder] = useState(false);
+  const [showStudio, setShowStudio] = useState(false);
+  const [studioDefaultTab, setStudioDefaultTab] = useState<"image" | "video">("image");
 
   const { data: fact, isLoading } = useGetFact(id, {
     query: { queryKey: getGetFactQueryKey(id), enabled: true }
@@ -71,20 +70,14 @@ function VariantFactCard({ id, useCase }: { id: number; useCase: string | null }
 
   return (
     <div className="bg-card border-l-4 border-primary/60 p-6 md:p-8 shadow-lg relative">
-      {showMemeBuilder && (
-        <MemeBuilder
+      {showStudio && (
+        <MemeStudio
           factId={id}
           factText={renderedText}
           rawFactText={fact.text}
-          aiMemeImages={(fact as unknown as { aiMemeImages?: import("@/components/MemeBuilder").AiMemeImages | null })?.aiMemeImages ?? null}
-          onClose={() => setShowMemeBuilder(false)}
-        />
-      )}
-      {showVideoBuilder && (
-        <VideoBuilder
-          factId={id}
-          factText={renderedText}
-          onClose={() => setShowVideoBuilder(false)}
+          aiMemeImages={(fact as unknown as { aiMemeImages?: import("@/components/MemeStudio").AiMemeImages | null })?.aiMemeImages ?? null}
+          onClose={() => setShowStudio(false)}
+          defaultTab={studioDefaultTab}
         />
       )}
 
@@ -132,7 +125,7 @@ function VariantFactCard({ id, useCase }: { id: number; useCase: string | null }
         <Button
           variant="primary"
           size="sm"
-          onClick={() => setShowMemeBuilder(true)}
+          onClick={() => { setStudioDefaultTab("image"); setShowStudio(true); }}
           className="gap-2"
         >
           <Flame className="w-4 h-4" />
@@ -141,7 +134,7 @@ function VariantFactCard({ id, useCase }: { id: number; useCase: string | null }
         <Button
           variant="secondary"
           size="sm"
-          onClick={() => setShowVideoBuilder(true)}
+          onClick={() => { setStudioDefaultTab("video"); setShowStudio(true); }}
           className="gap-2"
         >
           <Video className="w-4 h-4" />
@@ -220,14 +213,15 @@ export default function FactDetail() {
   // Meme builder open state is derived from URL (/facts/:id/meme)
   // so that mobile browsers reloading the tab re-open the builder automatically.
   const [memeBuilderDefaultPrivate, setMemeBuilderDefaultPrivate] = useState(false);
-  const showMemeBuilder = isMemeRoute;
-  const openMemeBuilder = () => setLocation(`/facts/${factId}/meme`);
-  const openMemeBuilderPrivate = () => { setMemeBuilderDefaultPrivate(true); setLocation(`/facts/${factId}/meme`); };
-  const closeMemeBuilder = () => { setMemeBuilderDefaultPrivate(false); setLocation(`/facts/${factId}`); };
+  const [studioDefaultTab, setStudioDefaultTab] = useState<"image" | "video">("image");
 
-  const showVideoBuilder = isVideoRoute;
-  const openVideoBuilder = () => setLocation(`/facts/${factId}/video`);
-  const closeVideoBuilder = () => setLocation(`/facts/${factId}`);
+  const showMemeStudio = isMemeRoute || isVideoRoute;
+  const openMemeStudio = (tab: "image" | "video" = "image") => {
+    setStudioDefaultTab(tab);
+    setLocation(`/facts/${factId}/meme`);
+  };
+  const openMemeStudioPrivate = () => { setMemeBuilderDefaultPrivate(true); openMemeStudio("image"); };
+  const closeMemeStudio = () => { setMemeBuilderDefaultPrivate(false); setLocation(`/facts/${factId}`); };
 
   async function handleDeleteMeme(slug: string) {
     const res = await fetch(`/api/memes/${slug}`, { method: "DELETE", credentials: "include" });
@@ -236,7 +230,7 @@ export default function FactDetail() {
   }
 
   const pexelsImages = ((fact as unknown as { pexelsImages?: FactPexelsImages | null })?.pexelsImages) ?? null;
-  const aiMemeImages = ((fact as unknown as { aiMemeImages?: import("@/components/MemeBuilder").AiMemeImages | null })?.aiMemeImages) ?? null;
+  const aiMemeImages = ((fact as unknown as { aiMemeImages?: import("@/components/MemeStudio").AiMemeImages | null })?.aiMemeImages) ?? null;
 
   if (factLoading) return <Layout><div className="flex h-[50vh] items-center justify-center"><div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin" /></div></Layout>;
   if (factError || !fact) return <Layout><div className="max-w-2xl mx-auto mt-20 p-8 bg-destructive/10 border-2 border-destructive text-center"><AlertCircle className="w-16 h-16 text-destructive mx-auto mb-4"/><h2 className="text-3xl font-display text-destructive uppercase">Classified Record Not Found</h2></div></Layout>;
@@ -266,22 +260,16 @@ export default function FactDetail() {
 
   return (
     <Layout>
-      {showMemeBuilder && (
-        <MemeBuilder
+      {showMemeStudio && (
+        <MemeStudio
           factId={factId}
           factText={renderedText}
           rawFactText={fact.text}
           pexelsImages={pexelsImages}
           aiMemeImages={aiMemeImages}
-          onClose={closeMemeBuilder}
+          onClose={closeMemeStudio}
           defaultPrivate={memeBuilderDefaultPrivate}
-        />
-      )}
-      {showVideoBuilder && (
-        <VideoBuilder
-          factId={factId}
-          factText={renderedText}
-          onClose={closeVideoBuilder}
+          defaultTab={isVideoRoute ? "video" : studioDefaultTab}
         />
       )}
       <div className="max-w-4xl mx-auto px-4 py-12 md:py-20">
@@ -347,7 +335,7 @@ export default function FactDetail() {
               <Button
                 variant="primary"
                 size="lg"
-                onClick={openMemeBuilder}
+                onClick={() => openMemeStudio("image")}
                 className="gap-2 h-14"
               >
                 <Flame className="w-5 h-5" />
@@ -356,7 +344,7 @@ export default function FactDetail() {
               <Button
                 variant="secondary"
                 size="lg"
-                onClick={openVideoBuilder}
+                onClick={() => openMemeStudio("video")}
                 className="gap-2 h-14"
               >
                 <Video className="w-5 h-5" />
@@ -448,7 +436,7 @@ export default function FactDetail() {
                 <>
                   <p className="text-muted-foreground mb-4">You haven't made any private memes for this fact yet.</p>
                   <button
-                    onClick={openMemeBuilderPrivate}
+                    onClick={openMemeStudioPrivate}
                     className="inline-flex items-center gap-2 px-4 py-2 text-sm font-display font-bold uppercase tracking-wider bg-primary text-primary-foreground rounded-sm hover:opacity-90 transition-opacity"
                   >
                     Create your first private meme for this fact
