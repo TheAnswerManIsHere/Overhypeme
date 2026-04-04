@@ -801,10 +801,15 @@ router.get("/admin/config", requireAdmin, async (_req: Request, res: Response) =
 
 router.patch("/admin/config/:key", requireAdmin, async (req: Request, res: Response) => {
   const { key } = req.params;
-  const { value } = req.body as { value: unknown };
+  const body = req.body as { value?: unknown; debugValue?: unknown; clearDebugValue?: boolean };
 
-  if (value === undefined || value === null || String(value).trim() === "") {
-    res.status(400).json({ error: "value is required" });
+  // At least one of value or debugValue (or clearDebugValue) must be provided
+  const hasValue = body.value !== undefined && body.value !== null && String(body.value).trim() !== "";
+  const hasDebugValue = body.debugValue !== undefined;
+  const clearDebug = body.clearDebugValue === true;
+
+  if (!hasValue && !hasDebugValue && !clearDebug) {
+    res.status(400).json({ error: "value, debugValue, or clearDebugValue is required" });
     return;
   }
 
@@ -819,28 +824,58 @@ router.patch("/admin/config/:key", requireAdmin, async (req: Request, res: Respo
     return;
   }
 
-  const rawValue = String(value).trim();
+  let newValue: string | undefined;
+  let newDebugValue: string | null | undefined;
 
-  if (existing.dataType === "integer") {
-    const parsed = parseInt(rawValue, 10);
-    if (isNaN(parsed)) {
-      res.status(400).json({ error: "Value must be an integer" });
-      return;
+  if (hasValue) {
+    const rawValue = String(body.value).trim();
+    if (existing.dataType === "integer") {
+      const parsed = parseInt(rawValue, 10);
+      if (isNaN(parsed)) {
+        res.status(400).json({ error: "Value must be an integer" });
+        return;
+      }
+      if (existing.minValue !== null && parsed < existing.minValue) {
+        res.status(400).json({ error: `Value must be at least ${existing.minValue}` });
+        return;
+      }
+      if (existing.maxValue !== null && parsed > existing.maxValue) {
+        res.status(400).json({ error: `Value must be at most ${existing.maxValue}` });
+        return;
+      }
     }
-    if (existing.minValue !== null && parsed < existing.minValue) {
-      res.status(400).json({ error: `Value must be at least ${existing.minValue}` });
-      return;
+    newValue = rawValue;
+  }
+
+  if (hasDebugValue) {
+    const rawDebug = body.debugValue === null || String(body.debugValue).trim() === ""
+      ? null
+      : String(body.debugValue).trim();
+    if (rawDebug !== null && existing.dataType === "integer") {
+      const parsed = parseInt(rawDebug, 10);
+      if (isNaN(parsed)) {
+        res.status(400).json({ error: "Debug value must be an integer" });
+        return;
+      }
+      if (existing.minValue !== null && parsed < existing.minValue) {
+        res.status(400).json({ error: `Debug value must be at least ${existing.minValue}` });
+        return;
+      }
+      if (existing.maxValue !== null && parsed > existing.maxValue) {
+        res.status(400).json({ error: `Debug value must be at most ${existing.maxValue}` });
+        return;
+      }
     }
-    if (existing.maxValue !== null && parsed > existing.maxValue) {
-      res.status(400).json({ error: `Value must be at most ${existing.maxValue}` });
-      return;
-    }
+    newDebugValue = rawDebug;
+  } else if (clearDebug) {
+    newDebugValue = null;
   }
 
   const [updated] = await db
     .update(adminConfigTable)
     .set({
-      value: rawValue,
+      ...(newValue !== undefined ? { value: newValue } : {}),
+      ...(newDebugValue !== undefined ? { debugValue: newDebugValue } : {}),
       updatedAt: new Date(),
       updatedById: req.user?.id ?? null,
     })
