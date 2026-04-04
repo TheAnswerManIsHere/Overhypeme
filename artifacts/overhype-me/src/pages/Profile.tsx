@@ -297,7 +297,7 @@ export default function Profile() {
           <div className="flex items-center justify-between gap-4 bg-primary/20 border-2 border-primary rounded-sm p-4 mb-8">
             <div className="flex items-center gap-3">
               <Star className="w-5 h-5 text-primary shrink-0" />
-              <p className="font-bold text-foreground">Welcome to Premium! Your membership is now active. Daily facts incoming.</p>
+              <p className="font-bold text-foreground">You're now Legendary! Your membership is active. Daily facts incoming.</p>
             </div>
             <button onClick={() => setCheckoutBanner(null)} className="text-muted-foreground hover:text-foreground shrink-0">
               <X className="w-4 h-4" />
@@ -496,7 +496,7 @@ export default function Profile() {
               {profile.isPremium ? (
                 <div>
                   <label className="block text-sm font-bold text-muted-foreground uppercase tracking-wide mb-2 flex items-center gap-2">
-                    <Camera className="w-3.5 h-3.5" /> Custom Photo <span className="text-primary text-xs">Premium</span>
+                    <Camera className="w-3.5 h-3.5" /> Custom Photo <span className="text-primary text-xs">Legendary</span>
                   </label>
                   <div className="flex items-center gap-4">
                     {profile.profileImageUrl && (
@@ -519,8 +519,8 @@ export default function Profile() {
                 <div className="flex items-start gap-3 bg-primary/5 border border-primary/20 rounded-sm p-3">
                   <Star className="w-4 h-4 text-primary shrink-0 mt-0.5" />
                   <div>
-                    <p className="text-sm font-bold text-foreground">Custom Photo — Premium Feature</p>
-                    <p className="text-xs text-muted-foreground mt-0.5">Upgrade to Premium to replace your generated avatar with a custom photo.</p>
+                    <p className="text-sm font-bold text-foreground">Custom Photo — Legendary Feature</p>
+                    <p className="text-xs text-muted-foreground mt-0.5">Go Legendary to replace your generated avatar with a custom photo.</p>
                   </div>
                 </div>
               )}

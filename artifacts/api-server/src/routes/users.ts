@@ -161,7 +161,7 @@ router.patch("/users/me", async (req: Request, res: Response) => {
       .where(eq(usersTable.id, userId))
       .limit(1);
     if (userRow?.membershipTier !== "premium") {
-      res.status(403).json({ error: "Custom photo upload is a Premium feature" }); return;
+      res.status(403).json({ error: "Custom photo upload is a Legendary feature" }); return;
     }
     if (typeof profileImageUrl !== "string") {
       res.status(400).json({ error: "Invalid profile image URL" }); return;

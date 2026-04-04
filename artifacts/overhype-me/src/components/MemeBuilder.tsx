@@ -1298,7 +1298,7 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
       return;
     }
     if ((imageMode === "upload" || imageMode === "ai") && !isPremium) {
-      setErrorMsg("This image source requires a Premium membership.");
+      setErrorMsg("This image source requires a Legendary membership.");
       return;
     }
     if (imageMode === "upload" && !uploadObjectPath) {
@@ -1686,13 +1686,13 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
                       <div className="border-2 border-dashed border-amber-400/30 bg-amber-400/5 p-5 text-center space-y-2">
                         <Lock className="w-6 h-6 text-amber-400 mx-auto" />
                         <p className="text-sm font-bold text-amber-400 uppercase tracking-wider">
-                          Premium Feature
+                          Legendary Feature
                         </p>
                         <p className="text-xs text-muted-foreground">
-                          AI-generated backgrounds require a Premium membership.
+                          AI-generated backgrounds require a Legendary membership.
                         </p>
                         <Link href="/membership">
-                          <Button size="sm" className="mt-2">Upgrade to Premium</Button>
+                          <Button size="sm" className="mt-2">Go Legendary</Button>
                         </Link>
                       </div>
                     ) : (
@@ -2010,13 +2010,13 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
                       <div className="border-2 border-dashed border-amber-400/30 bg-amber-400/5 p-5 text-center space-y-2">
                         <Lock className="w-6 h-6 text-amber-400 mx-auto" />
                         <p className="text-sm font-bold text-amber-400 uppercase tracking-wider">
-                          Premium Feature
+                          Legendary Feature
                         </p>
                         <p className="text-xs text-muted-foreground">
-                          Upload your own photos with a Premium membership.
+                          Upload your own photos with a Legendary membership.
                         </p>
                         <Link href="/membership">
-                          <Button size="sm" className="mt-2">Upgrade to Premium</Button>
+                          <Button size="sm" className="mt-2">Go Legendary</Button>
                         </Link>
                       </div>
                     ) : (

@@ -387,7 +387,7 @@ export default function AdminUsers() {
                     }`}
                   >
                     {tier === "premium" ? <Crown className="w-3.5 h-3.5" /> : <Star className="w-3.5 h-3.5" />}
-                    {tier.charAt(0).toUpperCase() + tier.slice(1)}
+                    {tier === "premium" ? "Legendary" : "Free"}
                   </button>
                 ))}
               </div>
@@ -484,7 +484,7 @@ export default function AdminUsers() {
                       <div className="flex items-center gap-1.5">
                         <span className="text-sm font-medium text-foreground truncate">{displayName(user)}</span>
                         {user.isAdmin && <Shield className="w-3 h-3 text-primary shrink-0" title="Admin" />}
-                        {user.membershipTier === "premium" && <Crown className="w-3 h-3 text-yellow-500 shrink-0" title="Premium" />}
+                        {user.membershipTier === "premium" && <Crown className="w-3 h-3 text-yellow-500 shrink-0" title="Legendary" />}
                       </div>
                       <div className="text-xs text-muted-foreground truncate">
                         {user.email ?? user.id.slice(0, 16) + "…"}
@@ -589,7 +589,7 @@ export default function AdminUsers() {
                     }`}
                   >
                     {tier === "premium" ? <Crown className="w-3.5 h-3.5" /> : <Star className="w-3.5 h-3.5" />}
-                    {tier.charAt(0).toUpperCase() + tier.slice(1)}
+                    {tier === "premium" ? "Legendary" : "Free"}
                   </button>
                 ))}
               </div>

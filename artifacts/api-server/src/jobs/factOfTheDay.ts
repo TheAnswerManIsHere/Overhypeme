@@ -26,7 +26,7 @@ function buildFactOfTheDayEmail(
     "",
     "— The Overhype.me Team",
     "",
-    `Manage your Premium subscription: ${manageUrl}`,
+    `Manage your Legendary subscription: ${manageUrl}`,
   ].join("\n");
 
   const body = `
@@ -43,7 +43,7 @@ ${ctaButton(factUrl, "View the Full Fact")}
 ${divider()}
 <p style="margin:0;font-size:12px;color:#555555;line-height:1.7;font-family:'Inter',-apple-system,sans-serif;">Keep&nbsp;submitting. Every legend needs&nbsp;material.</p>`;
 
-  const footerNote = `You&#39;re receiving this because you&#39;re a Premium member — good taste.&nbsp;
+  const footerNote = `You&#39;re receiving this because you&#39;re a Legendary member — good taste.&nbsp;
 <a href="${manageUrl}" style="color:#FF3C00;text-decoration:none;">Manage&nbsp;subscription</a>`;
 
   const html = buildEmailShell(body, footerNote);
