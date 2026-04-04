@@ -734,7 +734,8 @@ router.put("/facts/:factId/ai-meme-preference", async (req: Request, res: Respon
   res.json({ success: true, aiMemeImageIndex });
 });
 
-// GET /memes/ai/:factId/prompts — return stored scene prompts for debugging (admin only)
+// GET /memes/ai/:factId/prompts — return stored scene prompts + live admin config values for debugging (admin only)
+// Query params: styleId (optional), isRef=1 (optional)
 router.get("/memes/ai/:factId/prompts", requireAdmin, async (req: Request, res: Response) => {
   const factId = parseInt(String(req.params["factId"] ?? ""), 10);
   if (isNaN(factId)) { res.status(400).json({ error: "Invalid factId" }); return; }
@@ -744,7 +745,31 @@ router.get("/memes/ai/:factId/prompts", requireAdmin, async (req: Request, res: 
     .where(and(eq(factsTable.id, factId), eq(factsTable.isActive, true)))
     .limit(1);
   if (!fact) { res.status(404).json({ error: "Fact not found" }); return; }
-  res.json({ prompts: fact.aiScenePrompts ?? null });
+
+  // Resolve style suffix from admin config (no cache — always fresh for debug accuracy)
+  const rawStyleId = String(req.query["styleId"] ?? "");
+  const isRef = req.query["isRef"] === "1";
+  let styleSuffix: string | null = null;
+  if (rawStyleId && rawStyleId !== "none") {
+    const { IMAGE_STYLE_MAP } = await import("../config/imageStyles.js");
+    const styleDef = IMAGE_STYLE_MAP.get(rawStyleId);
+    if (styleDef) {
+      const defaultSuffix = isRef ? styleDef.promptSuffixReference : styleDef.promptSuffix;
+      const configKey = isRef ? `style_suffix_ref_${rawStyleId}` : `style_suffix_${rawStyleId}`;
+      styleSuffix = (await getConfigString(configKey, defaultSuffix)) || null;
+    }
+  }
+
+  // Resolve reference frame prompt from admin config
+  const DEFAULT_REF_FRAME =
+    "Generate an image using the provided reference photo. The person's face, facial structure, skin tone, eye shape, hair, and all distinguishing features must be preserved with photorealistic accuracy and remain visually identical to the reference — this is the highest priority. Do not alter, stylize, or idealize the person's facial features in any way. The person should be placed into the scene as described. The scene and environment should be stylized as described, but the person's face and likeness must remain untouched by any stylization. No text, words, or letters anywhere in the image.";
+  const referenceFramePrompt = (await getConfigString("ai_reference_frame_prompt", DEFAULT_REF_FRAME)) || DEFAULT_REF_FRAME;
+
+  res.json({
+    prompts: fact.aiScenePrompts ?? null,
+    styleSuffix,
+    referenceFramePrompt,
+  });
 });
 
 // POST /memes/ai/:factId/generate — premium user triggers AI image generation for a fact
