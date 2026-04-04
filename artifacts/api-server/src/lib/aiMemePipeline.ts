@@ -207,6 +207,8 @@ async function generateAndStoreImageFromReference(
     ? `${referenceFramePrompt} ${prompt}`
     : prompt;
 
+  console.log(`[aiMemePipeline] editPrompt (first 120 chars): ${editPrompt.slice(0, 120)}`);
+
   const response = await (openai.images.edit as Function)({
     model: "gpt-image-1",
     image: referenceFile,
