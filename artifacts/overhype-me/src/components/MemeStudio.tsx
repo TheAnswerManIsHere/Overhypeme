@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import {
   X,
   ChevronLeft,
@@ -8,14 +8,17 @@ import {
   Download,
   Share2,
   RefreshCw,
-  Search,
   CheckCircle,
   Sparkles,
+  Upload,
+  Lock,
 } from "lucide-react";
 import { MemeBuilder } from "@/components/MemeBuilder";
 import { Button } from "@/components/ui/Button";
+import { ImageCard } from "@/components/ui/ImageCard";
 import { VIDEO_STYLES, type VideoStyleDef } from "@/config/videoStyles";
 import type { AiMemeImages } from "@/components/MemeBuilder";
+import { useAuth } from "@workspace/replit-auth-web";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -54,11 +57,6 @@ interface FactPexelsImages {
   neutral: (number | PexelsPhotoEntry)[];
 }
 
-interface SuggestedFact {
-  id: number;
-  text: string;
-}
-
 interface MemeStudioProps {
   factId: number;
   factText: string;
@@ -70,76 +68,6 @@ interface MemeStudioProps {
   defaultTab?: StudioTab;
   /** Pre-loaded meme image data URL to use as video source (from external "Turn Into Video" flow) */
   initialVideoImageDataUrl?: string;
-}
-
-// ─── Render helper: generate a branded fact image for video ─────────────────
-
-function renderFactImage(text: string): string {
-  const W = 800;
-  const H = 420;
-  const canvas = document.createElement("canvas");
-  canvas.width = W;
-  canvas.height = H;
-  const ctx = canvas.getContext("2d");
-  if (!ctx) return "";
-
-  const grad = ctx.createLinearGradient(0, 0, W, H);
-  grad.addColorStop(0, "#0a0e2e");
-  grad.addColorStop(0.55, "#1a237e");
-  grad.addColorStop(1, "#283593");
-  ctx.fillStyle = grad;
-  ctx.fillRect(0, 0, W, H);
-  ctx.fillStyle = "rgba(0,0,0,0.35)";
-  ctx.fillRect(0, 0, W, H);
-
-  ctx.fillStyle = "#ff6600";
-  ctx.fillRect(0, 0, 12, H);
-
-  ctx.fillStyle = "rgba(255,255,255,0.06)";
-  ctx.font = `bold ${Math.floor(H * 0.45)}px serif`;
-  ctx.textAlign = "right";
-  ctx.fillText("OM", W - 24, H * 0.72);
-
-  const fontSize = 32;
-  const padding = 52;
-  const maxW = W - padding * 2;
-  ctx.font = `bold ${fontSize}px "Impact", sans-serif`;
-  ctx.textAlign = "center";
-  ctx.fillStyle = "#ffffff";
-
-  const words = text.toUpperCase().split(" ");
-  const lines: string[] = [];
-  let current = "";
-  for (const w of words) {
-    const test = current ? `${current} ${w}` : w;
-    if (ctx.measureText(test).width > maxW && current) {
-      lines.push(current);
-      current = w;
-    } else {
-      current = test;
-    }
-  }
-  if (current) lines.push(current);
-
-  const lineH = fontSize * 1.3;
-  const totalH = lines.length * lineH;
-  const startY = (H - totalH) / 2 + fontSize;
-
-  lines.forEach((line, i) => {
-    const y = startY + i * lineH;
-    ctx.strokeStyle = "#000000";
-    ctx.lineWidth = 6;
-    ctx.lineJoin = "round";
-    ctx.strokeText(line, W / 2, y);
-    ctx.fillText(line, W / 2, y);
-  });
-
-  ctx.font = "bold 13px sans-serif";
-  ctx.fillStyle = "rgba(255,255,255,0.45)";
-  ctx.textAlign = "right";
-  ctx.fillText("overhype.me", W - 18, H - 14);
-
-  return canvas.toDataURL("image/jpeg", 0.85);
 }
 
 // ─── Step indicator ─────────────────────────────────────────────────────────
@@ -183,7 +111,6 @@ function StyleCard({
           : "border-border hover:border-[#ff6b35]/50"
       }`}
     >
-      {/* Gradient preview */}
       <div
         className="w-full h-16 sm:h-20 transition-opacity"
         style={{
@@ -195,14 +122,12 @@ function StyleCard({
         </div>
       </div>
 
-      {/* Selected check */}
       {selected && (
         <div className="absolute top-2 right-2 w-5 h-5 rounded-full bg-[#ff6b35] flex items-center justify-center">
           <CheckCircle className="w-3 h-3 text-white" />
         </div>
       )}
 
-      {/* Label + description */}
       <div className="p-2.5 space-y-0.5">
         <p className={`text-xs font-bold uppercase tracking-wider ${selected ? "text-[#ff6b35]" : "text-foreground"}`}>
           {style.label}
@@ -215,69 +140,171 @@ function StyleCard({
   );
 }
 
+// ─── Available Kling video models ────────────────────────────────────────────
+
+const KLING_VIDEO_MODELS: { value: string; label: string }[] = [
+  { value: "fal-ai/kling-video/v2.6/standard/image-to-video", label: "Kling v2.6 Standard (default)" },
+  { value: "fal-ai/kling-video/v2.6/pro/image-to-video", label: "Kling v2.6 Pro" },
+  { value: "fal-ai/kling-video/v1.6/standard/image-to-video", label: "Kling v1.6 Standard" },
+  { value: "fal-ai/kling-video/v1.6/pro/image-to-video", label: "Kling v1.6 Pro" },
+  { value: "fal-ai/kling-video/v1.5/pro/image-to-video", label: "Kling v1.5 Pro" },
+];
+
+// ─── Image source types for VideoTab ─────────────────────────────────────────
+
+type VideoImageMode = "stock" | "ai" | "upload";
+
+interface StockPhotoEntry {
+  id: number;
+  photoUrl: string;
+  photographerName: string;
+  photographerUrl: string;
+}
+
 // ─── Video Tab wizard ────────────────────────────────────────────────────────
 
 interface VideoTabProps {
   factId: number;
   factText: string;
+  pexelsImages?: FactPexelsImages | null;
+  aiMemeImages?: AiMemeImages | null;
   /** Pre-loaded meme image data URL passed from MemeBuilder's "Turn Into Video" button */
   initialImageDataUrl?: string;
 }
 
-function VideoTab({ factId, factText, initialImageDataUrl }: VideoTabProps) {
-  const [step, setStep] = useState<VideoStep>(2);
-  const [selectedFact, setSelectedFact] = useState<SuggestedFact>({
-    id: factId,
-    text: factText,
-  });
-  const [searchQuery, setSearchQuery] = useState("");
-  const [searchResults, setSearchResults] = useState<SuggestedFact[]>([]);
-  const [isSearching, setIsSearching] = useState(false);
+function VideoTab({ factId, factText, pexelsImages, aiMemeImages, initialImageDataUrl }: VideoTabProps) {
+  const { role } = useAuth();
+  const isAdmin = role === "admin";
+  const isPremium = role === "premium" || role === "admin";
+
+  // Start at step 1 (background selection) unless we already have a pre-loaded image
+  const [step, setStep] = useState<VideoStep>(initialImageDataUrl ? 2 : 1);
   const [selectedStyleId, setSelectedStyleId] = useState("cinematic");
   const [videoState, setVideoState] = useState<VideoState>({ status: "idle" });
 
+  // ── Background image state ────────────────────────────────────────────────
+  const [imageMode, setImageMode] = useState<VideoImageMode>("stock");
+
+  // Selected background image URL (URL or base64 data URL)
+  const [selectedBgUrl, setSelectedBgUrl] = useState<string | null>(initialImageDataUrl ?? null);
+  // Human-readable label for the selected background
+  const [selectedBgLabel, setSelectedBgLabel] = useState<string | null>(initialImageDataUrl ? "From meme builder" : null);
+
+  // Stock photos
+  const [prefetchedPhotos, setPrefetchedPhotos] = useState<PexelsPhotoEntry[]>([]);
+  const [selectedStockIndex, setSelectedStockIndex] = useState<number | null>(null);
+
+  // AI images
+  const [selectedAiIndex, setSelectedAiIndex] = useState<number | null>(null);
+
+  // Upload
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [isUploadingFile, setIsUploadingFile] = useState(false);
+  const [uploadGallery, setUploadGallery] = useState<Array<{ objectPath: string; width: number; height: number }>>([]);
+  const [isLoadingGallery, setIsLoadingGallery] = useState(false);
+
+  // ── Admin controls ─────────────────────────────────────────────────────────
+  const [selectedModel, setSelectedModel] = useState(KLING_VIDEO_MODELS[0]!.value);
+  const [motionPrompt, setMotionPrompt] = useState("");
+  const [isGeneratingPrompt, setIsGeneratingPrompt] = useState(false);
+
   const selectedStyle = VIDEO_STYLES.find((s) => s.id === selectedStyleId) ?? VIDEO_STYLES[0]!;
 
-  const handleSearch = useCallback(async (query: string) => {
-    setSearchQuery(query);
-    if (!query.trim()) {
-      setSearchResults([]);
-      return;
+  // ── Load prefetched Pexels photos on mount ────────────────────────────────
+  useEffect(() => {
+    if (!pexelsImages) return;
+    const raw = pexelsImages.neutral ?? pexelsImages.male ?? pexelsImages.female ?? [];
+    const mapped = raw.map((entry) =>
+      typeof entry === "number"
+        ? { id: entry, url: `https://images.pexels.com/photos/${entry}/pexels-photo-${entry}.jpeg?auto=compress&cs=tinysrgb&w=940&h=500&fit=crop&dpr=1` }
+        : entry
+    );
+    setPrefetchedPhotos(mapped);
+    if (mapped.length > 0 && selectedStockIndex === null) {
+      setSelectedStockIndex(0);
+      const first = mapped[0]!;
+      const photoUrl = first.src?.large ?? first.url;
+      setSelectedBgUrl(photoUrl);
+      setSelectedBgLabel("Stock photo");
     }
-    setIsSearching(true);
+  }, [pexelsImages]);
+
+  // ── Load upload gallery for premium users ─────────────────────────────────
+  useEffect(() => {
+    if (!isPremium || imageMode !== "upload") return;
+    setIsLoadingGallery(true);
+    fetch("/api/users/me/uploads", { credentials: "include" })
+      .then((r) => r.json())
+      .then((data: { uploads?: Array<{ objectPath: string; width: number; height: number }> }) => {
+        setUploadGallery(data.uploads ?? []);
+      })
+      .catch(() => {})
+      .finally(() => setIsLoadingGallery(false));
+  }, [isPremium, imageMode]);
+
+  // ── Auto-generate motion prompt when admin reaches step 3 ─────────────────
+  const generatePromptForImage = useCallback(async (imageUrl: string) => {
+    if (!isAdmin) return;
+    setIsGeneratingPrompt(true);
     try {
-      const res = await fetch(
-        `/api/facts?search=${encodeURIComponent(query)}&limit=5`,
-        { credentials: "include" }
-      );
-      if (!res.ok) return;
-      const data = await res.json() as { facts?: { id: number; text: string }[] };
-      setSearchResults((data.facts ?? []).map((f) => ({ id: f.id, text: f.text })));
+      const body: { imageBase64?: string; imageUrl?: string } = {};
+      if (imageUrl.startsWith("data:")) {
+        body.imageBase64 = imageUrl;
+      } else {
+        body.imageUrl = imageUrl;
+      }
+      const res = await fetch("/api/videos/generate-prompt", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify(body),
+      });
+      if (res.ok) {
+        const data = await res.json() as { prompt?: string };
+        if (data.prompt) setMotionPrompt(data.prompt);
+      }
     } catch {
-      // silent
+      // leave prompt empty — admin can type manually
     } finally {
-      setIsSearching(false);
+      setIsGeneratingPrompt(false);
     }
-  }, []);
+  }, [isAdmin]);
 
+  const goToStep3 = useCallback(() => {
+    setStep(3);
+    if (isAdmin && selectedBgUrl && !motionPrompt) {
+      void generatePromptForImage(selectedBgUrl);
+    }
+  }, [isAdmin, selectedBgUrl, motionPrompt, generatePromptForImage]);
+
+  // ── Generate video ─────────────────────────────────────────────────────────
   const handleGenerateVideo = async () => {
-    if (videoState.status === "generating") return;
-
-    const imageBase64 = initialImageDataUrl ?? renderFactImage(selectedFact.text);
-    if (!imageBase64) return;
+    if (videoState.status === "generating" || !selectedBgUrl) return;
 
     setVideoState({ status: "generating" });
 
     try {
+      const body: Record<string, unknown> = {
+        factId,
+        styleId: selectedStyleId,
+      };
+
+      if (selectedBgUrl.startsWith("data:")) {
+        body.imageBase64 = selectedBgUrl;
+      } else {
+        body.imageUrl = selectedBgUrl;
+      }
+
+      if (isAdmin) {
+        if (motionPrompt.trim()) body.motionPrompt = motionPrompt.trim();
+        body.videoModel = selectedModel;
+      }
+
       const res = await fetch("/api/videos/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({
-          imageBase64,
-          factId: selectedFact.id,
-          styleId: selectedStyleId,
-        }),
+        body: JSON.stringify(body),
       });
 
       const data = await res.json() as { videoUrl?: string; error?: string };
@@ -311,7 +338,7 @@ function VideoTab({ factId, factText, initialImageDataUrl }: VideoTabProps) {
     if (videoState.status !== "done") return;
     const a = document.createElement("a");
     a.href = videoState.url;
-    a.download = `overhype-video-${selectedFact.id}.mp4`;
+    a.download = `overhype-video-${factId}.mp4`;
     a.click();
   };
 
@@ -328,67 +355,251 @@ function VideoTab({ factId, factText, initialImageDataUrl }: VideoTabProps) {
     }
   };
 
+  // ── Upload handler ─────────────────────────────────────────────────────────
+  const handleFileUpload = useCallback(async (file: File) => {
+    if (!file.type.startsWith("image/")) return;
+    setIsUploadingFile(true);
+    try {
+      const localUrl = URL.createObjectURL(file);
+      setSelectedBgUrl(localUrl);
+      setSelectedBgLabel(file.name);
+    } finally {
+      setIsUploadingFile(false);
+    }
+  }, []);
+
+  // ── AI image URL helper ────────────────────────────────────────────────────
+  const getAiImageUrl = useCallback((index: number, gender: "male" | "female" | "neutral") => {
+    return `/api/memes/ai/${factId}/image?gender=${gender}&imageIndex=${index}&raw=true`;
+  }, [factId]);
+
+  const aiImages = aiMemeImages?.neutral ?? aiMemeImages?.male ?? aiMemeImages?.female ?? [];
+
   const stepIndex = step - 1;
   const translateX = `translateX(-${stepIndex * 100}%)`;
 
   return (
     <div className="overflow-hidden">
-      {/* Sliding track — all 3 steps side by side */}
       <div
         className="flex transition-transform duration-300 ease-in-out"
         style={{ transform: translateX, willChange: "transform" }}
       >
-        {/* ── Step 1: Fact Selection ──────────────────────────────────────── */}
+
+        {/* ── Step 1: Background Selection ──────────────────────────────────── */}
         <div className="w-full shrink-0 p-4 md:p-5 box-border">
           <div className="flex items-center justify-between mb-5">
             <div>
               <p className="text-[10px] font-display uppercase tracking-[0.2em] text-muted-foreground mb-1">
                 Step 1 of 3
               </p>
-              <h3 className="text-base font-bold uppercase tracking-wide">Select a Fact</h3>
+              <h3 className="text-base font-bold uppercase tracking-wide">Choose Background</h3>
             </div>
             <StepDots current={1} total={3} />
           </div>
 
-          {/* Search */}
-          <div className="relative mb-4">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={(e) => void handleSearch(e.target.value)}
-              placeholder="Search facts…"
-              className="w-full pl-9 pr-3 py-2.5 text-sm bg-secondary border border-border focus:border-[#ff6b35] focus:outline-none transition-colors"
-            />
-            {isSearching && (
-              <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground animate-spin" />
-            )}
+          {/* Image mode tabs */}
+          <div className="flex border-b border-border mb-4">
+            {(["stock", "ai", "upload"] as VideoImageMode[]).map((mode) => {
+              const labels: Record<VideoImageMode, string> = { stock: "Stock Photo", ai: "AI Generated", upload: "Upload" };
+              const needsPremium = mode !== "stock" && !isPremium;
+              return (
+                <button
+                  key={mode}
+                  onClick={() => setImageMode(mode)}
+                  className={`relative flex-1 py-2 text-[11px] font-bold uppercase tracking-wider border-b-2 transition-all ${
+                    imageMode === mode
+                      ? "border-[#ff6b35] text-[#ff6b35]"
+                      : "border-transparent text-muted-foreground hover:text-foreground hover:border-border"
+                  }`}
+                >
+                  {labels[mode]}
+                  {needsPremium && (
+                    <span className="ml-1.5 inline-flex items-center gap-0.5 text-[9px] font-bold text-amber-400 bg-amber-400/10 border border-amber-400/30 px-1 py-0.5 rounded-sm">
+                      <Lock className="w-2 h-2" />PRO
+                    </span>
+                  )}
+                </button>
+              );
+            })}
           </div>
 
-          <p className="text-[10px] font-display uppercase tracking-[0.2em] text-muted-foreground mb-2">
-            {searchQuery ? "Results" : "Current Fact"}
-          </p>
+          {/* Stock photo mode */}
+          {imageMode === "stock" && (
+            <div className="space-y-3">
+              {prefetchedPhotos.length > 0 ? (
+                <>
+                  <p className="text-[10px] font-display uppercase tracking-widest text-muted-foreground">
+                    Select a background image
+                  </p>
+                  <div className="grid gap-1.5" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(120px, 1fr))" }}>
+                    {prefetchedPhotos.map((photo, i) => (
+                      <ImageCard
+                        key={photo.id}
+                        src={photo.src?.large ?? photo.src?.small ?? photo.url}
+                        alt={`Option ${i + 1}`}
+                        aspectRatio="aspect-video"
+                        selected={selectedStockIndex === i}
+                        onSelect={() => {
+                          setSelectedStockIndex(i);
+                          const photoUrl = photo.src?.large ?? photo.url;
+                          setSelectedBgUrl(photoUrl);
+                          setSelectedBgLabel("Stock photo");
+                        }}
+                        compact
+                        actions={["openFull"]}
+                      />
+                    ))}
+                  </div>
+                </>
+              ) : (
+                <div className="flex items-center justify-center py-8 text-muted-foreground text-sm">
+                  <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                  Loading photos…
+                </div>
+              )}
+            </div>
+          )}
 
-          <div className="space-y-2">
-            {(searchResults.length > 0 ? searchResults : [{ id: factId, text: factText }]).map((f) => (
-              <button
-                key={f.id}
-                onClick={() => {
-                  setSelectedFact(f);
-                  setStep(2);
-                }}
-                className="w-full text-left border border-border hover:border-[#ff6b35] bg-secondary hover:bg-[#ff6b35]/5 transition-all p-3 group"
-              >
-                <p className="text-sm font-medium text-foreground group-hover:text-[#ff6b35] line-clamp-3 transition-colors">
-                  "{f.text}"
-                </p>
-                <p className="text-[10px] text-muted-foreground mt-1">Fact #{f.id}</p>
-              </button>
-            ))}
+          {/* AI Generated mode */}
+          {imageMode === "ai" && (
+            <div className="space-y-3">
+              {!isPremium ? (
+                <div className="border-2 border-dashed border-amber-400/30 bg-amber-400/5 p-5 text-center space-y-2">
+                  <Lock className="w-6 h-6 text-amber-400 mx-auto" />
+                  <p className="text-sm font-bold text-amber-400 uppercase tracking-wider">Legendary Feature</p>
+                  <p className="text-xs text-muted-foreground">AI-generated backgrounds require a Legendary membership.</p>
+                </div>
+              ) : aiImages.filter(Boolean).length > 0 ? (
+                <>
+                  <p className="text-[10px] font-display uppercase tracking-widest text-muted-foreground">
+                    AI-generated backgrounds for this fact
+                  </p>
+                  <div className="grid gap-1.5" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(120px, 1fr))" }}>
+                    {aiImages.filter(Boolean).map((_, i) => {
+                      const gender = (aiMemeImages?.neutral?.length ?? 0) > 0 ? "neutral"
+                        : (aiMemeImages?.male?.length ?? 0) > 0 ? "male" : "female";
+                      const url = getAiImageUrl(i, gender as "male" | "female" | "neutral");
+                      return (
+                        <ImageCard
+                          key={i}
+                          src={url}
+                          alt={`AI option ${i + 1}`}
+                          aspectRatio="aspect-video"
+                          selected={selectedAiIndex === i}
+                          onSelect={() => {
+                            setSelectedAiIndex(i);
+                            setSelectedBgUrl(url);
+                            setSelectedBgLabel("AI background");
+                          }}
+                          compact
+                          actions={["openFull"]}
+                        />
+                      );
+                    })}
+                  </div>
+                </>
+              ) : (
+                <div className="flex flex-col items-center gap-2 py-8 text-center">
+                  <Sparkles className="w-8 h-8 text-violet-400/50" />
+                  <p className="text-xs text-muted-foreground">No AI backgrounds yet for this fact.</p>
+                  <p className="text-[10px] text-muted-foreground/60">Go to the Image tab to generate some first.</p>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Upload mode */}
+          {imageMode === "upload" && (
+            <div className="space-y-3">
+              {!isPremium ? (
+                <div className="border-2 border-dashed border-amber-400/30 bg-amber-400/5 p-5 text-center space-y-2">
+                  <Lock className="w-6 h-6 text-amber-400 mx-auto" />
+                  <p className="text-sm font-bold text-amber-400 uppercase tracking-wider">Legendary Feature</p>
+                  <p className="text-xs text-muted-foreground">Upload your own photos with a Legendary membership.</p>
+                </div>
+              ) : (
+                <>
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file) void handleFileUpload(file);
+                      e.target.value = "";
+                    }}
+                  />
+                  <button
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={isUploadingFile}
+                    className="w-full border-2 border-dashed border-border hover:border-[#ff6b35] transition-colors p-6 text-center flex flex-col items-center gap-2"
+                  >
+                    {isUploadingFile
+                      ? <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+                      : <Upload className="w-6 h-6 text-muted-foreground" />
+                    }
+                    <p className="text-xs text-muted-foreground">
+                      {isUploadingFile ? "Processing…" : "Drop an image or click to browse"}
+                    </p>
+                  </button>
+
+                  {/* Gallery from existing uploads */}
+                  {isLoadingGallery ? (
+                    <div className="flex items-center justify-center py-4">
+                      <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
+                    </div>
+                  ) : uploadGallery.length > 0 && (
+                    <>
+                      <p className="text-[10px] font-display uppercase tracking-widest text-muted-foreground">
+                        My Uploads
+                      </p>
+                      <div className="grid gap-1.5 max-h-48 overflow-y-auto" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(100px, 1fr))" }}>
+                        {uploadGallery.map((entry) => {
+                          const url = `/api/storage${entry.objectPath}`;
+                          const isSelected = selectedBgUrl === url;
+                          return (
+                            <ImageCard
+                              key={entry.objectPath}
+                              src={url}
+                              alt={`${entry.width}×${entry.height}px`}
+                              aspectRatio="aspect-video"
+                              isAuthProtected
+                              selected={isSelected}
+                              onSelect={() => {
+                                setSelectedBgUrl(isSelected ? null : url);
+                                setSelectedBgLabel(isSelected ? null : "Uploaded image");
+                              }}
+                              compact
+                              actions={["openFull"]}
+                            />
+                          );
+                        })}
+                      </div>
+                    </>
+                  )}
+                </>
+              )}
+            </div>
+          )}
+
+          {/* Continue button */}
+          <div className="mt-5">
+            <Button
+              onClick={() => setStep(2)}
+              disabled={!selectedBgUrl}
+              variant="primary"
+              size="lg"
+              className="w-full gap-2"
+              style={{ background: "#ff6b35", borderColor: "#ff6b35" }}
+            >
+              <Sparkles className="w-4 h-4" />
+              {selectedBgUrl ? "Continue with this Background" : "Select a background to continue"}
+            </Button>
           </div>
         </div>
 
-        {/* ── Step 2: Style Picker ────────────────────────────────────────── */}
+        {/* ── Step 2: Style Picker ─────────────────────────────────────────── */}
         <div className="w-full shrink-0 p-4 md:p-5 box-border">
           <div className="flex items-center justify-between mb-5">
             <div>
@@ -397,19 +608,29 @@ function VideoTab({ factId, factText, initialImageDataUrl }: VideoTabProps) {
                 className="flex items-center gap-1 text-[10px] font-display uppercase tracking-[0.2em] text-muted-foreground hover:text-foreground transition-colors mb-1"
               >
                 <ChevronLeft className="w-3 h-3" />
-                Change Fact
+                Change Background
               </button>
               <h3 className="text-base font-bold uppercase tracking-wide">Pick a Style</h3>
             </div>
             <StepDots current={2} total={3} />
           </div>
 
-          <div className="bg-secondary border border-border p-3 mb-5">
-            <p className="text-[10px] font-display uppercase tracking-widest text-muted-foreground mb-1">
-              Selected Fact
-            </p>
-            <p className="text-xs text-foreground line-clamp-2">"{selectedFact.text}"</p>
-          </div>
+          {/* Background preview */}
+          {selectedBgUrl && (
+            <div className="bg-secondary border border-border p-3 mb-5 flex items-center gap-3">
+              <img
+                src={selectedBgUrl}
+                alt="Selected background"
+                className="w-16 h-10 object-cover border border-border shrink-0"
+              />
+              <div className="min-w-0">
+                <p className="text-[10px] font-display uppercase tracking-widest text-muted-foreground mb-0.5">
+                  Background
+                </p>
+                <p className="text-xs text-foreground truncate">{selectedBgLabel ?? "Selected image"}</p>
+              </div>
+            </div>
+          )}
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 mb-6">
             {VIDEO_STYLES.map((style) => (
@@ -423,7 +644,7 @@ function VideoTab({ factId, factText, initialImageDataUrl }: VideoTabProps) {
           </div>
 
           <Button
-            onClick={() => setStep(3)}
+            onClick={goToStep3}
             variant="primary"
             size="lg"
             className="w-full gap-2"
@@ -434,7 +655,7 @@ function VideoTab({ factId, factText, initialImageDataUrl }: VideoTabProps) {
           </Button>
         </div>
 
-        {/* ── Step 3: Generate & Preview ──────────────────────────────────── */}
+        {/* ── Step 3: Generate & Preview ───────────────────────────────────── */}
         <div className="w-full shrink-0 p-4 md:p-5 box-border">
           <div className="flex items-center justify-between mb-5">
             <div>
@@ -453,12 +674,22 @@ function VideoTab({ factId, factText, initialImageDataUrl }: VideoTabProps) {
             <StepDots current={3} total={3} />
           </div>
 
+          {/* Background + style summary */}
           <div className="grid grid-cols-2 gap-2.5 mb-5">
             <div className="bg-secondary border border-border p-3">
-              <p className="text-[10px] font-display uppercase tracking-widest text-muted-foreground mb-1">
-                Fact
+              <p className="text-[10px] font-display uppercase tracking-widest text-muted-foreground mb-1.5">
+                Background
               </p>
-              <p className="text-xs text-foreground line-clamp-3">"{selectedFact.text}"</p>
+              {selectedBgUrl && (
+                <img
+                  src={selectedBgUrl}
+                  alt="Background"
+                  className="w-full h-16 object-cover border border-border"
+                />
+              )}
+              {selectedBgLabel && (
+                <p className="text-[10px] text-muted-foreground mt-1 truncate">{selectedBgLabel}</p>
+              )}
             </div>
             <div className="bg-secondary border border-border p-3">
               <p className="text-[10px] font-display uppercase tracking-widest text-muted-foreground mb-1">
@@ -473,6 +704,66 @@ function VideoTab({ factId, factText, initialImageDataUrl }: VideoTabProps) {
               <p className="text-xs font-bold text-foreground">{selectedStyle.label}</p>
             </div>
           </div>
+
+          {/* Admin controls */}
+          {isAdmin && (
+            <div className="border border-amber-500/30 bg-amber-500/5 rounded-sm p-3 mb-4 space-y-3">
+              <p className="text-[10px] font-semibold text-amber-500 uppercase tracking-wider">Admin Controls</p>
+
+              {/* Model selector */}
+              <div className="space-y-1">
+                <label className="text-[10px] font-display uppercase tracking-widest text-muted-foreground">
+                  Video Model
+                </label>
+                <select
+                  value={selectedModel}
+                  onChange={(e) => setSelectedModel(e.target.value)}
+                  className="w-full bg-background border border-border text-foreground text-xs rounded-sm px-2 py-1.5 focus:outline-none focus:border-amber-500/60 transition-colors"
+                >
+                  {KLING_VIDEO_MODELS.map((m) => (
+                    <option key={m.value} value={m.value}>{m.label}</option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Motion prompt */}
+              <div className="space-y-1">
+                <div className="flex items-center justify-between">
+                  <label className="text-[10px] font-display uppercase tracking-widest text-muted-foreground">
+                    Motion Prompt
+                  </label>
+                  {isGeneratingPrompt && (
+                    <div className="flex items-center gap-1 text-[10px] text-amber-500">
+                      <Loader2 className="w-3 h-3 animate-spin" />
+                      Analyzing image…
+                    </div>
+                  )}
+                  {!isGeneratingPrompt && selectedBgUrl && (
+                    <button
+                      onClick={() => {
+                        setMotionPrompt("");
+                        void generatePromptForImage(selectedBgUrl);
+                      }}
+                      className="text-[10px] text-muted-foreground hover:text-foreground flex items-center gap-1 transition-colors"
+                    >
+                      <RefreshCw className="w-2.5 h-2.5" />
+                      Regenerate
+                    </button>
+                  )}
+                </div>
+                <textarea
+                  rows={3}
+                  value={motionPrompt}
+                  onChange={(e) => setMotionPrompt(e.target.value)}
+                  placeholder={isGeneratingPrompt ? "Analyzing image to generate prompt…" : "Enter a motion prompt or wait for auto-generation…"}
+                  className="w-full bg-background border border-border text-foreground text-xs rounded-sm px-2 py-1.5 resize-y focus:outline-none focus:border-amber-500/60 transition-colors placeholder:text-muted-foreground/40"
+                />
+                <p className="text-[10px] text-muted-foreground/60">
+                  If left empty, the style-based prompt will be used.
+                </p>
+              </div>
+            </div>
+          )}
 
           {videoState.status === "generating" && (
             <div className="flex items-center gap-3 px-4 py-3 bg-[#ff6b35]/10 border border-[#ff6b35]/30 text-sm text-[#ff6b35] mb-4">
@@ -520,12 +811,12 @@ function VideoTab({ factId, factText, initialImageDataUrl }: VideoTabProps) {
                   <RefreshCw className="w-3.5 h-3.5" /> Try Another Style
                 </Button>
                 <Button
-                  onClick={() => { setVideoState({ status: "idle" }); setStep(1); }}
+                  onClick={() => { setVideoState({ status: "idle" }); setStep(1); setSelectedBgUrl(null); setSelectedBgLabel(null); setMotionPrompt(""); }}
                   variant="secondary"
                   size="sm"
                   className="gap-1.5 text-xs"
                 >
-                  <Video className="w-3.5 h-3.5" /> Generate New
+                  <Video className="w-3.5 h-3.5" /> New Background
                 </Button>
               </div>
             </div>
@@ -535,7 +826,7 @@ function VideoTab({ factId, factText, initialImageDataUrl }: VideoTabProps) {
             <>
               <Button
                 onClick={() => void handleGenerateVideo()}
-                disabled={videoState.status === "generating"}
+                disabled={videoState.status === "generating" || !selectedBgUrl}
                 variant="primary"
                 size="lg"
                 className="gap-2 w-full mb-2"
@@ -664,7 +955,13 @@ export function MemeStudio({
           />
         ) : (
           <div className="p-4 md:p-5 max-w-2xl mx-auto">
-            <VideoTab factId={factId} factText={factText} initialImageDataUrl={videoImageDataUrl} />
+            <VideoTab
+              factId={factId}
+              factText={factText}
+              pexelsImages={pexelsImages}
+              aiMemeImages={aiMemeImages}
+              initialImageDataUrl={videoImageDataUrl}
+            />
           </div>
         )}
       </div>
