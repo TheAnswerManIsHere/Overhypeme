@@ -581,6 +581,8 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
     referenceFramePrompt: string | null;
   } | null>(null);
   const [showPromptDebug, setShowPromptDebug] = useState(false);
+  const [isRefreshingScenePrompt, setIsRefreshingScenePrompt] = useState(false);
+  const [scenePromptVersion, setScenePromptVersion] = useState(0);
   const [generationProgress, setGenerationProgress] = useState(0);
   const [generationElapsed, setGenerationElapsed] = useState(0);
   const generationTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -695,6 +697,27 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
     setGenerationElapsed(0);
     setTimeout(() => setCancelDisabled(false), 200);
   };
+
+  const handleRefreshScenePrompt = useCallback(async () => {
+    if (!factId || isRefreshingScenePrompt) return;
+    setIsRefreshingScenePrompt(true);
+    try {
+      const res = await fetch(`/api/memes/ai/${factId}/regenerate-scene-prompts`, {
+        method: "POST",
+        credentials: "include",
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({})) as { error?: string };
+        console.error("[MemeBuilder] Scene prompt refresh failed:", data.error ?? res.status);
+        return;
+      }
+      setScenePromptVersion(v => v + 1);
+    } catch (err) {
+      console.error("[MemeBuilder] Scene prompt refresh error:", err);
+    } finally {
+      setIsRefreshingScenePrompt(false);
+    }
+  }, [factId, isRefreshingScenePrompt]);
 
   const handleGenerateNewAi = async () => {
     if (isGeneratingAi) return;
@@ -1293,7 +1316,7 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
       })
       .catch(() => {});
     return () => { cancelled = true; };
-  }, [isAdmin, imageMode, factId, selectedStyleId, aiSubMode, aiGenState]);
+  }, [isAdmin, imageMode, factId, selectedStyleId, aiSubMode, aiGenState, scenePromptVersion]);
 
   // Upload a new reference photo (inline in AI reference sub-mode picker)
   const handleRefPhotoUpload = useCallback(async (file: File) => {
@@ -1981,6 +2004,19 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
                               className="gap-1.5 text-muted-foreground hover:text-foreground disabled:opacity-50"
                             >
                               <X className="w-3.5 h-3.5" />Cancel
+                            </Button>
+                          )}
+                          {isAdmin && !isGeneratingAi && (
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => void handleRefreshScenePrompt()}
+                              disabled={isRefreshingScenePrompt}
+                              title="Regenerate stored scene prompts (admin only)"
+                              className="gap-1.5 text-muted-foreground hover:text-foreground disabled:opacity-50"
+                            >
+                              <RefreshCw className={`w-3.5 h-3.5 ${isRefreshingScenePrompt ? "animate-spin" : ""}`} />
+                              {isRefreshingScenePrompt ? "Refreshing…" : "Refresh Scene"}
                             </Button>
                           )}
                           {!isGeneratingAi && (

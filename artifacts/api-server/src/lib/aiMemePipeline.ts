@@ -58,7 +58,7 @@ Rules:
 Return ONLY valid JSON:
 {"fact_type":"action","male":"Cinematic shot of a muscular man...","female":"Cinematic shot of a strong woman...","neutral":"Dramatic scene of a person..."}`;
 
-async function generateScenePrompts(factText: string): Promise<AiScenePrompts> {
+export async function generateScenePrompts(factText: string): Promise<AiScenePrompts> {
   const openai = getOpenAIClient();
   const systemPrompt = await getConfigString("ai_scene_prompt_system", SCENE_PROMPT_SYSTEM);
   const response = await openai.chat.completions.create({
