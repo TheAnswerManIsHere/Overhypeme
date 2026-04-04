@@ -269,19 +269,45 @@ async function generateAndStoreImageFromReference(
 
   // id_scale controls face fidelity vs scene quality for PuLID.
   // Lower = more scene detail, higher = stronger face likeness.
-  // 0.7 gives a good balance; configurable via admin_config.
+  // Default 0.7; configurable via admin_config "ai_pulid_id_scale_pct".
   const idScale = await getConfigInt("ai_pulid_id_scale_pct", 70) / 100;
+
+  // PuLID is a portrait-biased model — without a strong negative prompt it will
+  // default to headshot composition regardless of the scene description.
+  const DEFAULT_REFERENCE_NEGATIVE_PROMPT =
+    "portrait, headshot, close-up face, passport photo, mugshot, studio portrait, selfie, " +
+    "face only, plain background, isolated subject, bust shot, neck up, shoulders only";
+  const negativePrompt = await getConfigString(
+    "ai_pulid_negative_prompt",
+    DEFAULT_REFERENCE_NEGATIVE_PROMPT,
+  );
+
+  // Append an explicit wide-shot composition instruction to the scene prompt.
+  // Scene prompts are authored without knowing whether they'll be used in reference
+  // mode — the composition suffix is what tells PuLID to show the full scene rather
+  // than defaulting to a portrait.
+  const COMPOSITION_SUFFIX =
+    "Full body wide angle shot. Person shown in action within the scene environment. " +
+    "Show the full setting and context. NOT a portrait or close-up.";
+  const compositionSuffix = await getConfigString("ai_pulid_composition_suffix", COMPOSITION_SUFFIX);
+  const finalPrompt = compositionSuffix ? `${prompt.trim()} ${compositionSuffix}` : prompt;
 
   const input: Record<string, unknown> = {
     [faceParamName]: faceImageUrl,
-    prompt,         // scene prompt only — do NOT prepend face-preservation instructions
+    prompt: finalPrompt,
     image_size: imageSize,
     num_images: 1,
   };
 
-  // id_scale is only meaningful for PuLID models
+  // PuLID-specific parameters
   if (model === "fal-ai/flux-pulid") {
-    input["id_scale"] = idScale;
+    input["id_scale"]        = idScale;
+    input["negative_prompt"] = negativePrompt;
+    // Higher guidance_scale gives the text prompt more control over the composition.
+    // PuLID's default (3.5) is too low — the face embedding dominates. 5.5 gives
+    // the scene description meaningful influence without sacrificing face accuracy.
+    input["guidance_scale"]       = 5.5;
+    input["num_inference_steps"]  = 30;
   }
 
   const result = await fal.subscribe(model, {
