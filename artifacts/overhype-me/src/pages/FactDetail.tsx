@@ -28,6 +28,13 @@ type MemeItem = {
   isPublic: boolean;
   createdById: string | null;
   createdAt: string;
+  aspectRatio?: "landscape" | "square" | "portrait";
+};
+
+const MEME_ASPECT_CLASS: Record<string, string> = {
+  landscape: "aspect-video",
+  square: "aspect-square",
+  portrait: "aspect-[9/16]",
 };
 
 async function fetchMemes(factId: number, visibility: "community" | "my-public" | "my-private"): Promise<{ memes: MemeItem[] }> {
@@ -411,7 +418,7 @@ export default function FactDetail() {
           </div>
 
           {activeMemes && activeMemes.memes.length > 0 ? (
-            <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-4 items-start">
               {activeMemes.memes.map(meme => {
                 const isMyMeme = !!user?.id && meme.createdById === user.id;
                 const memePermalink = `${window.location.origin}/meme/${meme.permalinkSlug}`;
@@ -421,7 +428,7 @@ export default function FactDetail() {
                     src={meme.imageUrl}
                     alt="Meme"
                     href={`/meme/${meme.permalinkSlug}`}
-                    aspectRatio="aspect-video"
+                    aspectRatio={MEME_ASPECT_CLASS[meme.aspectRatio ?? "landscape"] ?? "aspect-video"}
                     actions={isMyMeme ? ["delete", "copyLink", "openFull"] : ["copyLink", "openFull"]}
                     onDelete={isMyMeme ? () => handleDeleteMeme(meme.permalinkSlug) : undefined}
                     deleteConfirmMessage="Remove this meme? It will no longer be visible to anyone."

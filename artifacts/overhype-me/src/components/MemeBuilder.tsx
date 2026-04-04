@@ -1193,6 +1193,7 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
             opacity,
           },
           isPublic,
+          aspectRatio,
         }),
       });
 
