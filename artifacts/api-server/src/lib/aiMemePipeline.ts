@@ -23,7 +23,7 @@ const DEFAULT_REFERENCE_FRAME_PROMPT =
   "The person's face, facial structure, skin tone, eye shape, hair, and all distinguishing features must be preserved with photorealistic accuracy and remain visually identical to the reference — this is the highest priority. Do not alter, stylize, or idealize the person's facial features in any way. The person should be placed into the scene as described. The scene and environment should be stylized as described, but the person's face and likeness must remain untouched by any stylization. No text, words, or letters anywhere in the image.";
 
 const DEFAULT_IMAGE_MODEL_STANDARD  = "fal-ai/flux-pro/v1.1";
-const DEFAULT_IMAGE_MODEL_REFERENCE = "fal-ai/ip-adapter-face-id-plus";
+const DEFAULT_IMAGE_MODEL_REFERENCE = "fal-ai/flux-pulid";
 const DEFAULT_IMAGE_SIZE            = "square_hd";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -245,7 +245,7 @@ async function generateAndStoreImageFromReference(
 
   const result = await fal.subscribe(model, {
     input: {
-      face_image_url: faceImageUrl,
+      reference_image_url: faceImageUrl,
       prompt: finalPrompt,
       image_size: imageSize,
       num_images: 1,
