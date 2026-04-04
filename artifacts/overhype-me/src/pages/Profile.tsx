@@ -692,6 +692,7 @@ export default function Profile() {
                         key={upload.objectPath}
                         src={imgUrl}
                         alt="Uploaded image"
+                        isAuthProtected
                         aspectRatio="aspect-square"
                         actions={["delete", "copyLink", "openFull"]}
                         onDelete={() => deleteUpload(upload.objectPath)}
