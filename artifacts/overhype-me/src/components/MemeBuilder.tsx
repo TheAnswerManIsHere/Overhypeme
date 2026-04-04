@@ -394,11 +394,13 @@ interface MemeBuilderProps {
   defaultPrivate?: boolean;
   /** When true, renders without the outer modal wrapper (for use inside MemeStudio) */
   embedded?: boolean;
+  /** When true and embedded, renders in a two-panel full-screen layout (canvas left, controls right) */
+  fullScreen?: boolean;
   /** Called when the user clicks "Turn This Into a Video". Receives the meme image as a data URL. */
   onMakeVideo?: (sourceImageDataUrl: string) => void;
 }
 
-export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMemeImages, onClose, defaultPrivate, embedded, onMakeVideo }: MemeBuilderProps) {
+export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMemeImages, onClose, defaultPrivate, embedded, fullScreen, onMakeVideo }: MemeBuilderProps) {
   const { isAuthenticated, login, role, user } = useAuth();
   const isPremium = role === "premium" || role === "admin";
   const isAdmin = role === "admin";
@@ -1653,7 +1655,7 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
     <div className="p-4 md:p-5 space-y-5">
 
           {/* ── Canvas preview + aspect ratio selector ── */}
-          <div className="sticky top-14 z-10 bg-card pb-2 space-y-2">
+          <div className={`sticky z-10 bg-card pb-2 space-y-2 ${fullScreen ? "top-0" : "top-14"}`}>
 
             {/* Aspect ratio selector */}
             <div className="flex items-center gap-2">
@@ -1702,7 +1704,7 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
                 className="border-2 border-border block select-none"
                 style={{
                   maxWidth: "100%",
-                  maxHeight: "500px",
+                  maxHeight: fullScreen ? "60vh" : "500px",
                   width: "auto",
                   height: "auto",
                   cursor: bgImage ? (dragState ? "grabbing" : "grab") : "default",
