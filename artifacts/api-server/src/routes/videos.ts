@@ -123,27 +123,34 @@ router.post("/videos/generate", async (req, res) => {
         aspect_ratio: "16:9",
       },
       logs: false,
+      headers: {
+        "X-Fal-Object-Lifecycle-Preference": JSON.stringify({
+          expiration_duration_seconds: null,
+        }),
+      },
     });
 
+    const falRequestId = result.requestId ?? null;
     const output = result.data as { video?: { url?: string } };
     const videoUrl = output?.video?.url;
 
     if (!videoUrl) {
       await db.update(videoJobsTable)
-        .set({ status: "failed" })
+        .set({ status: "failed", falRequestId })
         .where(eq(videoJobsTable.id, job.id));
       res.status(500).json({ error: "Video generation completed but no video URL was returned." });
       return;
     }
 
     const [updated] = await db.update(videoJobsTable)
-      .set({ status: "completed", videoUrl })
+      .set({ status: "completed", videoUrl, falRequestId })
       .where(eq(videoJobsTable.id, job.id))
       .returning({
         id: videoJobsTable.id,
         factId: videoJobsTable.factId,
         imageUrl: videoJobsTable.imageUrl,
         videoUrl: videoJobsTable.videoUrl,
+        falRequestId: videoJobsTable.falRequestId,
         status: videoJobsTable.status,
         createdAt: videoJobsTable.createdAt,
       });
