@@ -295,6 +295,8 @@ export async function generateAiMemeBackgroundFromReference(
     existingPrompts?: AiScenePrompts;
     userId?: string;
     styleSuffix?: string;
+    /** When true, errors are caught internally and logged; when false (default), errors propagate to caller */
+    suppressErrors?: boolean;
   },
 ): Promise<void> {
   try {
@@ -331,6 +333,7 @@ export async function generateAiMemeBackgroundFromReference(
     console.log(`[aiMemePipeline] fact ${factId}: reference-based AI image stored for user ${options.userId} (gender=${targetGender})`);
   } catch (err) {
     console.error(`[aiMemePipeline] Reference generation failed for fact ${factId}:`, err);
+    if (!options?.suppressErrors) throw err;
   }
 }
 
@@ -369,6 +372,8 @@ export async function generateAiMemeBackgrounds(
     userId?: string;
     /** Optional style suffix appended to each scene prompt before image generation. */
     styleSuffix?: string;
+    /** When true, errors are caught internally and logged; when false (default), errors propagate to caller */
+    suppressErrors?: boolean;
   },
 ): Promise<void> {
   try {
@@ -460,5 +465,6 @@ export async function generateAiMemeBackgrounds(
     console.log(`[aiMemePipeline] fact ${factId}: ${totalImages} AI meme images stored (scope=${scope})`);
   } catch (err) {
     console.error(`[aiMemePipeline] Failed for fact ${factId}:`, err);
+    if (!options?.suppressErrors) throw err;
   }
 }

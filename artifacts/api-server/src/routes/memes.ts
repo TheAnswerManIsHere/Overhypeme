@@ -30,6 +30,25 @@ const TEMPLATES_DIR = path.resolve(__dirname, "assets/meme-templates");
 const router: IRouter = Router();
 const objectStorageService = new ObjectStorageService();
 
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+/**
+ * Extracts a human-readable error message from a generation failure.
+ * fal.ai errors include a `body.detail` string that's more informative than the top-level message.
+ */
+function extractGenerationError(err: unknown): string {
+  if (err && typeof err === "object") {
+    const e = err as Record<string, unknown>;
+    // fal.ai ApiError: { message, body: { detail } }
+    const detail = e["body"] && typeof e["body"] === "object"
+      ? (e["body"] as Record<string, unknown>)["detail"]
+      : undefined;
+    if (typeof detail === "string" && detail.trim()) return detail.trim();
+    if (typeof e["message"] === "string" && e["message"].trim()) return e["message"].trim();
+  }
+  return "Image generation failed. Please try again.";
+}
+
 // ─── Rate limiting ─────────────────────────────────────────────────────────────
 // Simple in-memory limiter — sufficient for a single Replit instance.
 // If the app ever scales horizontally, swap this for a Redis-backed solution.
@@ -879,22 +898,32 @@ router.post("/memes/ai/:factId/generate", requirePremium, async (req: Request, r
       res.status(400).json({ error: "Could not read reference image from storage." });
       return;
     }
-    void generateAiMemeBackgroundFromReference(fact.id, fact.text, referenceBuffer, targetGender, {
-      existingPrompts,
-      userId: req.user?.id,
-      styleSuffix,
-    });
+    try {
+      await generateAiMemeBackgroundFromReference(fact.id, fact.text, referenceBuffer, targetGender, {
+        existingPrompts,
+        userId: req.user?.id,
+        styleSuffix,
+      });
+    } catch (err) {
+      res.status(500).json({ error: extractGenerationError(err) });
+      return;
+    }
   } else {
-    void generateAiMemeBackgrounds(fact.id, fact.text, {
-      scope,
-      existingPrompts,
-      existingImages,
-      userId: req.user?.id,
-      styleSuffix,
-    });
+    try {
+      await generateAiMemeBackgrounds(fact.id, fact.text, {
+        scope,
+        existingPrompts,
+        existingImages,
+        userId: req.user?.id,
+        styleSuffix,
+      });
+    } catch (err) {
+      res.status(500).json({ error: extractGenerationError(err) });
+      return;
+    }
   }
 
-  res.json({ success: true, message: "AI meme generation started. Refresh in a moment to see new images." });
+  res.json({ success: true });
 });
 
 // DELETE /memes/:slug — soft-delete a meme (creator only)
