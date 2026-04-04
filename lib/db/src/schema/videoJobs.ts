@@ -10,6 +10,7 @@ export const videoJobsTable = pgTable("video_jobs", {
   videoUrl: text("video_url"),
   falRequestId: text("fal_request_id"),
   motionPrompt: text("motion_prompt"),
+  styleId: varchar("style_id", { length: 64 }),
   status: videoJobStatusEnum("status").notNull().default("pending"),
   ipAddress: varchar("ip_address", { length: 45 }).notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),

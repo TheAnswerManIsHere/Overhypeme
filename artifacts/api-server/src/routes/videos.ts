@@ -5,12 +5,14 @@ import { db, videoJobsTable } from "@workspace/db";
 import { factsTable } from "@workspace/db/schema";
 import { eq, and, gte, desc } from "drizzle-orm";
 import { getOpenAIClient } from "@workspace/integrations-openai-ai-server";
+import { VIDEO_STYLE_MAP } from "../config/videoStyles.js";
 
 const router: IRouter = Router();
 
 const RATE_LIMIT_MAX = 3;
 const RATE_LIMIT_WINDOW_MS = 24 * 60 * 60 * 1000;
 const FALLBACK_PROMPT = "Subtle cinematic motion, dramatic lighting, slow camera push-in, epic atmosphere";
+const DEFAULT_STYLE_ID = "cinematic";
 
 function getClientIp(req: Request): string {
   const forwarded = req.headers["x-forwarded-for"];
@@ -51,6 +53,7 @@ const GenerateVideoBody = z
     imageBase64: z.string().optional(),
     factId: z.number().int().positive(),
     motionPrompt: z.string().max(500).optional(),
+    styleId: z.string().optional(),
   })
   .refine((data) => data.imageUrl || data.imageBase64, {
     message: "Either imageUrl or imageBase64 must be provided",
@@ -70,6 +73,7 @@ router.get("/videos/:factId", async (req, res) => {
       imageUrl: videoJobsTable.imageUrl,
       videoUrl: videoJobsTable.videoUrl,
       motionPrompt: videoJobsTable.motionPrompt,
+      styleId: videoJobsTable.styleId,
       falRequestId: videoJobsTable.falRequestId,
       status: videoJobsTable.status,
       createdAt: videoJobsTable.createdAt,
@@ -151,21 +155,40 @@ router.post("/videos/generate", async (req, res) => {
     }
   }
 
-  // Determine motion prompt
+  // Resolve style:
+  // - valid styleId → use that style
+  // - invalid styleId (unrecognised but provided) → default to "cinematic"
+  // - no styleId provided → LLM-generated path (legacy backwards-compat)
+  const rawStyleId = parsed.data.styleId?.trim();
+  const styleIdProvided = rawStyleId !== undefined && rawStyleId !== "";
+  const resolvedStyle =
+    VIDEO_STYLE_MAP.get(rawStyleId ?? "") ??
+    (styleIdProvided ? VIDEO_STYLE_MAP.get(DEFAULT_STYLE_ID)! : null);
+  const styleId = resolvedStyle?.id ?? DEFAULT_STYLE_ID;
+
+  // Determine motion prompt:
+  // 1. Explicit manual motionPrompt in request → use it as-is
+  // 2. Valid or invalid (resolved) styleId provided → use the style's motionPrompt
+  // 3. No styleId at all → LLM-generated prompt (backwards-compatible legacy path)
   let motionPrompt = parsed.data.motionPrompt?.trim() || "";
 
   if (!motionPrompt) {
-    // Look up fact text for LLM generation
-    const [factRow] = await db
-      .select({ text: factsTable.text })
-      .from(factsTable)
-      .where(eq(factsTable.id, parsed.data.factId))
-      .limit(1);
+    if (resolvedStyle) {
+      // Use resolved style's motion prompt (covers both valid and invalid styleId cases)
+      motionPrompt = resolvedStyle.motionPrompt;
+    } else {
+      // Legacy: LLM-generated prompt when no styleId was provided
+      const [factRow] = await db
+        .select({ text: factsTable.text })
+        .from(factsTable)
+        .where(eq(factsTable.id, parsed.data.factId))
+        .limit(1);
 
-    const factText = factRow?.text ?? "";
-    motionPrompt = factText
-      ? await generateMotionPrompt(factText)
-      : FALLBACK_PROMPT;
+      const factText = factRow?.text ?? "";
+      motionPrompt = factText
+        ? await generateMotionPrompt(factText)
+        : FALLBACK_PROMPT;
+    }
   }
 
   const [job] = await db
@@ -174,6 +197,7 @@ router.post("/videos/generate", async (req, res) => {
       factId: parsed.data.factId,
       imageUrl: imageUrl!,
       motionPrompt,
+      styleId,
       status: "pending",
       ipAddress: clientIp,
     })
@@ -230,6 +254,7 @@ router.post("/videos/generate", async (req, res) => {
         imageUrl: videoJobsTable.imageUrl,
         videoUrl: videoJobsTable.videoUrl,
         motionPrompt: videoJobsTable.motionPrompt,
+        styleId: videoJobsTable.styleId,
         falRequestId: videoJobsTable.falRequestId,
         status: videoJobsTable.status,
         createdAt: videoJobsTable.createdAt,
