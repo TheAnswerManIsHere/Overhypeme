@@ -8,7 +8,6 @@ import {
 import { createPortal } from "react-dom";
 import { Link } from "wouter";
 import {
-  MoreVertical,
   Trash2,
   Link2,
   Maximize2,
@@ -20,6 +19,14 @@ import {
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
+
+// Spring entrance animation injected once per menu render (idempotent)
+const GLASSMORPHIC_KEYFRAMES = `
+  @keyframes kebabSlideIn {
+    from { opacity: 0; transform: scale(0.92) translateY(-4px); }
+    to   { opacity: 1; transform: scale(1)    translateY(0);    }
+  }
+`;
 
 type ActionType = "delete" | "copyLink" | "openFull";
 
@@ -70,6 +77,8 @@ function useClickOutside(ref: React.RefObject<HTMLElement | null>, handler: () =
   }, [ref, handler]);
 }
 
+// ─── Lightbox ──────────────────────────────────────────────────────────────
+
 interface LightboxProps {
   src: string;
   alt?: string;
@@ -115,7 +124,6 @@ function Lightbox({ src, alt, actions, onDelete, deleteConfirmMessage, permalink
       className="fixed inset-0 z-[9999] flex flex-col bg-black/90 backdrop-blur-sm"
       onClick={onClose}
     >
-      {/* toolbar */}
       <div
         className="flex items-center justify-between px-4 py-3 shrink-0"
         onClick={e => e.stopPropagation()}
@@ -127,7 +135,9 @@ function Lightbox({ src, alt, actions, onDelete, deleteConfirmMessage, permalink
               className="flex items-center gap-1.5 text-white/80 hover:text-white text-sm font-medium px-3 py-1.5 rounded-sm bg-white/10 hover:bg-white/20 transition-colors"
               aria-label="Copy link"
             >
-              {copied ? <><CheckCircle2 className="w-4 h-4 text-green-400" /> Copied</> : <><Link2 className="w-4 h-4" /> Copy Link</>}
+              {copied
+                ? <><CheckCircle2 className="w-4 h-4 text-green-400" /> Copied</>
+                : <><Link2 className="w-4 h-4" /> Copy Link</>}
             </button>
           )}
           {actions.includes("delete") && onDelete && !confirming && (
@@ -162,11 +172,7 @@ function Lightbox({ src, alt, actions, onDelete, deleteConfirmMessage, permalink
         </button>
       </div>
 
-      {/* image */}
-      <div
-        className="flex-1 flex items-center justify-center p-4 min-h-0"
-        onClick={onClose}
-      >
+      <div className="flex-1 flex items-center justify-center p-4 min-h-0" onClick={onClose}>
         <img
           src={src}
           alt={alt ?? "Full resolution image"}
@@ -179,33 +185,65 @@ function Lightbox({ src, alt, actions, onDelete, deleteConfirmMessage, permalink
   );
 }
 
+// ─── Action Menu ───────────────────────────────────────────────────────────
+
 interface ActionMenuProps {
   actions: ActionType[];
-  onDelete?: () => void;
+  onDeleteConfirm?: () => Promise<void> | void; // desktop: executes the delete
+  onDeleteRequest?: () => void;                  // mobile: triggers card overlay
   onCopy?: () => void;
   onOpenFull?: () => void;
   onClose: () => void;
   anchorRef: React.RefObject<HTMLElement | null>;
 }
 
-function ActionMenu({ actions, onDelete, onCopy, onOpenFull, onClose, anchorRef }: ActionMenuProps) {
+function ActionMenu({
+  actions,
+  onDeleteConfirm,
+  onDeleteRequest,
+  onCopy,
+  onOpenFull,
+  onClose,
+  anchorRef,
+}: ActionMenuProps) {
   const isMobile = useIsMobile();
   const menuRef = useRef<HTMLDivElement>(null);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+
   useClickOutside(menuRef as React.RefObject<HTMLElement | null>, onClose);
 
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        if (confirmDelete) { setConfirmDelete(false); return; }
+        onClose();
+      }
+    };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  }, [onClose]);
+  }, [onClose, confirmDelete]);
 
-  const items = [
-    actions.includes("openFull") && onOpenFull && { icon: <Maximize2 className="w-4 h-4" />, label: "Open Full Resolution", action: onOpenFull },
-    actions.includes("copyLink") && onCopy && { icon: <Link2 className="w-4 h-4" />, label: "Copy Link", action: onCopy },
-    actions.includes("delete") && onDelete && { icon: <Trash2 className="w-4 h-4 text-red-400" />, label: <span className="text-red-400">Delete</span>, action: onDelete },
-  ].filter(Boolean) as { icon: ReactNode; label: ReactNode; action: () => void }[];
-
+  // ── Mobile bottom sheet ──────────────────────────────────────────────────
   if (isMobile) {
+    const mobileItems = [
+      actions.includes("openFull") && onOpenFull && {
+        icon: <Maximize2 className="w-4 h-4" />,
+        label: "Open Full Resolution",
+        action: onOpenFull,
+      },
+      actions.includes("copyLink") && onCopy && {
+        icon: <Link2 className="w-4 h-4" />,
+        label: "Copy Link",
+        action: onCopy,
+      },
+      actions.includes("delete") && (onDeleteRequest ?? onDeleteConfirm) && {
+        icon: <Trash2 className="w-4 h-4 text-red-400" />,
+        label: <span className="text-red-400">Delete</span>,
+        action: onDeleteRequest ?? (() => { void onDeleteConfirm?.(); }),
+      },
+    ].filter(Boolean) as { icon: ReactNode; label: ReactNode; action: () => void }[];
+
     return createPortal(
       <div className="fixed inset-0 z-[9998] flex items-end" onClick={onClose}>
         <div className="absolute inset-0 bg-black/40" />
@@ -218,7 +256,7 @@ function ActionMenu({ actions, onDelete, onCopy, onOpenFull, onClose, anchorRef 
           <div className="flex justify-center pt-2.5 pb-1">
             <div className="w-10 h-1 bg-muted-foreground/30 rounded-full" />
           </div>
-          {items.map((item, i) => (
+          {mobileItems.map((item, i) => (
             <button
               key={i}
               role="menuitem"
@@ -242,34 +280,189 @@ function ActionMenu({ actions, onDelete, onCopy, onOpenFull, onClose, anchorRef 
     );
   }
 
+  // ── Desktop glassmorphic dropdown ────────────────────────────────────────
+  const position = (() => {
+    if (!anchorRef.current) return {};
+    const rect = anchorRef.current.getBoundingClientRect();
+    return {
+      top: rect.bottom + 6,
+      right: window.innerWidth - rect.right,
+    };
+  })();
+
+  async function handleDeleteClick() {
+    if (!confirmDelete) { setConfirmDelete(true); return; }
+    if (!onDeleteConfirm) return;
+    setDeleting(true);
+    try { await onDeleteConfirm(); onClose(); }
+    catch { /* toast handled upstream */ }
+    finally { setDeleting(false); setConfirmDelete(false); }
+  }
+
+  const desktopItems: Array<{
+    key: string;
+    icon: ReactNode;
+    label: string;
+    kbd?: string;
+    action: () => void;
+  }> = [];
+
+  if (actions.includes("openFull") && onOpenFull) {
+    desktopItems.push({
+      key: "openFull",
+      icon: <Maximize2 size={15} />,
+      label: "Open Full Resolution",
+      action: () => { onOpenFull(); onClose(); },
+    });
+  }
+  if (actions.includes("copyLink") && onCopy) {
+    desktopItems.push({
+      key: "copy",
+      icon: <Link2 size={15} />,
+      label: "Copy Link",
+      kbd: "⌘C",
+      action: () => { onCopy(); onClose(); },
+    });
+  }
+
+  const hasDelete = actions.includes("delete") && !!onDeleteConfirm;
+
   return createPortal(
-    <div
-      ref={menuRef}
-      role="menu"
-      className="fixed z-[9998] min-w-[180px] bg-popover border border-border rounded-sm shadow-lg py-1 animate-in fade-in zoom-in-95 duration-150"
-      style={(() => {
-        if (!anchorRef.current) return {};
-        const rect = anchorRef.current.getBoundingClientRect();
-        const right = window.innerWidth - rect.right;
-        const top = rect.bottom + 4;
-        return { top, right };
-      })()}
-    >
-      {items.map((item, i) => (
-        <button
-          key={i}
-          role="menuitem"
-          onClick={() => { item.action(); onClose(); }}
-          className="flex items-center gap-3 w-full px-4 py-2.5 text-left text-sm font-medium hover:bg-accent transition-colors"
-        >
-          {item.icon}
-          {item.label}
-        </button>
-      ))}
-    </div>,
+    <>
+      <style dangerouslySetInnerHTML={{ __html: GLASSMORPHIC_KEYFRAMES }} />
+      <div
+        ref={menuRef}
+        role="menu"
+        className="fixed z-[9998] min-w-[200px]"
+        style={{
+          ...position,
+          background: "rgba(18, 18, 22, 0.92)",
+          backdropFilter: "blur(24px) saturate(1.4)",
+          WebkitBackdropFilter: "blur(24px) saturate(1.4)",
+          border: "1px solid rgba(255, 255, 255, 0.08)",
+          borderRadius: 12,
+          padding: "4px",
+          boxShadow: "0 8px 32px rgba(0,0,0,0.5), 0 2px 8px rgba(0,0,0,0.3)",
+          animation: "kebabSlideIn 0.18s cubic-bezier(0.16, 1, 0.3, 1)",
+        }}
+      >
+        {/* Non-destructive actions */}
+        {desktopItems.map(item => (
+          <button
+            key={item.key}
+            role="menuitem"
+            onClick={e => { e.stopPropagation(); item.action(); }}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 10,
+              width: "100%",
+              padding: "8px 12px",
+              border: "none",
+              borderRadius: 8,
+              background: "transparent",
+              color: "rgba(255, 255, 255, 0.92)",
+              fontSize: 13,
+              fontWeight: 500,
+              cursor: "pointer",
+              transition: "background 0.15s ease",
+              textAlign: "left",
+              outline: "none",
+            }}
+            onMouseEnter={e => { e.currentTarget.style.background = "rgba(255,255,255,0.06)"; }}
+            onMouseLeave={e => { e.currentTarget.style.background = "transparent"; }}
+          >
+            <span style={{ color: "rgba(255,255,255,0.5)", flexShrink: 0, display: "flex" }}>
+              {item.icon}
+            </span>
+            <span style={{ flex: 1 }}>{item.label}</span>
+            {item.kbd && (
+              <span style={{
+                fontSize: 10,
+                color: "rgba(255,255,255,0.35)",
+                fontFamily: "monospace",
+                letterSpacing: "0.05em",
+              }}>
+                {item.kbd}
+              </span>
+            )}
+          </button>
+        ))}
+
+        {/* Divider */}
+        {hasDelete && desktopItems.length > 0 && (
+          <div style={{ height: 1, background: "rgba(255,255,255,0.08)", margin: "4px 8px" }} />
+        )}
+
+        {/* Delete — two-step inline confirm */}
+        {hasDelete && (
+          <button
+            role="menuitem"
+            onClick={e => { e.stopPropagation(); void handleDeleteClick(); }}
+            disabled={deleting}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 10,
+              width: "100%",
+              padding: "8px 12px",
+              border: "none",
+              borderRadius: 8,
+              background: confirmDelete ? "rgba(255,71,87,0.15)" : "transparent",
+              color: "#ff4757",
+              fontSize: 13,
+              fontWeight: 500,
+              cursor: "pointer",
+              transition: "all 0.15s ease",
+              textAlign: "left",
+              outline: "none",
+            }}
+            onMouseEnter={e => { e.currentTarget.style.background = "rgba(255,71,87,0.12)"; }}
+            onMouseLeave={e => {
+              e.currentTarget.style.background = confirmDelete ? "rgba(255,71,87,0.15)" : "transparent";
+            }}
+          >
+            <span style={{ display: "flex", flexShrink: 0 }}>
+              {deleting
+                ? <Loader2 size={15} className="animate-spin" />
+                : <Trash2 size={15} />}
+            </span>
+            <span>{confirmDelete ? "Confirm Delete" : "Delete"}</span>
+          </button>
+        )}
+
+        {/* Inline cancel for delete confirm */}
+        {confirmDelete && (
+          <button
+            onClick={e => { e.stopPropagation(); setConfirmDelete(false); }}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              width: "100%",
+              padding: "5px 12px",
+              border: "none",
+              borderRadius: 8,
+              background: "transparent",
+              color: "rgba(255,255,255,0.38)",
+              fontSize: 11,
+              cursor: "pointer",
+              transition: "background 0.15s ease",
+              outline: "none",
+            }}
+            onMouseEnter={e => { e.currentTarget.style.background = "rgba(255,255,255,0.04)"; }}
+            onMouseLeave={e => { e.currentTarget.style.background = "transparent"; }}
+          >
+            Cancel
+          </button>
+        )}
+      </div>
+    </>,
     document.body
   );
 }
+
+// ─── ImageCard ─────────────────────────────────────────────────────────────
 
 export function ImageCard({
   src,
@@ -294,6 +487,7 @@ export function ImageCard({
 
   const [menuOpen, setMenuOpen] = useState(false);
   const [lightboxOpen, setLightboxOpen] = useState(false);
+  // confirmingDelete drives the card overlay: compact mini overlay always; non-compact only on mobile
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -314,11 +508,13 @@ export function ImageCard({
     setTimeout(() => setCopied(false), 2000);
   }, [permalink, toast]);
 
+  // Compact bottom bar + mobile menu: triggers card overlay
   const handleDeleteRequest = useCallback(() => {
     setMenuOpen(false);
     setConfirmingDelete(true);
   }, []);
 
+  // Desktop glassmorphic menu: executes the actual delete
   const handleDeleteConfirm = useCallback(async () => {
     if (!onDelete) return;
     setDeleting(true);
@@ -335,8 +531,7 @@ export function ImageCard({
 
   const hasActions = visibleActions.length > 0;
 
-  // compact thumbnails: action bar is always visible
-  // non-compact: only appears on desktop hover
+  // compact: always visible; non-compact: desktop hover only
   const showActionBar = compact
     ? hasActions && !confirmingDelete
     : !isMobile && isHovered && !confirmingDelete && !menuOpen;
@@ -345,7 +540,10 @@ export function ImageCard({
     <img
       src={displaySrc}
       alt={alt}
-      className={cn("w-full h-full object-cover transition-transform duration-300", isHovered && !compact && "scale-105")}
+      className={cn(
+        "w-full h-full object-cover transition-transform duration-300",
+        isHovered && !compact && "scale-105",
+      )}
       loading="lazy"
     />
   ) : (
@@ -369,7 +567,11 @@ export function ImageCard({
   ) : (
     <>
       <div
-        className={cn("relative overflow-hidden", aspectRatio, onSelect ? "cursor-pointer" : "cursor-zoom-in")}
+        className={cn(
+          "relative overflow-hidden",
+          aspectRatio,
+          onSelect ? "cursor-pointer" : "cursor-zoom-in",
+        )}
         onClick={handleImageClick}
       >
         {imageEl}
@@ -391,7 +593,15 @@ export function ImageCard({
     >
       {clickableArea}
 
-      {/* Kebab button — top-right, always shown when there are actions */}
+      {/* Permanent top gradient scrim — keeps kebab readable over any image */}
+      {hasActions && (
+        <div
+          className="absolute top-0 left-0 right-0 z-10 h-14 pointer-events-none"
+          style={{ background: "linear-gradient(rgba(0,0,0,0.45) 0%, transparent 100%)" }}
+        />
+      )}
+
+      {/* Kebab — rounded-rect, dims at rest, brightens on hover/open */}
       {hasActions && !confirmingDelete && (
         <button
           ref={kebabRef}
@@ -399,23 +609,40 @@ export function ImageCard({
           aria-haspopup="true"
           aria-expanded={menuOpen}
           onClick={e => { e.preventDefault(); e.stopPropagation(); setMenuOpen(o => !o); }}
-          className="absolute top-1.5 right-1.5 z-20 w-8 h-8 rounded-full flex items-center justify-center text-white transition-opacity"
-          style={{ background: "rgba(0,0,0,0.55)", backdropFilter: "blur(4px)" }}
+          className="absolute top-1.5 right-1.5 z-20 flex items-center justify-center transition-all duration-200"
+          style={{
+            width: 32,
+            height: 32,
+            borderRadius: 8,
+            background: menuOpen ? "rgba(255,255,255,0.15)" : "rgba(0,0,0,0.55)",
+            backdropFilter: "blur(8px)",
+            WebkitBackdropFilter: "blur(8px)",
+            opacity: isHovered || menuOpen ? 1 : 0.6,
+            border: "none",
+            cursor: "pointer",
+            outline: "none",
+            color: "white",
+          }}
         >
-          <MoreVertical className="w-4 h-4 shrink-0" />
+          {/* Filled circle three-dots — more prominent than stroke circles */}
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="rgba(255,255,255,0.92)">
+            <circle cx="12" cy="5"  r="1.8" />
+            <circle cx="12" cy="12" r="1.8" />
+            <circle cx="12" cy="19" r="1.8" />
+          </svg>
         </button>
       )}
 
-      {/* Action bar — bottom edge
-           compact: always visible, small corner icons
-           non-compact: desktop hover only, full-width gradient */}
+      {/* Bottom action bar
+           compact: always visible, corner icons (openFull / copyLink / delete)
+           non-compact: hover-only gradient bar (openFull / copyLink only — delete lives in kebab) */}
       {showActionBar && (
         <div
           className={cn(
             "absolute bottom-0 z-10 flex items-center justify-end pointer-events-none",
             compact
               ? "right-0 gap-0.5 px-1 py-1"
-              : "left-0 right-0 gap-1 px-2 py-1.5"
+              : "left-0 right-0 gap-1 px-2 py-1.5",
           )}
           style={compact ? undefined : { background: "linear-gradient(transparent, rgba(0,0,0,0.65))" }}
         >
@@ -426,9 +653,7 @@ export function ImageCard({
               onClick={e => { e.preventDefault(); e.stopPropagation(); openLightbox(); }}
               className={cn(
                 "pointer-events-auto rounded-full text-white transition-colors",
-                compact
-                  ? "p-1 bg-black/55 hover:bg-black/75"
-                  : "p-1.5 bg-white/10 hover:bg-white/25"
+                compact ? "p-1 bg-black/55 hover:bg-black/75" : "p-1.5 bg-white/10 hover:bg-white/25",
               )}
               title="Open full resolution"
             >
@@ -442,86 +667,85 @@ export function ImageCard({
               onClick={e => { e.preventDefault(); e.stopPropagation(); void handleCopy(); }}
               className={cn(
                 "pointer-events-auto rounded-full text-white transition-colors",
-                compact
-                  ? "p-1 bg-black/55 hover:bg-black/75"
-                  : "p-1.5 bg-white/10 hover:bg-white/25"
+                compact ? "p-1 bg-black/55 hover:bg-black/75" : "p-1.5 bg-white/10 hover:bg-white/25",
               )}
               title={copied ? "Copied!" : "Copy link"}
             >
-              {copied ? <CheckCircle2 className={compact ? "w-3 h-3 text-green-400" : "w-3.5 h-3.5 text-green-400"} /> : <Link2 className={compact ? "w-3 h-3" : "w-3.5 h-3.5"} />}
+              {copied
+                ? <CheckCircle2 className={compact ? "w-3 h-3 text-green-400" : "w-3.5 h-3.5 text-green-400"} />
+                : <Link2 className={compact ? "w-3 h-3" : "w-3.5 h-3.5"} />}
             </button>
           )}
-          {visibleActions.includes("delete") && onDelete && (
+          {/* Delete in bar: compact mode only — non-compact delete is in the kebab menu */}
+          {compact && visibleActions.includes("delete") && onDelete && (
             <button
               aria-label="Delete"
               tabIndex={0}
               onClick={e => { e.preventDefault(); e.stopPropagation(); handleDeleteRequest(); }}
-              className={cn(
-                "pointer-events-auto rounded-full text-white transition-colors",
-                compact
-                  ? "p-1 bg-black/55 hover:bg-red-600"
-                  : "p-1.5 bg-white/10 hover:bg-red-600/80"
-              )}
+              className="pointer-events-auto rounded-full text-white transition-colors p-1 bg-black/55 hover:bg-red-600"
               title="Delete"
             >
-              <Trash2 className={compact ? "w-3 h-3" : "w-3.5 h-3.5"} />
+              <Trash2 className="w-3 h-3" />
             </button>
           )}
         </div>
       )}
 
-      {/* Delete confirmation overlay */}
-      {confirmingDelete && (
-        compact ? (
-          <div className="absolute inset-0 z-30 bg-black/80 flex flex-col items-center justify-center gap-1 p-1">
-            <p className="text-[9px] font-bold text-white uppercase tracking-wide">Delete?</p>
-            <div className="flex gap-1">
-              <button
-                onClick={e => { e.stopPropagation(); setConfirmingDelete(false); }}
-                className="px-2 py-0.5 text-[9px] font-semibold rounded bg-white/20 text-white hover:bg-white/30 transition-colors"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={e => { e.stopPropagation(); void handleDeleteConfirm(); }}
-                disabled={deleting}
-                className="px-2 py-0.5 text-[9px] font-semibold rounded bg-red-600 text-white hover:bg-red-500 transition-colors flex items-center gap-0.5 disabled:opacity-60"
-              >
-                {deleting && <Loader2 className="w-2.5 h-2.5 animate-spin" />}
-                Delete
-              </button>
-            </div>
+      {/* Delete confirm overlay
+           compact → mini overlay within card (compact bar's delete button)
+           non-compact → full card overlay (mobile menu's delete, preserves mobile UX) */}
+      {confirmingDelete && compact && (
+        <div className="absolute inset-0 z-30 bg-black/80 flex flex-col items-center justify-center gap-1 p-1">
+          <p className="text-[9px] font-bold text-white uppercase tracking-wide">Delete?</p>
+          <div className="flex gap-1">
+            <button
+              onClick={e => { e.stopPropagation(); setConfirmingDelete(false); }}
+              className="px-2 py-0.5 text-[9px] font-semibold rounded bg-white/20 text-white hover:bg-white/30 transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={e => { e.stopPropagation(); void handleDeleteConfirm(); }}
+              disabled={deleting}
+              className="px-2 py-0.5 text-[9px] font-semibold rounded bg-red-600 text-white hover:bg-red-500 transition-colors flex items-center gap-0.5 disabled:opacity-60"
+            >
+              {deleting && <Loader2 className="w-2.5 h-2.5 animate-spin" />}
+              Delete
+            </button>
           </div>
-        ) : (
-          <div className="absolute inset-0 z-30 bg-black/85 flex flex-col items-center justify-center gap-3 p-4">
-            <Trash2 className="w-6 h-6 text-red-400" />
-            <p className="text-xs font-bold text-white text-center uppercase tracking-wider">Delete image?</p>
-            <p className="text-[11px] text-white/60 text-center leading-relaxed">{deleteConfirmMessage}</p>
-            <div className="flex gap-2 w-full">
-              <button
-                onClick={e => { e.stopPropagation(); setConfirmingDelete(false); }}
-                className="flex-1 py-2 text-xs font-semibold rounded-sm bg-white/20 text-white hover:bg-white/30 transition-colors"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={e => { e.stopPropagation(); void handleDeleteConfirm(); }}
-                disabled={deleting}
-                className="flex-1 py-2 text-xs font-semibold rounded-sm bg-red-600 text-white hover:bg-red-500 transition-colors flex items-center justify-center gap-1 disabled:opacity-60"
-              >
-                {deleting && <Loader2 className="w-3 h-3 animate-spin" />}
-                Delete
-              </button>
-            </div>
-          </div>
-        )
+        </div>
       )}
 
-      {/* Action menu (bottom sheet mobile / dropdown desktop) */}
+      {confirmingDelete && !compact && (
+        <div className="absolute inset-0 z-30 bg-black/85 flex flex-col items-center justify-center gap-3 p-4">
+          <Trash2 className="w-6 h-6 text-red-400" />
+          <p className="text-xs font-bold text-white text-center uppercase tracking-wider">Delete image?</p>
+          <p className="text-[11px] text-white/60 text-center leading-relaxed">{deleteConfirmMessage}</p>
+          <div className="flex gap-2 w-full">
+            <button
+              onClick={e => { e.stopPropagation(); setConfirmingDelete(false); }}
+              className="flex-1 py-2 text-xs font-semibold rounded-sm bg-white/20 text-white hover:bg-white/30 transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={e => { e.stopPropagation(); void handleDeleteConfirm(); }}
+              disabled={deleting}
+              className="flex-1 py-2 text-xs font-semibold rounded-sm bg-red-600 text-white hover:bg-red-500 transition-colors flex items-center justify-center gap-1 disabled:opacity-60"
+            >
+              {deleting && <Loader2 className="w-3 h-3 animate-spin" />}
+              Delete
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Action menu: glassmorphic dropdown (desktop) / bottom sheet (mobile) */}
       {menuOpen && (
         <ActionMenu
           actions={visibleActions}
-          onDelete={visibleActions.includes("delete") && onDelete ? handleDeleteRequest : undefined}
+          onDeleteConfirm={visibleActions.includes("delete") && onDelete ? handleDeleteConfirm : undefined}
+          onDeleteRequest={visibleActions.includes("delete") && onDelete ? handleDeleteRequest : undefined}
           onCopy={visibleActions.includes("copyLink") && permalink ? () => { void handleCopy(); } : undefined}
           onOpenFull={visibleActions.includes("openFull") ? openLightbox : undefined}
           onClose={() => setMenuOpen(false)}
