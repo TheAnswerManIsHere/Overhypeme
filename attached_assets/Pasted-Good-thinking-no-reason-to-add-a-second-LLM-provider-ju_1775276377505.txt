@@ -1,0 +1,49 @@
+Good thinking — no reason to add a second LLM provider just for prompt generation when you already have OpenAI wired up. Here's the revised prompt:
+
+---
+
+**Generate dynamic video motion prompts using the OpenAI API we already have instead of the hardcoded prompt, and handle expired fal.ai video URLs on the frontend.**
+
+## 1. Add a `motionPrompt` text column to the videos table
+This stores the prompt that was used for each video generation.
+
+## 2. Modify `/api/videos/generate` to generate contextual motion prompts
+
+Before calling fal.ai:
+- Accept an optional `motionPrompt` field in the request body. If provided, skip LLM generation and use it directly.
+- If not provided, look up the fact text by `factId`, then call the OpenAI chat completions API using the OpenAI SDK and API key we already have configured:
+
+```javascript
+const completion = await openai.chat.completions.create({
+  model: "gpt-4o-mini",
+  max_tokens: 150,
+  messages: [
+    {
+      role: "system",
+      content: "You are a video director. Given a humorous \"impossible fact\" about a person, write a short cinematic motion prompt (1-2 sentences, max 50 words) describing how to animate this scene for a short video clip. Focus on dramatic, funny, or epic visual motion that matches the joke. Do not include the person's name. Describe only the visual action, camera movement, and atmosphere. Respond with only the prompt text, nothing else."
+    },
+    { role: "user", content: factText }
+  ]
+});
+
+const motionPrompt = completion.choices[0].message.content;
+```
+
+- Wrap the OpenAI call in a try/catch. If it fails, fall back to `"Subtle cinematic motion, dramatic lighting, slow camera push-in, epic atmosphere"`.
+- Pass the resulting `motionPrompt` to fal.ai as the prompt.
+- Save the `motionPrompt` to the video record in the database.
+
+## 3. Frontend: handle expired fal.ai video URLs
+
+fal.ai CDN URLs expire after some time. When displaying a cached video from `GET /api/videos/:factId`:
+- Attach an `onError` handler to the `<video>` element.
+- If `onError` fires, hide the broken video player and show a "Regenerate Video" button in its place.
+- When the user clicks "Regenerate Video", call `POST /api/videos/generate` with the `motionPrompt` from the expired video record included in the request body, so we reuse the original prompt without calling the LLM again.
+
+## Constraints
+- Do NOT use localStorage or sessionStorage.
+- The OpenAI call must happen server-side only. Do not expose the API key to the browser.
+- Do not attempt to download or host the video files. Keep using the fal.ai CDN URLs as-is.
+- Use the existing OpenAI SDK and API key that are already configured in the project. Do not install any new LLM SDKs.
+
+---

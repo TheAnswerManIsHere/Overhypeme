@@ -1,0 +1,252 @@
+# Make Video Feature — Replit Implementation Prompts
+
+These prompts should be executed in order. Each builds on the previous step.
+
+---
+
+## Prompt 1: Video Style Templates — Data Layer & Config
+
+**Create a video style templates system for the video meme generator.**
+
+### What this does
+
+When a user generates a video meme, they currently get one hardcoded motion prompt ("Subtle cinematic motion, dramatic lighting..."). Instead, they should be able to choose from a set of named video styles that control the look and feel of the generated video. Each style is just a different motion prompt string sent to fal.ai — no rendering engine changes needed.
+
+### Implementation
+
+Create a centralized video styles configuration file (e.g., `src/config/videoStyles.ts` or wherever the project keeps config/constants). Export an array of style objects. Each object has:
+
+- `id` — unique key (string)
+- `label` — user-facing display name
+- `description` — one-sentence description of the visual effect (shown as helper text in the UI)
+- `motionPrompt` — the prompt string that gets sent to fal.ai as the motion/animation instruction
+- `previewAsset` — a path to a static preview asset (GIF or short video thumbnail). For now, set all of these to `null` — we'll add the actual assets later as a polish pass. The UI should handle `null` gracefully by showing a placeholder with the style name and description instead.
+
+Here are the styles to include:
+
+```typescript
+[
+  {
+    id: "cinematic",
+    label: "Cinematic",
+    description: "Dramatic slow push-in with moody lighting and lens flare",
+    motionPrompt: "Subtle cinematic motion, dramatic volumetric lighting, slow camera push-in, lens flare, epic dark atmosphere, movie-quality color grading",
+    previewAsset: null
+  },
+  {
+    id: "action",
+    label: "Action / Explosion",
+    description: "Explosive energy with fire, debris, and camera shake",
+    motionPrompt: "Explosive action scene, fire and sparks erupting, debris flying, intense camera shake, shockwave effect, Michael Bay energy",
+    previewAsset: null
+  },
+  {
+    id: "news-broadcast",
+    label: "Breaking News",
+    description: "News desk reveal with scrolling chyron and urgent energy",
+    motionPrompt: "Breaking news broadcast reveal, camera slowly zooms in, dramatic newsroom lighting, urgent atmosphere, professional broadcast quality",
+    previewAsset: null
+  },
+  {
+    id: "hype",
+    label: "Hype Reel",
+    description: "Fast cuts, zoom bursts, and high-energy sports highlight feel",
+    motionPrompt: "High energy hype reel, quick zoom bursts, dynamic camera movement, vibrant saturated colors, sports highlight energy, pump-up atmosphere",
+    previewAsset: null
+  },
+  {
+    id: "retro-vhs",
+    label: "Retro VHS",
+    description: "Grainy VHS tracking lines with a lo-fi 80s/90s aesthetic",
+    motionPrompt: "Retro VHS aesthetic, grainy film texture, tracking lines and static, faded warm colors, 1980s camcorder quality, nostalgic lo-fi feel",
+    previewAsset: null
+  },
+  {
+    id: "slow-zoom",
+    label: "Dramatic Zoom",
+    description: "Slow steady zoom into the subject with shallow depth of field",
+    motionPrompt: "Extremely slow dramatic zoom into subject, shallow depth of field, background slowly blurs, intense focus, dramatic tension building",
+    previewAsset: null
+  },
+  {
+    id: "anime",
+    label: "Anime / Manga",
+    description: "Stylized anime speed lines, dramatic wind, power aura",
+    motionPrompt: "Anime style dramatic reveal, speed lines radiating outward, wind blowing dramatically, power aura glowing, Japanese animation energy, stylized motion",
+    previewAsset: null
+  },
+  {
+    id: "epic-storm",
+    label: "Epic Storm",
+    description: "Lightning cracks, clouds swirl, and the sky opens dramatically",
+    motionPrompt: "Epic storm atmosphere, lightning cracking across dark sky, clouds swirling dramatically, wind and rain, mythological power, dramatic heavenly light breaking through",
+    previewAsset: null
+  }
+]
+```
+
+### Backend changes
+
+Modify the existing `/api/videos/generate` endpoint to accept an optional `styleId` parameter in the request body. When provided, look up the style by ID from the config and use its `motionPrompt` instead of the current hardcoded prompt. If no `styleId` is provided or the ID is invalid, default to the `"cinematic"` style. Store the `styleId` on the video job record in the database so we know which style was used.
+
+### No frontend changes yet
+
+Do NOT modify any frontend components in this prompt. We'll integrate the style selector into the UI in the next prompt. Just build the data config and update the backend endpoint.
+
+---
+
+## Prompt 2: Unified Meme Studio — Tabbed Interface
+
+**Refactor the meme generation UI into a unified "Meme Studio" with Static and Video tabs.**
+
+### What this does
+
+Currently, the static meme generator (AI image backgrounds) and the video generation button exist as separate, disconnected UI elements. We're combining them into a single "Meme Studio" interface with two tabs: **Image** and **Video**. This gives users a single creative workspace and makes the video feature permanently discoverable to anyone using the image generator.
+
+### Layout
+
+The Meme Studio should be a full-page or large modal component with this structure:
+
+**Top bar:**
+- Title: "Meme Studio" (use Bebas Neue, the display font)
+- Two tabs directly below the title: **Image** | **Video**
+- Active tab has the fire-orange (#ff6b35) underline/accent. Inactive tab is dimmed.
+- A close/back button (X or ← arrow) in the top-right to exit the studio
+
+**Image tab (this is the existing AI meme generator):**
+- Move the existing static meme generation UI into this tab. It should work exactly as it does now — fact display, AI background generation with style selector, download button, share button, "Try Another" rotate button. No functional changes, just re-parented into this tabbed container.
+
+**Video tab (new):**
+This tab contains the video creation flow as a lightweight progressive wizard:
+
+**Step 1 — Fact Selection** (only shown if the studio was opened without a pre-selected fact):
+- Show a search bar that queries existing facts
+- Below the search, show a few suggested facts (e.g., top-rated, or random selection)
+- When the user selects a fact, it renders with their name/pronouns and they proceed to step 2
+- If the studio was opened from a specific fact card (contextual entry — see Prompt 3), this step is skipped entirely
+
+**Step 2 — Choose Video Style:**
+- Display the video styles from the config (Prompt 1) as a grid of selectable cards
+- Each card shows: the style label (bold), the one-sentence description below it
+- If a `previewAsset` exists, show it as the card background. If null, show a simple gradient or icon placeholder that visually suggests the style's vibe (e.g., a film strip icon for Cinematic, a lightning bolt for Epic Storm). Keep these simple — solid color + icon is fine.
+- Default selection: "Cinematic" is pre-selected
+- Selected card has a visible highlight border (fire-orange)
+
+**Step 3 — Generate & Preview:**
+- Show the selected fact text and chosen style name as a summary
+- A prominent "Generate Video" button (fire-orange background, dark text)
+- When clicked, show the loading/progress state (reuse the existing video generation loading UX — the animated message like "Generating your video...")
+- When complete, show the video player inline with playback controls
+- Below the player: Download button, Share button, "Try Another Style" button (goes back to step 2 with the same fact), and "Generate New" button (goes back to step 1)
+
+**Step navigation:**
+- Use a subtle step indicator (e.g., dots or a minimal breadcrumb: "Select Fact → Choose Style → Generate")
+- Back button at each step to go to the previous step
+- Steps should animate with a horizontal slide transition
+
+### Responsive behavior
+
+- On desktop: the studio should be a centered panel/card, max-width ~800px, with comfortable padding
+- On mobile: full-screen takeover with the same step flow, but cards in the style grid collapse to a single column
+
+### Styling
+
+- Background: match the site's dark theme (#0a0a1a or whatever the current dark background is)
+- Card backgrounds: slightly lighter dark (#1a1a2e or similar)
+- All text: light/white
+- Accent color: fire-orange (#ff6b35) for selected states, primary buttons, active tab indicator
+- Font: Bebas Neue for the title and step headers, DM Sans for body text
+
+### Important constraints
+
+- Do NOT use localStorage or sessionStorage for any state management. Use React state (useState/useReducer).
+- The fal.ai API call must remain server-side only — do not move any API key or fal.ai client code to the frontend.
+- Keep the existing static meme generator fully functional — we're wrapping it in a tab, not rewriting it.
+
+---
+
+## Prompt 3: Contextual Entry Points — "Make Video" Buttons
+
+**Add "Make Video" buttons on fact cards and on the static meme generator output that open the Meme Studio pre-loaded with that fact.**
+
+### What this does
+
+Users should be able to jump from any fact they're viewing directly into the Meme Studio's Video tab with that fact already selected — skipping the fact selection step entirely. This is the primary discovery vector for the video feature.
+
+### Where to add the button
+
+1. **On every fact card in the leaderboard/browse views:**
+   - Add a small icon button to the existing action bar on each fact card (alongside the existing vote buttons, share, etc.)
+   - Icon: a film clapperboard or a play-circle icon (use an existing icon library if one is already in the project, e.g., Lucide, Heroicons, or Font Awesome — do not add a new icon library)
+   - Tooltip on hover: "Make Video"
+   - On click: open the Meme Studio, switch to the Video tab, with this fact pre-selected (skip step 1, land directly on step 2 — style selection)
+
+2. **On the static meme generator output (Image tab result):**
+   - After a user has generated a static AI meme and is viewing the result, add a button below the meme image: "Turn This Into a Video →"
+   - Styled as a secondary button (outlined, fire-orange border and text) so it doesn't compete with the primary download/share buttons
+   - On click: switch to the Video tab within the same Meme Studio session, carrying over the same fact. The AI-generated background image should be passed as the source image for the video generation (this is the "upgrade" flow — the user's static meme becomes the input frame for the video)
+
+### Data flow
+
+When the Meme Studio is opened via a contextual entry point, it should receive the following as props or through a shared state/context:
+
+- `factId` — the ID of the pre-selected fact
+- `factText` — the rendered fact text (already personalized with name/pronouns)
+- `sourceImageUrl` (optional) — if coming from the static meme generator, the URL of the generated meme image to use as the video source frame
+- `initialTab` — set to `"video"` so the studio opens on the Video tab
+
+If `sourceImageUrl` is provided (entry point 2), the video generator should use that specific image as the source for fal.ai instead of generating a new background. If not provided (entry point 1), the video generator should first generate an AI meme image using the default/cinematic style and then use that as the source — or, if the fact already has a previously generated meme image on record, use that.
+
+### First-time discovery nudge
+
+The very first time a user generates a static meme (Image tab), show a one-time animated nudge after the meme renders. This should be a small tooltip/callout pointing at the "Turn This Into a Video →" button that says something like: **"New! See your meme come to life"** with a brief shimmer or pulse animation on the button. Dismiss the nudge when the user either clicks it or closes it. Track whether the nudge has been shown using a simple React ref or in-memory flag — do NOT use localStorage.
+
+### Important constraints
+
+- The fact card action button should be visually lightweight — it should not make the card feel cluttered. Use the same icon size and spacing as existing action buttons.
+- Do NOT show the "Make Video" button if video generation is currently rate-limited for this user (check the existing rate limit state). Instead, either hide the button entirely or show it in a disabled state with a tooltip explaining the limit.
+
+---
+
+## Prompt 4: Polish Pass — Preview Assets & Image Style Previews
+
+**Add static preview thumbnails to the video style selector and to the existing AI image style selector.**
+
+### What this does
+
+Both the video style selector (from Prompt 2) and the existing AI image background style dropdown currently ask users to make visual choices without showing them what the options look like. This prompt adds static preview thumbnails to both, giving users a visual swatch to inform their selection.
+
+### Video style previews
+
+For each video style in the config, we need a small static preview image that communicates the visual language of that style. Since we can't generate these dynamically and we don't yet have real preview assets, generate them as simple stylized placeholder cards using code:
+
+- Create a React component (e.g., `StylePreviewCard`) that renders a small rectangular card (roughly 16:9 aspect ratio, ~280×158px) for each style
+- Each card should use a distinct visual treatment that suggests the style's aesthetic:
+  - **Cinematic**: dark gradient background (#1a1a2e → #0a0a0a), subtle lens flare effect (radial gradient with low-opacity warm spot)
+  - **Action / Explosion**: dark-to-orange gradient, scattered small bright dots suggesting sparks
+  - **Breaking News**: red banner bar across bottom third, solid dark blue background above
+  - **Hype Reel**: bright saturated gradient (electric blue to magenta), diagonal speed lines
+  - **Retro VHS**: slightly off-white/cream tinted background, horizontal line artifacts (thin semi-transparent stripes)
+  - **Dramatic Zoom**: concentric circles radiating from center (suggesting zoom motion), dark background
+  - **Anime / Manga**: radiating speed lines from center, high contrast black and white with a pop of color
+  - **Epic Storm**: dark purple-grey gradient, subtle lightning bolt shape (CSS clip-path or SVG)
+
+- Overlay the style label text in white (Bebas Neue, or bold DM Sans if Bebas Neue is not available in the component context) centered on the card
+- These are CSS/SVG-rendered cards, NOT external image files. This keeps them zero-cost and instantly available.
+
+Replace the placeholder styling in the video style selector grid (from Prompt 2) with these `StylePreviewCard` components.
+
+### AI image style previews
+
+Apply the same pattern to the existing AI image background style selector dropdown. For each image style in the existing `IMAGE_STYLES` config:
+
+- Add a small preview swatch next to or above each option in the dropdown
+- These can be simpler than the video cards — a small color palette strip or gradient swatch that suggests the visual tone of each style (e.g., warm tones for "Cinematic", muted earth tones for "Vintage", etc.)
+- If the dropdown is a simple `<select>` element, convert it to a custom dropdown component that can render rich content per option (image + label + description). Style it to match the existing dark theme.
+
+### Important constraints
+
+- Do NOT use localStorage or sessionStorage
+- Do NOT make any API calls or generate real images — all previews are pure CSS/SVG rendered in the browser
+- Keep the preview cards performant — no heavy animations or effects that would cause jank on mobile
+- The video style grid should look good with 2 columns on mobile and 3-4 columns on desktop

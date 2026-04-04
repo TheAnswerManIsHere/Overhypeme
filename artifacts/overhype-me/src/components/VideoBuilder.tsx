@@ -35,6 +35,15 @@ type VideoState =
   | { status: "done"; url: string }
   | { status: "error"; message: string };
 
+interface CachedVideo {
+  id: number;
+  factId: number;
+  imageUrl: string;
+  videoUrl: string;
+  motionPrompt: string | null;
+  createdAt: string;
+}
+
 interface UploadEntry {
   objectPath: string;
   width: number;
@@ -175,6 +184,23 @@ export function VideoBuilder({ factId, factText, onClose }: VideoBuilderProps) {
 
   // Video state
   const [videoState, setVideoState] = useState<VideoState>({ status: "idle" });
+
+  // Past videos (from GET /api/videos/:factId)
+  const [pastVideos, setPastVideos] = useState<CachedVideo[]>([]);
+  const [erroredVideoIds, setErroredVideoIds] = useState<Set<number>>(new Set());
+  const [regeneratingVideoId, setRegeneratingVideoId] = useState<number | null>(null);
+
+  // Fetch past completed videos for this fact on mount
+  useEffect(() => {
+    let cancelled = false;
+    fetch(`/api/videos/${factId}`, { credentials: "include" })
+      .then(r => r.json())
+      .then((data: { videos?: CachedVideo[] }) => {
+        if (!cancelled) setPastVideos(data.videos ?? []);
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [factId]);
 
   // Render the generic canvas image on mount
   useEffect(() => {
@@ -385,6 +411,43 @@ export function VideoBuilder({ factId, factText, onClose }: VideoBuilderProps) {
       setVideoState({ status: "done", url: data.videoUrl });
     } catch {
       setVideoState({ status: "error", message: "Network error. Please check your connection and try again." });
+    }
+  };
+
+  const handleRegenerateVideo = async (cached: CachedVideo) => {
+    if (regeneratingVideoId !== null) return;
+    setRegeneratingVideoId(cached.id);
+    try {
+      const body: Record<string, unknown> = {
+        factId,
+        imageUrl: cached.imageUrl,
+      };
+      if (cached.motionPrompt) body.motionPrompt = cached.motionPrompt;
+
+      const res = await fetch("/api/videos/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify(body),
+      });
+      const data = await res.json() as { videoUrl?: string; error?: string; record?: CachedVideo };
+      if (!res.ok || !data.videoUrl) {
+        return;
+      }
+      // Remove old errored entry, add new one
+      setPastVideos(prev => {
+        const filtered = prev.filter(v => v.id !== cached.id);
+        return data.record ? [data.record, ...filtered] : filtered;
+      });
+      setErroredVideoIds(prev => {
+        const next = new Set(prev);
+        next.delete(cached.id);
+        return next;
+      });
+    } catch {
+      // silent — user can try again
+    } finally {
+      setRegeneratingVideoId(null);
     }
   };
 
@@ -707,6 +770,51 @@ export function VideoBuilder({ factId, factText, onClose }: VideoBuilderProps) {
               <Button onClick={handleDownloadVideo} variant="secondary" className="gap-2 w-full">
                 <Download className="w-4 h-4" /> Download Video
               </Button>
+            </div>
+          )}
+
+          {/* ── Past videos ── */}
+          {pastVideos.length > 0 && (
+            <div className="space-y-3">
+              <p className="text-xs font-display uppercase tracking-widest text-muted-foreground">
+                Previously Generated
+              </p>
+              {pastVideos.map(cached => {
+                const isErrored = erroredVideoIds.has(cached.id);
+                const isRegenerating = regeneratingVideoId === cached.id;
+                return (
+                  <div key={cached.id} className="border-2 border-border overflow-hidden">
+                    {isErrored ? (
+                      <div className="flex flex-col items-center justify-center gap-3 py-6 bg-muted/30">
+                        <p className="text-xs text-muted-foreground">
+                          This video link has expired.
+                        </p>
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          disabled={isRegenerating}
+                          onClick={() => void handleRegenerateVideo(cached)}
+                          className="gap-2"
+                        >
+                          {isRegenerating
+                            ? <><Loader2 className="w-3 h-3 animate-spin" /> Regenerating…</>
+                            : <><Video className="w-3 h-3" /> Regenerate Video</>
+                          }
+                        </Button>
+                      </div>
+                    ) : (
+                      <video
+                        src={cached.videoUrl}
+                        controls
+                        className="w-full"
+                        onError={() =>
+                          setErroredVideoIds(prev => new Set([...prev, cached.id]))
+                        }
+                      />
+                    )}
+                  </div>
+                );
+              })}
             </div>
           )}
 
