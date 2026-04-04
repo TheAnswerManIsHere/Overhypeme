@@ -773,6 +773,22 @@ router.get("/memes/ai/:factId/prompts", requireAdmin, async (req: Request, res: 
   });
 });
 
+// POST /memes/ai/:factId/regenerate-scene-prompts — admin force-refreshes stored scene prompts for a fact
+router.post("/memes/ai/:factId/regenerate-scene-prompts", requireAdmin, async (req: Request, res: Response) => {
+  const factId = parseInt(String(req.params["factId"] ?? ""), 10);
+  if (isNaN(factId)) { res.status(400).json({ error: "Invalid factId" }); return; }
+  const [fact] = await db
+    .select({ id: factsTable.id, text: factsTable.text })
+    .from(factsTable)
+    .where(and(eq(factsTable.id, factId), eq(factsTable.isActive, true)))
+    .limit(1);
+  if (!fact) { res.status(404).json({ error: "Fact not found" }); return; }
+  const { generateScenePrompts } = await import("../lib/aiMemePipeline.js");
+  const prompts = await generateScenePrompts(fact.text);
+  await db.update(factsTable).set({ aiScenePrompts: prompts }).where(eq(factsTable.id, factId));
+  res.json({ success: true, prompts });
+});
+
 // POST /memes/ai/:factId/generate — premium user triggers AI image generation for a fact
 router.post("/memes/ai/:factId/generate", requirePremium, async (req: Request, res: Response) => {
   const factId = parseInt(String(req.params["factId"] ?? ""), 10);
