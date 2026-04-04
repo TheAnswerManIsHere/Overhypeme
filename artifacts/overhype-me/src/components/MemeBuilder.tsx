@@ -1529,7 +1529,7 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
                     onClick={() => {
                       setImageMode("ai");
                     }}
-                    badge="PRO"
+                    badge={!isPremium ? "PRO" : undefined}
                   >
                     AI Generated
                   </ModeTab>
@@ -1539,7 +1539,7 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
                       if (!isPremium && isAuthenticated) return; // handled below
                       setImageMode("upload");
                     }}
-                    badge="PRO"
+                    badge={!isPremium ? "PRO" : undefined}
                   >
                     Upload
                   </ModeTab>
