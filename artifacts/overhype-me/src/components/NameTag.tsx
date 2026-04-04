@@ -212,11 +212,17 @@ export function NameTag() {
   }
 
   if (isAuthenticated && user) {
-    // Always read from PersonNameContext — it's synced from the auth user on login
-    // (via the useEffect below) and updated immediately after a profile save.
-    // This ensures the navbar reflects changes without needing a token refresh.
+    // Always read displayName from PersonNameContext — synced from auth on login
+    // and updated immediately after a profile save without needing a token refresh.
     const displayName = name || (user as { displayName?: string }).displayName || "User";
-    const pronounsStr = pronouns ? (displayPronouns(pronouns) || null) : null;
+    // Show pronouns if: (a) user has them saved in DB (user.pronouns is set), OR
+    // (b) the context value was explicitly changed away from the default this session
+    // (e.g., user just saved pronouns for the first time via Profile page).
+    // This avoids showing the "he/him" default for users who never set pronouns.
+    const userPronounsRaw = (user as { pronouns?: string }).pronouns;
+    const pronounsStr = (userPronounsRaw || pronouns !== DEFAULT_PRONOUNS)
+      ? (displayPronouns(pronouns) || null)
+      : null;
 
     return (
       <button
