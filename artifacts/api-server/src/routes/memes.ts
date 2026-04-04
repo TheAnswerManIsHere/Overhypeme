@@ -789,11 +789,6 @@ router.get("/memes/ai/:factId/prompts", requireAdmin, async (req: Request, res: 
     }
   }
 
-  // Resolve reference frame prompt from admin config
-  const DEFAULT_REF_FRAME =
-    "Generate an image using the provided reference photo. The person's face, facial structure, skin tone, eye shape, hair, and all distinguishing features must be preserved with photorealistic accuracy and remain visually identical to the reference — this is the highest priority. Do not alter, stylize, or idealize the person's facial features in any way. The person should be placed into the scene as described. The scene and environment should be stylized as described, but the person's face and likeness must remain untouched by any stylization. No text, words, or letters anywhere in the image.";
-  const referenceFramePrompt = (await getConfigString("ai_reference_frame_prompt", DEFAULT_REF_FRAME)) || DEFAULT_REF_FRAME;
-
   // Build a preview of the full fal.ai call — reads all config values, returns model + input object
   // without actually invoking fal.ai. Accept optional modelOverride and paramsOverride as query params.
   const modelOverrideQ = String(req.query["modelOverride"] ?? "").trim() || undefined;
@@ -819,7 +814,7 @@ router.get("/memes/ai/:factId/prompts", requireAdmin, async (req: Request, res: 
   const storedPrompts = fact.aiScenePrompts as Record<string, string> | null | undefined;
   const sceneBase = storedPrompts?.[genderKey] ?? "(scene prompt will be generated on first run)";
   const promptWithSuffix = styleSuffix ? `${sceneBase.trim()} ${styleSuffix}` : sceneBase;
-  const previewPrompt = isRef ? `${referenceFramePrompt} ${promptWithSuffix}` : promptWithSuffix;
+  const previewPrompt = promptWithSuffix;
 
   let falCallPreview: { model: string; input: Record<string, unknown> } | null = null;
   try {
@@ -833,7 +828,6 @@ router.get("/memes/ai/:factId/prompts", requireAdmin, async (req: Request, res: 
   res.json({
     prompts: fact.aiScenePrompts ?? null,
     styleSuffix,
-    referenceFramePrompt,
     falCallPreview,
   });
 });

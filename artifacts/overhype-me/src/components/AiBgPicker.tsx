@@ -350,7 +350,6 @@ export function AiBgPicker({
   const [sceneDebug, setSceneDebug] = useState<{
     prompts: Record<string, string> | null;
     styleSuffix: string | null;
-    referenceFramePrompt: string | null;
     falCallPreview: { model: string; input: Record<string, unknown> } | null;
   } | null>(null);
   const [showPromptDebug, setShowPromptDebug] = useState(false);
@@ -370,8 +369,8 @@ export function AiBgPicker({
     });
     fetch(`/api/memes/ai/${factId}/prompts?${params.toString()}`, { credentials: "include" })
       .then(r => r.ok ? r.json() : null)
-      .then((d: { prompts: Record<string, string> | null; styleSuffix: string | null; referenceFramePrompt: string | null; falCallPreview: { model: string; input: Record<string, unknown> } | null } | null) => {
-        if (d) setSceneDebug({ prompts: d.prompts, styleSuffix: d.styleSuffix, referenceFramePrompt: d.referenceFramePrompt, falCallPreview: d.falCallPreview });
+      .then((d: { prompts: Record<string, string> | null; styleSuffix: string | null; falCallPreview: { model: string; input: Record<string, unknown> } | null } | null) => {
+        if (d) setSceneDebug({ prompts: d.prompts, styleSuffix: d.styleSuffix, falCallPreview: d.falCallPreview });
       })
       .catch(() => {});
   }, [isAdmin, factId, selectedStyleId, aiGender, aiSubMode, aiGenState, scenePromptVersion, adminModelOverride, adminParamOverrides]);
@@ -873,12 +872,8 @@ export function AiBgPicker({
           ?? (aiSubMode === "reference" ? (styleDef?.promptSuffixReference ?? "") : (styleDef?.promptSuffix ?? ""));
         const genderKey = aiGender as string;
         const sceneBase = sceneDebug?.prompts?.[genderKey] ?? null;
-        const referenceFrame = sceneDebug?.referenceFramePrompt
-          ?? "Generate an image using the provided reference photo. The person's face, facial structure, skin tone, eye shape, hair, and all distinguishing features must be preserved with photorealistic accuracy and remain visually identical to the reference — this is the highest priority. Do not alter, stylize, or idealize the person's facial features in any way. The person should be placed into the scene as described. The scene and environment should be stylized as described, but the person's face and likeness must remain untouched by any stylization. No text, words, or letters anywhere in the image.";
-        const includeRef = aiSubMode === "reference";
         const scenePart = sceneBase ?? "(scene prompt will be generated)";
-        const promptPart = suffix ? `${scenePart.trim()} ${suffix}` : scenePart;
-        const finalPrompt = includeRef ? `${referenceFrame} ${promptPart}` : promptPart;
+        const finalPrompt = suffix ? `${scenePart.trim()} ${suffix}` : scenePart;
         return (
           <div className="mt-1 space-y-1">
             <button
@@ -890,12 +885,6 @@ export function AiBgPicker({
             </button>
             {showPromptDebug && (
               <div className="rounded border border-border bg-muted/30 p-2 space-y-2 text-[10px]">
-                {includeRef && (
-                  <div>
-                    <span className="text-muted-foreground font-semibold uppercase tracking-wide">Reference frame (prepended)</span>
-                    <p className="mt-0.5 text-foreground/80 font-mono leading-relaxed">{referenceFrame.trim()}</p>
-                  </div>
-                )}
                 <div>
                   <span className="text-muted-foreground font-semibold uppercase tracking-wide">Scene prompt ({genderKey})</span>
                   {sceneBase
