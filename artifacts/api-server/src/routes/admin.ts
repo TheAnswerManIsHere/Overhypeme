@@ -648,7 +648,7 @@ router.post("/admin/facts/backfill-ai-memes", requireAdminOrApiKey, async (req: 
     void (async () => {
       console.log(`[admin] backfill-ai-memes: starting ${total} facts (force=${force})`);
       for (const fact of rootFacts) {
-        await generateAiMemeBackgrounds(fact.id, fact.text);
+        await generateAiMemeBackgrounds(fact.id, fact.text, { suppressErrors: true });
       }
       console.log(`[admin] backfill-ai-memes: done — processed ${total} facts`);
     })();
@@ -712,6 +712,7 @@ router.put("/admin/facts/:id/ai-meme/generate", requireAdmin, async (req: Reques
   // Start generation in background; do not wait
   void generateAiMemeBackgrounds(fact.id, fact.text, {
     existingPrompts: customPrompts ?? (fact.aiScenePrompts as AiScenePrompts | undefined),
+    suppressErrors: true,
   });
 
   res.json({ success: true, message: "AI meme background generation started. Results will appear shortly." });
@@ -758,6 +759,7 @@ router.put("/admin/facts/:id/ai-meme/regenerate-image", requireAdmin, async (req
     existingImages: (fact.aiMemeImages as AiMemeImages | undefined),
     targetGender: gender as "male" | "female" | "neutral",
     targetIndex: imageIndex,
+    suppressErrors: true,
   });
 
   res.json({ success: true, message: "Image regeneration started. Results will appear shortly." });

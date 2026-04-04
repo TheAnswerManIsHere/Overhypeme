@@ -294,7 +294,7 @@ router.post("/admin/reviews/:id/approve", requireAdmin, async (req: Request, res
 
   // Seed both Pexels and AI meme images now that the fact is approved
   void runFactImagePipeline(fact.id, fact.text);
-  void generateAiMemeBackgrounds(fact.id, fact.text);
+  void generateAiMemeBackgrounds(fact.id, fact.text, { suppressErrors: true });
 
   // Notify submitter
   if (review.submittedById) {
