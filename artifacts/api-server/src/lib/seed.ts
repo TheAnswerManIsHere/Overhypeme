@@ -386,6 +386,16 @@ Return ONLY valid JSON:
          NULL, NULL, false)
       ON CONFLICT (key) DO NOTHING`,
     },
+    {
+      label: "admin_config seed video_prompt_system_prompt",
+      ddl: `INSERT INTO admin_config (key, value, data_type, label, description, is_public)
+        VALUES ('video_prompt_system_prompt',
+          'You are a video director. Given an image, write a short cinematic motion prompt (1-2 sentences, max 50 words) describing how to animate the scene for a short video clip. Focus on dramatic, visual motion: camera movement, lighting changes, atmosphere. Describe only the visual action and movement. Respond with only the prompt text, nothing else.',
+          'text', 'Video Prompt System (OpenAI)',
+          'The system prompt sent to OpenAI when analyzing a background image to auto-generate a video motion prompt. Should instruct the model to act as a video director and return a short cinematic motion description.',
+          false)
+      ON CONFLICT (key) DO NOTHING`,
+    },
   ];
 
   for (const { label, ddl } of migrations) {

@@ -6,6 +6,8 @@ import { factsTable } from "@workspace/db/schema";
 import { eq, and, gte, desc } from "drizzle-orm";
 import { getOpenAIClient } from "@workspace/integrations-openai-ai-server";
 import { VIDEO_STYLE_MAP } from "../config/videoStyles.js";
+import { getConfigString } from "../lib/adminConfig.js";
+import { requireAdmin } from "./admin.js";
 
 const router: IRouter = Router();
 
@@ -13,6 +15,10 @@ const RATE_LIMIT_MAX = 3;
 const RATE_LIMIT_WINDOW_MS = 24 * 60 * 60 * 1000;
 const FALLBACK_PROMPT = "Subtle cinematic motion, dramatic lighting, slow camera push-in, epic atmosphere";
 const DEFAULT_STYLE_ID = "cinematic";
+const DEFAULT_VIDEO_MODEL = "fal-ai/kling-video/v2.6/standard/image-to-video";
+
+const DEFAULT_VIDEO_PROMPT_SYSTEM =
+  'You are a video director. Given an image, write a short cinematic motion prompt (1-2 sentences, max 50 words) describing how to animate the scene for a short video clip. Focus on dramatic, visual motion: camera movement, lighting changes, atmosphere. Describe only the visual action and movement. Respond with only the prompt text, nothing else.';
 
 function getClientIp(req: Request): string {
   const forwarded = req.headers["x-forwarded-for"];
@@ -54,10 +60,81 @@ const GenerateVideoBody = z
     factId: z.number().int().positive(),
     motionPrompt: z.string().max(500).optional(),
     styleId: z.string().optional(),
+    videoModel: z.string().max(200).optional(),
   })
   .refine((data) => data.imageUrl || data.imageBase64, {
     message: "Either imageUrl or imageBase64 must be provided",
   });
+
+const GeneratePromptBody = z.object({
+  imageBase64: z.string().optional(),
+  imageUrl: z.string().url().optional(),
+}).refine((data) => data.imageBase64 || data.imageUrl, {
+  message: "Either imageBase64 or imageUrl must be provided",
+});
+
+router.post("/videos/generate-prompt", requireAdmin, async (req, res) => {
+  const parsed = GeneratePromptBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "Invalid request", details: parsed.error.flatten() });
+    return;
+  }
+
+  try {
+    const openai = getOpenAIClient();
+    const systemPrompt = await getConfigString("video_prompt_system_prompt", DEFAULT_VIDEO_PROMPT_SYSTEM);
+
+    const messages: Parameters<typeof openai.chat.completions.create>[0]["messages"] = [
+      { role: "system", content: systemPrompt },
+    ];
+
+    if (parsed.data.imageBase64) {
+      const base64 = parsed.data.imageBase64.startsWith("data:")
+        ? parsed.data.imageBase64
+        : `data:image/jpeg;base64,${parsed.data.imageBase64}`;
+      messages.push({
+        role: "user",
+        content: [
+          {
+            type: "image_url",
+            image_url: { url: base64, detail: "low" },
+          },
+          {
+            type: "text",
+            text: "Write a cinematic motion prompt for this image.",
+          },
+        ],
+      });
+    } else if (parsed.data.imageUrl) {
+      messages.push({
+        role: "user",
+        content: [
+          {
+            type: "image_url",
+            image_url: { url: parsed.data.imageUrl, detail: "low" },
+          },
+          {
+            type: "text",
+            text: "Write a cinematic motion prompt for this image.",
+          },
+        ],
+      });
+    }
+
+    const completion = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      max_tokens: 150,
+      messages,
+    });
+
+    const prompt = completion.choices[0]?.message?.content?.trim() ?? FALLBACK_PROMPT;
+    res.json({ prompt });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Unknown error";
+    console.error("[videos] generate-prompt error:", message);
+    res.json({ prompt: FALLBACK_PROMPT });
+  }
+});
 
 router.get("/videos/:factId", async (req, res) => {
   const factId = parseInt(req.params.factId ?? "", 10);
@@ -208,9 +285,12 @@ router.post("/videos/generate", async (req, res) => {
     return;
   }
 
+  const requestedModel = parsed.data.videoModel?.trim();
+  const videoModel = requestedModel || DEFAULT_VIDEO_MODEL;
+
   try {
     const result = await fal.subscribe(
-      "fal-ai/kling-video/v2.6/standard/image-to-video",
+      videoModel,
       {
         input: {
           image_url: imageUrl,

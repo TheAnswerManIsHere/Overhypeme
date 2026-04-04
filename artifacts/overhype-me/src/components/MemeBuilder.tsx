@@ -8,7 +8,7 @@ import {
   type DragEvent,
 } from "react";
 import { Link } from "wouter";
-import { IMAGE_STYLES } from "@/config/imageStyles";
+import { AiBgPicker, type AiBgSelection } from "@/components/AiBgPicker";
 import { ImageCard } from "@/components/ui/ImageCard";
 import { usePersonName } from "@/hooks/use-person-name";
 import { useListMemeTemplates } from "@workspace/api-client-react";
@@ -481,7 +481,6 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const refFileInputRef = useRef<HTMLInputElement>(null);
 
   // Aspect ratio + canvas dimensions
   const [aspectRatio, setAspectRatio] = useState<AspectRatio>("landscape");
@@ -509,23 +508,6 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
     setResizeMaxH(clamped);
   }
 
-  // AI gallery display limit + active model names — fetched from the public config endpoint
-  const [aiGalleryDisplayLimit, setAiGalleryDisplayLimit] = useState(50);
-  const [aiModelStandard,  setAiModelStandard]  = useState("fal-ai/flux-pro/v1.1");
-  const [aiModelReference, setAiModelReference] = useState("fal-ai/flux-pulid");
-  useEffect(() => {
-    fetch("/api/config")
-      .then((r) => r.json())
-      .then((cfg: Record<string, number | string | boolean>) => {
-        const limit = cfg["ai_gallery_display_limit"];
-        if (typeof limit === "number" && limit > 0) setAiGalleryDisplayLimit(limit);
-        const std = cfg["ai_image_model_standard"];
-        if (typeof std === "string" && std) setAiModelStandard(std);
-        const ref = cfg["ai_image_model_reference"];
-        if (typeof ref === "string" && ref) setAiModelReference(ref);
-      })
-      .catch(() => {});
-  }, []);
 
   const GENDER_TO_VARIANT: Record<StockGender, "male" | "female" | "neutral"> = {
     man: "male", woman: "female", person: "neutral",
@@ -553,7 +535,6 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
   const [isBackfilling, setIsBackfilling] = useState(false);
   const [backfillResult, setBackfillResult] = useState<{ triggered?: number; error?: string } | null>(null);
   const [prefetchedIndex, setPrefetchedIndex] = useState<number | null>(null);
-  const [selectedStyleId, setSelectedStyleId] = useState("none");
   const [uploadFile, setUploadFile] = useState<File | null>(null);
   const [uploadObjectPath, setUploadObjectPath] = useState<string | null>(null);
   const [uploadLocalUrl, setUploadLocalUrl] = useState<string | null>(null);
@@ -712,74 +693,13 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
     return "neutral";
   }, [pronouns, factIsGendered]);
 
-  // AI image panel state
-  const [selectedAiIndex, setSelectedAiIndex] = useState<number | null>(null);
-  const [aiGenState, setAiGenState] = useState<"idle" | "generating" | "completed" | "error">("idle");
-  const isGeneratingAi = aiGenState === "generating";
-  const abortControllerRef = useRef<AbortController | null>(null);
-  const generationIdRef = useRef<number>(0);
-  const [cancelDisabled, setCancelDisabled] = useState(false);
-  const [aiGenerateError, setAiGenerateError] = useState<string | null>(null);
-  const [aiScenePromptsDebug, setAiScenePromptsDebug] = useState<{
-    prompts: Record<string, string> | null;
-    styleSuffix: string | null;
-    referenceFramePrompt: string | null;
-    falCallPreview: { model: string; input: Record<string, unknown> } | null;
-  } | null>(null);
-  const [showPromptDebug, setShowPromptDebug] = useState(false);
-  const [isRefreshingScenePrompt, setIsRefreshingScenePrompt] = useState(false);
-  const [scenePromptVersion, setScenePromptVersion] = useState(0);
-  const [generationProgress, setGenerationProgress] = useState(0);
-  const [generationElapsed, setGenerationElapsed] = useState(0);
-  const generationTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const [localAiMemeImages, setLocalAiMemeImages] = useState<AiMemeImages | null>(aiMemeImages ?? null);
-  // Cache-buster timestamp: bumped after every successful regen so browser re-fetches the new image
-  const [aiCacheBuster, setAiCacheBuster] = useState<number>(0);
-
-  // AI sub-mode: generic (text-prompted) or reference (photo-based)
-  const [aiSubMode, setAiSubMode] = useState<"generic" | "reference">("generic");
-  // Reference photo picker state
-  const [selectedRefUpload, setSelectedRefUpload] = useState<UploadEntry | null>(null);
-  const [refUploads, setRefUploads] = useState<UploadEntry[]>([]);
-  const [isLoadingRefUploads, setIsLoadingRefUploads] = useState(false);
-  const [isUploadingRefPhoto, setIsUploadingRefPhoto] = useState(false);
-
-  // Reference-generated AI images (only images generated via the reference photo flow)
-  interface RefGenImage { id: number; storagePath: string; gender: string; createdAt: string; }
-  const [refGenImages, setRefGenImages] = useState<RefGenImage[]>([]);
-  const [isLoadingRefGenImages, setIsLoadingRefGenImages] = useState(false);
-  // The storage path of the selected reference-generated image (for meme creation)
-  const [selectedRefGenPath, setSelectedRefGenPath] = useState<string | null>(null);
-
-  // Admin-only: override the fal.ai model for this generation session
-  const [adminModelOverride, setAdminModelOverride] = useState<string>("");
-  // Admin-only: per-request parameter overrides; keyed by fal.ai param name, value is string input
-  const [adminParamOverrides, setAdminParamOverrides] = useState<Record<string, string>>({});
-  // Reset param overrides whenever the model selection changes
-  useEffect(() => { setAdminParamOverrides({}); }, [adminModelOverride]);
+  // AI background selection (managed by AiBgPicker component)
+  const [aiSelectedInfo, setAiSelectedInfo] = useState<AiBgSelection | null>(null);
 
   // Video generation state
   const [videoState, setVideoState] = useState<VideoState>({ status: "idle" });
 
-  // Sync localAiMemeImages when prop changes
-  useEffect(() => {
-    setLocalAiMemeImages(aiMemeImages ?? null);
-  }, [aiMemeImages]);
-
   const { toast } = useToast();
-
-  useEffect(() => {
-    return () => {
-      if (generationTimerRef.current) {
-        clearInterval(generationTimerRef.current);
-        generationTimerRef.current = null;
-      }
-      if (abortControllerRef.current) {
-        abortControllerRef.current.abort();
-        abortControllerRef.current = null;
-      }
-    };
-  }, []);
 
   // Load most recent completed video on open
   useEffect(() => {
@@ -795,315 +715,7 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
       .catch(() => {});
   }, [factId]);
 
-  // The AI image slots for the current gender variant — newest-first, up to the admin-configured limit shown in gallery.
-  // Each slot tracks path + original array index so the API imageIndex param remains correct
-  // even for legacy data with empty-string placeholders at some positions.
-  const aiImageSlots = useMemo<Array<{ path: string; origIdx: number }>>(() => {
-    if (!localAiMemeImages) return [];
-    const arr = localAiMemeImages[aiGender] ?? [];
-    const slots: Array<{ path: string; origIdx: number }> = [];
-    for (let i = 0; i < arr.length && slots.length < aiGalleryDisplayLimit; i++) {
-      if (arr[i]) slots.push({ path: arr[i], origIdx: i });
-    }
-    return slots;
-  }, [localAiMemeImages, aiGender]);
 
-  // Whether any AI images exist for the current gender (used for conditional UI)
-  const aiImagePaths = useMemo(() => aiImageSlots.map(s => s.path), [aiImageSlots]);
-
-  // Auto-select first valid AI image when entering AI mode, images load, or selection is cleared
-  useEffect(() => {
-    if (imageMode === "ai" && aiImageSlots.length > 0 && selectedAiIndex === null) {
-      setSelectedAiIndex(aiImageSlots[0].origIdx);
-    }
-  }, [imageMode, aiImageSlots, selectedAiIndex]);
-
-  // Thumbnail URL for generic AI images — serve via the meme endpoint with raw=true
-  // Cache-buster is appended after regen so the browser skips the cached old image
-  const getAiThumbnailUrl = useCallback((index: number) => {
-    if (!localAiMemeImages) return "";
-    const storagePath = localAiMemeImages[aiGender]?.[index] ?? "";
-    if (!storagePath) return "";
-    const cb = aiCacheBuster ? `&cb=${aiCacheBuster}` : "";
-    return `/api/memes/ai/${factId}/image?gender=${aiGender}&imageIndex=${index}&raw=true${cb}`;
-  }, [localAiMemeImages, aiGender, factId, aiCacheBuster]);
-
-  // Thumbnail URL for reference-generated images — served via user-specific authenticated endpoint
-  const getRefAiThumbnailUrl = useCallback((storagePath: string) => {
-    const cb = aiCacheBuster ? `&cb=${aiCacheBuster}` : "";
-    return `/api/memes/ai-user/image?storagePath=${encodeURIComponent(storagePath)}${cb}`;
-  }, [aiCacheBuster]);
-
-  const handleCancelAiGeneration = () => {
-    setCancelDisabled(true);
-    if (abortControllerRef.current) {
-      abortControllerRef.current.abort();
-      abortControllerRef.current = null;
-    }
-    generationIdRef.current += 1;
-    if (generationTimerRef.current) {
-      clearInterval(generationTimerRef.current);
-      generationTimerRef.current = null;
-    }
-    setAiGenState("idle");
-    setGenerationProgress(0);
-    setGenerationElapsed(0);
-    setTimeout(() => setCancelDisabled(false), 200);
-  };
-
-  const handleRefreshScenePrompt = useCallback(async () => {
-    if (!factId || isRefreshingScenePrompt) return;
-    setIsRefreshingScenePrompt(true);
-    try {
-      const res = await fetch(`/api/memes/ai/${factId}/regenerate-scene-prompts`, {
-        method: "POST",
-        credentials: "include",
-      });
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({})) as { error?: string };
-        console.error("[MemeBuilder] Scene prompt refresh failed:", data.error ?? res.status);
-        return;
-      }
-      setScenePromptVersion(v => v + 1);
-    } catch (err) {
-      console.error("[MemeBuilder] Scene prompt refresh error:", err);
-    } finally {
-      setIsRefreshingScenePrompt(false);
-    }
-  }, [factId, isRefreshingScenePrompt]);
-
-  const handleGenerateNewAi = async () => {
-    if (isGeneratingAi) return;
-    // In reference sub-mode, require a photo to be selected
-    if (aiSubMode === "reference" && !selectedRefUpload) {
-      setAiGenerateError("Select a reference photo below before generating.");
-      return;
-    }
-
-    // Abort any in-flight request and capture a unique generation ID
-    if (abortControllerRef.current) {
-      abortControllerRef.current.abort();
-    }
-    const controller = new AbortController();
-    abortControllerRef.current = controller;
-    const myGenerationId = generationIdRef.current + 1;
-    generationIdRef.current = myGenerationId;
-
-    setAiGenState("generating");
-    setAiGenerateError(null);
-    setGenerationProgress(0);
-    setGenerationElapsed(0);
-
-    const startTime = Date.now();
-    if (generationTimerRef.current) clearInterval(generationTimerRef.current);
-    generationTimerRef.current = setInterval(() => {
-      const elapsed = (Date.now() - startTime) / 1000;
-      setGenerationElapsed(Math.floor(elapsed));
-      // Phase 1: 0→80% over 30s (linear)
-      // Phase 2: 80→99% decaying (never reaches 100 on its own)
-      let progress: number;
-      if (elapsed <= 30) {
-        progress = (elapsed / 30) * 80;
-      } else {
-        const extra = elapsed - 30;
-        progress = 80 + 19 * (1 - Math.exp(-extra / 60));
-      }
-      setGenerationProgress(Math.min(progress, 99));
-    }, 250);
-
-    try {
-      const POLL_INTERVAL = 4_000;
-      const MAX_POLLS = 22; // ~88s
-
-      // Capture baseline BEFORE posting so polling can detect the change.
-      // Generation is synchronous on the server — if we fetch baseline after
-      // the POST returns the new images are already stored and the baseline
-      // equals the new state, causing the poll to time out.
-      let baselineRefCount = 0;
-      let baselineSlotPath: string | null = null;
-      let baselineUpdatedAt: string | null = null;
-      if (aiSubMode === "reference") {
-        const baseline = await fetchRefGenImages().catch(() => null) ?? [];
-        baselineRefCount = baseline.filter(img => img.gender === aiGender).length;
-      } else {
-        try {
-          const initRes = await fetch(`/api/facts/${factId}`, { credentials: "include", cache: "no-store" });
-          if (initRes.ok) {
-            const init = await initRes.json() as { updatedAt?: string; aiMemeImages?: AiMemeImages | null };
-            baselineSlotPath = init.aiMemeImages?.[aiGender]?.[0] ?? null;
-            baselineUpdatedAt = init.updatedAt ?? null;
-          }
-        } catch { /* proceed without baseline */ }
-      }
-
-      const res = await fetch(`/api/memes/ai/${factId}/generate`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        signal: controller.signal,
-        body: JSON.stringify({
-          ...(aiSubMode === "reference" && selectedRefUpload
-            ? { referenceImagePath: selectedRefUpload.objectPath, targetGender: aiGender, styleId: selectedStyleId }
-            : { scope: factIsGendered ? "gendered" : "abstract", styleId: selectedStyleId }),
-          ...(isAdmin && adminModelOverride.trim() ? { modelOverride: adminModelOverride.trim() } : {}),
-          ...(isAdmin && Object.keys(adminParamOverrides).some(k => adminParamOverrides[k] !== "") ? { paramsOverride: Object.fromEntries(Object.entries(adminParamOverrides).filter(([, v]) => v !== "")) } : {}),
-        }),
-      });
-
-      // Stale response guard: if cancelled, bail out silently
-      if (generationIdRef.current !== myGenerationId) return;
-
-      if (!res.ok) {
-        const body = await res.json() as { error?: string; limitExceeded?: boolean };
-        throw new Error(body.error ?? "Generation failed");
-      }
-
-      if (aiSubMode === "reference") {
-        // Reference mode: poll user_ai_images until a new image appears for this fact+gender.
-        // baselineRefCount was captured before the POST above.
-        let polls = 0;
-
-        const pollRef = async () => {
-          // Stale generation guard
-          if (generationIdRef.current !== myGenerationId) return;
-
-          polls++;
-          try {
-            const images = await fetchRefGenImages();
-            if (images) {
-              const newCount = images.filter(img => img.gender === aiGender).length;
-              if (newCount > baselineRefCount) {
-                if (generationIdRef.current !== myGenerationId) return;
-                if (generationTimerRef.current) { clearInterval(generationTimerRef.current); generationTimerRef.current = null; }
-                abortControllerRef.current = null;
-                setRefGenImages(images);
-                // Auto-select the first (newest) image for this gender
-                const newest = images.find(img => img.gender === aiGender);
-                if (newest) setSelectedRefGenPath(newest.storagePath);
-                setAiCacheBuster(Date.now());
-                setGenerationProgress(100);
-                setTimeout(() => {
-                  if (generationIdRef.current !== myGenerationId) return;
-                  setAiGenState("completed");
-                  setGenerationProgress(0);
-                  setGenerationElapsed(0);
-                }, 400);
-                fetch(`/api/memes/ai/${factId}/prompts`, { credentials: "include" })
-                  .then(r => r.ok ? r.json() : null)
-                  .then((d: { prompts: Record<string, string> | null; falCallPreview?: { model: string; input: Record<string, unknown> } | null } | null) => {
-                    if (d?.prompts) setAiScenePromptsDebug(prev => ({ ...prev!, prompts: d.prompts!, falCallPreview: d.falCallPreview ?? prev?.falCallPreview ?? null }));
-                  })
-                  .catch(() => {});
-                return;
-              }
-            }
-          } catch { /* keep polling */ }
-
-          if (polls >= MAX_POLLS) {
-            if (generationIdRef.current !== myGenerationId) return;
-            if (generationTimerRef.current) { clearInterval(generationTimerRef.current); generationTimerRef.current = null; }
-            setGenerationProgress(0);
-            setGenerationElapsed(0);
-            setAiGenerateError("Generation is taking longer than expected. Click 'Generate New' again or refresh the page.");
-            setAiGenState("error");
-            return;
-          }
-          setTimeout(() => void pollRef(), POLL_INTERVAL);
-        };
-        setTimeout(() => void pollRef(), POLL_INTERVAL);
-      } else {
-        // Generic mode: poll aiMemeImages on the fact.
-        // baselineSlotPath / baselineUpdatedAt were captured before the POST above.
-        let polls = 0;
-        const poll = async () => {
-          // Stale generation guard
-          if (generationIdRef.current !== myGenerationId) return;
-
-          polls++;
-          try {
-            const factRes = await fetch(`/api/facts/${factId}`, { credentials: "include", cache: "no-store" });
-            if (factRes.ok) {
-              const data = await factRes.json() as { updatedAt?: string; aiMemeImages?: AiMemeImages | null };
-              const newSlotPath = data.aiMemeImages?.[aiGender]?.[0] ?? null;
-              const newUpdatedAt = data.updatedAt ?? null;
-              let done: boolean;
-              if (baselineSlotPath === null) {
-                done = newSlotPath !== null;
-              } else {
-                done = newUpdatedAt !== baselineUpdatedAt && newSlotPath !== null;
-              }
-              if (done) {
-                if (generationIdRef.current !== myGenerationId) return;
-                if (generationTimerRef.current) { clearInterval(generationTimerRef.current); generationTimerRef.current = null; }
-                abortControllerRef.current = null;
-                setGenerationProgress(100);
-                setLocalAiMemeImages(data.aiMemeImages ?? null);
-                setSelectedAiIndex(0);
-                setAiCacheBuster(Date.now());
-                setTimeout(() => {
-                  if (generationIdRef.current !== myGenerationId) return;
-                  setAiGenState("completed");
-                  setGenerationProgress(0);
-                  setGenerationElapsed(0);
-                }, 400);
-                fetch(`/api/memes/ai/${factId}/prompts`, { credentials: "include" })
-                  .then(r => r.ok ? r.json() : null)
-                  .then((d: { prompts: Record<string, string> | null; falCallPreview?: { model: string; input: Record<string, unknown> } | null } | null) => {
-                    if (d?.prompts) setAiScenePromptsDebug(prev => ({ ...prev!, prompts: d.prompts!, falCallPreview: d.falCallPreview ?? prev?.falCallPreview ?? null }));
-                  })
-                  .catch(() => {});
-                return;
-              }
-            }
-          } catch { /* keep polling */ }
-
-          if (polls >= MAX_POLLS) {
-            if (generationIdRef.current !== myGenerationId) return;
-            if (generationTimerRef.current) { clearInterval(generationTimerRef.current); generationTimerRef.current = null; }
-            setGenerationProgress(0);
-            setGenerationElapsed(0);
-            setAiGenerateError("Generation is taking longer than expected. Click 'Generate New' again or refresh the page.");
-            setAiGenState("error");
-            return;
-          }
-          setTimeout(() => void poll(), POLL_INTERVAL);
-        };
-        setTimeout(() => void poll(), POLL_INTERVAL);
-      }
-    } catch (e) {
-      // Ignore AbortError — it means the user cancelled, treat as normal
-      if (e instanceof Error && e.name === "AbortError") return;
-      if (generationIdRef.current !== myGenerationId) return;
-      if (generationTimerRef.current) {
-        clearInterval(generationTimerRef.current);
-        generationTimerRef.current = null;
-      }
-      setGenerationProgress(0);
-      setGenerationElapsed(0);
-      setAiGenerateError(e instanceof Error ? e.message : "Generation failed");
-      setAiGenState("error");
-    }
-  };
-
-
-
-  const handleDeleteAiImage = async (origIdx: number) => {
-    const res = await fetch(
-      `/api/memes/ai/${factId}/image?gender=${aiGender}&imageIndex=${origIdx}`,
-      { method: "DELETE", credentials: "include" }
-    );
-    if (!res.ok) {
-      const body = await res.json() as { error?: string };
-      throw new Error(body.error ?? "Delete failed");
-    }
-    setLocalAiMemeImages(prev => {
-      if (!prev) return prev;
-      const arr = [...(prev[aiGender] ?? [])];
-      arr[origIdx] = "";
-      return { ...prev, [aiGender]: arr };
-    });
-    if (selectedAiIndex === origIdx) setSelectedAiIndex(null);
-  };
 
   const queryClient = useQueryClient();
   const { data: tplData } = useListMemeTemplates();
@@ -1172,12 +784,8 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
   // ── Load stock/AI/upload image into canvas ───────────────────────
   const aiSelectedUrl = useMemo(() => {
     if (imageMode !== "ai") return null;
-    if (aiSubMode === "reference") {
-      return selectedRefGenPath ? getRefAiThumbnailUrl(selectedRefGenPath) : null;
-    }
-    if (selectedAiIndex === null) return null;
-    return getAiThumbnailUrl(selectedAiIndex);
-  }, [imageMode, aiSubMode, selectedAiIndex, selectedRefGenPath, getAiThumbnailUrl, getRefAiThumbnailUrl]);
+    return aiSelectedInfo?.url ?? null;
+  }, [imageMode, aiSelectedInfo]);
 
   useEffect(() => {
     const photoUrl =
@@ -1464,114 +1072,6 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
     return () => { cancelled = true; };
   }, [isPremium, imageMode]);
 
-  // Fetch reference photo uploads when in AI reference sub-mode
-  useEffect(() => {
-    if (!isPremium || imageMode !== "ai" || aiSubMode !== "reference") return;
-    let cancelled = false;
-    setIsLoadingRefUploads(true);
-    fetch("/api/users/me/uploads", { credentials: "include" })
-      .then(r => r.json())
-      .then((data: { uploads?: UploadEntry[] }) => {
-        if (cancelled) return;
-        setRefUploads(data.uploads ?? []);
-      })
-      .catch(() => {})
-      .finally(() => { if (!cancelled) setIsLoadingRefUploads(false); });
-    return () => { cancelled = true; };
-  }, [isPremium, imageMode, aiSubMode]);
-
-  // Fetch reference-generated AI images for this fact when in AI reference sub-mode
-  const fetchRefGenImages = useCallback(async (signal?: AbortSignal) => {
-    const res = await fetch(`/api/users/me/ai-images?factId=${factId}&imageType=reference`, {
-      credentials: "include",
-      signal,
-    });
-    if (!res.ok) return null;
-    const data = await res.json() as { images: Array<{ id: number; storagePath: string; gender: string; createdAt: string }> };
-    return data.images;
-  }, [factId]);
-
-  useEffect(() => {
-    if (!isPremium || imageMode !== "ai" || aiSubMode !== "reference") return;
-    const controller = new AbortController();
-    setIsLoadingRefGenImages(true);
-    fetchRefGenImages(controller.signal)
-      .then(images => { if (images) setRefGenImages(images); })
-      .catch(() => {})
-      .finally(() => setIsLoadingRefGenImages(false));
-    return () => { controller.abort(); };
-  }, [isPremium, imageMode, aiSubMode, fetchRefGenImages]);
-
-  // Fetch scene prompts + live admin config values for debug panel (admin only).
-  // Re-runs when styleId, subMode, genState, model override, or param overrides change.
-  useEffect(() => {
-    if (!isAdmin || imageMode !== "ai" || !factId) return;
-    // Don't re-fetch mid-generation — wait for completion/error
-    if (aiGenState === "generating") return;
-    let cancelled = false;
-    const isRef = aiSubMode === "reference";
-    const params = new URLSearchParams({ styleId: selectedStyleId, gender: aiGender });
-    if (isRef) params.set("isRef", "1");
-    if (adminModelOverride.trim()) params.set("modelOverride", adminModelOverride.trim());
-    const nonEmptyOverrides = Object.fromEntries(Object.entries(adminParamOverrides).filter(([, v]) => v !== ""));
-    if (Object.keys(nonEmptyOverrides).length > 0) params.set("paramsOverride", JSON.stringify(nonEmptyOverrides));
-    fetch(`/api/memes/ai/${factId}/prompts?${params}`, { credentials: "include" })
-      .then(r => r.ok ? r.json() : null)
-      .then((data: { prompts: Record<string, string> | null; styleSuffix: string | null; referenceFramePrompt: string | null; falCallPreview: { model: string; input: Record<string, unknown> } | null } | null) => {
-        if (cancelled || !data) return;
-        setAiScenePromptsDebug({
-          prompts: data.prompts,
-          styleSuffix: data.styleSuffix,
-          referenceFramePrompt: data.referenceFramePrompt,
-          falCallPreview: data.falCallPreview ?? null,
-        });
-      })
-      .catch(() => {});
-    return () => { cancelled = true; };
-  }, [isAdmin, imageMode, factId, selectedStyleId, aiSubMode, aiGender, aiGenState, scenePromptVersion, adminModelOverride, adminParamOverrides]);
-
-  // Upload a new reference photo (inline in AI reference sub-mode picker)
-  const handleRefPhotoUpload = useCallback(async (file: File) => {
-    if (!file.type.startsWith("image/")) return;
-    setIsUploadingRefPhoto(true);
-    try {
-      let uploadBlob: Blob = file;
-      try {
-        const processed = await preProcessImageFile(file);
-        uploadBlob = processed.blob;
-      } catch { /* use original */ }
-
-      const uploadRes = await fetch("/api/storage/upload-meme", {
-        method: "POST",
-        headers: { "Content-Type": "image/jpeg" },
-        body: uploadBlob,
-      });
-      if (!uploadRes.ok) {
-        const errBody = await uploadRes.json() as { error?: string };
-        throw new Error(errBody.error ?? "Upload failed");
-      }
-      const result = await uploadRes.json() as {
-        objectPath: string;
-        width?: number;
-        height?: number;
-        isLowRes?: boolean;
-      };
-      const newEntry: UploadEntry = {
-        objectPath: result.objectPath,
-        width: result.width ?? 0,
-        height: result.height ?? 0,
-        isLowRes: result.isLowRes ?? false,
-        fileSizeBytes: 0,
-        createdAt: new Date().toISOString(),
-      };
-      setRefUploads(prev => [newEntry, ...prev]);
-      setSelectedRefUpload(newEntry);
-    } catch (e) {
-      setAiGenerateError(e instanceof Error ? e.message : "Upload failed");
-    } finally {
-      setIsUploadingRefPhoto(false);
-    }
-  }, []);
 
   // Select an existing uploaded image as the meme background (no re-upload)
   const selectExistingUpload = useCallback((entry: UploadEntry) => {
@@ -1628,23 +1128,13 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
       setErrorMsg(isUploadingFile ? "Please wait for the upload to finish." : "Please select an image to upload.");
       return;
     }
-    if (imageMode === "ai" && aiSubMode === "reference" && !selectedRefGenPath) {
-      setErrorMsg("Please select a reference-generated AI background first.");
-      return;
-    }
-    if (imageMode === "ai" && aiSubMode === "generic" && selectedAiIndex === null) {
+    if (imageMode === "ai" && !aiSelectedInfo?.storagePath) {
       setErrorMsg("Please select an AI background image first.");
       return;
     }
 
     // Get the AI image object storage path
-    const aiStoragePath = imageMode === "ai"
-      ? aiSubMode === "reference"
-        ? selectedRefGenPath
-        : (selectedAiIndex !== null && localAiMemeImages
-          ? (localAiMemeImages[aiGender]?.[selectedAiIndex] ?? null)
-          : null)
-      : null;
+    const aiStoragePath = imageMode === "ai" ? (aiSelectedInfo?.storagePath ?? null) : null;
     if (imageMode === "ai" && !aiStoragePath) {
       setErrorMsg("Selected AI image is not available. Please try Generate New.");
       return;
@@ -1843,13 +1333,12 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
                   <Loader2 className="w-8 h-8 text-primary animate-spin" />
                 </div>
               )}
-              {!isBgLoading && imageMode === "ai" && aiSubMode === "reference" && !selectedRefGenPath && (
+              {!isBgLoading && imageMode === "ai" && !aiSelectedInfo && (
                 <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/80 border-2 border-border gap-3 px-6 text-center">
                   <ImageIcon className="w-8 h-8 text-muted-foreground opacity-50" />
-                  <p className="text-sm font-semibold text-foreground">No background generated yet</p>
+                  <p className="text-sm font-semibold text-foreground">No AI background selected</p>
                   <p className="text-xs text-muted-foreground leading-relaxed">
-                    Pick a reference photo below (or upload your own), then click{" "}
-                    <span className="text-violet-400 font-semibold">Generate New</span> to create a personalised AI background from it.
+                    Select or generate an AI background below.
                   </p>
                 </div>
               )}
@@ -2090,411 +1579,16 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
 
                 {/* AI Generated mode */}
                 {imageMode === "ai" && (
-                  <>
-                    {!isPremium ? (
-                      <div className="border-2 border-dashed border-amber-400/30 bg-amber-400/5 p-5 text-center space-y-2">
-                        <Lock className="w-6 h-6 text-amber-400 mx-auto" />
-                        <p className="text-sm font-bold text-amber-400 uppercase tracking-wider">
-                          Legendary Feature
-                        </p>
-                        <p className="text-xs text-muted-foreground">
-                          AI-generated backgrounds require a Legendary membership.
-                        </p>
-                        <Link href="/pricing">
-                          <Button size="sm" className="mt-2">Go Legendary</Button>
-                        </Link>
-                      </div>
-                    ) : (
-                      <div className="space-y-3">
-                        {/* Sub-mode toggle: Generic / With Reference Photo */}
-                        <div className="flex gap-1 p-0.5 bg-muted/40 rounded-sm">
-                          <button
-                            onClick={() => { setAiSubMode("generic"); setAiGenerateError(null); }}
-                            className={`flex-1 text-[10px] font-display uppercase tracking-widest py-1 rounded-sm transition-colors ${
-                              aiSubMode === "generic"
-                                ? "bg-violet-500 text-white"
-                                : "text-muted-foreground hover:text-foreground"
-                            }`}
-                          >
-                            Generic
-                          </button>
-                          <button
-                            onClick={() => { setAiSubMode("reference"); setAiGenerateError(null); }}
-                            className={`flex-1 text-[10px] font-display uppercase tracking-widest py-1 rounded-sm transition-colors ${
-                              aiSubMode === "reference"
-                                ? "bg-violet-500 text-white"
-                                : "text-muted-foreground hover:text-foreground"
-                            }`}
-                          >
-                            Reference Photo
-                          </button>
-                        </div>
-
-                        {/* Generic sub-mode: show shared fact-level AI backgrounds */}
-                        {aiSubMode === "generic" && (
-                          aiImagePaths.length > 0 ? (
-                            <>
-                              <p className="text-[10px] font-display uppercase tracking-widest text-muted-foreground">
-                                AI backgrounds for this fact
-                                <span className="ml-1 text-primary">({aiGender})</span>
-                                {(localAiMemeImages?.[aiGender]?.filter(Boolean).length ?? 0) > aiGalleryDisplayLimit && (
-                                  <span className="ml-1 text-muted-foreground/60">
-                                    — showing {aiGalleryDisplayLimit} of {localAiMemeImages![aiGender]!.filter(Boolean).length}
-                                  </span>
-                                )}
-                              </p>
-                              <div className="grid gap-1.5" style={{ gridTemplateColumns: `repeat(auto-fill, minmax(${thumbPx}px, 1fr))` }}>
-                                {aiImageSlots.map((slot, displayIdx) => (
-                                  <ImageCard
-                                    key={slot.path}
-                                    src={getAiThumbnailUrl(slot.origIdx)}
-                                    alt={`AI option ${displayIdx + 1}`}
-                                    aspectRatio="aspect-video"
-                                    selected={selectedAiIndex === slot.origIdx}
-                                    onSelect={() => setSelectedAiIndex(slot.origIdx)}
-                                    compact
-                                    actions={["delete", "openFull"]}
-                                    onDelete={() => handleDeleteAiImage(slot.origIdx)}
-                                    deleteConfirmMessage="Remove this AI background? This cannot be undone."
-                                  />
-                                ))}
-                              </div>
-                            </>
-                          ) : (
-                            <div className="flex flex-col items-center gap-2 py-4 text-center">
-                              <Sparkles className="w-8 h-8 text-violet-400/50" />
-                              <p className="text-xs text-muted-foreground">No AI backgrounds yet for this fact.</p>
-                            </div>
-                          )
-                        )}
-
-                        {/* Reference sub-mode: show only images generated by this user via reference photo */}
-                        {aiSubMode === "reference" && (
-                          isLoadingRefGenImages ? (
-                            <div className="flex items-center justify-center py-4">
-                              <Loader2 className="w-4 h-4 text-muted-foreground animate-spin" />
-                            </div>
-                          ) : (() => {
-                            const myRefImages = refGenImages.filter(img => img.gender === aiGender);
-                            return myRefImages.length > 0 ? (
-                              <>
-                                <p className="text-[10px] font-display uppercase tracking-widest text-muted-foreground">
-                                  Your reference-generated backgrounds
-                                  <span className="ml-1 text-primary">({aiGender})</span>
-                                </p>
-                                <div className="grid gap-1.5" style={{ gridTemplateColumns: `repeat(auto-fill, minmax(${thumbPx}px, 1fr))` }}>
-                                  {myRefImages.map((img, displayIdx) => (
-                                    <ImageCard
-                                      key={img.storagePath}
-                                      src={getRefAiThumbnailUrl(img.storagePath)}
-                                      alt={`Reference AI option ${displayIdx + 1}`}
-                                      aspectRatio="aspect-video"
-                                      isAuthProtected
-                                      selected={selectedRefGenPath === img.storagePath}
-                                      onSelect={() => setSelectedRefGenPath(img.storagePath)}
-                                      compact
-                                      actions={["openFull"]}
-                                    />
-                                  ))}
-                                </div>
-                              </>
-                            ) : (
-                              <div className="flex flex-col items-center gap-2 py-4 text-center">
-                                <Sparkles className="w-8 h-8 text-violet-400/50" />
-                                <p className="text-xs text-muted-foreground">
-                                  No reference-generated images yet. Pick a photo below and click Generate New.
-                                </p>
-                              </div>
-                            );
-                          })()
-                        )}
-
-                        {/* Reference photo picker — shown in reference sub-mode */}
-                        {aiSubMode === "reference" && (
-                          <div className="space-y-2">
-                            <p className="text-[10px] font-display uppercase tracking-widest text-muted-foreground">
-                              Pick a reference photo
-                            </p>
-                            {/* Hidden file input for Upload New tile */}
-                            <input
-                              ref={refFileInputRef}
-                              type="file"
-                              accept="image/*"
-                              className="hidden"
-                              onChange={e => {
-                                const f = e.target.files?.[0];
-                                if (f) void handleRefPhotoUpload(f);
-                                e.target.value = "";
-                              }}
-                            />
-                            {isLoadingRefUploads ? (
-                              <div className="flex items-center justify-center py-4">
-                                <Loader2 className="w-4 h-4 text-muted-foreground animate-spin" />
-                              </div>
-                            ) : (
-                              <div className="grid gap-1.5 max-h-40 overflow-y-auto pr-0.5" style={{ gridTemplateColumns: `repeat(auto-fill, minmax(${thumbPx}px, 1fr))` }}>
-                                {/* Upload New tile */}
-                                <button
-                                  onClick={() => refFileInputRef.current?.click()}
-                                  disabled={isUploadingRefPhoto}
-                                  className="relative aspect-video border-2 border-dashed border-border hover:border-violet-400 transition-colors flex flex-col items-center justify-center gap-0.5 text-muted-foreground hover:text-violet-400 disabled:opacity-50"
-                                  title="Upload a new photo"
-                                >
-                                  {isUploadingRefPhoto
-                                    ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                                    : <Upload className="w-3.5 h-3.5" />
-                                  }
-                                  <span className="text-[8px] font-display uppercase tracking-wider leading-tight">
-                                    {isUploadingRefPhoto ? "Uploading…" : "Upload New"}
-                                  </span>
-                                </button>
-                                {refUploads.map(entry => {
-                                  const isSelected = selectedRefUpload?.objectPath === entry.objectPath;
-                                  return (
-                                    <ImageCard
-                                      key={entry.objectPath}
-                                      src={`/api/storage${entry.objectPath}`}
-                                      alt={`${entry.width}×${entry.height}px`}
-                                      aspectRatio="aspect-video"
-                                      isAuthProtected
-                                      selected={isSelected}
-                                      onSelect={() => setSelectedRefUpload(isSelected ? null : entry)}
-                                      compact
-                                      actions={["openFull"]}
-                                    />
-                                  );
-                                })}
-                                {refUploads.length === 0 && !isUploadingRefPhoto && (
-                                  <p className="col-span-2 text-[10px] text-muted-foreground/60 py-2">
-                                    No uploads yet — click Upload New above.
-                                  </p>
-                                )}
-                              </div>
-                            )}
-                            {selectedRefUpload && (
-                              <p className="text-[10px] text-violet-400">
-                                Reference selected · 1 image will be generated ({aiGender})
-                              </p>
-                            )}
-                          </div>
-                        )}
-
-                        {/* Style selector */}
-                        <div className="space-y-1">
-                          <p className="text-[10px] font-display uppercase tracking-widest text-muted-foreground">Style</p>
-                          <select
-                            value={selectedStyleId}
-                            onChange={e => setSelectedStyleId(e.target.value)}
-                            className="w-full bg-secondary border border-border text-foreground text-xs rounded-sm px-2 py-1.5 focus:outline-none focus:border-primary transition-colors"
-                          >
-                            {IMAGE_STYLES.map(style => (
-                              <option key={style.id} value={style.id}>{style.label}</option>
-                            ))}
-                          </select>
-                        </div>
-
-                        {/* Generate New button */}
-                        <div className="flex items-center gap-2">
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => void handleGenerateNewAi()}
-                            disabled={isGeneratingAi || (aiSubMode === "reference" && !selectedRefUpload)}
-                            className="gap-2 border-violet-500/50 text-violet-400 hover:border-violet-400 disabled:opacity-50"
-                          >
-                            {isGeneratingAi ? (
-                              <><Loader2 className="w-3.5 h-3.5 animate-spin" />Generating…</>
-                            ) : (
-                              <><Sparkles className="w-3.5 h-3.5" />Generate New</>
-                            )}
-                          </Button>
-                          {isGeneratingAi && (
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              onClick={handleCancelAiGeneration}
-                              disabled={cancelDisabled}
-                              className="gap-1.5 text-muted-foreground hover:text-foreground disabled:opacity-50"
-                            >
-                              <X className="w-3.5 h-3.5" />Cancel
-                            </Button>
-                          )}
-                          {isAdmin && !isGeneratingAi && (
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              onClick={() => void handleRefreshScenePrompt()}
-                              disabled={isRefreshingScenePrompt}
-                              title="Regenerate stored scene prompts (admin only)"
-                              className="gap-1.5 text-muted-foreground hover:text-foreground disabled:opacity-50"
-                            >
-                              <RefreshCw className={`w-3.5 h-3.5 ${isRefreshingScenePrompt ? "animate-spin" : ""}`} />
-                              {isRefreshingScenePrompt ? "Refreshing…" : "Refresh Scene"}
-                            </Button>
-                          )}
-                          {!isGeneratingAi && (
-                            <span className="text-[10px] text-muted-foreground">
-                              {aiSubMode === "reference"
-                                ? "1 image from your photo"
-                                : factIsGendered ? "3 images (gendered)" : "1 image (abstract)"}
-                            </span>
-                          )}
-                        </div>
-
-                        {/* Debug: full prompt preview (admin only) */}
-                        {isAdmin && (() => {
-                          const styleDef = IMAGE_STYLES.find(s => s.id === selectedStyleId);
-                          // Use live DB-resolved values from the API; fall back to hardcoded only when fetch hasn't completed yet
-                          const suffix = aiScenePromptsDebug?.styleSuffix
-                            ?? (aiSubMode === "reference"
-                              ? (styleDef?.promptSuffixReference ?? "")
-                              : (styleDef?.promptSuffix ?? ""));
-                          const genderKey = aiGender as string;
-                          const sceneBase = aiScenePromptsDebug?.prompts?.[genderKey] ?? null;
-                          const referenceFrame = aiScenePromptsDebug?.referenceFramePrompt
-                            ?? "Generate an image using the provided reference photo. The person's face, facial structure, skin tone, eye shape, hair, and all distinguishing features must be preserved with photorealistic accuracy and remain visually identical to the reference — this is the highest priority. Do not alter, stylize, or idealize the person's facial features in any way. The person should be placed into the scene as described. The scene and environment should be stylized as described, but the person's face and likeness must remain untouched by any stylization. No text, words, or letters anywhere in the image.";
-                          const includeReferenceFrame = aiSubMode === "reference";
-                          // Mirror backend exactly:
-                          //   prompt = suffix ? basePrompt.trim() + " " + suffix : basePrompt
-                          //   editPrompt = includeRef ? referenceFramePrompt + " " + prompt : prompt
-                          const scenePart = sceneBase ?? "(scene prompt will be generated)";
-                          const promptPart = suffix ? `${scenePart.trim()} ${suffix}` : scenePart;
-                          const finalPrompt = includeReferenceFrame ? `${referenceFrame} ${promptPart}` : promptPart;
-                          return (
-                            <div className="mt-1 space-y-1">
-                              <button
-                                type="button"
-                                onClick={() => setShowPromptDebug(v => !v)}
-                                className="text-[10px] text-muted-foreground underline underline-offset-2 hover:text-foreground transition-colors"
-                              >
-                                {showPromptDebug ? "Hide prompt" : "Show prompt"}
-                              </button>
-                              {showPromptDebug && (
-                                <div className="rounded border border-border bg-muted/30 p-2 space-y-2 text-[10px]">
-                                  {includeReferenceFrame && (
-                                    <div>
-                                      <span className="text-muted-foreground font-semibold uppercase tracking-wide">Reference frame (prepended)</span>
-                                      <p className="mt-0.5 text-foreground/80 font-mono leading-relaxed">{referenceFrame.trim()}</p>
-                                    </div>
-                                  )}
-                                  <div>
-                                    <span className="text-muted-foreground font-semibold uppercase tracking-wide">Scene prompt ({genderKey})</span>
-                                    {sceneBase
-                                      ? <p className="mt-0.5 text-foreground/80 font-mono leading-relaxed">{sceneBase}</p>
-                                      : <p className="mt-0.5 text-muted-foreground italic">Not yet generated — GPT will write this on first run</p>
-                                    }
-                                  </div>
-                                  {suffix && (
-                                    <div>
-                                      <span className="text-muted-foreground font-semibold uppercase tracking-wide">Style suffix ({styleDef?.label}) — live from DB</span>
-                                      <p className="mt-0.5 text-foreground/80 font-mono leading-relaxed">{suffix}</p>
-                                    </div>
-                                  )}
-                                  <div className="border-t border-border pt-2">
-                                    <span className="text-violet-400 font-semibold uppercase tracking-wide">Full prompt sent to AI</span>
-                                    <p className="mt-0.5 text-foreground font-mono leading-relaxed break-words">{finalPrompt}</p>
-                                  </div>
-                                  {aiScenePromptsDebug?.falCallPreview && (
-                                    <div className="border-t border-border pt-2 space-y-1">
-                                      <div className="flex items-center justify-between gap-2">
-                                        <span className="text-amber-400 font-semibold uppercase tracking-wide">fal.ai API call</span>
-                                        <span className="text-[9px] font-mono text-muted-foreground/60 bg-muted/40 px-1.5 py-0.5 rounded">fal.subscribe("{aiScenePromptsDebug.falCallPreview.model}", …)</span>
-                                      </div>
-                                      <pre className="mt-0.5 text-foreground/90 font-mono text-[9px] leading-relaxed break-words whitespace-pre-wrap bg-black/20 rounded p-2 overflow-x-auto">
-                                        {JSON.stringify({ model: aiScenePromptsDebug.falCallPreview.model, input: aiScenePromptsDebug.falCallPreview.input }, null, 2)}
-                                      </pre>
-                                    </div>
-                                  )}
-                                </div>
-                              )}
-                            </div>
-                          );
-                        })()}
-
-                        {aiGenerateError && (
-                          <p className="text-[10px] text-destructive">{aiGenerateError}</p>
-                        )}
-                        {isGeneratingAi && (
-                          <div className="space-y-1.5">
-                            <div className="w-full h-1.5 rounded-full bg-violet-500/15 overflow-hidden">
-                              <div
-                                className={`h-full rounded-full transition-all duration-300 ${
-                                  generationProgress >= 100
-                                    ? "bg-green-500"
-                                    : "bg-violet-500"
-                                }`}
-                                style={{ width: `${generationProgress}%` }}
-                              />
-                            </div>
-                            <p className="text-[10px] text-muted-foreground/60">
-                              Generating… {generationElapsed}s — thumbnails will refresh automatically.
-                            </p>
-                          </div>
-                        )}
-
-                        {/* Admin-only: model override dropdown */}
-                        {isAdmin && (
-                          <div className="space-y-1.5 mt-1 p-2 rounded border border-violet-500/20 bg-violet-500/5">
-                            <div className="flex items-center gap-2">
-                              <span className="text-[10px] text-violet-400/80 font-semibold uppercase tracking-wide shrink-0">⚡ Admin</span>
-                              <span className="text-[10px] text-muted-foreground/60 shrink-0">Model:</span>
-                              <select
-                                value={adminModelOverride}
-                                onChange={e => setAdminModelOverride(e.target.value)}
-                                className="flex-1 min-w-0 text-[10px] font-mono px-1.5 py-0.5 rounded border border-border bg-muted/30 text-foreground focus:outline-none focus:border-violet-500/60"
-                              >
-                                <option value="">Use default (from config)</option>
-                                {ADMIN_FAL_MODELS.map(group => (
-                                  <optgroup key={group.group} label={group.group}>
-                                    {group.models.map(m => (
-                                      <option key={m.value} value={m.value}>{m.label}</option>
-                                    ))}
-                                  </optgroup>
-                                ))}
-                              </select>
-                            </div>
-                            {(() => {
-                              const effectiveModel = adminModelOverride.trim() || (aiSubMode === "reference" ? aiModelReference : aiModelStandard);
-                              const params = ADMIN_MODEL_PARAMS[effectiveModel] ?? [];
-                              if (params.length === 0) return null;
-                              return (
-                                <div className="grid grid-cols-2 gap-x-3 gap-y-1 pt-1 border-t border-violet-500/10">
-                                  {params.map(p => (
-                                    <div key={p.key} className="flex items-center gap-1.5">
-                                      <span className="text-[9px] text-muted-foreground/60 shrink-0 w-24 leading-tight">{p.label}</span>
-                                      {p.type === "select" && p.options ? (
-                                        <select
-                                          value={adminParamOverrides[p.key] ?? ""}
-                                          onChange={e => setAdminParamOverrides(prev => ({ ...prev, [p.key]: e.target.value }))}
-                                          className="flex-1 min-w-0 text-[9px] font-mono px-1 py-0.5 rounded border border-border bg-muted/30 text-foreground focus:outline-none focus:border-violet-500/60"
-                                        >
-                                          {p.options.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-                                        </select>
-                                      ) : (
-                                        <input
-                                          type="number"
-                                          value={adminParamOverrides[p.key] ?? ""}
-                                          onChange={e => setAdminParamOverrides(prev => ({ ...prev, [p.key]: e.target.value }))}
-                                          placeholder={p.placeholder}
-                                          className="flex-1 min-w-0 text-[9px] font-mono px-1 py-0.5 rounded border border-border bg-muted/30 text-foreground focus:outline-none focus:border-violet-500/60 placeholder:text-muted-foreground/30"
-                                        />
-                                      )}
-                                    </div>
-                                  ))}
-                                </div>
-                              );
-                            })()}
-                          </div>
-                        )}
-
-                        <p className="text-[10px] text-muted-foreground/50">
-                          AI-generated scene • {adminModelOverride.trim() && isAdmin
-                            ? adminModelOverride.trim()
-                            : (aiSubMode === "reference" ? aiModelReference : aiModelStandard)}
-                        </p>
-                      </div>
-                    )}
-                  </>
+                  <AiBgPicker
+                    factId={factId}
+                    initialImages={aiMemeImages ?? null}
+                    aiGender={aiGender}
+                    isGendered={factIsGendered}
+                    isPremium={isPremium}
+                    isAdmin={isAdmin}
+                    onSelect={setAiSelectedInfo}
+                    showStylePicker
+                  />
                 )}
 
                 {/* Upload mode */}
