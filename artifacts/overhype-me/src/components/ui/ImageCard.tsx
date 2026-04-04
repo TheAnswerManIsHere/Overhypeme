@@ -11,7 +11,6 @@ import {
   Trash2,
   Link2,
   Maximize2,
-  X,
   CheckCircle2,
   ChevronDown,
   Loader2,
@@ -75,114 +74,6 @@ function useClickOutside(ref: React.RefObject<HTMLElement | null>, handler: () =
       document.removeEventListener("touchstart", listener);
     };
   }, [ref, handler]);
-}
-
-// ─── Lightbox ──────────────────────────────────────────────────────────────
-
-interface LightboxProps {
-  src: string;
-  alt?: string;
-  actions: ActionType[];
-  onDelete?: () => Promise<void> | void;
-  deleteConfirmMessage?: string;
-  permalink?: string;
-  onClose: () => void;
-}
-
-function Lightbox({ src, alt, actions, onDelete, deleteConfirmMessage, permalink, onClose }: LightboxProps) {
-  const { toast } = useToast();
-  const [confirming, setConfirming] = useState(false);
-  const [deleting, setDeleting] = useState(false);
-  const [copied, setCopied] = useState(false);
-
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
-    document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
-  }, [onClose]);
-
-  async function handleDelete() {
-    if (!onDelete) return;
-    setDeleting(true);
-    try { await onDelete(); onClose(); }
-    catch { toast({ variant: "destructive", title: "Delete failed" }); }
-    finally { setDeleting(false); setConfirming(false); }
-  }
-
-  async function handleCopy() {
-    if (!permalink) return;
-    await navigator.clipboard.writeText(permalink);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  }
-
-  return createPortal(
-    <div
-      role="dialog"
-      aria-modal="true"
-      aria-label="Image viewer"
-      className="fixed inset-0 z-[9999] flex flex-col bg-black/90 backdrop-blur-sm"
-      onClick={onClose}
-    >
-      <div
-        className="flex items-center justify-between px-4 py-3 shrink-0"
-        onClick={e => e.stopPropagation()}
-      >
-        <div className="flex items-center gap-2">
-          {actions.includes("copyLink") && permalink && (
-            <button
-              onClick={handleCopy}
-              className="flex items-center gap-1.5 text-white/80 hover:text-white text-sm font-medium px-3 py-1.5 rounded-sm bg-white/10 hover:bg-white/20 transition-colors"
-              aria-label="Copy link"
-            >
-              {copied
-                ? <><CheckCircle2 className="w-4 h-4 text-green-400" /> Copied</>
-                : <><Link2 className="w-4 h-4" /> Copy Link</>}
-            </button>
-          )}
-          {actions.includes("delete") && onDelete && !confirming && (
-            <button
-              onClick={() => setConfirming(true)}
-              className="flex items-center gap-1.5 text-white/80 hover:text-red-400 text-sm font-medium px-3 py-1.5 rounded-sm bg-white/10 hover:bg-white/20 transition-colors"
-              aria-label="Delete image"
-            >
-              <Trash2 className="w-4 h-4" /> Delete
-            </button>
-          )}
-          {confirming && (
-            <div className="flex items-center gap-2" onClick={e => e.stopPropagation()}>
-              <span className="text-white/70 text-sm">{deleteConfirmMessage ?? "Delete this image?"}</span>
-              <button onClick={() => setConfirming(false)} className="text-white/60 hover:text-white px-2 py-1 text-sm rounded-sm bg-white/10">Cancel</button>
-              <button
-                onClick={handleDelete}
-                disabled={deleting}
-                className="flex items-center gap-1 px-3 py-1 text-sm rounded-sm bg-red-600 text-white hover:bg-red-500 transition-colors disabled:opacity-50"
-              >
-                {deleting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : null} Confirm
-              </button>
-            </div>
-          )}
-        </div>
-        <button
-          onClick={onClose}
-          className="p-2 text-white/60 hover:text-white transition-colors rounded-full hover:bg-white/10"
-          aria-label="Close"
-        >
-          <X className="w-5 h-5" />
-        </button>
-      </div>
-
-      <div className="flex-1 flex items-center justify-center p-4 min-h-0" onClick={onClose}>
-        <img
-          src={src}
-          alt={alt ?? "Full resolution image"}
-          className="max-w-full max-h-full object-contain rounded-sm"
-          onClick={e => e.stopPropagation()}
-        />
-      </div>
-    </div>,
-    document.body
-  );
 }
 
 // ─── Action Menu ───────────────────────────────────────────────────────────
@@ -486,7 +377,6 @@ export function ImageCard({
   const { toast } = useToast();
 
   const [menuOpen, setMenuOpen] = useState(false);
-  const [lightboxOpen, setLightboxOpen] = useState(false);
   // confirmingDelete drives the card overlay: compact mini overlay always; non-compact only on mobile
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -496,9 +386,9 @@ export function ImageCard({
   const kebabRef = useRef<HTMLButtonElement>(null);
 
   const openLightbox = useCallback(() => {
-    if (href) { window.location.href = href; return; }
-    setLightboxOpen(true);
-  }, [href]);
+    const target = displaySrc ?? src;
+    window.open(target, "_blank", "noopener,noreferrer");
+  }, [displaySrc, src]);
 
   const handleCopy = useCallback(async () => {
     if (!permalink) return;
@@ -570,7 +460,7 @@ export function ImageCard({
         className={cn(
           "relative overflow-hidden",
           aspectRatio,
-          onSelect ? "cursor-pointer" : "cursor-zoom-in",
+          "cursor-pointer",
         )}
         onClick={handleImageClick}
       >
@@ -753,18 +643,6 @@ export function ImageCard({
         />
       )}
 
-      {/* Lightbox */}
-      {lightboxOpen && displaySrc && (
-        <Lightbox
-          src={displaySrc}
-          alt={alt}
-          actions={visibleActions}
-          onDelete={onDelete}
-          deleteConfirmMessage={deleteConfirmMessage}
-          permalink={permalink}
-          onClose={() => setLightboxOpen(false)}
-        />
-      )}
     </div>
   );
 }
