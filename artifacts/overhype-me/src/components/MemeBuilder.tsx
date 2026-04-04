@@ -575,7 +575,11 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
   const generationIdRef = useRef<number>(0);
   const [cancelDisabled, setCancelDisabled] = useState(false);
   const [aiGenerateError, setAiGenerateError] = useState<string | null>(null);
-  const [aiScenePromptsDebug, setAiScenePromptsDebug] = useState<Record<string, string> | null>(null);
+  const [aiScenePromptsDebug, setAiScenePromptsDebug] = useState<{
+    prompts: Record<string, string> | null;
+    styleSuffix: string | null;
+    referenceFramePrompt: string | null;
+  } | null>(null);
   const [showPromptDebug, setShowPromptDebug] = useState(false);
   const [generationProgress, setGenerationProgress] = useState(0);
   const [generationElapsed, setGenerationElapsed] = useState(0);
@@ -1267,19 +1271,29 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
     return () => { controller.abort(); };
   }, [isPremium, imageMode, aiSubMode, fetchRefGenImages]);
 
-  // Fetch scene prompts for debug panel when in AI mode (admin only)
+  // Fetch scene prompts + live admin config values for debug panel (admin only).
+  // Re-runs when styleId, subMode, or genState changes so values are always fresh.
   useEffect(() => {
     if (!isAdmin || imageMode !== "ai" || !factId) return;
+    // Don't re-fetch mid-generation — wait for completion/error
+    if (aiGenState === "generating") return;
     let cancelled = false;
-    fetch(`/api/memes/ai/${factId}/prompts`, { credentials: "include" })
+    const isRef = aiSubMode === "reference";
+    const params = new URLSearchParams({ styleId: selectedStyleId });
+    if (isRef) params.set("isRef", "1");
+    fetch(`/api/memes/ai/${factId}/prompts?${params}`, { credentials: "include" })
       .then(r => r.ok ? r.json() : null)
-      .then((data: { prompts: Record<string, string> | null } | null) => {
-        if (cancelled) return;
-        setAiScenePromptsDebug(data?.prompts ?? null);
+      .then((data: { prompts: Record<string, string> | null; styleSuffix: string | null; referenceFramePrompt: string | null } | null) => {
+        if (cancelled || !data) return;
+        setAiScenePromptsDebug({
+          prompts: data.prompts,
+          styleSuffix: data.styleSuffix,
+          referenceFramePrompt: data.referenceFramePrompt,
+        });
       })
       .catch(() => {});
     return () => { cancelled = true; };
-  }, [isAdmin, imageMode, factId]);
+  }, [isAdmin, imageMode, factId, selectedStyleId, aiSubMode, aiGenState]);
 
   // Upload a new reference photo (inline in AI reference sub-mode picker)
   const handleRefPhotoUpload = useCallback(async (file: File) => {
@@ -1981,12 +1995,15 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
                         {/* Debug: full prompt preview (admin only) */}
                         {isAdmin && (() => {
                           const styleDef = IMAGE_STYLES.find(s => s.id === selectedStyleId);
-                          const suffix = aiSubMode === "reference"
-                            ? (styleDef?.promptSuffixReference ?? "")
-                            : (styleDef?.promptSuffix ?? "");
+                          // Use live DB-resolved values from the API; fall back to hardcoded only when fetch hasn't completed yet
+                          const suffix = aiScenePromptsDebug?.styleSuffix
+                            ?? (aiSubMode === "reference"
+                              ? (styleDef?.promptSuffixReference ?? "")
+                              : (styleDef?.promptSuffix ?? ""));
                           const genderKey = aiGender as string;
-                          const sceneBase = aiScenePromptsDebug?.[genderKey] ?? null;
-                          const referenceFrame = "Generate an image using the provided reference photo. The person's face, facial structure, skin tone, eye shape, hair, and all distinguishing features must be preserved with photorealistic accuracy and remain visually identical to the reference — this is the highest priority. Do not alter, stylize, or idealize the person's facial features in any way. The person should be placed into the scene as described. The scene and environment should be stylized as described, but the person's face and likeness must remain untouched by any stylization. No text, words, or letters anywhere in the image.";
+                          const sceneBase = aiScenePromptsDebug?.prompts?.[genderKey] ?? null;
+                          const referenceFrame = aiScenePromptsDebug?.referenceFramePrompt
+                            ?? "Generate an image using the provided reference photo. The person's face, facial structure, skin tone, eye shape, hair, and all distinguishing features must be preserved with photorealistic accuracy and remain visually identical to the reference — this is the highest priority. Do not alter, stylize, or idealize the person's facial features in any way. The person should be placed into the scene as described. The scene and environment should be stylized as described, but the person's face and likeness must remain untouched by any stylization. No text, words, or letters anywhere in the image.";
                           const includeReferenceFrame = aiSubMode === "reference";
                           const finalPrompt = `${includeReferenceFrame ? referenceFrame + " " : ""}${sceneBase ?? "(scene prompt will be generated)"}${suffix ? ` ${suffix}` : ""}`;
                           return (
@@ -2014,7 +2031,7 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
                                       </div>
                                       {suffix && (
                                         <div>
-                                          <span className="text-muted-foreground font-semibold uppercase tracking-wide">Style suffix ({styleDef?.label})</span>
+                                          <span className="text-muted-foreground font-semibold uppercase tracking-wide">Style suffix ({styleDef?.label}) — live from DB</span>
                                           <p className="mt-0.5 text-foreground/80 font-mono leading-relaxed">{suffix}</p>
                                         </div>
                                       )}
