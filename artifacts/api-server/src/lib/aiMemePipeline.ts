@@ -45,12 +45,28 @@ export interface AiMemeImages {
 
 function getFalApiKey(): string {
   const key = process.env.FAL_AI_API_KEY;
-  if (!key) throw new Error("FAL_AI_API_KEY environment variable is not set — image generation unavailable");
+  if (!key) {
+    console.error("[aiMemePipeline] FAL_AI_API_KEY environment variable is not set — image generation unavailable");
+    throw new Error("FAL_AI_API_KEY environment variable is not set — image generation unavailable");
+  }
   return key;
 }
 
 function configureFal(): void {
   fal.config({ credentials: getFalApiKey() });
+}
+
+/**
+ * Detects the image content type and extension from HTTP response headers.
+ * Falls back to image/jpeg / .jpg if Content-Type is absent or unrecognised.
+ */
+function detectImageFormat(response: Response): { contentType: string; ext: string } {
+  const ct = response.headers.get("content-type") ?? "";
+  if (ct.includes("image/png"))  return { contentType: "image/png",  ext: "png"  };
+  if (ct.includes("image/webp")) return { contentType: "image/webp", ext: "webp" };
+  if (ct.includes("image/gif"))  return { contentType: "image/gif",  ext: "gif"  };
+  // Default: treat as JPEG (fal.ai often returns JPEG for photorealistic models)
+  return { contentType: "image/jpeg", ext: "jpg" };
 }
 
 // ─── LLM scene prompt generation ─────────────────────────────────────────────
@@ -139,13 +155,14 @@ async function generateAndStoreImage(
 
   const imgRes = await fetch(imageUrl);
   if (!imgRes.ok) throw new Error(`Failed to download image from fal.ai: ${imgRes.status}`);
+  const { contentType, ext } = detectImageFormat(imgRes);
   const imageBuffer = Buffer.from(await imgRes.arrayBuffer());
 
-  const subPath = `ai_meme_${factId}_${gender}_${uniqueKey}.png`;
+  const subPath = `ai_meme_${factId}_${gender}_${uniqueKey}.${ext}`;
   const storedPath = await objectStorage.uploadObjectBuffer({
     subPath,
     buffer: imageBuffer,
-    contentType: "image/png",
+    contentType,
   });
 
   // Set public-read ACL so thumbnails can be served via /api/storage/objects/*
@@ -241,13 +258,14 @@ async function generateAndStoreImageFromReference(
 
   const imgRes = await fetch(imageUrl);
   if (!imgRes.ok) throw new Error(`Failed to download reference image from fal.ai: ${imgRes.status}`);
+  const { contentType, ext } = detectImageFormat(imgRes);
   const imageBuffer = Buffer.from(await imgRes.arrayBuffer());
 
-  const subPath = `ai_meme_${factId}_${gender}_ref_${uniqueKey}.png`;
+  const subPath = `ai_meme_${factId}_${gender}_ref_${uniqueKey}.${ext}`;
   const storedPath = await objectStorage.uploadObjectBuffer({
     subPath,
     buffer: imageBuffer,
-    contentType: "image/png",
+    contentType,
   });
 
   try {
