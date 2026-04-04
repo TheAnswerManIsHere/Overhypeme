@@ -18,6 +18,7 @@ import { Button } from "@/components/ui/Button";
 import { ImageCard } from "@/components/ui/ImageCard";
 import { VIDEO_STYLES, type VideoStyleDef } from "@/config/videoStyles";
 import type { AiMemeImages } from "@/components/MemeBuilder";
+import { AiBgPicker, type AiBgSelection } from "@/components/AiBgPicker";
 import { useAuth } from "@workspace/replit-auth-web";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
@@ -194,8 +195,10 @@ function VideoTab({ factId, factText, pexelsImages, aiMemeImages, initialImageDa
   const [prefetchedPhotos, setPrefetchedPhotos] = useState<PexelsPhotoEntry[]>([]);
   const [selectedStockIndex, setSelectedStockIndex] = useState<number | null>(null);
 
-  // AI images
-  const [selectedAiIndex, setSelectedAiIndex] = useState<number | null>(null);
+  // AI background selection (via AiBgPicker)
+  const aiGender = (aiMemeImages?.neutral?.filter(Boolean).length ?? 0) > 0 ? "neutral"
+    : (aiMemeImages?.male?.filter(Boolean).length ?? 0) > 0 ? "male" : "female";
+  const factIsGendered = (aiMemeImages?.male?.filter(Boolean).length ?? 0) > 0 || (aiMemeImages?.female?.filter(Boolean).length ?? 0) > 0;
 
   // Upload
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -368,12 +371,6 @@ function VideoTab({ factId, factText, pexelsImages, aiMemeImages, initialImageDa
     }
   }, []);
 
-  // ── AI image URL helper ────────────────────────────────────────────────────
-  const getAiImageUrl = useCallback((index: number, gender: "male" | "female" | "neutral") => {
-    return `/api/memes/ai/${factId}/image?gender=${gender}&imageIndex=${index}&raw=true`;
-  }, [factId]);
-
-  const aiImages = aiMemeImages?.neutral ?? aiMemeImages?.male ?? aiMemeImages?.female ?? [];
 
   const stepIndex = step - 1;
   const translateX = `translateX(-${stepIndex * 100}%)`;
@@ -462,50 +459,19 @@ function VideoTab({ factId, factText, pexelsImages, aiMemeImages, initialImageDa
 
           {/* AI Generated mode */}
           {imageMode === "ai" && (
-            <div className="space-y-3">
-              {!isPremium ? (
-                <div className="border-2 border-dashed border-amber-400/30 bg-amber-400/5 p-5 text-center space-y-2">
-                  <Lock className="w-6 h-6 text-amber-400 mx-auto" />
-                  <p className="text-sm font-bold text-amber-400 uppercase tracking-wider">Legendary Feature</p>
-                  <p className="text-xs text-muted-foreground">AI-generated backgrounds require a Legendary membership.</p>
-                </div>
-              ) : aiImages.filter(Boolean).length > 0 ? (
-                <>
-                  <p className="text-[10px] font-display uppercase tracking-widest text-muted-foreground">
-                    AI-generated backgrounds for this fact
-                  </p>
-                  <div className="grid gap-1.5" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(120px, 1fr))" }}>
-                    {aiImages.filter(Boolean).map((_, i) => {
-                      const gender = (aiMemeImages?.neutral?.length ?? 0) > 0 ? "neutral"
-                        : (aiMemeImages?.male?.length ?? 0) > 0 ? "male" : "female";
-                      const url = getAiImageUrl(i, gender as "male" | "female" | "neutral");
-                      return (
-                        <ImageCard
-                          key={i}
-                          src={url}
-                          alt={`AI option ${i + 1}`}
-                          aspectRatio="aspect-video"
-                          selected={selectedAiIndex === i}
-                          onSelect={() => {
-                            setSelectedAiIndex(i);
-                            setSelectedBgUrl(url);
-                            setSelectedBgLabel("AI background");
-                          }}
-                          compact
-                          actions={["openFull"]}
-                        />
-                      );
-                    })}
-                  </div>
-                </>
-              ) : (
-                <div className="flex flex-col items-center gap-2 py-8 text-center">
-                  <Sparkles className="w-8 h-8 text-violet-400/50" />
-                  <p className="text-xs text-muted-foreground">No AI backgrounds yet for this fact.</p>
-                  <p className="text-[10px] text-muted-foreground/60">Go to the Image tab to generate some first.</p>
-                </div>
-              )}
-            </div>
+            <AiBgPicker
+              factId={factId}
+              initialImages={aiMemeImages ?? null}
+              aiGender={aiGender}
+              isGendered={factIsGendered}
+              isPremium={isPremium}
+              isAdmin={isAdmin}
+              onSelect={(sel: AiBgSelection | null) => {
+                setSelectedBgUrl(sel?.url ?? null);
+                setSelectedBgLabel(sel ? (sel.label ?? "AI background") : null);
+              }}
+              showStylePicker
+            />
           )}
 
           {/* Upload mode */}
