@@ -400,6 +400,30 @@ interface MemeBuilderProps {
   onMakeVideo?: (sourceImageDataUrl: string) => void;
 }
 
+const ADMIN_FAL_MODELS: { group: string; models: { value: string; label: string }[] }[] = [
+  {
+    group: "Standard (text-to-image)",
+    models: [
+      { value: "fal-ai/flux-pro/v1.1",       label: "FLUX Pro v1.1 (default standard)" },
+      { value: "fal-ai/flux-pro/v1.1-ultra",  label: "FLUX Pro v1.1 Ultra" },
+      { value: "fal-ai/flux-pro",             label: "FLUX Pro" },
+      { value: "fal-ai/flux/dev",             label: "FLUX Dev" },
+      { value: "fal-ai/flux/schnell",         label: "FLUX Schnell (fast)" },
+      { value: "fal-ai/recraft-v3",           label: "Recraft V3" },
+      { value: "fal-ai/ideogram/v2",          label: "Ideogram V2" },
+      { value: "fal-ai/aura-flow",            label: "AuraFlow" },
+    ],
+  },
+  {
+    group: "Reference photo (face-preserving)",
+    models: [
+      { value: "fal-ai/flux-pulid",                label: "FLUX PuLID (default reference)" },
+      { value: "fal-ai/ip-adapter-face-id-plus",   label: "IP-Adapter FaceID Plus" },
+      { value: "fal-ai/flux-pro/v1.1",             label: "FLUX Pro v1.1 (no face ref)" },
+    ],
+  },
+];
+
 export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMemeImages, onClose, defaultPrivate, embedded, fullScreen, onMakeVideo }: MemeBuilderProps) {
   const { isAuthenticated, login, role, user } = useAuth();
   const isPremium = role === "premium" || role === "admin";
@@ -2324,27 +2348,24 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
                           </div>
                         )}
 
-                        {/* Admin-only: model override input */}
+                        {/* Admin-only: model override dropdown */}
                         {isAdmin && (
                           <div className="flex items-center gap-2 mt-1">
                             <span className="text-[10px] text-muted-foreground/70 shrink-0">Model override:</span>
-                            <input
-                              type="text"
+                            <select
                               value={adminModelOverride}
                               onChange={e => setAdminModelOverride(e.target.value)}
-                              placeholder={aiSubMode === "reference" ? aiModelReference : aiModelStandard}
-                              className="flex-1 min-w-0 text-[10px] font-mono px-1.5 py-0.5 rounded border border-border bg-muted/30 text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:border-violet-500/60"
-                            />
-                            {adminModelOverride.trim() && (
-                              <button
-                                type="button"
-                                onClick={() => setAdminModelOverride("")}
-                                className="text-[10px] text-muted-foreground hover:text-foreground shrink-0"
-                                title="Clear override (use default model)"
-                              >
-                                <X className="w-3 h-3" />
-                              </button>
-                            )}
+                              className="flex-1 min-w-0 text-[10px] font-mono px-1.5 py-0.5 rounded border border-border bg-muted/30 text-foreground focus:outline-none focus:border-violet-500/60"
+                            >
+                              <option value="">Use default (from config)</option>
+                              {ADMIN_FAL_MODELS.map(group => (
+                                <optgroup key={group.group} label={group.group}>
+                                  {group.models.map(m => (
+                                    <option key={m.value} value={m.value}>{m.label}</option>
+                                  ))}
+                                </optgroup>
+                              ))}
+                            </select>
                           </div>
                         )}
 
