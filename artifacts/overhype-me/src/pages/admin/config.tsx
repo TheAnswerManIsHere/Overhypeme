@@ -40,18 +40,18 @@ const FAL_IMAGE_SIZES: { value: string; label: string }[] = [
 ];
 
 const FAL_IMAGE_MODELS_STANDARD: { value: string; label: string }[] = [
-  { value: "fal-ai/flux-pro/v1.1",       label: "fal-ai/flux-pro/v1.1" },
-  { value: "fal-ai/flux-pro/v1.1-ultra", label: "fal-ai/flux-pro/v1.1-ultra" },
-  { value: "fal-ai/flux-pro",            label: "fal-ai/flux-pro" },
-  { value: "fal-ai/flux/dev",            label: "fal-ai/flux/dev" },
-  { value: "fal-ai/flux/schnell",        label: "fal-ai/flux/schnell" },
-  { value: "fal-ai/flux-2-pro",          label: "fal-ai/flux-2-pro" },
-  { value: "fal-ai/flux-2-max",          label: "fal-ai/flux-2-max" },
+  { value: "fal-ai/flux-pro/v1.1",       label: "FLUX Pro 1.1" },
+  { value: "fal-ai/flux-pro/v1.1-ultra", label: "FLUX Pro 1.1 Ultra" },
+  { value: "fal-ai/flux-pro",            label: "FLUX Pro" },
+  { value: "fal-ai/flux/dev",            label: "FLUX Dev" },
+  { value: "fal-ai/flux/schnell",        label: "FLUX Schnell (fast)" },
+  { value: "fal-ai/flux-2-pro",          label: "FLUX 2 Pro" },
+  { value: "fal-ai/flux-2-max",          label: "FLUX 2 Max" },
 ];
 
 const FAL_IMAGE_MODELS_REFERENCE: { value: string; label: string }[] = [
-  { value: "fal-ai/flux-pulid",              label: "fal-ai/flux-pulid" },
-  { value: "fal-ai/ip-adapter-face-id-plus", label: "fal-ai/ip-adapter-face-id-plus" },
+  { value: "fal-ai/flux-pulid",              label: "FLUX PuLID (face-preserving)" },
+  { value: "fal-ai/ip-adapter-face-id-plus", label: "IP-Adapter FaceID+" },
 ];
 
 const FAL_SAFETY_TOLERANCE: { value: string; label: string }[] = [
