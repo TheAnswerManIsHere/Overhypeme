@@ -219,9 +219,11 @@ export default function FactDetail() {
 
   // Meme builder open state is derived from URL (/facts/:id/meme)
   // so that mobile browsers reloading the tab re-open the builder automatically.
+  const [memeBuilderDefaultPrivate, setMemeBuilderDefaultPrivate] = useState(false);
   const showMemeBuilder = isMemeRoute;
   const openMemeBuilder = () => setLocation(`/facts/${factId}/meme`);
-  const closeMemeBuilder = () => setLocation(`/facts/${factId}`);
+  const openMemeBuilderPrivate = () => { setMemeBuilderDefaultPrivate(true); setLocation(`/facts/${factId}/meme`); };
+  const closeMemeBuilder = () => { setMemeBuilderDefaultPrivate(false); setLocation(`/facts/${factId}`); };
 
   const showVideoBuilder = isVideoRoute;
   const openVideoBuilder = () => setLocation(`/facts/${factId}/video`);
@@ -272,6 +274,7 @@ export default function FactDetail() {
           pexelsImages={pexelsImages}
           aiMemeImages={aiMemeImages}
           onClose={closeMemeBuilder}
+          defaultPrivate={memeBuilderDefaultPrivate}
         />
       )}
       {showVideoBuilder && (
@@ -454,7 +457,7 @@ export default function FactDetail() {
                 <>
                   <p className="text-muted-foreground mb-4">You haven't made any private memes for this fact yet.</p>
                   <button
-                    onClick={openMemeBuilder}
+                    onClick={openMemeBuilderPrivate}
                     className="inline-flex items-center gap-2 px-4 py-2 text-sm font-display font-bold uppercase tracking-wider bg-primary text-primary-foreground rounded-sm hover:opacity-90 transition-opacity"
                   >
                     Create your first private meme for this fact

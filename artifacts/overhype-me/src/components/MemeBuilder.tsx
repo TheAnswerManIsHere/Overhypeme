@@ -325,9 +325,11 @@ interface MemeBuilderProps {
   pexelsImages?: FactPexelsImages | null;
   aiMemeImages?: AiMemeImages | null;
   onClose: () => void;
+  /** When true, the Public/Private toggle is initialised to Private */
+  defaultPrivate?: boolean;
 }
 
-export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMemeImages, onClose }: MemeBuilderProps) {
+export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMemeImages, onClose, defaultPrivate }: MemeBuilderProps) {
   const { isAuthenticated, login, role, user } = useAuth();
   const isPremium = role === "premium" || role === "admin";
   const isAdmin = role === "admin";
@@ -447,7 +449,7 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
   const [bottomLines, setBottomLines] = useState(1);
 
   // Visibility (premium-only private memes)
-  const [isPublic, setIsPublic] = useState(true);
+  const [isPublic, setIsPublic] = useState(!defaultPrivate);
 
   // Measure wrapped line counts whenever text or font options change.
   // Uses a hidden canvas for pixel-accurate measurement (same logic as drawMeme).
