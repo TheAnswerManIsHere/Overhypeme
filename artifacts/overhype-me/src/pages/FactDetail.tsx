@@ -438,15 +438,6 @@ export default function FactDetail() {
                     onDelete={isMyMeme ? () => handleDeleteMeme(meme.permalinkSlug) : undefined}
                     deleteConfirmMessage="Remove this meme? It will no longer be visible to anyone."
                     permalink={memePermalink}
-                    footer={
-                      <div className="p-2 bg-card text-xs text-muted-foreground font-medium flex items-center justify-between">
-                        <span className="uppercase tracking-wide">{meme.templateId}</span>
-                        <div className="flex items-center gap-1.5">
-                          {!meme.isPublic && <Lock className="w-3 h-3" title="Private" />}
-                          <span>{format(new Date(meme.createdAt), 'MMM dd')}</span>
-                        </div>
-                      </div>
-                    }
                   />
                 );
               })}
