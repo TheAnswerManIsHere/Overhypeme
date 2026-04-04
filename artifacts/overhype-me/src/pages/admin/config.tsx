@@ -36,8 +36,19 @@ const FAL_IMAGE_SIZES: { value: string; label: string }[] = [
   { value: "landscape_16_9",label: "Landscape 16:9 (1024×576)" },
 ];
 
+const FAL_IMAGE_MODELS_STANDARD: { value: string; label: string }[] = [
+  { value: "fal-ai/flux-pro/v1.1", label: "FLUX Pro v1.1" },
+];
+
+const FAL_IMAGE_MODELS_REFERENCE: { value: string; label: string }[] = [
+  { value: "fal-ai/flux-pulid", label: "FLUX PuLID (Face-Preserving)" },
+  { value: "fal-ai/ip-adapter-face-id-plus", label: "IP-Adapter Face ID Plus" },
+];
+
 const SELECT_CONFIGS: Record<string, { value: string; label: string }[]> = {
   ai_image_size: FAL_IMAGE_SIZES,
+  ai_image_model_standard: FAL_IMAGE_MODELS_STANDARD,
+  ai_image_model_reference: FAL_IMAGE_MODELS_REFERENCE,
 };
 
 function SaveButton({
