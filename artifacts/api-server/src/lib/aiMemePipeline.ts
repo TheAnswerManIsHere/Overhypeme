@@ -255,7 +255,7 @@ async function generateAndStoreImageFromReference(
 
   // Upload reference photo to fal.ai transient storage so we have a URL to pass
   const referenceBlob = new Blob([referenceBuffer], { type: "image/jpeg" });
-  const faceImageUrl = await fal.storage.upload(referenceBlob, { lifecycle: { expiresIn: "1h" } });
+  const faceImageUrl = await fal.storage.upload(referenceBlob);
 
   // IMPORTANT: For PuLID and IP-Adapter models, face likeness comes from the image embedding,
   // NOT from text. Adding face-preservation instructions to the text prompt crowds out the scene
@@ -271,16 +271,6 @@ async function generateAndStoreImageFromReference(
   // Lower = more scene detail, higher = stronger face likeness.
   // Default 0.7; configurable via admin_config "ai_pulid_id_scale_pct".
   const idScale = await getConfigInt("ai_pulid_id_scale_pct", 70) / 100;
-
-  // PuLID is a portrait-biased model — without a strong negative prompt it will
-  // default to headshot composition regardless of the scene description.
-  const DEFAULT_REFERENCE_NEGATIVE_PROMPT =
-    "portrait, headshot, close-up face, passport photo, mugshot, studio portrait, selfie, " +
-    "face only, plain background, isolated subject, bust shot, neck up, shoulders only";
-  const negativePrompt = await getConfigString(
-    "ai_pulid_negative_prompt",
-    DEFAULT_REFERENCE_NEGATIVE_PROMPT,
-  );
 
   // Append an explicit wide-shot composition instruction to the scene prompt.
   // Scene prompts are authored without knowing whether they'll be used in reference
@@ -301,13 +291,13 @@ async function generateAndStoreImageFromReference(
 
   // PuLID-specific parameters
   if (model === "fal-ai/flux-pulid") {
-    input["id_scale"]        = idScale;
-    input["negative_prompt"] = negativePrompt;
+    input["id_scale"] = idScale;
     // Higher guidance_scale gives the text prompt more control over the composition.
     // PuLID's default (3.5) is too low — the face embedding dominates. 5.5 gives
     // the scene description meaningful influence without sacrificing face accuracy.
-    input["guidance_scale"]       = 5.5;
-    input["num_inference_steps"]  = 30;
+    input["guidance_scale"]      = 5.5;
+    input["num_inference_steps"] = 30;
+    // Note: FLUX-based models (including PuLID) do NOT support negative_prompt.
   }
 
   const result = await fal.subscribe(model, {
