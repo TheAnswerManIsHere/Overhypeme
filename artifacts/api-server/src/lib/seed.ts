@@ -330,6 +330,18 @@ Return ONLY valid JSON:
          false)
       ON CONFLICT (key) DO NOTHING`,
     },
+    {
+      label: "admin_config.debug_value column",
+      ddl: `ALTER TABLE admin_config ADD COLUMN IF NOT EXISTS debug_value text`,
+    },
+    {
+      label: "admin_config seed debug_mode_active",
+      ddl: `INSERT INTO admin_config (key, value, data_type, label, description, is_public)
+        VALUES ('debug_mode_active', 'false', 'boolean', 'Debug Mode Active',
+          'When true, all config values fall back to their Debug Value (if set) instead of the Standard Value. Toggle this in the Config panel to switch between production and debug settings.',
+          false)
+      ON CONFLICT (key) DO NOTHING`,
+    },
   ];
 
   for (const { label, ddl } of migrations) {

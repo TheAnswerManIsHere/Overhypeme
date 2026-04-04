@@ -5,6 +5,11 @@
  * TTL in-memory cache so pipelines and request handlers never hit the DB
  * on every call. Cache is busted immediately when a value is written.
  *
+ * Debug mode: when the `debug_mode_active` config key is "true", every
+ * getter prefers the row's `debugValue` over `value` (if `debugValue` is
+ * set). The `debug_mode_active` key itself is never redirected to avoid
+ * a chicken-and-egg loop.
+ *
  * Flow:
  *   - First call (or after a write/expiry): fetches all rows from DB → stores in module-level Map
  *   - Subsequent calls within 60 s: served from the Map (zero DB round-trips)
@@ -40,6 +45,31 @@ export function bustConfigCache(): void {
 }
 
 /**
+ * Returns true when the `debug_mode_active` config key is set to "true".
+ * Always reads the `value` column directly — never the debug value — to
+ * avoid a circular dependency.
+ */
+export async function isDebugModeActive(): Promise<boolean> {
+  try {
+    const { byKey } = await loadAll();
+    return byKey.get("debug_mode_active")?.value === "true";
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Resolve the effective value for a row, accounting for debug mode.
+ * The `debug_mode_active` key is always returned from `value` regardless
+ * of debug mode to prevent circular logic.
+ */
+function resolveValue(row: AdminConfig, debugActive: boolean): string {
+  if (row.key === "debug_mode_active") return row.value;
+  if (debugActive && row.debugValue != null && row.debugValue !== "") return row.debugValue;
+  return row.value;
+}
+
+/**
  * Get a config integer value.
  * Returns `defaultValue` if the key is missing, not an integer, or the DB is unreachable.
  * Zero DB hits when cache is warm.
@@ -49,7 +79,8 @@ export async function getConfigInt(key: string, defaultValue: number): Promise<n
     const { byKey } = await loadAll();
     const row = byKey.get(key);
     if (!row) return defaultValue;
-    const parsed = parseInt(row.value, 10);
+    const debugActive = byKey.get("debug_mode_active")?.value === "true";
+    const parsed = parseInt(resolveValue(row, debugActive), 10);
     return isNaN(parsed) ? defaultValue : parsed;
   } catch {
     return defaultValue;
@@ -66,7 +97,8 @@ export async function getConfigString(key: string, defaultValue: string): Promis
     const { byKey } = await loadAll();
     const row = byKey.get(key);
     if (!row) return defaultValue;
-    return row.value;
+    const debugActive = byKey.get("debug_mode_active")?.value === "true";
+    return resolveValue(row, debugActive);
   } catch {
     return defaultValue;
   }
@@ -81,15 +113,19 @@ export async function getAllConfig(): Promise<AdminConfig[]> {
 /**
  * Get only public config values (for the unauthenticated /api/config endpoint).
  * Also served from cache — no extra DB hit.
+ * Respects debug mode: public keys with a debugValue set will return
+ * the debug value when debug mode is active.
  */
 export async function getPublicConfig(): Promise<Record<string, number | string | boolean>> {
-  const { rows } = await loadAll();
+  const { rows, byKey } = await loadAll();
+  const debugActive = byKey.get("debug_mode_active")?.value === "true";
   const result: Record<string, number | string | boolean> = {};
   for (const row of rows) {
     if (!row.isPublic) continue;
-    if (row.dataType === "integer") result[row.key] = parseInt(row.value, 10);
-    else if (row.dataType === "boolean") result[row.key] = row.value === "true";
-    else result[row.key] = row.value;
+    const effective = resolveValue(row, debugActive);
+    if (row.dataType === "integer") result[row.key] = parseInt(effective, 10);
+    else if (row.dataType === "boolean") result[row.key] = effective === "true";
+    else result[row.key] = effective;
   }
   return result;
 }

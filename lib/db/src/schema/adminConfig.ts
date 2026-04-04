@@ -4,6 +4,8 @@ import { usersTable } from "./auth";
 export const adminConfigTable = pgTable("admin_config", {
   key: varchar("key", { length: 100 }).primaryKey(),
   value: text("value").notNull(),
+  /** Alternate value used when debug mode is active. Null means fall through to the standard value. */
+  debugValue: text("debug_value"),
   dataType: varchar("data_type", { length: 20 }).notNull().default("integer"),
   label: varchar("label", { length: 200 }).notNull(),
   description: text("description"),
