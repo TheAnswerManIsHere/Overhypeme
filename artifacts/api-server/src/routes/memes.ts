@@ -746,7 +746,8 @@ router.get("/memes/ai/:factId/prompts", requireAdmin, async (req: Request, res: 
     .limit(1);
   if (!fact) { res.status(404).json({ error: "Fact not found" }); return; }
 
-  // Resolve style suffix from admin config (no cache — always fresh for debug accuracy)
+  // Resolve style suffix from admin config — same getConfigString used by generation, cache is
+  // busted immediately on admin save, so this always reflects the current saved value.
   const rawStyleId = String(req.query["styleId"] ?? "");
   const isRef = req.query["isRef"] === "1";
   let styleSuffix: string | null = null;
