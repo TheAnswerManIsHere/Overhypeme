@@ -1589,6 +1589,7 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
                     isAdmin={isAdmin}
                     onSelect={setAiSelectedInfo}
                     showStylePicker
+                    thumbPx={thumbPx}
                   />
                 )}
 

@@ -126,6 +126,8 @@ export interface AiBgPickerProps {
   showStylePicker?: boolean;
   /** Initial selected style ID. Default: "none" */
   defaultStyleId?: string;
+  /** Thumbnail pixel size for the image grids — controlled by the parent's slider. Default: 158 */
+  thumbPx?: number;
 }
 
 // ─── Image pre-processor (same as MemeBuilder) ───────────────────────────────
@@ -175,6 +177,7 @@ export function AiBgPicker({
   onSelect,
   showStylePicker = false,
   defaultStyleId = "none",
+  thumbPx = 158,
 }: AiBgPickerProps) {
 
   // ── Config from server ──────────────────────────────────────────────────────
@@ -195,10 +198,6 @@ export function AiBgPicker({
       })
       .catch(() => {});
   }, []);
-
-  // ── Thumbnail zoom ──────────────────────────────────────────────────────────
-  const [thumbSize, setThumbSize] = useState(40);
-  const thumbPx = Math.round(70 + (thumbSize / 100) * (290 - 70));
 
   // ── AI image state ──────────────────────────────────────────────────────────
   const [localImages, setLocalImages] = useState<AiMemeImages | null>(initialImages ?? null);
@@ -645,21 +644,6 @@ export function AiBgPicker({
 
   return (
     <div className="space-y-3">
-      {/* Thumbnail zoom slider */}
-      <div className="flex items-center gap-2 py-1">
-        <svg xmlns="http://www.w3.org/2000/svg" className="w-3 h-3 text-muted-foreground shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 9h6v6H9z"/></svg>
-        <input
-          type="range"
-          min={0}
-          max={100}
-          value={thumbSize}
-          onChange={e => setThumbSize(Number(e.target.value))}
-          className="flex-1 h-1 accent-primary cursor-pointer"
-          aria-label="Thumbnail size"
-        />
-        <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4 text-muted-foreground shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/></svg>
-      </div>
-
       {/* Sub-mode toggle: Generic / Reference Photo */}
       <div className="flex gap-1 p-0.5 bg-muted/40 rounded-sm">
         <button
