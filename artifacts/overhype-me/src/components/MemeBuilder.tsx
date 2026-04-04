@@ -421,6 +421,9 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
     startX: number; startY: number;
     startOX: number; startOY: number;
   } | null>(null);
+  // User-controlled canvas preview height (null = use default)
+  const [resizeMaxH, setResizeMaxH] = useState<number | null>(null);
+  const resizeDragRef = useRef<{ startY: number; startH: number } | null>(null);
 
   // AI gallery display limit — fetched once from the admin-managed public config endpoint
   const [aiGalleryDisplayLimit, setAiGalleryDisplayLimit] = useState(50);
@@ -1704,7 +1707,7 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
                 className="border-2 border-border block select-none"
                 style={{
                   maxWidth: "100%",
-                  maxHeight: fullScreen ? "60vh" : "500px",
+                  maxHeight: resizeMaxH !== null ? `${resizeMaxH}px` : (fullScreen ? "60vh" : "500px"),
                   width: "auto",
                   height: "auto",
                   cursor: bgImage ? (dragState ? "grabbing" : "grab") : "default",
@@ -1732,6 +1735,51 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
                   </p>
                 </div>
               )}
+            </div>
+
+            {/* ── Resize handle ── */}
+            <div
+              className="flex items-center justify-center h-5 cursor-ns-resize select-none group"
+              title="Drag to resize preview"
+              onMouseDown={(e) => {
+                e.preventDefault();
+                const startH = canvasRef.current?.getBoundingClientRect().height ?? 400;
+                resizeDragRef.current = { startY: e.clientY, startH };
+                const onMove = (ev: MouseEvent) => {
+                  if (!resizeDragRef.current) return;
+                  const delta = ev.clientY - resizeDragRef.current.startY;
+                  setResizeMaxH(Math.max(80, Math.min(1200, resizeDragRef.current.startH + delta)));
+                };
+                const onUp = () => {
+                  resizeDragRef.current = null;
+                  window.removeEventListener("mousemove", onMove);
+                  window.removeEventListener("mouseup", onUp);
+                };
+                window.addEventListener("mousemove", onMove);
+                window.addEventListener("mouseup", onUp);
+              }}
+              onTouchStart={(e) => {
+                const t = e.touches[0];
+                const startH = canvasRef.current?.getBoundingClientRect().height ?? 400;
+                resizeDragRef.current = { startY: t.clientY, startH };
+                const onMove = (ev: TouchEvent) => {
+                  if (!resizeDragRef.current) return;
+                  const delta = ev.touches[0].clientY - resizeDragRef.current.startY;
+                  setResizeMaxH(Math.max(80, Math.min(1200, resizeDragRef.current.startH + delta)));
+                };
+                const onUp = () => {
+                  resizeDragRef.current = null;
+                  window.removeEventListener("touchmove", onMove);
+                  window.removeEventListener("touchend", onUp);
+                };
+                window.addEventListener("touchmove", onMove, { passive: false });
+                window.addEventListener("touchend", onUp);
+              }}
+            >
+              <div className="flex flex-col items-center gap-[3px]">
+                <div className="w-10 h-[2px] rounded-full bg-border group-hover:bg-primary/60 transition-colors" />
+                <div className="w-6 h-[2px] rounded-full bg-border group-hover:bg-primary/40 transition-colors" />
+              </div>
             </div>
           </div>
 
