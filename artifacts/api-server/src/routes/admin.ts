@@ -801,7 +801,13 @@ router.get("/admin/config", requireAdmin, async (_req: Request, res: Response) =
 
 router.patch("/admin/config/:key", requireAdmin, async (req: Request, res: Response) => {
   const { key } = req.params;
-  const body = req.body as { value?: unknown; debugValue?: unknown; clearDebugValue?: boolean };
+  const body = req.body as {
+    value?: unknown;
+    valueLabel?: unknown;
+    debugValue?: unknown;
+    debugValueLabel?: unknown;
+    clearDebugValue?: boolean;
+  };
 
   // At least one of value or debugValue (or clearDebugValue) must be provided
   const hasValue = body.value !== undefined && body.value !== null && String(body.value).trim() !== "";
@@ -825,7 +831,9 @@ router.patch("/admin/config/:key", requireAdmin, async (req: Request, res: Respo
   }
 
   let newValue: string | undefined;
+  let newValueLabel: string | null | undefined;
   let newDebugValue: string | null | undefined;
+  let newDebugValueLabel: string | null | undefined;
 
   if (hasValue) {
     const rawValue = String(body.value).trim();
@@ -845,6 +853,9 @@ router.patch("/admin/config/:key", requireAdmin, async (req: Request, res: Respo
       }
     }
     newValue = rawValue;
+    newValueLabel = body.valueLabel !== undefined && body.valueLabel !== null
+      ? String(body.valueLabel).trim() || null
+      : undefined;
   }
 
   if (hasDebugValue) {
@@ -867,15 +878,21 @@ router.patch("/admin/config/:key", requireAdmin, async (req: Request, res: Respo
       }
     }
     newDebugValue = rawDebug;
+    newDebugValueLabel = body.debugValueLabel !== undefined && body.debugValueLabel !== null
+      ? String(body.debugValueLabel).trim() || null
+      : undefined;
   } else if (clearDebug) {
     newDebugValue = null;
+    newDebugValueLabel = null;
   }
 
   const [updated] = await db
     .update(adminConfigTable)
     .set({
       ...(newValue !== undefined ? { value: newValue } : {}),
+      ...(newValueLabel !== undefined ? { valueLabel: newValueLabel } : {}),
       ...(newDebugValue !== undefined ? { debugValue: newDebugValue } : {}),
+      ...(newDebugValueLabel !== undefined ? { debugValueLabel: newDebugValueLabel } : {}),
       updatedAt: new Date(),
       updatedById: req.user?.id ?? null,
     })

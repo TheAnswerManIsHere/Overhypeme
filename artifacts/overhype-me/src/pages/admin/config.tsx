@@ -8,7 +8,9 @@ import { IMAGE_STYLES } from "@/config/imageStyles";
 interface ConfigRow {
   key: string;
   value: string;
+  valueLabel: string | null;
   debugValue: string | null;
+  debugValueLabel: string | null;
   dataType: string;
   label: string;
   description: string | null;
@@ -20,6 +22,7 @@ interface ConfigRow {
 
 interface FieldState {
   value: string;
+  label: string;
   saving: boolean;
   error: string | null;
   saved: boolean;
@@ -188,7 +191,7 @@ export default function AdminConfig() {
   // Standard value edit state
   const [stdEdits, setStdEdits] = useState<Record<string, FieldState>>({});
   // Debug value edit state (string | null — null means "no debug override")
-  const [dbgEdits, setDbgEdits] = useState<Record<string, { value: string; saving: boolean; error: string | null; saved: boolean }>>({});
+  const [dbgEdits, setDbgEdits] = useState<Record<string, FieldState>>({});
 
   // Debug mode global state
   const [debugActive, setDebugActive] = useState(false);
@@ -207,14 +210,18 @@ export default function AdminConfig() {
         setRows(fetched);
 
         const std: Record<string, FieldState> = {};
-        const dbg: Record<string, { value: string; saving: boolean; error: string | null; saved: boolean }> = {};
+        const dbg: Record<string, FieldState> = {};
         for (const row of fetched) {
           if (row.key === "debug_mode_active") {
             setDebugActive(row.value === "true");
             continue;
           }
-          std[row.key] = { value: row.value, saving: false, error: null, saved: false };
-          dbg[row.key] = { value: row.debugValue ?? "", saving: false, error: null, saved: false };
+          const selectOpts = SELECT_CONFIGS[row.key];
+          const stdLabel = row.valueLabel ?? (selectOpts?.find((o) => o.value === row.value)?.label ?? row.value);
+          const dbgVal = row.debugValue ?? "";
+          const dbgLabel = row.debugValueLabel ?? (selectOpts?.find((o) => o.value === dbgVal)?.label ?? dbgVal);
+          std[row.key] = { value: row.value, label: stdLabel, saving: false, error: null, saved: false };
+          dbg[row.key] = { value: dbgVal, label: dbgLabel, saving: false, error: null, saved: false };
         }
         setStdEdits(std);
         setDbgEdits(dbg);
@@ -250,18 +257,22 @@ export default function AdminConfig() {
 
     setStdEdits((p) => ({ ...p, [key]: { ...p[key]!, saving: true, error: null, saved: false } }));
     try {
+      const isSelect = !!SELECT_CONFIGS[key];
       const res = await fetch(`/api/admin/config/${key}`, {
         method: "PATCH",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ value: edit.value }),
+        body: JSON.stringify({
+          value: edit.value,
+          ...(isSelect ? { valueLabel: edit.label } : {}),
+        }),
       });
-      const data = (await res.json()) as { error?: string; value?: string; debugValue?: string | null };
+      const data = (await res.json()) as { error?: string; value?: string; valueLabel?: string | null; debugValue?: string | null };
       if (!res.ok) {
         setStdEdits((p) => ({ ...p, [key]: { ...p[key]!, saving: false, error: data.error ?? "Save failed" } }));
       } else {
         setStdEdits((p) => ({ ...p, [key]: { ...p[key]!, saving: false, saved: true } }));
-        setRows((p) => p.map((r) => r.key === key ? { ...r, value: data.value ?? edit.value, updatedAt: new Date().toISOString() } : r));
+        setRows((p) => p.map((r) => r.key === key ? { ...r, value: data.value ?? edit.value, valueLabel: data.valueLabel ?? edit.label, updatedAt: new Date().toISOString() } : r));
         setTimeout(() => setStdEdits((p) => ({ ...p, [key]: { ...p[key]!, saved: false } })), 2500);
       }
     } catch {
@@ -280,18 +291,22 @@ export default function AdminConfig() {
 
     setDbgEdits((p) => ({ ...p, [key]: { ...p[key]!, saving: true, error: null, saved: false } }));
     try {
+      const isSelect = !!SELECT_CONFIGS[key];
       const res = await fetch(`/api/admin/config/${key}`, {
         method: "PATCH",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ debugValue: edit.value || null }),
+        body: JSON.stringify({
+          debugValue: edit.value || null,
+          ...(isSelect ? { debugValueLabel: edit.label || null } : {}),
+        }),
       });
-      const data = (await res.json()) as { error?: string; debugValue?: string | null };
+      const data = (await res.json()) as { error?: string; debugValue?: string | null; debugValueLabel?: string | null };
       if (!res.ok) {
         setDbgEdits((p) => ({ ...p, [key]: { ...p[key]!, saving: false, error: data.error ?? "Save failed" } }));
       } else {
         setDbgEdits((p) => ({ ...p, [key]: { ...p[key]!, saving: false, saved: true } }));
-        setRows((p) => p.map((r) => r.key === key ? { ...r, debugValue: data.debugValue ?? null, updatedAt: new Date().toISOString() } : r));
+        setRows((p) => p.map((r) => r.key === key ? { ...r, debugValue: data.debugValue ?? null, debugValueLabel: data.debugValueLabel ?? null, updatedAt: new Date().toISOString() } : r));
         setTimeout(() => setDbgEdits((p) => ({ ...p, [key]: { ...p[key]!, saved: false } })), 2500);
       }
     } catch {
@@ -332,8 +347,10 @@ export default function AdminConfig() {
     const borderClass = isDbgActive ? "border-amber-500/60 ring-1 ring-amber-500/30" : "border-border";
 
     const onChange = (val: string) => {
-      if (kind === "std") setStdEdits((p) => ({ ...p, [configKey]: { ...p[configKey]!, value: val, error: null, saved: false } }));
-      else setDbgEdits((p) => ({ ...p, [configKey]: { ...p[configKey]!, value: val, error: null, saved: false } }));
+      const opts = SELECT_CONFIGS[configKey];
+      const selectedLabel = opts?.find((o) => o.value === val)?.label ?? val;
+      if (kind === "std") setStdEdits((p) => ({ ...p, [configKey]: { ...p[configKey]!, value: val, label: selectedLabel, error: null, saved: false } }));
+      else setDbgEdits((p) => ({ ...p, [configKey]: { ...p[configKey]!, value: val, label: selectedLabel, error: null, saved: false } }));
     };
     const onSave = () => kind === "std" ? void saveStd(configKey) : void saveDbg(configKey);
 
@@ -341,18 +358,24 @@ export default function AdminConfig() {
 
     if (selectOptions) {
       return (
-        <div className="flex items-center gap-3">
-          <select
-            value={state.value}
-            onChange={(e) => onChange(e.target.value)}
-            className={`flex-1 bg-background border rounded px-3 py-1.5 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-primary ${borderClass}`}
-          >
-            {selectOptions.map((opt) => (
-              <option key={opt.value} value={opt.value}>{opt.label}</option>
-            ))}
-          </select>
-          <SaveButton dirty={dirty} saving={state.saving} saved={state.saved} onClick={onSave} />
-          {state.error && <p className="text-destructive text-xs flex items-center gap-1"><AlertCircle className="w-3 h-3" />{state.error}</p>}
+        <div className="space-y-1.5">
+          <div className="flex items-center gap-3">
+            <select
+              value={state.value}
+              onChange={(e) => onChange(e.target.value)}
+              className={`flex-1 bg-background border rounded px-3 py-1.5 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-primary ${borderClass}`}
+            >
+              {selectOptions.map((opt) => (
+                <option key={opt.value} value={opt.value}>{opt.label}</option>
+              ))}
+            </select>
+            <SaveButton dirty={dirty} saving={state.saving} saved={state.saved} onClick={onSave} />
+            {state.error && <p className="text-destructive text-xs flex items-center gap-1"><AlertCircle className="w-3 h-3" />{state.error}</p>}
+          </div>
+          <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+            <span className="shrink-0">API value:</span>
+            <code className="bg-muted px-1.5 py-0.5 rounded text-xs font-mono text-foreground/80 select-all">{state.value}</code>
+          </div>
         </div>
       );
     }
@@ -476,22 +499,31 @@ export default function AdminConfig() {
             {dbgState && (() => {
               const dbgSelectOptions = SELECT_CONFIGS[row.key];
               const dbgBorderClass = debugActive ? "border-amber-500/40" : "border-border";
-              const onDbgChange = (val: string) => setDbgEdits((p) => ({ ...p, [row.key]: { ...p[row.key]!, value: val, error: null, saved: false } }));
+              const onDbgChange = (val: string) => {
+                const selectedLabel = dbgSelectOptions?.find((o) => o.value === val)?.label ?? val;
+                setDbgEdits((p) => ({ ...p, [row.key]: { ...p[row.key]!, value: val, label: selectedLabel, error: null, saved: false } }));
+              };
 
               if (dbgSelectOptions) {
                 return (
-                  <div className="flex items-center gap-3">
-                    <select
-                      value={dbgState.value}
-                      onChange={(e) => onDbgChange(e.target.value)}
-                      className={`flex-1 bg-background border rounded px-3 py-1.5 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-amber-500/50 ${dbgBorderClass}`}
-                    >
-                      {dbgSelectOptions.map((opt) => (
-                        <option key={opt.value} value={opt.value}>{opt.label}</option>
-                      ))}
-                    </select>
-                    <SaveButton dirty={dbgDirty(row.key)} saving={dbgState.saving} saved={dbgState.saved} onClick={() => void saveDbg(row.key)} />
-                    {dbgState.error && <p className="text-destructive text-xs flex items-center gap-1"><AlertCircle className="w-3 h-3" />{dbgState.error}</p>}
+                  <div className="space-y-1.5">
+                    <div className="flex items-center gap-3">
+                      <select
+                        value={dbgState.value}
+                        onChange={(e) => onDbgChange(e.target.value)}
+                        className={`flex-1 bg-background border rounded px-3 py-1.5 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-amber-500/50 ${dbgBorderClass}`}
+                      >
+                        {dbgSelectOptions.map((opt) => (
+                          <option key={opt.value} value={opt.value}>{opt.label}</option>
+                        ))}
+                      </select>
+                      <SaveButton dirty={dbgDirty(row.key)} saving={dbgState.saving} saved={dbgState.saved} onClick={() => void saveDbg(row.key)} />
+                      {dbgState.error && <p className="text-destructive text-xs flex items-center gap-1"><AlertCircle className="w-3 h-3" />{dbgState.error}</p>}
+                    </div>
+                    <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                      <span className="shrink-0">API value:</span>
+                      <code className="bg-muted px-1.5 py-0.5 rounded text-xs font-mono text-foreground/80 select-all">{dbgState.value}</code>
+                    </div>
                   </div>
                 );
               }
