@@ -37,18 +37,18 @@ const FAL_IMAGE_SIZES: { value: string; label: string }[] = [
 ];
 
 const FAL_IMAGE_MODELS_STANDARD: { value: string; label: string }[] = [
-  { value: "fal-ai/flux-pro/v1.1",       label: "FLUX 1.1 Pro — best quality/speed (recommended)" },
-  { value: "fal-ai/flux-pro/v1.1-ultra", label: "FLUX 1.1 Pro Ultra — max resolution" },
-  { value: "fal-ai/flux-pro",            label: "FLUX 1 Pro — production grade" },
-  { value: "fal-ai/flux/dev",            label: "FLUX 1 Dev — balanced quality" },
-  { value: "fal-ai/flux/schnell",        label: "FLUX 1 Schnell — fastest" },
-  { value: "fal-ai/flux-2-pro",          label: "FLUX 2 Pro — zero-config production" },
-  { value: "fal-ai/flux-2-max",          label: "FLUX 2 Max — SOTA realism" },
+  { value: "fal-ai/flux-pro/v1.1",       label: "fal-ai/flux-pro/v1.1" },
+  { value: "fal-ai/flux-pro/v1.1-ultra", label: "fal-ai/flux-pro/v1.1-ultra" },
+  { value: "fal-ai/flux-pro",            label: "fal-ai/flux-pro" },
+  { value: "fal-ai/flux/dev",            label: "fal-ai/flux/dev" },
+  { value: "fal-ai/flux/schnell",        label: "fal-ai/flux/schnell" },
+  { value: "fal-ai/flux-2-pro",          label: "fal-ai/flux-2-pro" },
+  { value: "fal-ai/flux-2-max",          label: "fal-ai/flux-2-max" },
 ];
 
 const FAL_IMAGE_MODELS_REFERENCE: { value: string; label: string }[] = [
-  { value: "fal-ai/flux-pulid",              label: "FLUX PuLID — face-preserving (recommended)" },
-  { value: "fal-ai/ip-adapter-face-id-plus", label: "IP-Adapter Face ID Plus" },
+  { value: "fal-ai/flux-pulid",              label: "fal-ai/flux-pulid" },
+  { value: "fal-ai/ip-adapter-face-id-plus", label: "fal-ai/ip-adapter-face-id-plus" },
 ];
 
 const SELECT_CONFIGS: Record<string, { value: string; label: string }[]> = {
