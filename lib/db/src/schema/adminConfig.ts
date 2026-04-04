@@ -3,7 +3,7 @@ import { usersTable } from "./auth";
 
 export const adminConfigTable = pgTable("admin_config", {
   key: varchar("key", { length: 100 }).primaryKey(),
-  value: varchar("value", { length: 500 }).notNull(),
+  value: text("value").notNull(),
   dataType: varchar("data_type", { length: 20 }).notNull().default("integer"),
   label: varchar("label", { length: 200 }).notNull(),
   description: text("description"),

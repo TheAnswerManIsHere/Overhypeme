@@ -56,6 +56,22 @@ export async function getConfigInt(key: string, defaultValue: number): Promise<n
   }
 }
 
+/**
+ * Get a config string value.
+ * Returns `defaultValue` if the key is missing or the DB is unreachable.
+ * Zero DB hits when cache is warm.
+ */
+export async function getConfigString(key: string, defaultValue: string): Promise<string> {
+  try {
+    const { byKey } = await loadAll();
+    const row = byKey.get(key);
+    if (!row) return defaultValue;
+    return row.value;
+  } catch {
+    return defaultValue;
+  }
+}
+
 /** Get all config rows ordered by key (for the admin list endpoint). */
 export async function getAllConfig(): Promise<AdminConfig[]> {
   const { rows } = await loadAll();

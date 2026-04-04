@@ -131,41 +131,75 @@ export default function AdminConfig() {
                     </code>
                   </div>
 
-                  <div className="flex items-center gap-3">
-                    <input
-                      type={row.dataType === "integer" ? "number" : "text"}
-                      min={row.minValue ?? undefined}
-                      max={row.maxValue ?? undefined}
-                      value={edit.value}
-                      onChange={(e) => handleChange(row.key, e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter" && isDirty(row)) void handleSave(row.key);
-                      }}
-                      className="w-36 bg-background border border-border rounded px-3 py-1.5 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
-                    />
-                    {row.minValue !== null && row.maxValue !== null && (
-                      <span className="text-xs text-muted-foreground">
-                        {row.minValue} – {row.maxValue}
-                      </span>
-                    )}
-                    <button
-                      onClick={() => void handleSave(row.key)}
-                      disabled={edit.saving || !isDirty(row)}
-                      className="px-4 py-1.5 rounded text-sm font-medium bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-40 disabled:cursor-not-allowed transition-colors flex items-center gap-1.5"
-                    >
-                      {edit.saving ? (
-                        <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Saving…</>
-                      ) : edit.saved ? (
-                        <><Check className="w-3.5 h-3.5" /> Saved</>
-                      ) : (
-                        "Save"
-                      )}
-                    </button>
-                    {edit.error && (
-                      <div className="flex items-center gap-1 text-destructive text-sm">
-                        <AlertCircle className="w-3.5 h-3.5" />
-                        <span>{edit.error}</span>
-                      </div>
+                  <div className={row.dataType === "text" ? "space-y-2" : "flex items-center gap-3"}>
+                    {row.dataType === "text" ? (
+                      <>
+                        <textarea
+                          rows={4}
+                          value={edit.value}
+                          onChange={(e) => handleChange(row.key, e.target.value)}
+                          className="w-full bg-background border border-border rounded px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-primary resize-y"
+                        />
+                        <div className="flex items-center gap-3">
+                          <button
+                            onClick={() => void handleSave(row.key)}
+                            disabled={edit.saving || !isDirty(row)}
+                            className="px-4 py-1.5 rounded text-sm font-medium bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-40 disabled:cursor-not-allowed transition-colors flex items-center gap-1.5"
+                          >
+                            {edit.saving ? (
+                              <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Saving…</>
+                            ) : edit.saved ? (
+                              <><Check className="w-3.5 h-3.5" /> Saved</>
+                            ) : (
+                              "Save"
+                            )}
+                          </button>
+                          {edit.error && (
+                            <div className="flex items-center gap-1 text-destructive text-sm">
+                              <AlertCircle className="w-3.5 h-3.5" />
+                              <span>{edit.error}</span>
+                            </div>
+                          )}
+                        </div>
+                      </>
+                    ) : (
+                      <>
+                        <input
+                          type={row.dataType === "integer" ? "number" : "text"}
+                          min={row.minValue ?? undefined}
+                          max={row.maxValue ?? undefined}
+                          value={edit.value}
+                          onChange={(e) => handleChange(row.key, e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter" && isDirty(row)) void handleSave(row.key);
+                          }}
+                          className="w-36 bg-background border border-border rounded px-3 py-1.5 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+                        />
+                        {row.minValue !== null && row.maxValue !== null && (
+                          <span className="text-xs text-muted-foreground">
+                            {row.minValue} – {row.maxValue}
+                          </span>
+                        )}
+                        <button
+                          onClick={() => void handleSave(row.key)}
+                          disabled={edit.saving || !isDirty(row)}
+                          className="px-4 py-1.5 rounded text-sm font-medium bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-40 disabled:cursor-not-allowed transition-colors flex items-center gap-1.5"
+                        >
+                          {edit.saving ? (
+                            <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Saving…</>
+                          ) : edit.saved ? (
+                            <><Check className="w-3.5 h-3.5" /> Saved</>
+                          ) : (
+                            "Save"
+                          )}
+                        </button>
+                        {edit.error && (
+                          <div className="flex items-center gap-1 text-destructive text-sm">
+                            <AlertCircle className="w-3.5 h-3.5" />
+                            <span>{edit.error}</span>
+                          </div>
+                        )}
+                      </>
                     )}
                   </div>
                 </div>

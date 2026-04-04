@@ -1,6 +1,6 @@
 import { Link, useLocation } from "wouter";
 import { motion } from "framer-motion";
-import { ThumbsUp, ThumbsDown, MessageSquare } from "lucide-react";
+import { ThumbsUp, ThumbsDown, MessageSquare, Clapperboard } from "lucide-react";
 import { FactSummary } from "@workspace/api-client-react";
 import { useAppMutations } from "@/hooks/use-mutations";
 import { useAuth } from "@workspace/replit-auth-web";
@@ -18,6 +18,12 @@ export function FactCard({ fact, rank, showRank = false }: { fact: FactSummary, 
     if (!isAuthenticated) { setLocation(`/login?from=/facts/${fact.id}`); return; }
     const newRating = fact.userRating === type ? "none" : type;
     rateFact.mutate({ factId: fact.id, data: { rating: newRating } });
+  };
+
+  const handleMakeVideo = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setLocation(`/facts/${fact.id}/video`);
   };
 
   return (
@@ -77,6 +83,19 @@ export function FactCard({ fact, rank, showRank = false }: { fact: FactSummary, 
               <ThumbsDown className={cn("w-5 h-5", fact.userRating === "down" && "fill-current")} />
               {fact.downvotes}
             </button>
+
+            <div className="relative group/video">
+              <button
+                onClick={handleMakeVideo}
+                className="flex items-center gap-2 px-3 py-2 rounded-sm transition-colors font-bold text-sm text-muted-foreground hover:bg-secondary hover:text-foreground"
+                aria-label="Make Video"
+              >
+                <Clapperboard className="w-5 h-5" />
+              </button>
+              <span className="pointer-events-none absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 whitespace-nowrap rounded-sm bg-foreground px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-background opacity-0 group-hover/video:opacity-100 transition-opacity">
+                Make Video
+              </span>
+            </div>
           </div>
 
           <Link href={`/facts/${fact.id}`} className="flex items-center gap-2 text-muted-foreground hover:text-primary transition-colors text-sm font-bold px-3 py-2 rounded-sm hover:bg-secondary">
