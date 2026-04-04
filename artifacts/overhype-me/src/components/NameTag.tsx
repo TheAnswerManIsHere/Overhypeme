@@ -212,18 +212,11 @@ export function NameTag() {
   }
 
   if (isAuthenticated && user) {
-    // When a share link is active, the context already holds the recipient's
-    // name/pronouns (URL params were applied before auth resolved). Use the
-    // context values so the AS box stays consistent with the rest of the page.
-    const displayName = SHARE_LINK_ACTIVE
-      ? name
-      : (user as { displayName?: string }).displayName || name || "User";
-    const pronounsStr = SHARE_LINK_ACTIVE
-      ? (displayPronouns(pronouns) || null)
-      : (() => {
-          const raw = (user as { pronouns?: string }).pronouns;
-          return raw ? displayPronouns(raw) : null;
-        })();
+    // Always read from PersonNameContext — it's synced from the auth user on login
+    // (via the useEffect below) and updated immediately after a profile save.
+    // This ensures the navbar reflects changes without needing a token refresh.
+    const displayName = name || (user as { displayName?: string }).displayName || "User";
+    const pronounsStr = pronouns ? (displayPronouns(pronouns) || null) : null;
 
     return (
       <button
