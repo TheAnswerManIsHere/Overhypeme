@@ -34,10 +34,15 @@ import {
   Clapperboard,
 } from "lucide-react";
 
-// ─── Canvas constants ──────────────────────────────────────────────────────────
+// ─── Canvas aspect ratio definitions ──────────────────────────────────────────
 
-const CANVAS_W = 800;
-const CANVAS_H = 420;
+type AspectRatio = "landscape" | "square" | "portrait";
+
+const ASPECT_RATIOS: Record<AspectRatio, { w: number; h: number; label: string; ratio: string }> = {
+  landscape: { w: 800, h: 450, label: "Landscape", ratio: "16:9" },
+  square:    { w: 600, h: 600, label: "Square",    ratio: "1:1"  },
+  portrait:  { w: 450, h: 800, label: "Portrait",  ratio: "9:16" },
+};
 
 const GRADIENT_DEFS: Record<string, [string, string][]> = {
   action:   [["#0a0e2e", "0%"], ["#1a237e", "55%"], ["#283593", "100%"]],
@@ -135,21 +140,46 @@ function intelligentSplit(text: string): number {
 
 // ─── Canvas drawing ────────────────────────────────────────────────────────────
 
+/**
+ * Draws a background image center-cropped to fit the canvas, with an optional
+ * user-supplied pan offset (in canvas destination pixels, +x = shift image right).
+ * Offset is clamped so the image never shows empty space.
+ */
 function drawCroppedImage(
   ctx: CanvasRenderingContext2D,
   img: HTMLImageElement,
+  canvasW: number,
+  canvasH: number,
+  offsetX = 0,
+  offsetY = 0,
 ) {
   const srcAspect = img.naturalWidth / img.naturalHeight;
-  const dstAspect = CANVAS_W / CANVAS_H;
-  let sx = 0, sy = 0, sw = img.naturalWidth, sh = img.naturalHeight;
+  const dstAspect = canvasW / canvasH;
+
+  let sw: number, sh: number;
   if (srcAspect > dstAspect) {
-    sw = img.naturalHeight * dstAspect;
-    sx = (img.naturalWidth - sw) / 2;
+    // Image is wider than the canvas — crop horizontally
+    sh = img.naturalHeight;
+    sw = sh * dstAspect;
   } else {
-    sh = img.naturalWidth / dstAspect;
-    sy = (img.naturalHeight - sh) / 2;
+    // Image is taller than the canvas — crop vertically
+    sw = img.naturalWidth;
+    sh = sw / dstAspect;
   }
-  ctx.drawImage(img, sx, sy, sw, sh, 0, 0, CANVAS_W, CANVAS_H);
+
+  // Center crop baseline
+  let sx = (img.naturalWidth  - sw) / 2;
+  let sy = (img.naturalHeight - sh) / 2;
+
+  // Apply user pan offset (canvas px → source px conversion)
+  sx -= offsetX * (sw / canvasW);
+  sy -= offsetY * (sh / canvasH);
+
+  // Clamp so we never show empty space
+  sx = Math.max(0, Math.min(img.naturalWidth  - sw, sx));
+  sy = Math.max(0, Math.min(img.naturalHeight - sh, sy));
+
+  ctx.drawImage(img, sx, sy, sw, sh, 0, 0, canvasW, canvasH);
 }
 
 function drawMeme(
@@ -159,42 +189,46 @@ function drawMeme(
   topText: string,
   bottomText: string,
   opts: MemeTextOpts,
+  canvasW: number,
+  canvasH: number,
+  bgOffsetX = 0,
+  bgOffsetY = 0,
 ) {
   const ctx = canvas.getContext("2d");
   if (!ctx) return;
 
   if (bgImage) {
-    drawCroppedImage(ctx, bgImage);
+    drawCroppedImage(ctx, bgImage, canvasW, canvasH, bgOffsetX, bgOffsetY);
     ctx.fillStyle = "rgba(0,0,0,0.48)";
-    ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
+    ctx.fillRect(0, 0, canvasW, canvasH);
   } else {
     const stops = GRADIENT_DEFS[templateId] ?? GRADIENT_DEFS["action"]!;
-    const grad = ctx.createLinearGradient(0, 0, CANVAS_W, CANVAS_H);
+    const grad = ctx.createLinearGradient(0, 0, canvasW, canvasH);
     stops.forEach(([c, pos]) => grad.addColorStop(parseFloat(pos) / 100, c));
     ctx.fillStyle = grad;
-    ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
+    ctx.fillRect(0, 0, canvasW, canvasH);
     ctx.fillStyle = "rgba(0,0,0,0.35)";
-    ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
+    ctx.fillRect(0, 0, canvasW, canvasH);
   }
 
   const sidebarW = 12;
   const accent = bgImage ? "#FF3C00" : (ACCENT_COLORS[templateId] ?? "#ff6600");
   ctx.fillStyle = accent;
-  ctx.fillRect(0, 0, sidebarW, CANVAS_H);
+  ctx.fillRect(0, 0, sidebarW, canvasH);
 
   ctx.fillStyle = "rgba(255,255,255,0.06)";
-  ctx.font = `bold ${Math.floor(CANVAS_H * 0.45)}px serif`;
+  ctx.font = `bold ${Math.floor(canvasH * 0.45)}px serif`;
   ctx.textAlign = "right";
-  ctx.fillText("OM", CANVAS_W - 24, CANVAS_H * 0.72);
+  ctx.fillText("OM", canvasW - 24, canvasH * 0.72);
 
   const padding = 40;
-  const maxW = CANVAS_W - padding * 2 - sidebarW;
+  const maxW = canvasW - padding * 2 - sidebarW;
   const fontStyle = `${opts.italic ? "italic " : ""}${opts.bold ? "bold " : ""}`;
   const fontStr = `${fontStyle}${opts.fontSize}px "${opts.fontFamily}", sans-serif`;
   ctx.font = fontStr;
 
   const textAreaLeft = padding + sidebarW;
-  const textAreaRight = CANVAS_W - padding;
+  const textAreaRight = canvasW - padding;
   const textX =
     opts.textAlign === "right" ? textAreaRight
     : opts.textAlign === "center" ? (textAreaLeft + textAreaRight) / 2
@@ -222,7 +256,7 @@ function drawMeme(
   function renderBlock(lines: string[], yPct: number) {
     if (lines.length === 0) return;
     const lineH = opts.fontSize * 1.25;
-    const startY = (yPct / 100) * CANVAS_H;
+    const startY = (yPct / 100) * canvasH;
 
     ctx.save();
     ctx.globalAlpha = opts.opacity;
@@ -259,7 +293,7 @@ function drawMeme(
   ctx.font = "bold 13px sans-serif";
   ctx.fillStyle = "rgba(255,255,255,0.45)";
   ctx.textAlign = "right";
-  ctx.fillText("overhype.me", CANVAS_W - 18, CANVAS_H - 14);
+  ctx.fillText("overhype.me", canvasW - 18, canvasH - 14);
 }
 
 // ─── Sub-components ────────────────────────────────────────────────────────────
@@ -374,6 +408,18 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
   const fileInputRef = useRef<HTMLInputElement>(null);
   const refFileInputRef = useRef<HTMLInputElement>(null);
 
+  // Aspect ratio + canvas dimensions
+  const [aspectRatio, setAspectRatio] = useState<AspectRatio>("landscape");
+  const { w: canvasW, h: canvasH } = ASPECT_RATIOS[aspectRatio];
+
+  // Background pan offset (in canvas destination pixels; +x = image shifts right in frame)
+  const [bgOffset, setBgOffset] = useState({ x: 0, y: 0 });
+  // Drag state for reframing
+  const [dragState, setDragState] = useState<{
+    startX: number; startY: number;
+    startOX: number; startOY: number;
+  } | null>(null);
+
   // AI gallery display limit — fetched once from the admin-managed public config endpoint
   const [aiGalleryDisplayLimit, setAiGalleryDisplayLimit] = useState(50);
   useEffect(() => {
@@ -486,6 +532,10 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
   // Visibility (premium-only private memes)
   const [isPublic, setIsPublic] = useState(!defaultPrivate);
 
+  // Reset pan offset whenever the aspect ratio or background image changes
+  useEffect(() => { setBgOffset({ x: 0, y: 0 }); }, [aspectRatio]);
+  useEffect(() => { setBgOffset({ x: 0, y: 0 }); }, [bgImage]);
+
   // Measure wrapped line counts whenever text or font options change.
   // Uses a hidden canvas for pixel-accurate measurement (same logic as drawMeme).
   useEffect(() => {
@@ -494,7 +544,7 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
     if (!ctx) return;
     const fontStyle = `${bold ? "bold " : ""}${italic ? "italic " : ""}`;
     ctx.font = `${fontStyle}${fontSize}px "${fontFamily}", sans-serif`;
-    const maxW = 800 - 40 * 2 - 12; // CANVAS_W - padding*2 - sidebarW
+    const maxW = canvasW - 40 * 2 - 12; // canvasW - padding*2 - sidebarW
 
     function countLines(text: string): number {
       const display = allCaps ? text.toUpperCase() : text;
@@ -511,7 +561,7 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
 
     setTopLines(topText.trim()    ? countLines(topText)    : 0);
     setBottomLines(bottomText.trim() ? countLines(bottomText) : 0);
-  }, [topText, bottomText, fontSize, fontFamily, bold, italic, allCaps]);
+  }, [topText, bottomText, fontSize, fontFamily, bold, italic, allCaps, canvasW]);
 
   // Collision constraints — keep the two text blocks from overlapping.
   // lineH, cap-height (0.85×fontSize) and descender (0.25×fontSize) match drawMeme.
@@ -525,11 +575,11 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
       + GAP_PX;                           // visual breathing room
     const topBlockPx = blockHeightPx(topLines);
     // maxTopY: top block's bottom must clear the bottom block's visual top
-    const maxTopY   = Math.max(0,   Math.floor(bottomY - (topBlockPx / 420) * 100));
+    const maxTopY   = Math.max(0,   Math.floor(bottomY - (topBlockPx / canvasH) * 100));
     // minBottomY: bottom block's visual top must clear the top block's bottom
-    const minBottomY = Math.min(100, Math.ceil(topY    + (topBlockPx / 420) * 100));
+    const minBottomY = Math.min(100, Math.ceil(topY    + (topBlockPx / canvasH) * 100));
     return { maxTopY, minBottomY };
-  }, [topLines, fontSize, topY, bottomY]);
+  }, [topLines, fontSize, topY, bottomY, canvasH]);
 
   // Clamp Y positions when constraints tighten (e.g. font size increase, text added).
   useEffect(() => {
@@ -955,11 +1005,50 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
 
   const redraw = useCallback(() => {
     if (canvasRef.current) {
-      drawMeme(canvasRef.current, bgImage, selectedTemplate, topText, bottomText, memeOpts);
+      drawMeme(canvasRef.current, bgImage, selectedTemplate, topText, bottomText, memeOpts, canvasW, canvasH, bgOffset.x, bgOffset.y);
     }
-  }, [bgImage, selectedTemplate, topText, bottomText, memeOpts]);
+  }, [bgImage, selectedTemplate, topText, bottomText, memeOpts, canvasW, canvasH, bgOffset]);
 
   useEffect(() => { redraw(); }, [redraw]);
+
+  // ── Drag-to-reframe handlers ─────────────────────────────────────
+  const handleCanvasMouseDown = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
+    if (!bgImage) return;
+    e.preventDefault();
+    setDragState({ startX: e.clientX, startY: e.clientY, startOX: bgOffset.x, startOY: bgOffset.y });
+  }, [bgImage, bgOffset]);
+
+  const handleCanvasMouseMove = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
+    if (!dragState || !canvasRef.current) return;
+    const { width: cssW, height: cssH } = canvasRef.current.getBoundingClientRect();
+    const scaleX = canvasW / cssW;
+    const scaleY = canvasH / cssH;
+    setBgOffset({
+      x: dragState.startOX + (e.clientX - dragState.startX) * scaleX,
+      y: dragState.startOY + (e.clientY - dragState.startY) * scaleY,
+    });
+  }, [dragState, canvasW, canvasH]);
+
+  const handleCanvasMouseUp = useCallback(() => { setDragState(null); }, []);
+
+  // Touch equivalents for mobile reframing
+  const handleCanvasTouchStart = useCallback((e: React.TouchEvent<HTMLCanvasElement>) => {
+    if (!bgImage || e.touches.length !== 1) return;
+    const t = e.touches[0]!;
+    setDragState({ startX: t.clientX, startY: t.clientY, startOX: bgOffset.x, startOY: bgOffset.y });
+  }, [bgImage, bgOffset]);
+
+  const handleCanvasTouchMove = useCallback((e: React.TouchEvent<HTMLCanvasElement>) => {
+    if (!dragState || e.touches.length !== 1 || !canvasRef.current) return;
+    const t = e.touches[0]!;
+    const { width: cssW, height: cssH } = canvasRef.current.getBoundingClientRect();
+    const scaleX = canvasW / cssW;
+    const scaleY = canvasH / cssH;
+    setBgOffset({
+      x: dragState.startOX + (t.clientX - dragState.startX) * scaleX,
+      y: dragState.startOY + (t.clientY - dragState.startY) * scaleY,
+    });
+  }, [dragState, canvasW, canvasH]);
 
   // ── Load stock/AI/upload image into canvas ───────────────────────
   const aiSelectedUrl = useMemo(() => {
@@ -1563,29 +1652,85 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
   const innerContent = (
     <div className="p-4 md:p-5 space-y-5">
 
-          {/* ── Canvas preview ── */}
-          <div className="relative sticky top-14 z-10 bg-card pb-2">
-            <canvas
-              ref={canvasRef}
-              width={CANVAS_W}
-              height={CANVAS_H}
-              className="w-full h-auto border-2 border-border"
-            />
-            {isBgLoading && (
-              <div className="absolute inset-0 flex items-center justify-center bg-black/60 border-2 border-border">
-                <Loader2 className="w-8 h-8 text-primary animate-spin" />
+          {/* ── Canvas preview + aspect ratio selector ── */}
+          <div className="sticky top-14 z-10 bg-card pb-2 space-y-2">
+
+            {/* Aspect ratio selector */}
+            <div className="flex items-center gap-2">
+              <span className="text-[10px] font-display uppercase tracking-[0.18em] text-muted-foreground shrink-0">Format</span>
+              <div className="flex gap-1">
+                {(Object.entries(ASPECT_RATIOS) as [AspectRatio, typeof ASPECT_RATIOS[AspectRatio]][]).map(([key, def]) => (
+                  <button
+                    key={key}
+                    onClick={() => setAspectRatio(key)}
+                    title={`${def.label} (${def.ratio})`}
+                    className={`flex items-center gap-1.5 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider border transition-all ${
+                      aspectRatio === key
+                        ? "border-primary bg-primary/10 text-primary"
+                        : "border-border text-muted-foreground hover:border-primary/40 hover:text-foreground"
+                    }`}
+                  >
+                    {/* Aspect ratio icon */}
+                    <span className="inline-flex items-center justify-center" style={{ width: 16, height: 16 }}>
+                      {key === "landscape" && (
+                        <svg viewBox="0 0 16 10" width="16" height="10" fill="currentColor"><rect x="0" y="0" width="16" height="10" rx="1" opacity="0.9"/></svg>
+                      )}
+                      {key === "square" && (
+                        <svg viewBox="0 0 12 12" width="12" height="12" fill="currentColor"><rect x="0" y="0" width="12" height="12" rx="1" opacity="0.9"/></svg>
+                      )}
+                      {key === "portrait" && (
+                        <svg viewBox="0 0 10 16" width="10" height="16" fill="currentColor"><rect x="0" y="0" width="10" height="16" rx="1" opacity="0.9"/></svg>
+                      )}
+                    </span>
+                    <span>{def.ratio}</span>
+                  </button>
+                ))}
               </div>
-            )}
-            {!isBgLoading && imageMode === "ai" && aiSubMode === "reference" && !selectedRefGenPath && (
-              <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/80 border-2 border-border gap-3 px-6 text-center">
-                <ImageIcon className="w-8 h-8 text-muted-foreground opacity-50" />
-                <p className="text-sm font-semibold text-foreground">No background generated yet</p>
-                <p className="text-xs text-muted-foreground leading-relaxed">
-                  Pick a reference photo below (or upload your own), then click{" "}
-                  <span className="text-violet-400 font-semibold">Generate New</span> to create a personalised AI background from it.
-                </p>
-              </div>
-            )}
+              {bgImage && (
+                <span className="text-[10px] text-muted-foreground/60 ml-1 hidden sm:block">
+                  Drag to reframe
+                </span>
+              )}
+            </div>
+
+            {/* Canvas */}
+            <div className="relative flex justify-center">
+              <canvas
+                ref={canvasRef}
+                width={canvasW}
+                height={canvasH}
+                className="border-2 border-border block select-none"
+                style={{
+                  maxWidth: "100%",
+                  maxHeight: "500px",
+                  width: "auto",
+                  height: "auto",
+                  cursor: bgImage ? (dragState ? "grabbing" : "grab") : "default",
+                }}
+                onMouseDown={handleCanvasMouseDown}
+                onMouseMove={handleCanvasMouseMove}
+                onMouseUp={handleCanvasMouseUp}
+                onMouseLeave={handleCanvasMouseUp}
+                onTouchStart={handleCanvasTouchStart}
+                onTouchMove={handleCanvasTouchMove}
+                onTouchEnd={handleCanvasMouseUp}
+              />
+              {isBgLoading && (
+                <div className="absolute inset-0 flex items-center justify-center bg-black/60 border-2 border-border">
+                  <Loader2 className="w-8 h-8 text-primary animate-spin" />
+                </div>
+              )}
+              {!isBgLoading && imageMode === "ai" && aiSubMode === "reference" && !selectedRefGenPath && (
+                <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/80 border-2 border-border gap-3 px-6 text-center">
+                  <ImageIcon className="w-8 h-8 text-muted-foreground opacity-50" />
+                  <p className="text-sm font-semibold text-foreground">No background generated yet</p>
+                  <p className="text-xs text-muted-foreground leading-relaxed">
+                    Pick a reference photo below (or upload your own), then click{" "}
+                    <span className="text-violet-400 font-semibold">Generate New</span> to create a personalised AI background from it.
+                  </p>
+                </div>
+              )}
+            </div>
           </div>
 
           {/* ── Controls (two columns on md+) ── */}
