@@ -1658,7 +1658,7 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
     <div className="p-4 md:p-5 space-y-5">
 
           {/* ── Canvas preview + aspect ratio selector ── */}
-          <div className={`sticky z-10 bg-card pb-2 space-y-2 ${fullScreen ? "top-0" : "top-14"}`}>
+          <div className={`sticky z-30 bg-card pb-2 space-y-2 shadow-[0_6px_16px_-2px_rgba(0,0,0,0.45)] ${fullScreen ? "top-0" : "top-14"}`}>
 
             {/* Aspect ratio selector */}
             <div className="flex items-center gap-2">
