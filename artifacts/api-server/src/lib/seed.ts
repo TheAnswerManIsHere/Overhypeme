@@ -321,10 +321,10 @@ Return ONLY valid JSON:
       ddl: `INSERT INTO admin_config (key, value, data_type, label, description, is_public) VALUES
         ('ai_image_model_standard', 'fal-ai/flux-pro/v1.1', 'text', 'AI Image Model (Standard)',
          'fal.ai model ID used for standard text-to-image generation (no reference photo). Change to swap the generation model without a code deploy.',
-         false),
+         true),
         ('ai_image_model_reference', 'fal-ai/flux-pulid', 'text', 'AI Image Model (Reference Photo)',
          'fal.ai model ID used when generating from a reference photo. Should be a face-preserving model such as flux-pulid (PuLID for FLUX).',
-         false),
+         true),
         ('ai_image_size', 'square_hd', 'text', 'AI Image Size',
          'Image size token passed to fal.ai models (e.g. square_hd, landscape_4_3, portrait_4_3). Must be a size supported by the chosen model.',
          false)

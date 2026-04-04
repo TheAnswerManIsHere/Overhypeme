@@ -72,9 +72,7 @@ app.use([
   "/api/videos/generate",
 ], noStore);
 
-app.use("/api", router);
-
-// Public config endpoint — no auth required, returns only is_public=true values
+// Public config endpoint — registered BEFORE the main router so nothing can intercept it
 app.get("/api/config", async (_req, res) => {
   try {
     const { getPublicConfig } = await import("./lib/adminConfig");
@@ -84,5 +82,7 @@ app.get("/api/config", async (_req, res) => {
     res.json({});
   }
 });
+
+app.use("/api", router);
 
 export default app;
