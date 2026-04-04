@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState } from "react";
 import { useRoute, Link, useLocation } from "wouter";
 import { format } from "date-fns";
 import HCaptcha from "@hcaptcha/react-hcaptcha";
@@ -31,7 +31,7 @@ type MemeItem = {
   createdAt: string;
 };
 
-async function fetchMemes(factId: number, visibility: "public" | "mine"): Promise<{ memes: MemeItem[] }> {
+async function fetchMemes(factId: number, visibility: "community" | "my-public" | "my-private"): Promise<{ memes: MemeItem[] }> {
   const res = await fetch(`/api/facts/${factId}/memes?visibility=${visibility}`, { credentials: "include" });
   if (!res.ok) throw new Error("Failed to fetch memes");
   return res.json() as Promise<{ memes: MemeItem[] }>;
@@ -186,34 +186,31 @@ export default function FactDetail() {
     query: { queryKey: getListCommentsQueryKey(factId, { limit: 50 }), enabled: !!factId }
   });
 
-  const [memeTab, setMemeTab] = useState<"all" | "public" | "mine">("all");
+  const [memeTab, setMemeTab] = useState<"community" | "my-public" | "my-private">("community");
   const queryClient = useQueryClient();
 
-  const { data: publicMemesData } = useQuery({
-    queryKey: ["listFactMemes", factId, "public"],
-    queryFn: () => fetchMemes(factId, "public"),
+  const { data: communityMemesData } = useQuery({
+    queryKey: ["listFactMemes", factId, "community"],
+    queryFn: () => fetchMemes(factId, "community"),
     enabled: !!factId,
   });
 
-  const { data: myMemesData } = useQuery({
-    queryKey: ["listFactMemes", factId, "mine"],
-    queryFn: () => fetchMemes(factId, "mine"),
+  const { data: myPublicMemesData } = useQuery({
+    queryKey: ["listFactMemes", factId, "my-public"],
+    queryFn: () => fetchMemes(factId, "my-public"),
     enabled: !!factId && isAuthenticated,
   });
 
-  const allMemes = useMemo(() => {
-    const seen = new Set<number>();
-    const combined: MemeItem[] = [];
-    for (const m of [...(publicMemesData?.memes ?? []), ...(myMemesData?.memes ?? [])]) {
-      if (!seen.has(m.id)) { seen.add(m.id); combined.push(m); }
-    }
-    return { memes: combined };
-  }, [publicMemesData, myMemesData]);
+  const { data: myPrivateMemesData } = useQuery({
+    queryKey: ["listFactMemes", factId, "my-private"],
+    queryFn: () => fetchMemes(factId, "my-private"),
+    enabled: !!factId && isAuthenticated,
+  });
 
   const activeMemes =
-    memeTab === "mine" ? myMemesData :
-    memeTab === "public" ? publicMemesData :
-    allMemes;
+    memeTab === "my-public" ? myPublicMemesData :
+    memeTab === "my-private" ? myPrivateMemesData :
+    communityMemesData;
 
   const { name, pronouns } = usePersonName();
   const [commentText, setCommentText] = useState("");
@@ -389,33 +386,35 @@ export default function FactDetail() {
             </h3>
             <div className="flex items-center gap-1 bg-secondary border border-border rounded-sm p-1">
               <button
-                onClick={() => setMemeTab("all")}
+                onClick={() => setMemeTab("community")}
                 className={cn(
                   "flex items-center gap-1.5 text-xs font-display font-bold uppercase tracking-wider px-3 py-1.5 rounded-sm transition-colors",
-                  memeTab === "all" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"
+                  memeTab === "community" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"
                 )}
               >
-                All {allMemes.memes.length > 0 ? `(${allMemes.memes.length})` : ""}
-              </button>
-              <button
-                onClick={() => setMemeTab("public")}
-                className={cn(
-                  "flex items-center gap-1.5 text-xs font-display font-bold uppercase tracking-wider px-3 py-1.5 rounded-sm transition-colors",
-                  memeTab === "public" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"
-                )}
-              >
-                <Globe className="w-3.5 h-3.5" /> Public {publicMemesData ? `(${publicMemesData.memes.length})` : ""}
+                <Globe className="w-3.5 h-3.5" /> Community{communityMemesData ? ` (${communityMemesData.memes.length})` : ""}
               </button>
               {isAuthenticated && (
-                <button
-                  onClick={() => setMemeTab("mine")}
-                  className={cn(
-                    "flex items-center gap-1.5 text-xs font-display font-bold uppercase tracking-wider px-3 py-1.5 rounded-sm transition-colors",
-                    memeTab === "mine" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"
-                  )}
-                >
-                  <Lock className="w-3.5 h-3.5" /> My Memes {myMemesData ? `(${myMemesData.memes.length})` : ""}
-                </button>
+                <>
+                  <button
+                    onClick={() => setMemeTab("my-public")}
+                    className={cn(
+                      "flex items-center gap-1.5 text-xs font-display font-bold uppercase tracking-wider px-3 py-1.5 rounded-sm transition-colors",
+                      memeTab === "my-public" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"
+                    )}
+                  >
+                    My Public{myPublicMemesData ? ` (${myPublicMemesData.memes.length})` : ""}
+                  </button>
+                  <button
+                    onClick={() => setMemeTab("my-private")}
+                    className={cn(
+                      "flex items-center gap-1.5 text-xs font-display font-bold uppercase tracking-wider px-3 py-1.5 rounded-sm transition-colors",
+                      memeTab === "my-private" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"
+                    )}
+                  >
+                    <Lock className="w-3.5 h-3.5" /> My Private{myPrivateMemesData ? ` (${myPrivateMemesData.memes.length})` : ""}
+                  </button>
+                </>
               )}
             </div>
           </div>
@@ -450,13 +449,23 @@ export default function FactDetail() {
               })}
             </div>
           ) : (
-            <p className="text-muted-foreground py-10 text-center border-2 border-dashed border-border rounded-sm">
-              {memeTab === "mine"
-                ? "You haven't made any memes for this fact yet."
-                : memeTab === "public"
-                ? "No public memes yet. Be the first!"
-                : "No memes yet. Be the first!"}
-            </p>
+            <div className="py-10 text-center border-2 border-dashed border-border rounded-sm">
+              {memeTab === "my-private" ? (
+                <>
+                  <p className="text-muted-foreground mb-4">You haven't made any private memes for this fact yet.</p>
+                  <button
+                    onClick={openMemeBuilder}
+                    className="inline-flex items-center gap-2 px-4 py-2 text-sm font-display font-bold uppercase tracking-wider bg-primary text-primary-foreground rounded-sm hover:opacity-90 transition-opacity"
+                  >
+                    Create your first private meme
+                  </button>
+                </>
+              ) : memeTab === "my-public" ? (
+                <p className="text-muted-foreground">You haven't shared any memes for this fact yet.</p>
+              ) : (
+                <p className="text-muted-foreground">No community memes yet. Be the first!</p>
+              )}
+            </div>
           )}
         </div>
 

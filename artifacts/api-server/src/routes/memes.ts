@@ -5,7 +5,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 import { db } from "@workspace/db";
 import { memesTable, factsTable, usersTable, userFactPreferencesTable } from "@workspace/db/schema";
-import { eq, desc, and, inArray, isNull, sql } from "drizzle-orm";
+import { eq, ne, desc, and, inArray, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 import {
   generateMemeBuffer,
@@ -370,15 +370,19 @@ router.get("/memes/:slug", async (req: Request, res: Response) => {
   });
 });
 
-// GET /facts/:factId/memes?visibility=public|mine
+// GET /facts/:factId/memes?visibility=community|my-public|my-private|public|mine
 router.get("/facts/:factId/memes", async (req: Request, res: Response) => {
   const factId = parseInt((req.params["factId"] ?? "") as string);
   if (isNaN(factId)) { res.status(400).json({ error: "Invalid factId" }); return; }
 
-  const visibility = req.query["visibility"] === "mine" ? "mine" : "public";
+  const rawVisibility = req.query["visibility"] as string | undefined;
+  type Visibility = "community" | "my-public" | "my-private" | "mine" | "public";
+  const VALID: Visibility[] = ["community", "my-public", "my-private", "mine", "public"];
+  const visibility: Visibility = (VALID.includes(rawVisibility as Visibility) ? rawVisibility : "community") as Visibility;
 
-  // "mine" requires authentication
-  if (visibility === "mine" && !req.isAuthenticated()) {
+  // auth-gated visibility modes
+  const requiresAuth = visibility === "mine" || visibility === "my-public" || visibility === "my-private";
+  if (requiresAuth && !req.isAuthenticated()) {
     res.status(401).json({ error: "Authentication required" });
     return;
   }
@@ -402,9 +406,22 @@ router.get("/facts/:factId/memes", async (req: Request, res: Response) => {
     ? eq(memesTable.factId, factIds[0]!)
     : inArray(memesTable.factId, factIds);
 
-  const visibilityFilter = visibility === "mine"
-    ? and(factFilter, eq(memesTable.createdById, req.user!.id), isNull(memesTable.deletedAt))
-    : and(factFilter, eq(memesTable.isPublic, true), isNull(memesTable.deletedAt));
+  const userId = req.user?.id;
+  const visibilityFilter =
+    visibility === "community"
+      ? and(
+          factFilter,
+          eq(memesTable.isPublic, true),
+          isNull(memesTable.deletedAt),
+          userId ? ne(memesTable.createdById, userId) : undefined,
+        )
+    : visibility === "my-public"
+      ? and(factFilter, eq(memesTable.createdById, userId!), eq(memesTable.isPublic, true), isNull(memesTable.deletedAt))
+    : visibility === "my-private"
+      ? and(factFilter, eq(memesTable.createdById, userId!), eq(memesTable.isPublic, false), isNull(memesTable.deletedAt))
+    : visibility === "mine"
+      ? and(factFilter, eq(memesTable.createdById, userId!), isNull(memesTable.deletedAt))
+      : and(factFilter, eq(memesTable.isPublic, true), isNull(memesTable.deletedAt));
 
   const maxMemes = await getConfigInt("max_memes_per_fact", 40);
   const memes = await db
