@@ -17,41 +17,26 @@ export interface MemeTemplate {
 }
 
 export const MEME_TEMPLATES: MemeTemplate[] = [
-  {
-    id: "action",
-    name: "Action Hero",
-    description: "High-contrast dark blue gradient — pure action movie energy",
-    previewColors: ["#0a0e2e", "#1a237e", "#283593"],
-    assetPath: "action.png",
-  },
-  {
-    id: "fire",
-    name: "On Fire",
-    description: "Blazing orange-red gradient for the most intense facts",
-    previewColors: ["#bf360c", "#e64a19", "#ff6d00"],
-    assetPath: "fire.png",
-  },
-  {
-    id: "night",
-    name: "Night Ops",
-    description: "Tactical dark background with subtle green accent",
-    previewColors: ["#0a0a0a", "#1b2420", "#263238"],
-    assetPath: "night.png",
-  },
-  {
-    id: "gold",
-    name: "Legendary",
-    description: "Golden gradient for facts of mythical proportions",
-    previewColors: ["#4a2c00", "#f57f17", "#ffd54f"],
-    assetPath: "gold.png",
-  },
-  {
-    id: "cinema",
-    name: "Cinematic",
-    description: "Classic sepia-toned cinematic style",
-    previewColors: ["#2d1e00", "#5d4037", "#8d6e63"],
-    assetPath: "cinema.png",
-  },
+  { id: "action",   name: "Action Hero",  description: "High-contrast dark blue gradient — pure action movie energy",   previewColors: ["#0a0e2e", "#1a237e", "#283593"],   assetPath: "action.png"   },
+  { id: "fire",     name: "On Fire",      description: "Blazing orange-red gradient for the most intense facts",         previewColors: ["#bf360c", "#e64a19", "#ff6d00"],   assetPath: "fire.png"     },
+  { id: "night",    name: "Night Ops",    description: "Tactical dark background with subtle green accent",              previewColors: ["#0a0a0a", "#1b2420", "#263238"],   assetPath: "night.png"    },
+  { id: "gold",     name: "Legendary",    description: "Golden gradient for facts of mythical proportions",              previewColors: ["#4a2c00", "#f57f17", "#ffd54f"],   assetPath: "gold.png"     },
+  { id: "cinema",   name: "Cinematic",    description: "Classic sepia-toned cinematic style",                            previewColors: ["#2d1e00", "#5d4037", "#8d6e63"],   assetPath: "cinema.png"   },
+  { id: "neon",     name: "Neon",         description: "Cyberpunk hot-pink — electric and unapologetic",                previewColors: ["#0d0221", "#4a0060", "#e91e8c"],   assetPath: "neon.png"     },
+  { id: "ocean",    name: "Ocean Deep",   description: "Abyssal blue — calm on the surface, crushing below",            previewColors: ["#000428", "#004e92", "#0288d1"],   assetPath: "ocean.png"    },
+  { id: "crimson",  name: "Crimson",      description: "Smouldering deep red with dangerous intent",                    previewColors: ["#1a0000", "#7b0000", "#c62828"],   assetPath: "crimson.png"  },
+  { id: "galaxy",   name: "Galaxy",       description: "Deep-space indigo — the universe bows down",                    previewColors: ["#0c0019", "#311b92", "#4527a0"],   assetPath: "galaxy.png"   },
+  { id: "storm",    name: "Storm",        description: "Steel-grey tempest for uncompromising authority",               previewColors: ["#0d0d0d", "#263238", "#455a64"],   assetPath: "storm.png"    },
+  { id: "emerald",  name: "Emerald",      description: "Rich jewel-green — rare and impossible to ignore",              previewColors: ["#001a08", "#1b5e20", "#2e7d32"],   assetPath: "emerald.png"  },
+  { id: "arctic",   name: "Arctic",       description: "Glacial blue — cold, precise, and unstoppable",                 previewColors: ["#0a1929", "#0d47a1", "#1565c0"],   assetPath: "arctic.png"   },
+  { id: "copper",   name: "Copper",       description: "Burnished copper tones — aged but never outdated",              previewColors: ["#1a0d00", "#6d3200", "#bf5900"],   assetPath: "copper.png"   },
+  { id: "twilight", name: "Twilight",     description: "Violet dusk — the hour when legends emerge",                    previewColors: ["#0d001a", "#6a1b9a", "#ab47bc"],   assetPath: "twilight.png" },
+  { id: "toxic",    name: "Toxic",        description: "Radioactive green — dangerously talented",                      previewColors: ["#001400", "#1b5e20", "#33691e"],   assetPath: "toxic.png"    },
+  { id: "rose",     name: "Rose",         description: "Deep rose — intense, vivid, unforgettable",                     previewColors: ["#1a0005", "#880e4f", "#ad1457"],   assetPath: "rose.png"     },
+  { id: "volcano",  name: "Volcano",      description: "Volcanic crimson — pressure built over a lifetime",             previewColors: ["#100000", "#4e0000", "#b71c1c"],   assetPath: "volcano.png"  },
+  { id: "retro",    name: "Retro Wave",   description: "80s synthwave sunset — nostalgic and dangerous",                previewColors: ["#1a0030", "#7b1fa2", "#e64a19"],   assetPath: "retro.png"    },
+  { id: "midnight", name: "Midnight",     description: "Ink-black midnight blue — the darkest hour before glory",       previewColors: ["#000814", "#001d3d", "#003566"],   assetPath: "midnight.png" },
+  { id: "chrome",   name: "Chrome",       description: "Polished steel grey — sleek, mechanical, unstoppable",          previewColors: ["#0d0d0d", "#37474f", "#546e7a"],   assetPath: "chrome.png"   },
 ];
 
 export interface TextOptions {
@@ -95,13 +80,29 @@ async function getTemplateImage(assetPath: string) {
 
 /** Accent sidebar colour per gradient template. */
 function templateAccentColor(templateId: string): string {
-  switch (templateId) {
-    case "fire":   return "#ff6d00";
-    case "gold":   return "#ffd54f";
-    case "night":  return "#546e7a";
-    case "cinema": return "#8d6e63";
-    default:       return "#ff6600"; // action + fallback
-  }
+  const map: Record<string, string> = {
+    action:   "#ff6600",
+    fire:     "#ff6d00",
+    night:    "#546e7a",
+    gold:     "#ffd54f",
+    cinema:   "#8d6e63",
+    neon:     "#e91e8c",
+    ocean:    "#0288d1",
+    crimson:  "#ef5350",
+    galaxy:   "#7c4dff",
+    storm:    "#78909c",
+    emerald:  "#43a047",
+    arctic:   "#42a5f5",
+    copper:   "#ff8f00",
+    twilight: "#ce93d8",
+    toxic:    "#69f0ae",
+    rose:     "#f06292",
+    volcano:  "#ef5350",
+    retro:    "#ff6f00",
+    midnight: "#1976d2",
+    chrome:   "#90a4ae",
+  };
+  return map[templateId] ?? "#ff6600";
 }
 
 /**
