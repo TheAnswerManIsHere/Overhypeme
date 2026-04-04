@@ -1924,6 +1924,12 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
                                 <div className="rounded border border-border bg-muted/30 p-2 space-y-2 text-[10px]">
                                   {sceneBase ? (
                                     <>
+                                      {includeReferenceFrame && (
+                                        <div>
+                                          <span className="text-muted-foreground font-semibold uppercase tracking-wide">Reference frame (prepended)</span>
+                                          <p className="mt-0.5 text-foreground/80 font-mono leading-relaxed">{referenceFrame.trim()}</p>
+                                        </div>
+                                      )}
                                       <div>
                                         <span className="text-muted-foreground font-semibold uppercase tracking-wide">Scene prompt ({genderKey})</span>
                                         <p className="mt-0.5 text-foreground/80 font-mono leading-relaxed">{sceneBase}</p>
@@ -1932,12 +1938,6 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
                                         <div>
                                           <span className="text-muted-foreground font-semibold uppercase tracking-wide">Style suffix ({styleDef?.label})</span>
                                           <p className="mt-0.5 text-foreground/80 font-mono leading-relaxed">{suffix}</p>
-                                        </div>
-                                      )}
-                                      {includeReferenceFrame && (
-                                        <div>
-                                          <span className="text-muted-foreground font-semibold uppercase tracking-wide">Reference frame (prepended)</span>
-                                          <p className="mt-0.5 text-foreground/80 font-mono leading-relaxed">{referenceFrame.trim()}</p>
                                         </div>
                                       )}
                                       <div className="border-t border-border pt-2">
