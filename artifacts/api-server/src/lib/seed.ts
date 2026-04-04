@@ -246,14 +246,8 @@ export async function ensureSchema(): Promise<void> {
       ddl: `ALTER TABLE admin_config ADD COLUMN IF NOT EXISTS debug_value_label text`,
     },
     {
-      label: "admin_config seed ai_reference_frame_prompt",
-      ddl: `INSERT INTO admin_config (key, value, data_type, label, description, is_public)
-        VALUES ('ai_reference_frame_prompt',
-          'Generate an image using the provided reference photo. The person''s face, facial structure, skin tone, eye shape, hair, and all distinguishing features must be preserved with photorealistic accuracy and remain visually identical to the reference — this is the highest priority. Do not alter, stylize, or idealize the person''s facial features in any way. The person should be placed into the scene as described. The scene and environment should be stylized as described, but the person''s face and likeness must remain untouched by any stylization. No text, words, or letters anywhere in the image.',
-          'text', 'AI Reference Frame Prompt',
-          'The instruction appended to AI image prompts when a user uploads a reference photo. Controls how strongly the model preserves the subject''s likeness.',
-          false)
-      ON CONFLICT (key) DO NOTHING`,
+      label: "admin_config delete ai_reference_frame_prompt",
+      ddl: `DELETE FROM admin_config WHERE key = 'ai_reference_frame_prompt'`,
     },
     {
       label: "admin_config seed style_suffixes",
