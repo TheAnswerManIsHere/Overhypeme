@@ -424,7 +424,7 @@ export function VideoBuilder({ factId, factText, onClose, initialImageDataUrl }:
     try {
       const body: Record<string, unknown> = {
         factId,
-        imageUrl: cached.imageUrl,
+        imageUrl: cached.imageUrl.startsWith("/") ? `${window.location.origin}${cached.imageUrl}` : cached.imageUrl,
       };
       if (cached.motionPrompt) body.motionPrompt = cached.motionPrompt;
 
