@@ -286,7 +286,9 @@ router.post("/videos/generate", async (req, res) => {
   }
 
   const requestedModel = parsed.data.videoModel?.trim();
-  const videoModel = requestedModel || DEFAULT_VIDEO_MODEL;
+  const videoModel = requestedModel || await getConfigString("video_model", DEFAULT_VIDEO_MODEL) || DEFAULT_VIDEO_MODEL;
+  const videoDuration = await getConfigString("video_duration", "5") || "5";
+  const videoAspectRatio = await getConfigString("video_aspect_ratio", "16:9") || "16:9";
 
   try {
     const result = await fal.subscribe(
@@ -295,8 +297,8 @@ router.post("/videos/generate", async (req, res) => {
         input: {
           image_url: imageUrl,
           prompt: motionPrompt,
-          duration: "5",
-          aspect_ratio: "16:9",
+          duration: videoDuration,
+          aspect_ratio: videoAspectRatio,
         },
         logs: false,
         headers: {
