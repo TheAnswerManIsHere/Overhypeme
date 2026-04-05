@@ -1220,8 +1220,8 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
   const handleDownload = () => {
     if (!canvasRef.current) return;
     const link = document.createElement("a");
-    link.download = `overhype-fact-${factId}.png`;
-    link.href = canvasRef.current.toDataURL("image/png");
+    link.download = `overhype-fact-${factId}.jpg`;
+    link.href = canvasRef.current.toDataURL("image/jpeg", 0.92);
     link.click();
   };
 
