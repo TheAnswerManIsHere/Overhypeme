@@ -291,6 +291,30 @@ export async function ensureSchema(): Promise<void> {
       ON CONFLICT (key) DO NOTHING`,
     },
     {
+      label: "admin_config seed ai_scene_prompt_model",
+      ddl: `INSERT INTO admin_config (key, value, data_type, label, description, is_public)
+        VALUES ('ai_scene_prompt_model', 'gpt-4o-mini', 'text', 'AI Scene Prompt Model',
+          'OpenAI chat completion model used when generating cinematic scene descriptions for AI meme backgrounds.',
+          false)
+        ON CONFLICT (key) DO NOTHING`,
+    },
+    {
+      label: "admin_config seed ai_scene_prompt_max_tokens",
+      ddl: `INSERT INTO admin_config (key, value, data_type, label, description, is_public)
+        VALUES ('ai_scene_prompt_max_tokens', '400', 'integer', 'AI Scene Prompt Max Tokens',
+          'Maximum number of tokens the scene prompt model may generate per request.',
+          false)
+        ON CONFLICT (key) DO NOTHING`,
+    },
+    {
+      label: "admin_config seed ai_scene_prompt_temperature",
+      ddl: `INSERT INTO admin_config (key, value, data_type, label, description, is_public)
+        VALUES ('ai_scene_prompt_temperature', '0.7', 'text', 'AI Scene Prompt Temperature',
+          'Sampling temperature for the scene prompt model (0.0–2.0). Higher values produce more varied results.',
+          false)
+        ON CONFLICT (key) DO NOTHING`,
+    },
+    {
       label: "admin_config seed ai_scene_prompt_system",
       ddl: `INSERT INTO admin_config (key, value, data_type, label, description, is_public)
         VALUES ('ai_scene_prompt_system',

@@ -107,11 +107,15 @@ Return ONLY valid JSON:
 
 export async function generateScenePrompts(factText: string): Promise<AiScenePrompts> {
   const openai = getOpenAIClient();
-  const systemPrompt = await getConfigString("ai_scene_prompt_system", SCENE_PROMPT_SYSTEM);
+  const systemPrompt   = await getConfigString("ai_scene_prompt_system", SCENE_PROMPT_SYSTEM);
+  const model          = await getConfigString("ai_scene_prompt_model", "gpt-4o-mini");
+  const max_tokens     = await getConfigInt("ai_scene_prompt_max_tokens", 400);
+  const tempParsed     = parseFloat(await getConfigString("ai_scene_prompt_temperature", "0.7"));
+  const temperature    = Number.isFinite(tempParsed) ? tempParsed : 0.7;
   const response = await openai.chat.completions.create({
-    model: "gpt-4o-mini",
-    max_tokens: 400,
-    temperature: 0.7,
+    model,
+    max_tokens,
+    temperature,
     response_format: { type: "json_object" },
     messages: [
       { role: "system", content: systemPrompt },

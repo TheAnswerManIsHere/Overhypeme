@@ -85,6 +85,22 @@ const FAL_RAW_MODE: { value: string; label: string }[] = [
   { value: "true",  label: "true — natural, less processed" },
 ];
 
+const OPENAI_CHAT_MODELS: { value: string; label: string }[] = [
+  { value: "gpt-4o",              label: "GPT-4o" },
+  { value: "gpt-4o-mini",        label: "GPT-4o mini (default)" },
+  { value: "gpt-4.1",            label: "GPT-4.1" },
+  { value: "gpt-4.1-mini",       label: "GPT-4.1 mini" },
+  { value: "gpt-4.1-nano",       label: "GPT-4.1 nano" },
+  { value: "gpt-4-turbo",        label: "GPT-4 Turbo" },
+  { value: "gpt-3.5-turbo",      label: "GPT-3.5 Turbo" },
+  { value: "o4-mini",            label: "o4-mini" },
+  { value: "o3-mini",            label: "o3-mini" },
+];
+
+const FLOAT_TEXT_CONFIGS = new Set([
+  "ai_scene_prompt_temperature",
+]);
+
 const SELECT_CONFIGS: Record<string, { value: string; label: string }[]> = {
   ai_image_size:             FAL_IMAGE_SIZES,
   ai_image_model_standard:   FAL_IMAGE_MODELS_STANDARD,
@@ -93,6 +109,7 @@ const SELECT_CONFIGS: Record<string, { value: string; label: string }[]> = {
   ai_std_output_format:      FAL_OUTPUT_FORMAT,
   ai_std_aspect_ratio:       FAL_ASPECT_RATIO,
   ai_std_ultra_raw:          FAL_RAW_MODE,
+  ai_scene_prompt_model:     OPENAI_CHAT_MODELS,
 };
 
 interface ParamDef { key: string }
@@ -160,6 +177,7 @@ const MODEL_CONFIG_KEYS = new Set([
   "ai_ref_pulid_id_scale", "ai_ref_pulid_guidance_scale", "ai_ref_pulid_num_inference_steps",
   "ai_ref_pulid_true_cfg_scale", "ai_ref_pulid_start_step", "ai_pulid_composition_suffix",
   "ai_pulid_id_scale_pct",
+  "ai_scene_prompt_model", "ai_scene_prompt_max_tokens", "ai_scene_prompt_temperature",
 ]);
 
 // ── Shared context ────────────────────────────────────────────────────────────
@@ -215,7 +233,7 @@ function ConfigInput({
   if (!row) return null;
   const state = kind === "std" ? stdEdits[configKey] : dbgEdits[configKey];
   if (!state) return null;
-  const isLong = row.dataType === "text";
+  const isLong = row.dataType === "text" && !FLOAT_TEXT_CONFIGS.has(configKey);
   const dirty = kind === "std" ? stdDirty(configKey) : dbgDirty(configKey);
   const placeholder = kind === "dbg" ? (row.debugValue ?? "Same as standard (no override)") : undefined;
   const isDbgActive = debugActive && kind === "dbg";
@@ -274,7 +292,8 @@ function ConfigInput({
       ) : (
         <>
           <input
-            type={row.dataType === "integer" ? "number" : "text"}
+            type={row.dataType === "integer" || FLOAT_TEXT_CONFIGS.has(configKey) ? "number" : "text"}
+            step={FLOAT_TEXT_CONFIGS.has(configKey) ? "0.1" : undefined}
             min={row.minValue ?? undefined}
             max={row.maxValue ?? undefined}
             value={state.value}
@@ -801,6 +820,23 @@ export default function AdminConfig() {
                   subtitle="Face-preserving generation from an uploaded reference photo"
                   modelKey="ai_image_model_reference"
                 />
+              </div>
+
+              {/* ── AI Scene Prompt ───────────────────────────────────────────── */}
+              <div className="bg-card border border-border rounded-lg p-5 space-y-5">
+                <div className="flex items-center gap-2">
+                  <Bot className="w-4 h-4 text-muted-foreground" />
+                  <h3 className="font-semibold text-foreground">AI Scene Prompt</h3>
+                </div>
+                <p className="text-sm text-muted-foreground -mt-2">
+                  OpenAI model and sampling parameters used when generating cinematic scene descriptions for meme backgrounds.
+                </p>
+
+                <div className="space-y-4">
+                  <ModelParamRow paramKey="ai_scene_prompt_model" />
+                  <ModelParamRow paramKey="ai_scene_prompt_max_tokens" />
+                  <ModelParamRow paramKey="ai_scene_prompt_temperature" />
+                </div>
               </div>
 
               {/* ── Generic config rows ───────────────────────────────────────── */}
