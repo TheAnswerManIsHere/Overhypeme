@@ -88,7 +88,7 @@ export default function MemePage() {
       .then(blob => {
         const a = document.createElement("a");
         a.href = URL.createObjectURL(blob);
-        a.download = `overhype-${slug}.png`;
+        a.download = `overhype-${slug}.jpg`;
         a.click();
       })
       .catch(console.error);
