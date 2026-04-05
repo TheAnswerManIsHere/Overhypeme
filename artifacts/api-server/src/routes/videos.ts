@@ -15,7 +15,7 @@ const RATE_LIMIT_MAX = 3;
 const RATE_LIMIT_WINDOW_MS = 24 * 60 * 60 * 1000;
 const FALLBACK_PROMPT = "Subtle cinematic motion, dramatic lighting, slow camera push-in, epic atmosphere";
 const DEFAULT_STYLE_ID = "cinematic";
-const DEFAULT_VIDEO_MODEL = "fal-ai/kling-video/v2.6/standard/image-to-video";
+const DEFAULT_VIDEO_MODEL = "fal-ai/kling-video/v2.1/standard/image-to-video";
 
 const DEFAULT_VIDEO_PROMPT_SYSTEM =
   'You are a video director. Given an image, write a short cinematic motion prompt (1-2 sentences, max 50 words) describing how to animate the scene for a short video clip. Focus on dramatic, visual motion: camera movement, lighting changes, atmosphere. Describe only the visual action and movement. Respond with only the prompt text, nothing else.';
