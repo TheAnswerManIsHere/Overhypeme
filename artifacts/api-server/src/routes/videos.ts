@@ -1,13 +1,16 @@
 import { Router, type IRouter, type Request } from "express";
 import { z } from "zod";
 import { fal } from "@fal-ai/client";
-import { db, videoJobsTable } from "@workspace/db";
+import { db, videoJobsTable, usersTable } from "@workspace/db";
 import { factsTable } from "@workspace/db/schema";
 import { eq, and, gte, desc } from "drizzle-orm";
+import { deriveUserRole } from "../lib/userRole.js";
 import { getOpenAIClient } from "@workspace/integrations-openai-ai-server";
 import { VIDEO_STYLE_MAP } from "../config/videoStyles.js";
 import { getConfigString } from "../lib/adminConfig.js";
 import { requireAdmin } from "./admin.js";
+import { isAdminById } from "./auth.js";
+import { getSessionId, getSession } from "../lib/auth.js";
 import { ObjectStorageService } from "../lib/objectStorage.js";
 
 const router: IRouter = Router();
@@ -252,7 +255,21 @@ router.post("/videos/generate", async (req, res) => {
     return;
   }
 
-  const isAdmin = req.isAuthenticated() && req.user?.role === "admin";
+  const sid = getSessionId(req);
+  const session = sid ? await getSession(sid) : null;
+  let isAdmin = false;
+  if (req.isAuthenticated()) {
+    if (isAdminById(req.user.id) || session?.isAdmin === true) {
+      isAdmin = true;
+    } else {
+      const [dbUser] = await db
+        .select({ isAdmin: usersTable.isAdmin, membershipTier: usersTable.membershipTier })
+        .from(usersTable)
+        .where(and(eq(usersTable.id, req.user.id), eq(usersTable.isActive, true)))
+        .limit(1);
+      isAdmin = deriveUserRole(dbUser?.membershipTier, dbUser?.isAdmin) === "admin";
+    }
+  }
 
   if (!isAdmin) {
     const clientIp = getClientIp(req);
