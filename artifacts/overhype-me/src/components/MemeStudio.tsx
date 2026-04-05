@@ -254,7 +254,8 @@ function VideoTab({ factId, factText, pexelsImages, aiMemeImages, initialImageDa
       if (imageUrl.startsWith("data:")) {
         body.imageBase64 = imageUrl;
       } else {
-        body.imageUrl = imageUrl;
+        const absoluteUrl = imageUrl.startsWith("/") ? `${window.location.origin}${imageUrl}` : imageUrl;
+        body.imageUrl = absoluteUrl;
       }
       const res = await fetch("/api/videos/generate-prompt", {
         method: "POST",
@@ -295,7 +296,7 @@ function VideoTab({ factId, factText, pexelsImages, aiMemeImages, initialImageDa
       if (selectedBgUrl.startsWith("data:")) {
         body.imageBase64 = selectedBgUrl;
       } else {
-        body.imageUrl = selectedBgUrl;
+        body.imageUrl = selectedBgUrl.startsWith("/") ? `${window.location.origin}${selectedBgUrl}` : selectedBgUrl;
       }
 
       if (isAdmin) {
