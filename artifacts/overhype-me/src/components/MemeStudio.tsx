@@ -143,12 +143,56 @@ function StyleCard({
 
 // ─── Available Kling video models ────────────────────────────────────────────
 
-const KLING_VIDEO_MODELS: { value: string; label: string }[] = [
-  { value: "fal-ai/kling-video/v2.6/standard/image-to-video", label: "Kling v2.6 Standard (default)" },
-  { value: "fal-ai/kling-video/v2.6/pro/image-to-video", label: "Kling v2.6 Pro" },
-  { value: "fal-ai/kling-video/v1.6/standard/image-to-video", label: "Kling v1.6 Standard" },
-  { value: "fal-ai/kling-video/v1.6/pro/image-to-video", label: "Kling v1.6 Pro" },
-  { value: "fal-ai/kling-video/v1.5/pro/image-to-video", label: "Kling v1.5 Pro" },
+const FAL_VIDEO_MODELS_ADMIN: { value: string; label: string }[] = [
+  // Kling
+  { value: "fal-ai/kling-video/v3/pro/image-to-video",           label: "Kling v3 Pro — 1080p, audio" },
+  { value: "fal-ai/kling-video/v2.6/pro/image-to-video",         label: "Kling v2.6 Pro" },
+  { value: "fal-ai/kling-video/v2.5-turbo/pro/image-to-video",   label: "Kling v2.5 Turbo Pro" },
+  { value: "fal-ai/kling-video/v2.1/master/image-to-video",      label: "Kling v2.1 Master — 1080p" },
+  { value: "fal-ai/kling-video/v2.1/pro/image-to-video",         label: "Kling v2.1 Pro — 1080p" },
+  { value: "fal-ai/kling-video/v2.1/standard/image-to-video",    label: "Kling v2.1 Standard — default" },
+  { value: "fal-ai/kling-video/v1.6/pro/image-to-video",         label: "Kling v1.6 Pro — 1080p" },
+  { value: "fal-ai/kling-video/v1.6/standard/image-to-video",    label: "Kling v1.6 Standard — 720p" },
+  // Seedance
+  { value: "fal-ai/bytedance/seedance/v1.5/pro/image-to-video",  label: "Seedance 1.5 Pro (ByteDance)" },
+  // Google Veo
+  { value: "fal-ai/veo3.1/image-to-video",                       label: "Veo 3.1 (Google) — top quality" },
+  { value: "fal-ai/veo3.1/fast/image-to-video",                  label: "Veo 3.1 Fast (Google)" },
+  { value: "fal-ai/veo3.1/lite/image-to-video",                  label: "Veo 3.1 Lite (Google)" },
+  { value: "fal-ai/veo3/image-to-video",                         label: "Veo 3 (Google)" },
+  { value: "fal-ai/veo2/image-to-video",                         label: "Veo 2 (Google) — 720p" },
+  // OpenAI
+  { value: "fal-ai/sora-2/image-to-video",                       label: "Sora 2 (OpenAI)" },
+  // Runway
+  { value: "fal-ai/runway/gen4-turbo/image-to-video",            label: "Runway Gen-4 Turbo — 1080p" },
+  { value: "fal-ai/runway-gen3/turbo/image-to-video",            label: "Runway Gen-3 Alpha Turbo — 720p" },
+  // Luma
+  { value: "fal-ai/luma-dream-machine/ray-2/image-to-video",     label: "Luma Ray 2 (Dream Machine) — 720p" },
+  { value: "fal-ai/luma-dream-machine/ray-flash-2/image-to-video", label: "Luma Ray Flash 2 — fast" },
+  // MiniMax / Hailuo
+  { value: "fal-ai/minimax/hailuo-2.3-pro/image-to-video",       label: "Hailuo 2.3 Pro (MiniMax) — 1080p" },
+  { value: "fal-ai/minimax/hailuo-2.3/image-to-video",           label: "Hailuo 2.3 Standard (MiniMax) — 768p" },
+  { value: "fal-ai/minimax/hailuo-02/standard/image-to-video",   label: "Hailuo 02 Standard (MiniMax)" },
+  { value: "fal-ai/minimax/video-01-live/image-to-video",        label: "MiniMax Video-01 Live" },
+  { value: "fal-ai/minimax/video-01/image-to-video",             label: "MiniMax Video-01" },
+  // PixVerse
+  { value: "fal-ai/pixverse/v6/image-to-video",                  label: "PixVerse v6 — 1080p" },
+  { value: "fal-ai/pixverse/v5.5/image-to-video",                label: "PixVerse v5.5" },
+  { value: "fal-ai/pixverse/v5/image-to-video",                  label: "PixVerse v5" },
+  { value: "fal-ai/pixverse/v4.5/image-to-video",                label: "PixVerse v4.5 — 720p" },
+  // WAN
+  { value: "fal-ai/wan/v2.7/image-to-video",                     label: "WAN 2.7 — latest" },
+  { value: "fal-ai/wan/v2.2-a14b/image-to-video",                label: "WAN 2.2 (A14B)" },
+  { value: "fal-ai/wan/v2.2/image-to-video",                     label: "WAN 2.2" },
+  { value: "fal-ai/wan-pro/image-to-video",                      label: "WAN 2.1 Pro — 1080p" },
+  { value: "fal-ai/wan-i2v",                                     label: "WAN 2.1" },
+  // LTX
+  { value: "fal-ai/ltx-2-19b/image-to-video",                    label: "LTX-2 19B" },
+  { value: "fal-ai/ltx-video-13b-distilled/image-to-video",      label: "LTX-Video 13B Distilled" },
+  // Open source
+  { value: "fal-ai/hunyuan-video/image-to-video",                label: "HunyuanVideo (Tencent)" },
+  { value: "fal-ai/cogvideox-5b/image-to-video",                 label: "CogVideoX-5B — open source" },
+  { value: "fal-ai/stable-video",                                label: "Stable Video Diffusion — lightweight" },
 ];
 
 // ─── Image source types for VideoTab ─────────────────────────────────────────
@@ -207,7 +251,7 @@ function VideoTab({ factId, factText, pexelsImages, aiMemeImages, initialImageDa
   const [isLoadingGallery, setIsLoadingGallery] = useState(false);
 
   // ── Admin controls ─────────────────────────────────────────────────────────
-  const [selectedModel, setSelectedModel] = useState(KLING_VIDEO_MODELS[0]!.value);
+  const [selectedModel, setSelectedModel] = useState(FAL_VIDEO_MODELS_ADMIN[0]!.value);
   const [motionPrompt, setMotionPrompt] = useState("");
   const [isGeneratingPrompt, setIsGeneratingPrompt] = useState(false);
 
@@ -687,7 +731,7 @@ function VideoTab({ factId, factText, pexelsImages, aiMemeImages, initialImageDa
                   onChange={(e) => setSelectedModel(e.target.value)}
                   className="w-full bg-background border border-border text-foreground text-xs rounded-sm px-2 py-1.5 focus:outline-none focus:border-amber-500/60 transition-colors"
                 >
-                  {KLING_VIDEO_MODELS.map((m) => (
+                  {FAL_VIDEO_MODELS_ADMIN.map((m) => (
                     <option key={m.value} value={m.value}>{m.label}</option>
                   ))}
                 </select>
