@@ -252,25 +252,29 @@ router.post("/videos/generate", async (req, res) => {
     return;
   }
 
-  const clientIp = getClientIp(req);
-  const windowStart = new Date(Date.now() - RATE_LIMIT_WINDOW_MS);
+  const isAdmin = req.isAuthenticated() && req.user?.role === "admin";
 
-  const recentJobs = await db
-    .select({ id: videoJobsTable.id })
-    .from(videoJobsTable)
-    .where(
-      and(
-        eq(videoJobsTable.ipAddress, clientIp),
-        gte(videoJobsTable.createdAt, windowStart),
-      ),
-    );
+  if (!isAdmin) {
+    const clientIp = getClientIp(req);
+    const windowStart = new Date(Date.now() - RATE_LIMIT_WINDOW_MS);
 
-  if (recentJobs.length >= RATE_LIMIT_MAX) {
-    res.status(429).json({
-      error:
-        "Rate limit exceeded. You have generated 3 videos in the past 24 hours. Please try again later.",
-    });
-    return;
+    const recentJobs = await db
+      .select({ id: videoJobsTable.id })
+      .from(videoJobsTable)
+      .where(
+        and(
+          eq(videoJobsTable.ipAddress, clientIp),
+          gte(videoJobsTable.createdAt, windowStart),
+        ),
+      );
+
+    if (recentJobs.length >= RATE_LIMIT_MAX) {
+      res.status(429).json({
+        error:
+          "Rate limit exceeded. You have generated 3 videos in the past 24 hours. Please try again later.",
+      });
+      return;
+    }
   }
 
   fal.config({ credentials: apiKey });
