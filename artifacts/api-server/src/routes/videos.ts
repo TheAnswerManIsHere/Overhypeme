@@ -299,6 +299,14 @@ router.post("/videos/generate", async (req, res) => {
   const videoDuration = await getConfigString("video_duration", "5") || "5";
   const videoAspectRatio = await getConfigString("video_aspect_ratio", "16:9") || "16:9";
 
+  console.log("[videos/generate] Calling fal.subscribe", {
+    videoModel,
+    videoDuration,
+    videoAspectRatio,
+    imageUrl: imageUrl?.slice(0, 120),
+    motionPromptLen: motionPrompt.length,
+  });
+
   try {
     const result = await fal.subscribe(
       videoModel,
@@ -363,6 +371,11 @@ router.post("/videos/generate", async (req, res) => {
       .set({ status: "failed" })
       .where(eq(videoJobsTable.id, job.id));
     const message = err instanceof Error ? err.message : "Unknown error";
+    console.error("[videos/generate] fal.subscribe failed", {
+      model: videoModel,
+      message,
+      body: err instanceof Error ? undefined : JSON.stringify(err).slice(0, 500),
+    });
     res
       .status(500)
       .json({ error: `Video generation failed: ${message}` });

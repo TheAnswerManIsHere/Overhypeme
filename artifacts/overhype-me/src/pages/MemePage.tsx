@@ -120,7 +120,10 @@ export default function MemePage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ imageUrl: meme.imageUrl, factId: meme.factId }),
+        body: JSON.stringify({
+          imageUrl: meme.imageUrl.startsWith("/") ? `${window.location.origin}${meme.imageUrl}` : meme.imageUrl,
+          factId: meme.factId,
+        }),
       });
       const body = await res.json() as { videoUrl?: string; error?: string };
       if (res.status === 429) {
