@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback, createContext, useContext } from "react";
 import { AdminLayout } from "@/components/admin/AdminLayout";
 import {
-  Settings, Clock, Check, AlertCircle, Loader2, Palette, Bug, X, Bot,
+  Settings, Clock, Check, AlertCircle, Loader2, Palette, Bug, X, Bot, Film,
 } from "lucide-react";
 import { IMAGE_STYLES } from "@/config/imageStyles";
 
@@ -97,6 +97,27 @@ const OPENAI_CHAT_MODELS: { value: string; label: string }[] = [
   { value: "o3-mini",            label: "o3-mini" },
 ];
 
+const FAL_VIDEO_MODELS: { value: string; label: string }[] = [
+  { value: "fal-ai/kling-video/v2.1/standard/image-to-video", label: "Kling v2.1 Standard (default)" },
+  { value: "fal-ai/kling-video/v2.1/pro/image-to-video",      label: "Kling v2.1 Pro" },
+  { value: "fal-ai/kling-video/v1.6/standard/image-to-video", label: "Kling v1.6 Standard" },
+  { value: "fal-ai/kling-video/v1.6/pro/image-to-video",      label: "Kling v1.6 Pro" },
+  { value: "fal-ai/kling-video/v1.5/standard/image-to-video", label: "Kling v1.5 Standard" },
+  { value: "fal-ai/kling-video/v1.5/pro/image-to-video",      label: "Kling v1.5 Pro" },
+  { value: "fal-ai/kling-video/v1/standard/image-to-video",   label: "Kling v1 Standard" },
+];
+
+const FAL_VIDEO_DURATION: { value: string; label: string }[] = [
+  { value: "5",  label: "5 seconds (default)" },
+  { value: "10", label: "10 seconds" },
+];
+
+const FAL_VIDEO_ASPECT_RATIO: { value: string; label: string }[] = [
+  { value: "16:9", label: "16:9 — Widescreen (default)" },
+  { value: "9:16", label: "9:16 — Vertical / Portrait" },
+  { value: "1:1",  label: "1:1 — Square" },
+];
+
 const FLOAT_TEXT_CONFIGS = new Set([
   "ai_scene_prompt_temperature",
 ]);
@@ -110,6 +131,9 @@ const SELECT_CONFIGS: Record<string, { value: string; label: string }[]> = {
   ai_std_aspect_ratio:       FAL_ASPECT_RATIO,
   ai_std_ultra_raw:          FAL_RAW_MODE,
   ai_scene_prompt_model:     OPENAI_CHAT_MODELS,
+  video_model:               FAL_VIDEO_MODELS,
+  video_duration:            FAL_VIDEO_DURATION,
+  video_aspect_ratio:        FAL_VIDEO_ASPECT_RATIO,
 };
 
 interface ParamDef { key: string }
@@ -178,6 +202,7 @@ const MODEL_CONFIG_KEYS = new Set([
   "ai_ref_pulid_true_cfg_scale", "ai_ref_pulid_start_step", "ai_pulid_composition_suffix",
   "ai_pulid_id_scale_pct",
   "ai_scene_prompt_model", "ai_scene_prompt_max_tokens", "ai_scene_prompt_temperature",
+  "video_model", "video_duration", "video_aspect_ratio", "video_prompt_system_prompt",
 ]);
 
 // ── Shared context ────────────────────────────────────────────────────────────
@@ -836,6 +861,24 @@ export default function AdminConfig() {
                   <ModelParamRow paramKey="ai_scene_prompt_model" />
                   <ModelParamRow paramKey="ai_scene_prompt_max_tokens" />
                   <ModelParamRow paramKey="ai_scene_prompt_temperature" />
+                </div>
+              </div>
+
+              {/* ── Video Generation ─────────────────────────────────────────── */}
+              <div className="bg-card border border-border rounded-lg p-5 space-y-5">
+                <div className="flex items-center gap-2">
+                  <Film className="w-4 h-4 text-muted-foreground" />
+                  <h3 className="font-semibold text-foreground">Video Generation</h3>
+                </div>
+                <p className="text-sm text-muted-foreground -mt-2">
+                  fal.ai Kling model and generation parameters for video creation.
+                </p>
+
+                <div className="space-y-4">
+                  <ModelParamRow paramKey="video_model" />
+                  <ModelParamRow paramKey="video_duration" />
+                  <ModelParamRow paramKey="video_aspect_ratio" />
+                  <ModelParamRow paramKey="video_prompt_system_prompt" />
                 </div>
               </div>
 
