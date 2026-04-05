@@ -8,6 +8,7 @@ import { getOpenAIClient } from "@workspace/integrations-openai-ai-server";
 import { VIDEO_STYLE_MAP } from "../config/videoStyles.js";
 import { getConfigString } from "../lib/adminConfig.js";
 import { requireAdmin } from "./admin.js";
+import { ObjectStorageService } from "../lib/objectStorage.js";
 
 const router: IRouter = Router();
 
@@ -84,6 +85,47 @@ function resolveImageUrl(raw: string | undefined, req: Request): string | undefi
   return raw;
 }
 
+const _objectStorage = new ObjectStorageService();
+
+function extractStoragePathFromUrl(imageUrl: string): string | null {
+  try {
+    const u = new URL(imageUrl);
+    if (!u.pathname.includes("/memes/ai-user/image")) return null;
+    return u.searchParams.get("storagePath");
+  } catch {
+    return null;
+  }
+}
+
+async function fetchPrivateImageAsBase64(imageUrl: string): Promise<string | null> {
+  const storagePath = extractStoragePathFromUrl(imageUrl);
+  if (!storagePath) return null;
+  try {
+    const normalized = _objectStorage.normalizeObjectEntityPath(storagePath);
+    const file = await _objectStorage.getObjectEntityFile(normalized);
+    const response = await _objectStorage.downloadObject(file, 60);
+    const buf = Buffer.from(await response.arrayBuffer());
+    return `data:image/png;base64,${buf.toString("base64")}`;
+  } catch {
+    return null;
+  }
+}
+
+async function uploadPrivateImageToFalCdn(imageUrl: string): Promise<string | null> {
+  const storagePath = extractStoragePathFromUrl(imageUrl);
+  if (!storagePath) return null;
+  try {
+    const normalized = _objectStorage.normalizeObjectEntityPath(storagePath);
+    const file = await _objectStorage.getObjectEntityFile(normalized);
+    const response = await _objectStorage.downloadObject(file, 60);
+    const buf = Buffer.from(await response.arrayBuffer());
+    const blob = new Blob([buf], { type: "image/png" });
+    return await fal.storage.upload(blob, { lifecycle: { expiresIn: "1h" } });
+  } catch {
+    return null;
+  }
+}
+
 router.post("/videos/generate-prompt", requireAdmin, async (req, res) => {
   const parsed = GeneratePromptBody.safeParse(req.body);
   if (!parsed.success) {
@@ -122,12 +164,14 @@ router.post("/videos/generate-prompt", requireAdmin, async (req, res) => {
       });
     } else if (parsed.data.imageUrl) {
       const resolved = resolveImageUrl(parsed.data.imageUrl, req)!;
+      const base64FromStorage = await fetchPrivateImageAsBase64(resolved);
+      const imageUrlForOpenAI = base64FromStorage ?? resolved;
       messages.push({
         role: "user",
         content: [
           {
             type: "image_url",
-            image_url: { url: resolved, detail: "low" },
+            image_url: { url: imageUrlForOpenAI, detail: "low" },
           },
           {
             type: "text",
@@ -232,6 +276,11 @@ router.post("/videos/generate", async (req, res) => {
   fal.config({ credentials: apiKey });
 
   let imageUrl = resolveImageUrl(parsed.data.imageUrl, req);
+
+  if (imageUrl) {
+    const cdnUrl = await uploadPrivateImageToFalCdn(imageUrl);
+    if (cdnUrl) imageUrl = cdnUrl;
+  }
 
   if (!imageUrl && parsed.data.imageBase64) {
     try {
