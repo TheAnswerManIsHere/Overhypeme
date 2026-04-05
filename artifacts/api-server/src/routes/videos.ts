@@ -76,6 +76,10 @@ const GeneratePromptBody = z.object({
 router.post("/videos/generate-prompt", requireAdmin, async (req, res) => {
   const parsed = GeneratePromptBody.safeParse(req.body);
   if (!parsed.success) {
+    console.error("[videos/generate-prompt] Validation failed. Body keys:", Object.keys(req.body ?? {}),
+      "imageUrl:", (req.body as Record<string, unknown>)?.imageUrl,
+      "hasBase64:", !!(req.body as Record<string, unknown>)?.imageBase64,
+      "errors:", JSON.stringify(parsed.error.flatten()));
     res.status(400).json({ error: "Invalid request", details: parsed.error.flatten() });
     return;
   }
@@ -181,6 +185,11 @@ router.post("/videos/generate", async (req, res) => {
 
   const parsed = GenerateVideoBody.safeParse(req.body);
   if (!parsed.success) {
+    console.error("[videos/generate] Validation failed. Body keys:", Object.keys(req.body ?? {}),
+      "imageUrl:", (req.body as Record<string, unknown>)?.imageUrl,
+      "hasBase64:", !!(req.body as Record<string, unknown>)?.imageBase64,
+      "factId:", (req.body as Record<string, unknown>)?.factId,
+      "errors:", JSON.stringify(parsed.error.flatten()));
     res
       .status(400)
       .json({ error: "Invalid request", details: parsed.error.flatten() });
