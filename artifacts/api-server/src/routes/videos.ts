@@ -271,8 +271,9 @@ router.post("/videos/generate", async (req, res) => {
     }
   }
 
+  const clientIp = getClientIp(req);
+
   if (!isAdmin) {
-    const clientIp = getClientIp(req);
     const windowStart = new Date(Date.now() - RATE_LIMIT_WINDOW_MS);
 
     const recentJobs = await db
