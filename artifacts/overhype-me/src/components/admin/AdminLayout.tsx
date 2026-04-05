@@ -13,6 +13,8 @@ import {
   ShoppingBag,
   ClipboardList,
   Settings,
+  PanelLeftClose,
+  PanelLeftOpen,
 } from "lucide-react";
 
 interface AdminLayoutProps {
@@ -31,12 +33,25 @@ const NAV_ITEMS = [
   { href: "/admin/config", label: "Configuration", icon: Settings, badge: false as const },
 ];
 
+const COLLAPSED_KEY = "admin_sidebar_collapsed";
+
 export function AdminLayout({ children, title }: AdminLayoutProps) {
   const [location] = useLocation();
   const { isAuthenticated, logout, isLoading } = useAuth();
   const [isAdmin, setIsAdmin] = useState<boolean | null>(null);
   const [pendingReviews, setPendingReviews] = useState(0);
   const [pendingComments, setPendingComments] = useState(0);
+  const [collapsed, setCollapsed] = useState(() => {
+    try { return localStorage.getItem(COLLAPSED_KEY) === "true"; } catch { return false; }
+  });
+
+  const toggleCollapsed = () => {
+    setCollapsed((v) => {
+      const next = !v;
+      try { localStorage.setItem(COLLAPSED_KEY, String(next)); } catch { /* ignore */ }
+      return next;
+    });
+  };
 
   useEffect(() => {
     if (isLoading) return;
@@ -97,14 +112,31 @@ export function AdminLayout({ children, title }: AdminLayoutProps) {
 
   return (
     <div className="min-h-screen bg-background flex">
-      <aside className="w-56 shrink-0 bg-card border-r border-border flex flex-col">
-        <div className="p-4 border-b border-border">
-          <div className="flex items-center gap-2">
-            <Shield className="w-5 h-5 text-primary" />
-            <span className="font-display font-bold text-foreground uppercase tracking-widest text-sm">
-              Admin
-            </span>
-          </div>
+      <aside
+        className={`shrink-0 bg-card border-r border-border flex flex-col transition-all duration-200 ${
+          collapsed ? "w-14" : "w-56"
+        }`}
+      >
+        <div className={`border-b border-border flex items-center ${collapsed ? "justify-center p-3" : "justify-between p-4"}`}>
+          {!collapsed && (
+            <div className="flex items-center gap-2 min-w-0">
+              <Shield className="w-5 h-5 text-primary shrink-0" />
+              <span className="font-display font-bold text-foreground uppercase tracking-widest text-sm truncate">
+                Admin
+              </span>
+            </div>
+          )}
+          <button
+            onClick={toggleCollapsed}
+            title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+            className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-muted transition-colors shrink-0"
+          >
+            {collapsed ? (
+              <PanelLeftOpen className="w-4 h-4" />
+            ) : (
+              <PanelLeftClose className="w-4 h-4" />
+            )}
+          </button>
         </div>
 
         <nav className="flex-1 p-2 space-y-1">
@@ -116,27 +148,40 @@ export function AdminLayout({ children, title }: AdminLayoutProps) {
             return (
               <Link key={href} href={href}>
                 <div
-                  className={`flex items-center gap-3 px-3 py-2.5 rounded-sm cursor-pointer transition-colors ${
+                  title={collapsed ? label : undefined}
+                  className={`flex items-center rounded-sm cursor-pointer transition-colors ${
+                    collapsed ? "justify-center px-2 py-2.5" : "gap-3 px-3 py-2.5"
+                  } ${
                     active
                       ? "bg-primary text-primary-foreground"
                       : "text-muted-foreground hover:text-foreground hover:bg-muted"
                   }`}
                 >
-                  <Icon className="w-4 h-4 shrink-0" />
-                  <span className="text-sm font-medium flex-1">{label}</span>
-                  {badgeCount > 0 && (
-                    <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full leading-none ${
-                      active ? "bg-primary-foreground/20 text-primary-foreground" : "bg-destructive text-destructive-foreground"
-                    }`}>
-                      {badgeCount}
-                    </span>
+                  <div className="relative shrink-0">
+                    <Icon className="w-4 h-4" />
+                    {collapsed && badgeCount > 0 && (
+                      <span className="absolute -top-1.5 -right-1.5 w-3.5 h-3.5 flex items-center justify-center text-[8px] font-bold rounded-full bg-destructive text-destructive-foreground leading-none">
+                        {badgeCount > 9 ? "9+" : badgeCount}
+                      </span>
+                    )}
+                  </div>
+                  {!collapsed && (
+                    <>
+                      <span className="text-sm font-medium flex-1">{label}</span>
+                      {badgeCount > 0 && (
+                        <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full leading-none ${
+                          active ? "bg-primary-foreground/20 text-primary-foreground" : "bg-destructive text-destructive-foreground"
+                        }`}>
+                          {badgeCount}
+                        </span>
+                      )}
+                    </>
                   )}
                 </div>
               </Link>
             );
           })}
         </nav>
-
       </aside>
 
       <main className="flex-1 min-w-0 flex flex-col">
