@@ -55,7 +55,7 @@ async function generateMotionPrompt(factText: string): Promise<string> {
 
 const GenerateVideoBody = z
   .object({
-    imageUrl: z.string().url().optional(),
+    imageUrl: z.string().optional(),
     imageBase64: z.string().optional(),
     factId: z.number().int().positive(),
     motionPrompt: z.string().max(500).optional(),
@@ -68,10 +68,21 @@ const GenerateVideoBody = z
 
 const GeneratePromptBody = z.object({
   imageBase64: z.string().optional(),
-  imageUrl: z.string().url().optional(),
+  imageUrl: z.string().optional(),
 }).refine((data) => data.imageBase64 || data.imageUrl, {
   message: "Either imageBase64 or imageUrl must be provided",
 });
+
+function resolveImageUrl(raw: string | undefined, req: Request): string | undefined {
+  if (!raw) return undefined;
+  if (raw.startsWith("http://") || raw.startsWith("https://")) return raw;
+  if (raw.startsWith("/")) {
+    const proto = req.get("x-forwarded-proto") || "https";
+    const host = req.get("host") || "localhost";
+    return `${proto}://${host}${raw}`;
+  }
+  return raw;
+}
 
 router.post("/videos/generate-prompt", requireAdmin, async (req, res) => {
   const parsed = GeneratePromptBody.safeParse(req.body);
@@ -110,12 +121,13 @@ router.post("/videos/generate-prompt", requireAdmin, async (req, res) => {
         ],
       });
     } else if (parsed.data.imageUrl) {
+      const resolved = resolveImageUrl(parsed.data.imageUrl, req)!;
       messages.push({
         role: "user",
         content: [
           {
             type: "image_url",
-            image_url: { url: parsed.data.imageUrl, detail: "low" },
+            image_url: { url: resolved, detail: "low" },
           },
           {
             type: "text",
@@ -219,7 +231,7 @@ router.post("/videos/generate", async (req, res) => {
 
   fal.config({ credentials: apiKey });
 
-  let imageUrl = parsed.data.imageUrl;
+  let imageUrl = resolveImageUrl(parsed.data.imageUrl, req);
 
   if (!imageUrl && parsed.data.imageBase64) {
     try {
