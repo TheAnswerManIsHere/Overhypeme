@@ -20,6 +20,7 @@ import { VIDEO_STYLES, type VideoStyleDef } from "@/config/videoStyles";
 import type { AiMemeImages } from "@/components/MemeBuilder";
 import { AiBgPicker, type AiBgSelection } from "@/components/AiBgPicker";
 import { useAuth } from "@workspace/replit-auth-web";
+import { usePersonName } from "@/hooks/use-person-name";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -221,6 +222,7 @@ function VideoTab({ factId, factText, pexelsImages, aiMemeImages, initialImageDa
   const { role } = useAuth();
   const isAdmin = role === "admin";
   const isPremium = role === "premium" || role === "admin";
+  const { pronouns } = usePersonName();
 
   // Start at step 1 (background selection) unless we already have a pre-loaded image
   const [step, setStep] = useState<VideoStep>(initialImageDataUrl ? 2 : 1);
@@ -240,9 +242,16 @@ function VideoTab({ factId, factText, pexelsImages, aiMemeImages, initialImageDa
   const [selectedStockIndex, setSelectedStockIndex] = useState<number | null>(null);
 
   // AI background selection (via AiBgPicker)
-  const aiGender = (aiMemeImages?.neutral?.filter(Boolean).length ?? 0) > 0 ? "neutral"
-    : (aiMemeImages?.male?.filter(Boolean).length ?? 0) > 0 ? "male" : "female";
+  // factIsGendered: true when the fact has male/female images (not abstract)
   const factIsGendered = (aiMemeImages?.male?.filter(Boolean).length ?? 0) > 0 || (aiMemeImages?.female?.filter(Boolean).length ?? 0) > 0;
+  // aiGender: derive from the user's actual pronouns, same logic as MemeBuilder
+  const aiGender = ((): "male" | "female" | "neutral" => {
+    if (!factIsGendered) return "neutral";
+    const p = (pronouns ?? "").toLowerCase();
+    if (p.startsWith("he")) return "male";
+    if (p.startsWith("she")) return "female";
+    return "neutral";
+  })();
 
   // Upload
   const fileInputRef = useRef<HTMLInputElement>(null);
