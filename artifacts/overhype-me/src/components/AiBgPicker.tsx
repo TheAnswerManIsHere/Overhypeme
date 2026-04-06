@@ -231,6 +231,8 @@ export function AiBgPicker({
 
   // ── Sub-mode: generic / reference ──────────────────────────────────────────
   const [aiSubMode, setAiSubMode] = useState<"generic" | "reference">("generic");
+  // Whether the "Add New" form (photo picker + style + generate) is expanded
+  const [showAddForm, setShowAddForm] = useState(false);
 
   // ── Reference-generated images ─────────────────────────────────────────────
   const [refGenImages, setRefGenImages] = useState<RefGenImage[]>([]);
@@ -541,6 +543,7 @@ export function AiBgPicker({
                   setAiGenState("completed");
                   setGenerationProgress(0);
                   setGenerationElapsed(0);
+                  setShowAddForm(false);
                 }, 400);
                 fetch(`/api/memes/ai/${factId}/prompts`, { credentials: "include" })
                   .then(r => r.ok ? r.json() : null)
@@ -590,6 +593,7 @@ export function AiBgPicker({
                   setAiGenState("completed");
                   setGenerationProgress(0);
                   setGenerationElapsed(0);
+                  setShowAddForm(false);
                 }, 400);
                 fetch(`/api/memes/ai/${factId}/prompts`, { credentials: "include" })
                   .then(r => r.ok ? r.json() : null)
@@ -646,7 +650,7 @@ export function AiBgPicker({
       {/* Sub-mode toggle: Generic / Reference Photo */}
       <div className="flex gap-1 p-0.5 bg-muted/40 rounded-sm">
         <button
-          onClick={() => { setAiSubMode("generic"); setAiGenerateError(null); }}
+          onClick={() => { setAiSubMode("generic"); setAiGenerateError(null); setShowAddForm(false); }}
           className={`flex-1 text-[10px] font-display uppercase tracking-widest py-1 rounded-sm transition-colors ${
             aiSubMode === "generic" ? "bg-violet-500 text-white" : "text-muted-foreground hover:text-foreground"
           }`}
@@ -654,7 +658,7 @@ export function AiBgPicker({
           Generic
         </button>
         <button
-          onClick={() => { setAiSubMode("reference"); setAiGenerateError(null); }}
+          onClick={() => { setAiSubMode("reference"); setAiGenerateError(null); setShowAddForm(false); }}
           className={`flex-1 text-[10px] font-display uppercase tracking-widest py-1 rounded-sm transition-colors ${
             aiSubMode === "reference" ? "bg-violet-500 text-white" : "text-muted-foreground hover:text-foreground"
           }`}
@@ -696,6 +700,17 @@ export function AiBgPicker({
         )
       )}
 
+      {/* Generic sub-mode: Add New button */}
+      {aiSubMode === "generic" && !showAddForm && !isGenerating && (
+        <button
+          onClick={() => setShowAddForm(true)}
+          className="w-full flex items-center justify-center gap-1.5 py-1.5 text-[10px] font-display uppercase tracking-widest text-muted-foreground border border-dashed border-border hover:border-violet-400 hover:text-violet-400 transition-colors rounded-sm"
+        >
+          <Sparkles className="w-3 h-3" />
+          Add New
+        </button>
+      )}
+
       {/* Reference sub-mode: reference-generated images */}
       {aiSubMode === "reference" && (
         isLoadingRefGenImages ? (
@@ -728,14 +743,25 @@ export function AiBgPicker({
           <div className="flex flex-col items-center gap-2 py-4 text-center">
             <Sparkles className="w-8 h-8 text-violet-400/50" />
             <p className="text-xs text-muted-foreground">
-              No reference-generated images yet. Pick a photo below and click Generate New.
+              No reference-generated images yet. Click Add New to get started.
             </p>
           </div>
         )
       )}
 
-      {/* Reference photo picker */}
-      {aiSubMode === "reference" && (
+      {/* Reference sub-mode: Add New button */}
+      {aiSubMode === "reference" && !showAddForm && !isGenerating && (
+        <button
+          onClick={() => setShowAddForm(true)}
+          className="w-full flex items-center justify-center gap-1.5 py-1.5 text-[10px] font-display uppercase tracking-widest text-muted-foreground border border-dashed border-border hover:border-violet-400 hover:text-violet-400 transition-colors rounded-sm"
+        >
+          <Sparkles className="w-3 h-3" />
+          Add New
+        </button>
+      )}
+
+      {/* Reference photo picker — only shown when Add New form is open */}
+      {aiSubMode === "reference" && showAddForm && (
         <div className="space-y-2">
           <p className="text-[10px] font-display uppercase tracking-widest text-muted-foreground">
             Pick a reference photo
@@ -802,8 +828,8 @@ export function AiBgPicker({
         </div>
       )}
 
-      {/* Style picker (optional) */}
-      {showStylePicker && (
+      {/* Style picker (optional) — only shown when Add New form is open */}
+      {showStylePicker && showAddForm && (
         <div className="space-y-1">
           <p className="text-[10px] font-display uppercase tracking-widest text-muted-foreground">Style</p>
           <select
@@ -818,8 +844,8 @@ export function AiBgPicker({
         </div>
       )}
 
-      {/* Generate New button row */}
-      <div className="flex items-center gap-2 flex-wrap">
+      {/* Generate New button row — shown when Add New form is open or generation is in progress */}
+      {(showAddForm || isGenerating) && <div className="flex items-center gap-2 flex-wrap">
         <Button
           size="sm"
           variant="outline"
@@ -863,10 +889,10 @@ export function AiBgPicker({
               : isGendered ? "3 images (gendered)" : "1 image (abstract)"}
           </span>
         )}
-      </div>
+      </div>}
 
-      {/* Admin debug: prompt preview + fal.ai call */}
-      {isAdmin && (() => {
+      {/* Admin debug: prompt preview + fal.ai call — shown when Add New form is open */}
+      {isAdmin && showAddForm && (() => {
         const styleDef = IMAGE_STYLES.find(s => s.id === selectedStyleId);
         const suffix = sceneDebug?.styleSuffix
           ?? (aiSubMode === "reference" ? (styleDef?.promptSuffixReference ?? "") : (styleDef?.promptSuffix ?? ""));
