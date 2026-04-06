@@ -196,6 +196,61 @@ const FAL_VIDEO_MODELS_ADMIN: { value: string; label: string }[] = [
   { value: "fal-ai/stable-video",                                label: "Stable Video Diffusion — lightweight" },
 ];
 
+// ─── Per-model parameter spec ─────────────────────────────────────────────────
+
+interface ModelParamSpec {
+  duration?: string[];
+  aspectRatio?: string[];
+  cfgScale?: { min: number; max: number; step: number; default: number };
+  negativePrompt?: boolean;
+  seed?: boolean;
+  resolution?: string[];
+  loop?: boolean;
+}
+
+function getModelParamSpec(model: string): ModelParamSpec {
+  if (model.includes("/kling-video/")) {
+    return { duration: ["5", "10"], aspectRatio: ["16:9", "9:16", "1:1"], cfgScale: { min: 0, max: 1, step: 0.05, default: 0.5 } };
+  }
+  if (model.includes("/bytedance/seedance/")) {
+    return { duration: ["5", "10"], aspectRatio: ["16:9", "9:16", "1:1"], resolution: ["720p", "1080p"] };
+  }
+  if (model.includes("/veo3.1/")) {
+    return { duration: ["5", "6", "7", "8"], aspectRatio: ["16:9", "9:16"], negativePrompt: true };
+  }
+  if (model.includes("/veo3/") || model.includes("/veo2/")) {
+    return { aspectRatio: ["16:9", "9:16"] };
+  }
+  if (model.includes("/sora-2/")) {
+    return { duration: ["5", "10", "15", "20"], aspectRatio: ["16:9", "1:1", "9:16"], resolution: ["480p", "720p", "1080p"] };
+  }
+  if (model.includes("/runway/gen4-turbo/") || model.includes("/runway-gen3/")) {
+    return { duration: ["5", "10"], seed: true };
+  }
+  if (model.includes("/luma-dream-machine/")) {
+    return { duration: ["5", "8", "9", "10"], aspectRatio: ["16:9", "9:16", "1:1", "4:3", "3:4"], loop: true };
+  }
+  if (model.includes("/minimax/hailuo-2.3") || model.includes("/minimax/hailuo-02")) {
+    return { duration: ["5", "10"], aspectRatio: ["16:9", "9:16", "1:1"] };
+  }
+  if (model.includes("/minimax/video-01")) {
+    return { aspectRatio: ["16:9", "9:16", "1:1"] };
+  }
+  if (model.includes("/pixverse/")) {
+    return { duration: ["4", "8"], aspectRatio: ["16:9", "9:16", "1:1", "4:3"], negativePrompt: true, seed: true };
+  }
+  if (model.startsWith("fal-ai/wan") || model.includes("/wan/")) {
+    return { duration: ["5"], aspectRatio: ["16:9", "9:16"], negativePrompt: true };
+  }
+  if (model.includes("/ltx-")) {
+    return { duration: ["3", "5", "7"], aspectRatio: ["16:9"], negativePrompt: true };
+  }
+  if (model.includes("/hunyuan-video/")) {
+    return { aspectRatio: ["16:9", "9:16"] };
+  }
+  return { duration: ["5", "10"], aspectRatio: ["16:9", "9:16", "1:1"] };
+}
+
 // ─── Image source types for VideoTab ─────────────────────────────────────────
 
 type VideoImageMode = "stock" | "ai" | "upload";
@@ -264,6 +319,15 @@ function VideoTab({ factId, factText, pexelsImages, aiMemeImages, initialImageDa
   const [motionPrompt, setMotionPrompt] = useState("");
   const [isGeneratingPrompt, setIsGeneratingPrompt] = useState(false);
 
+  // Admin per-model params (reset when model changes)
+  const [adminDuration, setAdminDuration] = useState("5");
+  const [adminAspectRatio, setAdminAspectRatio] = useState("16:9");
+  const [adminCfgScale, setAdminCfgScale] = useState(0.5);
+  const [adminNegativePrompt, setAdminNegativePrompt] = useState("");
+  const [adminSeed, setAdminSeed] = useState("");
+  const [adminResolution, setAdminResolution] = useState("");
+  const [adminLoop, setAdminLoop] = useState(false);
+
   const selectedStyle = VIDEO_STYLES.find((s) => s.id === selectedStyleId) ?? VIDEO_STYLES[0]!;
 
   // ── Load prefetched Pexels photos on mount ────────────────────────────────
@@ -327,6 +391,19 @@ function VideoTab({ factId, factText, pexelsImages, aiMemeImages, initialImageDa
     }
   }, [isAdmin]);
 
+  // Reset per-model params when the model changes
+  useEffect(() => {
+    if (!isAdmin) return;
+    const spec = getModelParamSpec(selectedModel);
+    setAdminDuration(spec.duration?.[0] ?? "5");
+    setAdminAspectRatio(spec.aspectRatio?.[0] ?? "16:9");
+    setAdminCfgScale(spec.cfgScale?.default ?? 0.5);
+    setAdminNegativePrompt("");
+    setAdminSeed("");
+    setAdminResolution(spec.resolution?.[0] ?? "");
+    setAdminLoop(false);
+  }, [selectedModel, isAdmin]);
+
   const goToStep3 = useCallback(() => {
     setStep(3);
     if (isAdmin && selectedBgUrl && !motionPrompt) {
@@ -355,6 +432,17 @@ function VideoTab({ factId, factText, pexelsImages, aiMemeImages, initialImageDa
       if (isAdmin) {
         if (motionPrompt.trim()) body.motionPrompt = motionPrompt.trim();
         body.videoModel = selectedModel;
+        const spec = getModelParamSpec(selectedModel);
+        body.adminDuration = adminDuration;
+        body.adminAspectRatio = adminAspectRatio;
+        if (spec.cfgScale) body.adminCfgScale = adminCfgScale;
+        if (spec.negativePrompt && adminNegativePrompt.trim()) body.adminNegativePrompt = adminNegativePrompt.trim();
+        if (spec.seed && adminSeed.trim()) {
+          const seedNum = parseInt(adminSeed.trim(), 10);
+          if (!isNaN(seedNum)) body.adminSeed = seedNum;
+        }
+        if (spec.resolution && adminResolution) body.adminResolution = adminResolution;
+        if (spec.loop) body.adminLoop = adminLoop;
       }
 
       const res = await fetch("/api/videos/generate", {
@@ -704,7 +792,7 @@ function VideoTab({ factId, factText, pexelsImages, aiMemeImages, initialImageDa
                 <img
                   src={selectedBgUrl}
                   alt="Background"
-                  className="w-full h-16 object-cover border border-border"
+                  className="w-full h-auto max-h-48 object-contain border border-border"
                 />
               )}
               {selectedBgLabel && (
@@ -726,64 +814,185 @@ function VideoTab({ factId, factText, pexelsImages, aiMemeImages, initialImageDa
           </div>
 
           {/* Admin controls */}
-          {isAdmin && (
-            <div className="border border-amber-500/30 bg-amber-500/5 rounded-sm p-3 mb-4 space-y-3">
-              <p className="text-[10px] font-semibold text-amber-500 uppercase tracking-wider">Admin Controls</p>
+          {isAdmin && (() => {
+            const spec = getModelParamSpec(selectedModel);
+            const effectivePrompt = motionPrompt.trim() || `(${selectedStyle.label} style motion prompt)`;
+            const falPreviewInput: Record<string, unknown> = {
+              image_url: selectedBgUrl ? "(background image url)" : "(no image selected)",
+              prompt: effectivePrompt,
+              duration: adminDuration,
+              aspect_ratio: adminAspectRatio,
+            };
+            if (spec.cfgScale) falPreviewInput.cfg_scale = adminCfgScale;
+            if (spec.negativePrompt && adminNegativePrompt.trim()) falPreviewInput.negative_prompt = adminNegativePrompt.trim();
+            if (spec.seed && adminSeed.trim()) { const n = parseInt(adminSeed.trim(), 10); if (!isNaN(n)) falPreviewInput.seed = n; }
+            if (spec.resolution && adminResolution) falPreviewInput.resolution = adminResolution;
+            if (spec.loop) falPreviewInput.loop = adminLoop;
 
-              {/* Model selector */}
-              <div className="space-y-1">
-                <label className="text-[10px] font-display uppercase tracking-widest text-muted-foreground">
-                  Video Model
-                </label>
-                <select
-                  value={selectedModel}
-                  onChange={(e) => setSelectedModel(e.target.value)}
-                  className="w-full bg-background border border-border text-foreground text-xs rounded-sm px-2 py-1.5 focus:outline-none focus:border-amber-500/60 transition-colors"
-                >
-                  {FAL_VIDEO_MODELS_ADMIN.map((m) => (
-                    <option key={m.value} value={m.value}>{m.label}</option>
-                  ))}
-                </select>
-              </div>
+            return (
+              <div className="border border-amber-500/30 bg-amber-500/5 rounded-sm p-3 mb-4 space-y-3">
+                <p className="text-[10px] font-semibold text-amber-500 uppercase tracking-wider">Admin Controls</p>
 
-              {/* Motion prompt */}
-              <div className="space-y-1">
-                <div className="flex items-center justify-between">
-                  <label className="text-[10px] font-display uppercase tracking-widest text-muted-foreground">
-                    Motion Prompt
-                  </label>
-                  {isGeneratingPrompt && (
-                    <div className="flex items-center gap-1 text-[10px] text-amber-500">
-                      <Loader2 className="w-3 h-3 animate-spin" />
-                      Analyzing image…
+                {/* Model selector */}
+                <div className="space-y-1">
+                  <label className="text-[10px] font-display uppercase tracking-widest text-muted-foreground">Video Model</label>
+                  <select
+                    value={selectedModel}
+                    onChange={(e) => setSelectedModel(e.target.value)}
+                    className="w-full bg-background border border-border text-foreground text-xs rounded-sm px-2 py-1.5 focus:outline-none focus:border-amber-500/60 transition-colors"
+                  >
+                    {FAL_VIDEO_MODELS_ADMIN.map((m) => (
+                      <option key={m.value} value={m.value}>{m.label}</option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Per-model params */}
+                <div className="grid grid-cols-2 gap-2">
+                  {spec.duration && (
+                    <div className="space-y-0.5">
+                      <label className="text-[10px] font-display uppercase tracking-widest text-muted-foreground">Duration</label>
+                      <select
+                        value={adminDuration}
+                        onChange={(e) => setAdminDuration(e.target.value)}
+                        className="w-full bg-background border border-border text-foreground text-xs rounded-sm px-2 py-1.5 focus:outline-none focus:border-amber-500/60 transition-colors"
+                      >
+                        {spec.duration.map((d) => (
+                          <option key={d} value={d}>{d}s</option>
+                        ))}
+                      </select>
                     </div>
                   )}
-                  {!isGeneratingPrompt && selectedBgUrl && (
-                    <button
-                      onClick={() => {
-                        setMotionPrompt("");
-                        void generatePromptForImage(selectedBgUrl);
-                      }}
-                      className="text-[10px] text-muted-foreground hover:text-foreground flex items-center gap-1 transition-colors"
-                    >
-                      <RefreshCw className="w-2.5 h-2.5" />
-                      Regenerate
-                    </button>
+                  {spec.aspectRatio && (
+                    <div className="space-y-0.5">
+                      <label className="text-[10px] font-display uppercase tracking-widest text-muted-foreground">Aspect Ratio</label>
+                      <select
+                        value={adminAspectRatio}
+                        onChange={(e) => setAdminAspectRatio(e.target.value)}
+                        className="w-full bg-background border border-border text-foreground text-xs rounded-sm px-2 py-1.5 focus:outline-none focus:border-amber-500/60 transition-colors"
+                      >
+                        {spec.aspectRatio.map((r) => (
+                          <option key={r} value={r}>{r}</option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+                  {spec.resolution && (
+                    <div className="space-y-0.5">
+                      <label className="text-[10px] font-display uppercase tracking-widest text-muted-foreground">Resolution</label>
+                      <select
+                        value={adminResolution}
+                        onChange={(e) => setAdminResolution(e.target.value)}
+                        className="w-full bg-background border border-border text-foreground text-xs rounded-sm px-2 py-1.5 focus:outline-none focus:border-amber-500/60 transition-colors"
+                      >
+                        {spec.resolution.map((r) => (
+                          <option key={r} value={r}>{r}</option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+                  {spec.cfgScale && (
+                    <div className="space-y-0.5">
+                      <label className="text-[10px] font-display uppercase tracking-widest text-muted-foreground">
+                        CFG Scale: {adminCfgScale.toFixed(2)}
+                      </label>
+                      <input
+                        type="range"
+                        min={spec.cfgScale.min}
+                        max={spec.cfgScale.max}
+                        step={spec.cfgScale.step}
+                        value={adminCfgScale}
+                        onChange={(e) => setAdminCfgScale(parseFloat(e.target.value))}
+                        className="w-full accent-amber-500"
+                      />
+                    </div>
+                  )}
+                  {spec.seed && (
+                    <div className="space-y-0.5">
+                      <label className="text-[10px] font-display uppercase tracking-widest text-muted-foreground">Seed</label>
+                      <input
+                        type="number"
+                        min={0}
+                        value={adminSeed}
+                        onChange={(e) => setAdminSeed(e.target.value)}
+                        placeholder="random"
+                        className="w-full bg-background border border-border text-foreground text-xs rounded-sm px-2 py-1.5 focus:outline-none focus:border-amber-500/60 transition-colors placeholder:text-muted-foreground/40"
+                      />
+                    </div>
+                  )}
+                  {spec.loop && (
+                    <div className="flex items-center gap-2 pt-4">
+                      <input
+                        id="adminLoop"
+                        type="checkbox"
+                        checked={adminLoop}
+                        onChange={(e) => setAdminLoop(e.target.checked)}
+                        className="accent-amber-500"
+                      />
+                      <label htmlFor="adminLoop" className="text-[10px] font-display uppercase tracking-widest text-muted-foreground cursor-pointer">
+                        Loop
+                      </label>
+                    </div>
                   )}
                 </div>
-                <textarea
-                  rows={3}
-                  value={motionPrompt}
-                  onChange={(e) => setMotionPrompt(e.target.value)}
-                  placeholder={isGeneratingPrompt ? "Analyzing image to generate prompt…" : "Enter a motion prompt or wait for auto-generation…"}
-                  className="w-full bg-background border border-border text-foreground text-xs rounded-sm px-2 py-1.5 resize-y focus:outline-none focus:border-amber-500/60 transition-colors placeholder:text-muted-foreground/40"
-                />
-                <p className="text-[10px] text-muted-foreground/60">
-                  If left empty, the style-based prompt will be used.
-                </p>
+
+                {spec.negativePrompt && (
+                  <div className="space-y-0.5">
+                    <label className="text-[10px] font-display uppercase tracking-widest text-muted-foreground">Negative Prompt</label>
+                    <input
+                      type="text"
+                      value={adminNegativePrompt}
+                      onChange={(e) => setAdminNegativePrompt(e.target.value)}
+                      placeholder="Things to avoid…"
+                      className="w-full bg-background border border-border text-foreground text-xs rounded-sm px-2 py-1.5 focus:outline-none focus:border-amber-500/60 transition-colors placeholder:text-muted-foreground/40"
+                    />
+                  </div>
+                )}
+
+                {/* Motion prompt */}
+                <div className="space-y-1">
+                  <div className="flex items-center justify-between">
+                    <label className="text-[10px] font-display uppercase tracking-widest text-muted-foreground">Motion Prompt</label>
+                    {isGeneratingPrompt && (
+                      <div className="flex items-center gap-1 text-[10px] text-amber-500">
+                        <Loader2 className="w-3 h-3 animate-spin" />
+                        Analyzing image…
+                      </div>
+                    )}
+                    {!isGeneratingPrompt && selectedBgUrl && (
+                      <button
+                        onClick={() => { setMotionPrompt(""); void generatePromptForImage(selectedBgUrl); }}
+                        className="text-[10px] text-muted-foreground hover:text-foreground flex items-center gap-1 transition-colors"
+                      >
+                        <RefreshCw className="w-2.5 h-2.5" />
+                        Regenerate
+                      </button>
+                    )}
+                  </div>
+                  <textarea
+                    rows={3}
+                    value={motionPrompt}
+                    onChange={(e) => setMotionPrompt(e.target.value)}
+                    placeholder={isGeneratingPrompt ? "Analyzing image to generate prompt…" : "Enter a motion prompt or wait for auto-generation…"}
+                    className="w-full bg-background border border-border text-foreground text-xs rounded-sm px-2 py-1.5 resize-y focus:outline-none focus:border-amber-500/60 transition-colors placeholder:text-muted-foreground/40"
+                  />
+                  <p className="text-[10px] text-muted-foreground/60">
+                    If empty, the <strong>{selectedStyle.label}</strong> style prompt is used automatically.
+                  </p>
+                </div>
+
+                {/* fal.ai call preview */}
+                <div className="space-y-1">
+                  <p className="text-[10px] font-semibold text-amber-500/80 uppercase tracking-wider">fal.ai Call Preview</p>
+                  <pre className="text-[9px] leading-relaxed bg-black/50 border border-amber-500/20 p-2 rounded-sm overflow-auto font-mono text-amber-200/70 max-h-48 whitespace-pre-wrap break-all">
+{`fal.subscribe("${selectedModel}", {
+  input: ${JSON.stringify(falPreviewInput, null, 4)}
+})`}
+                  </pre>
+                </div>
               </div>
-            </div>
-          )}
+            );
+          })()}
 
           {videoState.status === "generating" && (
             <div className="flex items-center gap-3 px-4 py-3 bg-[#ff6b35]/10 border border-[#ff6b35]/30 text-sm text-[#ff6b35] mb-4">

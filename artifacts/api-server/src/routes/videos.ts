@@ -65,6 +65,14 @@ const GenerateVideoBody = z
     motionPrompt: z.string().max(500).optional(),
     styleId: z.string().optional(),
     videoModel: z.string().max(200).optional(),
+    // Admin-only per-request overrides
+    adminDuration: z.string().max(20).optional(),
+    adminAspectRatio: z.string().max(50).optional(),
+    adminCfgScale: z.number().min(0).max(1).optional(),
+    adminNegativePrompt: z.string().max(1000).optional(),
+    adminSeed: z.number().int().nonnegative().optional(),
+    adminResolution: z.string().max(50).optional(),
+    adminLoop: z.boolean().optional(),
   })
   .refine((data) => data.imageUrl || data.imageBase64, {
     message: "Either imageUrl or imageBase64 must be provided",
@@ -379,27 +387,37 @@ router.post("/videos/generate", async (req, res) => {
 
   const requestedModel = parsed.data.videoModel?.trim();
   const videoModel = requestedModel || await getConfigString("video_model", DEFAULT_VIDEO_MODEL) || DEFAULT_VIDEO_MODEL;
-  const videoDuration = await getConfigString("video_duration", "5") || "5";
-  const videoAspectRatio = await getConfigString("video_aspect_ratio", "16:9") || "16:9";
+
+  // Duration and aspect ratio: admin per-request values take priority, else DB config, else defaults
+  const videoDuration = (isAdmin && parsed.data.adminDuration) || await getConfigString("video_duration", "5") || "5";
+  const videoAspectRatio = (isAdmin && parsed.data.adminAspectRatio) || await getConfigString("video_aspect_ratio", "16:9") || "16:9";
+
+  // Build fal.ai input — start with base params, then apply admin extras
+  const falInput: Record<string, unknown> = {
+    image_url: imageUrl,
+    prompt: motionPrompt,
+    duration: videoDuration,
+    aspect_ratio: videoAspectRatio,
+  };
+
+  if (isAdmin) {
+    if (parsed.data.adminCfgScale !== undefined) falInput.cfg_scale = parsed.data.adminCfgScale;
+    if (parsed.data.adminNegativePrompt?.trim()) falInput.negative_prompt = parsed.data.adminNegativePrompt.trim();
+    if (parsed.data.adminSeed !== undefined) falInput.seed = parsed.data.adminSeed;
+    if (parsed.data.adminResolution?.trim()) falInput.resolution = parsed.data.adminResolution.trim();
+    if (parsed.data.adminLoop !== undefined) falInput.loop = parsed.data.adminLoop;
+  }
 
   console.log("[videos/generate] Calling fal.subscribe", {
     videoModel,
-    videoDuration,
-    videoAspectRatio,
-    imageUrl: imageUrl?.slice(0, 120),
-    motionPromptLen: motionPrompt.length,
+    falInput: { ...falInput, image_url: (falInput.image_url as string)?.slice(0, 120) },
   });
 
   try {
     const result = await fal.subscribe(
       videoModel,
       {
-        input: {
-          image_url: imageUrl,
-          prompt: motionPrompt,
-          duration: videoDuration,
-          aspect_ratio: videoAspectRatio,
-        },
+        input: falInput,
         logs: false,
         headers: {
           "X-Fal-Object-Lifecycle-Preference": JSON.stringify({
