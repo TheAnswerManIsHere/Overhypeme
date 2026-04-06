@@ -24,6 +24,88 @@ const DEFAULT_VIDEO_MODEL = "fal-ai/kling-video/v2.1/standard/image-to-video";
 const DEFAULT_VIDEO_PROMPT_SYSTEM =
   'You are a video director. Given an image, write a short cinematic motion prompt (1-2 sentences, max 50 words) describing how to animate the scene for a short video clip. Focus on dramatic, visual motion: camera movement, lighting changes, atmosphere. Describe only the visual action and movement. Respond with only the prompt text, nothing else.';
 
+type VideoModelFamily = "kling" | "veo" | "unknown";
+
+function detectVideoModelFamily(model: string): VideoModelFamily {
+  if (model.includes("kling-video")) return "kling";
+  if (model.includes("/veo")) return "veo";
+  return "unknown";
+}
+
+interface BuildFalInputOptions {
+  modelFamily: VideoModelFamily;
+  videoModel: string;
+  imageUrl: string;
+  motionPrompt: string;
+  videoDuration: string;
+  videoAspectRatio: string;
+  isAdmin: boolean;
+  adminCfgScale?: number;
+  adminNegativePrompt?: string;
+  adminSeed?: number;
+  adminResolution?: string;
+  adminLoop?: boolean;
+}
+
+function buildFalInput(opts: BuildFalInputOptions): Record<string, unknown> {
+  const {
+    modelFamily, imageUrl, motionPrompt, videoDuration, videoAspectRatio,
+    isAdmin, adminCfgScale, adminNegativePrompt, adminSeed, adminResolution, adminLoop,
+  } = opts;
+
+  if (modelFamily === "veo") {
+    // Veo family accepts: image_url, prompt, aspect_ratio ("auto"|"16:9"|"9:16"), duration ("Xs"), resolution ("720p"|"1080p"), seed
+    // duration must be formatted as "<n>s" — convert plain number strings like "5" to "5s"
+    const veoDuration = /^\d+$/.test(videoDuration.trim())
+      ? `${videoDuration.trim()}s`
+      : videoDuration.trim();
+
+    // Veo only supports "16:9", "9:16", and "auto" — fall back to "auto" for unsupported ratios
+    const veoSupportedRatios = new Set(["16:9", "9:16", "auto"]);
+    const veoAspectRatio = veoSupportedRatios.has(videoAspectRatio) ? videoAspectRatio : "auto";
+    if (!veoSupportedRatios.has(videoAspectRatio)) {
+      console.warn("[videos/generate] Veo does not support aspect_ratio value; falling back to 'auto'", { requested: videoAspectRatio });
+    }
+
+    const falInput: Record<string, unknown> = {
+      image_url: imageUrl,
+      prompt: motionPrompt,
+      duration: veoDuration,
+      aspect_ratio: veoAspectRatio,
+    };
+
+    if (isAdmin) {
+      if (adminSeed !== undefined) falInput.seed = adminSeed;
+      if (adminResolution?.trim()) falInput.resolution = adminResolution.trim();
+      // cfg_scale, negative_prompt, and loop are not supported by Veo — omit them
+    }
+
+    return falInput;
+  }
+
+  if (modelFamily === "kling") {
+    const falInput: Record<string, unknown> = {
+      image_url: imageUrl,
+      prompt: motionPrompt,
+      duration: videoDuration,
+      aspect_ratio: videoAspectRatio,
+    };
+
+    if (isAdmin) {
+      if (adminCfgScale !== undefined) falInput.cfg_scale = adminCfgScale;
+      if (adminNegativePrompt?.trim()) falInput.negative_prompt = adminNegativePrompt.trim();
+      if (adminSeed !== undefined) falInput.seed = adminSeed;
+      if (adminResolution?.trim()) falInput.resolution = adminResolution.trim();
+      if (adminLoop !== undefined) falInput.loop = adminLoop;
+    }
+
+    return falInput;
+  }
+
+  // Unknown model family — the caller must check for this and return an error before calling fal.subscribe
+  throw new Error(`Unrecognised video model family for model "${opts.videoModel}". Add an adapter branch in buildFalInput to support this model.`);
+}
+
 function getClientIp(req: Request): string {
   const forwarded = req.headers["x-forwarded-for"];
   if (forwarded) {
@@ -392,24 +474,38 @@ router.post("/videos/generate", async (req, res) => {
   const videoDuration = (isAdmin && parsed.data.adminDuration) || await getConfigString("video_duration", "5") || "5";
   const videoAspectRatio = (isAdmin && parsed.data.adminAspectRatio) || await getConfigString("video_aspect_ratio", "16:9") || "16:9";
 
-  // Build fal.ai input — start with base params, then apply admin extras
-  const falInput: Record<string, unknown> = {
-    image_url: imageUrl,
-    prompt: motionPrompt,
-    duration: videoDuration,
-    aspect_ratio: videoAspectRatio,
-  };
+  // Detect model family for parameter adaptation
+  const modelFamily = detectVideoModelFamily(videoModel);
+  console.log("[videos/generate] Detected model family", { videoModel, modelFamily });
 
-  if (isAdmin) {
-    if (parsed.data.adminCfgScale !== undefined) falInput.cfg_scale = parsed.data.adminCfgScale;
-    if (parsed.data.adminNegativePrompt?.trim()) falInput.negative_prompt = parsed.data.adminNegativePrompt.trim();
-    if (parsed.data.adminSeed !== undefined) falInput.seed = parsed.data.adminSeed;
-    if (parsed.data.adminResolution?.trim()) falInput.resolution = parsed.data.adminResolution.trim();
-    if (parsed.data.adminLoop !== undefined) falInput.loop = parsed.data.adminLoop;
+  if (modelFamily === "unknown") {
+    console.error("[videos/generate] Unrecognised video model family — aborting to avoid 422", { videoModel });
+    await db.update(videoJobsTable).set({ status: "failed" }).where(eq(videoJobsTable.id, job.id));
+    res.status(400).json({
+      error: `Unrecognised video model family for model "${videoModel}". This model is not yet supported by the parameter adapter.`,
+    });
+    return;
   }
+
+  // Build fal.ai input adapted for the detected model family
+  const falInput = buildFalInput({
+    modelFamily,
+    videoModel,
+    imageUrl: imageUrl!,
+    motionPrompt,
+    videoDuration,
+    videoAspectRatio,
+    isAdmin,
+    adminCfgScale: parsed.data.adminCfgScale,
+    adminNegativePrompt: parsed.data.adminNegativePrompt,
+    adminSeed: parsed.data.adminSeed,
+    adminResolution: parsed.data.adminResolution,
+    adminLoop: parsed.data.adminLoop,
+  });
 
   console.log("[videos/generate] Calling fal.subscribe", {
     videoModel,
+    modelFamily,
     falInput: { ...falInput, image_url: (falInput.image_url as string)?.slice(0, 120) },
   });
 
