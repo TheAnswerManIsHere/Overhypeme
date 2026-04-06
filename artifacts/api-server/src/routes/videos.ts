@@ -54,11 +54,27 @@ function buildFalInput(opts: BuildFalInputOptions): Record<string, unknown> {
   } = opts;
 
   if (modelFamily === "veo") {
-    // Veo family accepts: image_url, prompt, aspect_ratio ("auto"|"16:9"|"9:16"), duration ("Xs"), resolution ("720p"|"1080p"), seed
-    // duration must be formatted as "<n>s" — convert plain number strings like "5" to "5s"
-    const veoDuration = /^\d+$/.test(videoDuration.trim())
-      ? `${videoDuration.trim()}s`
-      : videoDuration.trim();
+    // Normalize raw duration string to "<n>s" format (e.g. "8" → "8s", "8s" → "8s")
+    const rawDurStr = videoDuration.trim();
+    const rawDurNum = /^\d+$/.test(rawDurStr) ? parseInt(rawDurStr, 10)
+      : /^(\d+)s$/.test(rawDurStr) ? parseInt(rawDurStr.replace("s", ""), 10) : NaN;
+
+    let veoDuration: string;
+    if (opts.videoModel.includes("/lite/")) {
+      // Veo 3.1 lite valid durations: 4s, 6s, 8s only
+      const liteValid = [4, 6, 8];
+      const closest = isNaN(rawDurNum)
+        ? 8
+        : liteValid.reduce((a, b) => Math.abs(b - rawDurNum) < Math.abs(a - rawDurNum) ? b : a);
+      veoDuration = `${closest}s`;
+      if (closest !== rawDurNum) {
+        console.warn("[videos/generate] Veo lite duration snapped to nearest valid value", { requested: rawDurStr, using: veoDuration });
+      }
+    } else {
+      // Veo 3.1 (full) valid durations: 5–8s
+      const clamped = isNaN(rawDurNum) ? 8 : Math.min(8, Math.max(5, rawDurNum));
+      veoDuration = `${clamped}s`;
+    }
 
     // Veo only supports "16:9", "9:16", and "auto" — fall back to "auto" for unsupported ratios
     const veoSupportedRatios = new Set(["16:9", "9:16", "auto"]);
@@ -77,7 +93,8 @@ function buildFalInput(opts: BuildFalInputOptions): Record<string, unknown> {
     if (isAdmin) {
       if (adminSeed !== undefined) falInput.seed = adminSeed;
       if (adminResolution?.trim()) falInput.resolution = adminResolution.trim();
-      // cfg_scale, negative_prompt, and loop are not supported by Veo — omit them
+      if (adminNegativePrompt?.trim()) falInput.negative_prompt = adminNegativePrompt.trim();
+      // cfg_scale and loop are not supported by Veo — omit them
     }
 
     return falInput;
@@ -568,10 +585,20 @@ router.post("/videos/generate", async (req, res) => {
       .set({ status: "failed" })
       .where(eq(videoJobsTable.id, job.id));
     const message = err instanceof Error ? err.message : "Unknown error";
+    // Log all enumerable properties on the error to capture fal.ai error body
+    const errDetails: Record<string, unknown> = { message };
+    if (err && typeof err === "object") {
+      for (const key of Object.keys(err)) {
+        try { errDetails[key] = (err as Record<string, unknown>)[key]; } catch { /* skip */ }
+      }
+      // Also try cause, status, body which may be non-enumerable
+      for (const key of ["status", "body", "cause", "statusCode", "detail"]) {
+        if (key in (err as object)) errDetails[key] = (err as Record<string, unknown>)[key];
+      }
+    }
     console.error("[videos/generate] fal.subscribe failed", {
       model: videoModel,
-      message,
-      body: err instanceof Error ? undefined : JSON.stringify(err).slice(0, 500),
+      ...errDetails,
     });
     res
       .status(500)
