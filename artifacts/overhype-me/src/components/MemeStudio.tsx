@@ -215,8 +215,13 @@ function getModelParamSpec(model: string): ModelParamSpec {
   if (model.includes("/bytedance/seedance/")) {
     return { duration: ["5", "10"], aspectRatio: ["16:9", "9:16", "1:1"], resolution: ["720p", "1080p"] };
   }
+  if (model.includes("/veo3.1/lite/")) {
+    // Veo 3.1 Lite only accepts 4s, 6s, 8s
+    return { duration: ["4", "6", "8"], aspectRatio: ["16:9", "9:16"], negativePrompt: true, resolution: ["720p", "1080p"] };
+  }
   if (model.includes("/veo3.1/")) {
-    return { duration: ["5", "6", "7", "8"], aspectRatio: ["16:9", "9:16"], negativePrompt: true };
+    // Veo 3.1 full/fast: 5–8 seconds
+    return { duration: ["5", "6", "7", "8"], aspectRatio: ["16:9", "9:16"], negativePrompt: true, resolution: ["720p", "1080p"] };
   }
   if (model.includes("/veo3/") || model.includes("/veo2/")) {
     return { aspectRatio: ["16:9", "9:16"] };
