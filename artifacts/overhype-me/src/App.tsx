@@ -25,6 +25,7 @@ import AdminVideoStyles from "@/pages/admin/videoStyles";
 import AdminConfig from "@/pages/admin/config";
 import ActivityFeed from "@/pages/ActivityFeed";
 import MemePage from "@/pages/MemePage";
+import VideoPage from "@/pages/VideoPage";
 import Pricing from "@/pages/Pricing";
 import Login from "@/pages/Login";
 import ForgotPassword from "@/pages/ForgotPassword";
@@ -121,6 +122,7 @@ function Router() {
         <Route path="/admin" component={AdminDashboard} />
         <Route path="/activity" component={ActivityFeed} />
         <Route path="/meme/:slug" component={MemePage} />
+        <Route path="/video/:id" component={VideoPage} />
         <Route path="/pricing" component={Pricing} />
         <Route path="/login" component={Login} />
         <Route path="/hashtags"><HashtagsRedirect /></Route>

@@ -508,6 +508,43 @@ router.post("/videos/generate-prompt", requireAdmin, async (req, res) => {
   res.json({ prompt });
 });
 
+router.get("/video/:videoId", async (req, res) => {
+  const videoId = parseInt(req.params.videoId ?? "", 10);
+  if (isNaN(videoId) || videoId <= 0) {
+    res.status(400).json({ error: "Invalid videoId" });
+    return;
+  }
+
+  const [video] = await db
+    .select({
+      id: videoJobsTable.id,
+      factId: videoJobsTable.factId,
+      imageUrl: videoJobsTable.imageUrl,
+      videoUrl: videoJobsTable.videoUrl,
+      motionPrompt: videoJobsTable.motionPrompt,
+      styleId: videoJobsTable.styleId,
+      status: videoJobsTable.status,
+      isPrivate: videoJobsTable.isPrivate,
+      createdAt: videoJobsTable.createdAt,
+    })
+    .from(videoJobsTable)
+    .where(
+      and(
+        eq(videoJobsTable.id, videoId),
+        eq(videoJobsTable.status, "completed"),
+        eq(videoJobsTable.isPrivate, false),
+      ),
+    )
+    .limit(1);
+
+  if (!video) {
+    res.status(404).json({ error: "Video not found" });
+    return;
+  }
+
+  res.json({ video });
+});
+
 router.get("/videos/:factId", async (req, res) => {
   const factId = parseInt(req.params.factId ?? "", 10);
   if (isNaN(factId) || factId <= 0) {
