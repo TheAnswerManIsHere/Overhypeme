@@ -13,6 +13,7 @@ import {
   ShoppingBag,
   ClipboardList,
   Settings,
+  Film,
   PanelLeftClose,
   PanelLeftOpen,
 } from "lucide-react";
@@ -30,6 +31,7 @@ const NAV_ITEMS = [
   { href: "/admin/comments", label: "Comments", icon: MessageSquareWarning, badge: "comments" as const },
   { href: "/admin/billing", label: "Billing", icon: CreditCard, badge: false as const },
   { href: "/admin/affiliate", label: "Affiliate", icon: ShoppingBag, badge: false as const },
+  { href: "/admin/video-styles", label: "Video Styles", icon: Film, badge: false as const },
   { href: "/admin/config", label: "Configuration", icon: Settings, badge: false as const },
 ];
 

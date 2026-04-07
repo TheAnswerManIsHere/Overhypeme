@@ -14,3 +14,4 @@ export * from "./userFactPreferences";
 export * from "./userAiImages";
 export * from "./adminConfig";
 export * from "./videoJobs";
+export * from "./videoStyles";

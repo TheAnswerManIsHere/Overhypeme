@@ -1,7 +1,7 @@
 import { Router, type IRouter, type Request, type Response, type NextFunction } from "express";
 import { db, usersTable } from "@workspace/db";
-import { factsTable, commentsTable, adminConfigTable } from "@workspace/db/schema";
-import { eq, desc, count, ilike, sql, and, or, inArray, isNull } from "drizzle-orm";
+import { factsTable, commentsTable, adminConfigTable, videoStylesTable } from "@workspace/db/schema";
+import { eq, desc, count, ilike, sql, and, or, inArray, isNull, asc } from "drizzle-orm";
 import { getSessionId, getSession, updateSession } from "../lib/auth";
 import { isAdminById } from "./auth";
 import { deriveUserRole } from "../lib/userRole";
@@ -10,7 +10,10 @@ import { runFactImagePipeline } from "../lib/factImagePipeline";
 import { generateAiMemeBackgrounds, type AiScenePrompts, type AiMemeImages } from "../lib/aiMemePipeline";
 import { logActivity } from "../lib/activity";
 import { getAllConfig, bustConfigCache } from "../lib/adminConfig";
+import { ObjectStorageService } from "../lib/objectStorage";
 import bcrypt from "bcryptjs";
+
+const _styleStorage = new ObjectStorageService();
 
 const router: IRouter = Router();
 
@@ -900,6 +903,115 @@ router.patch("/admin/config/:key", requireAdmin, async (req: Request, res: Respo
     .returning();
 
   bustConfigCache();
+
+  res.json(updated);
+});
+
+// ─── Video Styles ─────────────────────────────────────────────────────────────
+
+router.get("/admin/video-styles", requireAdmin, async (_req: Request, res: Response) => {
+  const styles = await db
+    .select()
+    .from(videoStylesTable)
+    .orderBy(asc(videoStylesTable.sortOrder), asc(videoStylesTable.id));
+  res.json(styles);
+});
+
+router.post("/admin/video-styles", requireAdmin, async (req: Request, res: Response) => {
+  const body = req.body as Record<string, unknown>;
+  const id = String(body.id ?? "").trim();
+  if (!id) { res.status(400).json({ error: "id is required" }); return; }
+  const label = String(body.label ?? "").trim();
+  if (!label) { res.status(400).json({ error: "label is required" }); return; }
+
+  const [created] = await db
+    .insert(videoStylesTable)
+    .values({
+      id,
+      label,
+      description: String(body.description ?? ""),
+      motionPrompt: String(body.motionPrompt ?? ""),
+      gradientFrom: String(body.gradientFrom ?? "#000000"),
+      gradientTo: String(body.gradientTo ?? "#333333"),
+      sortOrder: typeof body.sortOrder === "number" ? body.sortOrder : 0,
+      isActive: body.isActive !== false,
+    })
+    .returning();
+  res.status(201).json(created);
+});
+
+router.patch("/admin/video-styles/:id", requireAdmin, async (req: Request, res: Response) => {
+  const { id } = req.params;
+  const body = req.body as Record<string, unknown>;
+
+  const updates: Record<string, unknown> = { updatedAt: new Date() };
+  if (body.label !== undefined)       updates.label        = String(body.label);
+  if (body.description !== undefined) updates.description  = String(body.description);
+  if (body.motionPrompt !== undefined) updates.motionPrompt = String(body.motionPrompt);
+  if (body.gradientFrom !== undefined) updates.gradientFrom = String(body.gradientFrom);
+  if (body.gradientTo !== undefined)   updates.gradientTo   = String(body.gradientTo);
+  if (body.sortOrder !== undefined)    updates.sortOrder    = Number(body.sortOrder);
+  if (body.isActive !== undefined)     updates.isActive     = Boolean(body.isActive);
+
+  const [updated] = await db
+    .update(videoStylesTable)
+    .set(updates)
+    .where(eq(videoStylesTable.id, id))
+    .returning();
+
+  if (!updated) { res.status(404).json({ error: "Style not found" }); return; }
+  res.json(updated);
+});
+
+router.post("/admin/video-styles/:id/preview-gif", requireAdmin, async (req: Request, res: Response) => {
+  const { id } = req.params;
+  const body = req.body as Record<string, unknown>;
+  const base64 = String(body.base64 ?? "").trim();
+  if (!base64) { res.status(400).json({ error: "base64 GIF data required" }); return; }
+
+  const buf = Buffer.from(base64, "base64");
+  const subPath = `video_style_previews/${id}.gif`;
+  const storedPath = await _styleStorage.uploadObjectBuffer({
+    subPath,
+    buffer: buf,
+    contentType: "image/gif",
+  });
+
+  try {
+    await _styleStorage.trySetObjectEntityAclPolicy(storedPath, { owner: "system", visibility: "public" });
+  } catch { /* non-fatal */ }
+
+  const [updated] = await db
+    .update(videoStylesTable)
+    .set({ previewGifPath: storedPath, updatedAt: new Date() })
+    .where(eq(videoStylesTable.id, id))
+    .returning();
+
+  if (!updated) { res.status(404).json({ error: "Style not found" }); return; }
+  res.json(updated);
+});
+
+router.delete("/admin/video-styles/:id/preview-gif", requireAdmin, async (req: Request, res: Response) => {
+  const { id } = req.params;
+
+  const [style] = await db
+    .select({ previewGifPath: videoStylesTable.previewGifPath })
+    .from(videoStylesTable)
+    .where(eq(videoStylesTable.id, id))
+    .limit(1);
+
+  if (!style) { res.status(404).json({ error: "Style not found" }); return; }
+  if (style.previewGifPath) {
+    try {
+      await _styleStorage.deleteObject(style.previewGifPath);
+    } catch { /* non-fatal */ }
+  }
+
+  const [updated] = await db
+    .update(videoStylesTable)
+    .set({ previewGifPath: null, updatedAt: new Date() })
+    .where(eq(videoStylesTable.id, id))
+    .returning();
 
   res.json(updated);
 });
