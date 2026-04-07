@@ -2,10 +2,8 @@ import { Router, type IRouter, type Request } from "express";
 import { z } from "zod";
 import { fal } from "@fal-ai/client";
 import { db, videoJobsTable, usersTable } from "@workspace/db";
-import { factsTable } from "@workspace/db/schema";
 import { eq, and, gte, desc } from "drizzle-orm";
 import { deriveUserRole } from "../lib/userRole.js";
-import { getOpenAIClient } from "@workspace/integrations-openai-ai-server";
 import { VIDEO_STYLE_MAP } from "../config/videoStyles.js";
 import { getConfigString } from "../lib/adminConfig.js";
 import { requireAdmin } from "./admin.js";
@@ -21,8 +19,6 @@ const FALLBACK_PROMPT = "Subtle cinematic motion, dramatic lighting, slow camera
 const DEFAULT_STYLE_ID = "cinematic";
 const DEFAULT_VIDEO_MODEL = "xai/grok-imagine-video/image-to-video";
 
-const DEFAULT_VIDEO_PROMPT_SYSTEM =
-  'You are a video director. Given an image, write a short cinematic motion prompt (1-2 sentences, max 50 words) describing how to animate the scene for a short video clip. Focus on dramatic, visual motion: camera movement, lighting changes, atmosphere. Describe only the visual action and movement. Respond with only the prompt text, nothing else.';
 
 type VideoModelFamily = "kling" | "veo" | "seedance" | "sora" | "runway" | "luma" | "hailuo" | "minimax" | "pixverse" | "wan" | "ltx" | "cogvideox" | "stablevideo" | "hunyuan" | "grok" | "unknown";
 
@@ -420,27 +416,6 @@ function getClientIp(req: Request): string {
   return req.socket.remoteAddress ?? "unknown";
 }
 
-async function generateMotionPrompt(factText: string): Promise<string> {
-  try {
-    const openai = getOpenAIClient();
-    const completion = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
-      max_tokens: 150,
-      messages: [
-        {
-          role: "system",
-          content:
-            'You are a video director. Given a humorous "impossible fact" about a person, write a short cinematic motion prompt (1-2 sentences, max 50 words) describing how to animate this scene for a short video clip. Focus on dramatic, funny, or epic visual motion that matches the joke. Do not include the person\'s name. Describe only the visual action, camera movement, and atmosphere. Respond with only the prompt text, nothing else.',
-        },
-        { role: "user", content: factText },
-      ],
-    });
-    const text = completion.choices[0]?.message?.content?.trim();
-    return text || FALLBACK_PROMPT;
-  } catch {
-    return FALLBACK_PROMPT;
-  }
-}
 
 const GenerateVideoBody = z
   .object({
@@ -482,13 +457,6 @@ const GenerateVideoBody = z
     message: "Either imageUrl or imageBase64 must be provided",
   });
 
-const GeneratePromptBody = z.object({
-  imageBase64: z.string().optional(),
-  imageUrl: z.string().optional(),
-}).refine((data) => data.imageBase64 || data.imageUrl, {
-  message: "Either imageBase64 or imageUrl must be provided",
-});
-
 function resolveImageUrl(raw: string | undefined, req: Request): string | undefined {
   if (!raw) return undefined;
   if (raw.startsWith("http://") || raw.startsWith("https://")) return raw;
@@ -512,20 +480,6 @@ function extractStoragePathFromUrl(imageUrl: string): string | null {
   }
 }
 
-async function fetchPrivateImageAsBase64(imageUrl: string): Promise<string | null> {
-  const storagePath = extractStoragePathFromUrl(imageUrl);
-  if (!storagePath) return null;
-  try {
-    const normalized = _objectStorage.normalizeObjectEntityPath(storagePath);
-    const file = await _objectStorage.getObjectEntityFile(normalized);
-    const response = await _objectStorage.downloadObject(file, 60);
-    const buf = Buffer.from(await response.arrayBuffer());
-    return `data:image/png;base64,${buf.toString("base64")}`;
-  } catch {
-    return null;
-  }
-}
-
 async function uploadPrivateImageToFalCdn(imageUrl: string): Promise<string | null> {
   const storagePath = extractStoragePathFromUrl(imageUrl);
   if (!storagePath) return null;
@@ -541,74 +495,11 @@ async function uploadPrivateImageToFalCdn(imageUrl: string): Promise<string | nu
   }
 }
 
-router.post("/videos/generate-prompt", requireAdmin, async (req, res) => {
-  const parsed = GeneratePromptBody.safeParse(req.body);
-  if (!parsed.success) {
-    console.error("[videos/generate-prompt] Validation failed. Body keys:", Object.keys(req.body ?? {}),
-      "imageUrl:", (req.body as Record<string, unknown>)?.imageUrl,
-      "hasBase64:", !!(req.body as Record<string, unknown>)?.imageBase64,
-      "errors:", JSON.stringify(parsed.error.flatten()));
-    res.status(400).json({ error: "Invalid request", details: parsed.error.flatten() });
-    return;
-  }
-
-  try {
-    const openai = getOpenAIClient();
-    const systemPrompt = await getConfigString("video_prompt_system_prompt", DEFAULT_VIDEO_PROMPT_SYSTEM);
-
-    const messages: Parameters<typeof openai.chat.completions.create>[0]["messages"] = [
-      { role: "system", content: systemPrompt },
-    ];
-
-    if (parsed.data.imageBase64) {
-      const base64 = parsed.data.imageBase64.startsWith("data:")
-        ? parsed.data.imageBase64
-        : `data:image/jpeg;base64,${parsed.data.imageBase64}`;
-      messages.push({
-        role: "user",
-        content: [
-          {
-            type: "image_url",
-            image_url: { url: base64, detail: "low" },
-          },
-          {
-            type: "text",
-            text: "Write a cinematic motion prompt for this image.",
-          },
-        ],
-      });
-    } else if (parsed.data.imageUrl) {
-      const resolved = resolveImageUrl(parsed.data.imageUrl, req)!;
-      const base64FromStorage = await fetchPrivateImageAsBase64(resolved);
-      const imageUrlForOpenAI = base64FromStorage ?? resolved;
-      messages.push({
-        role: "user",
-        content: [
-          {
-            type: "image_url",
-            image_url: { url: imageUrlForOpenAI, detail: "low" },
-          },
-          {
-            type: "text",
-            text: "Write a cinematic motion prompt for this image.",
-          },
-        ],
-      });
-    }
-
-    const completion = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
-      max_tokens: 150,
-      messages,
-    });
-
-    const prompt = completion.choices[0]?.message?.content?.trim() ?? FALLBACK_PROMPT;
-    res.json({ prompt });
-  } catch (err) {
-    const message = err instanceof Error ? err.message : "Unknown error";
-    console.error("[videos] generate-prompt error:", message);
-    res.json({ prompt: FALLBACK_PROMPT });
-  }
+router.post("/videos/generate-prompt", requireAdmin, (req, res) => {
+  const styleId = (req.body as Record<string, unknown>)?.styleId as string | undefined;
+  const style = (styleId ? VIDEO_STYLE_MAP.get(styleId) : null) ?? VIDEO_STYLE_MAP.get(DEFAULT_STYLE_ID);
+  const prompt = style?.motionPrompt ?? FALLBACK_PROMPT;
+  res.json({ prompt });
 });
 
 router.get("/videos/:factId", async (req, res) => {
@@ -749,27 +640,12 @@ router.post("/videos/generate", async (req, res) => {
 
   // Determine motion prompt:
   // 1. Explicit manual motionPrompt in request → use it as-is
-  // 2. Valid or invalid (resolved) styleId provided → use the style's motionPrompt
-  // 3. No styleId at all → LLM-generated prompt (backwards-compatible legacy path)
+  // 2. Otherwise → use the resolved style's pre-defined motionPrompt (never calls LLM)
   let motionPrompt = parsed.data.motionPrompt?.trim() || "";
 
   if (!motionPrompt) {
-    if (resolvedStyle) {
-      // Use resolved style's motion prompt (covers both valid and invalid styleId cases)
-      motionPrompt = resolvedStyle.motionPrompt;
-    } else {
-      // Legacy: LLM-generated prompt when no styleId was provided
-      const [factRow] = await db
-        .select({ text: factsTable.text })
-        .from(factsTable)
-        .where(eq(factsTable.id, parsed.data.factId))
-        .limit(1);
-
-      const factText = factRow?.text ?? "";
-      motionPrompt = factText
-        ? await generateMotionPrompt(factText)
-        : FALLBACK_PROMPT;
-    }
+    const effectiveStyle = resolvedStyle ?? VIDEO_STYLE_MAP.get(DEFAULT_STYLE_ID);
+    motionPrompt = effectiveStyle?.motionPrompt ?? FALLBACK_PROMPT;
   }
 
   const [job] = await db
