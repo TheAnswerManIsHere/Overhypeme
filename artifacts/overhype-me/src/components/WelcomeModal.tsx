@@ -9,8 +9,14 @@ import {
   PRONOUN_PRESETS,
   isCustomPronouns,
   parseCustom,
-  displayPronouns,
 } from "@/lib/pronouns";
+import { renderFact } from "@/lib/render-fact";
+
+// Two example templates — one uses singular verb conjugation, one uses plural-safe tokens
+const PREVIEW_FACTS = [
+  "{NAME} {doesn't|don't} make mistakes — {SUBJ} {makes|make} discoveries.",
+  "The world didn't give {NAME} a manual — {SUBJ} wrote {POSS} own.",
+] as const;
 
 // Pages where the modal should never interrupt the user
 const SUPPRESSED_PATHS = ["/login", "/onboard", "/forgot-password", "/reset-password", "/verify-email", "/admin"];
@@ -175,7 +181,6 @@ export function WelcomeModal() {
   if (!open) return null;
 
   const saveEnabled = canSave(draftPronouns) && draftName.trim().length > 0;
-  const displayPron = displayPronouns(draftPronouns);
 
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
@@ -239,9 +244,18 @@ export function WelcomeModal() {
 
           {/* Preview */}
           {draftName.trim() && (
-            <div className="bg-secondary/50 border border-border/60 rounded-sm px-3 py-2 text-xs text-muted-foreground">
-              <span className="text-foreground font-medium">Preview: </span>
-              "{draftName.trim()} is so legendary, {displayPron || "…"} broke the internet."
+            <div className="space-y-1.5">
+              <p className="text-[10px] font-display font-bold text-muted-foreground uppercase tracking-widest">
+                Preview
+              </p>
+              {PREVIEW_FACTS.map((template, i) => (
+                <div
+                  key={i}
+                  className="bg-secondary/50 border border-border/60 rounded-sm px-3 py-2 text-xs text-foreground italic"
+                >
+                  "{renderFact(template, draftName.trim(), draftPronouns)}"
+                </div>
+              ))}
             </div>
           )}
         </div>
