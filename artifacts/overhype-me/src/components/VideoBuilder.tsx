@@ -389,10 +389,10 @@ export function VideoBuilder({ factId, factText, onClose, initialImageDataUrl }:
 
     if (sourceMode === "generic") {
       if (!genericBase64) return;
-      body = { imageBase64: genericBase64, factId };
+      body = { imageBase64: genericBase64, factId, renderedFactText: factText };
     } else {
       if (!selectedObjectPath) return;
-      body = { imageUrl: `${window.location.origin}/api/storage${selectedObjectPath}`, factId };
+      body = { imageUrl: `${window.location.origin}/api/storage${selectedObjectPath}`, factId, renderedFactText: factText };
     }
 
     setVideoState({ status: "generating" });
