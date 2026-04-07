@@ -109,7 +109,7 @@ export default function VideoPage() {
 
         <div className="bg-card border-l-8 border-primary p-6 md:p-10 shadow-2xl space-y-8">
           <h1 className="text-2xl md:text-3xl font-display uppercase tracking-wide text-primary flex items-center gap-3">
-            <Play className="w-7 h-7" /> Fact Video
+            <Play className="w-7 h-7" /> Fact Meme Video
           </h1>
 
           <div className="relative bg-black rounded-sm border-2 border-border overflow-hidden aspect-video">
@@ -129,13 +129,6 @@ export default function VideoPage() {
               </div>
             )}
           </div>
-
-          {video.motionPrompt && (
-            <div className="bg-secondary/60 border border-border rounded-sm px-4 py-3">
-              <p className="text-xs font-display uppercase tracking-widest text-muted-foreground mb-1">Motion Prompt</p>
-              <p className="text-sm text-foreground">{video.motionPrompt}</p>
-            </div>
-          )}
 
           {fact && (
             <div className="border-t-2 border-border pt-6">
