@@ -5,7 +5,7 @@ import {
   useMemo,
   useRef,
 } from "react";
-import { Sparkles, Loader2, Upload, X, RefreshCw } from "lucide-react";
+import { Sparkles, Loader2, Upload, X, RefreshCw, AlertTriangle } from "lucide-react";
 import { Link } from "wouter";
 import { ImageCard } from "@/components/ui/ImageCard";
 import { Button } from "@/components/ui/Button";
@@ -142,6 +142,8 @@ export interface AiBgPickerProps {
   defaultStyleId?: string;
   /** Thumbnail pixel size for the image grids — controlled by the parent's slider. Default: 158 */
   thumbPx?: number;
+  /** Called when user clicks "Go to Uploads" after a no-face error. */
+  onGoToUpload?: () => void;
 }
 
 // ─── Image pre-processor (same as MemeBuilder) ───────────────────────────────
@@ -192,6 +194,7 @@ export function AiBgPicker({
   showStylePicker = false,
   defaultStyleId = "none",
   thumbPx = 158,
+  onGoToUpload,
 }: AiBgPickerProps) {
 
   // ── Config from server ──────────────────────────────────────────────────────
@@ -348,6 +351,7 @@ export function AiBgPicker({
   const [aiGenState, setAiGenState] = useState<"idle" | "generating" | "completed" | "error">("idle");
   const isGenerating = aiGenState === "generating";
   const [aiGenerateError, setAiGenerateError] = useState<string | null>(null);
+  const [noFaceError, setNoFaceError] = useState(false);
   const [generationProgress, setGenerationProgress] = useState(0);
   const [generationElapsed, setGenerationElapsed] = useState(0);
   const [cancelDisabled, setCancelDisabled] = useState(false);
@@ -475,6 +479,7 @@ export function AiBgPicker({
 
     setAiGenState("generating");
     setAiGenerateError(null);
+    setNoFaceError(false);
     setGenerationProgress(0);
     setGenerationElapsed(0);
 
@@ -530,7 +535,16 @@ export function AiBgPicker({
       if (generationIdRef.current !== myId) return;
 
       if (!res.ok) {
-        const body = await res.json() as { error?: string };
+        const body = await res.json() as { error?: string; noFaceDetected?: boolean };
+        if (body.noFaceDetected) {
+          if (generationIdRef.current !== myId) return;
+          if (generationTimerRef.current) { clearInterval(generationTimerRef.current); generationTimerRef.current = null; }
+          setGenerationProgress(0);
+          setGenerationElapsed(0);
+          setNoFaceError(true);
+          setAiGenState("error");
+          return;
+        }
         throw new Error(body.error ?? "Generation failed");
       }
 
@@ -664,7 +678,7 @@ export function AiBgPicker({
       {/* Sub-mode toggle: Generic / Reference Photo */}
       <div className="flex gap-1 p-0.5 bg-muted/40 rounded-sm">
         <button
-          onClick={() => { setAiSubMode("generic"); setAiGenerateError(null); setShowAddForm(false); }}
+          onClick={() => { setAiSubMode("generic"); setAiGenerateError(null); setNoFaceError(false); setShowAddForm(false); }}
           className={`flex-1 text-[10px] font-display uppercase tracking-widest py-1 rounded-sm transition-colors ${
             aiSubMode === "generic" ? "bg-violet-500 text-white" : "text-muted-foreground hover:text-foreground"
           }`}
@@ -672,7 +686,7 @@ export function AiBgPicker({
           Generic
         </button>
         <button
-          onClick={() => { setAiSubMode("reference"); setAiGenerateError(null); setShowAddForm(false); }}
+          onClick={() => { setAiSubMode("reference"); setAiGenerateError(null); setNoFaceError(false); setShowAddForm(false); }}
           className={`flex-1 text-[10px] font-display uppercase tracking-widest py-1 rounded-sm transition-colors ${
             aiSubMode === "reference" ? "bg-violet-500 text-white" : "text-muted-foreground hover:text-foreground"
           }`}
@@ -1024,8 +1038,34 @@ export function AiBgPicker({
       </p>
 
       {/* Error display */}
-      {aiGenerateError && (
-        <p className="text-[10px] text-destructive">{aiGenerateError}</p>
+      {noFaceError && (
+        <div className="rounded-lg border-2 border-destructive/60 bg-destructive/10 p-4 space-y-3">
+          <div className="flex items-start gap-3">
+            <AlertTriangle className="w-5 h-5 text-destructive shrink-0 mt-0.5" />
+            <div className="space-y-1">
+              <p className="text-sm font-semibold text-destructive">No face detected</p>
+              <p className="text-sm text-foreground leading-snug">
+                We can only generate AI backgrounds using pictures with faces. If you want to use this picture instead, go to the Upload section to select it as a background.
+              </p>
+            </div>
+          </div>
+          {onGoToUpload && (
+            <Button
+              size="sm"
+              variant="outline"
+              className="w-full border-destructive/40 text-destructive hover:bg-destructive/10 hover:text-destructive"
+              onClick={onGoToUpload}
+            >
+              Go to Uploads
+            </Button>
+          )}
+        </div>
+      )}
+      {aiGenerateError && !noFaceError && (
+        <div className="rounded-lg border border-destructive/50 bg-destructive/10 p-3 flex items-start gap-2">
+          <AlertTriangle className="w-4 h-4 text-destructive shrink-0 mt-0.5" />
+          <p className="text-sm text-destructive leading-snug">{aiGenerateError}</p>
+        </div>
       )}
 
       {/* Generation progress */}

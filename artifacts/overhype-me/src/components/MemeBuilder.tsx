@@ -1579,6 +1579,7 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
                     onSelect={setAiSelectedInfo}
                     showStylePicker
                     thumbPx={thumbPx}
+                    onGoToUpload={() => setImageMode("upload")}
                   />
                 )}
 

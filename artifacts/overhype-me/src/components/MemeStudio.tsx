@@ -890,6 +890,7 @@ function VideoTab({ factId, factText, pexelsImages, aiMemeImages, initialImageDa
                 setSelectedBgLabel(sel ? (sel.label ?? "AI background") : null);
               }}
               showStylePicker
+              onGoToUpload={() => setImageMode("upload")}
             />
           )}
 

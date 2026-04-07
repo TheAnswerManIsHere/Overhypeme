@@ -49,6 +49,11 @@ function extractGenerationError(err: unknown): string {
   return "Image generation failed. Please try again.";
 }
 
+function isNoFaceError(err: unknown): boolean {
+  const msg = extractGenerationError(err).toLowerCase();
+  return msg.includes("no face detected") || msg.includes("facexlib") || msg.includes("face detect");
+}
+
 // ─── Rate limiting ─────────────────────────────────────────────────────────────
 // Simple in-memory limiter — sufficient for a single Replit instance.
 // If the app ever scales horizontally, swap this for a Redis-backed solution.
@@ -988,7 +993,11 @@ router.post("/memes/ai/:factId/generate", requirePremium, async (req: Request, r
         paramsOverride,
       });
     } catch (err) {
-      res.status(500).json({ error: extractGenerationError(err) });
+      if (isNoFaceError(err)) {
+        res.status(422).json({ error: extractGenerationError(err), noFaceDetected: true });
+      } else {
+        res.status(500).json({ error: extractGenerationError(err) });
+      }
       return;
     }
   } else {
