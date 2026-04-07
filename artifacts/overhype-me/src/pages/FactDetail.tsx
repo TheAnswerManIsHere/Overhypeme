@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useRoute, Link, useLocation } from "wouter";
 import { format } from "date-fns";
 import HCaptcha from "@hcaptcha/react-hcaptcha";
@@ -202,7 +202,7 @@ export default function FactDetail() {
     query: { queryKey: getListCommentsQueryKey(factId, { limit: 50 }), enabled: !!factId }
   });
 
-  const [memeTab, setMemeTab] = useState<"community" | "my-public" | "my-private">("community");
+  const [memeTab, setMemeTab] = useState<"all" | "community" | "my-public" | "my-private">("community");
   const [mediaType, setMediaType] = useState<"images" | "videos" | "all">("images");
   const queryClient = useQueryClient();
 
@@ -224,10 +224,20 @@ export default function FactDetail() {
     enabled: !!factId && isAuthenticated,
   });
 
-  const activeMemes =
-    memeTab === "my-public" ? myPublicMemesData :
-    memeTab === "my-private" ? myPrivateMemesData :
-    communityMemesData;
+  const activeMemes = useMemo(() => {
+    if (memeTab === "all") {
+      const combined = [
+        ...(communityMemesData?.memes ?? []),
+        ...(myPublicMemesData?.memes ?? []),
+        ...(myPrivateMemesData?.memes ?? []),
+      ];
+      const seen = new Set<number>();
+      return { memes: combined.filter(m => seen.has(m.id) ? false : (seen.add(m.id), true)) };
+    }
+    if (memeTab === "my-public") return myPublicMemesData ?? { memes: [] };
+    if (memeTab === "my-private") return myPrivateMemesData ?? { memes: [] };
+    return communityMemesData ?? { memes: [] };
+  }, [memeTab, communityMemesData, myPublicMemesData, myPrivateMemesData]);
 
   const { data: videosData } = useQuery({
     queryKey: ["listFactVideos", factId],
@@ -404,86 +414,89 @@ export default function FactDetail() {
         {/* Media Gallery — above comments */}
         <div className="mb-12">
           {/* Gallery header */}
-          <div className="border-b-2 border-border pb-2 mb-6">
-            <div className="flex items-center justify-between flex-wrap gap-3">
+          <div className="border-b-2 border-border pb-3 mb-6">
+            <div className="flex items-center justify-between flex-wrap gap-y-3 gap-x-4 mb-3">
               <h3 className="text-2xl font-display uppercase tracking-wide flex items-center gap-3">
                 {mediaType === "videos"
                   ? <Video className="w-6 h-6 text-primary" />
                   : mediaType === "all"
                     ? <Layers className="w-6 h-6 text-primary" />
                     : <ImageIcon className="w-6 h-6 text-primary" />}
-                Media
+                Memes
               </h3>
-              <div className="flex items-center gap-2 flex-wrap justify-end">
-                {/* Media type toggle */}
-                <div className="flex items-center gap-1 bg-secondary border border-border rounded-sm p-1">
-                  <button
-                    onClick={() => setMediaType("images")}
-                    className={cn(
-                      "flex items-center gap-1.5 text-xs font-display font-bold uppercase tracking-wider px-3 py-1.5 rounded-sm transition-colors",
-                      mediaType === "images" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"
-                    )}
-                  >
-                    <ImageIcon className="w-3.5 h-3.5" /> Images
-                    {communityMemesData ? ` (${communityMemesData.memes.length})` : ""}
-                  </button>
-                  <button
-                    onClick={() => setMediaType("videos")}
-                    className={cn(
-                      "flex items-center gap-1.5 text-xs font-display font-bold uppercase tracking-wider px-3 py-1.5 rounded-sm transition-colors",
-                      mediaType === "videos" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"
-                    )}
-                  >
-                    <Video className="w-3.5 h-3.5" /> Videos
-                    {videosData ? ` (${videosData.videos.length})` : ""}
-                  </button>
-                  <button
-                    onClick={() => setMediaType("all")}
-                    className={cn(
-                      "flex items-center gap-1.5 text-xs font-display font-bold uppercase tracking-wider px-3 py-1.5 rounded-sm transition-colors",
-                      mediaType === "all" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"
-                    )}
-                  >
-                    <Layers className="w-3.5 h-3.5" /> All
-                  </button>
-                </div>
-                {/* Visibility tabs — only when showing images */}
-                {mediaType !== "videos" && (
-                  <div className="flex items-center gap-1 bg-secondary border border-border rounded-sm p-1">
-                    <button
-                      onClick={() => setMemeTab("community")}
-                      className={cn(
-                        "flex items-center gap-1.5 text-xs font-display font-bold uppercase tracking-wider px-3 py-1.5 rounded-sm transition-colors",
-                        memeTab === "community" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"
-                      )}
-                    >
-                      <Globe className="w-3.5 h-3.5" /> Community
-                    </button>
-                    {isAuthenticated && (
-                      <>
-                        <button
-                          onClick={() => setMemeTab("my-public")}
-                          className={cn(
-                            "flex items-center gap-1.5 text-xs font-display font-bold uppercase tracking-wider px-3 py-1.5 rounded-sm transition-colors",
-                            memeTab === "my-public" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"
-                          )}
-                        >
-                          My Public
-                        </button>
-                        <button
-                          onClick={() => setMemeTab("my-private")}
-                          className={cn(
-                            "flex items-center gap-1.5 text-xs font-display font-bold uppercase tracking-wider px-3 py-1.5 rounded-sm transition-colors",
-                            memeTab === "my-private" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"
-                          )}
-                        >
-                          <Lock className="w-3.5 h-3.5" /> My Private
-                        </button>
-                      </>
-                    )}
-                  </div>
-                )}
+              {/* Media type toggle */}
+              <div className="flex items-center gap-1 bg-secondary border border-border rounded-sm p-1">
+                <button
+                  onClick={() => setMediaType("images")}
+                  className={cn(
+                    "flex items-center gap-1.5 text-xs font-display font-bold uppercase tracking-wider px-3 py-1.5 rounded-sm transition-colors",
+                    mediaType === "images" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"
+                  )}
+                >
+                  <ImageIcon className="w-3.5 h-3.5" /> Images
+                </button>
+                <button
+                  onClick={() => setMediaType("videos")}
+                  className={cn(
+                    "flex items-center gap-1.5 text-xs font-display font-bold uppercase tracking-wider px-3 py-1.5 rounded-sm transition-colors",
+                    mediaType === "videos" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"
+                  )}
+                >
+                  <Video className="w-3.5 h-3.5" /> Videos
+                </button>
+                <button
+                  onClick={() => setMediaType("all")}
+                  className={cn(
+                    "flex items-center gap-1.5 text-xs font-display font-bold uppercase tracking-wider px-3 py-1.5 rounded-sm transition-colors",
+                    mediaType === "all" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"
+                  )}
+                >
+                  <Layers className="w-3.5 h-3.5" /> All
+                </button>
               </div>
+            </div>
+            {/* Sharing status toggle — always visible, affects memes */}
+            <div className="flex items-center gap-1 bg-secondary border border-border rounded-sm p-1 w-fit">
+              <button
+                onClick={() => setMemeTab("all")}
+                className={cn(
+                  "flex items-center gap-1.5 text-xs font-display font-bold uppercase tracking-wider px-3 py-1.5 rounded-sm transition-colors",
+                  memeTab === "all" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"
+                )}
+              >
+                <Layers className="w-3.5 h-3.5" /> All
+              </button>
+              <button
+                onClick={() => setMemeTab("community")}
+                className={cn(
+                  "flex items-center gap-1.5 text-xs font-display font-bold uppercase tracking-wider px-3 py-1.5 rounded-sm transition-colors",
+                  memeTab === "community" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"
+                )}
+              >
+                <Globe className="w-3.5 h-3.5" /> Community
+              </button>
+              {isAuthenticated && (
+                <>
+                  <button
+                    onClick={() => setMemeTab("my-public")}
+                    className={cn(
+                      "flex items-center gap-1.5 text-xs font-display font-bold uppercase tracking-wider px-3 py-1.5 rounded-sm transition-colors",
+                      memeTab === "my-public" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"
+                    )}
+                  >
+                    My Public
+                  </button>
+                  <button
+                    onClick={() => setMemeTab("my-private")}
+                    className={cn(
+                      "flex items-center gap-1.5 text-xs font-display font-bold uppercase tracking-wider px-3 py-1.5 rounded-sm transition-colors",
+                      memeTab === "my-private" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"
+                    )}
+                  >
+                    <Lock className="w-3.5 h-3.5" /> My Private
+                  </button>
+                </>
+              )}
             </div>
           </div>
 
@@ -530,6 +543,8 @@ export default function FactDetail() {
                       </>
                     ) : memeTab === "my-public" ? (
                       <p className="text-muted-foreground">You haven't shared any memes for this fact yet.</p>
+                    ) : memeTab === "all" ? (
+                      <p className="text-muted-foreground">No memes yet. Be the first to create one!</p>
                     ) : (
                       <p className="text-muted-foreground">No community memes yet. Be the first!</p>
                     )}
