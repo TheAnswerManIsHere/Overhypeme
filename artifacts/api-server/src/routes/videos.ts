@@ -475,6 +475,8 @@ const GenerateVideoBody = z
     adminGenerateAudioSwitch: z.boolean().optional(),
     adminGenerateMultiClipSwitch: z.boolean().optional(),
     adminThinkingType: z.string().max(20).optional(),
+    // Rendered fact text (with name/pronouns already substituted) for voiceover cue
+    renderedFactText: z.string().max(1000).optional(),
   })
   .refine((data) => data.imageUrl || data.imageBase64, {
     message: "Either imageUrl or imageBase64 must be provided",
@@ -798,12 +800,18 @@ router.post("/videos/generate", async (req, res) => {
   const modelFamily = detectVideoModelFamily(videoModel);
   console.log("[videos/generate] Detected model family", { videoModel, modelFamily });
 
+  // Append voiceover cue to the prompt sent to fal.ai (not stored in DB)
+  const renderedFactText = parsed.data.renderedFactText?.trim();
+  const falMotionPrompt = renderedFactText
+    ? `${motionPrompt}\nVoiceover should say, "${renderedFactText}"`
+    : motionPrompt;
+
   // Build fal.ai input adapted for the detected model family
   const falInput = buildFalInput({
     modelFamily,
     videoModel,
     imageUrl: imageUrl!,
-    motionPrompt,
+    motionPrompt: falMotionPrompt,
     videoDuration,
     videoAspectRatio,
     isAdmin,

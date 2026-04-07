@@ -654,6 +654,7 @@ function VideoTab({ factId, factText, pexelsImages, aiMemeImages, initialImageDa
       const body: Record<string, unknown> = {
         factId,
         styleId: selectedStyleId,
+        renderedFactText: factText,
       };
 
       if (selectedBgUrl.startsWith("data:")) {
