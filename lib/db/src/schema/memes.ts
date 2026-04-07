@@ -27,6 +27,8 @@ export const memesTable = pgTable("memes", {
   deletedAt: timestamp("deleted_at", { withTimezone: true }),
   /** Aspect ratio of the meme canvas: "landscape" (16:9), "square" (1:1), or "portrait" (9:16). */
   aspectRatio: varchar("aspect_ratio", { length: 20 }).notNull().default("landscape"),
+  /** Fact text as rendered at creation time (frozen — preserves the creator's name/pronouns forever). */
+  renderedFactText: text("rendered_fact_text"),
 });
 
 export type Meme = typeof memesTable.$inferSelect;

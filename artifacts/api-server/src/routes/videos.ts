@@ -543,37 +543,43 @@ router.get("/video/:videoId", async (req, res) => {
     return;
   }
 
-  // Find the associated meme by imageUrl to get the rendered fact text
+  // Find the associated meme by imageUrl to get the frozen rendered fact text
   const [meme] = await db
-    .select({ createdById: memesTable.createdById, factId: memesTable.factId })
+    .select({ createdById: memesTable.createdById, factId: memesTable.factId, renderedFactText: memesTable.renderedFactText })
     .from(memesTable)
     .where(eq(memesTable.imageUrl, video.imageUrl))
     .limit(1);
 
   let factText: string | null = null;
   if (meme) {
-    const [fact] = await db
-      .select({ text: factsTable.text, canonicalText: factsTable.canonicalText })
-      .from(factsTable)
-      .where(eq(factsTable.id, meme.factId))
-      .limit(1);
-
-    let createdByName: string | null = null;
-    let creatorPronouns: string | null = null;
-    if (meme.createdById) {
-      const [user] = await db
-        .select({ displayName: usersTable.displayName, pronouns: usersTable.pronouns })
-        .from(usersTable)
-        .where(eq(usersTable.id, meme.createdById))
+    if (meme.renderedFactText) {
+      // Use the frozen text stored at meme creation time
+      factText = meme.renderedFactText;
+    } else {
+      // Fallback: dynamically render for memes predating the renderedFactText column
+      const [fact] = await db
+        .select({ text: factsTable.text, canonicalText: factsTable.canonicalText })
+        .from(factsTable)
+        .where(eq(factsTable.id, meme.factId))
         .limit(1);
-      createdByName = user?.displayName ?? null;
-      creatorPronouns = user?.pronouns ?? null;
-    }
 
-    const rawTemplate = fact?.text ?? fact?.canonicalText ?? "";
-    factText = createdByName && rawTemplate
-      ? renderPersonalized(rawTemplate, createdByName, creatorPronouns)
-      : (fact?.canonicalText ?? fact?.text ?? null);
+      let createdByName: string | null = null;
+      let creatorPronouns: string | null = null;
+      if (meme.createdById) {
+        const [user] = await db
+          .select({ displayName: usersTable.displayName, pronouns: usersTable.pronouns })
+          .from(usersTable)
+          .where(eq(usersTable.id, meme.createdById))
+          .limit(1);
+        createdByName = user?.displayName ?? null;
+        creatorPronouns = user?.pronouns ?? null;
+      }
+
+      const rawTemplate = fact?.text ?? fact?.canonicalText ?? "";
+      factText = createdByName && rawTemplate
+        ? renderPersonalized(rawTemplate, createdByName, creatorPronouns)
+        : (fact?.canonicalText ?? fact?.text ?? null);
+    }
   }
 
   res.json({ video: { ...video, factText } });
