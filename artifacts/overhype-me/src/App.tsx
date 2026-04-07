@@ -23,6 +23,7 @@ import AdminAffiliate from "@/pages/admin/affiliate";
 import AdminReviews from "@/pages/admin/Reviews";
 import AdminVideoStyles from "@/pages/admin/videoStyles";
 import AdminConfig from "@/pages/admin/config";
+import AdminFeatures from "@/pages/admin/features";
 import ActivityFeed from "@/pages/ActivityFeed";
 import MemePage from "@/pages/MemePage";
 import VideoPage from "@/pages/VideoPage";
@@ -119,6 +120,7 @@ function Router() {
         <Route path="/admin/reviews" component={AdminReviews} />
         <Route path="/admin/video-styles" component={AdminVideoStyles} />
         <Route path="/admin/config" component={AdminConfig} />
+        <Route path="/admin/features" component={AdminFeatures} />
         <Route path="/admin" component={AdminDashboard} />
         <Route path="/activity" component={ActivityFeed} />
         <Route path="/meme/:slug" component={MemePage} />

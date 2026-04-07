@@ -20,6 +20,8 @@ import { compositeAiMeme } from "../lib/aiMemeCompositor";
 import { generateAiMemeBackgrounds, generateAiMemeBackgroundFromReference, isUserAtImageLimit, buildFalInputPreview } from "../lib/aiMemePipeline";
 import type { AiMemeImages } from "../lib/aiMemePipeline";
 import { requirePremium } from "../middlewares/premiumMiddleware";
+import { hasFeature } from "../lib/tierFeatures";
+import { isAdminById } from "./auth";
 import { requireAdmin } from "./admin";
 import { getUploadImageMetadata } from "./storage";
 import { CACHE, setPublicCache, setPublicCors, checkConditional, setNoStore } from "../lib/cacheHeaders";
@@ -237,13 +239,18 @@ router.post("/memes", async (req: Request, res: Response) => {
     .from(usersTable)
     .where(eq(usersTable.id, req.user.id))
     .limit(1);
-  const isPremium = userRow?.membershipTier === "premium" || userRow?.membershipTier === "legendary";
+  const dbTier = (userRow?.membershipTier === "premium" || userRow?.membershipTier === "legendary") ? "legendary" : "free";
+  const [canPrivate, canUpload, highRateLimit] = await Promise.all([
+    hasFeature(dbTier, "meme_private_visibility"),
+    hasFeature(dbTier, "meme_upload_photo"),
+    hasFeature(dbTier, "meme_rate_limit_high"),
+  ]);
 
-  // Free users always get public memes; premium users can choose
-  const isPublic = isPremium ? (isPublicReq ?? true) : true;
+  // Only tiers with private visibility can choose privacy; others always public
+  const isPublic = canPrivate ? (isPublicReq ?? true) : true;
 
   // ── Rate limit ───────────────────────────────────────────────────
-  const rl = checkRateLimit(req.user.id, isPremium);
+  const rl = checkRateLimit(req.user.id, highRateLimit);
   if (!rl.allowed) {
     const retrySec = Math.ceil((rl.resetAt - Date.now()) / 1000);
     res.setHeader("Retry-After", String(retrySec));
@@ -262,7 +269,7 @@ router.post("/memes", async (req: Request, res: Response) => {
     }
   }
 
-  if (imageSource.type === "upload" && !isPremium) {
+  if (imageSource.type === "upload" && !canUpload) {
     res.status(403).json({ error: "Custom photo upload is a Legendary feature" });
     return;
   }
@@ -941,15 +948,16 @@ router.post("/memes/ai/:factId/generate", requirePremium, async (req: Request, r
 
   // Admin-only: allow model override for testing different fal.ai models
   const rawModelOverride = body["modelOverride"];
+  const adminViaEnv = req.user?.id ? isAdminById(req.user.id) : false;
   const modelOverride =
-    req.user?.role === "admin" && typeof rawModelOverride === "string" && rawModelOverride.trim()
+    adminViaEnv && typeof rawModelOverride === "string" && rawModelOverride.trim()
       ? rawModelOverride.trim()
       : undefined;
 
   // Admin-only: per-request parameter overrides (e.g. guidance_scale, num_inference_steps)
   const rawParamsOverride = body["paramsOverride"];
   const paramsOverride: Record<string, string> | undefined =
-    req.user?.role === "admin" &&
+    adminViaEnv &&
     rawParamsOverride !== null &&
     typeof rawParamsOverride === "object" &&
     !Array.isArray(rawParamsOverride)

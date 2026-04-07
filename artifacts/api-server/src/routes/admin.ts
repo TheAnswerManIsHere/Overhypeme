@@ -1,6 +1,6 @@
 import { Router, type IRouter, type Request, type Response, type NextFunction } from "express";
 import { db, usersTable } from "@workspace/db";
-import { factsTable, commentsTable, adminConfigTable, videoStylesTable } from "@workspace/db/schema";
+import { factsTable, commentsTable, adminConfigTable, videoStylesTable, featureFlagsTable, tierFeaturePermissionsTable } from "@workspace/db/schema";
 import { eq, desc, count, ilike, sql, and, or, inArray, isNull, asc } from "drizzle-orm";
 import { getSessionId, getSession, updateSession } from "../lib/auth";
 import { isAdminById } from "./auth";
@@ -10,6 +10,7 @@ import { runFactImagePipeline } from "../lib/factImagePipeline";
 import { generateAiMemeBackgrounds, type AiScenePrompts, type AiMemeImages } from "../lib/aiMemePipeline";
 import { logActivity } from "../lib/activity";
 import { getAllConfig, bustConfigCache } from "../lib/adminConfig";
+import { getAllTierFeatureMatrix, setTierFeature, bustTierFeaturesCache } from "../lib/tierFeatures";
 import { ObjectStorageService } from "../lib/objectStorage";
 import bcrypt from "bcryptjs";
 
@@ -1177,6 +1178,41 @@ router.post("/admin/stripe/test-event", requireAdmin, async (req: Request, res: 
     const msg = err instanceof Error ? err.message : String(err);
     res.status(500).json({ error: "Test event failed", details: msg });
   }
+});
+
+// ── Feature Flag Admin Endpoints ──────────────────────────────────────────────
+
+router.get("/admin/feature-flags", requireAdmin, async (_req: Request, res: Response) => {
+  const matrix = await getAllTierFeatureMatrix();
+  res.json(matrix);
+});
+
+router.patch("/admin/feature-flags", requireAdmin, async (req: Request, res: Response) => {
+  const body = req.body as Record<string, unknown>;
+  const tier = typeof body["tier"] === "string" ? body["tier"].trim() : null;
+  const featureKey = typeof body["featureKey"] === "string" ? body["featureKey"].trim() : null;
+  const enabled = typeof body["enabled"] === "boolean" ? body["enabled"] : null;
+
+  if (!tier || !featureKey || enabled === null) {
+    res.status(400).json({ error: "tier, featureKey, and enabled are required" });
+    return;
+  }
+
+  const [flag] = await db
+    .select({ key: featureFlagsTable.key })
+    .from(featureFlagsTable)
+    .where(eq(featureFlagsTable.key, featureKey))
+    .limit(1);
+
+  if (!flag) {
+    res.status(404).json({ error: "Feature flag not found" });
+    return;
+  }
+
+  await setTierFeature(tier, featureKey, enabled);
+  bustTierFeaturesCache();
+
+  res.json({ tier, featureKey, enabled });
 });
 
 export default router;

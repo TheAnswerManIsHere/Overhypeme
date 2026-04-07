@@ -13,6 +13,7 @@ import {
   pendingReviewsTable, userFactPreferencesTable,
 } from "@workspace/db/schema";
 import { stripeStorage } from "../lib/stripeStorage";
+import { hasFeature } from "../lib/tierFeatures";
 import { eq, sql, desc, asc, ilike, and, inArray, isNull } from "drizzle-orm";
 import {
   ListFactsQueryParams, CreateFactBody, GetFactParams,
@@ -332,9 +333,10 @@ router.post("/facts/:factId/comments", async (req: Request, res: Response) => {
   if (!factExists) { res.status(404).json({ error: "Fact not found" }); return; }
 
   const [commentUser] = await db.select({ membershipTier: usersTable.membershipTier }).from(usersTable).where(eq(usersTable.id, req.user.id)).limit(1);
-  const isUserPremium = commentUser?.membershipTier === "premium" || commentUser?.membershipTier === "legendary";
+  const userDbTier = commentUser?.membershipTier === "premium" ? "legendary" : "free";
+  const captchaBypass = await hasFeature(userDbTier, "comment_captcha_bypass");
 
-  if (!isUserPremium) {
+  if (!captchaBypass) {
     if (!captchaToken || !(await verifyCaptcha(captchaToken))) {
       res.status(400).json({ error: "CAPTCHA verification failed" });
       return;
