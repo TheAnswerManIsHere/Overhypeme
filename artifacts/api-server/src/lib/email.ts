@@ -12,7 +12,7 @@ function getFromAddress(): string {
 }
 
 /** Trailing slash stripped so callers can safely append paths. */
-function getSiteBaseUrl(): string {
+export function getSiteBaseUrl(): string {
   return (process.env.SITE_BASE_URL ?? "https://overhype.me").replace(/\/$/, "");
 }
 
