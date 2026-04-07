@@ -606,6 +606,7 @@ router.get("/videos/:factId", async (req, res) => {
       falRequestId: videoJobsTable.falRequestId,
       status: videoJobsTable.status,
       isPrivate: videoJobsTable.isPrivate,
+      userId: videoJobsTable.userId,
       createdAt: videoJobsTable.createdAt,
     })
     .from(videoJobsTable)
