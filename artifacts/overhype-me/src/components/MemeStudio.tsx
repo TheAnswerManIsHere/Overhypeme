@@ -1594,13 +1594,6 @@ export function MemeStudio({
   initialVideoImageDataUrl,
 }: MemeStudioProps) {
   const [activeTab, setActiveTab] = useState<StudioTab>(defaultTab);
-  const [videoImageDataUrl, setVideoImageDataUrl] = useState<string | undefined>(initialVideoImageDataUrl);
-
-  const handleMakeVideo = (dataUrl: string) => {
-    setVideoImageDataUrl(dataUrl);
-    setActiveTab("video");
-  };
-
   return (
     <div className="fixed inset-0 z-50 flex flex-col bg-card">
 
@@ -1648,7 +1641,6 @@ export function MemeStudio({
             defaultPrivate={defaultPrivate}
             embedded
             fullScreen
-            onMakeVideo={handleMakeVideo}
           />
         ) : (
           <div className="p-4 md:p-5 max-w-2xl mx-auto">
@@ -1657,7 +1649,7 @@ export function MemeStudio({
               factText={factText}
               pexelsImages={pexelsImages}
               aiMemeImages={aiMemeImages}
-              initialImageDataUrl={videoImageDataUrl}
+              initialImageDataUrl={initialVideoImageDataUrl}
             />
           </div>
         )}
