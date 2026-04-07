@@ -5,7 +5,7 @@ import { Layout } from "@/components/layout/Layout";
 import { FactCard } from "@/components/facts/FactCard";
 import { Button } from "@/components/ui/Button";
 import { SubscriptionPanel } from "@/components/SubscriptionPanel";
-import { ShieldAlert, LogOut, Clock, ThumbsUp, FileText, Hash, Star, X, Pencil, Check, Mail, AlertTriangle, CheckCircle, Camera, Loader2, Images, ImageIcon } from "lucide-react";
+import { ShieldAlert, LogOut, Clock, ThumbsUp, FileText, Hash, Star, X, Pencil, Check, Mail, AlertTriangle, CheckCircle, Camera, Loader2, Images, ImageIcon, UserCircle2, Image } from "lucide-react";
 import { ImageCard } from "@/components/ui/ImageCard";
 import { Link, useLocation } from "wouter";
 import { useQueryClient, useQuery } from "@tanstack/react-query";
@@ -52,6 +52,7 @@ export default function Profile() {
   const [photoUploading, setPhotoUploading] = useState(false);
   const [photoError, setPhotoError] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [avatarSourceToggling, setAvatarSourceToggling] = useState(false);
 
   interface UploadItem {
     objectPath: string;
@@ -128,8 +129,24 @@ export default function Profile() {
   }
 
   function getAvatarUrl() {
-    if (profile?.isPremium && profile?.profileImageUrl) return profile.profileImageUrl;
+    if (profile?.isPremium && profile?.profileImageUrl && (profile?.avatarSource ?? "avatar") === "photo") {
+      return profile.profileImageUrl;
+    }
     return dicebearUrl(profile?.avatarStyle ?? "bottts", profile?.id ?? "default");
+  }
+
+  async function toggleAvatarSource() {
+    if (!profile) return;
+    const next = (profile.avatarSource ?? "avatar") === "photo" ? "avatar" : "photo";
+    setAvatarSourceToggling(true);
+    try {
+      await updateProfile.mutateAsync({ data: { avatarSource: next } });
+      await queryClient.invalidateQueries({ queryKey: getGetMyProfileQueryKey() });
+    } catch {
+      // silently ignore
+    } finally {
+      setAvatarSourceToggling(false);
+    }
   }
 
   useEffect(() => {
@@ -229,7 +246,7 @@ export default function Profile() {
       const { objectPath } = await uploadRes.json() as { objectPath: string };
 
       const profileImageUrl = `/api/storage${objectPath}`;
-      await updateProfile.mutateAsync({ data: { profileImageUrl } });
+      await updateProfile.mutateAsync({ data: { profileImageUrl, avatarSource: "photo" } });
       await queryClient.invalidateQueries({ queryKey: getGetMyProfileQueryKey() });
     } catch (err: unknown) {
       const errObj = err as { message?: string };
@@ -404,6 +421,36 @@ export default function Profile() {
             {photoError && (
               <p className="absolute top-full mt-1 left-0 w-48 text-xs text-destructive font-medium bg-card border border-destructive/40 rounded-sm px-2 py-1 z-20">{photoError}</p>
             )}
+
+            {/* Avatar source toggle — Legendary users with a custom photo */}
+            {profile.isPremium && profile.profileImageUrl && (
+              <div className="mt-2 flex items-center gap-1 bg-secondary/80 rounded-sm p-0.5 border border-border/60">
+                <button
+                  disabled={avatarSourceToggling}
+                  onClick={() => (profile.avatarSource ?? "avatar") !== "avatar" && toggleAvatarSource()}
+                  className={`flex items-center gap-1 px-2 py-1 rounded-sm text-[10px] font-bold uppercase tracking-wider transition-colors ${
+                    (profile.avatarSource ?? "avatar") === "avatar"
+                      ? "bg-primary text-primary-foreground"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                  title="Use avatar style"
+                >
+                  <UserCircle2 className="w-3 h-3" /> Avatar
+                </button>
+                <button
+                  disabled={avatarSourceToggling}
+                  onClick={() => (profile.avatarSource ?? "avatar") !== "photo" && toggleAvatarSource()}
+                  className={`flex items-center gap-1 px-2 py-1 rounded-sm text-[10px] font-bold uppercase tracking-wider transition-colors ${
+                    (profile.avatarSource ?? "avatar") === "photo"
+                      ? "bg-primary text-primary-foreground"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                  title="Use custom photo"
+                >
+                  <Image className="w-3 h-3" /> Photo
+                </button>
+              </div>
+            )}
           </div>
           
           <div className="flex-1 text-center md:text-left z-10">
@@ -503,7 +550,7 @@ export default function Profile() {
                   <label className="block text-sm font-bold text-muted-foreground uppercase tracking-wide mb-2 flex items-center gap-2">
                     <Camera className="w-3.5 h-3.5" /> Custom Photo <span className="text-primary text-xs">Legendary</span>
                   </label>
-                  <div className="flex items-center gap-4">
+                  <div className="flex items-center gap-4 flex-wrap">
                     {profile.profileImageUrl && (
                       <img src={profile.profileImageUrl} alt="Current photo" className="w-12 h-12 rounded-sm border border-border object-cover" />
                     )}
@@ -516,9 +563,44 @@ export default function Profile() {
                     >
                       {photoUploading ? <><Loader2 className="w-4 h-4 animate-spin" /> Uploading…</> : <><Camera className="w-4 h-4" /> {profile.profileImageUrl ? "Change Photo" : "Upload Photo"}</>}
                     </Button>
+                    {profile.profileImageUrl && (
+                      <div className="flex flex-col gap-1">
+                        <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wide">Display as</p>
+                        <div className="flex items-center gap-1 bg-secondary/80 rounded-sm p-0.5 border border-border/60">
+                          <button
+                            type="button"
+                            disabled={avatarSourceToggling}
+                            onClick={() => (profile.avatarSource ?? "avatar") !== "avatar" && toggleAvatarSource()}
+                            className={`flex items-center gap-1 px-2 py-1 rounded-sm text-[10px] font-bold uppercase tracking-wider transition-colors ${
+                              (profile.avatarSource ?? "avatar") === "avatar"
+                                ? "bg-primary text-primary-foreground"
+                                : "text-muted-foreground hover:text-foreground"
+                            }`}
+                          >
+                            <UserCircle2 className="w-3 h-3" /> Avatar
+                          </button>
+                          <button
+                            type="button"
+                            disabled={avatarSourceToggling}
+                            onClick={() => (profile.avatarSource ?? "avatar") !== "photo" && toggleAvatarSource()}
+                            className={`flex items-center gap-1 px-2 py-1 rounded-sm text-[10px] font-bold uppercase tracking-wider transition-colors ${
+                              (profile.avatarSource ?? "avatar") === "photo"
+                                ? "bg-primary text-primary-foreground"
+                                : "text-muted-foreground hover:text-foreground"
+                            }`}
+                          >
+                            <Image className="w-3 h-3" /> Photo
+                          </button>
+                        </div>
+                      </div>
+                    )}
                   </div>
                   {photoError && <p className="text-xs text-destructive mt-1">{photoError}</p>}
-                  <p className="text-xs text-muted-foreground mt-1">Replaces your generated avatar. JPEG, PNG, WebP or GIF, max 5 MB.</p>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    {profile.profileImageUrl
+                      ? "Toggle between your avatar style and your custom photo, or upload a new photo."
+                      : "Upload a photo to replace your generated avatar. JPEG, PNG, WebP or GIF, max 5 MB."}
+                  </p>
                 </div>
               ) : (
                 <div className="flex items-start gap-3 bg-primary/5 border border-primary/20 rounded-sm p-3">

@@ -54,6 +54,7 @@ router.get("/users/me", async (req: Request, res: Response) => {
       pronouns: usersTable.pronouns,
       profileImageUrl: usersTable.profileImageUrl,
       avatarStyle: usersTable.avatarStyle,
+      avatarSource: usersTable.avatarSource,
       emailVerifiedAt: usersTable.emailVerifiedAt,
       membershipTier: usersTable.membershipTier,
     })
@@ -100,6 +101,7 @@ router.get("/users/me", async (req: Request, res: Response) => {
     pronouns: userRow?.pronouns ?? null,
     profileImageUrl: userRow?.profileImageUrl ?? null,
     avatarStyle: userRow?.avatarStyle ?? "bottts",
+    avatarSource: userRow?.avatarSource ?? "avatar",
     isPremium: userRow?.membershipTier === "premium",
     submittedFacts: submittedSummaries,
     likedFacts: likedSummaries,
@@ -112,7 +114,7 @@ router.patch("/users/me", async (req: Request, res: Response) => {
   if (!req.isAuthenticated()) { res.status(401).json({ error: "Unauthorized" }); return; }
   const userId = req.user.id;
 
-  const { displayName, firstName, lastName, pronouns, email, profileImageUrl, avatarStyle } = req.body as {
+  const { displayName, firstName, lastName, pronouns, email, profileImageUrl, avatarStyle, avatarSource } = req.body as {
     displayName?: string;
     firstName?: string;
     lastName?: string;
@@ -120,6 +122,7 @@ router.patch("/users/me", async (req: Request, res: Response) => {
     email?: string;
     profileImageUrl?: string;
     avatarStyle?: string;
+    avatarSource?: string;
   };
 
   const ALLOWED_AVATAR_STYLES = ["bottts", "pixel-art", "adventurer", "identicon", "shapes", "thumbs"];
@@ -151,6 +154,13 @@ router.patch("/users/me", async (req: Request, res: Response) => {
       res.status(400).json({ error: "Invalid avatar style" }); return;
     }
     updates.avatarStyle = avatarStyle;
+  }
+
+  if (avatarSource !== undefined) {
+    if (avatarSource !== "avatar" && avatarSource !== "photo") {
+      res.status(400).json({ error: "avatarSource must be 'avatar' or 'photo'" }); return;
+    }
+    updates.avatarSource = avatarSource;
   }
 
   if (profileImageUrl !== undefined) {
