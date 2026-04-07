@@ -1,10 +1,11 @@
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useLocation } from "wouter";
 import { Layout } from "@/components/layout/Layout";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { LogIn, UserPlus, ArrowLeft, Mail, Eye, EyeOff } from "lucide-react";
 import { PronounEditor } from "@/components/ui/PronounEditor";
+import { inferPronounsFromName } from "@/lib/infer-pronouns";
 
 const STORAGE_KEY_NAME    = "fact_db_name";
 const STORAGE_KEY_PRONOUNS = "fact_db_pronouns";
@@ -41,7 +42,16 @@ export default function Login() {
   const [password, setPassword] = useState("");
   const [displayName, setDisplayName] = useState(() => getStoredName());
   const [pronouns, setPronouns] = useState(() => getStoredPronouns());
+  const pronounsExplicit = useRef(!!getStoredPronouns());
   const [showPassword, setShowPassword] = useState(false);
+
+  // Auto-suggest pronouns from the first name while the user hasn't made an explicit choice
+  useEffect(() => {
+    if (mode !== "register") return;
+    if (pronounsExplicit.current) return;
+    const suggested = inferPronounsFromName(displayName);
+    if (suggested) setPronouns(suggested);
+  }, [displayName, mode]);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [registeredEmail, setRegisteredEmail] = useState("");
@@ -204,7 +214,13 @@ export default function Login() {
                   <label className="block text-sm font-display font-bold text-muted-foreground mb-1 uppercase tracking-wider">
                     Pronouns <span className="text-destructive">*</span>
                   </label>
-                  <PronounEditor value={pronouns} onChange={setPronouns} />
+                  <PronounEditor
+                    value={pronouns}
+                    onChange={(v) => {
+                      pronounsExplicit.current = true;
+                      setPronouns(v);
+                    }}
+                  />
                 </div>
               </>
             )}
@@ -282,6 +298,8 @@ export default function Login() {
                   onClick={() => {
                     setMode("register");
                     setError("");
+                    // Allow auto-inference to run when switching to register if no explicit choice yet
+                    if (!pronouns) pronounsExplicit.current = false;
                   }}
                   className="text-primary font-bold hover:underline"
                 >
