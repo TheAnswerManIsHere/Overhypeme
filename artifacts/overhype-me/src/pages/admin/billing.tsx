@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { AdminLayout } from "@/components/admin/AdminLayout";
+import { CollapsibleSection } from "@/components/CollapsibleSection";
 import { Button } from "@/components/ui/Button";
 import {
   CreditCard, Zap, Star, CheckCircle, XCircle, AlertTriangle,
@@ -179,7 +180,7 @@ export default function AdminBilling() {
           </div>
         )}
 
-        {/* Mode Toggle */}
+        {/* Mode Toggle — pinned global control, not collapsible */}
         <div className={`bg-card border rounded-lg p-5 ${liveMode ? "border-amber-500/50" : "border-border"}`}>
           <div className="flex items-center justify-between flex-wrap gap-4">
             <div className="flex items-center gap-3">
@@ -228,15 +229,18 @@ export default function AdminBilling() {
         </div>
 
         {/* Stripe Connection */}
-        <div className="bg-card border border-border rounded-lg p-5">
-          <h2 className="font-display font-bold text-foreground uppercase tracking-wide mb-4 flex items-center gap-2">
-            <CreditCard className="w-4 h-4 text-primary" />
-            Stripe Connection
-            <Button variant="outline" size="sm" className="ml-auto h-7 px-2 text-xs gap-1" onClick={fetchAll}>
+        <CollapsibleSection
+          title="Stripe Connection"
+          icon={<CreditCard className="w-4 h-4 text-primary" />}
+          description="Verify Stripe credentials are reachable and correctly configured."
+        >
+          <div className="flex items-center justify-between mb-2">
+            <span />
+            <Button variant="outline" size="sm" className="h-7 px-2 text-xs gap-1" onClick={fetchAll}>
               <RefreshCw className="w-3 h-3" />
               Refresh
             </Button>
-          </h2>
+          </div>
           {configLoading ? (
             <div className="animate-pulse h-8 bg-secondary rounded-sm" />
           ) : (
@@ -260,7 +264,7 @@ export default function AdminBilling() {
               </div>
             </div>
           )}
-        </div>
+        </CollapsibleSection>
 
         {/* Subscriber Summary */}
         <div className="grid grid-cols-2 gap-4">
@@ -289,11 +293,11 @@ export default function AdminBilling() {
         </div>
 
         {/* Plans */}
-        <div className="bg-card border border-border rounded-lg p-5">
-          <h2 className="font-display font-bold text-foreground uppercase tracking-wide mb-4 flex items-center gap-2">
-            <Package className="w-4 h-4 text-primary" />
-            Plans from Stripe
-          </h2>
+        <CollapsibleSection
+          title="Plans from Stripe"
+          icon={<Package className="w-4 h-4 text-primary" />}
+          description="Membership products and prices fetched from Stripe."
+        >
           {plansLoading ? (
             <div className="animate-pulse space-y-3">
               <div className="h-10 bg-secondary rounded-sm" />
@@ -335,14 +339,14 @@ export default function AdminBilling() {
               ))}
             </div>
           )}
-        </div>
+        </CollapsibleSection>
 
         {/* Setup Checklist */}
-        <div className="bg-card border border-border rounded-lg p-5">
-          <h2 className="font-display font-bold text-foreground uppercase tracking-wide mb-4 flex items-center gap-2">
-            <ShieldCheck className="w-4 h-4 text-primary" />
-            Setup Checklist
-          </h2>
+        <CollapsibleSection
+          title="Setup Checklist"
+          icon={<ShieldCheck className="w-4 h-4 text-primary" />}
+          description="Live status of Stripe integration requirements."
+        >
           <div className="space-y-3 text-sm">
             <CheckRow done={isConnected} label="Stripe credentials reachable (publishable key found)" />
             <CheckRow done={hasProducts} label="Stripe products configured in dashboard" />
@@ -353,7 +357,7 @@ export default function AdminBilling() {
             <CheckRow done={hasWebhookSecret} label="STRIPE_WEBHOOK_SECRET environment variable set" />
             <CheckRow done={hasPriceIds || hasProducts} label="Membership price IDs configured (env or product metadata)" />
           </div>
-        </div>
+        </CollapsibleSection>
 
         {/* Test Event (test mode only) */}
         {liveMode === false && (

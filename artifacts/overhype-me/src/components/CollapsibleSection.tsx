@@ -1,0 +1,46 @@
+import { useState, type ReactNode } from "react";
+import { ChevronDown } from "lucide-react";
+
+interface CollapsibleSectionProps {
+  title: string;
+  icon?: ReactNode;
+  description?: string;
+  children: ReactNode;
+  className?: string;
+}
+
+export function CollapsibleSection({
+  title,
+  icon,
+  description,
+  children,
+  className = "",
+}: CollapsibleSectionProps) {
+  const [open, setOpen] = useState(true);
+
+  return (
+    <div className={`bg-card border border-border rounded-lg overflow-hidden ${className}`}>
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className="w-full flex items-center justify-between gap-3 p-5 text-left hover:bg-muted/30 transition-colors"
+      >
+        <div className="flex items-start gap-3 min-w-0">
+          {icon && <span className="shrink-0 mt-0.5">{icon}</span>}
+          <div className="min-w-0">
+            <span className="font-semibold text-foreground">{title}</span>
+            {description && (
+              <p className="text-sm text-muted-foreground mt-0.5 line-clamp-1">{description}</p>
+            )}
+          </div>
+        </div>
+        <ChevronDown
+          className={`w-4 h-4 text-muted-foreground shrink-0 transition-transform duration-200 ${
+            open ? "rotate-0" : "-rotate-90"
+          }`}
+        />
+      </button>
+      {open && <div className="px-5 pb-5 space-y-5">{children}</div>}
+    </div>
+  );
+}

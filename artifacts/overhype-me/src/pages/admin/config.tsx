@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback, createContext, useContext } from "react";
 import { AdminLayout } from "@/components/admin/AdminLayout";
+import { CollapsibleSection } from "@/components/CollapsibleSection";
 import {
   Settings, Clock, Check, AlertCircle, Loader2, Palette, Bug, X, Bot, Film,
 } from "lucide-react";
@@ -781,13 +782,62 @@ export default function AdminConfig() {
           ) : (
             <div className="space-y-3">
 
-              {/* ── Image Style Suffixes ──────────────────────────────────────── */}
-              <div className="bg-card border border-border rounded-lg p-5 space-y-4">
-                <div className="flex items-center gap-2">
-                  <Palette className="w-4 h-4 text-muted-foreground" />
-                  <h3 className="font-semibold text-foreground">Image Style Suffixes</h3>
+              {/* ── AI Image Generation ──────────────────────────────────────── */}
+              <CollapsibleSection
+                title="AI Image Generation"
+                icon={<Bot className="w-4 h-4 text-muted-foreground" />}
+                description="fal.ai model selection and per-model tuning parameters."
+              >
+                <p className="text-sm text-muted-foreground -mt-3">
+                  fal.ai model selection and per-model tuning parameters. Select a model from the dropdown to reveal its configurable parameters below.
+                </p>
+
+                <div className="space-y-3">
+                  <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Shared Settings</p>
+                  <ModelParamRow paramKey="ai_image_size" />
                 </div>
-                <p className="text-sm text-muted-foreground -mt-2">
+
+                <div className="border-t border-border" />
+
+                <ModelConfigSection
+                  title="Standard Model"
+                  subtitle="Text-to-image generation without a reference photo"
+                  modelKey="ai_image_model_standard"
+                />
+
+                <div className="border-t border-border" />
+
+                <ModelConfigSection
+                  title="Reference Photo Model"
+                  subtitle="Face-preserving generation from an uploaded reference photo"
+                  modelKey="ai_image_model_reference"
+                />
+              </CollapsibleSection>
+
+              {/* ── AI Scene Prompt ───────────────────────────────────────────── */}
+              <CollapsibleSection
+                title="AI Scene Prompt"
+                icon={<Bot className="w-4 h-4 text-muted-foreground" />}
+                description="OpenAI model and sampling parameters for cinematic scene descriptions."
+              >
+                <p className="text-sm text-muted-foreground -mt-3">
+                  OpenAI model and sampling parameters used when generating cinematic scene descriptions for meme backgrounds.
+                </p>
+
+                <div className="space-y-4">
+                  <ModelParamRow paramKey="ai_scene_prompt_model" />
+                  <ModelParamRow paramKey="ai_scene_prompt_max_tokens" />
+                  <ModelParamRow paramKey="ai_scene_prompt_temperature" />
+                </div>
+              </CollapsibleSection>
+
+              {/* ── Image Style Suffixes ──────────────────────────────────────── */}
+              <CollapsibleSection
+                title="Image Style Suffixes"
+                icon={<Palette className="w-4 h-4 text-muted-foreground" />}
+                description="Text appended to the scene prompt when a style is selected."
+              >
+                <p className="text-sm text-muted-foreground -mt-3">
                   Text appended to the scene prompt when a style is selected. Each style has a Standard and a Debug value pair.
                 </p>
 
@@ -855,64 +905,15 @@ export default function AdminConfig() {
                     </div>
                   </div>
                 )}
-              </div>
-
-              {/* ── AI Image Generation ──────────────────────────────────────── */}
-              <div className="bg-card border border-border rounded-lg p-5 space-y-5">
-                <div className="flex items-center gap-2">
-                  <Bot className="w-4 h-4 text-muted-foreground" />
-                  <h3 className="font-semibold text-foreground">AI Image Generation</h3>
-                </div>
-                <p className="text-sm text-muted-foreground -mt-2">
-                  fal.ai model selection and per-model tuning parameters. Select a model from the dropdown to reveal its configurable parameters below.
-                </p>
-
-                <div className="space-y-3">
-                  <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Shared Settings</p>
-                  <ModelParamRow paramKey="ai_image_size" />
-                </div>
-
-                <div className="border-t border-border" />
-
-                <ModelConfigSection
-                  title="Standard Model"
-                  subtitle="Text-to-image generation without a reference photo"
-                  modelKey="ai_image_model_standard"
-                />
-
-                <div className="border-t border-border" />
-
-                <ModelConfigSection
-                  title="Reference Photo Model"
-                  subtitle="Face-preserving generation from an uploaded reference photo"
-                  modelKey="ai_image_model_reference"
-                />
-              </div>
-
-              {/* ── AI Scene Prompt ───────────────────────────────────────────── */}
-              <div className="bg-card border border-border rounded-lg p-5 space-y-5">
-                <div className="flex items-center gap-2">
-                  <Bot className="w-4 h-4 text-muted-foreground" />
-                  <h3 className="font-semibold text-foreground">AI Scene Prompt</h3>
-                </div>
-                <p className="text-sm text-muted-foreground -mt-2">
-                  OpenAI model and sampling parameters used when generating cinematic scene descriptions for meme backgrounds.
-                </p>
-
-                <div className="space-y-4">
-                  <ModelParamRow paramKey="ai_scene_prompt_model" />
-                  <ModelParamRow paramKey="ai_scene_prompt_max_tokens" />
-                  <ModelParamRow paramKey="ai_scene_prompt_temperature" />
-                </div>
-              </div>
+              </CollapsibleSection>
 
               {/* ── Video Generation ─────────────────────────────────────────── */}
-              <div className="bg-card border border-border rounded-lg p-5 space-y-5">
-                <div className="flex items-center gap-2">
-                  <Film className="w-4 h-4 text-muted-foreground" />
-                  <h3 className="font-semibold text-foreground">Video Generation</h3>
-                </div>
-                <p className="text-sm text-muted-foreground -mt-2">
+              <CollapsibleSection
+                title="Video Generation"
+                icon={<Film className="w-4 h-4 text-muted-foreground" />}
+                description="fal.ai model and generation parameters for video creation."
+              >
+                <p className="text-sm text-muted-foreground -mt-3">
                   fal.ai Kling model and generation parameters for video creation.
                 </p>
 
@@ -922,7 +923,7 @@ export default function AdminConfig() {
                   <ModelParamRow paramKey="video_aspect_ratio" />
                   <ModelParamRow paramKey="video_prompt_system_prompt" />
                 </div>
-              </div>
+              </CollapsibleSection>
 
               {/* ── Generic config rows ───────────────────────────────────────── */}
               {genericRows.map((row) => <ConfigCard key={row.key} row={row} />)}
