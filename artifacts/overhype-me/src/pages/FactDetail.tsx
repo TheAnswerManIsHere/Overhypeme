@@ -456,6 +456,7 @@ export default function FactDetail() {
               </div>
             </div>
             {/* Sharing status toggle — always visible, affects memes */}
+            <div className="flex justify-end">
             <div className="flex items-center gap-1 bg-secondary border border-border rounded-sm p-1 w-fit">
               <button
                 onClick={() => setMemeTab("community")}
@@ -497,6 +498,7 @@ export default function FactDetail() {
               >
                 <Layers className="w-3.5 h-3.5" /> All
               </button>
+            </div>
             </div>
           </div>
 
