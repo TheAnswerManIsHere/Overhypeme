@@ -13,7 +13,7 @@ import { useAppMutations } from "@/hooks/use-mutations";
 import { MemeStudio } from "@/components/MemeStudio";
 import { MerchButtons } from "@/components/MerchButtons";
 import { AdSlot } from "@/components/AdSlot";
-import { ThumbsUp, ThumbsDown, User, AlertCircle, ImageIcon, GitBranch, ArrowLeft, Crown, Flame, Globe, Lock, Video, Play, Layers } from "lucide-react";
+import { ThumbsUp, ThumbsDown, User, AlertCircle, ImageIcon, GitBranch, ArrowLeft, Crown, Flame, Globe, Lock, Video, Play, Layers, ExternalLink } from "lucide-react";
 import { ImageCard } from "@/components/ui/ImageCard";
 import { cn } from "@/components/ui/Button";
 import { usePersonName } from "@/hooks/use-person-name";
@@ -516,17 +516,21 @@ export default function FactDetail() {
                     const isMyMeme = !!user?.id && meme.createdById === user.id;
                     const memePermalink = `${window.location.origin}/meme/${meme.permalinkSlug}`;
                     return (
-                      <ImageCard
-                        key={meme.id}
-                        src={meme.imageUrl}
-                        alt="Meme"
-                        href={`/meme/${meme.permalinkSlug}`}
-                        aspectRatio={MEME_ASPECT_CLASS[meme.aspectRatio ?? "landscape"] ?? "aspect-video"}
-                        actions={isMyMeme ? ["delete", "copyLink", "openFull"] : ["copyLink", "openFull"]}
-                        onDelete={isMyMeme ? () => handleDeleteMeme(meme.permalinkSlug) : undefined}
-                        deleteConfirmMessage="Remove this meme? It will no longer be visible to anyone."
-                        permalink={memePermalink}
-                      />
+                      <div key={meme.id} className="space-y-1.5">
+                        <ImageCard
+                          src={meme.imageUrl}
+                          alt="Meme"
+                          href={`/meme/${meme.permalinkSlug}`}
+                          aspectRatio={MEME_ASPECT_CLASS[meme.aspectRatio ?? "landscape"] ?? "aspect-video"}
+                          actions={isMyMeme ? ["delete", "copyLink", "openFull"] : ["copyLink", "openFull"]}
+                          onDelete={isMyMeme ? () => handleDeleteMeme(meme.permalinkSlug) : undefined}
+                          deleteConfirmMessage="Remove this meme? It will no longer be visible to anyone."
+                          permalink={memePermalink}
+                        />
+                        <Link href={`/meme/${meme.permalinkSlug}`} className="w-full flex items-center justify-center gap-1.5 text-[10px] font-display font-bold uppercase tracking-wider text-muted-foreground hover:text-primary transition-colors py-1">
+                          <ExternalLink className="w-3 h-3" /> View Permalink
+                        </Link>
+                      </div>
                     );
                   })}
                 </div>
