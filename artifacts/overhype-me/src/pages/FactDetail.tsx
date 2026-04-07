@@ -574,29 +574,31 @@ export default function FactDetail() {
               {videosData && videosData.videos.length > 0 ? (
                 <div className="grid grid-cols-2 md:grid-cols-3 gap-4 items-start">
                   {videosData.videos.map(video => (
-                    <div
-                      key={video.id}
-                      className="relative border-2 border-border rounded-sm overflow-hidden group hover:border-primary/60 transition-all"
-                    >
-                      <div className="aspect-video relative bg-black">
-                        <video
-                          src={video.videoUrl ?? ""}
-                          poster={video.imageUrl}
-                          controls
-                          preload="metadata"
-                          className="w-full h-full object-cover"
-                        />
-                        {!video.videoUrl && (
-                          <div className="absolute inset-0 flex items-center justify-center">
-                            <Play className="w-10 h-10 text-white/40" />
+                    <div key={video.id} className="space-y-1.5">
+                      <div className="relative border-2 border-border rounded-sm overflow-hidden group hover:border-primary/60 transition-all">
+                        <div className="aspect-video relative bg-black">
+                          <video
+                            src={video.videoUrl ?? ""}
+                            poster={video.imageUrl}
+                            controls
+                            preload="metadata"
+                            className="w-full h-full object-cover"
+                          />
+                          {!video.videoUrl && (
+                            <div className="absolute inset-0 flex items-center justify-center">
+                              <Play className="w-10 h-10 text-white/40" />
+                            </div>
+                          )}
+                        </div>
+                        {video.motionPrompt && (
+                          <div className="px-2 py-1.5 bg-secondary/80 border-t border-border">
+                            <p className="text-[10px] text-muted-foreground line-clamp-1">{video.motionPrompt}</p>
                           </div>
                         )}
                       </div>
-                      {video.motionPrompt && (
-                        <div className="px-2 py-1.5 bg-secondary/80 border-t border-border">
-                          <p className="text-[10px] text-muted-foreground line-clamp-1">{video.motionPrompt}</p>
-                        </div>
-                      )}
+                      <Link href={`/video/${video.id}`} className="w-full flex items-center justify-center gap-1.5 text-[10px] font-display font-bold uppercase tracking-wider text-muted-foreground hover:text-primary transition-colors py-1">
+                        <ExternalLink className="w-3 h-3" /> View Permalink
+                      </Link>
                     </div>
                   ))}
                 </div>
