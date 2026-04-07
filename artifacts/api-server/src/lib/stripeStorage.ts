@@ -27,13 +27,13 @@ export class StripeStorage {
     return (result.rows[0] as Record<string, unknown>) ?? null;
   }
 
-  async getActivePremiumUsers(): Promise<Array<{ id: string; email: string }>> {
+  async getActivePremiumUsers(): Promise<Array<{ id: string; email: string; displayName: string | null; pronouns: string | null }>> {
     // Use app-level membershipTier as the source of truth — covers both subscription and lifetime members
     const rows = await db
-      .select({ id: usersTable.id, email: usersTable.email })
+      .select({ id: usersTable.id, email: usersTable.email, displayName: usersTable.displayName, pronouns: usersTable.pronouns })
       .from(usersTable)
       .where(and(eq(usersTable.membershipTier, "premium"), eq(usersTable.isActive, true)));
-    return rows.filter(r => r.email !== null) as Array<{ id: string; email: string }>;
+    return rows.filter(r => r.email !== null) as Array<{ id: string; email: string; displayName: string | null; pronouns: string | null }>;
   }
 
   async getMembershipTierForUser(userId: string): Promise<"free" | "premium"> {
