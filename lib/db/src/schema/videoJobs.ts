@@ -1,4 +1,4 @@
-import { pgTable, serial, integer, text, varchar, timestamp, pgEnum, index } from "drizzle-orm/pg-core";
+import { pgTable, serial, integer, text, varchar, timestamp, pgEnum, index, boolean } from "drizzle-orm/pg-core";
 import { factsTable } from "./facts";
 
 export const videoJobStatusEnum = pgEnum("video_job_status", ["pending", "completed", "failed"]);
@@ -13,6 +13,8 @@ export const videoJobsTable = pgTable("video_jobs", {
   styleId: varchar("style_id", { length: 64 }),
   status: videoJobStatusEnum("status").notNull().default("pending"),
   ipAddress: varchar("ip_address", { length: 45 }).notNull(),
+  userId: text("user_id"),
+  isPrivate: boolean("is_private").notNull().default(false),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [
   index("video_jobs_fact_id_idx").on(table.factId),

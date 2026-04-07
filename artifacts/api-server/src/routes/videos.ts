@@ -2,7 +2,7 @@ import { Router, type IRouter, type Request } from "express";
 import { z } from "zod";
 import { fal } from "@fal-ai/client";
 import { db, videoJobsTable, usersTable } from "@workspace/db";
-import { eq, and, gte, desc } from "drizzle-orm";
+import { eq, and, gte, desc, or } from "drizzle-orm";
 import { deriveUserRole } from "../lib/userRole.js";
 import { VIDEO_STYLE_MAP } from "../config/videoStyles.js";
 import { getConfigString } from "../lib/adminConfig.js";
@@ -452,6 +452,7 @@ const GenerateVideoBody = z
     adminThinkingType: z.string().max(20).optional(),
     // Rendered fact text (with name/pronouns already substituted) for voiceover cue
     renderedFactText: z.string().max(1000).optional(),
+    isPrivate: z.boolean().optional(),
   })
   .refine((data) => data.imageUrl || data.imageBase64, {
     message: "Either imageUrl or imageBase64 must be provided",
@@ -509,6 +510,9 @@ router.get("/videos/:factId", async (req, res) => {
     return;
   }
 
+  const clientIp = getClientIp(req);
+  const viewerUserId = req.isAuthenticated() ? req.user.id : null;
+
   const videos = await db
     .select({
       id: videoJobsTable.id,
@@ -519,6 +523,7 @@ router.get("/videos/:factId", async (req, res) => {
       styleId: videoJobsTable.styleId,
       falRequestId: videoJobsTable.falRequestId,
       status: videoJobsTable.status,
+      isPrivate: videoJobsTable.isPrivate,
       createdAt: videoJobsTable.createdAt,
     })
     .from(videoJobsTable)
@@ -526,6 +531,10 @@ router.get("/videos/:factId", async (req, res) => {
       and(
         eq(videoJobsTable.factId, factId),
         eq(videoJobsTable.status, "completed"),
+        or(
+          eq(videoJobsTable.isPrivate, false),
+          viewerUserId ? eq(videoJobsTable.userId, viewerUserId) : eq(videoJobsTable.ipAddress, clientIp),
+        ),
       ),
     )
     .orderBy(desc(videoJobsTable.createdAt));
@@ -657,6 +666,8 @@ router.post("/videos/generate", async (req, res) => {
       styleId,
       status: "pending",
       ipAddress: clientIp,
+      userId: req.isAuthenticated() ? req.user.id : null,
+      isPrivate: parsed.data.isPrivate ?? false,
     })
     .returning();
 

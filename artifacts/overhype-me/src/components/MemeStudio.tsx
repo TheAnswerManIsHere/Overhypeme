@@ -12,6 +12,7 @@ import {
   Sparkles,
   Upload,
   Lock,
+  Globe,
 } from "lucide-react";
 import { MemeBuilder } from "@/components/MemeBuilder";
 import { Button } from "@/components/ui/Button";
@@ -515,7 +516,7 @@ function VideoTab({ factId, factText, pexelsImages, aiMemeImages, initialImageDa
   // ── Admin controls ─────────────────────────────────────────────────────────
   const [selectedModel, setSelectedModel] = useState(FAL_VIDEO_MODELS_ADMIN[0]!.value);
   const [motionPrompt, setMotionPrompt] = useState("");
-  const [isGeneratingPrompt] = useState(false);
+  const [isVideoPrivate, setIsVideoPrivate] = useState(false);
 
   // Admin per-model params (reset when model changes)
   const [adminDuration, setAdminDuration] = useState("5");
@@ -578,11 +579,13 @@ function VideoTab({ factId, factText, pexelsImages, aiMemeImages, initialImageDa
       .finally(() => setIsLoadingGallery(false));
   }, [isPremium, imageMode]);
 
-  // ── Populate motion prompt from the selected style ─────────────────────────
-  const applyStylePrompt = useCallback(() => {
-    const style = VIDEO_STYLES.find(s => s.id === selectedStyleId);
-    if (style) setMotionPrompt(style.motionPrompt);
-  }, [selectedStyleId]);
+  // ── Auto-populate motion prompt when entering step 3 ──────────────────────
+  useEffect(() => {
+    if (step === 3) {
+      const style = VIDEO_STYLES.find(s => s.id === selectedStyleId);
+      if (style) setMotionPrompt(style.motionPrompt);
+    }
+  }, [step, selectedStyleId]);
 
   // Reset per-model params when the model changes
   useEffect(() => {
@@ -629,6 +632,7 @@ function VideoTab({ factId, factText, pexelsImages, aiMemeImages, initialImageDa
         factId,
         styleId: selectedStyleId,
         renderedFactText: factText,
+        isPrivate: isVideoPrivate,
       };
 
       if (selectedBgUrl.startsWith("data:")) {
@@ -1355,26 +1359,14 @@ function VideoTab({ factId, factText, pexelsImages, aiMemeImages, initialImageDa
 
                 {/* Motion prompt */}
                 <div className="space-y-1">
-                  <div className="flex items-center justify-between">
-                    <label className={labelCls}>Motion Prompt</label>
-                    <button
-                      onClick={applyStylePrompt}
-                      className="text-[10px] text-muted-foreground hover:text-foreground flex items-center gap-1 transition-colors"
-                    >
-                      <RefreshCw className="w-2.5 h-2.5" />
-                      Use Style Prompt
-                    </button>
-                  </div>
+                  <label className={labelCls}>Motion Prompt</label>
                   <textarea
                     rows={3}
                     value={motionPrompt}
                     onChange={(e) => setMotionPrompt(e.target.value)}
-                    placeholder="Leave empty to use the style prompt automatically, or type a custom prompt…"
+                    placeholder="Enter a custom motion prompt…"
                     className="w-full bg-background border border-border text-foreground text-xs rounded-sm px-2 py-1.5 resize-y focus:outline-none focus:border-amber-500/60 transition-colors placeholder:text-muted-foreground/40"
                   />
-                  <p className="text-[10px] text-muted-foreground/60">
-                    If empty, the <strong>{selectedStyle.label}</strong> style prompt is used automatically.
-                  </p>
                 </div>
 
                 {/* fal.ai call preview */}
@@ -1449,6 +1441,27 @@ function VideoTab({ factId, factText, pexelsImages, aiMemeImages, initialImageDa
 
           {videoState.status !== "done" && (
             <>
+              {/* Public / Private toggle */}
+              <div className="flex items-center gap-3 mb-4 p-3 bg-secondary border border-border rounded-sm">
+                <button
+                  onClick={() => setIsVideoPrivate(false)}
+                  className={cn(
+                    "flex-1 flex items-center justify-center gap-1.5 py-1.5 text-xs font-display font-bold uppercase tracking-wider rounded-sm transition-colors",
+                    !isVideoPrivate ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"
+                  )}
+                >
+                  <Globe className="w-3.5 h-3.5" /> Public
+                </button>
+                <button
+                  onClick={() => setIsVideoPrivate(true)}
+                  className={cn(
+                    "flex-1 flex items-center justify-center gap-1.5 py-1.5 text-xs font-display font-bold uppercase tracking-wider rounded-sm transition-colors",
+                    isVideoPrivate ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"
+                  )}
+                >
+                  <Lock className="w-3.5 h-3.5" /> Private
+                </button>
+              </div>
               <Button
                 onClick={() => void handleGenerateVideo()}
                 disabled={videoState.status === "generating" || !selectedBgUrl}
