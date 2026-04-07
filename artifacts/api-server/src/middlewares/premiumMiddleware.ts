@@ -19,7 +19,7 @@ export async function requirePremium(req: Request, res: Response, next: NextFunc
     const isAdmin = !!(session?.isAdmin);
     const tier = await stripeStorage.getMembershipTierForUser(req.user.id);
     const role = deriveUserRole(tier, isAdmin);
-    if (role !== "premium" && role !== "admin") {
+    if (role !== "premium" && role !== "legendary" && role !== "admin") {
       res.status(403).json({ error: "premium_required", message: "This feature requires a Legendary membership." });
       return;
     }

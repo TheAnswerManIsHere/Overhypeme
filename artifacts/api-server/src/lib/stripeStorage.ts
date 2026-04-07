@@ -28,15 +28,25 @@ export class StripeStorage {
   }
 
   async getActivePremiumUsers(): Promise<Array<{ id: string; email: string; displayName: string | null; pronouns: string | null }>> {
-    // Use app-level membershipTier as the source of truth — covers both subscription and lifetime members
     const rows = await db
       .select({ id: usersTable.id, email: usersTable.email, displayName: usersTable.displayName, pronouns: usersTable.pronouns })
       .from(usersTable)
-      .where(and(eq(usersTable.membershipTier, "premium"), eq(usersTable.isActive, true)));
+      .where(and(
+        sql`${usersTable.membershipTier} IN ('premium', 'legendary')`,
+        eq(usersTable.isActive, true)
+      ));
     return rows.filter(r => r.email !== null) as Array<{ id: string; email: string; displayName: string | null; pronouns: string | null }>;
   }
 
-  async getMembershipTierForUser(userId: string): Promise<"free" | "premium"> {
+  async getActiveLegendaryUsers(): Promise<Array<{ id: string; email: string; displayName: string | null }>> {
+    const rows = await db
+      .select({ id: usersTable.id, email: usersTable.email, displayName: usersTable.displayName })
+      .from(usersTable)
+      .where(and(eq(usersTable.membershipTier, "legendary"), eq(usersTable.isActive, true)));
+    return rows.filter(r => r.email !== null) as Array<{ id: string; email: string; displayName: string | null }>;
+  }
+
+  async getMembershipTierForUser(userId: string): Promise<"free" | "premium" | "legendary"> {
     const user = await this.getUserById(userId);
     return user?.membershipTier ?? "free";
   }

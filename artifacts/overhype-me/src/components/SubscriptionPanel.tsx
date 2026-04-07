@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { Link } from "wouter";
 import { Button } from "@/components/ui/Button";
-import { Star, CreditCard, Calendar, Zap, ExternalLink, AlertCircle, Receipt, ChevronDown, ChevronUp } from "lucide-react";
+import { Star, CreditCard, Calendar, Zap, ExternalLink, AlertCircle, Receipt, ChevronDown, ChevronUp, Crown } from "lucide-react";
 
 interface Subscription {
   id: string;
@@ -24,7 +24,7 @@ interface AppSubscription {
 interface SubscriptionResponse {
   subscription: Subscription | null;
   appSubscription: AppSubscription | null;
-  membershipTier: "free" | "premium";
+  membershipTier: "free" | "premium" | "legendary";
   isLifetime: boolean;
 }
 
@@ -95,7 +95,8 @@ export function SubscriptionPanel() {
   const appSub = subData?.appSubscription ?? null;
   const membershipTier = subData?.membershipTier ?? "free";
   const isLifetime = subData?.isLifetime ?? false;
-  const isPremium = membershipTier === "premium";
+  const isLegendary = membershipTier === "legendary";
+  const isPremium = membershipTier === "premium" || isLegendary;
 
   const periodEnd = sub?.current_period_end
     ? new Date(sub.current_period_end * 1000).toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" })
@@ -106,13 +107,17 @@ export function SubscriptionPanel() {
   const cancelAtPeriodEnd = sub?.cancel_at_period_end ?? appSub?.cancelAtPeriodEnd ?? false;
 
   const price = sub?.items?.data?.[0]?.price;
-  const planLabel = isLifetime
+  const planLabel = isLegendary
+    ? "Legendary"
+    : isLifetime
     ? "Lifetime"
     : appSub?.plan === "annual" ? "Annual"
     : appSub?.plan === "monthly" ? "Monthly"
     : price?.recurring?.interval === "year" ? "Annual"
     : price?.recurring?.interval === "month" ? "Monthly"
     : "Legendary";
+
+  const showPortalButton = !isLegendary && !isLifetime && !!sub;
 
   return (
     <div className="bg-card border-2 border-border rounded-sm p-6 mb-8">
@@ -144,27 +149,33 @@ export function SubscriptionPanel() {
 
       {subData !== undefined && isPremium && (
         <div className="space-y-4">
-          <div className="flex items-center gap-3 p-4 bg-primary/10 border border-primary/30 rounded-sm">
-            <Star className="w-6 h-6 text-primary shrink-0" />
+          <div className={`flex items-center gap-3 p-4 rounded-sm border ${isLegendary ? "bg-amber-500/10 border-amber-500/30" : "bg-primary/10 border-primary/30"}`}>
+            {isLegendary ? (
+              <Crown className="w-6 h-6 text-amber-400 shrink-0" />
+            ) : (
+              <Star className="w-6 h-6 text-primary shrink-0" />
+            )}
             <div>
               <p className="font-bold text-foreground flex items-center gap-2">
-                Legendary Member
-                <span className="text-xs bg-primary/20 text-primary px-2 py-0.5 rounded-sm uppercase tracking-wide">
-                  {isLifetime ? "lifetime" : sub?.status ?? "active"}
+                {isLegendary ? "Legendary Member" : "Premium Member"}
+                <span className={`text-xs px-2 py-0.5 rounded-sm uppercase tracking-wide ${isLegendary ? "bg-amber-500/20 text-amber-400" : "bg-primary/20 text-primary"}`}>
+                  {isLegendary ? "legendary" : isLifetime ? "lifetime" : sub?.status ?? "active"}
                 </span>
               </p>
-              <p className="text-sm text-muted-foreground">{planLabel} {isLifetime ? "— one-time purchase" : "subscription"}</p>
+              <p className="text-sm text-muted-foreground">
+                {planLabel} {(isLifetime || isLegendary) ? "— one-time purchase, never expires" : "subscription"}
+              </p>
             </div>
           </div>
 
-          {isLifetime && (
+          {(isLifetime || isLegendary) && (
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
-              <Star className="w-4 h-4 text-primary" />
-              <span className="text-primary font-medium">Lifetime access — never expires</span>
+              <Crown className="w-4 h-4 text-amber-400" />
+              <span className="text-amber-400 font-medium">Lifetime access — never expires</span>
             </div>
           )}
 
-          {!isLifetime && periodEnd && (
+          {!isLifetime && !isLegendary && periodEnd && (
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
               <Calendar className="w-4 h-4 text-primary" />
               {cancelAtPeriodEnd
@@ -174,7 +185,7 @@ export function SubscriptionPanel() {
             </div>
           )}
 
-          {price && !isLifetime && (
+          {price && !isLifetime && !isLegendary && (
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
               <CreditCard className="w-4 h-4 text-primary" />
               <span>${(price.unit_amount / 100).toFixed(2)}{price.recurring ? `/${price.recurring.interval}` : " one-time"}</span>
@@ -188,7 +199,7 @@ export function SubscriptionPanel() {
             </div>
           )}
 
-          {!isLifetime && sub && (
+          {showPortalButton && (
             <Button variant="outline" size="sm" onClick={openPortal} disabled={portalLoading} className="gap-2">
               <ExternalLink className="w-4 h-4" />
               {portalLoading ? "Opening..." : "Manage Subscription"}

@@ -1,7 +1,7 @@
 import { sql } from "drizzle-orm";
 import { boolean, index, jsonb, pgTable, pgEnum, serial, text, timestamp, varchar } from "drizzle-orm/pg-core";
 
-export const membershipTierEnum = pgEnum("membership_tier", ["free", "premium"]);
+export const membershipTierEnum = pgEnum("membership_tier", ["free", "premium", "legendary"]);
 
 // (IMPORTANT) This table is mandatory for Replit Auth, don't drop it.
 export const sessionsTable = pgTable(

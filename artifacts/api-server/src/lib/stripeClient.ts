@@ -1,6 +1,18 @@
 import Stripe from "stripe";
 
-async function getCredentials() {
+async function isLiveMode(): Promise<boolean> {
+  try {
+    // Use getConfigStringRaw to read `value` directly, bypassing debug-mode resolution.
+    // Stripe mode must be independent from the debug overlay (task requirement).
+    const { getConfigStringRaw } = await import("./adminConfig");
+    const val = await getConfigStringRaw("stripe_live_mode", "false");
+    return val === "true";
+  } catch {
+    return false;
+  }
+}
+
+async function getCredentials(liveMode?: boolean) {
   const hostname = process.env.REPLIT_CONNECTORS_HOSTNAME;
   const xReplitToken = process.env.REPL_IDENTITY
     ? "repl " + process.env.REPL_IDENTITY
@@ -13,8 +25,8 @@ async function getCredentials() {
   }
 
   const connectorName = "stripe";
-  const isProduction = process.env.REPLIT_DEPLOYMENT === "1";
-  const targetEnvironment = isProduction ? "production" : "development";
+  const useLive = liveMode !== undefined ? liveMode : await isLiveMode();
+  const targetEnvironment = useLive ? "production" : "development";
 
   const url = new URL(`https://${hostname}/api/v2/connection`);
   url.searchParams.set("include_secrets", "true");
@@ -40,6 +52,7 @@ async function getCredentials() {
   return {
     publishableKey: connectionSettings.settings.publishable,
     secretKey: connectionSettings.settings.secret,
+    environment: targetEnvironment,
   };
 }
 
@@ -59,6 +72,7 @@ export async function getStripeSecretKey() {
 }
 
 let stripeSync: Awaited<ReturnType<typeof buildStripeSync>> | null = null;
+let stripeSyncLiveMode: boolean | null = null;
 
 async function buildStripeSync() {
   const { StripeSync } = await import("stripe-replit-sync");
@@ -70,8 +84,15 @@ async function buildStripeSync() {
 }
 
 export async function getStripeSync() {
-  if (!stripeSync) {
+  const live = await isLiveMode();
+  if (!stripeSync || stripeSyncLiveMode !== live) {
     stripeSync = await buildStripeSync();
+    stripeSyncLiveMode = live;
   }
   return stripeSync;
+}
+
+export function invalidateStripeSync() {
+  stripeSync = null;
+  stripeSyncLiveMode = null;
 }

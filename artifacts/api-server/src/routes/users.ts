@@ -102,7 +102,7 @@ router.get("/users/me", async (req: Request, res: Response) => {
     profileImageUrl: userRow?.profileImageUrl ?? null,
     avatarStyle: userRow?.avatarStyle ?? "bottts",
     avatarSource: userRow?.avatarSource ?? "avatar",
-    isPremium: userRow?.membershipTier === "premium",
+    isPremium: userRow?.membershipTier === "premium" || userRow?.membershipTier === "legendary",
     submittedFacts: submittedSummaries,
     likedFacts: likedSummaries,
     favoriteHashtags,
@@ -170,7 +170,7 @@ router.patch("/users/me", async (req: Request, res: Response) => {
       .from(usersTable)
       .where(eq(usersTable.id, userId))
       .limit(1);
-    if (userRow?.membershipTier !== "premium") {
+    if (userRow?.membershipTier !== "premium" && userRow?.membershipTier !== "legendary") {
       res.status(403).json({ error: "Custom photo upload is a Legendary feature" }); return;
     }
     if (typeof profileImageUrl !== "string") {

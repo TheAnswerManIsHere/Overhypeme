@@ -104,6 +104,21 @@ export async function getConfigString(key: string, defaultValue: string): Promis
   }
 }
 
+/**
+ * Get a config string value reading the `value` column directly, bypassing
+ * debug-mode resolution. Use this for infrastructure settings (like stripe_live_mode)
+ * that must be independent of the debug overlay.
+ */
+export async function getConfigStringRaw(key: string, defaultValue: string): Promise<string> {
+  try {
+    const { byKey } = await loadAll();
+    const row = byKey.get(key);
+    return row?.value ?? defaultValue;
+  } catch {
+    return defaultValue;
+  }
+}
+
 /** Get all config rows ordered by key (for the admin list endpoint). */
 export async function getAllConfig(): Promise<AdminConfig[]> {
   const { rows } = await loadAll();
