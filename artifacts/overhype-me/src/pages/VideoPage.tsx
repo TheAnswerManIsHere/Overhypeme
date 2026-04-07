@@ -162,7 +162,7 @@ export default function VideoPage() {
             </Button>
             {video.videoUrl && (
               <Button onClick={handleDownload} variant="secondary" className="gap-2">
-                <Download className="w-4 h-4" /> Download
+                <Download className="w-4 h-4" /> Download Video
               </Button>
             )}
           </div>
