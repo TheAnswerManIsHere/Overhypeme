@@ -515,7 +515,7 @@ function VideoTab({ factId, factText, pexelsImages, aiMemeImages, initialImageDa
   // ── Admin controls ─────────────────────────────────────────────────────────
   const [selectedModel, setSelectedModel] = useState(FAL_VIDEO_MODELS_ADMIN[0]!.value);
   const [motionPrompt, setMotionPrompt] = useState("");
-  const [isGeneratingPrompt, setIsGeneratingPrompt] = useState(false);
+  const [isGeneratingPrompt] = useState(false);
 
   // Admin per-model params (reset when model changes)
   const [adminDuration, setAdminDuration] = useState("5");
@@ -578,34 +578,11 @@ function VideoTab({ factId, factText, pexelsImages, aiMemeImages, initialImageDa
       .finally(() => setIsLoadingGallery(false));
   }, [isPremium, imageMode]);
 
-  // ── Auto-generate motion prompt when admin reaches step 3 ─────────────────
-  const generatePromptForImage = useCallback(async (imageUrl: string) => {
-    if (!isAdmin) return;
-    setIsGeneratingPrompt(true);
-    try {
-      const body: { imageBase64?: string; imageUrl?: string } = {};
-      if (imageUrl.startsWith("data:")) {
-        body.imageBase64 = imageUrl;
-      } else {
-        const absoluteUrl = imageUrl.startsWith("/") ? `${window.location.origin}${imageUrl}` : imageUrl;
-        body.imageUrl = absoluteUrl;
-      }
-      const res = await fetch("/api/videos/generate-prompt", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify(body),
-      });
-      if (res.ok) {
-        const data = await res.json() as { prompt?: string };
-        if (data.prompt) setMotionPrompt(data.prompt);
-      }
-    } catch {
-      // leave prompt empty — admin can type manually
-    } finally {
-      setIsGeneratingPrompt(false);
-    }
-  }, [isAdmin]);
+  // ── Populate motion prompt from the selected style ─────────────────────────
+  const applyStylePrompt = useCallback(() => {
+    const style = VIDEO_STYLES.find(s => s.id === selectedStyleId);
+    if (style) setMotionPrompt(style.motionPrompt);
+  }, [selectedStyleId]);
 
   // Reset per-model params when the model changes
   useEffect(() => {
@@ -639,10 +616,7 @@ function VideoTab({ factId, factText, pexelsImages, aiMemeImages, initialImageDa
 
   const goToStep3 = useCallback(() => {
     setStep(3);
-    if (isAdmin && selectedBgUrl && !motionPrompt) {
-      void generatePromptForImage(selectedBgUrl);
-    }
-  }, [isAdmin, selectedBgUrl, motionPrompt, generatePromptForImage]);
+  }, []);
 
   // ── Generate video ─────────────────────────────────────────────────────────
   const handleGenerateVideo = async () => {
@@ -1383,27 +1357,19 @@ function VideoTab({ factId, factText, pexelsImages, aiMemeImages, initialImageDa
                 <div className="space-y-1">
                   <div className="flex items-center justify-between">
                     <label className={labelCls}>Motion Prompt</label>
-                    {isGeneratingPrompt && (
-                      <div className="flex items-center gap-1 text-[10px] text-amber-500">
-                        <Loader2 className="w-3 h-3 animate-spin" />
-                        Analyzing image…
-                      </div>
-                    )}
-                    {!isGeneratingPrompt && selectedBgUrl && (
-                      <button
-                        onClick={() => { setMotionPrompt(""); void generatePromptForImage(selectedBgUrl); }}
-                        className="text-[10px] text-muted-foreground hover:text-foreground flex items-center gap-1 transition-colors"
-                      >
-                        <RefreshCw className="w-2.5 h-2.5" />
-                        Regenerate
-                      </button>
-                    )}
+                    <button
+                      onClick={applyStylePrompt}
+                      className="text-[10px] text-muted-foreground hover:text-foreground flex items-center gap-1 transition-colors"
+                    >
+                      <RefreshCw className="w-2.5 h-2.5" />
+                      Use Style Prompt
+                    </button>
                   </div>
                   <textarea
                     rows={3}
                     value={motionPrompt}
                     onChange={(e) => setMotionPrompt(e.target.value)}
-                    placeholder={isGeneratingPrompt ? "Analyzing image to generate prompt…" : "Enter a motion prompt or wait for auto-generation…"}
+                    placeholder="Leave empty to use the style prompt automatically, or type a custom prompt…"
                     className="w-full bg-background border border-border text-foreground text-xs rounded-sm px-2 py-1.5 resize-y focus:outline-none focus:border-amber-500/60 transition-colors placeholder:text-muted-foreground/40"
                   />
                   <p className="text-[10px] text-muted-foreground/60">
