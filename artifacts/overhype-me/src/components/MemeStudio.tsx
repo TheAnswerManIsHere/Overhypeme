@@ -200,59 +200,241 @@ const FAL_VIDEO_MODELS_ADMIN: { value: string; label: string }[] = [
 
 interface ModelParamSpec {
   duration?: string[];
+  durationRange?: { min: number; max: number; step: number; default: number };
   aspectRatio?: string[];
   cfgScale?: { min: number; max: number; step: number; default: number };
+  guidanceScale?: { min: number; max: number; step: number; default: number };
   negativePrompt?: boolean;
   seed?: boolean;
   resolution?: string[];
   loop?: boolean;
+  generateAudio?: boolean;
+  autoFix?: boolean;
+  safetyTolerance?: string[];
+  promptOptimizer?: boolean;
+  style?: string[];
+  enableSafetyChecker?: boolean;
+  cameraFixed?: boolean;
+  motionBucketId?: { min: number; max: number; step: number; default: number };
+  condAug?: { min: number; max: number; step: number; default: number };
+  fps?: { min: number; max: number; step: number; default: number };
+  numFrames?: { min: number; max: number; step: number; default: number };
+  numInferenceSteps?: { min: number; max: number; step: number; default: number };
+  generateAudioSwitch?: boolean;
+  generateMultiClipSwitch?: boolean;
+  thinkingType?: string[];
 }
 
 function getModelParamSpec(model: string): ModelParamSpec {
+  // ── Kling ───────────────────────────────────────────────────────────────────
   if (model.includes("/kling-video/")) {
-    return { duration: ["5", "10"], aspectRatio: ["16:9", "9:16", "1:1"], cfgScale: { min: 0, max: 1, step: 0.05, default: 0.5 } };
+    return {
+      duration: ["5", "10"],
+      cfgScale: { min: 0, max: 1, step: 0.05, default: 0.5 },
+      negativePrompt: true,
+      seed: true,
+    };
   }
+
+  // ── Seedance v1.5 Pro ───────────────────────────────────────────────────────
   if (model.includes("/bytedance/seedance/")) {
-    return { duration: ["5", "10"], aspectRatio: ["16:9", "9:16", "1:1"], resolution: ["720p", "1080p"] };
+    return {
+      duration: ["4", "5", "6", "7", "8", "9", "10", "11", "12"],
+      aspectRatio: ["21:9", "16:9", "4:3", "1:1", "3:4", "9:16", "auto"],
+      resolution: ["480p", "720p", "1080p"],
+      seed: true,
+      generateAudio: true,
+      enableSafetyChecker: true,
+      cameraFixed: true,
+    };
   }
-  if (model.includes("/veo3.1/lite/")) {
-    // Veo 3.1 Lite only accepts 4s, 6s, 8s
-    return { duration: ["4", "6", "8"], aspectRatio: ["16:9", "9:16"], negativePrompt: true, resolution: ["720p", "1080p"] };
+
+  // ── Veo 3.1 Lite / Fast: 4s, 6s, 8s; no 4k ─────────────────────────────────
+  if (model.includes("/veo3.1/lite/") || model.includes("/veo3.1/fast/")) {
+    return {
+      duration: ["4", "6", "8"],
+      aspectRatio: ["auto", "16:9", "9:16"],
+      negativePrompt: true,
+      seed: true,
+      resolution: ["720p", "1080p"],
+      generateAudio: true,
+      autoFix: true,
+      safetyTolerance: ["1", "2", "3", "4", "5", "6"],
+    };
   }
+
+  // ── Veo 3.1 full: 4s, 6s, 8s; supports 4k ───────────────────────────────────
   if (model.includes("/veo3.1/")) {
-    // Veo 3.1 full/fast: 5–8 seconds
-    return { duration: ["5", "6", "7", "8"], aspectRatio: ["16:9", "9:16"], negativePrompt: true, resolution: ["720p", "1080p"] };
+    return {
+      duration: ["4", "6", "8"],
+      aspectRatio: ["auto", "16:9", "9:16"],
+      negativePrompt: true,
+      seed: true,
+      resolution: ["720p", "1080p", "4k"],
+      generateAudio: true,
+      autoFix: true,
+      safetyTolerance: ["1", "2", "3", "4", "5", "6"],
+    };
   }
-  if (model.includes("/veo3/") || model.includes("/veo2/")) {
-    return { aspectRatio: ["16:9", "9:16"] };
+
+  // ── Veo 3 (I2V) ────────────────────────────────────────────────────────────
+  if (model.includes("/veo3/")) {
+    return {
+      duration: ["4", "6", "8"],
+      aspectRatio: ["auto", "16:9", "9:16"],
+      negativePrompt: true,
+      seed: true,
+      resolution: ["720p", "1080p"],
+      generateAudio: true,
+      autoFix: true,
+      safetyTolerance: ["1", "2", "3", "4", "5", "6"],
+    };
   }
+
+  // ── Veo 2: duration only (5–8), no aspect ratio ─────────────────────────────
+  if (model.includes("/veo2/")) {
+    return {
+      duration: ["5", "6", "7", "8"],
+    };
+  }
+
+  // ── Sora 2: integer durations 4/8/12/16/20, aspect, resolution ──────────────
   if (model.includes("/sora-2/")) {
-    return { duration: ["5", "10", "15", "20"], aspectRatio: ["16:9", "1:1", "9:16"], resolution: ["480p", "720p", "1080p"] };
+    return {
+      duration: ["4", "8", "12", "16", "20"],
+      aspectRatio: ["auto", "16:9", "9:16"],
+      resolution: ["auto", "720p"],
+    };
   }
+
+  // ── Runway Gen-4 Turbo / Gen-3 Alpha Turbo ─────────────────────────────────
   if (model.includes("/runway/gen4-turbo/") || model.includes("/runway-gen3/")) {
-    return { duration: ["5", "10"], seed: true };
+    return {
+      duration: ["5", "10"],
+      seed: true,
+    };
   }
+
+  // ── Luma Ray 2 / Flash 2 ────────────────────────────────────────────────────
   if (model.includes("/luma-dream-machine/")) {
-    return { duration: ["5", "8", "9", "10"], aspectRatio: ["16:9", "9:16", "1:1", "4:3", "3:4"], loop: true };
+    return {
+      duration: ["5s", "9s"],
+      aspectRatio: ["16:9", "9:16", "4:3", "3:4", "21:9", "9:21"],
+      resolution: ["540p", "720p", "1080p"],
+      loop: true,
+    };
   }
+
+  // ── Hailuo 2.3 / Hailuo 02 ─────────────────────────────────────────────────
   if (model.includes("/minimax/hailuo-2.3") || model.includes("/minimax/hailuo-02")) {
-    return { duration: ["5", "10"], aspectRatio: ["16:9", "9:16", "1:1"] };
+    return {
+      duration: ["6", "10"],
+      resolution: ["512P", "768P"],
+      promptOptimizer: true,
+    };
   }
+
+  // ── MiniMax Video-01 / Video-01-Live ────────────────────────────────────────
   if (model.includes("/minimax/video-01")) {
-    return { aspectRatio: ["16:9", "9:16", "1:1"] };
+    return {
+      promptOptimizer: true,
+    };
   }
+
+  // ── PixVerse v6: duration is integer slider 1–15 ────────────────────────────
+  if (model.includes("/pixverse/v6/")) {
+    return {
+      durationRange: { min: 1, max: 15, step: 1, default: 8 },
+      resolution: ["360p", "540p", "720p", "1080p"],
+      negativePrompt: true,
+      seed: true,
+      style: ["anime", "3d_animation", "clay", "comic", "cyberpunk"],
+      generateAudioSwitch: true,
+      generateMultiClipSwitch: true,
+      thinkingType: ["auto", "enabled", "disabled"],
+    };
+  }
+
+  // ── PixVerse v4.5 / v5 / v5.5 ──────────────────────────────────────────────
   if (model.includes("/pixverse/")) {
-    return { duration: ["4", "8"], aspectRatio: ["16:9", "9:16", "1:1", "4:3"], negativePrompt: true, seed: true };
+    return {
+      duration: ["5", "8"],
+      resolution: ["360p", "540p", "720p", "1080p"],
+      negativePrompt: true,
+      seed: true,
+      style: ["anime", "3d_animation", "clay", "comic", "cyberpunk"],
+    };
   }
+
+  // ── WAN Pro / WAN i2v: minimal params ──────────────────────────────────────
+  if (model.includes("wan-pro") || model === "fal-ai/wan-i2v") {
+    return {
+      negativePrompt: true,
+      seed: true,
+      enableSafetyChecker: true,
+    };
+  }
+
+  // ── WAN 2.7 / 2.2: duration 2–15, resolution, negPrompt, seed ──────────────
   if (model.startsWith("fal-ai/wan") || model.includes("/wan/")) {
-    return { duration: ["5"], aspectRatio: ["16:9", "9:16"], negativePrompt: true };
+    return {
+      duration: ["2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15"],
+      resolution: ["720p", "1080p"],
+      negativePrompt: true,
+      seed: true,
+      enableSafetyChecker: true,
+    };
   }
+
+  // ── LTX-2 19B: numFrames, generateAudio, fps, guidanceScale ────────────────
+  if (model.includes("ltx-2-19b")) {
+    return {
+      numFrames: { min: 9, max: 481, step: 8, default: 121 },
+      generateAudio: true,
+      fps: { min: 1, max: 60, step: 1, default: 30 },
+      guidanceScale: { min: 1, max: 20, step: 0.5, default: 3.0 },
+    };
+  }
+
+  // ── LTX-Video 13B Distilled ─────────────────────────────────────────────────
   if (model.includes("/ltx-")) {
-    return { duration: ["3", "5", "7"], aspectRatio: ["16:9"], negativePrompt: true };
+    return {
+      numFrames: { min: 9, max: 1441, step: 8, default: 121 },
+      aspectRatio: ["9:16", "1:1", "16:9", "auto"],
+      resolution: ["480p", "720p"],
+      negativePrompt: true,
+      seed: true,
+    };
   }
+
+  // ── HunyuanVideo ────────────────────────────────────────────────────────────
   if (model.includes("/hunyuan-video/")) {
-    return { aspectRatio: ["16:9", "9:16"] };
+    return {
+      aspectRatio: ["16:9", "9:16"],
+    };
   }
+
+  // ── CogVideoX-5B ────────────────────────────────────────────────────────────
+  if (model.includes("cogvideox")) {
+    return {
+      negativePrompt: true,
+      seed: true,
+      guidanceScale: { min: 1, max: 20, step: 0.5, default: 6.0 },
+      numInferenceSteps: { min: 1, max: 50, step: 1, default: 50 },
+    };
+  }
+
+  // ── Stable Video Diffusion ──────────────────────────────────────────────────
+  if (model.includes("stable-video")) {
+    return {
+      seed: true,
+      motionBucketId: { min: 1, max: 255, step: 1, default: 127 },
+      condAug: { min: 0, max: 10, step: 0.01, default: 0.02 },
+      fps: { min: 10, max: 100, step: 1, default: 25 },
+    };
+  }
+
+  // ── Default ─────────────────────────────────────────────────────────────────
   return { duration: ["5", "10"], aspectRatio: ["16:9", "9:16", "1:1"] };
 }
 
@@ -326,12 +508,30 @@ function VideoTab({ factId, factText, pexelsImages, aiMemeImages, initialImageDa
 
   // Admin per-model params (reset when model changes)
   const [adminDuration, setAdminDuration] = useState("5");
+  const [adminDurationInt, setAdminDurationInt] = useState(8); // for durationRange models (PixVerse v6)
   const [adminAspectRatio, setAdminAspectRatio] = useState("16:9");
   const [adminCfgScale, setAdminCfgScale] = useState(0.5);
   const [adminNegativePrompt, setAdminNegativePrompt] = useState("");
   const [adminSeed, setAdminSeed] = useState("");
   const [adminResolution, setAdminResolution] = useState("");
   const [adminLoop, setAdminLoop] = useState(false);
+  // Extended admin params
+  const [adminGenerateAudio, setAdminGenerateAudio] = useState(true);
+  const [adminAutoFix, setAdminAutoFix] = useState(false);
+  const [adminSafetyTolerance, setAdminSafetyTolerance] = useState("4");
+  const [adminPromptOptimizer, setAdminPromptOptimizer] = useState(true);
+  const [adminStyle, setAdminStyle] = useState("");
+  const [adminEnableSafetyChecker, setAdminEnableSafetyChecker] = useState(true);
+  const [adminCameraFixed, setAdminCameraFixed] = useState(false);
+  const [adminMotionBucketId, setAdminMotionBucketId] = useState(127);
+  const [adminCondAug, setAdminCondAug] = useState(0.02);
+  const [adminFps, setAdminFps] = useState(25);
+  const [adminNumFrames, setAdminNumFrames] = useState(121);
+  const [adminGuidanceScale, setAdminGuidanceScale] = useState(6.0);
+  const [adminNumInferenceSteps, setAdminNumInferenceSteps] = useState(50);
+  const [adminGenerateAudioSwitch, setAdminGenerateAudioSwitch] = useState(false);
+  const [adminGenerateMultiClipSwitch, setAdminGenerateMultiClipSwitch] = useState(false);
+  const [adminThinkingType, setAdminThinkingType] = useState("auto");
 
   const selectedStyle = VIDEO_STYLES.find((s) => s.id === selectedStyleId) ?? VIDEO_STYLES[0]!;
 
@@ -401,12 +601,29 @@ function VideoTab({ factId, factText, pexelsImages, aiMemeImages, initialImageDa
     if (!isAdmin) return;
     const spec = getModelParamSpec(selectedModel);
     setAdminDuration(spec.duration?.[0] ?? "5");
+    setAdminDurationInt(spec.durationRange?.default ?? 8);
     setAdminAspectRatio(spec.aspectRatio?.[0] ?? "16:9");
     setAdminCfgScale(spec.cfgScale?.default ?? 0.5);
     setAdminNegativePrompt("");
     setAdminSeed("");
     setAdminResolution(spec.resolution?.[0] ?? "");
     setAdminLoop(false);
+    setAdminGenerateAudio(true);
+    setAdminAutoFix(false);
+    setAdminSafetyTolerance(spec.safetyTolerance?.[3] ?? "4");
+    setAdminPromptOptimizer(true);
+    setAdminStyle("");
+    setAdminEnableSafetyChecker(true);
+    setAdminCameraFixed(false);
+    setAdminMotionBucketId(spec.motionBucketId?.default ?? 127);
+    setAdminCondAug(spec.condAug?.default ?? 0.02);
+    setAdminFps(spec.fps?.default ?? 25);
+    setAdminNumFrames(spec.numFrames?.default ?? 121);
+    setAdminGuidanceScale(spec.guidanceScale?.default ?? 6.0);
+    setAdminNumInferenceSteps(spec.numInferenceSteps?.default ?? 50);
+    setAdminGenerateAudioSwitch(false);
+    setAdminGenerateMultiClipSwitch(false);
+    setAdminThinkingType(spec.thinkingType?.[0] ?? "auto");
   }, [selectedModel, isAdmin]);
 
   const goToStep3 = useCallback(() => {
@@ -438,8 +655,13 @@ function VideoTab({ factId, factText, pexelsImages, aiMemeImages, initialImageDa
         if (motionPrompt.trim()) body.motionPrompt = motionPrompt.trim();
         body.videoModel = selectedModel;
         const spec = getModelParamSpec(selectedModel);
-        body.adminDuration = adminDuration;
-        body.adminAspectRatio = adminAspectRatio;
+        // Duration: use integer string for durationRange models, else regular duration
+        if (spec.durationRange) {
+          body.adminDuration = String(adminDurationInt);
+        } else if (spec.duration) {
+          body.adminDuration = adminDuration;
+        }
+        if (spec.aspectRatio) body.adminAspectRatio = adminAspectRatio;
         if (spec.cfgScale) body.adminCfgScale = adminCfgScale;
         if (spec.negativePrompt && adminNegativePrompt.trim()) body.adminNegativePrompt = adminNegativePrompt.trim();
         if (spec.seed && adminSeed.trim()) {
@@ -448,6 +670,23 @@ function VideoTab({ factId, factText, pexelsImages, aiMemeImages, initialImageDa
         }
         if (spec.resolution && adminResolution) body.adminResolution = adminResolution;
         if (spec.loop) body.adminLoop = adminLoop;
+        // Extended params
+        if (spec.generateAudio !== undefined) body.adminGenerateAudio = adminGenerateAudio;
+        if (spec.autoFix !== undefined) body.adminAutoFix = adminAutoFix;
+        if (spec.safetyTolerance) body.adminSafetyTolerance = adminSafetyTolerance;
+        if (spec.promptOptimizer !== undefined) body.adminPromptOptimizer = adminPromptOptimizer;
+        if (spec.style && adminStyle) body.adminStyle = adminStyle;
+        if (spec.enableSafetyChecker !== undefined) body.adminEnableSafetyChecker = adminEnableSafetyChecker;
+        if (spec.cameraFixed !== undefined) body.adminCameraFixed = adminCameraFixed;
+        if (spec.motionBucketId) body.adminMotionBucketId = adminMotionBucketId;
+        if (spec.condAug) body.adminCondAug = adminCondAug;
+        if (spec.fps) body.adminFps = adminFps;
+        if (spec.numFrames) body.adminNumFrames = adminNumFrames;
+        if (spec.guidanceScale) body.adminGuidanceScale = adminGuidanceScale;
+        if (spec.numInferenceSteps) body.adminNumInferenceSteps = adminNumInferenceSteps;
+        if (spec.generateAudioSwitch !== undefined) body.adminGenerateAudioSwitch = adminGenerateAudioSwitch;
+        if (spec.generateMultiClipSwitch !== undefined) body.adminGenerateMultiClipSwitch = adminGenerateMultiClipSwitch;
+        if (spec.thinkingType) body.adminThinkingType = adminThinkingType;
       }
 
       const res = await fetch("/api/videos/generate", {
@@ -821,18 +1060,41 @@ function VideoTab({ factId, factText, pexelsImages, aiMemeImages, initialImageDa
           {/* Admin controls */}
           {isAdmin && (() => {
             const spec = getModelParamSpec(selectedModel);
+            const selectCls = "w-full bg-background border border-border text-foreground text-xs rounded-sm px-2 py-1.5 focus:outline-none focus:border-amber-500/60 transition-colors";
+            const inputCls = "w-full bg-background border border-border text-foreground text-xs rounded-sm px-2 py-1.5 focus:outline-none focus:border-amber-500/60 transition-colors placeholder:text-muted-foreground/40";
+            const labelCls = "text-[10px] font-display uppercase tracking-widest text-muted-foreground";
+            const checkboxRowCls = "flex items-center gap-1.5";
+
+            // Build fal preview input
             const effectivePrompt = motionPrompt.trim() || `(${selectedStyle.label} style motion prompt)`;
             const falPreviewInput: Record<string, unknown> = {
               image_url: selectedBgUrl ? "(background image url)" : "(no image selected)",
               prompt: effectivePrompt,
-              duration: adminDuration,
-              aspect_ratio: adminAspectRatio,
             };
+            if (spec.duration) falPreviewInput.duration = adminDuration;
+            if (spec.durationRange) falPreviewInput.duration = adminDurationInt;
+            if (spec.aspectRatio) falPreviewInput.aspect_ratio = adminAspectRatio;
             if (spec.cfgScale) falPreviewInput.cfg_scale = adminCfgScale;
             if (spec.negativePrompt && adminNegativePrompt.trim()) falPreviewInput.negative_prompt = adminNegativePrompt.trim();
             if (spec.seed && adminSeed.trim()) { const n = parseInt(adminSeed.trim(), 10); if (!isNaN(n)) falPreviewInput.seed = n; }
             if (spec.resolution && adminResolution) falPreviewInput.resolution = adminResolution;
             if (spec.loop) falPreviewInput.loop = adminLoop;
+            if (spec.generateAudio !== undefined) falPreviewInput.generate_audio = adminGenerateAudio;
+            if (spec.autoFix !== undefined) falPreviewInput.auto_fix = adminAutoFix;
+            if (spec.safetyTolerance) falPreviewInput.safety_tolerance = adminSafetyTolerance;
+            if (spec.promptOptimizer !== undefined) falPreviewInput.prompt_optimizer = adminPromptOptimizer;
+            if (spec.style && adminStyle) falPreviewInput.style = adminStyle;
+            if (spec.enableSafetyChecker !== undefined) falPreviewInput.enable_safety_checker = adminEnableSafetyChecker;
+            if (spec.cameraFixed !== undefined) falPreviewInput.camera_fixed = adminCameraFixed;
+            if (spec.motionBucketId) falPreviewInput.motion_bucket_id = adminMotionBucketId;
+            if (spec.condAug) falPreviewInput.cond_aug = adminCondAug;
+            if (spec.fps) falPreviewInput.fps = adminFps;
+            if (spec.numFrames) falPreviewInput.num_frames = adminNumFrames;
+            if (spec.guidanceScale) falPreviewInput.guidance_scale = adminGuidanceScale;
+            if (spec.numInferenceSteps) falPreviewInput.num_inference_steps = adminNumInferenceSteps;
+            if (spec.generateAudioSwitch !== undefined) falPreviewInput.generate_audio_switch = adminGenerateAudioSwitch;
+            if (spec.generateMultiClipSwitch !== undefined) falPreviewInput.generate_multi_clip_switch = adminGenerateMultiClipSwitch;
+            if (spec.thinkingType) falPreviewInput.thinking_type = adminThinkingType;
 
             return (
               <div className="border border-amber-500/30 bg-amber-500/5 rounded-sm p-3 mb-4 space-y-3">
@@ -840,116 +1102,264 @@ function VideoTab({ factId, factText, pexelsImages, aiMemeImages, initialImageDa
 
                 {/* Model selector */}
                 <div className="space-y-1">
-                  <label className="text-[10px] font-display uppercase tracking-widest text-muted-foreground">Video Model</label>
-                  <select
-                    value={selectedModel}
-                    onChange={(e) => setSelectedModel(e.target.value)}
-                    className="w-full bg-background border border-border text-foreground text-xs rounded-sm px-2 py-1.5 focus:outline-none focus:border-amber-500/60 transition-colors"
-                  >
+                  <label className={labelCls}>Video Model</label>
+                  <select value={selectedModel} onChange={(e) => setSelectedModel(e.target.value)} className={selectCls}>
                     {FAL_VIDEO_MODELS_ADMIN.map((m) => (
                       <option key={m.value} value={m.value}>{m.label}</option>
                     ))}
                   </select>
                 </div>
 
-                {/* Per-model params */}
+                {/* Per-model params — 2-column grid */}
                 <div className="grid grid-cols-2 gap-2">
+                  {/* Duration dropdown */}
                   {spec.duration && (
                     <div className="space-y-0.5">
-                      <label className="text-[10px] font-display uppercase tracking-widest text-muted-foreground">Duration</label>
-                      <select
-                        value={adminDuration}
-                        onChange={(e) => setAdminDuration(e.target.value)}
-                        className="w-full bg-background border border-border text-foreground text-xs rounded-sm px-2 py-1.5 focus:outline-none focus:border-amber-500/60 transition-colors"
-                      >
+                      <label className={labelCls}>Duration</label>
+                      <select value={adminDuration} onChange={(e) => setAdminDuration(e.target.value)} className={selectCls}>
                         {spec.duration.map((d) => (
-                          <option key={d} value={d}>{d}s</option>
+                          <option key={d} value={d}>{d}</option>
                         ))}
                       </select>
                     </div>
                   )}
+
+                  {/* Duration range slider (PixVerse v6) */}
+                  {spec.durationRange && (
+                    <div className="space-y-0.5">
+                      <label className={labelCls}>Duration: {adminDurationInt}s</label>
+                      <input
+                        type="range"
+                        min={spec.durationRange.min}
+                        max={spec.durationRange.max}
+                        step={spec.durationRange.step}
+                        value={adminDurationInt}
+                        onChange={(e) => setAdminDurationInt(parseInt(e.target.value, 10))}
+                        className="w-full accent-amber-500"
+                      />
+                    </div>
+                  )}
+
+                  {/* Aspect Ratio */}
                   {spec.aspectRatio && (
                     <div className="space-y-0.5">
-                      <label className="text-[10px] font-display uppercase tracking-widest text-muted-foreground">Aspect Ratio</label>
-                      <select
-                        value={adminAspectRatio}
-                        onChange={(e) => setAdminAspectRatio(e.target.value)}
-                        className="w-full bg-background border border-border text-foreground text-xs rounded-sm px-2 py-1.5 focus:outline-none focus:border-amber-500/60 transition-colors"
-                      >
+                      <label className={labelCls}>Aspect Ratio</label>
+                      <select value={adminAspectRatio} onChange={(e) => setAdminAspectRatio(e.target.value)} className={selectCls}>
                         {spec.aspectRatio.map((r) => (
                           <option key={r} value={r}>{r}</option>
                         ))}
                       </select>
                     </div>
                   )}
+
+                  {/* Resolution */}
                   {spec.resolution && (
                     <div className="space-y-0.5">
-                      <label className="text-[10px] font-display uppercase tracking-widest text-muted-foreground">Resolution</label>
-                      <select
-                        value={adminResolution}
-                        onChange={(e) => setAdminResolution(e.target.value)}
-                        className="w-full bg-background border border-border text-foreground text-xs rounded-sm px-2 py-1.5 focus:outline-none focus:border-amber-500/60 transition-colors"
-                      >
+                      <label className={labelCls}>Resolution</label>
+                      <select value={adminResolution} onChange={(e) => setAdminResolution(e.target.value)} className={selectCls}>
                         {spec.resolution.map((r) => (
                           <option key={r} value={r}>{r}</option>
                         ))}
                       </select>
                     </div>
                   )}
+
+                  {/* Safety Tolerance (Veo) */}
+                  {spec.safetyTolerance && (
+                    <div className="space-y-0.5">
+                      <label className={labelCls}>Safety Tolerance</label>
+                      <select value={adminSafetyTolerance} onChange={(e) => setAdminSafetyTolerance(e.target.value)} className={selectCls}>
+                        {spec.safetyTolerance.map((v) => (
+                          <option key={v} value={v}>{v}</option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+
+                  {/* Style (PixVerse) */}
+                  {spec.style && (
+                    <div className="space-y-0.5">
+                      <label className={labelCls}>Style</label>
+                      <select value={adminStyle} onChange={(e) => setAdminStyle(e.target.value)} className={selectCls}>
+                        <option value="">— none —</option>
+                        {spec.style.map((s) => (
+                          <option key={s} value={s}>{s.replace(/_/g, " ")}</option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+
+                  {/* Thinking Type (PixVerse v6) */}
+                  {spec.thinkingType && (
+                    <div className="space-y-0.5">
+                      <label className={labelCls}>Thinking Type</label>
+                      <select value={adminThinkingType} onChange={(e) => setAdminThinkingType(e.target.value)} className={selectCls}>
+                        {spec.thinkingType.map((v) => (
+                          <option key={v} value={v}>{v}</option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+
+                  {/* CFG Scale (Kling) */}
                   {spec.cfgScale && (
                     <div className="space-y-0.5">
-                      <label className="text-[10px] font-display uppercase tracking-widest text-muted-foreground">
-                        CFG Scale: {adminCfgScale.toFixed(2)}
-                      </label>
+                      <label className={labelCls}>CFG Scale: {adminCfgScale.toFixed(2)}</label>
                       <input
-                        type="range"
-                        min={spec.cfgScale.min}
-                        max={spec.cfgScale.max}
-                        step={spec.cfgScale.step}
-                        value={adminCfgScale}
-                        onChange={(e) => setAdminCfgScale(parseFloat(e.target.value))}
+                        type="range" min={spec.cfgScale.min} max={spec.cfgScale.max} step={spec.cfgScale.step}
+                        value={adminCfgScale} onChange={(e) => setAdminCfgScale(parseFloat(e.target.value))}
                         className="w-full accent-amber-500"
                       />
                     </div>
                   )}
-                  {spec.seed && (
+
+                  {/* Guidance Scale (LTX-2, CogVideoX) */}
+                  {spec.guidanceScale && (
                     <div className="space-y-0.5">
-                      <label className="text-[10px] font-display uppercase tracking-widest text-muted-foreground">Seed</label>
+                      <label className={labelCls}>Guidance Scale: {adminGuidanceScale.toFixed(1)}</label>
                       <input
-                        type="number"
-                        min={0}
-                        value={adminSeed}
-                        onChange={(e) => setAdminSeed(e.target.value)}
-                        placeholder="random"
-                        className="w-full bg-background border border-border text-foreground text-xs rounded-sm px-2 py-1.5 focus:outline-none focus:border-amber-500/60 transition-colors placeholder:text-muted-foreground/40"
+                        type="range" min={spec.guidanceScale.min} max={spec.guidanceScale.max} step={spec.guidanceScale.step}
+                        value={adminGuidanceScale} onChange={(e) => setAdminGuidanceScale(parseFloat(e.target.value))}
+                        className="w-full accent-amber-500"
                       />
                     </div>
                   )}
-                  {spec.loop && (
-                    <div className="flex items-center gap-2 pt-4">
+
+                  {/* Num Frames (LTX) */}
+                  {spec.numFrames && (
+                    <div className="space-y-0.5">
+                      <label className={labelCls}>Frames: {adminNumFrames}</label>
                       <input
-                        id="adminLoop"
-                        type="checkbox"
-                        checked={adminLoop}
-                        onChange={(e) => setAdminLoop(e.target.checked)}
-                        className="accent-amber-500"
+                        type="range" min={spec.numFrames.min} max={spec.numFrames.max} step={spec.numFrames.step}
+                        value={adminNumFrames} onChange={(e) => setAdminNumFrames(parseInt(e.target.value, 10))}
+                        className="w-full accent-amber-500"
                       />
-                      <label htmlFor="adminLoop" className="text-[10px] font-display uppercase tracking-widest text-muted-foreground cursor-pointer">
-                        Loop
-                      </label>
+                    </div>
+                  )}
+
+                  {/* Num Inference Steps (CogVideoX) */}
+                  {spec.numInferenceSteps && (
+                    <div className="space-y-0.5">
+                      <label className={labelCls}>Steps: {adminNumInferenceSteps}</label>
+                      <input
+                        type="range" min={spec.numInferenceSteps.min} max={spec.numInferenceSteps.max} step={spec.numInferenceSteps.step}
+                        value={adminNumInferenceSteps} onChange={(e) => setAdminNumInferenceSteps(parseInt(e.target.value, 10))}
+                        className="w-full accent-amber-500"
+                      />
+                    </div>
+                  )}
+
+                  {/* Motion Bucket ID (Stable Video) */}
+                  {spec.motionBucketId && (
+                    <div className="space-y-0.5">
+                      <label className={labelCls}>Motion Bucket: {adminMotionBucketId}</label>
+                      <input
+                        type="range" min={spec.motionBucketId.min} max={spec.motionBucketId.max} step={spec.motionBucketId.step}
+                        value={adminMotionBucketId} onChange={(e) => setAdminMotionBucketId(parseInt(e.target.value, 10))}
+                        className="w-full accent-amber-500"
+                      />
+                    </div>
+                  )}
+
+                  {/* Cond Aug (Stable Video) */}
+                  {spec.condAug && (
+                    <div className="space-y-0.5">
+                      <label className={labelCls}>Cond Aug: {adminCondAug.toFixed(2)}</label>
+                      <input
+                        type="range" min={spec.condAug.min} max={spec.condAug.max} step={spec.condAug.step}
+                        value={adminCondAug} onChange={(e) => setAdminCondAug(parseFloat(e.target.value))}
+                        className="w-full accent-amber-500"
+                      />
+                    </div>
+                  )}
+
+                  {/* FPS (LTX-2, Stable Video) */}
+                  {spec.fps && (
+                    <div className="space-y-0.5">
+                      <label className={labelCls}>FPS: {adminFps}</label>
+                      <input
+                        type="range" min={spec.fps.min} max={spec.fps.max} step={spec.fps.step}
+                        value={adminFps} onChange={(e) => setAdminFps(parseInt(e.target.value, 10))}
+                        className="w-full accent-amber-500"
+                      />
+                    </div>
+                  )}
+
+                  {/* Seed */}
+                  {spec.seed && (
+                    <div className="space-y-0.5">
+                      <label className={labelCls}>Seed</label>
+                      <input
+                        type="number" min={0} value={adminSeed} onChange={(e) => setAdminSeed(e.target.value)}
+                        placeholder="random" className={inputCls}
+                      />
                     </div>
                   )}
                 </div>
 
+                {/* Checkboxes row */}
+                {(spec.loop || spec.generateAudio !== undefined || spec.autoFix !== undefined || spec.promptOptimizer !== undefined ||
+                  spec.enableSafetyChecker !== undefined || spec.cameraFixed !== undefined ||
+                  spec.generateAudioSwitch !== undefined || spec.generateMultiClipSwitch !== undefined) && (
+                  <div className="flex flex-wrap gap-x-4 gap-y-2">
+                    {spec.loop && (
+                      <label className={checkboxRowCls}>
+                        <input type="checkbox" checked={adminLoop} onChange={(e) => setAdminLoop(e.target.checked)} className="accent-amber-500" />
+                        <span className={labelCls}>Loop</span>
+                      </label>
+                    )}
+                    {spec.generateAudio !== undefined && (
+                      <label className={checkboxRowCls}>
+                        <input type="checkbox" checked={adminGenerateAudio} onChange={(e) => setAdminGenerateAudio(e.target.checked)} className="accent-amber-500" />
+                        <span className={labelCls}>Generate Audio</span>
+                      </label>
+                    )}
+                    {spec.autoFix !== undefined && (
+                      <label className={checkboxRowCls}>
+                        <input type="checkbox" checked={adminAutoFix} onChange={(e) => setAdminAutoFix(e.target.checked)} className="accent-amber-500" />
+                        <span className={labelCls}>Auto Fix</span>
+                      </label>
+                    )}
+                    {spec.promptOptimizer !== undefined && (
+                      <label className={checkboxRowCls}>
+                        <input type="checkbox" checked={adminPromptOptimizer} onChange={(e) => setAdminPromptOptimizer(e.target.checked)} className="accent-amber-500" />
+                        <span className={labelCls}>Prompt Optimizer</span>
+                      </label>
+                    )}
+                    {spec.enableSafetyChecker !== undefined && (
+                      <label className={checkboxRowCls}>
+                        <input type="checkbox" checked={adminEnableSafetyChecker} onChange={(e) => setAdminEnableSafetyChecker(e.target.checked)} className="accent-amber-500" />
+                        <span className={labelCls}>Safety Checker</span>
+                      </label>
+                    )}
+                    {spec.cameraFixed !== undefined && (
+                      <label className={checkboxRowCls}>
+                        <input type="checkbox" checked={adminCameraFixed} onChange={(e) => setAdminCameraFixed(e.target.checked)} className="accent-amber-500" />
+                        <span className={labelCls}>Camera Fixed</span>
+                      </label>
+                    )}
+                    {spec.generateAudioSwitch !== undefined && (
+                      <label className={checkboxRowCls}>
+                        <input type="checkbox" checked={adminGenerateAudioSwitch} onChange={(e) => setAdminGenerateAudioSwitch(e.target.checked)} className="accent-amber-500" />
+                        <span className={labelCls}>Gen Audio</span>
+                      </label>
+                    )}
+                    {spec.generateMultiClipSwitch !== undefined && (
+                      <label className={checkboxRowCls}>
+                        <input type="checkbox" checked={adminGenerateMultiClipSwitch} onChange={(e) => setAdminGenerateMultiClipSwitch(e.target.checked)} className="accent-amber-500" />
+                        <span className={labelCls}>Multi-Clip</span>
+                      </label>
+                    )}
+                  </div>
+                )}
+
+                {/* Negative Prompt */}
                 {spec.negativePrompt && (
                   <div className="space-y-0.5">
-                    <label className="text-[10px] font-display uppercase tracking-widest text-muted-foreground">Negative Prompt</label>
+                    <label className={labelCls}>Negative Prompt</label>
                     <input
-                      type="text"
-                      value={adminNegativePrompt}
-                      onChange={(e) => setAdminNegativePrompt(e.target.value)}
-                      placeholder="Things to avoid…"
-                      className="w-full bg-background border border-border text-foreground text-xs rounded-sm px-2 py-1.5 focus:outline-none focus:border-amber-500/60 transition-colors placeholder:text-muted-foreground/40"
+                      type="text" value={adminNegativePrompt} onChange={(e) => setAdminNegativePrompt(e.target.value)}
+                      placeholder="Things to avoid…" className={inputCls}
                     />
                   </div>
                 )}
@@ -957,7 +1367,7 @@ function VideoTab({ factId, factText, pexelsImages, aiMemeImages, initialImageDa
                 {/* Motion prompt */}
                 <div className="space-y-1">
                   <div className="flex items-center justify-between">
-                    <label className="text-[10px] font-display uppercase tracking-widest text-muted-foreground">Motion Prompt</label>
+                    <label className={labelCls}>Motion Prompt</label>
                     {isGeneratingPrompt && (
                       <div className="flex items-center gap-1 text-[10px] text-amber-500">
                         <Loader2 className="w-3 h-3 animate-spin" />
