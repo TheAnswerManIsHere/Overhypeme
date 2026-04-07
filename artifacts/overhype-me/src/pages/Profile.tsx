@@ -5,7 +5,7 @@ import { Layout } from "@/components/layout/Layout";
 import { FactCard } from "@/components/facts/FactCard";
 import { Button } from "@/components/ui/Button";
 import { SubscriptionPanel } from "@/components/SubscriptionPanel";
-import { ShieldAlert, LogOut, Clock, ThumbsUp, FileText, Hash, Star, X, Pencil, Check, Mail, AlertTriangle, CheckCircle, Camera, Loader2, Images, ImageIcon, UserCircle2, Image } from "lucide-react";
+import { ShieldAlert, LogOut, Clock, ThumbsUp, FileText, Hash, Star, X, Pencil, Check, Mail, AlertTriangle, CheckCircle, Camera, Loader2, Images, ImageIcon, UserCircle2, Image, Eraser } from "lucide-react";
 import { ImageCard } from "@/components/ui/ImageCard";
 import { Link, useLocation } from "wouter";
 import { useQueryClient, useQuery } from "@tanstack/react-query";
@@ -53,6 +53,29 @@ export default function Profile() {
   const [photoError, setPhotoError] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [avatarSourceToggling, setAvatarSourceToggling] = useState(false);
+  const [forgetMeConfirm, setForgetMeConfirm] = useState(false);
+  const [forgetMeLoading, setForgetMeLoading] = useState(false);
+
+  async function handleForgetMe() {
+    setForgetMeLoading(true);
+    try {
+      // Destroy the server-side session and clear the auth cookie
+      await fetch("/api/auth/logout", { method: "POST", credentials: "include" });
+    } catch {
+      // Best-effort — continue with client wipe even if the request fails
+    }
+    // Wipe all client-side storage
+    localStorage.clear();
+    sessionStorage.clear();
+    // Clear all JS-accessible cookies for this domain
+    document.cookie.split(";").forEach((c) => {
+      document.cookie = c
+        .replace(/^ +/, "")
+        .replace(/=.*/, `=;expires=${new Date(0).toUTCString()};path=/`);
+    });
+    // Hard reload to the homepage — no cached state
+    window.location.replace("/");
+  }
 
   interface UploadItem {
     objectPath: string;
@@ -467,6 +490,46 @@ export default function Profile() {
             <Button variant="danger" onClick={logout} className="gap-2">
               <LogOut className="w-4 h-4" /> DISCONNECT
             </Button>
+            {!forgetMeConfirm ? (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setForgetMeConfirm(true)}
+                className="gap-2 text-muted-foreground hover:text-destructive"
+              >
+                <Eraser className="w-4 h-4" /> Forget Me
+              </Button>
+            ) : (
+              <div className="border border-destructive/40 bg-destructive/5 rounded-sm p-3 space-y-2">
+                <p className="text-xs text-destructive font-medium flex items-start gap-1.5">
+                  <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                  This logs you out and wipes ALL local data — cookies, storage, preferences — so the site treats you as a brand-new visitor.
+                </p>
+                <div className="flex gap-2">
+                  <Button
+                    variant="danger"
+                    size="sm"
+                    onClick={handleForgetMe}
+                    disabled={forgetMeLoading}
+                    className="flex-1 gap-1.5"
+                  >
+                    {forgetMeLoading
+                      ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Wiping…</>
+                      : <><Eraser className="w-3.5 h-3.5" /> Yes, forget me</>
+                    }
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setForgetMeConfirm(false)}
+                    disabled={forgetMeLoading}
+                    className="flex-1"
+                  >
+                    Cancel
+                  </Button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
 
