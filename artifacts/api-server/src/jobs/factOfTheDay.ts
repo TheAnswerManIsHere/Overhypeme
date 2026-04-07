@@ -3,18 +3,15 @@ import { factsTable } from "@workspace/db/schema";
 import { desc, eq } from "drizzle-orm";
 import { stripeStorage } from "../lib/stripeStorage";
 import { logger } from "../lib/logger";
-import { sendEmail, buildEmailShell, ctaButton, divider } from "../lib/email";
+import { sendEmail, buildEmailShell, ctaButton, divider, getSiteBaseUrl } from "../lib/email";
 import { renderPersonalized } from "../lib/renderCanonical";
-
-const SITE_DOMAIN = process.env.REPLIT_DOMAINS?.split(",")[0] ?? "localhost";
 
 function buildFactOfTheDayEmail(
   factText: string,
   factId: number,
   manageUrl: string,
 ): { subject: string; text: string; html: string } {
-  const siteUrl = `https://${SITE_DOMAIN}/overhype-me`;
-  const factUrl = `${siteUrl}/facts/${factId}`;
+  const factUrl = `${getSiteBaseUrl()}/facts/${factId}`;
 
   const subject = "⚡ Your Daily Overhype.me Fact";
 
@@ -85,7 +82,7 @@ export async function runFactOfTheDayJob(): Promise<{ sent: number; skipped: num
   for (const user of premiumUsers) {
     if (!user.email) { skipped++; continue; }
 
-    const manageUrl = `https://${SITE_DOMAIN}/overhype-me/profile#membership`;
+    const manageUrl = `${getSiteBaseUrl()}/profile#membership`;
     const renderedText = user.displayName
       ? renderPersonalized(topFact.text, user.displayName, user.pronouns ?? null)
       : topFact.text;
