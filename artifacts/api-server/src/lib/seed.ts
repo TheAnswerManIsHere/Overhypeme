@@ -433,6 +433,14 @@ Return ONLY valid JSON:
          'Aspect ratio for generated videos. Kling supports 16:9, 9:16, and 1:1.', false)
       ON CONFLICT (key) DO NOTHING`,
     },
+    {
+      label: "video_jobs.add_is_private",
+      ddl: `ALTER TABLE video_jobs ADD COLUMN IF NOT EXISTS is_private boolean NOT NULL DEFAULT false`,
+    },
+    {
+      label: "video_jobs.add_user_id",
+      ddl: `ALTER TABLE video_jobs ADD COLUMN IF NOT EXISTS user_id text`,
+    },
   ];
 
   for (const { label, ddl } of migrations) {
