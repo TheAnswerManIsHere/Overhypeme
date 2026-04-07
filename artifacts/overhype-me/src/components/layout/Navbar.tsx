@@ -1,5 +1,5 @@
 import { Link, useLocation } from "wouter";
-import { Search, Plus, User, LogIn, LogOut, Menu, X, Star, Crown, ShieldCheck, ShieldOff, Activity, Share2 } from "lucide-react";
+import { Search, Plus, User, LogIn, LogOut, Menu, X, Star, Crown, ShieldCheck, ShieldOff, Activity, Share2, Eraser } from "lucide-react";
 import { useAuth } from "@workspace/replit-auth-web";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
@@ -33,6 +33,20 @@ export function Navbar() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [togglingAdmin, setTogglingAdmin] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
+  const [forgetMeConfirm, setForgetMeConfirm] = useState(false);
+
+  function handleForgetMe() {
+    // Destroy server session (best-effort — guest users may not have one)
+    void fetch("/api/auth/logout", { method: "POST", credentials: "include" }).catch(() => {});
+    localStorage.clear();
+    sessionStorage.clear();
+    document.cookie.split(";").forEach((c) => {
+      document.cookie = c
+        .replace(/^ +/, "")
+        .replace(/=.*/, `=;expires=${new Date(0).toUTCString()};path=/`);
+    });
+    window.location.replace("/");
+  }
 
   // ── Secret dev admin login: triple-click the logo ──────────────────────────
   const logoClickCount  = useRef(0);
@@ -196,9 +210,39 @@ export function Navbar() {
                 </Button>
               </div>
             ) : (
-              <Button variant="primary" size="sm" onClick={() => setLocation('/login')} className="gap-2 whitespace-nowrap animate-pulse">
-                <LogIn className="w-4 h-4" /> LOGIN TO VOTE
-              </Button>
+              <div className="flex items-center gap-2">
+                <Button variant="primary" size="sm" onClick={() => setLocation('/login')} className="gap-2 whitespace-nowrap animate-pulse">
+                  <LogIn className="w-4 h-4" /> LOGIN TO VOTE
+                </Button>
+                {!forgetMeConfirm ? (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setForgetMeConfirm(true)}
+                    title="Forget me — clear all local data and start fresh"
+                    className="gap-1.5 text-muted-foreground hover:text-destructive px-2"
+                  >
+                    <Eraser className="w-3.5 h-3.5" />
+                    <span className="hidden lg:inline text-xs">Forget me</span>
+                  </Button>
+                ) : (
+                  <div className="flex items-center gap-1 bg-destructive/10 border border-destructive/30 rounded-sm px-2 py-1">
+                    <span className="text-xs text-destructive font-medium whitespace-nowrap">Forget me?</span>
+                    <button
+                      onClick={handleForgetMe}
+                      className="text-xs font-bold text-destructive hover:text-white hover:bg-destructive px-1.5 py-0.5 rounded-sm transition-colors"
+                    >
+                      Yes
+                    </button>
+                    <button
+                      onClick={() => setForgetMeConfirm(false)}
+                      className="text-xs font-bold text-muted-foreground hover:text-foreground px-1.5 py-0.5 rounded-sm transition-colors"
+                    >
+                      No
+                    </button>
+                  </div>
+                )}
+              </div>
             )}
           </div>
 
@@ -288,9 +332,36 @@ export function Navbar() {
                   </Button>
                 </div>
               ) : (
-                <Button variant="primary" className="w-full gap-2" onClick={() => { setLocation('/login'); setMobileMenuOpen(false); }}>
-                  <LogIn className="w-5 h-5" /> LOGIN / SIGNUP
-                </Button>
+                <div className="flex flex-col gap-2">
+                  <Button variant="primary" className="w-full gap-2" onClick={() => { setLocation('/login'); setMobileMenuOpen(false); }}>
+                    <LogIn className="w-5 h-5" /> LOGIN / SIGNUP
+                  </Button>
+                  {!forgetMeConfirm ? (
+                    <Button
+                      variant="ghost"
+                      className="w-full gap-2 text-muted-foreground hover:text-destructive justify-center"
+                      onClick={() => setForgetMeConfirm(true)}
+                    >
+                      <Eraser className="w-4 h-4" /> Forget me
+                    </Button>
+                  ) : (
+                    <div className="flex items-center justify-center gap-2 bg-destructive/10 border border-destructive/30 rounded px-3 py-2">
+                      <span className="text-sm text-destructive font-medium">Forget me?</span>
+                      <button
+                        onClick={handleForgetMe}
+                        className="text-sm font-bold text-destructive hover:text-white hover:bg-destructive px-2 py-1 rounded transition-colors"
+                      >
+                        Yes
+                      </button>
+                      <button
+                        onClick={() => setForgetMeConfirm(false)}
+                        className="text-sm font-bold text-muted-foreground hover:text-foreground px-2 py-1 rounded transition-colors"
+                      >
+                        No
+                      </button>
+                    </div>
+                  )}
+                </div>
               )}
             </div>
           </motion.div>
