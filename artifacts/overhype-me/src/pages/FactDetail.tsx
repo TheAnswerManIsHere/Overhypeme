@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from "react";
+import { useState, useEffect } from "react";
 import { useRoute, Link, useLocation } from "wouter";
 import { format } from "date-fns";
 import HCaptcha from "@hcaptcha/react-hcaptcha";
@@ -13,7 +13,7 @@ import { useAppMutations } from "@/hooks/use-mutations";
 import { MemeStudio } from "@/components/MemeStudio";
 import { MerchButtons } from "@/components/MerchButtons";
 import { AdSlot } from "@/components/AdSlot";
-import { ThumbsUp, ThumbsDown, User, AlertCircle, ImageIcon, GitBranch, ArrowLeft, Crown, Flame, Globe, Lock, Video, Play, Layers, ExternalLink } from "lucide-react";
+import { ThumbsUp, ThumbsDown, User, AlertCircle, ImageIcon, GitBranch, ArrowLeft, Crown, Flame, Globe, Lock, Video, Play, ExternalLink } from "lucide-react";
 import { ImageCard } from "@/components/ui/ImageCard";
 import { cn } from "@/components/ui/Button";
 import { usePersonName } from "@/hooks/use-person-name";
@@ -202,18 +202,18 @@ export default function FactDetail() {
     query: { queryKey: getListCommentsQueryKey(factId, { limit: 50 }), enabled: !!factId }
   });
 
-  const [memeTab, setMemeTab] = useState<"all" | "community" | "my-public" | "my-private">(() => {
-    const saved = localStorage.getItem("meme_filter_tab");
-    return (["all", "community", "my-public", "my-private"].includes(saved ?? "") ? saved : "all") as "all" | "community" | "my-public" | "my-private";
-  });
-  const [mediaType, setMediaType] = useState<"images" | "videos" | "all">(() => {
-    const saved = localStorage.getItem("meme_filter_media");
-    return (["images", "videos", "all"].includes(saved ?? "") ? saved : "all") as "images" | "videos" | "all";
-  });
+  const [showImages, setShowImages] = useState(() => localStorage.getItem("meme_show_images") !== "false");
+  const [showVideos, setShowVideos] = useState(() => localStorage.getItem("meme_show_videos") !== "false");
+  const [showCommunity, setShowCommunity] = useState(() => localStorage.getItem("meme_show_community") !== "false");
+  const [showMyPublic, setShowMyPublic] = useState(() => localStorage.getItem("meme_show_my_public") !== "false");
+  const [showMyPrivate, setShowMyPrivate] = useState(() => localStorage.getItem("meme_show_my_private") !== "false");
   const queryClient = useQueryClient();
 
-  useEffect(() => { localStorage.setItem("meme_filter_tab", memeTab); }, [memeTab]);
-  useEffect(() => { localStorage.setItem("meme_filter_media", mediaType); }, [mediaType]);
+  useEffect(() => { localStorage.setItem("meme_show_images", String(showImages)); }, [showImages]);
+  useEffect(() => { localStorage.setItem("meme_show_videos", String(showVideos)); }, [showVideos]);
+  useEffect(() => { localStorage.setItem("meme_show_community", String(showCommunity)); }, [showCommunity]);
+  useEffect(() => { localStorage.setItem("meme_show_my_public", String(showMyPublic)); }, [showMyPublic]);
+  useEffect(() => { localStorage.setItem("meme_show_my_private", String(showMyPrivate)); }, [showMyPrivate]);
 
   const { data: communityMemesData } = useQuery({
     queryKey: ["listFactMemes", factId, "community"],
@@ -233,20 +233,9 @@ export default function FactDetail() {
     enabled: !!factId && isAuthenticated,
   });
 
-  const activeMemes = useMemo(() => {
-    if (memeTab === "all") {
-      const combined = [
-        ...(communityMemesData?.memes ?? []),
-        ...(myPublicMemesData?.memes ?? []),
-        ...(myPrivateMemesData?.memes ?? []),
-      ];
-      const seen = new Set<number>();
-      return { memes: combined.filter(m => seen.has(m.id) ? false : (seen.add(m.id), true)) };
-    }
-    if (memeTab === "my-public") return myPublicMemesData ?? { memes: [] };
-    if (memeTab === "my-private") return myPrivateMemesData ?? { memes: [] };
-    return communityMemesData ?? { memes: [] };
-  }, [memeTab, communityMemesData, myPublicMemesData, myPrivateMemesData]);
+  const communityMemes = communityMemesData?.memes ?? [];
+  const myPublicMemes = myPublicMemesData?.memes ?? [];
+  const myPrivateMemes = myPrivateMemesData?.memes ?? [];
 
   const { data: videosData } = useQuery({
     queryKey: ["listFactVideos", factId],
@@ -414,201 +403,257 @@ export default function FactDetail() {
         {/* Media Gallery — above comments */}
         <div className="mb-12">
           {/* Gallery header */}
-          <div className="border-b-2 border-border pb-3 mb-6">
-            <div className="flex items-center justify-between flex-wrap gap-y-3 gap-x-4 mb-3">
+          <div className="border-b-2 border-border pb-4 mb-6">
+            <div className="flex items-center justify-between flex-wrap gap-y-3 gap-x-4 mb-4">
               <h3 className="text-2xl font-display uppercase tracking-wide flex items-center gap-3">
-                {mediaType === "videos"
-                  ? <Video className="w-6 h-6 text-primary" />
-                  : mediaType === "all"
-                    ? <Layers className="w-6 h-6 text-primary" />
-                    : <ImageIcon className="w-6 h-6 text-primary" />}
-                Memes
+                <ImageIcon className="w-6 h-6 text-primary" /> Memes
               </h3>
-              {/* Media type toggle */}
-              <div className="flex items-center gap-1 bg-secondary border border-border rounded-sm p-1">
-                <button
-                  onClick={() => setMediaType("images")}
-                  className={cn(
-                    "flex items-center gap-1.5 text-xs font-display font-bold uppercase tracking-wider px-3 py-1.5 rounded-sm transition-colors",
-                    mediaType === "images" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"
-                  )}
-                >
-                  <ImageIcon className="w-3.5 h-3.5" /> Images
-                </button>
-                <button
-                  onClick={() => setMediaType("videos")}
-                  className={cn(
-                    "flex items-center gap-1.5 text-xs font-display font-bold uppercase tracking-wider px-3 py-1.5 rounded-sm transition-colors",
-                    mediaType === "videos" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"
-                  )}
-                >
-                  <Video className="w-3.5 h-3.5" /> Videos
-                </button>
-                <button
-                  onClick={() => setMediaType("all")}
-                  className={cn(
-                    "flex items-center gap-1.5 text-xs font-display font-bold uppercase tracking-wider px-3 py-1.5 rounded-sm transition-colors",
-                    mediaType === "all" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"
-                  )}
-                >
-                  <Layers className="w-3.5 h-3.5" /> All
-                </button>
+            </div>
+            {/* Checkbox filters */}
+            <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
+              {/* Media type */}
+              <div className="flex items-center gap-4">
+                <label className="flex items-center gap-1.5 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={showImages}
+                    onChange={e => setShowImages(e.target.checked)}
+                    className="accent-primary w-3.5 h-3.5"
+                  />
+                  <span className="flex items-center gap-1 text-xs font-display font-bold uppercase tracking-wider text-foreground">
+                    <ImageIcon className="w-3.5 h-3.5" /> Images
+                  </span>
+                </label>
+                <label className="flex items-center gap-1.5 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={showVideos}
+                    onChange={e => setShowVideos(e.target.checked)}
+                    className="accent-primary w-3.5 h-3.5"
+                  />
+                  <span className="flex items-center gap-1 text-xs font-display font-bold uppercase tracking-wider text-foreground">
+                    <Video className="w-3.5 h-3.5" /> Videos
+                  </span>
+                </label>
               </div>
-            </div>
-            {/* Sharing status toggle — always visible, affects memes */}
-            <div className="flex justify-end">
-            <div className="flex items-center gap-1 bg-secondary border border-border rounded-sm p-1 w-fit">
-              <button
-                onClick={() => setMemeTab("community")}
-                className={cn(
-                  "flex items-center gap-1.5 text-xs font-display font-bold uppercase tracking-wider px-3 py-1.5 rounded-sm transition-colors",
-                  memeTab === "community" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"
+
+              <div className="h-4 w-px bg-border hidden sm:block" />
+
+              {/* Visibility */}
+              <div className="flex items-center gap-4">
+                <label className="flex items-center gap-1.5 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={showCommunity}
+                    onChange={e => setShowCommunity(e.target.checked)}
+                    className="accent-primary w-3.5 h-3.5"
+                  />
+                  <span className="flex items-center gap-1 text-xs font-display font-bold uppercase tracking-wider text-foreground">
+                    <Globe className="w-3.5 h-3.5" /> Community
+                  </span>
+                </label>
+                {isAuthenticated && (
+                  <>
+                    <label className="flex items-center gap-1.5 cursor-pointer select-none">
+                      <input
+                        type="checkbox"
+                        checked={showMyPublic}
+                        onChange={e => setShowMyPublic(e.target.checked)}
+                        className="accent-primary w-3.5 h-3.5"
+                      />
+                      <span className="text-xs font-display font-bold uppercase tracking-wider text-foreground">
+                        My Public
+                      </span>
+                    </label>
+                    <label className="flex items-center gap-1.5 cursor-pointer select-none">
+                      <input
+                        type="checkbox"
+                        checked={showMyPrivate}
+                        onChange={e => setShowMyPrivate(e.target.checked)}
+                        className="accent-primary w-3.5 h-3.5"
+                      />
+                      <span className="flex items-center gap-1 text-xs font-display font-bold uppercase tracking-wider text-foreground">
+                        <Lock className="w-3.5 h-3.5" /> My Private
+                      </span>
+                    </label>
+                  </>
                 )}
-              >
-                <Globe className="w-3.5 h-3.5" /> Community
-              </button>
-              {isAuthenticated && (
-                <>
-                  <button
-                    onClick={() => setMemeTab("my-public")}
-                    className={cn(
-                      "flex items-center gap-1.5 text-xs font-display font-bold uppercase tracking-wider px-3 py-1.5 rounded-sm transition-colors",
-                      memeTab === "my-public" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"
-                    )}
-                  >
-                    My Public
-                  </button>
-                  <button
-                    onClick={() => setMemeTab("my-private")}
-                    className={cn(
-                      "flex items-center gap-1.5 text-xs font-display font-bold uppercase tracking-wider px-3 py-1.5 rounded-sm transition-colors",
-                      memeTab === "my-private" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"
-                    )}
-                  >
-                    <Lock className="w-3.5 h-3.5" /> My Private
-                  </button>
-                </>
-              )}
-              <button
-                onClick={() => setMemeTab("all")}
-                className={cn(
-                  "flex items-center gap-1.5 text-xs font-display font-bold uppercase tracking-wider px-3 py-1.5 rounded-sm transition-colors",
-                  memeTab === "all" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"
-                )}
-              >
-                <Layers className="w-3.5 h-3.5" /> All
-              </button>
-            </div>
+              </div>
             </div>
           </div>
 
-          {/* Image grid */}
-          {mediaType !== "videos" && (
-            <>
-              {mediaType === "all" && (videosData?.videos.length ?? 0) > 0 && (
-                <p className="text-xs font-display uppercase tracking-widest text-muted-foreground mb-3 flex items-center gap-1.5">
-                  <ImageIcon className="w-3.5 h-3.5" /> Images
-                </p>
-              )}
-              {activeMemes && activeMemes.memes.length > 0 ? (
-                <div className="grid grid-cols-2 md:grid-cols-3 gap-4 items-start">
-                  {activeMemes.memes.map(meme => {
-                    const isMyMeme = !!user?.id && meme.createdById === user.id;
-                    const memePermalink = `${window.location.origin}/meme/${meme.permalinkSlug}`;
-                    return (
-                      <div key={meme.id} className="space-y-1.5">
-                        <ImageCard
-                          src={meme.imageUrl}
-                          alt="Meme"
-                          href={`/meme/${meme.permalinkSlug}`}
-                          aspectRatio={MEME_ASPECT_CLASS[meme.aspectRatio ?? "landscape"] ?? "aspect-video"}
-                          actions={isMyMeme ? ["delete", "copyLink", "openFull"] : ["copyLink", "openFull"]}
-                          onDelete={isMyMeme ? () => handleDeleteMeme(meme.permalinkSlug) : undefined}
-                          deleteConfirmMessage="Remove this meme? It will no longer be visible to anyone."
-                          permalink={memePermalink}
-                        />
-                        <Link href={`/meme/${meme.permalinkSlug}`} className="w-full flex items-center justify-center gap-1.5 text-[10px] font-display font-bold uppercase tracking-wider text-muted-foreground hover:text-primary transition-colors py-1">
-                          <ExternalLink className="w-3 h-3" /> View Permalink
-                        </Link>
-                      </div>
-                    );
-                  })}
+          {/* Images section */}
+          {showImages && (
+            <div className={cn("space-y-8", showVideos && "mb-10")}>
+              <p className="text-xs font-display uppercase tracking-widest text-muted-foreground flex items-center gap-1.5 mb-4">
+                <ImageIcon className="w-3.5 h-3.5" /> Images
+              </p>
+
+              {/* Community images */}
+              {showCommunity && (
+                <div>
+                  <p className="text-[11px] font-display uppercase tracking-widest text-muted-foreground/70 flex items-center gap-1 mb-3 pl-0.5 border-l-2 border-primary/30 pl-2">
+                    <Globe className="w-3 h-3" /> Community
+                  </p>
+                  {communityMemes.length > 0 ? (
+                    <div className="grid grid-cols-2 md:grid-cols-3 gap-4 items-start">
+                      {communityMemes.map(meme => {
+                        const isMyMeme = !!user?.id && meme.createdById === user.id;
+                        const memePermalink = `${window.location.origin}/meme/${meme.permalinkSlug}`;
+                        return (
+                          <div key={meme.id} className="space-y-1.5">
+                            <ImageCard
+                              src={meme.imageUrl}
+                              alt="Meme"
+                              href={`/meme/${meme.permalinkSlug}`}
+                              aspectRatio={MEME_ASPECT_CLASS[meme.aspectRatio ?? "landscape"] ?? "aspect-video"}
+                              actions={isMyMeme ? ["delete", "copyLink", "openFull"] : ["copyLink", "openFull"]}
+                              onDelete={isMyMeme ? () => handleDeleteMeme(meme.permalinkSlug) : undefined}
+                              deleteConfirmMessage="Remove this meme? It will no longer be visible to anyone."
+                              permalink={memePermalink}
+                            />
+                            <Link href={`/meme/${meme.permalinkSlug}`} className="w-full flex items-center justify-center gap-1.5 text-[10px] font-display font-bold uppercase tracking-wider text-muted-foreground hover:text-primary transition-colors py-1">
+                              <ExternalLink className="w-3 h-3" /> View Permalink
+                            </Link>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <p className="text-sm text-muted-foreground pl-2">No community memes yet. Be the first!</p>
+                  )}
                 </div>
-              ) : (
-                mediaType === "images" && (
-                  <div className="py-10 text-center border-2 border-dashed border-border rounded-sm">
-                    {memeTab === "my-private" ? (
-                      <>
-                        <p className="text-muted-foreground mb-4">You haven't made any private memes for this fact yet.</p>
-                        <button
-                          onClick={openMemeStudioPrivate}
-                          className="inline-flex items-center gap-2 px-4 py-2 text-sm font-display font-bold uppercase tracking-wider bg-primary text-primary-foreground rounded-sm hover:opacity-90 transition-opacity"
-                        >
-                          Create your first private meme for this fact
-                        </button>
-                      </>
-                    ) : memeTab === "my-public" ? (
-                      <p className="text-muted-foreground">You haven't shared any memes for this fact yet.</p>
-                    ) : memeTab === "all" ? (
-                      <p className="text-muted-foreground">No memes yet. Be the first to create one!</p>
-                    ) : (
-                      <p className="text-muted-foreground">No community memes yet. Be the first!</p>
-                    )}
-                  </div>
-                )
               )}
-            </>
+
+              {/* My Public images */}
+              {isAuthenticated && showMyPublic && (
+                <div>
+                  <p className="text-[11px] font-display uppercase tracking-widest text-muted-foreground/70 flex items-center gap-1 mb-3 border-l-2 border-primary/30 pl-2">
+                    My Public
+                  </p>
+                  {myPublicMemes.length > 0 ? (
+                    <div className="grid grid-cols-2 md:grid-cols-3 gap-4 items-start">
+                      {myPublicMemes.map(meme => {
+                        const memePermalink = `${window.location.origin}/meme/${meme.permalinkSlug}`;
+                        return (
+                          <div key={meme.id} className="space-y-1.5">
+                            <ImageCard
+                              src={meme.imageUrl}
+                              alt="Meme"
+                              href={`/meme/${meme.permalinkSlug}`}
+                              aspectRatio={MEME_ASPECT_CLASS[meme.aspectRatio ?? "landscape"] ?? "aspect-video"}
+                              actions={["delete", "copyLink", "openFull"]}
+                              onDelete={() => handleDeleteMeme(meme.permalinkSlug)}
+                              deleteConfirmMessage="Remove this meme? It will no longer be visible to anyone."
+                              permalink={memePermalink}
+                            />
+                            <Link href={`/meme/${meme.permalinkSlug}`} className="w-full flex items-center justify-center gap-1.5 text-[10px] font-display font-bold uppercase tracking-wider text-muted-foreground hover:text-primary transition-colors py-1">
+                              <ExternalLink className="w-3 h-3" /> View Permalink
+                            </Link>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <p className="text-sm text-muted-foreground pl-2">You haven't shared any memes for this fact yet.</p>
+                  )}
+                </div>
+              )}
+
+              {/* My Private images */}
+              {isAuthenticated && showMyPrivate && (
+                <div>
+                  <p className="text-[11px] font-display uppercase tracking-widest text-muted-foreground/70 flex items-center gap-1 mb-3 border-l-2 border-primary/30 pl-2">
+                    <Lock className="w-3 h-3" /> My Private
+                  </p>
+                  {myPrivateMemes.length > 0 ? (
+                    <div className="grid grid-cols-2 md:grid-cols-3 gap-4 items-start">
+                      {myPrivateMemes.map(meme => {
+                        const memePermalink = `${window.location.origin}/meme/${meme.permalinkSlug}`;
+                        return (
+                          <div key={meme.id} className="space-y-1.5">
+                            <ImageCard
+                              src={meme.imageUrl}
+                              alt="Meme"
+                              href={`/meme/${meme.permalinkSlug}`}
+                              aspectRatio={MEME_ASPECT_CLASS[meme.aspectRatio ?? "landscape"] ?? "aspect-video"}
+                              actions={["delete", "copyLink", "openFull"]}
+                              onDelete={() => handleDeleteMeme(meme.permalinkSlug)}
+                              deleteConfirmMessage="Remove this meme? It will no longer be visible to anyone."
+                              permalink={memePermalink}
+                            />
+                            <Link href={`/meme/${meme.permalinkSlug}`} className="w-full flex items-center justify-center gap-1.5 text-[10px] font-display font-bold uppercase tracking-wider text-muted-foreground hover:text-primary transition-colors py-1">
+                              <ExternalLink className="w-3 h-3" /> View Permalink
+                            </Link>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <div className="py-8 text-center border-2 border-dashed border-border rounded-sm">
+                      <p className="text-muted-foreground mb-4">You haven't made any private memes for this fact yet.</p>
+                      <button
+                        onClick={openMemeStudioPrivate}
+                        className="inline-flex items-center gap-2 px-4 py-2 text-sm font-display font-bold uppercase tracking-wider bg-primary text-primary-foreground rounded-sm hover:opacity-90 transition-opacity"
+                      >
+                        Create your first private meme
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
           )}
 
-          {/* Video grid */}
-          {mediaType !== "images" && (
-            <>
-              {mediaType === "all" && (
-                <p className={cn(
-                  "text-xs font-display uppercase tracking-widest text-muted-foreground mb-3 flex items-center gap-1.5",
-                  (activeMemes?.memes.length ?? 0) > 0 && "mt-8"
-                )}>
-                  <Video className="w-3.5 h-3.5" /> Videos
-                </p>
-              )}
-              {videosData && videosData.videos.length > 0 ? (
-                <div className="grid grid-cols-2 md:grid-cols-3 gap-4 items-start">
-                  {videosData.videos.map(video => (
-                    <div key={video.id} className="space-y-1.5">
-                      <div className="relative border-2 border-border rounded-sm overflow-hidden group hover:border-primary/60 transition-all">
-                        <div className="aspect-video relative bg-black">
-                          <video
-                            src={video.videoUrl ?? ""}
-                            poster={video.imageUrl}
-                            controls
-                            preload="metadata"
-                            className="w-full h-full object-cover"
-                          />
-                          {!video.videoUrl && (
-                            <div className="absolute inset-0 flex items-center justify-center">
-                              <Play className="w-10 h-10 text-white/40" />
+          {/* Videos section */}
+          {showVideos && (
+            <div>
+              <p className="text-xs font-display uppercase tracking-widest text-muted-foreground flex items-center gap-1.5 mb-4">
+                <Video className="w-3.5 h-3.5" /> Videos
+              </p>
+
+              {showCommunity && (
+                <div>
+                  <p className="text-[11px] font-display uppercase tracking-widest text-muted-foreground/70 flex items-center gap-1 mb-3 border-l-2 border-primary/30 pl-2">
+                    <Globe className="w-3 h-3" /> Community
+                  </p>
+                  {videosData && videosData.videos.length > 0 ? (
+                    <div className="grid grid-cols-2 md:grid-cols-3 gap-4 items-start">
+                      {videosData.videos.map(video => (
+                        <div key={video.id} className="space-y-1.5">
+                          <div className="relative border-2 border-border rounded-sm overflow-hidden group hover:border-primary/60 transition-all">
+                            <div className="aspect-video relative bg-black">
+                              <video
+                                src={video.videoUrl ?? ""}
+                                poster={video.imageUrl}
+                                controls
+                                preload="metadata"
+                                className="w-full h-full object-cover"
+                              />
+                              {!video.videoUrl && (
+                                <div className="absolute inset-0 flex items-center justify-center">
+                                  <Play className="w-10 h-10 text-white/40" />
+                                </div>
+                              )}
                             </div>
-                          )}
-                        </div>
-                        {video.motionPrompt && (
-                          <div className="px-2 py-1.5 bg-secondary/80 border-t border-border">
-                            <p className="text-[10px] text-muted-foreground line-clamp-1">{video.motionPrompt}</p>
+                            {video.motionPrompt && (
+                              <div className="px-2 py-1.5 bg-secondary/80 border-t border-border">
+                                <p className="text-[10px] text-muted-foreground line-clamp-1">{video.motionPrompt}</p>
+                              </div>
+                            )}
                           </div>
-                        )}
-                      </div>
-                      <Link href={`/video/${video.id}`} className="w-full flex items-center justify-center gap-1.5 text-[10px] font-display font-bold uppercase tracking-wider text-muted-foreground hover:text-primary transition-colors py-1">
-                        <ExternalLink className="w-3 h-3" /> View Permalink
-                      </Link>
+                          <Link href={`/video/${video.id}`} className="w-full flex items-center justify-center gap-1.5 text-[10px] font-display font-bold uppercase tracking-wider text-muted-foreground hover:text-primary transition-colors py-1">
+                            <ExternalLink className="w-3 h-3" /> View Permalink
+                          </Link>
+                        </div>
+                      ))}
                     </div>
-                  ))}
-                </div>
-              ) : (
-                <div className="py-10 text-center border-2 border-dashed border-border rounded-sm">
-                  <Video className="w-8 h-8 text-muted-foreground mx-auto mb-3 opacity-40" />
-                  <p className="text-muted-foreground">No videos yet.</p>
+                  ) : (
+                    <p className="text-sm text-muted-foreground pl-2">No community videos yet.</p>
+                  )}
                 </div>
               )}
-            </>
+            </div>
           )}
         </div>
 
