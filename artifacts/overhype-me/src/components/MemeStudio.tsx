@@ -145,6 +145,8 @@ function StyleCard({
 // ─── Available Kling video models ────────────────────────────────────────────
 
 const FAL_VIDEO_MODELS_ADMIN: { value: string; label: string }[] = [
+  // xAI
+  { value: "xai/grok-imagine-video/image-to-video",              label: "Grok Imagine Video (xAI)" },
   // Kling
   { value: "fal-ai/kling-video/v3/pro/image-to-video",           label: "Kling v3 Pro — 1080p, audio" },
   { value: "fal-ai/kling-video/v2.6/pro/image-to-video",         label: "Kling v2.6 Pro" },
@@ -190,8 +192,6 @@ const FAL_VIDEO_MODELS_ADMIN: { value: string; label: string }[] = [
   // LTX
   { value: "fal-ai/ltx-2-19b/image-to-video",                    label: "LTX-2 19B" },
   { value: "fal-ai/ltx-video-13b-distilled/image-to-video",      label: "LTX-Video 13B Distilled" },
-  // xAI
-  { value: "xai/grok-imagine-video/image-to-video",              label: "Grok Imagine Video (xAI)" },
   // Open source
   { value: "fal-ai/hunyuan-video/image-to-video",                label: "HunyuanVideo (Tencent)" },
   { value: "fal-ai/cogvideox-5b/image-to-video",                 label: "CogVideoX-5B — open source" },
