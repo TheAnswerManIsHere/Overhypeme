@@ -33,6 +33,7 @@ export const usersTable = pgTable("users", {
   stripeCustomerId: varchar("stripe_customer_id").unique(),
   membershipTier: membershipTierEnum("membership_tier").notNull().default("free"),
   avatarStyle: varchar("avatar_style", { length: 30 }).default("bottts"),
+  avatarSource: varchar("avatar_source", { length: 10 }).default("avatar"),
   pronouns: varchar("pronouns", { length: 80 }).default("he/him"),
   emailVerifiedAt: timestamp("email_verified_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),

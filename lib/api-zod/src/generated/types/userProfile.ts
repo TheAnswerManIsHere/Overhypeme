@@ -18,6 +18,7 @@ export interface UserProfile {
   pronouns?: string | null;
   profileImageUrl?: string | null;
   avatarStyle?: string | null;
+  avatarSource?: string | null;
   isPremium?: boolean;
   submittedFacts: FactSummary[];
   likedFacts: FactSummary[];
