@@ -244,17 +244,11 @@ export default function AdminBilling() {
           </div>
           {configLoading ? (
             <div className="animate-pulse h-8 bg-secondary rounded-sm" />
-          ) : (
+          ) : isConnected ? (
             <div className="flex items-center gap-3">
-              {isConnected ? (
-                <CheckCircle className="w-5 h-5 text-green-400 shrink-0" />
-              ) : (
-                <XCircle className="w-5 h-5 text-destructive shrink-0" />
-              )}
+              <CheckCircle className="w-5 h-5 text-green-400 shrink-0" />
               <div>
-                <p className={`text-sm font-medium ${isConnected ? "text-green-400" : "text-destructive"}`}>
-                  {isConnected ? "Connected to Stripe" : "Cannot reach Stripe credentials"}
-                </p>
+                <p className="text-sm font-medium text-green-400">Connected to Stripe</p>
                 {keyPrefix && (
                   <p className="text-xs text-muted-foreground font-mono mt-0.5">
                     {keyPrefix}
@@ -262,6 +256,34 @@ export default function AdminBilling() {
                     {keyIsTest && <span className="ml-2 text-blue-400">(test key)</span>}
                   </p>
                 )}
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              <div className="flex items-center gap-3">
+                <XCircle className="w-5 h-5 text-destructive shrink-0" />
+                <p className="text-sm font-medium text-destructive">Stripe not connected</p>
+              </div>
+              <div className="bg-muted/50 border border-border rounded-sm p-4 space-y-2 text-sm text-muted-foreground">
+                <p className="font-medium text-foreground">To connect Stripe, choose one option:</p>
+                <ol className="list-decimal list-inside space-y-1.5 ml-1">
+                  <li>
+                    <strong>Replit integration (recommended):</strong> Open the{" "}
+                    <span className="text-primary">Integrations</span> panel in the Replit sidebar and connect your Stripe account.
+                  </li>
+                  <li>
+                    <strong>Environment variables:</strong> Add{" "}
+                    <code className="bg-secondary px-1 rounded text-xs">STRIPE_SECRET_KEY</code> and{" "}
+                    <code className="bg-secondary px-1 rounded text-xs">STRIPE_PUBLISHABLE_KEY</code>{" "}
+                    as secrets, then restart the server.
+                    <br />
+                    <span className="text-xs">
+                      For mode-specific keys use{" "}
+                      <code className="bg-secondary px-1 rounded">STRIPE_SECRET_KEY_TEST</code> /{" "}
+                      <code className="bg-secondary px-1 rounded">STRIPE_SECRET_KEY_LIVE</code>.
+                    </span>
+                  </li>
+                </ol>
               </div>
             </div>
           )}

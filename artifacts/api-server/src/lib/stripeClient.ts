@@ -13,6 +13,25 @@ async function isLiveMode(): Promise<boolean> {
 }
 
 async function getCredentials(liveMode?: boolean) {
+  const useLive = liveMode !== undefined ? liveMode : await isLiveMode();
+
+  // Primary: explicit environment variables (manual key config)
+  const envSecret = useLive
+    ? (process.env.STRIPE_SECRET_KEY_LIVE ?? process.env.STRIPE_SECRET_KEY)
+    : (process.env.STRIPE_SECRET_KEY_TEST ?? process.env.STRIPE_SECRET_KEY);
+  const envPublishable = useLive
+    ? (process.env.STRIPE_PUBLISHABLE_KEY_LIVE ?? process.env.STRIPE_PUBLISHABLE_KEY)
+    : (process.env.STRIPE_PUBLISHABLE_KEY_TEST ?? process.env.STRIPE_PUBLISHABLE_KEY);
+
+  if (envSecret && envPublishable) {
+    return {
+      publishableKey: envPublishable,
+      secretKey: envSecret,
+      environment: useLive ? "production" : "development",
+    };
+  }
+
+  // Fallback: Replit connectors OAuth integration
   const hostname = process.env.REPLIT_CONNECTORS_HOSTNAME;
   const xReplitToken = process.env.REPL_IDENTITY
     ? "repl " + process.env.REPL_IDENTITY
@@ -20,12 +39,11 @@ async function getCredentials(liveMode?: boolean) {
       ? "depl " + process.env.WEB_REPL_RENEWAL
       : null;
 
-  if (!xReplitToken) {
-    throw new Error("X-Replit-Token not found for repl/depl");
+  if (!xReplitToken || !hostname) {
+    throw new Error("Stripe credentials not configured — set STRIPE_SECRET_KEY and STRIPE_PUBLISHABLE_KEY, or connect via the Replit Stripe integration");
   }
 
   const connectorName = "stripe";
-  const useLive = liveMode !== undefined ? liveMode : await isLiveMode();
   const targetEnvironment = useLive ? "production" : "development";
 
   const url = new URL(`https://${hostname}/api/v2/connection`);
@@ -46,7 +64,7 @@ async function getCredentials(liveMode?: boolean) {
   const connectionSettings = data.items?.[0];
 
   if (!connectionSettings?.settings?.publishable || !connectionSettings?.settings?.secret) {
-    throw new Error(`Stripe ${targetEnvironment} connection not found`);
+    throw new Error(`Stripe ${targetEnvironment} connection not found — set STRIPE_SECRET_KEY and STRIPE_PUBLISHABLE_KEY, or connect via the Replit Stripe integration`);
   }
 
   return {
