@@ -458,15 +458,6 @@ export default function FactDetail() {
             {/* Sharing status toggle — always visible, affects memes */}
             <div className="flex items-center gap-1 bg-secondary border border-border rounded-sm p-1 w-fit">
               <button
-                onClick={() => setMemeTab("all")}
-                className={cn(
-                  "flex items-center gap-1.5 text-xs font-display font-bold uppercase tracking-wider px-3 py-1.5 rounded-sm transition-colors",
-                  memeTab === "all" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"
-                )}
-              >
-                <Layers className="w-3.5 h-3.5" /> All
-              </button>
-              <button
                 onClick={() => setMemeTab("community")}
                 className={cn(
                   "flex items-center gap-1.5 text-xs font-display font-bold uppercase tracking-wider px-3 py-1.5 rounded-sm transition-colors",
@@ -497,6 +488,15 @@ export default function FactDetail() {
                   </button>
                 </>
               )}
+              <button
+                onClick={() => setMemeTab("all")}
+                className={cn(
+                  "flex items-center gap-1.5 text-xs font-display font-bold uppercase tracking-wider px-3 py-1.5 rounded-sm transition-colors",
+                  memeTab === "all" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"
+                )}
+              >
+                <Layers className="w-3.5 h-3.5" /> All
+              </button>
             </div>
           </div>
 
