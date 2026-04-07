@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useRoute, Link, useLocation } from "wouter";
 import { format } from "date-fns";
 import HCaptcha from "@hcaptcha/react-hcaptcha";
@@ -202,9 +202,18 @@ export default function FactDetail() {
     query: { queryKey: getListCommentsQueryKey(factId, { limit: 50 }), enabled: !!factId }
   });
 
-  const [memeTab, setMemeTab] = useState<"all" | "community" | "my-public" | "my-private">("community");
-  const [mediaType, setMediaType] = useState<"images" | "videos" | "all">("images");
+  const [memeTab, setMemeTab] = useState<"all" | "community" | "my-public" | "my-private">(() => {
+    const saved = localStorage.getItem("meme_filter_tab");
+    return (["all", "community", "my-public", "my-private"].includes(saved ?? "") ? saved : "all") as "all" | "community" | "my-public" | "my-private";
+  });
+  const [mediaType, setMediaType] = useState<"images" | "videos" | "all">(() => {
+    const saved = localStorage.getItem("meme_filter_media");
+    return (["images", "videos", "all"].includes(saved ?? "") ? saved : "all") as "images" | "videos" | "all";
+  });
   const queryClient = useQueryClient();
+
+  useEffect(() => { localStorage.setItem("meme_filter_tab", memeTab); }, [memeTab]);
+  useEffect(() => { localStorage.setItem("meme_filter_media", mediaType); }, [mediaType]);
 
   const { data: communityMemesData } = useQuery({
     queryKey: ["listFactMemes", factId, "community"],
