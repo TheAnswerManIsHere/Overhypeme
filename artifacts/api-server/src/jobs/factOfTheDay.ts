@@ -4,6 +4,7 @@ import { desc, eq } from "drizzle-orm";
 import { stripeStorage } from "../lib/stripeStorage";
 import { logger } from "../lib/logger";
 import { sendEmail, buildEmailShell, ctaButton, divider } from "../lib/email";
+import { renderPersonalized } from "../lib/renderCanonical";
 
 const SITE_DOMAIN = process.env.REPLIT_DOMAINS?.split(",")[0] ?? "localhost";
 
@@ -85,7 +86,10 @@ export async function runFactOfTheDayJob(): Promise<{ sent: number; skipped: num
     if (!user.email) { skipped++; continue; }
 
     const manageUrl = `https://${SITE_DOMAIN}/overhype-me/profile#membership`;
-    const { subject, text, html } = buildFactOfTheDayEmail(topFact.text, topFact.id, manageUrl);
+    const renderedText = user.displayName
+      ? renderPersonalized(topFact.text, user.displayName, user.pronouns ?? null)
+      : topFact.text;
+    const { subject, text, html } = buildFactOfTheDayEmail(renderedText, topFact.id, manageUrl);
     try {
       await sendEmail({ to: user.email, subject, text, html });
       sent++;
