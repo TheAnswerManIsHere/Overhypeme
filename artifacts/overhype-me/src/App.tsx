@@ -21,6 +21,7 @@ import AdminBilling from "@/pages/admin/billing";
 import AdminComments from "@/pages/admin/comments";
 import AdminAffiliate from "@/pages/admin/affiliate";
 import AdminReviews from "@/pages/admin/Reviews";
+import AdminVideoStyles from "@/pages/admin/videoStyles";
 import AdminConfig from "@/pages/admin/config";
 import ActivityFeed from "@/pages/ActivityFeed";
 import MemePage from "@/pages/MemePage";
@@ -115,6 +116,7 @@ function Router() {
         <Route path="/admin/comments" component={AdminComments} />
         <Route path="/admin/affiliate" component={AdminAffiliate} />
         <Route path="/admin/reviews" component={AdminReviews} />
+        <Route path="/admin/video-styles" component={AdminVideoStyles} />
         <Route path="/admin/config" component={AdminConfig} />
         <Route path="/admin" component={AdminDashboard} />
         <Route path="/activity" component={ActivityFeed} />

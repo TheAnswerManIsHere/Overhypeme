@@ -2,9 +2,9 @@ import { Router, type IRouter, type Request } from "express";
 import { z } from "zod";
 import { fal } from "@fal-ai/client";
 import { db, videoJobsTable, usersTable } from "@workspace/db";
-import { eq, and, gte, desc, or } from "drizzle-orm";
+import { videoStylesTable } from "@workspace/db/schema";
+import { eq, and, gte, desc, or, asc } from "drizzle-orm";
 import { deriveUserRole } from "../lib/userRole.js";
-import { VIDEO_STYLE_MAP } from "../config/videoStyles.js";
 import { getConfigString } from "../lib/adminConfig.js";
 import { requireAdmin } from "./admin.js";
 import { isAdminById } from "./auth.js";
@@ -18,6 +18,11 @@ const RATE_LIMIT_WINDOW_MS = 24 * 60 * 60 * 1000;
 const FALLBACK_PROMPT = "Subtle cinematic motion, dramatic lighting, slow camera push-in, epic atmosphere";
 const DEFAULT_STYLE_ID = "cinematic";
 const DEFAULT_VIDEO_MODEL = "xai/grok-imagine-video/image-to-video";
+
+async function getVideoStyleById(id: string) {
+  const [style] = await db.select().from(videoStylesTable).where(eq(videoStylesTable.id, id)).limit(1);
+  return style ?? null;
+}
 
 
 type VideoModelFamily = "kling" | "veo" | "seedance" | "sora" | "runway" | "luma" | "hailuo" | "minimax" | "pixverse" | "wan" | "ltx" | "cogvideox" | "stablevideo" | "hunyuan" | "grok" | "unknown";
@@ -496,9 +501,9 @@ async function uploadPrivateImageToFalCdn(imageUrl: string): Promise<string | nu
   }
 }
 
-router.post("/videos/generate-prompt", requireAdmin, (req, res) => {
+router.post("/videos/generate-prompt", requireAdmin, async (req, res) => {
   const styleId = (req.body as Record<string, unknown>)?.styleId as string | undefined;
-  const style = (styleId ? VIDEO_STYLE_MAP.get(styleId) : null) ?? VIDEO_STYLE_MAP.get(DEFAULT_STYLE_ID);
+  const style = (styleId ? await getVideoStyleById(styleId) : null) ?? await getVideoStyleById(DEFAULT_STYLE_ID);
   const prompt = style?.motionPrompt ?? FALLBACK_PROMPT;
   res.json({ prompt });
 });
@@ -643,8 +648,8 @@ router.post("/videos/generate", async (req, res) => {
   const rawStyleId = parsed.data.styleId?.trim();
   const styleIdProvided = rawStyleId !== undefined && rawStyleId !== "";
   const resolvedStyle =
-    VIDEO_STYLE_MAP.get(rawStyleId ?? "") ??
-    (styleIdProvided ? VIDEO_STYLE_MAP.get(DEFAULT_STYLE_ID)! : null);
+    (rawStyleId ? await getVideoStyleById(rawStyleId) : null) ??
+    (styleIdProvided ? await getVideoStyleById(DEFAULT_STYLE_ID) : null);
   const styleId = resolvedStyle?.id ?? DEFAULT_STYLE_ID;
 
   // Determine motion prompt:
@@ -653,7 +658,7 @@ router.post("/videos/generate", async (req, res) => {
   let motionPrompt = parsed.data.motionPrompt?.trim() || "";
 
   if (!motionPrompt) {
-    const effectiveStyle = resolvedStyle ?? VIDEO_STYLE_MAP.get(DEFAULT_STYLE_ID);
+    const effectiveStyle = resolvedStyle ?? await getVideoStyleById(DEFAULT_STYLE_ID);
     motionPrompt = effectiveStyle?.motionPrompt ?? FALLBACK_PROMPT;
   }
 
@@ -810,6 +815,37 @@ router.post("/videos/generate", async (req, res) => {
     res
       .status(500)
       .json({ error: `Video generation failed: ${message}` });
+  }
+});
+
+// ─── Public: Video Styles ──────────────────────────────────────────────────────
+
+router.get("/video-styles", async (_req, res) => {
+  const styles = await db
+    .select()
+    .from(videoStylesTable)
+    .where(eq(videoStylesTable.isActive, true))
+    .orderBy(asc(videoStylesTable.sortOrder), asc(videoStylesTable.id));
+  res.json(styles);
+});
+
+router.get("/video-styles/:id/preview-gif", async (req, res) => {
+  const { id } = req.params;
+  const [style] = await db
+    .select({ previewGifPath: videoStylesTable.previewGifPath })
+    .from(videoStylesTable)
+    .where(eq(videoStylesTable.id, id))
+    .limit(1);
+
+  if (!style?.previewGifPath) { res.status(404).end(); return; }
+
+  try {
+    const normalized = _objectStorage.normalizeObjectEntityPath(style.previewGifPath);
+    const file = await _objectStorage.getObjectEntityFile(normalized);
+    const response = await _objectStorage.downloadObject(file, 3600);
+    res.redirect(302, response.url);
+  } catch {
+    res.status(404).end();
   }
 });
 

@@ -441,6 +441,35 @@ Return ONLY valid JSON:
       label: "video_jobs.add_user_id",
       ddl: `ALTER TABLE video_jobs ADD COLUMN IF NOT EXISTS user_id text`,
     },
+    {
+      label: "video_styles table",
+      ddl: `CREATE TABLE IF NOT EXISTS video_styles (
+        id varchar(64) PRIMARY KEY,
+        label varchar(128) NOT NULL,
+        description text NOT NULL DEFAULT '',
+        motion_prompt text NOT NULL DEFAULT '',
+        gradient_from varchar(32) NOT NULL DEFAULT '#000000',
+        gradient_to varchar(32) NOT NULL DEFAULT '#333333',
+        preview_gif_path text,
+        sort_order integer NOT NULL DEFAULT 0,
+        is_active boolean NOT NULL DEFAULT true,
+        created_at timestamptz NOT NULL DEFAULT now(),
+        updated_at timestamptz NOT NULL DEFAULT now()
+      )`,
+    },
+    {
+      label: "video_styles seed defaults",
+      ddl: `INSERT INTO video_styles (id, label, description, motion_prompt, gradient_from, gradient_to, sort_order) VALUES
+        ('cinematic',      'Cinematic',      'Slow dramatic push-in with moody volumetric lighting and epic atmosphere.',              'Slow cinematic camera push-in, dramatic volumetric lighting, deep shadows, epic atmosphere, film-quality motion blur',                                               '#2d1e00', '#8d6e63', 0),
+        ('action',         'Action',         'Fast cuts, shaky cam, and high-energy movement bursting with intensity.',                'High-energy action sequence, rapid camera shake, explosive motion, intense dynamic movement, adrenaline-fueled pacing',                                          '#bf360c', '#ff6d00', 1),
+        ('breaking-news',  'Breaking News',  'Urgent broadcast feel with bold motion graphics and news-desk energy.',                  'Urgent breaking-news broadcast style, bold sweeping camera pan, dramatic zoom-in on subject, high-stakes journalistic tension',                                   '#7f0000', '#d32f2f', 2),
+        ('hype-reel',      'Hype Reel',      'Hyperpump sports-montage energy with strobing light and triumphant movement.',           'Sports highlight hype reel, triumphant slow-motion moment into fast-forward burst, strobing light flares, crowd energy atmosphere',                              '#1a237e', '#00e5ff', 3),
+        ('retro-vhs',      'Retro VHS',      'Nostalgic 80s VHS tape aesthetic with glitchy scan lines and warm grain.',               'Retro VHS tape aesthetic, warm film grain, horizontal scan-line glitch, slow wobbly zoom, 1980s nostalgic camcorder motion',                                    '#1a0030', '#e64a19', 4),
+        ('dramatic-zoom',  'Dramatic Zoom',  'Extreme slow push-in zoom that builds unbearable tension.',                             'Extreme dramatic slow-zoom into subject, tension-building silence, subtle vibration, ominous creeping camera approach',                                         '#0a0a0a', '#455a64', 5),
+        ('anime',          'Anime',          'Dynamic anime-style motion with speed lines, power surges, and expressive impact.',      'Anime-style dynamic motion, speed-line burst, power aura flare, expressive over-the-top impact frame, heroic pose reveal',                                    '#4a0060', '#0288d1', 6),
+        ('epic-storm',     'Epic Storm',     'Swirling storm clouds, lightning flashes, and god-like elemental power.',               'Epic storm atmosphere, swirling dark clouds time-lapse, lightning flash illumination, sweeping aerial crane shot, elemental power surge',                       '#0a0e2e', '#1565c0', 7)
+      ON CONFLICT (id) DO NOTHING`,
+    },
   ];
 
   for (const { label, ddl } of migrations) {

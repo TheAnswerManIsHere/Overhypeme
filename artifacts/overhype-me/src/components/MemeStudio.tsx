@@ -17,7 +17,8 @@ import {
 import { MemeBuilder } from "@/components/MemeBuilder";
 import { Button } from "@/components/ui/Button";
 import { ImageCard } from "@/components/ui/ImageCard";
-import { VIDEO_STYLES, type VideoStyleDef } from "@/config/videoStyles";
+import type { VideoStyleDef } from "@/config/videoStyles";
+import { useVideoStyles } from "@/hooks/use-video-styles";
 import type { AiMemeImages } from "@/components/MemeBuilder";
 import { AiBgPicker, type AiBgSelection } from "@/components/AiBgPicker";
 import { useAuth } from "@workspace/replit-auth-web";
@@ -115,16 +116,24 @@ function StyleCard({
           : "border-border hover:border-[#ff6b35]/50"
       }`}
     >
-      <div
-        className="w-full h-16 sm:h-20 transition-opacity"
-        style={{
-          background: `linear-gradient(135deg, ${style.gradientFrom} 0%, ${style.gradientTo} 100%)`,
-        }}
-      >
-        <div className="w-full h-full flex items-center justify-center opacity-30">
-          <Video className="w-6 h-6 text-white" />
+      {style.previewGifPath ? (
+        <img
+          src={`/api/video-styles/${style.id}/preview-gif`}
+          alt={`${style.label} preview`}
+          className="w-full h-16 sm:h-20 object-cover"
+        />
+      ) : (
+        <div
+          className="w-full h-16 sm:h-20 transition-opacity"
+          style={{
+            background: `linear-gradient(135deg, ${style.gradientFrom} 0%, ${style.gradientTo} 100%)`,
+          }}
+        >
+          <div className="w-full h-full flex items-center justify-center opacity-30">
+            <Video className="w-6 h-6 text-white" />
+          </div>
         </div>
-      </div>
+      )}
 
       {selected && (
         <div className="absolute top-2 right-2 w-5 h-5 rounded-full bg-[#ff6b35] flex items-center justify-center">
@@ -478,6 +487,7 @@ function VideoTab({ factId, factText, pexelsImages, aiMemeImages, initialImageDa
   const isAdmin = role === "admin";
   const isPremium = role === "premium" || role === "admin";
   const { pronouns } = usePersonName();
+  const { styles: videoStyles } = useVideoStyles();
 
   // Start at step 1 (background selection) unless we already have a pre-loaded image
   const [step, setStep] = useState<VideoStep>(initialImageDataUrl ? 2 : 1);
@@ -551,7 +561,7 @@ function VideoTab({ factId, factText, pexelsImages, aiMemeImages, initialImageDa
   const [adminGenerateMultiClipSwitch, setAdminGenerateMultiClipSwitch] = useState(false);
   const [adminThinkingType, setAdminThinkingType] = useState("auto");
 
-  const selectedStyle = VIDEO_STYLES.find((s) => s.id === selectedStyleId) ?? VIDEO_STYLES[0]!;
+  const selectedStyle = videoStyles.find((s) => s.id === selectedStyleId) ?? videoStyles[0]!;
 
   // ── Load prefetched Pexels photos on mount ────────────────────────────────
   useEffect(() => {
@@ -588,7 +598,7 @@ function VideoTab({ factId, factText, pexelsImages, aiMemeImages, initialImageDa
   // ── Auto-populate motion prompt when entering step 3 ──────────────────────
   useEffect(() => {
     if (step === 3) {
-      const style = VIDEO_STYLES.find(s => s.id === selectedStyleId);
+      const style = videoStyles.find(s => s.id === selectedStyleId);
       if (style) setMotionPrompt(style.motionPrompt);
     }
   }, [step, selectedStyleId]);
@@ -1008,7 +1018,7 @@ function VideoTab({ factId, factText, pexelsImages, aiMemeImages, initialImageDa
           )}
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 mb-6">
-            {VIDEO_STYLES.map((style) => (
+            {videoStyles.map((style) => (
               <StyleCard
                 key={style.id}
                 style={style}
