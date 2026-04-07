@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { AdminLayout } from "@/components/admin/AdminLayout";
-import { FileText, Users, TrendingUp, Shield } from "lucide-react";
+import { CollapsibleSection } from "@/components/CollapsibleSection";
+import { FileText, Users, TrendingUp, Shield, Zap, Settings } from "lucide-react";
 
 interface Stats {
   totalFacts: number;
@@ -46,7 +47,7 @@ export default function AdminDashboard() {
 
   return (
     <AdminLayout title="Dashboard">
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
         {cards.map(({ label, value, icon: Icon, color }) => (
           <div
             key={label}
@@ -65,11 +66,13 @@ export default function AdminDashboard() {
         ))}
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        <div className="bg-card border border-border rounded-lg p-5">
-          <h2 className="font-display font-bold text-foreground uppercase tracking-wide mb-4">
-            Quick Actions
-          </h2>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <CollapsibleSection
+          title="Quick Actions"
+          icon={<Zap className="w-4 h-4 text-primary" />}
+          description="Common admin tasks and shortcuts."
+          storageKey="admin_section_dashboard_quick_actions"
+        >
           <ul className="space-y-2 text-sm text-muted-foreground">
             <li>
               <a href="/admin/facts" className="text-primary hover:underline">
@@ -92,12 +95,14 @@ export default function AdminDashboard() {
               </a>
             </li>
           </ul>
-        </div>
+        </CollapsibleSection>
 
-        <div className="bg-card border border-border rounded-lg p-5">
-          <h2 className="font-display font-bold text-foreground uppercase tracking-wide mb-4">
-            Setup Notes
-          </h2>
+        <CollapsibleSection
+          title="Setup Notes"
+          icon={<Settings className="w-4 h-4 text-primary" />}
+          description="One-time configuration reminders for this deployment."
+          storageKey="admin_section_dashboard_setup"
+        >
           <ul className="space-y-2 text-sm text-muted-foreground">
             <li>
               Set <code className="text-primary bg-muted px-1 rounded">ADMIN_USER_IDS</code> env
@@ -109,7 +114,7 @@ export default function AdminDashboard() {
             </li>
             <li>Stripe integration available in the Billing section once ready.</li>
           </ul>
-        </div>
+        </CollapsibleSection>
       </div>
     </AdminLayout>
   );

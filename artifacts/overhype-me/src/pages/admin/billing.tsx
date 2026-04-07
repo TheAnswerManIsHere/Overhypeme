@@ -233,6 +233,7 @@ export default function AdminBilling() {
           title="Stripe Connection"
           icon={<CreditCard className="w-4 h-4 text-primary" />}
           description="Verify Stripe credentials are reachable and correctly configured."
+          storageKey="admin_section_billing_connection"
         >
           <div className="flex items-center justify-between mb-2">
             <span />
@@ -297,6 +298,7 @@ export default function AdminBilling() {
           title="Plans from Stripe"
           icon={<Package className="w-4 h-4 text-primary" />}
           description="Membership products and prices fetched from Stripe."
+          storageKey="admin_section_billing_plans"
         >
           {plansLoading ? (
             <div className="animate-pulse space-y-3">
@@ -346,6 +348,7 @@ export default function AdminBilling() {
           title="Setup Checklist"
           icon={<ShieldCheck className="w-4 h-4 text-primary" />}
           description="Live status of Stripe integration requirements."
+          storageKey="admin_section_billing_checklist"
         >
           <div className="space-y-3 text-sm">
             <CheckRow done={isConnected} label="Stripe credentials reachable (publishable key found)" />
@@ -361,13 +364,16 @@ export default function AdminBilling() {
 
         {/* Test Event (test mode only) */}
         {liveMode === false && (
-          <div className="bg-card border border-blue-500/30 rounded-lg p-5">
-            <h2 className="font-display font-bold text-foreground uppercase tracking-wide mb-1 flex items-center gap-2">
-              <Send className="w-4 h-4 text-blue-400" />
-              Send Test Webhook Event
-              <span className="text-xs bg-blue-500/20 text-blue-400 px-2 py-0.5 rounded-sm ml-1">TEST MODE ONLY</span>
-            </h2>
-            <p className="text-xs text-muted-foreground mb-4">
+          <CollapsibleSection
+            title="Send Test Webhook Event"
+            icon={<Send className="w-4 h-4 text-blue-400" />}
+            description="Simulate a checkout.session.completed event without a real Stripe checkout."
+            storageKey="admin_section_billing_test_event"
+          >
+            <div className="flex items-center gap-2 mb-2">
+              <span className="text-xs bg-blue-500/20 text-blue-400 px-2 py-0.5 rounded-sm">TEST MODE ONLY</span>
+            </div>
+            <p className="text-xs text-muted-foreground">
               Simulates a <code className="bg-secondary px-1 rounded">checkout.session.completed</code> event for a user to test the full webhook domain handler without a real Stripe checkout.
             </p>
             <div className="flex items-center gap-3 flex-wrap">
@@ -389,21 +395,22 @@ export default function AdminBilling() {
               </Button>
             </div>
             {testEventResult && (
-              <div className={`mt-3 text-xs p-3 rounded-sm border flex items-start gap-2 ${testEventResult.ok ? "bg-green-500/10 border-green-500/30 text-green-400" : "bg-destructive/10 border-destructive/30 text-destructive"}`}>
+              <div className={`text-xs p-3 rounded-sm border flex items-start gap-2 ${testEventResult.ok ? "bg-green-500/10 border-green-500/30 text-green-400" : "bg-destructive/10 border-destructive/30 text-destructive"}`}>
                 {testEventResult.ok ? <CheckCircle className="w-4 h-4 shrink-0" /> : <XCircle className="w-4 h-4 shrink-0" />}
                 {testEventResult.message}
               </div>
             )}
-          </div>
+          </CollapsibleSection>
         )}
 
         {/* Price Reference */}
         {(monthlyPrice || annualPrice || lifetimePrice) && (
-          <div className="bg-card border border-border rounded-lg p-5">
-            <h2 className="font-display font-bold text-foreground uppercase tracking-wide mb-4 flex items-center gap-2">
-              <Lock className="w-4 h-4 text-primary" />
-              Active Price Mapping
-            </h2>
+          <CollapsibleSection
+            title="Active Price Mapping"
+            icon={<Lock className="w-4 h-4 text-primary" />}
+            description="Currently resolved monthly, annual, and lifetime price IDs."
+            storageKey="admin_section_billing_price_mapping"
+          >
             <div className="space-y-2 text-sm">
               {monthlyPrice && (
                 <div className="flex items-center justify-between gap-4">
@@ -427,7 +434,7 @@ export default function AdminBilling() {
                 </div>
               )}
             </div>
-          </div>
+          </CollapsibleSection>
         )}
       </div>
     </AdminLayout>

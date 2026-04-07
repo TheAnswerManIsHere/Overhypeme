@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback } from "react";
 import { AdminLayout } from "@/components/admin/AdminLayout";
+import { CollapsibleSection } from "@/components/CollapsibleSection";
 import { Loader2, CheckSquare, Square, AlertCircle, ToggleLeft } from "lucide-react";
 
 interface FeatureFlag {
@@ -173,98 +174,102 @@ export default function AdminFeatures() {
   return (
     <AdminLayout title="Features">
       <div className="space-y-4">
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <h2 className="text-lg font-semibold text-foreground">Feature Permission Grid</h2>
-            <p className="text-sm text-muted-foreground mt-0.5">
-              Control which features are available to each membership tier. Changes take effect immediately without redeployment.
-            </p>
+        <CollapsibleSection
+          title="Feature Permission Grid"
+          icon={<ToggleLeft className="w-4 h-4 text-primary" />}
+          description="Control which features are available to each membership tier."
+          storageKey="admin_section_features_grid"
+        >
+          <p className="text-sm text-muted-foreground -mt-3">
+            Control which features are available to each membership tier. Changes take effect immediately without redeployment.
+          </p>
+          <div className="flex justify-end">
+            <span className="flex items-center gap-1.5 text-xs text-muted-foreground bg-muted px-3 py-1.5 rounded">
+              <ToggleLeft className="w-3.5 h-3.5" />
+              Click a checkbox to toggle
+            </span>
           </div>
-          <span className="flex items-center gap-1.5 text-xs text-muted-foreground bg-muted px-3 py-1.5 rounded shrink-0">
-            <ToggleLeft className="w-3.5 h-3.5" />
-            Click a checkbox to toggle
-          </span>
-        </div>
 
-        <div className="overflow-x-auto rounded-lg border border-border">
-          <table className="w-full text-sm border-collapse">
-            <thead>
-              <tr className="bg-muted/60">
-                <th className="sticky left-0 z-10 bg-muted/80 backdrop-blur border-b border-r border-border px-4 py-3 text-left font-semibold text-foreground whitespace-nowrap min-w-[180px]">
-                  Tier
-                </th>
-                {features.map((feat) => (
-                  <th
-                    key={feat.key}
-                    className="border-b border-r border-border px-4 py-3 text-center font-medium text-foreground whitespace-nowrap min-w-[160px] last:border-r-0"
-                    title={feat.description ?? feat.displayName}
-                  >
-                    <div className="space-y-0.5">
-                      <div>{feat.displayName}</div>
-                      <div className="font-mono text-[10px] text-muted-foreground font-normal">{feat.key}</div>
-                    </div>
+          <div className="overflow-x-auto rounded-lg border border-border">
+            <table className="w-full text-sm border-collapse">
+              <thead>
+                <tr className="bg-muted/60">
+                  <th className="sticky left-0 z-10 bg-muted/80 backdrop-blur border-b border-r border-border px-4 py-3 text-left font-semibold text-foreground whitespace-nowrap min-w-[180px]">
+                    Tier
                   </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {tiers.map((tier, rowIdx) => (
-                <tr
-                  key={tier}
-                  className={rowIdx % 2 === 0 ? "bg-card" : "bg-muted/20"}
-                >
-                  <td className="sticky left-0 z-10 backdrop-blur border-b border-r border-border px-4 py-3 font-medium text-foreground whitespace-nowrap bg-inherit">
-                    <div className="space-y-0.5">
-                      <div>{TIER_LABELS[tier] ?? tier}</div>
-                      <div className="font-mono text-[10px] text-muted-foreground">{tier}</div>
-                    </div>
-                  </td>
-                  {features.map((feat) => {
-                    const cell = cells[tier]?.[feat.key];
-                    const enabled = cell?.enabled ?? false;
-                    const saveState = cell?.saveState ?? "idle";
-
-                    return (
-                      <td
-                        key={feat.key}
-                        className="border-b border-r border-border px-4 py-3 text-center last:border-r-0"
-                      >
-                        <button
-                          onClick={() => toggle(tier, feat.key)}
-                          disabled={saveState === "saving"}
-                          title={`${enabled ? "Disable" : "Enable"} ${feat.displayName} for ${TIER_LABELS[tier] ?? tier}`}
-                          className="inline-flex items-center justify-center w-8 h-8 rounded transition-colors hover:bg-muted disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-1"
-                        >
-                          {saveState === "saving" ? (
-                            <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
-                          ) : saveState === "error" ? (
-                            <AlertCircle className="w-5 h-5 text-destructive" />
-                          ) : enabled ? (
-                            <CheckSquare
-                              className={`w-5 h-5 transition-colors ${
-                                saveState === "saved" ? "text-green-500" : "text-primary"
-                              }`}
-                            />
-                          ) : (
-                            <Square
-                              className={`w-5 h-5 transition-colors ${
-                                saveState === "saved" ? "text-muted-foreground" : "text-muted-foreground/40"
-                              }`}
-                            />
-                          )}
-                        </button>
-                      </td>
-                    );
-                  })}
+                  {features.map((feat) => (
+                    <th
+                      key={feat.key}
+                      className="border-b border-r border-border px-4 py-3 text-center font-medium text-foreground whitespace-nowrap min-w-[160px] last:border-r-0"
+                      title={feat.description ?? feat.displayName}
+                    >
+                      <div className="space-y-0.5">
+                        <div>{feat.displayName}</div>
+                        <div className="font-mono text-[10px] text-muted-foreground font-normal">{feat.key}</div>
+                      </div>
+                    </th>
+                  ))}
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody>
+                {tiers.map((tier, rowIdx) => (
+                  <tr
+                    key={tier}
+                    className={rowIdx % 2 === 0 ? "bg-card" : "bg-muted/20"}
+                  >
+                    <td className="sticky left-0 z-10 backdrop-blur border-b border-r border-border px-4 py-3 font-medium text-foreground whitespace-nowrap bg-inherit">
+                      <div className="space-y-0.5">
+                        <div>{TIER_LABELS[tier] ?? tier}</div>
+                        <div className="font-mono text-[10px] text-muted-foreground">{tier}</div>
+                      </div>
+                    </td>
+                    {features.map((feat) => {
+                      const cell = cells[tier]?.[feat.key];
+                      const enabled = cell?.enabled ?? false;
+                      const saveState = cell?.saveState ?? "idle";
 
-        <p className="text-xs text-muted-foreground">
-          Adding a new tier or feature requires only a database record — no code changes needed.
-        </p>
+                      return (
+                        <td
+                          key={feat.key}
+                          className="border-b border-r border-border px-4 py-3 text-center last:border-r-0"
+                        >
+                          <button
+                            onClick={() => toggle(tier, feat.key)}
+                            disabled={saveState === "saving"}
+                            title={`${enabled ? "Disable" : "Enable"} ${feat.displayName} for ${TIER_LABELS[tier] ?? tier}`}
+                            className="inline-flex items-center justify-center w-8 h-8 rounded transition-colors hover:bg-muted disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-1"
+                          >
+                            {saveState === "saving" ? (
+                              <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
+                            ) : saveState === "error" ? (
+                              <AlertCircle className="w-5 h-5 text-destructive" />
+                            ) : enabled ? (
+                              <CheckSquare
+                                className={`w-5 h-5 transition-colors ${
+                                  saveState === "saved" ? "text-green-500" : "text-primary"
+                                }`}
+                              />
+                            ) : (
+                              <Square
+                                className={`w-5 h-5 transition-colors ${
+                                  saveState === "saved" ? "text-muted-foreground" : "text-muted-foreground/40"
+                                }`}
+                              />
+                            )}
+                          </button>
+                        </td>
+                      );
+                    })}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          <p className="text-xs text-muted-foreground">
+            Adding a new tier or feature requires only a database record — no code changes needed.
+          </p>
+        </CollapsibleSection>
       </div>
     </AdminLayout>
   );

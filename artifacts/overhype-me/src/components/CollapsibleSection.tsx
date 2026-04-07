@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useState, useEffect, type ReactNode } from "react";
 import { ChevronDown } from "lucide-react";
 
 interface CollapsibleSectionProps {
@@ -7,6 +7,7 @@ interface CollapsibleSectionProps {
   description?: string;
   children: ReactNode;
   className?: string;
+  storageKey?: string;
 }
 
 export function CollapsibleSection({
@@ -15,8 +16,29 @@ export function CollapsibleSection({
   description,
   children,
   className = "",
+  storageKey,
 }: CollapsibleSectionProps) {
-  const [open, setOpen] = useState(true);
+  const [open, setOpen] = useState(() => {
+    if (!storageKey) return false;
+    try {
+      return localStorage.getItem(storageKey) === "1";
+    } catch {
+      return false;
+    }
+  });
+
+  useEffect(() => {
+    if (!storageKey) return;
+    try {
+      if (open) {
+        localStorage.setItem(storageKey, "1");
+      } else {
+        localStorage.removeItem(storageKey);
+      }
+    } catch {
+      // ignore
+    }
+  }, [open, storageKey]);
 
   return (
     <div className={`bg-card border border-border rounded-lg overflow-hidden ${className}`}>

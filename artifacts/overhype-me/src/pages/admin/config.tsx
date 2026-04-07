@@ -787,6 +787,7 @@ export default function AdminConfig() {
                 title="AI Image Generation"
                 icon={<Bot className="w-4 h-4 text-muted-foreground" />}
                 description="fal.ai model selection and per-model tuning parameters."
+                storageKey="admin_section_config_ai_image"
               >
                 <p className="text-sm text-muted-foreground -mt-3">
                   fal.ai model selection and per-model tuning parameters. Select a model from the dropdown to reveal its configurable parameters below.
@@ -819,6 +820,7 @@ export default function AdminConfig() {
                 title="AI Scene Prompt"
                 icon={<Bot className="w-4 h-4 text-muted-foreground" />}
                 description="OpenAI model and sampling parameters for cinematic scene descriptions."
+                storageKey="admin_section_config_ai_scene"
               >
                 <p className="text-sm text-muted-foreground -mt-3">
                   OpenAI model and sampling parameters used when generating cinematic scene descriptions for meme backgrounds.
@@ -836,6 +838,7 @@ export default function AdminConfig() {
                 title="Image Style Suffixes"
                 icon={<Palette className="w-4 h-4 text-muted-foreground" />}
                 description="Text appended to the scene prompt when a style is selected."
+                storageKey="admin_section_config_image_styles"
               >
                 <p className="text-sm text-muted-foreground -mt-3">
                   Text appended to the scene prompt when a style is selected. Each style has a Standard and a Debug value pair.
@@ -912,6 +915,7 @@ export default function AdminConfig() {
                 title="Video Generation"
                 icon={<Film className="w-4 h-4 text-muted-foreground" />}
                 description="fal.ai model and generation parameters for video creation."
+                storageKey="admin_section_config_video"
               >
                 <p className="text-sm text-muted-foreground -mt-3">
                   fal.ai Kling model and generation parameters for video creation.
