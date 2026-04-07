@@ -24,7 +24,7 @@ const DEFAULT_VIDEO_MODEL = "fal-ai/kling-video/v2.1/standard/image-to-video";
 const DEFAULT_VIDEO_PROMPT_SYSTEM =
   'You are a video director. Given an image, write a short cinematic motion prompt (1-2 sentences, max 50 words) describing how to animate the scene for a short video clip. Focus on dramatic, visual motion: camera movement, lighting changes, atmosphere. Describe only the visual action and movement. Respond with only the prompt text, nothing else.';
 
-type VideoModelFamily = "kling" | "veo" | "seedance" | "sora" | "runway" | "luma" | "hailuo" | "minimax" | "pixverse" | "wan" | "ltx" | "cogvideox" | "stablevideo" | "hunyuan" | "unknown";
+type VideoModelFamily = "kling" | "veo" | "seedance" | "sora" | "runway" | "luma" | "hailuo" | "minimax" | "pixverse" | "wan" | "ltx" | "cogvideox" | "stablevideo" | "hunyuan" | "grok" | "unknown";
 
 function detectVideoModelFamily(model: string): VideoModelFamily {
   if (model.includes("kling-video")) return "kling";
@@ -41,6 +41,7 @@ function detectVideoModelFamily(model: string): VideoModelFamily {
   if (model.includes("cogvideox")) return "cogvideox";
   if (model.includes("stable-video")) return "stablevideo";
   if (model.includes("hunyuan-video")) return "hunyuan";
+  if (model.includes("grok-imagine-video")) return "grok";
   return "unknown";
 }
 
@@ -379,6 +380,25 @@ function buildFalInput(opts: BuildFalInputOptions): Record<string, unknown> {
       image_url: imageUrl,
       prompt: motionPrompt,
     };
+  }
+
+  // ── Grok Imagine Video (xAI) ────────────────────────────────────────────────
+  if (modelFamily === "grok") {
+    const falInput: Record<string, unknown> = {
+      image_url: imageUrl,
+      prompt: motionPrompt,
+    };
+
+    if (isAdmin) {
+      // Duration is an integer (1–15)
+      const durNum = parseDurationNum(videoDuration);
+      if (!isNaN(durNum)) falInput.duration = Math.min(15, Math.max(1, durNum));
+      const grokRatios = new Set(["auto", "16:9", "4:3", "3:2", "1:1", "2:3", "3:4", "9:16"]);
+      if (grokRatios.has(videoAspectRatio)) falInput.aspect_ratio = videoAspectRatio;
+      if (adminResolution?.trim()) falInput.resolution = adminResolution.trim();
+    }
+
+    return falInput;
   }
 
   // ── Unknown family — best-effort passthrough ───────────────────────────────

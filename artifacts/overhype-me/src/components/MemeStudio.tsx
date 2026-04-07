@@ -190,6 +190,8 @@ const FAL_VIDEO_MODELS_ADMIN: { value: string; label: string }[] = [
   // LTX
   { value: "fal-ai/ltx-2-19b/image-to-video",                    label: "LTX-2 19B" },
   { value: "fal-ai/ltx-video-13b-distilled/image-to-video",      label: "LTX-Video 13B Distilled" },
+  // xAI
+  { value: "xai/grok-imagine-video/image-to-video",              label: "Grok Imagine Video (xAI)" },
   // Open source
   { value: "fal-ai/hunyuan-video/image-to-video",                label: "HunyuanVideo (Tencent)" },
   { value: "fal-ai/cogvideox-5b/image-to-video",                 label: "CogVideoX-5B — open source" },
@@ -404,6 +406,15 @@ function getModelParamSpec(model: string): ModelParamSpec {
       resolution: ["480p", "720p"],
       negativePrompt: true,
       seed: true,
+    };
+  }
+
+  // ── Grok Imagine Video (xAI) ────────────────────────────────────────────────
+  if (model.includes("grok-imagine-video")) {
+    return {
+      durationRange: { min: 1, max: 15, step: 1, default: 6 },
+      aspectRatio: ["auto", "16:9", "4:3", "3:2", "1:1", "2:3", "3:4", "9:16"],
+      resolution: ["480p", "720p"],
     };
   }
 
