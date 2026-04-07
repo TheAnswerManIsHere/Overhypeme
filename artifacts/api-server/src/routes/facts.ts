@@ -332,7 +332,7 @@ router.post("/facts/:factId/comments", async (req: Request, res: Response) => {
   if (!factExists) { res.status(404).json({ error: "Fact not found" }); return; }
 
   const [commentUser] = await db.select({ membershipTier: usersTable.membershipTier }).from(usersTable).where(eq(usersTable.id, req.user.id)).limit(1);
-  const isUserPremium = commentUser?.membershipTier === "premium";
+  const isUserPremium = commentUser?.membershipTier === "premium" || commentUser?.membershipTier === "legendary";
 
   if (!isUserPremium) {
     if (!captchaToken || !(await verifyCaptcha(captchaToken))) {

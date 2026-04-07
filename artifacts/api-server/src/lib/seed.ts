@@ -315,6 +315,21 @@ export async function ensureSchema(): Promise<void> {
         ON CONFLICT (key) DO NOTHING`,
     },
     {
+      label: "admin_config seed stripe_live_mode",
+      ddl: `INSERT INTO admin_config (key, value, data_type, label, description, is_public)
+        VALUES ('stripe_live_mode', 'false', 'boolean', 'Stripe Live Mode',
+          'When enabled, Stripe uses live credentials and charges real cards. Disable to use test mode. This is independent from debug mode.',
+          false)
+        ON CONFLICT (key) DO NOTHING`,
+    },
+    {
+      label: "users.membership_tier add legendary",
+      ddl: `DO $$ BEGIN
+        ALTER TYPE membership_tier ADD VALUE IF NOT EXISTS 'legendary';
+      EXCEPTION WHEN duplicate_object THEN NULL;
+      END $$`,
+    },
+    {
       label: "admin_config seed ai_scene_prompt_system",
       ddl: `INSERT INTO admin_config (key, value, data_type, label, description, is_public)
         VALUES ('ai_scene_prompt_system',

@@ -237,7 +237,7 @@ router.post("/memes", async (req: Request, res: Response) => {
     .from(usersTable)
     .where(eq(usersTable.id, req.user.id))
     .limit(1);
-  const isPremium = userRow?.membershipTier === "premium";
+  const isPremium = userRow?.membershipTier === "premium" || userRow?.membershipTier === "legendary";
 
   // Free users always get public memes; premium users can choose
   const isPublic = isPremium ? (isPublicReq ?? true) : true;

@@ -19,7 +19,7 @@ async function findUserByStripeCustomerId(customerId: string) {
   return user ?? null;
 }
 
-async function setMembershipTier(userId: string, tier: "free" | "premium") {
+async function setMembershipTier(userId: string, tier: "free" | "premium" | "legendary") {
   await db.update(usersTable).set({ membershipTier: tier }).where(eq(usersTable.id, userId));
 }
 
@@ -59,22 +59,30 @@ async function recordHistory(
 // Returns true if the product/price is a recognized membership product.
 // Validates via product metadata (membership: "true") OR env allowlist.
 // ALWAYS fails closed: if neither allowlist nor metadata tag is present, membership is NOT granted.
-async function isMembershipPrice(stripe: Stripe, priceId: string): Promise<boolean> {
+async function isMembershipPrice(
+  stripe: Stripe,
+  priceId: string,
+  expandedProduct?: Stripe.Product | null,
+): Promise<boolean> {
   try {
     const allowlist = (process.env.MEMBERSHIP_PRICE_IDS ?? "").split(",").map(s => s.trim()).filter(Boolean);
     if (allowlist.length > 0 && allowlist.includes(priceId)) return true;
 
-    // Fetch price to get its product and check metadata
-    const price = await stripe.prices.retrieve(priceId, { expand: ["product"] });
-    const product = price.product as Stripe.Product | null;
-    if (!product || typeof product === "string") return false;
+    // If an already-expanded product was provided (e.g. embedded in a test event),
+    // use it directly to avoid an unnecessary Stripe API call.
+    const product = expandedProduct ?? (async () => {
+      const price = await stripe.prices.retrieve(priceId, { expand: ["product"] });
+      return price.product as Stripe.Product | null;
+    })();
+    const resolvedProduct = product instanceof Promise ? await product : product;
+
+    if (!resolvedProduct || typeof resolvedProduct === "string") return false;
 
     // Accept ONLY if product metadata explicitly marks it as membership
-    const isTagged = product.metadata?.membership === "true";
+    const isTagged = resolvedProduct.metadata?.membership === "true";
     if (isTagged) return true;
 
     // Fail closed: no allowlist entry and no metadata tag → deny
-    // Log as warning so operators can diagnose missing configuration
     logger.warn({ priceId }, "Price not in membership allowlist and product has no membership=true metadata — skipping tier grant");
     return false;
   } catch (err) {
@@ -136,8 +144,13 @@ async function handleSubscriptionActivated(
   const priceItem = sub.items?.data?.[0];
   const priceId = priceItem?.price?.id ?? "";
   const interval = priceItem?.price?.recurring?.interval;
+  // Pass the already-expanded product when present to avoid an extra Stripe API call
+  // (e.g. when the subscription was embedded in a checkout.session.completed event)
+  const expandedProduct = priceItem?.price?.product != null && typeof priceItem.price.product === "object"
+    ? (priceItem.price.product as Stripe.Product)
+    : null;
 
-  const isAllowed = await isMembershipPrice(stripe, priceId);
+  const isAllowed = await isMembershipPrice(stripe, priceId, expandedProduct);
   if (!isAllowed) {
     logger.warn({ priceId, userId: user.id }, "Subscription price not in membership allowlist — skipping tier grant");
     return;
@@ -160,10 +173,10 @@ async function handleSubscriptionCancelled(customerId: string, sub: Stripe.Subsc
   // Update app-level subscription record
   await upsertSubscription(user.id, customerId, sub, "cancelled");
 
-  // NEVER downgrade a user with a lifetime entitlement
+  // NEVER downgrade a user with a lifetime entitlement (legendary tier)
   const hasLifetime = await userHasLifetimeEntitlement(user.id);
   if (hasLifetime) {
-    logger.info({ userId: user.id }, "Subscription cancelled but user has lifetime — keeping premium");
+    logger.info({ userId: user.id }, "Subscription cancelled but user has lifetime — keeping legendary");
     await recordHistory(user.id, "subscription_cancelled", { stripeSubscriptionId: sub.id });
     return;
   }
@@ -233,17 +246,146 @@ async function handleOneTimePayment(
     currency,
   });
 
-  await setMembershipTier(user.id, "premium");
+  await setMembershipTier(user.id, "legendary");
   await recordHistory(user.id, "lifetime_purchase", {
     plan: "lifetime",
     amount,
     currency,
     stripePaymentIntentId: paymentIntentId,
   });
-  logger.info({ userId: user.id }, "User granted lifetime premium");
+  logger.info({ userId: user.id }, "User granted legendary lifetime tier");
+}
+
+/** Shared domain-logic event processor used by both processWebhook and processEventDirectly */
+async function processDomainSwitch(stripe: Stripe, event: Stripe.Event): Promise<void> {
+  switch (event.type) {
+    case "checkout.session.completed": {
+      // When a checkout completes with a subscription, the embedded subscription object
+      // carries the membership grant. We process it as a subscription activation.
+      const session = event.data.object as unknown as {
+        customer: string | null;
+        mode?: string;
+        subscription?: string | { id: string; status?: string; items?: Stripe.Subscription["items"]; cancel_at_period_end?: boolean } | null;
+        payment_intent?: string | null;
+        amount_total?: number | null;
+        currency?: string | null;
+        metadata?: Record<string, string>;
+      };
+      const customerId = session.customer;
+      if (!customerId) break;
+
+      if (session.mode === "subscription" && session.subscription) {
+        // Subscription checkout — load or use embedded sub object
+        let sub: Stripe.Subscription;
+        if (typeof session.subscription === "string") {
+          sub = await stripe.subscriptions.retrieve(session.subscription, { expand: ["items.data.price.product"] });
+        } else {
+          sub = session.subscription as unknown as Stripe.Subscription;
+        }
+        if (sub.status === "active" || sub.status === "trialing") {
+          await handleSubscriptionActivated(stripe, customerId, sub);
+        }
+      } else if (session.mode === "payment" && session.payment_intent) {
+        // One-time payment checkout (lifetime)
+        const piId = typeof session.payment_intent === "string" ? session.payment_intent : session.payment_intent;
+        const pi = await stripe.paymentIntents.retrieve(piId as string);
+        await handleOneTimePayment(stripe, customerId, pi.id, pi.amount, pi.currency, pi.metadata ?? {});
+      }
+      break;
+    }
+    case "customer.subscription.created":
+    case "customer.subscription.updated": {
+      const sub = event.data.object as Stripe.Subscription;
+      const customerId = typeof sub.customer === "string" ? sub.customer : sub.customer.id;
+      if (sub.status === "active" || sub.status === "trialing") {
+        await handleSubscriptionActivated(stripe, customerId, sub);
+      } else if (sub.status === "canceled") {
+        await handleSubscriptionCancelled(customerId, sub);
+      }
+      break;
+    }
+    case "customer.subscription.deleted": {
+      const sub = event.data.object as Stripe.Subscription;
+      const customerId = typeof sub.customer === "string" ? sub.customer : sub.customer.id;
+      await handleSubscriptionCancelled(customerId, sub);
+      break;
+    }
+    case "invoice.paid": {
+      const inv = event.data.object as unknown as {
+        id: string; customer: string | { id: string }; amount_paid: number; currency: string;
+        subscription?: string | { id: string } | null;
+        payment_intent?: string | { id: string } | null;
+      };
+      await handleInvoicePaid(
+        typeof inv.customer === "string" ? inv.customer : inv.customer.id,
+        inv.id,
+        inv.amount_paid,
+        inv.currency,
+        inv.subscription ? (typeof inv.subscription === "string" ? inv.subscription : inv.subscription.id) : undefined,
+        inv.payment_intent ? (typeof inv.payment_intent === "string" ? inv.payment_intent : inv.payment_intent.id) : undefined,
+      );
+      break;
+    }
+    case "invoice.payment_failed": {
+      const inv = event.data.object as unknown as {
+        id: string; customer: string | { id: string };
+        subscription?: string | { id: string } | null;
+        amount_due?: number; currency?: string;
+      };
+      const customerId = typeof inv.customer === "string" ? inv.customer : inv.customer.id;
+      const user = await findUserByStripeCustomerId(customerId);
+      if (user) {
+        const subscriptionId = inv.subscription
+          ? (typeof inv.subscription === "string" ? inv.subscription : inv.subscription.id)
+          : undefined;
+        await recordHistory(user.id, "payment_failed", {
+          amount: inv.amount_due,
+          currency: inv.currency,
+          stripeInvoiceId: inv.id,
+          stripeSubscriptionId: subscriptionId,
+        });
+        if (subscriptionId) {
+          await db
+            .update(subscriptionsTable)
+            .set({ status: "past_due" })
+            .where(eq(subscriptionsTable.stripeSubscriptionId, subscriptionId));
+        }
+        logger.warn({ userId: user.id, invoiceId: inv.id }, "Payment failed — subscription marked past_due");
+      }
+      break;
+    }
+    case "payment_intent.succeeded": {
+      const pi = event.data.object as unknown as {
+        id: string; customer: string | { id: string } | null; amount: number; currency: string;
+        invoice?: string | null; metadata?: Record<string, string>;
+      };
+      if (pi.customer && !pi.invoice) {
+        const customerId = typeof pi.customer === "string" ? pi.customer : pi.customer.id;
+        await handleOneTimePayment(stripe, customerId, pi.id, pi.amount, pi.currency, pi.metadata ?? {});
+      }
+      break;
+    }
+    default:
+      break;
+  }
 }
 
 export class WebhookHandlers {
+  /**
+   * Process a pre-constructed Stripe event object directly through the domain event switch,
+   * skipping Stripe sync and signature verification. For use in test mode QA only.
+   * The caller is responsible for ensuring the event is well-formed and only used in test mode.
+   */
+  static async processEventDirectly(event: Stripe.Event): Promise<void> {
+    const stripe = await getUncachableStripeClient();
+    try {
+      await processDomainSwitch(stripe, event);
+    } catch (err) {
+      logger.error({ err, eventType: event.type }, "Test domain event handler error");
+      throw err;
+    }
+  }
+
   static async processWebhook(payload: Buffer, signature: string): Promise<void> {
     if (!Buffer.isBuffer(payload)) {
       throw new Error(
@@ -278,91 +420,9 @@ export class WebhookHandlers {
       }
     }
 
-    // Process domain-specific logic
+    // Process domain-specific logic via shared switch
     try {
-      switch (event.type) {
-        case "customer.subscription.created":
-        case "customer.subscription.updated": {
-          const sub = event.data.object as Stripe.Subscription;
-          const customerId = typeof sub.customer === "string" ? sub.customer : sub.customer.id;
-          if (sub.status === "active" || sub.status === "trialing") {
-            await handleSubscriptionActivated(stripe, customerId, sub);
-          } else if (sub.status === "canceled") {
-            await handleSubscriptionCancelled(customerId, sub);
-          }
-          break;
-        }
-        case "customer.subscription.deleted": {
-          const sub = event.data.object as Stripe.Subscription;
-          const customerId = typeof sub.customer === "string" ? sub.customer : sub.customer.id;
-          await handleSubscriptionCancelled(customerId, sub);
-          break;
-        }
-        case "invoice.paid": {
-          const inv = event.data.object as unknown as {
-            id: string; customer: string | { id: string }; amount_paid: number; currency: string;
-            subscription?: string | { id: string } | null;
-            payment_intent?: string | { id: string } | null;
-          };
-          await handleInvoicePaid(
-            typeof inv.customer === "string" ? inv.customer : inv.customer.id,
-            inv.id,
-            inv.amount_paid,
-            inv.currency,
-            inv.subscription ? (typeof inv.subscription === "string" ? inv.subscription : inv.subscription.id) : undefined,
-            inv.payment_intent ? (typeof inv.payment_intent === "string" ? inv.payment_intent : inv.payment_intent.id) : undefined,
-          );
-          break;
-        }
-        case "invoice.payment_failed": {
-          const inv = event.data.object as unknown as {
-            id: string; customer: string | { id: string };
-            subscription?: string | { id: string } | null;
-            amount_due?: number; currency?: string;
-          };
-          const customerId = typeof inv.customer === "string" ? inv.customer : inv.customer.id;
-          const user = await findUserByStripeCustomerId(customerId);
-          if (user) {
-            const subscriptionId = inv.subscription
-              ? (typeof inv.subscription === "string" ? inv.subscription : inv.subscription.id)
-              : undefined;
-
-            // Record the failure for audit trail
-            await recordHistory(user.id, "payment_failed", {
-              amount: inv.amount_due,
-              currency: inv.currency,
-              stripeInvoiceId: inv.id,
-              stripeSubscriptionId: subscriptionId,
-            });
-
-            // Update subscription status in app table to 'past_due' if linked
-            if (subscriptionId) {
-              await db
-                .update(subscriptionsTable)
-                .set({ status: "past_due" })
-                .where(eq(subscriptionsTable.stripeSubscriptionId, subscriptionId));
-            }
-
-            // Do NOT immediately revoke premium — give the user time for retry/grace period.
-            // Stripe will fire subscription.deleted/updated when it finally cancels.
-            logger.warn({ userId: user.id, invoiceId: inv.id }, "Payment failed — subscription marked past_due");
-          }
-          break;
-        }
-        case "payment_intent.succeeded": {
-          const pi = event.data.object as unknown as {
-            id: string; customer: string | { id: string } | null; amount: number; currency: string;
-            invoice?: string | null; metadata?: Record<string, string>;
-          };
-          if (pi.customer && !pi.invoice) {
-            const customerId = typeof pi.customer === "string" ? pi.customer : pi.customer.id;
-            await handleOneTimePayment(stripe, customerId, pi.id, pi.amount, pi.currency, pi.metadata ?? {});
-          }
-          break;
-        }
-        default:
-          break;
-      }
+      await processDomainSwitch(stripe, event);
     } catch (err) {
       logger.error({ err, eventType: event.type }, "Webhook domain handler error");
     }

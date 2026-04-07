@@ -89,8 +89,8 @@ router.patch("/admin/users/:id", requireAdmin, async (req: Request, res: Respons
   if (typeof body["captchaVerified"] === "boolean") updates.captchaVerified = body["captchaVerified"];
   if (body["displayName"] !== undefined) updates.displayName = body["displayName"] ? String(body["displayName"]) : null;
   if (body["email"] !== undefined) updates.email = body["email"] ? String(body["email"]).trim().toLowerCase() : null;
-  if (body["membershipTier"] !== undefined && ["free", "premium"].includes(String(body["membershipTier"])))
-    updates.membershipTier = String(body["membershipTier"]) as "free" | "premium";
+  if (body["membershipTier"] !== undefined && ["free", "premium", "legendary"].includes(String(body["membershipTier"])))
+    updates.membershipTier = String(body["membershipTier"]) as "free" | "premium" | "legendary";
   if (body["pronouns"] !== undefined) {
     const p = String(body["pronouns"]).trim();
     if (p.length > 0 && p.length <= 80) updates.pronouns = p;
@@ -138,8 +138,8 @@ router.post("/admin/users", requireAdmin, async (req: Request, res: Response) =>
   const email = body["email"] ? String(body["email"]).trim().toLowerCase() : null;
   const password = body["password"] ? String(body["password"]) : null;
   const displayName = body["displayName"] ? String(body["displayName"]).trim() : null;
-  const membershipTier = ["free", "premium"].includes(String(body["membershipTier"] ?? "free"))
-    ? (String(body["membershipTier"] ?? "free") as "free" | "premium")
+  const membershipTier = ["free", "premium", "legendary"].includes(String(body["membershipTier"] ?? "free"))
+    ? (String(body["membershipTier"] ?? "free") as "free" | "premium" | "legendary")
     : "free";
   const isAdmin = body["isAdmin"] === true;
 
@@ -904,6 +904,13 @@ router.patch("/admin/config/:key", requireAdmin, async (req: Request, res: Respo
 
   bustConfigCache();
 
+  // When stripe_live_mode changes, explicitly invalidate the cached Stripe instance
+  // so the next request picks up the correct connector credentials.
+  if (key === "stripe_live_mode") {
+    const { invalidateStripeSync } = await import("../lib/stripeClient");
+    invalidateStripeSync();
+  }
+
   res.json(updated);
 });
 
@@ -1014,6 +1021,162 @@ router.delete("/admin/video-styles/:id/preview-gif", requireAdmin, async (req: R
     .returning();
 
   res.json(updated);
+});
+
+// ─── Admin Stripe Endpoints ───────────────────────────────────────────────────
+
+router.get("/admin/stripe/summary", requireAdmin, async (_req: Request, res: Response) => {
+  try {
+    // Active subscribers = users with an active subscription (premium tier, not lifetime)
+    // Lifetime members = users with legendary tier (one-time purchase holders)
+    const [activeSubRows, legendaryRows] = await Promise.all([
+      db
+        .select({ cnt: sql<number>`count(*)::int` })
+        .from(usersTable)
+        .where(and(eq(usersTable.membershipTier, "premium"), eq(usersTable.isActive, true))),
+      db
+        .select({ cnt: sql<number>`count(*)::int` })
+        .from(usersTable)
+        .where(and(sql`${usersTable.membershipTier} = 'legendary'`, eq(usersTable.isActive, true))),
+    ]);
+
+    const webhookSecretConfigured = !!process.env.STRIPE_WEBHOOK_SECRET;
+    const priceIdsConfigured = !!(process.env.MEMBERSHIP_PRICE_IDS ?? "").trim();
+
+    res.json({
+      activeSubscribers: activeSubRows[0]?.cnt ?? 0,
+      lifetimeMembers: legendaryRows[0]?.cnt ?? 0,
+      webhookSecretConfigured,
+      priceIdsConfigured,
+    });
+  } catch (err) {
+    console.error("[admin] stripe/summary error:", err);
+    res.status(500).json({ error: "Failed to load stripe summary" });
+  }
+});
+
+router.post("/admin/stripe/test-event", requireAdmin, async (req: Request, res: Response) => {
+  try {
+    // Use getConfigStringRaw to be independent of debug-mode resolution
+    const { getConfigStringRaw } = await import("../lib/adminConfig");
+    const liveMode = await getConfigStringRaw("stripe_live_mode", "false");
+
+    if (liveMode === "true") {
+      res.status(403).json({ error: "Test events are only available in test mode" });
+      return;
+    }
+
+    const { userId } = req.body as { userId?: string };
+    if (!userId) {
+      res.status(400).json({ error: "userId is required" });
+      return;
+    }
+
+    const [targetUser] = await db.select({ id: usersTable.id, stripeCustomerId: usersTable.stripeCustomerId, email: usersTable.email })
+      .from(usersTable)
+      .where(and(eq(usersTable.id, userId), eq(usersTable.isActive, true)))
+      .limit(1);
+
+    if (!targetUser) {
+      res.status(404).json({ error: "User not found" });
+      return;
+    }
+
+    const { stripeStorage } = await import("../lib/stripeStorage");
+    const { getUncachableStripeClient } = await import("../lib/stripeClient");
+
+    let customerId = targetUser.stripeCustomerId;
+    if (!customerId) {
+      const stripe = await getUncachableStripeClient();
+      const customer = await stripe.customers.create({
+        email: targetUser.email ?? undefined,
+        metadata: { userId },
+      });
+      await stripeStorage.updateUserStripeCustomerId(userId, customer.id);
+      customerId = customer.id;
+    }
+
+    // Build a minimal checkout.session.completed event with an embedded subscription object
+    // (not a string ID) so the handler can process it without additional Stripe API calls.
+    // Use a test price ID that IS in the MEMBERSHIP_PRICE_IDS allowlist or embed product
+    // metadata so isMembershipPrice passes without external lookup.
+    const { WebhookHandlers } = await import("../lib/webhookHandlers");
+
+    const fakeSubId = `sub_test_${Date.now()}`;
+    // Use the first configured membership price ID if available, otherwise use a recognizable test key
+    const allowedPriceIds = (process.env.MEMBERSHIP_PRICE_IDS ?? "").split(",").map((s: string) => s.trim()).filter(Boolean);
+    // We embed the full price+product object in the subscription so isMembershipPrice
+    // can read product.metadata.membership without hitting the Stripe API.
+    const embeddedSub = {
+      id: fakeSubId,
+      object: "subscription",
+      customer: customerId,
+      status: "active",
+      cancel_at_period_end: false,
+      current_period_end: Math.floor(Date.now() / 1000) + 30 * 24 * 60 * 60,
+      items: {
+        object: "list",
+        data: [
+          {
+            id: `si_test_${Date.now()}`,
+            object: "subscription_item",
+            price: {
+              id: allowedPriceIds[0] ?? `price_test_${Date.now()}`,
+              object: "price",
+              type: "recurring",
+              recurring: { interval: "month", interval_count: 1, usage_type: "licensed", aggregate_usage: null },
+              // Embed product with membership metadata so price validation passes without Stripe API call
+              product: {
+                id: "prod_test",
+                object: "product",
+                active: true,
+                metadata: { membership: "true" },
+              },
+            },
+          },
+        ],
+        has_more: false,
+        total_count: 1,
+        url: "/v1/subscription_items",
+      },
+    };
+
+    const fakeEvent = {
+      id: `evt_test_${Date.now()}`,
+      object: "event",
+      type: "checkout.session.completed",
+      api_version: "2022-11-15",
+      created: Math.floor(Date.now() / 1000),
+      livemode: false,
+      pending_webhooks: 0,
+      request: { id: null, idempotency_key: null },
+      data: {
+        object: {
+          id: `cs_test_${Date.now()}`,
+          object: "checkout.session",
+          customer: customerId,
+          mode: "subscription",
+          payment_status: "paid",
+          status: "complete",
+          subscription: embeddedSub,
+          payment_intent: null,
+          amount_total: 499,
+          currency: "usd",
+          metadata: {},
+        },
+      },
+    };
+
+    // processEventDirectly routes through the same domain switch as real webhooks,
+    // with only Stripe sync + signature verification skipped (test mode only).
+    await WebhookHandlers.processEventDirectly(fakeEvent as unknown as import("stripe").Stripe.Event);
+
+    res.json({ success: true, message: `Test webhook processed — user ${userId} upgraded to premium via checkout.session.completed domain handler` });
+  } catch (err) {
+    console.error("[admin] stripe/test-event error:", err);
+    const msg = err instanceof Error ? err.message : String(err);
+    res.status(500).json({ error: "Test event failed", details: msg });
+  }
 });
 
 export default router;

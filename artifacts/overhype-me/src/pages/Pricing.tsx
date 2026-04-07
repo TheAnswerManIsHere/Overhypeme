@@ -100,11 +100,11 @@ export default function Pricing() {
     }
   }
 
-  const premiumProduct = plans[0];
-  const prices = premiumProduct?.prices ?? [];
-  const monthly = prices.find(p => p.recurring?.interval === "month");
-  const annual = prices.find(p => p.recurring?.interval === "year");
-  const lifetime = prices.find(p => p.recurring === null);
+  // Aggregate all prices across all membership products — Stripe may return multiple products
+  const allPrices = plans.flatMap(p => p.prices);
+  const monthly = allPrices.find(p => p.recurring?.interval === "month");
+  const annual = allPrices.find(p => p.recurring?.interval === "year");
+  const lifetime = allPrices.find(p => p.recurring === null);
 
   return (
     <Layout>
@@ -149,7 +149,7 @@ export default function Pricing() {
               <div>
                 <h2 className="text-xl font-display uppercase tracking-wide text-primary">Legendary</h2>
                 <p className="text-2xl font-bold text-foreground">
-                  {monthly ? `$${(monthly.unit_amount / 100).toFixed(2)}` : "$4.99"}
+                  {monthly ? `$${(monthly.unit_amount / 100).toFixed(2)}` : annual ? `$${(annual.unit_amount / 100 / 12).toFixed(2)}` : "$4.99"}
                   <span className="text-sm text-muted-foreground font-normal">/month</span>
                 </p>
               </div>
