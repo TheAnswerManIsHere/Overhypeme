@@ -513,6 +513,11 @@ function VideoTab({ factId, factText, pexelsImages, aiMemeImages, initialImageDa
   const [uploadGallery, setUploadGallery] = useState<Array<{ objectPath: string; width: number; height: number }>>([]);
   const [isLoadingGallery, setIsLoadingGallery] = useState(false);
 
+  // ── Video generation progress ───────────────────────────────────────────────
+  const [videoProgress, setVideoProgress] = useState(0);
+  const [videoElapsed, setVideoElapsed] = useState(0);
+  const videoTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
   // ── Admin controls ─────────────────────────────────────────────────────────
   const [selectedModel, setSelectedModel] = useState(FAL_VIDEO_MODELS_ADMIN[0]!.value);
   const [motionPrompt, setMotionPrompt] = useState("");
@@ -587,6 +592,13 @@ function VideoTab({ factId, factText, pexelsImages, aiMemeImages, initialImageDa
     }
   }, [step, selectedStyleId]);
 
+  // ── Clean up video progress timer on unmount ───────────────────────────────
+  useEffect(() => {
+    return () => {
+      if (videoTimerRef.current) clearInterval(videoTimerRef.current);
+    };
+  }, []);
+
   // Reset per-model params when the model changes
   useEffect(() => {
     if (!isAdmin) return;
@@ -626,6 +638,18 @@ function VideoTab({ factId, factText, pexelsImages, aiMemeImages, initialImageDa
     if (videoState.status === "generating" || !selectedBgUrl) return;
 
     setVideoState({ status: "generating" });
+    setVideoProgress(0);
+    setVideoElapsed(0);
+    const videoStartTime = Date.now();
+    if (videoTimerRef.current) clearInterval(videoTimerRef.current);
+    videoTimerRef.current = setInterval(() => {
+      const elapsed = (Date.now() - videoStartTime) / 1000;
+      setVideoElapsed(Math.floor(elapsed));
+      let progress: number;
+      if (elapsed <= 17) progress = (elapsed / 17) * 80;
+      else { const extra = elapsed - 17; progress = 80 + 19 * (1 - Math.exp(-extra / 60)); }
+      setVideoProgress(Math.min(progress, 99));
+    }, 250);
 
     try {
       const body: Record<string, unknown> = {
@@ -689,6 +713,8 @@ function VideoTab({ factId, factText, pexelsImages, aiMemeImages, initialImageDa
       const data = await res.json() as { videoUrl?: string; error?: string };
 
       if (res.status === 429) {
+        if (videoTimerRef.current) { clearInterval(videoTimerRef.current); videoTimerRef.current = null; }
+        setVideoProgress(0);
         setVideoState({
           status: "error",
           message: data.error ?? "Rate limit exceeded. You can generate up to 3 videos per 24 hours.",
@@ -697,6 +723,8 @@ function VideoTab({ factId, factText, pexelsImages, aiMemeImages, initialImageDa
       }
 
       if (!res.ok || !data.videoUrl) {
+        if (videoTimerRef.current) { clearInterval(videoTimerRef.current); videoTimerRef.current = null; }
+        setVideoProgress(0);
         setVideoState({
           status: "error",
           message: data.error ?? "Video generation failed. Please try again.",
@@ -704,8 +732,12 @@ function VideoTab({ factId, factText, pexelsImages, aiMemeImages, initialImageDa
         return;
       }
 
+      if (videoTimerRef.current) { clearInterval(videoTimerRef.current); videoTimerRef.current = null; }
+      setVideoProgress(100);
       setVideoState({ status: "done", url: data.videoUrl });
     } catch {
+      if (videoTimerRef.current) { clearInterval(videoTimerRef.current); videoTimerRef.current = null; }
+      setVideoProgress(0);
       setVideoState({
         status: "error",
         message: "Network error. Please check your connection and try again.",
@@ -1383,9 +1415,25 @@ function VideoTab({ factId, factText, pexelsImages, aiMemeImages, initialImageDa
           })()}
 
           {videoState.status === "generating" && (
-            <div className="flex items-center gap-3 px-4 py-3 bg-[#ff6b35]/10 border border-[#ff6b35]/30 text-sm text-[#ff6b35] mb-4">
-              <Loader2 className="w-4 h-4 animate-spin shrink-0" />
-              <span>Generating your video… this takes 30–120 seconds</span>
+            <div className="space-y-1.5 mb-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2 text-[#ff6b35]">
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  <span className="text-xs font-display font-bold uppercase tracking-wider">Generating…</span>
+                </div>
+                <span className="text-[10px] text-muted-foreground tabular-nums">{videoElapsed}s</span>
+              </div>
+              <div className="w-full h-1.5 rounded-full bg-[#ff6b35]/15 overflow-hidden">
+                <div
+                  className={`h-full rounded-full transition-all duration-300 ${
+                    videoProgress >= 100 ? "bg-green-500" : "bg-[#ff6b35]"
+                  }`}
+                  style={{ width: `${videoProgress}%` }}
+                />
+              </div>
+              <p className="text-[10px] text-muted-foreground/60">
+                Typically ~17 seconds for Grok — up to 2 minutes for other models.
+              </p>
             </div>
           )}
 
