@@ -1,11 +1,12 @@
 import { createContext, useContext, useState, useEffect, ReactNode, createElement } from "react";
 import { displayPronouns, DEFAULT_PRONOUNS } from "@/lib/pronouns";
 
-const STORAGE_KEY_NAME    = "fact_db_name";
+const STORAGE_KEY_NAME     = "fact_db_name";
 const STORAGE_KEY_PRONOUNS = "fact_db_pronouns";
+const STORAGE_KEY_EXPLICIT = "fact_db_name_explicit"; // set when user intentionally sets their own identity
 // Legacy keys — read-only for backward compat
-const LEGACY_KEY_SUBJECT  = "fact_db_pronoun_subject";
-const LEGACY_KEY_OBJECT   = "fact_db_pronoun_object";
+const LEGACY_KEY_SUBJECT   = "fact_db_pronoun_subject";
+const LEGACY_KEY_OBJECT    = "fact_db_pronoun_object";
 
 export const DEFAULT_NAME = "David Franklin";
 export { DEFAULT_PRONOUNS };
@@ -23,20 +24,52 @@ const _URL_PRONOUNS = _urlParams.get("pronouns");
 
 /**
  * True when this page load included share-link personalisation params.
- * Used by NameTag to skip the auth-sync overwrite so the recipient name
- * is preserved even when the visitor is logged in.
  */
 export const SHARE_LINK_ACTIVE = !!(_URL_NAME || _URL_PRONOUNS);
+
+// ── Explicit-flag helpers ─────────────────────────────────────────────────────
+
+/**
+ * Returns true if the user has deliberately set their own name/pronouns
+ * (via the NameTag editor, registration, or auth profile sync).
+ * When true, share-link URL params are ignored — the user's own identity wins.
+ */
+function isUserExplicit(): boolean {
+  try {
+    return localStorage.getItem(STORAGE_KEY_EXPLICIT) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function markExplicit() {
+  try {
+    localStorage.setItem(STORAGE_KEY_EXPLICIT, "1");
+  } catch { /* ignore */ }
+}
 
 // ── Initial-state helpers ─────────────────────────────────────────────────────
 
 function getInitialName(): string {
-  if (_URL_NAME) return _URL_NAME;
-  return localStorage.getItem(STORAGE_KEY_NAME) || DEFAULT_NAME;
+  const stored = localStorage.getItem(STORAGE_KEY_NAME);
+
+  // URL param wins only when:
+  //   • a share link is active
+  //   • AND the user has NOT explicitly set their own name
+  //   • AND they have no stored name (or only the default placeholder)
+  if (_URL_NAME && !isUserExplicit() && (!stored || stored === DEFAULT_NAME)) {
+    return _URL_NAME;
+  }
+
+  return stored || DEFAULT_NAME;
 }
 
 function getInitialPronouns(): string {
-  if (_URL_PRONOUNS) return _URL_PRONOUNS;
+  // URL param wins under the same conditions as name
+  if (_URL_PRONOUNS && !isUserExplicit()) {
+    const stored = localStorage.getItem(STORAGE_KEY_PRONOUNS);
+    if (!stored) return _URL_PRONOUNS;
+  }
 
   // New unified key
   const stored = localStorage.getItem(STORAGE_KEY_PRONOUNS);
@@ -92,10 +125,10 @@ export function PersonNameProvider({ children }: { children: ReactNode }) {
 
   const { subject, object } = splitSubjectObject(pronouns);
 
-  // Persist URL-param values to localStorage on mount so they survive
-  // URL cleanup (ShareParamReader strips the params from the address bar).
+  // Persist URL-param values to localStorage so they survive URL cleanup,
+  // but only when the user hasn't set their own explicit identity.
   useEffect(() => {
-    if (!SHARE_LINK_ACTIVE) return;
+    if (!SHARE_LINK_ACTIVE || isUserExplicit()) return;
     if (_URL_NAME)     localStorage.setItem(STORAGE_KEY_NAME, _URL_NAME);
     if (_URL_PRONOUNS) localStorage.setItem(STORAGE_KEY_PRONOUNS, _URL_PRONOUNS);
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -106,12 +139,14 @@ export function PersonNameProvider({ children }: { children: ReactNode }) {
     localStorage.setItem(STORAGE_KEY_NAME, n);
     localStorage.removeItem("fact_db_first_name");
     localStorage.removeItem("fact_db_last_name");
+    markExplicit();
     setNameState(n);
   }
 
   function setPronouns(value: string) {
     const v = value.trim() || DEFAULT_PRONOUNS;
     localStorage.setItem(STORAGE_KEY_PRONOUNS, v);
+    markExplicit();
     setPronounsState(v);
   }
 
