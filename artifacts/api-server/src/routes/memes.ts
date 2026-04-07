@@ -239,7 +239,9 @@ router.post("/memes", async (req: Request, res: Response) => {
     .from(usersTable)
     .where(eq(usersTable.id, req.user.id))
     .limit(1);
-  const dbTier = (userRow?.membershipTier === "premium" || userRow?.membershipTier === "legendary") ? "legendary" : "free";
+  const dbTier = userRow?.membershipTier === "legendary" ? "legendary"
+    : userRow?.membershipTier === "premium" ? "premium"
+    : "free";
   const [canPrivate, canUpload, highRateLimit] = await Promise.all([
     hasFeature(dbTier, "meme_private_visibility"),
     hasFeature(dbTier, "meme_upload_photo"),
