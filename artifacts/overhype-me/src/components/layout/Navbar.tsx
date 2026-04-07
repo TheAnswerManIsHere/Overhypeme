@@ -7,9 +7,27 @@ import { useState, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { NameTag } from "@/components/NameTag";
 import { ShareModal } from "@/components/ShareModal";
+import { useGetMyProfile, getGetMyProfileQueryKey } from "@workspace/api-client-react";
+
+function dicebearUrl(style: string, seed: string) {
+  return `https://api.dicebear.com/9.x/${style}/svg?seed=${encodeURIComponent(seed)}`;
+}
 
 export function Navbar() {
   const { user, isAuthenticated, role, logout } = useAuth();
+  const { data: profile } = useGetMyProfile({
+    query: { queryKey: getGetMyProfileQueryKey(), enabled: isAuthenticated, staleTime: 60_000 }
+  });
+
+  const navAvatarUrl = (() => {
+    if (profile?.isPremium && profile?.profileImageUrl && (profile?.avatarSource ?? "avatar") === "photo") {
+      return profile.profileImageUrl;
+    }
+    if (profile?.id) {
+      return dicebearUrl(profile?.avatarStyle ?? "bottts", profile.id);
+    }
+    return null;
+  })();
   const [, setLocation] = useLocation();
   const [searchQuery, setSearchQuery] = useState("");
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -167,8 +185,8 @@ export function Navbar() {
                   <Activity className="w-5 h-5" />
                 </Button>
                 <Button variant="ghost" size="icon" onClick={() => setLocation('/profile')}>
-                  {user?.profileImageUrl ? (
-                    <img src={user.profileImageUrl} alt="Profile" className="w-8 h-8 rounded-sm" />
+                  {navAvatarUrl ? (
+                    <img src={navAvatarUrl} alt="Profile" className="w-8 h-8 rounded-sm object-cover" />
                   ) : (
                     <User className="w-5 h-5" />
                   )}
