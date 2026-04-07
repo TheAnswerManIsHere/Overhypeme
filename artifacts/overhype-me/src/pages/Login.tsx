@@ -6,7 +6,6 @@ import { Input } from "@/components/ui/Input";
 import { LogIn, UserPlus, ArrowLeft, Mail, Eye, EyeOff } from "lucide-react";
 import { PronounEditor } from "@/components/ui/PronounEditor";
 import { inferPronounsFromName } from "@/lib/infer-pronouns";
-import { usePersonName } from "@/hooks/use-person-name";
 
 const STORAGE_KEY_NAME    = "fact_db_name";
 const STORAGE_KEY_PRONOUNS = "fact_db_pronouns";
@@ -37,7 +36,6 @@ function getBackDestination(): { path: string; label: string } {
 
 export default function Login() {
   const [, setLocation] = useLocation();
-  const { setName: setPersonName, setPronouns: setPersonPronouns } = usePersonName();
   const backDest = getBackDestination();
   const [mode, setMode] = useState<"login" | "register">("login");
   const [email, setEmail] = useState("");
@@ -97,10 +95,6 @@ export default function Login() {
       }
 
       if (mode === "register" && email) {
-        // Immediately apply the registered name & pronouns as the user's identity
-        // so facts are personalized right away, even before email verification.
-        if (displayName.trim()) setPersonName(displayName.trim());
-        if (pronouns.trim())    setPersonPronouns(pronouns.trim());
         setRegisteredEmail(email);
         return;
       }
