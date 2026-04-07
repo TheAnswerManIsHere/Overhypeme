@@ -1077,8 +1077,11 @@ function VideoTab({ factId, factText, pexelsImages, aiMemeImages, initialImageDa
             const labelCls = "text-[10px] font-display uppercase tracking-widest text-muted-foreground";
             const checkboxRowCls = "flex items-center gap-1.5";
 
-            // Build fal preview input
-            const effectivePrompt = motionPrompt.trim() || `(${selectedStyle.label} style motion prompt)`;
+            // Build fal preview input (mirrors backend buildFalInput + voiceover cue logic)
+            const basePrompt = motionPrompt.trim() || `(${selectedStyle.label} style motion prompt)`;
+            const effectivePrompt = factText.trim()
+              ? `${basePrompt}\nVoiceover should say, "${factText.trim()}"`
+              : basePrompt;
             const falPreviewInput: Record<string, unknown> = {
               image_url: selectedBgUrl ? "(background image url)" : "(no image selected)",
               prompt: effectivePrompt,
