@@ -228,7 +228,7 @@ router.post("/memes", async (req: Request, res: Response) => {
 
   // ── Membership check ────────────────────────────────────────────
   const [userRow] = await db
-    .select({ membershipTier: usersTable.membershipTier })
+    .select({ membershipTier: usersTable.membershipTier, displayName: usersTable.displayName, pronouns: usersTable.pronouns })
     .from(usersTable)
     .where(eq(usersTable.id, req.user.id))
     .limit(1);
@@ -272,6 +272,12 @@ router.post("/memes", async (req: Request, res: Response) => {
     res.status(404).json({ error: "Fact not found" });
     return;
   }
+
+  // ── Freeze the rendered fact text at creation time ───────────────
+  const rawTemplate = fact.text ?? fact.canonicalText ?? "";
+  const renderedFactText = userRow?.displayName && rawTemplate
+    ? renderPersonalized(rawTemplate, userRow.displayName, userRow.pronouns ?? null)
+    : (fact.canonicalText ?? fact.text ?? null);
 
   // ── Unique slug ──────────────────────────────────────────────────
   let slug = generateSlug();
@@ -330,6 +336,7 @@ router.post("/memes", async (req: Request, res: Response) => {
       uploadFileSizeBytes: uploadMeta?.fileSizeBytes ?? null,
       createdById: req.user.id,
       aspectRatio: aspectRatioReq ?? "landscape",
+      renderedFactText: renderedFactText ?? null,
     })
     .returning();
 
@@ -356,28 +363,41 @@ router.get("/memes/:slug", async (req: Request, res: Response) => {
   if (!meme) { res.status(404).json({ error: "Meme not found" }); return; }
   if (meme.deletedAt) { res.status(410).json({ error: "This meme has been removed by its creator.", deleted: true }); return; }
 
-  const [fact] = await db
-    .select({ text: factsTable.text, canonicalText: factsTable.canonicalText })
-    .from(factsTable)
-    .where(and(eq(factsTable.id, meme.factId), eq(factsTable.isActive, true)))
-    .limit(1);
-
+  // Use frozen text if available (stored at creation time), otherwise fall back
+  // to dynamic rendering for memes created before this column was added.
+  let factText = meme.renderedFactText ?? null;
   let createdByName: string | null = null;
-  let creatorPronouns: string | null = null;
-  if (meme.createdById) {
+
+  if (!factText) {
+    const [fact] = await db
+      .select({ text: factsTable.text, canonicalText: factsTable.canonicalText })
+      .from(factsTable)
+      .where(and(eq(factsTable.id, meme.factId), eq(factsTable.isActive, true)))
+      .limit(1);
+
+    let creatorPronouns: string | null = null;
+    if (meme.createdById) {
+      const [user] = await db
+        .select({ displayName: usersTable.displayName, pronouns: usersTable.pronouns })
+        .from(usersTable)
+        .where(and(eq(usersTable.id, meme.createdById), eq(usersTable.isActive, true)))
+        .limit(1);
+      createdByName = user?.displayName ?? null;
+      creatorPronouns = user?.pronouns ?? null;
+    }
+
+    const rawTemplate = fact?.text ?? fact?.canonicalText ?? "";
+    factText = createdByName && rawTemplate
+      ? renderPersonalized(rawTemplate, createdByName, creatorPronouns)
+      : (fact?.canonicalText ?? fact?.text ?? "");
+  } else if (meme.createdById) {
     const [user] = await db
-      .select({ displayName: usersTable.displayName, pronouns: usersTable.pronouns })
+      .select({ displayName: usersTable.displayName })
       .from(usersTable)
       .where(and(eq(usersTable.id, meme.createdById), eq(usersTable.isActive, true)))
       .limit(1);
     createdByName = user?.displayName ?? null;
-    creatorPronouns = user?.pronouns ?? null;
   }
-
-  const rawTemplate = fact?.text ?? fact?.canonicalText ?? "";
-  const factText = createdByName && rawTemplate
-    ? renderPersonalized(rawTemplate, createdByName, creatorPronouns)
-    : (fact?.canonicalText ?? fact?.text ?? "");
 
   res.json({
     id: meme.id,
