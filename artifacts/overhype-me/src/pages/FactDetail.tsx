@@ -44,6 +44,8 @@ type VideoItem = {
   videoUrl: string | null;
   motionPrompt: string | null;
   styleId: string | null;
+  isPrivate: boolean;
+  userId: string | null;
   createdAt: string;
 };
 
@@ -606,55 +608,88 @@ export default function FactDetail() {
           )}
 
           {/* Videos section */}
-          {showVideos && (
-            <div>
-              <p className="text-xs font-display uppercase tracking-widest text-muted-foreground flex items-center gap-1.5 mb-4">
-                <Video className="w-3.5 h-3.5" /> Videos
-              </p>
+          {showVideos && (() => {
+            const allVideos = videosData?.videos ?? [];
+            const communityVideos = allVideos.filter(v => !v.isPrivate && v.userId !== user?.id);
+            const myPublicVideos = allVideos.filter(v => !v.isPrivate && v.userId === user?.id);
+            const myPrivateVideos = allVideos.filter(v => v.isPrivate && v.userId === user?.id);
 
-              {showCommunity && (
-                <div>
-                  <p className="text-[11px] font-display uppercase tracking-widest text-muted-foreground/70 flex items-center gap-1 mb-3 border-l-2 border-primary/30 pl-2">
-                    <Globe className="w-3 h-3" /> Community
-                  </p>
-                  {videosData && videosData.videos.length > 0 ? (
-                    <div className="grid grid-cols-2 md:grid-cols-3 gap-4 items-start">
-                      {videosData.videos.map(video => (
-                        <div key={video.id} className="space-y-1.5">
-                          <div className="relative border-2 border-border rounded-sm overflow-hidden group hover:border-primary/60 transition-all">
-                            <div className="aspect-video relative bg-black">
-                              <video
-                                src={video.videoUrl ?? ""}
-                                poster={video.imageUrl}
-                                controls
-                                preload="metadata"
-                                className="w-full h-full object-cover"
-                              />
-                              {!video.videoUrl && (
-                                <div className="absolute inset-0 flex items-center justify-center">
-                                  <Play className="w-10 h-10 text-white/40" />
-                                </div>
-                              )}
-                            </div>
-                            {video.motionPrompt && (
-                              <div className="px-2 py-1.5 bg-secondary/80 border-t border-border">
-                                <p className="text-[10px] text-muted-foreground line-clamp-1">{video.motionPrompt}</p>
-                              </div>
-                            )}
+            const VideoGrid = ({ videos }: { videos: VideoItem[] }) => (
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-4 items-start">
+                {videos.map(video => (
+                  <div key={video.id} className="space-y-1.5">
+                    <div className="relative border-2 border-border rounded-sm overflow-hidden group hover:border-primary/60 transition-all">
+                      <div className="aspect-video relative bg-black">
+                        <video
+                          src={video.videoUrl ?? ""}
+                          poster={video.imageUrl}
+                          controls
+                          preload="metadata"
+                          className="w-full h-full object-cover"
+                        />
+                        {!video.videoUrl && (
+                          <div className="absolute inset-0 flex items-center justify-center">
+                            <Play className="w-10 h-10 text-white/40" />
                           </div>
-                          <Link href={`/video/${video.id}`} className="w-full flex items-center justify-center gap-1.5 text-[10px] font-display font-bold uppercase tracking-wider text-muted-foreground hover:text-primary transition-colors py-1">
-                            <ExternalLink className="w-3 h-3" /> View Permalink
-                          </Link>
+                        )}
+                      </div>
+                      {video.motionPrompt && (
+                        <div className="px-2 py-1.5 bg-secondary/80 border-t border-border">
+                          <p className="text-[10px] text-muted-foreground line-clamp-1">{video.motionPrompt}</p>
                         </div>
-                      ))}
+                      )}
                     </div>
-                  ) : (
-                    <p className="text-sm text-muted-foreground pl-2">No community videos yet.</p>
+                    <Link href={`/video/${video.id}`} className="w-full flex items-center justify-center gap-1.5 text-[10px] font-display font-bold uppercase tracking-wider text-muted-foreground hover:text-primary transition-colors py-1">
+                      <ExternalLink className="w-3 h-3" /> View Permalink
+                    </Link>
+                  </div>
+                ))}
+              </div>
+            );
+
+            return (
+              <div>
+                <p className="text-xs font-display uppercase tracking-widest text-muted-foreground flex items-center gap-1.5 mb-4">
+                  <Video className="w-3.5 h-3.5" /> Videos
+                </p>
+                <div className="space-y-6">
+                  {showCommunity && (
+                    <div>
+                      <p className="text-[11px] font-display uppercase tracking-widest text-muted-foreground/70 flex items-center gap-1 mb-3 border-l-2 border-primary/30 pl-2">
+                        <Globe className="w-3 h-3" /> Community
+                      </p>
+                      {communityVideos.length > 0
+                        ? <VideoGrid videos={communityVideos} />
+                        : <p className="text-sm text-muted-foreground pl-2">No community videos yet.</p>
+                      }
+                    </div>
+                  )}
+                  {isAuthenticated && showMyPublic && (
+                    <div>
+                      <p className="text-[11px] font-display uppercase tracking-widest text-muted-foreground/70 flex items-center gap-1 mb-3 border-l-2 border-primary/30 pl-2">
+                        <Globe className="w-3 h-3" /> My Public
+                      </p>
+                      {myPublicVideos.length > 0
+                        ? <VideoGrid videos={myPublicVideos} />
+                        : <p className="text-sm text-muted-foreground pl-2">No public videos yet.</p>
+                      }
+                    </div>
+                  )}
+                  {isAuthenticated && showMyPrivate && (
+                    <div>
+                      <p className="text-[11px] font-display uppercase tracking-widest text-muted-foreground/70 flex items-center gap-1 mb-3 border-l-2 border-primary/30 pl-2">
+                        <Lock className="w-3 h-3" /> My Private
+                      </p>
+                      {myPrivateVideos.length > 0
+                        ? <VideoGrid videos={myPrivateVideos} />
+                        : <p className="text-sm text-muted-foreground pl-2">No private videos yet.</p>
+                      }
+                    </div>
                   )}
                 </div>
-              )}
-            </div>
-          )}
+              </div>
+            );
+          })()}
         </div>
 
         {/* Layout split for Links and Comments */}
