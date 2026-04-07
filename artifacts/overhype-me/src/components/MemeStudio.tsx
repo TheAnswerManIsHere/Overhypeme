@@ -22,6 +22,7 @@ import type { AiMemeImages } from "@/components/MemeBuilder";
 import { AiBgPicker, type AiBgSelection } from "@/components/AiBgPicker";
 import { useAuth } from "@workspace/replit-auth-web";
 import { usePersonName } from "@/hooks/use-person-name";
+import { cn } from "@/lib/utils";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 

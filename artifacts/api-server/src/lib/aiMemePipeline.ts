@@ -184,7 +184,11 @@ async function generateAndStoreImage(
 
   const input: Record<string, unknown> = { prompt, num_images: 1 };
 
-  if (model === "fal-ai/flux-pro/v1.1-ultra") {
+  if (model === "xai/grok-imagine-image") {
+    delete input["num_images"];
+    input["n"]            = 1;
+    input["aspect_ratio"] = aspectRatio;
+  } else if (model === "fal-ai/flux-pro/v1.1-ultra") {
     input["aspect_ratio"]      = aspectRatio;
     input["safety_tolerance"]  = safetyTolerance;
     input["raw"]               = ultraRaw === "true";
@@ -649,7 +653,11 @@ export async function buildFalInputPreview(
 
   const input: Record<string, unknown> = { prompt, num_images: 1 };
 
-  if (model === "fal-ai/flux-pro/v1.1-ultra") {
+  if (model === "xai/grok-imagine-image") {
+    delete input["num_images"];
+    input["n"]            = 1;
+    input["aspect_ratio"] = aspectRatio;
+  } else if (model === "fal-ai/flux-pro/v1.1-ultra") {
     input["aspect_ratio"]     = aspectRatio;
     input["safety_tolerance"] = safetyTolerance;
     input["raw"]              = ultraRaw === "true";

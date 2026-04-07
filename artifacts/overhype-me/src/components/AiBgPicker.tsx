@@ -26,6 +26,7 @@ const ADMIN_FAL_MODELS: { group: string; models: { value: string; label: string 
       { value: "fal-ai/recraft-v3",           label: "Recraft V3" },
       { value: "fal-ai/ideogram/v2",          label: "Ideogram V2" },
       { value: "fal-ai/aura-flow",            label: "AuraFlow" },
+      { value: "xai/grok-imagine-image",      label: "xAI Grok Imagine Image" },
     ],
   },
   {
@@ -84,6 +85,19 @@ const ADMIN_MODEL_PARAMS: Record<string, AdminParamDef[]> = {
     { key: "num_inference_steps",  label: "Inference Steps",             placeholder: "30",   type: "number" },
     { key: "true_cfg_scale",       label: "True CFG Scale",              placeholder: "off",  type: "number" },
     { key: "start_step",           label: "Start Step",                  placeholder: "off",  type: "number" },
+  ],
+  "xai/grok-imagine-image": [
+    { key: "aspect_ratio", label: "Aspect Ratio", placeholder: "1:1", type: "select", options: [
+      { value: "",     label: "default (1:1)" },
+      { value: "1:1",  label: "1:1" },
+      { value: "16:9", label: "16:9" },
+      { value: "9:16", label: "9:16" },
+      { value: "4:3",  label: "4:3" },
+      { value: "3:4",  label: "3:4" },
+      { value: "3:2",  label: "3:2" },
+      { value: "2:3",  label: "2:3" },
+    ]},
+    { key: "n", label: "Number of images (n)", placeholder: "1", type: "number" },
   ],
 };
 
