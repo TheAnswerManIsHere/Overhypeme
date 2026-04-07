@@ -12,10 +12,12 @@ import {
 } from "@/lib/pronouns";
 import { renderFact } from "@/lib/render-fact";
 
-// Two example templates — one uses singular verb conjugation, one uses plural-safe tokens
+// Two example facts covering all five pronoun forms + verb conjugation.
+// Fact 1: NAME · OBJ · Subj · POSS · {singular|plural}
+// Fact 2: Subj · SUBJ · {singular|plural} · REFL · POSS_PRO
 const PREVIEW_FACTS = [
-  "{NAME} {doesn't|don't} make mistakes — {SUBJ} {makes|make} discoveries.",
-  "The world didn't give {NAME} a manual — {SUBJ} wrote {POSS} own.",
+  "{NAME} {doesn't|don't} chase success — it chases {OBJ}. {Subj} {knows|know} {POSS} worth.",
+  "{Subj} {doesn't|don't} need a co-sign — {SUBJ} earned it {REFL}. The credit? Entirely {POSS_PRO}.",
 ] as const;
 
 // Pages where the modal should never interrupt the user
