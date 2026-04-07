@@ -1,6 +1,5 @@
 import { useRoute, Link } from "wouter";
 import { useQuery } from "@tanstack/react-query";
-import { useGetFact, getGetFactQueryKey } from "@workspace/api-client-react";
 import { Layout } from "@/components/layout/Layout";
 import { Button } from "@/components/ui/Button";
 import { Share2, AlertCircle, ArrowLeft, Play, Download } from "lucide-react";
@@ -15,6 +14,7 @@ type VideoData = {
   status: string;
   isPrivate: boolean;
   createdAt: string;
+  factText: string | null;
 };
 
 export default function VideoPage() {
@@ -34,15 +34,12 @@ export default function VideoPage() {
 
   const video = videoResult?.video ?? null;
   const factId = video?.factId;
-  const { data: fact } = useGetFact(factId ?? 0, {
-    query: { queryKey: getGetFactQueryKey(factId ?? 0), enabled: !!factId }
-  });
 
   const handleShare = () => {
     if (navigator.share) {
       navigator.share({
         title: "Overhype.me Video",
-        text: fact?.text ?? "Check out this fact!",
+        text: video?.factText ?? "Check out this fact!",
         url: window.location.href,
       }).catch(console.error);
     } else {
@@ -51,7 +48,7 @@ export default function VideoPage() {
   };
 
   const handleTwitterShare = () => {
-    const text = encodeURIComponent(`"${(fact?.text ?? "").slice(0, 200)}" — Overhype.me`);
+    const text = encodeURIComponent(`"${(video?.factText ?? "").slice(0, 200)}" — Overhype.me`);
     const url = encodeURIComponent(window.location.href);
     window.open(`https://x.com/intent/tweet?text=${text}&url=${url}`, "_blank", "noopener");
   };
@@ -130,16 +127,18 @@ export default function VideoPage() {
             )}
           </div>
 
-          {fact && (
+          {video.factText && (
             <div className="border-t-2 border-border pt-6">
               <blockquote className="text-lg text-foreground italic leading-relaxed mb-4">
-                "{fact.text}"
+                "{video.factText}"
               </blockquote>
-              <Link href={`/facts/${factId}`}>
-                <Button variant="secondary" size="sm" className="gap-2">
-                  Read Full Fact →
-                </Button>
-              </Link>
+              {factId && (
+                <Link href={`/facts/${factId}`}>
+                  <Button variant="secondary" size="sm" className="gap-2">
+                    Read Full Fact →
+                  </Button>
+                </Link>
+              )}
             </div>
           )}
 

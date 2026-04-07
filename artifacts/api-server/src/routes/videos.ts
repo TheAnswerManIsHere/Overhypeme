@@ -1,7 +1,8 @@
 import { Router, type IRouter, type Request } from "express";
 import { z } from "zod";
 import { fal } from "@fal-ai/client";
-import { db, videoJobsTable, usersTable } from "@workspace/db";
+import { db, videoJobsTable, usersTable, memesTable, factsTable } from "@workspace/db";
+import { renderPersonalized } from "../lib/renderCanonical.js";
 import { videoStylesTable } from "@workspace/db/schema";
 import { eq, and, gte, desc, or, asc } from "drizzle-orm";
 import { deriveUserRole } from "../lib/userRole.js";
@@ -542,7 +543,40 @@ router.get("/video/:videoId", async (req, res) => {
     return;
   }
 
-  res.json({ video });
+  // Find the associated meme by imageUrl to get the rendered fact text
+  const [meme] = await db
+    .select({ createdById: memesTable.createdById, factId: memesTable.factId })
+    .from(memesTable)
+    .where(eq(memesTable.imageUrl, video.imageUrl))
+    .limit(1);
+
+  let factText: string | null = null;
+  if (meme) {
+    const [fact] = await db
+      .select({ text: factsTable.text, canonicalText: factsTable.canonicalText })
+      .from(factsTable)
+      .where(eq(factsTable.id, meme.factId))
+      .limit(1);
+
+    let createdByName: string | null = null;
+    let creatorPronouns: string | null = null;
+    if (meme.createdById) {
+      const [user] = await db
+        .select({ displayName: usersTable.displayName, pronouns: usersTable.pronouns })
+        .from(usersTable)
+        .where(eq(usersTable.id, meme.createdById))
+        .limit(1);
+      createdByName = user?.displayName ?? null;
+      creatorPronouns = user?.pronouns ?? null;
+    }
+
+    const rawTemplate = fact?.text ?? fact?.canonicalText ?? "";
+    factText = createdByName && rawTemplate
+      ? renderPersonalized(rawTemplate, createdByName, creatorPronouns)
+      : (fact?.canonicalText ?? fact?.text ?? null);
+  }
+
+  res.json({ video: { ...video, factText } });
 });
 
 router.get("/videos/:factId", async (req, res) => {
