@@ -42,7 +42,7 @@ export default function VideoPage() {
     if (navigator.share) {
       navigator.share({
         title: "Overhype.me Video",
-        text: fact?.fact ?? "Check out this fact!",
+        text: fact?.text ?? "Check out this fact!",
         url: window.location.href,
       }).catch(console.error);
     } else {
@@ -51,7 +51,7 @@ export default function VideoPage() {
   };
 
   const handleTwitterShare = () => {
-    const text = encodeURIComponent(`"${(fact?.fact ?? "").slice(0, 200)}" — Overhype.me`);
+    const text = encodeURIComponent(`"${(fact?.text ?? "").slice(0, 200)}" — Overhype.me`);
     const url = encodeURIComponent(window.location.href);
     window.open(`https://x.com/intent/tweet?text=${text}&url=${url}`, "_blank", "noopener");
   };
@@ -133,7 +133,7 @@ export default function VideoPage() {
           {fact && (
             <div className="border-t-2 border-border pt-6">
               <blockquote className="text-lg text-foreground italic leading-relaxed mb-4">
-                "{fact.fact}"
+                "{fact.text}"
               </blockquote>
               <Link href={`/facts/${factId}`}>
                 <Button variant="secondary" size="sm" className="gap-2">
