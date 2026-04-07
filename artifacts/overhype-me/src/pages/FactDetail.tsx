@@ -385,15 +385,6 @@ export default function FactDetail() {
                 <Flame className="w-5 h-5" />
                 <span>MAKE MEME</span>
               </Button>
-              <Button
-                variant="secondary"
-                size="lg"
-                onClick={() => openMemeStudio("video")}
-                className="gap-2 h-14"
-              >
-                <Video className="w-5 h-5" />
-                <span>MAKE VIDEO</span>
-              </Button>
             </div>
 
             <div className="text-muted-foreground text-sm font-medium text-right">
@@ -597,7 +588,7 @@ export default function FactDetail() {
               ) : (
                 <div className="py-10 text-center border-2 border-dashed border-border rounded-sm">
                   <Video className="w-8 h-8 text-muted-foreground mx-auto mb-3 opacity-40" />
-                  <p className="text-muted-foreground">No videos yet. Use the Make Video button to generate one!</p>
+                  <p className="text-muted-foreground">No videos yet.</p>
                 </div>
               )}
             </>
