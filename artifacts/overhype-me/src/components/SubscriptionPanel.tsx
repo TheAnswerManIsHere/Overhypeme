@@ -117,7 +117,9 @@ export function SubscriptionPanel() {
     : price?.recurring?.interval === "month" ? "Monthly"
     : "Legendary";
 
-  const showPortalButton = !isLegendary && !isLifetime && !!sub;
+  // Show the portal button for anyone who has payment history, regardless of tier.
+  // This lets legendary/lifetime users also access their receipts.
+  const showPortalButton = history.length > 0 || (!isLegendary && !isLifetime && !!sub);
 
   return (
     <div className="bg-card border-2 border-border rounded-sm p-6 mb-8">
@@ -131,19 +133,27 @@ export function SubscriptionPanel() {
       )}
 
       {subData !== undefined && !isPremium && (
-        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 p-4 bg-secondary/50 rounded-sm border border-border">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-sm bg-secondary flex items-center justify-center">
-              <Zap className="w-5 h-5 text-muted-foreground" />
+        <div className="flex flex-col gap-4 p-4 bg-secondary/50 rounded-sm border border-border">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-sm bg-secondary flex items-center justify-center">
+                <Zap className="w-5 h-5 text-muted-foreground" />
+              </div>
+              <div>
+                <p className="font-bold text-foreground">Free Plan</p>
+                <p className="text-sm text-muted-foreground">Upgrade to unlock daily emails, HD memes & more</p>
+              </div>
             </div>
-            <div>
-              <p className="font-bold text-foreground">Free Plan</p>
-              <p className="text-sm text-muted-foreground">Upgrade to unlock daily emails, HD memes & more</p>
-            </div>
+            <Link href="/pricing">
+              <Button size="sm">Go Legendary</Button>
+            </Link>
           </div>
-          <Link href="/pricing">
-            <Button size="sm">Go Legendary</Button>
-          </Link>
+          {history.length > 0 && (
+            <Button variant="outline" size="sm" onClick={openPortal} disabled={portalLoading} className="gap-2 self-start">
+              <ExternalLink className="w-4 h-4" />
+              {portalLoading ? "Opening..." : "View Charge History"}
+            </Button>
+          )}
         </div>
       )}
 
@@ -202,7 +212,7 @@ export function SubscriptionPanel() {
           {showPortalButton && (
             <Button variant="outline" size="sm" onClick={openPortal} disabled={portalLoading} className="gap-2">
               <ExternalLink className="w-4 h-4" />
-              {portalLoading ? "Opening..." : "Manage Subscription"}
+              {portalLoading ? "Opening..." : (!isLegendary && !isLifetime && !!sub ? "Manage Subscription" : "View Charge History")}
             </Button>
           )}
         </div>

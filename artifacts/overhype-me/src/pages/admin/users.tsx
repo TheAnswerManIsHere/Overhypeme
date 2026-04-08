@@ -4,7 +4,7 @@ import { AdminLayout } from "@/components/admin/AdminLayout";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { SpendInline } from "@/components/ui/SpendHistory";
-import { Shield, ShieldOff, Search, Pencil, X, Save, AlertCircle, CheckCircle, Crown, Star, UserPlus, MailCheck, Trash2, UserX } from "lucide-react";
+import { Shield, ShieldOff, Search, Pencil, X, Save, AlertCircle, CheckCircle, Crown, Star, UserPlus, MailCheck, Trash2, UserX, ExternalLink } from "lucide-react";
 
 interface User {
   id: string;
@@ -547,7 +547,22 @@ export default function AdminUsers() {
             </div>
             <div className="grid grid-cols-2 gap-3">
               <ReadOnlyField label="Joined" value={new Date(selectedUser.createdAt).toLocaleString()} />
-              <ReadOnlyField label="Stripe Customer ID" value={selectedUser.stripeCustomerId ?? ""} />
+              <div>
+                <p className="text-xs font-bold text-muted-foreground uppercase tracking-wide mb-1">Stripe Customer ID</p>
+                {selectedUser.stripeCustomerId ? (
+                  <a
+                    href={`https://dashboard.stripe.com/test/customers/${selectedUser.stripeCustomerId}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center gap-1.5 text-sm font-mono text-primary hover:underline truncate"
+                  >
+                    {selectedUser.stripeCustomerId}
+                    <ExternalLink className="w-3 h-3 shrink-0" />
+                  </a>
+                ) : (
+                  <p className="text-sm text-muted-foreground italic">—</p>
+                )}
+              </div>
             </div>
 
             {/* Display Name */}
