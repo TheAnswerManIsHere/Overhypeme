@@ -1,4 +1,4 @@
-import { pgTable, varchar, boolean, timestamp } from "drizzle-orm/pg-core";
+import { pgTable, varchar, boolean, timestamp, primaryKey } from "drizzle-orm/pg-core";
 
 export const featureFlagsTable = pgTable("feature_flags", {
   key: varchar("key", { length: 100 }).primaryKey(),
@@ -15,7 +15,9 @@ export const tierFeaturePermissionsTable = pgTable("tier_feature_permissions", {
   featureKey: varchar("feature_key", { length: 100 }).notNull().references(() => featureFlagsTable.key, { onDelete: "cascade" }),
   enabled: boolean("enabled").notNull().default(false),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-});
+}, (t) => ({
+  pk: primaryKey({ columns: [t.tier, t.featureKey] }),
+}));
 
 export type TierFeaturePermission = typeof tierFeaturePermissionsTable.$inferSelect;
 export type InsertTierFeaturePermission = typeof tierFeaturePermissionsTable.$inferInsert;
