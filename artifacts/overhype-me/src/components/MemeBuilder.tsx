@@ -2054,7 +2054,7 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
                   </Button>
                   <Button
                     size="sm"
-                    onClick={() => { setStatus("idle"); setPermalinkSlug(null); setShowNudge(false); }}
+                    onClick={() => { setStatus("idle"); setPermalinkSlug(null); }}
                   >
                     Make Another
                   </Button>

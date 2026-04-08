@@ -89,11 +89,16 @@ export function WelcomeModal() {
     if (hasOpenedRef.current) return;
     if (SUPPRESSED_PATHS.some((p) => location.startsWith(p))) return;
     if (!shouldShowModal()) return;
-    // Don't re-open if user already skipped this browser session
-    try { if (sessionStorage.getItem("welcome_modal_skipped") === "1") return; } catch { /* ignore */ }
+    // Don't re-open if already shown or skipped this browser session
+    try {
+      if (sessionStorage.getItem("welcome_modal_skipped") === "1") return;
+      if (sessionStorage.getItem("welcome_modal_opened") === "1") return;
+    } catch { /* ignore */ }
     // Small delay so the page content renders first
     const t = setTimeout(() => {
       hasOpenedRef.current = true;
+      // Mark as opened immediately so re-mounts (after navigation) don't reopen
+      try { sessionStorage.setItem("welcome_modal_opened", "1"); } catch { /* ignore */ }
       setOpen(true);
     }, 600);
     return () => clearTimeout(t);
