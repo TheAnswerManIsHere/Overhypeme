@@ -111,6 +111,8 @@ const FAL_VIDEO_MODELS: { value: string; label: string }[] = [
   { value: "fal-ai/kling-video/v1.6/pro/image-to-video",         label: "Kling v1.6 Pro — 1080p" },
   { value: "fal-ai/kling-video/v1.6/standard/image-to-video",    label: "Kling v1.6 Standard — 720p" },
   // ── Seedance (ByteDance) ──────────────────────────────────────────────────
+  { value: "bytedance/seedance-2.0/image-to-video",              label: "Seedance 2.0 (ByteDance) — native audio" },
+  { value: "bytedance/seedance-2.0/fast/image-to-video",         label: "Seedance 2.0 Fast (ByteDance)" },
   { value: "fal-ai/bytedance/seedance/v1.5/pro/image-to-video",  label: "Seedance 1.5 Pro (ByteDance)" },
   // ── Google Veo ────────────────────────────────────────────────────────────
   { value: "fal-ai/veo3.1/image-to-video",                       label: "Veo 3.1 (Google) — top quality" },
@@ -153,6 +155,7 @@ const FAL_VIDEO_MODELS: { value: string; label: string }[] = [
 ];
 
 const FAL_VIDEO_DURATION: { value: string; label: string }[] = [
+  { value: "auto", label: "auto — model decides (Seedance 2.0 default)" },
   { value: "1",  label: "1 second" },
   { value: "2",  label: "2 seconds" },
   { value: "3",  label: "3 seconds" },
@@ -171,13 +174,14 @@ const FAL_VIDEO_DURATION: { value: string; label: string }[] = [
 ];
 
 const FAL_VIDEO_ASPECT_RATIO: { value: string; label: string }[] = [
-  { value: "auto", label: "auto — model decides (Grok default)" },
+  { value: "auto", label: "auto — model decides (Grok & Seedance 2.0 default)" },
   { value: "16:9", label: "16:9 — Widescreen" },
   { value: "9:16", label: "9:16 — Vertical / Portrait" },
   { value: "4:3",  label: "4:3 — Landscape standard" },
   { value: "3:4",  label: "3:4 — Portrait standard" },
-  { value: "3:2",  label: "3:2 — Landscape photo" },
-  { value: "2:3",  label: "2:3 — Portrait photo" },
+  { value: "3:2",  label: "3:2 — Landscape photo (Grok only)" },
+  { value: "2:3",  label: "2:3 — Portrait photo (Grok only)" },
+  { value: "21:9", label: "21:9 — Ultrawide cinematic (Seedance 2.0 only)" },
   { value: "1:1",  label: "1:1 — Square" },
 ];
 
@@ -944,7 +948,7 @@ export default function AdminConfig() {
                 storageKey="admin_section_config_video"
               >
                 <p className="text-sm text-muted-foreground -mt-3">
-                  Defaults for all video generation requests. Grok Imagine supports duration 1–15 s, 8 aspect ratios, and 480p / 720p resolution. Other models may clamp or ignore values they don't support.
+                  Defaults for all video generation requests. Grok Imagine: duration 1–15 s, 8 aspect ratios, 480p/720p. Seedance 2.0: duration auto/4–15 s, 7 aspect ratios (incl. 21:9 ultrawide), 480p/720p, native audio. Other models may clamp or ignore values they don't support.
                 </p>
 
                 <div className="space-y-4">

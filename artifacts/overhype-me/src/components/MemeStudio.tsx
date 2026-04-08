@@ -168,6 +168,8 @@ const FAL_VIDEO_MODELS_ADMIN: { value: string; label: string }[] = [
   { value: "fal-ai/kling-video/v1.6/pro/image-to-video",         label: "Kling v1.6 Pro — 1080p" },
   { value: "fal-ai/kling-video/v1.6/standard/image-to-video",    label: "Kling v1.6 Standard — 720p" },
   // Seedance
+  { value: "bytedance/seedance-2.0/image-to-video",              label: "Seedance 2.0 (ByteDance) — native audio" },
+  { value: "bytedance/seedance-2.0/fast/image-to-video",         label: "Seedance 2.0 Fast (ByteDance)" },
   { value: "fal-ai/bytedance/seedance/v1.5/pro/image-to-video",  label: "Seedance 1.5 Pro (ByteDance)" },
   // Google Veo
   { value: "fal-ai/veo3.1/image-to-video",                       label: "Veo 3.1 (Google) — top quality" },
@@ -246,6 +248,19 @@ function getModelParamSpec(model: string): ModelParamSpec {
       cfgScale: { min: 0, max: 1, step: 0.05, default: 0.5 },
       negativePrompt: true,
       seed: true,
+    };
+  }
+
+  // ── Seedance 2.0 (Pro + Fast) ───────────────────────────────────────────────
+  // API: duration string enum auto/4–15, aspect auto/21:9/16:9/4:3/1:1/3:4/9:16,
+  //      resolution 480p/720p, generate_audio true by default, seed supported.
+  if (model.includes("seedance-2.0")) {
+    return {
+      duration: ["auto", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15"],
+      aspectRatio: ["auto", "21:9", "16:9", "4:3", "1:1", "3:4", "9:16"],
+      resolution: ["480p", "720p"],
+      seed: true,
+      generateAudio: true,
     };
   }
 
@@ -532,18 +547,25 @@ function VideoTab({ factId, factText, pexelsImages, aiMemeImages, initialImageDa
   // ── Admin controls ─────────────────────────────────────────────────────────
   const [selectedModel, setSelectedModel] = useState(FAL_VIDEO_MODELS_ADMIN[0]!.value);
 
-  // Initialise selectedModel from the saved admin config value so MemeStudio
-  // reflects whatever the admin config panel has set as the global default.
+  // Initialise selectedModel + global defaults from admin config so MemeStudio
+  // reflects whatever the admin config panel has set as the global defaults.
   useEffect(() => {
     if (!isAdmin) return;
     fetch("/api/admin/config", { credentials: "include" })
       .then(r => r.ok ? r.json() : null)
       .then((rows: Array<{ key: string; value: string }> | null) => {
         if (!rows) return;
-        const row = rows.find(r => r.key === "video_model");
-        if (row?.value && FAL_VIDEO_MODELS_ADMIN.some(m => m.value === row.value)) {
-          setSelectedModel(row.value);
+        const get = (k: string) => rows.find(r => r.key === k)?.value ?? "";
+        const cfgModel    = get("video_model");
+        const cfgDuration = get("video_duration");
+        const cfgAR       = get("video_aspect_ratio");
+        const cfgRes      = get("video_resolution");
+        if (cfgModel && FAL_VIDEO_MODELS_ADMIN.some(m => m.value === cfgModel)) {
+          setSelectedModel(cfgModel);
         }
+        if (cfgDuration) setAdminConfigDuration(cfgDuration);
+        if (cfgAR)       setAdminConfigAspectRatio(cfgAR);
+        if (cfgRes)      setAdminConfigResolution(cfgRes);
       })
       .catch(() => {});
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -551,6 +573,11 @@ function VideoTab({ factId, factText, pexelsImages, aiMemeImages, initialImageDa
 
   const [motionPrompt, setMotionPrompt] = useState("");
   const [isVideoPrivate, setIsVideoPrivate] = useState(false);
+
+  // Admin config panel defaults (seeded from /api/admin/config on load)
+  const [adminConfigDuration, setAdminConfigDuration] = useState("5");
+  const [adminConfigAspectRatio, setAdminConfigAspectRatio] = useState("auto");
+  const [adminConfigResolution, setAdminConfigResolution] = useState("720p");
 
   // Admin per-model params (reset when model changes)
   const [adminDuration, setAdminDuration] = useState("5");
@@ -628,17 +655,44 @@ function VideoTab({ factId, factText, pexelsImages, aiMemeImages, initialImageDa
     };
   }, []);
 
-  // Reset per-model params when the model changes
+  // Reset per-model params when the model changes.
+  // Duration / aspect ratio / resolution are initialised from the global admin
+  // config values (fetched on mount) if those values are valid for the selected
+  // model. This way the override screen reflects the admin config panel defaults
+  // rather than always falling back to the spec's first option.
   useEffect(() => {
     if (!isAdmin) return;
     const spec = getModelParamSpec(selectedModel);
-    setAdminDuration(spec.duration?.[0] ?? "5");
-    setAdminDurationInt(spec.durationRange?.default ?? 8);
-    setAdminAspectRatio(spec.aspectRatio?.[0] ?? "16:9");
+
+    // Duration: prefer the admin config value when valid for this model
+    if (spec.duration) {
+      const cfgDur = adminConfigDuration;
+      setAdminDuration(spec.duration.includes(cfgDur) ? cfgDur : (spec.duration[0] ?? "5"));
+    } else if (spec.durationRange) {
+      const num = parseInt(adminConfigDuration, 10);
+      const clamped = !isNaN(num)
+        ? Math.max(spec.durationRange.min, Math.min(spec.durationRange.max, num))
+        : spec.durationRange.default;
+      setAdminDurationInt(clamped);
+    }
+
+    // Aspect ratio: prefer the admin config value when valid for this model
+    if (spec.aspectRatio) {
+      const cfgAR = adminConfigAspectRatio;
+      setAdminAspectRatio(spec.aspectRatio.includes(cfgAR) ? cfgAR : (spec.aspectRatio[0] ?? "16:9"));
+    }
+
+    // Resolution: prefer the admin config value when valid for this model
+    if (spec.resolution) {
+      const cfgRes = adminConfigResolution;
+      setAdminResolution(spec.resolution.includes(cfgRes) ? cfgRes : (spec.resolution[0] ?? ""));
+    } else {
+      setAdminResolution("");
+    }
+
     setAdminCfgScale(spec.cfgScale?.default ?? 0.5);
     setAdminNegativePrompt("");
     setAdminSeed("");
-    setAdminResolution(spec.resolution?.[0] ?? "");
     setAdminLoop(false);
     setAdminGenerateAudio(true);
     setAdminAutoFix(false);
@@ -656,6 +710,10 @@ function VideoTab({ factId, factText, pexelsImages, aiMemeImages, initialImageDa
     setAdminGenerateAudioSwitch(false);
     setAdminGenerateMultiClipSwitch(false);
     setAdminThinkingType(spec.thinkingType?.[0] ?? "auto");
+  // adminConfigDuration/AR/Resolution are intentionally NOT deps — they're used
+  // as initial values when the model changes, not reactive inputs. Adding them
+  // would cause a reset every time the user edits a config field.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedModel, isAdmin]);
 
   const goToStep3 = useCallback(() => {
