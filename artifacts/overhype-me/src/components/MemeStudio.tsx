@@ -561,7 +561,7 @@ function VideoTab({ factId, factText, pexelsImages, aiMemeImages, initialImageDa
   const [adminGenerateMultiClipSwitch, setAdminGenerateMultiClipSwitch] = useState(false);
   const [adminThinkingType, setAdminThinkingType] = useState("auto");
 
-  const selectedStyle = videoStyles.find((s) => s.id === selectedStyleId) ?? videoStyles[0]!;
+  const selectedStyle = videoStyles.find((s) => s.id === selectedStyleId) ?? videoStyles[0];
 
   // ── Load prefetched Pexels photos on mount ────────────────────────────────
   useEffect(() => {
@@ -1037,7 +1037,7 @@ function VideoTab({ factId, factText, pexelsImages, aiMemeImages, initialImageDa
             style={{ background: "#ff6b35", borderColor: "#ff6b35" }}
           >
             <Sparkles className="w-4 h-4" />
-            Continue with {selectedStyle.label}
+            Continue with {selectedStyle?.label ?? "…"}
           </Button>
         </div>
 
@@ -1084,10 +1084,12 @@ function VideoTab({ factId, factText, pexelsImages, aiMemeImages, initialImageDa
               <div
                 className="w-full h-8 mb-1.5 rounded-sm"
                 style={{
-                  background: `linear-gradient(135deg, ${selectedStyle.gradientFrom} 0%, ${selectedStyle.gradientTo} 100%)`,
+                  background: selectedStyle
+                    ? `linear-gradient(135deg, ${selectedStyle.gradientFrom} 0%, ${selectedStyle.gradientTo} 100%)`
+                    : undefined,
                 }}
               />
-              <p className="text-xs font-bold text-foreground">{selectedStyle.label}</p>
+              <p className="text-xs font-bold text-foreground">{selectedStyle?.label ?? ""}</p>
             </div>
           </div>
 
@@ -1100,7 +1102,7 @@ function VideoTab({ factId, factText, pexelsImages, aiMemeImages, initialImageDa
             const checkboxRowCls = "flex items-center gap-1.5";
 
             // Build fal preview input (mirrors backend buildFalInput + voiceover cue logic)
-            const basePrompt = motionPrompt.trim() || `(${selectedStyle.label} style motion prompt)`;
+            const basePrompt = motionPrompt.trim() || `(${selectedStyle?.label ?? "cinematic"} style motion prompt)`;
             const effectivePrompt = factText.trim()
               ? `${basePrompt}\nVoiceover should say, "${factText.trim()}"`
               : basePrompt;
