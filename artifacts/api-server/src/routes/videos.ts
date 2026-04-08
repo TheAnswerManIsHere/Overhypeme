@@ -12,6 +12,7 @@ import { computeVideoCost, resolveVideoDimensions } from "../lib/costComputation
 import { checkBudget, recordCost } from "../lib/budgetGate.js";
 import { requireAdmin } from "./admin.js";
 import { isAdminById } from "./auth.js";
+import { hasFeature } from "../lib/tierFeatures.js";
 import { getSessionId, getSession } from "../lib/auth.js";
 import { ObjectStorageService } from "../lib/objectStorage.js";
 
@@ -701,6 +702,7 @@ router.post("/videos/generate", async (req, res) => {
   const sid = getSessionId(req);
   const session = sid ? await getSession(sid) : null;
   let isAdmin = false;
+  let userTier = "free";
   if (req.isAuthenticated()) {
     if (isAdminById(req.user.id) || session?.isAdmin === true) {
       isAdmin = true;
@@ -711,6 +713,25 @@ router.post("/videos/generate", async (req, res) => {
         .where(and(eq(usersTable.id, req.user.id), eq(usersTable.isActive, true)))
         .limit(1);
       isAdmin = deriveUserRole(dbUser?.membershipTier, dbUser?.isAdmin) === "admin";
+      userTier = dbUser?.membershipTier ?? "free";
+    }
+  }
+
+  // Video generation requires authentication
+  if (!req.isAuthenticated()) {
+    res.status(401).json({ error: "Login required to generate videos." });
+    return;
+  }
+
+  // Video generation is a Legendary-tier feature; admins are always exempt
+  if (!isAdmin) {
+    const allowed = await hasFeature(userTier, "video_generation");
+    if (!allowed) {
+      res.status(403).json({
+        error: "VIDEO_GENERATION_LOCKED",
+        message: "Video generation is a Legendary feature. Upgrade your membership to unlock it.",
+      });
+      return;
     }
   }
 
