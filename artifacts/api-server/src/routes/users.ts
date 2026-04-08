@@ -3,6 +3,7 @@ import { db } from "@workspace/db";
 import {
   factsTable, hashtagsTable, factHashtagsTable,
   ratingsTable, searchHistoryTable, usersTable, emailVerificationTokensTable, memesTable,
+  userMonthlySpendTable,
 } from "@workspace/db/schema";
 import { eq, desc, inArray, and, sql, isNull } from "drizzle-orm";
 import { RecordSearchBody } from "@workspace/api-zod";
@@ -476,6 +477,41 @@ router.post("/users/me/complete-onboarding", async (req: Request, res: Response)
   }
 
   res.json({ success: true });
+});
+
+// GET /api/users/me/spend — authenticated user's monthly spend history
+router.get("/users/me/spend", async (req: Request, res: Response) => {
+  if (!req.user) { res.status(401).json({ error: "Authentication required" }); return; }
+
+  const rows = await db
+    .select()
+    .from(userMonthlySpendTable)
+    .where(eq(userMonthlySpendTable.userId, req.user.id))
+    .orderBy(desc(userMonthlySpendTable.year), desc(userMonthlySpendTable.month));
+
+  const now = new Date();
+  const currentYear = now.getUTCFullYear();
+  const currentMonth = now.getUTCMonth() + 1;
+
+  const history = rows.map((r) => ({
+    year: r.year,
+    month: r.month,
+    totalUsd: parseFloat(r.totalUsd),
+    closedAt: r.closedAt ?? null,
+    isCurrent: r.year === currentYear && r.month === currentMonth,
+  }));
+
+  const lifetimeTotal = rows.reduce((sum, r) => sum + parseFloat(r.totalUsd), 0);
+
+  const current = history.find((h) => h.isCurrent) ?? {
+    year: currentYear,
+    month: currentMonth,
+    totalUsd: 0,
+    closedAt: null,
+    isCurrent: true,
+  };
+
+  res.json({ current, history, lifetimeTotal });
 });
 
 export default router;

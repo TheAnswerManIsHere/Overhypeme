@@ -3,6 +3,7 @@ import { PronounEditor } from "@/components/ui/PronounEditor";
 import { AdminLayout } from "@/components/admin/AdminLayout";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
+import { SpendInline } from "@/components/ui/SpendHistory";
 import { Shield, ShieldOff, Search, Pencil, X, Save, AlertCircle, CheckCircle, Crown, Star, UserPlus, MailCheck, Trash2, UserX } from "lucide-react";
 
 interface User {
@@ -570,6 +571,12 @@ export default function AdminUsers() {
                   placeholder="user@example.com"
                 />
               </div>
+            </div>
+
+            {/* Generation Costs */}
+            <div>
+              <FieldLabel>Generation Costs (This Month)</FieldLabel>
+              <SpendInline userId={selectedUser.id} isAdmin />
             </div>
 
             {/* Membership tier */}

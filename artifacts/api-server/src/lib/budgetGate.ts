@@ -7,7 +7,7 @@
  */
 
 import { db } from "@workspace/db";
-import { userGenerationCostsTable, usersTable } from "@workspace/db/schema";
+import { userGenerationCostsTable, userMonthlySpendTable, usersTable } from "@workspace/db/schema";
 import { eq, sql } from "drizzle-orm";
 import { getConfigString, getConfigFloat } from "./adminConfig";
 
@@ -115,10 +115,16 @@ export async function checkBudget(
 /**
  * Record a completed generation job's cost into the ledger.
  * Call this AFTER successful fal.ai submission — not before.
+ * Also increments the user_monthly_spend rollup for the current calendar month.
  * Never throws.
  */
 export async function recordCost(params: RecordCostParams): Promise<void> {
+  const now = new Date();
+  const year = now.getUTCFullYear();
+  const month = now.getUTCMonth() + 1; // 1-12
+
   try {
+    // Insert detailed ledger row
     await db.insert(userGenerationCostsTable).values({
       userId: params.userId,
       jobType: params.jobType,
@@ -130,7 +136,29 @@ export async function recordCost(params: RecordCostParams): Promise<void> {
       jobReferenceId: params.jobReferenceId ?? null,
     });
   } catch (err) {
-    // Non-fatal — cost tracking failure should not block the user from getting their result
-    console.warn("[budgetGate] recordCost failed (non-fatal):", err);
+    console.warn("[budgetGate] recordCost (ledger) failed (non-fatal):", err);
+  }
+
+  try {
+    // Atomically increment (or create) the monthly rollup row
+    await db
+      .insert(userMonthlySpendTable)
+      .values({
+        userId: params.userId,
+        year,
+        month,
+        totalUsd: String(params.computedCostUsd),
+        createdAt: now,
+        updatedAt: now,
+      })
+      .onConflictDoUpdate({
+        target: [userMonthlySpendTable.userId, userMonthlySpendTable.year, userMonthlySpendTable.month],
+        set: {
+          totalUsd: sql`${userMonthlySpendTable.totalUsd} + EXCLUDED.total_usd`,
+          updatedAt: sql`now()`,
+        },
+      });
+  } catch (err) {
+    console.warn("[budgetGate] recordCost (monthly rollup) failed (non-fatal):", err);
   }
 }
