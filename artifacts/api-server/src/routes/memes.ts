@@ -889,7 +889,7 @@ router.post("/memes/ai/:factId/generate", requirePremium, async (req: Request, r
   if (isNaN(factId)) { res.status(400).json({ error: "Invalid factId" }); return; }
 
   const body = req.body as Record<string, unknown>;
-  const scope = body["scope"] === "abstract" ? "abstract" : "gendered";
+  const isAbstractScope = body["scope"] === "abstract";
 
   // Optional reference image path for reference-based generation.
   // If the caller provides *any* referenceImagePath value, validate strictly — no silent fallback.
@@ -935,6 +935,22 @@ router.post("/memes/ai/:factId/generate", requirePremium, async (req: Request, r
 
   const existingPrompts = fact.aiScenePrompts as import("../lib/aiMemePipeline").AiScenePrompts | undefined;
   const existingImages = fact.aiMemeImages as AiMemeImages | undefined;
+
+  // Derive the requesting user's gender from their pronouns so we only generate
+  // for their gender slot instead of all three simultaneously.
+  // he/* → male, she/* → female, anything else → neutral.
+  let userGender: "male" | "female" | "neutral" = "neutral";
+  if (req.user?.id) {
+    const [userRow] = await db
+      .select({ pronouns: usersTable.pronouns })
+      .from(usersTable)
+      .where(eq(usersTable.id, req.user.id))
+      .limit(1);
+    const pronounSubj = (userRow?.pronouns ?? "they/them").toLowerCase().trim().split("/")[0] ?? "they";
+    if (pronounSubj === "he") userGender = "male";
+    else if (pronounSubj === "she") userGender = "female";
+    else userGender = "neutral";
+  }
 
   // Resolve optional style suffix from styleId
   const rawStyleId = body["styleId"];
@@ -1022,7 +1038,12 @@ router.post("/memes/ai/:factId/generate", requirePremium, async (req: Request, r
   } else {
     try {
       await generateAiMemeBackgrounds(fact.id, fact.text, {
-        scope,
+        // For abstract facts, use the "abstract" scope (generates 1 neutral image).
+        // For action facts, only generate for the requesting user's gender (1 image)
+        // instead of all three genders simultaneously.
+        ...(isAbstractScope
+          ? { scope: "abstract" as const }
+          : { targetGender: userGender, targetIndex: 0 }),
         existingPrompts,
         existingImages,
         userId: req.user?.id,
