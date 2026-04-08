@@ -90,8 +90,8 @@ router.patch("/admin/users/:id", requireAdmin, async (req: Request, res: Respons
   if (typeof body["captchaVerified"] === "boolean") updates.captchaVerified = body["captchaVerified"];
   if (body["displayName"] !== undefined) updates.displayName = body["displayName"] ? String(body["displayName"]) : null;
   if (body["email"] !== undefined) updates.email = body["email"] ? String(body["email"]).trim().toLowerCase() : null;
-  if (body["membershipTier"] !== undefined && ["free", "premium", "legendary"].includes(String(body["membershipTier"])))
-    updates.membershipTier = String(body["membershipTier"]) as "free" | "premium" | "legendary";
+  if (body["membershipTier"] !== undefined && ["unregistered", "registered", "legendary"].includes(String(body["membershipTier"])))
+    updates.membershipTier = String(body["membershipTier"]) as "unregistered" | "registered" | "legendary";
   if (body["pronouns"] !== undefined) {
     const p = String(body["pronouns"]).trim();
     if (p.length > 0 && p.length <= 80) updates.pronouns = p;
@@ -139,9 +139,9 @@ router.post("/admin/users", requireAdmin, async (req: Request, res: Response) =>
   const email = body["email"] ? String(body["email"]).trim().toLowerCase() : null;
   const password = body["password"] ? String(body["password"]) : null;
   const displayName = body["displayName"] ? String(body["displayName"]).trim() : null;
-  const membershipTier = ["free", "premium", "legendary"].includes(String(body["membershipTier"] ?? "free"))
-    ? (String(body["membershipTier"] ?? "free") as "free" | "premium" | "legendary")
-    : "free";
+  const membershipTier = ["unregistered", "registered", "legendary"].includes(String(body["membershipTier"] ?? "unregistered"))
+    ? (String(body["membershipTier"] ?? "unregistered") as "unregistered" | "registered" | "legendary")
+    : "unregistered";
   const isAdmin = body["isAdmin"] === true;
 
   if (!email) {
@@ -1079,7 +1079,7 @@ router.get("/admin/stripe/summary", requireAdmin, async (_req: Request, res: Res
       db
         .select({ cnt: sql<number>`count(*)::int` })
         .from(usersTable)
-        .where(and(eq(usersTable.membershipTier, "premium"), eq(usersTable.isActive, true))),
+        .where(and(eq(usersTable.membershipTier, "registered"), eq(usersTable.isActive, true))),
       db
         .select({ cnt: sql<number>`count(*)::int` })
         .from(usersTable)

@@ -80,7 +80,7 @@ export async function checkBudget(
       .where(eq(usersTable.id, userId))
       .limit(1);
 
-    const tier = user?.membershipTier ?? "free";
+    const tier = user?.membershipTier ?? "unregistered";
     const isAdmin = user?.isAdmin ?? false;
 
     // Admins are exempt from budget limits
@@ -88,7 +88,7 @@ export async function checkBudget(
       return { allowed: true, currentSpend: 0, limit: Infinity, remainingBudget: Infinity };
     }
 
-    const limit = (tier === "legendary" || tier === "premium") ? legendLimitStr : freeLimitStr;
+    const limit = (tier === "legendary" || tier === "registered") ? legendLimitStr : freeLimitStr;
     const periodStart = getPeriodStart(budgetPeriod as string);
 
     // Sum spend for this user in the current period

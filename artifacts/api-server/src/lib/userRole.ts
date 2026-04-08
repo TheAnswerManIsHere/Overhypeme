@@ -1,8 +1,8 @@
-export type UserRole = "free" | "premium" | "legendary" | "admin";
+export type UserRole = "unregistered" | "registered" | "legendary" | "admin";
 
 /**
  * Derives the effective user role from a user's membershipTier and isAdmin flag.
- * Admin takes precedence over all tiers. Legendary > premium > free.
+ * Admin takes precedence over all tiers. Legendary > registered > unregistered.
  */
 export function deriveUserRole(
   membershipTier: string | null | undefined,
@@ -10,14 +10,14 @@ export function deriveUserRole(
 ): UserRole {
   if (isAdmin) return "admin";
   if (membershipTier === "legendary") return "legendary";
-  if (membershipTier === "premium") return "premium";
-  return "free";
+  if (membershipTier === "registered") return "registered";
+  return "unregistered";
 }
 
 /**
- * Returns true if the role has at least premium-level access.
- * Legendary is a superset of premium.
+ * Returns true if the role has at least registered-level access.
+ * Legendary is a superset of registered.
  */
 export function isAtLeastPremium(role: UserRole): boolean {
-  return role === "premium" || role === "legendary" || role === "admin";
+  return role === "registered" || role === "legendary" || role === "admin";
 }

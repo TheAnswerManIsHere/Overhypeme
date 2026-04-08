@@ -1,7 +1,7 @@
 import { sql } from "drizzle-orm";
 import { boolean, index, jsonb, pgTable, pgEnum, serial, text, timestamp, varchar } from "drizzle-orm/pg-core";
 
-export const membershipTierEnum = pgEnum("membership_tier", ["free", "premium", "legendary"]);
+export const membershipTierEnum = pgEnum("membership_tier", ["unregistered", "registered", "legendary"]);
 
 // (IMPORTANT) This table is mandatory for Replit Auth, don't drop it.
 export const sessionsTable = pgTable(
@@ -31,7 +31,7 @@ export const usersTable = pgTable("users", {
   isAdmin: boolean("is_admin").notNull().default(false),
   isActive: boolean("is_active").notNull().default(true),
   stripeCustomerId: varchar("stripe_customer_id").unique(),
-  membershipTier: membershipTierEnum("membership_tier").notNull().default("free"),
+  membershipTier: membershipTierEnum("membership_tier").notNull().default("unregistered"),
   avatarStyle: varchar("avatar_style", { length: 30 }).default("bottts"),
   avatarSource: varchar("avatar_source", { length: 10 }).default("avatar"),
   pronouns: varchar("pronouns", { length: 80 }).default("he/him"),

@@ -334,8 +334,8 @@ router.post("/facts/:factId/comments", async (req: Request, res: Response) => {
 
   const [commentUser] = await db.select({ membershipTier: usersTable.membershipTier }).from(usersTable).where(eq(usersTable.id, req.user.id)).limit(1);
   const userDbTier = commentUser?.membershipTier === "legendary" ? "legendary"
-    : commentUser?.membershipTier === "premium" ? "premium"
-    : "free";
+    : commentUser?.membershipTier === "registered" ? "registered"
+    : "unregistered";
   const captchaBypass = await hasFeature(userDbTier, "comment_captcha_bypass");
 
   if (!captchaBypass) {

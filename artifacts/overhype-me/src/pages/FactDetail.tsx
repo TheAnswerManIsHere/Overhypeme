@@ -193,7 +193,7 @@ export default function FactDetail() {
   const isVideoRoute = params?.sub === "video";
   const [, setLocation] = useLocation();
   const { isAuthenticated, role, user } = useAuth();
-  const isPremium = role === "premium" || role === "admin";
+  const isPremium = role === "registered" || role === "admin";
   const { rateFact, addComment } = useAppMutations();
 
   const { data: fact, isLoading: factLoading, error: factError } = useGetFact(factId, {

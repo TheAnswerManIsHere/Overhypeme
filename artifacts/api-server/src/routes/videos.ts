@@ -702,7 +702,7 @@ router.post("/videos/generate", async (req, res) => {
   const sid = getSessionId(req);
   const session = sid ? await getSession(sid) : null;
   let isAdmin = false;
-  let userTier = "free";
+  let userTier = "unregistered";
   if (req.isAuthenticated()) {
     if (isAdminById(req.user.id) || session?.isAdmin === true) {
       isAdmin = true;
@@ -713,7 +713,7 @@ router.post("/videos/generate", async (req, res) => {
         .where(and(eq(usersTable.id, req.user.id), eq(usersTable.isActive, true)))
         .limit(1);
       isAdmin = deriveUserRole(dbUser?.membershipTier, dbUser?.isAdmin) === "admin";
-      userTier = dbUser?.membershipTier ?? "free";
+      userTier = dbUser?.membershipTier ?? "unregistered";
     }
   }
 

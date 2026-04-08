@@ -19,7 +19,7 @@ async function findUserByStripeCustomerId(customerId: string) {
   return user ?? null;
 }
 
-async function setMembershipTier(userId: string, tier: "free" | "premium" | "legendary") {
+async function setMembershipTier(userId: string, tier: "unregistered" | "registered" | "legendary") {
   await db.update(usersTable).set({ membershipTier: tier }).where(eq(usersTable.id, userId));
 }
 
@@ -158,7 +158,7 @@ async function handleSubscriptionActivated(
 
   const plan = interval === "year" ? "annual" : "monthly";
   await upsertSubscription(user.id, customerId, sub, plan);
-  await setMembershipTier(user.id, "premium");
+  await setMembershipTier(user.id, "registered");
   await recordHistory(user.id, "subscription_activated", {
     plan,
     stripeSubscriptionId: sub.id,
@@ -181,7 +181,7 @@ async function handleSubscriptionCancelled(customerId: string, sub: Stripe.Subsc
     return;
   }
 
-  await setMembershipTier(user.id, "free");
+  await setMembershipTier(user.id, "unregistered");
   await recordHistory(user.id, "subscription_cancelled", { stripeSubscriptionId: sub.id });
   logger.info({ userId: user.id }, "User downgraded to free after subscription cancel");
 }

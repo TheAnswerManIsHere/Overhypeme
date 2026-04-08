@@ -24,7 +24,7 @@ interface AppSubscription {
 interface SubscriptionResponse {
   subscription: Subscription | null;
   appSubscription: AppSubscription | null;
-  membershipTier: "free" | "premium" | "legendary";
+  membershipTier: "unregistered" | "registered" | "legendary";
   isLifetime: boolean;
 }
 
@@ -93,10 +93,10 @@ export function SubscriptionPanel() {
 
   const sub = subData?.subscription ?? null;
   const appSub = subData?.appSubscription ?? null;
-  const membershipTier = subData?.membershipTier ?? "free";
+  const membershipTier = subData?.membershipTier ?? "unregistered";
   const isLifetime = subData?.isLifetime ?? false;
   const isLegendary = membershipTier === "legendary";
-  const isPremium = membershipTier === "premium" || isLegendary;
+  const isPremium = membershipTier === "registered" || isLegendary;
 
   const periodEnd = sub?.current_period_end
     ? new Date(sub.current_period_end * 1000).toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" })

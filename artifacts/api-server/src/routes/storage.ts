@@ -131,7 +131,7 @@ router.post(
       .where(eq(usersTable.id, req.user.id))
       .limit(1);
 
-    if (userRow?.membershipTier !== "premium" && userRow?.membershipTier !== "legendary") {
+    if (userRow?.membershipTier !== "registered" && userRow?.membershipTier !== "legendary") {
       res.status(403).json({ error: "Custom photo upload is a Legendary feature" });
       return;
     }

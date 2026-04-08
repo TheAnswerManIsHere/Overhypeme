@@ -575,9 +575,9 @@ Return ONLY valid JSON:
       label: "tier_feature_permissions seed: video_generation",
       ddl: `INSERT INTO tier_feature_permissions (tier, feature_key, enabled)
             VALUES
-              ('free',      'video_generation', false),
-              ('premium',   'video_generation', false),
-              ('legendary', 'video_generation', true)
+              ('unregistered', 'video_generation', false),
+              ('registered',   'video_generation', false),
+              ('legendary',    'video_generation', true)
             ON CONFLICT (tier, feature_key) DO UPDATE SET enabled = EXCLUDED.enabled`,
     },
   ];

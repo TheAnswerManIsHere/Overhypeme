@@ -72,7 +72,7 @@ router.get("/stripe/subscription", async (req: Request, res: Response) => {
       isLifetime: hasLifetime,
     });
   } catch {
-    res.json({ subscription: null, appSubscription: null, membershipTier: "free", isLifetime: false });
+    res.json({ subscription: null, appSubscription: null, membershipTier: "unregistered", isLifetime: false });
   }
 });
 
@@ -145,12 +145,12 @@ router.get("/stripe/payment-history", async (req: Request, res: Response) => {
 
 // GET /stripe/membership — current user's membership tier
 router.get("/stripe/membership", async (req: Request, res: Response) => {
-  if (!req.isAuthenticated()) { res.status(401).json({ tier: "free" }); return; }
+  if (!req.isAuthenticated()) { res.status(401).json({ tier: "unregistered" }); return; }
   try {
     const tier = await stripeStorage.getMembershipTierForUser(req.user.id);
     res.json({ tier });
   } catch {
-    res.json({ tier: "free" });
+    res.json({ tier: "unregistered" });
   }
 });
 

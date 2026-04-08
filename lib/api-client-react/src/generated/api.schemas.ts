@@ -14,8 +14,8 @@ export type AuthUserMembershipTier =
   | null;
 
 export const AuthUserMembershipTier = {
-  free: "free",
-  premium: "premium",
+  unregistered: "unregistered",
+  registered: "registered",
 } as const;
 
 export type AuthUserUserRole =
@@ -23,8 +23,8 @@ export type AuthUserUserRole =
   | null;
 
 export const AuthUserUserRole = {
-  free: "free",
-  premium: "premium",
+  unregistered: "unregistered",
+  registered: "registered",
   admin: "admin",
 } as const;
 
