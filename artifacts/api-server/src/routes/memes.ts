@@ -18,6 +18,7 @@ import { getRandomStockPhoto, getPhotoById } from "../lib/pexelsClient";
 import { renderPersonalized } from "../lib/renderCanonical";
 import { compositeAiMeme } from "../lib/aiMemeCompositor";
 import { generateAiMemeBackgrounds, generateAiMemeBackgroundFromReference, isUserAtImageLimit, buildFalInputPreview } from "../lib/aiMemePipeline";
+import { BudgetExceededError } from "../lib/budgetGate";
 import type { AiMemeImages } from "../lib/aiMemePipeline";
 import { requirePremium } from "../middlewares/premiumMiddleware";
 import { hasFeature } from "../lib/tierFeatures";
@@ -1003,7 +1004,15 @@ router.post("/memes/ai/:factId/generate", requirePremium, async (req: Request, r
         paramsOverride,
       });
     } catch (err) {
-      if (isNoFaceError(err)) {
+      if (err instanceof BudgetExceededError) {
+        res.status(429).json({
+          error: "BUDGET_EXCEEDED",
+          currentSpend: err.budgetStatus.currentSpend,
+          limit: err.budgetStatus.limit,
+          remainingBudget: err.budgetStatus.remainingBudget,
+          upgradePath: err.upgradePath,
+        });
+      } else if (isNoFaceError(err)) {
         res.status(422).json({ error: extractGenerationError(err), noFaceDetected: true });
       } else {
         res.status(500).json({ error: extractGenerationError(err) });
@@ -1022,7 +1031,17 @@ router.post("/memes/ai/:factId/generate", requirePremium, async (req: Request, r
         paramsOverride,
       });
     } catch (err) {
-      res.status(500).json({ error: extractGenerationError(err) });
+      if (err instanceof BudgetExceededError) {
+        res.status(429).json({
+          error: "BUDGET_EXCEEDED",
+          currentSpend: err.budgetStatus.currentSpend,
+          limit: err.budgetStatus.limit,
+          remainingBudget: err.budgetStatus.remainingBudget,
+          upgradePath: err.upgradePath,
+        });
+      } else {
+        res.status(500).json({ error: extractGenerationError(err) });
+      }
       return;
     }
   }

@@ -18,6 +18,9 @@ import { db } from "@workspace/db";
 import { factsTable, userAiImagesTable } from "@workspace/db/schema";
 import { eq, sql } from "drizzle-orm";
 import { getConfigInt, getConfigString } from "./adminConfig";
+import { getCachedPrice, type CachedPrice } from "./falPricing";
+import { computeImageCost, resolveImageSizePx } from "./costComputation";
+import { checkBudget, recordCost, BudgetExceededError } from "./budgetGate";
 
 const DEFAULT_REFERENCE_FRAME_PROMPT =
   "The person's face, facial structure, skin tone, eye shape, hair, and all distinguishing features must be preserved with photorealistic accuracy and remain visually identical to the reference — this is the highest priority. Do not alter, stylize, or idealize the person's facial features in any way. The person should be placed into the scene as described. The scene and environment should be stylized as described, but the person's face and likeness must remain untouched by any stylization. No text, words, or letters anywhere in the image.";
@@ -169,6 +172,7 @@ async function generateAndStoreImage(
   prompt: string,
   modelOverride?: string,
   paramsOverride?: Record<string, string>,
+  userId?: string,
 ): Promise<string> {
   configureFal();
 
@@ -213,6 +217,23 @@ async function generateAndStoreImage(
   // Apply admin per-request overrides last — they win over all config values
   applyParamOverrides(input, paramsOverride);
 
+  // ── Budget gate ──────────────────────────────────────────────────────────────
+  let cachedImgPrice: CachedPrice | null = null;
+  if (userId) {
+    try {
+      const price = await getCachedPrice(model);
+      cachedImgPrice = price;
+      const { width, height } = resolveImageSizePx(imageSize);
+      const { costUsd } = computeImageCost({ widthPx: width, heightPx: height, count: 1 }, price);
+      const budget = await checkBudget(userId, costUsd);
+      if (!budget.allowed) throw new BudgetExceededError(budget);
+    } catch (err) {
+      if (err instanceof BudgetExceededError) throw err;
+      // Pricing unavailable — fail open, log and continue
+      console.warn(`[aiMemePipeline] Budget gate skipped for model ${model}:`, err instanceof Error ? err.message : err);
+    }
+  }
+
   const result = await fal.subscribe(model, {
     input,
     logs: false,
@@ -242,6 +263,22 @@ async function generateAndStoreImage(
     });
   } catch (aclErr) {
     console.warn(`[aiMemePipeline] Failed to set ACL for ${storedPath}:`, aclErr);
+  }
+
+  // Record cost AFTER successful storage (spec: not before)
+  if (userId && cachedImgPrice) {
+    const { width, height } = resolveImageSizePx(imageSize);
+    const { billingUnits, costUsd } = computeImageCost({ widthPx: width, heightPx: height, count: 1 }, cachedImgPrice);
+    await recordCost({
+      userId,
+      jobType: "image",
+      endpointId: model,
+      unitPriceAtCreation: cachedImgPrice.unitPrice,
+      billingUnits,
+      computedCostUsd: costUsd,
+      pricingFetchedAt: cachedImgPrice.fetchedAt,
+      jobReferenceId: storedPath,
+    });
   }
 
   return storedPath;
@@ -294,6 +331,7 @@ async function generateAndStoreImageFromReference(
   referenceBuffer: Buffer,
   modelOverride?: string,
   paramsOverride?: Record<string, string>,
+  userId?: string,
 ): Promise<string> {
   configureFal();
 
@@ -304,7 +342,7 @@ async function generateAndStoreImageFromReference(
   // fall through to standard generation — don't upload the reference photo or pass a face param.
   if (!isReferenceCapableModel(model)) {
     console.log(`[aiMemePipeline] model "${model}" is not reference-capable — falling back to standard generation`);
-    return generateAndStoreImage(factId, gender, uniqueKey, prompt, model, paramsOverride);
+    return generateAndStoreImage(factId, gender, uniqueKey, prompt, model, paramsOverride, userId);
   }
 
   // Upload reference photo to fal.ai transient storage so we have a URL to pass
@@ -360,6 +398,22 @@ async function generateAndStoreImageFromReference(
   // Apply admin per-request overrides last — they win over all config values
   applyParamOverrides(input, paramsOverride);
 
+  // ── Budget gate ──────────────────────────────────────────────────────────────
+  let cachedRefPrice: CachedPrice | null = null;
+  if (userId) {
+    try {
+      const price = await getCachedPrice(model);
+      cachedRefPrice = price;
+      const { width, height } = resolveImageSizePx(imageSize);
+      const { costUsd } = computeImageCost({ widthPx: width, heightPx: height, count: 1 }, price);
+      const budget = await checkBudget(userId, costUsd);
+      if (!budget.allowed) throw new BudgetExceededError(budget);
+    } catch (err) {
+      if (err instanceof BudgetExceededError) throw err;
+      console.warn(`[aiMemePipeline] Budget gate skipped for ref model ${model}:`, err instanceof Error ? err.message : err);
+    }
+  }
+
   const result = await fal.subscribe(model, {
     input,
     logs: false,
@@ -387,6 +441,22 @@ async function generateAndStoreImageFromReference(
     });
   } catch (aclErr) {
     console.warn(`[aiMemePipeline] Failed to set ACL for ${storedPath}:`, aclErr);
+  }
+
+  // Record cost AFTER successful storage
+  if (userId && cachedRefPrice) {
+    const { width, height } = resolveImageSizePx(imageSize);
+    const { billingUnits, costUsd } = computeImageCost({ widthPx: width, heightPx: height, count: 1 }, cachedRefPrice);
+    await recordCost({
+      userId,
+      jobType: "image",
+      endpointId: model,
+      unitPriceAtCreation: cachedRefPrice.unitPrice,
+      billingUnits,
+      computedCostUsd: costUsd,
+      pricingFetchedAt: cachedRefPrice.fetchedAt,
+      jobReferenceId: storedPath,
+    });
   }
 
   return storedPath;
@@ -437,7 +507,7 @@ export async function generateAiMemeBackgroundFromReference(
     const basePrompt = prompts[targetGender];
     const prompt = options?.styleSuffix ? `${basePrompt.trim()} ${options.styleSuffix}` : basePrompt;
     console.log(`[aiMemePipeline] Generating reference-based image for fact ${factId}, gender=${targetGender}${options?.modelOverride ? ` (model override: ${options.modelOverride})` : ""}`);
-    const storedPath = await generateAndStoreImageFromReference(factId, targetGender, uniqueKey, prompt, referenceBuffer, options?.modelOverride, options?.paramsOverride);
+    const storedPath = await generateAndStoreImageFromReference(factId, targetGender, uniqueKey, prompt, referenceBuffer, options?.modelOverride, options?.paramsOverride, options?.userId);
 
     // Track only in user_ai_images (type='reference') — NOT in the shared aiMemeImages on the fact
     try {
@@ -556,7 +626,7 @@ export async function generateAiMemeBackgrounds(
       const basePrompt = prompts[gender];
       const prompt = options?.styleSuffix ? `${basePrompt.trim()} ${options.styleSuffix}` : basePrompt;
       console.log(`[aiMemePipeline] Generating image for fact ${factId}, gender=${gender}, key=${uniqueKey}${options?.modelOverride ? ` (model override: ${options.modelOverride})` : ""}`);
-      const storedPath = await generateAndStoreImage(factId, gender, uniqueKey, prompt, options?.modelOverride, options?.paramsOverride);
+      const storedPath = await generateAndStoreImage(factId, gender, uniqueKey, prompt, options?.modelOverride, options?.paramsOverride, userId);
       // Prepend newest image at the front — gallery always shows newest-first
       result[gender].unshift(storedPath);
       // Trim per-fact gallery to max per gender

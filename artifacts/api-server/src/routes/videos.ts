@@ -7,6 +7,9 @@ import { videoStylesTable } from "@workspace/db/schema";
 import { eq, and, gte, desc, or, asc } from "drizzle-orm";
 import { deriveUserRole } from "../lib/userRole.js";
 import { getConfigString } from "../lib/adminConfig.js";
+import { getCachedPrice } from "../lib/falPricing.js";
+import { computeVideoCost, resolveVideoDimensions } from "../lib/costComputation.js";
+import { checkBudget, recordCost } from "../lib/budgetGate.js";
 import { requireAdmin } from "./admin.js";
 import { isAdminById } from "./auth.js";
 import { getSessionId, getSession } from "../lib/auth.js";
@@ -864,6 +867,47 @@ router.post("/videos/generate", async (req, res) => {
     falInput: { ...falInput, image_url: (falInput.image_url as string)?.slice(0, 120) },
   });
 
+  // ── Budget gate ──────────────────────────────────────────────────────────────
+  const authenticatedUserId = req.isAuthenticated()
+    ? (req.user as { id?: string })?.id ?? null
+    : null;
+  let estimatedCostUsd = 0;
+  let cachedPriceForRecording: Awaited<ReturnType<typeof getCachedPrice>> | null = null;
+
+  if (authenticatedUserId) {
+    try {
+      const price = await getCachedPrice(videoModel);
+      cachedPriceForRecording = price;
+
+      const durationSec = videoDuration === "auto" || !videoDuration.trim()
+        ? 5
+        : parseInt(videoDuration, 10) || 5;
+      const dims = resolveVideoDimensions(videoAspectRatio, videoResolution);
+      const DEFAULT_FPS = 24;
+      const { costUsd } = computeVideoCost(
+        { width: dims.width, height: dims.height, fps: DEFAULT_FPS, durationSeconds: durationSec },
+        price,
+      );
+      estimatedCostUsd = costUsd;
+
+      const budget = await checkBudget(authenticatedUserId, costUsd);
+      if (!budget.allowed) {
+        await db.update(videoJobsTable).set({ status: "failed" }).where(eq(videoJobsTable.id, job.id));
+        res.status(429).json({
+          error: "BUDGET_EXCEEDED",
+          currentSpend: budget.currentSpend,
+          limit: budget.limit,
+          remainingBudget: budget.remainingBudget,
+          upgradePath: "/upgrade",
+        });
+        return;
+      }
+    } catch (priceErr) {
+      // Price unavailable — fail open, log warning, continue without budget gate
+      console.warn("[videos/generate] Budget gate skipped (pricing unavailable):", priceErr instanceof Error ? priceErr.message : priceErr);
+    }
+  }
+
   try {
     const result = await fal.subscribe(
       videoModel,
@@ -910,6 +954,28 @@ router.post("/videos/generate", async (req, res) => {
         status: videoJobsTable.status,
         createdAt: videoJobsTable.createdAt,
       });
+
+    // Record cost AFTER successful job completion (spec: not before, to avoid phantom costs)
+    if (authenticatedUserId && cachedPriceForRecording && estimatedCostUsd > 0) {
+      const durationSec = videoDuration === "auto" || !videoDuration.trim()
+        ? 5
+        : parseInt(videoDuration, 10) || 5;
+      const dims = resolveVideoDimensions(videoAspectRatio, videoResolution);
+      const { billingUnits } = computeVideoCost(
+        { width: dims.width, height: dims.height, fps: 24, durationSeconds: durationSec },
+        cachedPriceForRecording,
+      );
+      await recordCost({
+        userId: authenticatedUserId,
+        jobType: "video",
+        endpointId: videoModel,
+        unitPriceAtCreation: cachedPriceForRecording.unitPrice,
+        billingUnits,
+        computedCostUsd: estimatedCostUsd,
+        pricingFetchedAt: cachedPriceForRecording.fetchedAt,
+        jobReferenceId: result.requestId ?? updated?.id?.toString() ?? null,
+      });
+    }
 
     res.json({
       videoUrl,

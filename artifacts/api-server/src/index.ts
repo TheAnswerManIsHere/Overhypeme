@@ -2,6 +2,8 @@ import app from "./app";
 import { logger } from "./lib/logger";
 import { ensureSchema, backfillWilsonScores } from "./lib/seed";
 import { backfillEmbeddings } from "./lib/embeddings";
+import { refreshPricingCache } from "./lib/falPricing";
+import { getConfigString, getConfigInt } from "./lib/adminConfig";
 
 const rawPort = process.env["PORT"];
 
@@ -83,6 +85,47 @@ function scheduleDailyFactJob() {
 }
 
 scheduleDailyFactJob();
+
+// ── fal.ai Pricing Cache ────────────────────────────────────────────────────
+async function initPricingCache(): Promise<void> {
+  try {
+    const endpointsJson = await getConfigString(
+      "fal_active_endpoints",
+      '["fal-ai/flux-pro/v1.1","xai/grok-imagine-video/image-to-video"]',
+    );
+    let endpointIds: string[] = [];
+    try {
+      endpointIds = JSON.parse(endpointsJson);
+    } catch {
+      logger.warn({ endpointsJson }, "fal_active_endpoints config is not valid JSON — using defaults");
+      endpointIds = ["fal-ai/flux-pro/v1.1", "xai/grok-imagine-video/image-to-video"];
+    }
+    logger.info({ count: endpointIds.length }, "Refreshing fal.ai pricing cache");
+    await refreshPricingCache(endpointIds);
+    logger.info("fal.ai pricing cache warmed");
+
+    // Schedule hourly refresh from config (default 1h = 3600000ms)
+    const intervalMs = await getConfigInt("pricing_refresh_interval_ms", 3_600_000);
+    setInterval(async () => {
+      try {
+        const idsJson = await getConfigString(
+          "fal_active_endpoints",
+          JSON.stringify(endpointIds),
+        );
+        const ids: string[] = JSON.parse(idsJson);
+        await refreshPricingCache(ids);
+        logger.info({ count: ids.length }, "fal.ai pricing cache refreshed");
+      } catch (err) {
+        logger.warn({ err }, "fal.ai pricing cache refresh failed");
+      }
+    }, intervalMs).unref();
+  } catch (err) {
+    logger.warn({ err }, "fal.ai pricing cache init failed — continuing without pre-warmed cache");
+  }
+}
+
+// Non-blocking: warm pricing cache in background, don't block server start
+initPricingCache().catch((err: unknown) => logger.warn({ err }, "Pricing cache init error"));
 
 app.listen(port, (err) => {
   if (err) {
