@@ -79,6 +79,8 @@ interface BuildFalInputOptions {
   adminGenerateAudioSwitch?: boolean;
   adminGenerateMultiClipSwitch?: boolean;
   adminThinkingType?: string;
+  // Context fields (used by specific models)
+  endUserId?: string | null;
 }
 
 function normalizeDurationSuffix(raw: string): string {
@@ -191,6 +193,10 @@ function buildFalInput(opts: BuildFalInputOptions): Record<string, unknown> {
     // Resolution — config default for all; admin per-request override wins
     const s2Res = (isAdmin && adminResolution?.trim()) || videoResolution;
     if (s2Res === "480p" || s2Res === "720p") falInput.resolution = s2Res;
+
+    // ByteDance ToS requires end_user_id in every Seedance 2.0 payload for B2B verification.
+    // Pass the authenticated user's ID, or null for unauthenticated requests.
+    falInput.end_user_id = opts.endUserId ?? null;
 
     // Admin per-request overrides
     if (isAdmin) {
@@ -826,6 +832,7 @@ router.post("/videos/generate", async (req, res) => {
     videoAspectRatio,
     videoResolution,
     isAdmin,
+    endUserId: req.isAuthenticated() ? (req.user as { id?: string })?.id ?? null : null,
     // Core params
     adminCfgScale: parsed.data.adminCfgScale,
     adminNegativePrompt: parsed.data.adminNegativePrompt,
@@ -920,7 +927,10 @@ router.post("/videos/generate", async (req, res) => {
     const errDetails: Record<string, unknown> = { message };
     if (err && typeof err === "object") {
       for (const key of Object.keys(err)) {
-        try { errDetails[key] = (err as Record<string, unknown>)[key]; } catch { /* skip */ }
+        try {
+          const val = (err as Record<string, unknown>)[key];
+          errDetails[key] = val;
+        } catch { /* skip */ }
       }
       // Also try cause, status, body which may be non-enumerable
       for (const key of ["status", "body", "cause", "statusCode", "detail"]) {
@@ -929,7 +939,12 @@ router.post("/videos/generate", async (req, res) => {
     }
     console.error("[videos/generate] fal.subscribe failed", {
       model: videoModel,
-      ...errDetails,
+      message: errDetails.message,
+      status: errDetails.status,
+      requestId: errDetails.requestId,
+      // Fully serialize nested objects so pydantic detail arrays are readable
+      body: errDetails.body !== undefined ? JSON.stringify(errDetails.body) : undefined,
+      cause: errDetails.cause !== undefined ? JSON.stringify(errDetails.cause) : undefined,
     });
     res
       .status(500)
