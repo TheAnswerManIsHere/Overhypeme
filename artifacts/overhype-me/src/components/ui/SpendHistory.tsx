@@ -10,7 +10,6 @@ interface SpendMonth {
   year: number;
   month: number;
   totalUsd: number;
-  closedAt: string | null;
   isCurrent: boolean;
 }
 
@@ -79,9 +78,6 @@ function SpendHistoryModal({ data, onClose }: SpendHistoryModalProps) {
                   <th className="text-right px-4 py-2.5 text-xs font-bold uppercase tracking-wider text-muted-foreground">
                     Spend
                   </th>
-                  <th className="text-right px-4 py-2.5 text-xs font-bold uppercase tracking-wider text-muted-foreground">
-                    Status
-                  </th>
                 </tr>
               </thead>
               <tbody>
@@ -95,17 +91,6 @@ function SpendHistoryModal({ data, onClose }: SpendHistoryModalProps) {
                     </td>
                     <td className="px-4 py-3 text-right font-mono font-semibold text-foreground">
                       {fmt(row.totalUsd)}
-                    </td>
-                    <td className="px-4 py-3 text-right">
-                      {row.closedAt ? (
-                        <span className="text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-sm bg-muted text-muted-foreground border border-border">
-                          Closed
-                        </span>
-                      ) : (
-                        <span className="text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-sm bg-green-500/10 text-green-500 border border-green-500/30">
-                          Open
-                        </span>
-                      )}
                     </td>
                   </tr>
                 ))}

@@ -4,9 +4,6 @@ import { ensureSchema, backfillWilsonScores } from "./lib/seed";
 import { backfillEmbeddings } from "./lib/embeddings";
 import { refreshPricingCache } from "./lib/falPricing";
 import { getConfigString, getConfigInt } from "./lib/adminConfig";
-import { db } from "@workspace/db";
-import { userMonthlySpendTable } from "@workspace/db/schema";
-import { and, eq, isNull, sql } from "drizzle-orm";
 
 const rawPort = process.env["PORT"];
 
@@ -130,40 +127,6 @@ async function initPricingCache(): Promise<void> {
 // Non-blocking: warm pricing cache in background, don't block server start
 initPricingCache().catch((err: unknown) => logger.warn({ err }, "Pricing cache init error"));
 
-// ── Monthly Spend End-of-Month Closer ─────────────────────────────────────────
-// Runs every minute. When it's the last day of the month at 23:59 UTC, it marks
-// all open user_monthly_spend rows for that month as closed.
-let lastMonthClosed = -1; // tracks the month we already closed to avoid duplicates
-setInterval(async () => {
-  try {
-    const now = new Date();
-    const utcHour = now.getUTCHours();
-    const utcMinute = now.getUTCMinutes();
-    const year = now.getUTCFullYear();
-    const month = now.getUTCMonth() + 1; // 1-12
-
-    // Check if it's the last day of the month
-    const nextDay = new Date(Date.UTC(year, now.getUTCMonth(), now.getUTCDate() + 1));
-    const isLastDayOfMonth = nextDay.getUTCDate() === 1;
-
-    if (isLastDayOfMonth && utcHour === 23 && utcMinute === 59 && lastMonthClosed !== month) {
-      lastMonthClosed = month;
-      const result = await db
-        .update(userMonthlySpendTable)
-        .set({ closedAt: now, updatedAt: now })
-        .where(
-          and(
-            eq(userMonthlySpendTable.year, year),
-            eq(userMonthlySpendTable.month, month),
-            isNull(userMonthlySpendTable.closedAt),
-          ),
-        );
-      logger.info({ year, month, rows: result.rowCount }, "Monthly spend rows closed for end of month");
-    }
-  } catch (err) {
-    logger.warn({ err }, "Monthly spend closer error (non-fatal)");
-  }
-}, 60_000).unref();
 
 app.listen(port, (err) => {
   if (err) {
