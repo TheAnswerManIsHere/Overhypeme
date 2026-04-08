@@ -575,7 +575,7 @@ export default function AdminUsers() {
 
             {/* Generation Costs */}
             <div>
-              <FieldLabel>Generation Costs (This Month)</FieldLabel>
+              <FieldLabel>Generation Costs</FieldLabel>
               <SpendInline userId={selectedUser.id} isAdmin />
             </div>
 
