@@ -11,7 +11,7 @@ export type AuthUserUserRole =
   | null;
 
 export const AuthUserUserRole = {
-  free: "free",
-  premium: "premium",
+  unregistered: "unregistered",
+  registered: "registered",
   admin: "admin",
 } as const;

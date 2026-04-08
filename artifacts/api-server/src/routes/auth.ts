@@ -153,7 +153,7 @@ router.get("/auth/user", async (req: Request, res: Response) => {
   const session = sid ? await getSession(sid) : null;
   const isRealAdmin = !!(dbUser?.isAdmin || isAdminById(req.user.id));
   const adminModeActive = isRealAdmin && !session?.adminModeDisabled;
-  const effectiveTier = dbUser?.membershipTier ?? req.user.membershipTier ?? "free";
+  const effectiveTier = dbUser?.membershipTier ?? req.user.membershipTier ?? "unregistered";
   const userRole = deriveUserRole(effectiveTier, adminModeActive);
 
   res.json(

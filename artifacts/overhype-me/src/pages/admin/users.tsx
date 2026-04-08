@@ -13,7 +13,7 @@ interface User {
   profileImageUrl: string | null;
   isAdmin: boolean;
   captchaVerified: boolean;
-  membershipTier: "free" | "premium";
+  membershipTier: "unregistered" | "registered" | "legendary";
   pronouns: string | null;
   stripeCustomerId: string | null;
   emailVerifiedAt: string | null;
@@ -59,7 +59,7 @@ interface AddUserForm {
   email: string;
   password: string;
   displayName: string;
-  membershipTier: "free" | "premium";
+  membershipTier: "unregistered" | "registered";
   isAdmin: boolean;
 }
 
@@ -67,7 +67,7 @@ const EMPTY_ADD_FORM: AddUserForm = {
   email: "",
   password: "",
   displayName: "",
-  membershipTier: "free",
+  membershipTier: "unregistered",
   isAdmin: false,
 };
 
@@ -375,20 +375,20 @@ export default function AdminUsers() {
             <div>
               <FieldLabel>Membership Tier</FieldLabel>
               <div className="flex gap-2">
-                {(["free", "premium"] as const).map((tier) => (
+                {(["unregistered", "registered"] as const).map((tier) => (
                   <button
                     key={tier}
                     onClick={() => setAddForm((f) => ({ ...f, membershipTier: tier }))}
                     className={`flex-1 flex items-center justify-center gap-2 h-9 rounded-sm border text-sm font-medium transition-colors ${
                       addForm.membershipTier === tier
-                        ? tier === "premium"
+                        ? tier === "registered"
                           ? "border-yellow-500 bg-yellow-500/10 text-yellow-500"
                           : "border-primary bg-primary/10 text-primary"
                         : "border-border text-muted-foreground hover:border-primary/40"
                     }`}
                   >
-                    {tier === "premium" ? <Crown className="w-3.5 h-3.5" /> : <Star className="w-3.5 h-3.5" />}
-                    {tier === "premium" ? "Legendary" : "Free"}
+                    {tier === "registered" ? <Crown className="w-3.5 h-3.5" /> : <Star className="w-3.5 h-3.5" />}
+                    {tier === "registered" ? "Registered" : "Unregistered"}
                   </button>
                 ))}
               </div>
@@ -485,7 +485,7 @@ export default function AdminUsers() {
                       <div className="flex items-center gap-1.5">
                         <span className="text-sm font-medium text-foreground truncate">{displayName(user)}</span>
                         {user.isAdmin && <Shield className="w-3 h-3 text-primary shrink-0" title="Admin" />}
-                        {user.membershipTier === "premium" && <Crown className="w-3 h-3 text-yellow-500 shrink-0" title="Legendary" />}
+                        {(user.membershipTier === "registered" || user.membershipTier === "legendary") && <Crown className="w-3 h-3 text-yellow-500 shrink-0" title={user.membershipTier === "legendary" ? "Legendary" : "Registered"} />}
                       </div>
                       <div className="text-xs text-muted-foreground truncate">
                         {user.email ?? user.id.slice(0, 16) + "…"}
@@ -598,20 +598,20 @@ export default function AdminUsers() {
             <div>
               <FieldLabel>Membership Tier</FieldLabel>
               <div className="flex gap-2">
-                {(["free", "premium"] as const).map((tier) => (
+                {(["unregistered", "registered"] as const).map((tier) => (
                   <button
                     key={tier}
                     onClick={() => setDraft((d) => d ? { ...d, membershipTier: tier } : d)}
                     className={`flex-1 flex items-center justify-center gap-2 h-9 rounded-sm border text-sm font-medium transition-colors ${
                       draft.membershipTier === tier
-                        ? tier === "premium"
+                        ? tier === "registered"
                           ? "border-yellow-500 bg-yellow-500/10 text-yellow-500"
                           : "border-primary bg-primary/10 text-primary"
                         : "border-border text-muted-foreground hover:border-primary/40"
                     }`}
                   >
-                    {tier === "premium" ? <Crown className="w-3.5 h-3.5" /> : <Star className="w-3.5 h-3.5" />}
-                    {tier === "premium" ? "Legendary" : "Free"}
+                    {tier === "registered" ? <Crown className="w-3.5 h-3.5" /> : <Star className="w-3.5 h-3.5" />}
+                    {tier === "registered" ? "Registered" : "Unregistered"}
                   </button>
                 ))}
               </div>

@@ -3,7 +3,7 @@ import type { AuthUser } from "@workspace/api-client-react";
 
 export type { AuthUser };
 
-export type UserRole = "anonymous" | "free" | "premium" | "admin";
+export type UserRole = "anonymous" | "unregistered" | "registered" | "legendary" | "admin";
 
 interface AuthState {
   user: AuthUser | null;
@@ -17,9 +17,9 @@ interface AuthState {
 function deriveRole(user: AuthUser | null): UserRole {
   if (!user) return "anonymous";
   if (user.userRole === "admin") return "admin";
-  if (user.userRole === "premium") return "premium";
-  if (user.membershipTier === "premium") return "premium";
-  return "free";
+  if (user.userRole === "legendary" || user.membershipTier === "legendary") return "legendary";
+  if (user.userRole === "registered" || user.membershipTier === "registered") return "registered";
+  return "unregistered";
 }
 
 export function useAuth(): AuthState {

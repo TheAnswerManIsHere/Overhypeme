@@ -29,11 +29,11 @@ interface CellState {
 
 const TIER_LABELS: Record<string, string> = {
   unregistered: "Unregistered",
-  free: "Registered (Free)",
+  registered: "Registered",
   legendary: "Legendary",
 };
 
-const TIER_ORDER = ["unregistered", "free", "legendary"];
+const TIER_ORDER = ["unregistered", "registered", "legendary"];
 
 export default function AdminFeatures() {
   const [loading, setLoading] = useState(true);
