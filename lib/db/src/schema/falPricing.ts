@@ -1,4 +1,4 @@
-import { pgTable, text, numeric, timestamp, serial, integer, index, unique } from "drizzle-orm/pg-core";
+import { pgTable, text, numeric, timestamp, serial, index } from "drizzle-orm/pg-core";
 
 export const falPricingCacheTable = pgTable("fal_pricing_cache", {
   endpointId: text("endpoint_id").primaryKey(),
@@ -29,24 +29,3 @@ export const userGenerationCostsTable = pgTable("user_generation_costs", {
 
 export type UserGenerationCost = typeof userGenerationCostsTable.$inferSelect;
 export type InsertUserGenerationCost = typeof userGenerationCostsTable.$inferInsert;
-
-/**
- * Monthly spend rollup per user.
- * One row per (userId, year, month). totalUsd is incremented atomically on each generation.
- * closedAt is set at 23:59 on the last day of the month by a scheduled job.
- */
-export const userMonthlySpendTable = pgTable("user_monthly_spend", {
-  id: serial("id").primaryKey(),
-  userId: text("user_id").notNull(),
-  year: integer("year").notNull(),
-  month: integer("month").notNull(),
-  totalUsd: numeric("total_usd", { precision: 12, scale: 4 }).notNull().default("0"),
-  closedAt: timestamp("closed_at", { withTimezone: true }),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-}, (table) => [
-  unique("user_monthly_spend_user_year_month_key").on(table.userId, table.year, table.month),
-  index("user_monthly_spend_user_idx").on(table.userId),
-]);
-
-export type UserMonthlySpend = typeof userMonthlySpendTable.$inferSelect;

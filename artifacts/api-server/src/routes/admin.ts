@@ -1,6 +1,6 @@
 import { Router, type IRouter, type Request, type Response, type NextFunction } from "express";
 import { db, usersTable } from "@workspace/db";
-import { factsTable, commentsTable, adminConfigTable, videoStylesTable, featureFlagsTable, tierFeaturePermissionsTable, userMonthlySpendTable } from "@workspace/db/schema";
+import { factsTable, commentsTable, adminConfigTable, videoStylesTable, featureFlagsTable, tierFeaturePermissionsTable, userGenerationCostsTable } from "@workspace/db/schema";
 import { eq, desc, count, ilike, sql, and, or, inArray, isNull, asc } from "drizzle-orm";
 import { getSessionId, getSession, updateSession } from "../lib/auth";
 import { isAdminById } from "./auth";
@@ -528,16 +528,27 @@ router.post("/admin/users/:id/verify-email", requireAdmin, async (req: Request, 
   res.json({ success: true, user: updated });
 });
 
-// GET /api/admin/users/:id/spend — monthly spend history for any user (admin only)
+// GET /api/admin/users/:id/spend — monthly spend history for any user (computed at request time)
 router.get("/admin/users/:id/spend", requireAdmin, async (req: Request, res: Response) => {
   const id = String(req.params["id"] ?? "");
   if (!id) { res.status(400).json({ error: "Invalid user id" }); return; }
 
   const rows = await db
-    .select()
-    .from(userMonthlySpendTable)
-    .where(eq(userMonthlySpendTable.userId, id))
-    .orderBy(desc(userMonthlySpendTable.year), desc(userMonthlySpendTable.month));
+    .select({
+      year: sql<number>`EXTRACT(YEAR FROM ${userGenerationCostsTable.createdAt} AT TIME ZONE 'UTC')::int`,
+      month: sql<number>`EXTRACT(MONTH FROM ${userGenerationCostsTable.createdAt} AT TIME ZONE 'UTC')::int`,
+      totalUsd: sql<string>`COALESCE(SUM(${userGenerationCostsTable.computedCostUsd}), 0)::text`,
+    })
+    .from(userGenerationCostsTable)
+    .where(eq(userGenerationCostsTable.userId, id))
+    .groupBy(
+      sql`EXTRACT(YEAR FROM ${userGenerationCostsTable.createdAt} AT TIME ZONE 'UTC')`,
+      sql`EXTRACT(MONTH FROM ${userGenerationCostsTable.createdAt} AT TIME ZONE 'UTC')`,
+    )
+    .orderBy(
+      desc(sql`EXTRACT(YEAR FROM ${userGenerationCostsTable.createdAt} AT TIME ZONE 'UTC')`),
+      desc(sql`EXTRACT(MONTH FROM ${userGenerationCostsTable.createdAt} AT TIME ZONE 'UTC')`),
+    );
 
   const now = new Date();
   const currentYear = now.getUTCFullYear();
@@ -547,7 +558,6 @@ router.get("/admin/users/:id/spend", requireAdmin, async (req: Request, res: Res
     year: r.year,
     month: r.month,
     totalUsd: parseFloat(r.totalUsd),
-    closedAt: r.closedAt ?? null,
     isCurrent: r.year === currentYear && r.month === currentMonth,
   }));
 
@@ -557,7 +567,6 @@ router.get("/admin/users/:id/spend", requireAdmin, async (req: Request, res: Res
     year: currentYear,
     month: currentMonth,
     totalUsd: 0,
-    closedAt: null,
     isCurrent: true,
   };
 
