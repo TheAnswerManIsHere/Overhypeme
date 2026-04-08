@@ -531,6 +531,24 @@ function VideoTab({ factId, factText, pexelsImages, aiMemeImages, initialImageDa
 
   // ── Admin controls ─────────────────────────────────────────────────────────
   const [selectedModel, setSelectedModel] = useState(FAL_VIDEO_MODELS_ADMIN[0]!.value);
+
+  // Initialise selectedModel from the saved admin config value so MemeStudio
+  // reflects whatever the admin config panel has set as the global default.
+  useEffect(() => {
+    if (!isAdmin) return;
+    fetch("/api/admin/config", { credentials: "include" })
+      .then(r => r.ok ? r.json() : null)
+      .then((rows: Array<{ key: string; value: string }> | null) => {
+        if (!rows) return;
+        const row = rows.find(r => r.key === "video_model");
+        if (row?.value && FAL_VIDEO_MODELS_ADMIN.some(m => m.value === row.value)) {
+          setSelectedModel(row.value);
+        }
+      })
+      .catch(() => {});
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAdmin]);
+
   const [motionPrompt, setMotionPrompt] = useState("");
   const [isVideoPrivate, setIsVideoPrivate] = useState(false);
 

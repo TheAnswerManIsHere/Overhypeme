@@ -99,6 +99,8 @@ const OPENAI_CHAT_MODELS: { value: string; label: string }[] = [
 ];
 
 const FAL_VIDEO_MODELS: { value: string; label: string }[] = [
+  // ── xAI Grok ─────────────────────────────────────────────────────────────
+  { value: "xai/grok-imagine-video/image-to-video",              label: "Grok Imagine Video (xAI)" },
   // ── Kling (Kuaishou) ──────────────────────────────────────────────────────
   { value: "fal-ai/kling-video/v3/pro/image-to-video",           label: "Kling v3 Pro — 1080p, audio" },
   { value: "fal-ai/kling-video/v2.6/pro/image-to-video",         label: "Kling v2.6 Pro" },
