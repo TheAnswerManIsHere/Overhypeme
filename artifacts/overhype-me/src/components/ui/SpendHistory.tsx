@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { TrendingUp, DollarSign, Loader2 } from "lucide-react";
+import { TrendingUp, DollarSign, Loader2, ChevronDown, ChevronUp } from "lucide-react";
 
 const MONTH_NAMES = [
   "January", "February", "March", "April", "May", "June",
@@ -172,6 +172,80 @@ export function SpendWidget({ endpoint, label = "Generation Costs" }: SpendWidge
           </div>
         ) : null}
       </div>
+    </div>
+  );
+}
+
+// ── SpendCollapsible — compact summary with expandable history ────────────────
+
+interface SpendCollapsibleProps {
+  endpoint: string;
+}
+
+export function SpendCollapsible({ endpoint }: SpendCollapsibleProps) {
+  const [data, setData] = useState<SpendData | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [expanded, setExpanded] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch(endpoint, { credentials: "include" })
+      .then((res) => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return res.json();
+      })
+      .then((d) => { if (!cancelled) setData(d as SpendData); })
+      .catch((err) => { if (!cancelled) setError(err instanceof Error ? err.message : "Failed to load"); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [endpoint]);
+
+  return (
+    <div>
+      {/* Compact summary row */}
+      <div className="flex items-center gap-3 px-3 py-2.5 rounded-sm border border-border bg-muted/20">
+        <DollarSign className="w-4 h-4 text-muted-foreground shrink-0" />
+        <div className="flex-1 min-w-0">
+          <div className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">This Month</div>
+          {loading ? (
+            <div className="flex items-center gap-1.5 mt-0.5">
+              <Loader2 className="w-3 h-3 animate-spin text-muted-foreground" />
+              <span className="text-xs text-muted-foreground">Loading…</span>
+            </div>
+          ) : error ? (
+            <div className="text-xs text-destructive mt-0.5">{error}</div>
+          ) : data ? (
+            <div className="flex items-baseline gap-1.5 mt-0.5">
+              <span className="font-mono font-semibold text-sm text-foreground">
+                {fmt(data.current.totalUsd)}
+              </span>
+              <span className="text-[10px] text-muted-foreground">
+                {MONTH_NAMES[(data.current.month ?? 1) - 1]}
+              </span>
+            </div>
+          ) : null}
+        </div>
+        {!loading && !error && data && data.history.length > 0 && (
+          <button
+            onClick={() => setExpanded((v) => !v)}
+            className="flex items-center gap-1 text-xs text-primary hover:underline font-medium shrink-0"
+          >
+            {expanded ? (
+              <>Hide history <ChevronUp className="w-3.5 h-3.5" /></>
+            ) : (
+              <>See history <ChevronDown className="w-3.5 h-3.5" /></>
+            )}
+          </button>
+        )}
+      </div>
+
+      {/* Expanded history table */}
+      {expanded && data && (
+        <div className="mt-2">
+          <SpendBreakdown endpoint={endpoint} />
+        </div>
+      )}
     </div>
   );
 }

@@ -5,7 +5,7 @@ import { Layout } from "@/components/layout/Layout";
 import { FactCard } from "@/components/facts/FactCard";
 import { Button } from "@/components/ui/Button";
 import { SubscriptionPanel } from "@/components/SubscriptionPanel";
-import { SpendBreakdown } from "@/components/ui/SpendHistory";
+import { SpendCollapsible } from "@/components/ui/SpendHistory";
 import { ShieldAlert, LogOut, Clock, ThumbsUp, FileText, Hash, Star, X, Pencil, Check, Mail, AlertTriangle, CheckCircle, Camera, Loader2, Images, ImageIcon, UserCircle2, Image, Eraser, TrendingUp } from "lucide-react";
 import { ImageCard } from "@/components/ui/ImageCard";
 import { Link, useLocation } from "wouter";
@@ -735,7 +735,7 @@ export default function Profile() {
             <TrendingUp className="w-4 h-4 text-primary" />
             <h2 className="font-display text-base uppercase tracking-wide text-foreground">AI Generation Costs</h2>
           </div>
-          <SpendBreakdown endpoint="/api/users/me/spend" />
+          <SpendCollapsible endpoint="/api/users/me/spend" />
         </div>
 
         {/* Favorite Hashtags */}
