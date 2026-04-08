@@ -443,9 +443,11 @@ Return ONLY valid JSON:
         ('video_model', 'xai/grok-imagine-video/image-to-video', 'text', 'Video Model',
          'AI model used for video generation (fal.ai or xAI Grok Imagine).', false),
         ('video_duration', '5', 'text', 'Video Duration (seconds)',
-         'Duration of generated videos. Kling supports "5" or "10".', false),
+         'Duration of generated videos in seconds. Grok Imagine supports 1–15 (default 6). Other models may snap to their own valid values.', false),
         ('video_aspect_ratio', '16:9', 'text', 'Video Aspect Ratio',
-         'Aspect ratio for generated videos. Kling supports 16:9, 9:16, and 1:1.', false)
+         'Aspect ratio for generated videos. Grok supports auto/16:9/4:3/3:2/1:1/2:3/3:4/9:16. Other models may restrict to a subset.', false),
+        ('video_resolution', '720p', 'text', 'Video Resolution',
+         'Output resolution for Grok Imagine videos. Supported values: 720p (default), 480p. Ignored by most other models.', false)
       ON CONFLICT (key) DO NOTHING`,
     },
     {

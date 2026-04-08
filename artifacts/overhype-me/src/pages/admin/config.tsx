@@ -153,14 +153,37 @@ const FAL_VIDEO_MODELS: { value: string; label: string }[] = [
 ];
 
 const FAL_VIDEO_DURATION: { value: string; label: string }[] = [
-  { value: "5",  label: "5 seconds (default)" },
+  { value: "1",  label: "1 second" },
+  { value: "2",  label: "2 seconds" },
+  { value: "3",  label: "3 seconds" },
+  { value: "4",  label: "4 seconds" },
+  { value: "5",  label: "5 seconds" },
+  { value: "6",  label: "6 seconds (Grok default)" },
+  { value: "7",  label: "7 seconds" },
+  { value: "8",  label: "8 seconds" },
+  { value: "9",  label: "9 seconds" },
   { value: "10", label: "10 seconds" },
+  { value: "11", label: "11 seconds" },
+  { value: "12", label: "12 seconds" },
+  { value: "13", label: "13 seconds" },
+  { value: "14", label: "14 seconds" },
+  { value: "15", label: "15 seconds (Grok max)" },
 ];
 
 const FAL_VIDEO_ASPECT_RATIO: { value: string; label: string }[] = [
-  { value: "16:9", label: "16:9 — Widescreen (default)" },
+  { value: "auto", label: "auto — model decides (Grok default)" },
+  { value: "16:9", label: "16:9 — Widescreen" },
   { value: "9:16", label: "9:16 — Vertical / Portrait" },
+  { value: "4:3",  label: "4:3 — Landscape standard" },
+  { value: "3:4",  label: "3:4 — Portrait standard" },
+  { value: "3:2",  label: "3:2 — Landscape photo" },
+  { value: "2:3",  label: "2:3 — Portrait photo" },
   { value: "1:1",  label: "1:1 — Square" },
+];
+
+const FAL_VIDEO_RESOLUTION: { value: string; label: string }[] = [
+  { value: "720p",  label: "720p — HD (Grok default)" },
+  { value: "480p",  label: "480p — SD, faster" },
 ];
 
 const FLOAT_TEXT_CONFIGS = new Set([
@@ -179,6 +202,7 @@ const SELECT_CONFIGS: Record<string, { value: string; label: string }[]> = {
   video_model:               FAL_VIDEO_MODELS,
   video_duration:            FAL_VIDEO_DURATION,
   video_aspect_ratio:        FAL_VIDEO_ASPECT_RATIO,
+  video_resolution:          FAL_VIDEO_RESOLUTION,
 };
 
 interface ParamDef { key: string }
@@ -247,7 +271,7 @@ const MODEL_CONFIG_KEYS = new Set([
   "ai_ref_pulid_true_cfg_scale", "ai_ref_pulid_start_step", "ai_pulid_composition_suffix",
   "ai_pulid_id_scale_pct",
   "ai_scene_prompt_model", "ai_scene_prompt_max_tokens", "ai_scene_prompt_temperature",
-  "video_model", "video_duration", "video_aspect_ratio", "video_prompt_system_prompt",
+  "video_model", "video_duration", "video_aspect_ratio", "video_resolution", "video_prompt_system_prompt",
 ]);
 
 // ── Shared context ────────────────────────────────────────────────────────────
@@ -916,17 +940,18 @@ export default function AdminConfig() {
               <CollapsibleSection
                 title="Video Generation"
                 icon={<Film className="w-4 h-4 text-muted-foreground" />}
-                description="fal.ai model and generation parameters for video creation."
+                description="fal.ai / xAI model and generation parameters for video creation."
                 storageKey="admin_section_config_video"
               >
                 <p className="text-sm text-muted-foreground -mt-3">
-                  fal.ai Kling model and generation parameters for video creation.
+                  Defaults for all video generation requests. Grok Imagine supports duration 1–15 s, 8 aspect ratios, and 480p / 720p resolution. Other models may clamp or ignore values they don't support.
                 </p>
 
                 <div className="space-y-4">
                   <ModelParamRow paramKey="video_model" />
                   <ModelParamRow paramKey="video_duration" />
                   <ModelParamRow paramKey="video_aspect_ratio" />
+                  <ModelParamRow paramKey="video_resolution" />
                   <ModelParamRow paramKey="video_prompt_system_prompt" />
                 </div>
               </CollapsibleSection>

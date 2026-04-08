@@ -54,6 +54,7 @@ interface BuildFalInputOptions {
   motionPrompt: string;
   videoDuration: string;
   videoAspectRatio: string;
+  videoResolution: string;
   isAdmin: boolean;
   // Existing admin params
   adminCfgScale?: number;
@@ -98,7 +99,7 @@ function snapToValid(n: number, valid: number[]): number {
 
 function buildFalInput(opts: BuildFalInputOptions): Record<string, unknown> {
   const {
-    modelFamily, imageUrl, motionPrompt, videoDuration, videoAspectRatio,
+    modelFamily, imageUrl, motionPrompt, videoDuration, videoAspectRatio, videoResolution,
     isAdmin,
     adminCfgScale, adminNegativePrompt, adminSeed, adminResolution, adminLoop,
     adminGenerateAudio, adminAutoFix, adminSafetyTolerance, adminPromptOptimizer,
@@ -391,14 +392,17 @@ function buildFalInput(opts: BuildFalInputOptions): Record<string, unknown> {
       prompt: motionPrompt,
     };
 
-    if (isAdmin) {
-      // Duration is an integer (1–15)
-      const durNum = parseDurationNum(videoDuration);
-      if (!isNaN(durNum)) falInput.duration = Math.min(15, Math.max(1, durNum));
-      const grokRatios = new Set(["auto", "16:9", "4:3", "3:2", "1:1", "2:3", "3:4", "9:16"]);
-      if (grokRatios.has(videoAspectRatio)) falInput.aspect_ratio = videoAspectRatio;
-      if (adminResolution?.trim()) falInput.resolution = adminResolution.trim();
-    }
+    // Duration: integer 1–15 (API default 6). Apply for all users via admin config.
+    const durNum = parseDurationNum(videoDuration);
+    if (!isNaN(durNum)) falInput.duration = Math.min(15, Math.max(1, durNum));
+
+    // Aspect ratio: "auto" | "16:9" | "4:3" | "3:2" | "1:1" | "2:3" | "3:4" | "9:16"
+    const grokRatios = new Set(["auto", "16:9", "4:3", "3:2", "1:1", "2:3", "3:4", "9:16"]);
+    if (grokRatios.has(videoAspectRatio)) falInput.aspect_ratio = videoAspectRatio;
+
+    // Resolution: "720p" | "480p" — config default, admin per-request override wins
+    const grokRes = (isAdmin && adminResolution?.trim()) || videoResolution;
+    if (grokRes === "480p" || grokRes === "720p") falInput.resolution = grokRes;
 
     return falInput;
   }
@@ -762,9 +766,10 @@ router.post("/videos/generate", async (req, res) => {
   const requestedModel = parsed.data.videoModel?.trim();
   const videoModel = requestedModel || await getConfigString("video_model", DEFAULT_VIDEO_MODEL) || DEFAULT_VIDEO_MODEL;
 
-  // Duration and aspect ratio: admin per-request values take priority, else DB config, else defaults
+  // Duration, aspect ratio, resolution: admin per-request values take priority, else DB config, else defaults
   const videoDuration = (isAdmin && parsed.data.adminDuration) || await getConfigString("video_duration", "5") || "5";
   const videoAspectRatio = (isAdmin && parsed.data.adminAspectRatio) || await getConfigString("video_aspect_ratio", "16:9") || "16:9";
+  const videoResolution = await getConfigString("video_resolution", "720p") || "720p";
 
   // Detect model family for parameter adaptation
   const modelFamily = detectVideoModelFamily(videoModel);
@@ -784,6 +789,7 @@ router.post("/videos/generate", async (req, res) => {
     motionPrompt: falMotionPrompt,
     videoDuration,
     videoAspectRatio,
+    videoResolution,
     isAdmin,
     // Core params
     adminCfgScale: parsed.data.adminCfgScale,
