@@ -158,7 +158,7 @@ function ModeTab({
 
 export function VideoBuilder({ factId, factText, onClose, initialImageDataUrl }: VideoBuilderProps) {
   const { isAuthenticated, role } = useAuth();
-  const isPremium = role === "premium" || role === "admin";
+  const isLegendary = role === "legendary" || role === "admin";
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -225,7 +225,7 @@ export function VideoBuilder({ factId, factText, onClose, initialImageDataUrl }:
 
   // Fetch upload gallery when switching to upload tab (premium users only)
   useEffect(() => {
-    if (sourceMode !== "upload" || !isPremium) return;
+    if (sourceMode !== "upload" || !isLegendary) return;
     let cancelled = false;
     setIsLoadingGallery(true);
     fetch("/api/users/me/uploads", { credentials: "include" })
@@ -239,7 +239,7 @@ export function VideoBuilder({ factId, factText, onClose, initialImageDataUrl }:
       .catch(() => {})
       .finally(() => { if (!cancelled) setIsLoadingGallery(false); });
     return () => { cancelled = true; };
-  }, [sourceMode, isPremium]);
+  }, [sourceMode, isLegendary]);
 
   // ── Upload helpers ──────────────────────────────────────────────────────────
 
@@ -495,7 +495,31 @@ export function VideoBuilder({ factId, factText, onClose, initialImageDataUrl }:
           </button>
         </div>
 
-        <div className="p-4 md:p-5 space-y-5">
+        {/* ── Legendary paywall ── */}
+        {!isAuthenticated ? (
+          <div className="p-8 flex items-center justify-center">
+            <div className="border-2 border-dashed border-amber-400/30 bg-amber-400/5 p-8 text-center space-y-3 max-w-sm w-full">
+              <Lock className="w-8 h-8 text-amber-400 mx-auto" />
+              <p className="text-sm font-bold text-amber-400 uppercase tracking-wider">Login Required</p>
+              <p className="text-xs text-muted-foreground">Log in to access Video Generation.</p>
+            </div>
+          </div>
+        ) : !isLegendary ? (
+          <div className="p-8 flex items-center justify-center">
+            <div className="border-2 border-dashed border-amber-400/30 bg-amber-400/5 p-8 text-center space-y-3 max-w-sm w-full">
+              <Lock className="w-8 h-8 text-amber-400 mx-auto" />
+              <p className="text-sm font-bold text-amber-400 uppercase tracking-wider">Legendary Feature</p>
+              <p className="text-xs text-muted-foreground">
+                Video generation is exclusive to Legendary members. Upgrade to unlock AI-powered video creation.
+              </p>
+              <Link href="/pricing">
+                <Button size="sm" className="mt-1">Go Legendary</Button>
+              </Link>
+            </div>
+          </div>
+        ) : null}
+
+        <div className="p-4 md:p-5 space-y-5" style={(!isAuthenticated || !isLegendary) ? { display: "none" } : {}}>
 
           {/* ── Preview image ── */}
           <div className="sticky top-14 z-10 bg-card pb-2">
@@ -552,7 +576,7 @@ export function VideoBuilder({ factId, factText, onClose, initialImageDataUrl }:
                       Log in to upload your own images for video generation.
                     </p>
                   </div>
-                ) : !isPremium ? (
+                ) : !isLegendary ? (
                   <div className="border-2 border-dashed border-amber-400/30 bg-amber-400/5 p-5 text-center space-y-2">
                     <Lock className="w-6 h-6 text-amber-400 mx-auto" />
                     <p className="text-sm font-bold text-amber-400 uppercase tracking-wider">

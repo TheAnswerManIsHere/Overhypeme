@@ -564,6 +564,22 @@ Return ONLY valid JSON:
                     false)
             ON CONFLICT (key) DO NOTHING`,
     },
+    // ── Feature flags ──────────────────────────────────────────────────────
+    {
+      label: "feature_flags seed: video_generation",
+      ddl: `INSERT INTO feature_flags (key, display_name, description)
+            VALUES ('video_generation', 'Video Generation', 'Ability to generate AI-powered videos from meme images')
+            ON CONFLICT (key) DO NOTHING`,
+    },
+    {
+      label: "tier_feature_permissions seed: video_generation",
+      ddl: `INSERT INTO tier_feature_permissions (tier, feature_key, enabled)
+            VALUES
+              ('free',      'video_generation', false),
+              ('premium',   'video_generation', false),
+              ('legendary', 'video_generation', true)
+            ON CONFLICT (tier, feature_key) DO UPDATE SET enabled = EXCLUDED.enabled`,
+    },
   ];
 
   for (const { label, ddl } of migrations) {

@@ -500,7 +500,7 @@ interface VideoTabProps {
 function VideoTab({ factId, factText, pexelsImages, aiMemeImages, initialImageDataUrl }: VideoTabProps) {
   const { role } = useAuth();
   const isAdmin = role === "admin";
-  const isPremium = role === "premium" || role === "admin";
+  const isLegendary = role === "legendary" || role === "admin";
   const { pronouns } = usePersonName();
   const { styles: videoStyles } = useVideoStyles();
 
@@ -629,7 +629,7 @@ function VideoTab({ factId, factText, pexelsImages, aiMemeImages, initialImageDa
 
   // ── Load upload gallery for premium users ─────────────────────────────────
   useEffect(() => {
-    if (!isPremium || imageMode !== "upload") return;
+    if (!isLegendary || imageMode !== "upload") return;
     setIsLoadingGallery(true);
     fetch("/api/users/me/uploads", { credentials: "include" })
       .then((r) => r.json())
@@ -638,7 +638,7 @@ function VideoTab({ factId, factText, pexelsImages, aiMemeImages, initialImageDa
       })
       .catch(() => {})
       .finally(() => setIsLoadingGallery(false));
-  }, [isPremium, imageMode]);
+  }, [isLegendary, imageMode]);
 
   // ── Auto-populate motion prompt when entering step 3 ──────────────────────
   useEffect(() => {
@@ -893,7 +893,7 @@ function VideoTab({ factId, factText, pexelsImages, aiMemeImages, initialImageDa
           <div className="flex border-b border-border mb-4">
             {(["stock", "ai", "upload"] as VideoImageMode[]).map((mode) => {
               const labels: Record<VideoImageMode, string> = { stock: "Stock Photo", ai: "AI Generated", upload: "Upload" };
-              const needsPremium = mode !== "stock" && !isPremium;
+              const needsPremium = mode !== "stock" && !isLegendary;
               return (
                 <button
                   key={mode}
@@ -959,7 +959,7 @@ function VideoTab({ factId, factText, pexelsImages, aiMemeImages, initialImageDa
               initialImages={aiMemeImages ?? null}
               aiGender={aiGender}
               isGendered={factIsGendered}
-              isPremium={isPremium}
+              isPremium={isLegendary}
               isAdmin={isAdmin}
               onSelect={(sel: AiBgSelection | null) => {
                 setSelectedBgUrl(sel?.url ?? null);
@@ -973,7 +973,7 @@ function VideoTab({ factId, factText, pexelsImages, aiMemeImages, initialImageDa
           {/* Upload mode */}
           {imageMode === "upload" && (
             <div className="space-y-3">
-              {!isPremium ? (
+              {!isLegendary ? (
                 <div className="border-2 border-dashed border-amber-400/30 bg-amber-400/5 p-5 text-center space-y-2">
                   <Lock className="w-6 h-6 text-amber-400 mx-auto" />
                   <p className="text-sm font-bold text-amber-400 uppercase tracking-wider">Legendary Feature</p>
@@ -1673,6 +1673,8 @@ export function MemeStudio({
   initialVideoImageDataUrl,
 }: MemeStudioProps) {
   const [activeTab, setActiveTab] = useState<StudioTab>(defaultTab);
+  const { role, isAuthenticated } = useAuth();
+  const isLegendary = role === "legendary" || role === "admin";
   return (
     <div className="fixed inset-0 z-50 flex flex-col bg-card">
 
@@ -1721,6 +1723,29 @@ export function MemeStudio({
             embedded
             fullScreen
           />
+        ) : !isAuthenticated ? (
+          <div className="flex-1 flex items-center justify-center p-8">
+            <div className="border-2 border-dashed border-amber-400/30 bg-amber-400/5 p-8 text-center space-y-3 max-w-sm w-full">
+              <Lock className="w-8 h-8 text-amber-400 mx-auto" />
+              <p className="text-sm font-bold text-amber-400 uppercase tracking-wider">Login Required</p>
+              <p className="text-xs text-muted-foreground">
+                Log in to access Video Generation.
+              </p>
+            </div>
+          </div>
+        ) : !isLegendary ? (
+          <div className="flex-1 flex items-center justify-center p-8">
+            <div className="border-2 border-dashed border-amber-400/30 bg-amber-400/5 p-8 text-center space-y-3 max-w-sm w-full">
+              <Lock className="w-8 h-8 text-amber-400 mx-auto" />
+              <p className="text-sm font-bold text-amber-400 uppercase tracking-wider">Legendary Feature</p>
+              <p className="text-xs text-muted-foreground">
+                Video generation is exclusive to Legendary members. Upgrade to unlock AI-powered video creation.
+              </p>
+              <a href="/pricing">
+                <Button size="sm" className="mt-1">Go Legendary</Button>
+              </a>
+            </div>
+          </div>
         ) : (
           <div className="p-4 md:p-5 max-w-2xl mx-auto">
             <VideoTab
