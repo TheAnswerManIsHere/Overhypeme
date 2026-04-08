@@ -1,0 +1,149 @@
+# Replit Prompt: fal.ai Pricing Cache + Per-User Cost Tracking
+
+## Context
+
+We use fal.ai as our model aggregator for image and video generation (FLUX.2 Pro for images, Seedance 1.5 for video, potentially Seedance 2.0 and Veo 3.1 later). Each model has different pricing — different unit types (per-image, per-megapixel, per-video-token), different unit prices, and fal.ai can change prices at any time.
+
+We need an internal cost accounting system so we can:
+- Cap per-user spending by tier (free vs LEGEND)
+- Pre-check budget before dispatching any generation job
+- Audit our internal ledger against fal.ai invoices
+- Survive price changes without code deploys
+
+We already have Postgres + Drizzle ORM, and a `video_jobs` table with user identity. We store config in a database-backed config table (key/value/value_type/description) for business logic limits.
+
+## What to Build
+
+### 1. Drizzle Schema: `fal_pricing_cache` Table
+
+Create a table that caches fal.ai's pricing responses:
+
+```
+fal_pricing_cache:
+  endpoint_id     TEXT PRIMARY KEY   -- e.g. "fal-ai/flux-pro/v1.1", "fal-ai/bytedance/seedance/v1.5/pro/text-to-video"
+  unit_price       NUMERIC(12,6)     -- e.g. 0.05 (per image) or 2.4 (per 1M video tokens)
+  unit             TEXT              -- e.g. "image", "megapixel", "video_token"
+  currency         TEXT              -- e.g. "USD"
+  fetched_at       TIMESTAMP         -- when we last pulled this from fal.ai
+  created_at       TIMESTAMP DEFAULT NOW()
+  updated_at       TIMESTAMP DEFAULT NOW()
+```
+
+### 2. Drizzle Schema: `user_generation_costs` Table
+
+Per-job cost ledger. Every generation job (image or video) gets a row here:
+
+```
+user_generation_costs:
+  id                  SERIAL PRIMARY KEY
+  user_id             TEXT NOT NULL        -- references users.id
+  job_type            TEXT NOT NULL        -- "image" | "video"
+  endpoint_id         TEXT NOT NULL        -- the fal.ai endpoint used
+  unit_price_at_creation  NUMERIC(12,6)   -- snapshot of unit price when job was dispatched
+  billing_units       NUMERIC(12,4)       -- computed billing units (e.g. token count, megapixels, or 1 for per-image)
+  computed_cost_usd   NUMERIC(10,4)       -- unit_price_at_creation * billing_units (divided by 1M if token-based)
+  pricing_fetched_at  TIMESTAMP           -- when the cached price was fetched from fal.ai
+  job_reference_id    TEXT                -- fal.ai request_id or our internal video_jobs.id
+  created_at          TIMESTAMP DEFAULT NOW()
+```
+
+Add an index on `(user_id, created_at)` for fast budget summation queries.
+
+### 3. Pricing Cache Service: `server/services/falPricing.ts`
+
+Create a service module:
+
+**`refreshPricingCache(endpointIds: string[]): Promise<void>`**
+- Calls `GET https://api.fal.ai/v1/models/pricing` with the FAL_KEY from env
+- The endpoint accepts an optional `endpoint_id` query param to filter — call once per endpoint or iterate if batch isn't supported
+- Upserts each result into `fal_pricing_cache`
+- Logs any price changes detected (compare old vs new `unit_price` before upserting — if they differ, log a warning with both values)
+
+**`getCachedPrice(endpointId: string): Promise<{ unitPrice: number, unit: string, fetchedAt: Date }>`**
+- Reads from `fal_pricing_cache`
+- If no row exists or `fetched_at` is older than 1 hour, calls `refreshPricingCache` for that endpoint first
+- Returns the cached price
+- Throws if fal.ai returns no pricing for that endpoint (don't silently fall back to hardcoded values)
+
+**Startup hook:**
+- On server start, call `refreshPricingCache()` for all endpoint IDs we use
+- Store the list of active endpoint IDs in our database config table under key `fal_active_endpoints` as a JSON array, e.g. `["fal-ai/flux-pro/v1.1", "fal-ai/bytedance/seedance/v1.5/pro/text-to-video"]`
+- Also set up a `setInterval` to refresh every hour
+
+### 4. Cost Computation Helpers: `server/services/costComputation.ts`
+
+**`computeVideoCost(params: { width: number, height: number, fps: number, durationSeconds: number, hasAudio: boolean }, cachedPrice: CachedPrice): { billingUnits: number, costUsd: number }`**
+- Formula: `tokens = (width * height * fps * durationSeconds) / 1024`
+- The unit price from fal.ai is per 1M tokens, so: `costUsd = (tokens / 1_000_000) * unitPrice`
+- If `hasAudio` affects the rate (Seedance 1.5 charges 2x for audio vs no-audio), handle that by using separate endpoint IDs or a multiplier — check what the pricing API actually returns for each variant
+- Return both `billingUnits` (the raw token count) and `costUsd`
+
+**`computeImageCost(params: { widthPx: number, heightPx: number, count: number }, cachedPrice: CachedPrice): { billingUnits: number, costUsd: number }`**
+- If unit is "image": `billingUnits = count`, `costUsd = count * unitPrice`
+- If unit is "megapixel": `billingUnits = (widthPx * heightPx * count) / 1_000_000`, `costUsd = billingUnits * unitPrice`
+
+### 5. Budget Gate: `server/services/budgetGate.ts`
+
+**`checkBudget(userId: string, proposedCostUsd: number): Promise<{ allowed: boolean, currentSpend: number, limit: number, remainingBudget: number }>`**
+- Query: `SELECT COALESCE(SUM(computed_cost_usd), 0) FROM user_generation_costs WHERE user_id = $1 AND created_at >= $2`
+- The budget period start (`$2`) and the limit come from the config table:
+  - `budget_period`: "monthly" (use first of current month as start) or "rolling_30d" (use NOW - 30 days)
+  - `budget_limit_free`: e.g. 0.50 (USD per period for free users)
+  - `budget_limit_legend`: e.g. 10.00 (USD per period for LEGEND users)
+- Look up the user's tier to select the right limit
+- Return the budget status object — never throw, let the caller decide how to handle rejection
+
+**`recordCost(params: { userId, jobType, endpointId, unitPriceAtCreation, billingUnits, computedCostUsd, pricingFetchedAt, jobReferenceId }): Promise<void>`**
+- Insert a row into `user_generation_costs`
+- This should be called AFTER the fal.ai job is successfully submitted (not before, to avoid phantom costs from failed submissions)
+
+### 6. Integration Points
+
+Update the existing generation flows to use the budget gate:
+
+**Before dispatching any fal.ai job:**
+```
+const cachedPrice = await getCachedPrice(endpointId)
+const { billingUnits, costUsd } = computeVideoCost(params, cachedPrice)  // or computeImageCost
+const budget = await checkBudget(userId, costUsd)
+if (!budget.allowed) {
+  return { error: 'BUDGET_EXCEEDED', ...budget }
+}
+// dispatch job to fal.ai
+// on successful submission:
+await recordCost({ userId, jobType: 'video', endpointId, unitPriceAtCreation: cachedPrice.unitPrice, billingUnits, computedCostUsd: costUsd, pricingFetchedAt: cachedPrice.fetchedAt, jobReferenceId: requestId })
+```
+
+**API response on budget exceeded:**
+Return HTTP 429 with a JSON body: `{ error: "BUDGET_EXCEEDED", currentSpend: number, limit: number, remainingBudget: number, upgradePath: "/upgrade" }`
+
+The `upgradePath` field lets the frontend render an upgrade CTA for free users.
+
+### 7. Config Table Entries
+
+Add these entries to the existing config table:
+
+| key | value | value_type | description |
+|-----|-------|------------|-------------|
+| `fal_active_endpoints` | `["fal-ai/flux-pro/v1.1", "fal-ai/bytedance/seedance/v1.5/pro/text-to-video"]` | json | fal.ai endpoint IDs to cache pricing for |
+| `budget_period` | `monthly` | string | Budget reset period: "monthly" or "rolling_30d" |
+| `budget_limit_free_usd` | `0.50` | number | Monthly generation budget for free tier users (USD) |
+| `budget_limit_legend_usd` | `10.00` | number | Monthly generation budget for LEGEND tier users (USD) |
+| `pricing_refresh_interval_ms` | `3600000` | number | How often to refresh fal.ai pricing cache (ms) |
+
+## Important Constraints
+
+- **Never hardcode prices.** All unit prices come from `fal_pricing_cache`, which is populated from fal.ai's API.
+- **Never block on a pricing fetch in the hot path.** The cache should always be warm from the startup + interval refresh. `getCachedPrice` only fetches on-demand as a fallback if the cache is stale, not as the primary path.
+- **Log price changes as warnings.** If a refresh detects a price change, log it at WARN level with the old and new values so we can investigate.
+- **Record cost AFTER successful job submission, not before.** This prevents phantom costs from failed API calls.
+- **Use the soft-cap principle for limit reductions.** If we lower `budget_limit_free_usd` from 0.50 to 0.25, users who have already spent 0.40 this period are NOT retroactively over-budget — they just can't generate more until next period. Enforce on new writes only.
+- **The budget gate returns data, never throws.** The calling code decides whether to reject, warn, or allow. This keeps the gate reusable.
+- **Store `unit_price_at_creation` and `pricing_fetched_at` on every cost row.** This is the audit trail that lets us reconcile against fal.ai invoices later.
+
+## Do NOT
+
+- Do not build a reconciliation dashboard or fal.ai invoice comparison yet — that's future work
+- Do not build a frontend budget display yet — just the API and data layer
+- Do not change any existing table schemas — only add new tables and new columns if needed
+- Do not hardcode any tier limits in code — they must come from the config table

@@ -16,3 +16,4 @@ export * from "./adminConfig";
 export * from "./videoJobs";
 export * from "./videoStyles";
 export * from "./featureFlags";
+export * from "./falPricing";

@@ -487,6 +487,83 @@ Return ONLY valid JSON:
         ('epic-storm',     'Epic Storm',     'Swirling storm clouds, lightning flashes, and god-like elemental power.',               'Epic storm atmosphere, swirling dark clouds time-lapse, lightning flash illumination, sweeping aerial crane shot, elemental power surge',                       '#0a0e2e', '#1565c0', 7)
       ON CONFLICT (id) DO NOTHING`,
     },
+    // ── fal.ai Pricing Cache + Cost Tracking ──────────────────────────────────
+    {
+      label: "fal_pricing_cache table",
+      ddl: `CREATE TABLE IF NOT EXISTS fal_pricing_cache (
+        endpoint_id    TEXT PRIMARY KEY,
+        unit_price     NUMERIC(12,6) NOT NULL,
+        unit           TEXT NOT NULL,
+        currency       TEXT NOT NULL DEFAULT 'USD',
+        fetched_at     TIMESTAMPTZ NOT NULL,
+        created_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
+        updated_at     TIMESTAMPTZ NOT NULL DEFAULT now()
+      )`,
+    },
+    {
+      label: "user_generation_costs table",
+      ddl: `CREATE TABLE IF NOT EXISTS user_generation_costs (
+        id                      SERIAL PRIMARY KEY,
+        user_id                 TEXT NOT NULL,
+        job_type                TEXT NOT NULL,
+        endpoint_id             TEXT NOT NULL,
+        unit_price_at_creation  NUMERIC(12,6) NOT NULL,
+        billing_units           NUMERIC(12,4) NOT NULL,
+        computed_cost_usd       NUMERIC(10,4) NOT NULL,
+        pricing_fetched_at      TIMESTAMPTZ NOT NULL,
+        job_reference_id        TEXT,
+        created_at              TIMESTAMPTZ NOT NULL DEFAULT now()
+      )`,
+    },
+    {
+      label: "user_generation_costs.IDX_user_created",
+      ddl: `CREATE INDEX IF NOT EXISTS "user_gen_costs_user_created_idx"
+            ON user_generation_costs (user_id, created_at)`,
+    },
+    // ── Budget / Pricing config keys ──────────────────────────────────────────
+    {
+      label: "admin_config seed fal_active_endpoints",
+      ddl: `INSERT INTO admin_config (key, value, data_type, label, description, is_public)
+            VALUES ('fal_active_endpoints',
+                    '["fal-ai/flux-pro/v1.1","xai/grok-imagine-video/image-to-video","fal-ai/flux-pulid","fal-ai/bytedance/seedance/v1.5/pro/text-to-video","bytedance/seedance-2.0/image-to-video"]',
+                    'string',
+                    'fal.ai Active Endpoint IDs',
+                    'JSON array of fal.ai endpoint IDs to cache pricing for at startup and refresh hourly.',
+                    false)
+            ON CONFLICT (key) DO NOTHING`,
+    },
+    {
+      label: "admin_config seed budget_period",
+      ddl: `INSERT INTO admin_config (key, value, data_type, label, description, is_public)
+            VALUES ('budget_period', 'monthly', 'string', 'Budget Reset Period',
+                    'How often the per-user generation budget resets. Values: "monthly" (1st of month) or "rolling_30d" (last 30 days).',
+                    false)
+            ON CONFLICT (key) DO NOTHING`,
+    },
+    {
+      label: "admin_config seed budget_limit_free_usd",
+      ddl: `INSERT INTO admin_config (key, value, data_type, label, description, is_public)
+            VALUES ('budget_limit_free_usd', '0.50', 'string', 'Free Tier Generation Budget (USD)',
+                    'Maximum fal.ai generation spend per budget period for free-tier users (USD).',
+                    false)
+            ON CONFLICT (key) DO NOTHING`,
+    },
+    {
+      label: "admin_config seed budget_limit_legend_usd",
+      ddl: `INSERT INTO admin_config (key, value, data_type, label, description, is_public)
+            VALUES ('budget_limit_legend_usd', '10.00', 'string', 'Premium/Legend Tier Generation Budget (USD)',
+                    'Maximum fal.ai generation spend per budget period for premium and legendary-tier users (USD).',
+                    false)
+            ON CONFLICT (key) DO NOTHING`,
+    },
+    {
+      label: "admin_config seed pricing_refresh_interval_ms",
+      ddl: `INSERT INTO admin_config (key, value, data_type, label, description, is_public)
+            VALUES ('pricing_refresh_interval_ms', '3600000', 'integer', 'Pricing Cache Refresh Interval (ms)',
+                    'How often to re-fetch fal.ai pricing from the API (milliseconds). Default: 3600000 (1 hour).',
+                    false)
+            ON CONFLICT (key) DO NOTHING`,
+    },
   ];
 
   for (const { label, ddl } of migrations) {

@@ -105,6 +105,24 @@ export async function getConfigString(key: string, defaultValue: string): Promis
 }
 
 /**
+ * Get a config float (decimal) value.
+ * Returns `defaultValue` if the key is missing, not a number, or the DB is unreachable.
+ * Zero DB hits when cache is warm.
+ */
+export async function getConfigFloat(key: string, defaultValue: number): Promise<number> {
+  try {
+    const { byKey } = await loadAll();
+    const row = byKey.get(key);
+    if (!row) return defaultValue;
+    const debugActive = byKey.get("debug_mode_active")?.value === "true";
+    const parsed = parseFloat(resolveValue(row, debugActive));
+    return isNaN(parsed) ? defaultValue : parsed;
+  } catch {
+    return defaultValue;
+  }
+}
+
+/**
  * Get a config string value reading the `value` column directly, bypassing
  * debug-mode resolution. Use this for infrastructure settings (like stripe_live_mode)
  * that must be independent of the debug overlay.
