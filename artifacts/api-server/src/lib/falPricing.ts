@@ -99,7 +99,7 @@ export async function refreshPricingCache(endpointIds: string[]): Promise<void> 
         .where(eq(falPricingCacheTable.endpointId, endpointId))
         .limit(1);
 
-      if (existing && existing.unitPrice !== newUnitPrice) {
+      if (existing && parseFloat(existing.unitPrice) !== parseFloat(newUnitPrice)) {
         console.warn(`[falPricing] PRICE CHANGE DETECTED for ${endpointId}: ${existing.unitPrice} → ${newUnitPrice} ${newCurrency}/${newUnit}`);
       }
 
