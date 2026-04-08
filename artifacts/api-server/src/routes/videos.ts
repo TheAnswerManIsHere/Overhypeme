@@ -166,7 +166,42 @@ function buildFalInput(opts: BuildFalInputOptions): Record<string, unknown> {
     return falInput;
   }
 
-  // ── Seedance family ────────────────────────────────────────────────────────
+  // ── Seedance 2.0 (Pro + Fast) ──────────────────────────────────────────────
+  // API schema: duration string enum ["auto","4"–"15"], aspect_ratio enum
+  // ["auto","21:9","16:9","4:3","1:1","3:4","9:16"], resolution ["480p","720p"],
+  // generate_audio boolean (default true), seed nullable int.
+  // Config-driven params apply for ALL users; admin per-request overrides win.
+  if (modelFamily === "seedance" && (opts.videoModel.includes("seedance-2.0") || opts.videoModel.includes("seedance/v2"))) {
+    const falInput: Record<string, unknown> = {
+      image_url: imageUrl,
+      prompt: motionPrompt,
+    };
+
+    // Duration — valid string enum; "auto" means let the model decide (omit it
+    // so the API uses its default, which is "auto").
+    const s2ValidDurations = new Set(["auto","4","5","6","7","8","9","10","11","12","13","14","15"]);
+    const s2Dur = videoDuration?.trim() ?? "";
+    if (s2Dur && s2Dur !== "auto" && s2ValidDurations.has(s2Dur)) falInput.duration = s2Dur;
+
+    // Aspect ratio
+    const s2ValidRatios = new Set(["auto","21:9","16:9","4:3","1:1","3:4","9:16"]);
+    const s2AR = videoAspectRatio?.trim() ?? "";
+    if (s2AR && s2AR !== "auto" && s2ValidRatios.has(s2AR)) falInput.aspect_ratio = s2AR;
+
+    // Resolution — config default for all; admin per-request override wins
+    const s2Res = (isAdmin && adminResolution?.trim()) || videoResolution;
+    if (s2Res === "480p" || s2Res === "720p") falInput.resolution = s2Res;
+
+    // Admin per-request overrides
+    if (isAdmin) {
+      if (adminSeed !== undefined) falInput.seed = adminSeed;
+      if (adminGenerateAudio !== undefined) falInput.generate_audio = adminGenerateAudio;
+    }
+
+    return falInput;
+  }
+
+  // ── Seedance 1.5 ───────────────────────────────────────────────────────────
   if (modelFamily === "seedance") {
     const falInput: Record<string, unknown> = {
       image_url: imageUrl,
