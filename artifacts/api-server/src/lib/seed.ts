@@ -440,8 +440,8 @@ Return ONLY valid JSON:
     {
       label: "admin_config seed video model params",
       ddl: `INSERT INTO admin_config (key, value, data_type, label, description, is_public) VALUES
-        ('video_model', 'fal-ai/kling-video/v2.1/standard/image-to-video', 'text', 'Video Model',
-         'fal.ai Kling model used for video generation.', false),
+        ('video_model', 'xai/grok-imagine-video/image-to-video', 'text', 'Video Model',
+         'AI model used for video generation (fal.ai or xAI Grok Imagine).', false),
         ('video_duration', '5', 'text', 'Video Duration (seconds)',
          'Duration of generated videos. Kling supports "5" or "10".', false),
         ('video_aspect_ratio', '16:9', 'text', 'Video Aspect Ratio',
