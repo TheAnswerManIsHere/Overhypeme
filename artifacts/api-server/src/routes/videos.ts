@@ -937,6 +937,17 @@ router.post("/videos/generate", async (req, res) => {
         if (key in (err as object)) errDetails[key] = (err as Record<string, unknown>)[key];
       }
     }
+
+    // Parse fal.ai error body to extract structured detail
+    let parsedBody: { detail?: Array<{ type?: string; msg?: string; loc?: string[] }> } | null = null;
+    try {
+      if (errDetails.body) {
+        parsedBody = typeof errDetails.body === "string"
+          ? JSON.parse(errDetails.body)
+          : errDetails.body as typeof parsedBody;
+      }
+    } catch { /* ignore parse errors */ }
+
     console.error("[videos/generate] fal.subscribe failed", {
       model: videoModel,
       message: errDetails.message,
@@ -946,9 +957,21 @@ router.post("/videos/generate", async (req, res) => {
       body: errDetails.body !== undefined ? JSON.stringify(errDetails.body) : undefined,
       cause: errDetails.cause !== undefined ? JSON.stringify(errDetails.cause) : undefined,
     });
+
+    // Surface a specific, helpful message for known fal.ai error types
+    let userFacingError = `Video generation failed: ${message}`;
+    const firstDetail = parsedBody?.detail?.[0];
+    if (firstDetail?.type === "content_policy_violation") {
+      userFacingError =
+        "Seedance 2.0 does not allow images containing real people's faces or likenesses. " +
+        "Please switch to Grok Imagine or another model, or use a background-only image.";
+    } else if (firstDetail?.msg) {
+      userFacingError = `Video generation failed: ${firstDetail.msg}`;
+    }
+
     res
       .status(500)
-      .json({ error: `Video generation failed: ${message}` });
+      .json({ error: userFacingError });
   }
 });
 
