@@ -1,0 +1,112 @@
+# Replit Prompt: Refactor Object Storage Key Naming for GCS Distribution
+
+## Context
+
+Our App Storage (Replit Object Storage) is backed by Google Cloud Storage with a flat namespace. Currently, object keys use sequential prefixes like `ai_meme_32_female_0.png`, which can cause GCS backend partition hotspotting at scale. We need to refactor the key generation to distribute objects across partitions while keeping Postgres as the authoritative metadata source.
+
+Current folder structure in the bucket:
+- `.private/ai-backgrounds/` — AI-generated meme background images
+- `.private/memes/` — Composited meme images (text overlaid on backgrounds)
+- `.private/uploads/` — User-uploaded images (already using UUIDs)
+
+## Requirements
+
+### 1. Create a Storage Key Utility Module
+
+Create a utility module (e.g., `server/utils/storageKeys.ts` or wherever our server utilities live) that centralizes all object storage key generation. Every part of the codebase that writes to or reads from object storage should use this module — no hardcoded key construction elsewhere.
+
+The key format for each content type:
+
+```
+ai-backgrounds/{hash2}/{factId}-{gender}-{index}.png
+memes/{hash2}/{uniqueId}.{ext}
+uploads/{hash2}/{uploadId}.{ext}
+```
+
+Where `{hash2}` is the first 2 hex characters of a SHA-256 hash of the full filename (the part after `{hash2}/`). This distributes keys across 256 buckets (00–ff) to avoid GCS sequential-prefix hotspotting.
+
+Export functions like:
+
+```typescript
+// Generates a new key for an AI background image
+function aiBackgroundKey(factId: number, gender: string, index: number, ext?: string): string
+
+// Generates a new key for a composited meme
+// uniqueId should be a UUID or a composite like `${userId}-${factId}-${timestamp}`
+function memeKey(uniqueId: string, ext?: string): string
+
+// Generates a new key for a user upload
+// uploadId is the UUID already assigned to the upload
+function uploadKey(uploadId: string, ext?: string): string
+
+// Given any of the above key types, extracts just the filename (without prefix path)
+function filenameFromKey(key: string): string
+```
+
+The hash prefix computation:
+
+```typescript
+import { createHash } from 'crypto';
+
+function hashPrefix(filename: string): string {
+  return createHash('sha256').update(filename).digest('hex').substring(0, 2);
+}
+```
+
+### 2. Update All Storage Write Paths
+
+Find every place in the codebase that constructs an object storage key for writing (uploading) an image. Replace the hardcoded key construction with calls to the new utility functions.
+
+Likely locations:
+- AI background generation pipeline (where we save FLUX.2 Pro outputs)
+- Meme compositing endpoint (where node-canvas output is saved)
+- User upload handler (where user-submitted images are saved)
+- Any admin/author tooling that generates or regenerates images
+
+### 3. Update All Storage Read Paths
+
+The storage key stored in Postgres is the **full key** (including the hash prefix directory). Reads should already work correctly as long as we're reading the key from the database, not reconstructing it. Verify this is the case — if any read paths reconstruct keys from component parts (factId, gender, etc.) rather than reading the stored key, refactor them to use the stored key.
+
+### 4. Update Database Schema If Needed
+
+If the current schema stores key components separately and reconstructs the path at read time, add or update a column to store the full object storage key directly. The key is the canonical reference — never reconstruct it from parts.
+
+Check tables like:
+- `facts` or `fact_variants` — for AI background image references
+- Any meme/image tracking table — for composited meme references
+- User uploads table — for upload references
+
+### 5. Migration Script for Existing Objects
+
+Create a one-time migration script (`scripts/migrateStorageKeys.ts` or similar) that:
+
+1. Lists all objects currently in the bucket under each prefix (`.private/ai-backgrounds/`, `.private/memes/`, `.private/uploads/`)
+2. For each object, computes what the new key would be under the new naming scheme
+3. Copies the object to the new key (GCS copy is a metadata operation — fast and free)
+4. Updates the corresponding Postgres row to reference the new key
+5. After all copies succeed and DB updates are committed, deletes the old keys
+6. Logs progress and any failures
+
+**Important**: Run this in a transaction-safe way. Copy first, update DB, then delete old. Never delete before confirming the copy succeeded and the DB is updated.
+
+Since we only have ~384 objects total, this script can run sequentially without any parallelism concerns.
+
+### 6. Do NOT Change Public-Facing URLs
+
+The object storage key is an internal implementation detail. Whatever URL scheme we expose to users (CDN URLs, permalink slugs, etc.) should remain unchanged. The mapping from public URL → storage key happens in our application layer and/or Postgres, not in the key itself.
+
+## What NOT to Do
+
+- Do NOT add deep nesting for "organizational" purposes (e.g., `ai-backgrounds/female/fact32/variant0/`). Postgres owns the metadata; the key is just a distributed pointer.
+- Do NOT use the `.private/` prefix in new keys. That was a Replit UI convention. Use bare prefixes: `ai-backgrounds/`, `memes/`, `uploads/`.
+- Do NOT change anything about how Cloudflare or the CDN serves these files. This is purely a storage-layer refactor.
+
+## Verification
+
+After implementation:
+1. Create a new AI background — verify the key uses the new format
+2. Create a new composited meme — verify the key uses the new format
+3. Upload a new user image — verify the key uses the new format
+4. Run the migration script on existing objects
+5. Verify all existing memes/backgrounds still render correctly with their new keys
+6. Verify the old keys no longer exist in the bucket
