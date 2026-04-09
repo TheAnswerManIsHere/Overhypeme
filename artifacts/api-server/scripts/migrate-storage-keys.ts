@@ -21,7 +21,7 @@
  */
 
 import { db } from "@workspace/db";
-import { factsTable, userAiImagesTable, memesTable, usersTable } from "@workspace/db/schema";
+import { factsTable, userAiImagesTable, memesTable, usersTable, videoJobsTable } from "@workspace/db/schema";
 import { isNotNull, eq, like } from "drizzle-orm";
 import { sql } from "drizzle-orm";
 import { objectStorageClient } from "../src/lib/objectStorage";
@@ -143,17 +143,22 @@ interface FolderResult {
   allCopiesSucceeded: boolean;
 }
 
+interface MappingResult {
+  mappings: Array<{ oldSubPath: string; newSubPath: string }>;
+  parseErrors: number;
+}
+
 /**
  * Generic folder migration:
  *   - Collect all un-migrated files
  *   - Attempt every copy (never abort early)
- *   - Only if ALL copies succeeded: run dbUpdater, then delete old files
+ *   - Only if ALL copies AND parse succeeded: run dbUpdater, then delete old files
  */
 async function migrateFolder(
   bucket: GCSBucket,
   prefix: string,
   folder: string,
-  buildMappings: (files: string[]) => Array<{ oldSubPath: string; newSubPath: string }>,
+  buildMappings: (files: string[]) => MappingResult,
   dbUpdater: (oldToNew: Map<string, string>) => Promise<number>,
 ): Promise<FolderResult> {
   const fullPrefix = `${prefix}${folder}/`;
@@ -167,12 +172,12 @@ async function migrateFolder(
   const filenames = unmigrated.map(f => f.name.split("/").pop()!);
   console.log(`\n[${folder}] ${unmigrated.length} files to migrate`);
 
-  const mappings = buildMappings(filenames);
+  const { mappings, parseErrors } = buildMappings(filenames);
 
   // ── Phase 1: Copy every file, accumulate errors ────────────────────────────
   let copied = 0;
   let skipped = 0;
-  let copyErrors = 0;
+  let copyErrors = parseErrors; // parse failures count as copy errors to block subsequent phases
   const successMap = new Map<string, string>(); // /objects/old → /objects/new
 
   for (const { oldSubPath, newSubPath } of mappings) {
@@ -347,7 +352,7 @@ async function dbUpdateUploads(oldToNew: Map<string, string>): Promise<number> {
     }
   }
 
-  // users.profile_image_url: stored as /api/storage/objects/uploads/...
+  // users.profile_image_url and video_jobs.image_url: stored as /api/storage/objects/uploads/...
   const apiOldToNew = new Map<string, string>();
   for (const [oldObjPath, newObjPath] of oldToNew) {
     apiOldToNew.set(`/api/storage${oldObjPath}`, `/api/storage${newObjPath}`);
@@ -372,17 +377,38 @@ async function dbUpdateUploads(oldToNew: Map<string, string>): Promise<number> {
     }
   }
 
+  // video_jobs.image_url: may reference /api/storage/objects/uploads/... for user-uploaded images
+  const videoJobs = await db
+    .select({ id: videoJobsTable.id, imageUrl: videoJobsTable.imageUrl })
+    .from(videoJobsTable)
+    .where(like(videoJobsTable.imageUrl, "/api/storage/objects/uploads/%"));
+
+  for (const job of videoJobs) {
+    const newUrl = apiOldToNew.get(job.imageUrl);
+    if (!newUrl) continue;
+    try {
+      await db.update(videoJobsTable).set({ imageUrl: newUrl }).where(eq(videoJobsTable.id, job.id));
+      console.log(`  video_jobs row ${job.id}: ${job.imageUrl} → ${newUrl}`);
+      updated++;
+    } catch (err) {
+      console.error(`  [error] video_jobs row ${job.id}:`, err);
+      throw err;
+    }
+  }
+
   return updated;
 }
 
 // ─── Mapping builders ─────────────────────────────────────────────────────────
 
-function buildAiBgMappings(filenames: string[]): Array<{ oldSubPath: string; newSubPath: string }> {
+function buildAiBgMappings(filenames: string[]): MappingResult {
   const mappings: Array<{ oldSubPath: string; newSubPath: string }> = [];
+  let parseErrors = 0;
   for (const filename of filenames) {
     const parts = parseAiBgFilename(filename);
     if (!parts) {
-      console.warn(`  [skip] Cannot parse ai-bg filename: ${filename}`);
+      console.error(`  [error] Cannot parse ai-bg filename: ${filename}`);
+      parseErrors++;
       continue;
     }
     mappings.push({
@@ -390,11 +416,11 @@ function buildAiBgMappings(filenames: string[]): Array<{ oldSubPath: string; new
       newSubPath: aiBackgroundKey(parts.factId, parts.gender, parts.uniqueKey, parts.ext, parts.isRef),
     });
   }
-  return mappings;
+  return { mappings, parseErrors };
 }
 
-function buildMemesMappings(filenames: string[]): Array<{ oldSubPath: string; newSubPath: string }> {
-  return filenames.map(filename => {
+function buildMemesMappings(filenames: string[]): MappingResult {
+  const mappings = filenames.map(filename => {
     const dot = filename.lastIndexOf(".");
     const slug = dot !== -1 ? filename.slice(0, dot) : filename;
     const ext = dot !== -1 ? filename.slice(dot + 1) : "jpg";
@@ -403,16 +429,18 @@ function buildMemesMappings(filenames: string[]): Array<{ oldSubPath: string; ne
       newSubPath: memeKey(slug, ext),
     };
   });
+  return { mappings, parseErrors: 0 };
 }
 
-function buildUploadsMappings(filenames: string[]): Array<{ oldSubPath: string; newSubPath: string }> {
-  return filenames.map(filename => {
+function buildUploadsMappings(filenames: string[]): MappingResult {
+  const mappings = filenames.map(filename => {
     const { uploadId, ext } = parseUploadFilename(filename);
     return {
       oldSubPath: `uploads/${filename}`,
       newSubPath: uploadKey(uploadId, ext),
     };
   });
+  return { mappings, parseErrors: 0 };
 }
 
 // ─── Main ─────────────────────────────────────────────────────────────────────
