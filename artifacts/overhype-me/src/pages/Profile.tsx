@@ -12,6 +12,7 @@ import { Link, useLocation } from "wouter";
 import { useQueryClient, useQuery } from "@tanstack/react-query";
 import { PronounEditor } from "@/components/ui/PronounEditor";
 import { usePersonName } from "@/hooks/use-person-name";
+import { AccessGate } from "@/components/AccessGate";
 
 const BASE_URL = import.meta.env.BASE_URL ?? "/";
 
@@ -309,15 +310,7 @@ export default function Profile() {
   if (!isAuthenticated) {
     return (
       <Layout>
-        <div className="max-w-2xl mx-auto px-4 py-24 text-center">
-          <ShieldAlert className="w-20 h-20 text-primary mx-auto mb-6 opacity-80" />
-          <h1 className="text-4xl font-display uppercase mb-4 text-foreground">Access Denied</h1>
-          <p className="text-muted-foreground text-lg mb-8">You must authenticate to access personnel records.</p>
-          <div className="flex gap-4 justify-center">
-            <Button size="lg" onClick={() => setLocation("/login?from=/profile")}>AUTHENTICATE NOW</Button>
-            <Button size="lg" variant="outline" onClick={() => window.history.length > 1 ? window.history.back() : setLocation("/")}>GO BACK</Button>
-          </div>
-        </div>
+        <AccessGate variant="page" reason="login" returnTo="/profile" description="You must authenticate to access personnel records." />
       </Layout>
     );
   }
@@ -667,13 +660,7 @@ export default function Profile() {
                   </p>
                 </div>
               ) : (
-                <div className="flex items-start gap-3 bg-primary/5 border border-primary/20 rounded-sm p-3">
-                  <Star className="w-4 h-4 text-primary shrink-0 mt-0.5" />
-                  <div>
-                    <p className="text-sm font-bold text-foreground">Custom Photo — Legendary Feature</p>
-                    <p className="text-xs text-muted-foreground mt-0.5">Go Legendary to replace your generated avatar with a custom photo.</p>
-                  </div>
-                </div>
+                <AccessGate reason="legendary" size="sm" description="Go Legendary to replace your generated avatar with a custom photo." />
               )}
 
               <div>

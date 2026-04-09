@@ -17,6 +17,7 @@ import { ThumbsUp, ThumbsDown, User, AlertCircle, ImageIcon, GitBranch, ArrowLef
 import { ImageCard } from "@/components/ui/ImageCard";
 import { cn } from "@/components/ui/Button";
 import { usePersonName } from "@/hooks/use-person-name";
+import { AccessGate } from "@/components/AccessGate";
 import { renderFact } from "@/lib/render-fact";
 
 type MemeItem = {
@@ -735,10 +736,7 @@ export default function FactDetail() {
                 </form>
               )
             ) : (
-              <div className="bg-secondary p-6 rounded-sm border-2 border-border text-center">
-                <p className="text-muted-foreground font-medium mb-4">Authentication required to add intel.</p>
-                <Button onClick={() => setLocation(`/login?from=/facts/${factId}`)} variant="outline">LOGIN TO COMMENT</Button>
-              </div>
+              <AccessGate reason="login" size="sm" description="Authentication required to add intel." returnTo={`/facts/${factId}`} />
             )}
 
             {/* Comment List */}
