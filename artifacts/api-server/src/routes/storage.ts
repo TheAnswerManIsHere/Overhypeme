@@ -1,6 +1,7 @@
 import express, { Router, type IRouter, type Request, type Response } from "express";
 import { Readable } from "stream";
 import { randomUUID } from "crypto";
+import { uploadKey } from "../lib/storageKeys";
 import sharp from "sharp";
 import {
   RequestUploadUrlBody,
@@ -157,7 +158,7 @@ router.post(
         "image/gif": "gif",
       };
       const ext = extMap[contentType] ?? "jpg";
-      const subPath = `uploads/${randomUUID()}.${ext}`;
+      const subPath = uploadKey(randomUUID(), ext);
 
       const objectPath = await objectStorageService.uploadObjectBuffer({ subPath, buffer, contentType });
       await objectStorageService.trySetObjectEntityAclPolicy(objectPath, { owner: req.user.id, visibility: "public" });
@@ -238,7 +239,7 @@ router.post(
     }
 
     try {
-      const subPath = `uploads/${randomUUID()}.jpg`;
+      const subPath = uploadKey(randomUUID(), "jpg");
       const objectPath = await objectStorageService.uploadObjectBuffer({
         subPath,
         buffer: processed.buffer,

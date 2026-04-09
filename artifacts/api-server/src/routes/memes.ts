@@ -18,6 +18,7 @@ import { getRandomStockPhoto, getPhotoById } from "../lib/pexelsClient";
 import { renderPersonalized } from "../lib/renderCanonical";
 import { compositeAiMeme } from "../lib/aiMemeCompositor";
 import { generateAiMemeBackgrounds, generateAiMemeBackgroundFromReference, isUserAtImageLimit, buildFalInputPreview } from "../lib/aiMemePipeline";
+import { memeKey } from "../lib/storageKeys";
 import { BudgetExceededError } from "../lib/budgetGate";
 import type { AiMemeImages } from "../lib/aiMemePipeline";
 import { requirePremium } from "../middlewares/premiumMiddleware";
@@ -319,7 +320,7 @@ router.post("/memes", async (req: Request, res: Response) => {
     try {
       const imgBuffer = Buffer.from(previewImageBase64, "base64");
       await objectStorageService.uploadObjectBuffer({
-        subPath: `memes/${slug}.jpg`,
+        subPath: memeKey(slug, "jpg"),
         buffer: imgBuffer,
         contentType: "image/jpeg",
       });
@@ -572,8 +573,13 @@ router.get("/memes/:slug/image", async (req: Request, res: Response) => {
 
   // ── Legacy path: memes stored before recipe-based rendering ─────
   if (!meme.imageSource) {
-    // Try .jpg first (new memes), fall back to .png (memes created before the jpg migration)
-    const candidates = [`/objects/memes/${slug}.jpg`, `/objects/memes/${slug}.png`];
+    // Try hash-prefixed keys first (new format), then legacy flat paths (pre-migration)
+    const candidates = [
+      `/objects/${memeKey(slug, "jpg")}`,
+      `/objects/${memeKey(slug, "png")}`,
+      `/objects/memes/${slug}.jpg`,
+      `/objects/memes/${slug}.png`,
+    ];
     let served = false;
     for (const objectPath of candidates) {
       try {
