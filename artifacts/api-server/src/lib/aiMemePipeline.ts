@@ -247,7 +247,7 @@ async function generateAndStoreImage(
   const { contentType, ext } = detectImageFormat(imgRes);
   const imageBuffer = Buffer.from(await imgRes.arrayBuffer());
 
-  const subPath = `ai_meme_${factId}_${gender}_${uniqueKey}.${ext}`;
+  const subPath = `ai-backgrounds/ai_meme_${factId}_${gender}_${uniqueKey}.${ext}`;
   const storedPath = await objectStorage.uploadObjectBuffer({
     subPath,
     buffer: imageBuffer,
@@ -427,7 +427,7 @@ async function generateAndStoreImageFromReference(
   const { contentType, ext } = detectImageFormat(imgRes);
   const imageBuffer = Buffer.from(await imgRes.arrayBuffer());
 
-  const subPath = `ai_meme_${factId}_${gender}_ref_${uniqueKey}.${ext}`;
+  const subPath = `ai-backgrounds/ai_meme_${factId}_${gender}_ref_${uniqueKey}.${ext}`;
   const storedPath = await objectStorage.uploadObjectBuffer({
     subPath,
     buffer: imageBuffer,

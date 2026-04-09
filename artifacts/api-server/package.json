@@ -9,7 +9,8 @@
     "start": "node --enable-source-maps ./dist/index.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "backfill:ai-memes": "tsx scripts/backfill-ai-memes.ts",
-    "backfill:pexels": "tsx scripts/backfill-pexels.ts"
+    "backfill:pexels": "tsx scripts/backfill-pexels.ts",
+    "migrate:ai-backgrounds": "tsx scripts/migrate-ai-backgrounds.ts"
   },
   "dependencies": {
     "@fal-ai/client": "^1.9.5",
