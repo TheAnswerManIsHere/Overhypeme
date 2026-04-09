@@ -261,5 +261,5 @@ export function SpendInline({ userId, isAdmin = false }: SpendInlineProps) {
   const endpoint = isAdmin
     ? `/api/admin/users/${userId}/spend`
     : `/api/users/me/spend`;
-  return <SpendBreakdown endpoint={endpoint} />;
+  return <SpendCollapsible endpoint={endpoint} />;
 }
