@@ -1,6 +1,7 @@
 import { Storage, File } from "@google-cloud/storage";
 import { Readable } from "stream";
 import { randomUUID } from "crypto";
+import { uploadKey } from "./storageKeys";
 import {
   ObjectAclPolicy,
   ObjectPermission,
@@ -116,7 +117,8 @@ export class ObjectStorageService {
     }
 
     const objectId = randomUUID();
-    const fullPath = `${privateObjectDir}/uploads/${objectId}`;
+    const subPath = uploadKey(objectId);
+    const fullPath = `${privateObjectDir}/${subPath}`;
 
     const { bucketName, objectName } = parseObjectPath(fullPath);
 

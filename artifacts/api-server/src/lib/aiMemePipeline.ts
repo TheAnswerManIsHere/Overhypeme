@@ -14,6 +14,7 @@
 import { fal } from "@fal-ai/client";
 import { getOpenAIClient } from "@workspace/integrations-openai-ai-server";
 import { ObjectStorageService } from "./objectStorage";
+import { aiBackgroundKey } from "./storageKeys";
 import { db } from "@workspace/db";
 import { factsTable, userAiImagesTable } from "@workspace/db/schema";
 import { eq, sql } from "drizzle-orm";
@@ -247,7 +248,7 @@ async function generateAndStoreImage(
   const { contentType, ext } = detectImageFormat(imgRes);
   const imageBuffer = Buffer.from(await imgRes.arrayBuffer());
 
-  const subPath = `ai-backgrounds/ai_meme_${factId}_${gender}_${uniqueKey}.${ext}`;
+  const subPath = aiBackgroundKey(factId, gender, uniqueKey, ext, false);
   const storedPath = await objectStorage.uploadObjectBuffer({
     subPath,
     buffer: imageBuffer,
@@ -427,7 +428,7 @@ async function generateAndStoreImageFromReference(
   const { contentType, ext } = detectImageFormat(imgRes);
   const imageBuffer = Buffer.from(await imgRes.arrayBuffer());
 
-  const subPath = `ai-backgrounds/ai_meme_${factId}_${gender}_ref_${uniqueKey}.${ext}`;
+  const subPath = aiBackgroundKey(factId, gender, uniqueKey, ext, true);
   const storedPath = await objectStorage.uploadObjectBuffer({
     subPath,
     buffer: imageBuffer,
