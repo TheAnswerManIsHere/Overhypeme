@@ -4,6 +4,7 @@ import HCaptcha from "@hcaptcha/react-hcaptcha";
 import { useAuth } from "@workspace/replit-auth-web";
 
 import { Layout } from "@/components/layout/Layout";
+import { AccessGate } from "@/components/AccessGate";
 import { Button } from "@/components/ui/Button";
 import { Textarea, Input } from "@/components/ui/Input";
 import { renderFact } from "@/lib/render-fact";
@@ -235,15 +236,7 @@ export default function SubmitFact() {
   if (!isAuthenticated) {
     return (
       <Layout>
-        <div className="max-w-2xl mx-auto px-4 py-24 text-center">
-          <ShieldAlert className="w-20 h-20 text-primary mx-auto mb-6 opacity-80" />
-          <h1 className="text-4xl font-display uppercase mb-4 text-foreground">Restricted Area</h1>
-          <p className="text-muted-foreground text-xl mb-8">You must be logged in to submit facts.</p>
-          <div className="flex gap-4 justify-center">
-            <Button size="lg" onClick={() => setLocation("/login")}>Login to Continue</Button>
-            <Button size="lg" variant="outline" onClick={() => setLocation("/")}>Go Back</Button>
-          </div>
-        </div>
+        <AccessGate variant="page" reason="login" returnTo="/submit" description="You must be logged in to submit facts." />
       </Layout>
     );
   }

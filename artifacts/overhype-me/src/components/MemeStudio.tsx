@@ -24,6 +24,7 @@ import { AiBgPicker, type AiBgSelection } from "@/components/AiBgPicker";
 import { useAuth } from "@workspace/replit-auth-web";
 import { usePersonName } from "@/hooks/use-person-name";
 import { cn } from "@/lib/utils";
+import { AccessGate } from "@/components/AccessGate";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -974,11 +975,7 @@ function VideoTab({ factId, factText, pexelsImages, aiMemeImages, initialImageDa
           {imageMode === "upload" && (
             <div className="space-y-3">
               {!isLegendary ? (
-                <div className="border-2 border-dashed border-amber-400/30 bg-amber-400/5 p-5 text-center space-y-2">
-                  <Lock className="w-6 h-6 text-amber-400 mx-auto" />
-                  <p className="text-sm font-bold text-amber-400 uppercase tracking-wider">Legendary Feature</p>
-                  <p className="text-xs text-muted-foreground">Upload your own photos with a Legendary membership.</p>
-                </div>
+                <AccessGate reason="legendary" size="sm" description="Upload your own photos with a Legendary membership." />
               ) : (
                 <>
                   <input
@@ -1724,28 +1721,9 @@ export function MemeStudio({
             fullScreen
           />
         ) : !isAuthenticated ? (
-          <div className="flex-1 flex items-center justify-center p-8">
-            <div className="border-2 border-dashed border-amber-400/30 bg-amber-400/5 p-8 text-center space-y-3 max-w-sm w-full">
-              <Lock className="w-8 h-8 text-amber-400 mx-auto" />
-              <p className="text-sm font-bold text-amber-400 uppercase tracking-wider">Login Required</p>
-              <p className="text-xs text-muted-foreground">
-                Log in to access Video Generation.
-              </p>
-            </div>
-          </div>
+          <AccessGate reason="login" description="Log in to access Video Generation." />
         ) : !isLegendary ? (
-          <div className="flex-1 flex items-center justify-center p-8">
-            <div className="border-2 border-dashed border-amber-400/30 bg-amber-400/5 p-8 text-center space-y-3 max-w-sm w-full">
-              <Lock className="w-8 h-8 text-amber-400 mx-auto" />
-              <p className="text-sm font-bold text-amber-400 uppercase tracking-wider">Legendary Feature</p>
-              <p className="text-xs text-muted-foreground">
-                Video generation is exclusive to Legendary members. Upgrade to unlock AI-powered video creation.
-              </p>
-              <a href="/pricing">
-                <Button size="sm" className="mt-1">Go Legendary</Button>
-              </a>
-            </div>
-          </div>
+          <AccessGate reason="legendary" description="Video generation is exclusive to Legendary members. Upgrade to unlock AI-powered video creation." />
         ) : (
           <div className="p-4 md:p-5 max-w-2xl mx-auto">
             <VideoTab

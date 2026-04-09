@@ -6,6 +6,7 @@ import {
   useRef,
 } from "react";
 import { Sparkles, Loader2, Upload, X, RefreshCw, AlertTriangle } from "lucide-react";
+import { AccessGate } from "@/components/AccessGate";
 import { Link } from "wouter";
 import { ImageCard } from "@/components/ui/ImageCard";
 import { Button } from "@/components/ui/Button";
@@ -659,16 +660,7 @@ export function AiBgPicker({
   // ─── Render ─────────────────────────────────────────────────────────────────
 
   if (!isPremium) {
-    return (
-      <div className="border-2 border-dashed border-amber-400/30 bg-amber-400/5 p-5 text-center space-y-2">
-        <Sparkles className="w-6 h-6 text-amber-400 mx-auto" />
-        <p className="text-sm font-bold text-amber-400 uppercase tracking-wider">Legendary Feature</p>
-        <p className="text-xs text-muted-foreground">AI-generated backgrounds require a Legendary membership.</p>
-        <Link href="/pricing">
-          <Button size="sm" className="mt-2">Go Legendary</Button>
-        </Link>
-      </div>
-    );
+    return <AccessGate reason="legendary" size="sm" description="AI-generated backgrounds require a Legendary membership." />;
   }
 
   const myRefImages = refGenImages.filter(img => img.gender === aiGender);

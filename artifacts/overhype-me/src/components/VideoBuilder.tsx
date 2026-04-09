@@ -7,6 +7,7 @@ import {
   type DragEvent,
 } from "react";
 import { Link } from "wouter";
+import { AccessGate } from "@/components/AccessGate";
 import { useAuth } from "@workspace/replit-auth-web";
 import { Button } from "@/components/ui/Button";
 import {
@@ -15,7 +16,6 @@ import {
   Loader2,
   Download,
   Upload,
-  Lock,
   CheckCircle,
 } from "lucide-react";
 
@@ -497,26 +497,9 @@ export function VideoBuilder({ factId, factText, onClose, initialImageDataUrl }:
 
         {/* ── Legendary paywall ── */}
         {!isAuthenticated ? (
-          <div className="p-8 flex items-center justify-center">
-            <div className="border-2 border-dashed border-amber-400/30 bg-amber-400/5 p-8 text-center space-y-3 max-w-sm w-full">
-              <Lock className="w-8 h-8 text-amber-400 mx-auto" />
-              <p className="text-sm font-bold text-amber-400 uppercase tracking-wider">Login Required</p>
-              <p className="text-xs text-muted-foreground">Log in to access Video Generation.</p>
-            </div>
-          </div>
+          <AccessGate reason="login" description="Log in to access Video Generation." />
         ) : !isLegendary ? (
-          <div className="p-8 flex items-center justify-center">
-            <div className="border-2 border-dashed border-amber-400/30 bg-amber-400/5 p-8 text-center space-y-3 max-w-sm w-full">
-              <Lock className="w-8 h-8 text-amber-400 mx-auto" />
-              <p className="text-sm font-bold text-amber-400 uppercase tracking-wider">Legendary Feature</p>
-              <p className="text-xs text-muted-foreground">
-                Video generation is exclusive to Legendary members. Upgrade to unlock AI-powered video creation.
-              </p>
-              <Link href="/pricing">
-                <Button size="sm" className="mt-1">Go Legendary</Button>
-              </Link>
-            </div>
-          </div>
+          <AccessGate reason="legendary" description="Video generation is exclusive to Legendary members. Upgrade to unlock AI-powered video creation." />
         ) : null}
 
         <div className="p-4 md:p-5 space-y-5" style={(!isAuthenticated || !isLegendary) ? { display: "none" } : {}}>
@@ -567,28 +550,9 @@ export function VideoBuilder({ factId, factText, onClose, initialImageDataUrl }:
             {sourceMode === "upload" && (
               <>
                 {!isAuthenticated ? (
-                  <div className="border-2 border-dashed border-amber-400/30 bg-amber-400/5 p-5 text-center space-y-2">
-                    <Lock className="w-6 h-6 text-amber-400 mx-auto" />
-                    <p className="text-sm font-bold text-amber-400 uppercase tracking-wider">
-                      Login Required
-                    </p>
-                    <p className="text-xs text-muted-foreground">
-                      Log in to upload your own images for video generation.
-                    </p>
-                  </div>
+                  <AccessGate reason="login" size="sm" description="Log in to upload your own images for video generation." />
                 ) : !isLegendary ? (
-                  <div className="border-2 border-dashed border-amber-400/30 bg-amber-400/5 p-5 text-center space-y-2">
-                    <Lock className="w-6 h-6 text-amber-400 mx-auto" />
-                    <p className="text-sm font-bold text-amber-400 uppercase tracking-wider">
-                      Legendary Feature
-                    </p>
-                    <p className="text-xs text-muted-foreground">
-                      Upload your own photos with a Legendary membership.
-                    </p>
-                    <Link href="/pricing">
-                      <Button size="sm" className="mt-2">Go Legendary</Button>
-                    </Link>
-                  </div>
+                  <AccessGate reason="legendary" size="sm" description="Upload your own photos with a Legendary membership." />
                 ) : (
                   <div className="space-y-4">
                     {/* Drop zone */}
