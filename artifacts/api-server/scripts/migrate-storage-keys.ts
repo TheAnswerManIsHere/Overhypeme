@@ -210,13 +210,17 @@ async function migrateFolder(
     }
   }
 
-  // ── Phase 3: Delete old files ─────────────────────────────────────────────
+  // ── Phase 3: Delete old files (only if DB updates succeeded) ────────────────
   let deleteErrors = 0;
-  console.log(`\n[${folder}] Deleting old files...`);
-  for (const [oldObjPath] of successMap) {
-    const oldSubPath = oldObjPath.slice("/objects/".length);
-    const ok = await deleteFile(bucket, prefix, oldSubPath);
-    if (!ok) deleteErrors++;
+  if (dbErrors > 0) {
+    console.error(`[${folder}] DB error(s) occurred — skipping deletion to preserve data integrity`);
+  } else {
+    console.log(`\n[${folder}] Deleting old files...`);
+    for (const [oldObjPath] of successMap) {
+      const oldSubPath = oldObjPath.slice("/objects/".length);
+      const ok = await deleteFile(bucket, prefix, oldSubPath);
+      if (!ok) deleteErrors++;
+    }
   }
 
   const totalHandled = copied + skipped;
