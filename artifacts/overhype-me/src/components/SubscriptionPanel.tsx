@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { Link } from "wouter";
 import { Button } from "@/components/ui/Button";
-import { Star, CreditCard, Calendar, Zap, ExternalLink, AlertCircle, Receipt, ChevronDown, ChevronUp, Crown, RefreshCw, ArrowUpCircle, XCircle } from "lucide-react";
+import { Star, CreditCard, Calendar, Zap, ExternalLink, AlertCircle, AlertTriangle, Receipt, ChevronDown, ChevronUp, Crown, RefreshCw, ArrowUpCircle, XCircle } from "lucide-react";
 
 interface Subscription {
   id: string;
@@ -421,8 +421,14 @@ export function SubscriptionPanel() {
             <div>
               <p className="font-bold text-foreground flex items-center gap-2">
                 {isLegendary || isLifetime ? "Legendary Member" : "Member"}
-                <span className={`text-xs px-2 py-0.5 rounded-sm uppercase tracking-wide ${isLegendary ? "bg-amber-500/20 text-amber-400" : "bg-primary/20 text-primary"}`}>
-                  {isLifetime ? "legendary for life" : isLegendary ? "legendary" : sub?.status ?? "active"}
+                <span className={`text-xs px-2 py-0.5 rounded-sm uppercase tracking-wide ${
+                  cancelAtPeriodEnd && !isLifetime
+                    ? "bg-orange-500/20 text-orange-400"
+                    : isLegendary
+                    ? "bg-amber-500/20 text-amber-400"
+                    : "bg-primary/20 text-primary"
+                }`}>
+                  {isLifetime ? "legendary for life" : cancelAtPeriodEnd ? "cancelling" : isLegendary ? "legendary" : sub?.status ?? "active"}
                 </span>
               </p>
               <p className="text-sm text-muted-foreground">
@@ -438,13 +444,35 @@ export function SubscriptionPanel() {
             </div>
           )}
 
-          {!isLifetime && periodEnd && (
+          {!isLifetime && periodEnd && !cancelAtPeriodEnd && (
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
               <Calendar className="w-4 h-4 text-primary" />
-              {cancelAtPeriodEnd
-                ? <span>Cancels on <strong className="text-foreground">{periodEnd}</strong></span>
-                : <span>Renews on <strong className="text-foreground">{periodEnd}</strong></span>
-              }
+              <span>Renews on <strong className="text-foreground">{periodEnd}</strong></span>
+            </div>
+          )}
+
+          {!isLifetime && cancelAtPeriodEnd && periodEnd && (
+            <div className="flex flex-col gap-3 p-4 rounded-sm border border-orange-500/40 bg-orange-500/10">
+              <div className="flex items-start gap-3">
+                <AlertTriangle className="w-5 h-5 text-orange-400 shrink-0 mt-0.5" />
+                <div className="flex flex-col gap-1">
+                  <p className="font-semibold text-foreground text-sm">Subscription cancelled</p>
+                  <p className="text-sm text-muted-foreground">
+                    Your Legendary access remains active until <strong className="text-foreground">{periodEnd}</strong>.
+                    After that date, your account will revert to the free plan and you'll lose access to Legendary features.
+                  </p>
+                </div>
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleReactivate}
+                disabled={reactivateLoading}
+                className="gap-2 self-start border-orange-500/40 text-orange-400 hover:bg-orange-500/10 hover:border-orange-500/60"
+              >
+                <RefreshCw className="w-4 h-4" />
+                {reactivateLoading ? "Reactivating..." : "Reactivate Subscription"}
+              </Button>
             </div>
           )}
 
@@ -463,10 +491,10 @@ export function SubscriptionPanel() {
           )}
 
           {/* Subscription action controls — only for active recurring subscribers */}
-          {showSubscriptionControls && (
+          {showSubscriptionControls && !cancelAtPeriodEnd && (
             <div className="flex flex-col gap-3 pt-1">
-              {/* Monthly-to-annual switch — only when not set to cancel */}
-              {isMonthly && !cancelAtPeriodEnd && annualPriceAvailable && (
+              {/* Monthly-to-annual switch */}
+              {isMonthly && annualPriceAvailable && (
                 <Button
                   variant="outline"
                   size="sm"
@@ -478,29 +506,15 @@ export function SubscriptionPanel() {
                 </Button>
               )}
 
-              {/* Cancel or reactivate */}
-              {cancelAtPeriodEnd ? (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={handleReactivate}
-                  disabled={reactivateLoading}
-                  className="gap-2 self-start"
-                >
-                  <RefreshCw className="w-4 h-4" />
-                  {reactivateLoading ? "Reactivating..." : "Reactivate Subscription"}
-                </Button>
-              ) : (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => { setError(null); setShowCancelDialog(true); }}
-                  className="gap-2 self-start border-destructive/40 text-destructive hover:bg-destructive/10"
-                >
-                  <XCircle className="w-4 h-4" />
-                  Cancel Subscription
-                </Button>
-              )}
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => { setError(null); setShowCancelDialog(true); }}
+                className="gap-2 self-start border-destructive/40 text-destructive hover:bg-destructive/10"
+              >
+                <XCircle className="w-4 h-4" />
+                Cancel Subscription
+              </Button>
             </div>
           )}
 
