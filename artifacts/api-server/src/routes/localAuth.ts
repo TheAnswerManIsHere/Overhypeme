@@ -164,7 +164,7 @@ router.post("/auth/register", async (req: Request, res: Response) => {
     isAdmin: user.isAdmin || isAdminById(user.id),
   };
 
-  const sid = await createSession(sessionData);
+  const sid = await createSession(sessionData, user.id);
   setSessionCookie(res, sid);
 
   // Fire verification email asynchronously — don't block registration
@@ -230,7 +230,7 @@ router.post("/auth/local-login", async (req: Request, res: Response) => {
     isAdmin: user.isAdmin || isAdminById(user.id),
   };
 
-  const sid = await createSession(sessionData);
+  const sid = await createSession(sessionData, user.id);
   setSessionCookie(res, sid);
 
   res.json({
@@ -530,7 +530,7 @@ router.post("/auth/dev-admin-login", async (req: Request, res: Response) => {
     isAdmin: user.isAdmin || isAdminById(user.id),
   };
 
-  const sid = await createSession(sessionData);
+  const sid = await createSession(sessionData, user.id);
   setSessionCookie(res, sid);
   res.json({ sid, user: { id: user.id, email: user.email } });
 });

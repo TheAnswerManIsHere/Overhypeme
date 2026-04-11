@@ -308,7 +308,7 @@ router.get("/callback", async (req: Request, res: Response) => {
     isAdmin: dbUser.isAdmin || isAdminById(dbUser.id),
   };
 
-  const sid = await createSession(sessionData);
+  const sid = await createSession(sessionData, dbUser.id);
   setSessionCookie(res, sid);
 
   const basePath = process.env.BASE_PATH || "";
@@ -412,7 +412,7 @@ router.post(
         isAdmin: dbUser.isAdmin || isAdminById(dbUser.id),
       };
 
-      const sid = await createSession(sessionData);
+      const sid = await createSession(sessionData, dbUser.id);
       res.json(ExchangeMobileAuthorizationCodeResponse.parse({ token: sid }));
     } catch (err) {
       req.log.error({ err }, "Mobile token exchange error");

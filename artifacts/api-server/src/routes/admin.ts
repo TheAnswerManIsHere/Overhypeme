@@ -1,5 +1,5 @@
 import { Router, type IRouter, type Request, type Response, type NextFunction } from "express";
-import { db, usersTable } from "@workspace/db";
+import { db, usersTable, sessionsTable } from "@workspace/db";
 import { factsTable, commentsTable, adminConfigTable, videoStylesTable, featureFlagsTable, tierFeaturePermissionsTable, userGenerationCostsTable, lifetimeEntitlementsTable, subscriptionsTable, membershipHistoryTable, activityFeedTable, memesTable, userAiImagesTable } from "@workspace/db/schema";
 import { eq, desc, count, ilike, sql, and, or, inArray, isNull, asc } from "drizzle-orm";
 import { getSessionId, getSession, updateSession } from "../lib/auth";
@@ -187,8 +187,8 @@ router.delete("/admin/users/:id", requireAdmin, async (req: Request, res: Respon
     await db.execute(sql`UPDATE pending_reviews SET reviewed_by_id = NULL WHERE reviewed_by_id = ${id}`);
     await db.execute(sql`UPDATE video_jobs SET user_id = NULL WHERE user_id = ${id}`);
 
-    // Step 5: Delete the user row — DB cascades handle accounts, sessions, user_ai_images,
-    //         user_fact_preferences, ratings, search_history, email/password tokens
+    // Step 5: Delete the user row — DB cascades handle sessions (via sessions.user_id FK),
+    //         user_ai_images, user_fact_preferences, ratings, search_history, email/password tokens
     const [deleted] = await db.delete(usersTable).where(eq(usersTable.id, id)).returning({ id: usersTable.id });
     if (!deleted) { res.status(404).json({ error: "User not found" }); return; }
     res.json({ success: true, deleted: true });
@@ -200,7 +200,7 @@ router.delete("/admin/users/:id", requireAdmin, async (req: Request, res: Respon
       .returning();
     if (!updated) { res.status(404).json({ error: "User not found or already inactive" }); return; }
     // Invalidate sessions immediately so the effect is instant
-    await db.execute(sql`DELETE FROM sessions WHERE sess->'user'->>'id' = ${id}`);
+    await db.delete(sessionsTable).where(eq(sessionsTable.userId, id));
     res.json({ success: true, deleted: false, user: updated });
   }
 });
