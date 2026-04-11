@@ -185,4 +185,259 @@ router.post("/stripe/portal", async (req: Request, res: Response) => {
   }
 });
 
+// Helper: get the user's active non-lifetime subscription from Stripe
+async function getActiveStripeSub(userId: string) {
+  const user = await stripeStorage.getUserById(userId);
+  if (!user?.stripeCustomerId) return null;
+
+  // Fetch active subscriptions from Stripe (not local DB)
+  const stripe = await getUncachableStripeClient();
+  const subs = await stripe.subscriptions.list({
+    customer: user.stripeCustomerId,
+    status: "active",
+    limit: 5,
+  });
+  return subs.data[0] ?? null;
+}
+
+// POST /stripe/subscription/cancel — cancel subscription at period end
+router.post("/stripe/subscription/cancel", async (req: Request, res: Response) => {
+  if (!req.isAuthenticated()) { res.status(401).json({ error: "Unauthorized" }); return; }
+
+  try {
+    const userId = req.user.id;
+
+    // Block lifetime users
+    const [lifetimeRows] = await Promise.all([
+      db.select().from(lifetimeEntitlementsTable).where(eq(lifetimeEntitlementsTable.userId, userId)).limit(1),
+    ]);
+    if (lifetimeRows.length > 0) {
+      res.status(400).json({ error: "Lifetime members cannot cancel a recurring subscription" });
+      return;
+    }
+
+    const stripe = await getUncachableStripeClient();
+    const user = await stripeStorage.getUserById(userId);
+    if (!user?.stripeCustomerId) {
+      res.status(400).json({ error: "No active subscription found" });
+      return;
+    }
+
+    const subs = await stripe.subscriptions.list({ customer: user.stripeCustomerId, status: "active", limit: 5 });
+    const sub = subs.data[0];
+    if (!sub) {
+      res.status(400).json({ error: "No active subscription found" });
+      return;
+    }
+
+    const updated = await stripe.subscriptions.update(sub.id, { cancel_at_period_end: true });
+
+    // Sync local DB immediately so next GET /stripe/subscription reflects updated state
+    await db
+      .update(subscriptionsTable)
+      .set({ cancelAtPeriodEnd: true })
+      .where(eq(subscriptionsTable.stripeSubscriptionId, sub.id));
+
+    res.json({ subscription: updated });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "Cancel failed";
+    res.status(500).json({ error: msg });
+  }
+});
+
+// POST /stripe/subscription/reactivate — undo cancel_at_period_end
+router.post("/stripe/subscription/reactivate", async (req: Request, res: Response) => {
+  if (!req.isAuthenticated()) { res.status(401).json({ error: "Unauthorized" }); return; }
+
+  try {
+    const userId = req.user.id;
+
+    // Block lifetime users — same guard as cancel
+    const lifetimeRowsReactivate = await db.select().from(lifetimeEntitlementsTable).where(eq(lifetimeEntitlementsTable.userId, userId)).limit(1);
+    if (lifetimeRowsReactivate.length > 0) {
+      res.status(400).json({ error: "Lifetime members do not have a recurring subscription to reactivate" });
+      return;
+    }
+
+    const stripe = await getUncachableStripeClient();
+    const user = await stripeStorage.getUserById(userId);
+    if (!user?.stripeCustomerId) {
+      res.status(400).json({ error: "No active subscription found" });
+      return;
+    }
+
+    // Find subscriptions that are active or set to cancel at period end
+    const subs = await stripe.subscriptions.list({ customer: user.stripeCustomerId, status: "active", limit: 5 });
+    const sub = subs.data[0];
+    if (!sub) {
+      res.status(400).json({ error: "No active subscription found" });
+      return;
+    }
+
+    if (!sub.cancel_at_period_end) {
+      res.status(400).json({ error: "Subscription is not set to cancel" });
+      return;
+    }
+
+    const updated = await stripe.subscriptions.update(sub.id, { cancel_at_period_end: false });
+
+    // Sync local DB immediately so next GET /stripe/subscription reflects updated state
+    await db
+      .update(subscriptionsTable)
+      .set({ cancelAtPeriodEnd: false })
+      .where(eq(subscriptionsTable.stripeSubscriptionId, sub.id));
+
+    res.json({ subscription: updated });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "Reactivate failed";
+    res.status(500).json({ error: msg });
+  }
+});
+
+// GET /stripe/subscription/switch-preview?targetPriceId=... — proration preview
+router.get("/stripe/subscription/switch-preview", async (req: Request, res: Response) => {
+  if (!req.isAuthenticated()) { res.status(401).json({ error: "Unauthorized" }); return; }
+
+  const { targetPriceId } = req.query as { targetPriceId?: string };
+  if (!targetPriceId) { res.status(400).json({ error: "targetPriceId required" }); return; }
+
+  try {
+    // Block lifetime users — same guard as switch-plan/cancel/reactivate
+    const lifetimeRowsPreview = await db.select().from(lifetimeEntitlementsTable).where(eq(lifetimeEntitlementsTable.userId, req.user.id)).limit(1);
+    if (lifetimeRowsPreview.length > 0) {
+      res.status(400).json({ error: "Lifetime members cannot switch plans" });
+      return;
+    }
+
+    const stripe = await getUncachableStripeClient();
+
+    // Validate target price is a recognized membership price — fail-closed
+    const priceObj = await stripe.prices.retrieve(targetPriceId, { expand: ["product"] });
+    const allowlist = (process.env.MEMBERSHIP_PRICE_IDS ?? "").split(",").map((s: string) => s.trim()).filter(Boolean);
+    const inAllowlist = allowlist.length > 0 && allowlist.includes(targetPriceId);
+    const prod = priceObj.product as import("stripe").Stripe.Product | null;
+    const hasMetaTag = prod && typeof prod !== "string" && prod.metadata?.membership === "true";
+    if (!inAllowlist && !hasMetaTag) {
+      res.status(400).json({ error: "Invalid price: not a recognized membership product" });
+      return;
+    }
+
+    const sub = await getActiveStripeSub(req.user.id);
+    if (!sub) {
+      res.status(400).json({ error: "No active subscription found" });
+      return;
+    }
+
+    const currentItem = sub.items.data[0];
+    if (!currentItem) {
+      res.status(400).json({ error: "Subscription has no price item" });
+      return;
+    }
+
+    // Enforce monthly→annual only: current must be monthly, target must be annual
+    const currentInterval = currentItem.price?.recurring?.interval;
+    const targetInterval = priceObj.recurring?.interval;
+    if (currentInterval !== "month") {
+      res.status(400).json({ error: "Plan switches are only supported from monthly to annual billing" });
+      return;
+    }
+    if (targetInterval !== "year") {
+      res.status(400).json({ error: "Target plan must be an annual price" });
+      return;
+    }
+
+    // Retrieve proration preview via invoice preview
+    const upcoming = await stripe.invoices.createPreview({
+      customer: typeof sub.customer === "string" ? sub.customer : sub.customer.id,
+      subscription: sub.id,
+      subscription_details: {
+        items: [{ id: currentItem.id, price: targetPriceId }],
+        proration_behavior: "create_prorations",
+      },
+    });
+
+    res.json({
+      amountDue: upcoming.amount_due,
+      currency: upcoming.currency,
+      lines: upcoming.lines.data.map((l: { description: string | null; amount: number }) => ({
+        description: l.description,
+        amount: l.amount,
+      })),
+    });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "Preview failed";
+    res.status(500).json({ error: msg });
+  }
+});
+
+// POST /stripe/subscription/switch-plan — switch subscription to a new price
+router.post("/stripe/subscription/switch-plan", async (req: Request, res: Response) => {
+  if (!req.isAuthenticated()) { res.status(401).json({ error: "Unauthorized" }); return; }
+
+  const { targetPriceId } = req.body as { targetPriceId?: string };
+  if (!targetPriceId) { res.status(400).json({ error: "targetPriceId required" }); return; }
+
+  try {
+    const stripe = await getUncachableStripeClient();
+
+    // Validate target price — fail-closed (no allowlist bypass for mutation endpoints)
+    const priceObj = await stripe.prices.retrieve(targetPriceId, { expand: ["product"] });
+    const allowlist = (process.env.MEMBERSHIP_PRICE_IDS ?? "").split(",").map((s: string) => s.trim()).filter(Boolean);
+    const inAllowlist = allowlist.length > 0 && allowlist.includes(targetPriceId);
+    const prod = priceObj.product as import("stripe").Stripe.Product | null;
+    const hasMetaTag = prod && typeof prod !== "string" && prod.metadata?.membership === "true";
+    if (!inAllowlist && !hasMetaTag) {
+      res.status(400).json({ error: "Invalid price: not a recognized membership product" });
+      return;
+    }
+
+    // Block lifetime users
+    const lifetimeRows = await db.select().from(lifetimeEntitlementsTable).where(eq(lifetimeEntitlementsTable.userId, req.user.id)).limit(1);
+    if (lifetimeRows.length > 0) {
+      res.status(400).json({ error: "Lifetime members cannot switch plans" });
+      return;
+    }
+
+    const sub = await getActiveStripeSub(req.user.id);
+    if (!sub) {
+      res.status(400).json({ error: "No active subscription found" });
+      return;
+    }
+
+    const currentItem = sub.items.data[0];
+    if (!currentItem) {
+      res.status(400).json({ error: "Subscription has no price item" });
+      return;
+    }
+
+    // Enforce monthly→annual only: current must be monthly, target must be annual
+    const currentSwitchInterval = currentItem.price?.recurring?.interval;
+    const targetSwitchInterval = priceObj.recurring?.interval;
+    if (currentSwitchInterval !== "month") {
+      res.status(400).json({ error: "Plan switches are only supported from monthly to annual billing" });
+      return;
+    }
+    if (targetSwitchInterval !== "year") {
+      res.status(400).json({ error: "Target plan must be an annual price" });
+      return;
+    }
+
+    const updated = await stripe.subscriptions.update(sub.id, {
+      items: [{ id: currentItem.id, price: targetPriceId }],
+      proration_behavior: "create_prorations",
+    });
+
+    // Sync local DB immediately so next GET /stripe/subscription reflects updated plan
+    await db
+      .update(subscriptionsTable)
+      .set({ plan: "annual" })
+      .where(eq(subscriptionsTable.stripeSubscriptionId, sub.id));
+
+    res.json({ subscription: updated });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "Plan switch failed";
+    res.status(500).json({ error: msg });
+  }
+});
+
 export default router;
