@@ -10,46 +10,34 @@ interface MerchButtonsProps {
   imageUrl?: string;
 }
 
-async function logClickAndRedirect(
-  sourceType: "fact" | "meme",
-  sourceId: string | number,
-  destination: "zazzle",
-  text: string,
-  imageUrl?: string,
-) {
-  const absoluteImageUrl = imageUrl
-    ? (imageUrl.startsWith("http") ? imageUrl : `${window.location.origin}${imageUrl}`)
-    : undefined;
-  try {
-    const resp = await fetch("/api/affiliate/click", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      credentials: "include",
-      body: JSON.stringify({ sourceType, sourceId: String(sourceId), destination, text, imageUrl: absoluteImageUrl }),
-    });
-    if (resp.ok) {
-      const data = (await resp.json()) as { url?: string };
-      if (data.url) {
-        window.open(data.url, "_blank", "noopener,noreferrer");
-        return;
-      }
-    }
-  } catch {
-    // Fall through to fallback
-  }
-  // Fallback: open Zazzle search directly
-  const encoded = encodeURIComponent(text.slice(0, 100));
-  const fallback = `https://www.zazzle.com/s/${encoded}`;
-  window.open(fallback, "_blank", "noopener,noreferrer");
-}
-
 export function MerchButtons({ sourceType, sourceId, text, imageUrl }: MerchButtonsProps) {
   const [loadingZazzle, setLoadingZazzle] = useState(false);
 
   async function handleZazzle() {
     setLoadingZazzle(true);
     trackEvent("affiliate_click", { destination: "zazzle", source_type: sourceType });
-    await logClickAndRedirect(sourceType, sourceId, "zazzle", text, imageUrl);
+
+    const absoluteImageUrl = imageUrl
+      ? (imageUrl.startsWith("http") ? imageUrl : `${window.location.origin}${imageUrl}`)
+      : undefined;
+
+    const newWin = window.open("", "_blank", "noopener,noreferrer");
+
+    try {
+      const resp = await fetch("/api/affiliate/click", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ sourceType, sourceId: String(sourceId), destination: "zazzle", text, imageUrl: absoluteImageUrl }),
+      });
+      if (resp.ok) {
+        const data = (await resp.json()) as { url?: string };
+        if (data.url && newWin) { newWin.location.href = data.url; setLoadingZazzle(false); return; }
+      }
+    } catch { /* fall through */ }
+
+    const encoded = encodeURIComponent(text.slice(0, 100));
+    if (newWin) newWin.location.href = `https://www.zazzle.com/s/${encoded}`;
     setLoadingZazzle(false);
   }
 
