@@ -1,7 +1,7 @@
 import { Router, type IRouter, type Request, type Response, type NextFunction } from "express";
 import { db, usersTable, sessionsTable } from "@workspace/db";
 import { factsTable, commentsTable, adminConfigTable, videoStylesTable, featureFlagsTable, tierFeaturePermissionsTable, userGenerationCostsTable, lifetimeEntitlementsTable, subscriptionsTable, membershipHistoryTable, activityFeedTable, memesTable, userAiImagesTable } from "@workspace/db/schema";
-import { eq, desc, count, ilike, sql, and, or, inArray, isNull, asc } from "drizzle-orm";
+import { eq, desc, count, ilike, sql, and, or, inArray, isNull, asc, gt } from "drizzle-orm";
 import { getSessionId, getSession, updateSession } from "../lib/auth";
 import { isAdminById } from "./auth";
 import { deriveUserRole } from "../lib/userRole";
@@ -16,6 +16,27 @@ import { memeKey } from "../lib/storageKeys";
 import bcrypt from "bcryptjs";
 
 const _styleStorage = new ObjectStorageService();
+
+async function resolveUserTierOnReinstatement(userId: string): Promise<"registered" | "legendary"> {
+  const lifetimeRows = await db
+    .select({ id: lifetimeEntitlementsTable.id })
+    .from(lifetimeEntitlementsTable)
+    .where(eq(lifetimeEntitlementsTable.userId, userId))
+    .limit(1);
+  if (lifetimeRows.length > 0) return "legendary";
+
+  const activeSubRows = await db
+    .select({ id: subscriptionsTable.id })
+    .from(subscriptionsTable)
+    .where(and(
+      eq(subscriptionsTable.userId, userId),
+      gt(subscriptionsTable.currentPeriodEnd, new Date()),
+    ))
+    .limit(1);
+  if (activeSubRows.length > 0) return "legendary";
+
+  return "registered";
+}
 
 const router: IRouter = Router();
 
@@ -114,6 +135,17 @@ router.patch("/admin/users/:id", requireAdmin, async (req: Request, res: Respons
   if (Object.keys(updates).length === 0) {
     res.status(400).json({ error: "No valid fields to update" });
     return;
+  }
+
+  if (updates.isActive === true && body["membershipTier"] === undefined) {
+    const [currentUser] = await db
+      .select({ isActive: usersTable.isActive })
+      .from(usersTable)
+      .where(eq(usersTable.id, id))
+      .limit(1);
+    if (currentUser && currentUser.isActive === false) {
+      updates.membershipTier = await resolveUserTierOnReinstatement(id);
+    }
   }
 
   const [updated] = await db

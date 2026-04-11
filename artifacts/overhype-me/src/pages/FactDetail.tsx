@@ -274,6 +274,9 @@ export default function FactDetail() {
     const absoluteImageUrl = meme.imageUrl.startsWith("http")
       ? meme.imageUrl
       : `${window.location.origin}${meme.imageUrl}`;
+
+    const newWin = window.open("", "_blank", "noopener,noreferrer");
+
     try {
       const resp = await fetch("/api/affiliate/click", {
         method: "POST",
@@ -289,11 +292,11 @@ export default function FactDetail() {
       });
       if (resp.ok) {
         const data = (await resp.json()) as { url?: string };
-        if (data.url) { window.open(data.url, "_blank", "noopener,noreferrer"); return; }
+        if (data.url && newWin) { newWin.location.href = data.url; return; }
       }
     } catch { /* fall through */ }
     const encoded = encodeURIComponent(text.slice(0, 100));
-    window.open(`https://www.zazzle.com/s/${encoded}`, "_blank", "noopener,noreferrer");
+    if (newWin) newWin.location.href = `https://www.zazzle.com/s/${encoded}`;
   }
 
   const pexelsImages = ((fact as unknown as { pexelsImages?: FactPexelsImages | null })?.pexelsImages) ?? null;
