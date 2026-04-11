@@ -154,6 +154,14 @@ export function SubscriptionPanel() {
       .then(r => r.json())
       .then((d: { plans: PlanProduct[] }) => setPlans(d.plans ?? []))
       .catch(() => {});
+
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("from_portal") === "1") {
+      window.history.replaceState({}, "", window.location.pathname);
+      const delays = [2000, 4000, 7000, 12000];
+      const timers = delays.map((ms) => setTimeout(fetchSubData, ms));
+      return () => timers.forEach(clearTimeout);
+    }
   }, [fetchSubData]);
 
   async function openPortal() {
