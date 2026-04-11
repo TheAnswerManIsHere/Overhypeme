@@ -1,0 +1,113 @@
+Please fix the following issues in the Stripe integration. Work through them in priority order.
+
+1. CRITICAL — Webhook signature verification bypass (artifacts/api-server/src/lib/webhookHandlers.ts)
+The outer try/catch around stripe.webhooks.constructEvent has a fallback that defeats signature verification. If constructEvent throws a StripeSignatureVerificationError (invalid signature), the catch block silently falls through and parses the raw payload as a trusted event anyway — meaning an attacker can POST a forged event to /api/stripe/webhook and have it processed as legitimate.
+Fix the processWebhook method so that StripeSignatureVerificationError is re-thrown rather than caught, and only falls back to raw JSON parsing when the credential fetch (getUncachableStripeClient()) fails. Something like:
+
+let stripe: Stripe;
+let event: Stripe.Event;
+
+try {
+  stripe = await getUncachableStripeClient();
+} catch (credErr) {
+  // Credential fetch failed — try to parse raw JSON (degraded mode)
+  try {
+    event = JSON.parse(payload.toString()) as Stripe.Event;
+    stripe = new Stripe(""); // placeholder so TS is happy; won't be used for API calls
+  } catch (parseErr) {
+    logger.error({ parseErr }, "Failed to parse webhook event and could not fetch credentials");
+    return;
+  }
+  // Fall through with unverified event (credential outage scenario)
+  logger.warn("Processing webhook without signature verification due to credential fetch failure");
+  // Skip to domain logic below
+}
+
+if (!event!) {
+  const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
+  if (webhookSecret) {
+    try {
+      event = stripe!.webhooks.constructEvent(payload, signature, webhookSecret);
+    } catch (sigErr) {
+      // Invalid signature — reject, do not fall back
+      logger.error({ sigErr }, "Stripe webhook signature verification failed");
+      throw sigErr; // app.ts returns 400
+    }
+  } else {
+    logger.warn("STRIPE_WEBHOOK_SECRET not set — processing webhook without signature verification (dev only)");
+    event = JSON.parse(payload.toString()) as Stripe.Event;
+  }
+}
+
+2. HIGH — Log a loud startup warning when STRIPE_WEBHOOK_SECRET is missing
+In artifacts/api-server/src/index.ts (or wherever server startup runs), add:
+
+if (!process.env.STRIPE_WEBHOOK_SECRET) {
+  logger.warn("STRIPE_WEBHOOK_SECRET is not set — Stripe webhook signature verification is DISABLED. Set this in production.");
+}
+
+3. MEDIUM — getCredentials() doesn’t check response.ok and has no timeout (artifacts/api-server/src/lib/stripeClient.ts)
+After the fetch call, add an ok check before calling .json(), and add a timeout:
+const response = await fetch(url.toString(), {
+  headers: { ... },
+  signal: AbortSignal.timeout(10_000),  // add this
+});
+
+if (!response.ok) {
+  throw new Error(`Stripe connector API returned ${response.status} ${response.statusText}`);
+}
+
+const data = (await response.json()) as { ... };
+
+4. MEDIUM — GET /stripe/subscription returns membershipTier: "free" on DB error (artifacts/api-server/src/routes/stripe.ts)
+The catch block currently returns { membershipTier: "free" } which would briefly show a premium user as free during a DB outage. Change it to return a 503 so the frontend knows to show a retry/loading state:
+} catch (err) {
+  logger.error({ err }, "Failed to fetch subscription state");
+  res.status(503).json({ error: "Could not retrieve subscription state" });
+}
+
+5. MEDIUM — Stripe error message leaked to client on checkout failure
+In POST /stripe/checkout, replace:
+const msg = err instanceof Error ? err.message : "Checkout failed";
+res.status(500).json({ error: msg });
+With:
+logger.error({ err }, "Checkout session creation failed");
+res.status(500).json({ error: "Checkout session could not be created. Please try again." });
+
+6. LOW — GET /stripe/membership sends { tier: "free" } in a 401 body
+The unauthenticated guard currently does:
+res.status(401).json({ tier: "free" });
+
+This is inconsistent with all other routes (which return { error: "Unauthorized" } in 401s). Change to:
+res.status(401).json({ error: "Unauthorized" });
+
+The frontend should treat a 401 as “not logged in” and assume free tier without needing the body to say so.
+
+7. LOW — POST /stripe/portal error message misleads lifetime users
+Change:
+res.status(400).json({ error: "No active subscription found" });
+
+To:
+res.status(400).json({ error: "No billing account found" });
+
+8. LOW — Replace non-atomic subscription upsert with INSERT ... ON CONFLICT DO UPDATE (artifacts/api-server/src/lib/webhookHandlers.ts, upsertSubscription function)
+The current read-then-insert/update is not atomic and can fail silently if Stripe delivers two events for the same subscription ID concurrently. Replace with Drizzle’s conflict handling:
+await db.insert(subscriptionsTable).values({
+  userId,
+  stripeSubscriptionId: <sub.id>,
+  stripeCustomerId,
+  plan,
+  status: sub.status,
+  currentPeriodEnd,
+  cancelAtPeriodEnd: sub.cancel_at_period_end ?? false,
+}).onConflictDoUpdate({
+  target: subscriptionsTable.stripeSubscriptionId,
+  set: {
+    status: sub.status,
+    plan,
+    currentPeriodEnd,
+    cancelAtPeriodEnd: sub.cancel_at_period_end ?? false,
+  },
+});
+
+This replaces the entire existing-check block and removes the separate select query.
