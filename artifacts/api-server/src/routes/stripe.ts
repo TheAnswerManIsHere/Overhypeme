@@ -124,8 +124,8 @@ router.post("/stripe/checkout", async (req: Request, res: Response) => {
       mode: isOneTime ? "payment" : "subscription",
       // Tag one-time payments so the webhook can identify lifetime purchases
       ...(isOneTime ? { payment_intent_data: { metadata: { membership: "true", plan: "lifetime" } } } : {}),
-      success_url: `${base}/overhype-me/profile?checkout=success`,
-      cancel_url: `${base}/overhype-me/pricing`,
+      success_url: `${base}/profile?checkout=success`,
+      cancel_url: `${base}/pricing`,
     });
 
     res.json({ url: session.url });
