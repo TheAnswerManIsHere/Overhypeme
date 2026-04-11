@@ -1,0 +1,23 @@
+Zazzle’s Create-a-Product API (also called the “Create” or “Design” URL API) works entirely via URL parameters — no server-side API calls needed. You construct a URL that deep-links the user into Zazzle’s designer with your image pre-loaded.
+The basic structure:
+
+https://www.zazzle.com/api/create/at-238XXXXXXXXXX?rf=238XXXXXXXXXX&ax=DesignBlast&sr=250&cg=196XXXXXXXXX&ed=true&tc=&ic=&t_image0_iid=YOUR_IMAGE_URL
+
+
+Key parameters:
+	•	at-238XXX — your Zazzle Associate ID (this is how you earn referral commission, typically 15%)
+	•	rf=238XXX — referral tracking (same associate ID)
+	•	t_image0_iid= — the URL of your image, must be publicly accessible (this is where your R2/Cloudflare CDN URL goes)
+	•	cg= — category group ID to constrain which products are shown (e.g., t-shirts only, or all apparel)
+	•	ed=true — opens the editor so the user can reposition/resize
+	•	sr=250 — sets the referral percentage split
+The flow is stateless from your side: you just build the URL with the image hosted on R2, and Zazzle pulls it at render time.
+Critical implications for your architecture:
+	1.	Image must be publicly reachable — your R2 bucket needs public read access (or Cloudflare CDN in front of it), which you already have planned.
+	2.	Resolution matters at this point — Zazzle needs ~2100×1800px at 150 PPI for apparel. This is where your deterministic AI upscale at purchase-intent time kicks in. The URL you pass to Zazzle must point to the upscaled version, not the 1024×1024 screen-res version.
+	3.	No authentication or API keys beyond the Associate ID — it’s purely URL-based. The “API” is really just a parameterized deep link.
+	4.	You can pre-select product types — by setting the cg parameter to specific category IDs, you control whether they land on t-shirts, mugs, posters, etc. You could offer buttons like “Put on a T-Shirt” vs “Put on a Mug” that each link to different category-scoped URLs.
+Practical flow for overhype.me:
+User clicks “Get on merch” → you trigger the upscale job (if not already cached) → once the high-res URL is ready → redirect/open new tab to the constructed Zazzle URL with that image URL embedded.
+The main UX friction point is the upscale latency. You could mitigate this by eagerly upscaling when a user enters the meme detail view (speculative), or showing a brief loading state (“Preparing your design for print…”) on click.
+Want me to draft the URL construction utility and the upscale-on-demand flow?​​​​​​​​​​​​​​​​
