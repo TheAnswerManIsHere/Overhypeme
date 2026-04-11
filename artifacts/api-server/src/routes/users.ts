@@ -171,7 +171,7 @@ router.patch("/users/me", async (req: Request, res: Response) => {
       .from(usersTable)
       .where(eq(usersTable.id, userId))
       .limit(1);
-    if (userRow?.membershipTier !== "registered" && userRow?.membershipTier !== "legendary") {
+    if (userRow?.membershipTier !== "legendary") {
       res.status(403).json({ error: "Custom photo upload is a Legendary feature" }); return;
     }
     if (typeof profileImageUrl !== "string") {

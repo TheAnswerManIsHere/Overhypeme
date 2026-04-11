@@ -1111,25 +1111,25 @@ router.delete("/admin/video-styles/:id/preview-gif", requireAdmin, async (req: R
 
 router.get("/admin/stripe/summary", requireAdmin, async (_req: Request, res: Response) => {
   try {
-    // Active subscribers = users with an active subscription (legendary tier)
-    // Lifetime members = users with legendary tier (one-time purchase holders)
-    const [activeSubRows, legendaryRows] = await Promise.all([
+    // Active legendary subscribers = users with legendary tier and an active subscription
+    // Registered (free) members = users with registered tier (no payment)
+    const [legendaryRows, registeredRows] = await Promise.all([
+      db
+        .select({ cnt: sql<number>`count(*)::int` })
+        .from(usersTable)
+        .where(and(eq(usersTable.membershipTier, "legendary"), eq(usersTable.isActive, true))),
       db
         .select({ cnt: sql<number>`count(*)::int` })
         .from(usersTable)
         .where(and(eq(usersTable.membershipTier, "registered"), eq(usersTable.isActive, true))),
-      db
-        .select({ cnt: sql<number>`count(*)::int` })
-        .from(usersTable)
-        .where(and(sql`${usersTable.membershipTier} = 'legendary'`, eq(usersTable.isActive, true))),
     ]);
 
     const webhookSecretConfigured = !!process.env.STRIPE_WEBHOOK_SECRET;
     const priceIdsConfigured = !!(process.env.MEMBERSHIP_PRICE_IDS ?? "").trim();
 
     res.json({
-      activeSubscribers: activeSubRows[0]?.cnt ?? 0,
-      lifetimeMembers: legendaryRows[0]?.cnt ?? 0,
+      activeSubscribers: legendaryRows[0]?.cnt ?? 0,
+      registeredMembers: registeredRows[0]?.cnt ?? 0,
       webhookSecretConfigured,
       priceIdsConfigured,
     });
