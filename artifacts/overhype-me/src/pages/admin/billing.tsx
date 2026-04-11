@@ -27,7 +27,7 @@ interface StripePlan {
 
 interface StripeSummary {
   activeSubscribers: number;
-  lifetimeMembers: number;
+  registeredMembers: number;
   webhookSecretConfigured: boolean;
   priceIdsConfigured: boolean;
 }
@@ -305,12 +305,12 @@ export default function AdminBilling() {
           <div className="bg-card border border-border rounded-lg p-5">
             <div className="flex items-center gap-2 mb-1">
               <Star className="w-4 h-4 text-primary" />
-              <span className="text-xs text-muted-foreground uppercase tracking-wide">Lifetime Members</span>
+              <span className="text-xs text-muted-foreground uppercase tracking-wide">Registered (Free)</span>
             </div>
             {summaryLoading ? (
               <div className="animate-pulse h-8 bg-secondary rounded-sm mt-1" />
             ) : (
-              <p className="text-3xl font-bold font-display text-foreground">{summary?.lifetimeMembers ?? 0}</p>
+              <p className="text-3xl font-bold font-display text-foreground">{summary?.registeredMembers ?? 0}</p>
             )}
           </div>
         </div>
