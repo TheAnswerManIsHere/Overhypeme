@@ -17,12 +17,15 @@ async function logClickAndRedirect(
   text: string,
   imageUrl?: string,
 ) {
+  const absoluteImageUrl = imageUrl
+    ? (imageUrl.startsWith("http") ? imageUrl : `${window.location.origin}${imageUrl}`)
+    : undefined;
   try {
     const resp = await fetch("/api/affiliate/click", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       credentials: "include",
-      body: JSON.stringify({ sourceType, sourceId: String(sourceId), destination, text, imageUrl }),
+      body: JSON.stringify({ sourceType, sourceId: String(sourceId), destination, text, imageUrl: absoluteImageUrl }),
     });
     if (resp.ok) {
       const data = (await resp.json()) as { url?: string };
