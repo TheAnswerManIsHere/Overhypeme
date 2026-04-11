@@ -4,17 +4,6 @@ import { boolean, index, jsonb, numeric, pgTable, pgEnum, serial, text, timestam
 export const membershipTierEnum = pgEnum("membership_tier", ["unregistered", "registered", "legendary"]);
 
 // (IMPORTANT) This table is mandatory for Replit Auth, don't drop it.
-export const sessionsTable = pgTable(
-  "sessions",
-  {
-    sid: varchar("sid").primaryKey(),
-    sess: jsonb("sess").notNull(),
-    expire: timestamp("expire").notNull(),
-  },
-  (table) => [index("IDX_session_expire").on(table.expire)],
-);
-
-// (IMPORTANT) This table is mandatory for Replit Auth, don't drop it.
 export const usersTable = pgTable("users", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   email: varchar("email").unique(),
@@ -43,6 +32,23 @@ export const usersTable = pgTable("users", {
 
 export type UpsertUser = typeof usersTable.$inferInsert;
 export type User = typeof usersTable.$inferSelect;
+
+// (IMPORTANT) This table is mandatory for Replit Auth, don't drop it.
+// userId is nullable — guest/anonymous sessions have no associated user.
+// ON DELETE CASCADE: deleting a user automatically removes all their sessions.
+export const sessionsTable = pgTable(
+  "sessions",
+  {
+    sid: varchar("sid").primaryKey(),
+    sess: jsonb("sess").notNull(),
+    expire: timestamp("expire").notNull(),
+    userId: varchar("user_id").references(() => usersTable.id, { onDelete: "cascade" }),
+  },
+  (table) => [
+    index("IDX_session_expire").on(table.expire),
+    index("IDX_session_user_id").on(table.userId),
+  ],
+);
 
 export const emailVerificationTokensTable = pgTable(
   "email_verification_tokens",
