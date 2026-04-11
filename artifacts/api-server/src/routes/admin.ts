@@ -96,6 +96,16 @@ router.patch("/admin/users/:id", requireAdmin, async (req: Request, res: Respons
     const p = String(body["pronouns"]).trim();
     if (p.length > 0 && p.length <= 80) updates.pronouns = p;
   }
+  if ("monthlyGenerationLimitOverrideUsd" in body) {
+    if (body["monthlyGenerationLimitOverrideUsd"] === null || body["monthlyGenerationLimitOverrideUsd"] === "") {
+      updates.monthlyGenerationLimitOverrideUsd = null;
+    } else {
+      const parsed = parseFloat(String(body["monthlyGenerationLimitOverrideUsd"]));
+      if (!isNaN(parsed) && parsed >= 0) {
+        updates.monthlyGenerationLimitOverrideUsd = String(parsed);
+      }
+    }
+  }
 
   if (Object.keys(updates).length === 0) {
     res.status(400).json({ error: "No valid fields to update" });
@@ -900,6 +910,20 @@ router.patch("/admin/config/:key", requireAdmin, async (req: Request, res: Respo
         res.status(400).json({ error: `Value must be at most ${existing.maxValue}` });
         return;
       }
+    } else if (existing.dataType === "float") {
+      const parsed = parseFloat(rawValue);
+      if (isNaN(parsed)) {
+        res.status(400).json({ error: "Value must be a number" });
+        return;
+      }
+      if (existing.minValue !== null && parsed < existing.minValue) {
+        res.status(400).json({ error: `Value must be at least ${existing.minValue}` });
+        return;
+      }
+      if (existing.maxValue !== null && parsed > existing.maxValue) {
+        res.status(400).json({ error: `Value must be at most ${existing.maxValue}` });
+        return;
+      }
     }
     newValue = rawValue;
     newValueLabel = body.valueLabel !== undefined && body.valueLabel !== null
@@ -915,6 +939,20 @@ router.patch("/admin/config/:key", requireAdmin, async (req: Request, res: Respo
       const parsed = parseInt(rawDebug, 10);
       if (isNaN(parsed)) {
         res.status(400).json({ error: "Debug value must be an integer" });
+        return;
+      }
+      if (existing.minValue !== null && parsed < existing.minValue) {
+        res.status(400).json({ error: `Debug value must be at least ${existing.minValue}` });
+        return;
+      }
+      if (existing.maxValue !== null && parsed > existing.maxValue) {
+        res.status(400).json({ error: `Debug value must be at most ${existing.maxValue}` });
+        return;
+      }
+    } else if (rawDebug !== null && existing.dataType === "float") {
+      const parsed = parseFloat(rawDebug);
+      if (isNaN(parsed)) {
+        res.status(400).json({ error: "Debug value must be a number" });
         return;
       }
       if (existing.minValue !== null && parsed < existing.minValue) {

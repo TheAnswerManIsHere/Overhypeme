@@ -73,9 +73,9 @@ export async function checkBudget(
       getConfigFloat("budget_limit_legend_usd", 10.00),
     ]);
 
-    // Look up user tier
+    // Look up user tier and per-user override
     const [user] = await db
-      .select({ membershipTier: usersTable.membershipTier, isAdmin: usersTable.isAdmin })
+      .select({ membershipTier: usersTable.membershipTier, isAdmin: usersTable.isAdmin, monthlyGenerationLimitOverrideUsd: usersTable.monthlyGenerationLimitOverrideUsd })
       .from(usersTable)
       .where(eq(usersTable.id, userId))
       .limit(1);
@@ -88,7 +88,13 @@ export async function checkBudget(
       return { allowed: true, currentSpend: 0, limit: Infinity, remainingBudget: Infinity };
     }
 
-    const limit = (tier === "legendary" || tier === "registered") ? legendLimitStr : freeLimitStr;
+    const globalLegendLimit = (tier === "legendary" || tier === "registered") ? legendLimitStr : freeLimitStr;
+    const perUserOverride = user?.monthlyGenerationLimitOverrideUsd != null
+      ? parseFloat(String(user.monthlyGenerationLimitOverrideUsd))
+      : null;
+    const limit = (perUserOverride !== null && !isNaN(perUserOverride))
+      ? perUserOverride
+      : globalLegendLimit;
     const periodStart = getPeriodStart(budgetPeriod as string);
 
     // Sum spend for this user in the current period

@@ -17,6 +17,7 @@ interface User {
   pronouns: string | null;
   stripeCustomerId: string | null;
   emailVerifiedAt: string | null;
+  monthlyGenerationLimitOverrideUsd: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -28,7 +29,7 @@ interface UsersResponse {
   limit: number;
 }
 
-type EditDraft = Pick<User, "displayName" | "email" | "isAdmin" | "captchaVerified" | "membershipTier" | "pronouns">;
+type EditDraft = Pick<User, "displayName" | "email" | "isAdmin" | "captchaVerified" | "membershipTier" | "pronouns" | "monthlyGenerationLimitOverrideUsd">;
 
 const LIMIT = 50;
 
@@ -124,6 +125,7 @@ export default function AdminUsers() {
       captchaVerified: user.captchaVerified,
       membershipTier: user.membershipTier,
       pronouns: user.pronouns ?? "he/him",
+      monthlyGenerationLimitOverrideUsd: user.monthlyGenerationLimitOverrideUsd,
     });
     setSaveResult(null);
   }
@@ -170,6 +172,9 @@ export default function AdminUsers() {
           captchaVerified: draft.captchaVerified,
           membershipTier: draft.membershipTier,
           pronouns: draft.pronouns,
+          monthlyGenerationLimitOverrideUsd: draft.monthlyGenerationLimitOverrideUsd
+            ? parseFloat(draft.monthlyGenerationLimitOverrideUsd)
+            : null,
         }),
       });
       const data = (await res.json()) as { success?: boolean; user?: User; error?: string };
@@ -592,6 +597,24 @@ export default function AdminUsers() {
             <div>
               <FieldLabel>Generation Costs</FieldLabel>
               <SpendInline userId={selectedUser.id} isAdmin />
+            </div>
+
+            {/* Monthly Generation Limit Override */}
+            <div>
+              <FieldLabel>Monthly Generation Limit Override (USD)</FieldLabel>
+              <Input
+                type="number"
+                min="0"
+                step="0.01"
+                value={draft.monthlyGenerationLimitOverrideUsd ?? ""}
+                onChange={(e) => setDraft((d) => d ? { ...d, monthlyGenerationLimitOverrideUsd: e.target.value || null } : d)}
+                placeholder="Leave blank to use global default"
+              />
+              <p className="text-xs text-muted-foreground mt-1">
+                {draft.monthlyGenerationLimitOverrideUsd
+                  ? <span className="text-yellow-500 font-medium">Override active — user has a custom limit of ${parseFloat(draft.monthlyGenerationLimitOverrideUsd).toFixed(2)}/mo</span>
+                  : "Blank = inherits the global Legendary budget (admin config)"}
+              </p>
             </div>
 
             {/* Membership tier */}

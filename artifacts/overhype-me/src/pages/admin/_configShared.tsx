@@ -468,8 +468,8 @@ export function ConfigInput({
       ) : (
         <>
           <input
-            type={row.dataType === "integer" || FLOAT_TEXT_CONFIGS.has(configKey) ? "number" : "text"}
-            step={FLOAT_TEXT_CONFIGS.has(configKey) ? "0.1" : undefined}
+            type={row.dataType === "integer" || row.dataType === "float" || FLOAT_TEXT_CONFIGS.has(configKey) ? "number" : "text"}
+            step={row.dataType === "float" || FLOAT_TEXT_CONFIGS.has(configKey) ? "0.01" : undefined}
             min={row.minValue ?? undefined}
             max={row.maxValue ?? undefined}
             value={state.value}
@@ -592,7 +592,8 @@ export function ConfigCard({ row }: { row: ConfigRow }) {
             ) : (
               <div className="flex items-center gap-3">
                 <input
-                  type={row.dataType === "integer" ? "number" : "text"}
+                  type={row.dataType === "integer" || row.dataType === "float" ? "number" : "text"}
+                  step={row.dataType === "float" ? "0.01" : undefined}
                   min={row.minValue ?? undefined}
                   max={row.maxValue ?? undefined}
                   value={dbgState.value}
