@@ -497,13 +497,17 @@ router.post("/auth/resend-verification", async (req: Request, res: Response) => 
   res.status(200).json({ message: "Verification email sent. Please check your inbox." });
 });
 
-// ── Dev-only: instant admin login ────────────────────────────────────────────
-// Disabled entirely in production. No credentials needed — just hit the
-// secret logo triple-click in the UI during local/preview development.
+// ── Secret admin login ────────────────────────────────────────────────────────
+// Dev: no credentials needed — triple-click the logo.
+// Production: requires the correct ADMIN_API_KEY in the x-admin-key header.
 router.post("/auth/dev-admin-login", async (req: Request, res: Response) => {
   if (process.env.NODE_ENV === "production") {
-    res.status(403).json({ error: "Not available in production" });
-    return;
+    const adminKey = process.env.ADMIN_API_KEY;
+    const provided = req.headers["x-admin-key"];
+    if (!adminKey || !provided || provided !== adminKey) {
+      res.status(403).json({ error: "Invalid admin key" });
+      return;
+    }
   }
 
   const ADMIN_EMAIL = "david@davidcarlos.net";
