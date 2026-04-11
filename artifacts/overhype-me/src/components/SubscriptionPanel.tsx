@@ -274,6 +274,9 @@ export function SubscriptionPanel() {
       } else {
         setShowSwitchDialog(false);
         fetchSubData();
+        // Delayed refetches to catch webhook-driven DB updates
+        const delays = [2000, 5000, 10000];
+        delays.forEach((ms) => setTimeout(fetchSubData, ms));
       }
     } catch {
       setError("Network error");
@@ -357,14 +360,19 @@ export function SubscriptionPanel() {
   const price = sub?.items?.data?.[0]?.price;
   const planLabel = isLifetime
     ? "Legendary for Life"
-    : appSub?.plan === "annual" ? "Annual"
-    : appSub?.plan === "monthly" ? "Monthly"
     : price?.recurring?.interval === "year" ? "Annual"
     : price?.recurring?.interval === "month" ? "Monthly"
+    : appSub?.plan === "annual" ? "Annual"
+    : appSub?.plan === "monthly" ? "Monthly"
     : "Legendary";
 
-  // isMonthly: active recurring monthly legendary subscriber (not lifetime)
-  const isMonthly = isLegendary && !isLifetime && (appSub?.plan === "monthly" || price?.recurring?.interval === "month");
+  // isMonthly: active recurring monthly legendary subscriber (not lifetime).
+  // Live Stripe price data takes precedence over the DB-cached plan to avoid
+  // showing "Switch to Annual" immediately after an upgrade (before webhook fires).
+  const isMonthly = isLegendary && !isLifetime && (
+    price?.recurring?.interval === "month" ||
+    (!price?.recurring && appSub?.plan === "monthly")
+  );
   const annualPriceAvailable = findAnnualPriceId() !== null;
   const savingsPercent = getAnnualSavingsPercent();
 
