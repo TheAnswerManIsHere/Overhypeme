@@ -20,14 +20,13 @@ function buildZazzleUrl(text: string, imageUrl?: string): string {
   const base = `https://www.zazzle.com/api/create/at-${ZAZZLE_AFFILIATE_ID}`;
   const params = new URLSearchParams({
     rf: ZAZZLE_AFFILIATE_ID,
-    ax: "Linkover",
-    po: "zazzleHomepage",
+    ax: "DesignBlast",
+    sr: "250",
+    ed: "true",
     t_text: text.slice(0, 160),
   });
   if (imageUrl) {
-    params.set("pd", "pd_chuck_custom");
-    params.set("ed", "true");
-    params.set("t_imageURL", imageUrl);
+    params.set("t_image0_iid", imageUrl);
   }
   return `${base}?${params}`;
 }

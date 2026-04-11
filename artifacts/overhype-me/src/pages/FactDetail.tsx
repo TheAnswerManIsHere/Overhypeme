@@ -11,7 +11,6 @@ import { Button } from "@/components/ui/Button";
 import { Textarea } from "@/components/ui/Input";
 import { useAppMutations } from "@/hooks/use-mutations";
 import { MemeStudio } from "@/components/MemeStudio";
-import { MerchButtons } from "@/components/MerchButtons";
 import { AdSlot } from "@/components/AdSlot";
 import { ThumbsUp, ThumbsDown, User, AlertCircle, ImageIcon, GitBranch, ArrowLeft, Crown, Flame, Globe, Lock, Video, Play, ExternalLink } from "lucide-react";
 import { ImageCard } from "@/components/ui/ImageCard";
@@ -171,9 +170,6 @@ function VariantFactCard({ id, useCase }: { id: number; useCase: string | null }
         </Link>
       </div>
 
-      <div className="mt-4 pt-4 border-t border-border/50">
-        <MerchButtons sourceType="fact" sourceId={id} text={renderedText} />
-      </div>
     </div>
   );
 }
@@ -272,6 +268,32 @@ export default function FactDetail() {
     const res = await fetch(`/api/memes/${slug}`, { method: "DELETE", credentials: "include" });
     if (!res.ok) throw new Error("Failed to delete meme");
     await queryClient.invalidateQueries({ queryKey: ["listFactMemes", factId] });
+  }
+
+  async function handleMakeMerch(meme: MemeItem, text: string) {
+    const absoluteImageUrl = meme.imageUrl.startsWith("http")
+      ? meme.imageUrl
+      : `${window.location.origin}${meme.imageUrl}`;
+    try {
+      const resp = await fetch("/api/affiliate/click", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          sourceType: "meme",
+          sourceId: meme.permalinkSlug,
+          destination: "zazzle",
+          text,
+          imageUrl: absoluteImageUrl,
+        }),
+      });
+      if (resp.ok) {
+        const data = (await resp.json()) as { url?: string };
+        if (data.url) { window.open(data.url, "_blank", "noopener,noreferrer"); return; }
+      }
+    } catch { /* fall through */ }
+    const encoded = encodeURIComponent(text.slice(0, 100));
+    window.open(`https://www.zazzle.com/s/${encoded}`, "_blank", "noopener,noreferrer");
   }
 
   const pexelsImages = ((fact as unknown as { pexelsImages?: FactPexelsImages | null })?.pexelsImages) ?? null;
@@ -394,10 +416,6 @@ export default function FactDetail() {
             </div>
           </div>
 
-          {/* Merch buttons */}
-          <div className="mt-6 pt-4 border-t border-border/50">
-            <MerchButtons sourceType="fact" sourceId={factId} text={renderedText} />
-          </div>
         </div>
 
         {/* Ad slot below fact card — hidden for premium users */}
@@ -510,8 +528,9 @@ export default function FactDetail() {
                               alt="Meme"
                               href={`/meme/${meme.permalinkSlug}`}
                               aspectRatio={MEME_ASPECT_CLASS[meme.aspectRatio ?? "landscape"] ?? "aspect-video"}
-                              actions={isMyMeme ? ["delete", "copyLink", "openFull"] : ["copyLink", "openFull"]}
+                              actions={isMyMeme ? ["delete", "copyLink", "openFull", "makeMerch"] : ["copyLink", "openFull", "makeMerch"]}
                               onDelete={isMyMeme ? () => handleDeleteMeme(meme.permalinkSlug) : undefined}
+                              onMakeMerch={() => { void handleMakeMerch(meme, renderedText); }}
                               deleteConfirmMessage="Remove this meme? It will no longer be visible to anyone."
                               permalink={memePermalink}
                             />
@@ -545,8 +564,9 @@ export default function FactDetail() {
                               alt="Meme"
                               href={`/meme/${meme.permalinkSlug}`}
                               aspectRatio={MEME_ASPECT_CLASS[meme.aspectRatio ?? "landscape"] ?? "aspect-video"}
-                              actions={["delete", "copyLink", "openFull"]}
+                              actions={["delete", "copyLink", "openFull", "makeMerch"]}
                               onDelete={() => handleDeleteMeme(meme.permalinkSlug)}
+                              onMakeMerch={() => { void handleMakeMerch(meme, renderedText); }}
                               deleteConfirmMessage="Remove this meme? It will no longer be visible to anyone."
                               permalink={memePermalink}
                             />
@@ -580,8 +600,9 @@ export default function FactDetail() {
                               alt="Meme"
                               href={`/meme/${meme.permalinkSlug}`}
                               aspectRatio={MEME_ASPECT_CLASS[meme.aspectRatio ?? "landscape"] ?? "aspect-video"}
-                              actions={["delete", "copyLink", "openFull"]}
+                              actions={["delete", "copyLink", "openFull", "makeMerch"]}
                               onDelete={() => handleDeleteMeme(meme.permalinkSlug)}
+                              onMakeMerch={() => { void handleMakeMerch(meme, renderedText); }}
                               deleteConfirmMessage="Remove this meme? It will no longer be visible to anyone."
                               permalink={memePermalink}
                             />
