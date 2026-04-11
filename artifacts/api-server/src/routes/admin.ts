@@ -162,7 +162,7 @@ router.delete("/admin/users/:id", requireAdmin, async (req: Request, res: Respon
       const src = meme.imageSource as { type?: string; uploadKey?: string } | null;
       if (src === null) {
         // Pre-rendered meme image stored in object storage
-        try { await storage.deleteObject(memeKey(meme.permalinkSlug, "jpg")); }
+        try { await storage.deleteObject(`/objects/${memeKey(meme.permalinkSlug, "jpg")}`); }
         catch (e) { console.error(`[hard-delete] Meme image cleanup failed for ${meme.permalinkSlug}:`, e); }
       } else if (src?.type === "upload" && src.uploadKey) {
         // User-uploaded background photo
