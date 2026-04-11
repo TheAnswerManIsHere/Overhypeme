@@ -194,12 +194,18 @@ router.delete("/admin/users/:id", requireAdmin, async (req: Request, res: Respon
         try {
           const { getUncachableStripeClient } = await import("../lib/stripeClient");
           const stripe = await getUncachableStripeClient();
+          let canceledCount = 0;
           for (const sub of activeSubs) {
-            await stripe.subscriptions.cancel(sub.stripeSubscriptionId);
+            try {
+              await stripe.subscriptions.cancel(sub.stripeSubscriptionId);
+              canceledCount++;
+            } catch (e) {
+              console.error(`[hard-delete] Failed to cancel subscription ${sub.stripeSubscriptionId}:`, e);
+            }
           }
-          subscriptionCanceled = true;
+          subscriptionCanceled = canceledCount > 0;
         } catch (e) {
-          console.error("[hard-delete] Stripe subscription cancellation failed:", e);
+          console.error("[hard-delete] Stripe client initialization failed:", e);
         }
       }
 
@@ -251,12 +257,18 @@ router.delete("/admin/users/:id", requireAdmin, async (req: Request, res: Respon
         try {
           const { getUncachableStripeClient } = await import("../lib/stripeClient");
           const stripe = await getUncachableStripeClient();
+          let canceledCount = 0;
           for (const sub of activeSubs) {
-            await stripe.subscriptions.cancel(sub.stripeSubscriptionId);
+            try {
+              await stripe.subscriptions.cancel(sub.stripeSubscriptionId);
+              canceledCount++;
+            } catch (e) {
+              console.error(`[soft-delete] Failed to cancel subscription ${sub.stripeSubscriptionId}:`, e);
+            }
           }
-          subscriptionCanceled = true;
+          subscriptionCanceled = canceledCount > 0;
         } catch (e) {
-          console.error("[soft-delete] Stripe subscription cancellation failed:", e);
+          console.error("[soft-delete] Stripe client initialization failed:", e);
         }
       }
 
