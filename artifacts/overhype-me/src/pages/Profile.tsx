@@ -30,6 +30,7 @@ export default function Profile() {
   const [activeTab, setActiveTab] = useState<"submitted" | "liked" | "history" | "images" | "memes">("liked");
   const [checkoutBanner, setCheckoutBanner] = useState<"success" | "cancel" | null>(null);
   const [checkoutPolling, setCheckoutPolling] = useState(false);
+  const [checkoutConfirmed, setCheckoutConfirmed] = useState(false);
   const [emailVerifiedBanner, setEmailVerifiedBanner] = useState(false);
 
   const AVATAR_STYLES = [
@@ -187,33 +188,47 @@ export default function Profile() {
     }
   }, []);
 
-  // Poll for legendary tier upgrade after checkout (webhook may arrive after redirect)
+  // Poll /api/stripe/membership directly after checkout — webhook may arrive after redirect.
+  // This effect runs only when checkoutBanner becomes "success" and does NOT depend on
+  // profile data (which may still be loading at that point).
   useEffect(() => {
     if (checkoutBanner !== "success") return;
-    if (!profile || profile.membershipTier === "legendary") return;
 
     setCheckoutPolling(true);
     let attempts = 0;
-    const maxAttempts = 15; // ~30 seconds
+    const maxAttempts = 15; // ~30 seconds at 2s intervals
+    let cancelled = false;
 
     const poll = setInterval(async () => {
       attempts++;
-      await queryClient.invalidateQueries({ queryKey: getGetMyProfileQueryKey() });
+      try {
+        const res = await fetch("/api/stripe/membership", { credentials: "include" });
+        if (!cancelled && res.ok) {
+          const data = (await res.json()) as { tier?: string };
+          if (data.tier === "legendary") {
+            clearInterval(poll);
+            setCheckoutPolling(false);
+            setCheckoutConfirmed(true);
+            // Refresh profile so the subscription panel reflects the new tier
+            await queryClient.invalidateQueries({ queryKey: getGetMyProfileQueryKey() });
+            return;
+          }
+        }
+      } catch {
+        // Network error — keep polling
+      }
       if (attempts >= maxAttempts) {
         clearInterval(poll);
         setCheckoutPolling(false);
+        // checkoutConfirmed stays false — timeout banner tells user to check back
       }
     }, 2000);
 
-    return () => clearInterval(poll);
+    return () => {
+      cancelled = true;
+      clearInterval(poll);
+    };
   }, [checkoutBanner]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Stop polling once legendary tier is confirmed
-  useEffect(() => {
-    if (profile?.membershipTier === "legendary" && checkoutPolling) {
-      setCheckoutPolling(false);
-    }
-  }, [profile?.membershipTier, checkoutPolling]);
 
   function openEditor() {
     setDraftDisplayName(profile?.displayName ?? "");
@@ -369,10 +384,15 @@ export default function Profile() {
                   <Loader2 className="w-5 h-5 text-primary shrink-0 animate-spin" />
                   <p className="font-bold text-foreground">Payment received — upgrading your account&hellip;</p>
                 </>
-              ) : (
+              ) : checkoutConfirmed ? (
                 <>
                   <Star className="w-5 h-5 text-primary shrink-0" />
                   <p className="font-bold text-foreground">You're now Legendary! Your membership is active. Daily facts incoming.</p>
+                </>
+              ) : (
+                <>
+                  <Clock className="w-5 h-5 text-primary shrink-0" />
+                  <p className="font-bold text-foreground">Payment received — your account upgrade is still processing. Check back in a moment.</p>
                 </>
               )}
             </div>
