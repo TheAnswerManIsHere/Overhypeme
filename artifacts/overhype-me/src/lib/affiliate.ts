@@ -2,6 +2,16 @@ const ZAZZLE_AFFILIATE_ID =
   (import.meta.env.VITE_ZAZZLE_AFFILIATE_ID as string | undefined) ??
   "238527546099265388";
 
+/** True when running in the Replit dev environment (mTLS proxy — not reachable by Zazzle). */
+function isDevOrigin(url: string): boolean {
+  try {
+    const host = new URL(url).hostname;
+    return host === "localhost" || host.endsWith(".replit.dev");
+  } catch {
+    return false;
+  }
+}
+
 export function buildZazzleUrl(text: string, imageUrl?: string): string {
   const base = `https://www.zazzle.com/api/create/at-${ZAZZLE_AFFILIATE_ID}`;
   const params = new URLSearchParams({
@@ -11,7 +21,9 @@ export function buildZazzleUrl(text: string, imageUrl?: string): string {
     ed: "true",
     t_text: text.slice(0, 160),
   });
-  if (imageUrl) params.set("t_image0_iid", imageUrl);
+  // Dev domains use mTLS — Zazzle's servers can't reach them. Skip the image
+  // URL in dev so Zazzle opens cleanly. On the deployed app this works normally.
+  if (imageUrl && !isDevOrigin(imageUrl)) params.set("t_image0_iid", imageUrl);
   return `${base}?${params}`;
 }
 
