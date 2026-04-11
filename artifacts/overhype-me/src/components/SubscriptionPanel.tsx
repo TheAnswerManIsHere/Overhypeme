@@ -66,7 +66,7 @@ function eventLabel(event: string): string {
     case "subscription_activated": return "Subscription Activated";
     case "subscription_cancelled": return "Subscription Cancelled";
     case "invoice_paid": return "Payment Received";
-    case "lifetime_purchase": return "Lifetime Purchase";
+    case "lifetime_purchase": return "Legendary for Life Purchase";
     default: return event.replace(/_/g, " ");
   }
 }
@@ -348,7 +348,7 @@ export function SubscriptionPanel() {
 
   const price = sub?.items?.data?.[0]?.price;
   const planLabel = isLifetime
-    ? "Lifetime"
+    ? "Legendary for Life"
     : appSub?.plan === "annual" ? "Annual"
     : appSub?.plan === "monthly" ? "Monthly"
     : price?.recurring?.interval === "year" ? "Annual"
@@ -414,11 +414,11 @@ export function SubscriptionPanel() {
               <p className="font-bold text-foreground flex items-center gap-2">
                 {isLegendary || isLifetime ? "Legendary Member" : "Member"}
                 <span className={`text-xs px-2 py-0.5 rounded-sm uppercase tracking-wide ${isLegendary ? "bg-amber-500/20 text-amber-400" : "bg-primary/20 text-primary"}`}>
-                  {isLegendary ? "legendary" : isLifetime ? "lifetime" : sub?.status ?? "active"}
+                  {isLegendary ? "legendary" : isLifetime ? "legendary for life" : sub?.status ?? "active"}
                 </span>
               </p>
               <p className="text-sm text-muted-foreground">
-                {planLabel} {isLifetime ? "— one-time purchase, never expires" : "subscription"}
+                {planLabel} {isLifetime ? "— access never expires" : "subscription"}
               </p>
             </div>
           </div>
@@ -426,7 +426,7 @@ export function SubscriptionPanel() {
           {isLifetime && (
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
               <Crown className="w-4 h-4 text-amber-400" />
-              <span className="text-amber-400 font-medium">Lifetime access — never expires</span>
+              <span className="text-amber-400 font-medium">Legendary for Life — access never expires</span>
             </div>
           )}
 

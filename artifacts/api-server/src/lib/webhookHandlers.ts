@@ -186,7 +186,7 @@ async function handleSubscriptionCancelled(customerId: string, sub: Stripe.Subsc
   // NEVER downgrade a user with a lifetime entitlement (legendary tier)
   const hasLifetime = await userHasLifetimeEntitlement(user.id);
   if (hasLifetime) {
-    logger.info({ userId: user.id }, "Subscription cancelled but user has lifetime — keeping legendary");
+    logger.info({ userId: user.id }, "Subscription cancelled but user has Legendary for Life — keeping legendary");
     await recordHistory(user.id, "subscription_cancelled", { stripeSubscriptionId: sub.id });
     return;
   }
@@ -232,7 +232,7 @@ async function handleOneTimePayment(
     metadata?.membership === "true" || metadata?.plan === "lifetime";
 
   if (!isTaggedMembership) {
-    logger.warn({ paymentIntentId, userId: user.id }, "One-time payment not tagged as membership — skipping lifetime grant");
+    logger.warn({ paymentIntentId, userId: user.id }, "One-time payment not tagged as membership — skipping Legendary for Life grant");
     return;
   }
 
@@ -243,7 +243,7 @@ async function handleOneTimePayment(
     .where(eq(lifetimeEntitlementsTable.stripePaymentIntentId, paymentIntentId))
     .limit(1);
   if (existing.length > 0) {
-    logger.info({ paymentIntentId }, "Lifetime entitlement already recorded — skipping");
+    logger.info({ paymentIntentId }, "Legendary for Life entitlement already recorded — skipping");
     return;
   }
 
@@ -263,7 +263,7 @@ async function handleOneTimePayment(
     currency,
     stripePaymentIntentId: paymentIntentId,
   });
-  logger.info({ userId: user.id }, "User granted legendary lifetime tier");
+  logger.info({ userId: user.id }, "User granted Legendary for Life tier");
 }
 
 /** Shared domain-logic event processor used by both processWebhook and processEventDirectly */

@@ -40,7 +40,7 @@ interface StripePlan {
 /** Classify a plan by its product name */
 function classifyPlan(plan: StripePlan): "monthly" | "annual" | "lifetime" | "other" {
   const n = plan.name.toLowerCase();
-  if (n.includes("lifetime") || n.includes("one-time") || n.includes("forever")) return "lifetime";
+  if (n.includes("legendary for life") || n.includes("lifetime") || n.includes("one-time") || n.includes("forever")) return "lifetime";
   if (n.includes("annual") || n.includes("year") || n.includes("yearly")) return "annual";
   if (n.includes("month")) return "monthly";
   // Fall back to Stripe interval on the first price
@@ -261,10 +261,10 @@ export default function Pricing() {
             )}
             {lifetimePlan && lifetimePrice && (
               <PricingCard
-                label="Lifetime"
+                label="Legendary for Life"
                 price={fmt(lifetimePrice.unit_amount)}
                 period="one-time"
-                savingsBadge="Pay once, forever"
+                savingsBadge="Pay once, access forever"
                 priceId={lifetimePrice.id}
                 loading={loadingPriceId === lifetimePrice.id}
                 onSelect={handleSelect}
