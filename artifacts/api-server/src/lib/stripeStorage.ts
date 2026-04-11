@@ -32,7 +32,7 @@ export class StripeStorage {
       .select({ id: usersTable.id, email: usersTable.email, displayName: usersTable.displayName, pronouns: usersTable.pronouns })
       .from(usersTable)
       .where(and(
-        sql`${usersTable.membershipTier} IN ('premium', 'legendary')`,
+        eq(usersTable.membershipTier, "legendary"),
         eq(usersTable.isActive, true)
       ));
     return rows.filter(r => r.email !== null) as Array<{ id: string; email: string; displayName: string | null; pronouns: string | null }>;
@@ -46,9 +46,9 @@ export class StripeStorage {
     return rows.filter(r => r.email !== null) as Array<{ id: string; email: string; displayName: string | null }>;
   }
 
-  async getMembershipTierForUser(userId: string): Promise<"free" | "premium" | "legendary"> {
+  async getMembershipTierForUser(userId: string): Promise<"unregistered" | "registered" | "legendary"> {
     const user = await this.getUserById(userId);
-    return user?.membershipTier ?? "free";
+    return user?.membershipTier ?? "unregistered";
   }
 
   async getPaymentHistory(userId: string) {

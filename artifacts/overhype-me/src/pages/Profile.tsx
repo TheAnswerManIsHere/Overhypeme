@@ -29,6 +29,7 @@ export default function Profile() {
 
   const [activeTab, setActiveTab] = useState<"submitted" | "liked" | "history" | "images" | "memes">("liked");
   const [checkoutBanner, setCheckoutBanner] = useState<"success" | "cancel" | null>(null);
+  const [checkoutPolling, setCheckoutPolling] = useState(false);
   const [emailVerifiedBanner, setEmailVerifiedBanner] = useState(false);
 
   const AVATAR_STYLES = [
@@ -186,6 +187,34 @@ export default function Profile() {
     }
   }, []);
 
+  // Poll for legendary tier upgrade after checkout (webhook may arrive after redirect)
+  useEffect(() => {
+    if (checkoutBanner !== "success") return;
+    if (!profile || profile.membershipTier === "legendary") return;
+
+    setCheckoutPolling(true);
+    let attempts = 0;
+    const maxAttempts = 15; // ~30 seconds
+
+    const poll = setInterval(async () => {
+      attempts++;
+      await queryClient.invalidateQueries({ queryKey: getGetMyProfileQueryKey() });
+      if (attempts >= maxAttempts) {
+        clearInterval(poll);
+        setCheckoutPolling(false);
+      }
+    }, 2000);
+
+    return () => clearInterval(poll);
+  }, [checkoutBanner]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Stop polling once legendary tier is confirmed
+  useEffect(() => {
+    if (profile?.membershipTier === "legendary" && checkoutPolling) {
+      setCheckoutPolling(false);
+    }
+  }, [profile?.membershipTier, checkoutPolling]);
+
   function openEditor() {
     setDraftDisplayName(profile?.displayName ?? "");
     setDraftFirstName(profile?.firstName ?? "");
@@ -335,12 +364,23 @@ export default function Profile() {
         {checkoutBanner === "success" && (
           <div className="flex items-center justify-between gap-4 bg-primary/20 border-2 border-primary rounded-sm p-4 mb-8">
             <div className="flex items-center gap-3">
-              <Star className="w-5 h-5 text-primary shrink-0" />
-              <p className="font-bold text-foreground">You're now Legendary! Your membership is active. Daily facts incoming.</p>
+              {checkoutPolling ? (
+                <>
+                  <Loader2 className="w-5 h-5 text-primary shrink-0 animate-spin" />
+                  <p className="font-bold text-foreground">Payment received — upgrading your account&hellip;</p>
+                </>
+              ) : (
+                <>
+                  <Star className="w-5 h-5 text-primary shrink-0" />
+                  <p className="font-bold text-foreground">You're now Legendary! Your membership is active. Daily facts incoming.</p>
+                </>
+              )}
             </div>
-            <button onClick={() => setCheckoutBanner(null)} className="text-muted-foreground hover:text-foreground shrink-0">
-              <X className="w-4 h-4" />
-            </button>
+            {!checkoutPolling && (
+              <button onClick={() => setCheckoutBanner(null)} className="text-muted-foreground hover:text-foreground shrink-0">
+                <X className="w-4 h-4" />
+              </button>
+            )}
           </div>
         )}
 

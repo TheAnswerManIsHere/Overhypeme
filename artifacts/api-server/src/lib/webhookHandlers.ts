@@ -6,6 +6,7 @@ import {
   membershipHistoryTable,
   subscriptionsTable,
   lifetimeEntitlementsTable,
+  stripeProcessedEventsTable,
 } from "@workspace/db/schema";
 import { eq, desc } from "drizzle-orm";
 import { logger } from "./logger";
@@ -15,6 +16,15 @@ async function findUserByStripeCustomerId(customerId: string) {
     .select()
     .from(usersTable)
     .where(eq(usersTable.stripeCustomerId, customerId))
+    .limit(1);
+  return user ?? null;
+}
+
+async function findUserById(userId: string) {
+  const [user] = await db
+    .select()
+    .from(usersTable)
+    .where(eq(usersTable.id, userId))
     .limit(1);
   return user ?? null;
 }
@@ -158,12 +168,12 @@ async function handleSubscriptionActivated(
 
   const plan = interval === "year" ? "annual" : "monthly";
   await upsertSubscription(user.id, customerId, sub, plan);
-  await setMembershipTier(user.id, "registered");
+  await setMembershipTier(user.id, "legendary");
   await recordHistory(user.id, "subscription_activated", {
     plan,
     stripeSubscriptionId: sub.id,
   });
-  logger.info({ userId: user.id, plan }, "User upgraded to premium");
+  logger.info({ userId: user.id, plan }, "User upgraded to legendary");
 }
 
 async function handleSubscriptionCancelled(customerId: string, sub: Stripe.Subscription) {
@@ -181,9 +191,9 @@ async function handleSubscriptionCancelled(customerId: string, sub: Stripe.Subsc
     return;
   }
 
-  await setMembershipTier(user.id, "unregistered");
+  await setMembershipTier(user.id, "registered");
   await recordHistory(user.id, "subscription_cancelled", { stripeSubscriptionId: sub.id });
-  logger.info({ userId: user.id }, "User downgraded to free after subscription cancel");
+  logger.info({ userId: user.id }, "User reverted to registered (free) after subscription cancel");
 }
 
 async function handleInvoicePaid(
@@ -272,6 +282,23 @@ async function processDomainSwitch(stripe: Stripe, event: Stripe.Event): Promise
         metadata?: Record<string, string>;
       };
       const customerId = session.customer;
+      const metadataUserId = session.metadata?.userId;
+
+      // Safety net: if the Stripe customer isn't yet linked to a user in our DB,
+      // use metadata.userId (set during checkout session creation) to link them.
+      if (customerId && metadataUserId) {
+        const existingUser = await findUserByStripeCustomerId(customerId);
+        if (!existingUser) {
+          const userById = await findUserById(metadataUserId);
+          if (userById) {
+            await db.update(usersTable)
+              .set({ stripeCustomerId: customerId })
+              .where(eq(usersTable.id, metadataUserId));
+            logger.info({ customerId, userId: metadataUserId }, "Linked Stripe customer to user via metadata.userId");
+          }
+        }
+      }
+
       if (!customerId) break;
 
       if (session.mode === "subscription" && session.subscription) {
@@ -418,6 +445,20 @@ export class WebhookHandlers {
         logger.error({ err }, "Failed to parse webhook event");
         return;
       }
+    }
+
+    // Idempotency guard: skip events already processed (handles Stripe retries)
+    try {
+      await db.insert(stripeProcessedEventsTable).values({ eventId: event.id });
+    } catch (err) {
+      const isUniqueViolation = err instanceof Error &&
+        ((err as unknown as { code?: string }).code === "23505" || err.message.toLowerCase().includes("unique"));
+      if (isUniqueViolation) {
+        logger.info({ eventId: event.id, eventType: event.type }, "Webhook event already processed — skipping (idempotency)");
+        return;
+      }
+      // On other DB errors, log but continue so Stripe doesn't retry endlessly
+      logger.warn({ err, eventId: event.id }, "Idempotency insert failed — proceeding with event processing");
     }
 
     // Process domain-specific logic via shared switch

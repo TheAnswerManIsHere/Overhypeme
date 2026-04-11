@@ -31,7 +31,7 @@ export const usersTable = pgTable("users", {
   isAdmin: boolean("is_admin").notNull().default(false),
   isActive: boolean("is_active").notNull().default(true),
   stripeCustomerId: varchar("stripe_customer_id").unique(),
-  membershipTier: membershipTierEnum("membership_tier").notNull().default("unregistered"),
+  membershipTier: membershipTierEnum("membership_tier").notNull().default("registered"),
   avatarStyle: varchar("avatar_style", { length: 30 }).default("bottts"),
   avatarSource: varchar("avatar_source", { length: 10 }).default("avatar"),
   pronouns: varchar("pronouns", { length: 80 }).default("he/him"),
