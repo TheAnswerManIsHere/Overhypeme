@@ -123,10 +123,14 @@ globalThis.__dirname = __bannerPath.dirname(globalThis.__filename);
 }
 
 buildAll()
-  .then(() => {
+  .then(async () => {
     const srcAssets = path.resolve(artifactDir, "src/assets");
     const distAssets = path.resolve(artifactDir, "dist/assets");
-    return cp(srcAssets, distAssets, { recursive: true });
+    await cp(srcAssets, distAssets, { recursive: true });
+
+    const dbMigrations = path.resolve(artifactDir, "../../lib/db/migrations");
+    const distMigrations = path.resolve(artifactDir, "dist/migrations");
+    await cp(dbMigrations, distMigrations, { recursive: true });
   })
   .catch((err) => {
     console.error(err);
