@@ -96,6 +96,10 @@ interface PersonNameContextValue {
   pronounObject:  string;  // derived — for callers that only need object
   setName:        (name: string) => void;
   setPronouns:    (pronouns: string) => void;
+  /** Clear all stored identity data and reset to defaults (call on logout). */
+  reset:          () => void;
+  /** Overwrite name+pronouns from an authenticated profile without marking explicit. */
+  syncFromProfile: (name: string, pronouns: string) => void;
 }
 
 const PersonNameContext = createContext<PersonNameContextValue>({
@@ -105,6 +109,8 @@ const PersonNameContext = createContext<PersonNameContextValue>({
   pronounObject:  DEFAULT_PRONOUN_OBJECT,
   setName:        () => {},
   setPronouns:    () => {},
+  reset:          () => {},
+  syncFromProfile: () => {},
 });
 
 function splitSubjectObject(pronouns: string): { subject: string; object: string } {
@@ -150,6 +156,32 @@ export function PersonNameProvider({ children }: { children: ReactNode }) {
     setPronounsState(v);
   }
 
+  function reset() {
+    try {
+      localStorage.removeItem(STORAGE_KEY_NAME);
+      localStorage.removeItem(STORAGE_KEY_PRONOUNS);
+      localStorage.removeItem(STORAGE_KEY_EXPLICIT);
+      localStorage.removeItem(LEGACY_KEY_SUBJECT);
+      localStorage.removeItem(LEGACY_KEY_OBJECT);
+      localStorage.removeItem("fact_db_first_name");
+      localStorage.removeItem("fact_db_last_name");
+    } catch { /* ignore */ }
+    setNameState(DEFAULT_NAME);
+    setPronounsState(DEFAULT_PRONOUNS);
+  }
+
+  function syncFromProfile(newName: string, newPronouns: string) {
+    const n = newName.trim() || DEFAULT_NAME;
+    const p = newPronouns.trim() || DEFAULT_PRONOUNS;
+    try {
+      localStorage.setItem(STORAGE_KEY_NAME, n);
+      localStorage.setItem(STORAGE_KEY_PRONOUNS, p);
+      markExplicit();
+    } catch { /* ignore */ }
+    setNameState(n);
+    setPronounsState(p);
+  }
+
   useEffect(() => {
     function onStorage(e: StorageEvent) {
       if (e.key === STORAGE_KEY_NAME     && e.newValue) setNameState(e.newValue);
@@ -169,6 +201,8 @@ export function PersonNameProvider({ children }: { children: ReactNode }) {
         pronounObject:  object,
         setName,
         setPronouns,
+        reset,
+        syncFromProfile,
       },
     },
     children,

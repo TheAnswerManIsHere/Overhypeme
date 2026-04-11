@@ -4,7 +4,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { trackPageView } from "@/lib/analytics";
-import { PersonNameProvider, SHARE_LINK_ACTIVE } from "@/hooks/use-person-name";
+import { PersonNameProvider, SHARE_LINK_ACTIVE, usePersonName } from "@/hooks/use-person-name";
 import { useAuth } from "@workspace/replit-auth-web";
 
 // Pages
@@ -72,6 +72,45 @@ function ShareParamReader() {
 }
 
 /**
+ * Keeps PersonNameProvider in sync with the authenticated user's server profile.
+ * - On login  (unauthenticated → authenticated): loads name + pronouns from API.
+ * - On logout (authenticated → unauthenticated): resets to defaults and clears storage.
+ */
+function AuthProfileSync() {
+  const { isAuthenticated, isLoading } = useAuth();
+  const { reset, syncFromProfile } = usePersonName();
+  const prevAuthRef = useRef<boolean | null>(null);
+
+  useEffect(() => {
+    if (isLoading) return;
+
+    const prev = prevAuthRef.current;
+    prevAuthRef.current = isAuthenticated;
+
+    // Transition: logged in → logged out
+    if (prev === true && !isAuthenticated) {
+      reset();
+      return;
+    }
+
+    // Transition: unauthenticated → authenticated (or first load as authenticated)
+    if (isAuthenticated && prev !== true) {
+      fetch("/api/users/me", { credentials: "include" })
+        .then((r) => r.ok ? r.json() : null)
+        .then((data) => {
+          if (data?.displayName) {
+            syncFromProfile(data.displayName, data.pronouns ?? "");
+          }
+        })
+        .catch(() => {});
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAuthenticated, isLoading]);
+
+  return null;
+}
+
+/**
  * When a share link is opened by a logged-in user, silently log them out
  * so they experience the page as the recipient (unauthenticated visitor).
  * Uses a ref guard so logout is only triggered once per page load.
@@ -113,6 +152,7 @@ function Router() {
     <>
       <ScrollToTop />
       <GAPageTracker />
+      <AuthProfileSync />
       <ShareParamReader />
       <ShareLinkAutoLogout />
       <Switch>
