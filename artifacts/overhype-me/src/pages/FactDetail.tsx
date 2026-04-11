@@ -277,7 +277,8 @@ export default function FactDetail() {
       : `${window.location.origin}${meme.imageUrl}`;
 
     const url = buildZazzleUrl(text, absoluteImageUrl);
-    window.open(url, "_blank");
+    const newWin = window.open(url, "_blank");
+    if (!newWin) window.location.href = url;
 
     trackAffiliateClick("meme", meme.permalinkSlug, "zazzle", text, absoluteImageUrl);
   }

@@ -1,5 +1,4 @@
 import { ShoppingBag, ExternalLink } from "lucide-react";
-import { Button } from "@/components/ui/Button";
 import { trackEvent } from "@/lib/analytics";
 import { buildZazzleUrl, trackAffiliateClick } from "@/lib/affiliate";
 
@@ -11,16 +10,14 @@ interface MerchButtonsProps {
 }
 
 export function MerchButtons({ sourceType, sourceId, text, imageUrl }: MerchButtonsProps) {
-  function handleZazzle() {
+  const absoluteImageUrl = imageUrl
+    ? (imageUrl.startsWith("http") ? imageUrl : `${window.location.origin}${imageUrl}`)
+    : undefined;
+
+  const zazzleUrl = buildZazzleUrl(text, absoluteImageUrl);
+
+  function handleClick() {
     trackEvent("affiliate_click", { destination: "zazzle", source_type: sourceType });
-
-    const absoluteImageUrl = imageUrl
-      ? (imageUrl.startsWith("http") ? imageUrl : `${window.location.origin}${imageUrl}`)
-      : undefined;
-
-    const url = buildZazzleUrl(text, absoluteImageUrl);
-    window.open(url, "_blank");
-
     trackAffiliateClick(sourceType, sourceId, "zazzle", text, absoluteImageUrl);
   }
 
@@ -30,15 +27,16 @@ export function MerchButtons({ sourceType, sourceId, text, imageUrl }: MerchButt
         <ShoppingBag className="w-3.5 h-3.5" />
         <span>Make merch:</span>
       </div>
-      <Button
-        size="sm"
-        variant="outline"
-        onClick={handleZazzle}
-        className="gap-1.5 text-xs h-8"
+      <a
+        href={zazzleUrl}
+        target="_blank"
+        rel="noreferrer"
+        onClick={handleClick}
+        className="inline-flex items-center gap-1.5 text-xs h-8 px-3 rounded-md border border-input bg-background hover:bg-accent hover:text-accent-foreground font-medium transition-colors"
       >
         <ExternalLink className="w-3 h-3" />
         Zazzle
-      </Button>
+      </a>
     </div>
   );
 }
