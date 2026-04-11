@@ -3,23 +3,25 @@ import { Link, useLocation } from "wouter";
 import { useAuth } from "@workspace/replit-auth-web";
 import { Layout } from "@/components/layout/Layout";
 import { Button } from "@/components/ui/Button";
-import { Zap, Star, Check, Lock, Mail, Image, Shield, MessageSquare, Crown } from "lucide-react";
+import { Zap, Star, Check, Lock, ThumbsUp, Send, MessageSquare, Image, Share2, ShoppingBag, ShieldOff, ImagePlus, Video, Clapperboard, UserCircle, Crown } from "lucide-react";
 
 const FREE_FEATURES = [
-  { icon: <Check className="w-4 h-4" />, text: "Browse all facts" },
-  { icon: <Check className="w-4 h-4" />, text: "Vote on facts" },
-  { icon: <Check className="w-4 h-4" />, text: "Submit facts (with CAPTCHA)" },
-  { icon: <Check className="w-4 h-4" />, text: "Leave comments" },
-  { icon: <Check className="w-4 h-4" />, text: "Generate memes" },
+  { icon: <Check className="w-4 h-4" />,        text: "Browse all Facts" },
+  { icon: <ThumbsUp className="w-4 h-4" />,     text: "Vote on Facts" },
+  { icon: <Send className="w-4 h-4" />,         text: "Submit Facts (with CAPTCHA)" },
+  { icon: <MessageSquare className="w-4 h-4" />, text: "Leave Comments (with CAPTCHA)" },
+  { icon: <Image className="w-4 h-4" />,        text: "Generate Generic Image Memes" },
+  { icon: <Share2 className="w-4 h-4" />,       text: "Share Memes" },
+  { icon: <ShoppingBag className="w-4 h-4" />,  text: "Purchase Meme Merch" },
 ];
 
 const LEGENDARY_FEATURES = [
-  { icon: <Check className="w-4 h-4" />,       text: "Everything in Free" },
-  { icon: <Mail className="w-4 h-4" />,         text: "Daily Fact of the Day email" },
-  { icon: <Image className="w-4 h-4" />,        text: "Download HD meme packs" },
-  { icon: <Shield className="w-4 h-4" />,       text: "No CAPTCHA on comments" },
-  { icon: <MessageSquare className="w-4 h-4" />, text: "Priority comment visibility" },
-  { icon: <Crown className="w-4 h-4" />,        text: "Legendary badge on profile" },
+  { icon: <Check className="w-4 h-4" />,        text: "Everything in Free" },
+  { icon: <ShieldOff className="w-4 h-4" />,    text: "No CAPTCHAs" },
+  { icon: <ImagePlus className="w-4 h-4" />,    text: "Generate Custom Image Memes" },
+  { icon: <Video className="w-4 h-4" />,        text: "Generate Generic Video Memes" },
+  { icon: <Clapperboard className="w-4 h-4" />, text: "Generate Custom Video Memes" },
+  { icon: <UserCircle className="w-4 h-4" />,   text: "Custom Profile Image" },
 ];
 
 interface StripePlan {
