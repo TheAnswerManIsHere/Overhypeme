@@ -5,7 +5,7 @@ import { db, usersTable, passwordResetTokensTable, sessionsTable, emailVerificat
 import { eq, and } from "drizzle-orm";
 import { createSession, type SessionData } from "../lib/auth";
 import { isAdminById } from "./auth";
-import { sendEmail, buildPasswordResetEmail, buildEmailVerificationEmail, buildEmailChangeVerificationEmail } from "../lib/email";
+import { sendEmail, buildPasswordResetEmail, buildEmailVerificationEmail, buildEmailChangeVerificationEmail, getSiteBaseUrl } from "../lib/email";
 
 const router: IRouter = Router();
 
@@ -54,8 +54,7 @@ async function sendVerificationEmail(userId: string, email: string, pendingEmail
 
   await db.insert(emailVerificationTokensTable).values({ userId, tokenHash, expiresAt, pendingEmail: pendingEmail ?? null });
 
-  const domain = process.env.REPLIT_DOMAINS?.split(",")[0] ?? "localhost";
-  const verifyUrl = `https://${domain}/verify-email?token=${rawToken}`;
+  const verifyUrl = `${getSiteBaseUrl()}/verify-email?token=${rawToken}`;
 
   let emailContent;
   if (pendingEmail) {
@@ -281,8 +280,7 @@ router.post("/auth/forgot-password", async (req: Request, res: Response) => {
     expiresAt,
   });
 
-  const domain = process.env.REPLIT_DOMAINS?.split(",")[0] ?? "localhost";
-  const resetUrl = `https://${domain}/reset-password?token=${rawToken}`;
+  const resetUrl = `${getSiteBaseUrl()}/reset-password?token=${rawToken}`;
 
   const emailContent = buildPasswordResetEmail(resetUrl);
   await sendEmail({
