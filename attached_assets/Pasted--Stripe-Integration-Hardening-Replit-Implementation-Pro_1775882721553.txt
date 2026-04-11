@@ -1,0 +1,154 @@
+# Stripe Integration Hardening — Replit Implementation Prompt
+
+## Context
+
+We use Stripe Embedded Checkout (Checkout Sessions API) for our LEGENDARY subscription tier. Webhook registration is handled programmatically on app startup because Replit URLs are volatile across redeploys. This task audits and hardens the entire payment flow to handle all edge cases correctly.
+
+-----
+
+## Prompt 1: Webhook Registration Cleanup on Startup
+
+On app startup, before registering a new webhook endpoint:
+
+1. Call `stripe.webhookEndpoints.list()` to retrieve all existing webhook registrations.
+1. Delete any endpoints whose URL does **not** match the current app URL (stale registrations from previous deploys).
+1. Check if an endpoint with the current URL already exists. If yes, update its `enabled_events` list to match the canonical set (below). If no, create a new one.
+1. Store the returned `whsec_...` signing secret in memory for webhook verification. Do NOT hardcode it or persist it — it’s returned on creation and must be captured at that moment.
+
+**Canonical webhook event list:**
+
+```
+checkout.session.completed
+invoice.payment_succeeded
+invoice.payment_failed
+customer.subscription.updated
+customer.subscription.deleted
+```
+
+Log a clear startup message: `[Stripe] Webhook registered at <URL> — listening for <N> events`
+
+-----
+
+## Prompt 2: Webhook Endpoint — Signature Verification and Idempotency
+
+The webhook handler endpoint (`POST /api/webhooks/stripe`) must:
+
+1. **Receive the raw body.** The request body MUST be the raw buffer, not parsed JSON. If using Express, this route must use `express.raw({ type: 'application/json' })` middleware — NOT `express.json()`. If the app applies `express.json()` globally, this route must be registered BEFORE that global middleware, or use a route-specific override. This is the #1 cause of webhook signature verification failures.
+1. **Verify the signature.** Call `stripe.webhooks.constructEvent(rawBody, sig, webhookSecret)` where `sig` is from the `stripe-signature` header and `webhookSecret` is the signing secret captured during startup registration. If verification fails, return `400` immediately. Never process unverified events.
+1. **Idempotency guard.** Before processing any event:
+- Check if `event.id` has already been processed by querying a `stripe_processed_events` table (schema: `event_id TEXT PRIMARY KEY, processed_at TIMESTAMP DEFAULT NOW()`).
+- If already processed, return `200` immediately (success, but no-op).
+- If new, insert the event ID, then proceed with processing.
+- Use a try/catch around the insert to handle race conditions (two concurrent deliveries of the same event). If the insert fails due to unique constraint violation, return `200`.
+1. **Return `200` quickly.** Acknowledge receipt before doing heavy work. If any handler logic is slow (e.g., sending emails, generating assets), queue it and return `200` immediately. Stripe will retry on timeouts, causing duplicate processing if you block.
+
+-----
+
+## Prompt 3: Event Handlers — Business Logic
+
+Implement a `switch` on `event.type` inside the webhook handler:
+
+### `checkout.session.completed`
+
+- Extract `customer` (Stripe customer ID) and `subscription` (Stripe subscription ID) from the session object.
+- Extract the user ID from `metadata` (you MUST pass the user’s internal ID as `metadata.userId` when creating the checkout session — see Prompt 5).
+- Update the user record in the database: set `stripeCustomerId`, `stripeSubscriptionId`, `subscriptionStatus = 'active'`, `membership_tier = 'legendary'`.
+- Log: `[Stripe] User <userId> upgraded to Legendary via checkout session <sessionId>`
+
+### `invoice.payment_succeeded`
+
+- This fires on every successful recurring payment (not the first — that’s covered by checkout.session.completed).
+- Look up the user by `stripeCustomerId` from the invoice’s `customer` field.
+- Update `subscriptionStatus = 'active'` and `currentPeriodEnd` from the invoice’s `lines.data[0].period.end` (convert from Unix timestamp).
+- This handles the case where a previously `past_due` subscription recovers after a retry succeeds.
+
+### `invoice.payment_failed`
+
+- Look up the user by `stripeCustomerId`.
+- Update `subscriptionStatus = 'past_due'`.
+- Do NOT revoke legendary access immediately. The user retains access until the subscription is actually deleted by Stripe (after all retry attempts exhausted).
+- Log: `[Stripe] Payment failed for user <userId> — subscription is now past_due`
+
+### `customer.subscription.updated`
+
+- Look up the user by `stripeCustomerId`.
+- Read `subscription.status` from the event data and update `subscriptionStatus` accordingly.
+- If `subscription.cancel_at_period_end === true`, update a `cancelAtPeriodEnd` flag on the user record. The user keeps legendary access until `current_period_end`.
+- Update `currentPeriodEnd` from the subscription object.
+
+### `customer.subscription.deleted`
+
+- Look up the user by `stripeCustomerId`.
+- Set `subscriptionStatus = 'canceled'`, `membership_tier = 'registered'`.
+- Clear `stripeSubscriptionId`.
+- This is the ONLY event that revokes legendary access.
+- Log: `[Stripe] User <userId> subscription deleted — reverted to registered tier`
+
+### Default case
+
+- Log unhandled event types at debug level. Return `200` (Stripe sends many event types; ignoring irrelevant ones is correct).
+
+-----
+
+## Prompt 4: Database Schema Additions
+
+Ensure the users table has these columns (add if missing, do NOT drop existing columns):
+
+```
+stripeCustomerId       TEXT UNIQUE
+stripeSubscriptionId   TEXT UNIQUE
+subscriptionStatus     TEXT DEFAULT 'none'   -- values: none, active, past_due, canceled
+membership_tier                   TEXT DEFAULT 'unregistered'   -- values: unregistered, registered, legendary
+currentPeriodEnd       TIMESTAMP
+cancelAtPeriodEnd      BOOLEAN DEFAULT false
+```
+
+Create the idempotency table:
+
+```sql
+CREATE TABLE IF NOT EXISTS stripe_processed_events (
+  event_id TEXT PRIMARY KEY,
+  processed_at TIMESTAMP DEFAULT NOW()
+);
+```
+
+Add a periodic cleanup job (or a note to add one later) to prune `stripe_processed_events` rows older than 30 days to prevent unbounded table growth.
+
+-----
+
+## Prompt 5: Checkout Session Creation — Metadata
+
+When creating a checkout session (`stripe.checkout.sessions.create()`), ensure:
+
+1. `metadata.userId` is set to the authenticated user’s internal ID. This is how the webhook handler links the Stripe event back to the correct user. Without this, you cannot fulfill the purchase.
+1. `success_url` includes the session ID as a query parameter: `success_url: \`${baseUrl}/checkout/success?session_id={CHECKOUT_SESSION_ID}``
+1. `cancel_url` points to a sensible page (e.g., the pricing page).
+1. `mode: 'subscription'` for legendary tier.
+1. `customer_email` is pre-filled from the authenticated user’s email (improves UX, reduces Stripe customer duplication).
+
+**Important:** The success page at `/checkout/success` should display a “thank you” message and poll or check the user’s tier from the database. Do NOT grant access based on the redirect — the webhook is the source of truth. If the webhook hasn’t fired yet when the user lands on the success page, show a “processing your payment…” state and either poll or use a brief setTimeout + refetch.
+
+-----
+
+## Prompt 6: Access Control Middleware
+
+Create or update middleware that gates legendary features:
+
+1. On every authenticated request, read the user’s `membership_tier` and `subscriptionStatus` from the database (or from a cached session that’s refreshed on relevant webhook events).
+1. Legendary features are accessible if `tier === 'legendary'` AND `subscriptionStatus` is `'active'` or `'past_due'` (grace period during dunning).
+1. If `subscriptionStatus === 'canceled'` or `membershiptier === 'registered'`, return `403` with a message directing them to upgrade.
+1. For the success page edge case: if `membership_tier` is still `registered` but the user just came from checkout, show the processing state (Prompt 5). Do not grant access.
+
+-----
+
+## Verification Checklist
+
+After implementation, manually verify in Stripe test mode:
+
+- [ ] Deploy the app. Check logs for the webhook registration message.
+- [ ] Redeploy the app. Check that the old webhook was cleaned up (Stripe Dashboard > Developers > Webhooks should show only one endpoint).
+- [ ] Complete a test checkout with Stripe test card `4242 4242 4242 4242`. Confirm user record updated to legendary.
+- [ ] Use Stripe Dashboard > Developers > Events to replay `checkout.session.completed`. Confirm idempotency — no duplicate processing, handler returns 200.
+- [ ] Simulate a failed payment using test card `4000 0000 0000 0341`. Confirm `subscriptionStatus` becomes `past_due` but user retains legendary access.
+- [ ] Cancel the test subscription from Stripe Dashboard. Confirm user reverts to registered tier only after `customer.subscription.deleted` fires.
+- [ ] Test the success page when the webhook is slow — confirm it shows a processing state, not a premature “welcome to legendary”

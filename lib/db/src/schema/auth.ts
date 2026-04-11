@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { boolean, index, jsonb, pgTable, pgEnum, serial, text, timestamp, varchar } from "drizzle-orm/pg-core";
+import { boolean, index, jsonb, numeric, pgTable, pgEnum, serial, text, timestamp, varchar } from "drizzle-orm/pg-core";
 
 export const membershipTierEnum = pgEnum("membership_tier", ["unregistered", "registered", "legendary"]);
 
@@ -36,6 +36,7 @@ export const usersTable = pgTable("users", {
   avatarSource: varchar("avatar_source", { length: 10 }).default("avatar"),
   pronouns: varchar("pronouns", { length: 80 }).default("he/him"),
   emailVerifiedAt: timestamp("email_verified_at", { withTimezone: true }),
+  monthlyGenerationLimitOverrideUsd: numeric("monthly_generation_limit_override_usd", { precision: 10, scale: 4 }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
 });
