@@ -1,7 +1,7 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { Link } from "wouter";
 import { Button } from "@/components/ui/Button";
-import { Star, CreditCard, Calendar, Zap, ExternalLink, AlertCircle, Receipt, ChevronDown, ChevronUp, Crown } from "lucide-react";
+import { Star, CreditCard, Calendar, Zap, ExternalLink, AlertCircle, Receipt, ChevronDown, ChevronUp, Crown, RefreshCw, ArrowUpCircle, XCircle } from "lucide-react";
 
 interface Subscription {
   id: string;
@@ -40,6 +40,27 @@ interface PaymentRecord {
   createdAt: string;
 }
 
+interface PlanPrice {
+  id: string;
+  unit_amount: number;
+  currency: string;
+  recurring: { interval: string; interval_count?: number } | null;
+}
+
+interface PlanProduct {
+  id: string;
+  name: string;
+  description: string | null;
+  metadata: Record<string, string>;
+  prices: PlanPrice[];
+}
+
+interface ProrationPreview {
+  amountDue: number;
+  currency: string;
+  lines: Array<{ description: string | null; amount: number }>;
+}
+
 function eventLabel(event: string): string {
   switch (event) {
     case "subscription_activated": return "Subscription Activated";
@@ -55,23 +76,85 @@ function formatPlanName(plan: string | null): string {
   return plan.charAt(0).toUpperCase() + plan.slice(1);
 }
 
+function formatAmount(amount: number, currency: string): string {
+  return new Intl.NumberFormat("en-US", { style: "currency", currency: currency.toUpperCase() }).format(amount / 100);
+}
+
+interface ConfirmDialogProps {
+  title: string;
+  children: React.ReactNode;
+  confirmLabel: string;
+  isDestructive?: boolean;
+  loading: boolean;
+  onConfirm: () => void;
+  onCancel: () => void;
+}
+
+function ConfirmDialog({ title, children, confirmLabel, isDestructive = false, loading, onConfirm, onCancel }: ConfirmDialogProps) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+      <div className="bg-card border-2 border-border rounded-sm p-6 max-w-md w-full space-y-4 shadow-xl">
+        <h3 className="font-display text-lg uppercase tracking-wide text-foreground">{title}</h3>
+        <div className="text-sm text-muted-foreground space-y-2">{children}</div>
+        <div className="flex gap-3 pt-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={onConfirm}
+            disabled={loading}
+            className={isDestructive ? "border-destructive text-destructive hover:bg-destructive/10" : "border-primary text-primary hover:bg-primary/10"}
+          >
+            {loading ? "Processing..." : confirmLabel}
+          </Button>
+          <Button variant="outline" size="sm" onClick={onCancel} disabled={loading}>
+            Go Back
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function SubscriptionPanel() {
   const [subData, setSubData] = useState<SubscriptionResponse | null | undefined>(undefined);
   const [history, setHistory] = useState<PaymentRecord[]>([]);
+  const [plans, setPlans] = useState<PlanProduct[]>([]);
   const [showHistory, setShowHistory] = useState(false);
   const [portalLoading, setPortalLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
+  // Cancel dialog state
+  const [showCancelDialog, setShowCancelDialog] = useState(false);
+  const [cancelLoading, setCancelLoading] = useState(false);
+
+  // Reactivate state
+  const [reactivateLoading, setReactivateLoading] = useState(false);
+
+  // Plan switch dialog state
+  const [showSwitchDialog, setShowSwitchDialog] = useState(false);
+  const [switchLoading, setSwitchLoading] = useState(false);
+  const [prorationPreview, setProrationPreview] = useState<ProrationPreview | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [targetAnnualPriceId, setTargetAnnualPriceId] = useState<string | null>(null);
+
+  const fetchSubData = useCallback(() => {
     fetch("/api/stripe/subscription", { credentials: "include" })
       .then(r => r.json())
       .then((d: SubscriptionResponse) => setSubData(d))
       .catch(() => setSubData(null));
+  }, []);
+
+  useEffect(() => {
+    fetchSubData();
     fetch("/api/stripe/payment-history", { credentials: "include" })
       .then(r => r.json())
       .then((d: { history: PaymentRecord[] }) => setHistory(d.history ?? []))
       .catch(() => {});
-  }, []);
+    fetch("/api/stripe/plans", { credentials: "include" })
+      .then(r => r.json())
+      .then((d: { plans: PlanProduct[] }) => setPlans(d.plans ?? []))
+      .catch(() => {});
+  }, [fetchSubData]);
 
   async function openPortal() {
     setPortalLoading(true);
@@ -89,6 +172,162 @@ export function SubscriptionPanel() {
     } finally {
       setPortalLoading(false);
     }
+  }
+
+  async function handleCancel() {
+    setCancelLoading(true);
+    setError(null);
+    try {
+      const resp = await fetch("/api/stripe/subscription/cancel", {
+        method: "POST",
+        credentials: "include",
+      });
+      const data = (await resp.json()) as { subscription?: unknown; error?: string };
+      if (data.error) {
+        setError(data.error);
+      } else {
+        setShowCancelDialog(false);
+        fetchSubData();
+      }
+    } catch {
+      setError("Network error");
+    } finally {
+      setCancelLoading(false);
+    }
+  }
+
+  async function handleReactivate() {
+    setReactivateLoading(true);
+    setError(null);
+    try {
+      const resp = await fetch("/api/stripe/subscription/reactivate", {
+        method: "POST",
+        credentials: "include",
+      });
+      const data = (await resp.json()) as { subscription?: unknown; error?: string };
+      if (data.error) {
+        setError(data.error);
+      } else {
+        fetchSubData();
+      }
+    } catch {
+      setError("Network error");
+    } finally {
+      setReactivateLoading(false);
+    }
+  }
+
+  async function openSwitchDialog() {
+    setError(null);
+    setProrationPreview(null);
+
+    // Find annual price from plans
+    const annualPriceId = findAnnualPriceId();
+    if (!annualPriceId) {
+      setError("Annual plan not available");
+      return;
+    }
+    setTargetAnnualPriceId(annualPriceId);
+    setShowSwitchDialog(true);
+    setPreviewLoading(true);
+    try {
+      const resp = await fetch(`/api/stripe/subscription/switch-preview?targetPriceId=${encodeURIComponent(annualPriceId)}`, {
+        credentials: "include",
+      });
+      const data = (await resp.json()) as ProrationPreview & { error?: string };
+      if (data.error) {
+        setError(data.error);
+        setShowSwitchDialog(false);
+      } else {
+        setProrationPreview(data);
+      }
+    } catch {
+      setError("Failed to load proration preview");
+      setShowSwitchDialog(false);
+    } finally {
+      setPreviewLoading(false);
+    }
+  }
+
+  async function handleSwitchPlan() {
+    if (!targetAnnualPriceId) return;
+    setSwitchLoading(true);
+    setError(null);
+    try {
+      const resp = await fetch("/api/stripe/subscription/switch-plan", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ targetPriceId: targetAnnualPriceId }),
+      });
+      const data = (await resp.json()) as { subscription?: unknown; error?: string };
+      if (data.error) {
+        setError(data.error);
+      } else {
+        setShowSwitchDialog(false);
+        fetchSubData();
+      }
+    } catch {
+      setError("Network error");
+    } finally {
+      setSwitchLoading(false);
+    }
+  }
+
+  function findAnnualPriceId(): string | null {
+    const currentPriceId = sub?.items?.data?.[0]?.price?.id;
+
+    // Find the product containing the current monthly price, then return its annual price
+    if (currentPriceId) {
+      for (const product of plans) {
+        const hasCurrentPrice = product.prices.some(p => p.id === currentPriceId);
+        if (hasCurrentPrice) {
+          const annualPrice = product.prices.find(p => p.recurring?.interval === "year");
+          if (annualPrice) return annualPrice.id;
+        }
+      }
+    }
+
+    // Fallback: if current price not found in plans (e.g., synced from webhook but not in plans list),
+    // return the first annual price across all plans
+    for (const product of plans) {
+      for (const price of product.prices) {
+        if (price.recurring?.interval === "year") return price.id;
+      }
+    }
+    return null;
+  }
+
+  function getAnnualSavingsPercent(): number | null {
+    const currentPriceId = sub?.items?.data?.[0]?.price?.id;
+    let monthlyAmount: number | null = null;
+    let annualAmount: number | null = null;
+
+    // Find amounts from the same product as current subscription
+    if (currentPriceId) {
+      for (const product of plans) {
+        const hasCurrentPrice = product.prices.some(p => p.id === currentPriceId);
+        if (hasCurrentPrice) {
+          monthlyAmount = product.prices.find(p => p.recurring?.interval === "month")?.unit_amount ?? null;
+          annualAmount = product.prices.find(p => p.recurring?.interval === "year")?.unit_amount ?? null;
+          break;
+        }
+      }
+    }
+
+    // Fallback to global search
+    if (!monthlyAmount || !annualAmount) {
+      for (const product of plans) {
+        for (const price of product.prices) {
+          if (price.recurring?.interval === "month") monthlyAmount = price.unit_amount;
+          if (price.recurring?.interval === "year") annualAmount = price.unit_amount;
+        }
+      }
+    }
+
+    if (!monthlyAmount || !annualAmount) return null;
+    const annualEquivMonthly = annualAmount / 12;
+    return Math.round((1 - annualEquivMonthly / monthlyAmount) * 100);
   }
 
   const sub = subData?.subscription ?? null;
@@ -117,9 +356,15 @@ export function SubscriptionPanel() {
     : price?.recurring?.interval === "month" ? "Monthly"
     : "Legendary";
 
+  const isMonthly = !isLifetime && !isLegendary && (appSub?.plan === "monthly" || price?.recurring?.interval === "month");
+  const annualPriceAvailable = findAnnualPriceId() !== null;
+  const savingsPercent = getAnnualSavingsPercent();
+
   // Show the portal button for anyone who has payment history, regardless of tier.
-  // This lets legendary/lifetime users also access their receipts.
   const showPortalButton = history.length > 0 || (!isLegendary && !isLifetime && !!sub);
+
+  // Show cancel/reactivate controls for active recurring subscribers only
+  const showSubscriptionControls = !isLifetime && !isLegendary && !!sub;
 
   return (
     <div className="bg-card border-2 border-border rounded-sm p-6 mb-8">
@@ -209,10 +454,53 @@ export function SubscriptionPanel() {
             </div>
           )}
 
+          {/* Subscription action controls — only for active recurring subscribers */}
+          {showSubscriptionControls && (
+            <div className="flex flex-col gap-3 pt-1">
+              {/* Monthly-to-annual switch — only when not set to cancel */}
+              {isMonthly && !cancelAtPeriodEnd && annualPriceAvailable && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={openSwitchDialog}
+                  className="gap-2 self-start border-primary/40 text-primary hover:bg-primary/10"
+                >
+                  <ArrowUpCircle className="w-4 h-4" />
+                  Switch to Annual{savingsPercent ? ` — save ${savingsPercent}%` : ""}
+                </Button>
+              )}
+
+              {/* Cancel or reactivate */}
+              {cancelAtPeriodEnd ? (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleReactivate}
+                  disabled={reactivateLoading}
+                  className="gap-2 self-start"
+                >
+                  <RefreshCw className="w-4 h-4" />
+                  {reactivateLoading ? "Reactivating..." : "Reactivate Subscription"}
+                </Button>
+              ) : (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => { setError(null); setShowCancelDialog(true); }}
+                  className="gap-2 self-start border-destructive/40 text-destructive hover:bg-destructive/10"
+                >
+                  <XCircle className="w-4 h-4" />
+                  Cancel Subscription
+                </Button>
+              )}
+            </div>
+          )}
+
+          {/* Portal link as secondary option */}
           {showPortalButton && (
             <Button variant="outline" size="sm" onClick={openPortal} disabled={portalLoading} className="gap-2">
               <ExternalLink className="w-4 h-4" />
-              {portalLoading ? "Opening..." : (!isLegendary && !isLifetime && !!sub ? "Manage Subscription" : "View Charge History")}
+              {portalLoading ? "Opening..." : "Manage billing & receipts"}
             </Button>
           )}
         </div>
@@ -253,6 +541,58 @@ export function SubscriptionPanel() {
             </div>
           )}
         </div>
+      )}
+
+      {/* Cancel Confirmation Dialog */}
+      {showCancelDialog && periodEnd && (
+        <ConfirmDialog
+          title="Cancel Subscription"
+          confirmLabel="Yes, Cancel"
+          isDestructive={true}
+          loading={cancelLoading}
+          onConfirm={handleCancel}
+          onCancel={() => setShowCancelDialog(false)}
+        >
+          <p>
+            Your subscription will remain active until <strong className="text-foreground">{periodEnd}</strong>.
+            After that date, you will lose access to premium features.
+          </p>
+          <p>You can reactivate at any time before that date.</p>
+        </ConfirmDialog>
+      )}
+
+      {/* Plan Switch Dialog */}
+      {showSwitchDialog && (
+        <ConfirmDialog
+          title="Switch to Annual Billing"
+          confirmLabel="Confirm Switch"
+          loading={switchLoading || previewLoading}
+          onConfirm={handleSwitchPlan}
+          onCancel={() => { setShowSwitchDialog(false); setProrationPreview(null); }}
+        >
+          {previewLoading && <p className="animate-pulse">Loading proration preview...</p>}
+          {prorationPreview && !previewLoading && (
+            <div className="space-y-3">
+              <p>You will be switched to annual billing immediately. Here is the cost breakdown:</p>
+              <div className="bg-secondary/50 rounded-sm border border-border p-3 space-y-1.5">
+                {prorationPreview.lines.map((line, i) => (
+                  <div key={i} className="flex justify-between text-xs gap-4">
+                    <span className="text-muted-foreground">{line.description ?? "Adjustment"}</span>
+                    <span className={`font-medium shrink-0 ${line.amount < 0 ? "text-green-500" : "text-foreground"}`}>
+                      {line.amount < 0 ? "-" : ""}{formatAmount(Math.abs(line.amount), prorationPreview.currency)}
+                    </span>
+                  </div>
+                ))}
+                <div className="flex justify-between text-sm font-bold border-t border-border/50 pt-1.5 mt-1">
+                  <span>Due now</span>
+                  <span className={prorationPreview.amountDue < 0 ? "text-green-500" : "text-foreground"}>
+                    {prorationPreview.amountDue < 0 ? "Credit: " : ""}{formatAmount(Math.abs(prorationPreview.amountDue), prorationPreview.currency)}
+                  </span>
+                </div>
+              </div>
+            </div>
+          )}
+        </ConfirmDialog>
       )}
     </div>
   );
