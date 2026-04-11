@@ -1,7 +1,7 @@
-import { useState } from "react";
 import { ShoppingBag, ExternalLink } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { trackEvent } from "@/lib/analytics";
+import { buildZazzleUrl, trackAffiliateClick } from "@/lib/affiliate";
 
 interface MerchButtonsProps {
   sourceType: "fact" | "meme";
@@ -11,34 +11,17 @@ interface MerchButtonsProps {
 }
 
 export function MerchButtons({ sourceType, sourceId, text, imageUrl }: MerchButtonsProps) {
-  const [loadingZazzle, setLoadingZazzle] = useState(false);
-
-  async function handleZazzle() {
-    setLoadingZazzle(true);
+  function handleZazzle() {
     trackEvent("affiliate_click", { destination: "zazzle", source_type: sourceType });
 
     const absoluteImageUrl = imageUrl
       ? (imageUrl.startsWith("http") ? imageUrl : `${window.location.origin}${imageUrl}`)
       : undefined;
 
-    const newWin = window.open("", "_blank");
+    const url = buildZazzleUrl(text, absoluteImageUrl);
+    window.open(url, "_blank");
 
-    try {
-      const resp = await fetch("/api/affiliate/click", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({ sourceType, sourceId: String(sourceId), destination: "zazzle", text, imageUrl: absoluteImageUrl }),
-      });
-      if (resp.ok) {
-        const data = (await resp.json()) as { url?: string };
-        if (data.url && newWin) { newWin.location.href = data.url; setLoadingZazzle(false); return; }
-      }
-    } catch { /* fall through */ }
-
-    const encoded = encodeURIComponent(text.slice(0, 100));
-    if (newWin) newWin.location.href = `https://www.zazzle.com/s/${encoded}`;
-    setLoadingZazzle(false);
+    trackAffiliateClick(sourceType, sourceId, "zazzle", text, absoluteImageUrl);
   }
 
   return (
@@ -51,15 +34,10 @@ export function MerchButtons({ sourceType, sourceId, text, imageUrl }: MerchButt
         size="sm"
         variant="outline"
         onClick={handleZazzle}
-        disabled={loadingZazzle}
         className="gap-1.5 text-xs h-8"
       >
-        {loadingZazzle ? "Opening…" : (
-          <>
-            <ExternalLink className="w-3 h-3" />
-            Zazzle
-          </>
-        )}
+        <ExternalLink className="w-3 h-3" />
+        Zazzle
       </Button>
     </div>
   );

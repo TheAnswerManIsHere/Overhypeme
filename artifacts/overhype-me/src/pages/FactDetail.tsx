@@ -18,6 +18,7 @@ import { cn } from "@/components/ui/Button";
 import { usePersonName } from "@/hooks/use-person-name";
 import { AccessGate } from "@/components/AccessGate";
 import { renderFact } from "@/lib/render-fact";
+import { buildZazzleUrl, trackAffiliateClick } from "@/lib/affiliate";
 
 type MemeItem = {
   id: number;
@@ -270,33 +271,15 @@ export default function FactDetail() {
     await queryClient.invalidateQueries({ queryKey: ["listFactMemes", factId] });
   }
 
-  async function handleMakeMerch(meme: MemeItem, text: string) {
+  function handleMakeMerch(meme: MemeItem, text: string) {
     const absoluteImageUrl = meme.imageUrl.startsWith("http")
       ? meme.imageUrl
       : `${window.location.origin}${meme.imageUrl}`;
 
-    const newWin = window.open("", "_blank");
+    const url = buildZazzleUrl(text, absoluteImageUrl);
+    window.open(url, "_blank");
 
-    try {
-      const resp = await fetch("/api/affiliate/click", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({
-          sourceType: "meme",
-          sourceId: meme.permalinkSlug,
-          destination: "zazzle",
-          text,
-          imageUrl: absoluteImageUrl,
-        }),
-      });
-      if (resp.ok) {
-        const data = (await resp.json()) as { url?: string };
-        if (data.url && newWin) { newWin.location.href = data.url; return; }
-      }
-    } catch { /* fall through */ }
-    const encoded = encodeURIComponent(text.slice(0, 100));
-    if (newWin) newWin.location.href = `https://www.zazzle.com/s/${encoded}`;
+    trackAffiliateClick("meme", meme.permalinkSlug, "zazzle", text, absoluteImageUrl);
   }
 
   const pexelsImages = ((fact as unknown as { pexelsImages?: FactPexelsImages | null })?.pexelsImages) ?? null;
