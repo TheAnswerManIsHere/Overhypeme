@@ -13,7 +13,7 @@
     <script id="ga4-init">
       (function() {
         var gaId = "%VITE_GA_MEASUREMENT_ID%";
-        if (!gaId || gaId === "%VITE_GA_MEASUREMENT_ID%" || gaId === "undefined") return;
+        if (!gaId || gaId.indexOf("%") !== -1 || gaId === "undefined") return;
         var s = document.createElement("script");
         s.async = true;
         s.src = "https://www.googletagmanager.com/gtag/js?id=" + gaId;
@@ -30,7 +30,7 @@
     <script id="adsense-init">
       (function() {
         var pubId = "%VITE_ADSENSE_PUBLISHER_ID%";
-        if (!pubId || pubId === "%VITE_ADSENSE_PUBLISHER_ID%" || pubId === "undefined") return;
+        if (!pubId || pubId.indexOf("%") !== -1 || pubId === "undefined") return;
         var s = document.createElement("script");
         s.async = true;
         s.crossOrigin = "anonymous";
