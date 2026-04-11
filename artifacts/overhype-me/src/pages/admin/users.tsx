@@ -122,9 +122,16 @@ export default function AdminUsers() {
 
   const [deleteModal, setDeleteModal] = useState<null | "choose" | "confirm-hard" | "deleting" | "done" | "error">(null);
   const [deleting, setDeleting] = useState(false);
-  const [deleteSummary, setDeleteSummary] = useState<{ aiImagesDeleted: number; memeImagesDeleted: number; storageErrors: number } | null>(null);
+  const [deleteIsHard, setDeleteIsHard] = useState(true);
+  const [deleteSummary, setDeleteSummary] = useState<{
+    aiImagesDeleted?: number;
+    memeImagesDeleted?: number;
+    storageErrors?: number;
+    subscriptionCanceled?: boolean;
+    sessionsRevoked?: number;
+  } | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
-  const [deleteErrorStage, setDeleteErrorStage] = useState<"collect" | "membership" | "nullify" | "delete" | null>(null);
+  const [deleteErrorStage, setDeleteErrorStage] = useState<"collect" | "membership" | "nullify" | "delete" | "stripe" | "sessions" | "deactivate" | null>(null);
   const [showInactive, setShowInactive] = useState(false);
   const [reactivating, setReactivating] = useState(false);
 
@@ -322,12 +329,11 @@ export default function AdminUsers() {
   async function deleteUser(hard: boolean) {
     if (!selectedUser) return;
     setDeleting(true);
-    if (hard) {
-      setDeleteSummary(null);
-      setDeleteError(null);
-      setDeleteErrorStage(null);
-      setDeleteModal("deleting");
-    }
+    setDeleteIsHard(hard);
+    setDeleteSummary(null);
+    setDeleteError(null);
+    setDeleteErrorStage(null);
+    setDeleteModal("deleting");
     try {
       const url = `/api/admin/users/${selectedUser.id}${hard ? "?hard=true" : ""}`;
       const res = await fetch(url, { method: "DELETE", credentials: "include" });
@@ -335,44 +341,27 @@ export default function AdminUsers() {
         success?: boolean;
         user?: User;
         error?: string;
-        stage?: "collect" | "membership" | "nullify" | "delete";
-        summary?: { aiImagesDeleted: number; memeImagesDeleted: number; storageErrors: number };
+        stage?: "collect" | "membership" | "nullify" | "delete" | "stripe" | "sessions" | "deactivate";
+        summary?: {
+          aiImagesDeleted?: number;
+          memeImagesDeleted?: number;
+          storageErrors?: number;
+          subscriptionCanceled?: boolean;
+          sessionsRevoked?: number;
+        };
       };
       if (!res.ok) {
-        if (hard) {
-          setDeleteError(data.error ?? "Deletion failed");
-          setDeleteErrorStage(data.stage ?? null);
-          setDeleteModal("error");
-        } else {
-          throw new Error(data.error ?? "Delete failed");
-        }
+        setDeleteError(data.error ?? "Deletion failed");
+        setDeleteErrorStage(data.stage ?? null);
+        setDeleteModal("error");
         return;
       }
-      if (hard) {
-        setDeleteSummary(data.summary ?? null);
-        setDeleteModal("done");
-      } else {
-        // Soft delete: if showing inactive, keep user in list with updated isActive flag
-        const updatedUser: User = data.user ?? { ...selectedUser, isActive: false };
-        if (showInactive) {
-          setUsers((prev) => prev.map((u) => u.id === selectedUser.id ? updatedUser : u));
-          setSelectedUser(updatedUser);
-        } else {
-          setUsers((prev) => prev.filter((u) => u.id !== selectedUser.id));
-          setTotal((t) => t - 1);
-          clearSelection();
-        }
-        setDeleteModal(null);
-      }
+      setDeleteSummary(data.summary ?? null);
+      setDeleteModal("done");
     } catch (err) {
-      if (hard) {
-        setDeleteError(err instanceof Error ? err.message : "Delete failed");
-        setDeleteErrorStage(null);
-        setDeleteModal("error");
-      } else {
-        setSaveResult({ type: "error", message: err instanceof Error ? err.message : "Delete failed" });
-        setDeleteModal(null);
-      }
+      setDeleteError(err instanceof Error ? err.message : "Delete failed");
+      setDeleteErrorStage(null);
+      setDeleteModal("error");
     } finally {
       setDeleting(false);
     }
@@ -383,6 +372,24 @@ export default function AdminUsers() {
       setUsers((prev) => prev.filter((u) => u.id !== selectedUser.id));
       setTotal((t) => t - 1);
       clearSelection();
+    }
+    setDeleteModal(null);
+    setDeleteSummary(null);
+    setDeleteError(null);
+    setDeleteErrorStage(null);
+  }
+
+  function handleSoftDeleteDone() {
+    if (selectedUser) {
+      const updatedUser = { ...selectedUser, isActive: false };
+      if (showInactive) {
+        setUsers((prev) => prev.map((u) => u.id === selectedUser.id ? updatedUser : u));
+        setSelectedUser(updatedUser);
+      } else {
+        setUsers((prev) => prev.filter((u) => u.id !== selectedUser.id));
+        setTotal((t) => t - 1);
+        clearSelection();
+      }
     }
     setDeleteModal(null);
     setDeleteSummary(null);
@@ -509,7 +516,9 @@ export default function AdminUsers() {
                   </div>
                   <div>
                     <h2 className="font-display font-bold text-foreground uppercase tracking-wide">
-                      {deleteModal === "done" ? "Deletion Complete" : deleteModal === "error" ? "Deletion Failed" : "Deleting User…"}
+                      {deleteIsHard
+                        ? (deleteModal === "done" ? "Deletion Complete" : deleteModal === "error" ? "Deletion Failed" : "Deleting User…")
+                        : (deleteModal === "done" ? "User Deactivated" : deleteModal === "error" ? "Deactivation Failed" : "Deactivating User…")}
                     </h2>
                     <p className="text-xs text-muted-foreground mt-0.5 truncate max-w-[220px]">
                       {selectedUser.displayName ?? selectedUser.email ?? selectedUser.id}
@@ -525,73 +534,122 @@ export default function AdminUsers() {
                 )}
 
                 {/* Checklist
-                    Stage → failed checklist index mapping:
-                      "collect"    → 0  (nothing completed before failure)
-                      "membership" → 3  (collect + storage done)
-                      "nullify"    → 4
-                      "delete"     → 5
+                    Hard delete stage → failed index:
+                      collect:0  membership:4  nullify:5  delete:6
+                    Soft delete stage → failed index:
+                      stripe:0  sessions:1  deactivate:2
                     Items before failedIndex → green; failedIndex → red X; after → neutral
                 */}
                 {(() => {
-                  const stageToFailedIndex: Record<string, number> = {
-                    collect: 0,
-                    membership: 3,
-                    nullify: 4,
-                    delete: 5,
-                  };
-                  const failedIndex =
-                    deleteModal === "error"
-                      ? stageToFailedIndex[deleteErrorStage ?? "collect"] ?? 0
-                      : -1;
+                  if (deleteIsHard) {
+                    const stageToFailedIndex: Record<string, number> = {
+                      collect: 0,
+                      membership: 4,
+                      nullify: 5,
+                      delete: 6,
+                    };
+                    const failedIndex =
+                      deleteModal === "error"
+                        ? stageToFailedIndex[deleteErrorStage ?? "collect"] ?? 0
+                        : -1;
+                    const isDone = (i: number) => deleteModal === "done" || (deleteModal === "error" && i < failedIndex);
+                    const isFailed = (i: number) => deleteModal === "error" && i === failedIndex;
+                    const isNeutral = (i: number) => deleteModal === "error" && i > failedIndex;
 
-                  const items = [
-                    "Collecting storage file list",
-                    deleteModal === "done" && deleteSummary
-                      ? `Deleted ${deleteSummary.aiImagesDeleted} AI-generated image${deleteSummary.aiImagesDeleted !== 1 ? "s" : ""}`
-                      : "Deleting AI-generated images",
-                    deleteModal === "done" && deleteSummary
-                      ? `Deleted ${deleteSummary.memeImagesDeleted} meme image${deleteSummary.memeImagesDeleted !== 1 ? "s" : ""}`
-                      : "Deleting meme images",
-                    "Removing membership & billing records",
-                    "Unlinking facts, comments & shared content",
-                    "Removing user account",
-                  ];
+                    const items = [
+                      "Collecting storage file list",
+                      isDone(1) && deleteSummary
+                        ? `Deleted ${deleteSummary.aiImagesDeleted ?? 0} AI-generated image${(deleteSummary.aiImagesDeleted ?? 0) !== 1 ? "s" : ""}`
+                        : "Deleting AI-generated images",
+                      isDone(2) && deleteSummary
+                        ? `Deleted ${deleteSummary.memeImagesDeleted ?? 0} meme image${(deleteSummary.memeImagesDeleted ?? 0) !== 1 ? "s" : ""}`
+                        : "Deleting meme images",
+                      isDone(3) && deleteSummary
+                        ? (deleteSummary.subscriptionCanceled ? "Subscription canceled" : "No active subscription")
+                        : "Canceling active subscription",
+                      "Removing membership & billing records",
+                      "Unlinking facts, comments & shared content",
+                      "Removing user account",
+                    ];
 
-                  return (
-                    <ul className="flex flex-col gap-2">
-                      {items.map((label, i) => {
-                        const isDone = deleteModal === "done" || (deleteModal === "error" && i < failedIndex);
-                        const isFailed = deleteModal === "error" && i === failedIndex;
-                        const isNeutral = deleteModal === "error" && i > failedIndex;
-
-                        return (
+                    return (
+                      <ul className="flex flex-col gap-2">
+                        {items.map((label, i) => (
                           <li key={i} className="flex items-center gap-3 text-sm">
                             <span className="shrink-0 w-5 h-5 flex items-center justify-center">
-                              {isDone ? (
+                              {isDone(i) ? (
                                 <CheckCircle className="w-4 h-4 text-green-500" />
-                              ) : isFailed ? (
+                              ) : isFailed(i) ? (
                                 <XCircle className="w-4 h-4 text-destructive" />
-                              ) : isNeutral ? (
+                              ) : isNeutral(i) ? (
                                 <span className="w-4 h-4 rounded-full border border-border/50" />
                               ) : (
                                 <Loader2 className="w-4 h-4 text-muted-foreground animate-spin" />
                               )}
                             </span>
-                            <span className={isDone ? "text-foreground" : isFailed ? "text-destructive" : "text-muted-foreground"}>
+                            <span className={isDone(i) ? "text-foreground" : isFailed(i) ? "text-destructive" : "text-muted-foreground"}>
                               {label}
                             </span>
                           </li>
-                        );
-                      })}
-                    </ul>
-                  );
+                        ))}
+                      </ul>
+                    );
+                  } else {
+                    const stageToFailedIndex: Record<string, number> = {
+                      stripe: 0,
+                      sessions: 1,
+                      deactivate: 2,
+                    };
+                    const failedIndex =
+                      deleteModal === "error"
+                        ? stageToFailedIndex[deleteErrorStage ?? "deactivate"] ?? 2
+                        : -1;
+                    const isDone = (i: number) => deleteModal === "done" || (deleteModal === "error" && i < failedIndex);
+                    const isFailed = (i: number) => deleteModal === "error" && i === failedIndex;
+                    const isNeutral = (i: number) => deleteModal === "error" && i > failedIndex;
+
+                    const items = [
+                      isDone(0) && deleteSummary
+                        ? (deleteSummary.subscriptionCanceled ? "Subscription canceled" : "No active subscription")
+                        : "Canceling active subscription",
+                      isDone(1) && deleteSummary
+                        ? ((deleteSummary.sessionsRevoked ?? 0) > 0
+                            ? `Revoked ${deleteSummary.sessionsRevoked} active session${(deleteSummary.sessionsRevoked ?? 0) !== 1 ? "s" : ""}`
+                            : "No active sessions")
+                        : "Revoking active sessions",
+                      "Deactivating account",
+                    ];
+
+                    return (
+                      <ul className="flex flex-col gap-2">
+                        {items.map((label, i) => (
+                          <li key={i} className="flex items-center gap-3 text-sm">
+                            <span className="shrink-0 w-5 h-5 flex items-center justify-center">
+                              {isDone(i) ? (
+                                <CheckCircle className="w-4 h-4 text-green-500" />
+                              ) : isFailed(i) ? (
+                                <XCircle className="w-4 h-4 text-destructive" />
+                              ) : isNeutral(i) ? (
+                                <span className="w-4 h-4 rounded-full border border-border/50" />
+                              ) : (
+                                <Loader2 className="w-4 h-4 text-muted-foreground animate-spin" />
+                              )}
+                            </span>
+                            <span className={isDone(i) ? "text-foreground" : isFailed(i) ? "text-destructive" : "text-muted-foreground"}>
+                              {label}
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
+                    );
+                  }
                 })()}
 
-                {/* Storage errors note */}
-                {deleteModal === "done" && deleteSummary && deleteSummary.storageErrors > 0 && (
+                {/* Storage errors note — hard delete only */}
+                {deleteIsHard && deleteModal === "done" && deleteSummary && (deleteSummary.storageErrors ?? 0) > 0 && (
                   <p className="text-xs text-yellow-600 flex items-start gap-1.5">
                     <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
-                    {deleteSummary.storageErrors} storage file{deleteSummary.storageErrors !== 1 ? "s" : ""} could not be deleted and may need manual cleanup.
+                    {deleteSummary.storageErrors} storage file{(deleteSummary.storageErrors ?? 0) !== 1 ? "s" : ""} could not be deleted and may need manual cleanup.
                   </p>
                 )}
 
@@ -605,7 +663,9 @@ export default function AdminUsers() {
 
                 {deleteModal !== "deleting" && (
                   <Button
-                    onClick={deleteModal === "done" ? handleHardDeleteDone : () => { setDeleteModal(null); setDeleteError(null); setDeleteErrorStage(null); }}
+                    onClick={deleteModal === "done"
+                      ? (deleteIsHard ? handleHardDeleteDone : handleSoftDeleteDone)
+                      : () => { setDeleteModal(null); setDeleteError(null); setDeleteErrorStage(null); }}
                     variant={deleteModal === "done" ? "primary" : "outline"}
                   >
                     {deleteModal === "done" ? "Done" : "Close"}

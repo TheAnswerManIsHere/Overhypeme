@@ -181,6 +181,28 @@ router.delete("/admin/users/:id", requireAdmin, async (req: Request, res: Respon
         }
       }
 
+      // Step 2.5: Cancel active Stripe subscription (non-fatal — user is being permanently deleted)
+      let subscriptionCanceled = false;
+      const activeSubs = await db
+        .select({ stripeSubscriptionId: subscriptionsTable.stripeSubscriptionId })
+        .from(subscriptionsTable)
+        .where(and(
+          eq(subscriptionsTable.userId, id),
+          or(eq(subscriptionsTable.status, "active"), eq(subscriptionsTable.status, "trialing"))
+        ));
+      if (activeSubs.length > 0) {
+        try {
+          const { getUncachableStripeClient } = await import("../lib/stripeClient");
+          const stripe = await getUncachableStripeClient();
+          for (const sub of activeSubs) {
+            await stripe.subscriptions.cancel(sub.stripeSubscriptionId);
+          }
+          subscriptionCanceled = true;
+        } catch (e) {
+          console.error("[hard-delete] Stripe subscription cancellation failed:", e);
+        }
+      }
+
       // Step 3: Delete records with NOT NULL user_id FKs and no cascade
       currentStage = "membership";
       await db.delete(subscriptionsTable).where(eq(subscriptionsTable.userId, id));
@@ -205,21 +227,57 @@ router.delete("/admin/users/:id", requireAdmin, async (req: Request, res: Respon
       const [deleted] = await db.delete(usersTable).where(eq(usersTable.id, id)).returning({ id: usersTable.id });
       if (!deleted) { res.status(404).json({ error: "User not found", stage: currentStage }); return; }
 
-      res.json({ success: true, deleted: true, summary: { aiImagesDeleted, memeImagesDeleted, storageErrors } });
+      res.json({ success: true, deleted: true, summary: { aiImagesDeleted, memeImagesDeleted, storageErrors, subscriptionCanceled } });
     } catch (e) {
       console.error(`[hard-delete] Failed at stage "${currentStage}":`, e);
       res.status(500).json({ error: e instanceof Error ? e.message : "Deletion failed", stage: currentStage });
     }
   } else {
-    // Soft delete: mark inactive and immediately kill all active sessions
-    const [updated] = await db.update(usersTable)
-      .set({ isActive: false })
-      .where(and(eq(usersTable.id, id), eq(usersTable.isActive, true)))
-      .returning();
-    if (!updated) { res.status(404).json({ error: "User not found or already inactive" }); return; }
-    // Invalidate sessions immediately so the effect is instant
-    await db.delete(sessionsTable).where(eq(sessionsTable.userId, id));
-    res.json({ success: true, deleted: false, user: updated });
+    // Soft delete: cancel subscription (non-fatal), revoke sessions, mark inactive
+    type SoftDeleteStage = "stripe" | "sessions" | "deactivate";
+    let currentStage: SoftDeleteStage = "stripe";
+
+    try {
+      // Step 1: Cancel active Stripe subscription (non-fatal)
+      let subscriptionCanceled = false;
+      const activeSubs = await db
+        .select({ stripeSubscriptionId: subscriptionsTable.stripeSubscriptionId })
+        .from(subscriptionsTable)
+        .where(and(
+          eq(subscriptionsTable.userId, id),
+          or(eq(subscriptionsTable.status, "active"), eq(subscriptionsTable.status, "trialing"))
+        ));
+      if (activeSubs.length > 0) {
+        try {
+          const { getUncachableStripeClient } = await import("../lib/stripeClient");
+          const stripe = await getUncachableStripeClient();
+          for (const sub of activeSubs) {
+            await stripe.subscriptions.cancel(sub.stripeSubscriptionId);
+          }
+          subscriptionCanceled = true;
+        } catch (e) {
+          console.error("[soft-delete] Stripe subscription cancellation failed:", e);
+        }
+      }
+
+      // Step 2: Invalidate all active sessions immediately
+      currentStage = "sessions";
+      const deletedSessions = await db.delete(sessionsTable).where(eq(sessionsTable.userId, id)).returning({ sid: sessionsTable.sid });
+      const sessionsRevoked = deletedSessions.length;
+
+      // Step 3: Mark user inactive
+      currentStage = "deactivate";
+      const [updated] = await db.update(usersTable)
+        .set({ isActive: false })
+        .where(and(eq(usersTable.id, id), eq(usersTable.isActive, true)))
+        .returning();
+      if (!updated) { res.status(404).json({ error: "User not found or already inactive", stage: currentStage }); return; }
+
+      res.json({ success: true, deleted: false, user: updated, summary: { subscriptionCanceled, sessionsRevoked } });
+    } catch (e) {
+      console.error(`[soft-delete] Failed at stage "${currentStage}":`, e);
+      res.status(500).json({ error: e instanceof Error ? e.message : "Soft delete failed", stage: currentStage });
+    }
   }
 });
 
