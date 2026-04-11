@@ -17,6 +17,10 @@ if (Number.isNaN(port) || port <= 0) {
   throw new Error(`Invalid PORT value: "${rawPort}"`);
 }
 
+if (!process.env.STRIPE_WEBHOOK_SECRET) {
+  logger.warn("STRIPE_WEBHOOK_SECRET is not set — webhook signature verification is DISABLED. Forged webhooks may be accepted.");
+}
+
 async function initStripe() {
   try {
     const { runMigrations } = await import("stripe-replit-sync");
