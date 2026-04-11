@@ -4,7 +4,7 @@ import { AdminLayout } from "@/components/admin/AdminLayout";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { SpendInline } from "@/components/ui/SpendHistory";
-import { Shield, ShieldOff, Search, Pencil, X, Save, AlertCircle, CheckCircle, Crown, Star, UserPlus, MailCheck, Trash2, UserX, ExternalLink } from "lucide-react";
+import { Shield, ShieldOff, Search, Pencil, X, Save, AlertCircle, CheckCircle, Crown, Star, Gem, UserPlus, MailCheck, Trash2, UserX, ExternalLink } from "lucide-react";
 
 interface User {
   id: string;
@@ -60,7 +60,7 @@ interface AddUserForm {
   email: string;
   password: string;
   displayName: string;
-  membershipTier: "unregistered" | "registered";
+  membershipTier: "unregistered" | "registered" | "legendary";
   isAdmin: boolean;
 }
 
@@ -380,22 +380,27 @@ export default function AdminUsers() {
             <div>
               <FieldLabel>Membership Tier</FieldLabel>
               <div className="flex gap-2">
-                {(["unregistered", "registered"] as const).map((tier) => (
-                  <button
-                    key={tier}
-                    onClick={() => setAddForm((f) => ({ ...f, membershipTier: tier }))}
-                    className={`flex-1 flex items-center justify-center gap-2 h-9 rounded-sm border text-sm font-medium transition-colors ${
-                      addForm.membershipTier === tier
-                        ? tier === "registered"
-                          ? "border-yellow-500 bg-yellow-500/10 text-yellow-500"
-                          : "border-primary bg-primary/10 text-primary"
-                        : "border-border text-muted-foreground hover:border-primary/40"
-                    }`}
-                  >
-                    {tier === "registered" ? <Crown className="w-3.5 h-3.5" /> : <Star className="w-3.5 h-3.5" />}
-                    {tier === "registered" ? "Registered" : "Unregistered"}
-                  </button>
-                ))}
+                {(["unregistered", "registered", "legendary"] as const).map((tier) => {
+                  const isActive = addForm.membershipTier === tier;
+                  const activeClass =
+                    tier === "legendary"
+                      ? "border-amber-500 bg-amber-500/10 text-amber-400"
+                      : tier === "registered"
+                      ? "border-yellow-500 bg-yellow-500/10 text-yellow-500"
+                      : "border-primary bg-primary/10 text-primary";
+                  return (
+                    <button
+                      key={tier}
+                      onClick={() => setAddForm((f) => ({ ...f, membershipTier: tier }))}
+                      className={`flex-1 flex items-center justify-center gap-2 h-9 rounded-sm border text-sm font-medium transition-colors ${
+                        isActive ? activeClass : "border-border text-muted-foreground hover:border-primary/40"
+                      }`}
+                    >
+                      {tier === "legendary" ? <Gem className="w-3.5 h-3.5" /> : tier === "registered" ? <Crown className="w-3.5 h-3.5" /> : <Star className="w-3.5 h-3.5" />}
+                      {tier === "legendary" ? "Legendary" : tier === "registered" ? "Registered" : "Unregistered"}
+                    </button>
+                  );
+                })}
               </div>
             </div>
 
@@ -621,22 +626,27 @@ export default function AdminUsers() {
             <div>
               <FieldLabel>Membership Tier</FieldLabel>
               <div className="flex gap-2">
-                {(["unregistered", "registered"] as const).map((tier) => (
-                  <button
-                    key={tier}
-                    onClick={() => setDraft((d) => d ? { ...d, membershipTier: tier } : d)}
-                    className={`flex-1 flex items-center justify-center gap-2 h-9 rounded-sm border text-sm font-medium transition-colors ${
-                      draft.membershipTier === tier
-                        ? tier === "registered"
-                          ? "border-yellow-500 bg-yellow-500/10 text-yellow-500"
-                          : "border-primary bg-primary/10 text-primary"
-                        : "border-border text-muted-foreground hover:border-primary/40"
-                    }`}
-                  >
-                    {tier === "registered" ? <Crown className="w-3.5 h-3.5" /> : <Star className="w-3.5 h-3.5" />}
-                    {tier === "registered" ? "Registered" : "Unregistered"}
-                  </button>
-                ))}
+                {(["unregistered", "registered", "legendary"] as const).map((tier) => {
+                  const isActive = draft.membershipTier === tier;
+                  const activeClass =
+                    tier === "legendary"
+                      ? "border-amber-500 bg-amber-500/10 text-amber-400"
+                      : tier === "registered"
+                      ? "border-yellow-500 bg-yellow-500/10 text-yellow-500"
+                      : "border-primary bg-primary/10 text-primary";
+                  return (
+                    <button
+                      key={tier}
+                      onClick={() => setDraft((d) => d ? { ...d, membershipTier: tier } : d)}
+                      className={`flex-1 flex items-center justify-center gap-2 h-9 rounded-sm border text-sm font-medium transition-colors ${
+                        isActive ? activeClass : "border-border text-muted-foreground hover:border-primary/40"
+                      }`}
+                    >
+                      {tier === "legendary" ? <Gem className="w-3.5 h-3.5" /> : tier === "registered" ? <Crown className="w-3.5 h-3.5" /> : <Star className="w-3.5 h-3.5" />}
+                      {tier === "legendary" ? "Legendary" : tier === "registered" ? "Registered" : "Unregistered"}
+                    </button>
+                  );
+                })}
               </div>
             </div>
 
