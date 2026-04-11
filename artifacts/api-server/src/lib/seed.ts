@@ -580,6 +580,22 @@ Return ONLY valid JSON:
               ('legendary',    'video_generation', true)
             ON CONFLICT (tier, feature_key) DO UPDATE SET enabled = EXCLUDED.enabled`,
     },
+    // ── Stripe hardening migrations ───────────────────────────────────────────
+    {
+      label: "users.monthly_generation_limit_override_usd",
+      ddl: `ALTER TABLE users ADD COLUMN IF NOT EXISTS monthly_generation_limit_override_usd numeric(10,4)`,
+    },
+    {
+      label: "users.membership_tier default registered",
+      ddl: `ALTER TABLE users ALTER COLUMN membership_tier SET DEFAULT 'registered'`,
+    },
+    {
+      label: "stripe_processed_events table",
+      ddl: `CREATE TABLE IF NOT EXISTS stripe_processed_events (
+        event_id TEXT PRIMARY KEY,
+        processed_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      )`,
+    },
   ];
 
   for (const { label, ddl } of migrations) {

@@ -122,8 +122,11 @@ router.post("/stripe/checkout", async (req: Request, res: Response) => {
       payment_method_types: ["card"],
       line_items: [{ price: priceId, quantity: 1 }],
       mode: isOneTime ? "payment" : "subscription",
+      // Pass userId so the webhook handler can link the purchase to the user even
+      // if the Stripe customer lookup fails for any reason (safety net)
+      metadata: { userId: user.id },
       // Tag one-time payments so the webhook can identify lifetime purchases
-      ...(isOneTime ? { payment_intent_data: { metadata: { membership: "true", plan: "lifetime" } } } : {}),
+      ...(isOneTime ? { payment_intent_data: { metadata: { membership: "true", plan: "lifetime", userId: user.id } } } : {}),
       success_url: `${base}/profile?checkout=success`,
       cancel_url: `${base}/pricing`,
     });
@@ -172,7 +175,7 @@ router.post("/stripe/portal", async (req: Request, res: Response) => {
     const base = getBaseUrl(req);
     const session = await stripe.billingPortal.sessions.create({
       customer: user.stripeCustomerId,
-      return_url: `${base}/overhype-me/profile`,
+      return_url: `${base}/profile`,
     });
 
     res.json({ url: session.url });

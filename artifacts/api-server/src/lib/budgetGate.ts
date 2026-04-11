@@ -88,7 +88,7 @@ export async function checkBudget(
       return { allowed: true, currentSpend: 0, limit: Infinity, remainingBudget: Infinity };
     }
 
-    const globalLegendLimit = (tier === "legendary" || tier === "registered") ? legendLimitStr : freeLimitStr;
+    const globalLegendLimit = tier === "legendary" ? legendLimitStr : freeLimitStr;
     const perUserOverride = user?.monthlyGenerationLimitOverrideUsd != null
       ? parseFloat(String(user.monthlyGenerationLimitOverrideUsd))
       : null;
