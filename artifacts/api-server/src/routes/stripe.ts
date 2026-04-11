@@ -175,7 +175,7 @@ router.post("/stripe/portal", async (req: Request, res: Response) => {
     const base = getBaseUrl(req);
     const session = await stripe.billingPortal.sessions.create({
       customer: user.stripeCustomerId,
-      return_url: `${base}/profile`,
+      return_url: `${base}/profile?from_portal=1`,
     });
 
     res.json({ url: session.url });
