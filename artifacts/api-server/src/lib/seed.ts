@@ -551,8 +551,8 @@ Return ONLY valid JSON:
     {
       label: "admin_config seed budget_limit_legend_usd",
       ddl: `INSERT INTO admin_config (key, value, data_type, label, description, is_public)
-            VALUES ('budget_limit_legend_usd', '10.00', 'string', 'Premium/Legend Tier Generation Budget (USD)',
-                    'Maximum fal.ai generation spend per budget period for premium and legendary-tier users (USD).',
+            VALUES ('budget_limit_legend_usd', '10.00', 'string', 'Legendary Tier Generation Budget (USD)',
+                    'Maximum fal.ai generation spend per budget period for legendary-tier users (USD).',
                     false)
             ON CONFLICT (key) DO NOTHING`,
     },

@@ -551,7 +551,7 @@ export async function generateAiMemeBackgrounds(
     /** Existing images to preserve when doing partial regen */
     existingImages?: AiMemeImages;
     /**
-     * ID of the premium user triggering the generation.
+     * ID of the legendary user triggering the generation.
      * When provided, each generated image is tracked in user_ai_images and
      * the per-user 1000-image storage limit is enforced.
      * Omit for admin/system backfill operations.

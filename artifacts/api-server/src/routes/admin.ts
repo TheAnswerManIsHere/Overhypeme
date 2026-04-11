@@ -1111,7 +1111,7 @@ router.delete("/admin/video-styles/:id/preview-gif", requireAdmin, async (req: R
 
 router.get("/admin/stripe/summary", requireAdmin, async (_req: Request, res: Response) => {
   try {
-    // Active subscribers = users with an active subscription (premium tier, not lifetime)
+    // Active subscribers = users with an active subscription (legendary tier)
     // Lifetime members = users with legendary tier (one-time purchase holders)
     const [activeSubRows, legendaryRows] = await Promise.all([
       db
@@ -1255,7 +1255,7 @@ router.post("/admin/stripe/test-event", requireAdmin, async (req: Request, res: 
     // with only Stripe sync + signature verification skipped (test mode only).
     await WebhookHandlers.processEventDirectly(fakeEvent as unknown as import("stripe").Stripe.Event);
 
-    res.json({ success: true, message: `Test webhook processed — user ${userId} upgraded to premium via checkout.session.completed domain handler` });
+    res.json({ success: true, message: `Test webhook processed — user ${userId} upgraded to legendary via checkout.session.completed domain handler` });
   } catch (err) {
     console.error("[admin] stripe/test-event error:", err);
     const msg = err instanceof Error ? err.message : String(err);

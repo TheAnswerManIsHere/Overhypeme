@@ -103,7 +103,7 @@ router.get("/users/me", async (req: Request, res: Response) => {
     profileImageUrl: userRow?.profileImageUrl ?? null,
     avatarStyle: userRow?.avatarStyle ?? "bottts",
     avatarSource: userRow?.avatarSource ?? "avatar",
-    isPremium: userRow?.membershipTier === "registered" || userRow?.membershipTier === "legendary",
+    isPremium: userRow?.membershipTier === "legendary",
     submittedFacts: submittedSummaries,
     likedFacts: likedSummaries,
     favoriteHashtags,
@@ -165,7 +165,7 @@ router.patch("/users/me", async (req: Request, res: Response) => {
   }
 
   if (profileImageUrl !== undefined) {
-    // Photo uploads are a premium feature
+    // Photo uploads require legendary membership
     const [userRow] = await db
       .select({ membershipTier: usersTable.membershipTier })
       .from(usersTable)

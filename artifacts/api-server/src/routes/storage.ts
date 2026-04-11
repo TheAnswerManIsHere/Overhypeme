@@ -113,7 +113,7 @@ router.post("/storage/uploads/request-url", async (req: Request, res: Response) 
 /**
  * POST /storage/upload-avatar
  *
- * Server-side avatar upload for premium users.
+ * Server-side avatar upload for legendary users.
  * Accepts the raw image binary as the request body (Content-Type: image/*).
  * Uploads to object storage, sets public ACL, and returns the objectPath.
  */
