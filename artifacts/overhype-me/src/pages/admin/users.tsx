@@ -4,7 +4,7 @@ import { AdminLayout } from "@/components/admin/AdminLayout";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { SpendInline } from "@/components/ui/SpendHistory";
-import { Shield, ShieldOff, Search, Pencil, X, Save, AlertCircle, CheckCircle, Crown, Star, Gem, UserPlus, MailCheck, Trash2, UserX, ExternalLink } from "lucide-react";
+import { Shield, ShieldOff, Search, Pencil, X, Save, AlertCircle, CheckCircle, Crown, Star, Gem, UserPlus, MailCheck, Trash2, UserX, ExternalLink, CreditCard, Calendar, Receipt, ChevronDown, ChevronUp, AlertTriangle, RefreshCw, Infinity } from "lucide-react";
 
 interface User {
   id: string;
@@ -30,6 +30,33 @@ interface UsersResponse {
 }
 
 type EditDraft = Pick<User, "displayName" | "email" | "isAdmin" | "captchaVerified" | "membershipTier" | "pronouns" | "monthlyGenerationLimitOverrideUsd">;
+
+interface AppSubscription {
+  id: number;
+  stripeSubscriptionId: string;
+  plan: string;
+  status: string;
+  currentPeriodEnd: string | null;
+  cancelAtPeriodEnd: boolean;
+  createdAt: string;
+}
+
+interface HistoryRecord {
+  id: number;
+  event: string;
+  plan: string | null;
+  amount: number | null;
+  currency: string | null;
+  createdAt: string;
+}
+
+interface MembershipData {
+  isLifetime: boolean;
+  lifetimeEntitlement: { id: number; stripePaymentIntentId: string; amount: number | null; createdAt: string } | null;
+  appSubscription: AppSubscription | null;
+  stripeSub: { id: string; status: string; current_period_end: number | null; cancel_at_period_end: boolean } | null;
+  history: HistoryRecord[];
+}
 
 const LIMIT = 50;
 
@@ -94,6 +121,12 @@ export default function AdminUsers() {
   const [deleteModal, setDeleteModal] = useState<null | "choose" | "confirm-hard">(null);
   const [deleting, setDeleting] = useState(false);
 
+  const [membershipData, setMembershipData] = useState<MembershipData | null>(null);
+  const [membershipLoading, setMembershipLoading] = useState(false);
+  const [lifetimeActionLoading, setLifetimeActionLoading] = useState(false);
+  const [lifetimeActionResult, setLifetimeActionResult] = useState<{ type: "success" | "error"; message: string } | null>(null);
+  const [showHistory, setShowHistory] = useState(false);
+
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
@@ -116,6 +149,16 @@ export default function AdminUsers() {
       .finally(() => setLoading(false));
   }, [page, debouncedSearch]);
 
+  function fetchMembership(userId: string) {
+    setMembershipLoading(true);
+    setMembershipData(null);
+    setLifetimeActionResult(null);
+    fetch(`/api/admin/users/${userId}/membership`, { credentials: "include" })
+      .then(async (r) => { if (r.ok) setMembershipData((await r.json()) as MembershipData); })
+      .catch(() => {})
+      .finally(() => setMembershipLoading(false));
+  }
+
   function selectUser(user: User) {
     setSelectedUser(user);
     setDraft({
@@ -128,12 +171,60 @@ export default function AdminUsers() {
       monthlyGenerationLimitOverrideUsd: user.monthlyGenerationLimitOverrideUsd,
     });
     setSaveResult(null);
+    setShowHistory(false);
+    fetchMembership(user.id);
   }
 
   function clearSelection() {
     setSelectedUser(null);
     setDraft(null);
     setSaveResult(null);
+    setMembershipData(null);
+    setLifetimeActionResult(null);
+    setShowHistory(false);
+  }
+
+  async function grantLifetime() {
+    if (!selectedUser) return;
+    setLifetimeActionLoading(true);
+    setLifetimeActionResult(null);
+    try {
+      const res = await fetch(`/api/admin/users/${selectedUser.id}/grant-lifetime`, {
+        method: "POST", credentials: "include",
+      });
+      const data = (await res.json()) as { success?: boolean; user?: User; error?: string };
+      if (!res.ok) throw new Error(data.error ?? "Grant failed");
+      if (data.user) {
+        setUsers((prev) => prev.map((u) => (u.id === data.user!.id ? data.user! : u)));
+        setSelectedUser(data.user!);
+        setDraft((d) => d ? { ...d, membershipTier: data.user!.membershipTier } : d);
+      }
+      setLifetimeActionResult({ type: "success", message: "Legendary for Life granted." });
+      fetchMembership(selectedUser.id);
+    } catch (err) {
+      setLifetimeActionResult({ type: "error", message: err instanceof Error ? err.message : "Grant failed" });
+    } finally {
+      setLifetimeActionLoading(false);
+    }
+  }
+
+  async function revokeLifetime() {
+    if (!selectedUser) return;
+    setLifetimeActionLoading(true);
+    setLifetimeActionResult(null);
+    try {
+      const res = await fetch(`/api/admin/users/${selectedUser.id}/revoke-lifetime`, {
+        method: "POST", credentials: "include",
+      });
+      const data = (await res.json()) as { success?: boolean; error?: string };
+      if (!res.ok) throw new Error(data.error ?? "Revoke failed");
+      setLifetimeActionResult({ type: "success", message: "Legendary for Life revoked. Tier not changed — use the tier selector above if needed." });
+      fetchMembership(selectedUser.id);
+    } catch (err) {
+      setLifetimeActionResult({ type: "error", message: err instanceof Error ? err.message : "Revoke failed" });
+    } finally {
+      setLifetimeActionLoading(false);
+    }
   }
 
   async function verifyEmail() {
@@ -647,6 +738,156 @@ export default function AdminUsers() {
                     </button>
                   );
                 })}
+              </div>
+            </div>
+
+            {/* Membership Status */}
+            <div className="border border-border rounded-sm overflow-hidden">
+              <div className="px-3 py-2 bg-muted/40 border-b border-border flex items-center gap-2">
+                <CreditCard className="w-3.5 h-3.5 text-primary" />
+                <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Membership Status</span>
+                {membershipLoading && <span className="text-xs text-muted-foreground ml-auto">Loading…</span>}
+              </div>
+
+              <div className="p-3 flex flex-col gap-3">
+                {/* Legendary for Life */}
+                <div className="flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-2">
+                    <Infinity className={`w-4 h-4 ${membershipData?.isLifetime ? "text-amber-400" : "text-muted-foreground"}`} />
+                    <div>
+                      <p className="text-xs font-semibold text-foreground">Legendary for Life</p>
+                      {membershipData?.isLifetime && membershipData.lifetimeEntitlement ? (
+                        <p className="text-xs text-muted-foreground">
+                          Granted {new Date(membershipData.lifetimeEntitlement.createdAt).toLocaleDateString()}
+                          {membershipData.lifetimeEntitlement.stripePaymentIntentId.startsWith("admin_grant") ? " (admin)" : ""}
+                        </p>
+                      ) : (
+                        <p className="text-xs text-muted-foreground">{membershipLoading ? "—" : "Not granted"}</p>
+                      )}
+                    </div>
+                  </div>
+                  {!membershipLoading && (
+                    membershipData?.isLifetime ? (
+                      <button
+                        onClick={revokeLifetime}
+                        disabled={lifetimeActionLoading}
+                        className="text-xs px-2 py-1 rounded-sm border border-destructive/40 text-destructive hover:bg-destructive/10 transition-colors disabled:opacity-50 whitespace-nowrap"
+                      >
+                        {lifetimeActionLoading ? "…" : "Revoke"}
+                      </button>
+                    ) : (
+                      <button
+                        onClick={grantLifetime}
+                        disabled={lifetimeActionLoading}
+                        className="text-xs px-2 py-1 rounded-sm border border-amber-500/40 text-amber-400 hover:bg-amber-500/10 transition-colors disabled:opacity-50 whitespace-nowrap"
+                      >
+                        {lifetimeActionLoading ? "…" : "Grant"}
+                      </button>
+                    )
+                  )}
+                </div>
+
+                {lifetimeActionResult && (
+                  <div className={`flex items-start gap-2 text-xs px-2.5 py-2 rounded-sm border ${
+                    lifetimeActionResult.type === "success"
+                      ? "bg-green-500/10 text-green-400 border-green-500/30"
+                      : "bg-destructive/10 text-destructive border-destructive/30"
+                  }`}>
+                    {lifetimeActionResult.type === "success"
+                      ? <CheckCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                      : <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />}
+                    {lifetimeActionResult.message}
+                  </div>
+                )}
+
+                {/* Active subscription */}
+                <div className="border-t border-border pt-3">
+                  <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">Subscription</p>
+                  {membershipLoading ? (
+                    <p className="text-xs text-muted-foreground">Loading…</p>
+                  ) : membershipData?.appSubscription ? (
+                    <div className="flex flex-col gap-1.5">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <span className={`text-xs px-1.5 py-0.5 rounded-sm font-medium uppercase tracking-wide ${
+                            membershipData.appSubscription.status === "active" ? "bg-green-500/15 text-green-400" : "bg-muted text-muted-foreground"
+                          }`}>
+                            {membershipData.appSubscription.status}
+                          </span>
+                          <span className="text-xs text-muted-foreground capitalize">{membershipData.appSubscription.plan}</span>
+                        </div>
+                        {membershipData.appSubscription.cancelAtPeriodEnd && (
+                          <div className="flex items-center gap-1 text-orange-400">
+                            <AlertTriangle className="w-3 h-3" />
+                            <span className="text-xs">Cancelling</span>
+                          </div>
+                        )}
+                      </div>
+                      {(membershipData.stripeSub?.current_period_end || membershipData.appSubscription.currentPeriodEnd) && (
+                        <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                          <Calendar className="w-3 h-3 text-primary" />
+                          {membershipData.appSubscription.cancelAtPeriodEnd ? "Ends" : "Renews"}{" "}
+                          <strong className="text-foreground">
+                            {membershipData.stripeSub?.current_period_end
+                              ? new Date(Number(membershipData.stripeSub.current_period_end) * 1000).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" })
+                              : new Date(membershipData.appSubscription.currentPeriodEnd!).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" })
+                            }
+                          </strong>
+                        </div>
+                      )}
+                      <div className="flex items-center gap-1.5 text-xs text-muted-foreground font-mono">
+                        <span className="truncate">{membershipData.appSubscription.stripeSubscriptionId}</span>
+                        <a
+                          href={`https://dashboard.stripe.com/test/subscriptions/${membershipData.appSubscription.stripeSubscriptionId}`}
+                          target="_blank" rel="noopener noreferrer"
+                          className="text-primary shrink-0 hover:underline"
+                        >
+                          <ExternalLink className="w-3 h-3" />
+                        </a>
+                      </div>
+                    </div>
+                  ) : (
+                    <p className="text-xs text-muted-foreground italic">No active subscription</p>
+                  )}
+                </div>
+
+                {/* Payment history */}
+                {membershipData && membershipData.history.length > 0 && (
+                  <div className="border-t border-border pt-3">
+                    <button
+                      onClick={() => setShowHistory((v) => !v)}
+                      className="flex items-center gap-1.5 text-xs font-semibold text-muted-foreground hover:text-foreground transition-colors w-full text-left"
+                    >
+                      <Receipt className="w-3.5 h-3.5 text-primary" />
+                      Payment History ({membershipData.history.length})
+                      {showHistory ? <ChevronUp className="w-3.5 h-3.5 ml-auto" /> : <ChevronDown className="w-3.5 h-3.5 ml-auto" />}
+                    </button>
+                    {showHistory && (
+                      <div className="mt-2 flex flex-col gap-1">
+                        {membershipData.history.map((rec) => (
+                          <div key={rec.id} className="flex items-center justify-between px-2.5 py-2 bg-muted/40 rounded-sm border border-border/50">
+                            <div>
+                              <p className="text-xs font-medium text-foreground capitalize">
+                                {rec.event.replace(/_/g, " ")}
+                                {rec.plan ? <span className="ml-1 text-primary uppercase text-[10px]">{rec.plan}</span> : null}
+                              </p>
+                              <p className="text-[10px] text-muted-foreground">{new Date(rec.createdAt).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" })}</p>
+                            </div>
+                            {rec.amount != null && rec.amount > 0 && (
+                              <span className="text-xs font-bold text-foreground">${(rec.amount / 100).toFixed(2)} {rec.currency?.toUpperCase()}</span>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {membershipData && membershipData.history.length === 0 && !membershipLoading && (
+                  <div className="border-t border-border pt-3">
+                    <p className="text-xs text-muted-foreground italic">No payment history</p>
+                  </div>
+                )}
               </div>
             </div>
 

@@ -1,6 +1,6 @@
 import { Router, type IRouter, type Request, type Response, type NextFunction } from "express";
 import { db, usersTable } from "@workspace/db";
-import { factsTable, commentsTable, adminConfigTable, videoStylesTable, featureFlagsTable, tierFeaturePermissionsTable, userGenerationCostsTable } from "@workspace/db/schema";
+import { factsTable, commentsTable, adminConfigTable, videoStylesTable, featureFlagsTable, tierFeaturePermissionsTable, userGenerationCostsTable, lifetimeEntitlementsTable, subscriptionsTable, membershipHistoryTable } from "@workspace/db/schema";
 import { eq, desc, count, ilike, sql, and, or, inArray, isNull, asc } from "drizzle-orm";
 import { getSessionId, getSession, updateSession } from "../lib/auth";
 import { isAdminById } from "./auth";
@@ -140,6 +140,117 @@ router.delete("/admin/users/:id", requireAdmin, async (req: Request, res: Respon
     const [updated] = await db.update(usersTable).set({ isActive: false }).where(and(eq(usersTable.id, id), eq(usersTable.isActive, true))).returning({ id: usersTable.id });
     if (!updated) { res.status(404).json({ error: "User not found or already inactive" }); return; }
     res.json({ success: true, deleted: false });
+  }
+});
+
+// GET /admin/users/:id/membership — full membership status for a user
+router.get("/admin/users/:id/membership", requireAdmin, async (req: Request, res: Response) => {
+  const id = String(req.params["id"] ?? "");
+  try {
+    const [lifetimeRows, subRows, historyRows] = await Promise.all([
+      db.select().from(lifetimeEntitlementsTable).where(eq(lifetimeEntitlementsTable.userId, id)).limit(1),
+      db.select().from(subscriptionsTable)
+        .where(eq(subscriptionsTable.userId, id))
+        .orderBy(desc(subscriptionsTable.createdAt))
+        .limit(1),
+      db.select().from(membershipHistoryTable)
+        .where(eq(membershipHistoryTable.userId, id))
+        .orderBy(desc(membershipHistoryTable.createdAt))
+        .limit(30),
+    ]);
+
+    const appSub = subRows[0] ?? null;
+
+    let stripeSub: Record<string, unknown> | null = null;
+    if (appSub?.stripeSubscriptionId) {
+      const result = await db.execute(
+        sql`SELECT s.id, s.status, s.current_period_start, s.current_period_end, s.cancel_at_period_end, s.canceled_at, s.created
+            FROM stripe.subscriptions s WHERE s.id = ${appSub.stripeSubscriptionId} LIMIT 1`,
+      );
+      stripeSub = (result.rows[0] as Record<string, unknown>) ?? null;
+    }
+
+    res.json({
+      isLifetime: lifetimeRows.length > 0,
+      lifetimeEntitlement: lifetimeRows[0] ?? null,
+      appSubscription: appSub,
+      stripeSub,
+      history: historyRows,
+    });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "Failed to fetch membership data";
+    res.status(500).json({ error: msg });
+  }
+});
+
+// POST /admin/users/:id/grant-lifetime — manually grant Legendary for Life
+router.post("/admin/users/:id/grant-lifetime", requireAdmin, async (req: Request, res: Response) => {
+  const id = String(req.params["id"] ?? "");
+  try {
+    const [existing, userRows] = await Promise.all([
+      db.select().from(lifetimeEntitlementsTable).where(eq(lifetimeEntitlementsTable.userId, id)).limit(1),
+      db.select({ stripeCustomerId: usersTable.stripeCustomerId }).from(usersTable).where(eq(usersTable.id, id)).limit(1),
+    ]);
+    if (existing.length > 0) {
+      res.status(400).json({ error: "User already has Legendary for Life" });
+      return;
+    }
+    if (!userRows[0]) {
+      res.status(404).json({ error: "User not found" });
+      return;
+    }
+
+    const fakePaymentIntentId = `admin_grant_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
+    await db.transaction(async (tx) => {
+      await tx.insert(lifetimeEntitlementsTable).values({
+        userId: id,
+        stripePaymentIntentId: fakePaymentIntentId,
+        stripeCustomerId: userRows[0]!.stripeCustomerId ?? "admin_grant",
+        amount: 0,
+        currency: "usd",
+      });
+      await tx.update(usersTable).set({ membershipTier: "legendary" }).where(eq(usersTable.id, id));
+      await tx.insert(membershipHistoryTable).values({
+        userId: id,
+        event: "lifetime_purchase",
+        plan: "lifetime",
+        amount: 0,
+        currency: "usd",
+        stripePaymentIntentId: fakePaymentIntentId,
+      });
+    });
+
+    const [updated] = await db.select().from(usersTable).where(eq(usersTable.id, id)).limit(1);
+    res.json({ success: true, user: updated });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "Grant failed";
+    res.status(500).json({ error: msg });
+  }
+});
+
+// POST /admin/users/:id/revoke-lifetime — remove Legendary for Life entitlement
+router.post("/admin/users/:id/revoke-lifetime", requireAdmin, async (req: Request, res: Response) => {
+  const id = String(req.params["id"] ?? "");
+  try {
+    const existing = await db.select().from(lifetimeEntitlementsTable).where(eq(lifetimeEntitlementsTable.userId, id)).limit(1);
+    if (existing.length === 0) {
+      res.status(400).json({ error: "User does not have Legendary for Life" });
+      return;
+    }
+
+    await db.transaction(async (tx) => {
+      await tx.delete(lifetimeEntitlementsTable).where(eq(lifetimeEntitlementsTable.userId, id));
+      await tx.insert(membershipHistoryTable).values({
+        userId: id,
+        event: "subscription_cancelled",
+        plan: "lifetime",
+      });
+    });
+
+    res.json({ success: true });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "Revoke failed";
+    res.status(500).json({ error: msg });
   }
 });
 
