@@ -154,20 +154,24 @@ router.delete("/admin/users/:id", requireAdmin, async (req: Request, res: Respon
     ]);
 
     // Step 2: Delete object storage files (non-fatal — log errors but continue)
+    let aiImagesDeleted = 0;
+    let memeImagesDeleted = 0;
+    let storageErrors = 0;
+
     for (const img of aiImages) {
-      try { await storage.deleteObject(img.storagePath); }
-      catch (e) { console.error(`[hard-delete] AI image cleanup failed for ${img.storagePath}:`, e); }
+      try { await storage.deleteObject(img.storagePath); aiImagesDeleted++; }
+      catch (e) { console.error(`[hard-delete] AI image cleanup failed for ${img.storagePath}:`, e); storageErrors++; }
     }
     for (const meme of userMemes) {
       const src = meme.imageSource as { type?: string; uploadKey?: string } | null;
       if (src === null) {
         // Pre-rendered meme image stored in object storage
-        try { await storage.deleteObject(`/objects/${memeKey(meme.permalinkSlug, "jpg")}`); }
-        catch (e) { console.error(`[hard-delete] Meme image cleanup failed for ${meme.permalinkSlug}:`, e); }
+        try { await storage.deleteObject(`/objects/${memeKey(meme.permalinkSlug, "jpg")}`); memeImagesDeleted++; }
+        catch (e) { console.error(`[hard-delete] Meme image cleanup failed for ${meme.permalinkSlug}:`, e); storageErrors++; }
       } else if (src?.type === "upload" && src.uploadKey) {
         // User-uploaded background photo
-        try { await storage.deleteObject(src.uploadKey); }
-        catch (e) { console.error(`[hard-delete] Upload image cleanup failed:`, e); }
+        try { await storage.deleteObject(src.uploadKey); memeImagesDeleted++; }
+        catch (e) { console.error(`[hard-delete] Upload image cleanup failed:`, e); storageErrors++; }
       }
     }
 
@@ -191,7 +195,7 @@ router.delete("/admin/users/:id", requireAdmin, async (req: Request, res: Respon
     //         user_ai_images, user_fact_preferences, ratings, search_history, email/password tokens
     const [deleted] = await db.delete(usersTable).where(eq(usersTable.id, id)).returning({ id: usersTable.id });
     if (!deleted) { res.status(404).json({ error: "User not found" }); return; }
-    res.json({ success: true, deleted: true });
+    res.json({ success: true, deleted: true, summary: { aiImagesDeleted, memeImagesDeleted, storageErrors } });
   } else {
     // Soft delete: mark inactive and immediately kill all active sessions
     const [updated] = await db.update(usersTable)
