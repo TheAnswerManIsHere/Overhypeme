@@ -335,7 +335,8 @@ export function SubscriptionPanel() {
   const membershipTier = subData?.membershipTier ?? "unregistered";
   const isLifetime = subData?.isLifetime ?? false;
   const isLegendary = membershipTier === "legendary";
-  const isPremium = membershipTier === "registered" || isLegendary;
+  // isPremium: only actual paid/lifetime members — NOT free "registered" accounts
+  const isPremium = isLegendary || isLifetime;
 
   const periodEnd = sub?.current_period_end
     ? new Date(sub.current_period_end * 1000).toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" })
@@ -346,9 +347,7 @@ export function SubscriptionPanel() {
   const cancelAtPeriodEnd = sub?.cancel_at_period_end ?? appSub?.cancelAtPeriodEnd ?? false;
 
   const price = sub?.items?.data?.[0]?.price;
-  const planLabel = isLegendary
-    ? "Legendary"
-    : isLifetime
+  const planLabel = isLifetime
     ? "Lifetime"
     : appSub?.plan === "annual" ? "Annual"
     : appSub?.plan === "monthly" ? "Monthly"
@@ -356,15 +355,16 @@ export function SubscriptionPanel() {
     : price?.recurring?.interval === "month" ? "Monthly"
     : "Legendary";
 
-  const isMonthly = !isLifetime && !isLegendary && (appSub?.plan === "monthly" || price?.recurring?.interval === "month");
+  // isMonthly: active recurring monthly legendary subscriber (not lifetime)
+  const isMonthly = isLegendary && !isLifetime && (appSub?.plan === "monthly" || price?.recurring?.interval === "month");
   const annualPriceAvailable = findAnnualPriceId() !== null;
   const savingsPercent = getAnnualSavingsPercent();
 
-  // Show the portal button for anyone who has payment history, regardless of tier.
-  const showPortalButton = history.length > 0 || (!isLegendary && !isLifetime && !!sub);
+  // Show the portal button for any paid member or anyone with payment history
+  const showPortalButton = history.length > 0 || isPremium;
 
-  // Show cancel/reactivate controls for active recurring subscribers only
-  const showSubscriptionControls = !isLifetime && !isLegendary && !!sub;
+  // Show cancel/reactivate controls for active recurring legendary subscribers (not lifetime)
+  const showSubscriptionControls = isLegendary && !isLifetime && !!sub;
 
   return (
     <div className="bg-card border-2 border-border rounded-sm p-6 mb-8">
@@ -418,19 +418,19 @@ export function SubscriptionPanel() {
                 </span>
               </p>
               <p className="text-sm text-muted-foreground">
-                {planLabel} {(isLifetime || isLegendary) ? "— one-time purchase, never expires" : "subscription"}
+                {planLabel} {isLifetime ? "— one-time purchase, never expires" : "subscription"}
               </p>
             </div>
           </div>
 
-          {(isLifetime || isLegendary) && (
+          {isLifetime && (
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
               <Crown className="w-4 h-4 text-amber-400" />
               <span className="text-amber-400 font-medium">Lifetime access — never expires</span>
             </div>
           )}
 
-          {!isLifetime && !isLegendary && periodEnd && (
+          {!isLifetime && periodEnd && (
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
               <Calendar className="w-4 h-4 text-primary" />
               {cancelAtPeriodEnd
@@ -440,7 +440,7 @@ export function SubscriptionPanel() {
             </div>
           )}
 
-          {price && !isLifetime && !isLegendary && (
+          {price && !isLifetime && (
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
               <CreditCard className="w-4 h-4 text-primary" />
               <span>${(price.unit_amount / 100).toFixed(2)}{price.recurring ? `/${price.recurring.interval}` : " one-time"}</span>
