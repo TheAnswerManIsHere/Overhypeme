@@ -1,4 +1,4 @@
-import { pgTable, text, serial, timestamp, varchar, boolean, jsonb, pgEnum } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, timestamp, varchar, boolean, jsonb, pgEnum, index } from "drizzle-orm/pg-core";
 import { usersTable } from "./auth";
 
 export const activityTypeEnum = pgEnum("activity_type", [
@@ -23,7 +23,9 @@ export const activityFeedTable = pgTable("activity_feed", {
   metadata: jsonb("metadata").$type<Record<string, unknown>>(),
   read: boolean("read").notNull().default(false),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-});
+}, (table) => [
+  index("idx_activity_feed_user").on(table.userId, table.createdAt.desc()),
+]);
 
 export type ActivityFeedEntry = typeof activityFeedTable.$inferSelect;
 export type InsertActivityFeedEntry = typeof activityFeedTable.$inferInsert;

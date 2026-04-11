@@ -1,4 +1,4 @@
-import { pgTable, text, serial, timestamp, varchar, integer, jsonb, pgEnum } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, timestamp, varchar, integer, jsonb, pgEnum, index } from "drizzle-orm/pg-core";
 import { usersTable } from "./auth";
 import { factsTable } from "./facts";
 
@@ -18,7 +18,10 @@ export const pendingReviewsTable = pgTable("pending_reviews", {
   approvedFactId: integer("approved_fact_id").references(() => factsTable.id),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   reviewedAt: timestamp("reviewed_at", { withTimezone: true }),
-});
+}, (table) => [
+  index("idx_pending_reviews_status").on(table.status),
+  index("idx_pending_reviews_submitted_by").on(table.submittedById),
+]);
 
 export type PendingReview = typeof pendingReviewsTable.$inferSelect;
 export type InsertPendingReview = typeof pendingReviewsTable.$inferInsert;

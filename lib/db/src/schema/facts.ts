@@ -42,7 +42,7 @@ export const factsTable = pgTable("facts", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
 }, (table) => [
-  index("facts_wilson_score_idx").on(table.wilsonScore),
+  index("facts_wilson_score_idx").on(table.wilsonScore.desc()),
   index("facts_parent_id_idx").on(table.parentId),
 ]);
 
