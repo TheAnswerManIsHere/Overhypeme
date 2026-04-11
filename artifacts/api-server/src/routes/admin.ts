@@ -197,6 +197,8 @@ router.delete("/admin/users/:id", requireAdmin, async (req: Request, res: Respon
           let canceledCount = 0;
           for (const sub of activeSubs) {
             try {
+              // Update cancel_at_period_end to false first to ensure cancel() is immediate
+              await stripe.subscriptions.update(sub.stripeSubscriptionId, { cancel_at_period_end: false });
               await stripe.subscriptions.cancel(sub.stripeSubscriptionId);
               canceledCount++;
             } catch (e) {
@@ -260,6 +262,8 @@ router.delete("/admin/users/:id", requireAdmin, async (req: Request, res: Respon
           let canceledCount = 0;
           for (const sub of activeSubs) {
             try {
+              // Update cancel_at_period_end to false first to ensure cancel() is immediate
+              await stripe.subscriptions.update(sub.stripeSubscriptionId, { cancel_at_period_end: false });
               await stripe.subscriptions.cancel(sub.stripeSubscriptionId);
               canceledCount++;
             } catch (e) {
