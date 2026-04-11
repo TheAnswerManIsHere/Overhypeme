@@ -275,7 +275,7 @@ export default function FactDetail() {
       ? meme.imageUrl
       : `${window.location.origin}${meme.imageUrl}`;
 
-    const newWin = window.open("", "_blank", "noopener,noreferrer");
+    const newWin = window.open("", "_blank");
 
     try {
       const resp = await fetch("/api/affiliate/click", {

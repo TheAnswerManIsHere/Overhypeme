@@ -21,7 +21,7 @@ export function MerchButtons({ sourceType, sourceId, text, imageUrl }: MerchButt
       ? (imageUrl.startsWith("http") ? imageUrl : `${window.location.origin}${imageUrl}`)
       : undefined;
 
-    const newWin = window.open("", "_blank", "noopener,noreferrer");
+    const newWin = window.open("", "_blank");
 
     try {
       const resp = await fetch("/api/affiliate/click", {
