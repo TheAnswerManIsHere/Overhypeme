@@ -141,61 +141,75 @@ router.delete("/admin/users/:id", requireAdmin, async (req: Request, res: Respon
     const [userToDelete] = await db.select({ id: usersTable.id }).from(usersTable).where(eq(usersTable.id, id)).limit(1);
     if (!userToDelete) { res.status(404).json({ error: "User not found" }); return; }
 
-    const storage = new ObjectStorageService();
+    // stage tracks which logical phase is running so the UI can show accurate progress on error
+    type HardDeleteStage = "collect" | "membership" | "nullify" | "delete";
+    let currentStage: HardDeleteStage = "collect";
 
-    // Step 1: Collect storage paths before DB cleanup (must happen before we nullify createdById)
-    const [aiImages, userMemes] = await Promise.all([
-      db.select({ storagePath: userAiImagesTable.storagePath })
-        .from(userAiImagesTable)
-        .where(eq(userAiImagesTable.userId, id)),
-      db.select({ permalinkSlug: memesTable.permalinkSlug, imageSource: memesTable.imageSource })
-        .from(memesTable)
-        .where(eq(memesTable.createdById, id)),
-    ]);
+    try {
+      const storage = new ObjectStorageService();
 
-    // Step 2: Delete object storage files (non-fatal — log errors but continue)
-    let aiImagesDeleted = 0;
-    let memeImagesDeleted = 0;
-    let storageErrors = 0;
+      // Step 1: Collect storage paths before DB cleanup (must happen before we nullify createdById)
+      const [aiImages, userMemes] = await Promise.all([
+        db.select({ storagePath: userAiImagesTable.storagePath })
+          .from(userAiImagesTable)
+          .where(eq(userAiImagesTable.userId, id)),
+        db.select({ permalinkSlug: memesTable.permalinkSlug, imageSource: memesTable.imageSource })
+          .from(memesTable)
+          .where(eq(memesTable.createdById, id)),
+      ]);
 
-    for (const img of aiImages) {
-      try { await storage.deleteObject(img.storagePath); aiImagesDeleted++; }
-      catch (e) { console.error(`[hard-delete] AI image cleanup failed for ${img.storagePath}:`, e); storageErrors++; }
-    }
-    for (const meme of userMemes) {
-      const src = meme.imageSource as { type?: string; uploadKey?: string } | null;
-      if (src === null) {
-        // Pre-rendered meme image stored in object storage
-        try { await storage.deleteObject(`/objects/${memeKey(meme.permalinkSlug, "jpg")}`); memeImagesDeleted++; }
-        catch (e) { console.error(`[hard-delete] Meme image cleanup failed for ${meme.permalinkSlug}:`, e); storageErrors++; }
-      } else if (src?.type === "upload" && src.uploadKey) {
-        // User-uploaded background photo
-        try { await storage.deleteObject(src.uploadKey); memeImagesDeleted++; }
-        catch (e) { console.error(`[hard-delete] Upload image cleanup failed:`, e); storageErrors++; }
+      // Step 2: Delete object storage files (non-fatal — log errors but continue)
+      // Storage errors never abort the deletion; they are counted and surfaced in the summary.
+      let aiImagesDeleted = 0;
+      let memeImagesDeleted = 0;
+      let storageErrors = 0;
+
+      for (const img of aiImages) {
+        try { await storage.deleteObject(img.storagePath); aiImagesDeleted++; }
+        catch (e) { console.error(`[hard-delete] AI image cleanup failed for ${img.storagePath}:`, e); storageErrors++; }
       }
+      for (const meme of userMemes) {
+        const src = meme.imageSource as { type?: string; uploadKey?: string } | null;
+        if (src === null) {
+          // Pre-rendered meme image stored in object storage
+          try { await storage.deleteObject(`/objects/${memeKey(meme.permalinkSlug, "jpg")}`); memeImagesDeleted++; }
+          catch (e) { console.error(`[hard-delete] Meme image cleanup failed for ${meme.permalinkSlug}:`, e); storageErrors++; }
+        } else if (src?.type === "upload" && src.uploadKey) {
+          // User-uploaded background photo
+          try { await storage.deleteObject(src.uploadKey); memeImagesDeleted++; }
+          catch (e) { console.error(`[hard-delete] Upload image cleanup failed:`, e); storageErrors++; }
+        }
+      }
+
+      // Step 3: Delete records with NOT NULL user_id FKs and no cascade
+      currentStage = "membership";
+      await db.delete(subscriptionsTable).where(eq(subscriptionsTable.userId, id));
+      await db.delete(lifetimeEntitlementsTable).where(eq(lifetimeEntitlementsTable.userId, id));
+      await db.delete(membershipHistoryTable).where(eq(membershipHistoryTable.userId, id));
+      await db.delete(activityFeedTable).where(eq(activityFeedTable.userId, id));
+      await db.execute(sql`DELETE FROM affiliate_clicks WHERE user_id = ${id}`);
+
+      // Step 4: Nullify nullable user FKs on shared content (content outlives the user)
+      currentStage = "nullify";
+      await db.update(memesTable).set({ createdById: null }).where(eq(memesTable.createdById, id));
+      await db.update(factsTable).set({ submittedById: null }).where(eq(factsTable.submittedById, id));
+      await db.update(commentsTable).set({ authorId: null }).where(eq(commentsTable.authorId, id));
+      await db.execute(sql`UPDATE external_links SET added_by_id = NULL WHERE added_by_id = ${id}`);
+      await db.execute(sql`UPDATE pending_reviews SET submitted_by_id = NULL WHERE submitted_by_id = ${id}`);
+      await db.execute(sql`UPDATE pending_reviews SET reviewed_by_id = NULL WHERE reviewed_by_id = ${id}`);
+      await db.execute(sql`UPDATE video_jobs SET user_id = NULL WHERE user_id = ${id}`);
+
+      // Step 5: Delete the user row — DB cascades handle sessions (via sessions.user_id FK),
+      //         user_ai_images, user_fact_preferences, ratings, search_history, email/password tokens
+      currentStage = "delete";
+      const [deleted] = await db.delete(usersTable).where(eq(usersTable.id, id)).returning({ id: usersTable.id });
+      if (!deleted) { res.status(404).json({ error: "User not found", stage: currentStage }); return; }
+
+      res.json({ success: true, deleted: true, summary: { aiImagesDeleted, memeImagesDeleted, storageErrors } });
+    } catch (e) {
+      console.error(`[hard-delete] Failed at stage "${currentStage}":`, e);
+      res.status(500).json({ error: e instanceof Error ? e.message : "Deletion failed", stage: currentStage });
     }
-
-    // Step 3: Delete records with NOT NULL user_id FKs and no cascade
-    await db.delete(subscriptionsTable).where(eq(subscriptionsTable.userId, id));
-    await db.delete(lifetimeEntitlementsTable).where(eq(lifetimeEntitlementsTable.userId, id));
-    await db.delete(membershipHistoryTable).where(eq(membershipHistoryTable.userId, id));
-    await db.delete(activityFeedTable).where(eq(activityFeedTable.userId, id));
-    await db.execute(sql`DELETE FROM affiliate_clicks WHERE user_id = ${id}`);
-
-    // Step 4: Nullify nullable user FKs on shared content (content outlives the user)
-    await db.update(memesTable).set({ createdById: null }).where(eq(memesTable.createdById, id));
-    await db.update(factsTable).set({ submittedById: null }).where(eq(factsTable.submittedById, id));
-    await db.update(commentsTable).set({ authorId: null }).where(eq(commentsTable.authorId, id));
-    await db.execute(sql`UPDATE external_links SET added_by_id = NULL WHERE added_by_id = ${id}`);
-    await db.execute(sql`UPDATE pending_reviews SET submitted_by_id = NULL WHERE submitted_by_id = ${id}`);
-    await db.execute(sql`UPDATE pending_reviews SET reviewed_by_id = NULL WHERE reviewed_by_id = ${id}`);
-    await db.execute(sql`UPDATE video_jobs SET user_id = NULL WHERE user_id = ${id}`);
-
-    // Step 5: Delete the user row — DB cascades handle sessions (via sessions.user_id FK),
-    //         user_ai_images, user_fact_preferences, ratings, search_history, email/password tokens
-    const [deleted] = await db.delete(usersTable).where(eq(usersTable.id, id)).returning({ id: usersTable.id });
-    if (!deleted) { res.status(404).json({ error: "User not found" }); return; }
-    res.json({ success: true, deleted: true, summary: { aiImagesDeleted, memeImagesDeleted, storageErrors } });
   } else {
     // Soft delete: mark inactive and immediately kill all active sessions
     const [updated] = await db.update(usersTable)

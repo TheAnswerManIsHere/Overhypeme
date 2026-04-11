@@ -124,6 +124,7 @@ export default function AdminUsers() {
   const [deleting, setDeleting] = useState(false);
   const [deleteSummary, setDeleteSummary] = useState<{ aiImagesDeleted: number; memeImagesDeleted: number; storageErrors: number } | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [deleteErrorStage, setDeleteErrorStage] = useState<"collect" | "membership" | "nullify" | "delete" | null>(null);
   const [showInactive, setShowInactive] = useState(false);
   const [reactivating, setReactivating] = useState(false);
 
@@ -324,6 +325,7 @@ export default function AdminUsers() {
     if (hard) {
       setDeleteSummary(null);
       setDeleteError(null);
+      setDeleteErrorStage(null);
       setDeleteModal("deleting");
     }
     try {
@@ -333,9 +335,19 @@ export default function AdminUsers() {
         success?: boolean;
         user?: User;
         error?: string;
+        stage?: "collect" | "membership" | "nullify" | "delete";
         summary?: { aiImagesDeleted: number; memeImagesDeleted: number; storageErrors: number };
       };
-      if (!res.ok) throw new Error(data.error ?? "Delete failed");
+      if (!res.ok) {
+        if (hard) {
+          setDeleteError(data.error ?? "Deletion failed");
+          setDeleteErrorStage(data.stage ?? null);
+          setDeleteModal("error");
+        } else {
+          throw new Error(data.error ?? "Delete failed");
+        }
+        return;
+      }
       if (hard) {
         setDeleteSummary(data.summary ?? null);
         setDeleteModal("done");
@@ -355,6 +367,7 @@ export default function AdminUsers() {
     } catch (err) {
       if (hard) {
         setDeleteError(err instanceof Error ? err.message : "Delete failed");
+        setDeleteErrorStage(null);
         setDeleteModal("error");
       } else {
         setSaveResult({ type: "error", message: err instanceof Error ? err.message : "Delete failed" });
@@ -374,6 +387,7 @@ export default function AdminUsers() {
     setDeleteModal(null);
     setDeleteSummary(null);
     setDeleteError(null);
+    setDeleteErrorStage(null);
   }
 
   async function reactivateUser() {
@@ -510,42 +524,68 @@ export default function AdminUsers() {
                   </div>
                 )}
 
-                {/* Checklist */}
-                <ul className="flex flex-col gap-2">
-                  {[
-                    { label: "Collecting storage file list", detail: null },
-                    {
-                      label: deleteModal === "done" && deleteSummary
-                        ? `Deleted ${deleteSummary.aiImagesDeleted} AI-generated image${deleteSummary.aiImagesDeleted !== 1 ? "s" : ""}`
-                        : "Deleting AI-generated images",
-                      detail: null,
-                    },
-                    {
-                      label: deleteModal === "done" && deleteSummary
-                        ? `Deleted ${deleteSummary.memeImagesDeleted} meme image${deleteSummary.memeImagesDeleted !== 1 ? "s" : ""}`
-                        : "Deleting meme images",
-                      detail: null,
-                    },
-                    { label: "Removing membership & billing records", detail: null },
-                    { label: "Unlinking facts, comments & shared content", detail: null },
-                    { label: "Removing user account", detail: null },
-                  ].map(({ label }, i) => (
-                    <li key={i} className="flex items-center gap-3 text-sm">
-                      <span className="shrink-0 w-5 h-5 flex items-center justify-center">
-                        {deleteModal === "done" ? (
-                          <CheckCircle className="w-4 h-4 text-green-500" />
-                        ) : deleteModal === "error" ? (
-                          <XCircle className="w-4 h-4 text-destructive" />
-                        ) : (
-                          <Loader2 className="w-4 h-4 text-muted-foreground animate-spin" />
-                        )}
-                      </span>
-                      <span className={deleteModal === "done" ? "text-foreground" : "text-muted-foreground"}>
-                        {label}
-                      </span>
-                    </li>
-                  ))}
-                </ul>
+                {/* Checklist
+                    Stage → failed checklist index mapping:
+                      "collect"    → 0  (nothing completed before failure)
+                      "membership" → 3  (collect + storage done)
+                      "nullify"    → 4
+                      "delete"     → 5
+                    Items before failedIndex → green; failedIndex → red X; after → neutral
+                */}
+                {(() => {
+                  const stageToFailedIndex: Record<string, number> = {
+                    collect: 0,
+                    membership: 3,
+                    nullify: 4,
+                    delete: 5,
+                  };
+                  const failedIndex =
+                    deleteModal === "error"
+                      ? stageToFailedIndex[deleteErrorStage ?? "collect"] ?? 0
+                      : -1;
+
+                  const items = [
+                    "Collecting storage file list",
+                    deleteModal === "done" && deleteSummary
+                      ? `Deleted ${deleteSummary.aiImagesDeleted} AI-generated image${deleteSummary.aiImagesDeleted !== 1 ? "s" : ""}`
+                      : "Deleting AI-generated images",
+                    deleteModal === "done" && deleteSummary
+                      ? `Deleted ${deleteSummary.memeImagesDeleted} meme image${deleteSummary.memeImagesDeleted !== 1 ? "s" : ""}`
+                      : "Deleting meme images",
+                    "Removing membership & billing records",
+                    "Unlinking facts, comments & shared content",
+                    "Removing user account",
+                  ];
+
+                  return (
+                    <ul className="flex flex-col gap-2">
+                      {items.map((label, i) => {
+                        const isDone = deleteModal === "done" || (deleteModal === "error" && i < failedIndex);
+                        const isFailed = deleteModal === "error" && i === failedIndex;
+                        const isNeutral = deleteModal === "error" && i > failedIndex;
+
+                        return (
+                          <li key={i} className="flex items-center gap-3 text-sm">
+                            <span className="shrink-0 w-5 h-5 flex items-center justify-center">
+                              {isDone ? (
+                                <CheckCircle className="w-4 h-4 text-green-500" />
+                              ) : isFailed ? (
+                                <XCircle className="w-4 h-4 text-destructive" />
+                              ) : isNeutral ? (
+                                <span className="w-4 h-4 rounded-full border border-border/50" />
+                              ) : (
+                                <Loader2 className="w-4 h-4 text-muted-foreground animate-spin" />
+                              )}
+                            </span>
+                            <span className={isDone ? "text-foreground" : isFailed ? "text-destructive" : "text-muted-foreground"}>
+                              {label}
+                            </span>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  );
+                })()}
 
                 {/* Storage errors note */}
                 {deleteModal === "done" && deleteSummary && deleteSummary.storageErrors > 0 && (
@@ -563,13 +603,14 @@ export default function AdminUsers() {
                   </p>
                 )}
 
-                <Button
-                  onClick={deleteModal === "done" ? handleHardDeleteDone : () => { setDeleteModal(null); setDeleteError(null); }}
-                  disabled={deleteModal === "deleting"}
-                  variant={deleteModal === "done" ? "primary" : "outline"}
-                >
-                  {deleteModal === "done" ? "Done" : deleteModal === "error" ? "Close" : "Please wait…"}
-                </Button>
+                {deleteModal !== "deleting" && (
+                  <Button
+                    onClick={deleteModal === "done" ? handleHardDeleteDone : () => { setDeleteModal(null); setDeleteError(null); setDeleteErrorStage(null); }}
+                    variant={deleteModal === "done" ? "primary" : "outline"}
+                  >
+                    {deleteModal === "done" ? "Done" : "Close"}
+                  </Button>
+                )}
               </>
             ) : null}
           </div>
