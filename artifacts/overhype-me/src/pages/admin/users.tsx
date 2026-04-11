@@ -4,7 +4,8 @@ import { AdminLayout } from "@/components/admin/AdminLayout";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { SpendInline } from "@/components/ui/SpendHistory";
-import { Shield, ShieldOff, Search, Pencil, X, Save, AlertCircle, CheckCircle, Crown, Star, Gem, UserPlus, MailCheck, Trash2, UserX, ExternalLink, CreditCard, Calendar, Receipt, ChevronDown, ChevronUp, AlertTriangle, RefreshCw, Infinity } from "lucide-react";
+import { Shield, ShieldOff, Search, Pencil, X, Save, AlertCircle, CheckCircle, Crown, Star, Gem, UserPlus, MailCheck, Trash2, UserX, ExternalLink, CreditCard, Infinity } from "lucide-react";
+import { SubscriptionInfo } from "@/components/SubscriptionInfo";
 
 interface User {
   id: string;
@@ -125,8 +126,6 @@ export default function AdminUsers() {
   const [membershipLoading, setMembershipLoading] = useState(false);
   const [lifetimeActionLoading, setLifetimeActionLoading] = useState(false);
   const [lifetimeActionResult, setLifetimeActionResult] = useState<{ type: "success" | "error"; message: string } | null>(null);
-  const [showHistory, setShowHistory] = useState(false);
-
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
@@ -171,7 +170,6 @@ export default function AdminUsers() {
       monthlyGenerationLimitOverrideUsd: user.monthlyGenerationLimitOverrideUsd,
     });
     setSaveResult(null);
-    setShowHistory(false);
     fetchMembership(user.id);
   }
 
@@ -181,7 +179,6 @@ export default function AdminUsers() {
     setSaveResult(null);
     setMembershipData(null);
     setLifetimeActionResult(null);
-    setShowHistory(false);
   }
 
   async function grantLifetime() {
@@ -807,35 +804,26 @@ export default function AdminUsers() {
                     <p className="text-xs text-muted-foreground">Loading…</p>
                   ) : membershipData?.appSubscription ? (
                     <div className="flex flex-col gap-1.5">
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                          <span className={`text-xs px-1.5 py-0.5 rounded-sm font-medium uppercase tracking-wide ${
-                            membershipData.appSubscription.status === "active" ? "bg-green-500/15 text-green-400" : "bg-muted text-muted-foreground"
-                          }`}>
-                            {membershipData.appSubscription.status}
-                          </span>
-                          <span className="text-xs text-muted-foreground capitalize">{membershipData.appSubscription.plan}</span>
-                        </div>
-                        {membershipData.appSubscription.cancelAtPeriodEnd && (
-                          <div className="flex items-center gap-1 text-orange-400">
-                            <AlertTriangle className="w-3 h-3" />
-                            <span className="text-xs">Cancelling</span>
-                          </div>
-                        )}
-                      </div>
-                      {(membershipData.stripeSub?.current_period_end || membershipData.appSubscription.currentPeriodEnd) && (
-                        <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                          <Calendar className="w-3 h-3 text-primary" />
-                          {membershipData.appSubscription.cancelAtPeriodEnd ? "Ends" : "Renews"}{" "}
-                          <strong className="text-foreground">
-                            {membershipData.stripeSub?.current_period_end
-                              ? new Date(Number(membershipData.stripeSub.current_period_end) * 1000).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" })
-                              : new Date(membershipData.appSubscription.currentPeriodEnd!).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" })
-                            }
-                          </strong>
-                        </div>
+                      <SubscriptionInfo
+                        key={selectedUser.id}
+                        variant="compact"
+                        data={{
+                          isLifetime: membershipData.isLifetime,
+                          cancelAtPeriodEnd: membershipData.appSubscription.cancelAtPeriodEnd,
+                          periodEnd: membershipData.stripeSub?.current_period_end
+                            ? new Date(Number(membershipData.stripeSub.current_period_end) * 1000).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" })
+                            : membershipData.appSubscription.currentPeriodEnd
+                            ? new Date(membershipData.appSubscription.currentPeriodEnd).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" })
+                            : null,
+                          status: membershipData.appSubscription.status,
+                          plan: membershipData.appSubscription.plan,
+                          history: membershipData.history,
+                        }}
+                      />
+                      {membershipData.history.length === 0 && (
+                        <p className="text-xs text-muted-foreground italic border-t border-border pt-3 mt-1">No payment history</p>
                       )}
-                      <div className="flex items-center gap-1.5 text-xs text-muted-foreground font-mono">
+                      <div className="flex items-center gap-1.5 text-xs text-muted-foreground font-mono mt-1">
                         <span className="truncate">{membershipData.appSubscription.stripeSubscriptionId}</span>
                         <a
                           href={`https://dashboard.stripe.com/test/subscriptions/${membershipData.appSubscription.stripeSubscriptionId}`}
@@ -847,47 +835,28 @@ export default function AdminUsers() {
                       </div>
                     </div>
                   ) : (
-                    <p className="text-xs text-muted-foreground italic">No active subscription</p>
+                    <div className="flex flex-col gap-1.5">
+                      <p className="text-xs text-muted-foreground italic">No active subscription</p>
+                      {membershipData && membershipData.history.length > 0 && (
+                        <SubscriptionInfo
+                          key={selectedUser.id}
+                          variant="compact"
+                          data={{
+                            isLifetime: membershipData.isLifetime,
+                            cancelAtPeriodEnd: false,
+                            periodEnd: null,
+                            status: null,
+                            plan: null,
+                            history: membershipData.history,
+                          }}
+                        />
+                      )}
+                      {membershipData && membershipData.history.length === 0 && (
+                        <p className="text-xs text-muted-foreground italic">No payment history</p>
+                      )}
+                    </div>
                   )}
                 </div>
-
-                {/* Payment history */}
-                {membershipData && membershipData.history.length > 0 && (
-                  <div className="border-t border-border pt-3">
-                    <button
-                      onClick={() => setShowHistory((v) => !v)}
-                      className="flex items-center gap-1.5 text-xs font-semibold text-muted-foreground hover:text-foreground transition-colors w-full text-left"
-                    >
-                      <Receipt className="w-3.5 h-3.5 text-primary" />
-                      Payment History ({membershipData.history.length})
-                      {showHistory ? <ChevronUp className="w-3.5 h-3.5 ml-auto" /> : <ChevronDown className="w-3.5 h-3.5 ml-auto" />}
-                    </button>
-                    {showHistory && (
-                      <div className="mt-2 flex flex-col gap-1">
-                        {membershipData.history.map((rec) => (
-                          <div key={rec.id} className="flex items-center justify-between px-2.5 py-2 bg-muted/40 rounded-sm border border-border/50">
-                            <div>
-                              <p className="text-xs font-medium text-foreground capitalize">
-                                {rec.event.replace(/_/g, " ")}
-                                {rec.plan ? <span className="ml-1 text-primary uppercase text-[10px]">{rec.plan}</span> : null}
-                              </p>
-                              <p className="text-[10px] text-muted-foreground">{new Date(rec.createdAt).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" })}</p>
-                            </div>
-                            {rec.amount != null && rec.amount > 0 && (
-                              <span className="text-xs font-bold text-foreground">${(rec.amount / 100).toFixed(2)} {rec.currency?.toUpperCase()}</span>
-                            )}
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                {membershipData && membershipData.history.length === 0 && !membershipLoading && (
-                  <div className="border-t border-border pt-3">
-                    <p className="text-xs text-muted-foreground italic">No payment history</p>
-                  </div>
-                )}
               </div>
             </div>
 

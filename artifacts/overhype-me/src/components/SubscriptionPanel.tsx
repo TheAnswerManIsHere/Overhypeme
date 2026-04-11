@@ -1,7 +1,9 @@
 import { useState, useEffect, useCallback } from "react";
 import { Link } from "wouter";
 import { Button } from "@/components/ui/Button";
-import { Star, CreditCard, Calendar, Zap, ExternalLink, AlertCircle, AlertTriangle, Receipt, ChevronDown, ChevronUp, Crown, RefreshCw, ArrowUpCircle, XCircle } from "lucide-react";
+import { SubscriptionInfo } from "@/components/SubscriptionInfo";
+import { formatAmount } from "@/components/subscriptionHelpers";
+import { Star, CreditCard, Zap, ExternalLink, AlertCircle, RefreshCw, ArrowUpCircle, XCircle } from "lucide-react";
 
 interface Subscription {
   id: string;
@@ -61,24 +63,6 @@ interface ProrationPreview {
   lines: Array<{ description: string | null; amount: number }>;
 }
 
-function eventLabel(event: string): string {
-  switch (event) {
-    case "subscription_activated": return "Subscription Activated";
-    case "subscription_cancelled": return "Subscription Cancelled";
-    case "invoice_paid": return "Payment Received";
-    case "lifetime_purchase": return "Legendary for Life Purchase";
-    default: return event.replace(/_/g, " ");
-  }
-}
-
-function formatPlanName(plan: string | null): string {
-  if (!plan) return "";
-  return plan.charAt(0).toUpperCase() + plan.slice(1);
-}
-
-function formatAmount(amount: number, currency: string): string {
-  return new Intl.NumberFormat("en-US", { style: "currency", currency: currency.toUpperCase() }).format(amount / 100);
-}
 
 interface ConfirmDialogProps {
   title: string;
@@ -119,7 +103,6 @@ export function SubscriptionPanel({ refetchTrigger }: { refetchTrigger?: unknown
   const [subData, setSubData] = useState<SubscriptionResponse | null | undefined>(undefined);
   const [history, setHistory] = useState<PaymentRecord[]>([]);
   const [plans, setPlans] = useState<PlanProduct[]>([]);
-  const [showHistory, setShowHistory] = useState(false);
   const [portalLoading, setPortalLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -430,69 +413,32 @@ export function SubscriptionPanel({ refetchTrigger }: { refetchTrigger?: unknown
 
       {subData !== undefined && isPremium && (
         <div className="space-y-4">
-          <div className={`flex items-center gap-3 p-4 rounded-sm border ${isLegendary ? "bg-amber-500/10 border-amber-500/30" : "bg-primary/10 border-primary/30"}`}>
-            {isLegendary ? (
-              <Crown className="w-6 h-6 text-amber-400 shrink-0" />
-            ) : (
-              <Star className="w-6 h-6 text-primary shrink-0" />
-            )}
-            <div>
-              <p className="font-bold text-foreground flex items-center gap-2">
-                {isLegendary || isLifetime ? "Legendary Member" : "Member"}
-                <span className={`text-xs px-2 py-0.5 rounded-sm uppercase tracking-wide ${
-                  cancelAtPeriodEnd && !isLifetime
-                    ? "bg-orange-500/20 text-orange-400"
-                    : isLegendary
-                    ? "bg-amber-500/20 text-amber-400"
-                    : "bg-primary/20 text-primary"
-                }`}>
-                  {isLifetime ? "legendary for life" : cancelAtPeriodEnd ? "cancelling" : isLegendary ? "legendary" : sub?.status ?? "active"}
-                </span>
-              </p>
-              <p className="text-sm text-muted-foreground">
-                {planLabel} {isLifetime ? "— access never expires" : "subscription"}
-              </p>
-            </div>
-          </div>
-
-          {isLifetime && (
-            <div className="flex items-center gap-2 text-sm text-muted-foreground">
-              <Crown className="w-4 h-4 text-amber-400" />
-              <span className="text-amber-400 font-medium">Legendary for Life — access never expires</span>
-            </div>
-          )}
-
-          {!isLifetime && periodEnd && !cancelAtPeriodEnd && (
-            <div className="flex items-center gap-2 text-sm text-muted-foreground">
-              <Calendar className="w-4 h-4 text-primary" />
-              <span>Renews on <strong className="text-foreground">{periodEnd}</strong></span>
-            </div>
-          )}
-
-          {!isLifetime && cancelAtPeriodEnd && periodEnd && (
-            <div className="flex flex-col gap-3 p-4 rounded-sm border border-orange-500/40 bg-orange-500/10">
-              <div className="flex items-start gap-3">
-                <AlertTriangle className="w-5 h-5 text-orange-400 shrink-0 mt-0.5" />
-                <div className="flex flex-col gap-1">
-                  <p className="font-semibold text-foreground text-sm">Subscription cancelled</p>
-                  <p className="text-sm text-muted-foreground">
-                    Your Legendary access remains active until <strong className="text-foreground">{periodEnd}</strong>.
-                    After that date, your account will revert to the free plan and you'll lose access to Legendary features.
-                  </p>
-                </div>
-              </div>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={handleReactivate}
-                disabled={reactivateLoading}
-                className="gap-2 self-start border-orange-500/40 text-orange-400 hover:bg-orange-500/10 hover:border-orange-500/60"
-              >
-                <RefreshCw className="w-4 h-4" />
-                {reactivateLoading ? "Reactivating..." : "Reactivate Subscription"}
-              </Button>
-            </div>
-          )}
+          <SubscriptionInfo
+            variant="full"
+            hideHistory
+            data={{
+              isLifetime,
+              cancelAtPeriodEnd,
+              periodEnd,
+              status: sub?.status ?? appSub?.status ?? (isLegendary ? "active" : null),
+              plan: planLabel,
+              history,
+            }}
+            reactivateButton={
+              !isLifetime && cancelAtPeriodEnd && periodEnd ? (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleReactivate}
+                  disabled={reactivateLoading}
+                  className="gap-2 self-start border-orange-500/40 text-orange-400 hover:bg-orange-500/10 hover:border-orange-500/60"
+                >
+                  <RefreshCw className="w-4 h-4" />
+                  {reactivateLoading ? "Reactivating..." : "Reactivate Subscription"}
+                </Button>
+              ) : undefined
+            }
+          />
 
           {price && !isLifetime && (
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
@@ -543,44 +489,37 @@ export function SubscriptionPanel({ refetchTrigger }: { refetchTrigger?: unknown
               {portalLoading ? "Opening..." : "Manage billing & receipts"}
             </Button>
           )}
+
+          {/* Payment history — rendered last, matching original placement */}
+          {history.length > 0 && (
+            <SubscriptionInfo
+              variant="full"
+              data={{
+                isLifetime: false,
+                cancelAtPeriodEnd: false,
+                periodEnd: null,
+                status: null,
+                plan: null,
+                history,
+              }}
+            />
+          )}
         </div>
       )}
 
-      {/* Payment History */}
-      {history.length > 0 && (
-        <div className="mt-6 border-t border-border pt-5">
-          <button
-            onClick={() => setShowHistory(!showHistory)}
-            className="flex items-center gap-2 text-sm font-bold text-muted-foreground hover:text-foreground transition-colors w-full text-left"
-          >
-            <Receipt className="w-4 h-4 text-primary" />
-            Payment History ({history.length})
-            {showHistory ? <ChevronUp className="w-4 h-4 ml-auto" /> : <ChevronDown className="w-4 h-4 ml-auto" />}
-          </button>
-
-          {showHistory && (
-            <div className="mt-4 space-y-2">
-              {history.map(record => (
-                <div key={record.id} className="flex items-center justify-between p-3 bg-secondary/50 rounded-sm border border-border/50 text-sm">
-                  <div>
-                    <p className="font-medium text-foreground">{eventLabel(record.event)}</p>
-                    <div className="flex items-center gap-2 mt-0.5">
-                      {record.plan && <span className="text-xs text-primary uppercase">{formatPlanName(record.plan)}</span>}
-                      <span className="text-xs text-muted-foreground">
-                        {new Date(record.createdAt).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" })}
-                      </span>
-                    </div>
-                  </div>
-                  {record.amount != null && record.amount > 0 && (
-                    <span className="font-bold text-foreground">
-                      ${(record.amount / 100).toFixed(2)} {record.currency?.toUpperCase()}
-                    </span>
-                  )}
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
+      {/* Payment history for non-premium users — always shown when available */}
+      {subData !== undefined && !isPremium && history.length > 0 && (
+        <SubscriptionInfo
+          variant="full"
+          data={{
+            isLifetime: false,
+            cancelAtPeriodEnd: false,
+            periodEnd: null,
+            status: null,
+            plan: null,
+            history,
+          }}
+        />
       )}
 
       {/* Cancel Confirmation Dialog */}
