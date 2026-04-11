@@ -353,7 +353,7 @@ export default function AdminBilling() {
                           <div key={price.id} className="flex items-center gap-3 text-sm">
                             <span className="font-medium text-foreground">{amt}{interval}</span>
                             <span className="text-xs text-muted-foreground font-mono">{price.id}</span>
-                            {!price.recurring && <span className="text-xs bg-amber-500/20 text-amber-400 px-1.5 py-0.5 rounded-sm">lifetime</span>}
+                            {!price.recurring && <span className="text-xs bg-amber-500/20 text-amber-400 px-1.5 py-0.5 rounded-sm">legendary for life</span>}
                           </div>
                         );
                       })}
@@ -377,7 +377,7 @@ export default function AdminBilling() {
             <CheckRow done={hasProducts} label="Stripe products configured in dashboard" />
             <CheckRow
               done={!!(monthlyPrice || annualPrice || lifetimePrice)}
-              label="Membership prices available (monthly, annual, or lifetime)"
+              label="Membership prices available (monthly, annual, or legendary for life)"
             />
             <CheckRow done={hasWebhookSecret} label="STRIPE_WEBHOOK_SECRET environment variable set" />
             <CheckRow done={hasPriceIds || hasProducts} label="Membership price IDs configured (env or product metadata)" />
@@ -430,7 +430,7 @@ export default function AdminBilling() {
           <CollapsibleSection
             title="Active Price Mapping"
             icon={<Lock className="w-4 h-4 text-primary" />}
-            description="Currently resolved monthly, annual, and lifetime price IDs."
+            description="Currently resolved monthly, annual, and legendary for life price IDs."
             storageKey="admin_section_billing_price_mapping"
           >
             <div className="space-y-2 text-sm">
@@ -450,7 +450,7 @@ export default function AdminBilling() {
               )}
               {lifetimePrice && (
                 <div className="flex items-center justify-between gap-4">
-                  <span className="text-muted-foreground">Lifetime</span>
+                  <span className="text-muted-foreground">Legendary for Life</span>
                   <span className="font-mono text-xs text-foreground">{lifetimePrice.id}</span>
                   <span className="font-bold text-foreground">${(lifetimePrice.unit_amount / 100).toFixed(2)} once</span>
                 </div>

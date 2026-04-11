@@ -46,7 +46,7 @@ async function initStripe() {
     // Ensure membership products are tagged with metadata.membership = "true"
     // so isMembershipPrice() can identify them. Idempotent — safe on every boot.
     const stripe = stripeSync.stripe;
-    const membershipProductIds = ["prod_UIcJvpLFJwiKaH", "prod_UIcKBQY3i1dRpq"];
+    const membershipProductIds = ["prod_UIcJvpLFJwiKaH", "prod_UIcKBQY3i1dRpq", "prod_UJXQaM9DqVyrJr"];
     for (const prodId of membershipProductIds) {
       try {
         const product = await stripe.products.retrieve(prodId);

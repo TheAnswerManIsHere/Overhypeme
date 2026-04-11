@@ -212,7 +212,7 @@ router.post("/stripe/subscription/cancel", async (req: Request, res: Response) =
       db.select().from(lifetimeEntitlementsTable).where(eq(lifetimeEntitlementsTable.userId, userId)).limit(1),
     ]);
     if (lifetimeRows.length > 0) {
-      res.status(400).json({ error: "Lifetime members cannot cancel a recurring subscription" });
+      res.status(400).json({ error: "Legendary for Life members do not have a recurring subscription to cancel" });
       return;
     }
 
@@ -255,7 +255,7 @@ router.post("/stripe/subscription/reactivate", async (req: Request, res: Respons
     // Block lifetime users — same guard as cancel
     const lifetimeRowsReactivate = await db.select().from(lifetimeEntitlementsTable).where(eq(lifetimeEntitlementsTable.userId, userId)).limit(1);
     if (lifetimeRowsReactivate.length > 0) {
-      res.status(400).json({ error: "Lifetime members do not have a recurring subscription to reactivate" });
+      res.status(400).json({ error: "Legendary for Life members do not have a recurring subscription to reactivate" });
       return;
     }
 
@@ -305,7 +305,7 @@ router.get("/stripe/subscription/switch-preview", async (req: Request, res: Resp
     // Block lifetime users — same guard as switch-plan/cancel/reactivate
     const lifetimeRowsPreview = await db.select().from(lifetimeEntitlementsTable).where(eq(lifetimeEntitlementsTable.userId, req.user.id)).limit(1);
     if (lifetimeRowsPreview.length > 0) {
-      res.status(400).json({ error: "Lifetime members cannot switch plans" });
+      res.status(400).json({ error: "Legendary for Life members do not have a recurring subscription to switch" });
       return;
     }
 
@@ -394,7 +394,7 @@ router.post("/stripe/subscription/switch-plan", async (req: Request, res: Respon
     // Block lifetime users
     const lifetimeRows = await db.select().from(lifetimeEntitlementsTable).where(eq(lifetimeEntitlementsTable.userId, req.user.id)).limit(1);
     if (lifetimeRows.length > 0) {
-      res.status(400).json({ error: "Lifetime members cannot switch plans" });
+      res.status(400).json({ error: "Legendary for Life members do not have a recurring subscription to switch" });
       return;
     }
 
