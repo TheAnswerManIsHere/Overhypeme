@@ -226,7 +226,7 @@ export function SpendCollapsible({ endpoint }: SpendCollapsibleProps) {
             </div>
           ) : null}
         </div>
-        {!loading && !error && data && data.history.length > 0 && (
+        {!loading && !error && data && (
           <button
             onClick={() => setExpanded((v) => !v)}
             className="flex items-center gap-1 text-xs text-primary hover:underline font-medium shrink-0"
