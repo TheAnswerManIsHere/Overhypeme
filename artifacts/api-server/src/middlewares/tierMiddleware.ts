@@ -4,11 +4,11 @@ import { deriveUserRole } from "../lib/userRole";
 import { getSessionId, getSession } from "../lib/auth";
 
 /**
- * Middleware that requires the user to be a premium member.
- * Returns 403 with { error: "premium_required" } if user is free tier.
+ * Middleware that requires the user to be a legendary (paid) member.
+ * Returns 403 with { error: "legendary_required" } if user is not legendary or admin.
  * Admin users (determined via session) bypass this check.
  */
-export async function requirePremium(req: Request, res: Response, next: NextFunction) {
+export async function requireLegendary(req: Request, res: Response, next: NextFunction) {
   if (!req.isAuthenticated()) {
     res.status(401).json({ error: "Unauthorized" });
     return;
@@ -19,13 +19,13 @@ export async function requirePremium(req: Request, res: Response, next: NextFunc
     const isAdmin = !!(session?.isAdmin);
     const tier = await stripeStorage.getMembershipTierForUser(req.user.id);
     const role = deriveUserRole(tier, isAdmin);
-    if (role !== "registered" && role !== "legendary" && role !== "admin") {
-      res.status(403).json({ error: "premium_required", message: "This feature requires a Legendary membership." });
+    if (role !== "legendary" && role !== "admin") {
+      res.status(403).json({ error: "legendary_required", message: "This feature requires a Legendary membership." });
       return;
     }
     next();
   } catch {
-    res.status(403).json({ error: "premium_required" });
+    res.status(403).json({ error: "legendary_required" });
   }
 }
 

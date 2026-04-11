@@ -52,6 +52,48 @@ await initStripe();
 // Ensure all schema columns exist — safe to run on every boot (ADD COLUMN IF NOT EXISTS)
 await ensureSchema().catch((err: unknown) => logger.error({ err }, "Schema migration failed"));
 
+// Reconcile membership tiers: any user with an active subscription but membership_tier != 'legendary'
+// should be upgraded. This catches webhook gaps (e.g. isMembershipPrice blocked the grant before
+// products were tagged, or the webhook handler crashed mid-flight).
+async function reconcileMembershipTiers() {
+  try {
+    const { db } = await import("@workspace/db");
+    const { usersTable, subscriptionsTable } = await import("@workspace/db/schema");
+    const { eq, and, ne } = await import("drizzle-orm");
+
+    const mismatched = await db
+      .select({
+        userId: usersTable.id,
+        email: usersTable.email,
+        currentTier: usersTable.membershipTier,
+        subStatus: subscriptionsTable.status,
+      })
+      .from(usersTable)
+      .innerJoin(subscriptionsTable, eq(usersTable.id, subscriptionsTable.userId))
+      .where(and(
+        eq(subscriptionsTable.status, "active"),
+        ne(usersTable.membershipTier, "legendary"),
+      ));
+
+    if (mismatched.length === 0) return;
+
+    for (const row of mismatched) {
+      await db.update(usersTable)
+        .set({ membershipTier: "legendary" })
+        .where(eq(usersTable.id, row.userId));
+      logger.info(
+        { userId: row.userId, email: row.email, previousTier: row.currentTier },
+        "Reconciled membership tier → legendary (active subscription found)",
+      );
+    }
+    logger.info({ count: mismatched.length }, "Membership tier reconciliation complete");
+  } catch (err) {
+    logger.error({ err }, "Membership tier reconciliation failed");
+  }
+}
+
+await reconcileMembershipTiers();
+
 // Backfill Wilson scores for any facts that have votes but no score yet
 await backfillWilsonScores().catch((err: unknown) => logger.error({ err }, "Wilson backfill failed"));
 
