@@ -1,4 +1,4 @@
-import { pgTable, varchar, timestamp, integer, boolean, text } from "drizzle-orm/pg-core";
+import { pgTable, varchar, timestamp, integer, boolean, text, index } from "drizzle-orm/pg-core";
 import { usersTable } from "./auth";
 
 // App-level subscriptions table — tracks Stripe subscription lifecycle for each user
@@ -43,7 +43,9 @@ export const membershipHistoryTable = pgTable("membership_history", {
   stripeSubscriptionId: varchar("stripe_subscription_id"),
   stripeInvoiceId: varchar("stripe_invoice_id"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-});
+}, (table) => [
+  index("idx_membership_history_user_id").on(table.userId),
+]);
 
 export type MembershipHistory = typeof membershipHistoryTable.$inferSelect;
 export type InsertMembershipHistory = typeof membershipHistoryTable.$inferInsert;
