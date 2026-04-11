@@ -199,7 +199,20 @@ async function handleInvoicePaid(
 ) {
   const user = await findUserByStripeCustomerId(customerId);
   if (!user) return;
+
+  // Look up plan from our subscriptions table so the history entry has a label
+  let plan: string | undefined;
+  if (subscriptionId) {
+    const [appSub] = await db
+      .select({ plan: subscriptionsTable.plan })
+      .from(subscriptionsTable)
+      .where(eq(subscriptionsTable.stripeSubscriptionId, subscriptionId))
+      .limit(1);
+    plan = appSub?.plan ?? undefined;
+  }
+
   await recordHistory(user.id, "invoice_paid", {
+    plan,
     amount,
     currency,
     stripeInvoiceId: invoiceId,
@@ -415,54 +428,33 @@ export class WebhookHandlers {
       );
     }
 
-    // First, pass to stripe-replit-sync for data sync
+    // Phase 1: Pass to stripe-replit-sync for data sync AND signature verification.
+    // sync.processWebhook verifies the signature using the integration's managed signing
+    // secret and throws on any invalid/forged event. After this line succeeds, the event
+    // is guaranteed authentic — no second verification pass is needed or correct (the
+    // integration manages its own signing secret, separate from STRIPE_WEBHOOK_SECRET).
     const sync = await getStripeSync();
     await sync.processWebhook(payload, signature);
 
-    // Parse the event ourselves for domain logic.
-    // Phase 1: Acquire the Stripe client. If this fails (credentials unavailable),
-    // enter degraded mode — accept the raw payload without signature verification.
-    let event: Stripe.Event;
+    // Phase 2: Acquire the Stripe client for domain processing.
+    // If credentials are unavailable, skip domain logic — the sync already persisted
+    // the event data to stripe.* tables so nothing is lost.
     let stripe: Stripe | null = null;
-    let degradedMode = false;
     try {
       stripe = await getUncachableStripeClient();
     } catch (credErr) {
-      // Credentials are unavailable — enter degraded mode.
-      logger.warn({ err: credErr }, "Stripe credentials unavailable — processing webhook in degraded mode (no signature verification)");
-      degradedMode = true;
+      logger.warn({ err: credErr }, "Stripe credentials unavailable — skipping domain event processing");
+      return;
     }
 
-    // Phase 2: Construct and verify the event. Only skip verification when degraded.
-    if (!degradedMode && stripe !== null) {
-      const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
-      if (webhookSecret) {
-        // Credentials and secret are both available — enforce signature verification.
-        // Any StripeSignatureVerificationError means a forged/tampered event; re-throw
-        // so the HTTP handler returns 400. Do NOT fall back to raw parse here.
-        event = stripe.webhooks.constructEvent(payload, signature, webhookSecret);
-      } else {
-        // Credentials available but no secret configured — accept raw payload.
-        try {
-          event = JSON.parse(payload.toString()) as Stripe.Event;
-        } catch (parseErr) {
-          logger.error({ err: parseErr }, "Failed to parse webhook event payload");
-          return;
-        }
-      }
-    } else {
-      // Degraded mode: credentials unavailable — parse raw payload, no verification.
-      try {
-        event = JSON.parse(payload.toString()) as Stripe.Event;
-      } catch (parseErr) {
-        logger.error({ err: parseErr }, "Failed to parse webhook event payload in degraded mode");
-        return;
-      }
-      // In degraded mode domain processing requires a Stripe client; skip it safely.
-      if (!stripe) {
-        logger.warn({ eventId: (event as Stripe.Event).id }, "Skipping domain processing — Stripe client unavailable in degraded mode");
-        return;
-      }
+    // Phase 3: Parse the verified payload as a typed Stripe event.
+    // The payload is authentic (verified by the sync above); parse it for domain logic.
+    let event: Stripe.Event;
+    try {
+      event = JSON.parse(payload.toString()) as Stripe.Event;
+    } catch (parseErr) {
+      logger.error({ err: parseErr }, "Failed to parse webhook event payload");
+      return;
     }
 
     // Idempotency guard: skip events already processed (handles Stripe retries)
