@@ -15,9 +15,16 @@ export function deriveUserRole(
 }
 
 /**
- * Returns true if the role has at least registered-level access.
+ * Returns true if the role has legendary-level access (paid subscriber or admin).
+ */
+export function isAtLeastLegendary(role: UserRole): boolean {
+  return role === "legendary" || role === "admin";
+}
+
+/**
+ * Returns true if the role has at least registered-level access (any logged-in user).
  * Legendary is a superset of registered.
  */
-export function isAtLeastPremium(role: UserRole): boolean {
+export function isAtLeastRegistered(role: UserRole): boolean {
   return role === "registered" || role === "legendary" || role === "admin";
 }

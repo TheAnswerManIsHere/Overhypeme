@@ -66,20 +66,20 @@ export async function runFactOfTheDayJob(): Promise<{ sent: number; skipped: num
     return { sent: 0, skipped: 0 };
   }
 
-  let premiumUsers: Array<{ id: string; email: string }> = [];
+  let legendaryUsers: Array<{ id: string; email: string }> = [];
   try {
-    premiumUsers = await stripeStorage.getActivePremiumUsers();
+    legendaryUsers = await stripeStorage.getActiveLegendarySubscribers();
   } catch (err) {
-    logger.error({ err }, "Failed to fetch premium users — Stripe schema may not be ready");
+    logger.error({ err }, "Failed to fetch legendary subscribers — Stripe schema may not be ready");
     return { sent: 0, skipped: 0 };
   }
 
-  logger.info({ count: premiumUsers.length, factId: topFact.id }, "Sending Fact of the Day");
+  logger.info({ count: legendaryUsers.length, factId: topFact.id }, "Sending Fact of the Day");
 
   let sent = 0;
   let skipped = 0;
 
-  for (const user of premiumUsers) {
+  for (const user of legendaryUsers) {
     if (!user.email) { skipped++; continue; }
 
     const manageUrl = `${getSiteBaseUrl()}/profile#membership`;

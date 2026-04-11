@@ -27,7 +27,7 @@ export class StripeStorage {
     return (result.rows[0] as Record<string, unknown>) ?? null;
   }
 
-  async getActivePremiumUsers(): Promise<Array<{ id: string; email: string; displayName: string | null; pronouns: string | null }>> {
+  async getActiveLegendarySubscribers(): Promise<Array<{ id: string; email: string; displayName: string | null; pronouns: string | null }>> {
     const rows = await db
       .select({ id: usersTable.id, email: usersTable.email, displayName: usersTable.displayName, pronouns: usersTable.pronouns })
       .from(usersTable)
@@ -38,13 +38,6 @@ export class StripeStorage {
     return rows.filter(r => r.email !== null) as Array<{ id: string; email: string; displayName: string | null; pronouns: string | null }>;
   }
 
-  async getActiveLegendaryUsers(): Promise<Array<{ id: string; email: string; displayName: string | null }>> {
-    const rows = await db
-      .select({ id: usersTable.id, email: usersTable.email, displayName: usersTable.displayName })
-      .from(usersTable)
-      .where(and(eq(usersTable.membershipTier, "legendary"), eq(usersTable.isActive, true)));
-    return rows.filter(r => r.email !== null) as Array<{ id: string; email: string; displayName: string | null }>;
-  }
 
   async getMembershipTierForUser(userId: string): Promise<"unregistered" | "registered" | "legendary"> {
     const user = await this.getUserById(userId);

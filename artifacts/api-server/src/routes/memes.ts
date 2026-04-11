@@ -21,7 +21,7 @@ import { generateAiMemeBackgrounds, generateAiMemeBackgroundFromReference, isUse
 import { memeKey } from "../lib/storageKeys";
 import { BudgetExceededError } from "../lib/budgetGate";
 import type { AiMemeImages } from "../lib/aiMemePipeline";
-import { requirePremium } from "../middlewares/premiumMiddleware";
+import { requireLegendary } from "../middlewares/tierMiddleware";
 import { hasFeature } from "../lib/tierFeatures";
 import { isAdminById } from "./auth";
 import { requireAdmin } from "./admin";
@@ -890,7 +890,7 @@ router.post("/memes/ai/:factId/regenerate-scene-prompts", requireAdmin, async (r
 });
 
 // POST /memes/ai/:factId/generate — premium user triggers AI image generation for a fact
-router.post("/memes/ai/:factId/generate", requirePremium, async (req: Request, res: Response) => {
+router.post("/memes/ai/:factId/generate", requireLegendary, async (req: Request, res: Response) => {
   const factId = parseInt(String(req.params["factId"] ?? ""), 10);
   if (isNaN(factId)) { res.status(400).json({ error: "Invalid factId" }); return; }
 
@@ -1102,7 +1102,7 @@ router.delete("/memes/:slug", async (req: Request, res: Response) => {
 
 // DELETE /memes/ai/:factId/image — hard-delete an AI background image slot (owner only)
 // Query params: gender (male|female|neutral), imageIndex (0-based)
-router.delete("/memes/ai/:factId/image", requirePremium, async (req: Request, res: Response) => {
+router.delete("/memes/ai/:factId/image", requireLegendary, async (req: Request, res: Response) => {
   const factId = parseInt(String(req.params["factId"] ?? ""), 10);
   if (isNaN(factId)) { res.status(400).json({ error: "Invalid factId" }); return; }
 

@@ -412,7 +412,7 @@ export function SubscriptionPanel() {
             )}
             <div>
               <p className="font-bold text-foreground flex items-center gap-2">
-                {isLegendary ? "Legendary Member" : "Premium Member"}
+                {isLegendary || isLifetime ? "Legendary Member" : "Member"}
                 <span className={`text-xs px-2 py-0.5 rounded-sm uppercase tracking-wide ${isLegendary ? "bg-amber-500/20 text-amber-400" : "bg-primary/20 text-primary"}`}>
                   {isLegendary ? "legendary" : isLifetime ? "lifetime" : sub?.status ?? "active"}
                 </span>
