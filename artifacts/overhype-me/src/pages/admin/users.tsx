@@ -4,7 +4,7 @@ import { AdminLayout } from "@/components/admin/AdminLayout";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { SpendInline } from "@/components/ui/SpendHistory";
-import { Shield, ShieldOff, Search, Pencil, X, Save, AlertCircle, CheckCircle, Crown, Star, Gem, UserPlus, MailCheck, Trash2, UserX, ExternalLink, CreditCard, Infinity } from "lucide-react";
+import { Shield, ShieldOff, Search, Pencil, X, Save, AlertCircle, CheckCircle, Crown, Star, Gem, UserPlus, MailCheck, Trash2, UserX, ExternalLink, CreditCard, Infinity, Loader2, XCircle } from "lucide-react";
 import { SubscriptionInfo } from "@/components/SubscriptionInfo";
 
 interface User {
@@ -120,8 +120,10 @@ export default function AdminUsers() {
   const [addError, setAddError] = useState<string | null>(null);
   const [addSaving, setAddSaving] = useState(false);
 
-  const [deleteModal, setDeleteModal] = useState<null | "choose" | "confirm-hard">(null);
+  const [deleteModal, setDeleteModal] = useState<null | "choose" | "confirm-hard" | "deleting" | "done" | "error">(null);
   const [deleting, setDeleting] = useState(false);
+  const [deleteSummary, setDeleteSummary] = useState<{ aiImagesDeleted: number; memeImagesDeleted: number; storageErrors: number } | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
   const [showInactive, setShowInactive] = useState(false);
   const [reactivating, setReactivating] = useState(false);
 
@@ -319,16 +321,24 @@ export default function AdminUsers() {
   async function deleteUser(hard: boolean) {
     if (!selectedUser) return;
     setDeleting(true);
+    if (hard) {
+      setDeleteSummary(null);
+      setDeleteError(null);
+      setDeleteModal("deleting");
+    }
     try {
       const url = `/api/admin/users/${selectedUser.id}${hard ? "?hard=true" : ""}`;
       const res = await fetch(url, { method: "DELETE", credentials: "include" });
-      const data = (await res.json()) as { success?: boolean; user?: User; error?: string };
+      const data = (await res.json()) as {
+        success?: boolean;
+        user?: User;
+        error?: string;
+        summary?: { aiImagesDeleted: number; memeImagesDeleted: number; storageErrors: number };
+      };
       if (!res.ok) throw new Error(data.error ?? "Delete failed");
       if (hard) {
-        // Hard delete: remove from list entirely
-        setUsers((prev) => prev.filter((u) => u.id !== selectedUser.id));
-        setTotal((t) => t - 1);
-        clearSelection();
+        setDeleteSummary(data.summary ?? null);
+        setDeleteModal("done");
       } else {
         // Soft delete: if showing inactive, keep user in list with updated isActive flag
         const updatedUser: User = data.user ?? { ...selectedUser, isActive: false };
@@ -340,14 +350,30 @@ export default function AdminUsers() {
           setTotal((t) => t - 1);
           clearSelection();
         }
+        setDeleteModal(null);
       }
-      setDeleteModal(null);
     } catch (err) {
-      setSaveResult({ type: "error", message: err instanceof Error ? err.message : "Delete failed" });
-      setDeleteModal(null);
+      if (hard) {
+        setDeleteError(err instanceof Error ? err.message : "Delete failed");
+        setDeleteModal("error");
+      } else {
+        setSaveResult({ type: "error", message: err instanceof Error ? err.message : "Delete failed" });
+        setDeleteModal(null);
+      }
     } finally {
       setDeleting(false);
     }
+  }
+
+  function handleHardDeleteDone() {
+    if (selectedUser) {
+      setUsers((prev) => prev.filter((u) => u.id !== selectedUser.id));
+      setTotal((t) => t - 1);
+      clearSelection();
+    }
+    setDeleteModal(null);
+    setDeleteSummary(null);
+    setDeleteError(null);
   }
 
   async function reactivateUser() {
@@ -424,7 +450,7 @@ export default function AdminUsers() {
                   Cancel
                 </Button>
               </>
-            ) : (
+            ) : deleteModal === "confirm-hard" ? (
               <>
                 <div className="flex items-center gap-3">
                   <div className="w-10 h-10 rounded-full bg-destructive/10 flex items-center justify-center shrink-0">
@@ -455,7 +481,97 @@ export default function AdminUsers() {
                   </Button>
                 </div>
               </>
-            )}
+            ) : deleteModal === "deleting" || deleteModal === "done" || deleteModal === "error" ? (
+              <>
+                <div className="flex items-center gap-3">
+                  <div className={`w-10 h-10 rounded-full flex items-center justify-center shrink-0 ${deleteModal === "done" ? "bg-green-500/10" : deleteModal === "error" ? "bg-destructive/10" : "bg-muted"}`}>
+                    {deleteModal === "done" ? (
+                      <CheckCircle className="w-5 h-5 text-green-500" />
+                    ) : deleteModal === "error" ? (
+                      <XCircle className="w-5 h-5 text-destructive" />
+                    ) : (
+                      <Loader2 className="w-5 h-5 text-muted-foreground animate-spin" />
+                    )}
+                  </div>
+                  <div>
+                    <h2 className="font-display font-bold text-foreground uppercase tracking-wide">
+                      {deleteModal === "done" ? "Deletion Complete" : deleteModal === "error" ? "Deletion Failed" : "Deleting User…"}
+                    </h2>
+                    <p className="text-xs text-muted-foreground mt-0.5 truncate max-w-[220px]">
+                      {selectedUser.displayName ?? selectedUser.email ?? selectedUser.id}
+                    </p>
+                  </div>
+                </div>
+
+                {/* Indeterminate progress bar — shown only while in-flight */}
+                {deleteModal === "deleting" && (
+                  <div className="w-full h-1 bg-muted rounded-full overflow-hidden">
+                    <div className="h-full bg-destructive rounded-full animate-[indeterminate_1.5s_ease-in-out_infinite]" style={{ width: "40%" }} />
+                  </div>
+                )}
+
+                {/* Checklist */}
+                <ul className="flex flex-col gap-2">
+                  {[
+                    { label: "Collecting storage file list", detail: null },
+                    {
+                      label: deleteModal === "done" && deleteSummary
+                        ? `Deleted ${deleteSummary.aiImagesDeleted} AI-generated image${deleteSummary.aiImagesDeleted !== 1 ? "s" : ""}`
+                        : "Deleting AI-generated images",
+                      detail: null,
+                    },
+                    {
+                      label: deleteModal === "done" && deleteSummary
+                        ? `Deleted ${deleteSummary.memeImagesDeleted} meme image${deleteSummary.memeImagesDeleted !== 1 ? "s" : ""}`
+                        : "Deleting meme images",
+                      detail: null,
+                    },
+                    { label: "Removing membership & billing records", detail: null },
+                    { label: "Unlinking facts, comments & shared content", detail: null },
+                    { label: "Removing user account", detail: null },
+                  ].map(({ label }, i) => (
+                    <li key={i} className="flex items-center gap-3 text-sm">
+                      <span className="shrink-0 w-5 h-5 flex items-center justify-center">
+                        {deleteModal === "done" ? (
+                          <CheckCircle className="w-4 h-4 text-green-500" />
+                        ) : deleteModal === "error" ? (
+                          <XCircle className="w-4 h-4 text-destructive" />
+                        ) : (
+                          <Loader2 className="w-4 h-4 text-muted-foreground animate-spin" />
+                        )}
+                      </span>
+                      <span className={deleteModal === "done" ? "text-foreground" : "text-muted-foreground"}>
+                        {label}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+
+                {/* Storage errors note */}
+                {deleteModal === "done" && deleteSummary && deleteSummary.storageErrors > 0 && (
+                  <p className="text-xs text-yellow-600 flex items-start gap-1.5">
+                    <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                    {deleteSummary.storageErrors} storage file{deleteSummary.storageErrors !== 1 ? "s" : ""} could not be deleted and may need manual cleanup.
+                  </p>
+                )}
+
+                {/* Error message */}
+                {deleteModal === "error" && deleteError && (
+                  <p className="text-sm text-destructive flex items-start gap-1.5">
+                    <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                    {deleteError}
+                  </p>
+                )}
+
+                <Button
+                  onClick={deleteModal === "done" ? handleHardDeleteDone : () => { setDeleteModal(null); setDeleteError(null); }}
+                  disabled={deleteModal === "deleting"}
+                  variant={deleteModal === "done" ? "primary" : "outline"}
+                >
+                  {deleteModal === "done" ? "Done" : deleteModal === "error" ? "Close" : "Please wait…"}
+                </Button>
+              </>
+            ) : null}
           </div>
         </div>
       )}
