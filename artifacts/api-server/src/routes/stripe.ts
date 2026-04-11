@@ -102,13 +102,16 @@ router.post("/stripe/checkout", async (req: Request, res: Response) => {
     const priceObj = await stripe.prices.retrieve(priceId, { expand: ["product"] });
     const isOneTime = priceObj.type === "one_time";
 
-    // Fail-closed membership validation: price must be in allowlist OR product must have
-    // metadata.membership="true". This check always runs, regardless of allowlist presence.
+    // Membership validation: price must be in allowlist OR product must have
+    // metadata.membership="true". Mirrors the /stripe/plans fallback: if neither
+    // is configured (no allowlist set, no tagged products), allow all prices through
+    // so the app works out of the box before Stripe metadata is configured.
     const allowlist = (process.env.MEMBERSHIP_PRICE_IDS ?? "").split(",").map((s: string) => s.trim()).filter(Boolean);
     const inAllowlist = allowlist.length > 0 && allowlist.includes(priceId);
     const prod = priceObj.product as import("stripe").Stripe.Product | null;
     const hasMetaTag = prod && typeof prod !== "string" && prod.metadata?.membership === "true";
-    if (!inAllowlist && !hasMetaTag) {
+    const noGlobalConfig = allowlist.length === 0 && !hasMetaTag;
+    if (!inAllowlist && !hasMetaTag && !noGlobalConfig) {
       res.status(400).json({ error: "Invalid price: not a recognized membership product" });
       return;
     }
