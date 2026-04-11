@@ -71,8 +71,10 @@ router.get("/stripe/subscription", async (req: Request, res: Response) => {
       membershipTier: tier,
       isLifetime: hasLifetime,
     });
-  } catch {
-    res.json({ subscription: null, appSubscription: null, membershipTier: "unregistered", isLifetime: false });
+  } catch (err) {
+    const { logger } = await import("../lib/logger");
+    logger.error({ err }, "GET /stripe/subscription DB error");
+    res.status(503).json({ error: "Service unavailable — could not load subscription data" });
   }
 });
 
@@ -133,8 +135,9 @@ router.post("/stripe/checkout", async (req: Request, res: Response) => {
 
     res.json({ url: session.url });
   } catch (err) {
-    const msg = err instanceof Error ? err.message : "Checkout failed";
-    res.status(500).json({ error: msg });
+    const { logger } = await import("../lib/logger");
+    logger.error({ err }, "POST /stripe/checkout error");
+    res.status(500).json({ error: "Checkout failed — please try again" });
   }
 });
 
@@ -151,7 +154,7 @@ router.get("/stripe/payment-history", async (req: Request, res: Response) => {
 
 // GET /stripe/membership — current user's membership tier
 router.get("/stripe/membership", async (req: Request, res: Response) => {
-  if (!req.isAuthenticated()) { res.status(401).json({ tier: "unregistered" }); return; }
+  if (!req.isAuthenticated()) { res.status(401).json({ error: "Unauthorized" }); return; }
   try {
     const tier = await stripeStorage.getMembershipTierForUser(req.user.id);
     res.json({ tier });
@@ -167,7 +170,7 @@ router.post("/stripe/portal", async (req: Request, res: Response) => {
   try {
     const user = await stripeStorage.getUserById(req.user.id);
     if (!user?.stripeCustomerId) {
-      res.status(400).json({ error: "No active subscription found" });
+      res.status(400).json({ error: "No billing account found" });
       return;
     }
 

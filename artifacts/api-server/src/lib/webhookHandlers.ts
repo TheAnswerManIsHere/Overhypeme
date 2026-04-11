@@ -114,24 +114,9 @@ async function upsertSubscription(
     ? new Date(rawSub.current_period_end * 1000)
     : null;
 
-  const existing = await db
-    .select({ id: subscriptionsTable.id })
-    .from(subscriptionsTable)
-    .where(eq(subscriptionsTable.stripeSubscriptionId, sub.id))
-    .limit(1);
-
-  if (existing.length > 0) {
-    await db
-      .update(subscriptionsTable)
-      .set({
-        status: sub.status,
-        plan,
-        currentPeriodEnd,
-        cancelAtPeriodEnd: sub.cancel_at_period_end ?? false,
-      })
-      .where(eq(subscriptionsTable.stripeSubscriptionId, sub.id));
-  } else {
-    await db.insert(subscriptionsTable).values({
+  await db
+    .insert(subscriptionsTable)
+    .values({
       userId,
       stripeSubscriptionId: sub.id,
       stripeCustomerId,
@@ -139,8 +124,16 @@ async function upsertSubscription(
       status: sub.status,
       currentPeriodEnd,
       cancelAtPeriodEnd: sub.cancel_at_period_end ?? false,
+    })
+    .onConflictDoUpdate({
+      target: subscriptionsTable.stripeSubscriptionId,
+      set: {
+        status: sub.status,
+        plan,
+        currentPeriodEnd,
+        cancelAtPeriodEnd: sub.cancel_at_period_end ?? false,
+      },
     });
-  }
 }
 
 async function handleSubscriptionActivated(
@@ -426,23 +419,48 @@ export class WebhookHandlers {
     const sync = await getStripeSync();
     await sync.processWebhook(payload, signature);
 
-    // Parse the event ourselves for domain logic
+    // Parse the event ourselves for domain logic.
+    // Phase 1: Acquire the Stripe client. If this fails (credentials unavailable),
+    // enter degraded mode — accept the raw payload without signature verification.
     let event: Stripe.Event;
-    let stripe: Stripe;
+    let stripe: Stripe | null = null;
+    let degradedMode = false;
     try {
       stripe = await getUncachableStripeClient();
+    } catch (credErr) {
+      // Credentials are unavailable — enter degraded mode.
+      logger.warn({ err: credErr }, "Stripe credentials unavailable — processing webhook in degraded mode (no signature verification)");
+      degradedMode = true;
+    }
+
+    // Phase 2: Construct and verify the event. Only skip verification when degraded.
+    if (!degradedMode && stripe !== null) {
       const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
       if (webhookSecret) {
+        // Credentials and secret are both available — enforce signature verification.
+        // Any StripeSignatureVerificationError means a forged/tampered event; re-throw
+        // so the HTTP handler returns 400. Do NOT fall back to raw parse here.
         event = stripe.webhooks.constructEvent(payload, signature, webhookSecret);
       } else {
-        event = JSON.parse(payload.toString()) as Stripe.Event;
+        // Credentials available but no secret configured — accept raw payload.
+        try {
+          event = JSON.parse(payload.toString()) as Stripe.Event;
+        } catch (parseErr) {
+          logger.error({ err: parseErr }, "Failed to parse webhook event payload");
+          return;
+        }
       }
-    } catch {
+    } else {
+      // Degraded mode: credentials unavailable — parse raw payload, no verification.
       try {
         event = JSON.parse(payload.toString()) as Stripe.Event;
-        stripe = await getUncachableStripeClient();
-      } catch (err) {
-        logger.error({ err }, "Failed to parse webhook event");
+      } catch (parseErr) {
+        logger.error({ err: parseErr }, "Failed to parse webhook event payload in degraded mode");
+        return;
+      }
+      // In degraded mode domain processing requires a Stripe client; skip it safely.
+      if (!stripe) {
+        logger.warn({ eventId: (event as Stripe.Event).id }, "Skipping domain processing — Stripe client unavailable in degraded mode");
         return;
       }
     }
@@ -462,8 +480,10 @@ export class WebhookHandlers {
     }
 
     // Process domain-specific logic via shared switch
+    // At this point stripe is guaranteed non-null: either we successfully acquired it
+    // in phase 1, or we returned early in the degraded-mode branch above.
     try {
-      await processDomainSwitch(stripe, event);
+      await processDomainSwitch(stripe!, event);
     } catch (err) {
       logger.error({ err, eventType: event.type }, "Webhook domain handler error");
     }

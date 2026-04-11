@@ -52,11 +52,16 @@ async function getCredentials(liveMode?: boolean) {
   url.searchParams.set("environment", targetEnvironment);
 
   const response = await fetch(url.toString(), {
+    signal: AbortSignal.timeout(10_000),
     headers: {
       Accept: "application/json",
       "X-Replit-Token": xReplitToken,
     },
   });
+
+  if (!response.ok) {
+    throw new Error(`Stripe credentials fetch failed: HTTP ${response.status}`);
+  }
 
   const data = (await response.json()) as {
     items?: Array<{ settings: { publishable: string; secret: string } }>;
