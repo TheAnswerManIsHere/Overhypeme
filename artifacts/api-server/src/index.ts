@@ -1,6 +1,7 @@
 import app from "./app";
 import { logger } from "./lib/logger";
-import { ensureSchema, backfillWilsonScores } from "./lib/seed";
+import { backfillWilsonScores } from "./lib/seed";
+import { runMigrations } from "@workspace/db";
 import { backfillEmbeddings } from "./lib/embeddings";
 import { refreshPricingCache } from "./lib/falPricing";
 import { getConfigString, getConfigInt } from "./lib/adminConfig";
@@ -69,8 +70,8 @@ async function initStripe() {
 
 await initStripe();
 
-// Ensure all schema columns exist — safe to run on every boot (ADD COLUMN IF NOT EXISTS)
-await ensureSchema().catch((err: unknown) => logger.error({ err }, "Schema migration failed"));
+// Apply any pending database migrations before accepting requests
+await runMigrations();
 
 // Reconcile membership tiers: any user with an active subscription but membership_tier != 'legendary'
 // should be upgraded. This catches webhook gaps (e.g. isMembershipPrice blocked the grant before
