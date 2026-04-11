@@ -14,6 +14,7 @@ import {
   CheckCircle2,
   ChevronDown,
   Loader2,
+  ShoppingBag,
 } from "lucide-react";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useToast } from "@/hooks/use-toast";
@@ -27,7 +28,7 @@ const GLASSMORPHIC_KEYFRAMES = `
   }
 `;
 
-type ActionType = "delete" | "copyLink" | "openFull";
+type ActionType = "delete" | "copyLink" | "openFull" | "makeMerch";
 
 export interface ImageCardProps {
   src: string;
@@ -40,6 +41,7 @@ export interface ImageCardProps {
   compact?: boolean;
   actions?: ActionType[];
   onDelete?: () => Promise<void> | void;
+  onMakeMerch?: () => void;
   deleteConfirmMessage?: string;
   permalink?: string;
   footer?: ReactNode;
@@ -84,6 +86,7 @@ interface ActionMenuProps {
   onDeleteRequest?: () => void;                  // mobile: triggers card overlay
   onCopy?: () => void;
   onOpenFull?: () => void;
+  onMakeMerch?: () => void;
   onClose: () => void;
   anchorRef: React.RefObject<HTMLElement | null>;
 }
@@ -94,6 +97,7 @@ function ActionMenu({
   onDeleteRequest,
   onCopy,
   onOpenFull,
+  onMakeMerch,
   onClose,
   anchorRef,
 }: ActionMenuProps) {
@@ -127,6 +131,11 @@ function ActionMenu({
         icon: <Link2 className="w-4 h-4" />,
         label: "Copy Link",
         action: onCopy,
+      },
+      actions.includes("makeMerch") && onMakeMerch && {
+        icon: <ShoppingBag className="w-4 h-4" />,
+        label: "Make Merch on Zazzle",
+        action: onMakeMerch,
       },
       actions.includes("delete") && (onDeleteRequest ?? onDeleteConfirm) && {
         icon: <Trash2 className="w-4 h-4 text-red-400" />,
@@ -213,6 +222,14 @@ function ActionMenu({
       label: "Copy Link",
       kbd: "⌘C",
       action: () => { onCopy(); onClose(); },
+    });
+  }
+  if (actions.includes("makeMerch") && onMakeMerch) {
+    desktopItems.push({
+      key: "makeMerch",
+      icon: <ShoppingBag size={15} />,
+      label: "Make Merch on Zazzle",
+      action: () => { onMakeMerch(); onClose(); },
     });
   }
 
@@ -366,6 +383,7 @@ export function ImageCard({
   compact = false,
   actions = ["delete", "copyLink", "openFull"],
   onDelete,
+  onMakeMerch,
   deleteConfirmMessage = "Permanently delete this image? This cannot be undone.",
   permalink,
   footer,
@@ -416,6 +434,7 @@ export function ImageCard({
   const visibleActions = actions.filter(a => {
     if (a === "delete" && !onDelete) return false;
     if (a === "copyLink" && !permalink) return false;
+    if (a === "makeMerch" && !onMakeMerch) return false;
     return true;
   });
 
@@ -638,6 +657,7 @@ export function ImageCard({
           onDeleteRequest={visibleActions.includes("delete") && onDelete ? handleDeleteRequest : undefined}
           onCopy={visibleActions.includes("copyLink") && permalink ? () => { void handleCopy(); } : undefined}
           onOpenFull={visibleActions.includes("openFull") ? openLightbox : undefined}
+          onMakeMerch={visibleActions.includes("makeMerch") && onMakeMerch ? onMakeMerch : undefined}
           onClose={() => setMenuOpen(false)}
           anchorRef={kebabRef as React.RefObject<HTMLElement | null>}
         />
