@@ -115,7 +115,7 @@ function ConfirmDialog({ title, children, confirmLabel, isDestructive = false, l
   );
 }
 
-export function SubscriptionPanel() {
+export function SubscriptionPanel({ refetchTrigger }: { refetchTrigger?: unknown } = {}) {
   const [subData, setSubData] = useState<SubscriptionResponse | null | undefined>(undefined);
   const [history, setHistory] = useState<PaymentRecord[]>([]);
   const [plans, setPlans] = useState<PlanProduct[]>([]);
@@ -163,6 +163,16 @@ export function SubscriptionPanel() {
       return () => timers.forEach(clearTimeout);
     }
   }, [fetchSubData]);
+
+  // When the parent confirms a checkout (e.g. Legendary for Life), refetch everything.
+  useEffect(() => {
+    if (!refetchTrigger) return;
+    fetchSubData();
+    fetch("/api/stripe/payment-history", { credentials: "include" })
+      .then(r => r.json())
+      .then((d: { history: PaymentRecord[] }) => setHistory(d.history ?? []))
+      .catch(() => {});
+  }, [refetchTrigger, fetchSubData]);
 
   async function openPortal() {
     setPortalLoading(true);

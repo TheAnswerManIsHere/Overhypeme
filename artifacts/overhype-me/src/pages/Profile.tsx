@@ -774,7 +774,7 @@ export default function Profile() {
         )}
 
         {/* Subscription Panel */}
-        <SubscriptionPanel />
+        <SubscriptionPanel refetchTrigger={checkoutConfirmed || undefined} />
 
         {/* Generation Cost Tracker */}
         <div className="bg-card border-2 border-border p-5 rounded-sm shadow mb-4">
