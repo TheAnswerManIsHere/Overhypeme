@@ -63,12 +63,12 @@ function isNoFaceError(err: unknown): boolean {
 // If the app ever scales horizontally, swap this for a Redis-backed solution.
 
 const FREE_LIMIT_PER_HOUR = 10;
-const PREMIUM_LIMIT_PER_HOUR = 100;
+const LEGENDARY_LIMIT_PER_HOUR = 100;
 
 const rateLimitMap = new Map<string, { count: number; resetAt: number }>();
 
-function checkRateLimit(userId: string, isPremium: boolean): { allowed: boolean; resetAt: number } {
-  const limit = isPremium ? PREMIUM_LIMIT_PER_HOUR : FREE_LIMIT_PER_HOUR;
+function checkRateLimit(userId: string, isLegendary: boolean): { allowed: boolean; resetAt: number } {
+  const limit = isLegendary ? LEGENDARY_LIMIT_PER_HOUR : FREE_LIMIT_PER_HOUR;
   const now = Date.now();
   const entry = rateLimitMap.get(userId);
 
@@ -889,7 +889,7 @@ router.post("/memes/ai/:factId/regenerate-scene-prompts", requireAdmin, async (r
   res.json({ success: true, prompts });
 });
 
-// POST /memes/ai/:factId/generate — premium user triggers AI image generation for a fact
+// POST /memes/ai/:factId/generate — legendary user triggers AI image generation for a fact
 router.post("/memes/ai/:factId/generate", requireLegendary, async (req: Request, res: Response) => {
   const factId = parseInt(String(req.params["factId"] ?? ""), 10);
   if (isNaN(factId)) { res.status(400).json({ error: "Invalid factId" }); return; }
