@@ -1,6 +1,6 @@
 import { Router, type IRouter, type Request, type Response, type NextFunction } from "express";
 import { db, usersTable } from "@workspace/db";
-import { factsTable, commentsTable, adminConfigTable, videoStylesTable, featureFlagsTable, tierFeaturePermissionsTable, userGenerationCostsTable, lifetimeEntitlementsTable, subscriptionsTable, membershipHistoryTable } from "@workspace/db/schema";
+import { factsTable, commentsTable, adminConfigTable, videoStylesTable, featureFlagsTable, tierFeaturePermissionsTable, userGenerationCostsTable, lifetimeEntitlementsTable, subscriptionsTable, membershipHistoryTable, activityFeedTable, memesTable, userAiImagesTable } from "@workspace/db/schema";
 import { eq, desc, count, ilike, sql, and, or, inArray, isNull, asc } from "drizzle-orm";
 import { getSessionId, getSession, updateSession } from "../lib/auth";
 import { isAdminById } from "./auth";
@@ -12,6 +12,7 @@ import { logActivity } from "../lib/activity";
 import { getAllConfig, bustConfigCache } from "../lib/adminConfig";
 import { getAllTierFeatureMatrix, setTierFeature, bustTierFeaturesCache } from "../lib/tierFeatures";
 import { ObjectStorageService } from "../lib/objectStorage";
+import { memeKey } from "../lib/storageKeys";
 import bcrypt from "bcryptjs";
 
 const _styleStorage = new ObjectStorageService();
@@ -67,11 +68,13 @@ router.get("/admin/users", requireAdmin, async (req: Request, res: Response) => 
   const limit = Math.min(100, Math.max(1, parseInt(String(req.query["limit"] ?? "50"), 10)));
   const offset = (page - 1) * limit;
   const search = String(req.query["search"] ?? "").trim();
+  const showInactive = req.query["inactive"] === "true";
 
-  const activeFilter = eq(usersTable.isActive, true);
-  const where = search
-    ? and(activeFilter, sql`(${usersTable.email} ilike ${`%${search}%`} OR ${usersTable.displayName} ilike ${`%${search}%`} OR ${usersTable.id}::text ilike ${`%${search}%`})`)
-    : activeFilter;
+  const activeFilter = showInactive ? undefined : eq(usersTable.isActive, true);
+  const searchFilter = search
+    ? sql`(${usersTable.email} ilike ${`%${search}%`} OR ${usersTable.displayName} ilike ${`%${search}%`} OR ${usersTable.id}::text ilike ${`%${search}%`})`
+    : undefined;
+  const where = activeFilter && searchFilter ? and(activeFilter, searchFilter) : (activeFilter ?? searchFilter);
 
   const [users, [{ total }]] = await Promise.all([
     db.select().from(usersTable).where(where).orderBy(desc(usersTable.createdAt)).limit(limit).offset(offset),
@@ -86,6 +89,7 @@ router.patch("/admin/users/:id", requireAdmin, async (req: Request, res: Respons
   const body = req.body as Record<string, unknown>;
 
   const updates: Record<string, unknown> = {};
+  if (typeof body["isActive"] === "boolean") updates.isActive = body["isActive"];
   if (typeof body["isAdmin"] === "boolean") updates.isAdmin = body["isAdmin"];
   if (typeof body["captchaVerified"] === "boolean") updates.captchaVerified = body["captchaVerified"];
   if (body["displayName"] !== undefined) updates.displayName = body["displayName"] ? String(body["displayName"]) : null;
@@ -133,13 +137,71 @@ router.delete("/admin/users/:id", requireAdmin, async (req: Request, res: Respon
   const hard = req.query["hard"] === "true";
 
   if (hard) {
+    // Verify the user exists before doing any cleanup work
+    const [userToDelete] = await db.select({ id: usersTable.id }).from(usersTable).where(eq(usersTable.id, id)).limit(1);
+    if (!userToDelete) { res.status(404).json({ error: "User not found" }); return; }
+
+    const storage = new ObjectStorageService();
+
+    // Step 1: Collect storage paths before DB cleanup (must happen before we nullify createdById)
+    const [aiImages, userMemes] = await Promise.all([
+      db.select({ storagePath: userAiImagesTable.storagePath })
+        .from(userAiImagesTable)
+        .where(eq(userAiImagesTable.userId, id)),
+      db.select({ permalinkSlug: memesTable.permalinkSlug, imageSource: memesTable.imageSource })
+        .from(memesTable)
+        .where(eq(memesTable.createdById, id)),
+    ]);
+
+    // Step 2: Delete object storage files (non-fatal — log errors but continue)
+    for (const img of aiImages) {
+      try { await storage.deleteObject(img.storagePath); }
+      catch (e) { console.error(`[hard-delete] AI image cleanup failed for ${img.storagePath}:`, e); }
+    }
+    for (const meme of userMemes) {
+      const src = meme.imageSource as { type?: string; uploadKey?: string } | null;
+      if (src === null) {
+        // Pre-rendered meme image stored in object storage
+        try { await storage.deleteObject(memeKey(meme.permalinkSlug, "jpg")); }
+        catch (e) { console.error(`[hard-delete] Meme image cleanup failed for ${meme.permalinkSlug}:`, e); }
+      } else if (src?.type === "upload" && src.uploadKey) {
+        // User-uploaded background photo
+        try { await storage.deleteObject(src.uploadKey); }
+        catch (e) { console.error(`[hard-delete] Upload image cleanup failed:`, e); }
+      }
+    }
+
+    // Step 3: Delete records with NOT NULL user_id FKs and no cascade
+    await db.delete(subscriptionsTable).where(eq(subscriptionsTable.userId, id));
+    await db.delete(lifetimeEntitlementsTable).where(eq(lifetimeEntitlementsTable.userId, id));
+    await db.delete(membershipHistoryTable).where(eq(membershipHistoryTable.userId, id));
+    await db.delete(activityFeedTable).where(eq(activityFeedTable.userId, id));
+    await db.execute(sql`DELETE FROM affiliate_clicks WHERE user_id = ${id}`);
+
+    // Step 4: Nullify nullable user FKs on shared content (content outlives the user)
+    await db.update(memesTable).set({ createdById: null }).where(eq(memesTable.createdById, id));
+    await db.update(factsTable).set({ submittedById: null }).where(eq(factsTable.submittedById, id));
+    await db.update(commentsTable).set({ authorId: null }).where(eq(commentsTable.authorId, id));
+    await db.execute(sql`UPDATE external_links SET added_by_id = NULL WHERE added_by_id = ${id}`);
+    await db.execute(sql`UPDATE pending_reviews SET submitted_by_id = NULL WHERE submitted_by_id = ${id}`);
+    await db.execute(sql`UPDATE pending_reviews SET reviewed_by_id = NULL WHERE reviewed_by_id = ${id}`);
+    await db.execute(sql`UPDATE video_jobs SET user_id = NULL WHERE user_id = ${id}`);
+
+    // Step 5: Delete the user row — DB cascades handle accounts, sessions, user_ai_images,
+    //         user_fact_preferences, ratings, search_history, email/password tokens
     const [deleted] = await db.delete(usersTable).where(eq(usersTable.id, id)).returning({ id: usersTable.id });
     if (!deleted) { res.status(404).json({ error: "User not found" }); return; }
     res.json({ success: true, deleted: true });
   } else {
-    const [updated] = await db.update(usersTable).set({ isActive: false }).where(and(eq(usersTable.id, id), eq(usersTable.isActive, true))).returning({ id: usersTable.id });
+    // Soft delete: mark inactive and immediately kill all active sessions
+    const [updated] = await db.update(usersTable)
+      .set({ isActive: false })
+      .where(and(eq(usersTable.id, id), eq(usersTable.isActive, true)))
+      .returning();
     if (!updated) { res.status(404).json({ error: "User not found or already inactive" }); return; }
-    res.json({ success: true, deleted: false });
+    // Invalidate sessions immediately so the effect is instant
+    await db.execute(sql`DELETE FROM sessions WHERE sess->'user'->>'id' = ${id}`);
+    res.json({ success: true, deleted: false, user: updated });
   }
 });
 

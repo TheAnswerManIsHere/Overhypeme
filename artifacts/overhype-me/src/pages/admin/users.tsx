@@ -13,6 +13,7 @@ interface User {
   displayName: string | null;
   profileImageUrl: string | null;
   isAdmin: boolean;
+  isActive: boolean;
   captchaVerified: boolean;
   membershipTier: "unregistered" | "registered" | "legendary";
   pronouns: string | null;
@@ -121,6 +122,8 @@ export default function AdminUsers() {
 
   const [deleteModal, setDeleteModal] = useState<null | "choose" | "confirm-hard">(null);
   const [deleting, setDeleting] = useState(false);
+  const [showInactive, setShowInactive] = useState(false);
+  const [reactivating, setReactivating] = useState(false);
 
   const [membershipData, setMembershipData] = useState<MembershipData | null>(null);
   const [membershipLoading, setMembershipLoading] = useState(false);
@@ -136,6 +139,7 @@ export default function AdminUsers() {
     setLoading(true);
     const params = new URLSearchParams({ page: String(page), limit: String(LIMIT) });
     if (debouncedSearch) params.set("search", debouncedSearch);
+    if (showInactive) params.set("inactive", "true");
     fetch(`/api/admin/users?${params}`, { credentials: "include" })
       .then(async (r) => {
         const data = (await r.json()) as Partial<UsersResponse>;
@@ -146,7 +150,7 @@ export default function AdminUsers() {
       })
       .catch(() => {})
       .finally(() => setLoading(false));
-  }, [page, debouncedSearch]);
+  }, [page, debouncedSearch, showInactive]);
 
   function fetchMembership(userId: string) {
     setMembershipLoading(true);
@@ -318,17 +322,55 @@ export default function AdminUsers() {
     try {
       const url = `/api/admin/users/${selectedUser.id}${hard ? "?hard=true" : ""}`;
       const res = await fetch(url, { method: "DELETE", credentials: "include" });
-      const data = (await res.json()) as { success?: boolean; error?: string };
+      const data = (await res.json()) as { success?: boolean; user?: User; error?: string };
       if (!res.ok) throw new Error(data.error ?? "Delete failed");
-      setUsers((prev) => prev.filter((u) => u.id !== selectedUser.id));
-      setTotal((t) => t - 1);
-      clearSelection();
+      if (hard) {
+        // Hard delete: remove from list entirely
+        setUsers((prev) => prev.filter((u) => u.id !== selectedUser.id));
+        setTotal((t) => t - 1);
+        clearSelection();
+      } else {
+        // Soft delete: if showing inactive, keep user in list with updated isActive flag
+        const updatedUser: User = data.user ?? { ...selectedUser, isActive: false };
+        if (showInactive) {
+          setUsers((prev) => prev.map((u) => u.id === selectedUser.id ? updatedUser : u));
+          setSelectedUser(updatedUser);
+        } else {
+          setUsers((prev) => prev.filter((u) => u.id !== selectedUser.id));
+          setTotal((t) => t - 1);
+          clearSelection();
+        }
+      }
       setDeleteModal(null);
     } catch (err) {
       setSaveResult({ type: "error", message: err instanceof Error ? err.message : "Delete failed" });
       setDeleteModal(null);
     } finally {
       setDeleting(false);
+    }
+  }
+
+  async function reactivateUser() {
+    if (!selectedUser) return;
+    setReactivating(true);
+    setSaveResult(null);
+    try {
+      const res = await fetch(`/api/admin/users/${selectedUser.id}`, {
+        method: "PATCH",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ isActive: true }),
+      });
+      const data = (await res.json()) as { success?: boolean; user?: User; error?: string };
+      if (!res.ok) throw new Error(data.error ?? "Reactivation failed");
+      const updated = data.user!;
+      setUsers((prev) => prev.map((u) => u.id === updated.id ? updated : u));
+      setSelectedUser(updated);
+      setSaveResult({ type: "success", message: "User reactivated. They can log in again." });
+    } catch (err) {
+      setSaveResult({ type: "error", message: err instanceof Error ? err.message : "Reactivation failed" });
+    } finally {
+      setReactivating(false);
     }
   }
 
@@ -408,8 +450,8 @@ export default function AdminUsers() {
                   >
                     <Trash2 className="w-4 h-4" /> Delete Forever
                   </Button>
-                  <Button variant="outline" onClick={() => setDeleteModal("choose")} className="flex-1" disabled={deleting}>
-                    Back
+                  <Button variant="outline" onClick={() => setDeleteModal(selectedUser.isActive ? "choose" : null)} className="flex-1" disabled={deleting}>
+                    {selectedUser.isActive ? "Back" : "Cancel"}
                   </Button>
                 </div>
               </>
@@ -543,6 +585,17 @@ export default function AdminUsers() {
                 className="pl-9"
               />
             </div>
+            <button
+              onClick={() => { setShowInactive((v) => !v); setPage(1); }}
+              title={showInactive ? "Hide inactive users" : "Show inactive users"}
+              className={`shrink-0 p-2 rounded-sm border text-xs font-medium transition-colors ${
+                showInactive
+                  ? "border-yellow-500/60 bg-yellow-500/10 text-yellow-500"
+                  : "border-border text-muted-foreground hover:border-yellow-500/40 hover:text-yellow-500"
+              }`}
+            >
+              <UserX className="w-4 h-4" />
+            </button>
             <span className="text-sm text-muted-foreground whitespace-nowrap">
               {total} user{total !== 1 ? "s" : ""}
             </span>
@@ -559,11 +612,14 @@ export default function AdminUsers() {
             ) : (
               users.map((user) => {
                 const isSelected = selectedUser?.id === user.id;
+                const isInactive = !user.isActive;
                 return (
                   <div
                     key={user.id}
                     onClick={() => selectUser(user)}
                     className={`flex items-center gap-3 px-4 py-3 cursor-pointer group transition-colors ${
+                      isInactive ? "opacity-50" : ""
+                    } ${
                       isSelected
                         ? "bg-primary/10 border-l-2 border-primary"
                         : "hover:bg-muted/40 border-l-2 border-transparent"
@@ -584,6 +640,7 @@ export default function AdminUsers() {
                         <span className="text-sm font-medium text-foreground truncate">{displayName(user)}</span>
                         {user.isAdmin && <Shield className="w-3 h-3 text-primary shrink-0" title="Admin" />}
                         {(user.membershipTier === "registered" || user.membershipTier === "legendary") && <Crown className="w-3 h-3 text-yellow-500 shrink-0" title={user.membershipTier === "legendary" ? "Legendary" : "Registered"} />}
+                        {isInactive && <span className="text-[10px] font-bold text-yellow-600 bg-yellow-500/15 px-1 py-0.5 rounded shrink-0">INACTIVE</span>}
                       </div>
                       <div className="text-xs text-muted-foreground truncate">
                         {user.email ?? user.id.slice(0, 16) + "…"}
@@ -945,14 +1002,37 @@ export default function AdminUsers() {
               </Button>
             </div>
 
-            <div className="border-t border-border pt-3">
-              <Button
-                variant="outline"
-                onClick={() => setDeleteModal("choose")}
-                className="w-full text-destructive border-destructive/30 hover:bg-destructive/10 hover:border-destructive/60"
-              >
-                <Trash2 className="w-4 h-4" /> Delete User
-              </Button>
+            <div className="border-t border-border pt-3 flex flex-col gap-2">
+              {selectedUser.isActive ? (
+                <Button
+                  variant="outline"
+                  onClick={() => setDeleteModal("choose")}
+                  className="w-full text-destructive border-destructive/30 hover:bg-destructive/10 hover:border-destructive/60"
+                >
+                  <Trash2 className="w-4 h-4" /> Delete User
+                </Button>
+              ) : (
+                <>
+                  <div className="flex items-center gap-2 px-1 py-1">
+                    <UserX className="w-3.5 h-3.5 text-yellow-500 shrink-0" />
+                    <span className="text-xs text-yellow-600 font-medium">This user is inactive (soft-deleted)</span>
+                  </div>
+                  <Button
+                    onClick={reactivateUser}
+                    isLoading={reactivating}
+                    className="w-full bg-green-600 hover:bg-green-600/90 text-white border-green-600"
+                  >
+                    <UserX className="w-4 h-4" /> Reactivate User
+                  </Button>
+                  <Button
+                    variant="outline"
+                    onClick={() => setDeleteModal("confirm-hard")}
+                    className="w-full text-destructive border-destructive/30 hover:bg-destructive/10 hover:border-destructive/60"
+                  >
+                    <Trash2 className="w-4 h-4" /> Hard Delete Forever
+                  </Button>
+                </>
+              )}
             </div>
           </div>
         ) : (
