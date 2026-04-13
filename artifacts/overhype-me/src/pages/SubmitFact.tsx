@@ -38,7 +38,7 @@ export default function SubmitFact() {
   const { isAuthenticated, isLoading: authLoading, role } = useAuth();
   const [, setLocation] = useLocation();
 
-  const isPremium = role === "registered" || role === "admin";
+  const isPremium = role === "legendary" || role === "admin";
 
   const [step, setStep] = useState<Step>("write");
 

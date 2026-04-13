@@ -112,7 +112,7 @@ export function Navbar() {
 
   const isRealAdmin = user?.isRealAdmin;
   const isAdminModeOn = user?.isAdmin;
-  const isPremium = role === "registered" || role === "admin";
+  const isPremium = role === "legendary" || role === "admin";
 
   return (
     <nav className="sticky top-0 z-50 w-full bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80 border-b-2 border-border shadow-lg">

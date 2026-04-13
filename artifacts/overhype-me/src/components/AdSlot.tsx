@@ -18,7 +18,7 @@ export function AdSlot({ slot, format = "auto", className = "" }: AdSlotProps) {
   const pushed = useRef(false);
 
   const pubId = import.meta.env.VITE_ADSENSE_PUBLISHER_ID as string | undefined;
-  const isPremium = role === "registered" || role === "admin";
+  const isPremium = role === "legendary" || role === "admin";
 
   // Wait until auth has resolved before deciding to show ads.
   // While loading, render nothing to avoid flashing ads to premium users.

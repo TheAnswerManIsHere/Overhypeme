@@ -472,7 +472,7 @@ const ADMIN_MODEL_PARAMS: Record<string, AdminParamDef[]> = {
 
 export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMemeImages, onClose, defaultPrivate, embedded, fullScreen }: MemeBuilderProps) {
   const { isAuthenticated, login, role, user } = useAuth();
-  const isPremium = role === "registered" || role === "admin";
+  const isPremium = role === "legendary" || role === "admin";
   const isAdmin = role === "admin";
   const { pronouns } = usePersonName();
 
