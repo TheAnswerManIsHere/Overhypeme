@@ -18,7 +18,6 @@ import { cn } from "@/components/ui/Button";
 import { usePersonName } from "@/hooks/use-person-name";
 import { AccessGate } from "@/components/AccessGate";
 import { renderFact } from "@/lib/render-fact";
-import { buildZazzleUrl, trackAffiliateClick } from "@/lib/affiliate";
 
 type MemeItem = {
   id: number;
@@ -271,32 +270,6 @@ export default function FactDetail() {
     await queryClient.invalidateQueries({ queryKey: ["listFactMemes", factId] });
   }
 
-  async function handleMakeMerch(meme: MemeItem, text: string) {
-    // Open a blank tab immediately (synchronous, user-gesture context) so the
-    // popup blocker doesn't suppress it after the async fetch completes.
-    const popup = window.open("about:blank", "_blank");
-
-    let publicImageUrl: string | undefined;
-    try {
-      const res = await fetch(`/api/memes/${meme.permalinkSlug}/zazzle-export`, {
-        method: "POST",
-        credentials: "include",
-      });
-      if (res.ok) {
-        const data = await res.json() as { url?: string };
-        publicImageUrl = data.url;
-      }
-    } catch { /* fallback: open Zazzle without image */ }
-
-    trackAffiliateClick("meme", meme.permalinkSlug, "zazzle", text, publicImageUrl);
-    const url = buildZazzleUrl(publicImageUrl);
-    if (popup) {
-      popup.location.href = url;
-    } else {
-      window.open(url, "_blank") || (window.location.href = url);
-    }
-  }
-
   const pexelsImages = ((fact as unknown as { pexelsImages?: FactPexelsImages | null })?.pexelsImages) ?? null;
   const aiMemeImages = ((fact as unknown as { aiMemeImages?: import("@/components/MemeStudio").AiMemeImages | null })?.aiMemeImages) ?? null;
 
@@ -527,7 +500,7 @@ export default function FactDetail() {
                               aspectRatio={MEME_ASPECT_CLASS[meme.aspectRatio ?? "landscape"] ?? "aspect-video"}
                               actions={isMyMeme ? ["delete", "copyLink", "openFull", "makeMerch"] : ["copyLink", "openFull", "makeMerch"]}
                               onDelete={isMyMeme ? () => handleDeleteMeme(meme.permalinkSlug) : undefined}
-                              onMakeMerch={() => { void handleMakeMerch(meme, renderedText); }}
+                              zazzleUrl={`/api/memes/${meme.permalinkSlug}/zazzle-redirect`}
                               deleteConfirmMessage="Remove this meme? It will no longer be visible to anyone."
                               permalink={memePermalink}
                             />
@@ -563,7 +536,7 @@ export default function FactDetail() {
                               aspectRatio={MEME_ASPECT_CLASS[meme.aspectRatio ?? "landscape"] ?? "aspect-video"}
                               actions={["delete", "copyLink", "openFull", "makeMerch"]}
                               onDelete={() => handleDeleteMeme(meme.permalinkSlug)}
-                              onMakeMerch={() => { void handleMakeMerch(meme, renderedText); }}
+                              zazzleUrl={`/api/memes/${meme.permalinkSlug}/zazzle-redirect`}
                               deleteConfirmMessage="Remove this meme? It will no longer be visible to anyone."
                               permalink={memePermalink}
                             />
@@ -599,7 +572,7 @@ export default function FactDetail() {
                               aspectRatio={MEME_ASPECT_CLASS[meme.aspectRatio ?? "landscape"] ?? "aspect-video"}
                               actions={["delete", "copyLink", "openFull", "makeMerch"]}
                               onDelete={() => handleDeleteMeme(meme.permalinkSlug)}
-                              onMakeMerch={() => { void handleMakeMerch(meme, renderedText); }}
+                              zazzleUrl={`/api/memes/${meme.permalinkSlug}/zazzle-redirect`}
                               deleteConfirmMessage="Remove this meme? It will no longer be visible to anyone."
                               permalink={memePermalink}
                             />

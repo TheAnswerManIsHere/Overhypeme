@@ -41,7 +41,10 @@ export interface ImageCardProps {
   compact?: boolean;
   actions?: ActionType[];
   onDelete?: () => Promise<void> | void;
+  /** @deprecated Use zazzleUrl instead — plain <a> link avoids popup blockers on Safari/iOS */
   onMakeMerch?: () => void;
+  /** Direct Zazzle redirect URL. When provided, "Make Merch" renders as a real link (no popup blocker issues). */
+  zazzleUrl?: string;
   deleteConfirmMessage?: string;
   permalink?: string;
   footer?: ReactNode;
@@ -82,11 +85,12 @@ function useClickOutside(ref: React.RefObject<HTMLElement | null>, handler: () =
 
 interface ActionMenuProps {
   actions: ActionType[];
-  onDeleteConfirm?: () => Promise<void> | void; // desktop: executes the delete
-  onDeleteRequest?: () => void;                  // mobile: triggers card overlay
+  onDeleteConfirm?: () => Promise<void> | void;
+  onDeleteRequest?: () => void;
   onCopy?: () => void;
   onOpenFull?: () => void;
   onMakeMerch?: () => void;
+  zazzleUrl?: string;
   onClose: () => void;
   anchorRef: React.RefObject<HTMLElement | null>;
 }
@@ -98,6 +102,7 @@ function ActionMenu({
   onCopy,
   onOpenFull,
   onMakeMerch,
+  zazzleUrl,
   onClose,
   anchorRef,
 }: ActionMenuProps) {
@@ -126,23 +131,27 @@ function ActionMenu({
         icon: <Maximize2 className="w-4 h-4" />,
         label: "Open Full Resolution",
         action: onOpenFull,
+        href: undefined as string | undefined,
       },
       actions.includes("copyLink") && onCopy && {
         icon: <Link2 className="w-4 h-4" />,
         label: "Copy Link",
         action: onCopy,
+        href: undefined as string | undefined,
       },
-      actions.includes("makeMerch") && onMakeMerch && {
+      actions.includes("makeMerch") && (zazzleUrl ?? onMakeMerch) && {
         icon: <ShoppingBag className="w-4 h-4" />,
         label: "Make Merch on Zazzle",
-        action: onMakeMerch,
+        action: onMakeMerch ?? (() => {}),
+        href: zazzleUrl,
       },
       actions.includes("delete") && (onDeleteRequest ?? onDeleteConfirm) && {
         icon: <Trash2 className="w-4 h-4 text-red-400" />,
         label: <span className="text-red-400">Delete</span>,
         action: onDeleteRequest ?? (() => { void onDeleteConfirm?.(); }),
+        href: undefined as string | undefined,
       },
-    ].filter(Boolean) as { icon: ReactNode; label: ReactNode; action: () => void }[];
+    ].filter(Boolean) as { icon: ReactNode; label: ReactNode; action: () => void; href?: string }[];
 
     return createPortal(
       <div className="fixed inset-0 z-[9998] flex items-end" onClick={onClose}>
@@ -156,17 +165,32 @@ function ActionMenu({
           <div className="flex justify-center pt-2.5 pb-1">
             <div className="w-10 h-1 bg-muted-foreground/30 rounded-full" />
           </div>
-          {mobileItems.map((item, i) => (
-            <button
-              key={i}
-              role="menuitem"
-              onClick={() => { item.action(); onClose(); }}
-              className="flex items-center gap-4 w-full px-6 py-4 text-left text-sm font-medium hover:bg-accent transition-colors"
-            >
-              {item.icon}
-              {item.label}
-            </button>
-          ))}
+          {mobileItems.map((item, i) =>
+            item.href ? (
+              <a
+                key={i}
+                role="menuitem"
+                href={item.href}
+                target="_blank"
+                rel="noreferrer"
+                onClick={onClose}
+                className="flex items-center gap-4 w-full px-6 py-4 text-left text-sm font-medium hover:bg-accent transition-colors"
+              >
+                {item.icon}
+                {item.label}
+              </a>
+            ) : (
+              <button
+                key={i}
+                role="menuitem"
+                onClick={() => { item.action(); onClose(); }}
+                className="flex items-center gap-4 w-full px-6 py-4 text-left text-sm font-medium hover:bg-accent transition-colors"
+              >
+                {item.icon}
+                {item.label}
+              </button>
+            )
+          )}
           <button
             role="menuitem"
             onClick={onClose}
@@ -205,6 +229,7 @@ function ActionMenu({
     label: string;
     kbd?: string;
     action: () => void;
+    href?: string;
   }> = [];
 
   if (actions.includes("openFull") && onOpenFull) {
@@ -224,12 +249,13 @@ function ActionMenu({
       action: () => { onCopy(); onClose(); },
     });
   }
-  if (actions.includes("makeMerch") && onMakeMerch) {
+  if (actions.includes("makeMerch") && (zazzleUrl ?? onMakeMerch)) {
     desktopItems.push({
       key: "makeMerch",
       icon: <ShoppingBag size={15} />,
       label: "Make Merch on Zazzle",
-      action: () => { onMakeMerch(); onClose(); },
+      action: () => { onMakeMerch?.(); onClose(); },
+      href: zazzleUrl,
     });
   }
 
@@ -255,47 +281,65 @@ function ActionMenu({
         }}
       >
         {/* Non-destructive actions */}
-        {desktopItems.map(item => (
-          <button
-            key={item.key}
-            role="menuitem"
-            onClick={e => { e.stopPropagation(); item.action(); }}
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 10,
-              width: "100%",
-              padding: "8px 12px",
-              border: "none",
-              borderRadius: 8,
-              background: "transparent",
-              color: "rgba(255, 255, 255, 0.92)",
-              fontSize: 13,
-              fontWeight: 500,
-              cursor: "pointer",
-              transition: "background 0.15s ease",
-              textAlign: "left",
-              outline: "none",
-            }}
-            onMouseEnter={e => { e.currentTarget.style.background = "rgba(255,255,255,0.06)"; }}
-            onMouseLeave={e => { e.currentTarget.style.background = "transparent"; }}
-          >
-            <span style={{ color: "rgba(255,255,255,0.5)", flexShrink: 0, display: "flex" }}>
-              {item.icon}
-            </span>
-            <span style={{ flex: 1 }}>{item.label}</span>
-            {item.kbd && (
-              <span style={{
-                fontSize: 10,
-                color: "rgba(255,255,255,0.35)",
-                fontFamily: "monospace",
-                letterSpacing: "0.05em",
-              }}>
-                {item.kbd}
+        {desktopItems.map(item => {
+          const itemStyle = {
+            display: "flex",
+            alignItems: "center",
+            gap: 10,
+            width: "100%",
+            padding: "8px 12px",
+            border: "none",
+            borderRadius: 8,
+            background: "transparent",
+            color: "rgba(255, 255, 255, 0.92)",
+            fontSize: 13,
+            fontWeight: 500,
+            cursor: "pointer",
+            transition: "background 0.15s ease",
+            textAlign: "left" as const,
+            outline: "none",
+            textDecoration: "none",
+          };
+          const innerContent = (
+            <>
+              <span style={{ color: "rgba(255,255,255,0.5)", flexShrink: 0, display: "flex" }}>
+                {item.icon}
               </span>
-            )}
-          </button>
-        ))}
+              <span style={{ flex: 1 }}>{item.label}</span>
+              {item.kbd && (
+                <span style={{ fontSize: 10, color: "rgba(255,255,255,0.35)", fontFamily: "monospace", letterSpacing: "0.05em" }}>
+                  {item.kbd}
+                </span>
+              )}
+            </>
+          );
+          return item.href ? (
+            <a
+              key={item.key}
+              role="menuitem"
+              href={item.href}
+              target="_blank"
+              rel="noreferrer"
+              onClick={e => { e.stopPropagation(); onClose(); }}
+              style={itemStyle}
+              onMouseEnter={e => { e.currentTarget.style.background = "rgba(255,255,255,0.06)"; }}
+              onMouseLeave={e => { e.currentTarget.style.background = "transparent"; }}
+            >
+              {innerContent}
+            </a>
+          ) : (
+            <button
+              key={item.key}
+              role="menuitem"
+              onClick={e => { e.stopPropagation(); item.action(); }}
+              style={itemStyle}
+              onMouseEnter={e => { e.currentTarget.style.background = "rgba(255,255,255,0.06)"; }}
+              onMouseLeave={e => { e.currentTarget.style.background = "transparent"; }}
+            >
+              {innerContent}
+            </button>
+          );
+        })}
 
         {/* Divider */}
         {hasDelete && desktopItems.length > 0 && (
@@ -384,6 +428,7 @@ export function ImageCard({
   actions = ["delete", "copyLink", "openFull"],
   onDelete,
   onMakeMerch,
+  zazzleUrl,
   deleteConfirmMessage = "Permanently delete this image? This cannot be undone.",
   permalink,
   footer,
@@ -434,7 +479,7 @@ export function ImageCard({
   const visibleActions = actions.filter(a => {
     if (a === "delete" && !onDelete) return false;
     if (a === "copyLink" && !permalink) return false;
-    if (a === "makeMerch" && !onMakeMerch) return false;
+    if (a === "makeMerch" && !onMakeMerch && !zazzleUrl) return false;
     return true;
   });
 
@@ -658,6 +703,7 @@ export function ImageCard({
           onCopy={visibleActions.includes("copyLink") && permalink ? () => { void handleCopy(); } : undefined}
           onOpenFull={visibleActions.includes("openFull") ? openLightbox : undefined}
           onMakeMerch={visibleActions.includes("makeMerch") && onMakeMerch ? onMakeMerch : undefined}
+          zazzleUrl={visibleActions.includes("makeMerch") ? zazzleUrl : undefined}
           onClose={() => setMenuOpen(false)}
           anchorRef={kebabRef as React.RefObject<HTMLElement | null>}
         />
