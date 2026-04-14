@@ -271,16 +271,24 @@ export default function FactDetail() {
     await queryClient.invalidateQueries({ queryKey: ["listFactMemes", factId] });
   }
 
-  function handleMakeMerch(meme: MemeItem, text: string) {
-    const absoluteImageUrl = meme.imageUrl.startsWith("http")
-      ? meme.imageUrl
-      : `${window.location.origin}${meme.imageUrl}`;
+  async function handleMakeMerch(meme: MemeItem, text: string) {
+    let publicImageUrl: string | undefined;
 
-    const url = buildZazzleUrl(absoluteImageUrl);
+    try {
+      const res = await fetch(`/api/memes/${meme.permalinkSlug}/zazzle-export`, {
+        method: "POST",
+        credentials: "include",
+      });
+      if (res.ok) {
+        const data = await res.json() as { url?: string };
+        publicImageUrl = data.url;
+      }
+    } catch { /* fallback: open Zazzle without image */ }
+
+    trackAffiliateClick("meme", meme.permalinkSlug, "zazzle", text, publicImageUrl);
+    const url = buildZazzleUrl(publicImageUrl);
     const newWin = window.open(url, "_blank");
     if (!newWin) window.location.href = url;
-
-    trackAffiliateClick("meme", meme.permalinkSlug, "zazzle", text, absoluteImageUrl);
   }
 
   const pexelsImages = ((fact as unknown as { pexelsImages?: FactPexelsImages | null })?.pexelsImages) ?? null;
