@@ -3,7 +3,7 @@ import { Link, useLocation } from "wouter";
 import { useAuth } from "@workspace/replit-auth-web";
 import { Layout } from "@/components/layout/Layout";
 import { Button } from "@/components/ui/Button";
-import { Zap, Star, Check, Lock, ThumbsUp, Send, MessageSquare, Image, Share2, ShoppingBag, ShieldOff, ImagePlus, Video, Clapperboard, UserCircle, Crown } from "lucide-react";
+import { Zap, Star, Check, Lock, ThumbsUp, Send, MessageSquare, Image, Share2, ShoppingBag, ShieldOff, ImagePlus, Video, Clapperboard, UserCircle, Crown, CalendarDays } from "lucide-react";
 
 const FREE_FEATURES = [
   { icon: <Check className="w-4 h-4" />,        text: "Browse all Facts" },
@@ -16,12 +16,13 @@ const FREE_FEATURES = [
 ];
 
 const LEGENDARY_FEATURES = [
-  { icon: <Check className="w-4 h-4" />,        text: "Everything in Free" },
-  { icon: <ShieldOff className="w-4 h-4" />,    text: "No CAPTCHAs" },
-  { icon: <ImagePlus className="w-4 h-4" />,    text: "Generate Custom Image Memes" },
-  { icon: <Video className="w-4 h-4" />,        text: "Generate Generic Video Memes" },
-  { icon: <Clapperboard className="w-4 h-4" />, text: "Generate Custom Video Memes" },
-  { icon: <UserCircle className="w-4 h-4" />,   text: "Custom Profile Image" },
+  { icon: <Check className="w-4 h-4" />,          text: "Everything in Free" },
+  { icon: <ShieldOff className="w-4 h-4" />,      text: "No CAPTCHAs" },
+  { icon: <CalendarDays className="w-4 h-4" />,   text: "Fact of the Day" },
+  { icon: <ImagePlus className="w-4 h-4" />,      text: "Generate Custom Image Memes" },
+  { icon: <Video className="w-4 h-4" />,          text: "Generate Generic Video Memes" },
+  { icon: <Clapperboard className="w-4 h-4" />,   text: "Generate Custom Video Memes" },
+  { icon: <UserCircle className="w-4 h-4" />,     text: "Custom Profile Image" },
 ];
 
 interface StripePlan {
