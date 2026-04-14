@@ -14,7 +14,7 @@ export function MerchButtons({ sourceType, sourceId, text, imageUrl }: MerchButt
     ? (imageUrl.startsWith("http") ? imageUrl : `${window.location.origin}${imageUrl}`)
     : undefined;
 
-  const zazzleUrl = buildZazzleUrl(text, absoluteImageUrl);
+  const zazzleUrl = buildZazzleUrl(absoluteImageUrl);
 
   function handleClick() {
     trackEvent("affiliate_click", { destination: "zazzle", source_type: sourceType });
