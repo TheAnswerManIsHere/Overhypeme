@@ -32,7 +32,7 @@ export function FactCard({ fact, rank, showRank = false }: { fact: FactSummary, 
       <div className="absolute bottom-0 left-0 w-8 h-8 border-b-2 border-l-2 border-primary opacity-0 group-hover:opacity-100 transition-opacity -translate-x-1 translate-y-1 z-10" />
 
       {showRank && rank && (
-        <div className="absolute -top-4 -left-4 w-10 h-10 bg-primary text-primary-foreground font-display font-bold text-xl flex items-center justify-center shadow-[0_0_15px_rgba(249,115,22,0.4)] rotate-[-5deg] z-10">
+        <div className="absolute top-0 left-0 min-w-[2.5rem] h-10 px-2 bg-primary text-primary-foreground font-display font-bold text-xl flex items-center justify-center shadow-[0_0_15px_rgba(249,115,22,0.4)] z-10">
           #{rank}
         </div>
       )}
