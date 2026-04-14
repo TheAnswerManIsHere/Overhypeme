@@ -276,7 +276,7 @@ export default function FactDetail() {
       ? meme.imageUrl
       : `${window.location.origin}${meme.imageUrl}`;
 
-    const url = buildZazzleUrl(text, absoluteImageUrl);
+    const url = buildZazzleUrl(absoluteImageUrl);
     const newWin = window.open(url, "_blank");
     if (!newWin) window.location.href = url;
 

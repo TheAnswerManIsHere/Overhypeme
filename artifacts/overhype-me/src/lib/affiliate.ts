@@ -12,14 +12,13 @@ function isDevOrigin(url: string): boolean {
   }
 }
 
-export function buildZazzleUrl(text: string, imageUrl?: string): string {
+export function buildZazzleUrl(imageUrl?: string): string {
   const base = `https://www.zazzle.com/api/create/at-${ZAZZLE_AFFILIATE_ID}`;
   const params = new URLSearchParams({
     rf: ZAZZLE_AFFILIATE_ID,
     ax: "DesignBlast",
     pd: "256461861146055272",
     ed: "true",
-    t_text: text.slice(0, 160),
   });
   // Dev domains use mTLS — Zazzle's servers can't reach them. Skip the image
   // URL in dev so Zazzle opens cleanly. On the deployed app this works normally.
