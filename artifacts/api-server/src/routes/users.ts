@@ -3,7 +3,7 @@ import { db } from "@workspace/db";
 import {
   factsTable, hashtagsTable, factHashtagsTable,
   ratingsTable, searchHistoryTable, usersTable, emailVerificationTokensTable, memesTable,
-  userGenerationCostsTable,
+  userGenerationCostsTable, pendingReviewsTable,
 } from "@workspace/db/schema";
 import { eq, desc, inArray, and, sql, isNull } from "drizzle-orm";
 import { RecordSearchBody } from "@workspace/api-zod";
@@ -64,6 +64,14 @@ router.get("/users/me", async (req: Request, res: Response) => {
     .limit(1);
 
   const submittedRows = await db.select().from(factsTable).where(and(eq(factsTable.submittedById, userId), eq(factsTable.isActive, true))).orderBy(desc(factsTable.createdAt)).limit(50);
+  const pendingRows = await db.select({
+    id: pendingReviewsTable.id,
+    text: pendingReviewsTable.submittedText,
+    status: pendingReviewsTable.status,
+    hashtags: pendingReviewsTable.hashtags,
+    createdAt: pendingReviewsTable.createdAt,
+    reason: pendingReviewsTable.reason,
+  }).from(pendingReviewsTable).where(eq(pendingReviewsTable.submittedById, userId)).orderBy(desc(pendingReviewsTable.createdAt)).limit(50);
   const likedRatings = await db.select({ factId: ratingsTable.factId }).from(ratingsTable).where(and(eq(ratingsTable.userId, userId), eq(ratingsTable.rating, "up")));
   const likedIds = likedRatings.map((r) => r.factId);
   const likedFacts = likedIds.length ? await db.select().from(factsTable).where(and(inArray(factsTable.id, likedIds), eq(factsTable.isActive, true))).limit(50) : [];
@@ -105,6 +113,14 @@ router.get("/users/me", async (req: Request, res: Response) => {
     avatarSource: userRow?.avatarSource ?? "avatar",
     isPremium: userRow?.membershipTier === "legendary",
     submittedFacts: submittedSummaries,
+    pendingSubmissions: pendingRows.map((r) => ({
+      id: r.id,
+      text: r.text,
+      status: r.status,
+      hashtags: r.hashtags ?? [],
+      createdAt: r.createdAt.toISOString(),
+      reason: r.reason ?? null,
+    })),
     likedFacts: likedSummaries,
     favoriteHashtags,
     searchHistory: searchRows.map((r) => r.query),

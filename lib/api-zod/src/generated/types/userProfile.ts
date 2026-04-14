@@ -7,6 +7,15 @@
  */
 import type { FactSummary } from "./factSummary";
 
+export interface PendingSubmission {
+  id: number;
+  text: string;
+  status: string;
+  hashtags: string[];
+  createdAt: string;
+  reason: string | null;
+}
+
 export interface UserProfile {
   id: string;
   email?: string | null;
@@ -21,6 +30,7 @@ export interface UserProfile {
   avatarSource?: string | null;
   isPremium?: boolean;
   submittedFacts: FactSummary[];
+  pendingSubmissions?: PendingSubmission[];
   likedFacts: FactSummary[];
   favoriteHashtags: string[];
   searchHistory: string[];
