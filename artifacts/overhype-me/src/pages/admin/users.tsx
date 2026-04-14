@@ -4,7 +4,7 @@ import { AdminLayout } from "@/components/admin/AdminLayout";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { SpendInline } from "@/components/ui/SpendHistory";
-import { Shield, ShieldOff, Search, Pencil, X, Save, AlertCircle, CheckCircle, Crown, Star, Gem, UserPlus, MailCheck, Trash2, UserX, ExternalLink, CreditCard, Infinity, Loader2, XCircle } from "lucide-react";
+import { Shield, ShieldOff, Search, Pencil, X, Save, AlertCircle, CheckCircle, Crown, Star, Gem, UserPlus, MailCheck, Trash2, UserX, ExternalLink, CreditCard, Infinity, Loader2, XCircle, Bell, BellOff } from "lucide-react";
 import { SubscriptionInfo } from "@/components/SubscriptionInfo";
 
 interface User {
@@ -85,6 +85,14 @@ function displayName(u: User) {
   return u.displayName ?? u.email ?? u.id.slice(0, 12) + "…";
 }
 
+interface Administrator {
+  id: string;
+  displayName: string | null;
+  email: string | null;
+  adminNotifications: boolean;
+  isActive: boolean;
+}
+
 interface AddUserForm {
   email: string;
   password: string;
@@ -135,6 +143,9 @@ export default function AdminUsers() {
   const [showInactive, setShowInactive] = useState(false);
   const [reactivating, setReactivating] = useState(false);
 
+  const [administrators, setAdministrators] = useState<Administrator[]>([]);
+  const [adminNotifSaving, setAdminNotifSaving] = useState<string | null>(null);
+
   const [membershipData, setMembershipData] = useState<MembershipData | null>(null);
   const [membershipLoading, setMembershipLoading] = useState(false);
   const [lifetimeActionLoading, setLifetimeActionLoading] = useState(false);
@@ -161,6 +172,35 @@ export default function AdminUsers() {
       .catch(() => {})
       .finally(() => setLoading(false));
   }, [page, debouncedSearch, showInactive]);
+
+  useEffect(() => {
+    fetch("/api/admin/administrators", { credentials: "include" })
+      .then(async (r) => {
+        if (r.ok) {
+          const data = (await r.json()) as { administrators: Administrator[] };
+          setAdministrators(data.administrators);
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  async function toggleAdminNotif(admin: Administrator) {
+    setAdminNotifSaving(admin.id);
+    try {
+      const res = await fetch(`/api/admin/users/${admin.id}`, {
+        method: "PATCH",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ adminNotifications: !admin.adminNotifications }),
+      });
+      if (res.ok) {
+        setAdministrators((prev) =>
+          prev.map((a) => a.id === admin.id ? { ...a, adminNotifications: !a.adminNotifications } : a),
+        );
+      }
+    } catch {}
+    finally { setAdminNotifSaving(null); }
+  }
 
   function fetchMembership(userId: string) {
     setMembershipLoading(true);
@@ -1260,6 +1300,50 @@ export default function AdminUsers() {
           </div>
         )}
       </div>
+
+      {/* Administrators — email notification settings */}
+      {administrators.length > 0 && (
+        <div className="mt-8 bg-card border border-border rounded-lg overflow-hidden">
+          <div className="px-5 py-4 border-b border-border flex items-center gap-3">
+            <Shield className="w-4 h-4 text-destructive shrink-0" />
+            <h2 className="font-display font-bold uppercase tracking-wide text-sm text-foreground">Administrators</h2>
+            <span className="text-xs text-muted-foreground">— email notification settings</span>
+          </div>
+          <div className="divide-y divide-border">
+            {administrators.map((admin) => (
+              <div key={admin.id} className="flex items-center gap-4 px-5 py-3">
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium text-foreground truncate">
+                    {admin.displayName ?? admin.email ?? admin.id.slice(0, 12) + "…"}
+                  </p>
+                  {admin.email && admin.displayName && (
+                    <p className="text-xs text-muted-foreground truncate">{admin.email}</p>
+                  )}
+                </div>
+                <button
+                  onClick={() => toggleAdminNotif(admin)}
+                  disabled={adminNotifSaving === admin.id}
+                  title={admin.adminNotifications ? "Notifications on — click to disable" : "Notifications off — click to enable"}
+                  className={`flex items-center gap-2 px-3 py-1.5 rounded-sm border text-xs font-medium transition-colors disabled:opacity-50 ${
+                    admin.adminNotifications
+                      ? "border-green-500/50 bg-green-500/10 text-green-400 hover:bg-green-500/20"
+                      : "border-border text-muted-foreground hover:border-muted-foreground/50"
+                  }`}
+                >
+                  {adminNotifSaving === admin.id ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  ) : admin.adminNotifications ? (
+                    <Bell className="w-3.5 h-3.5" />
+                  ) : (
+                    <BellOff className="w-3.5 h-3.5" />
+                  )}
+                  {admin.adminNotifications ? "Notified" : "Silent"}
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </AdminLayout>
   );
 }

@@ -13,6 +13,7 @@ import {
   pendingReviewsTable, userFactPreferencesTable,
 } from "@workspace/db/schema";
 import { stripeStorage } from "../lib/stripeStorage";
+import { notifyAdmins } from "../lib/adminNotify";
 import { hasFeature } from "../lib/tierFeatures";
 import { eq, sql, desc, asc, ilike, and, inArray, isNull } from "drizzle-orm";
 import {
@@ -192,6 +193,13 @@ router.post("/facts", requireAdmin, async (req: Request, res: Response) => {
       metadata: { reviewId: review.id, text: text.slice(0, 120) },
     });
 
+    void notifyAdmins({
+      type: "fact_grammar",
+      submitterName: req.user.displayName ?? req.user.email ?? "Unknown",
+      itemText: tokenizedText,
+      reviewUrl: `${process.env.SITE_BASE_URL ?? "https://overhype.me"}/admin/reviews`,
+    });
+
     res.status(202).json({
       underReview: true,
       reviewId: review.id,
@@ -352,6 +360,13 @@ router.post("/facts/:factId/comments", async (req: Request, res: Response) => {
     actionType: "comment_posted",
     message: "Your comment was submitted and is pending review.",
     metadata: { commentId: comment.id, factId },
+  });
+
+  void notifyAdmins({
+    type: "comment",
+    submitterName: req.user.displayName ?? req.user.email ?? "Unknown",
+    itemText: text,
+    reviewUrl: `${process.env.SITE_BASE_URL ?? "https://overhype.me"}/admin/facts/${factId}`,
   });
 
   res.status(201).json({

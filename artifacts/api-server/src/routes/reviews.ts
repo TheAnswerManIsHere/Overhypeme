@@ -11,6 +11,7 @@ import { embedFactAsync } from "../lib/embeddings";
 import { renderCanonical } from "../lib/renderCanonical";
 import { logActivity } from "../lib/activity";
 import { sendEmail, buildReviewApprovedEmail, buildReviewRejectedEmail } from "../lib/email";
+import { notifyAdmins } from "../lib/adminNotify";
 import { runFactImagePipeline } from "../lib/factImagePipeline";
 import { generateAiMemeBackgrounds } from "../lib/aiMemePipeline";
 
@@ -52,6 +53,13 @@ router.post("/facts/submit-review", requireAuth, async (req: Request, res: Respo
     status: "pending",
     reason: reason ?? null,
   }).returning();
+
+  void notifyAdmins({
+    type: "fact_review",
+    submitterName: req.user.displayName ?? req.user.email ?? "Unknown",
+    itemText: text,
+    reviewUrl: `${process.env.SITE_BASE_URL ?? "https://overhype.me"}/admin/reviews`,
+  });
 
   const isDuplicateFlagged = !!matchingFactId && isDuplicate;
   await logActivity({
