@@ -27,6 +27,7 @@ import { isAdminById } from "./auth";
 import { requireAdmin } from "./admin";
 import { getUploadImageMetadata } from "./storage";
 import { CACHE, setPublicCache, setPublicCors, checkConditional, setNoStore } from "../lib/cacheHeaders";
+import { getSiteBaseUrl } from "../lib/email";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const TEMPLATES_DIR = path.resolve(__dirname, "assets/meme-templates");
@@ -663,6 +664,105 @@ router.get("/memes/:slug/image", async (req: Request, res: Response) => {
   } catch (err) {
     req.log.error({ err, slug }, "Meme render failed");
     res.status(502).end();
+  }
+});
+
+/**
+ * POST /memes/:slug/zazzle-export
+ *
+ * Renders the meme image, stores it in object storage with a public ACL, and
+ * returns a stable URL that Zazzle's servers can fetch directly from GCS.
+ * No authentication required.
+ */
+router.post("/memes/:slug/zazzle-export", async (req: Request, res: Response) => {
+  const slug = req.params["slug"] as string;
+  if (!slug) { res.status(400).end(); return; }
+
+  const [meme] = await db
+    .select()
+    .from(memesTable)
+    .where(eq(memesTable.permalinkSlug, slug))
+    .limit(1);
+  if (!meme) { res.status(404).end(); return; }
+  if (meme.deletedAt) { res.status(410).end(); return; }
+
+  try {
+    let imageBuffer: Buffer;
+
+    if (!meme.imageSource) {
+      // Legacy pre-rendered meme — fetch from object storage
+      const candidates = [
+        `/objects/${memeKey(slug, "jpg")}`,
+        `/objects/${memeKey(slug, "png")}`,
+        `/objects/memes/${slug}.jpg`,
+        `/objects/memes/${slug}.png`,
+      ];
+      let fetched = false;
+      for (const objectPath of candidates) {
+        try {
+          const objectFile = await objectStorageService.getObjectEntityFile(objectPath);
+          const response = await objectStorageService.downloadObject(objectFile);
+          imageBuffer = Buffer.from(await response.arrayBuffer());
+          fetched = true;
+          break;
+        } catch { /* try next */ }
+      }
+      if (!fetched) { res.status(404).end(); return; }
+    } else {
+      // Recipe-based meme — render on the fly
+      const [fact, creator] = await Promise.all([
+        db
+          .select({ text: factsTable.text, canonicalText: factsTable.canonicalText })
+          .from(factsTable)
+          .where(eq(factsTable.id, meme.factId))
+          .limit(1)
+          .then(rows => rows[0]),
+        meme.createdById
+          ? db
+              .select({ displayName: usersTable.displayName, pronouns: usersTable.pronouns })
+              .from(usersTable)
+              .where(and(eq(usersTable.id, meme.createdById), eq(usersTable.isActive, true)))
+              .limit(1)
+              .then(rows => rows[0])
+          : Promise.resolve(undefined),
+      ]);
+
+      const rawTemplate = fact?.text ?? fact?.canonicalText ?? "";
+      const factText = creator?.displayName && rawTemplate
+        ? renderPersonalized(rawTemplate, creator.displayName, creator.pronouns)
+        : (fact?.canonicalText ?? fact?.text ?? "");
+      const source = meme.imageSource as StoredImageSource;
+      const textOptions = (meme.textOptions ?? undefined) as Parameters<typeof generateMemeBuffer>[2];
+
+      let background: BackgroundSource;
+      if (source.type === "template") {
+        background = { type: "template", templateId: source.templateId };
+      } else if (source.type === "stock") {
+        const photoUrl = await resolveStockPhotoUrl(source.pexelsPhotoId, source.photoUrl);
+        background = { type: "image", imageData: photoUrl };
+      } else {
+        const objectFile = await objectStorageService.getObjectEntityFile(source.uploadKey);
+        const downloadResponse = await objectStorageService.downloadObject(objectFile);
+        const buf = Buffer.from(await downloadResponse.arrayBuffer());
+        background = { type: "image", imageData: buf };
+      }
+
+      imageBuffer = await generateMemeBuffer(background, factText, textOptions);
+    }
+
+    // Store in object storage with a public ACL so Zazzle can fetch it directly
+    const subPath = `meme-exports/${slug}.jpg`;
+    await objectStorageService.uploadObjectBuffer({ subPath, buffer: imageBuffer!, contentType: "image/jpeg" });
+    await objectStorageService.trySetObjectEntityAclPolicy(`/objects/${subPath}`, {
+      owner: "system",
+      visibility: "public",
+    });
+
+    const url = `${getSiteBaseUrl()}/storage/objects/${subPath}`;
+    res.json({ url });
+  } catch (err) {
+    req.log.error({ err, slug }, "Zazzle export failed");
+    res.status(502).json({ error: "Export failed" });
   }
 });
 
