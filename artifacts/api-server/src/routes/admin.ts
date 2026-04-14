@@ -909,6 +909,21 @@ async function requireAdminOrApiKey(req: Request, res: Response, next: NextFunct
   return requireAdmin(req, res, next);
 }
 
+// POST /admin/users/set-password — reset a user's password by email (API key auth)
+router.post("/admin/users/set-password", requireAdminOrApiKey, async (req: Request, res: Response) => {
+  const { email, password } = req.body as { email?: string; password?: string };
+  if (!email || typeof email !== "string") { res.status(400).json({ error: "email is required" }); return; }
+  if (!password || typeof password !== "string") { res.status(400).json({ error: "password is required" }); return; }
+  if (password.length < 6) { res.status(400).json({ error: "password must be at least 6 characters" }); return; }
+  if (password.length > 128) { res.status(400).json({ error: "password must be at most 128 characters" }); return; }
+  const [user] = await db.select({ id: usersTable.id, email: usersTable.email })
+    .from(usersTable).where(eq(usersTable.email, email.trim().toLowerCase())).limit(1);
+  if (!user) { res.status(404).json({ error: "User not found" }); return; }
+  const passwordHash = await bcrypt.hash(password, 12);
+  await db.update(usersTable).set({ passwordHash }).where(eq(usersTable.id, user.id));
+  res.json({ success: true, email: user.email });
+});
+
 // POST /admin/facts/:id/refresh-images — manually re-run the image pipeline for one fact
 router.post("/admin/facts/:id/refresh-images", requireAdmin, async (req: Request, res: Response) => {
   const id = parseInt(String(req.params["id"] ?? ""), 10);
