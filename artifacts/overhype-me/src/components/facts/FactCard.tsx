@@ -37,7 +37,7 @@ export function FactCard({ fact, rank, showRank = false }: { fact: FactSummary, 
         </div>
       )}
 
-      <div className="relative z-10 p-6 sm:p-8">
+      <div className={cn("relative z-10 p-6 sm:p-8", showRank && rank && "pt-14 sm:pt-14")}>
         <Link href={`/facts/${fact.id}`} className="block mb-6">
           <h3 className="text-xl sm:text-2xl md:text-3xl font-bold text-foreground leading-tight">
             "{renderFact(fact.text, name, pronouns)}"
