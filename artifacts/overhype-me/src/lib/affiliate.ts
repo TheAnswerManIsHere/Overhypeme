@@ -17,6 +17,7 @@ export function buildZazzleUrl(text: string, imageUrl?: string): string {
   const params = new URLSearchParams({
     rf: ZAZZLE_AFFILIATE_ID,
     ax: "DesignBlast",
+    pd: "256461861146055272",
     ed: "true",
     t_text: text.slice(0, 160),
   });
