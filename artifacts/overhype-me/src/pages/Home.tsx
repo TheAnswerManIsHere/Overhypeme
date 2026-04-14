@@ -73,7 +73,7 @@ export default function Home() {
   return (
     <Layout>
       {/* Hero Section */}
-      <section className="relative pt-24 pb-32 md:pt-32 md:pb-48 overflow-hidden border-b-4 border-primary">
+      <section className="relative pt-24 pb-10 md:pt-32 md:pb-14 overflow-hidden border-b-4 border-primary">
         <div className="absolute inset-0 z-0">
           <img 
             src={`${import.meta.env.BASE_URL}images/hero-bg.png`} 
@@ -201,8 +201,8 @@ export default function Home() {
       </section>
 
       {/* Unified Fact Grid */}
-      <section className="max-w-7xl mx-auto px-4 py-20">
-        <div className="flex items-end justify-between mb-12 border-b-2 border-border pb-4">
+      <section className="max-w-7xl mx-auto px-4 py-8">
+        <div className="flex items-end justify-between mb-6 border-b-2 border-border pb-4">
           <div>
             {filterMode === "hall-of-fame" && (
               <>
