@@ -112,6 +112,7 @@ router.patch("/admin/users/:id", requireAdmin, async (req: Request, res: Respons
   const updates: Record<string, unknown> = {};
   if (typeof body["isActive"] === "boolean") updates.isActive = body["isActive"];
   if (typeof body["isAdmin"] === "boolean") updates.isAdmin = body["isAdmin"];
+  if (typeof body["adminNotifications"] === "boolean") updates.adminNotifications = body["adminNotifications"];
   if (typeof body["captchaVerified"] === "boolean") updates.captchaVerified = body["captchaVerified"];
   if (body["displayName"] !== undefined) updates.displayName = body["displayName"] ? String(body["displayName"]) : null;
   if (body["email"] !== undefined) updates.email = body["email"] ? String(body["email"]).trim().toLowerCase() : null;
@@ -160,6 +161,21 @@ router.patch("/admin/users/:id", requireAdmin, async (req: Request, res: Respons
   }
 
   res.json({ success: true, user: updated });
+});
+
+router.get("/admin/administrators", requireAdmin, async (_req: Request, res: Response) => {
+  const admins = await db
+    .select({
+      id: usersTable.id,
+      displayName: usersTable.displayName,
+      email: usersTable.email,
+      adminNotifications: usersTable.adminNotifications,
+      isActive: usersTable.isActive,
+    })
+    .from(usersTable)
+    .where(eq(usersTable.isAdmin, true))
+    .orderBy(usersTable.displayName);
+  res.json({ administrators: admins });
 });
 
 router.delete("/admin/users/:id", requireAdmin, async (req: Request, res: Response) => {
