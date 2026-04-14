@@ -73,7 +73,7 @@ export default function Home() {
   return (
     <Layout>
       {/* Hero Section */}
-      <section className="relative pt-24 pb-10 md:pt-32 md:pb-14 overflow-hidden border-b-4 border-primary">
+      <section className="relative pt-10 pb-10 md:pt-16 md:pb-14 overflow-hidden border-b-4 border-primary">
         <div className="absolute inset-0 z-0">
           <img 
             src={`${import.meta.env.BASE_URL}images/hero-bg.png`} 
