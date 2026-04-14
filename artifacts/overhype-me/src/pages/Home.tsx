@@ -97,7 +97,7 @@ export default function Home() {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             transition={{ delay: 0.2 }}
-            className="text-lg md:text-xl text-muted-foreground max-w-2xl mx-auto mb-10 font-medium"
+            className="text-lg md:text-xl text-muted-foreground max-w-2xl mx-auto mb-4 font-medium"
           >
             The ultimate personalized facts database. Set your name above — every fact becomes yours.
           </motion.p>
