@@ -867,13 +867,11 @@ router.get("/memes/:slug/zazzle-redirect", async (req: Request, res: Response) =
 
     const subPath = `meme-exports/${slug}.jpg`;
     await objectStorageService.uploadObjectBuffer({ subPath, buffer: imageBuffer!, contentType: "image/jpeg" });
-    await objectStorageService.trySetObjectEntityAclPolicy(`/objects/${subPath}`, {
-      owner: "system",
-      visibility: "public",
-    });
 
-    const publicImageUrl = `${getSiteBaseUrl()}/api/storage/objects/${subPath}`;
-    res.redirect(302, buildZazzleRedirectUrl(publicImageUrl));
+    // Generate a signed GCS URL valid for 24 h so Zazzle's servers can fetch
+    // the image directly without going through our app proxy (which they cannot reach).
+    const signedImageUrl = await objectStorageService.getObjectEntityDownloadURL(subPath, 86400);
+    res.redirect(302, buildZazzleRedirectUrl(signedImageUrl));
   } catch (err) {
     req.log.error({ err, slug }, "Zazzle redirect export failed — falling back to base URL");
     res.redirect(302, buildZazzleRedirectUrl());

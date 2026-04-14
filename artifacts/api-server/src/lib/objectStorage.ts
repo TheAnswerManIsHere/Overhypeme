@@ -227,6 +227,19 @@ export class ObjectStorageService {
     await file.delete();
   }
 
+  /**
+   * Returns a short-lived signed GCS URL for direct download of a private
+   * object. Useful when the file must be accessible to third-party servers
+   * (e.g. Zazzle) that cannot reach our app proxy.
+   */
+  async getObjectEntityDownloadURL(subPath: string, ttlSec = 3600): Promise<string> {
+    let dir = this.getPrivateObjectDir();
+    if (!dir.endsWith("/")) dir = `${dir}/`;
+    const fullPath = `${dir}${subPath}`;
+    const { bucketName, objectName } = parseObjectPath(fullPath);
+    return signObjectURL({ bucketName, objectName, method: "GET", ttlSec });
+  }
+
   async uploadObjectBuffer({
     subPath,
     buffer,
