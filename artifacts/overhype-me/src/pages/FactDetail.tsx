@@ -272,8 +272,11 @@ export default function FactDetail() {
   }
 
   async function handleMakeMerch(meme: MemeItem, text: string) {
-    let publicImageUrl: string | undefined;
+    // Open a blank tab immediately (synchronous, user-gesture context) so the
+    // popup blocker doesn't suppress it after the async fetch completes.
+    const popup = window.open("about:blank", "_blank");
 
+    let publicImageUrl: string | undefined;
     try {
       const res = await fetch(`/api/memes/${meme.permalinkSlug}/zazzle-export`, {
         method: "POST",
@@ -287,8 +290,11 @@ export default function FactDetail() {
 
     trackAffiliateClick("meme", meme.permalinkSlug, "zazzle", text, publicImageUrl);
     const url = buildZazzleUrl(publicImageUrl);
-    const newWin = window.open(url, "_blank");
-    if (!newWin) window.location.href = url;
+    if (popup) {
+      popup.location.href = url;
+    } else {
+      window.open(url, "_blank") || (window.location.href = url);
+    }
   }
 
   const pexelsImages = ((fact as unknown as { pexelsImages?: FactPexelsImages | null })?.pexelsImages) ?? null;

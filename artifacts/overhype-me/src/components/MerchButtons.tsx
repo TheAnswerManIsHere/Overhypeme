@@ -19,6 +19,10 @@ export function MerchButtons({ sourceType, sourceId, text, imageUrl }: MerchButt
     e.preventDefault();
     setLoading(true);
 
+    // Open a blank tab NOW (synchronous, user-gesture context) so popup
+    // blockers don't suppress it after the async fetch completes.
+    const popup = window.open("about:blank", "_blank");
+
     try {
       const res = await fetch(`/api/memes/${sourceId}/zazzle-export`, {
         method: "POST",
@@ -35,11 +39,18 @@ export function MerchButtons({ sourceType, sourceId, text, imageUrl }: MerchButt
       trackAffiliateClick(sourceType, sourceId, "zazzle", text, publicImageUrl);
 
       const url = buildZazzleUrl(publicImageUrl);
-      window.open(url, "_blank", "noopener,noreferrer");
+      if (popup) {
+        popup.location.href = url;
+      } else {
+        window.open(url, "_blank");
+      }
     } catch {
-      // Fallback: open Zazzle without image
       const url = buildZazzleUrl();
-      window.open(url, "_blank", "noopener,noreferrer");
+      if (popup) {
+        popup.location.href = url;
+      } else {
+        window.open(url, "_blank");
+      }
     } finally {
       setLoading(false);
     }
