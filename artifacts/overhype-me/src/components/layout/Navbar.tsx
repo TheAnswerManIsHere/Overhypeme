@@ -120,14 +120,12 @@ export function Navbar() {
         <div className="flex justify-between items-center h-20">
           
           {/* Logo — triple-click for dev admin login */}
-          <Link href="/" onClick={handleLogoClick} className="flex items-center gap-3 shrink-0 group">
-            <div className="w-10 h-10 bg-primary rounded-sm flex items-center justify-center transform group-hover:rotate-12 transition-transform duration-300 shadow-[0_0_15px_rgba(249,115,22,0.5)]">
-              <img src={`${import.meta.env.BASE_URL}images/logo.png`} alt="Logo" className="w-full h-full object-contain mix-blend-screen" />
-            </div>
-            <div className="flex flex-col">
-              <span className="font-display font-bold text-xl tracking-wider leading-none text-foreground group-hover:text-primary transition-colors">OVERHYPE</span>
-              <span className="font-display font-bold text-sm tracking-widest text-primary leading-none">.ME</span>
-            </div>
+          <Link href="/" onClick={handleLogoClick} className="shrink-0 group">
+            <img
+              src={`${import.meta.env.BASE_URL}images/logo.svg`}
+              alt="Overhype.me"
+              className="h-9 w-auto opacity-90 group-hover:opacity-100 transition-opacity"
+            />
           </Link>
 
           {/* Name tag — always visible */}
