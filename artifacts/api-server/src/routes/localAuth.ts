@@ -233,6 +233,7 @@ router.post("/auth/local-login", async (req: Request, res: Response) => {
   setSessionCookie(res, sid);
 
   res.json({
+    sid,
     user: {
       id: user.id,
       email: user.email,
