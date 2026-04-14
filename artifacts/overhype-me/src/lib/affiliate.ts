@@ -1,6 +1,6 @@
 const ZAZZLE_AFFILIATE_ID =
   (import.meta.env.VITE_ZAZZLE_AFFILIATE_ID as string | undefined) ??
-  "238527546099265388";
+  "238499514566968751";
 
 /** True when running in the Replit dev environment (mTLS proxy — not reachable by Zazzle). */
 function isDevOrigin(url: string): boolean {
