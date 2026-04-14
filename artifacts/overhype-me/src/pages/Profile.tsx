@@ -810,13 +810,13 @@ export default function Profile() {
             onClick={() => setActiveTab("liked")}
             className={`flex items-center gap-2 px-6 py-4 font-display text-lg uppercase tracking-wider transition-colors border-b-2 whitespace-nowrap ${activeTab === "liked" ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground hover:border-border"}`}
           >
-            <ThumbsUp className="w-5 h-5" /> Liked Intel ({profile.likedFacts.length})
+            <ThumbsUp className="w-5 h-5" /> Liked Facts ({profile.likedFacts.length})
           </button>
           <button 
             onClick={() => setActiveTab("submitted")}
             className={`flex items-center gap-2 px-6 py-4 font-display text-lg uppercase tracking-wider transition-colors border-b-2 whitespace-nowrap ${activeTab === "submitted" ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground hover:border-border"}`}
           >
-            <FileText className="w-5 h-5" /> Submissions ({profile.submittedFacts.length})
+            <FileText className="w-5 h-5" /> Submissions ({profile.submittedFacts.length + (profile.pendingSubmissions?.length ?? 0)})
           </button>
           <button 
             onClick={() => setActiveTab("history")}
@@ -850,11 +850,62 @@ export default function Profile() {
           )}
 
           {activeTab === "submitted" && (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              {profile.submittedFacts.map(fact => <FactCard key={fact.id} fact={fact} />)}
-              {profile.submittedFacts.length === 0 && (
-                <div className="col-span-full text-center py-12 bg-card border-2 border-dashed border-border rounded-sm">
-                  <p className="text-muted-foreground text-lg mb-4">You haven't contributed any intel yet.</p>
+            <div className="space-y-8">
+              {(profile.pendingSubmissions?.length ?? 0) > 0 && (
+                <div>
+                  <h3 className="font-display text-base uppercase tracking-wider text-muted-foreground mb-4 flex items-center gap-2">
+                    <Clock className="w-4 h-4" /> Under Review
+                  </h3>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {profile.pendingSubmissions!.map((sub: { id: number; text: string; status: string; hashtags: string[]; createdAt: string; reason: string | null }) => (
+                      <div key={sub.id} className={`bg-card border-2 rounded-sm p-4 space-y-2 ${sub.status === "rejected" ? "border-destructive/40" : "border-border"}`}>
+                        <div className="flex items-center justify-between gap-2">
+                          <span className={`text-[10px] font-bold uppercase tracking-widest px-2 py-0.5 rounded-sm border ${
+                            sub.status === "pending"
+                              ? "bg-amber-500/10 text-amber-400 border-amber-500/40"
+                              : sub.status === "rejected"
+                              ? "bg-destructive/10 text-destructive border-destructive/40"
+                              : "bg-green-500/10 text-green-400 border-green-500/40"
+                          }`}>
+                            {sub.status === "pending" ? "Pending Review" : sub.status === "rejected" ? "Declined" : sub.status}
+                          </span>
+                          <span className="text-xs text-muted-foreground">{new Date(sub.createdAt).toLocaleDateString()}</span>
+                        </div>
+                        <p className="text-foreground text-sm leading-relaxed">{sub.text}</p>
+                        {sub.hashtags.length > 0 && (
+                          <div className="flex flex-wrap gap-1">
+                            {sub.hashtags.map((tag: string) => (
+                              <span key={tag} className="text-[10px] text-primary/70 font-bold uppercase tracking-wider">#{tag}</span>
+                            ))}
+                          </div>
+                        )}
+                        {sub.status === "rejected" && sub.reason && (
+                          <p className="text-xs text-muted-foreground border-t border-border/50 pt-2 mt-2">
+                            <span className="font-bold text-destructive/80">Reason:</span> {sub.reason}
+                          </p>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {profile.submittedFacts.length > 0 && (
+                <div>
+                  {(profile.pendingSubmissions?.length ?? 0) > 0 && (
+                    <h3 className="font-display text-base uppercase tracking-wider text-muted-foreground mb-4 flex items-center gap-2">
+                      <CheckCircle className="w-4 h-4 text-green-500" /> Approved &amp; Live
+                    </h3>
+                  )}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    {profile.submittedFacts.map(fact => <FactCard key={fact.id} fact={fact} />)}
+                  </div>
+                </div>
+              )}
+
+              {profile.submittedFacts.length === 0 && (profile.pendingSubmissions?.length ?? 0) === 0 && (
+                <div className="text-center py-12 bg-card border-2 border-dashed border-border rounded-sm">
+                  <p className="text-muted-foreground text-lg mb-4">You haven't submitted any facts yet.</p>
                   <Link href="/submit"><Button>SUBMIT FACT</Button></Link>
                 </div>
               )}
