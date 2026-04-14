@@ -1170,7 +1170,7 @@ export default function AdminUsers() {
                   }`}
                 >
                   <span className={`w-2 h-2 rounded-full ${draft.captchaVerified ? "bg-green-500" : "bg-muted-foreground"}`} />
-                  {draft.captchaVerified ? "Verified" : "Unverified"}
+                  {draft.captchaVerified ? `Fact ID #${selectedUser.id} Added:` : "Unverified"}
                 </button>
               </div>
             </div>
