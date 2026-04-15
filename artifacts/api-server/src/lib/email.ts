@@ -11,9 +11,22 @@ function getFromAddress(): string {
   return process.env.RESEND_FROM_EMAIL ?? "noreply@overhype.me";
 }
 
-/** Trailing slash stripped so callers can safely append paths. */
+/**
+ * Base URL for transactional email links.
+ * Priority:
+ *   1. SITE_BASE_URL env var (explicit override — always wins)
+ *   2. REPLIT_DEV_DOMAIN env var (auto-injected by Replit in every workspace)
+ *   3. https://overhype.me (production fallback)
+ * Trailing slash is always stripped so callers can safely append paths.
+ */
 export function getSiteBaseUrl(): string {
-  return (process.env.SITE_BASE_URL ?? "https://overhype.me").replace(/\/$/, "");
+  if (process.env.SITE_BASE_URL) {
+    return process.env.SITE_BASE_URL.replace(/\/$/, "");
+  }
+  if (process.env.REPLIT_DEV_DOMAIN) {
+    return `https://${process.env.REPLIT_DEV_DOMAIN}`;
+  }
+  return "https://overhype.me";
 }
 
 function isEnabled(): boolean {

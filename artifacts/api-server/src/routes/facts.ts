@@ -14,6 +14,7 @@ import {
 } from "@workspace/db/schema";
 import { stripeStorage } from "../lib/stripeStorage";
 import { notifyAdmins } from "../lib/adminNotify";
+import { getSiteBaseUrl } from "../lib/email";
 import { hasFeature } from "../lib/tierFeatures";
 import { eq, sql, desc, asc, ilike, and, inArray, isNull } from "drizzle-orm";
 import {
@@ -197,7 +198,7 @@ router.post("/facts", requireAdmin, async (req: Request, res: Response) => {
       type: "fact_grammar",
       submitterName: req.user.displayName ?? req.user.email ?? "Unknown",
       itemText: tokenizedText,
-      reviewUrl: `${process.env.SITE_BASE_URL ?? "https://overhype.me"}/admin/reviews`,
+      reviewUrl: `${getSiteBaseUrl()}/admin/reviews`,
     });
 
     res.status(202).json({
@@ -366,7 +367,7 @@ router.post("/facts/:factId/comments", async (req: Request, res: Response) => {
     type: "comment",
     submitterName: req.user.displayName ?? req.user.email ?? "Unknown",
     itemText: text,
-    reviewUrl: `${process.env.SITE_BASE_URL ?? "https://overhype.me"}/admin/facts/${factId}`,
+    reviewUrl: `${getSiteBaseUrl()}/admin/facts/${factId}`,
   });
 
   res.status(201).json({
