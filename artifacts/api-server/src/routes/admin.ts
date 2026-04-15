@@ -1464,11 +1464,17 @@ router.get("/admin/stripe/summary", requireAdmin, async (_req: Request, res: Res
     const webhookSecretConfigured = !!process.env.STRIPE_WEBHOOK_SECRET;
     const priceIdsConfigured = !!(process.env.MEMBERSHIP_PRICE_IDS ?? "").trim();
 
+    const domain = process.env.REPLIT_DOMAINS?.split(",")[0]?.trim();
+    const webhookUrl = domain
+      ? `https://${domain}/api/stripe/webhook`
+      : null;
+
     res.json({
       activeSubscribers: legendaryRows[0]?.cnt ?? 0,
       registeredMembers: registeredRows[0]?.cnt ?? 0,
       webhookSecretConfigured,
       priceIdsConfigured,
+      webhookUrl,
     });
   } catch (err) {
     console.error("[admin] stripe/summary error:", err);
