@@ -343,7 +343,7 @@ router.get("/users/me/uploads", async (req: Request, res: Response) => {
     return;
   }
 
-  const displayLimit = await getConfigInt("upload_gallery_display_limit", 50);
+  const displayLimit = await getConfigInt("bg_display_limit_upload", 20);
 
   const [rows, countResult, maxUploads] = await Promise.all([
     db.execute(sql`

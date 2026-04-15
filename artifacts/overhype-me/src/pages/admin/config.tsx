@@ -25,7 +25,6 @@ const LIMIT_KEYS = new Set([
   "ai_max_images_per_gender",
   "max_memes_per_fact",
   "pexels_photos_per_gender",
-  "upload_gallery_display_limit",
   "user_max_images",
   "bg_display_limit_stock",
   "bg_display_limit_gradient",
