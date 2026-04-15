@@ -1692,6 +1692,9 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
                 <ChevronLeft className="w-3 h-3" />
                 Change Background
               </button>
+              <p className="text-[10px] font-display uppercase tracking-[0.2em] text-muted-foreground mb-1">
+                Step 2 of 2
+              </p>
               <h3 className="text-base font-bold uppercase tracking-wide">Customize & Preview</h3>
             </div>
             <StepDots current={2} total={2} />

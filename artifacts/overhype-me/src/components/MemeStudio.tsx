@@ -1086,6 +1086,9 @@ function VideoTab({ factId, factText, pexelsImages, aiMemeImages, initialImageDa
                 <ChevronLeft className="w-3 h-3" />
                 Change Background
               </button>
+              <p className="text-[10px] font-display uppercase tracking-[0.2em] text-muted-foreground mb-1">
+                Step 2 of 3
+              </p>
               <h3 className="text-base font-bold uppercase tracking-wide">Pick a Style</h3>
             </div>
             <StepDots current={2} total={3} />
@@ -1145,6 +1148,9 @@ function VideoTab({ factId, factText, pexelsImages, aiMemeImages, initialImageDa
                 <ChevronLeft className="w-3 h-3" />
                 Change Style
               </button>
+              <p className="text-[10px] font-display uppercase tracking-[0.2em] text-muted-foreground mb-1">
+                Step 3 of 3
+              </p>
               <h3 className="text-base font-bold uppercase tracking-wide">Generate & Preview</h3>
             </div>
             <StepDots current={3} total={3} />
