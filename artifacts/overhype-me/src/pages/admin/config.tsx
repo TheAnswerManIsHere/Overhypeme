@@ -104,56 +104,15 @@ function ModelConfigSection({ title, subtitle, modelKey }: {
 
 // ── AI Settings group (nested inside Configuration) ───────────────────────────
 
-function AISettingsGroup({ debugActive, debugToggling, toggleDebugMode }: {
-  debugActive: boolean;
-  debugToggling: boolean;
-  toggleDebugMode: () => Promise<void>;
-}) {
+function AISettingsGroup() {
   const [selectedStyleId, setSelectedStyleId] = useState<string>(STYLE_OPTIONS[0]?.id ?? "");
   const standardKey = `style_suffix_${selectedStyleId}`;
   const referenceKey = `style_suffix_ref_${selectedStyleId}`;
   const selectedStyleDef = STYLE_OPTIONS.find((s) => s.id === selectedStyleId);
+  const { debugActive } = useConfigCtx();
 
   return (
     <div className="space-y-3">
-
-      {/* Debug Mode Toggle */}
-      <div className={`rounded-xl border-2 p-5 transition-colors ${debugActive ? "border-amber-500/60 bg-amber-500/5" : "border-border bg-card"}`}>
-        <div className="flex items-center justify-between gap-6">
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2">
-              <Bug className={`w-5 h-5 ${debugActive ? "text-amber-400" : "text-muted-foreground"}`} />
-              <h2 className={`font-semibold text-lg ${debugActive ? "text-amber-400" : "text-foreground"}`}>
-                Debug Mode {debugActive ? "ON" : "OFF"}
-              </h2>
-            </div>
-            <p className="text-sm text-muted-foreground mt-1">
-              {debugActive
-                ? "All AI configs are using their Debug values (where set). Not suitable for regular users."
-                : "All AI configs are using their Standard values. Enable debug mode to switch to the Debug set of values."}
-            </p>
-          </div>
-          <button
-            onClick={() => void toggleDebugMode()}
-            disabled={debugToggling}
-            className={`shrink-0 px-6 py-2.5 rounded-lg font-semibold text-sm transition-colors flex items-center gap-2 ${
-              debugActive
-                ? "bg-amber-500 hover:bg-amber-400 text-black"
-                : "bg-muted hover:bg-muted/80 text-foreground border border-border"
-            } disabled:opacity-50 disabled:cursor-not-allowed`}
-          >
-            {debugToggling && <Loader2 className="w-4 h-4 animate-spin" />}
-            {debugActive ? "Switch to Standard" : "Switch to Debug"}
-          </button>
-        </div>
-      </div>
-
-      {debugActive && (
-        <div className="flex items-center gap-2 text-amber-400 text-sm font-medium">
-          <Bug className="w-4 h-4" />
-          <span>Debug mode is active — the system is using Debug values for all configured AI keys.</span>
-        </div>
-      )}
 
       {/* AI Image Generation */}
       <CollapsibleSection
@@ -347,6 +306,44 @@ export default function AdminConfig() {
       <ConfigPageContext.Provider value={ctxValue}>
         <div className="max-w-5xl space-y-4">
 
+          {/* ── Debug Mode ── always visible at the top ── */}
+          <div className={`rounded-xl border-2 p-5 transition-colors ${debugActive ? "border-amber-500/60 bg-amber-500/5" : "border-border bg-card"}`}>
+            <div className="flex items-center justify-between gap-6">
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2">
+                  <Bug className={`w-5 h-5 ${debugActive ? "text-amber-400" : "text-muted-foreground"}`} />
+                  <h2 className={`font-semibold text-lg ${debugActive ? "text-amber-400" : "text-foreground"}`}>
+                    Debug Mode {debugActive ? "ON" : "OFF"}
+                  </h2>
+                </div>
+                <p className="text-sm text-muted-foreground mt-1">
+                  {debugActive
+                    ? "All configurations are using their Debug values (where set). Not suitable for regular users."
+                    : "All configurations are using their Standard values. Enable debug mode to switch to the Debug set of values."}
+                </p>
+              </div>
+              <button
+                onClick={() => void toggleDebugMode()}
+                disabled={debugToggling}
+                className={`shrink-0 px-6 py-2.5 rounded-lg font-semibold text-sm transition-colors flex items-center gap-2 ${
+                  debugActive
+                    ? "bg-amber-500 hover:bg-amber-400 text-black"
+                    : "bg-muted hover:bg-muted/80 text-foreground border border-border"
+                } disabled:opacity-50 disabled:cursor-not-allowed`}
+              >
+                {debugToggling && <Loader2 className="w-4 h-4 animate-spin" />}
+                {debugActive ? "Switch to Standard" : "Switch to Debug"}
+              </button>
+            </div>
+          </div>
+
+          {debugActive && (
+            <div className="flex items-center gap-2 text-amber-400 text-sm font-medium">
+              <Bug className="w-4 h-4" />
+              <span>Debug mode is active — the system is using Debug values for all configurations.</span>
+            </div>
+          )}
+
           <div className="flex items-center gap-2 text-muted-foreground text-sm">
             <Settings className="w-4 h-4" />
             <span>Changes take effect within 60 seconds — no restart required.</span>
@@ -367,14 +364,10 @@ export default function AdminConfig() {
               <CollapsibleSection
                 title="AI Settings"
                 icon={<Bot className="w-4 h-4 text-muted-foreground" />}
-                description="Models, parameters, style suffixes, video generation, and debug mode."
+                description="Models, parameters, style suffixes, and video generation."
                 storageKey="admin_section_config_ai_group"
               >
-                <AISettingsGroup
-                  debugActive={debugActive}
-                  debugToggling={debugToggling}
-                  toggleDebugMode={toggleDebugMode}
-                />
+                <AISettingsGroup />
               </CollapsibleSection>
 
             </div>
