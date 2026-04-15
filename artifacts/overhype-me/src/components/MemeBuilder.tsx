@@ -1321,7 +1321,7 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
   const translateX = `translateX(-${stepIndex * 100}%)`;
 
   const innerContent = (
-    <div ref={sliderRef} className="overflow-hidden">
+    <div ref={sliderRef} style={{ overflowX: "clip" }}>
       <div
         className="flex transition-transform duration-300 ease-in-out"
         style={{ transform: translateX, willChange: "transform" }}
@@ -1697,9 +1697,9 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
             <StepDots current={2} total={2} />
           </div>
 
-          {/* ── Live canvas preview (resizable) ── */}
+          {/* ── Live canvas preview (resizable, sticky) ── */}
           <div
-            className="sticky z-30 bg-card pb-2 shadow-[0_6px_16px_-2px_rgba(0,0,0,0.45)] top-14"
+            className={`sticky z-30 bg-card pb-2 shadow-[0_6px_16px_-2px_rgba(0,0,0,0.45)] ${embedded ? "top-0" : "top-16"}`}
           >
             {/* Aspect ratio selector */}
             <div className="px-4 md:px-5 pb-2 flex items-center gap-2 pt-1">
@@ -1793,26 +1793,6 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
 
           {/* ── Controls ── */}
           <div className="p-4 md:p-5 space-y-4">
-
-            {/* Visibility toggle (premium) */}
-            {isPremium && status !== "done" && (
-              <div className="flex items-center gap-3 p-3 bg-secondary border border-border">
-                <button
-                  type="button"
-                  onClick={() => setIsPublic(true)}
-                  className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 text-xs font-display font-bold uppercase tracking-wider rounded-sm transition-colors ${isPublic ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"}`}
-                >
-                  <Globe className="w-3.5 h-3.5" /> Public
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setIsPublic(false)}
-                  className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 text-xs font-display font-bold uppercase tracking-wider rounded-sm transition-colors ${!isPublic ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"}`}
-                >
-                  <Lock className="w-3.5 h-3.5" /> Private
-                </button>
-              </div>
-            )}
 
             {/* Text section */}
             <div>
@@ -2127,7 +2107,27 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
                 </div>
               </div>
             ) : (
-              <div className="flex gap-3">
+              <div className="space-y-3">
+                {/* Visibility toggle (premium) — just above save */}
+                {isPremium && (
+                  <div className="flex items-center gap-3 p-3 bg-secondary border border-border">
+                    <button
+                      type="button"
+                      onClick={() => setIsPublic(true)}
+                      className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 text-xs font-display font-bold uppercase tracking-wider rounded-sm transition-colors ${isPublic ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"}`}
+                    >
+                      <Globe className="w-3.5 h-3.5" /> Public
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setIsPublic(false)}
+                      className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 text-xs font-display font-bold uppercase tracking-wider rounded-sm transition-colors ${!isPublic ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"}`}
+                    >
+                      <Lock className="w-3.5 h-3.5" /> Private
+                    </button>
+                  </div>
+                )}
+                <div className="flex gap-3">
                 <Button
                   onClick={handleGenerate}
                   disabled={status === "generating" || isUploadingFile}
@@ -2147,6 +2147,7 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
                   <Download className="w-5 h-5" />
                   <span className="hidden sm:inline">Download</span>
                 </Button>
+                </div>
               </div>
             )}
           </div>
