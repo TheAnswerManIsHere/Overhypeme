@@ -496,9 +496,10 @@ interface VideoTabProps {
   aiMemeImages?: AiMemeImages | null;
   /** Pre-loaded meme image data URL passed from MemeBuilder's "Turn Into Video" button */
   initialImageDataUrl?: string;
+  defaultPrivate?: boolean;
 }
 
-function VideoTab({ factId, factText, pexelsImages, aiMemeImages, initialImageDataUrl }: VideoTabProps) {
+function VideoTab({ factId, factText, pexelsImages, aiMemeImages, initialImageDataUrl, defaultPrivate }: VideoTabProps) {
   const { role } = useAuth();
   const isAdmin = role === "admin";
   const isLegendary = role === "legendary" || role === "admin";
@@ -573,7 +574,7 @@ function VideoTab({ factId, factText, pexelsImages, aiMemeImages, initialImageDa
   }, [isAdmin]);
 
   const [motionPrompt, setMotionPrompt] = useState("");
-  const [isVideoPrivate, setIsVideoPrivate] = useState(false);
+  const [isVideoPrivate, setIsVideoPrivate] = useState(defaultPrivate ?? false);
 
   // Admin config panel defaults (seeded from /api/admin/config on load)
   const [adminConfigDuration, setAdminConfigDuration] = useState("5");
@@ -1732,6 +1733,7 @@ export function MemeStudio({
               pexelsImages={pexelsImages}
               aiMemeImages={aiMemeImages}
               initialImageDataUrl={initialVideoImageDataUrl}
+              defaultPrivate={defaultPrivate}
             />
           </div>
         )}
