@@ -381,8 +381,8 @@ export default function FactDetail() {
             </div>
 
             <div className="text-muted-foreground text-sm font-medium text-right">
-              <div>VERIFIED: {format(new Date(fact.createdAt), 'MMM dd, yyyy')}</div>
-              {fact.submittedBy && <div className="text-primary mt-1">BY {fact.submittedBy.substring(0,8).toUpperCase()}</div>}
+              <div>FACT ID {fact.id} &nbsp;·&nbsp; ADDED: {format(new Date(fact.createdAt), 'MMM dd, yyyy')}</div>
+              {fact.submittedBy && <div className="text-primary mt-1">BY {fact.submittedBy.toUpperCase()}</div>}
             </div>
           </div>
 
