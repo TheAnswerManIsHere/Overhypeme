@@ -31,6 +31,7 @@ import {
   Sparkles,
   Flame,
   Trash2,
+  ChevronLeft,
 } from "lucide-react";
 
 // ─── Canvas aspect ratio definitions ──────────────────────────────────────────
@@ -93,6 +94,7 @@ type TextAlign = "left" | "center" | "right";
 type ImageMode = "gradient" | "stock" | "upload" | "ai";
 type StockGender = "man" | "woman" | "person";
 type TextEffect = "shadow" | "outline" | "none";
+type MemeStep = 1 | 2 | 3;
 
 interface StockPhoto {
   id: number;
@@ -336,6 +338,25 @@ function ModeTab({
   );
 }
 
+function StepDots({ current, total }: { current: MemeStep; total: number }) {
+  return (
+    <div className="flex items-center gap-2">
+      {Array.from({ length: total }).map((_, i) => (
+        <div
+          key={i}
+          className={`rounded-full transition-all ${
+            i + 1 === current
+              ? "w-4 h-2 bg-[#ff6b35]"
+              : i + 1 < current
+              ? "w-2 h-2 bg-[#ff6b35]/60"
+              : "w-2 h-2 bg-border"
+          }`}
+        />
+      ))}
+    </div>
+  );
+}
+
 // ─── Main component ────────────────────────────────────────────────────────────
 
 type VideoState =
@@ -490,20 +511,6 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
     startX: number; startY: number;
     startOX: number; startOY: number;
   } | null>(null);
-  // User-controlled canvas preview height — persisted to localStorage so it
-  // survives navigation and is restored on the next visit.
-  const CANVAS_HEIGHT_KEY = "meme_canvas_height";
-  const [resizeMaxH, setResizeMaxH] = useState<number | null>(() => {
-    const saved = localStorage.getItem(CANVAS_HEIGHT_KEY);
-    const parsed = saved ? parseInt(saved, 10) : NaN;
-    return Number.isFinite(parsed) ? Math.max(80, Math.min(1200, parsed)) : null;
-  });
-  const resizeDragRef = useRef<{ startY: number; startH: number } | null>(null);
-  function applyResizeMaxH(h: number) {
-    const clamped = Math.max(80, Math.min(1200, h));
-    localStorage.setItem(CANVAS_HEIGHT_KEY, String(clamped));
-    setResizeMaxH(clamped);
-  }
 
 
   const GENDER_TO_VARIANT: Record<StockGender, "male" | "female" | "neutral"> = {
@@ -604,6 +611,9 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
 
   // Visibility (premium-only private memes)
   const [isPublic, setIsPublic] = useState(!defaultPrivate);
+
+  // 3-step flow state
+  const [step, setStep] = useState<MemeStep>(1);
 
   // Reset pan offset whenever the aspect ratio or background image changes
   useEffect(() => { setBgOffset({ x: 0, y: 0 }); }, [aspectRatio]);
@@ -1251,754 +1261,806 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
 
   const templates = tplData?.templates ?? [];
 
+
+  // ── Derived helpers for step flow ────────────────────────────────
+  const hasBackground = useMemo(() => {
+    if (imageMode === "gradient") return true;
+    if (imageMode === "stock") return stockPhoto !== null;
+    if (imageMode === "upload") return uploadObjectPath !== null;
+    if (imageMode === "ai") return aiSelectedInfo !== null;
+    return false;
+  }, [imageMode, stockPhoto, uploadObjectPath, aiSelectedInfo]);
+
+  const previewBgUrl = useMemo(() => {
+    if (imageMode === "stock") return stockPhoto?.photoUrl ?? null;
+    if (imageMode === "upload") return uploadDisplayUrl ?? uploadLocalUrl ?? null;
+    if (imageMode === "ai") return aiSelectedInfo?.url ?? null;
+    return null;
+  }, [imageMode, stockPhoto, uploadDisplayUrl, uploadLocalUrl, aiSelectedInfo]);
+
+  const previewBgGradient = useMemo(() => {
+    if (imageMode !== "gradient") return null;
+    const stops = GRADIENT_DEFS[selectedTemplate];
+    if (!stops) return null;
+    return `linear-gradient(135deg, ${stops.map(([c, p]) => `${c} ${p}`).join(", ")})`;
+  }, [imageMode, selectedTemplate]);
+
   // ── Render ───────────────────────────────────────────────────────
+  const stepIndex = step - 1;
+  const translateX = `translateX(-${stepIndex * 100}%)`;
+
   const innerContent = (
-    <div className="p-4 md:p-5 space-y-5">
+    <div className="overflow-hidden">
+      <div
+        className="flex transition-transform duration-300 ease-in-out"
+        style={{ transform: translateX, willChange: "transform" }}
+      >
 
-          {/* ── Canvas preview + aspect ratio selector ── */}
-          <div className={`sticky z-30 bg-card pb-2 space-y-2 shadow-[0_6px_16px_-2px_rgba(0,0,0,0.45)] ${fullScreen ? "top-0" : "top-14"}`}>
+        {/* ── Step 1: Choose Background ────────────────────────────── */}
+        <div className="w-full shrink-0 p-4 md:p-5 box-border">
+          <div className="flex items-center justify-between mb-5">
+            <div>
+              <p className="text-[10px] font-display uppercase tracking-[0.2em] text-muted-foreground mb-1">
+                Step 1 of 3
+              </p>
+              <h3 className="text-base font-bold uppercase tracking-wide">Choose Background</h3>
+            </div>
+            <StepDots current={1} total={3} />
+          </div>
 
-            {/* Aspect ratio selector */}
-            <div className="flex items-center gap-2">
-              <span className="text-[10px] font-display uppercase tracking-[0.18em] text-muted-foreground shrink-0">Format</span>
-              <div className="flex gap-1">
-                {(Object.entries(ASPECT_RATIOS) as [AspectRatio, typeof ASPECT_RATIOS[AspectRatio]][]).map(([key, def]) => (
+          {/* Mode tabs */}
+          <div className="flex border-b border-border mb-4">
+            <ModeTab
+              active={imageMode === "stock"}
+              onClick={() => {
+                setImageMode("stock");
+                if (!stockGender) {
+                  setStockGender(inferredGender);
+                  fetchStockPhoto(inferredGender);
+                }
+              }}
+            >
+              Stock Photo
+            </ModeTab>
+            <ModeTab
+              active={imageMode === "gradient"}
+              onClick={() => setImageMode("gradient")}
+            >
+              Gradient
+            </ModeTab>
+            <ModeTab
+              active={imageMode === "ai"}
+              onClick={() => setImageMode("ai")}
+              badge={!isPremium ? "PRO" : undefined}
+            >
+              AI Generated
+            </ModeTab>
+            <ModeTab
+              active={imageMode === "upload"}
+              onClick={() => {
+                if (!isPremium && isAuthenticated) return;
+                setImageMode("upload");
+              }}
+              badge={!isPremium ? "PRO" : undefined}
+            >
+              Upload
+            </ModeTab>
+          </div>
+
+          {/* Thumbnail size slider */}
+          <div className="flex items-center gap-2 py-1 mb-3">
+            <svg xmlns="http://www.w3.org/2000/svg" className="w-3 h-3 text-muted-foreground shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 9h6v6H9z"/></svg>
+            <input
+              type="range"
+              min={0}
+              max={100}
+              value={thumbSize}
+              onChange={e => setThumbSize(Number(e.target.value))}
+              className="flex-1 h-1 accent-primary cursor-pointer"
+              aria-label="Thumbnail size"
+            />
+            <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4 text-muted-foreground shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/></svg>
+          </div>
+
+          {/* Gradient mode */}
+          {imageMode === "gradient" && (
+            <div className="grid gap-2" style={{ gridTemplateColumns: `repeat(auto-fill, minmax(${thumbPx}px, 1fr))` }}>
+              {templates.map(tpl => {
+                const stops = GRADIENT_DEFS[tpl.id];
+                const from = stops?.[0]?.[0] ?? "#000";
+                const to = stops?.[stops.length - 1]?.[0] ?? "#333";
+                return (
                   <button
-                    key={key}
-                    onClick={() => setAspectRatio(key)}
-                    title={`${def.label} (${def.ratio})`}
-                    className={`flex items-center gap-1.5 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider border transition-all ${
-                      aspectRatio === key
-                        ? "border-primary bg-primary/10 text-primary"
-                        : "border-border text-muted-foreground hover:border-primary/40 hover:text-foreground"
+                    key={tpl.id}
+                    onClick={() => setSelectedTemplate(tpl.id)}
+                    title={tpl.description}
+                    className={`relative h-14 border-2 overflow-hidden transition-all ${
+                      selectedTemplate === tpl.id
+                        ? "border-primary ring-2 ring-primary/30 scale-105"
+                        : "border-border hover:border-primary/50"
+                    }`}
+                    style={{ background: `linear-gradient(135deg, ${from}, ${to})` }}
+                  >
+                    <span className="absolute inset-0 flex items-end justify-center pb-1">
+                      <span className="text-white text-[9px] font-bold drop-shadow-lg truncate px-1">
+                        {tpl.name}
+                      </span>
+                    </span>
+                    {selectedTemplate === tpl.id && (
+                      <span className="absolute top-1 right-1 w-2 h-2 bg-primary rounded-full border border-white" />
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+
+          {/* Stock photo mode */}
+          {imageMode === "stock" && (
+            <div className="space-y-3">
+              {stockGender && (
+                <p className="text-[10px] font-display uppercase tracking-widest text-muted-foreground">
+                  Showing: <span className="text-primary">{stockGender}</span> (from {pronouns || "they/them"} pronouns)
+                </p>
+              )}
+              {prefetchedPhotos.length > 0 && (
+                <div className="space-y-2">
+                  <p className="text-[10px] font-display uppercase tracking-widest text-muted-foreground">
+                    Matched photos for this fact
+                  </p>
+                  <div className="grid gap-1.5" style={{ gridTemplateColumns: `repeat(auto-fill, minmax(${thumbPx}px, 1fr))` }}>
+                    {prefetchedPhotos.map((photo, i) => (
+                      <ImageCard
+                        key={photo.id}
+                        src={photo.src?.large ?? photo.src?.small ?? photo.url}
+                        alt={`Option ${i + 1}`}
+                        aspectRatio="aspect-video"
+                        selected={prefetchedIndex === i}
+                        onSelect={() => selectPrefetchedPhoto(photo, i)}
+                        compact
+                        actions={["openFull"]}
+                      />
+                    ))}
+                  </div>
+                </div>
+              )}
+              {pexelsImages?.keywords && stockGender && (
+                <p className="text-[10px] text-muted-foreground/60 italic border border-dashed border-border/50 px-2 py-1 rounded-sm">
+                  Search: &ldquo;{pexelsImages.keywords[GENDER_TO_VARIANT[stockGender]]}&rdquo;
+                </p>
+              )}
+              {isAdmin && (
+                <div className="border border-dashed border-amber-500/40 bg-amber-500/5 rounded-sm px-2 py-1.5 flex flex-col gap-1">
+                  <p className="text-[10px] font-semibold text-amber-600 uppercase tracking-wider">Admin</p>
+                  <button
+                    onClick={handleBackfillAllImages}
+                    disabled={isBackfilling}
+                    className="flex items-center gap-1.5 text-[11px] font-medium text-amber-700 hover:text-amber-900 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                  >
+                    <RefreshCw className={`w-3 h-3 ${isBackfilling ? "animate-spin" : ""}`} />
+                    {isBackfilling ? "Regenerating…" : "Regenerate Images"}
+                  </button>
+                  {backfillResult && (
+                    <p className={`text-[10px] ${backfillResult.error ? "text-destructive" : "text-green-600"}`}>
+                      {backfillResult.error
+                        ? `Error: ${backfillResult.error}`
+                        : "Regeneration started — new photos will appear shortly."}
+                    </p>
+                  )}
+                </div>
+              )}
+              {stockPhoto && (
+                <p className="text-[10px] text-muted-foreground truncate">
+                  Photo by{" "}
+                  <a
+                    href={stockPhoto.photographerUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-primary/70 hover:text-primary"
+                  >
+                    {stockPhoto.photographerName}
+                  </a>
+                  {" "}on Pexels
+                </p>
+              )}
+              {stockError && <p className="text-[10px] text-destructive">{stockError}</p>}
+              {isLoadingStock && (
+                <div className="flex items-center justify-center py-2">
+                  <Loader2 className="w-4 h-4 text-primary animate-spin" />
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* AI Generated mode */}
+          {imageMode === "ai" && (
+            <AiBgPicker
+              factId={factId}
+              initialImages={aiMemeImages ?? null}
+              aiGender={aiGender}
+              isGendered={factIsGendered}
+              isPremium={isPremium}
+              isAdmin={isAdmin}
+              onSelect={setAiSelectedInfo}
+              showStylePicker
+              thumbPx={thumbPx}
+              onGoToUpload={() => setImageMode("upload")}
+            />
+          )}
+
+          {/* Upload mode */}
+          {imageMode === "upload" && (
+            <>
+              {!isPremium ? (
+                <div className="border-2 border-dashed border-amber-400/30 bg-amber-400/5 p-5 text-center space-y-2">
+                  <Lock className="w-6 h-6 text-amber-400 mx-auto" />
+                  <p className="text-sm font-bold text-amber-400 uppercase tracking-wider">
+                    Legendary Feature
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    Upload your own photos with a Legendary membership.
+                  </p>
+                  <Link href="/pricing">
+                    <Button size="sm" className="mt-2">Go Legendary</Button>
+                  </Link>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  <div
+                    onDragOver={e => { e.preventDefault(); setIsDragOver(true); }}
+                    onDragLeave={() => setIsDragOver(false)}
+                    onDrop={onDrop}
+                    onClick={() => fileInputRef.current?.click()}
+                    className={`border-2 border-dashed cursor-pointer transition-all p-5 text-center ${
+                      isDragOver
+                        ? "border-primary bg-primary/10"
+                        : uploadFile
+                        ? "border-primary/40 bg-primary/5"
+                        : "border-border hover:border-primary/50 hover:bg-muted/30"
                     }`}
                   >
-                    {/* Aspect ratio icon */}
-                    <span className="inline-flex items-center justify-center" style={{ width: 16, height: 16 }}>
-                      {key === "landscape" && (
-                        <svg viewBox="0 0 16 10" width="16" height="10" fill="currentColor"><rect x="0" y="0" width="16" height="10" rx="1" opacity="0.9"/></svg>
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      onChange={onFileInputChange}
+                    />
+                    {isUploadingFile ? (
+                      <div className="flex flex-col items-center gap-2">
+                        <Loader2 className="w-6 h-6 text-primary animate-spin" />
+                        <p className="text-xs text-muted-foreground">Uploading…</p>
+                      </div>
+                    ) : uploadFile ? (
+                      <div className="flex items-center gap-3">
+                        {uploadLocalUrl && (
+                          <img
+                            src={uploadLocalUrl}
+                            alt="Upload preview"
+                            className="w-16 h-10 object-cover border border-border flex-shrink-0"
+                          />
+                        )}
+                        <div className="min-w-0 text-left">
+                          <p className="text-xs font-bold text-foreground truncate">{uploadFile.name}</p>
+                          <p className="text-[10px] text-muted-foreground">
+                            {(uploadFile.size / 1024 / 1024).toFixed(1)} MB
+                            {uploadObjectPath ? " · Uploaded ✓" : " · Uploading…"}
+                            {uploadObjectPath && uploadIsLowRes && (
+                              <span className="ml-1 text-amber-400"> · Low res</span>
+                            )}
+                          </p>
+                        </div>
+                        <button
+                          onClick={e => {
+                            e.stopPropagation();
+                            setUploadFile(null);
+                            setUploadObjectPath(null);
+                            if (uploadLocalUrl) URL.revokeObjectURL(uploadLocalUrl);
+                            setUploadLocalUrl(null);
+                            setUploadDisplayUrl(null);
+                          }}
+                          className="ml-auto text-muted-foreground hover:text-foreground"
+                        >
+                          <X className="w-4 h-4" />
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="flex flex-col items-center gap-2">
+                        <Upload className="w-6 h-6 text-muted-foreground" />
+                        <p className="text-xs text-muted-foreground">
+                          Drop an image here, or click to browse
+                        </p>
+                        <p className="text-[10px] text-muted-foreground/60">
+                          PNG · JPG · WebP · HEIC · max {CLIENT_MAX_UPLOAD_MB} MB
+                        </p>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Existing uploads gallery */}
+                  <div>
+                    <div className="flex items-center justify-between mb-2">
+                      <p className="text-[10px] font-display uppercase tracking-[0.2em] text-muted-foreground">
+                        My Uploads
+                      </p>
+                      {!isLoadingGallery && (
+                        <p className="text-[10px] text-muted-foreground tabular-nums">
+                          {uploadGalleryCount > uploadGalleryDisplayLimit
+                            ? `showing ${uploadGalleryDisplayLimit} of ${uploadGalleryCount} · `
+                            : ""}
+                          {uploadGalleryCount} / {uploadGalleryMax}
+                        </p>
                       )}
-                      {key === "square" && (
-                        <svg viewBox="0 0 12 12" width="12" height="12" fill="currentColor"><rect x="0" y="0" width="12" height="12" rx="1" opacity="0.9"/></svg>
-                      )}
-                      {key === "portrait" && (
-                        <svg viewBox="0 0 10 16" width="10" height="16" fill="currentColor"><rect x="0" y="0" width="10" height="16" rx="1" opacity="0.9"/></svg>
-                      )}
-                    </span>
-                    <span>{def.ratio}</span>
+                    </div>
+                    {isLoadingGallery ? (
+                      <div className="flex items-center justify-center py-6">
+                        <Loader2 className="w-4 h-4 text-muted-foreground animate-spin" />
+                      </div>
+                    ) : uploadGallery.length === 0 ? (
+                      <p className="text-[11px] text-muted-foreground/60 text-center py-4">
+                        No uploads yet. Drop an image above to get started.
+                      </p>
+                    ) : (
+                      <div className="grid gap-1.5 max-h-52 overflow-y-auto pr-0.5" style={{ gridTemplateColumns: `repeat(auto-fill, minmax(${thumbPx}px, 1fr))` }}>
+                        {uploadGallery.map((entry) => {
+                          const isSelected = uploadObjectPath === entry.objectPath && !uploadFile;
+                          return (
+                            <ImageCard
+                              key={entry.objectPath}
+                              src={`/api/storage${entry.objectPath}`}
+                              alt={`${entry.width}×${entry.height}px${entry.isLowRes ? " · Low res" : ""}`}
+                              aspectRatio="aspect-video"
+                              isAuthProtected
+                              selected={isSelected}
+                              onSelect={() => selectExistingUpload(entry)}
+                              compact
+                              actions={["delete", "openFull"]}
+                              onDelete={() => deleteUpload(entry.objectPath)}
+                              deleteConfirmMessage="Remove this upload? This cannot be undone."
+                              imageOverlay={entry.isLowRes ? (
+                                <div className="absolute bottom-0 left-0 right-0 bg-amber-400/80 text-[8px] font-bold text-black text-center leading-tight py-0.5">
+                                  LOW RES
+                                </div>
+                              ) : undefined}
+                            />
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+
+          {/* Continue button */}
+          <div className="mt-5">
+            <Button
+              onClick={() => setStep(2)}
+              disabled={!hasBackground || isUploadingFile}
+              variant="primary"
+              size="lg"
+              className="w-full gap-2"
+              style={hasBackground ? { background: "#ff6b35", borderColor: "#ff6b35" } : undefined}
+            >
+              <Sparkles className="w-4 h-4" />
+              {hasBackground ? "Continue to Text & Style" : "Select a background to continue"}
+            </Button>
+          </div>
+        </div>
+
+        {/* ── Step 2: Customize Text & Style ───────────────────────── */}
+        <div className="w-full shrink-0 p-4 md:p-5 box-border">
+          <div className="flex items-center justify-between mb-5">
+            <div>
+              <button
+                onClick={() => setStep(1)}
+                className="flex items-center gap-1 text-[10px] font-display uppercase tracking-[0.2em] text-muted-foreground hover:text-foreground transition-colors mb-1"
+              >
+                <ChevronLeft className="w-3 h-3" />
+                Change Background
+              </button>
+              <h3 className="text-base font-bold uppercase tracking-wide">Customize Text & Style</h3>
+            </div>
+            <StepDots current={2} total={3} />
+          </div>
+
+          {/* Background preview thumbnail */}
+          <div className="bg-secondary border border-border p-3 mb-5 flex items-center gap-3">
+            {previewBgGradient ? (
+              <div
+                className="w-16 h-10 border border-border shrink-0"
+                style={{ background: previewBgGradient }}
+              />
+            ) : previewBgUrl ? (
+              <img
+                src={previewBgUrl}
+                alt="Selected background"
+                className="w-16 h-10 object-cover border border-border shrink-0"
+              />
+            ) : (
+              <div className="w-16 h-10 border border-border bg-muted shrink-0 flex items-center justify-center">
+                <ImageIcon className="w-4 h-4 text-muted-foreground" />
+              </div>
+            )}
+            <div className="min-w-0">
+              <p className="text-[10px] font-display uppercase tracking-widest text-muted-foreground mb-0.5">
+                Background
+              </p>
+              <p className="text-xs text-foreground truncate">
+                {imageMode === "gradient"
+                  ? (templates.find(t => t.id === selectedTemplate)?.name ?? selectedTemplate)
+                  : imageMode === "stock"
+                  ? (stockPhoto ? "Stock photo selected" : "No photo selected")
+                  : imageMode === "ai"
+                  ? "AI background"
+                  : uploadFile
+                  ? uploadFile.name
+                  : "Uploaded image"}
+              </p>
+            </div>
+          </div>
+
+          {/* Aspect ratio selector */}
+          <div className="mb-5">
+            <p className="text-[10px] font-display uppercase tracking-[0.18em] text-muted-foreground mb-2">Format</p>
+            <div className="flex gap-1">
+              {(Object.entries(ASPECT_RATIOS) as [AspectRatio, typeof ASPECT_RATIOS[AspectRatio]][]).map(([key, def]) => (
+                <button
+                  key={key}
+                  onClick={() => setAspectRatio(key)}
+                  title={`${def.label} (${def.ratio})`}
+                  className={`flex items-center gap-1.5 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider border transition-all ${
+                    aspectRatio === key
+                      ? "border-primary bg-primary/10 text-primary"
+                      : "border-border text-muted-foreground hover:border-primary/40 hover:text-foreground"
+                  }`}
+                >
+                  <span className="inline-flex items-center justify-center" style={{ width: 16, height: 16 }}>
+                    {key === "landscape" && (
+                      <svg viewBox="0 0 16 10" width="16" height="10" fill="currentColor"><rect x="0" y="0" width="16" height="10" rx="1" opacity="0.9"/></svg>
+                    )}
+                    {key === "square" && (
+                      <svg viewBox="0 0 12 12" width="12" height="12" fill="currentColor"><rect x="0" y="0" width="12" height="12" rx="1" opacity="0.9"/></svg>
+                    )}
+                    {key === "portrait" && (
+                      <svg viewBox="0 0 10 16" width="10" height="16" fill="currentColor"><rect x="0" y="0" width="10" height="16" rx="1" opacity="0.9"/></svg>
+                    )}
+                  </span>
+                  <span>{def.ratio}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Text section */}
+          <div className="space-y-4">
+            <SectionLabel>
+              <Layers className="w-3 h-3" /> Text
+            </SectionLabel>
+
+            {/* Split slider */}
+            <div>
+              <label className="text-[10px] font-display uppercase tracking-widest text-muted-foreground block mb-2">
+                Split Position: {splitPos} / {factWords.length} words
+                {textManuallyEdited && <span className="text-yellow-500 ml-2">(resets custom edits)</span>}
+              </label>
+              <input
+                type="range"
+                min={0}
+                max={factWords.length}
+                value={splitPos}
+                onChange={e => handleSplitChange(parseInt(e.target.value))}
+                className="w-full accent-primary"
+              />
+            </div>
+
+            {/* Top text */}
+            <div>
+              <label className="text-[10px] font-display uppercase tracking-widest text-muted-foreground block mb-1">
+                Top Text
+              </label>
+              <textarea
+                value={topText}
+                onChange={e => { setTopText(e.target.value); setTextManuallyEdited(true); }}
+                rows={2}
+                className="w-full bg-background border-2 border-border text-foreground text-sm px-3 py-2 resize-none focus:border-primary focus:outline-none"
+                placeholder="Top text…"
+              />
+              <div className="mt-1.5">
+                <label className="text-[10px] font-display uppercase tracking-widest text-muted-foreground flex justify-between mb-1">
+                  <span>Vertical Position</span>
+                  <span className="tabular-nums">{topY}%</span>
+                </label>
+                <input
+                  type="range"
+                  min={0}
+                  max={textCollisionConstraints.maxTopY}
+                  value={Math.min(topY, textCollisionConstraints.maxTopY)}
+                  onChange={e => setTopY(parseInt(e.target.value))}
+                  className="w-full accent-primary"
+                />
+              </div>
+            </div>
+
+            {/* Bottom text */}
+            <div>
+              <label className="text-[10px] font-display uppercase tracking-widest text-muted-foreground block mb-1">
+                Bottom Text
+              </label>
+              <textarea
+                value={bottomText}
+                onChange={e => { setBottomText(e.target.value); setTextManuallyEdited(true); }}
+                rows={2}
+                className="w-full bg-background border-2 border-border text-foreground text-sm px-3 py-2 resize-none focus:border-primary focus:outline-none"
+                placeholder="Bottom text…"
+              />
+              <div className="mt-1.5">
+                <label className="text-[10px] font-display uppercase tracking-widest text-muted-foreground flex justify-between mb-1">
+                  <span>Vertical Position</span>
+                  <span className="tabular-nums">{bottomY}%</span>
+                </label>
+                <input
+                  type="range"
+                  min={textCollisionConstraints.minBottomY}
+                  max={100}
+                  value={Math.max(bottomY, textCollisionConstraints.minBottomY)}
+                  onChange={e => setBottomY(parseInt(e.target.value))}
+                  className="w-full accent-primary"
+                />
+              </div>
+            </div>
+
+            {/* Font family */}
+            <div>
+              <label className="text-[10px] font-display uppercase tracking-widest text-muted-foreground block mb-1">
+                Font
+              </label>
+              <select
+                value={fontFamily}
+                onChange={e => setFontFamily(e.target.value)}
+                className="w-full bg-background border-2 border-border text-foreground text-sm px-3 py-2 focus:border-primary focus:outline-none"
+              >
+                {FONT_LIST.map(f => (
+                  <option key={f} value={f} style={{ fontFamily: f }}>{f}</option>
+                ))}
+              </select>
+            </div>
+
+            {/* ALL CAPS / Bold / Italic */}
+            <div className="flex gap-3">
+              {([
+                ["ALL CAPS", allCaps, setAllCaps],
+                ["Bold", bold, setBold],
+                ["Italic", italic, setItalic],
+              ] as [string, boolean, (v: boolean) => void][]).map(([label, val, setter]) => (
+                <label key={label} className="flex items-center gap-1.5 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={val}
+                    onChange={e => setter(e.target.checked)}
+                    className="accent-primary w-3.5 h-3.5"
+                  />
+                  <span className={`text-[11px] font-bold uppercase tracking-wider ${val ? "text-primary" : "text-muted-foreground"}`}>
+                    {label}
+                  </span>
+                </label>
+              ))}
+            </div>
+
+            {/* Text Effect */}
+            <div>
+              <p className="text-[10px] font-display uppercase tracking-widest text-muted-foreground mb-2">
+                Text Effect
+              </p>
+              <div className="flex gap-2">
+                {(["shadow", "outline", "none"] as TextEffect[]).map(e => (
+                  <button
+                    key={e}
+                    onClick={() => setTextEffect(e)}
+                    className={`flex-1 py-1.5 text-[11px] font-bold uppercase tracking-wider border-2 transition-all ${
+                      textEffect === e
+                        ? "border-primary bg-primary/15 text-primary"
+                        : "border-border text-muted-foreground hover:border-primary/40"
+                    }`}
+                  >
+                    {e}
                   </button>
                 ))}
               </div>
-              {bgImage && (
-                <span className="text-[10px] text-muted-foreground/60 ml-1 hidden sm:block">
-                  Drag to reframe
-                </span>
-              )}
             </div>
 
-            {/* Canvas */}
-            <div className="relative flex justify-center">
-              <canvas
-                ref={canvasRef}
-                width={canvasW}
-                height={canvasH}
-                className="border-2 border-border block select-none"
-                style={{
-                  maxWidth: "100%",
-                  maxHeight: resizeMaxH !== null ? `${resizeMaxH}px` : (fullScreen ? "60vh" : "500px"),
-                  width: "auto",
-                  height: "auto",
-                  cursor: bgImage ? (dragState ? "grabbing" : "grab") : "default",
-                }}
-                onMouseDown={handleCanvasMouseDown}
-                onMouseMove={handleCanvasMouseMove}
-                onMouseUp={handleCanvasMouseUp}
-                onMouseLeave={handleCanvasMouseUp}
-                onTouchStart={handleCanvasTouchStart}
-                onTouchMove={handleCanvasTouchMove}
-                onTouchEnd={handleCanvasMouseUp}
+            {/* Outline width */}
+            {textEffect === "outline" && (
+              <div>
+                <label className="text-[10px] font-display uppercase tracking-widest text-muted-foreground block mb-2">
+                  Outline Width: {outlineWidth}
+                </label>
+                <input
+                  type="range"
+                  min={1}
+                  max={10}
+                  value={outlineWidth}
+                  onChange={e => setOutlineWidth(parseInt(e.target.value))}
+                  className="w-full accent-primary"
+                />
+              </div>
+            )}
+
+            {/* Font size */}
+            <div>
+              <label className="text-[10px] font-display uppercase tracking-widest text-muted-foreground block mb-2">
+                Font Size: {fontSize}px
+              </label>
+              <input
+                type="range"
+                min={30}
+                max={100}
+                value={fontSize}
+                onChange={e => setFontSize(parseInt(e.target.value))}
+                className="w-full accent-primary"
               />
-              {isBgLoading && (
-                <div className="absolute inset-0 flex items-center justify-center bg-black/60 border-2 border-border">
-                  <Loader2 className="w-8 h-8 text-primary animate-spin" />
-                </div>
-              )}
-              {!isBgLoading && imageMode === "ai" && !aiSelectedInfo && (
-                <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/80 border-2 border-border gap-3 px-6 text-center">
-                  <ImageIcon className="w-8 h-8 text-muted-foreground opacity-50" />
-                  <p className="text-sm font-semibold text-foreground">No AI background selected</p>
-                  <p className="text-xs text-muted-foreground leading-relaxed">
-                    Select or generate an AI background below.
-                  </p>
-                </div>
-              )}
             </div>
 
-            {/* ── Resize handle ── */}
-            <div
-              className="flex items-center justify-center h-5 cursor-ns-resize select-none group"
-              title="Drag to resize preview"
-              onMouseDown={(e) => {
-                e.preventDefault();
-                const startH = canvasRef.current?.getBoundingClientRect().height ?? 400;
-                resizeDragRef.current = { startY: e.clientY, startH };
-                const onMove = (ev: MouseEvent) => {
-                  if (!resizeDragRef.current) return;
-                  const delta = ev.clientY - resizeDragRef.current.startY;
-                  applyResizeMaxH(resizeDragRef.current.startH + delta);
-                };
-                const onUp = () => {
-                  resizeDragRef.current = null;
-                  window.removeEventListener("mousemove", onMove);
-                  window.removeEventListener("mouseup", onUp);
-                };
-                window.addEventListener("mousemove", onMove);
-                window.addEventListener("mouseup", onUp);
-              }}
-              onTouchStart={(e) => {
-                const t = e.touches[0];
-                const startH = canvasRef.current?.getBoundingClientRect().height ?? 400;
-                resizeDragRef.current = { startY: t.clientY, startH };
-                const onMove = (ev: TouchEvent) => {
-                  if (!resizeDragRef.current) return;
-                  const delta = ev.touches[0].clientY - resizeDragRef.current.startY;
-                  applyResizeMaxH(resizeDragRef.current.startH + delta);
-                };
-                const onUp = () => {
-                  resizeDragRef.current = null;
-                  window.removeEventListener("touchmove", onMove);
-                  window.removeEventListener("touchend", onUp);
-                };
-                window.addEventListener("touchmove", onMove, { passive: false });
-                window.addEventListener("touchend", onUp);
-              }}
-            >
-              <div className="flex flex-col items-center gap-[3px]">
-                <div className="w-10 h-[2px] rounded-full bg-border group-hover:bg-primary/60 transition-colors" />
-                <div className="w-6 h-[2px] rounded-full bg-border group-hover:bg-primary/40 transition-colors" />
-              </div>
-            </div>
-          </div>
-
-          {/* ── Controls (two columns on md+) ── */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-
-            {/* ── Left column: Image Source + Style ── */}
-            <div className="space-y-5">
-
-              {/* Image Source */}
-              <div>
-                <SectionLabel>
-                  <ImageIcon className="w-3 h-3" /> Image Source
-                </SectionLabel>
-
-                {/* Mode tabs */}
-                <div className="flex border-b border-border mb-4">
-                  <ModeTab
-                    active={imageMode === "stock"}
-                    onClick={() => {
-                      setImageMode("stock");
-                      if (!stockGender) {
-                        setStockGender(inferredGender);
-                        fetchStockPhoto(inferredGender);
-                      }
-                    }}
-                  >
-                    Stock Photo
-                  </ModeTab>
-                  <ModeTab
-                    active={imageMode === "gradient"}
-                    onClick={() => setImageMode("gradient")}
-                  >
-                    Gradient
-                  </ModeTab>
-                  <ModeTab
-                    active={imageMode === "ai"}
-                    onClick={() => {
-                      setImageMode("ai");
-                    }}
-                    badge={!isPremium ? "PRO" : undefined}
-                  >
-                    AI Generated
-                  </ModeTab>
-                  <ModeTab
-                    active={imageMode === "upload"}
-                    onClick={() => {
-                      if (!isPremium && isAuthenticated) return; // handled below
-                      setImageMode("upload");
-                    }}
-                    badge={!isPremium ? "PRO" : undefined}
-                  >
-                    Upload
-                  </ModeTab>
-                </div>
-
-                {/* Thumbnail size slider — shown for all image modes */}
-                <div className="flex items-center gap-2 py-1">
-                  <svg xmlns="http://www.w3.org/2000/svg" className="w-3 h-3 text-muted-foreground shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 9h6v6H9z"/></svg>
+            {/* Colors row */}
+            <div className="flex gap-4">
+              <div className="flex-1">
+                <label className="text-[10px] font-display uppercase tracking-widest text-muted-foreground block mb-1">
+                  Text Color
+                </label>
+                <div className="flex gap-1.5 items-center flex-wrap">
+                  {["#ffffff", "#ffcc00", "#FF3C00", "#00ff88", "#000000"].map(c => (
+                    <button
+                      key={c}
+                      onClick={() => setTextColor(c)}
+                      className={`w-6 h-6 rounded-full border-2 transition-all ${
+                        textColor === c ? "border-white scale-110 ring-2 ring-white/30" : "border-transparent hover:scale-105"
+                      }`}
+                      style={{ background: c }}
+                    />
+                  ))}
                   <input
-                    type="range"
-                    min={0}
-                    max={100}
-                    value={thumbSize}
-                    onChange={e => setThumbSize(Number(e.target.value))}
-                    className="flex-1 h-1 accent-primary cursor-pointer"
-                    aria-label="Thumbnail size"
+                    type="color"
+                    value={textColor}
+                    onChange={e => setTextColor(e.target.value)}
+                    className="w-6 h-6 rounded-full border-2 border-border cursor-pointer bg-transparent"
                   />
-                  <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4 text-muted-foreground shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/></svg>
                 </div>
-
-                {/* Gradient mode: template picker */}
-                {imageMode === "gradient" && (
-                  <div className="grid gap-2" style={{ gridTemplateColumns: `repeat(auto-fill, minmax(${thumbPx}px, 1fr))` }}>
-                    {templates.map(tpl => {
-                      const stops = GRADIENT_DEFS[tpl.id];
-                      const from = stops?.[0]?.[0] ?? "#000";
-                      const to = stops?.[stops.length - 1]?.[0] ?? "#333";
-                      return (
-                        <button
-                          key={tpl.id}
-                          onClick={() => setSelectedTemplate(tpl.id)}
-                          title={tpl.description}
-                          className={`relative h-14 border-2 overflow-hidden transition-all ${
-                            selectedTemplate === tpl.id
-                              ? "border-primary ring-2 ring-primary/30 scale-105"
-                              : "border-border hover:border-primary/50"
-                          }`}
-                          style={{ background: `linear-gradient(135deg, ${from}, ${to})` }}
-                        >
-                          <span className="absolute inset-0 flex items-end justify-center pb-1">
-                            <span className="text-white text-[9px] font-bold drop-shadow-lg truncate px-1">
-                              {tpl.name}
-                            </span>
-                          </span>
-                          {selectedTemplate === tpl.id && (
-                            <span className="absolute top-1 right-1 w-2 h-2 bg-primary rounded-full border border-white" />
-                          )}
-                        </button>
-                      );
-                    })}
+              </div>
+              {textEffect === "outline" && (
+                <div className="flex-1">
+                  <label className="text-[10px] font-display uppercase tracking-widest text-muted-foreground block mb-1">
+                    Outline Color
+                  </label>
+                  <div className="flex gap-1.5 items-center flex-wrap">
+                    {["#000000", "#333333", "#1a237e", "#bf360c", "#ffffff"].map(c => (
+                      <button
+                        key={c}
+                        onClick={() => setOutlineColor(c)}
+                        className={`w-6 h-6 rounded-full border-2 transition-all ${
+                          outlineColor === c ? "border-primary scale-110 ring-2 ring-primary/30" : "border-transparent hover:scale-105"
+                        }`}
+                        style={{ background: c }}
+                      />
+                    ))}
+                    <input
+                      type="color"
+                      value={outlineColor}
+                      onChange={e => setOutlineColor(e.target.value)}
+                      className="w-6 h-6 rounded-full border-2 border-border cursor-pointer bg-transparent"
+                    />
                   </div>
-                )}
+                </div>
+              )}
+            </div>
 
-                {/* Stock photo mode */}
-                {imageMode === "stock" && (
-                  <div className="space-y-3">
-                    {stockGender && (
-                      <p className="text-[10px] font-display uppercase tracking-widest text-muted-foreground">
-                        Showing: <span className="text-primary">{stockGender}</span> (from {pronouns || "they/them"} pronouns)
-                      </p>
-                    )}
-
-                    {/* Pre-fetched thumbnail gallery */}
-                    {prefetchedPhotos.length > 0 && (
-                      <div className="space-y-2">
-                        <p className="text-[10px] font-display uppercase tracking-widest text-muted-foreground">
-                          Matched photos for this fact
-                        </p>
-                        <div className="grid gap-1.5" style={{ gridTemplateColumns: `repeat(auto-fill, minmax(${thumbPx}px, 1fr))` }}>
-                          {prefetchedPhotos.map((photo, i) => (
-                            <ImageCard
-                              key={photo.id}
-                              src={photo.src?.large ?? photo.src?.small ?? photo.url}
-                              alt={`Option ${i + 1}`}
-                              aspectRatio="aspect-video"
-                              selected={prefetchedIndex === i}
-                              onSelect={() => selectPrefetchedPhoto(photo, i)}
-                              compact
-                              actions={["openFull"]}
-                            />
-                          ))}
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Debug: show search keywords */}
-                    {pexelsImages?.keywords && stockGender && (
-                      <p className="text-[10px] text-muted-foreground/60 italic border border-dashed border-border/50 px-2 py-1 rounded-sm">
-                        Search: "{pexelsImages.keywords[GENDER_TO_VARIANT[stockGender]]}"
-                      </p>
-                    )}
-
-                    {/* Admin: regenerate all facts' images */}
-                    {isAdmin && (
-                      <div className="border border-dashed border-amber-500/40 bg-amber-500/5 rounded-sm px-2 py-1.5 flex flex-col gap-1">
-                        <p className="text-[10px] font-semibold text-amber-600 uppercase tracking-wider">Admin</p>
-                        <button
-                          onClick={handleBackfillAllImages}
-                          disabled={isBackfilling}
-                          className="flex items-center gap-1.5 text-[11px] font-medium text-amber-700 hover:text-amber-900 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                        >
-                          <RefreshCw className={`w-3 h-3 ${isBackfilling ? "animate-spin" : ""}`} />
-                          {isBackfilling ? "Regenerating…" : "Regenerate Images"}
-                        </button>
-                        {backfillResult && (
-                          <p className={`text-[10px] ${backfillResult.error ? "text-destructive" : "text-green-600"}`}>
-                            {backfillResult.error
-                              ? `Error: ${backfillResult.error}`
-                              : "Regeneration started — new photos will appear shortly."}
-                          </p>
-                        )}
-                      </div>
-                    )}
-
-                    {stockPhoto && (
-                      <p className="text-[10px] text-muted-foreground truncate">
-                        Photo by{" "}
-                        <a
-                          href={stockPhoto.photographerUrl}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-primary/70 hover:text-primary"
-                        >
-                          {stockPhoto.photographerName}
-                        </a>
-                        {" "}on Pexels
-                      </p>
-                    )}
-                    {stockError && (
-                      <p className="text-[10px] text-destructive">{stockError}</p>
-                    )}
-                    {isLoadingStock && (
-                      <div className="flex items-center justify-center py-2">
-                        <Loader2 className="w-4 h-4 text-primary animate-spin" />
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                {/* AI Generated mode */}
-                {imageMode === "ai" && (
-                  <AiBgPicker
-                    factId={factId}
-                    initialImages={aiMemeImages ?? null}
-                    aiGender={aiGender}
-                    isGendered={factIsGendered}
-                    isPremium={isPremium}
-                    isAdmin={isAdmin}
-                    onSelect={setAiSelectedInfo}
-                    showStylePicker
-                    thumbPx={thumbPx}
-                    onGoToUpload={() => setImageMode("upload")}
-                  />
-                )}
-
-                {/* Upload mode */}
-                {imageMode === "upload" && (
-                  <>
-                    {!isPremium ? (
-                      <div className="border-2 border-dashed border-amber-400/30 bg-amber-400/5 p-5 text-center space-y-2">
-                        <Lock className="w-6 h-6 text-amber-400 mx-auto" />
-                        <p className="text-sm font-bold text-amber-400 uppercase tracking-wider">
-                          Legendary Feature
-                        </p>
-                        <p className="text-xs text-muted-foreground">
-                          Upload your own photos with a Legendary membership.
-                        </p>
-                        <Link href="/pricing">
-                          <Button size="sm" className="mt-2">Go Legendary</Button>
-                        </Link>
-                      </div>
-                    ) : (
-                      <div className="space-y-4">
-                        {/* Drop zone / new upload */}
-                        <div
-                          onDragOver={e => { e.preventDefault(); setIsDragOver(true); }}
-                          onDragLeave={() => setIsDragOver(false)}
-                          onDrop={onDrop}
-                          onClick={() => fileInputRef.current?.click()}
-                          className={`border-2 border-dashed cursor-pointer transition-all p-5 text-center ${
-                            isDragOver
-                              ? "border-primary bg-primary/10"
-                              : uploadFile
-                              ? "border-primary/40 bg-primary/5"
-                              : "border-border hover:border-primary/50 hover:bg-muted/30"
-                          }`}
-                        >
-                          <input
-                            ref={fileInputRef}
-                            type="file"
-                            accept="image/*"
-                            className="hidden"
-                            onChange={onFileInputChange}
-                          />
-                          {isUploadingFile ? (
-                            <div className="flex flex-col items-center gap-2">
-                              <Loader2 className="w-6 h-6 text-primary animate-spin" />
-                              <p className="text-xs text-muted-foreground">Uploading…</p>
-                            </div>
-                          ) : uploadFile ? (
-                            <div className="flex items-center gap-3">
-                              {uploadLocalUrl && (
-                                <img
-                                  src={uploadLocalUrl}
-                                  alt="Upload preview"
-                                  className="w-16 h-10 object-cover border border-border flex-shrink-0"
-                                />
-                              )}
-                              <div className="min-w-0 text-left">
-                                <p className="text-xs font-bold text-foreground truncate">{uploadFile.name}</p>
-                                <p className="text-[10px] text-muted-foreground">
-                                  {(uploadFile.size / 1024 / 1024).toFixed(1)} MB
-                                  {uploadObjectPath ? " · Uploaded ✓" : " · Uploading…"}
-                                  {uploadObjectPath && uploadIsLowRes && (
-                                    <span className="ml-1 text-amber-400"> · Low res</span>
-                                  )}
-                                </p>
-                              </div>
-                              <button
-                                onClick={e => {
-                                  e.stopPropagation();
-                                  setUploadFile(null);
-                                  setUploadObjectPath(null);
-                                  if (uploadLocalUrl) URL.revokeObjectURL(uploadLocalUrl);
-                                  setUploadLocalUrl(null);
-                                  setUploadDisplayUrl(null);
-                                }}
-                                className="ml-auto text-muted-foreground hover:text-foreground"
-                              >
-                                <X className="w-4 h-4" />
-                              </button>
-                            </div>
-                          ) : (
-                            <div className="flex flex-col items-center gap-2">
-                              <Upload className="w-6 h-6 text-muted-foreground" />
-                              <p className="text-xs text-muted-foreground">
-                                Drop an image here, or click to browse
-                              </p>
-                              <p className="text-[10px] text-muted-foreground/60">
-                                PNG · JPG · WebP · HEIC · max {CLIENT_MAX_UPLOAD_MB} MB
-                              </p>
-                            </div>
-                          )}
-                        </div>
-
-                        {/* Existing uploads gallery */}
-                        <div>
-                          <div className="flex items-center justify-between mb-2">
-                            <p className="text-[10px] font-display uppercase tracking-[0.2em] text-muted-foreground">
-                              My Uploads
-                            </p>
-                            {!isLoadingGallery && (
-                              <p className="text-[10px] text-muted-foreground tabular-nums">
-                                {uploadGalleryCount > uploadGalleryDisplayLimit
-                                  ? `showing ${uploadGalleryDisplayLimit} of ${uploadGalleryCount} · `
-                                  : ""}
-                                {uploadGalleryCount} / {uploadGalleryMax}
-                              </p>
-                            )}
-                          </div>
-                          {isLoadingGallery ? (
-                            <div className="flex items-center justify-center py-6">
-                              <Loader2 className="w-4 h-4 text-muted-foreground animate-spin" />
-                            </div>
-                          ) : uploadGallery.length === 0 ? (
-                            <p className="text-[11px] text-muted-foreground/60 text-center py-4">
-                              No uploads yet. Drop an image above to get started.
-                            </p>
-                          ) : (
-                            <div className="grid gap-1.5 max-h-52 overflow-y-auto pr-0.5" style={{ gridTemplateColumns: `repeat(auto-fill, minmax(${thumbPx}px, 1fr))` }}>
-                              {uploadGallery.map((entry) => {
-                                const isSelected = uploadObjectPath === entry.objectPath && !uploadFile;
-                                return (
-                                  <ImageCard
-                                    key={entry.objectPath}
-                                    src={`/api/storage${entry.objectPath}`}
-                                    alt={`${entry.width}×${entry.height}px${entry.isLowRes ? " · Low res" : ""}`}
-                                    aspectRatio="aspect-video"
-                                    isAuthProtected
-                                    selected={isSelected}
-                                    onSelect={() => selectExistingUpload(entry)}
-                                    compact
-                                    actions={["delete", "openFull"]}
-                                    onDelete={() => deleteUpload(entry.objectPath)}
-                                    deleteConfirmMessage="Remove this upload? This cannot be undone."
-                                    imageOverlay={entry.isLowRes ? (
-                                      <div className="absolute bottom-0 left-0 right-0 bg-amber-400/80 text-[8px] font-bold text-black text-center leading-tight py-0.5">
-                                        LOW RES
-                                      </div>
-                                    ) : undefined}
-                                  />
-                                );
-                              })}
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    )}
-                  </>
-                )}
+            {/* Text align */}
+            <div>
+              <p className="text-[10px] font-display uppercase tracking-widest text-muted-foreground mb-2">
+                Text Align
+              </p>
+              <div className="flex gap-2">
+                {(["left", "center", "right"] as TextAlign[]).map(a => (
+                  <button
+                    key={a}
+                    onClick={() => setTextAlign(a)}
+                    className={`flex-1 py-1.5 text-[11px] font-bold uppercase tracking-wider border-2 transition-all ${
+                      textAlign === a
+                        ? "border-primary bg-primary/15 text-primary"
+                        : "border-border text-muted-foreground hover:border-primary/40"
+                    }`}
+                  >
+                    {a}
+                  </button>
+                ))}
               </div>
             </div>
 
-            {/* ── Right column: Text options ── */}
-            <div className="space-y-5">
-              <div>
-                <SectionLabel>
-                  <Layers className="w-3 h-3" /> Text
-                </SectionLabel>
-
-                <div className="space-y-4">
-                  {/* Split slider */}
-                  <div>
-                    <label className="text-[10px] font-display uppercase tracking-widest text-muted-foreground block mb-2">
-                      Split Position: {splitPos} / {factWords.length} words
-                      {textManuallyEdited && <span className="text-yellow-500 ml-2">(resets custom edits)</span>}
-                    </label>
-                    <input
-                      type="range"
-                      min={0}
-                      max={factWords.length}
-                      value={splitPos}
-                      onChange={e => handleSplitChange(parseInt(e.target.value))}
-                      className="w-full accent-primary"
-                    />
-                  </div>
-
-                  {/* Top text */}
-                  <div>
-                    <label className="text-[10px] font-display uppercase tracking-widest text-muted-foreground block mb-1">
-                      Top Text
-                    </label>
-                    <textarea
-                      value={topText}
-                      onChange={e => { setTopText(e.target.value); setTextManuallyEdited(true); }}
-                      rows={2}
-                      className="w-full bg-background border-2 border-border text-foreground text-sm px-3 py-2 resize-none focus:border-primary focus:outline-none"
-                      placeholder="Top text…"
-                    />
-                    <div className="mt-1.5">
-                      <label className="text-[10px] font-display uppercase tracking-widest text-muted-foreground flex justify-between mb-1">
-                        <span>Vertical Position</span>
-                        <span className="tabular-nums">{topY}%</span>
-                      </label>
-                      <input
-                        type="range"
-                        min={0}
-                        max={textCollisionConstraints.maxTopY}
-                        value={Math.min(topY, textCollisionConstraints.maxTopY)}
-                        onChange={e => setTopY(parseInt(e.target.value))}
-                        className="w-full accent-primary"
-                      />
-                    </div>
-                  </div>
-
-                  {/* Bottom text */}
-                  <div>
-                    <label className="text-[10px] font-display uppercase tracking-widest text-muted-foreground block mb-1">
-                      Bottom Text
-                    </label>
-                    <textarea
-                      value={bottomText}
-                      onChange={e => { setBottomText(e.target.value); setTextManuallyEdited(true); }}
-                      rows={2}
-                      className="w-full bg-background border-2 border-border text-foreground text-sm px-3 py-2 resize-none focus:border-primary focus:outline-none"
-                      placeholder="Bottom text…"
-                    />
-                    <div className="mt-1.5">
-                      <label className="text-[10px] font-display uppercase tracking-widest text-muted-foreground flex justify-between mb-1">
-                        <span>Vertical Position</span>
-                        <span className="tabular-nums">{bottomY}%</span>
-                      </label>
-                      <input
-                        type="range"
-                        min={textCollisionConstraints.minBottomY}
-                        max={100}
-                        value={Math.max(bottomY, textCollisionConstraints.minBottomY)}
-                        onChange={e => setBottomY(parseInt(e.target.value))}
-                        className="w-full accent-primary"
-                      />
-                    </div>
-                  </div>
-
-                  {/* Font family */}
-                  <div>
-                    <label className="text-[10px] font-display uppercase tracking-widest text-muted-foreground block mb-1">
-                      Font
-                    </label>
-                    <select
-                      value={fontFamily}
-                      onChange={e => setFontFamily(e.target.value)}
-                      className="w-full bg-background border-2 border-border text-foreground text-sm px-3 py-2 focus:border-primary focus:outline-none"
-                    >
-                      {FONT_LIST.map(f => (
-                        <option key={f} value={f} style={{ fontFamily: f }}>{f}</option>
-                      ))}
-                    </select>
-                  </div>
-
-                  {/* ALL CAPS / Bold / Italic */}
-                  <div className="flex gap-3">
-                    {([
-                      ["ALL CAPS", allCaps, setAllCaps],
-                      ["Bold", bold, setBold],
-                      ["Italic", italic, setItalic],
-                    ] as [string, boolean, (v: boolean) => void][]).map(([label, val, setter]) => (
-                      <label key={label} className="flex items-center gap-1.5 cursor-pointer select-none">
-                        <input
-                          type="checkbox"
-                          checked={val}
-                          onChange={e => setter(e.target.checked)}
-                          className="accent-primary w-3.5 h-3.5"
-                        />
-                        <span className={`text-[11px] font-bold uppercase tracking-wider ${val ? "text-primary" : "text-muted-foreground"}`}>
-                          {label}
-                        </span>
-                      </label>
-                    ))}
-                  </div>
-
-                  {/* Text Effect: Shadow / Outline / None */}
-                  <div>
-                    <p className="text-[10px] font-display uppercase tracking-widest text-muted-foreground mb-2">
-                      Text Effect
-                    </p>
-                    <div className="flex gap-2">
-                      {(["shadow", "outline", "none"] as TextEffect[]).map(e => (
-                        <button
-                          key={e}
-                          onClick={() => setTextEffect(e)}
-                          className={`flex-1 py-1.5 text-[11px] font-bold uppercase tracking-wider border-2 transition-all ${
-                            textEffect === e
-                              ? "border-primary bg-primary/15 text-primary"
-                              : "border-border text-muted-foreground hover:border-primary/40"
-                          }`}
-                        >
-                          {e}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* Outline width (visible when outline selected) */}
-                  {textEffect === "outline" && (
-                    <div>
-                      <label className="text-[10px] font-display uppercase tracking-widest text-muted-foreground block mb-2">
-                        Outline Width: {outlineWidth}
-                      </label>
-                      <input
-                        type="range"
-                        min={1}
-                        max={10}
-                        value={outlineWidth}
-                        onChange={e => setOutlineWidth(parseInt(e.target.value))}
-                        className="w-full accent-primary"
-                      />
-                    </div>
-                  )}
-
-                  {/* Font size */}
-                  <div>
-                    <label className="text-[10px] font-display uppercase tracking-widest text-muted-foreground block mb-2">
-                      Font Size: {fontSize}px
-                    </label>
-                    <input
-                      type="range"
-                      min={30}
-                      max={100}
-                      value={fontSize}
-                      onChange={e => setFontSize(parseInt(e.target.value))}
-                      className="w-full accent-primary"
-                    />
-                  </div>
-
-                  {/* Colors row */}
-                  <div className="flex gap-4">
-                    <div className="flex-1">
-                      <label className="text-[10px] font-display uppercase tracking-widest text-muted-foreground block mb-1">
-                        Text Color
-                      </label>
-                      <div className="flex gap-1.5 items-center flex-wrap">
-                        {["#ffffff", "#ffcc00", "#FF3C00", "#00ff88", "#000000"].map(c => (
-                          <button
-                            key={c}
-                            onClick={() => setTextColor(c)}
-                            className={`w-6 h-6 rounded-full border-2 transition-all ${
-                              textColor === c ? "border-white scale-110 ring-2 ring-white/30" : "border-transparent hover:scale-105"
-                            }`}
-                            style={{ background: c }}
-                          />
-                        ))}
-                        <input
-                          type="color"
-                          value={textColor}
-                          onChange={e => setTextColor(e.target.value)}
-                          className="w-6 h-6 rounded-full border-2 border-border cursor-pointer bg-transparent"
-                        />
-                      </div>
-                    </div>
-                    {textEffect === "outline" && (
-                      <div className="flex-1">
-                        <label className="text-[10px] font-display uppercase tracking-widest text-muted-foreground block mb-1">
-                          Outline Color
-                        </label>
-                        <div className="flex gap-1.5 items-center flex-wrap">
-                          {["#000000", "#333333", "#1a237e", "#bf360c", "#ffffff"].map(c => (
-                            <button
-                              key={c}
-                              onClick={() => setOutlineColor(c)}
-                              className={`w-6 h-6 rounded-full border-2 transition-all ${
-                                outlineColor === c ? "border-primary scale-110 ring-2 ring-primary/30" : "border-transparent hover:scale-105"
-                              }`}
-                              style={{ background: c }}
-                            />
-                          ))}
-                          <input
-                            type="color"
-                            value={outlineColor}
-                            onChange={e => setOutlineColor(e.target.value)}
-                            className="w-6 h-6 rounded-full border-2 border-border cursor-pointer bg-transparent"
-                          />
-                        </div>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Text align */}
-                  <div>
-                    <p className="text-[10px] font-display uppercase tracking-widest text-muted-foreground mb-2">
-                      Text Align
-                    </p>
-                    <div className="flex gap-2">
-                      {(["left", "center", "right"] as TextAlign[]).map(a => (
-                        <button
-                          key={a}
-                          onClick={() => setTextAlign(a)}
-                          className={`flex-1 py-1.5 text-[11px] font-bold uppercase tracking-wider border-2 transition-all ${
-                            textAlign === a
-                              ? "border-primary bg-primary/15 text-primary"
-                              : "border-border text-muted-foreground hover:border-primary/40"
-                          }`}
-                        >
-                          {a}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* Opacity */}
-                  <div>
-                    <label className="text-[10px] font-display uppercase tracking-widest text-muted-foreground block mb-2">
-                      Opacity: {opacity.toFixed(1)}
-                    </label>
-                    <input
-                      type="range"
-                      min={0}
-                      max={1}
-                      step={0.1}
-                      value={opacity}
-                      onChange={e => setOpacity(parseFloat(e.target.value))}
-                      className="w-full accent-primary"
-                    />
-                  </div>
-                </div>
-              </div>
+            {/* Opacity */}
+            <div>
+              <label className="text-[10px] font-display uppercase tracking-widest text-muted-foreground block mb-2">
+                Opacity: {opacity.toFixed(1)}
+              </label>
+              <input
+                type="range"
+                min={0}
+                max={1}
+                step={0.1}
+                value={opacity}
+                onChange={e => setOpacity(parseFloat(e.target.value))}
+                className="w-full accent-primary"
+              />
             </div>
           </div>
 
-          {/* ── Visibility toggle (premium) ── */}
+          {/* Preview button */}
+          <div className="mt-6">
+            <Button
+              onClick={() => setStep(3)}
+              variant="primary"
+              size="lg"
+              className="w-full gap-2"
+              style={{ background: "#ff6b35", borderColor: "#ff6b35" }}
+            >
+              <Sparkles className="w-4 h-4" />
+              Preview Meme
+            </Button>
+          </div>
+        </div>
+
+        {/* ── Step 3: Preview & Generate ───────────────────────────── */}
+        <div className="w-full shrink-0 p-4 md:p-5 box-border">
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <button
+                onClick={() => { setStatus("idle"); setErrorMsg(null); setStep(2); }}
+                className="flex items-center gap-1 text-[10px] font-display uppercase tracking-[0.2em] text-muted-foreground hover:text-foreground transition-colors mb-1"
+              >
+                <ChevronLeft className="w-3 h-3" />
+                Change Text
+              </button>
+              <h3 className="text-base font-bold uppercase tracking-wide">Preview & Generate</h3>
+            </div>
+            <StepDots current={3} total={3} />
+          </div>
+
+          {/* Canvas */}
+          <div className="relative flex justify-center mb-4">
+            <canvas
+              ref={canvasRef}
+              width={canvasW}
+              height={canvasH}
+              className="border-2 border-border block select-none"
+              style={{
+                maxWidth: "100%",
+                maxHeight: "70vh",
+                width: "auto",
+                height: "auto",
+                cursor: bgImage ? (dragState ? "grabbing" : "grab") : "default",
+              }}
+              onMouseDown={handleCanvasMouseDown}
+              onMouseMove={handleCanvasMouseMove}
+              onMouseUp={handleCanvasMouseUp}
+              onMouseLeave={handleCanvasMouseUp}
+              onTouchStart={handleCanvasTouchStart}
+              onTouchMove={handleCanvasTouchMove}
+              onTouchEnd={handleCanvasMouseUp}
+            />
+            {isBgLoading && (
+              <div className="absolute inset-0 flex items-center justify-center bg-black/60 border-2 border-border">
+                <Loader2 className="w-8 h-8 text-primary animate-spin" />
+              </div>
+            )}
+            {bgImage && (
+              <p className="absolute bottom-2 right-2 text-[9px] text-white/50 bg-black/30 px-1.5 py-0.5 rounded-sm select-none pointer-events-none">
+                Drag to reframe
+              </p>
+            )}
+          </div>
+
+          {/* Visibility toggle (premium) */}
           {isPremium && status !== "done" && (
-            <div className="flex items-center gap-3 px-4 py-3 bg-secondary border border-border/50">
+            <div className="flex items-center gap-3 mb-4 p-3 bg-secondary border border-border">
               <button
                 type="button"
                 onClick={() => setIsPublic(true)}
@@ -2016,14 +2078,14 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
             </div>
           )}
 
-          {/* ── Error ── */}
+          {/* Error */}
           {errorMsg && (
-            <p className="text-destructive text-sm font-medium bg-destructive/10 border border-destructive/30 px-4 py-2">
+            <p className="text-destructive text-sm font-medium bg-destructive/10 border border-destructive/30 px-4 py-2 mb-3">
               {errorMsg}
             </p>
           )}
 
-          {/* ── Success / Actions ── */}
+          {/* Success / Actions */}
           {status === "done" && permalinkSlug ? (
             <div className="space-y-3">
               <div className="bg-primary/10 border-2 border-primary p-4 space-y-3">
@@ -2065,7 +2127,7 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
                 ) : !isAuthenticated ? (
                   <><Lock className="w-5 h-5" />Login to Generate</>
                 ) : (
-                  <><Flame className="w-5 h-5" />Make My Meme</>
+                  <><Flame className="w-5 h-5" />Save Meme</>
                 )}
               </Button>
               <Button variant="secondary" size="lg" className="gap-2 shrink-0" onClick={handleDownload}>
@@ -2075,9 +2137,9 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
             </div>
           )}
 
-          {/* Pexels attribution (shown when stock photo is used) */}
+          {/* Pexels attribution */}
           {imageMode === "stock" && stockPhoto && (
-            <p className="text-[10px] text-muted-foreground/50 text-center">
+            <p className="text-[10px] text-muted-foreground/50 text-center mt-3">
               Photos provided by{" "}
               <a
                 href="https://www.pexels.com"
@@ -2090,6 +2152,9 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
             </p>
           )}
         </div>
+
+      </div>
+    </div>
   );
 
   if (embedded) {
@@ -2101,7 +2166,7 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
       className="fixed inset-0 z-50 bg-black/85 flex items-center justify-center p-3 md:p-6"
       onClick={e => e.target === e.currentTarget && onClose()}
     >
-      <div className="bg-card border-2 border-border w-full max-w-4xl max-h-[96vh] overflow-y-auto shadow-2xl shadow-black/60">
+      <div className="bg-card border-2 border-border w-full max-w-2xl max-h-[96vh] overflow-y-auto shadow-2xl shadow-black/60">
         {/* ── Header ── */}
         <div className="flex items-center justify-between px-5 py-4 border-b-2 border-border sticky top-0 bg-card z-10">
           <h2 className="text-xl font-display uppercase tracking-[0.15em] text-primary">
