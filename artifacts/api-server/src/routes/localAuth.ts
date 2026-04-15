@@ -78,11 +78,13 @@ function setSessionCookie(res: Response, sid: string) {
 }
 
 router.post("/auth/register", async (req: Request, res: Response) => {
-  const { password, email, displayName, pronouns } = req.body as {
+  const { password, email, displayName, pronouns, firstName, lastName } = req.body as {
     password?: string;
     email?: string;
     displayName?: string;
     pronouns?: string;
+    firstName?: string;
+    lastName?: string;
   };
 
   if (!email || !password) {
@@ -139,12 +141,17 @@ router.post("/auth/register", async (req: Request, res: Response) => {
     sanitizedPronouns = pronouns.trim().slice(0, 80);
   }
 
+  const firstNameTrimmed = typeof firstName === "string" ? firstName.trim().slice(0, 100) : null;
+  const lastNameTrimmed  = typeof lastName  === "string" ? lastName.trim().slice(0, 100)  : null;
+
   const [user] = await db
     .insert(usersTable)
     .values({
       passwordHash,
       email: emailNormalized,
       displayName: displayNameTrimmed,
+      firstName: firstNameTrimmed || null,
+      lastName:  lastNameTrimmed  || null,
       pronouns: sanitizedPronouns,
       captchaVerified: false,
       isActive: true,
