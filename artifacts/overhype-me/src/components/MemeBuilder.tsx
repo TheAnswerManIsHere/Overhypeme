@@ -614,6 +614,22 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
 
   // 2-step flow state
   const [step, setStep] = useState<MemeStep>(1);
+  const sliderRef = useRef<HTMLDivElement>(null);
+
+  // Scroll the nearest scrollable ancestor to top whenever the step changes
+  useEffect(() => {
+    const el = sliderRef.current;
+    if (!el) return;
+    let parent = el.parentElement;
+    while (parent) {
+      const { overflow, overflowY } = window.getComputedStyle(parent);
+      if (/(auto|scroll)/.test(overflow + overflowY)) {
+        parent.scrollTo({ top: 0, behavior: "smooth" });
+        return;
+      }
+      parent = parent.parentElement;
+    }
+  }, [step]);
 
   // User-controlled canvas preview height — persisted to localStorage
   const CANVAS_HEIGHT_KEY = "meme_canvas_height";
@@ -1305,7 +1321,7 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
   const translateX = `translateX(-${stepIndex * 100}%)`;
 
   const innerContent = (
-    <div className="overflow-hidden">
+    <div ref={sliderRef} className="overflow-hidden">
       <div
         className="flex transition-transform duration-300 ease-in-out"
         style={{ transform: translateX, willChange: "transform" }}
