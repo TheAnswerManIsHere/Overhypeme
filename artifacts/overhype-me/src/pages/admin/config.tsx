@@ -27,6 +27,10 @@ const LIMIT_KEYS = new Set([
   "pexels_photos_per_gender",
   "upload_gallery_display_limit",
   "user_max_images",
+  "bg_display_limit_stock",
+  "bg_display_limit_gradient",
+  "bg_display_limit_ai",
+  "bg_display_limit_upload",
 ]);
 
 // Keys that belong elsewhere (Billing tab) or are removed from this page
