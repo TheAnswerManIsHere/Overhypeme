@@ -141,8 +141,15 @@ router.post("/auth/register", async (req: Request, res: Response) => {
     sanitizedPronouns = pronouns.trim().slice(0, 80);
   }
 
-  const firstNameTrimmed = typeof firstName === "string" ? firstName.trim().slice(0, 100) : null;
-  const lastNameTrimmed  = typeof lastName  === "string" ? lastName.trim().slice(0, 100)  : null;
+  const firstNameTrimmed = typeof firstName === "string" ? firstName.trim().slice(0, 100) : "";
+  const lastNameTrimmed  = typeof lastName  === "string" ? lastName.trim().slice(0, 100)  : "";
+
+  if (!firstNameTrimmed) {
+    return res.status(400).json({ error: "First Name is required." });
+  }
+  if (!lastNameTrimmed) {
+    return res.status(400).json({ error: "Last Name is required." });
+  }
 
   const [user] = await db
     .insert(usersTable)
@@ -150,8 +157,8 @@ router.post("/auth/register", async (req: Request, res: Response) => {
       passwordHash,
       email: emailNormalized,
       displayName: displayNameTrimmed,
-      firstName: firstNameTrimmed || null,
-      lastName:  lastNameTrimmed  || null,
+      firstName: firstNameTrimmed,
+      lastName:  lastNameTrimmed,
       pronouns: sanitizedPronouns,
       captchaVerified: false,
       isActive: true,
