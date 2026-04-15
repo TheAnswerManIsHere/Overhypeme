@@ -569,16 +569,16 @@ Return ONLY valid JSON:
       ddl: `INSERT INTO admin_config (key, value, data_type, label, description, min_value, max_value, is_public) VALUES
         ('bg_display_limit_stock', '20', 'integer', 'Background Picker: Stock Photo Limit',
          'Maximum number of stock photos shown in the background image picker when creating a meme. Does not affect how many are fetched or stored.',
-         1, 500, false),
+         1, 500, true),
         ('bg_display_limit_gradient', '20', 'integer', 'Background Picker: Gradient Limit',
          'Maximum number of gradient backgrounds shown in the background image picker when creating a meme.',
-         1, 200, false),
+         1, 200, true),
         ('bg_display_limit_ai', '20', 'integer', 'Background Picker: AI Generated Limit',
          'Maximum number of AI-generated backgrounds shown in the background image picker when creating a meme. Does not affect how many are generated or stored.',
-         1, 500, false),
+         1, 500, true),
         ('bg_display_limit_upload', '20', 'integer', 'Background Picker: Upload Limit',
          'Maximum number of uploaded images shown in the background image picker when creating a meme. Does not affect storage limits.',
-         1, 500, false)
+         1, 500, true)
       ON CONFLICT (key) DO NOTHING`,
     },
     // ── Feature flags ──────────────────────────────────────────────────────

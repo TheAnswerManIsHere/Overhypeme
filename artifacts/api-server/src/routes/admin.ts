@@ -9,7 +9,7 @@ import { backfillEmbeddings } from "../lib/embeddings";
 import { runFactImagePipeline } from "../lib/factImagePipeline";
 import { generateAiMemeBackgrounds, type AiScenePrompts, type AiMemeImages } from "../lib/aiMemePipeline";
 import { logActivity } from "../lib/activity";
-import { getAllConfig, bustConfigCache } from "../lib/adminConfig";
+import { getAllConfig, bustConfigCache, getPublicConfig } from "../lib/adminConfig";
 import { getAllTierFeatureMatrix, setTierFeature, bustTierFeaturesCache } from "../lib/tierFeatures";
 import { ObjectStorageService } from "../lib/objectStorage";
 import { memeKey } from "../lib/storageKeys";
@@ -1185,6 +1185,15 @@ router.put("/admin/facts/:id/ai-scene-prompts", requireAdmin, async (req: Reques
 });
 
 // ─── Config ───────────────────────────────────────────────────────────────────
+
+router.get("/config/public", async (_req: Request, res: Response) => {
+  try {
+    const config = await getPublicConfig();
+    res.json(config);
+  } catch (err) {
+    res.status(500).json({ error: "Failed to load public config" });
+  }
+});
 
 router.get("/admin/config", requireAdmin, async (_req: Request, res: Response) => {
   try {

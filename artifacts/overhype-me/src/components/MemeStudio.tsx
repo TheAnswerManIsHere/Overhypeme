@@ -523,6 +523,21 @@ function VideoTab({ factId, factText, pexelsImages, aiMemeImages, initialImageDa
   const [prefetchedPhotos, setPrefetchedPhotos] = useState<PexelsPhotoEntry[]>([]);
   const [selectedStockIndex, setSelectedStockIndex] = useState<number | null>(null);
 
+  // Display limits (from public config)
+  const [bgStockLimit, setBgStockLimit] = useState(20);
+  const [bgUploadLimit, setBgUploadLimit] = useState(20);
+  useEffect(() => {
+    fetch("/api/config")
+      .then(r => r.ok ? r.json() : {})
+      .then((cfg: Record<string, number | string | boolean>) => {
+        const s = cfg["bg_display_limit_stock"];
+        if (typeof s === "number" && s > 0) setBgStockLimit(s);
+        const u = cfg["bg_display_limit_upload"];
+        if (typeof u === "number" && u > 0) setBgUploadLimit(u);
+      })
+      .catch(() => {});
+  }, []);
+
   // AI background selection (via AiBgPicker)
   // factIsGendered: true when the fact has male/female images (not abstract)
   const factIsGendered = (aiMemeImages?.male?.filter(Boolean).length ?? 0) > 0 || (aiMemeImages?.female?.filter(Boolean).length ?? 0) > 0;
@@ -942,7 +957,7 @@ function VideoTab({ factId, factText, pexelsImages, aiMemeImages, initialImageDa
                     Select a background image
                   </p>
                   <div className="grid gap-1.5" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(120px, 1fr))" }}>
-                    {prefetchedPhotos.map((photo, i) => (
+                    {prefetchedPhotos.slice(0, bgStockLimit).map((photo, i) => (
                       <ImageCard
                         key={photo.id}
                         src={photo.src?.large ?? photo.src?.small ?? photo.url}
@@ -1031,7 +1046,7 @@ function VideoTab({ factId, factText, pexelsImages, aiMemeImages, initialImageDa
                         My Uploads
                       </p>
                       <div className="grid gap-1.5 max-h-48 overflow-y-auto" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(100px, 1fr))" }}>
-                        {uploadGallery.map((entry) => {
+                        {uploadGallery.slice(0, bgUploadLimit).map((entry) => {
                           const url = `/api/storage${entry.objectPath}`;
                           const isSelected = selectedBgUrl === url;
                           return (
