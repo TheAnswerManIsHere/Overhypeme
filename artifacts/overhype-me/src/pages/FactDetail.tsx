@@ -548,7 +548,15 @@ export default function FactDetail() {
                       })}
                     </div>
                   ) : (
-                    <p className="text-sm text-muted-foreground pl-2">You haven't shared any memes for this fact yet.</p>
+                    <div className="py-8 text-center border-2 border-dashed border-border rounded-sm">
+                      <p className="text-muted-foreground mb-4">You haven't made any public memes for this fact yet.</p>
+                      <button
+                        onClick={() => openMemeStudio("image")}
+                        className="inline-flex items-center gap-2 px-4 py-2 text-sm font-display font-bold uppercase tracking-wider bg-primary text-primary-foreground rounded-sm hover:opacity-90 transition-opacity"
+                      >
+                        Create your first public meme
+                      </button>
+                    </div>
                   )}
                 </div>
               )}
@@ -663,7 +671,17 @@ export default function FactDetail() {
                       </p>
                       {myPublicVideos.length > 0
                         ? <VideoGrid videos={myPublicVideos} />
-                        : <p className="text-sm text-muted-foreground pl-2">No public videos yet.</p>
+                        : (
+                          <div className="py-8 text-center border-2 border-dashed border-border rounded-sm">
+                            <p className="text-muted-foreground mb-4">You haven't made any public videos for this fact yet.</p>
+                            <button
+                              onClick={() => openMemeStudio("video")}
+                              className="inline-flex items-center gap-2 px-4 py-2 text-sm font-display font-bold uppercase tracking-wider bg-primary text-primary-foreground rounded-sm hover:opacity-90 transition-opacity"
+                            >
+                              Create your first public video
+                            </button>
+                          </div>
+                        )
                       }
                     </div>
                   )}
@@ -674,7 +692,17 @@ export default function FactDetail() {
                       </p>
                       {myPrivateVideos.length > 0
                         ? <VideoGrid videos={myPrivateVideos} />
-                        : <p className="text-sm text-muted-foreground pl-2">No private videos yet.</p>
+                        : (
+                          <div className="py-8 text-center border-2 border-dashed border-border rounded-sm">
+                            <p className="text-muted-foreground mb-4">You haven't made any private videos for this fact yet.</p>
+                            <button
+                              onClick={() => { setMemeBuilderDefaultPrivate(true); openMemeStudio("video"); }}
+                              className="inline-flex items-center gap-2 px-4 py-2 text-sm font-display font-bold uppercase tracking-wider bg-primary text-primary-foreground rounded-sm hover:opacity-90 transition-opacity"
+                            >
+                              Create your first private video
+                            </button>
+                          </div>
+                        )
                       }
                     </div>
                   )}
