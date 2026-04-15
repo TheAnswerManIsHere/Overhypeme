@@ -1654,7 +1654,7 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
           <div className="flex items-center justify-between mb-5">
             <div>
               <button
-                onClick={() => setStep(1)}
+                onClick={() => { setStatus("idle"); setErrorMsg(null); setStep(1); }}
                 className="flex items-center gap-1 text-[10px] font-display uppercase tracking-[0.2em] text-muted-foreground hover:text-foreground transition-colors mb-1"
               >
                 <ChevronLeft className="w-3 h-3" />
