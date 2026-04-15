@@ -94,7 +94,7 @@ type TextAlign = "left" | "center" | "right";
 type ImageMode = "gradient" | "stock" | "upload" | "ai";
 type StockGender = "man" | "woman" | "person";
 type TextEffect = "shadow" | "outline" | "none";
-type MemeStep = 1 | 2 | 3;
+type MemeStep = 1 | 2;
 
 interface StockPhoto {
   id: number;
@@ -612,8 +612,22 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
   // Visibility (premium-only private memes)
   const [isPublic, setIsPublic] = useState(!defaultPrivate);
 
-  // 3-step flow state
+  // 2-step flow state
   const [step, setStep] = useState<MemeStep>(1);
+
+  // User-controlled canvas preview height — persisted to localStorage
+  const CANVAS_HEIGHT_KEY = "meme_canvas_height";
+  const [resizeMaxH, setResizeMaxH] = useState<number | null>(() => {
+    const saved = localStorage.getItem(CANVAS_HEIGHT_KEY);
+    const parsed = saved ? parseInt(saved, 10) : NaN;
+    return Number.isFinite(parsed) ? Math.max(80, Math.min(1200, parsed)) : null;
+  });
+  const resizeDragRef = useRef<{ startY: number; startH: number } | null>(null);
+  function applyResizeMaxH(h: number) {
+    const clamped = Math.max(80, Math.min(1200, h));
+    localStorage.setItem(CANVAS_HEIGHT_KEY, String(clamped));
+    setResizeMaxH(clamped);
+  }
 
   // Reset pan offset whenever the aspect ratio or background image changes
   useEffect(() => { setBgOffset({ x: 0, y: 0 }); }, [aspectRatio]);
@@ -1262,7 +1276,8 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
   const templates = tplData?.templates ?? [];
 
 
-  // ── Derived helpers for step flow ────────────────────────────────
+
+  // ── Derived helpers ──────────────────────────────────────────────
   const hasBackground = useMemo(() => {
     if (imageMode === "gradient") return true;
     if (imageMode === "stock") return stockPhoto !== null;
@@ -1301,11 +1316,11 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
           <div className="flex items-center justify-between mb-5">
             <div>
               <p className="text-[10px] font-display uppercase tracking-[0.2em] text-muted-foreground mb-1">
-                Step 1 of 3
+                Step 1 of 2
               </p>
               <h3 className="text-base font-bold uppercase tracking-wide">Choose Background</h3>
             </div>
-            <StepDots current={1} total={3} />
+            <StepDots current={1} total={2} />
           </div>
 
           {/* Mode tabs */}
@@ -1644,14 +1659,15 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
               style={hasBackground ? { background: "#ff6b35", borderColor: "#ff6b35" } : undefined}
             >
               <Sparkles className="w-4 h-4" />
-              {hasBackground ? "Continue to Text & Style" : "Select a background to continue"}
+              {hasBackground ? "Continue to Customize" : "Select a background to continue"}
             </Button>
           </div>
         </div>
 
-        {/* ── Step 2: Customize Text & Style ───────────────────────── */}
-        <div className="w-full shrink-0 p-4 md:p-5 box-border">
-          <div className="flex items-center justify-between mb-5">
+        {/* ── Step 2: Live Preview + Customize ────────────────────── */}
+        <div className="w-full shrink-0 box-border">
+          {/* Sticky header with back link */}
+          <div className="flex items-center justify-between px-4 md:px-5 pt-4 pb-3">
             <div>
               <button
                 onClick={() => { setStatus("idle"); setErrorMsg(null); setStep(1); }}
@@ -1660,51 +1676,18 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
                 <ChevronLeft className="w-3 h-3" />
                 Change Background
               </button>
-              <h3 className="text-base font-bold uppercase tracking-wide">Customize Text & Style</h3>
+              <h3 className="text-base font-bold uppercase tracking-wide">Customize & Preview</h3>
             </div>
-            <StepDots current={2} total={3} />
+            <StepDots current={2} total={2} />
           </div>
 
-          {/* Background preview thumbnail */}
-          <div className="bg-secondary border border-border p-3 mb-5 flex items-center gap-3">
-            {previewBgGradient ? (
-              <div
-                className="w-16 h-10 border border-border shrink-0"
-                style={{ background: previewBgGradient }}
-              />
-            ) : previewBgUrl ? (
-              <img
-                src={previewBgUrl}
-                alt="Selected background"
-                className="w-16 h-10 object-cover border border-border shrink-0"
-              />
-            ) : (
-              <div className="w-16 h-10 border border-border bg-muted shrink-0 flex items-center justify-center">
-                <ImageIcon className="w-4 h-4 text-muted-foreground" />
-              </div>
-            )}
-            <div className="min-w-0">
-              <p className="text-[10px] font-display uppercase tracking-widest text-muted-foreground mb-0.5">
-                Background
-              </p>
-              <p className="text-xs text-foreground truncate">
-                {imageMode === "gradient"
-                  ? (templates.find(t => t.id === selectedTemplate)?.name ?? selectedTemplate)
-                  : imageMode === "stock"
-                  ? (stockPhoto ? "Stock photo selected" : "No photo selected")
-                  : imageMode === "ai"
-                  ? "AI background"
-                  : uploadFile
-                  ? uploadFile.name
-                  : "Uploaded image"}
-              </p>
-            </div>
-          </div>
-
-          {/* Aspect ratio selector */}
-          <div className="mb-5">
-            <p className="text-[10px] font-display uppercase tracking-[0.18em] text-muted-foreground mb-2">Format</p>
-            <div className="flex gap-1">
+          {/* ── Live canvas preview (resizable) ── */}
+          <div
+            className="sticky z-30 bg-card pb-2 shadow-[0_6px_16px_-2px_rgba(0,0,0,0.45)] top-14"
+          >
+            {/* Aspect ratio selector */}
+            <div className="px-4 md:px-5 pb-2 flex items-center gap-2 pt-1">
+              <p className="text-[10px] font-display uppercase tracking-[0.18em] text-muted-foreground mr-1 shrink-0">Format</p>
               {(Object.entries(ASPECT_RATIOS) as [AspectRatio, typeof ASPECT_RATIOS[AspectRatio]][]).map(([key, def]) => (
                 <button
                   key={key}
@@ -1731,426 +1714,426 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
                 </button>
               ))}
             </div>
-          </div>
 
-          {/* Text section */}
-          <div className="space-y-4">
-            <SectionLabel>
-              <Layers className="w-3 h-3" /> Text
-            </SectionLabel>
-
-            {/* Split slider */}
-            <div>
-              <label className="text-[10px] font-display uppercase tracking-widest text-muted-foreground block mb-2">
-                Split Position: {splitPos} / {factWords.length} words
-                {textManuallyEdited && <span className="text-yellow-500 ml-2">(resets custom edits)</span>}
-              </label>
-              <input
-                type="range"
-                min={0}
-                max={factWords.length}
-                value={splitPos}
-                onChange={e => handleSplitChange(parseInt(e.target.value))}
-                className="w-full accent-primary"
+            {/* Canvas */}
+            <div className="relative flex justify-center px-4 md:px-5">
+              <canvas
+                ref={canvasRef}
+                width={canvasW}
+                height={canvasH}
+                className="border-2 border-border block select-none"
+                style={{
+                  maxWidth: "100%",
+                  maxHeight: resizeMaxH ?? "55vh",
+                  width: "auto",
+                  height: "auto",
+                  cursor: bgImage ? (dragState ? "grabbing" : "grab") : "default",
+                }}
+                onMouseDown={handleCanvasMouseDown}
+                onMouseMove={handleCanvasMouseMove}
+                onMouseUp={handleCanvasMouseUp}
+                onMouseLeave={handleCanvasMouseUp}
+                onTouchStart={handleCanvasTouchStart}
+                onTouchMove={handleCanvasTouchMove}
+                onTouchEnd={handleCanvasMouseUp}
               />
-            </div>
-
-            {/* Top text */}
-            <div>
-              <label className="text-[10px] font-display uppercase tracking-widest text-muted-foreground block mb-1">
-                Top Text
-              </label>
-              <textarea
-                value={topText}
-                onChange={e => { setTopText(e.target.value); setTextManuallyEdited(true); }}
-                rows={2}
-                className="w-full bg-background border-2 border-border text-foreground text-sm px-3 py-2 resize-none focus:border-primary focus:outline-none"
-                placeholder="Top text…"
-              />
-              <div className="mt-1.5">
-                <label className="text-[10px] font-display uppercase tracking-widest text-muted-foreground flex justify-between mb-1">
-                  <span>Vertical Position</span>
-                  <span className="tabular-nums">{topY}%</span>
-                </label>
-                <input
-                  type="range"
-                  min={0}
-                  max={textCollisionConstraints.maxTopY}
-                  value={Math.min(topY, textCollisionConstraints.maxTopY)}
-                  onChange={e => setTopY(parseInt(e.target.value))}
-                  className="w-full accent-primary"
-                />
-              </div>
-            </div>
-
-            {/* Bottom text */}
-            <div>
-              <label className="text-[10px] font-display uppercase tracking-widest text-muted-foreground block mb-1">
-                Bottom Text
-              </label>
-              <textarea
-                value={bottomText}
-                onChange={e => { setBottomText(e.target.value); setTextManuallyEdited(true); }}
-                rows={2}
-                className="w-full bg-background border-2 border-border text-foreground text-sm px-3 py-2 resize-none focus:border-primary focus:outline-none"
-                placeholder="Bottom text…"
-              />
-              <div className="mt-1.5">
-                <label className="text-[10px] font-display uppercase tracking-widest text-muted-foreground flex justify-between mb-1">
-                  <span>Vertical Position</span>
-                  <span className="tabular-nums">{bottomY}%</span>
-                </label>
-                <input
-                  type="range"
-                  min={textCollisionConstraints.minBottomY}
-                  max={100}
-                  value={Math.max(bottomY, textCollisionConstraints.minBottomY)}
-                  onChange={e => setBottomY(parseInt(e.target.value))}
-                  className="w-full accent-primary"
-                />
-              </div>
-            </div>
-
-            {/* Font family */}
-            <div>
-              <label className="text-[10px] font-display uppercase tracking-widest text-muted-foreground block mb-1">
-                Font
-              </label>
-              <select
-                value={fontFamily}
-                onChange={e => setFontFamily(e.target.value)}
-                className="w-full bg-background border-2 border-border text-foreground text-sm px-3 py-2 focus:border-primary focus:outline-none"
-              >
-                {FONT_LIST.map(f => (
-                  <option key={f} value={f} style={{ fontFamily: f }}>{f}</option>
-                ))}
-              </select>
-            </div>
-
-            {/* ALL CAPS / Bold / Italic */}
-            <div className="flex gap-3">
-              {([
-                ["ALL CAPS", allCaps, setAllCaps],
-                ["Bold", bold, setBold],
-                ["Italic", italic, setItalic],
-              ] as [string, boolean, (v: boolean) => void][]).map(([label, val, setter]) => (
-                <label key={label} className="flex items-center gap-1.5 cursor-pointer select-none">
-                  <input
-                    type="checkbox"
-                    checked={val}
-                    onChange={e => setter(e.target.checked)}
-                    className="accent-primary w-3.5 h-3.5"
-                  />
-                  <span className={`text-[11px] font-bold uppercase tracking-wider ${val ? "text-primary" : "text-muted-foreground"}`}>
-                    {label}
-                  </span>
-                </label>
-              ))}
-            </div>
-
-            {/* Text Effect */}
-            <div>
-              <p className="text-[10px] font-display uppercase tracking-widest text-muted-foreground mb-2">
-                Text Effect
-              </p>
-              <div className="flex gap-2">
-                {(["shadow", "outline", "none"] as TextEffect[]).map(e => (
-                  <button
-                    key={e}
-                    onClick={() => setTextEffect(e)}
-                    className={`flex-1 py-1.5 text-[11px] font-bold uppercase tracking-wider border-2 transition-all ${
-                      textEffect === e
-                        ? "border-primary bg-primary/15 text-primary"
-                        : "border-border text-muted-foreground hover:border-primary/40"
-                    }`}
-                  >
-                    {e}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* Outline width */}
-            {textEffect === "outline" && (
-              <div>
-                <label className="text-[10px] font-display uppercase tracking-widest text-muted-foreground block mb-2">
-                  Outline Width: {outlineWidth}
-                </label>
-                <input
-                  type="range"
-                  min={1}
-                  max={10}
-                  value={outlineWidth}
-                  onChange={e => setOutlineWidth(parseInt(e.target.value))}
-                  className="w-full accent-primary"
-                />
-              </div>
-            )}
-
-            {/* Font size */}
-            <div>
-              <label className="text-[10px] font-display uppercase tracking-widest text-muted-foreground block mb-2">
-                Font Size: {fontSize}px
-              </label>
-              <input
-                type="range"
-                min={30}
-                max={100}
-                value={fontSize}
-                onChange={e => setFontSize(parseInt(e.target.value))}
-                className="w-full accent-primary"
-              />
-            </div>
-
-            {/* Colors row */}
-            <div className="flex gap-4">
-              <div className="flex-1">
-                <label className="text-[10px] font-display uppercase tracking-widest text-muted-foreground block mb-1">
-                  Text Color
-                </label>
-                <div className="flex gap-1.5 items-center flex-wrap">
-                  {["#ffffff", "#ffcc00", "#FF3C00", "#00ff88", "#000000"].map(c => (
-                    <button
-                      key={c}
-                      onClick={() => setTextColor(c)}
-                      className={`w-6 h-6 rounded-full border-2 transition-all ${
-                        textColor === c ? "border-white scale-110 ring-2 ring-white/30" : "border-transparent hover:scale-105"
-                      }`}
-                      style={{ background: c }}
-                    />
-                  ))}
-                  <input
-                    type="color"
-                    value={textColor}
-                    onChange={e => setTextColor(e.target.value)}
-                    className="w-6 h-6 rounded-full border-2 border-border cursor-pointer bg-transparent"
-                  />
+              {isBgLoading && (
+                <div className="absolute inset-0 flex items-center justify-center bg-black/60 border-2 border-border">
+                  <Loader2 className="w-8 h-8 text-primary animate-spin" />
                 </div>
-              </div>
-              {textEffect === "outline" && (
-                <div className="flex-1">
-                  <label className="text-[10px] font-display uppercase tracking-widest text-muted-foreground block mb-1">
-                    Outline Color
-                  </label>
-                  <div className="flex gap-1.5 items-center flex-wrap">
-                    {["#000000", "#333333", "#1a237e", "#bf360c", "#ffffff"].map(c => (
-                      <button
-                        key={c}
-                        onClick={() => setOutlineColor(c)}
-                        className={`w-6 h-6 rounded-full border-2 transition-all ${
-                          outlineColor === c ? "border-primary scale-110 ring-2 ring-primary/30" : "border-transparent hover:scale-105"
-                        }`}
-                        style={{ background: c }}
-                      />
-                    ))}
-                    <input
-                      type="color"
-                      value={outlineColor}
-                      onChange={e => setOutlineColor(e.target.value)}
-                      className="w-6 h-6 rounded-full border-2 border-border cursor-pointer bg-transparent"
-                    />
-                  </div>
-                </div>
+              )}
+              {bgImage && (
+                <p className="absolute bottom-2 right-6 text-[9px] text-white/50 bg-black/30 px-1.5 py-0.5 rounded-sm select-none pointer-events-none">
+                  Drag to reframe
+                </p>
               )}
             </div>
 
-            {/* Text align */}
-            <div>
-              <p className="text-[10px] font-display uppercase tracking-widest text-muted-foreground mb-2">
-                Text Align
-              </p>
-              <div className="flex gap-2">
-                {(["left", "center", "right"] as TextAlign[]).map(a => (
-                  <button
-                    key={a}
-                    onClick={() => setTextAlign(a)}
-                    className={`flex-1 py-1.5 text-[11px] font-bold uppercase tracking-wider border-2 transition-all ${
-                      textAlign === a
-                        ? "border-primary bg-primary/15 text-primary"
-                        : "border-border text-muted-foreground hover:border-primary/40"
-                    }`}
-                  >
-                    {a}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* Opacity */}
-            <div>
-              <label className="text-[10px] font-display uppercase tracking-widest text-muted-foreground block mb-2">
-                Opacity: {opacity.toFixed(1)}
-              </label>
-              <input
-                type="range"
-                min={0}
-                max={1}
-                step={0.1}
-                value={opacity}
-                onChange={e => setOpacity(parseFloat(e.target.value))}
-                className="w-full accent-primary"
-              />
-            </div>
-          </div>
-
-          {/* Preview button */}
-          <div className="mt-6">
-            <Button
-              onClick={() => setStep(3)}
-              variant="primary"
-              size="lg"
-              className="w-full gap-2"
-              style={{ background: "#ff6b35", borderColor: "#ff6b35" }}
-            >
-              <Sparkles className="w-4 h-4" />
-              Preview Meme
-            </Button>
-          </div>
-        </div>
-
-        {/* ── Step 3: Preview & Generate ───────────────────────────── */}
-        <div className="w-full shrink-0 p-4 md:p-5 box-border">
-          <div className="flex items-center justify-between mb-4">
-            <div>
-              <button
-                onClick={() => { setStatus("idle"); setErrorMsg(null); setStep(2); }}
-                className="flex items-center gap-1 text-[10px] font-display uppercase tracking-[0.2em] text-muted-foreground hover:text-foreground transition-colors mb-1"
-              >
-                <ChevronLeft className="w-3 h-3" />
-                Change Text
-              </button>
-              <h3 className="text-base font-bold uppercase tracking-wide">Preview & Generate</h3>
-            </div>
-            <StepDots current={3} total={3} />
-          </div>
-
-          {/* Canvas */}
-          <div className="relative flex justify-center mb-4">
-            <canvas
-              ref={canvasRef}
-              width={canvasW}
-              height={canvasH}
-              className="border-2 border-border block select-none"
-              style={{
-                maxWidth: "100%",
-                maxHeight: "70vh",
-                width: "auto",
-                height: "auto",
-                cursor: bgImage ? (dragState ? "grabbing" : "grab") : "default",
+            {/* Resize drag handle */}
+            <div
+              className="h-2 cursor-ns-resize flex items-center justify-center group mx-4 md:mx-5 mt-1"
+              onMouseDown={e => {
+                const canvasEl = canvasRef.current;
+                if (!canvasEl) return;
+                const rect = canvasEl.getBoundingClientRect();
+                resizeDragRef.current = { startY: e.clientY, startH: rect.height };
+                const onMove = (mv: MouseEvent) => {
+                  if (!resizeDragRef.current) return;
+                  const delta = mv.clientY - resizeDragRef.current.startY;
+                  applyResizeMaxH(resizeDragRef.current.startH + delta);
+                };
+                const onUp = () => {
+                  resizeDragRef.current = null;
+                  window.removeEventListener("mousemove", onMove);
+                  window.removeEventListener("mouseup", onUp);
+                };
+                window.addEventListener("mousemove", onMove);
+                window.addEventListener("mouseup", onUp);
               }}
-              onMouseDown={handleCanvasMouseDown}
-              onMouseMove={handleCanvasMouseMove}
-              onMouseUp={handleCanvasMouseUp}
-              onMouseLeave={handleCanvasMouseUp}
-              onTouchStart={handleCanvasTouchStart}
-              onTouchMove={handleCanvasTouchMove}
-              onTouchEnd={handleCanvasMouseUp}
-            />
-            {isBgLoading && (
-              <div className="absolute inset-0 flex items-center justify-center bg-black/60 border-2 border-border">
-                <Loader2 className="w-8 h-8 text-primary animate-spin" />
-              </div>
-            )}
-            {bgImage && (
-              <p className="absolute bottom-2 right-2 text-[9px] text-white/50 bg-black/30 px-1.5 py-0.5 rounded-sm select-none pointer-events-none">
-                Drag to reframe
-              </p>
-            )}
+            >
+              <div className="w-8 h-1 rounded-full bg-border group-hover:bg-primary/50 transition-colors" />
+            </div>
           </div>
 
-          {/* Visibility toggle (premium) */}
-          {isPremium && status !== "done" && (
-            <div className="flex items-center gap-3 mb-4 p-3 bg-secondary border border-border">
-              <button
-                type="button"
-                onClick={() => setIsPublic(true)}
-                className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 text-xs font-display font-bold uppercase tracking-wider rounded-sm transition-colors ${isPublic ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"}`}
-              >
-                <Globe className="w-3.5 h-3.5" /> Public
-              </button>
-              <button
-                type="button"
-                onClick={() => setIsPublic(false)}
-                className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 text-xs font-display font-bold uppercase tracking-wider rounded-sm transition-colors ${!isPublic ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"}`}
-              >
-                <Lock className="w-3.5 h-3.5" /> Private
-              </button>
-            </div>
-          )}
+          {/* ── Controls ── */}
+          <div className="p-4 md:p-5 space-y-4">
 
-          {/* Error */}
-          {errorMsg && (
-            <p className="text-destructive text-sm font-medium bg-destructive/10 border border-destructive/30 px-4 py-2 mb-3">
-              {errorMsg}
-            </p>
-          )}
+            {/* Visibility toggle (premium) */}
+            {isPremium && status !== "done" && (
+              <div className="flex items-center gap-3 p-3 bg-secondary border border-border">
+                <button
+                  type="button"
+                  onClick={() => setIsPublic(true)}
+                  className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 text-xs font-display font-bold uppercase tracking-wider rounded-sm transition-colors ${isPublic ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"}`}
+                >
+                  <Globe className="w-3.5 h-3.5" /> Public
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setIsPublic(false)}
+                  className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 text-xs font-display font-bold uppercase tracking-wider rounded-sm transition-colors ${!isPublic ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"}`}
+                >
+                  <Lock className="w-3.5 h-3.5" /> Private
+                </button>
+              </div>
+            )}
 
-          {/* Success / Actions */}
-          {status === "done" && permalinkSlug ? (
-            <div className="space-y-3">
-              <div className="bg-primary/10 border-2 border-primary p-4 space-y-3">
-                <div className="flex items-center gap-3 text-primary">
-                  <CheckCircle className="w-5 h-5 shrink-0" />
-                  <span className="font-display uppercase tracking-wide font-bold text-sm">
-                    Meme Created!
-                  </span>
+            {/* Text section */}
+            <div>
+              <SectionLabel>
+                <Layers className="w-3 h-3" /> Text
+              </SectionLabel>
+              <div className="space-y-4 mt-2">
+
+                {/* Split slider */}
+                <div>
+                  <label className="text-[10px] font-display uppercase tracking-widest text-muted-foreground block mb-2">
+                    Split Position: {splitPos} / {factWords.length} words
+                    {textManuallyEdited && <span className="text-yellow-500 ml-2">(resets custom edits)</span>}
+                  </label>
+                  <input
+                    type="range"
+                    min={0}
+                    max={factWords.length}
+                    value={splitPos}
+                    onChange={e => handleSplitChange(parseInt(e.target.value))}
+                    className="w-full accent-primary"
+                  />
                 </div>
-                <div className="flex flex-wrap gap-3">
-                  <Link href={`/meme/${permalinkSlug}`}>
-                    <Button size="sm" variant="outline" className="gap-2">
-                      <Share2 className="w-4 h-4" /> View Permalink
-                    </Button>
-                  </Link>
-                  <Button size="sm" variant="secondary" className="gap-2" onClick={handleDownload}>
-                    <Download className="w-4 h-4" /> Download Preview
-                  </Button>
-                  <Button
-                    size="sm"
-                    onClick={() => { setStatus("idle"); setPermalinkSlug(null); }}
+
+                {/* Top text */}
+                <div>
+                  <label className="text-[10px] font-display uppercase tracking-widest text-muted-foreground block mb-1">
+                    Top Text
+                  </label>
+                  <textarea
+                    value={topText}
+                    onChange={e => { setTopText(e.target.value); setTextManuallyEdited(true); }}
+                    rows={2}
+                    className="w-full bg-background border-2 border-border text-foreground text-sm px-3 py-2 resize-none focus:border-primary focus:outline-none"
+                    placeholder="Top text…"
+                  />
+                  <div className="mt-1.5">
+                    <label className="text-[10px] font-display uppercase tracking-widest text-muted-foreground flex justify-between mb-1">
+                      <span>Vertical Position</span>
+                      <span className="tabular-nums">{topY}%</span>
+                    </label>
+                    <input
+                      type="range"
+                      min={0}
+                      max={textCollisionConstraints.maxTopY}
+                      value={Math.min(topY, textCollisionConstraints.maxTopY)}
+                      onChange={e => setTopY(parseInt(e.target.value))}
+                      className="w-full accent-primary"
+                    />
+                  </div>
+                </div>
+
+                {/* Bottom text */}
+                <div>
+                  <label className="text-[10px] font-display uppercase tracking-widest text-muted-foreground block mb-1">
+                    Bottom Text
+                  </label>
+                  <textarea
+                    value={bottomText}
+                    onChange={e => { setBottomText(e.target.value); setTextManuallyEdited(true); }}
+                    rows={2}
+                    className="w-full bg-background border-2 border-border text-foreground text-sm px-3 py-2 resize-none focus:border-primary focus:outline-none"
+                    placeholder="Bottom text…"
+                  />
+                  <div className="mt-1.5">
+                    <label className="text-[10px] font-display uppercase tracking-widest text-muted-foreground flex justify-between mb-1">
+                      <span>Vertical Position</span>
+                      <span className="tabular-nums">{bottomY}%</span>
+                    </label>
+                    <input
+                      type="range"
+                      min={textCollisionConstraints.minBottomY}
+                      max={100}
+                      value={Math.max(bottomY, textCollisionConstraints.minBottomY)}
+                      onChange={e => setBottomY(parseInt(e.target.value))}
+                      className="w-full accent-primary"
+                    />
+                  </div>
+                </div>
+
+                {/* Font family */}
+                <div>
+                  <label className="text-[10px] font-display uppercase tracking-widest text-muted-foreground block mb-1">
+                    Font
+                  </label>
+                  <select
+                    value={fontFamily}
+                    onChange={e => setFontFamily(e.target.value)}
+                    className="w-full bg-background border-2 border-border text-foreground text-sm px-3 py-2 focus:border-primary focus:outline-none"
                   >
-                    Make Another
-                  </Button>
+                    {FONT_LIST.map(f => (
+                      <option key={f} value={f} style={{ fontFamily: f }}>{f}</option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* ALL CAPS / Bold / Italic */}
+                <div className="flex gap-3">
+                  {([
+                    ["ALL CAPS", allCaps, setAllCaps],
+                    ["Bold", bold, setBold],
+                    ["Italic", italic, setItalic],
+                  ] as [string, boolean, (v: boolean) => void][]).map(([label, val, setter]) => (
+                    <label key={label} className="flex items-center gap-1.5 cursor-pointer select-none">
+                      <input
+                        type="checkbox"
+                        checked={val}
+                        onChange={e => setter(e.target.checked)}
+                        className="accent-primary w-3.5 h-3.5"
+                      />
+                      <span className={`text-[11px] font-bold uppercase tracking-wider ${val ? "text-primary" : "text-muted-foreground"}`}>
+                        {label}
+                      </span>
+                    </label>
+                  ))}
+                </div>
+
+                {/* Text Effect */}
+                <div>
+                  <p className="text-[10px] font-display uppercase tracking-widest text-muted-foreground mb-2">
+                    Text Effect
+                  </p>
+                  <div className="flex gap-2">
+                    {(["shadow", "outline", "none"] as TextEffect[]).map(e => (
+                      <button
+                        key={e}
+                        onClick={() => setTextEffect(e)}
+                        className={`flex-1 py-1.5 text-[11px] font-bold uppercase tracking-wider border-2 transition-all ${
+                          textEffect === e
+                            ? "border-primary bg-primary/15 text-primary"
+                            : "border-border text-muted-foreground hover:border-primary/40"
+                        }`}
+                      >
+                        {e}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Outline width */}
+                {textEffect === "outline" && (
+                  <div>
+                    <label className="text-[10px] font-display uppercase tracking-widest text-muted-foreground block mb-2">
+                      Outline Width: {outlineWidth}
+                    </label>
+                    <input
+                      type="range"
+                      min={1}
+                      max={10}
+                      value={outlineWidth}
+                      onChange={e => setOutlineWidth(parseInt(e.target.value))}
+                      className="w-full accent-primary"
+                    />
+                  </div>
+                )}
+
+                {/* Font size */}
+                <div>
+                  <label className="text-[10px] font-display uppercase tracking-widest text-muted-foreground block mb-2">
+                    Font Size: {fontSize}px
+                  </label>
+                  <input
+                    type="range"
+                    min={30}
+                    max={100}
+                    value={fontSize}
+                    onChange={e => setFontSize(parseInt(e.target.value))}
+                    className="w-full accent-primary"
+                  />
+                </div>
+
+                {/* Colors row */}
+                <div className="flex gap-4">
+                  <div className="flex-1">
+                    <label className="text-[10px] font-display uppercase tracking-widest text-muted-foreground block mb-1">
+                      Text Color
+                    </label>
+                    <div className="flex gap-1.5 items-center flex-wrap">
+                      {["#ffffff", "#ffcc00", "#FF3C00", "#00ff88", "#000000"].map(c => (
+                        <button
+                          key={c}
+                          onClick={() => setTextColor(c)}
+                          className={`w-6 h-6 rounded-full border-2 transition-all ${
+                            textColor === c ? "border-white scale-110 ring-2 ring-white/30" : "border-transparent hover:scale-105"
+                          }`}
+                          style={{ background: c }}
+                        />
+                      ))}
+                      <input
+                        type="color"
+                        value={textColor}
+                        onChange={e => setTextColor(e.target.value)}
+                        className="w-6 h-6 rounded-full border-2 border-border cursor-pointer bg-transparent"
+                      />
+                    </div>
+                  </div>
+                  {textEffect === "outline" && (
+                    <div className="flex-1">
+                      <label className="text-[10px] font-display uppercase tracking-widest text-muted-foreground block mb-1">
+                        Outline Color
+                      </label>
+                      <div className="flex gap-1.5 items-center flex-wrap">
+                        {["#000000", "#333333", "#1a237e", "#bf360c", "#ffffff"].map(c => (
+                          <button
+                            key={c}
+                            onClick={() => setOutlineColor(c)}
+                            className={`w-6 h-6 rounded-full border-2 transition-all ${
+                              outlineColor === c ? "border-primary scale-110 ring-2 ring-primary/30" : "border-transparent hover:scale-105"
+                            }`}
+                            style={{ background: c }}
+                          />
+                        ))}
+                        <input
+                          type="color"
+                          value={outlineColor}
+                          onChange={e => setOutlineColor(e.target.value)}
+                          className="w-6 h-6 rounded-full border-2 border-border cursor-pointer bg-transparent"
+                        />
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Text align */}
+                <div>
+                  <p className="text-[10px] font-display uppercase tracking-widest text-muted-foreground mb-2">
+                    Text Align
+                  </p>
+                  <div className="flex gap-2">
+                    {(["left", "center", "right"] as TextAlign[]).map(a => (
+                      <button
+                        key={a}
+                        onClick={() => setTextAlign(a)}
+                        className={`flex-1 py-1.5 text-[11px] font-bold uppercase tracking-wider border-2 transition-all ${
+                          textAlign === a
+                            ? "border-primary bg-primary/15 text-primary"
+                            : "border-border text-muted-foreground hover:border-primary/40"
+                        }`}
+                      >
+                        {a}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Opacity */}
+                <div>
+                  <label className="text-[10px] font-display uppercase tracking-widest text-muted-foreground block mb-2">
+                    Opacity: {opacity.toFixed(1)}
+                  </label>
+                  <input
+                    type="range"
+                    min={0}
+                    max={1}
+                    step={0.1}
+                    value={opacity}
+                    onChange={e => setOpacity(parseFloat(e.target.value))}
+                    className="w-full accent-primary"
+                  />
                 </div>
               </div>
             </div>
-          ) : (
-            <div className="flex gap-3">
-              <Button
-                onClick={handleGenerate}
-                disabled={status === "generating" || isUploadingFile}
-                variant="primary"
-                size="lg"
-                className="flex-1 gap-2"
-              >
-                {status === "generating" ? (
-                  <><Loader2 className="w-5 h-5 animate-spin" />Generating…</>
-                ) : !isAuthenticated ? (
-                  <><Lock className="w-5 h-5" />Login to Generate</>
-                ) : (
-                  <><Flame className="w-5 h-5" />Save Meme</>
-                )}
-              </Button>
-              <Button variant="secondary" size="lg" className="gap-2 shrink-0" onClick={handleDownload}>
-                <Download className="w-5 h-5" />
-                <span className="hidden sm:inline">Download</span>
-              </Button>
-            </div>
-          )}
 
-          {/* Pexels attribution */}
-          {imageMode === "stock" && stockPhoto && (
-            <p className="text-[10px] text-muted-foreground/50 text-center mt-3">
-              Photos provided by{" "}
-              <a
-                href="https://www.pexels.com"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="underline hover:text-muted-foreground"
-              >
-                Pexels
-              </a>
-            </p>
-          )}
+            {/* Error */}
+            {errorMsg && (
+              <p className="text-destructive text-sm font-medium bg-destructive/10 border border-destructive/30 px-4 py-2">
+                {errorMsg}
+              </p>
+            )}
+
+            {/* Pexels attribution */}
+            {imageMode === "stock" && stockPhoto && (
+              <p className="text-[10px] text-muted-foreground/50 text-center">
+                Photos provided by{" "}
+                <a
+                  href="https://www.pexels.com"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="underline hover:text-muted-foreground"
+                >
+                  Pexels
+                </a>
+              </p>
+            )}
+
+            {/* Success / Actions */}
+            {status === "done" && permalinkSlug ? (
+              <div className="space-y-3">
+                <div className="bg-primary/10 border-2 border-primary p-4 space-y-3">
+                  <div className="flex items-center gap-3 text-primary">
+                    <CheckCircle className="w-5 h-5 shrink-0" />
+                    <span className="font-display uppercase tracking-wide font-bold text-sm">
+                      Meme Created!
+                    </span>
+                  </div>
+                  <div className="flex flex-wrap gap-3">
+                    <Link href={`/meme/${permalinkSlug}`}>
+                      <Button size="sm" variant="outline" className="gap-2">
+                        <Share2 className="w-4 h-4" /> View Permalink
+                      </Button>
+                    </Link>
+                    <Button size="sm" variant="secondary" className="gap-2" onClick={handleDownload}>
+                      <Download className="w-4 h-4" /> Download Preview
+                    </Button>
+                    <Button
+                      size="sm"
+                      onClick={() => { setStatus("idle"); setPermalinkSlug(null); }}
+                    >
+                      Make Another
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="flex gap-3">
+                <Button
+                  onClick={handleGenerate}
+                  disabled={status === "generating" || isUploadingFile}
+                  variant="primary"
+                  size="lg"
+                  className="flex-1 gap-2"
+                >
+                  {status === "generating" ? (
+                    <><Loader2 className="w-5 h-5 animate-spin" />Generating…</>
+                  ) : !isAuthenticated ? (
+                    <><Lock className="w-5 h-5" />Login to Generate</>
+                  ) : (
+                    <><Flame className="w-5 h-5" />Save Meme</>
+                  )}
+                </Button>
+                <Button variant="secondary" size="lg" className="gap-2 shrink-0" onClick={handleDownload}>
+                  <Download className="w-5 h-5" />
+                  <span className="hidden sm:inline">Download</span>
+                </Button>
+              </div>
+            )}
+          </div>
         </div>
 
       </div>
