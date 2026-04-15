@@ -1998,30 +1998,20 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
 
           {/* ── Visibility toggle (premium) ── */}
           {isPremium && status !== "done" && (
-            <div className="flex items-center justify-between px-4 py-2 bg-muted/30 border border-border/50">
-              <div className="flex items-center gap-2">
-                {isPublic ? (
-                  <Globe className="w-4 h-4 text-primary" />
-                ) : (
-                  <Lock className="w-4 h-4 text-muted-foreground" />
-                )}
-                <span className="text-sm font-medium">
-                  {isPublic ? "Public" : "Private"}
-                </span>
-                <span className="text-xs text-muted-foreground">
-                  {isPublic ? "Visible in the gallery" : "Only visible to you"}
-                </span>
-              </div>
+            <div className="flex items-center gap-3 px-4 py-3 bg-secondary border border-border/50">
               <button
                 type="button"
-                role="switch"
-                aria-checked={isPublic}
-                onClick={() => setIsPublic(p => !p)}
-                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none ${isPublic ? "bg-primary" : "bg-muted-foreground/40"}`}
+                onClick={() => setIsPublic(true)}
+                className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 text-xs font-display font-bold uppercase tracking-wider rounded-sm transition-colors ${isPublic ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"}`}
               >
-                <span
-                  className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${isPublic ? "translate-x-6" : "translate-x-1"}`}
-                />
+                <Globe className="w-3.5 h-3.5" /> Public
+              </button>
+              <button
+                type="button"
+                onClick={() => setIsPublic(false)}
+                className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 text-xs font-display font-bold uppercase tracking-wider rounded-sm transition-colors ${!isPublic ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"}`}
+              >
+                <Lock className="w-3.5 h-3.5" /> Private
               </button>
             </div>
           )}
