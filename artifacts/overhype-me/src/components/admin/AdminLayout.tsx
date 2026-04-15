@@ -9,14 +9,13 @@ import {
   LogOut,
   Shield,
   ChevronRight,
-  MessageSquareWarning,
   ShoppingBag,
-  ClipboardList,
   Settings,
   Film,
   PanelLeftClose,
   PanelLeftOpen,
   ToggleLeft,
+  ShieldAlert,
 } from "lucide-react";
 
 interface AdminLayoutProps {
@@ -28,8 +27,7 @@ const NAV_ITEMS = [
   { href: "/admin", label: "Dashboard", icon: LayoutDashboard, exact: true, badge: false as const },
   { href: "/admin/facts", label: "Facts", icon: FileText, badge: false as const },
   { href: "/admin/users", label: "Users", icon: Users, badge: false as const },
-  { href: "/admin/reviews", label: "Reviews", icon: ClipboardList, badge: "reviews" as const },
-  { href: "/admin/comments", label: "Comments", icon: MessageSquareWarning, badge: "comments" as const },
+  { href: "/admin/moderation", label: "Moderation", icon: ShieldAlert, badge: "moderation" as const },
   { href: "/admin/billing", label: "Billing", icon: CreditCard, badge: false as const },
   { href: "/admin/affiliate", label: "Affiliate", icon: ShoppingBag, badge: false as const },
   { href: "/admin/video-styles", label: "Video Styles", icon: Film, badge: false as const },
@@ -148,7 +146,7 @@ export function AdminLayout({ children, title }: AdminLayoutProps) {
             const active = exact
               ? location === href
               : location.startsWith(href);
-            const badgeCount = badge === "reviews" ? pendingReviews : badge === "comments" ? pendingComments : 0;
+            const badgeCount = badge === "moderation" ? pendingReviews + pendingComments : 0;
             return (
               <Link key={href} href={href}>
                 <div
