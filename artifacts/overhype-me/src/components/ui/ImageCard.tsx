@@ -445,6 +445,8 @@ export function ImageCard({
   const [deleting, setDeleting] = useState(false);
   const [copied, setCopied] = useState(false);
   const [isHovered, setIsHovered] = useState(false);
+  const [imgError, setImgError] = useState(false);
+  useEffect(() => { setImgError(false); }, [src]);
 
   const kebabRef = useRef<HTMLButtonElement>(null);
 
@@ -490,7 +492,7 @@ export function ImageCard({
     ? hasActions && !confirmingDelete
     : !isMobile && isHovered && !confirmingDelete && !menuOpen;
 
-  const imageEl = displaySrc ? (
+  const imageEl = displaySrc && !imgError ? (
     <img
       src={displaySrc}
       alt={alt}
@@ -499,7 +501,17 @@ export function ImageCard({
         isHovered && !compact && "scale-105",
       )}
       loading="lazy"
+      onError={() => setImgError(true)}
     />
+  ) : imgError ? (
+    <div className="w-full h-full flex flex-col items-center justify-center gap-1 bg-muted text-muted-foreground">
+      <svg xmlns="http://www.w3.org/2000/svg" className="w-7 h-7 opacity-40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+        <rect width="18" height="18" x="3" y="3" rx="2" />
+        <circle cx="9" cy="9" r="2" />
+        <path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21" />
+      </svg>
+      <span className="text-xs opacity-50">Not available</span>
+    </div>
   ) : (
     <div className="w-full h-full bg-muted animate-pulse" />
   );
