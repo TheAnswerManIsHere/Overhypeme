@@ -1,6 +1,6 @@
 {
-  "id": "3200fce0-c12d-4982-be43-d46436322d72",
-  "prevId": "00000000-0000-0000-0000-000000000000",
+  "id": "e62db514-1fa9-46cd-8a38-d9d3b5e796b0",
+  "prevId": "3200fce0-c12d-4982-be43-d46436322d72",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -318,6 +318,13 @@
           "primaryKey": false,
           "notNull": true,
           "default": false
+        },
+        "admin_notifications": {
+          "name": "admin_notifications",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": true
         },
         "is_active": {
           "name": "is_active",

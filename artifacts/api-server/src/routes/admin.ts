@@ -924,6 +924,15 @@ router.post("/admin/users/set-password", requireAdminOrApiKey, async (req: Reque
   res.json({ success: true, email: user.email });
 });
 
+router.post("/admin/users/enable-notifications", requireAdminOrApiKey, async (_req: Request, res: Response) => {
+  const updated = await db
+    .update(usersTable)
+    .set({ adminNotifications: true })
+    .where(and(eq(usersTable.isAdmin, true), eq(usersTable.isActive, true)))
+    .returning({ id: usersTable.id, email: usersTable.email, adminNotifications: usersTable.adminNotifications });
+  res.json({ success: true, updated });
+});
+
 // POST /admin/facts/:id/refresh-images — manually re-run the image pipeline for one fact
 router.post("/admin/facts/:id/refresh-images", requireAdmin, async (req: Request, res: Response) => {
   const id = parseInt(String(req.params["id"] ?? ""), 10);
