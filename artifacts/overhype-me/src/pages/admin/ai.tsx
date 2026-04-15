@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { AdminLayout } from "@/components/admin/AdminLayout";
 import { CollapsibleSection } from "@/components/CollapsibleSection";
-import { Settings, Loader2, Palette, Bug, Bot, Film } from "lucide-react";
+import { Settings, Loader2, Palette, Bug, Bot, Film, Sliders } from "lucide-react";
 import {
   ConfigPageContext,
   ConfigPageCtx,
@@ -227,6 +227,20 @@ export default function AdminAI() {
                   <ModelParamRow paramKey="ai_scene_prompt_model" />
                   <ModelParamRow paramKey="ai_scene_prompt_max_tokens" />
                   <ModelParamRow paramKey="ai_scene_prompt_temperature" />
+                  <ModelParamRow paramKey="ai_scene_prompt_system" />
+                </div>
+              </CollapsibleSection>
+
+              {/* ── AI Generation Limits ──────────────────────────────────────── */}
+              <CollapsibleSection
+                title="AI Generation Limits"
+                icon={<Sliders className="w-4 h-4 text-muted-foreground" />}
+                description="Gallery display limit and per-fact image caps."
+                storageKey="admin_section_config_ai_gen_limits"
+              >
+                <div className="space-y-4">
+                  <ModelParamRow paramKey="ai_gallery_display_limit" />
+                  <ModelParamRow paramKey="ai_max_images_per_fact_per_gender" />
                 </div>
               </CollapsibleSection>
 
