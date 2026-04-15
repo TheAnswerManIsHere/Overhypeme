@@ -529,6 +529,24 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
 
   // Image source state
   const [imageMode, setImageMode] = useState<ImageMode>("stock");
+
+  // Display limits (from public config, fetched once)
+  const [bgStockLimit, setBgStockLimit] = useState(20);
+  const [bgGradientLimit, setBgGradientLimit] = useState(20);
+  useEffect(() => {
+    fetch("/api/config")
+      .then(r => r.ok ? r.json() : {})
+      .then((cfg: Record<string, number | string | boolean>) => {
+        const s = cfg["bg_display_limit_stock"];
+        if (typeof s === "number" && s > 0) setBgStockLimit(s);
+        const g = cfg["bg_display_limit_gradient"];
+        if (typeof g === "number" && g > 0) setBgGradientLimit(g);
+        const u = cfg["bg_display_limit_upload"];
+        if (typeof u === "number" && u > 0) setUploadGalleryDisplayLimit(u);
+      })
+      .catch(() => {});
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const [thumbSize, setThumbSize] = useState(40); // 0–100 slider value
   const thumbPx = Math.round(70 + (thumbSize / 100) * (290 - 70)); // 70px–290px
   const [selectedTemplate, setSelectedTemplate] = useState("action");
@@ -1396,7 +1414,7 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
           {/* Gradient mode */}
           {imageMode === "gradient" && (
             <div className="grid gap-2" style={{ gridTemplateColumns: `repeat(auto-fill, minmax(${thumbPx}px, 1fr))` }}>
-              {templates.map(tpl => {
+              {templates.slice(0, bgGradientLimit).map(tpl => {
                 const stops = GRADIENT_DEFS[tpl.id];
                 const from = stops?.[0]?.[0] ?? "#000";
                 const to = stops?.[stops.length - 1]?.[0] ?? "#333";
@@ -1440,7 +1458,7 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
                     Matched photos for this fact
                   </p>
                   <div className="grid gap-1.5" style={{ gridTemplateColumns: `repeat(auto-fill, minmax(${thumbPx}px, 1fr))` }}>
-                    {prefetchedPhotos.map((photo, i) => (
+                    {prefetchedPhotos.slice(0, bgStockLimit).map((photo, i) => (
                       <ImageCard
                         key={photo.id}
                         src={photo.src?.large ?? photo.src?.small ?? photo.url}

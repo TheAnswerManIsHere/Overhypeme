@@ -1,6 +1,6 @@
 import app from "./app";
 import { logger } from "./lib/logger";
-import { backfillWilsonScores } from "./lib/seed";
+import { backfillWilsonScores, ensureSchema } from "./lib/seed";
 import { runMigrations } from "@workspace/db";
 import { backfillEmbeddings } from "./lib/embeddings";
 import { refreshPricingCache } from "./lib/falPricing";
@@ -72,6 +72,9 @@ await initStripe();
 
 // Apply any pending database migrations before accepting requests
 await runMigrations();
+
+// Idempotent schema & config seed (ADD COLUMN IF NOT EXISTS, INSERT … ON CONFLICT DO NOTHING)
+await ensureSchema();
 
 // Reconcile membership tiers: any user with an active subscription but membership_tier != 'legendary'
 // should be upgraded. This catches webhook gaps (e.g. isMembershipPrice blocked the grant before
