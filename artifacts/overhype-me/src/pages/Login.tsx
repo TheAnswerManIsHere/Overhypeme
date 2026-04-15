@@ -44,6 +44,24 @@ export default function Login() {
   const [pronouns, setPronouns] = useState(() => getStoredPronouns());
   const pronounsExplicit = useRef(!!getStoredPronouns());
   const [showPassword, setShowPassword] = useState(false);
+  const [firstName, setFirstName] = useState("");
+  const [lastName, setLastName] = useState("");
+  // Track whether each name field has been manually edited — stop auto-filling if so
+  const firstNameTouched = useRef(false);
+  const lastNameTouched  = useRef(false);
+
+  // Parse displayName into First / Last name while the user hasn't manually edited each field
+  useEffect(() => {
+    if (mode !== "register") return;
+    const parts = displayName.trim().split(/\s+/).filter(Boolean);
+    if (parts.length === 0) {
+      if (!firstNameTouched.current) setFirstName("");
+      if (!lastNameTouched.current)  setLastName("");
+      return;
+    }
+    if (!firstNameTouched.current) setFirstName(parts[0]);
+    if (!lastNameTouched.current)  setLastName(parts.slice(1).join(" "));
+  }, [displayName, mode]);
 
   // Auto-suggest pronouns from the first name while the user hasn't made an explicit choice
   useEffect(() => {
@@ -74,6 +92,8 @@ export default function Login() {
         }
         body.displayName = displayName;
         body.pronouns = pronouns;
+        if (firstName.trim()) body.firstName = firstName.trim();
+        if (lastName.trim())  body.lastName  = lastName.trim();
       }
 
       const res = await fetch(endpoint, {
@@ -210,6 +230,41 @@ export default function Login() {
                   <p className="text-xs text-muted-foreground mt-1">This is the name inserted into personalized facts.</p>
                 </div>
 
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-sm font-display font-bold text-muted-foreground mb-1 uppercase tracking-wider">
+                      First Name
+                    </label>
+                    <Input
+                      type="text"
+                      value={firstName}
+                      onChange={(e) => {
+                        firstNameTouched.current = true;
+                        setFirstName(e.target.value);
+                      }}
+                      placeholder="First"
+                      maxLength={100}
+                      autoComplete="given-name"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-display font-bold text-muted-foreground mb-1 uppercase tracking-wider">
+                      Last Name
+                    </label>
+                    <Input
+                      type="text"
+                      value={lastName}
+                      onChange={(e) => {
+                        lastNameTouched.current = true;
+                        setLastName(e.target.value);
+                      }}
+                      placeholder="Last"
+                      maxLength={100}
+                      autoComplete="family-name"
+                    />
+                  </div>
+                </div>
+
                 <div>
                   <label className="block text-sm font-display font-bold text-muted-foreground mb-1 uppercase tracking-wider">
                     Pronouns <span className="text-destructive">*</span>
@@ -298,6 +353,8 @@ export default function Login() {
                   onClick={() => {
                     setMode("register");
                     setError("");
+                    firstNameTouched.current = false;
+                    lastNameTouched.current  = false;
                     // Allow auto-inference to run when switching to register if no explicit choice yet
                     if (!pronouns) pronounsExplicit.current = false;
                   }}
