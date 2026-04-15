@@ -85,6 +85,16 @@ export default function Login() {
         mode === "login" ? "/api/auth/local-login" : "/api/auth/register";
       const body: Record<string, string> = { email, password };
       if (mode === "register") {
+        if (!firstName.trim()) {
+          setError("First Name is required.");
+          setLoading(false);
+          return;
+        }
+        if (!lastName.trim()) {
+          setError("Last Name is required.");
+          setLoading(false);
+          return;
+        }
         if (!pronouns) {
           setError("Please select your pronouns.");
           setLoading(false);
@@ -92,8 +102,8 @@ export default function Login() {
         }
         body.displayName = displayName;
         body.pronouns = pronouns;
-        if (firstName.trim()) body.firstName = firstName.trim();
-        if (lastName.trim())  body.lastName  = lastName.trim();
+        body.firstName = firstName.trim();
+        body.lastName  = lastName.trim();
       }
 
       const res = await fetch(endpoint, {
@@ -233,7 +243,7 @@ export default function Login() {
                 <div className="grid grid-cols-2 gap-3">
                   <div>
                     <label className="block text-sm font-display font-bold text-muted-foreground mb-1 uppercase tracking-wider">
-                      First Name
+                      First Name <span className="text-destructive">*</span>
                     </label>
                     <Input
                       type="text"
@@ -243,13 +253,14 @@ export default function Login() {
                         setFirstName(e.target.value);
                       }}
                       placeholder="First"
+                      required
                       maxLength={100}
                       autoComplete="given-name"
                     />
                   </div>
                   <div>
                     <label className="block text-sm font-display font-bold text-muted-foreground mb-1 uppercase tracking-wider">
-                      Last Name
+                      Last Name <span className="text-destructive">*</span>
                     </label>
                     <Input
                       type="text"
@@ -259,6 +270,7 @@ export default function Login() {
                         setLastName(e.target.value);
                       }}
                       placeholder="Last"
+                      required
                       maxLength={100}
                       autoComplete="family-name"
                     />
