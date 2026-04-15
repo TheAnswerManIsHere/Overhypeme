@@ -1767,7 +1767,7 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
 
             {/* Resize drag handle */}
             <div
-              className="h-2 cursor-ns-resize flex items-center justify-center group mx-4 md:mx-5 mt-1"
+              className="h-6 cursor-ns-resize flex items-center justify-center group mx-4 md:mx-5 mt-1 touch-none"
               onMouseDown={e => {
                 e.preventDefault();
                 const canvasEl = canvasRef.current;
@@ -1788,6 +1788,27 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
                 };
                 window.addEventListener("mousemove", onMove);
                 window.addEventListener("mouseup", onUp);
+              }}
+              onTouchStart={e => {
+                e.preventDefault();
+                const canvasEl = canvasRef.current;
+                if (!canvasEl) return;
+                const rect = canvasEl.getBoundingClientRect();
+                const touch = e.touches[0];
+                resizeDragRef.current = { startY: touch.clientY, startH: rect.height };
+                const onMove = (mv: TouchEvent) => {
+                  if (!resizeDragRef.current) return;
+                  const t = mv.touches[0];
+                  const delta = t.clientY - resizeDragRef.current.startY;
+                  applyResizeMaxH(resizeDragRef.current.startH + delta);
+                };
+                const onUp = () => {
+                  resizeDragRef.current = null;
+                  window.removeEventListener("touchmove", onMove);
+                  window.removeEventListener("touchend", onUp);
+                };
+                window.addEventListener("touchmove", onMove, { passive: false });
+                window.addEventListener("touchend", onUp);
               }}
             >
               <div className="w-8 h-1 rounded-full bg-border group-hover:bg-primary/50 transition-colors" />
