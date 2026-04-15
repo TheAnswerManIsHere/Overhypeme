@@ -218,7 +218,7 @@ export function Navbar() {
             ) : (
               <div className="flex items-center gap-2">
                 <Button variant="primary" size="sm" onClick={() => setLocation('/login')} className="gap-2 whitespace-nowrap animate-pulse">
-                  <LogIn className="w-4 h-4" /> LOGIN TO VOTE
+                  <LogIn className="w-4 h-4" /> LOGIN
                 </Button>
                 {!forgetMeConfirm ? (
                   <Button
