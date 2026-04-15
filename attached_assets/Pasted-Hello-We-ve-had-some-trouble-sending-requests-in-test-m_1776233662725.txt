@@ -1,0 +1,87 @@
+Hello,	
+ 
+ 
+ 
+ 
+We’ve had some trouble sending requests in test mode to a webhook endpoint associated with your Overhype.me account. Stripe sends webhook events to your server to notify you of activity in your Stripe account, such as a completed payout or a newly created invoice.	
+ 
+ 
+ 
+ 
+The URL of the failing webhook endpoint is: https://1f4dceef-1d85-4176-b8e7-de6afe117cc4-00-2g4ys2kfyzqjj-ix2ogyy4.spock.replit.dev/api/stripe/webhook	
+ 
+ 
+ 
+ 
+You (or someone on your team) configured your Stripe account to send events to that URL. You can change your account’s webhook endpoints from the Dashboard.	
+ 
+ 
+ 
+ 
+In most cases, a failing webhook does not impact your payments or payouts. However:	
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+If you use subscriptions, we rely on your webhook endpoint to notify you of new invoices. These invoices may be delayed for up to three days if your endpoint is unable to successfully receive them.
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+If you use Checkout and rely on the checkout.session.completed event as part of your purchase fulfillment process, you should review your completed payments to ensure you have fulfilled all recent purchases.
+ 
+ 
+ 
+ 
+ 
+We’ve attempted to send event notifications to this endpoint 15 times since the first failure on April 11, 2026 at 6:15:31 PM UTC. If this endpoint is important to your application, please try and fix the issue. If you do not need this webhook endpoint, you can remove it from your Stripe webhook settings. We will stop sending event notifications to this webhook endpoint by April 20, 2026 at 6:15:31 PM UTC.	
+ 
+ 
+ 
+ 
+Here is the summary of errors we received while attempting to send webhook events:	
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+15 requests returned HTTP 404, indicating the URL doesn’t exist. You should verify the endpoint URL is correct in your Stripe webhook settings.	
+ 
+ 
+ 
+ 
+ 
+You need to return any status code between HTTP 200 to 299 for Stripe to consider the webhook event successfully delivered.	
+ 
+ 
+ 
+ 
+For more details on these errors and to review your account’s recent activity, you can find the full set of events and request logs on the Dashboard.	
+ 
+ 
+ 
+ 
+For more in-depth information on how to use webhooks, we recommend reviewing our documentation.	
+ 
+ 
+ 
+ 
+— The Stripe team	
+ 
+ 
