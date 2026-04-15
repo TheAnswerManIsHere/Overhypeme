@@ -12,7 +12,7 @@ import { Textarea } from "@/components/ui/Input";
 import { useAppMutations } from "@/hooks/use-mutations";
 import { MemeStudio } from "@/components/MemeStudio";
 import { AdSlot } from "@/components/AdSlot";
-import { ThumbsUp, ThumbsDown, User, AlertCircle, ImageIcon, GitBranch, ArrowLeft, Crown, Flame, Globe, Lock, Video, Play, ExternalLink } from "lucide-react";
+import { ThumbsUp, ThumbsDown, User, AlertCircle, ImageIcon, GitBranch, ArrowLeft, Crown, Flame, Globe, Lock, Video, Play, ExternalLink, Check, SlidersHorizontal } from "lucide-react";
 import { ImageCard } from "@/components/ui/ImageCard";
 import { cn } from "@/components/ui/Button";
 import { usePersonName } from "@/hooks/use-person-name";
@@ -400,73 +400,84 @@ export default function FactDetail() {
                 <ImageIcon className="w-6 h-6 text-primary" /> Memes
               </h3>
             </div>
-            {/* Checkbox filters */}
-            <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
-              {/* Media type */}
-              <div className="flex items-center gap-4">
-                <label className="flex items-center gap-1.5 cursor-pointer select-none">
-                  <input
-                    type="checkbox"
-                    checked={showImages}
-                    onChange={e => setShowImages(e.target.checked)}
-                    className="accent-primary w-3.5 h-3.5"
-                  />
-                  <span className="flex items-center gap-1 text-xs font-display font-bold uppercase tracking-wider text-foreground">
-                    <ImageIcon className="w-3.5 h-3.5" /> Images
-                  </span>
-                </label>
-                <label className="flex items-center gap-1.5 cursor-pointer select-none">
-                  <input
-                    type="checkbox"
-                    checked={showVideos}
-                    onChange={e => setShowVideos(e.target.checked)}
-                    className="accent-primary w-3.5 h-3.5"
-                  />
-                  <span className="flex items-center gap-1 text-xs font-display font-bold uppercase tracking-wider text-foreground">
-                    <Video className="w-3.5 h-3.5" /> Videos
-                  </span>
-                </label>
+            {/* Filter pills */}
+            <div className="mb-2">
+              <div className="flex items-center gap-1.5 mb-2.5">
+                <SlidersHorizontal className="w-3.5 h-3.5 text-muted-foreground" />
+                <span className="text-xs font-display font-bold uppercase tracking-widest text-muted-foreground">Filter</span>
               </div>
+              <div className="flex flex-wrap gap-2">
+                {/* Media type pills */}
+                <button
+                  onClick={() => setShowImages(v => !v)}
+                  className={cn(
+                    "flex items-center gap-1.5 px-3 py-2 rounded-sm border font-display text-sm uppercase tracking-wider transition-colors select-none",
+                    showImages
+                      ? "border-primary bg-primary/10 text-primary"
+                      : "border-border bg-background text-muted-foreground hover:border-foreground hover:text-foreground"
+                  )}
+                >
+                  {showImages && <Check className="w-3.5 h-3.5 flex-shrink-0" />}
+                  <ImageIcon className="w-3.5 h-3.5 flex-shrink-0" />
+                  Images
+                </button>
+                <button
+                  onClick={() => setShowVideos(v => !v)}
+                  className={cn(
+                    "flex items-center gap-1.5 px-3 py-2 rounded-sm border font-display text-sm uppercase tracking-wider transition-colors select-none",
+                    showVideos
+                      ? "border-primary bg-primary/10 text-primary"
+                      : "border-border bg-background text-muted-foreground hover:border-foreground hover:text-foreground"
+                  )}
+                >
+                  {showVideos && <Check className="w-3.5 h-3.5 flex-shrink-0" />}
+                  <Video className="w-3.5 h-3.5 flex-shrink-0" />
+                  Videos
+                </button>
 
-              <div className="h-4 w-px bg-border hidden sm:block" />
+                <div className="w-px bg-border self-stretch mx-0.5 hidden sm:block" />
 
-              {/* Visibility */}
-              <div className="flex items-center gap-4">
-                <label className="flex items-center gap-1.5 cursor-pointer select-none">
-                  <input
-                    type="checkbox"
-                    checked={showCommunity}
-                    onChange={e => setShowCommunity(e.target.checked)}
-                    className="accent-primary w-3.5 h-3.5"
-                  />
-                  <span className="flex items-center gap-1 text-xs font-display font-bold uppercase tracking-wider text-foreground">
-                    <Globe className="w-3.5 h-3.5" /> Community
-                  </span>
-                </label>
+                {/* Visibility pills */}
+                <button
+                  onClick={() => setShowCommunity(v => !v)}
+                  className={cn(
+                    "flex items-center gap-1.5 px-3 py-2 rounded-sm border font-display text-sm uppercase tracking-wider transition-colors select-none",
+                    showCommunity
+                      ? "border-primary bg-primary/10 text-primary"
+                      : "border-border bg-background text-muted-foreground hover:border-foreground hover:text-foreground"
+                  )}
+                >
+                  {showCommunity && <Check className="w-3.5 h-3.5 flex-shrink-0" />}
+                  <Globe className="w-3.5 h-3.5 flex-shrink-0" />
+                  Community
+                </button>
                 {isAuthenticated && (
                   <>
-                    <label className="flex items-center gap-1.5 cursor-pointer select-none">
-                      <input
-                        type="checkbox"
-                        checked={showMyPublic}
-                        onChange={e => setShowMyPublic(e.target.checked)}
-                        className="accent-primary w-3.5 h-3.5"
-                      />
-                      <span className="text-xs font-display font-bold uppercase tracking-wider text-foreground">
-                        My Public
-                      </span>
-                    </label>
-                    <label className="flex items-center gap-1.5 cursor-pointer select-none">
-                      <input
-                        type="checkbox"
-                        checked={showMyPrivate}
-                        onChange={e => setShowMyPrivate(e.target.checked)}
-                        className="accent-primary w-3.5 h-3.5"
-                      />
-                      <span className="flex items-center gap-1 text-xs font-display font-bold uppercase tracking-wider text-foreground">
-                        <Lock className="w-3.5 h-3.5" /> My Private
-                      </span>
-                    </label>
+                    <button
+                      onClick={() => setShowMyPublic(v => !v)}
+                      className={cn(
+                        "flex items-center gap-1.5 px-3 py-2 rounded-sm border font-display text-sm uppercase tracking-wider transition-colors select-none",
+                        showMyPublic
+                          ? "border-primary bg-primary/10 text-primary"
+                          : "border-border bg-background text-muted-foreground hover:border-foreground hover:text-foreground"
+                      )}
+                    >
+                      {showMyPublic && <Check className="w-3.5 h-3.5 flex-shrink-0" />}
+                      My Public
+                    </button>
+                    <button
+                      onClick={() => setShowMyPrivate(v => !v)}
+                      className={cn(
+                        "flex items-center gap-1.5 px-3 py-2 rounded-sm border font-display text-sm uppercase tracking-wider transition-colors select-none",
+                        showMyPrivate
+                          ? "border-primary bg-primary/10 text-primary"
+                          : "border-border bg-background text-muted-foreground hover:border-foreground hover:text-foreground"
+                      )}
+                    >
+                      {showMyPrivate && <Check className="w-3.5 h-3.5 flex-shrink-0" />}
+                      <Lock className="w-3.5 h-3.5 flex-shrink-0" />
+                      My Private
+                    </button>
                   </>
                 )}
               </div>
