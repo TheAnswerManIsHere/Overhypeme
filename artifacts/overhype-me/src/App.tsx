@@ -18,9 +18,8 @@ import AdminDashboard from "@/pages/admin/index";
 import AdminFacts from "@/pages/admin/facts";
 import AdminUsers from "@/pages/admin/users";
 import AdminBilling from "@/pages/admin/billing";
-import AdminComments from "@/pages/admin/comments";
 import AdminAffiliate from "@/pages/admin/affiliate";
-import AdminReviews from "@/pages/admin/Reviews";
+import AdminModeration from "@/pages/admin/moderation";
 import AdminVideoStyles from "@/pages/admin/videoStyles";
 import AdminConfig from "@/pages/admin/config";
 import AdminFeatures from "@/pages/admin/features";
@@ -52,6 +51,12 @@ function HashtagsRedirect() {
 function AdminAIRedirect() {
   const [, setLocation] = useLocation();
   useEffect(() => { setLocation("/admin/config"); }, [setLocation]);
+  return null;
+}
+
+function AdminModerationRedirect() {
+  const [, setLocation] = useLocation();
+  useEffect(() => { setLocation("/admin/moderation"); }, [setLocation]);
   return null;
 }
 
@@ -170,9 +175,10 @@ function Router() {
         <Route path="/admin/facts" component={AdminFacts} />
         <Route path="/admin/users" component={AdminUsers} />
         <Route path="/admin/billing" component={AdminBilling} />
-        <Route path="/admin/comments" component={AdminComments} />
+        <Route path="/admin/moderation" component={AdminModeration} />
+        <Route path="/admin/comments"><AdminModerationRedirect /></Route>
+        <Route path="/admin/reviews"><AdminModerationRedirect /></Route>
         <Route path="/admin/affiliate" component={AdminAffiliate} />
-        <Route path="/admin/reviews" component={AdminReviews} />
         <Route path="/admin/video-styles" component={AdminVideoStyles} />
         <Route path="/admin/config" component={AdminConfig} />
         <Route path="/admin/ai"><AdminAIRedirect /></Route>
