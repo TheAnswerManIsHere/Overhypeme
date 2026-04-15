@@ -3,7 +3,7 @@ import { db } from "@workspace/db";
 import {
   factsTable, hashtagsTable, factHashtagsTable,
   ratingsTable, searchHistoryTable, usersTable, emailVerificationTokensTable, memesTable,
-  userGenerationCostsTable, pendingReviewsTable,
+  userGenerationCostsTable, pendingReviewsTable, commentsTable,
 } from "@workspace/db/schema";
 import { eq, desc, inArray, and, sql, isNull } from "drizzle-orm";
 import { RecordSearchBody } from "@workspace/api-zod";
@@ -89,13 +89,35 @@ router.get("/users/me", async (req: Request, res: Response) => {
   }
   const favoriteHashtags = [...hashtagCounts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 10).map(([name]) => name);
 
-  const searchRows = await db.select({ query: searchHistoryTable.query })
+  const rawSearchRows = await db.select({ query: searchHistoryTable.query })
     .from(searchHistoryTable).where(eq(searchHistoryTable.userId, userId))
-    .orderBy(desc(searchHistoryTable.createdAt)).limit(20);
+    .orderBy(desc(searchHistoryTable.createdAt)).limit(200);
+  const seenQueries = new Set<string>();
+  const searchRows: string[] = [];
+  for (const r of rawSearchRows) {
+    if (!seenQueries.has(r.query)) {
+      seenQueries.add(r.query);
+      searchRows.push(r.query);
+      if (searchRows.length >= 20) break;
+    }
+  }
 
-  const [submittedSummaries, likedSummaries] = await Promise.all([
+  const [submittedSummaries, likedSummaries, myCommentRows] = await Promise.all([
     buildFactSummaries(submittedRows, userId),
     buildFactSummaries(likedFacts, userId),
+    db.select({
+      id: commentsTable.id,
+      factId: commentsTable.factId,
+      factText: factsTable.text,
+      text: commentsTable.text,
+      status: commentsTable.status,
+      createdAt: commentsTable.createdAt,
+    })
+      .from(commentsTable)
+      .leftJoin(factsTable, eq(commentsTable.factId, factsTable.id))
+      .where(eq(commentsTable.authorId, userId))
+      .orderBy(desc(commentsTable.createdAt))
+      .limit(50),
   ]);
 
   res.json({
@@ -123,7 +145,15 @@ router.get("/users/me", async (req: Request, res: Response) => {
     })),
     likedFacts: likedSummaries,
     favoriteHashtags,
-    searchHistory: searchRows.map((r) => r.query),
+    searchHistory: searchRows,
+    myComments: myCommentRows.map((r) => ({
+      id: r.id,
+      factId: r.factId,
+      factText: r.factText ?? null,
+      text: r.text,
+      status: r.status,
+      createdAt: r.createdAt.toISOString(),
+    })),
   });
 });
 
@@ -276,7 +306,14 @@ router.post("/users/me/search-history", async (req: Request, res: Response) => {
   if (!req.isAuthenticated()) { res.status(204).end(); return; }
   const parsed = RecordSearchBody.safeParse(req.body);
   if (!parsed.success) { res.status(204).end(); return; }
-  await db.insert(searchHistoryTable).values({ userId: req.user.id, query: parsed.data.query });
+  const [last] = await db.select({ query: searchHistoryTable.query })
+    .from(searchHistoryTable)
+    .where(eq(searchHistoryTable.userId, req.user.id))
+    .orderBy(desc(searchHistoryTable.createdAt))
+    .limit(1);
+  if (last?.query !== parsed.data.query) {
+    await db.insert(searchHistoryTable).values({ userId: req.user.id, query: parsed.data.query });
+  }
   res.status(204).end();
 });
 
