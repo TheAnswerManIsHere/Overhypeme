@@ -414,7 +414,7 @@ interface MemeBuilderProps {
   defaultPrivate?: boolean;
   /** When true, renders without the outer modal wrapper (for use inside MemeStudio) */
   embedded?: boolean;
-  /** When true and embedded, renders in a two-panel full-screen layout (canvas left, controls right) */
+  /** @deprecated Previously enabled two-panel full-screen layout; no longer affects layout. Kept for backward compatibility. */
   fullScreen?: boolean;
 }
 
