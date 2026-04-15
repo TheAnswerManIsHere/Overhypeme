@@ -17,7 +17,6 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   ToggleLeft,
-  Bot,
 } from "lucide-react";
 
 interface AdminLayoutProps {
@@ -35,7 +34,6 @@ const NAV_ITEMS = [
   { href: "/admin/affiliate", label: "Affiliate", icon: ShoppingBag, badge: false as const },
   { href: "/admin/video-styles", label: "Video Styles", icon: Film, badge: false as const },
   { href: "/admin/features", label: "Features", icon: ToggleLeft, badge: false as const },
-  { href: "/admin/ai", label: "AI", icon: Bot, badge: false as const },
   { href: "/admin/config", label: "Configuration", icon: Settings, badge: false as const },
 ];
 
