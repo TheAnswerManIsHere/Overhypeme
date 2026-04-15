@@ -23,7 +23,6 @@ import AdminAffiliate from "@/pages/admin/affiliate";
 import AdminReviews from "@/pages/admin/Reviews";
 import AdminVideoStyles from "@/pages/admin/videoStyles";
 import AdminConfig from "@/pages/admin/config";
-import AdminAI from "@/pages/admin/ai";
 import AdminFeatures from "@/pages/admin/features";
 import ActivityFeed from "@/pages/ActivityFeed";
 import MemePage from "@/pages/MemePage";
@@ -47,6 +46,12 @@ const queryClient = new QueryClient({
 function HashtagsRedirect() {
   const [, setLocation] = useLocation();
   useEffect(() => { setLocation("/"); }, [setLocation]);
+  return null;
+}
+
+function AdminAIRedirect() {
+  const [, setLocation] = useLocation();
+  useEffect(() => { setLocation("/admin/config"); }, [setLocation]);
   return null;
 }
 
@@ -170,7 +175,7 @@ function Router() {
         <Route path="/admin/reviews" component={AdminReviews} />
         <Route path="/admin/video-styles" component={AdminVideoStyles} />
         <Route path="/admin/config" component={AdminConfig} />
-        <Route path="/admin/ai" component={AdminAI} />
+        <Route path="/admin/ai"><AdminAIRedirect /></Route>
         <Route path="/admin/features" component={AdminFeatures} />
         <Route path="/admin" component={AdminDashboard} />
         <Route path="/activity" component={ActivityFeed} />

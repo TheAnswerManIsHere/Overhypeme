@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/Button";
 import {
   CreditCard, Zap, Star, CheckCircle, XCircle, AlertTriangle,
   ToggleLeft, ToggleRight, Loader2, RefreshCw, Send, Package,
-  Users, Lock, ShieldCheck,
+  Users, Lock, ShieldCheck, Link, Copy,
 } from "lucide-react";
 
 interface StripeConfig {
@@ -30,6 +30,7 @@ interface StripeSummary {
   registeredMembers: number;
   webhookSecretConfigured: boolean;
   priceIdsConfigured: boolean;
+  webhookUrl: string | null;
 }
 
 interface AdminConfigRow {
@@ -63,6 +64,7 @@ export default function AdminBilling() {
   const [testEventLoading, setTestEventLoading] = useState(false);
   const [testEventResult, setTestEventResult] = useState<{ ok: boolean; message: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
 
   const fetchAll = useCallback(async () => {
     setConfigLoading(true);
@@ -153,6 +155,15 @@ export default function AdminBilling() {
     } finally {
       setTestEventLoading(false);
     }
+  }
+
+  function copyWebhookUrl() {
+    const url = summary?.webhookUrl;
+    if (!url) return;
+    void navigator.clipboard.writeText(url).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
   }
 
   const pubKey = stripeConfig?.publishableKey;
@@ -382,6 +393,53 @@ export default function AdminBilling() {
             <CheckRow done={hasWebhookSecret} label="STRIPE_WEBHOOK_SECRET environment variable set" />
             <CheckRow done={hasPriceIds || hasProducts} label="Membership price IDs configured (env or product metadata)" />
           </div>
+        </CollapsibleSection>
+
+        {/* Webhook Endpoint URL */}
+        <CollapsibleSection
+          title="Webhook Endpoint URL"
+          icon={<Link className="w-4 h-4 text-primary" />}
+          description="The URL to register in Stripe's dashboard so it can deliver events to this app."
+          storageKey="admin_section_billing_webhook_url"
+        >
+          {summaryLoading ? (
+            <div className="animate-pulse h-10 bg-secondary rounded-sm" />
+          ) : summary?.webhookUrl ? (
+            <div className="space-y-4">
+              <div className="flex items-center gap-2 flex-wrap">
+                <code className="flex-1 min-w-0 text-xs font-mono bg-secondary border border-border rounded-sm px-3 py-2 text-foreground break-all">
+                  {summary.webhookUrl}
+                </code>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="shrink-0 gap-2"
+                  onClick={copyWebhookUrl}
+                >
+                  {copied ? <CheckCircle className="w-4 h-4 text-green-400" /> : <Copy className="w-4 h-4" />}
+                  {copied ? "Copied!" : "Copy"}
+                </Button>
+              </div>
+              <div className="bg-amber-500/10 border border-amber-500/30 rounded-sm p-3 text-xs text-amber-400 space-y-1.5">
+                <p className="font-semibold flex items-center gap-1.5">
+                  <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+                  Action required: update your Stripe dashboard
+                </p>
+                <ol className="list-decimal list-inside space-y-1 ml-1">
+                  <li>Go to <strong>Stripe Dashboard → Developers → Webhooks</strong></li>
+                  <li>Find your existing webhook endpoint (or click <strong>Add endpoint</strong>)</li>
+                  <li>Set the endpoint URL to the value above</li>
+                  <li>Ensure the following events are selected: <code className="bg-black/20 px-1 rounded">checkout.session.completed</code>, <code className="bg-black/20 px-1 rounded">customer.subscription.*</code>, <code className="bg-black/20 px-1 rounded">invoice.paid</code>, <code className="bg-black/20 px-1 rounded">invoice.payment_failed</code>, <code className="bg-black/20 px-1 rounded">payment_intent.succeeded</code></li>
+                  <li>Copy the <strong>Signing secret</strong> and save it as <code className="bg-black/20 px-1 rounded">STRIPE_WEBHOOK_SECRET</code> in your environment secrets</li>
+                </ol>
+              </div>
+            </div>
+          ) : (
+            <div className="text-sm text-muted-foreground flex items-center gap-2">
+              <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />
+              Could not determine webhook URL. Make sure <code className="text-xs bg-secondary px-1 rounded">REPLIT_DOMAINS</code> is set (it is auto-populated in Replit deployments).
+            </div>
+          )}
         </CollapsibleSection>
 
         {/* Test Event (test mode only) */}
