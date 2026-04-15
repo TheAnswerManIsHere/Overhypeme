@@ -12,7 +12,7 @@ import {
   MEME_TEMPLATES,
   type BackgroundSource,
 } from "../lib/memeGenerator";
-import { ObjectStorageService } from "../lib/objectStorage";
+import { ObjectStorageService, ObjectNotFoundError } from "../lib/objectStorage";
 import { getConfigInt, getConfigString } from "../lib/adminConfig";
 import { getRandomStockPhoto, getPhotoById } from "../lib/pexelsClient";
 import { renderPersonalized } from "../lib/renderCanonical";
@@ -928,7 +928,26 @@ router.get("/memes/ai/:factId/image", async (req: Request, res: Response) => {
       // Serve the raw background PNG directly (used for gallery thumbnails)
       const objectStorageService = new ObjectStorageService();
       const normalizedPath = objectStorageService.normalizeObjectEntityPath(backgroundPath);
-      const objectFile = await objectStorageService.getObjectEntityFile(normalizedPath);
+      let objectFile: import("@google-cloud/storage").File;
+      try {
+        objectFile = await objectStorageService.getObjectEntityFile(normalizedPath);
+      } catch (e) {
+        if (e instanceof ObjectNotFoundError) {
+          // Prune the stale path from the DB so it stops appearing in the gallery
+          const pruned: AiMemeImages = {
+            male:    (aiImages.male    ?? []).filter(p => p !== backgroundPath),
+            female:  (aiImages.female  ?? []).filter(p => p !== backgroundPath),
+            neutral: (aiImages.neutral ?? []).filter(p => p !== backgroundPath),
+          };
+          const isEmpty = !pruned.male.length && !pruned.female.length && !pruned.neutral.length;
+          await db.update(factsTable)
+            .set({ aiMemeImages: isEmpty ? null : pruned, updatedAt: new Date() })
+            .where(eq(factsTable.id, factId));
+          res.status(404).json({ error: "AI meme background not found", pruned: true });
+          return;
+        }
+        throw e;
+      }
       // ETag includes updatedAt so it invalidates automatically after regen overwrites the image
       const aiEtag = `"ai-bg-${factId}-${gender}-${imageIndex}-${fact.updatedAt.getTime()}"`;
       if (checkConditional(req, res, aiEtag)) return;
@@ -974,6 +993,10 @@ router.get("/memes/ai/:factId/image", async (req: Request, res: Response) => {
     res.status(200).send(jpegBuffer);
 
   } catch (err) {
+    if (err instanceof ObjectNotFoundError) {
+      res.status(404).json({ error: "AI meme background not found" });
+      return;
+    }
     req.log.error({ err, factId }, "AI meme compositing failed");
     res.status(502).end();
   }
