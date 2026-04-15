@@ -33,6 +33,7 @@ const LIMIT_KEYS = new Set([
 const BILLING_ONLY_KEYS = new Set([
   "stripe_live_mode",
   "fal_active_endpoints",
+  "pricing_refresh_interval_ms",
 ]);
 
 // ── Per-model parameter definitions ──────────────────────────────────────────

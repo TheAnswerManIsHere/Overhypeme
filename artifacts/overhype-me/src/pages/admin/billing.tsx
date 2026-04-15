@@ -73,6 +73,13 @@ export default function AdminBilling() {
   const [falEndpointsSaved, setFalEndpointsSaved] = useState(false);
   const [falEndpointsError, setFalEndpointsError] = useState<string | null>(null);
 
+  // Pricing cache refresh interval
+  const [pricingInterval, setPricingInterval] = useState<string>("");
+  const [pricingIntervalOriginal, setPricingIntervalOriginal] = useState<string>("");
+  const [pricingIntervalSaving, setPricingIntervalSaving] = useState(false);
+  const [pricingIntervalSaved, setPricingIntervalSaved] = useState(false);
+  const [pricingIntervalError, setPricingIntervalError] = useState<string | null>(null);
+
   const fetchAll = useCallback(async () => {
     setConfigLoading(true);
     setPlansLoading(true);
@@ -115,6 +122,11 @@ export default function AdminBilling() {
       const falVal = falRow?.value ?? "";
       setFalEndpoints(falVal);
       setFalEndpointsOriginal(falVal);
+
+      const piRow = rows.find(r => r.key === "pricing_refresh_interval_ms");
+      const piVal = piRow?.value ?? "";
+      setPricingInterval(piVal);
+      setPricingIntervalOriginal(piVal);
     }
   }, []);
 
@@ -195,6 +207,33 @@ export default function AdminBilling() {
       setFalEndpointsError(e instanceof Error ? e.message : "Save failed");
     } finally {
       setFalEndpointsSaving(false);
+    }
+  }
+
+  async function savePricingInterval() {
+    if (pricingInterval === pricingIntervalOriginal) return;
+    const ms = parseInt(pricingInterval, 10);
+    if (isNaN(ms) || ms < 0) {
+      setPricingIntervalError("Must be a non-negative integer (milliseconds)");
+      return;
+    }
+    setPricingIntervalSaving(true);
+    setPricingIntervalError(null);
+    try {
+      const resp = await fetch("/api/admin/config/pricing_refresh_interval_ms", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ value: String(ms) }),
+      });
+      if (!resp.ok) throw new Error("Failed to save");
+      setPricingIntervalOriginal(String(ms));
+      setPricingIntervalSaved(true);
+      setTimeout(() => setPricingIntervalSaved(false), 2500);
+    } catch (e) {
+      setPricingIntervalError(e instanceof Error ? e.message : "Save failed");
+    } finally {
+      setPricingIntervalSaving(false);
     }
   }
 
@@ -568,6 +607,49 @@ export default function AdminBilling() {
               >
                 Discard changes
               </button>
+            )}
+          </div>
+
+          <div className="border-t border-border mt-5 pt-5">
+            <p className="text-sm font-medium text-foreground mb-0.5">Pricing Cache Refresh Interval (ms)</p>
+            <p className="text-xs text-muted-foreground mb-3">
+              How often to re-fetch fal.ai pricing from the API. Default: 3600000 (1 hour).
+            </p>
+            <div className="flex items-center gap-3 flex-wrap">
+              <input
+                type="number"
+                min={0}
+                step={1000}
+                value={pricingInterval}
+                onChange={e => { setPricingInterval(e.target.value); setPricingIntervalError(null); setPricingIntervalSaved(false); }}
+                className="w-48 bg-background border border-border rounded px-3 py-1.5 text-sm font-mono text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+              />
+              <button
+                onClick={() => void savePricingInterval()}
+                disabled={pricingIntervalSaving || pricingInterval === pricingIntervalOriginal}
+                className="px-3 py-1.5 rounded text-sm font-medium bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-40 disabled:cursor-not-allowed transition-colors flex items-center gap-1.5"
+              >
+                {pricingIntervalSaving ? (
+                  <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Saving…</>
+                ) : pricingIntervalSaved ? (
+                  <><CheckCircle className="w-3.5 h-3.5" /> Saved</>
+                ) : (
+                  "Save"
+                )}
+              </button>
+              {pricingInterval !== pricingIntervalOriginal && (
+                <button
+                  onClick={() => { setPricingInterval(pricingIntervalOriginal); setPricingIntervalError(null); }}
+                  className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  Discard
+                </button>
+              )}
+            </div>
+            {pricingIntervalError && (
+              <p className="text-xs text-destructive flex items-center gap-1.5 mt-1.5">
+                <XCircle className="w-3.5 h-3.5 shrink-0" />{pricingIntervalError}
+              </p>
             )}
           </div>
         </CollapsibleSection>
