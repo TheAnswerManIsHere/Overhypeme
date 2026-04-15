@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { AdminLayout } from "@/components/admin/AdminLayout";
 import { CollapsibleSection } from "@/components/CollapsibleSection";
-import { Settings, Loader2, Palette, Bug, Bot, Film, Sliders } from "lucide-react";
+import { Settings, Loader2, Palette, Bug, Bot, Film, Sliders, DollarSign, Shield } from "lucide-react";
 import {
   ConfigPageContext,
   ConfigPageCtx,
@@ -13,6 +13,27 @@ import {
   useConfigCtx,
   useConfigPageState,
 } from "./_configShared";
+
+// Keys that belong to named sections — excluded from the catch-all generic list
+const BUDGET_KEYS = new Set([
+  "budget_limit_free_usd",
+  "budget_limit_legend_usd",
+  "budget_period",
+]);
+
+const LIMIT_KEYS = new Set([
+  "ai_max_images_per_gender",
+  "max_memes_per_fact",
+  "pexels_photos_per_gender",
+  "upload_gallery_display_limit",
+  "user_max_images",
+]);
+
+// Keys that belong elsewhere (Billing tab) or are removed from this page
+const BILLING_ONLY_KEYS = new Set([
+  "stripe_live_mode",
+  "fal_active_endpoints",
+]);
 
 // ── Per-model parameter definitions ──────────────────────────────────────────
 
@@ -170,12 +191,11 @@ function AISettingsGroup() {
       <CollapsibleSection
         title="AI Generation Limits"
         icon={<Sliders className="w-4 h-4 text-muted-foreground" />}
-        description="Gallery display limit and per-fact image caps."
+        description="How many AI-generated backgrounds are shown in the Meme Builder gallery."
         storageKey="admin_section_config_ai_gen_limits"
       >
         <div className="space-y-4">
           <ModelParamRow paramKey="ai_gallery_display_limit" />
-          <ModelParamRow paramKey="ai_max_images_per_fact_per_gender" />
         </div>
       </CollapsibleSection>
 
@@ -289,10 +309,15 @@ export default function AdminConfig() {
     saveStd, saveDbg, stdDirty, dbgDirty,
   } = state;
 
+  const budgetRows  = rows.filter((r) => BUDGET_KEYS.has(r.key));
+  const limitRows   = rows.filter((r) => LIMIT_KEYS.has(r.key));
   const genericRows = rows.filter((r) =>
     !r.key.startsWith("style_suffix_") &&
     r.key !== "debug_mode_active" &&
-    !MODEL_CONFIG_KEYS.has(r.key)
+    !MODEL_CONFIG_KEYS.has(r.key) &&
+    !BUDGET_KEYS.has(r.key) &&
+    !LIMIT_KEYS.has(r.key) &&
+    !BILLING_ONLY_KEYS.has(r.key)
   );
 
   const ctxValue: ConfigPageCtx = {
@@ -357,8 +382,36 @@ export default function AdminConfig() {
           ) : (
             <div className="space-y-3">
 
-              {/* Generic (non-AI) config rows */}
+              {/* Generic (non-AI, non-budget, non-limits) config rows */}
               {genericRows.map((row) => <ConfigCard key={row.key} row={row} />)}
+
+              {/* Budget — collapsible section */}
+              {budgetRows.length > 0 && (
+                <CollapsibleSection
+                  title="Budget"
+                  icon={<DollarSign className="w-4 h-4 text-muted-foreground" />}
+                  description="Per-tier AI generation spending caps and the reset cadence."
+                  storageKey="admin_section_config_budget"
+                >
+                  <div className="space-y-3">
+                    {budgetRows.map((row) => <ConfigCard key={row.key} row={row} />)}
+                  </div>
+                </CollapsibleSection>
+              )}
+
+              {/* Limits — collapsible section */}
+              {limitRows.length > 0 && (
+                <CollapsibleSection
+                  title="Limits"
+                  icon={<Shield className="w-4 h-4 text-muted-foreground" />}
+                  description="Image storage, meme, and gallery caps applied per user or per fact."
+                  storageKey="admin_section_config_limits"
+                >
+                  <div className="space-y-3">
+                    {limitRows.map((row) => <ConfigCard key={row.key} row={row} />)}
+                  </div>
+                </CollapsibleSection>
+              )}
 
               {/* AI Settings — collapsible group */}
               <CollapsibleSection

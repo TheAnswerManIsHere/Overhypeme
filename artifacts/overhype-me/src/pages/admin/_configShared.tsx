@@ -221,7 +221,7 @@ export const MODEL_CONFIG_KEYS = new Set([
   "ai_ref_pulid_true_cfg_scale", "ai_ref_pulid_start_step", "ai_pulid_composition_suffix",
   "ai_pulid_id_scale_pct",
   "ai_scene_prompt_model", "ai_scene_prompt_max_tokens", "ai_scene_prompt_temperature", "ai_scene_prompt_system",
-  "ai_gallery_display_limit", "ai_max_images_per_fact_per_gender",
+  "ai_gallery_display_limit",
   "video_model", "video_duration", "video_aspect_ratio", "video_resolution", "video_prompt_system_prompt",
 ]);
 

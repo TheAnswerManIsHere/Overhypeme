@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/Button";
 import {
   CreditCard, Zap, Star, CheckCircle, XCircle, AlertTriangle,
   ToggleLeft, ToggleRight, Loader2, RefreshCw, Send, Package,
-  Users, Lock, ShieldCheck, Link, Copy,
+  Users, Lock, ShieldCheck, Link, Copy, Cpu,
 } from "lucide-react";
 
 interface StripeConfig {
@@ -66,6 +66,13 @@ export default function AdminBilling() {
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
+  // fal.ai Active Endpoints config
+  const [falEndpoints, setFalEndpoints] = useState<string>("");
+  const [falEndpointsOriginal, setFalEndpointsOriginal] = useState<string>("");
+  const [falEndpointsSaving, setFalEndpointsSaving] = useState(false);
+  const [falEndpointsSaved, setFalEndpointsSaved] = useState(false);
+  const [falEndpointsError, setFalEndpointsError] = useState<string | null>(null);
+
   const fetchAll = useCallback(async () => {
     setConfigLoading(true);
     setPlansLoading(true);
@@ -104,6 +111,10 @@ export default function AdminBilling() {
       const rows = Array.isArray(value) ? (value as AdminConfigRow[]) : [];
       const liveModeRow = rows.find(r => r.key === "stripe_live_mode");
       setLiveMode(liveModeRow?.value === "true");
+      const falRow = rows.find(r => r.key === "fal_active_endpoints");
+      const falVal = falRow?.value ?? "";
+      setFalEndpoints(falVal);
+      setFalEndpointsOriginal(falVal);
     }
   }, []);
 
@@ -154,6 +165,36 @@ export default function AdminBilling() {
       setTestEventResult({ ok: false, message: "Network error" });
     } finally {
       setTestEventLoading(false);
+    }
+  }
+
+  async function saveFalEndpoints() {
+    if (falEndpoints === falEndpointsOriginal) return;
+    // validate JSON array
+    try {
+      const parsed = JSON.parse(falEndpoints);
+      if (!Array.isArray(parsed)) throw new Error("Must be a JSON array");
+    } catch (e) {
+      setFalEndpointsError(e instanceof Error ? e.message : "Invalid JSON");
+      return;
+    }
+    setFalEndpointsSaving(true);
+    setFalEndpointsError(null);
+    try {
+      const resp = await fetch("/api/admin/config/fal_active_endpoints", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ value: falEndpoints }),
+      });
+      if (!resp.ok) throw new Error("Failed to save");
+      setFalEndpointsOriginal(falEndpoints);
+      setFalEndpointsSaved(true);
+      setTimeout(() => setFalEndpointsSaved(false), 2500);
+    } catch (e) {
+      setFalEndpointsError(e instanceof Error ? e.message : "Save failed");
+    } finally {
+      setFalEndpointsSaving(false);
     }
   }
 
@@ -482,6 +523,54 @@ export default function AdminBilling() {
             )}
           </CollapsibleSection>
         )}
+
+        {/* fal.ai Active Endpoints */}
+        <CollapsibleSection
+          title="fal.ai Active Endpoint IDs"
+          icon={<Cpu className="w-4 h-4 text-primary" />}
+          description="JSON array of fal.ai endpoint IDs whose pricing is pre-cached at startup and refreshed hourly."
+          storageKey="admin_section_billing_fal_endpoints"
+        >
+          <p className="text-xs text-muted-foreground mb-3">
+            Enter a valid JSON array of endpoint ID strings, e.g.{" "}
+            <code className="bg-secondary px-1 rounded">["fal-ai/flux-pro/v1.1", "fal-ai/kling-video/v2.1/pro/image-to-video"]</code>
+          </p>
+          <textarea
+            value={falEndpoints}
+            onChange={e => { setFalEndpoints(e.target.value); setFalEndpointsError(null); setFalEndpointsSaved(false); }}
+            rows={6}
+            spellCheck={false}
+            className="w-full bg-background border border-border rounded px-3 py-2 text-xs font-mono text-foreground focus:outline-none focus:ring-1 focus:ring-primary resize-y"
+          />
+          {falEndpointsError && (
+            <p className="text-xs text-destructive flex items-center gap-1.5 mt-1">
+              <XCircle className="w-3.5 h-3.5 shrink-0" />{falEndpointsError}
+            </p>
+          )}
+          <div className="flex items-center gap-3 mt-2">
+            <button
+              onClick={() => void saveFalEndpoints()}
+              disabled={falEndpointsSaving || falEndpoints === falEndpointsOriginal}
+              className="px-3 py-1.5 rounded text-sm font-medium bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-40 disabled:cursor-not-allowed transition-colors flex items-center gap-1.5"
+            >
+              {falEndpointsSaving ? (
+                <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Saving…</>
+              ) : falEndpointsSaved ? (
+                <><CheckCircle className="w-3.5 h-3.5" /> Saved</>
+              ) : (
+                "Save"
+              )}
+            </button>
+            {falEndpoints !== falEndpointsOriginal && (
+              <button
+                onClick={() => { setFalEndpoints(falEndpointsOriginal); setFalEndpointsError(null); }}
+                className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+              >
+                Discard changes
+              </button>
+            )}
+          </div>
+        </CollapsibleSection>
 
         {/* Price Reference */}
         {(monthlyPrice || annualPrice || lifetimePrice) && (
