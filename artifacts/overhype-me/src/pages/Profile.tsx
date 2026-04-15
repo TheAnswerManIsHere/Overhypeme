@@ -68,17 +68,21 @@ export default function Profile() {
   };
 
   useEffect(() => {
-    // Defer the initial check with rAF so the browser has finished laying out
-    // the tab strip (fonts loaded, widths calculated) before we measure.
-    const raf = requestAnimationFrame(() => {
-      updateTabScroll();
+    // Safari iOS finalizes layout later than other browsers.
+    // Double-rAF handles most cases; the 200 ms timeout is a reliable Safari fallback.
+    let raf2: number;
+    const raf1 = requestAnimationFrame(() => {
+      raf2 = requestAnimationFrame(updateTabScroll);
     });
+    const timer = setTimeout(updateTabScroll, 200);
     const el = tabsRef.current;
-    if (!el) return () => cancelAnimationFrame(raf);
+    if (!el) return () => { cancelAnimationFrame(raf1); cancelAnimationFrame(raf2); clearTimeout(timer); };
     const ro = new ResizeObserver(updateTabScroll);
     ro.observe(el);
     return () => {
-      cancelAnimationFrame(raf);
+      cancelAnimationFrame(raf1);
+      cancelAnimationFrame(raf2);
+      clearTimeout(timer);
       ro.disconnect();
     };
   }, []);
