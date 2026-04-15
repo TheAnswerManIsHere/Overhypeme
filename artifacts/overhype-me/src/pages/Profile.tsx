@@ -68,12 +68,19 @@ export default function Profile() {
   };
 
   useEffect(() => {
-    updateTabScroll();
+    // Defer the initial check with rAF so the browser has finished laying out
+    // the tab strip (fonts loaded, widths calculated) before we measure.
+    const raf = requestAnimationFrame(() => {
+      updateTabScroll();
+    });
     const el = tabsRef.current;
-    if (!el) return;
+    if (!el) return () => cancelAnimationFrame(raf);
     const ro = new ResizeObserver(updateTabScroll);
     ro.observe(el);
-    return () => ro.disconnect();
+    return () => {
+      cancelAnimationFrame(raf);
+      ro.disconnect();
+    };
   }, []);
   const [avatarSourceToggling, setAvatarSourceToggling] = useState(false);
   const [forgetMeConfirm, setForgetMeConfirm] = useState(false);
@@ -819,16 +826,16 @@ export default function Profile() {
         <div className="relative mb-8">
           {/* Left fade + chevron */}
           {tabScroll.left && (
-            <div className="pointer-events-none absolute left-0 top-0 bottom-0 w-12 z-10 flex items-center justify-start"
-              style={{ background: "linear-gradient(to right, var(--color-background, hsl(var(--background))) 40%, transparent)" }}>
-              <ChevronLeft className="w-4 h-4 text-muted-foreground ml-1 flex-shrink-0" />
+            <div className="pointer-events-none absolute left-0 top-0 bottom-0 w-16 z-10 flex items-center justify-start"
+              style={{ background: "linear-gradient(to right, hsl(var(--background)) 30%, transparent)" }}>
+              <ChevronLeft className="w-6 h-6 text-foreground/60 ml-1 flex-shrink-0" />
             </div>
           )}
           {/* Right fade + chevron */}
           {tabScroll.right && (
-            <div className="pointer-events-none absolute right-0 top-0 bottom-0 w-12 z-10 flex items-center justify-end"
-              style={{ background: "linear-gradient(to left, var(--color-background, hsl(var(--background))) 40%, transparent)" }}>
-              <ChevronRight className="w-4 h-4 text-muted-foreground mr-1 flex-shrink-0" />
+            <div className="pointer-events-none absolute right-0 top-0 bottom-0 w-16 z-10 flex items-center justify-end"
+              style={{ background: "linear-gradient(to left, hsl(var(--background)) 30%, transparent)" }}>
+              <ChevronRight className="w-6 h-6 text-foreground/60 mr-1 flex-shrink-0" />
             </div>
           )}
           <div
