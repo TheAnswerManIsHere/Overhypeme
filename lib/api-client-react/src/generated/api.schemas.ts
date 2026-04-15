@@ -274,6 +274,15 @@ export interface PendingSubmission {
   reason: string | null;
 }
 
+export interface MyComment {
+  id: number;
+  factId: number;
+  factText: string | null;
+  text: string;
+  status: string;
+  createdAt: string;
+}
+
 export interface UserProfile {
   id: string;
   email?: string | null;
@@ -288,6 +297,7 @@ export interface UserProfile {
   isPremium?: boolean;
   submittedFacts: FactSummary[];
   pendingSubmissions?: PendingSubmission[];
+  myComments?: MyComment[];
   likedFacts: FactSummary[];
   favoriteHashtags: string[];
   searchHistory: string[];

@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { Link } from "wouter";
+import { Link, useLocation } from "wouter";
 import { Button } from "@/components/ui/Button";
 import { SubscriptionInfo } from "@/components/SubscriptionInfo";
 import { formatAmount } from "@/components/subscriptionHelpers";
@@ -100,6 +100,7 @@ function ConfirmDialog({ title, children, confirmLabel, isDestructive = false, l
 }
 
 export function SubscriptionPanel({ refetchTrigger }: { refetchTrigger?: unknown } = {}) {
+  const [currentPath, setLocation] = useLocation();
   const [subData, setSubData] = useState<SubscriptionResponse | null | undefined>(undefined);
   const [history, setHistory] = useState<PaymentRecord[]>([]);
   const [plans, setPlans] = useState<PlanProduct[]>([]);
@@ -140,11 +141,12 @@ export function SubscriptionPanel({ refetchTrigger }: { refetchTrigger?: unknown
 
     const params = new URLSearchParams(window.location.search);
     if (params.get("from_portal") === "1") {
-      window.history.replaceState({}, "", window.location.pathname);
+      setLocation(currentPath, { replace: true });
       const delays = [2000, 4000, 7000, 12000];
       const timers = delays.map((ms) => setTimeout(fetchSubData, ms));
       return () => timers.forEach(clearTimeout);
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fetchSubData]);
 
   // When the parent confirms a checkout (e.g. Legendary for Life), refetch everything.

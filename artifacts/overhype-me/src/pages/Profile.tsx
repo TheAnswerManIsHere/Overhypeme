@@ -17,7 +17,7 @@ import { AccessGate } from "@/components/AccessGate";
 const BASE_URL = import.meta.env.BASE_URL ?? "/";
 
 export default function Profile() {
-  const [, setLocation] = useLocation();
+  const [currentPath, setLocation] = useLocation();
   const { isAuthenticated, isLoading: authLoading, login, logout } = useAuth();
   const queryClient = useQueryClient();
   const { data: profile, isLoading } = useGetMyProfile({
@@ -180,12 +180,13 @@ export default function Profile() {
     const params = new URLSearchParams(window.location.search);
     if (params.get("checkout") === "success") {
       setCheckoutBanner("success");
-      window.history.replaceState({}, "", window.location.pathname);
+      setLocation(currentPath, { replace: true });
     }
     if (params.get("emailVerified") === "1") {
       setEmailVerifiedBanner(true);
-      window.history.replaceState({}, "", window.location.pathname);
+      setLocation(currentPath, { replace: true });
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Poll /api/stripe/membership directly after checkout — webhook may arrive after redirect.
@@ -816,7 +817,7 @@ export default function Profile() {
             onClick={() => setActiveTab("submitted")}
             className={`flex items-center gap-2 px-6 py-4 font-display text-lg uppercase tracking-wider transition-colors border-b-2 whitespace-nowrap ${activeTab === "submitted" ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground hover:border-border"}`}
           >
-            <FileText className="w-5 h-5" /> Submissions ({profile.submittedFacts.length + (profile.pendingSubmissions?.length ?? 0)})
+            <FileText className="w-5 h-5" /> Submissions ({profile.submittedFacts.length + (profile.pendingSubmissions?.length ?? 0) + (profile.myComments?.length ?? 0)})
           </button>
           <button 
             onClick={() => setActiveTab("history")}
@@ -903,7 +904,42 @@ export default function Profile() {
                 </div>
               )}
 
-              {profile.submittedFacts.length === 0 && (profile.pendingSubmissions?.length ?? 0) === 0 && (
+              {(profile.myComments?.length ?? 0) > 0 && (
+                <div>
+                  <h3 className="font-display text-base uppercase tracking-wider text-muted-foreground mb-4 flex items-center gap-2">
+                    <FileText className="w-4 h-4" /> Your Comments
+                  </h3>
+                  <div className="space-y-3">
+                    {profile.myComments!.map((comment) => (
+                      <div key={comment.id} className="bg-card border border-border rounded-sm p-4 space-y-2">
+                        {comment.factText && (
+                          <p className="text-xs text-muted-foreground italic border-l-2 border-primary/40 pl-2 leading-relaxed line-clamp-2">
+                            {comment.factText}
+                          </p>
+                        )}
+                        <p className="text-sm text-foreground leading-relaxed">{comment.text}</p>
+                        <div className="flex items-center justify-between gap-2 pt-1">
+                          <span className={`text-[10px] font-bold uppercase tracking-widest px-2 py-0.5 rounded-sm border ${
+                            comment.status === "pending"
+                              ? "bg-amber-500/10 text-amber-400 border-amber-500/40"
+                              : comment.status === "approved"
+                              ? "bg-green-500/10 text-green-400 border-green-500/40"
+                              : "bg-destructive/10 text-destructive border-destructive/40"
+                          }`}>
+                            {comment.status === "pending" ? "Awaiting Approval" : comment.status === "approved" ? "Visible" : comment.status}
+                          </span>
+                          <div className="flex items-center gap-3">
+                            <span className="text-xs text-muted-foreground">{new Date(comment.createdAt).toLocaleDateString()}</span>
+                            <Link href={`/facts/${comment.factId}`} className="text-xs text-primary hover:underline">View Fact →</Link>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {profile.submittedFacts.length === 0 && (profile.pendingSubmissions?.length ?? 0) === 0 && (profile.myComments?.length ?? 0) === 0 && (
                 <div className="text-center py-12 bg-card border-2 border-dashed border-border rounded-sm">
                   <p className="text-muted-foreground text-lg mb-4">You haven't submitted any facts yet.</p>
                   <Link href="/submit"><Button>SUBMIT FACT</Button></Link>
