@@ -573,7 +573,7 @@ export default function Profile() {
               <Pencil className="w-4 h-4" /> EDIT PROFILE
             </Button>
             <Button variant="danger" onClick={logout} className="gap-2">
-              <LogOut className="w-4 h-4" /> DISCONNECT
+              <LogOut className="w-4 h-4" /> LOGOUT
             </Button>
             {!forgetMeConfirm ? (
               <Button
