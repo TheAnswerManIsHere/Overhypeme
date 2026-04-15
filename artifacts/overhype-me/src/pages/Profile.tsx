@@ -5,7 +5,7 @@ import { Layout } from "@/components/layout/Layout";
 import { FactCard } from "@/components/facts/FactCard";
 import { Button } from "@/components/ui/Button";
 import { SubscriptionPanel } from "@/components/SubscriptionPanel";
-import { ShieldAlert, LogOut, Clock, ThumbsUp, FileText, Hash, Star, X, Pencil, Check, Mail, AlertTriangle, CheckCircle, Camera, Loader2, Images, ImageIcon, UserCircle2, Image, Eraser } from "lucide-react";
+import { ShieldAlert, LogOut, Clock, ThumbsUp, FileText, Hash, Star, X, Pencil, Check, Mail, AlertTriangle, CheckCircle, Camera, Loader2, Images, ImageIcon, UserCircle2, Image, Eraser, ChevronLeft, ChevronRight } from "lucide-react";
 import { ImageCard } from "@/components/ui/ImageCard";
 import { Link, useLocation } from "wouter";
 import { useQueryClient, useQuery } from "@tanstack/react-query";
@@ -55,6 +55,26 @@ export default function Profile() {
   const [photoUploading, setPhotoUploading] = useState(false);
   const [photoError, setPhotoError] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const tabsRef = useRef<HTMLDivElement>(null);
+  const [tabScroll, setTabScroll] = useState({ left: false, right: false });
+
+  const updateTabScroll = () => {
+    const el = tabsRef.current;
+    if (!el) return;
+    setTabScroll({
+      left: el.scrollLeft > 4,
+      right: el.scrollLeft + el.clientWidth < el.scrollWidth - 4,
+    });
+  };
+
+  useEffect(() => {
+    updateTabScroll();
+    const el = tabsRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver(updateTabScroll);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
   const [avatarSourceToggling, setAvatarSourceToggling] = useState(false);
   const [forgetMeConfirm, setForgetMeConfirm] = useState(false);
   const [forgetMeLoading, setForgetMeLoading] = useState(false);
@@ -796,39 +816,59 @@ export default function Profile() {
         )}
 
         {/* Custom Tabs */}
-        <div className="flex overflow-x-auto gap-2 mb-8 border-b-2 border-border pb-[-2px] no-scrollbar">
-          <button 
-            onClick={() => setActiveTab("liked")}
-            className={`flex items-center gap-2 px-6 py-4 font-display text-lg uppercase tracking-wider transition-colors border-b-2 whitespace-nowrap ${activeTab === "liked" ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground hover:border-border"}`}
-          >
-            <ThumbsUp className="w-5 h-5" /> Liked Facts ({profile.likedFacts.length})
-          </button>
-          <button 
-            onClick={() => setActiveTab("submitted")}
-            className={`flex items-center gap-2 px-6 py-4 font-display text-lg uppercase tracking-wider transition-colors border-b-2 whitespace-nowrap ${activeTab === "submitted" ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground hover:border-border"}`}
-          >
-            <FileText className="w-5 h-5" /> Submissions ({profile.submittedFacts.length + (profile.pendingSubmissions?.length ?? 0) + (profile.myComments?.length ?? 0)})
-          </button>
-          <button 
-            onClick={() => setActiveTab("history")}
-            className={`flex items-center gap-2 px-6 py-4 font-display text-lg uppercase tracking-wider transition-colors border-b-2 whitespace-nowrap ${activeTab === "history" ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground hover:border-border"}`}
-          >
-            <Clock className="w-5 h-5" /> Search History
-          </button>
-          {profile.isPremium && (
-            <button 
-              onClick={() => setActiveTab("images")}
-              className={`flex items-center gap-2 px-6 py-4 font-display text-lg uppercase tracking-wider transition-colors border-b-2 whitespace-nowrap ${activeTab === "images" ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground hover:border-border"}`}
-            >
-              <Images className="w-5 h-5" /> My Images
-            </button>
+        <div className="relative mb-8">
+          {/* Left fade + chevron */}
+          {tabScroll.left && (
+            <div className="pointer-events-none absolute left-0 top-0 bottom-0 w-12 z-10 flex items-center justify-start"
+              style={{ background: "linear-gradient(to right, var(--color-background, hsl(var(--background))) 40%, transparent)" }}>
+              <ChevronLeft className="w-4 h-4 text-muted-foreground ml-1 flex-shrink-0" />
+            </div>
           )}
-          <button 
-            onClick={() => setActiveTab("memes")}
-            className={`flex items-center gap-2 px-6 py-4 font-display text-lg uppercase tracking-wider transition-colors border-b-2 whitespace-nowrap ${activeTab === "memes" ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground hover:border-border"}`}
+          {/* Right fade + chevron */}
+          {tabScroll.right && (
+            <div className="pointer-events-none absolute right-0 top-0 bottom-0 w-12 z-10 flex items-center justify-end"
+              style={{ background: "linear-gradient(to left, var(--color-background, hsl(var(--background))) 40%, transparent)" }}>
+              <ChevronRight className="w-4 h-4 text-muted-foreground mr-1 flex-shrink-0" />
+            </div>
+          )}
+          <div
+            ref={tabsRef}
+            onScroll={updateTabScroll}
+            className="flex overflow-x-auto gap-2 border-b-2 border-border no-scrollbar"
           >
-            <ImageIcon className="w-5 h-5" /> My Memes
-          </button>
+            <button
+              onClick={() => setActiveTab("liked")}
+              className={`flex items-center gap-2 px-6 py-4 font-display text-lg uppercase tracking-wider transition-colors border-b-2 whitespace-nowrap ${activeTab === "liked" ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground hover:border-border"}`}
+            >
+              <ThumbsUp className="w-5 h-5" /> Liked Facts ({profile.likedFacts.length})
+            </button>
+            <button
+              onClick={() => setActiveTab("submitted")}
+              className={`flex items-center gap-2 px-6 py-4 font-display text-lg uppercase tracking-wider transition-colors border-b-2 whitespace-nowrap ${activeTab === "submitted" ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground hover:border-border"}`}
+            >
+              <FileText className="w-5 h-5" /> Submissions ({profile.submittedFacts.length + (profile.pendingSubmissions?.length ?? 0) + (profile.myComments?.length ?? 0)})
+            </button>
+            <button
+              onClick={() => setActiveTab("history")}
+              className={`flex items-center gap-2 px-6 py-4 font-display text-lg uppercase tracking-wider transition-colors border-b-2 whitespace-nowrap ${activeTab === "history" ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground hover:border-border"}`}
+            >
+              <Clock className="w-5 h-5" /> Search History
+            </button>
+            {profile.isPremium && (
+              <button
+                onClick={() => setActiveTab("images")}
+                className={`flex items-center gap-2 px-6 py-4 font-display text-lg uppercase tracking-wider transition-colors border-b-2 whitespace-nowrap ${activeTab === "images" ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground hover:border-border"}`}
+              >
+                <Images className="w-5 h-5" /> My Images
+              </button>
+            )}
+            <button
+              onClick={() => setActiveTab("memes")}
+              className={`flex items-center gap-2 px-6 py-4 font-display text-lg uppercase tracking-wider transition-colors border-b-2 whitespace-nowrap ${activeTab === "memes" ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground hover:border-border"}`}
+            >
+              <ImageIcon className="w-5 h-5" /> My Memes
+            </button>
+          </div>
         </div>
 
         {/* Tab Content */}
