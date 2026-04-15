@@ -872,8 +872,24 @@ function VideoTab({ factId, factText, pexelsImages, aiMemeImages, initialImageDa
   const stepIndex = step - 1;
   const translateX = `translateX(-${stepIndex * 100}%)`;
 
+  // Scroll the nearest scrollable ancestor to top whenever the step changes
+  const sliderRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = sliderRef.current;
+    if (!el) return;
+    let parent = el.parentElement;
+    while (parent) {
+      const { overflow, overflowY } = window.getComputedStyle(parent);
+      if (/(auto|scroll)/.test(overflow + overflowY)) {
+        parent.scrollTo({ top: 0, behavior: "smooth" });
+        return;
+      }
+      parent = parent.parentElement;
+    }
+  }, [step]);
+
   return (
-    <div className="overflow-hidden">
+    <div ref={sliderRef} className="overflow-hidden">
       <div
         className="flex transition-transform duration-300 ease-in-out"
         style={{ transform: translateX, willChange: "transform" }}
