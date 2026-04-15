@@ -1769,10 +1769,12 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
             <div
               className="h-2 cursor-ns-resize flex items-center justify-center group mx-4 md:mx-5 mt-1"
               onMouseDown={e => {
+                e.preventDefault();
                 const canvasEl = canvasRef.current;
                 if (!canvasEl) return;
                 const rect = canvasEl.getBoundingClientRect();
                 resizeDragRef.current = { startY: e.clientY, startH: rect.height };
+                document.body.style.userSelect = "none";
                 const onMove = (mv: MouseEvent) => {
                   if (!resizeDragRef.current) return;
                   const delta = mv.clientY - resizeDragRef.current.startY;
@@ -1780,6 +1782,7 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
                 };
                 const onUp = () => {
                   resizeDragRef.current = null;
+                  document.body.style.userSelect = "";
                   window.removeEventListener("mousemove", onMove);
                   window.removeEventListener("mouseup", onUp);
                 };
