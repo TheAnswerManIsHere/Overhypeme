@@ -43,7 +43,7 @@ const ACTION_META: Record<ActivityType, { icon: React.ElementType; color: string
   fact_submitted:    { icon: FileText,      color: "text-blue-500",   label: "Fact Submitted" },
   fact_approved:     { icon: CheckCircle2,  color: "text-green-500",  label: "Fact Approved" },
   duplicate_flagged: { icon: ClipboardList, color: "text-yellow-500", label: "Duplicate Flagged" },
-  review_submitted:  { icon: ClipboardList, color: "text-orange-500", label: "Review Submitted" },
+  review_submitted:  { icon: ClipboardList, color: "text-orange-500", label: "Fact Submitted" },
   review_approved:   { icon: CheckCircle2,  color: "text-green-500",  label: "Review Approved" },
   review_rejected:   { icon: XCircle,       color: "text-red-500",    label: "Review Rejected" },
   comment_posted:    { icon: MessageSquare, color: "text-purple-500", label: "Comment Submitted" },
