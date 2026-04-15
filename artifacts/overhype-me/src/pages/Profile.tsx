@@ -5,8 +5,7 @@ import { Layout } from "@/components/layout/Layout";
 import { FactCard } from "@/components/facts/FactCard";
 import { Button } from "@/components/ui/Button";
 import { SubscriptionPanel } from "@/components/SubscriptionPanel";
-import { SpendCollapsible } from "@/components/ui/SpendHistory";
-import { ShieldAlert, LogOut, Clock, ThumbsUp, FileText, Hash, Star, X, Pencil, Check, Mail, AlertTriangle, CheckCircle, Camera, Loader2, Images, ImageIcon, UserCircle2, Image, Eraser, TrendingUp } from "lucide-react";
+import { ShieldAlert, LogOut, Clock, ThumbsUp, FileText, Hash, Star, X, Pencil, Check, Mail, AlertTriangle, CheckCircle, Camera, Loader2, Images, ImageIcon, UserCircle2, Image, Eraser } from "lucide-react";
 import { ImageCard } from "@/components/ui/ImageCard";
 import { Link, useLocation } from "wouter";
 import { useQueryClient, useQuery } from "@tanstack/react-query";
@@ -776,15 +775,6 @@ export default function Profile() {
 
         {/* Subscription Panel */}
         <SubscriptionPanel refetchTrigger={checkoutConfirmed || undefined} />
-
-        {/* Generation Cost Tracker */}
-        <div className="bg-card border-2 border-border p-5 rounded-sm shadow mb-4">
-          <div className="flex items-center gap-2 mb-3">
-            <TrendingUp className="w-4 h-4 text-primary" />
-            <h2 className="font-display text-base uppercase tracking-wide text-foreground">AI Generation Costs</h2>
-          </div>
-          <SpendCollapsible endpoint="/api/users/me/spend" />
-        </div>
 
         {/* Favorite Hashtags */}
         {profile.favoriteHashtags && profile.favoriteHashtags.length > 0 && (
