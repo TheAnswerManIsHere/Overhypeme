@@ -3,35 +3,10 @@ import { db } from "@workspace/db";
 import { affiliateClicksTable } from "@workspace/db/schema";
 import { desc, count, sql } from "drizzle-orm";
 import { requireAdmin } from "./admin";
+import { buildZazzleUrl } from "../lib/zazzle";
 
 const router: IRouter = Router();
 
-// Env-configured affiliate IDs — fall back to demo/test values if unset
-const ZAZZLE_AFFILIATE_ID = process.env.ZAZZLE_AFFILIATE_ID ?? "238527546099265388";
-
-// Warn in production if affiliate IDs are not configured
-if (process.env.NODE_ENV === "production") {
-  if (!process.env.ZAZZLE_AFFILIATE_ID) {
-    console.warn("[affiliate] ZAZZLE_AFFILIATE_ID is not set — using demo affiliate ID. Set this env var to receive real commissions.");
-  }
-}
-
-function buildZazzleUrl(text: string, imageUrl?: string): string {
-  const base = `https://www.zazzle.com/api/create/at-${ZAZZLE_AFFILIATE_ID}`;
-  const params = new URLSearchParams({
-    rf: ZAZZLE_AFFILIATE_ID,
-    ax: "DesignBlast",
-    sr: "250",
-    ed: "true",
-    t_text: text.slice(0, 160),
-  });
-  if (imageUrl) {
-    params.set("t_image0_iid", imageUrl);
-  }
-  return `${base}?${params}`;
-}
-
-// POST /affiliate/click — log a click and return the destination URL
 router.post("/affiliate/click", async (req: Request, res: Response) => {
   const {
     sourceType,
@@ -39,15 +14,16 @@ router.post("/affiliate/click", async (req: Request, res: Response) => {
     destination,
     text,
     imageUrl,
+    returnUrl,
   } = req.body as {
     sourceType?: "fact" | "meme";
     sourceId?: string | number;
     destination?: "zazzle";
     text?: string;
     imageUrl?: string;
+    returnUrl?: string;
   };
 
-  // Strict type checks before any string operations — prevents 500s on malformed payloads
   if (!sourceType || !sourceId || !destination || !text) {
     res.status(400).json({ error: "sourceType, sourceId, destination, and text are required" });
     return;
@@ -78,7 +54,6 @@ router.post("/affiliate/click", async (req: Request, res: Response) => {
     return;
   }
 
-  // Server-side length bounds to prevent abuse/noise
   if (text.length > 1000) {
     res.status(400).json({ error: "text must be 1000 characters or fewer" });
     return;
@@ -94,7 +69,6 @@ router.post("/affiliate/click", async (req: Request, res: Response) => {
     return;
   }
 
-  // Log the click (fire and forget errors — we don't want a DB error to break the redirect)
   try {
     await db.insert(affiliateClicksTable).values({
       userId: req.isAuthenticated() ? req.user.id : null,
@@ -103,15 +77,18 @@ router.post("/affiliate/click", async (req: Request, res: Response) => {
       destination,
     });
   } catch {
-    // Non-fatal — still redirect
   }
 
-  const url = buildZazzleUrl(text, imageUrl);
+  const imageName = imageUrl ? imageUrl.split("/").pop() : undefined;
+  const url = await buildZazzleUrl({
+    imageUrl,
+    imageName,
+    returnUrl: typeof returnUrl === "string" ? returnUrl : undefined,
+  });
 
   res.json({ url });
 });
 
-// Build a date range WHERE clause for affiliate_clicks.clicked_at
 function dateRangeWhere(dateFrom: Date | null, dateTo: Date | null) {
   if (dateFrom && dateTo) {
     return sql`${affiliateClicksTable.clickedAt} BETWEEN ${dateFrom.toISOString()} AND ${dateTo.toISOString()}`;
@@ -125,7 +102,6 @@ function dateRangeWhere(dateFrom: Date | null, dateTo: Date | null) {
   return undefined;
 }
 
-// GET /affiliate/stats — admin only: click counts per source grouped by destination
 router.get("/affiliate/stats", requireAdmin, async (req: Request, res: Response) => {
 
   let dateFrom: Date | null = null;
@@ -134,7 +110,6 @@ router.get("/affiliate/stats", requireAdmin, async (req: Request, res: Response)
   if (req.query["from"]) {
     const d = new Date(String(req.query["from"]));
     if (isNaN(d.getTime())) { res.status(400).json({ error: "Invalid 'from' date" }); return; }
-    // Start of the given day in UTC
     d.setUTCHours(0, 0, 0, 0);
     dateFrom = d;
   }
@@ -142,7 +117,6 @@ router.get("/affiliate/stats", requireAdmin, async (req: Request, res: Response)
   if (req.query["to"]) {
     const d = new Date(String(req.query["to"]));
     if (isNaN(d.getTime())) { res.status(400).json({ error: "Invalid 'to' date" }); return; }
-    // End of the given day in UTC (inclusive)
     d.setUTCHours(23, 59, 59, 999);
     dateTo = d;
   }

@@ -565,6 +565,25 @@ Return ONLY valid JSON:
             ON CONFLICT (key) DO NOTHING`,
     },
     {
+      label: "admin_config seed zazzle params",
+      ddl: `INSERT INTO admin_config (key, value, data_type, label, description, is_public) VALUES
+        ('zazzle_at', '238499514566968751', 'string', 'Zazzle Associate ID (at)',
+         'The associate/store ID used in the at-{id} portion of the Zazzle Create-a-Product URL.', false),
+        ('zazzle_rf', '238499514566968751', 'string', 'Zazzle Referral ID (rf)',
+         'Referral tracking parameter — typically the same as the associate ID.', false),
+        ('zazzle_ax', 'DesignBlast', 'string', 'Zazzle Tracking Code (ax)',
+         'Tracking/attribution code passed to Zazzle for analytics.', false),
+        ('zazzle_sr', '250021327078498612', 'string', 'Zazzle Store ID (sr)',
+         'The Zazzle store ID where templates are hosted.', false),
+        ('zazzle_cg', '196101421498498498', 'string', 'Zazzle Category ID (cg)',
+         'The store category ID containing the product templates.', false),
+        ('zazzle_ed', 'true', 'string', 'Zazzle Allow Editing (ed)',
+         'Whether to allow the customer to edit the product on Zazzle before purchasing (true/false).', false),
+        ('zazzle_tc', '', 'string', 'Zazzle Tracking Cookie (tc)',
+         'Optional tracking cookie value passed to Zazzle. Leave empty if not used.', false)
+      ON CONFLICT (key) DO NOTHING`,
+    },
+    {
       label: "admin_config seed pricing_refresh_interval_ms",
       ddl: `INSERT INTO admin_config (key, value, data_type, label, description, is_public)
             VALUES ('pricing_refresh_interval_ms', '3600000', 'integer', 'Pricing Cache Refresh Interval (ms)',

@@ -28,6 +28,7 @@ import { requireAdmin } from "./admin";
 import { getUploadImageMetadata } from "./storage";
 import { CACHE, setPublicCache, setPublicCors, checkConditional, setNoStore } from "../lib/cacheHeaders";
 import { getSiteBaseUrl } from "../lib/email";
+import { buildZazzleUrl } from "../lib/zazzle";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const TEMPLATES_DIR = path.resolve(__dirname, "assets/meme-templates");
@@ -774,23 +775,10 @@ router.post("/memes/:slug/zazzle-export", async (req: Request, res: Response) =>
  * Using GET + redirect means the browser treats it as a normal link navigation
  * so there are no popup-blocker issues on Safari / iOS.
  */
-const ZAZZLE_AFFILIATE_ID = "238499514566968751";
-const ZAZZLE_DESIGN_ID    = "256461861146055272";
-
-function buildZazzleRedirectUrl(imageUrl?: string): string {
-  const params = new URLSearchParams({
-    rf: ZAZZLE_AFFILIATE_ID,
-    ax: "DesignBlast",
-    pd: ZAZZLE_DESIGN_ID,
-    ed: "true",
-  });
-  if (imageUrl) params.set("t_image0_iid", imageUrl);
-  return `https://www.zazzle.com/api/create/at-${ZAZZLE_AFFILIATE_ID}?${params}`;
-}
-
 router.get("/memes/:slug/zazzle-redirect", async (req: Request, res: Response) => {
   const slug = req.params["slug"] as string;
   if (!slug) { res.status(400).end(); return; }
+  const returnUrl = typeof req.query["returnUrl"] === "string" ? req.query["returnUrl"] : undefined;
 
   const [meme] = await db
     .select()
@@ -821,7 +809,7 @@ router.get("/memes/:slug/zazzle-redirect", async (req: Request, res: Response) =
         } catch { /* try next */ }
       }
       if (!fetched) {
-        res.redirect(302, buildZazzleRedirectUrl());
+        res.redirect(302, await buildZazzleUrl({ returnUrl }));
         return;
       }
     } else {
@@ -873,10 +861,11 @@ router.get("/memes/:slug/zazzle-redirect", async (req: Request, res: Response) =
     });
 
     const publicImageUrl = `${getSiteBaseUrl()}/api/storage/objects/${subPath}`;
-    res.redirect(302, buildZazzleRedirectUrl(publicImageUrl));
+    const imageName = `${slug}.jpg`;
+    res.redirect(302, await buildZazzleUrl({ imageUrl: publicImageUrl, imageName, returnUrl }));
   } catch (err) {
     req.log.error({ err, slug }, "Zazzle redirect export failed — falling back to base URL");
-    res.redirect(302, buildZazzleRedirectUrl());
+    res.redirect(302, await buildZazzleUrl({ returnUrl }));
   }
 });
 

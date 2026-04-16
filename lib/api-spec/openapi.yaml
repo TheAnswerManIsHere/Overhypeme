@@ -1088,6 +1088,10 @@ components:
         imageUrl:
           type: string
           nullable: true
+        returnUrl:
+          type: string
+          nullable: true
+          description: The page URL where the user clicked "Make Merch", passed as continueUrl to Zazzle.
 
     AffiliateClickResponse:
       type: object

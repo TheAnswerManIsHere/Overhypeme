@@ -14,4 +14,6 @@ export interface AffiliateClickRequest {
   destination: AffiliateClickRequestDestination;
   text: string;
   imageUrl?: string | null;
+  /** The page URL where the user clicked "Make Merch", passed as continueUrl to Zazzle. */
+  returnUrl?: string | null;
 }

@@ -33,11 +33,11 @@ export const GetCurrentAuthUserResponse = zod.object({
       firstName: zod.string().nullish(),
       lastName: zod.string().nullish(),
       profileImageUrl: zod.string().nullish(),
-      membershipTier: zod.enum(["unregistered", "registered", "legendary"]).nullish(),
+      membershipTier: zod.enum(["free", "premium"]).nullish(),
       isAdmin: zod.boolean().nullish(),
       isRealAdmin: zod.boolean().nullish(),
       pronouns: zod.string().nullish(),
-      userRole: zod.enum(["unregistered", "registered", "legendary", "admin"]).nullish(),
+      userRole: zod.enum(["free", "premium", "admin"]).nullish(),
     }),
     zod.null(),
   ]),
@@ -588,6 +588,12 @@ export const LogAffiliateClickBody = zod.object({
   destination: zod.enum(["zazzle"]),
   text: zod.string(),
   imageUrl: zod.string().nullish(),
+  returnUrl: zod
+    .string()
+    .nullish()
+    .describe(
+      'The page URL where the user clicked \"Make Merch\", passed as continueUrl to Zazzle.',
+    ),
 });
 
 export const LogAffiliateClickResponse = zod.object({
