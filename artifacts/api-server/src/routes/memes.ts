@@ -758,7 +758,7 @@ router.post("/memes/:slug/zazzle-export", async (req: Request, res: Response) =>
       visibility: "public",
     });
 
-    const url = `${getSiteBaseUrl()}/storage/objects/${subPath}`;
+    const url = `${getSiteBaseUrl()}/api/storage/objects/${subPath}`;
     res.json({ url });
   } catch (err) {
     req.log.error({ err, slug }, "Zazzle export failed");

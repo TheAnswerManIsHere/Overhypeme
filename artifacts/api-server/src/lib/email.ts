@@ -29,6 +29,10 @@ export function getSiteBaseUrl(): string {
   if (process.env.SITE_BASE_URL) {
     return process.env.SITE_BASE_URL.replace(/\/$/, "");
   }
+  const productionDomain = process.env.REPLIT_DOMAINS?.split(",")[0]?.trim();
+  if (productionDomain) {
+    return `https://${productionDomain}`;
+  }
   if (process.env.REPLIT_DEV_DOMAIN) {
     return `https://${process.env.REPLIT_DEV_DOMAIN}`;
   }
