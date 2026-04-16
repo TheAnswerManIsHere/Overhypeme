@@ -511,7 +511,7 @@ export default function FactDetail() {
                               aspectRatio={MEME_ASPECT_CLASS[meme.aspectRatio ?? "landscape"] ?? "aspect-video"}
                               actions={isMyMeme ? ["delete", "copyLink", "openFull", "makeMerch"] : ["copyLink", "openFull", "makeMerch"]}
                               onDelete={isMyMeme ? () => handleDeleteMeme(meme.permalinkSlug) : undefined}
-                              zazzleUrl={`/api/memes/${meme.permalinkSlug}/zazzle-redirect`}
+                              zazzleUrl={`/api/memes/${meme.permalinkSlug}/zazzle-redirect?returnUrl=${encodeURIComponent(window.location.href)}`}
                               deleteConfirmMessage="Remove this meme? It will no longer be visible to anyone."
                               permalink={memePermalink}
                             />
@@ -547,7 +547,7 @@ export default function FactDetail() {
                               aspectRatio={MEME_ASPECT_CLASS[meme.aspectRatio ?? "landscape"] ?? "aspect-video"}
                               actions={["delete", "copyLink", "openFull", "makeMerch"]}
                               onDelete={() => handleDeleteMeme(meme.permalinkSlug)}
-                              zazzleUrl={`/api/memes/${meme.permalinkSlug}/zazzle-redirect`}
+                              zazzleUrl={`/api/memes/${meme.permalinkSlug}/zazzle-redirect?returnUrl=${encodeURIComponent(window.location.href)}`}
                               deleteConfirmMessage="Remove this meme? It will no longer be visible to anyone."
                               permalink={memePermalink}
                             />
@@ -591,7 +591,7 @@ export default function FactDetail() {
                               aspectRatio={MEME_ASPECT_CLASS[meme.aspectRatio ?? "landscape"] ?? "aspect-video"}
                               actions={["delete", "copyLink", "openFull", "makeMerch"]}
                               onDelete={() => handleDeleteMeme(meme.permalinkSlug)}
-                              zazzleUrl={`/api/memes/${meme.permalinkSlug}/zazzle-redirect`}
+                              zazzleUrl={`/api/memes/${meme.permalinkSlug}/zazzle-redirect?returnUrl=${encodeURIComponent(window.location.href)}`}
                               deleteConfirmMessage="Remove this meme? It will no longer be visible to anyone."
                               permalink={memePermalink}
                             />
