@@ -20,6 +20,17 @@ const HCAPTCHA_SITE_KEY =
 
 const DRAFT_STORAGE_KEY = "submit_fact_draft";
 
+function getRelativeTime(savedAt: number): string {
+  const seconds = Math.floor((Date.now() - savedAt) / 1000);
+  if (seconds < 30) return "Saved just now";
+  if (seconds < 90) return "Saved 1 min ago";
+  const minutes = Math.round(seconds / 60);
+  if (minutes < 60) return `Saved ${minutes} min ago`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return `Saved ${hours}h ago`;
+  return "Saved a while ago";
+}
+
 type Step = "write" | "preview" | "submit";
 
 interface DuplicateResult {
@@ -63,6 +74,7 @@ export default function SubmitFact() {
   const [loadingSuggestions, setLoadingSuggestions] = useState(false);
   const [suggestionsLoaded, setSuggestionsLoaded] = useState(false);
   const [draftSavedAt, setDraftSavedAt] = useState<number | null>(null);
+  const [draftSavedLabel, setDraftSavedLabel] = useState<string>("");
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   const [error, setError] = useState("");
@@ -120,6 +132,15 @@ export default function SubmitFact() {
     }, 500);
     return () => { if (saveTimer.current) clearTimeout(saveTimer.current); };
   }, [rawText, template, hashtagsStr, submitted]);
+
+  useEffect(() => {
+    if (draftSavedAt === null) { setDraftSavedLabel(""); return; }
+    setDraftSavedLabel(getRelativeTime(draftSavedAt));
+    const interval = setInterval(() => {
+      setDraftSavedLabel(getRelativeTime(draftSavedAt));
+    }, 30_000);
+    return () => clearInterval(interval);
+  }, [draftSavedAt]);
 
   const checkDuplicate = useCallback(async (factText: string) => {
     if (factText.length < 20) { setDuplicate(null); return; }
@@ -449,7 +470,7 @@ export default function SubmitFact() {
                 {draftSavedAt !== null && (
                   <p className="mt-2 text-xs text-muted-foreground/60 flex items-center gap-1.5 animate-in fade-in duration-300">
                     <CheckCircle2 className="w-3 h-3 shrink-0" />
-                    Draft saved
+                    {draftSavedLabel}
                   </p>
                 )}
               </div>
