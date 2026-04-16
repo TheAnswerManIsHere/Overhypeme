@@ -93,7 +93,29 @@ export default function SubmitFact() {
 
   const dupTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const tagTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastSuggestedTextRef = useRef("");
+
+  useEffect(() => {
+    if (submitted) {
+      if (saveTimer.current) clearTimeout(saveTimer.current);
+      return;
+    }
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    saveTimer.current = setTimeout(() => {
+      try {
+        if (rawText || template || hashtagsStr) {
+          localStorage.setItem(
+            DRAFT_STORAGE_KEY,
+            JSON.stringify({ rawText, template, hashtagsStr, savedAt: Date.now() }),
+          );
+        } else {
+          localStorage.removeItem(DRAFT_STORAGE_KEY);
+        }
+      } catch { /* ignore */ }
+    }, 500);
+    return () => { if (saveTimer.current) clearTimeout(saveTimer.current); };
+  }, [rawText, template, hashtagsStr, submitted]);
 
   const checkDuplicate = useCallback(async (factText: string) => {
     if (factText.length < 20) { setDuplicate(null); return; }
