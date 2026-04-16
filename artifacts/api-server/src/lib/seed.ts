@@ -1,5 +1,9 @@
 import { db } from "@workspace/db";
-import { factsTable, hashtagsTable, factHashtagsTable } from "@workspace/db/schema";
+import {
+  factsTable,
+  hashtagsTable,
+  factHashtagsTable,
+} from "@workspace/db/schema";
 import { eq, sql, gt } from "drizzle-orm";
 import { SEED_FACTS } from "../data/seed-facts";
 import { embedFactAsync } from "./embeddings";
@@ -571,8 +575,8 @@ Return ONLY valid JSON:
          'The associate/store ID used in the at-{id} portion of the Zazzle Create-a-Product URL.', false),
         ('zazzle_rf', '238499514566968751', 'string', 'Zazzle Referral ID (rf)',
          'Referral tracking parameter — typically the same as the associate ID.', false),
-        ('zazzle_ax', 'DesignBlast', 'string', 'Zazzle Tracking Code (ax)',
-         'Tracking/attribution code passed to Zazzle for analytics.', false),
+        ('zazzle_ax', 'DesignBlast', 'string', 'Zazzle API Request Type (ax)',
+         'Type of API request. Can be linkover or DesignBlast.', false),
         ('zazzle_sr', '250021327078498612', 'string', 'Zazzle Store ID (sr)',
          'The Zazzle store ID where templates are hosted.', false),
         ('zazzle_cg', '196101421498498498', 'string', 'Zazzle Category ID (cg)',
@@ -656,24 +660,39 @@ function computeWilsonScore(upvotes: number, downvotes: number): number {
   if (n === 0) return 0;
   const z = 1.96;
   const pHat = upvotes / n;
-  const numerator = pHat + (z * z) / (2 * n) - z * Math.sqrt((pHat * (1 - pHat)) / n + (z * z) / (4 * n * n));
+  const numerator =
+    pHat +
+    (z * z) / (2 * n) -
+    z * Math.sqrt((pHat * (1 - pHat)) / n + (z * z) / (4 * n * n));
   const denominator = 1 + (z * z) / n;
   return numerator / denominator;
 }
 
 export async function backfillWilsonScores(): Promise<void> {
   const facts = await db
-    .select({ id: factsTable.id, upvotes: factsTable.upvotes, downvotes: factsTable.downvotes, wilsonScore: factsTable.wilsonScore })
+    .select({
+      id: factsTable.id,
+      upvotes: factsTable.upvotes,
+      downvotes: factsTable.downvotes,
+      wilsonScore: factsTable.wilsonScore,
+    })
     .from(factsTable)
     .where(gt(sql`${factsTable.upvotes} + ${factsTable.downvotes}`, 0));
 
-  const toUpdate = facts.filter((f) => f.wilsonScore === 0 && (f.upvotes + f.downvotes) > 0);
+  const toUpdate = facts.filter(
+    (f) => f.wilsonScore === 0 && f.upvotes + f.downvotes > 0,
+  );
   if (!toUpdate.length) return;
 
-  console.log(`[wilson] Backfilling Wilson scores for ${toUpdate.length} facts...`);
+  console.log(
+    `[wilson] Backfilling Wilson scores for ${toUpdate.length} facts...`,
+  );
   for (const f of toUpdate) {
     const wilsonScore = computeWilsonScore(f.upvotes, f.downvotes);
-    await db.update(factsTable).set({ wilsonScore }).where(eq(factsTable.id, f.id));
+    await db
+      .update(factsTable)
+      .set({ wilsonScore })
+      .where(eq(factsTable.id, f.id));
   }
   console.log("[wilson] Backfill complete.");
 }
@@ -687,7 +706,11 @@ export async function seedIfEmpty(): Promise<void> {
     return;
   }
 
-  console.log("[seed] Production database is empty — seeding", SEED_FACTS.length, "facts...");
+  console.log(
+    "[seed] Production database is empty — seeding",
+    SEED_FACTS.length,
+    "facts...",
+  );
 
   for (const item of SEED_FACTS) {
     const [fact] = await db
