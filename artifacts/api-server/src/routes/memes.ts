@@ -861,7 +861,7 @@ router.get("/memes/:slug/zazzle-redirect", async (req: Request, res: Response) =
     });
 
     const publicImageUrl = `${getSiteBaseUrl()}/api/storage/objects/${subPath}`;
-    const imageName = `${slug}.jpg`;
+    const imageName = subPath.split("/").pop() ?? `${slug}.jpg`;
     res.redirect(302, await buildZazzleUrl({ imageUrl: publicImageUrl, imageName, returnUrl }));
   } catch (err) {
     req.log.error({ err, slug }, "Zazzle redirect export failed — falling back to base URL");
