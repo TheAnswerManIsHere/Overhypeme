@@ -204,7 +204,15 @@ const server = app.listen(port, (err) => {
 
 function shutdown(signal: string) {
   logger.info({ signal }, "Received signal, shutting down gracefully");
+
+  const forceExitTimer = setTimeout(() => {
+    logger.warn("Graceful shutdown timed out — forcing exit");
+    process.exit(1);
+  }, 10_000);
+  forceExitTimer.unref();
+
   server.close(() => {
+    clearTimeout(forceExitTimer);
     logger.info("Server closed");
     process.exit(0);
   });
