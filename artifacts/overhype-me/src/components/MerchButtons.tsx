@@ -47,6 +47,8 @@ export function MerchButtons({ sourceType, sourceId, text, imageUrl }: MerchButt
           popup.location.href = data.url;
         } else if (data.url) {
           window.location.assign(data.url);
+        } else {
+          popup?.close();
         }
       })
       .catch(() => {
