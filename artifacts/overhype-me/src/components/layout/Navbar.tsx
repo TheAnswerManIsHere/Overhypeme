@@ -14,7 +14,7 @@ function dicebearUrl(style: string, seed: string) {
 }
 
 export function Navbar() {
-  const { user, isAuthenticated, role, logout } = useAuth();
+  const { user, isAuthenticated, isLoading: authLoading, role, logout } = useAuth();
   const { data: profile } = useGetMyProfile({
     query: { queryKey: getGetMyProfileQueryKey(), enabled: isAuthenticated, staleTime: 60_000 }
   });
@@ -170,7 +170,7 @@ export function Navbar() {
               </Button>
             )}
             
-            {isAuthenticated ? (
+            {!authLoading && (isAuthenticated ? (
               <div className="flex items-center gap-3">
                 {isRealAdmin && isAdminModeOn && (
                   <>
@@ -248,7 +248,7 @@ export function Navbar() {
                   <LogIn className="w-4 h-4" /> LOGIN
                 </Button>
               </div>
-            )}
+            ))}
           </div>
 
           {/* Mobile menu button */}
@@ -299,7 +299,7 @@ export function Navbar() {
                   <Star className="w-5 h-5" /> GO LEGENDARY
                 </Button>
               )}
-              {isAuthenticated ? (
+              {!authLoading && (isAuthenticated ? (
                 <div className="grid grid-cols-2 gap-4">
                   {isRealAdmin && isAdminModeOn && (
                     <>
@@ -366,7 +366,7 @@ export function Navbar() {
                     <LogIn className="w-5 h-5" /> LOGIN / SIGNUP
                   </Button>
                 </div>
-              )}
+              ))}
             </div>
           </motion.div>
         )}
