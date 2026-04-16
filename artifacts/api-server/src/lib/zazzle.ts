@@ -20,7 +20,6 @@ export async function buildZazzleUrl(
   ]);
 
   const params = new URLSearchParams();
-  params.set("at", at);
   params.set("rf", rf);
   params.set("ax", ax);
   params.set("sr", sr);
