@@ -144,6 +144,7 @@ router.get("/auth/user", async (req: Request, res: Response) => {
       isAdmin: usersTable.isAdmin,
       pronouns: usersTable.pronouns,
       displayName: usersTable.displayName,
+      captchaVerified: usersTable.captchaVerified,
     })
     .from(usersTable)
     .where(and(eq(usersTable.id, req.user.id), eq(usersTable.isActive, true)))
@@ -155,6 +156,7 @@ router.get("/auth/user", async (req: Request, res: Response) => {
   const adminModeActive = isRealAdmin && !session?.adminModeDisabled;
   const effectiveTier = dbUser?.membershipTier ?? req.user.membershipTier ?? "unregistered";
   const userRole = deriveUserRole(effectiveTier, adminModeActive);
+  const captchaVerified = !!(dbUser?.captchaVerified || session?.captchaVerified);
 
   res.json(
     GetCurrentAuthUserResponse.parse({
@@ -166,6 +168,7 @@ router.get("/auth/user", async (req: Request, res: Response) => {
         pronouns: dbUser?.pronouns ?? null,
         displayName: dbUser?.displayName ?? null,
         userRole,
+        captchaVerified,
       },
     }),
   );

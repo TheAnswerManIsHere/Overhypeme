@@ -1011,6 +1011,9 @@ components:
           type: string
           enum: [free, premium, admin]
           nullable: true
+        captchaVerified:
+          type: boolean
+          nullable: true
 
     AuthUserEnvelope:
       type: object

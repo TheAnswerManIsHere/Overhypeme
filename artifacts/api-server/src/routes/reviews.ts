@@ -14,6 +14,7 @@ import { sendEmail, buildReviewApprovedEmail, buildReviewRejectedEmail, getSiteB
 import { notifyAdmins } from "../lib/adminNotify";
 import { runFactImagePipeline } from "../lib/factImagePipeline";
 import { generateAiMemeBackgrounds } from "../lib/aiMemePipeline";
+import { getSessionId, getSession } from "../lib/auth";
 
 const router: IRouter = Router();
 
@@ -37,6 +38,22 @@ const SubmitReviewBody = z.object({
 });
 
 router.post("/facts/submit-review", requireAuth, async (req: Request, res: Response) => {
+  // Bypass matrix — mirrors the tokenize-fact gate.
+  // Admin and legendary members may skip captcha/onboarding; all others must have completed onboarding.
+  const sid = getSessionId(req);
+  const session = sid ? await getSession(sid) : null;
+  const isAdmin = session?.isAdmin === true;
+  const isPremium = session?.user?.membershipTier === "legendary";
+  const isCaptchaVerified = session?.captchaVerified === true;
+
+  if (!isAdmin && !isPremium && !isCaptchaVerified) {
+    res.status(403).json({
+      error: "You must complete onboarding before submitting facts.",
+      code: "ONBOARDING_REQUIRED",
+    });
+    return;
+  }
+
   const parsed = SubmitReviewBody.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: "Invalid input", details: parsed.error.flatten() });
