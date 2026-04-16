@@ -17,7 +17,8 @@ const BASE_URL = import.meta.env.BASE_URL ?? "/";
 
 export default function Profile() {
   const [currentPath, setLocation] = useLocation();
-  const { isAuthenticated, isLoading: authLoading, login, logout } = useAuth();
+  const { isAuthenticated, isLoading: authLoading, login, logout, role } = useAuth();
+  const isRealAdmin = role === "admin";
   const queryClient = useQueryClient();
   const { data: profile, isLoading } = useGetMyProfile({
     query: { queryKey: getGetMyProfileQueryKey(), enabled: isAuthenticated, retry: false }
@@ -575,7 +576,7 @@ export default function Profile() {
             <Button variant="danger" onClick={logout} className="gap-2">
               <LogOut className="w-4 h-4" /> LOGOUT
             </Button>
-            {!forgetMeConfirm ? (
+            {isRealAdmin && (!forgetMeConfirm ? (
               <Button
                 variant="ghost"
                 size="sm"
@@ -614,7 +615,7 @@ export default function Profile() {
                   </Button>
                 </div>
               </div>
-            )}
+            ))}
           </div>
         </div>
 
