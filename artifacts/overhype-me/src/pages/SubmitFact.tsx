@@ -8,6 +8,7 @@ import { AccessGate } from "@/components/AccessGate";
 import { Button } from "@/components/ui/Button";
 import { Textarea, Input } from "@/components/ui/Input";
 import { renderFact } from "@/lib/render-fact";
+import { useToast } from "@/hooks/use-toast";
 import {
   ShieldAlert, AlertTriangle, Sparkles, Loader2,
   CheckCircle2, ChevronRight, ChevronLeft, CheckCheck,
@@ -39,6 +40,7 @@ const PRONOUN_PREVIEWS: { label: string; subject: string; object: string; name: 
 export default function SubmitFact() {
   const { isAuthenticated, isLoading: authLoading, role, user } = useAuth();
   const [, setLocation] = useLocation();
+  const { toast } = useToast();
 
   const isPremium = role === "legendary" || role === "admin";
   const isCaptchaVerified = isPremium || !!user?.captchaVerified;
@@ -71,15 +73,23 @@ export default function SubmitFact() {
       if (saved) {
         const draft = JSON.parse(saved) as { rawText?: string; template?: string; hashtagsStr?: string; savedAt?: number };
         const isStale = draft.savedAt ? Date.now() - draft.savedAt > 24 * 60 * 60 * 1000 : false;
+        let restored = false;
         if (!isStale) {
-          if (draft.rawText) setRawText(draft.rawText);
-          if (draft.template) { setTemplate(draft.template); setStep("submit"); }
-          if (draft.hashtagsStr) setHashtagsStr(draft.hashtagsStr);
+          if (draft.rawText) { setRawText(draft.rawText); restored = true; }
+          if (draft.template) { setTemplate(draft.template); setStep("submit"); restored = true; }
+          if (draft.hashtagsStr) { setHashtagsStr(draft.hashtagsStr); restored = true; }
         }
         localStorage.removeItem(DRAFT_STORAGE_KEY);
+        if (restored) {
+          toast({
+            title: "Draft restored",
+            description: "Your saved draft has been loaded — pick up right where you left off.",
+            duration: 4000,
+          });
+        }
       }
     } catch { /* ignore */ }
-  }, []);
+  }, [toast]);
 
   const dupTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const tagTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
