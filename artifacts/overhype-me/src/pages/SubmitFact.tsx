@@ -17,6 +17,8 @@ import {
 const HCAPTCHA_SITE_KEY =
   import.meta.env.VITE_HCAPTCHA_SITE_KEY || "10000000-ffff-ffff-ffff-000000000001";
 
+const DRAFT_STORAGE_KEY = "submit_fact_draft";
+
 type Step = "write" | "preview" | "submit";
 
 interface DuplicateResult {
@@ -62,6 +64,19 @@ export default function SubmitFact() {
   const [submitted, setSubmitted] = useState(false);
   const [error, setError] = useState("");
   const [onboardingRequired, setOnboardingRequired] = useState(false);
+
+  useEffect(() => {
+    try {
+      const saved = sessionStorage.getItem(DRAFT_STORAGE_KEY);
+      if (saved) {
+        const draft = JSON.parse(saved) as { rawText?: string; template?: string; hashtagsStr?: string };
+        if (draft.rawText) setRawText(draft.rawText);
+        if (draft.template) { setTemplate(draft.template); setStep("submit"); }
+        if (draft.hashtagsStr) setHashtagsStr(draft.hashtagsStr);
+        sessionStorage.removeItem(DRAFT_STORAGE_KEY);
+      }
+    } catch { /* ignore */ }
+  }, []);
 
   const dupTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const tagTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -194,6 +209,7 @@ export default function SubmitFact() {
         body: JSON.stringify(body),
       });
       if (r.ok) {
+        try { sessionStorage.removeItem(DRAFT_STORAGE_KEY); } catch { /* ignore */ }
         setSubmitted(true);
       } else {
         const d = await r.json() as { error?: string; code?: string };
@@ -638,12 +654,21 @@ export default function SubmitFact() {
                       <p className="text-muted-foreground text-sm mb-3">
                         You need to complete a quick one-time setup before submitting facts.
                       </p>
-                      <Link
-                        href="/onboard?returnTo=/submit"
+                      <button
+                        type="button"
+                        onClick={() => {
+                          try {
+                            sessionStorage.setItem(
+                              DRAFT_STORAGE_KEY,
+                              JSON.stringify({ rawText, template, hashtagsStr }),
+                            );
+                          } catch { /* ignore */ }
+                          setLocation("/onboard?returnTo=/submit");
+                        }}
                         className="inline-flex items-center gap-1.5 text-sm font-bold text-amber-600 dark:text-amber-400 underline hover:opacity-80"
                       >
                         Complete onboarding <ChevronRight className="w-4 h-4" />
-                      </Link>
+                      </button>
                     </div>
                   </div>
                 )}
