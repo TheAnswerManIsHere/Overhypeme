@@ -62,6 +62,7 @@ export default function SubmitFact() {
   const [acceptedTags, setAcceptedTags] = useState<Set<string>>(new Set());
   const [loadingSuggestions, setLoadingSuggestions] = useState(false);
   const [suggestionsLoaded, setSuggestionsLoaded] = useState(false);
+  const [draftSavedAt, setDraftSavedAt] = useState<number | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   const [error, setError] = useState("");
@@ -105,12 +106,15 @@ export default function SubmitFact() {
     saveTimer.current = setTimeout(() => {
       try {
         if (rawText || template || hashtagsStr) {
+          const now = Date.now();
           localStorage.setItem(
             DRAFT_STORAGE_KEY,
-            JSON.stringify({ rawText, template, hashtagsStr, savedAt: Date.now() }),
+            JSON.stringify({ rawText, template, hashtagsStr, savedAt: now }),
           );
+          setDraftSavedAt(now);
         } else {
           localStorage.removeItem(DRAFT_STORAGE_KEY);
+          setDraftSavedAt(null);
         }
       } catch { /* ignore */ }
     }, 500);
@@ -442,6 +446,12 @@ export default function SubmitFact() {
                   }`}
                   disabled={!captchaToken && !isCaptchaVerified}
                 />
+                {draftSavedAt !== null && (
+                  <p className="mt-2 text-xs text-muted-foreground/60 flex items-center gap-1.5 animate-in fade-in duration-300">
+                    <CheckCircle2 className="w-3 h-3 shrink-0" />
+                    Draft saved
+                  </p>
+                )}
               </div>
 
               {tokenizeError && (
