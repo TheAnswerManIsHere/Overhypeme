@@ -779,6 +779,7 @@ router.get("/memes/:slug/zazzle-redirect", async (req: Request, res: Response) =
   const slug = req.params["slug"] as string;
   if (!slug) { res.status(400).end(); return; }
   const returnUrl = typeof req.query["returnUrl"] === "string" ? req.query["returnUrl"] : undefined;
+  const preview = req.query["preview"] === "true";
 
   const [meme] = await db
     .select()
@@ -809,7 +810,8 @@ router.get("/memes/:slug/zazzle-redirect", async (req: Request, res: Response) =
         } catch { /* try next */ }
       }
       if (!fetched) {
-        res.redirect(302, await buildZazzleUrl({ returnUrl }));
+        const url = await buildZazzleUrl({ returnUrl });
+        if (preview) { res.json({ url }); } else { res.redirect(302, url); }
         return;
       }
     } else {
@@ -862,10 +864,12 @@ router.get("/memes/:slug/zazzle-redirect", async (req: Request, res: Response) =
 
     const publicImageUrl = `${getSiteBaseUrl()}/api/storage/objects/${subPath}`;
     const imageName = subPath.split("/").pop() ?? `${slug}.jpg`;
-    res.redirect(302, await buildZazzleUrl({ imageUrl: publicImageUrl, imageName, returnUrl }));
+    const url = await buildZazzleUrl({ imageUrl: publicImageUrl, imageName, returnUrl });
+    if (preview) { res.json({ url }); } else { res.redirect(302, url); }
   } catch (err) {
     req.log.error({ err, slug }, "Zazzle redirect export failed — falling back to base URL");
-    res.redirect(302, await buildZazzleUrl({ returnUrl }));
+    const url = await buildZazzleUrl({ returnUrl });
+    if (preview) { res.json({ url }); } else { res.redirect(302, url); }
   }
 });
 

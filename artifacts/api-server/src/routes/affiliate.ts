@@ -7,6 +7,31 @@ import { buildZazzleUrl } from "../lib/zazzle";
 
 const router: IRouter = Router();
 
+/**
+ * GET /affiliate/zazzle-url
+ * Admin-only: returns the fully constructed Zazzle URL for a given imageUrl/returnUrl
+ * without logging a click. Used for debugging in the UI.
+ */
+router.get("/affiliate/zazzle-url", async (req: Request, res: Response) => {
+  if (!req.isAuthenticated() || !(req.user as { isAdmin?: boolean })?.isAdmin) {
+    res.status(403).json({ error: "Forbidden" });
+    return;
+  }
+  const imageUrl = typeof req.query["imageUrl"] === "string" ? req.query["imageUrl"] : undefined;
+  const returnUrl = typeof req.query["returnUrl"] === "string" ? req.query["returnUrl"] : undefined;
+  let imageName: string | undefined;
+  if (imageUrl) {
+    try {
+      const parsed = new URL(imageUrl);
+      imageName = parsed.pathname.split("/").pop() || undefined;
+    } catch {
+      imageName = imageUrl.split("/").pop() || undefined;
+    }
+  }
+  const url = await buildZazzleUrl({ imageUrl, imageName, returnUrl });
+  res.json({ url });
+});
+
 router.post("/affiliate/click", async (req: Request, res: Response) => {
   const {
     sourceType,
