@@ -30,5 +30,5 @@ export async function buildZazzleUrl(
   if (opts.imageName) params.set("ic", opts.imageName);
   if (opts.imageUrl) params.set("t_image1_iid", opts.imageUrl);
 
-  return `https://www.zazzle.com/at-${at}?${params}`;
+  return `https://www.zazzle.com/api/create/at-${at}?${params}`;
 }
