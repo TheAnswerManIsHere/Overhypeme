@@ -5,7 +5,7 @@ import { runMigrations } from "@workspace/db";
 import { backfillEmbeddings } from "./lib/embeddings";
 import { refreshPricingCache } from "./lib/falPricing";
 import { getConfigString, getConfigInt } from "./lib/adminConfig";
-import type { Socket } from "net";
+import { attachShutdownHandlers } from "./shutdown";
 
 const rawPort = process.env["PORT"];
 
@@ -203,55 +203,16 @@ const server = app.listen(port, (err) => {
   logger.info({ port }, "Server listening");
 });
 
-type TrackedSocket = Socket & { _destroyOnIdle?: boolean };
-
-const sockets = new Set<TrackedSocket>();
-const socketInflight = new Map<TrackedSocket, number>();
-
-server.on("connection", (socket: TrackedSocket) => {
-  sockets.add(socket);
-  socketInflight.set(socket, 0);
-  socket.once("close", () => {
-    sockets.delete(socket);
-    socketInflight.delete(socket);
-  });
+const shutdown = attachShutdownHandlers(server, {
+  onClose: () => logger.info("Server closed"),
+  onTimeout: () => logger.warn("Graceful shutdown timed out — forcing exit"),
 });
 
-server.on("request", (_req, res) => {
-  const socket = _req.socket as TrackedSocket;
-  socketInflight.set(socket, (socketInflight.get(socket) ?? 0) + 1);
-  res.once("finish", () => {
-    const remaining = (socketInflight.get(socket) ?? 1) - 1;
-    socketInflight.set(socket, remaining);
-    if (remaining === 0 && socket._destroyOnIdle) {
-      socket.destroy();
-    }
-  });
+process.on("SIGTERM", () => {
+  logger.info({ signal: "SIGTERM" }, "Received signal, shutting down gracefully");
+  shutdown("SIGTERM");
 });
-
-function shutdown(signal: string) {
-  logger.info({ signal }, "Received signal, shutting down gracefully");
-
-  const forceExitTimer = setTimeout(() => {
-    logger.warn("Graceful shutdown timed out — forcing exit");
-    process.exit(1);
-  }, 10_000);
-  forceExitTimer.unref();
-
-  server.close(() => {
-    clearTimeout(forceExitTimer);
-    logger.info("Server closed");
-    process.exit(0);
-  });
-
-  for (const socket of sockets) {
-    if ((socketInflight.get(socket) ?? 0) > 0) {
-      socket._destroyOnIdle = true;
-    } else {
-      socket.destroy();
-    }
-  }
-}
-
-process.on("SIGTERM", () => shutdown("SIGTERM"));
-process.on("SIGINT", () => shutdown("SIGINT"));
+process.on("SIGINT", () => {
+  logger.info({ signal: "SIGINT" }, "Received signal, shutting down gracefully");
+  shutdown("SIGINT");
+});
