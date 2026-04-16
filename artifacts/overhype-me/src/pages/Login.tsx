@@ -326,7 +326,7 @@ export default function Login() {
                 <div className="text-right mt-1">
                   <button
                     type="button"
-                    onClick={() => setLocation("/forgot-password")}
+                    onClick={() => setLocation(`/forgot-password${email ? `?email=${encodeURIComponent(email)}` : ""}`)}
                     className="text-xs text-muted-foreground hover:text-primary"
                   >
                     Forgot password?

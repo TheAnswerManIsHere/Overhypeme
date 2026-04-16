@@ -5,9 +5,13 @@ import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { ArrowLeft, Mail } from "lucide-react";
 
+function getEmailParam(): string {
+  return new URLSearchParams(window.location.search).get("email") ?? "";
+}
+
 export default function ForgotPassword() {
   const [, setLocation] = useLocation();
-  const [email, setEmail] = useState("");
+  const [email, setEmail] = useState(() => getEmailParam());
   const [submitted, setSubmitted] = useState(false);
   const [loading, setLoading] = useState(false);
 
