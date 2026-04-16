@@ -6,9 +6,15 @@
  * Brand: dark bg (#0d0d0e), danger orange (#FF3C00), Oswald + Inter typography.
  */
 import { Resend } from "resend";
+import { getConfigString } from "./adminConfig";
 
-function getFromAddress(): string {
-  return process.env.RESEND_FROM_EMAIL ?? "noreply@overhype.me";
+async function getFromAddress(): Promise<string> {
+  return getConfigString("email_from_address", process.env.RESEND_FROM_EMAIL ?? "legends@overhype.me");
+}
+
+async function getReplyToAddress(): Promise<string | undefined> {
+  const v = await getConfigString("email_reply_to", "overhypeme+support@gmail.com");
+  return v.trim() || undefined;
 }
 
 /**
@@ -46,17 +52,22 @@ export interface EmailPayload {
 }
 
 export async function sendEmail(payload: EmailPayload): Promise<void> {
+  const from    = await getFromAddress();
+  const replyTo = await getReplyToAddress();
   if (!isEnabled() || !resend) {
     console.log("[email] Resend not configured — would have sent:");
-    console.log(`  To:      ${payload.to}`);
-    console.log(`  Subject: ${payload.subject}`);
-    console.log(`  Body:    ${payload.text}`);
+    console.log(`  To:       ${payload.to}`);
+    console.log(`  From:     ${from}`);
+    if (replyTo) console.log(`  Reply-To: ${replyTo}`);
+    console.log(`  Subject:  ${payload.subject}`);
+    console.log(`  Body:     ${payload.text}`);
     return;
   }
   try {
     const { error } = await resend.emails.send({
       to: payload.to,
-      from: getFromAddress(),
+      from,
+      ...(replyTo ? { replyTo } : {}),
       subject: payload.subject,
       text: payload.text,
       html: payload.html ?? payload.text,

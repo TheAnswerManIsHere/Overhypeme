@@ -549,6 +549,22 @@ Return ONLY valid JSON:
             ON CONFLICT (key) DO NOTHING`,
     },
     {
+      label: "admin_config seed email_from_address",
+      ddl: `INSERT INTO admin_config (key, value, data_type, label, description, is_public)
+            VALUES ('email_from_address', 'legends@overhype.me', 'string', 'Transactional Email From Address',
+                    'The "From" address used on all outgoing transactional emails (verification, password reset, notifications). Must be a domain verified with Resend.',
+                    false)
+            ON CONFLICT (key) DO NOTHING`,
+    },
+    {
+      label: "admin_config seed email_reply_to",
+      ddl: `INSERT INTO admin_config (key, value, data_type, label, description, is_public)
+            VALUES ('email_reply_to', 'overhypeme+support@gmail.com', 'string', 'Transactional Email Reply-To Address',
+                    'The "Reply-To" address on all outgoing transactional emails. Users who reply to an automated email will reach this address. Leave blank to use the From address.',
+                    false)
+            ON CONFLICT (key) DO NOTHING`,
+    },
+    {
       label: "admin_config seed pricing_refresh_interval_ms",
       ddl: `INSERT INTO admin_config (key, value, data_type, label, description, is_public)
             VALUES ('pricing_refresh_interval_ms', '3600000', 'integer', 'Pricing Cache Refresh Interval (ms)',
