@@ -8,6 +8,7 @@ import { AccessGate } from "@/components/AccessGate";
 import { Button } from "@/components/ui/Button";
 import { Textarea, Input } from "@/components/ui/Input";
 import { renderFact } from "@/lib/render-fact";
+import { useToast } from "@/hooks/use-toast";
 import {
   ShieldAlert, AlertTriangle, Sparkles, Loader2,
   CheckCircle2, ChevronRight, ChevronLeft, CheckCheck,
@@ -16,6 +17,8 @@ import {
 
 const HCAPTCHA_SITE_KEY =
   import.meta.env.VITE_HCAPTCHA_SITE_KEY || "10000000-ffff-ffff-ffff-000000000001";
+
+const DRAFT_STORAGE_KEY = "submit_fact_draft";
 
 type Step = "write" | "preview" | "submit";
 
@@ -35,10 +38,12 @@ const PRONOUN_PREVIEWS: { label: string; subject: string; object: string; name: 
 ];
 
 export default function SubmitFact() {
-  const { isAuthenticated, isLoading: authLoading, role } = useAuth();
+  const { isAuthenticated, isLoading: authLoading, role, user } = useAuth();
   const [, setLocation] = useLocation();
+  const { toast } = useToast();
 
   const isPremium = role === "legendary" || role === "admin";
+  const isCaptchaVerified = isPremium || !!user?.captchaVerified;
 
   const [step, setStep] = useState<Step>("write");
 
@@ -57,13 +62,64 @@ export default function SubmitFact() {
   const [acceptedTags, setAcceptedTags] = useState<Set<string>>(new Set());
   const [loadingSuggestions, setLoadingSuggestions] = useState(false);
   const [suggestionsLoaded, setSuggestionsLoaded] = useState(false);
+  const [draftSavedAt, setDraftSavedAt] = useState<number | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   const [error, setError] = useState("");
+  const [onboardingRequired, setOnboardingRequired] = useState(false);
+
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(DRAFT_STORAGE_KEY);
+      if (saved) {
+        const draft = JSON.parse(saved) as { rawText?: string; template?: string; hashtagsStr?: string; savedAt?: number };
+        const isStale = draft.savedAt ? Date.now() - draft.savedAt > 24 * 60 * 60 * 1000 : false;
+        let restored = false;
+        if (!isStale) {
+          if (draft.rawText) { setRawText(draft.rawText); restored = true; }
+          if (draft.template) { setTemplate(draft.template); setStep("submit"); restored = true; }
+          if (draft.hashtagsStr) { setHashtagsStr(draft.hashtagsStr); restored = true; }
+        }
+        localStorage.removeItem(DRAFT_STORAGE_KEY);
+        if (restored) {
+          toast({
+            title: "Draft restored",
+            description: "Your saved draft has been loaded — pick up right where you left off.",
+            duration: 4000,
+          });
+        }
+      }
+    } catch { /* ignore */ }
+  }, [toast]);
 
   const dupTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const tagTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastSuggestedTextRef = useRef("");
+
+  useEffect(() => {
+    if (submitted) {
+      if (saveTimer.current) clearTimeout(saveTimer.current);
+      return;
+    }
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    saveTimer.current = setTimeout(() => {
+      try {
+        if (rawText || template || hashtagsStr) {
+          const now = Date.now();
+          localStorage.setItem(
+            DRAFT_STORAGE_KEY,
+            JSON.stringify({ rawText, template, hashtagsStr, savedAt: now }),
+          );
+          setDraftSavedAt(now);
+        } else {
+          localStorage.removeItem(DRAFT_STORAGE_KEY);
+          setDraftSavedAt(null);
+        }
+      } catch { /* ignore */ }
+    }, 500);
+    return () => { if (saveTimer.current) clearTimeout(saveTimer.current); };
+  }, [rawText, template, hashtagsStr, submitted]);
 
   const checkDuplicate = useCallback(async (factText: string) => {
     if (factText.length < 20) { setDuplicate(null); return; }
@@ -131,7 +187,7 @@ export default function SubmitFact() {
 
   async function handleTokenize() {
     if (rawText.length < 10) return;
-    if (!captchaToken && !isPremium && !isAuthenticated) return;
+    if (!captchaToken && !isCaptchaVerified) return;
     setTokenizing(true);
     setTokenizeError("");
     setDuplicate(null);
@@ -170,8 +226,9 @@ export default function SubmitFact() {
   async function handleFinalSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError("");
+    setOnboardingRequired(false);
     if (!template || template.length < 5) { setError("No template to submit."); return; }
-    if (!captchaToken && !isPremium && !isAuthenticated) { setError("Please complete the CAPTCHA."); return; }
+    if (!captchaToken && !isCaptchaVerified) { setError("Please complete the CAPTCHA."); return; }
 
     setSubmitting(true);
     try {
@@ -191,10 +248,15 @@ export default function SubmitFact() {
         body: JSON.stringify(body),
       });
       if (r.ok) {
+        try { localStorage.removeItem(DRAFT_STORAGE_KEY); } catch { /* ignore */ }
         setSubmitted(true);
       } else {
-        const d = await r.json() as { error?: string };
-        setError(d.error ?? "Failed to submit — please try again.");
+        const d = await r.json() as { error?: string; code?: string };
+        if (d.code === "ONBOARDING_REQUIRED") {
+          setOnboardingRequired(true);
+        } else {
+          setError(d.error ?? "Failed to submit — please try again.");
+        }
       }
     } catch {
       setError("Network error — please try again.");
@@ -267,9 +329,11 @@ export default function SubmitFact() {
           )}
           <div className="flex gap-4 justify-center">
             <Button size="lg" onClick={() => {
+              try { localStorage.removeItem(DRAFT_STORAGE_KEY); } catch { /* ignore */ }
               setRawText(""); setTemplate(""); setSubmitted(false);
               setDuplicate(null); setHashtagsStr(""); setSuggestionsLoaded(false);
               setSuggestedTags([]); setAcceptedTags(new Set()); setStep("write");
+              setOnboardingRequired(false); setError("");
             }}>
               Submit Another
             </Button>
@@ -336,13 +400,13 @@ export default function SubmitFact() {
             <div className="p-6 md:p-10 space-y-8">
 
               {/* Captcha gate */}
-              {!isPremium && (
-                <div className={`rounded-lg p-5 border-2 ${captchaToken || isPremium || isAuthenticated ? "border-green-500/30 bg-green-500/5" : "border-border bg-background/50"}`}>
+              {!isCaptchaVerified && (
+                <div className={`rounded-lg p-5 border-2 ${captchaToken ? "border-green-500/30 bg-green-500/5" : "border-border bg-background/50"}`}>
                   <div className="flex items-center gap-3 mb-1">
                     <span className="text-lg font-bold text-foreground">
-                      {captchaToken || isPremium || isAuthenticated ? "✓ Verified" : "Quick Verification"}
+                      {captchaToken ? "✓ Verified" : "Quick Verification"}
                     </span>
-                    {(captchaToken || isPremium || isAuthenticated) && (
+                    {captchaToken && (
                       <span className="text-xs font-bold uppercase tracking-wider text-green-500 bg-green-500/10 px-2 py-0.5 rounded-full">
                         Ready
                       </span>
@@ -373,15 +437,21 @@ export default function SubmitFact() {
                   value={rawText}
                   onChange={(e) => setRawText(e.target.value)}
                   placeholder={
-                    !captchaToken && !isPremium && !isAuthenticated
+                    !captchaToken && !isCaptchaVerified
                       ? "Complete verification above to start writing…"
                       : 'e.g. "When John does pushups, he doesn\'t push himself up — he pushes the Earth down."'
                   }
                   className={`text-lg min-h-[180px] leading-relaxed transition-opacity ${
-                    !captchaToken && !isPremium && !isAuthenticated ? "opacity-40 cursor-not-allowed" : ""
+                    !captchaToken && !isCaptchaVerified ? "opacity-40 cursor-not-allowed" : ""
                   }`}
-                  disabled={!captchaToken && !isPremium && !isAuthenticated}
+                  disabled={!captchaToken && !isCaptchaVerified}
                 />
+                {draftSavedAt !== null && (
+                  <p className="mt-2 text-xs text-muted-foreground/60 flex items-center gap-1.5 animate-in fade-in duration-300">
+                    <CheckCircle2 className="w-3 h-3 shrink-0" />
+                    Draft saved
+                  </p>
+                )}
               </div>
 
               {tokenizeError && (
@@ -394,7 +464,7 @@ export default function SubmitFact() {
               <Button
                 size="lg"
                 className="w-full h-14 text-lg font-bold"
-                disabled={rawText.length < 10 || tokenizing || (!captchaToken && !isPremium && !isAuthenticated)}
+                disabled={rawText.length < 10 || tokenizing || (!captchaToken && !isCaptchaVerified)}
                 onClick={() => void handleTokenize()}
               >
                 {tokenizing
@@ -622,6 +692,33 @@ export default function SubmitFact() {
                   />
                 </div>
 
+                {onboardingRequired && (
+                  <div className="p-5 bg-amber-500/10 border border-amber-500/30 rounded-lg flex items-start gap-4">
+                    <ShieldAlert className="w-6 h-6 text-amber-500 shrink-0 mt-0.5" />
+                    <div>
+                      <p className="font-bold text-foreground mb-1">Onboarding required</p>
+                      <p className="text-muted-foreground text-sm mb-3">
+                        You need to complete a quick one-time setup before submitting facts.
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          try {
+                            localStorage.setItem(
+                              DRAFT_STORAGE_KEY,
+                              JSON.stringify({ rawText, template, hashtagsStr, savedAt: Date.now() }),
+                            );
+                          } catch { /* ignore */ }
+                          setLocation("/onboard?returnTo=/submit");
+                        }}
+                        className="inline-flex items-center gap-1.5 text-sm font-bold text-amber-600 dark:text-amber-400 underline hover:opacity-80"
+                      >
+                        Complete onboarding <ChevronRight className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+                )}
+
                 {error && (
                   <div className="p-4 bg-destructive/10 border border-destructive/30 text-destructive flex items-center gap-3 rounded-lg">
                     <AlertTriangle className="w-5 h-5 shrink-0" />
@@ -635,7 +732,7 @@ export default function SubmitFact() {
                     variant="outline"
                     size="lg"
                     className="flex-1"
-                    onClick={() => setStep("preview")}
+                    onClick={() => { setStep("preview"); setOnboardingRequired(false); setError(""); }}
                   >
                     <ChevronLeft className="w-4 h-4 mr-1" /> Back
                   </Button>
