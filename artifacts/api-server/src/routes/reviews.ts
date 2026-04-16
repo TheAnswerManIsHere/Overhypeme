@@ -1,4 +1,4 @@
-import { Router, type IRouter, type Request, type Response } from "express";
+import { Router, type IRouter, type Request, type Response, type NextFunction } from "express";
 import { z } from "zod";
 import { db } from "@workspace/db";
 import {
@@ -17,6 +17,44 @@ import { generateAiMemeBackgrounds } from "../lib/aiMemePipeline";
 import { getSessionId, getSession } from "../lib/auth";
 
 const router: IRouter = Router();
+
+const RATE_WINDOW_MS = 60_000;
+const RATE_MAX = 30;
+const rateCounts = new Map<string, { count: number; windowStart: number }>();
+
+setInterval(() => {
+  const cutoff = Date.now() - RATE_WINDOW_MS;
+  for (const [key, entry] of rateCounts) {
+    if (entry.windowStart < cutoff) rateCounts.delete(key);
+  }
+}, RATE_WINDOW_MS).unref();
+
+function rateLimitKey(req: Request): string {
+  const sid = getSessionId(req);
+  if (sid) return `sid:${sid}`;
+  return `ip:${req.ip ?? "unknown"}`;
+}
+
+function checkRateLimit(key: string): boolean {
+  const now = Date.now();
+  const entry = rateCounts.get(key);
+  if (!entry || now - entry.windowStart > RATE_WINDOW_MS) {
+    rateCounts.set(key, { count: 1, windowStart: now });
+    return true;
+  }
+  if (entry.count >= RATE_MAX) return false;
+  entry.count++;
+  return true;
+}
+
+function requireRateLimit(req: Request, res: Response, next: NextFunction): void {
+  const key = rateLimitKey(req);
+  if (!checkRateLimit(key)) {
+    res.status(429).json({ error: "Too many requests. Please slow down." });
+    return;
+  }
+  next();
+}
 
 function requireAuth(req: Request, res: Response, next: () => void): void {
   if (!req.isAuthenticated()) {
@@ -37,7 +75,7 @@ const SubmitReviewBody = z.object({
   reason: z.string().max(100).optional(),
 });
 
-router.post("/facts/submit-review", requireAuth, async (req: Request, res: Response) => {
+router.post("/facts/submit-review", requireAuth, requireRateLimit, async (req: Request, res: Response) => {
   // Bypass matrix — mirrors the tokenize-fact gate.
   // Admin and legendary members may skip captcha/onboarding; all others must have completed onboarding.
   const sid = getSessionId(req);
