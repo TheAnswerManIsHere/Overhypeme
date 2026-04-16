@@ -67,13 +67,16 @@ export default function SubmitFact() {
 
   useEffect(() => {
     try {
-      const saved = sessionStorage.getItem(DRAFT_STORAGE_KEY);
+      const saved = localStorage.getItem(DRAFT_STORAGE_KEY);
       if (saved) {
-        const draft = JSON.parse(saved) as { rawText?: string; template?: string; hashtagsStr?: string };
-        if (draft.rawText) setRawText(draft.rawText);
-        if (draft.template) { setTemplate(draft.template); setStep("submit"); }
-        if (draft.hashtagsStr) setHashtagsStr(draft.hashtagsStr);
-        sessionStorage.removeItem(DRAFT_STORAGE_KEY);
+        const draft = JSON.parse(saved) as { rawText?: string; template?: string; hashtagsStr?: string; savedAt?: number };
+        const isStale = draft.savedAt ? Date.now() - draft.savedAt > 24 * 60 * 60 * 1000 : false;
+        if (!isStale) {
+          if (draft.rawText) setRawText(draft.rawText);
+          if (draft.template) { setTemplate(draft.template); setStep("submit"); }
+          if (draft.hashtagsStr) setHashtagsStr(draft.hashtagsStr);
+        }
+        localStorage.removeItem(DRAFT_STORAGE_KEY);
       }
     } catch { /* ignore */ }
   }, []);
@@ -209,7 +212,7 @@ export default function SubmitFact() {
         body: JSON.stringify(body),
       });
       if (r.ok) {
-        try { sessionStorage.removeItem(DRAFT_STORAGE_KEY); } catch { /* ignore */ }
+        try { localStorage.removeItem(DRAFT_STORAGE_KEY); } catch { /* ignore */ }
         setSubmitted(true);
       } else {
         const d = await r.json() as { error?: string; code?: string };
@@ -290,6 +293,7 @@ export default function SubmitFact() {
           )}
           <div className="flex gap-4 justify-center">
             <Button size="lg" onClick={() => {
+              try { localStorage.removeItem(DRAFT_STORAGE_KEY); } catch { /* ignore */ }
               setRawText(""); setTemplate(""); setSubmitted(false);
               setDuplicate(null); setHashtagsStr(""); setSuggestionsLoaded(false);
               setSuggestedTags([]); setAcceptedTags(new Set()); setStep("write");
@@ -658,9 +662,9 @@ export default function SubmitFact() {
                         type="button"
                         onClick={() => {
                           try {
-                            sessionStorage.setItem(
+                            localStorage.setItem(
                               DRAFT_STORAGE_KEY,
-                              JSON.stringify({ rawText, template, hashtagsStr }),
+                              JSON.stringify({ rawText, template, hashtagsStr, savedAt: Date.now() }),
                             );
                           } catch { /* ignore */ }
                           setLocation("/onboard?returnTo=/submit");
