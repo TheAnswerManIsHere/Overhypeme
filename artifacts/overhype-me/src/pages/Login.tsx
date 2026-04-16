@@ -25,9 +25,12 @@ function getResetSuccess(): boolean {
   return params.get("reset") === "success";
 }
 
+function getFromParam(): string | null {
+  return new URLSearchParams(window.location.search).get("from") || null;
+}
+
 function getBackDestination(): { path: string; label: string } {
-  const params = new URLSearchParams(window.location.search);
-  const from = params.get("from");
+  const from = getFromParam();
   if (!from) return { path: "/", label: "BACK TO FACTS" };
   if (from.startsWith("/facts/")) return { path: from, label: "BACK TO FACT" };
   if (from === "/profile") return { path: "/profile", label: "BACK TO PROFILE" };
@@ -129,7 +132,7 @@ export default function Login() {
         return;
       }
 
-      window.location.href = "/";
+      window.location.href = getFromParam() ?? "/";
     } catch {
       setError("Network error. Please try again.");
     } finally {
@@ -138,7 +141,7 @@ export default function Login() {
   };
 
   const handleReplitLogin = () => {
-    const returnTo = encodeURIComponent("/");
+    const returnTo = encodeURIComponent(getFromParam() ?? "/");
     window.open(
       `/api/login?returnTo=${returnTo}&popup=1`,
       "_blank",

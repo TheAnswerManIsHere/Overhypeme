@@ -7,7 +7,7 @@ import {
   type ChangeEvent,
   type DragEvent,
 } from "react";
-import { Link } from "wouter";
+import { Link, useLocation } from "wouter";
 import { AiBgPicker, type AiBgSelection } from "@/components/AiBgPicker";
 import { ImageCard } from "@/components/ui/ImageCard";
 import { usePersonName } from "@/hooks/use-person-name";
@@ -402,6 +402,30 @@ export interface AiMemeImages {
   neutral: string[];
 }
 
+// ─── Draft persistence (save/restore state across login redirect) ─────────────
+interface MemeBuilderDraft {
+  imageMode: ImageMode;
+  selectedTemplate: string;
+  stockPhoto: StockPhoto | null;
+  prefetchedIndex: number | null;
+  aiSelectedInfo: AiBgSelection | null;
+  uploadObjectPath: string | null;
+}
+function draftKey(factId: number) { return `meme_builder_draft_${factId}`; }
+function readDraft(factId: number): MemeBuilderDraft | null {
+  try {
+    const raw = sessionStorage.getItem(draftKey(factId));
+    return raw ? (JSON.parse(raw) as MemeBuilderDraft) : null;
+  } catch { return null; }
+}
+function saveDraft(factId: number, draft: MemeBuilderDraft) {
+  try { sessionStorage.setItem(draftKey(factId), JSON.stringify(draft)); } catch {}
+}
+function clearDraft(factId: number) {
+  try { sessionStorage.removeItem(draftKey(factId)); } catch {}
+}
+// ─────────────────────────────────────────────────────────────────────────────
+
 interface MemeBuilderProps {
   factId: number;
   factText: string;
@@ -496,6 +520,9 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
   const isPremium = role === "legendary" || role === "admin";
   const isAdmin = role === "admin";
   const { pronouns } = usePersonName();
+  const [, setLocation] = useLocation();
+  // Read any draft saved before a login redirect — used in lazy state initializers below
+  const hasDraftPhoto = useRef<boolean>(!!readDraft(factId)?.stockPhoto);
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -527,8 +554,8 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
     return "person";
   }, [pronouns]);
 
-  // Image source state
-  const [imageMode, setImageMode] = useState<ImageMode>("stock");
+  // Image source state — initialised from sessionStorage draft when returning from login
+  const [imageMode, setImageMode] = useState<ImageMode>(() => readDraft(factId)?.imageMode ?? "stock");
 
   // Display limits (from public config, fetched once)
   const [bgStockLimit, setBgStockLimit] = useState(20);
@@ -549,16 +576,16 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
   }, []);
   const [thumbSize, setThumbSize] = useState(40); // 0–100 slider value
   const thumbPx = Math.round(70 + (thumbSize / 100) * (290 - 70)); // 70px–290px
-  const [selectedTemplate, setSelectedTemplate] = useState("action");
+  const [selectedTemplate, setSelectedTemplate] = useState(() => readDraft(factId)?.selectedTemplate ?? "action");
   const [stockGender, setStockGender] = useState<StockGender | null>(null);
-  const [stockPhoto, setStockPhoto] = useState<StockPhoto | null>(null);
+  const [stockPhoto, setStockPhoto] = useState<StockPhoto | null>(() => readDraft(factId)?.stockPhoto ?? null);
   const [isLoadingStock, setIsLoadingStock] = useState(false);
   const [stockError, setStockError] = useState<string | null>(null);
   const [isBackfilling, setIsBackfilling] = useState(false);
   const [backfillResult, setBackfillResult] = useState<{ triggered?: number; error?: string } | null>(null);
-  const [prefetchedIndex, setPrefetchedIndex] = useState<number | null>(null);
+  const [prefetchedIndex, setPrefetchedIndex] = useState<number | null>(() => readDraft(factId)?.prefetchedIndex ?? null);
   const [uploadFile, setUploadFile] = useState<File | null>(null);
-  const [uploadObjectPath, setUploadObjectPath] = useState<string | null>(null);
+  const [uploadObjectPath, setUploadObjectPath] = useState<string | null>(() => readDraft(factId)?.uploadObjectPath ?? null);
   const [uploadLocalUrl, setUploadLocalUrl] = useState<string | null>(null);
   const [isUploadingFile, setIsUploadingFile] = useState(false);
   const [uploadIsLowRes, setUploadIsLowRes] = useState(false);
@@ -745,7 +772,7 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
   }, [pronouns, factIsGendered]);
 
   // AI background selection (managed by AiBgPicker component)
-  const [aiSelectedInfo, setAiSelectedInfo] = useState<AiBgSelection | null>(null);
+  const [aiSelectedInfo, setAiSelectedInfo] = useState<AiBgSelection | null>(() => readDraft(factId)?.aiSelectedInfo ?? null);
 
   // Video generation state
   const [videoState, setVideoState] = useState<VideoState>({ status: "idle" });
@@ -941,10 +968,18 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
     }
   }, [isAuthenticated, pexelsImages, selectPrefetchedPhoto]);
 
+  // Clear the sessionStorage draft after the component has mounted and restored state
+  useEffect(() => { clearDraft(factId); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   useEffect(() => {
     if (!stockGender) {
       setStockGender(inferredGender);
-      fetchStockPhoto(inferredGender);
+      // Skip auto-fetch if we already restored a stock photo from a login-redirect draft
+      if (hasDraftPhoto.current) {
+        hasDraftPhoto.current = false;
+      } else {
+        fetchStockPhoto(inferredGender);
+      }
     }
   }, [stockGender, inferredGender, fetchStockPhoto]);
 
@@ -1164,7 +1199,11 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
 
   // ── Generate ─────────────────────────────────────────────────────
   const handleGenerate = async () => {
-    if (!isAuthenticated) { login(); return; }
+    if (!isAuthenticated) {
+      saveDraft(factId, { imageMode, selectedTemplate, stockPhoto, prefetchedIndex, aiSelectedInfo, uploadObjectPath });
+      setLocation(`/login?from=${encodeURIComponent(window.location.pathname)}`);
+      return;
+    }
 
     // Validate we have a valid source
     if (imageMode === "stock" && !stockPhoto) {
