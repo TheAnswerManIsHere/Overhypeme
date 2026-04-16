@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { AdminLayout } from "@/components/admin/AdminLayout";
 import { CollapsibleSection } from "@/components/CollapsibleSection";
-import { Settings, Loader2, Palette, Bug, Bot, Film, Sliders, DollarSign, Shield } from "lucide-react";
+import { Settings, Loader2, Palette, Bug, Bot, Film, Sliders, DollarSign, Shield, Mail } from "lucide-react";
 import {
   ConfigPageContext,
   ConfigPageCtx,
@@ -30,6 +30,11 @@ const LIMIT_KEYS = new Set([
   "bg_display_limit_gradient",
   "bg_display_limit_ai",
   "bg_display_limit_upload",
+]);
+
+const EMAIL_KEYS = new Set([
+  "email_from_address",
+  "email_reply_to",
 ]);
 
 // Keys that belong elsewhere (Billing tab) or are removed from this page
@@ -315,12 +320,14 @@ export default function AdminConfig() {
 
   const budgetRows  = rows.filter((r) => BUDGET_KEYS.has(r.key));
   const limitRows   = rows.filter((r) => LIMIT_KEYS.has(r.key));
+  const emailRows   = rows.filter((r) => EMAIL_KEYS.has(r.key));
   const genericRows = rows.filter((r) =>
     !r.key.startsWith("style_suffix_") &&
     r.key !== "debug_mode_active" &&
     !MODEL_CONFIG_KEYS.has(r.key) &&
     !BUDGET_KEYS.has(r.key) &&
     !LIMIT_KEYS.has(r.key) &&
+    !EMAIL_KEYS.has(r.key) &&
     !BILLING_ONLY_KEYS.has(r.key)
   );
 
@@ -413,6 +420,20 @@ export default function AdminConfig() {
                 >
                   <div className="space-y-3">
                     {limitRows.map((row) => <ConfigCard key={row.key} row={row} />)}
+                  </div>
+                </CollapsibleSection>
+              )}
+
+              {/* Email — collapsible section */}
+              {emailRows.length > 0 && (
+                <CollapsibleSection
+                  title="Email"
+                  icon={<Mail className="w-4 h-4 text-muted-foreground" />}
+                  description="From and reply-to addresses used for all outgoing transactional emails."
+                  storageKey="admin_section_config_email"
+                >
+                  <div className="space-y-3">
+                    {emailRows.map((row) => <ConfigCard key={row.key} row={row} />)}
                   </div>
                 </CollapsibleSection>
               )}
