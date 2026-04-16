@@ -133,6 +133,20 @@ router.get("/facts/:factId", async (req: Request, res: Response) => {
   if (!fact) { res.status(404).json({ error: "Fact not found" }); return; }
   const [{ rank }] = await db.select({ rank: sql<number>`(count(*) + 1)::int` }).from(factsTable).where(and(sql`${factsTable.wilsonScore} > ${fact.wilsonScore}`, eq(factsTable.isActive, true)));
   const [summary] = await buildFactSummaries([fact], req.user?.id);
+
+  // Variants never store their own images — inherit pexelsImages and aiMemeImages from the root fact.
+  if (fact.parentId !== null) {
+    const [parent] = await db
+      .select({ pexelsImages: factsTable.pexelsImages, aiMemeImages: factsTable.aiMemeImages })
+      .from(factsTable)
+      .where(eq(factsTable.id, fact.parentId))
+      .limit(1);
+    if (parent) {
+      summary.pexelsImages = (parent.pexelsImages as import("../lib/factImagePipeline").FactPexelsImages | null) ?? null;
+      summary.aiMemeImages = (parent.aiMemeImages as import("../lib/aiMemePipeline").AiMemeImages | null) ?? null;
+    }
+  }
+
   const linkRows = await db.select().from(externalLinksTable).where(eq(externalLinksTable.factId, fact.id)).orderBy(desc(externalLinksTable.createdAt));
   const links = await Promise.all(linkRows.map(async (l) => {
     let addedBy = null;
