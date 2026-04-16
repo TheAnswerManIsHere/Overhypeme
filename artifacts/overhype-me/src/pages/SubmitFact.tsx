@@ -172,6 +172,7 @@ export default function SubmitFact() {
   async function handleFinalSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError("");
+    setOnboardingRequired(false);
     if (!template || template.length < 5) { setError("No template to submit."); return; }
     if (!captchaToken && !isCaptchaVerified) { setError("Please complete the CAPTCHA."); return; }
 
