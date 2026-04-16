@@ -336,6 +336,8 @@ router.post("/facts/:factId/comments", async (req: Request, res: Response) => {
   const userDbTier = commentUser?.membershipTier === "legendary" ? "legendary"
     : commentUser?.membershipTier === "registered" ? "registered"
     : "unregistered";
+  // Intentional premium-tier exception: legendary members and above are granted
+  // comment_captcha_bypass via the tier features table, skipping per-comment captcha.
   const captchaBypass = await hasFeature(userDbTier, "comment_captcha_bypass");
 
   if (!captchaBypass) {
