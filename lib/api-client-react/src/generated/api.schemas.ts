@@ -14,8 +14,8 @@ export type AuthUserMembershipTier =
   | null;
 
 export const AuthUserMembershipTier = {
-  free: "free",
-  premium: "premium",
+  unregistered: "unregistered",
+  registered: "registered",
 } as const;
 
 export type AuthUserUserRole =
@@ -23,8 +23,8 @@ export type AuthUserUserRole =
   | null;
 
 export const AuthUserUserRole = {
-  free: "free",
-  premium: "premium",
+  unregistered: "unregistered",
+  registered: "registered",
   admin: "admin",
 } as const;
 
@@ -95,7 +95,6 @@ export interface AffiliateClickRequest {
   destination: AffiliateClickRequestDestination;
   text: string;
   imageUrl?: string | null;
-  /** The page URL where the user clicked "Make Merch", passed as continueUrl to Zazzle. */
   returnUrl?: string | null;
 }
 
@@ -267,6 +266,24 @@ export interface LinkListResponse {
   links: ExternalLink[];
 }
 
+export interface PendingSubmission {
+  id: number;
+  text: string;
+  status: string;
+  hashtags: string[];
+  createdAt: string;
+  reason: string | null;
+}
+
+export interface MyComment {
+  id: number;
+  factId: number;
+  factText: string | null;
+  text: string;
+  status: string;
+  createdAt: string;
+}
+
 export interface UserProfile {
   id: string;
   email?: string | null;
@@ -280,6 +297,8 @@ export interface UserProfile {
   avatarStyle?: string | null;
   isPremium?: boolean;
   submittedFacts: FactSummary[];
+  pendingSubmissions?: PendingSubmission[];
+  myComments?: MyComment[];
   likedFacts: FactSummary[];
   favoriteHashtags: string[];
   searchHistory: string[];
