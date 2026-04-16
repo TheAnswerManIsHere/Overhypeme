@@ -5,6 +5,7 @@ import { eq, sql, desc } from "drizzle-orm";
 import { getOpenAIClient } from "@workspace/integrations-openai-ai-server";
 import { z } from "zod";
 import { getSessionId, getSession } from "../lib/auth";
+import { verifyCaptcha } from "../lib/captcha";
 import { embedText, findSimilarFacts } from "../lib/embeddings";
 import { validateTemplate } from "../lib/templateGrammar";
 import { renderCanonical } from "../lib/renderCanonical";
@@ -13,7 +14,7 @@ const router: IRouter = Router();
 
 const CheckDuplicateBody    = z.object({ text: z.string().min(10).max(1000) });
 const SuggestHashtagsBody   = z.object({ text: z.string().min(5).max(1000) });
-const TokenizeFactBody      = z.object({ text: z.string().min(5).max(2000) });
+const TokenizeFactBody      = z.object({ text: z.string().min(5).max(2000), captchaToken: z.string().optional() });
 const SuggestPronounsBody   = z.object({ name: z.string().min(1).max(200) });
 
 const RATE_WINDOW_MS = 60_000;
@@ -316,7 +317,23 @@ router.post("/ai/tokenize-fact", requireRateLimit, async (req: Request, res: Res
     res.status(400).json({ error: "Invalid input" });
     return;
   }
-  const { text } = bodyParsed.data;
+  const { text, captchaToken } = bodyParsed.data;
+
+  // Captcha gate — bypass for: admin, legendary/premium, or users who already
+  // completed onboarding (captchaVerified in session).
+  const sid = getSessionId(req);
+  const session = sid ? await getSession(sid) : null;
+  const isAdmin = session?.isAdmin === true;
+  const isPremium = session?.user?.membershipTier === "legendary";
+  const isCaptchaVerified = session?.captchaVerified === true;
+  const captchaRequired = !isAdmin && !isPremium && !isCaptchaVerified;
+
+  if (captchaRequired) {
+    if (!captchaToken || !(await verifyCaptcha(captchaToken))) {
+      res.status(400).json({ error: "CAPTCHA verification failed" });
+      return;
+    }
+  }
 
   try {
     const openai = getOpenAIClient();

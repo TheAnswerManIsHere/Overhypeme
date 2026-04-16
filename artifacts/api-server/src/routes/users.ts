@@ -12,6 +12,7 @@ import crypto from "crypto";
 import { sendEmail, buildEmailChangeVerificationEmail } from "../lib/email";
 import { ObjectStorageService } from "../lib/objectStorage";
 import { getConfigInt } from "../lib/adminConfig";
+import { verifyCaptcha } from "../lib/captcha";
 
 const router: IRouter = Router();
 
@@ -316,26 +317,6 @@ router.post("/users/me/search-history", async (req: Request, res: Response) => {
   }
   res.status(204).end();
 });
-
-async function verifyCaptcha(token: string): Promise<boolean> {
-  const secret = process.env.HCAPTCHA_SECRET;
-  const isProd = process.env.NODE_ENV === "production";
-  if (!secret) {
-    if (isProd) return false;
-    return true;
-  }
-  try {
-    const resp = await fetch("https://api.hcaptcha.com/siteverify", {
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: new URLSearchParams({ secret, response: token }).toString(),
-    });
-    const data = (await resp.json()) as { success: boolean };
-    return data.success === true;
-  } catch {
-    return false;
-  }
-}
 
 router.get("/users/me/uploads", async (req: Request, res: Response) => {
   if (!req.isAuthenticated()) {

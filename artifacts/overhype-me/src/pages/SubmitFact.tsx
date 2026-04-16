@@ -137,11 +137,13 @@ export default function SubmitFact() {
     setDuplicate(null);
     const sanitizedText = rawText.replace(/[{}]/g, "");
     try {
+      const tokenizeBody: Record<string, unknown> = { text: sanitizedText };
+      if (captchaToken) tokenizeBody.captchaToken = captchaToken;
       const r = await fetch("/api/ai/tokenize-fact", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ text: sanitizedText }),
+        body: JSON.stringify(tokenizeBody),
       });
       const data = await r.json() as { template?: string; error?: string };
       if (!r.ok || !data.template) {
