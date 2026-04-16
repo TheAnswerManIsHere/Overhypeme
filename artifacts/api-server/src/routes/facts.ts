@@ -16,6 +16,7 @@ import { stripeStorage } from "../lib/stripeStorage";
 import { notifyAdmins } from "../lib/adminNotify";
 import { getSiteBaseUrl } from "../lib/email";
 import { hasFeature } from "../lib/tierFeatures";
+import { verifyCaptcha } from "../lib/captcha";
 import { eq, sql, desc, asc, ilike, and, inArray, isNull } from "drizzle-orm";
 import {
   ListFactsQueryParams, CreateFactBody, GetFactParams,
@@ -36,30 +37,6 @@ function computeWilsonScore(upvotes: number, downvotes: number): number {
   return numerator / denominator;
 }
 
-async function verifyCaptcha(token: string): Promise<boolean> {
-  const secret = process.env.HCAPTCHA_SECRET;
-  const isProd = process.env.NODE_ENV === "production";
-
-  if (!secret) {
-    if (isProd) {
-      return false;
-    }
-    console.warn("[dev] HCAPTCHA_SECRET not set — bypassing CAPTCHA verification");
-    return true;
-  }
-
-  try {
-    const resp = await fetch("https://api.hcaptcha.com/siteverify", {
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: new URLSearchParams({ secret, response: token }).toString(),
-    });
-    const data = (await resp.json()) as { success: boolean };
-    return data.success === true;
-  } catch {
-    return false;
-  }
-}
 
 async function buildFactSummaries(facts: (typeof factsTable.$inferSelect)[], userId?: string) {
   if (!facts.length) return [];
