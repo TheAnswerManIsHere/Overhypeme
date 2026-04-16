@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { AdminLayout } from "@/components/admin/AdminLayout";
 import { CollapsibleSection } from "@/components/CollapsibleSection";
-import { Settings, Loader2, Palette, Bug, Bot, Film, Sliders, DollarSign, Shield, Mail } from "lucide-react";
+import { Settings, Loader2, Palette, Bug, Bot, Film, Sliders, DollarSign, Shield, Mail, ShoppingBag } from "lucide-react";
 import {
   ConfigPageContext,
   ConfigPageCtx,
@@ -35,6 +35,16 @@ const LIMIT_KEYS = new Set([
 const EMAIL_KEYS = new Set([
   "email_from_address",
   "email_reply_to",
+]);
+
+const ZAZZLE_KEYS = new Set([
+  "zazzle_at",
+  "zazzle_rf",
+  "zazzle_ax",
+  "zazzle_sr",
+  "zazzle_cg",
+  "zazzle_ed",
+  "zazzle_tc",
 ]);
 
 // Keys that belong elsewhere (Billing tab) or are removed from this page
@@ -321,6 +331,7 @@ export default function AdminConfig() {
   const budgetRows  = rows.filter((r) => BUDGET_KEYS.has(r.key));
   const limitRows   = rows.filter((r) => LIMIT_KEYS.has(r.key));
   const emailRows   = rows.filter((r) => EMAIL_KEYS.has(r.key));
+  const zazzleRows  = rows.filter((r) => ZAZZLE_KEYS.has(r.key));
   const genericRows = rows.filter((r) =>
     !r.key.startsWith("style_suffix_") &&
     r.key !== "debug_mode_active" &&
@@ -328,6 +339,7 @@ export default function AdminConfig() {
     !BUDGET_KEYS.has(r.key) &&
     !LIMIT_KEYS.has(r.key) &&
     !EMAIL_KEYS.has(r.key) &&
+    !ZAZZLE_KEYS.has(r.key) &&
     !BILLING_ONLY_KEYS.has(r.key)
   );
 
@@ -434,6 +446,20 @@ export default function AdminConfig() {
                 >
                   <div className="space-y-3">
                     {emailRows.map((row) => <ConfigCard key={row.key} row={row} />)}
+                  </div>
+                </CollapsibleSection>
+              )}
+
+              {/* Zazzle — collapsible section */}
+              {zazzleRows.length > 0 && (
+                <CollapsibleSection
+                  title="Zazzle"
+                  icon={<ShoppingBag className="w-4 h-4 text-muted-foreground" />}
+                  description="Zazzle Create-a-Product API parameters used when building merch links."
+                  storageKey="admin_section_config_zazzle"
+                >
+                  <div className="space-y-3">
+                    {zazzleRows.map((row) => <ConfigCard key={row.key} row={row} />)}
                   </div>
                 </CollapsibleSection>
               )}

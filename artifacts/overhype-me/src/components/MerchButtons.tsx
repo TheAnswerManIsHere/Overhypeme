@@ -1,6 +1,6 @@
 import { ShoppingBag, ExternalLink } from "lucide-react";
 import { trackEvent } from "@/lib/analytics";
-import { buildZazzleUrl, trackAffiliateClick } from "@/lib/affiliate";
+import { trackAffiliateClick } from "@/lib/affiliate";
 
 interface MerchButtonsProps {
   sourceType: "fact" | "meme";
@@ -13,12 +13,45 @@ export function MerchButtons({ sourceType, sourceId, text, imageUrl }: MerchButt
   const isMeme = sourceType === "meme";
 
   const href = isMeme
-    ? `/api/memes/${sourceId}/zazzle-redirect`
-    : buildZazzleUrl(imageUrl);
+    ? `/api/memes/${sourceId}/zazzle-redirect?returnUrl=${encodeURIComponent(window.location.href)}`
+    : undefined;
 
-  function handleClick() {
+  function handleClick(e: React.MouseEvent<HTMLAnchorElement>) {
     trackEvent("affiliate_click", { destination: "zazzle", source_type: sourceType });
-    trackAffiliateClick(sourceType, sourceId, "zazzle", text, imageUrl);
+
+    if (isMeme) {
+      trackAffiliateClick(sourceType, sourceId, "zazzle", text, imageUrl);
+      return;
+    }
+
+    e.preventDefault();
+
+    const popup = window.open("about:blank", "_blank", "noreferrer");
+
+    fetch("/api/affiliate/click", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({
+        sourceType,
+        sourceId: String(sourceId),
+        destination: "zazzle",
+        text,
+        imageUrl,
+        returnUrl: window.location.href,
+      }),
+    })
+      .then((r) => r.json())
+      .then((data: { url?: string }) => {
+        if (data.url && popup) {
+          popup.location.href = data.url;
+        } else if (data.url) {
+          window.location.assign(data.url);
+        }
+      })
+      .catch(() => {
+        popup?.close();
+      });
   }
 
   return (
@@ -28,8 +61,8 @@ export function MerchButtons({ sourceType, sourceId, text, imageUrl }: MerchButt
         <span>Make merch:</span>
       </div>
       <a
-        href={href}
-        target="_blank"
+        href={href ?? "#"}
+        target={isMeme ? "_blank" : undefined}
         rel="noreferrer"
         onClick={handleClick}
         className="inline-flex items-center gap-1.5 text-xs h-8 px-3 rounded-md border border-input bg-background hover:bg-accent hover:text-accent-foreground font-medium transition-colors"
