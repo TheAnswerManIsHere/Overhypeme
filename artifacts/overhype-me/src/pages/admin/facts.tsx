@@ -14,6 +14,7 @@ interface Fact {
   useCase: string | null;
   isActive: boolean;
   hasEmbedding: boolean;
+  hasPexelsImages: boolean;
   upvotes: number;
   downvotes: number;
   score: number;
@@ -40,7 +41,7 @@ interface FactsResponse {
 
 type ImportMode = "json" | "csv" | "lines";
 
-type EditDraft = Omit<Fact, "id" | "createdAt" | "updatedAt" | "hasEmbedding">;
+type EditDraft = Omit<Fact, "id" | "createdAt" | "updatedAt" | "hasEmbedding" | "hasPexelsImages">;
 
 function FieldLabel({ children }: { children: React.ReactNode }) {
   return (
@@ -102,6 +103,10 @@ export default function AdminFacts() {
   const [regeneratingImage, setRegeneratingImage] = useState<string | null>(null); // "gender-index"
   const [aiImageTimestamps, setAiImageTimestamps] = useState<Record<string, number>>({}); // cache-busting
 
+  // Image pipeline state
+  const [pipelineRunning, setPipelineRunning] = useState(false);
+  const [pipelineResult, setPipelineResult] = useState<{ type: "success" | "info" | "error"; message: string } | null>(null);
+
   const LIMIT = 25;
 
   useEffect(() => {
@@ -154,6 +159,7 @@ export default function AdminFacts() {
     setEditedPrompts(null);
     setAiMemeError(null);
     setAiMemeSuccess(null);
+    setPipelineResult(null);
     // Fetch variants and AI meme data for root facts
     if (fact.parentId === null) {
       setLoadingVariants(true);
@@ -181,6 +187,7 @@ export default function AdminFacts() {
     setEditedPrompts(null);
     setAiMemeError(null);
     setAiMemeSuccess(null);
+    setPipelineResult(null);
   }
 
   const loadAiMemeData = useCallback(async (factId: number) => {
@@ -271,6 +278,33 @@ export default function AdminFacts() {
       setTimeout(() => setAiMemeSuccess(null), 3000);
     } catch (err) {
       setAiMemeError(err instanceof Error ? err.message : "Save failed");
+    }
+  }
+
+  async function triggerImagePipeline(factId: number, force: boolean) {
+    setPipelineRunning(true);
+    setPipelineResult(null);
+    try {
+      const url = `/api/admin/facts/${factId}/refresh-images${force ? "?force=true" : ""}`;
+      const res = await fetch(url, { method: "POST", credentials: "include" });
+      const data = (await res.json()) as { success?: boolean; skipped?: boolean; message?: string; error?: string };
+      if (!res.ok) throw new Error(data.error ?? "Pipeline failed");
+      if (data.skipped) {
+        setPipelineResult({ type: "info", message: data.message ?? "Skipped — images already exist." });
+      } else {
+        setPipelineResult({ type: "success", message: data.message ?? "Pipeline started." });
+        // Refresh the fact in the list to show updated hasPexelsImages status after a delay
+        setTimeout(() => {
+          setFacts((prev) => prev.map((f) => f.id === factId ? { ...f, hasPexelsImages: true } : f));
+          if (selectedFact?.id === factId) {
+            setSelectedFact((f) => f ? { ...f, hasPexelsImages: true } : f);
+          }
+        }, 5000);
+      }
+    } catch (err) {
+      setPipelineResult({ type: "error", message: err instanceof Error ? err.message : "Pipeline failed" });
+    } finally {
+      setPipelineRunning(false);
     }
   }
 
@@ -819,6 +853,71 @@ export default function AdminFacts() {
                       </div>
                     ))
                   )}
+                </div>
+              </div>
+            )}
+
+            {/* Pexels Image Pipeline (root facts only) */}
+            {selectedFact.parentId === null && (
+              <div className="border border-border rounded-sm overflow-hidden">
+                <div className="flex items-center justify-between px-3 py-2 bg-muted/30 border-b border-border">
+                  <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+                    <ImageIcon className="w-3.5 h-3.5" />
+                    Pexels Image Pipeline
+                  </span>
+                  <span className={`inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-sm border ${
+                    selectedFact.hasPexelsImages
+                      ? "bg-green-500/10 text-green-600 border-green-500/30"
+                      : "bg-amber-500/10 text-amber-600 border-amber-500/30"
+                  }`}>
+                    <div className={`w-1.5 h-1.5 rounded-full ${selectedFact.hasPexelsImages ? "bg-green-500" : "bg-amber-500"}`} />
+                    {selectedFact.hasPexelsImages ? "Images present" : "No images"}
+                  </span>
+                </div>
+                <div className="p-3 space-y-2">
+                  {pipelineResult && (
+                    <div className={`flex items-center gap-2 text-xs rounded-sm px-3 py-2 ${
+                      pipelineResult.type === "success"
+                        ? "bg-green-500/10 text-green-400 border border-green-500/30"
+                        : pipelineResult.type === "info"
+                        ? "bg-blue-500/10 text-blue-400 border border-blue-500/30"
+                        : "bg-destructive/10 text-destructive border border-destructive/30"
+                    }`}>
+                      {pipelineResult.type === "success" ? <CheckCircle className="w-3.5 h-3.5 shrink-0" /> : <AlertCircle className="w-3.5 h-3.5 shrink-0" />}
+                      {pipelineResult.message}
+                    </div>
+                  )}
+                  <div className="flex gap-2">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => void triggerImagePipeline(selectedFact.id, false)}
+                      isLoading={pipelineRunning}
+                      disabled={pipelineRunning}
+                      className="flex-1 gap-1.5 text-xs"
+                    >
+                      <RefreshCw className="w-3.5 h-3.5" />
+                      {selectedFact.hasPexelsImages ? "Re-run Pipeline" : "Run Image Pipeline"}
+                    </Button>
+                    {selectedFact.hasPexelsImages && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => void triggerImagePipeline(selectedFact.id, true)}
+                        isLoading={pipelineRunning}
+                        disabled={pipelineRunning}
+                        className="gap-1.5 text-xs text-amber-500 border-amber-500/30 hover:border-amber-400 hover:bg-amber-500/10"
+                        title="Force overwrite existing images"
+                      >
+                        Force
+                      </Button>
+                    )}
+                  </div>
+                  <p className="text-[10px] text-muted-foreground">
+                    {selectedFact.hasPexelsImages
+                      ? "Re-run fetches new Pexels photos. Use Force to overwrite existing images."
+                      : "Fetches Pexels stock photos for this fact using AI-generated keywords."}
+                  </p>
                 </div>
               </div>
             )}

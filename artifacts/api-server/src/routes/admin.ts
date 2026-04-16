@@ -540,6 +540,7 @@ router.get("/admin/facts", requireAdmin, async (req: Request, res: Response) => 
       createdAt: factsTable.createdAt,
       updatedAt: factsTable.updatedAt,
       hasEmbedding: sql<boolean>`(${factsTable.embedding} IS NOT NULL)`,
+      hasPexelsImages: sql<boolean>`(${factsTable.pexelsImages} IS NOT NULL)`,
     })
       .from(factsTable)
       .where(where)
@@ -934,15 +935,21 @@ router.post("/admin/users/enable-notifications", requireAdminOrApiKey, async (_r
 });
 
 // POST /admin/facts/:id/refresh-images — manually re-run the image pipeline for one fact
+// Query param: ?force=true to overwrite existing images (default: skip if already has images)
 router.post("/admin/facts/:id/refresh-images", requireAdmin, async (req: Request, res: Response) => {
   const id = parseInt(String(req.params["id"] ?? ""), 10);
   if (isNaN(id)) { res.status(400).json({ error: "Invalid fact id" }); return; }
-  const [fact] = await db.select({ id: factsTable.id, text: factsTable.text, parentId: factsTable.parentId })
+  const force = req.query["force"] === "true";
+  const [fact] = await db.select({ id: factsTable.id, text: factsTable.text, parentId: factsTable.parentId, pexelsImages: factsTable.pexelsImages })
     .from(factsTable).where(eq(factsTable.id, id)).limit(1);
   if (!fact) { res.status(404).json({ error: "Fact not found" }); return; }
   if (fact.parentId !== null) { res.status(400).json({ error: "Images are only stored on root facts, not variants." }); return; }
+  if (!force && fact.pexelsImages !== null) {
+    res.json({ success: true, skipped: true, message: "Fact already has images. Pass force=true to overwrite." });
+    return;
+  }
   void runFactImagePipeline(fact.id, fact.text);
-  res.json({ success: true, message: "Image pipeline started. Results will appear shortly." });
+  res.json({ success: true, skipped: false, message: "Image pipeline started. Results will appear shortly." });
 });
 
 router.post("/admin/facts/backfill-images", requireAdminOrApiKey, async (_req: Request, res: Response) => {
