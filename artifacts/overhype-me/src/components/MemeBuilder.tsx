@@ -1447,16 +1447,8 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
           {/* Stock photo mode */}
           {imageMode === "stock" && (
             <div className="space-y-3">
-              {stockGender && (
-                <p className="text-[10px] font-display uppercase tracking-widest text-muted-foreground">
-                  Showing: <span className="text-primary">{stockGender}</span> (from {pronouns || "they/them"} pronouns)
-                </p>
-              )}
               {prefetchedPhotos.length > 0 && (
                 <div className="space-y-2">
-                  <p className="text-[10px] font-display uppercase tracking-widest text-muted-foreground">
-                    Matched photos for this fact
-                  </p>
                   <div className="grid gap-1.5" style={{ gridTemplateColumns: `repeat(auto-fill, minmax(${thumbPx}px, 1fr))` }}>
                     {prefetchedPhotos.slice(0, bgStockLimit).map((photo, i) => (
                       <ImageCard
