@@ -79,7 +79,15 @@ router.post("/affiliate/click", async (req: Request, res: Response) => {
   } catch {
   }
 
-  const imageName = imageUrl ? imageUrl.split("/").pop() : undefined;
+  let imageName: string | undefined;
+  if (imageUrl) {
+    try {
+      const parsed = new URL(imageUrl);
+      imageName = parsed.pathname.split("/").pop() || undefined;
+    } catch {
+      imageName = imageUrl.split("/").pop() || undefined;
+    }
+  }
   const url = await buildZazzleUrl({
     imageUrl,
     imageName,
