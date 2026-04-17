@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { lazy, Suspense, useEffect, useRef } from "react";
 import { Switch, Route, Router as WouterRouter, useLocation } from "wouter";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Sentry } from "@/lib/sentry";
@@ -9,31 +9,31 @@ import { PersonNameProvider, SHARE_LINK_ACTIVE, usePersonName } from "@/hooks/us
 import { useAuth, AuthProvider } from "@workspace/replit-auth-web";
 import SentryFallback from "@/components/SentryFallback";
 
-// Pages
-import Home from "@/pages/Home";
-import Search from "@/pages/Search";
-import FactDetail from "@/pages/FactDetail";
-import SubmitFact from "@/pages/SubmitFact";
-import Profile from "@/pages/Profile";
-import Onboard from "@/pages/Onboard";
-import AdminDashboard from "@/pages/admin/index";
-import AdminFacts from "@/pages/admin/facts";
-import AdminUsers from "@/pages/admin/users";
-import AdminBilling from "@/pages/admin/billing";
-import AdminAffiliate from "@/pages/admin/affiliate";
-import AdminModeration from "@/pages/admin/moderation";
-import AdminVideoStyles from "@/pages/admin/videoStyles";
-import AdminConfig from "@/pages/admin/config";
-import AdminFeatures from "@/pages/admin/features";
-import ActivityFeed from "@/pages/ActivityFeed";
-import MemePage from "@/pages/MemePage";
-import VideoPage from "@/pages/VideoPage";
-import Pricing from "@/pages/Pricing";
-import Login from "@/pages/Login";
-import ForgotPassword from "@/pages/ForgotPassword";
-import ResetPassword from "@/pages/ResetPassword";
-import VerifyEmail from "@/pages/VerifyEmail";
-import NotFound from "@/pages/not-found";
+// Pages — lazy-loaded so each route is its own JS chunk
+const Home = lazy(() => import("@/pages/Home"));
+const Search = lazy(() => import("@/pages/Search"));
+const FactDetail = lazy(() => import("@/pages/FactDetail"));
+const SubmitFact = lazy(() => import("@/pages/SubmitFact"));
+const Profile = lazy(() => import("@/pages/Profile"));
+const Onboard = lazy(() => import("@/pages/Onboard"));
+const AdminDashboard = lazy(() => import("@/pages/admin/index"));
+const AdminFacts = lazy(() => import("@/pages/admin/facts"));
+const AdminUsers = lazy(() => import("@/pages/admin/users"));
+const AdminBilling = lazy(() => import("@/pages/admin/billing"));
+const AdminAffiliate = lazy(() => import("@/pages/admin/affiliate"));
+const AdminModeration = lazy(() => import("@/pages/admin/moderation"));
+const AdminVideoStyles = lazy(() => import("@/pages/admin/videoStyles"));
+const AdminConfig = lazy(() => import("@/pages/admin/config"));
+const AdminFeatures = lazy(() => import("@/pages/admin/features"));
+const ActivityFeed = lazy(() => import("@/pages/ActivityFeed"));
+const MemePage = lazy(() => import("@/pages/MemePage"));
+const VideoPage = lazy(() => import("@/pages/VideoPage"));
+const Pricing = lazy(() => import("@/pages/Pricing"));
+const Login = lazy(() => import("@/pages/Login"));
+const ForgotPassword = lazy(() => import("@/pages/ForgotPassword"));
+const ResetPassword = lazy(() => import("@/pages/ResetPassword"));
+const VerifyEmail = lazy(() => import("@/pages/VerifyEmail"));
+const NotFound = lazy(() => import("@/pages/not-found"));
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -153,6 +153,31 @@ function ShareLinkAutoLogout() {
   return null;
 }
 
+/**
+ * Prefetches the most-visited page chunks during browser idle time so that
+ * first navigation to those routes has no visible loading delay.
+ * Less-visited pages (admin, pricing, auth, etc.) remain deferred.
+ */
+function PrefetchCriticalRoutes() {
+  useEffect(() => {
+    const prefetch = () => {
+      void import("@/pages/Home");
+      void import("@/pages/Search");
+      void import("@/pages/FactDetail");
+    };
+
+    if ("requestIdleCallback" in window) {
+      const id = requestIdleCallback(prefetch, { timeout: 3000 });
+      return () => cancelIdleCallback(id);
+    } else {
+      const id = setTimeout(prefetch, 200);
+      return () => clearTimeout(id);
+    }
+  }, []);
+
+  return null;
+}
+
 function GAPageTracker() {
   const [location] = useLocation();
   useEffect(() => {
@@ -174,9 +199,11 @@ function Router() {
     <>
       <ScrollToTop />
       <GAPageTracker />
+      <PrefetchCriticalRoutes />
       <AuthProfileSync />
       <ShareParamReader />
       <ShareLinkAutoLogout />
+      <Suspense fallback={<div className="min-h-screen" aria-busy="true" />}>
       <Switch>
         <Route path="/" component={Home} />
         <Route path="/search" component={Search} />
@@ -207,6 +234,7 @@ function Router() {
         <Route path="/verify-email" component={VerifyEmail} />
         <Route component={NotFound} />
       </Switch>
+      </Suspense>
     </>
   );
 }

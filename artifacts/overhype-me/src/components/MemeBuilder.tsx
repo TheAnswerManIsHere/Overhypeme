@@ -410,6 +410,7 @@ interface MemeBuilderDraft {
   prefetchedIndex: number | null;
   aiSelectedInfo: AiBgSelection | null;
   uploadObjectPath: string | null;
+  uploadIsLowRes: boolean;
 }
 function draftKey(factId: number) { return `meme_builder_draft_${factId}`; }
 function readDraft(factId: number): MemeBuilderDraft | null {
@@ -588,7 +589,7 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
   const [uploadObjectPath, setUploadObjectPath] = useState<string | null>(() => readDraft(factId)?.uploadObjectPath ?? null);
   const [uploadLocalUrl, setUploadLocalUrl] = useState<string | null>(null);
   const [isUploadingFile, setIsUploadingFile] = useState(false);
-  const [uploadIsLowRes, setUploadIsLowRes] = useState(false);
+  const [uploadIsLowRes, setUploadIsLowRes] = useState<boolean>(() => readDraft(factId)?.uploadIsLowRes ?? false);
   const [uploadWidth, setUploadWidth] = useState<number | null>(null);
   const [uploadHeight, setUploadHeight] = useState<number | null>(null);
   const [isDragOver, setIsDragOver] = useState(false);
@@ -608,7 +609,10 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
   const [uploadGalleryDisplayLimit, setUploadGalleryDisplayLimit] = useState(50);
   const [isLoadingGallery, setIsLoadingGallery] = useState(false);
   // The URL to use for canvas preview — local blob URL for new uploads, storage URL for gallery picks
-  const [uploadDisplayUrl, setUploadDisplayUrl] = useState<string | null>(null);
+  const [uploadDisplayUrl, setUploadDisplayUrl] = useState<string | null>(() => {
+    const path = readDraft(factId)?.uploadObjectPath;
+    return path ? `/api/storage${path}` : null;
+  });
 
   // Canvas background image (loaded from stock/upload for preview)
   const [bgImage, setBgImage] = useState<HTMLImageElement | null>(null);
@@ -1200,7 +1204,7 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
   // ── Generate ─────────────────────────────────────────────────────
   const handleGenerate = async () => {
     if (!isAuthenticated) {
-      saveDraft(factId, { imageMode, selectedTemplate, stockPhoto, prefetchedIndex, aiSelectedInfo, uploadObjectPath });
+      saveDraft(factId, { imageMode, selectedTemplate, stockPhoto, prefetchedIndex, aiSelectedInfo, uploadObjectPath, uploadIsLowRes });
       setLocation(`/login?from=${encodeURIComponent(window.location.pathname)}`);
       return;
     }
@@ -1636,6 +1640,35 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
                             setUploadFile(null);
                             setUploadObjectPath(null);
                             if (uploadLocalUrl) URL.revokeObjectURL(uploadLocalUrl);
+                            setUploadLocalUrl(null);
+                            setUploadDisplayUrl(null);
+                          }}
+                          className="ml-auto text-muted-foreground hover:text-foreground"
+                        >
+                          <X className="w-4 h-4" />
+                        </button>
+                      </div>
+                    ) : uploadObjectPath && uploadDisplayUrl ? (
+                      <div className="flex items-center gap-3">
+                        <img
+                          src={uploadDisplayUrl}
+                          alt="Upload preview"
+                          className="w-16 h-10 object-cover border border-border flex-shrink-0"
+                        />
+                        <div className="min-w-0 text-left">
+                          <p className="text-xs font-bold text-foreground">Uploaded image</p>
+                          <p className="text-[10px] text-muted-foreground">
+                            Uploaded ✓
+                            {uploadIsLowRes && (
+                              <span className="ml-1 text-amber-400"> · Low res</span>
+                            )}
+                          </p>
+                        </div>
+                        <button
+                          onClick={e => {
+                            e.stopPropagation();
+                            setUploadFile(null);
+                            setUploadObjectPath(null);
                             setUploadLocalUrl(null);
                             setUploadDisplayUrl(null);
                           }}

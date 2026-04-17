@@ -1,4 +1,5 @@
 import { Router, type IRouter, type Request, type Response, type NextFunction } from "express";
+import * as Sentry from "@sentry/node";
 import { db, usersTable, sessionsTable } from "@workspace/db";
 import { factsTable, commentsTable, adminConfigTable, videoStylesTable, featureFlagsTable, tierFeaturePermissionsTable, userGenerationCostsTable, lifetimeEntitlementsTable, subscriptionsTable, membershipHistoryTable, activityFeedTable, memesTable, userAiImagesTable } from "@workspace/db/schema";
 import { eq, desc, count, ilike, sql, and, or, inArray, isNull, asc, gt } from "drizzle-orm";
@@ -1655,6 +1656,13 @@ router.patch("/admin/feature-flags", requireAdmin, async (req: Request, res: Res
   bustTierFeaturesCache();
 
   res.json({ tier, featureKey, enabled });
+});
+
+router.post("/admin/_debug/sentry", requireAdmin, (req: Request, res: Response) => {
+  const userId = req.user?.id ?? "unknown";
+  Sentry.getIsolationScope().setTag("debug", "sentry-test");
+  Sentry.getIsolationScope().setUser({ id: userId });
+  throw new Error(`Sentry test error triggered by admin user ${userId}`);
 });
 
 export default router;

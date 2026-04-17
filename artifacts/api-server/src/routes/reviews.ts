@@ -15,46 +15,11 @@ import { notifyAdmins } from "../lib/adminNotify";
 import { runFactImagePipeline } from "../lib/factImagePipeline";
 import { generateAiMemeBackgrounds } from "../lib/aiMemePipeline";
 import { getSessionId, getSession } from "../lib/auth";
+import { createRateLimiter } from "../lib/rateLimit";
+
+const requireRateLimit = createRateLimiter();
 
 const router: IRouter = Router();
-
-const RATE_WINDOW_MS = 60_000;
-const RATE_MAX = 30;
-const rateCounts = new Map<string, { count: number; windowStart: number }>();
-
-setInterval(() => {
-  const cutoff = Date.now() - RATE_WINDOW_MS;
-  for (const [key, entry] of rateCounts) {
-    if (entry.windowStart < cutoff) rateCounts.delete(key);
-  }
-}, RATE_WINDOW_MS).unref();
-
-function rateLimitKey(req: Request): string {
-  const sid = getSessionId(req);
-  if (sid) return `sid:${sid}`;
-  return `ip:${req.ip ?? "unknown"}`;
-}
-
-function checkRateLimit(key: string): boolean {
-  const now = Date.now();
-  const entry = rateCounts.get(key);
-  if (!entry || now - entry.windowStart > RATE_WINDOW_MS) {
-    rateCounts.set(key, { count: 1, windowStart: now });
-    return true;
-  }
-  if (entry.count >= RATE_MAX) return false;
-  entry.count++;
-  return true;
-}
-
-function requireRateLimit(req: Request, res: Response, next: NextFunction): void {
-  const key = rateLimitKey(req);
-  if (!checkRateLimit(key)) {
-    res.status(429).json({ error: "Too many requests. Please slow down." });
-    return;
-  }
-  next();
-}
 
 function requireAuth(req: Request, res: Response, next: () => void): void {
   if (!req.isAuthenticated()) {
