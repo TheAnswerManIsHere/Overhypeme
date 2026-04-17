@@ -7,6 +7,17 @@ import { sentryVitePlugin } from "@sentry/vite-plugin";
 
 const rawPort = process.env.PORT;
 
+// Single source of truth for the Sentry release name. Used by both the source-map
+// upload plugin (below) AND injected into the client bundle as
+// VITE_SENTRY_RELEASE so the SDK tags events with the matching release. If
+// these ever drift, Sentry won't symbolicate frontend stack traces.
+const sentryRelease =
+  process.env.REPLIT_DEPLOYMENT_ID ??
+  process.env.REPLIT_GIT_COMMIT_SHA?.slice(0, 7) ??
+  "dev";
+// Inject into Vite's env so import.meta.env.VITE_SENTRY_RELEASE picks it up at build time.
+process.env.VITE_SENTRY_RELEASE = sentryRelease;
+
 if (!rawPort) {
   throw new Error(
     "PORT environment variable is required but was not provided.",
@@ -49,14 +60,18 @@ export default defineConfig({
     // Upload source maps to Sentry on production builds. Skipped automatically
     // when SENTRY_AUTH_TOKEN is missing (e.g. local dev or contributor builds).
     // Must be the LAST plugin so it runs after the build has emitted assets.
+    //
+    // CRITICAL: The release name MUST match the value used by the SDK at runtime
+    // (src/lib/sentry.ts reads import.meta.env.VITE_SENTRY_RELEASE). We force
+    // both to derive from the same env var below so events and uploaded source
+    // maps land under the same release in Sentry — otherwise stack traces stay
+    // un-symbolicated.
     ...(process.env.SENTRY_AUTH_TOKEN && process.env.SENTRY_ORG && process.env.SENTRY_PROJECT_FRONTEND
       ? [sentryVitePlugin({
           authToken: process.env.SENTRY_AUTH_TOKEN,
           org: process.env.SENTRY_ORG,
           project: process.env.SENTRY_PROJECT_FRONTEND,
-          release: {
-            name: process.env.REPLIT_DEPLOYMENT_ID ?? process.env.REPLIT_GIT_COMMIT_SHA?.slice(0, 7) ?? "dev",
-          },
+          release: { name: sentryRelease },
           sourcemaps: {
             // Delete .map files after upload so they're not served to end users.
             filesToDeleteAfterUpload: ["./dist/public/**/*.map"],

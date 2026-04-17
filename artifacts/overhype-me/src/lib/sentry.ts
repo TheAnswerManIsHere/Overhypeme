@@ -2,6 +2,10 @@ import * as Sentry from "@sentry/react";
 
 const dsn = import.meta.env.VITE_SENTRY_DSN as string | undefined;
 const environment = import.meta.env.PROD ? "production" : "development";
+// Release name is injected at build time by vite.config.ts (which derives it
+// from REPLIT_DEPLOYMENT_ID / REPLIT_GIT_COMMIT_SHA). The same value is passed
+// to the source-map upload plugin so events and maps land under the same
+// release in Sentry — that's what makes stack traces symbolicate correctly.
 const release = (import.meta.env.VITE_SENTRY_RELEASE as string | undefined) ?? "dev";
 
 const SENSITIVE_KEY_PATTERNS = [
