@@ -4,7 +4,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Sentry } from "@/lib/sentry";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { trackPageView, trackRouteVisit, getTopRoutes } from "@/lib/analytics";
+import { trackPageView, trackRouteVisit, getTopRoutes, flushRouteStatsToServer } from "@/lib/analytics";
 import { PersonNameProvider, SHARE_LINK_ACTIVE, usePersonName } from "@/hooks/use-person-name";
 import { useAuth, AuthProvider } from "@workspace/replit-auth-web";
 import SentryFallback from "@/components/SentryFallback";
@@ -241,6 +241,24 @@ function GAPageTracker() {
   return null;
 }
 
+/**
+ * Flushes localStorage route visit counts to the server once per session
+ * during browser idle time so the admin dashboard gets aggregate data.
+ */
+function RouteStatsFlush() {
+  useEffect(() => {
+    const flush = () => { flushRouteStatsToServer(); };
+    if ("requestIdleCallback" in window) {
+      const id = requestIdleCallback(flush, { timeout: 5000 });
+      return () => cancelIdleCallback(id);
+    } else {
+      const id = setTimeout(flush, 1000);
+      return () => clearTimeout(id);
+    }
+  }, []);
+  return null;
+}
+
 function ScrollToTop() {
   const [location] = useLocation();
   useEffect(() => {
@@ -254,6 +272,7 @@ function Router() {
     <>
       <ScrollToTop />
       <GAPageTracker />
+      <RouteStatsFlush />
       <PrefetchCriticalRoutes />
       <AuthProfileSync />
       <ShareParamReader />

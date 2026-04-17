@@ -1,7 +1,7 @@
 import { Router, type IRouter, type Request, type Response, type NextFunction } from "express";
 import * as Sentry from "@sentry/node";
 import { db, usersTable, sessionsTable } from "@workspace/db";
-import { factsTable, commentsTable, adminConfigTable, videoStylesTable, featureFlagsTable, tierFeaturePermissionsTable, userGenerationCostsTable, lifetimeEntitlementsTable, subscriptionsTable, membershipHistoryTable, activityFeedTable, memesTable, userAiImagesTable } from "@workspace/db/schema";
+import { factsTable, commentsTable, adminConfigTable, videoStylesTable, featureFlagsTable, tierFeaturePermissionsTable, userGenerationCostsTable, lifetimeEntitlementsTable, subscriptionsTable, membershipHistoryTable, activityFeedTable, memesTable, userAiImagesTable, routeVisitStatsTable } from "@workspace/db/schema";
 import { eq, desc, count, ilike, sql, and, or, inArray, isNull, asc, gt } from "drizzle-orm";
 import { getSessionId, getSession, updateSession } from "../lib/auth";
 import { isAdminById } from "./auth";
@@ -1663,6 +1663,75 @@ router.post("/admin/_debug/sentry", requireAdmin, (req: Request, res: Response) 
   Sentry.getIsolationScope().setTag("debug", "sentry-test");
   Sentry.getIsolationScope().setUser({ id: userId });
   throw new Error(`Sentry test error triggered by admin user ${userId}`);
+});
+
+// ---------------------------------------------------------------------------
+// Route-visit stats — aggregate localStorage visit counts server-side
+// ---------------------------------------------------------------------------
+
+const VALID_ROUTE_KEYS = new Set([
+  "home", "search", "facts", "submit", "profile",
+  "onboard", "activity", "meme", "video", "pricing", "login",
+]);
+
+/**
+ * POST /route-stats
+ * Accepts a map of { routeKey: incrementAmount } from the client and adds
+ * those counts into the shared server-side aggregates.  No auth required —
+ * counts are low-sensitivity traffic data.  Input is strictly validated to
+ * prevent injection of arbitrary keys or absurd counts.
+ */
+router.post("/route-stats", async (req: Request, res: Response) => {
+  const body = req.body as Record<string, unknown>;
+  const counts = body["counts"];
+
+  if (!counts || typeof counts !== "object" || Array.isArray(counts)) {
+    res.status(400).json({ error: "counts must be an object" });
+    return;
+  }
+
+  const entries: { routeKey: string; delta: number }[] = [];
+  for (const [key, val] of Object.entries(counts as Record<string, unknown>)) {
+    if (!VALID_ROUTE_KEYS.has(key)) continue;
+    const delta = typeof val === "number" ? Math.floor(val) : parseInt(String(val), 10);
+    if (isNaN(delta) || delta <= 0 || delta > 100_000) continue;
+    entries.push({ routeKey: key, delta });
+  }
+
+  if (entries.length === 0) {
+    res.json({ accepted: 0 });
+    return;
+  }
+
+  await Promise.all(
+    entries.map(({ routeKey, delta }) =>
+      db
+        .insert(routeVisitStatsTable)
+        .values({ routeKey, visitCount: delta })
+        .onConflictDoUpdate({
+          target: routeVisitStatsTable.routeKey,
+          set: {
+            visitCount: sql`${routeVisitStatsTable.visitCount} + ${delta}`,
+            updatedAt: sql`now()`,
+          },
+        }),
+    ),
+  );
+
+  res.json({ accepted: entries.length });
+});
+
+/**
+ * GET /admin/route-stats
+ * Returns all route visit stats sorted by visit count descending.
+ * Admin-only.
+ */
+router.get("/admin/route-stats", requireAdmin, async (_req: Request, res: Response) => {
+  const rows = await db
+    .select()
+    .from(routeVisitStatsTable)
+    .orderBy(desc(routeVisitStatsTable.visitCount));
+  res.json({ stats: rows });
 });
 
 export default router;

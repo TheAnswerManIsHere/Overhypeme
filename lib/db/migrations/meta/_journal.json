@@ -120,6 +120,13 @@
       "when": 1776212437603,
       "tag": "0016_admin_notifications_default_true",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1776212500000,
+      "tag": "0017_route_visit_stats",
+      "breakpoints": true
     }
   ]
 }

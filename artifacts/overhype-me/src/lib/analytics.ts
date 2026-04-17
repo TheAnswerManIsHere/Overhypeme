@@ -93,3 +93,24 @@ export function getTopRoutes(n: number): string[] {
     .slice(0, n)
     .map(([key]) => key);
 }
+
+/**
+ * Sends the current localStorage visit counts to the server so they are
+ * aggregated across all users.  Fire-and-forget — failures are silently
+ * ignored.  Should be called once per session (e.g. on browser idle after
+ * page load).
+ */
+export function flushRouteStatsToServer(): void {
+  try {
+    const counts = getRouteVisitCounts();
+    if (Object.keys(counts).length === 0) return;
+    void fetch("/api/route-stats", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ counts }),
+      keepalive: true,
+    }).catch(() => {});
+  } catch {
+    // localStorage may be unavailable
+  }
+}
