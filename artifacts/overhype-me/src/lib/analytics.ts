@@ -21,3 +21,75 @@ export function trackEvent(
   if (!window.gtag) return;
   window.gtag("event", eventName, params ?? {});
 }
+
+// ---------------------------------------------------------------------------
+// Route visit counting — stored in localStorage so data persists across
+// sessions and can inform which page chunks to prefetch.
+// ---------------------------------------------------------------------------
+
+const ROUTE_VISIT_KEY = "omh:route-visits";
+
+/**
+ * Maps an arbitrary URL path to a stable route key used for counting.
+ * Dynamic segments (fact IDs, slugs, etc.) are collapsed so that
+ * `/facts/123/comments` and `/facts/456` both count toward `facts`.
+ * Admin routes are excluded — they are never prefetch candidates.
+ */
+export function normalizePathToRouteKey(path: string): string | null {
+  const clean = path.split("?")[0].replace(/^\/+|\/+$/g, "");
+  const [first] = clean.split("/");
+
+  switch (first) {
+    case "":        return "home";
+    case "search":  return "search";
+    case "facts":   return "facts";
+    case "submit":  return "submit";
+    case "profile": return "profile";
+    case "onboard": return "onboard";
+    case "activity":return "activity";
+    case "meme":    return "meme";
+    case "video":   return "video";
+    case "pricing": return "pricing";
+    case "login":   return "login";
+    default:        return null; // admin, auth flows, redirects — skip
+  }
+}
+
+/** Read the stored visit-count map from localStorage. */
+export function getRouteVisitCounts(): Record<string, number> {
+  try {
+    const raw = localStorage.getItem(ROUTE_VISIT_KEY);
+    if (!raw) return {};
+    return JSON.parse(raw) as Record<string, number>;
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * Increment the visit counter for the given path.
+ * Silently ignores routes that have no route key (admin pages, etc.).
+ */
+export function trackRouteVisit(path: string): void {
+  const key = normalizePathToRouteKey(path);
+  if (!key) return;
+  try {
+    const counts = getRouteVisitCounts();
+    counts[key] = (counts[key] ?? 0) + 1;
+    localStorage.setItem(ROUTE_VISIT_KEY, JSON.stringify(counts));
+  } catch {
+    // localStorage may be unavailable (private browsing with storage blocked, etc.)
+  }
+}
+
+/**
+ * Returns the top-N most-visited route keys, sorted descending by count.
+ * Returns an empty array if no visit data has been recorded yet.
+ */
+export function getTopRoutes(n: number): string[] {
+  const counts = getRouteVisitCounts();
+  return Object.entries(counts)
+    .sort(([, a], [, b]) => b - a)
+    .slice(0, n)
+    .map(([key]) => key);
+}

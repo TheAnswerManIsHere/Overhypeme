@@ -4,7 +4,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Sentry } from "@/lib/sentry";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { trackPageView } from "@/lib/analytics";
+import { trackPageView, trackRouteVisit, getTopRoutes } from "@/lib/analytics";
 import { PersonNameProvider, SHARE_LINK_ACTIVE, usePersonName } from "@/hooks/use-person-name";
 import { useAuth, AuthProvider } from "@workspace/replit-auth-web";
 import SentryFallback from "@/components/SentryFallback";
@@ -154,16 +154,50 @@ function ShareLinkAutoLogout() {
 }
 
 /**
+ * Maps stable route keys (produced by normalizePathToRouteKey) to their
+ * lazy-import functions.  Only prefetchable pages are listed here;
+ * admin routes and auth flows are intentionally omitted.
+ */
+const ROUTE_IMPORT_MAP: Record<string, () => Promise<unknown>> = {
+  home:     () => import("@/pages/Home"),
+  search:   () => import("@/pages/Search"),
+  facts:    () => import("@/pages/FactDetail"),
+  submit:   () => import("@/pages/SubmitFact"),
+  profile:  () => import("@/pages/Profile"),
+  activity: () => import("@/pages/ActivityFeed"),
+  meme:     () => import("@/pages/MemePage"),
+  video:    () => import("@/pages/VideoPage"),
+  pricing:  () => import("@/pages/Pricing"),
+};
+
+/** Route keys used when no visit data has been recorded yet. */
+const DEFAULT_PREFETCH_ROUTES = ["home", "search", "facts"] as const;
+
+/**
  * Prefetches the most-visited page chunks during browser idle time so that
  * first navigation to those routes has no visible loading delay.
- * Less-visited pages (admin, pricing, auth, etc.) remain deferred.
+ *
+ * The prefetch set is data-driven: visit counts recorded in localStorage by
+ * trackRouteVisit() determine which routes are most popular.  Only routes that
+ * have a corresponding entry in ROUTE_IMPORT_MAP are considered — routes like
+ * /login or /onboard are tracked for analytics but are not prefetch candidates.
+ * Once at least 3 distinct prefetchable routes have been recorded, those top-3
+ * replace the hardcoded defaults so the set stays accurate as traffic patterns
+ * evolve.  Less-visited pages (admin, auth, etc.) remain deferred.
  */
 function PrefetchCriticalRoutes() {
   useEffect(() => {
     const prefetch = () => {
-      void import("@/pages/Home");
-      void import("@/pages/Search");
-      void import("@/pages/FactDetail");
+      // Filter to only keys that have a prefetchable chunk, then take top 3.
+      // This prevents non-prefetchable routes (login, onboard, etc.) from
+      // displacing valid candidates even if they rank highly in visit counts.
+      const top = getTopRoutes(Object.keys(ROUTE_IMPORT_MAP).length)
+        .filter((key) => key in ROUTE_IMPORT_MAP)
+        .slice(0, 3);
+      const keys = top.length >= 3 ? top : DEFAULT_PREFETCH_ROUTES;
+      for (const key of keys) {
+        ROUTE_IMPORT_MAP[key]?.();
+      }
     };
 
     if ("requestIdleCallback" in window) {
@@ -182,6 +216,7 @@ function GAPageTracker() {
   const [location] = useLocation();
   useEffect(() => {
     trackPageView(location);
+    trackRouteVisit(location);
   }, [location]);
   return null;
 }
