@@ -401,8 +401,9 @@ export default function FactDetail() {
             ))}
           </div>
 
-          <div className="flex items-center justify-between border-t-2 border-border pt-6 mt-6">
-            <div className="flex items-center gap-4 flex-wrap">
+          <div className="border-t-2 border-border pt-6 mt-6">
+            {/* Vote buttons — always side-by-side */}
+            <div className="flex items-center gap-4">
               <Button
                 variant="secondary"
                 size="lg"
@@ -423,21 +424,39 @@ export default function FactDetail() {
                 <ThumbsDown className={cn("w-6 h-6", fact.userRating === "down" && "fill-current")} />
                 <span className="text-xl">{fact.downvotes}</span>
               </Button>
+              {/* Desktop: MAKE MEME inline with votes */}
               <Button
                 variant="primary"
                 size="lg"
                 onClick={() => openMemeStudio("image")}
-                className="gap-2 h-14"
+                className="hidden sm:flex gap-2 h-14"
               >
                 <Flame className="w-5 h-5" />
                 <span>MAKE MEME</span>
               </Button>
+              {/* Desktop: ADDED pushed to far right */}
+              <div className="hidden sm:block ml-auto text-muted-foreground text-sm font-medium text-right">
+                <div>FACT ID {fact.id} &nbsp;·&nbsp; ADDED: {format(new Date(fact.createdAt), 'MMM dd, yyyy')}</div>
+                {fact.submittedBy && <div className="text-primary mt-1">BY {fact.submittedBy.toUpperCase()}</div>}
+              </div>
             </div>
 
-            <div className="text-muted-foreground text-sm font-medium text-right">
+            {/* Mobile: ADDED below votes */}
+            <div className="sm:hidden mt-3 text-muted-foreground text-sm font-medium">
               <div>FACT ID {fact.id} &nbsp;·&nbsp; ADDED: {format(new Date(fact.createdAt), 'MMM dd, yyyy')}</div>
               {fact.submittedBy && <div className="text-primary mt-1">BY {fact.submittedBy.toUpperCase()}</div>}
             </div>
+
+            {/* Mobile: MAKE MEME below ADDED */}
+            <Button
+              variant="primary"
+              size="lg"
+              onClick={() => openMemeStudio("image")}
+              className="sm:hidden w-full mt-3 gap-2 h-14"
+            >
+              <Flame className="w-5 h-5" />
+              <span>MAKE MEME</span>
+            </Button>
           </div>
 
         </div>
