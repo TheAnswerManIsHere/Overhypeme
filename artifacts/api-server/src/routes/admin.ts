@@ -1,7 +1,7 @@
 import { Router, type IRouter, type Request, type Response, type NextFunction } from "express";
 import * as Sentry from "@sentry/node";
 import { db, usersTable, sessionsTable } from "@workspace/db";
-import { factsTable, commentsTable, adminConfigTable, videoStylesTable, featureFlagsTable, tierFeaturePermissionsTable, userGenerationCostsTable, lifetimeEntitlementsTable, subscriptionsTable, membershipHistoryTable, activityFeedTable, memesTable, userAiImagesTable, routeVisitStatsTable } from "@workspace/db/schema";
+import { factsTable, commentsTable, adminConfigTable, videoStylesTable, featureFlagsTable, tierFeaturePermissionsTable, userGenerationCostsTable, lifetimeEntitlementsTable, subscriptionsTable, membershipHistoryTable, activityFeedTable, memesTable, userAiImagesTable, routeStatsTable } from "@workspace/db/schema";
 import { eq, desc, count, ilike, sql, and, or, inArray, isNull, asc, gt } from "drizzle-orm";
 import { getSessionId, getSession, updateSession } from "../lib/auth";
 import { isAdminById } from "./auth";
@@ -1706,12 +1706,12 @@ router.post("/route-stats", async (req: Request, res: Response) => {
   await Promise.all(
     entries.map(({ routeKey, delta }) =>
       db
-        .insert(routeVisitStatsTable)
+        .insert(routeStatsTable)
         .values({ routeKey, visitCount: delta })
         .onConflictDoUpdate({
-          target: routeVisitStatsTable.routeKey,
+          target: routeStatsTable.routeKey,
           set: {
-            visitCount: sql`${routeVisitStatsTable.visitCount} + ${delta}`,
+            visitCount: sql`${routeStatsTable.visitCount} + ${delta}`,
             updatedAt: sql`now()`,
           },
         }),
@@ -1729,8 +1729,8 @@ router.post("/route-stats", async (req: Request, res: Response) => {
 router.get("/admin/route-stats", requireAdmin, async (_req: Request, res: Response) => {
   const rows = await db
     .select()
-    .from(routeVisitStatsTable)
-    .orderBy(desc(routeVisitStatsTable.visitCount));
+    .from(routeStatsTable)
+    .orderBy(desc(routeStatsTable.visitCount));
   res.json({ stats: rows });
 });
 
