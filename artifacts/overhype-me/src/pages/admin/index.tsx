@@ -58,8 +58,33 @@ export default function AdminDashboard() {
   const [backendSentryStatus, setBackendSentryStatus] = useState<"idle" | "loading" | "sent" | "error">("idle");
   type SortKey = "rank" | "routeKey" | "visitCount" | "updatedAt";
   type SortDir = "asc" | "desc";
-  const [sortKey, setSortKey] = useState<SortKey>("visitCount");
-  const [sortDir, setSortDir] = useState<SortDir>("desc");
+  const VALID_SORT_KEYS: SortKey[] = ["rank", "routeKey", "visitCount", "updatedAt"];
+  const VALID_SORT_DIRS: SortDir[] = ["asc", "desc"];
+  const [sortKey, setSortKey] = useState<SortKey>(() => {
+    try {
+      const stored = localStorage.getItem("admin.topPages.sortKey");
+      return (stored && VALID_SORT_KEYS.includes(stored as SortKey) ? stored as SortKey : "visitCount");
+    } catch {
+      return "visitCount";
+    }
+  });
+  const [sortDir, setSortDir] = useState<SortDir>(() => {
+    try {
+      const stored = localStorage.getItem("admin.topPages.sortDir");
+      return (stored && VALID_SORT_DIRS.includes(stored as SortDir) ? stored as SortDir : "desc");
+    } catch {
+      return "desc";
+    }
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem("admin.topPages.sortKey", sortKey);
+      localStorage.setItem("admin.topPages.sortDir", sortDir);
+    } catch {
+      // ignore storage errors (e.g. private browsing, quota exceeded)
+    }
+  }, [sortKey, sortDir]);
 
   function handleSort(key: SortKey) {
     if (sortKey === key) {
