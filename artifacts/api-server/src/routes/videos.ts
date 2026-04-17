@@ -526,27 +526,61 @@ function resolveImageUrl(raw: string | undefined, req: Request): string | undefi
 
 const _objectStorage = new ObjectStorageService();
 
-function extractStoragePathFromUrl(imageUrl: string): string | null {
+/**
+ * Extracts the /objects/... storage path from any of our private storage URLs:
+ *
+ *   1. /memes/ai-user/image?storagePath=...  (AI reference images)
+ *   2. /api/storage/objects/{subPath}         (uploads, ai-backgrounds, etc.)
+ *
+ * Returns the canonical /objects/{subPath} path, or null if the URL is not
+ * one of our private storage URLs.
+ */
+function extractObjectsPath(imageUrl: string): string | null {
   try {
     const u = new URL(imageUrl);
-    if (!u.pathname.includes("/memes/ai-user/image")) return null;
-    return u.searchParams.get("storagePath");
+
+    // Pattern 1: AI reference image query-param style
+    if (u.pathname.includes("/memes/ai-user/image")) {
+      return u.searchParams.get("storagePath");
+    }
+
+    // Pattern 2: /api/storage/objects/{subPath}
+    const OBJECTS_PREFIX = "/api/storage/objects/";
+    const idx = u.pathname.indexOf(OBJECTS_PREFIX);
+    if (idx !== -1) {
+      const subPath = u.pathname.slice(idx + OBJECTS_PREFIX.length);
+      if (subPath) return `/objects/${subPath}`;
+    }
+
+    return null;
   } catch {
     return null;
   }
 }
 
+/**
+ * If `imageUrl` points to one of our private storage objects (uploaded images,
+ * AI backgrounds, reference images), downloads it from GCS and re-uploads it
+ * to fal.ai's transient CDN so the video model can access it publicly.
+ *
+ * Returns the fal.ai CDN URL on success, or null if the URL is not a private
+ * storage URL (caller should use the original URL unchanged).
+ */
 async function uploadPrivateImageToFalCdn(imageUrl: string): Promise<string | null> {
-  const storagePath = extractStoragePathFromUrl(imageUrl);
-  if (!storagePath) return null;
+  const objectsPath = extractObjectsPath(imageUrl);
+  if (!objectsPath) return null;
   try {
-    const normalized = _objectStorage.normalizeObjectEntityPath(storagePath);
+    const normalized = _objectStorage.normalizeObjectEntityPath(objectsPath);
     const file = await _objectStorage.getObjectEntityFile(normalized);
     const response = await _objectStorage.downloadObject(file, 60);
+    const contentType = response.headers.get("content-type") ?? "image/jpeg";
     const buf = Buffer.from(await response.arrayBuffer());
-    const blob = new Blob([buf], { type: "image/png" });
-    return await fal.storage.upload(blob, { lifecycle: { expiresIn: "1h" } });
-  } catch {
+    const blob = new Blob([buf], { type: contentType });
+    const cdnUrl = await fal.storage.upload(blob, { lifecycle: { expiresIn: "1h" } });
+    console.log(`[videos/generate] Uploaded private image to fal CDN: ${objectsPath} → ${cdnUrl}`);
+    return cdnUrl;
+  } catch (err) {
+    console.warn(`[videos/generate] Failed to upload private image to fal CDN (${objectsPath}):`, err instanceof Error ? err.message : err);
     return null;
   }
 }
