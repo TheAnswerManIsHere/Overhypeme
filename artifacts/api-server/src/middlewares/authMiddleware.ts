@@ -26,6 +26,10 @@ declare global {
   }
 }
 
+export interface AuthenticatedRequest extends Request {
+  user: AuthUser;
+}
+
 async function refreshIfExpired(
   sid: string,
   session: SessionData,
