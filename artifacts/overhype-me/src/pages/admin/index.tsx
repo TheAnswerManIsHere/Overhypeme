@@ -15,9 +15,28 @@ interface RouteVisitStat {
   updatedAt?: string;
 }
 
+type TimeRange = "7d" | "30d" | "all";
+
+const TIME_RANGE_LABELS: Record<TimeRange, string> = {
+  "7d": "Last 7 days",
+  "30d": "Last 30 days",
+  "all": "All time",
+};
+
+const STORAGE_KEY_RANGE = "admin_top_pages_time_range";
+
+function loadStoredRange(): TimeRange {
+  try {
+    const v = localStorage.getItem(STORAGE_KEY_RANGE);
+    if (v === "7d" || v === "30d" || v === "all") return v;
+  } catch {}
+  return "all";
+}
+
 export default function AdminDashboard() {
   const [stats, setStats] = useState<Stats | null>(null);
   const [routeStats, setRouteStats] = useState<RouteVisitStat[] | null>(null);
+  const [timeRange, setTimeRange] = useState<TimeRange>(loadStoredRange);
   const [backendSentryStatus, setBackendSentryStatus] = useState<"idle" | "loading" | "sent" | "error">("idle");
   type SortKey = "rank" | "routeKey" | "visitCount" | "updatedAt";
   type SortDir = "asc" | "desc";
@@ -66,11 +85,16 @@ export default function AdminDashboard() {
   }, []);
 
   useEffect(() => {
-    fetch("/api/admin/route-stats", { credentials: "include" })
+    try { localStorage.setItem(STORAGE_KEY_RANGE, timeRange); } catch {}
+    setRouteStats(null);
+    const url = timeRange === "all"
+      ? "/api/admin/route-stats"
+      : `/api/admin/route-stats?since=${timeRange}`;
+    fetch(url, { credentials: "include" })
       .then((r) => r.json())
       .then((data: { stats: RouteVisitStat[] }) => setRouteStats(data.stats ?? []))
       .catch(() => setRouteStats([]));
-  }, []);
+  }, [timeRange]);
 
   const cards = [
     {
@@ -150,6 +174,21 @@ export default function AdminDashboard() {
           description="Aggregate route visit counts across all users — update the prefetch list based on these."
           storageKey="admin_section_dashboard_top_pages"
         >
+          <div className="flex gap-1 mb-3">
+            {(["7d", "30d", "all"] as TimeRange[]).map((r) => (
+              <button
+                key={r}
+                onClick={() => setTimeRange(r)}
+                className={`px-2 py-0.5 rounded text-xs font-medium transition-colors border ${
+                  timeRange === r
+                    ? "bg-primary text-primary-foreground border-primary"
+                    : "bg-muted text-muted-foreground border-border hover:bg-muted/80"
+                }`}
+              >
+                {TIME_RANGE_LABELS[r]}
+              </button>
+            ))}
+          </div>
           {routeStats === null ? (
             <p className="text-xs text-muted-foreground">Loading…</p>
           ) : routeStats.length === 0 ? (
