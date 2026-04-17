@@ -451,9 +451,12 @@ export function ImageCard({
   const kebabRef = useRef<HTMLButtonElement>(null);
 
   const openLightbox = useCallback(() => {
-    const target = displaySrc ?? src;
-    window.open(target, "_blank", "noopener,noreferrer");
-  }, [displaySrc, src]);
+    // Always open the real `src` URL, not a blob: URL.
+    // Blob URLs are tied to this page's document context and cannot be
+    // loaded in a new tab. The user's session cookie will authenticate the
+    // request for auth-protected images automatically.
+    window.open(src, "_blank", "noopener,noreferrer");
+  }, [src]);
 
   const handleCopy = useCallback(async () => {
     if (!permalink) return;
