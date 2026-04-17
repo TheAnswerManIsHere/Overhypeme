@@ -37,6 +37,10 @@ const LEGACY_MIGRATIONS = [
   { hash: "2c054923ef760fe97057d095cd8b15313497b43878cd5d0a3626069a0d0c46de", createdAt: 1700000014000 },
   { hash: "3b54d050b601667d7b4f39dda2a66aa85435010b96687f1a3ea16efb23b06226", createdAt: 1700000015000 },
   { hash: "5895871e31a16f40a59132a774c85b0c0c2f443ac1365264b0ca74582b2d57a2", createdAt: 1776300000000 },
+  // 0018_cute_maestro — route_stat_events table (already applied in prod via partial deploy)
+  { hash: "892a000eebbcacd6266eeb379fbbebac7b2f845f0b98b46a3548d77a5c3b81c9", createdAt: 1776450557270 },
+  // 0019_bright_gateway — route_stat_events indexes
+  { hash: "843f7398e3258d10a9088a5ffe9a250366dd04810fbd977c35b97fd52109dd89", createdAt: 1776451074957 },
 ];
 
 async function seedLegacyMigrations(client: pg.PoolClient): Promise<void> {
