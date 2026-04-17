@@ -9,25 +9,23 @@ export interface HealthStatus {
   status: string;
 }
 
-export type AuthUserMembershipTier =
-  | (typeof AuthUserMembershipTier)[keyof typeof AuthUserMembershipTier]
-  | null;
+export type AuthUserMembershipTier = typeof AuthUserMembershipTier[keyof typeof AuthUserMembershipTier] | null;
+
 
 export const AuthUserMembershipTier = {
-  unregistered: "unregistered",
-  registered: "registered",
-  legendary: "legendary",
+  unregistered: 'unregistered',
+  registered: 'registered',
+  legendary: 'legendary',
 } as const;
 
-export type AuthUserUserRole =
-  | (typeof AuthUserUserRole)[keyof typeof AuthUserUserRole]
-  | null;
+export type AuthUserUserRole = typeof AuthUserUserRole[keyof typeof AuthUserUserRole] | null;
+
 
 export const AuthUserUserRole = {
-  unregistered: "unregistered",
-  registered: "registered",
-  legendary: "legendary",
-  admin: "admin",
+  unregistered: 'unregistered',
+  registered: 'registered',
+  legendary: 'legendary',
+  admin: 'admin',
 } as const;
 
 export interface AuthUser {
@@ -78,19 +76,19 @@ export interface DuplicateConflict {
   matchingFactText?: string;
 }
 
-export type AffiliateClickRequestSourceType =
-  (typeof AffiliateClickRequestSourceType)[keyof typeof AffiliateClickRequestSourceType];
+export type AffiliateClickRequestSourceType = typeof AffiliateClickRequestSourceType[keyof typeof AffiliateClickRequestSourceType];
+
 
 export const AffiliateClickRequestSourceType = {
-  fact: "fact",
-  meme: "meme",
+  fact: 'fact',
+  meme: 'meme',
 } as const;
 
-export type AffiliateClickRequestDestination =
-  (typeof AffiliateClickRequestDestination)[keyof typeof AffiliateClickRequestDestination];
+export type AffiliateClickRequestDestination = typeof AffiliateClickRequestDestination[keyof typeof AffiliateClickRequestDestination];
+
 
 export const AffiliateClickRequestDestination = {
-  zazzle: "zazzle",
+  zazzle: 'zazzle',
 } as const;
 
 export interface AffiliateClickRequest {
@@ -107,19 +105,19 @@ export interface AffiliateClickResponse {
   url: string;
 }
 
-export type AffiliateClickRowSourceType =
-  (typeof AffiliateClickRowSourceType)[keyof typeof AffiliateClickRowSourceType];
+export type AffiliateClickRowSourceType = typeof AffiliateClickRowSourceType[keyof typeof AffiliateClickRowSourceType];
+
 
 export const AffiliateClickRowSourceType = {
-  fact: "fact",
-  meme: "meme",
+  fact: 'fact',
+  meme: 'meme',
 } as const;
 
-export type AffiliateClickRowDestination =
-  (typeof AffiliateClickRowDestination)[keyof typeof AffiliateClickRowDestination];
+export type AffiliateClickRowDestination = typeof AffiliateClickRowDestination[keyof typeof AffiliateClickRowDestination];
+
 
 export const AffiliateClickRowDestination = {
-  zazzle: "zazzle",
+  zazzle: 'zazzle',
 } as const;
 
 export interface AffiliateClickRow {
@@ -130,11 +128,11 @@ export interface AffiliateClickRow {
   lastClicked: string;
 }
 
-export type AffiliateDestinationTotalDestination =
-  (typeof AffiliateDestinationTotalDestination)[keyof typeof AffiliateDestinationTotalDestination];
+export type AffiliateDestinationTotalDestination = typeof AffiliateDestinationTotalDestination[keyof typeof AffiliateDestinationTotalDestination];
+
 
 export const AffiliateDestinationTotalDestination = {
-  zazzle: "zazzle",
+  zazzle: 'zazzle',
 } as const;
 
 export interface AffiliateDestinationTotal {
@@ -161,13 +159,12 @@ export interface HashtagListResponse {
   hashtags: Hashtag[];
 }
 
-export type FactSummaryUserRating =
-  | (typeof FactSummaryUserRating)[keyof typeof FactSummaryUserRating]
-  | null;
+export type FactSummaryUserRating = typeof FactSummaryUserRating[keyof typeof FactSummaryUserRating] | null;
+
 
 export const FactSummaryUserRating = {
-  up: "up",
-  down: "down",
+  up: 'up',
+  down: 'down',
 } as const;
 
 export interface FactSummary {
@@ -195,11 +192,11 @@ export interface ExternalLink {
   createdAt: string;
 }
 
-export type FactDetail = FactSummary & {
+export type FactDetail = FactSummary & ({
   links?: ExternalLink[];
   parentId?: number | null;
   variants?: FactSummary[];
-};
+});
 
 export interface FactListResponse {
   facts: FactSummary[];
@@ -218,26 +215,25 @@ export interface CreateFactRequest {
   skipDuplicateCheck?: boolean;
 }
 
-export type RateFactRequestRating =
-  (typeof RateFactRequestRating)[keyof typeof RateFactRequestRating];
+export type RateFactRequestRating = typeof RateFactRequestRating[keyof typeof RateFactRequestRating];
+
 
 export const RateFactRequestRating = {
-  up: "up",
-  down: "down",
-  none: "none",
+  up: 'up',
+  down: 'down',
+  none: 'none',
 } as const;
 
 export interface RateFactRequest {
   rating: RateFactRequestRating;
 }
 
-export type RatingResultUserRating =
-  | (typeof RatingResultUserRating)[keyof typeof RatingResultUserRating]
-  | null;
+export type RatingResultUserRating = typeof RatingResultUserRating[keyof typeof RatingResultUserRating] | null;
+
 
 export const RatingResultUserRating = {
-  up: "up",
-  down: "down",
+  up: 'up',
+  down: 'down',
 } as const;
 
 export interface RatingResult {
@@ -371,22 +367,22 @@ export interface MemeTemplateListResponse {
   templates: MemeTemplate[];
 }
 
-export type MemeTextOptionsAlign =
-  (typeof MemeTextOptionsAlign)[keyof typeof MemeTextOptionsAlign];
+export type MemeTextOptionsAlign = typeof MemeTextOptionsAlign[keyof typeof MemeTextOptionsAlign];
+
 
 export const MemeTextOptionsAlign = {
-  left: "left",
-  center: "center",
-  right: "right",
+  left: 'left',
+  center: 'center',
+  right: 'right',
 } as const;
 
-export type MemeTextOptionsVerticalPosition =
-  (typeof MemeTextOptionsVerticalPosition)[keyof typeof MemeTextOptionsVerticalPosition];
+export type MemeTextOptionsVerticalPosition = typeof MemeTextOptionsVerticalPosition[keyof typeof MemeTextOptionsVerticalPosition];
+
 
 export const MemeTextOptionsVerticalPosition = {
-  top: "top",
-  middle: "middle",
-  bottom: "bottom",
+  top: 'top',
+  middle: 'middle',
+  bottom: 'bottom',
 } as const;
 
 export interface MemeTextOptions {
@@ -484,46 +480,47 @@ export interface BulkImportFactsResponse {
 export type AuthorizationSessionHeaderParameter = string;
 
 export type BeginBrowserLoginParams = {
-  returnTo?: string;
+returnTo?: string;
 };
 
 export type HandleBrowserLoginCallbackParams = {
-  code?: string;
-  state?: string;
-  iss?: string;
+code?: string;
+state?: string;
+iss?: string;
 };
 
 export type ListFactsParams = {
-  search?: string;
-  hashtag?: string;
-  sort?: ListFactsSort;
-  /**
-   * @minimum 1
-   * @maximum 100
-   */
-  limit?: number;
-  /**
-   * @minimum 0
-   */
-  offset?: number;
+search?: string;
+hashtag?: string;
+sort?: ListFactsSort;
+/**
+ * @minimum 1
+ * @maximum 100
+ */
+limit?: number;
+/**
+ * @minimum 0
+ */
+offset?: number;
 };
 
-export type ListFactsSort = (typeof ListFactsSort)[keyof typeof ListFactsSort];
+export type ListFactsSort = typeof ListFactsSort[keyof typeof ListFactsSort];
+
 
 export const ListFactsSort = {
-  top: "top",
-  newest: "newest",
-  trending: "trending",
+  top: 'top',
+  newest: 'newest',
+  trending: 'trending',
 } as const;
 
 export type ListCommentsParams = {
-  limit?: number;
-  offset?: number;
+limit?: number;
+offset?: number;
 };
 
 export type ListHashtagsParams = {
-  search?: string;
-  limit?: number;
+search?: string;
+limit?: number;
 };
 
 export type CheckDuplicateBody = {
@@ -571,26 +568,25 @@ export type GetAdminFlaggedComments200 = {
 };
 
 export type GetAffiliateStatsParams = {
-  /**
-   * Filter clicks from this date, inclusive (YYYY-MM-DD)
-   */
-  from?: string;
-  /**
-   * Filter clicks up to this date, inclusive (YYYY-MM-DD)
-   */
-  to?: string;
+/**
+ * Filter clicks from this date, inclusive (YYYY-MM-DD)
+ */
+from?: string;
+/**
+ * Filter clicks up to this date, inclusive (YYYY-MM-DD)
+ */
+to?: string;
 };
 
 export type BulkImportFactsParams = {
-  /**
-   * If true, validate items but do not write to the database.
-   */
-  dryRun?: boolean;
+/**
+ * If true, validate items but do not write to the database.
+ */
+dryRun?: boolean;
 };
 
-export type BulkImportFactsBody =
-  | ImportFactItem[]
-  | {
-      /** @maxItems 500 */
-      facts: ImportFactItem[];
-    };
+export type BulkImportFactsBody = ImportFactItem[] | {
+  /** @maxItems 500 */
+  facts: ImportFactItem[];
+};
+
