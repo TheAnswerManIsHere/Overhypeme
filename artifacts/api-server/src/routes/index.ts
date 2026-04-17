@@ -16,6 +16,7 @@ import localAuthRouter from "./localAuth";
 import reviewsRouter from "./reviews";
 import shareRouter from "./share";
 import videosRouter from "./videos";
+import routeStatsRouter from "./routeStats";
 
 const router: IRouter = Router();
 
@@ -35,6 +36,7 @@ router.use(affiliateRouter);
 router.use(reviewsRouter);
 router.use(shareRouter);
 router.use(videosRouter);
+router.use(routeStatsRouter);
 router.use(importRouter);
 
 export default router;

@@ -17,4 +17,4 @@ export * from "./videoJobs";
 export * from "./videoStyles";
 export * from "./featureFlags";
 export * from "./falPricing";
-export * from "./routeVisitStats";
+export * from "./routeStats";

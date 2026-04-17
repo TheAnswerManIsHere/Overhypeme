@@ -193,39 +193,96 @@ const ROUTE_IMPORT_MAP: Record<string, () => Promise<unknown>> = {
 /** Route keys used when no visit data has been recorded yet. */
 const DEFAULT_PREFETCH_ROUTES = ["home", "search", "facts"] as const;
 
+const ROUTE_STATS_SESSION_KEY = "omh:prefetch-routes";
+
+/**
+ * Resolves the prefetch route list using the following priority chain:
+ *   1. Server snapshot (GET /api/route-stats) — cached in sessionStorage so
+ *      it is only fetched once per browser session.
+ *   2. localStorage top routes (accumulated by trackRouteVisit).
+ *   3. Hardcoded defaults.
+ * The resolved list is always filtered to valid ROUTE_IMPORT_MAP keys so that
+ * non-prefetchable routes (login, onboard, etc.) are never considered.
+ */
+async function resolvePrefetchRoutes(): Promise<string[]> {
+  // 1. Check sessionStorage for a cached server snapshot.
+  try {
+    const cached = sessionStorage.getItem(ROUTE_STATS_SESSION_KEY);
+    if (cached) {
+      const parsed = JSON.parse(cached) as string[];
+      const valid = parsed.filter((k) => k in ROUTE_IMPORT_MAP).slice(0, 3);
+      if (valid.length >= 3) return valid;
+    }
+  } catch {
+    // sessionStorage unavailable — fall through
+  }
+
+  // 2. Fetch a fresh server snapshot.
+  try {
+    const base: string = import.meta.env.BASE_URL ?? "/";
+    const url = `${base}api/route-stats?n=3`;
+    const res = await fetch(url, { credentials: "same-origin" });
+    if (res.ok) {
+      const data = (await res.json()) as { routes: string[] };
+      const valid = (data.routes ?? [])
+        .filter((k) => k in ROUTE_IMPORT_MAP)
+        .slice(0, 3);
+      // Cache the result for this session regardless of how many items we got.
+      try {
+        sessionStorage.setItem(ROUTE_STATS_SESSION_KEY, JSON.stringify(valid));
+      } catch {
+        // ignore
+      }
+      if (valid.length >= 3) return valid;
+    }
+  } catch {
+    // Network or parse error — fall through to localStorage
+  }
+
+  // 3. Fall back to localStorage top routes.
+  const localTop = getTopRoutes(Object.keys(ROUTE_IMPORT_MAP).length)
+    .filter((k) => k in ROUTE_IMPORT_MAP)
+    .slice(0, 3);
+  if (localTop.length >= 3) return localTop;
+
+  // 4. Final fallback: hardcoded defaults.
+  return [...DEFAULT_PREFETCH_ROUTES];
+}
+
 /**
  * Prefetches the most-visited page chunks during browser idle time so that
  * first navigation to those routes has no visible loading delay.
  *
- * The prefetch set is data-driven: visit counts recorded in localStorage by
- * trackRouteVisit() determine which routes are most popular.  Only routes that
- * have a corresponding entry in ROUTE_IMPORT_MAP are considered — routes like
- * /login or /onboard are tracked for analytics but are not prefetch candidates.
- * Once at least 3 distinct prefetchable routes have been recorded, those top-3
- * replace the hardcoded defaults so the set stays accurate as traffic patterns
- * evolve.  Less-visited pages (admin, auth, etc.) remain deferred.
+ * The prefetch set is resolved via a server-driven snapshot (refreshed once
+ * per session with stale-while-revalidate semantics via sessionStorage), with
+ * localStorage visit counts and hardcoded defaults as successive fallbacks.
+ * This ensures all users benefit from accurate, traffic-pattern-driven
+ * prefetching regardless of their personal visit history.
  */
 function PrefetchCriticalRoutes() {
   useEffect(() => {
-    const prefetch = () => {
-      // Filter to only keys that have a prefetchable chunk, then take top 3.
-      // This prevents non-prefetchable routes (login, onboard, etc.) from
-      // displacing valid candidates even if they rank highly in visit counts.
-      const top = getTopRoutes(Object.keys(ROUTE_IMPORT_MAP).length)
-        .filter((key) => key in ROUTE_IMPORT_MAP)
-        .slice(0, 3);
-      const keys = top.length >= 3 ? top : DEFAULT_PREFETCH_ROUTES;
-      for (const key of keys) {
-        ROUTE_IMPORT_MAP[key]?.();
-      }
+    let cancelled = false;
+
+    const run = () => {
+      resolvePrefetchRoutes().then((keys) => {
+        if (cancelled) return;
+        for (const key of keys) {
+          ROUTE_IMPORT_MAP[key]?.();
+        }
+      }).catch(() => {
+        if (cancelled) return;
+        for (const key of DEFAULT_PREFETCH_ROUTES) {
+          ROUTE_IMPORT_MAP[key]?.();
+        }
+      });
     };
 
     if ("requestIdleCallback" in window) {
-      const id = requestIdleCallback(prefetch, { timeout: 3000 });
-      return () => cancelIdleCallback(id);
+      const id = requestIdleCallback(run, { timeout: 3000 });
+      return () => { cancelled = true; cancelIdleCallback(id); };
     } else {
-      const id = setTimeout(prefetch, 200);
-      return () => clearTimeout(id);
+      const id = setTimeout(run, 200);
+      return () => { cancelled = true; clearTimeout(id); };
     }
   }, []);
 

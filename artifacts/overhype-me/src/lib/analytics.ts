@@ -80,6 +80,24 @@ export function trackRouteVisit(path: string): void {
   } catch {
     // localStorage may be unavailable (private browsing with storage blocked, etc.)
   }
+  // Fire-and-forget: report to server so the global tally stays accurate.
+  reportRouteVisitToServer(key);
+}
+
+/**
+ * Sends a best-effort POST to the server to increment the server-side visit
+ * counter for the given route key.  Failures are silently swallowed so that
+ * analytics never blocks or breaks the UI.
+ */
+function reportRouteVisitToServer(routeKey: string): void {
+  const base: string = import.meta.env.BASE_URL ?? "/";
+  const url = `${base}api/route-stats`;
+  fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ route: routeKey }),
+    keepalive: true,
+  }).catch(() => {});
 }
 
 /**
