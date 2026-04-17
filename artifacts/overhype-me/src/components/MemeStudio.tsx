@@ -1,4 +1,5 @@
-import { useState, lazy, Suspense } from "react";
+import { useState, Suspense } from "react";
+import { lazyWithRetry } from "@/lib/lazy-retry";
 import {
   X,
   ImageIcon,
@@ -14,11 +15,11 @@ import type { VideoTabProps } from "@/components/MemeStudioVideoTab";
 
 // ─── Lazy sub-chunks ─────────────────────────────────────────────────────────
 
-const MemeBuilder = lazy(() =>
+const MemeBuilder = lazyWithRetry(() =>
   import("@/components/MemeBuilder").then((m) => ({ default: m.MemeBuilder }))
 );
 
-const VideoTab = lazy(() => import("@/components/MemeStudioVideoTab"));
+const VideoTab = lazyWithRetry(() => import("@/components/MemeStudioVideoTab"));
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 

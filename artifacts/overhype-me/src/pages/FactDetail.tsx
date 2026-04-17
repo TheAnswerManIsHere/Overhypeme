@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, lazy, Suspense } from "react";
+import { useState, useEffect, useRef, Suspense } from "react";
 import { useRoute, Link, useLocation } from "wouter";
 import { format } from "date-fns";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -19,8 +19,10 @@ import { AccessGate } from "@/components/AccessGate";
 import { renderFact } from "@/lib/render-fact";
 import type { FactPexelsImages } from "@/types/pexels";
 
-const MemeStudio = lazy(() => import("@/components/MemeStudio").then(m => ({ default: m.MemeStudio })));
-const HCaptcha = lazy(() => import("@hcaptcha/react-hcaptcha"));
+import { lazyWithRetry } from "@/lib/lazy-retry";
+
+const MemeStudio = lazyWithRetry(() => import("@/components/MemeStudio").then(m => ({ default: m.MemeStudio })));
+const HCaptcha = lazyWithRetry(() => import("@hcaptcha/react-hcaptcha"));
 
 type MemeItem = {
   id: number;
