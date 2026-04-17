@@ -1,4 +1,5 @@
 import express, { Router, type IRouter, type Request, type Response } from "express";
+import { type AuthenticatedRequest } from "../middlewares/authMiddleware";
 import { Readable } from "stream";
 import { randomUUID } from "crypto";
 import { uploadKey } from "../lib/storageKeys";
@@ -327,7 +328,7 @@ router.get("/storage/public-objects/*filePath", async (req: Request, res: Respon
  * Public objects (e.g. profile images) are served without authentication.
  * Private objects require the requesting user to be the owner.
  */
-router.get("/storage/objects/*path", async (req: Request, res: Response) => {
+router.get("/storage/objects/*path", async (req: AuthenticatedRequest, res: Response) => {
   try {
     const raw = req.params.path;
     const wildcardPath = Array.isArray(raw) ? raw.join("/") : raw;
@@ -348,14 +349,14 @@ router.get("/storage/objects/*path", async (req: Request, res: Response) => {
         SELECT COUNT(*)::text AS count
         FROM upload_image_metadata
         WHERE object_path = ${objectPath}
-          AND user_id = ${req.user!.id}
+          AND user_id = ${req.user.id}
       `);
       const owned = parseInt(uploadOwnerCheck.rows[0]?.count ?? "0", 10) > 0;
       if (owned) {
         canAccess = true;
         // Heal the missing ACL so subsequent requests skip this fallback
         objectStorageService.trySetObjectEntityAclPolicy(objectPath, {
-          owner: req.user!.id,
+          owner: req.user.id,
           visibility: "private",
         }).catch(() => { /* non-critical */ });
       }
