@@ -1,4 +1,5 @@
 import { Router, type IRouter, type Request, type Response } from "express";
+import { type AuthenticatedRequest } from "../middlewares/authMiddleware";
 import { requireAdmin } from "./admin";
 import { moderateComment, checkDuplicateInternal } from "./ai";
 import { embedFactAsync } from "../lib/embeddings";
@@ -146,7 +147,7 @@ router.get("/facts/:factId", async (req: Request, res: Response) => {
 });
 
 // POST /facts — admin-only direct insert; regular users submit via POST /facts/submit-review
-router.post("/facts", requireAdmin, async (req: Request, res: Response) => {
+router.post("/facts", requireAdmin, async (req: AuthenticatedRequest, res: Response) => {
   const parsed = CreateFactBody.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: "Invalid input", details: parsed.error.flatten() }); return; }
   const { text, hashtags = [] } = parsed.data;
@@ -236,7 +237,7 @@ router.post("/facts", requireAdmin, async (req: Request, res: Response) => {
 });
 
 // POST /facts/:factId/rating
-router.post("/facts/:factId/rating", async (req: Request, res: Response) => {
+router.post("/facts/:factId/rating", async (req: AuthenticatedRequest, res: Response) => {
   if (!req.isAuthenticated()) { res.status(401).json({ error: "Unauthorized" }); return; }
   const paramsParsed = RateFactParams.safeParse(req.params);
   const bodyParsed = RateFactBody.safeParse(req.body);
@@ -321,7 +322,7 @@ router.get("/facts/:factId/comments", async (req: Request, res: Response) => {
 });
 
 // POST /facts/:factId/comments
-router.post("/facts/:factId/comments", async (req: Request, res: Response) => {
+router.post("/facts/:factId/comments", async (req: AuthenticatedRequest, res: Response) => {
   if (!req.isAuthenticated()) { res.status(401).json({ error: "Unauthorized" }); return; }
   const paramsParsed = AddCommentParams.safeParse(req.params);
   const bodyParsed = AddCommentBody.safeParse(req.body);
@@ -382,7 +383,7 @@ router.get("/facts/:factId/links", async (req: Request, res: Response) => {
 });
 
 // GET /facts/:factId/image-preference — authenticated user's saved image index
-router.get("/facts/:factId/image-preference", async (req: Request, res: Response) => {
+router.get("/facts/:factId/image-preference", async (req: AuthenticatedRequest, res: Response) => {
   if (!req.isAuthenticated()) { res.json({ imageIndex: 0 }); return; }
   const factId = parseInt(String(req.params["factId"] ?? ""), 10);
   if (isNaN(factId)) { res.status(400).json({ error: "Invalid factId" }); return; }
@@ -395,7 +396,7 @@ router.get("/facts/:factId/image-preference", async (req: Request, res: Response
 });
 
 // PUT /facts/:factId/image-preference — save authenticated user's image index
-router.put("/facts/:factId/image-preference", async (req: Request, res: Response) => {
+router.put("/facts/:factId/image-preference", async (req: AuthenticatedRequest, res: Response) => {
   if (!req.isAuthenticated()) { res.status(401).json({ error: "Unauthorized" }); return; }
   const factId = parseInt(String(req.params["factId"] ?? ""), 10);
   if (isNaN(factId)) { res.status(400).json({ error: "Invalid factId" }); return; }
@@ -413,7 +414,7 @@ router.put("/facts/:factId/image-preference", async (req: Request, res: Response
 
 
 // DELETE /facts/:factId/links/:linkId
-router.delete("/facts/:factId/links/:linkId", async (req: Request, res: Response) => {
+router.delete("/facts/:factId/links/:linkId", async (req: AuthenticatedRequest, res: Response) => {
   if (!req.isAuthenticated()) { res.status(401).json({ error: "Unauthorized" }); return; }
   const parsed = DeleteLinkParams.safeParse(req.params);
   if (!parsed.success) { res.status(400).json({ error: "Invalid params" }); return; }

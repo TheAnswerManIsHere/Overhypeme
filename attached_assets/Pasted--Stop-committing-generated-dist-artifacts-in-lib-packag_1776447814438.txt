@@ -1,0 +1,92 @@
+# Stop committing generated `dist/` artifacts in lib packages
+
+## Goal
+
+Remove committed build artifacts (`lib/*/dist/`) from the repository and make the build step an explicit prerequisite of any consumer (typecheck, dev server, CI). The source code becomes the single source of truth; `dist/` is regenerated deterministically from it.
+
+This eliminates a class of silent-drift bugs (Task #148, where stale `lib/api-zod/dist` masked real type errors) rather than guarding against them with after-the-fact CI checks.
+
+## Phase 1 — Investigation only, no changes
+
+Before making any changes, produce a plan at the repo root named `DIST_DECOMMIT_PLAN.md` answering the following. Do not modify `.gitignore`, `package.json`, `tsconfig.json`, or any other file during this phase.
+
+### 1. Inventory of committed dist directories
+
+List every `dist/` (or equivalent build output) directory currently tracked in git under `lib/`, `artifacts/`, or anywhere else in the monorepo. For each, record:
+
+- Path
+- Size (file count, approximate byte size)
+- Source `tsconfig.json` `outDir` that produces it
+- `package.json` `main`, `module`, `types`, and `exports` fields that reference it
+- Whether `composite: true` is set
+- Whether it's consumed via TypeScript project references (`references` in a consumer tsconfig) or via package resolution (imported as `@workspace/xxx`)
+
+### 2. Consumer map
+
+For each lib package with a committed `dist/`, list every consumer in the monorepo that imports from it. Note whether the consumer resolves it via:
+
+- TS project references (consumes source through the project graph, `dist/` is irrelevant at typecheck time but may matter at runtime)
+- Package name resolution (consumes `dist/` directly — breaking it breaks the consumer)
+
+This determines the blast radius of removal.
+
+### 3. Build graph analysis
+
+Document:
+
+- Does the monorepo have a build orchestrator (turborepo, nx, pnpm workspace scripts with topological ordering)? Name it and locate its config.
+- What command currently builds all lib packages from a clean state? Run it in a scratch directory and confirm it succeeds and produces the expected `dist/` layout.
+- How long does a cold full build take? (Time it.)
+- How long does an incremental build take? (Time it — touch one source file, rebuild.)
+
+### 4. Runtime / deploy implications
+
+- Does Replit Autoscale run `pnpm install` + a build step on deploy, or does it expect `dist/` to be present in the deployed artifact?
+- If a build is already part of deploy, how much does removing committed `dist/` add to cold-start time?
+- Are there any runtime consumers (edge functions, worker scripts, build-time tooling) that read from `lib/*/dist/` via filesystem path rather than package resolution? If so, they break when `dist/` isn't checked in and must be addressed.
+
+### 5. Developer experience implications
+
+- Does the editor's tsserver work correctly when `dist/` is absent and only source is present? (With composite project references, this usually requires `tsc --build` to have been run at least once.)
+- What's the first-clone developer experience? After `git clone && pnpm install`, can they open the editor and get working types without an explicit build command? If not, what's the additional step?
+- Is there a `postinstall` hook we can add to build lib packages automatically after install?
+
+### 6. Proposed plan
+
+Based on the above, draft a concrete sequence of changes. At minimum this must cover:
+
+- Which `.gitignore` entries to add
+- Which files to `git rm --cached` (the tracked `dist/` directories)
+- Which `package.json` scripts to add or modify (typically: a `build` script at the workspace root, a `postinstall` or `prepare` hook, `typecheck` script that depends on `build`)
+- Whether CI workflow files need changes (they likely do — any step that currently assumes `dist/` exists on checkout)
+- Whether the Replit deploy config (`.replit`, `replit.nix`, or equivalent) needs changes
+- Migration order: which packages to de-commit first (pick the leaf-most lib with the fewest consumers as a pilot), and how to verify each step
+
+Include a "risks and unknowns" section for anything surfaced during investigation that isn't clearly resolved.
+
+**Stop here. Commit `DIST_DECOMMIT_PLAN.md` and wait for approval before Phase 2.**
+
+## Phase 2 — Execute the plan (only after I approve the plan)
+
+Execute in the order proposed in `DIST_DECOMMIT_PLAN.md`, with these rules:
+
+- One package at a time. Each package's de-commit is a separate commit.
+- After each package, verify: fresh clone simulation (`git clean -fdx && pnpm install && pnpm typecheck`) succeeds.
+- If any consumer breaks, stop and report — do not patch consumers on autopilot.
+- The final commit adds workspace-level enforcement (the CI check, the `postinstall` hook, whatever the plan specifies) so new lib packages can't accidentally commit `dist/` in the future.
+
+## Non-goals
+
+- Do not touch codegen (`lib/api-zod/src/generated`, `lib/api-client-react/src/generated`). Those are source files, not build artifacts — they're handled by Task #153.
+- Do not migrate to a different build system (no introducing turborepo, nx, etc. if not already present).
+- Do not refactor `package.json` `exports` or module resolution strategy beyond what's needed to make the removal work.
+- Do not touch any `artifacts/*` app builds — this is scoped to `lib/*` packages that are consumed as libraries.
+
+## Verification checklist (Phase 2 complete)
+
+- [ ] No `dist/` directory under `lib/` is tracked by git (`git ls-files | grep '/dist/'` returns nothing for lib packages)
+- [ ] `.gitignore` prevents re-adding them
+- [ ] Fresh clone + `pnpm install` + `pnpm typecheck` succeeds with no manual steps
+- [ ] Replit deploy succeeds end-to-end and the deployed app runs
+- [ ] Cold-start time regression (if any) is measured and documented in the final commit message
+- [ ] Editor tsserver works on a fresh clone without manual build invocation, OR the required step is documented in the repo README

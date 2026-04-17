@@ -18,6 +18,20 @@ export function markNextEventAsDebugTest(): void {
   _debugTestPending = true;
 }
 
+function scrubSentryEvent(event: Sentry.Event): void {
+  if (event.request?.cookies) delete event.request.cookies;
+  if (event.request?.headers) {
+    delete event.request.headers.Authorization;
+    delete event.request.headers.Cookie;
+  }
+  if (typeof event.request?.url === "string") {
+    event.request.url = scrubUrl(event.request.url, window.location.origin);
+  }
+  if (typeof event.request?.query_string === "string") {
+    event.request.query_string = scrubUrl(`?${event.request.query_string}`, window.location.origin).replace(/^\?/, "");
+  }
+}
+
 Sentry.init({
   dsn,
   environment,
@@ -42,18 +56,24 @@ Sentry.init({
         return null;
       }
     }
-    if (event.request?.cookies) delete event.request.cookies;
-    if (event.request?.headers) {
-      delete event.request.headers.Authorization;
-      delete event.request.headers.Cookie;
-    }
-    if (typeof event.request?.url === "string") {
-      event.request.url = scrubUrl(event.request.url, window.location.origin);
-    }
-    if (typeof event.request?.query_string === "string") {
-      event.request.query_string = scrubUrl(`?${event.request.query_string}`, window.location.origin).replace(/^\?/, "");
-    }
+    scrubSentryEvent(event);
     return event;
+  },
+  beforeSendTransaction(event) {
+    scrubSentryEvent(event);
+    return event;
+  },
+  beforeBreadcrumb(breadcrumb) {
+    if (breadcrumb.data?.url && typeof breadcrumb.data.url === "string") {
+      breadcrumb.data.url = scrubUrl(breadcrumb.data.url, window.location.origin);
+    }
+    if (breadcrumb.data?.from && typeof breadcrumb.data.from === "string") {
+      breadcrumb.data.from = scrubUrl(breadcrumb.data.from, window.location.origin);
+    }
+    if (breadcrumb.data?.to && typeof breadcrumb.data.to === "string") {
+      breadcrumb.data.to = scrubUrl(breadcrumb.data.to, window.location.origin);
+    }
+    return breadcrumb;
   },
 });
 

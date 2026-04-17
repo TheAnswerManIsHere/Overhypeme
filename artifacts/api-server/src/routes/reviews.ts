@@ -1,4 +1,5 @@
 import { Router, type IRouter, type Request, type Response, type NextFunction } from "express";
+import { type AuthenticatedRequest } from "../middlewares/authMiddleware";
 import { z } from "zod";
 import { db } from "@workspace/db";
 import {
@@ -40,7 +41,7 @@ const SubmitReviewBody = z.object({
   reason: z.string().max(100).optional(),
 });
 
-router.post("/facts/submit-review", requireAuth, requireRateLimit, async (req: Request, res: Response) => {
+router.post("/facts/submit-review", requireAuth, requireRateLimit, async (req: AuthenticatedRequest, res: Response) => {
   // Bypass matrix — mirrors the tokenize-fact gate.
   // Admin and legendary members may skip captcha/onboarding; all others must have completed onboarding.
   const sid = getSessionId(req);
@@ -193,7 +194,7 @@ const ApproveVariantBody = z.object({
   adminNote: z.string().max(500).optional(),
 });
 
-router.post("/admin/reviews/:id/approve-variant", requireAdmin, async (req: Request, res: Response) => {
+router.post("/admin/reviews/:id/approve-variant", requireAdmin, async (req: AuthenticatedRequest, res: Response) => {
   const id = parseInt(String(req.params["id"] ?? ""), 10);
   if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
 
@@ -271,7 +272,7 @@ router.post("/admin/reviews/:id/approve-variant", requireAdmin, async (req: Requ
   res.json({ success: true, factId: fact.id, parentFactId });
 });
 
-router.post("/admin/reviews/:id/approve", requireAdmin, async (req: Request, res: Response) => {
+router.post("/admin/reviews/:id/approve", requireAdmin, async (req: AuthenticatedRequest, res: Response) => {
   const id = parseInt(String(req.params["id"] ?? ""), 10);
   if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
 
@@ -352,7 +353,7 @@ router.post("/admin/reviews/:id/approve", requireAdmin, async (req: Request, res
 
 // ─── Reject Review (admin) ────────────────────────────────────────────────────
 
-router.post("/admin/reviews/:id/reject", requireAdmin, async (req: Request, res: Response) => {
+router.post("/admin/reviews/:id/reject", requireAdmin, async (req: AuthenticatedRequest, res: Response) => {
   const id = parseInt(String(req.params["id"] ?? ""), 10);
   if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
 
@@ -396,7 +397,7 @@ router.post("/admin/reviews/:id/reject", requireAdmin, async (req: Request, res:
 
 // ─── Activity Feed ────────────────────────────────────────────────────────────
 
-router.get("/activity-feed", requireAuth, async (req: Request, res: Response) => {
+router.get("/activity-feed", requireAuth, async (req: AuthenticatedRequest, res: Response) => {
   const page = Math.max(1, parseInt(String(req.query["page"] ?? "1"), 10));
   const limit = Math.min(50, Math.max(1, parseInt(String(req.query["limit"] ?? "20"), 10)));
   const offset = (page - 1) * limit;
@@ -422,7 +423,7 @@ router.get("/activity-feed", requireAuth, async (req: Request, res: Response) =>
 });
 
 // Mark all activity entries as read
-router.post("/activity-feed/mark-read", requireAuth, async (req: Request, res: Response) => {
+router.post("/activity-feed/mark-read", requireAuth, async (req: AuthenticatedRequest, res: Response) => {
   await db.update(activityFeedTable)
     .set({ read: true })
     .where(and(eq(activityFeedTable.userId, req.user.id), eq(activityFeedTable.read, false)));

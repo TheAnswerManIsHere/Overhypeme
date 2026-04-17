@@ -146,6 +146,7 @@ export function SubscriptionPanel({ refetchTrigger }: { refetchTrigger?: unknown
       const timers = delays.map((ms) => setTimeout(fetchSubData, ms));
       return () => timers.forEach(clearTimeout);
     }
+    return;
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fetchSubData]);
 

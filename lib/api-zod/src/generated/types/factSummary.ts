@@ -18,5 +18,6 @@ export interface FactSummary {
   submittedBy?: string | null;
   submittedByImage?: string | null;
   userRating?: FactSummaryUserRating;
+  useCase?: string | null;
   createdAt: Date;
 }

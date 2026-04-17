@@ -239,9 +239,9 @@ export default function AdminComments() {
                 <div className="flex items-start justify-between gap-4">
                   <div className="flex-1 min-w-0">
                     <p className="text-foreground">{c.text}</p>
-                    {"flagReason" in c && c.flagReason && (
+                    {"flagReason" in c && c.flagReason != null && (
                       <p className="text-xs text-destructive mt-1.5 font-medium">
-                        AI flag reason: {c.flagReason}
+                        AI flag reason: {String(c.flagReason)}
                       </p>
                     )}
                     <div className="flex items-center gap-3 mt-2 text-xs text-muted-foreground">

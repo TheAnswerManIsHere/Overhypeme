@@ -196,6 +196,7 @@ router.post("/auth/register", async (req: Request, res: Response) => {
       membershipTier: user.membershipTier,
     },
   });
+  return;
 });
 
 router.post("/auth/local-login", async (req: Request, res: Response) => {

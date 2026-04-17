@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { AdminLayout } from "@/components/admin/AdminLayout";
 import { CollapsibleSection } from "@/components/CollapsibleSection";
-import { FileText, Users, TrendingUp, Shield, Zap, Settings, Bug } from "lucide-react";
+import { FileText, Users, TrendingUp, Shield, Zap, Settings, Bug, BarChart2 } from "lucide-react";
 import { markNextEventAsDebugTest } from "@/lib/sentry";
 
 interface Stats {
@@ -9,8 +9,15 @@ interface Stats {
   totalUsers: number;
 }
 
+interface RouteVisitStat {
+  routeKey: string;
+  visitCount: number;
+  updatedAt: string;
+}
+
 export default function AdminDashboard() {
   const [stats, setStats] = useState<Stats | null>(null);
+  const [routeStats, setRouteStats] = useState<RouteVisitStat[] | null>(null);
   const [backendSentryStatus, setBackendSentryStatus] = useState<"idle" | "loading" | "sent" | "error">("idle");
   const [throwForBoundary, setThrowForBoundary] = useState(false);
 
@@ -40,6 +47,13 @@ export default function AdminDashboard() {
       .catch(() => {});
   }, []);
 
+  useEffect(() => {
+    fetch("/api/admin/route-stats", { credentials: "include" })
+      .then((r) => r.json())
+      .then((data: { stats: RouteVisitStat[] }) => setRouteStats(data.stats ?? []))
+      .catch(() => setRouteStats([]));
+  }, []);
+
   const cards = [
     {
       label: "Total Facts",
@@ -67,6 +81,8 @@ export default function AdminDashboard() {
     },
   ];
 
+  const maxCount = routeStats && routeStats.length > 0 ? routeStats[0]!.visitCount : 1;
+
   return (
     <AdminLayout title="Dashboard">
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
@@ -89,6 +105,39 @@ export default function AdminDashboard() {
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+        <CollapsibleSection
+          title="Top Pages"
+          icon={<BarChart2 className="w-4 h-4 text-primary" />}
+          description="Aggregate route visit counts across all users — update the prefetch list based on these."
+          storageKey="admin_section_dashboard_top_pages"
+        >
+          {routeStats === null ? (
+            <p className="text-xs text-muted-foreground">Loading…</p>
+          ) : routeStats.length === 0 ? (
+            <p className="text-xs text-muted-foreground">
+              No visit data yet. Counts are flushed from browsers on each page load.
+            </p>
+          ) : (
+            <ol className="space-y-3">
+              {routeStats.map((row, i) => (
+                <li key={row.routeKey} className="flex items-center gap-3 text-sm">
+                  <span className="w-5 text-right text-muted-foreground text-xs shrink-0">{i + 1}</span>
+                  <span className="w-20 font-mono text-foreground shrink-0">{row.routeKey}</span>
+                  <div className="flex-1 bg-muted rounded-full h-2 overflow-hidden">
+                    <div
+                      className="bg-primary h-2 rounded-full transition-all"
+                      style={{ width: `${Math.round((row.visitCount / maxCount) * 100)}%` }}
+                    />
+                  </div>
+                  <span className="w-16 text-right text-muted-foreground tabular-nums shrink-0">
+                    {row.visitCount.toLocaleString()}
+                  </span>
+                </li>
+              ))}
+            </ol>
+          )}
+        </CollapsibleSection>
+
         <CollapsibleSection
           title="Sentry Error Reporting Test"
           icon={<Bug className="w-4 h-4 text-red-400" />}

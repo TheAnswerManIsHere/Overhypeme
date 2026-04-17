@@ -65,6 +65,8 @@ export * from "./memeTextOptionsAlign";
 export * from "./memeTextOptionsVerticalPosition";
 export * from "./mobileTokenExchangeRequest";
 export * from "./mobileTokenExchangeSuccess";
+export * from "./myComment";
+export * from "./pendingSubmission";
 export * from "./rateFactRequest";
 export * from "./rateFactRequestRating";
 export * from "./ratingResult";

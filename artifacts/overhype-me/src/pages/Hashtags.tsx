@@ -1,4 +1,4 @@
-import { useListHashtags, useListFacts } from "@workspace/api-client-react";
+import { useListHashtags, useListFacts, getListFactsQueryKey } from "@workspace/api-client-react";
 import { Layout } from "@/components/layout/Layout";
 import { FactCard } from "@/components/facts/FactCard";
 import { Button } from "@/components/ui/Button";
@@ -16,7 +16,7 @@ export default function Hashtags() {
 
   const { data: factsData, isLoading: factsLoading } = useListFacts(
     { hashtag: selectedHashtag ?? undefined, sort: "newest" },
-    { query: { enabled: !!selectedHashtag } },
+    { query: { queryKey: getListFactsQueryKey({ hashtag: selectedHashtag ?? undefined, sort: "newest" }), enabled: !!selectedHashtag } },
   );
 
   const selectTag = (name: string) => {

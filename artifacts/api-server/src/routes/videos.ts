@@ -1065,7 +1065,7 @@ router.post("/videos/generate", async (req, res) => {
       if (errDetails.body) {
         parsedBody = typeof errDetails.body === "string"
           ? JSON.parse(errDetails.body)
-          : errDetails.body as typeof parsedBody;
+          : errDetails.body as unknown as typeof parsedBody;
       }
     } catch { /* ignore parse errors */ }
 

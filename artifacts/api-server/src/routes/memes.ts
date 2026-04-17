@@ -1,4 +1,5 @@
 import { Router, type IRouter, type Request, type Response } from "express";
+import { type AuthenticatedRequest } from "../middlewares/authMiddleware";
 import { randomUUID } from "crypto";
 import { Readable } from "stream";
 import path from "path";
@@ -1332,7 +1333,7 @@ router.delete("/memes/:slug", async (req: Request, res: Response) => {
 
 // DELETE /memes/ai/:factId/image — hard-delete an AI background image slot (owner only)
 // Query params: gender (male|female|neutral), imageIndex (0-based)
-router.delete("/memes/ai/:factId/image", requireLegendary, async (req: Request, res: Response) => {
+router.delete("/memes/ai/:factId/image", requireLegendary, async (req: AuthenticatedRequest, res: Response) => {
   const factId = parseInt(String(req.params["factId"] ?? ""), 10);
   if (isNaN(factId)) { res.status(400).json({ error: "Invalid factId" }); return; }
 
@@ -1362,7 +1363,7 @@ router.delete("/memes/ai/:factId/image", requireLegendary, async (req: Request, 
   // Ownership check: only the user who generated this image can delete it
   const ownerRows = await db.execute(sql`
     SELECT id FROM user_ai_images
-    WHERE user_id = ${req.user!.id} AND storage_path = ${storagePath}
+    WHERE user_id = ${req.user.id} AND storage_path = ${storagePath}
     LIMIT 1
   `);
   if (!ownerRows.rows.length) {
@@ -1388,7 +1389,7 @@ router.delete("/memes/ai/:factId/image", requireLegendary, async (req: Request, 
   // Remove from user tracking table
   await db.execute(sql`
     DELETE FROM user_ai_images WHERE id = (
-      SELECT id FROM user_ai_images WHERE user_id = ${req.user!.id} AND storage_path = ${storagePath} LIMIT 1
+      SELECT id FROM user_ai_images WHERE user_id = ${req.user.id} AND storage_path = ${storagePath} LIMIT 1
     )
   `);
 
