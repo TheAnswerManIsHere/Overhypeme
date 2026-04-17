@@ -17,6 +17,7 @@ import { cn } from "@/lib/utils";
 import type { VideoStyleDef } from "@/config/videoStyles";
 import { useVideoStyles } from "@/hooks/use-video-styles";
 import type { AiMemeImages } from "@/components/MemeBuilder";
+import type { PexelsPhotoEntry, FactPexelsImages } from "@/types/pexels";
 import { AiBgPicker, type AiBgSelection } from "@/components/AiBgPicker";
 import { Button } from "@/components/ui/Button";
 import { ImageCard } from "@/components/ui/ImageCard";
@@ -41,30 +42,6 @@ interface StockPhotoEntry {
   photoUrl: string;
   photographerName: string;
   photographerUrl: string;
-}
-
-interface PexelsPhotoEntry {
-  id: number;
-  url: string;
-  photographer?: string;
-  photographer_url?: string;
-  src?: {
-    original: string;
-    large2x: string;
-    large: string;
-    medium: string;
-    small: string;
-    portrait: string;
-    landscape: string;
-    tiny: string;
-  };
-}
-
-interface FactPexelsImages {
-  fact_type: "action" | "abstract";
-  male: (number | PexelsPhotoEntry)[];
-  female: (number | PexelsPhotoEntry)[];
-  neutral: (number | PexelsPhotoEntry)[];
 }
 
 export interface VideoTabProps {
@@ -502,6 +479,8 @@ function VideoTab({ factId, factText, pexelsImages, aiMemeImages, initialImageDa
   // Stock photos
   const [prefetchedPhotos, setPrefetchedPhotos] = useState<PexelsPhotoEntry[]>([]);
   const [selectedStockIndex, setSelectedStockIndex] = useState<number | null>(null);
+  const [isLoadingMorePhotos, setIsLoadingMorePhotos] = useState(false);
+  const [hasMorePhotos, setHasMorePhotos] = useState(false);
 
   // Display limits (from public config)
   const [bgStockLimit, setBgStockLimit] = useState(20);
@@ -615,14 +594,32 @@ function VideoTab({ factId, factText, pexelsImages, aiMemeImages, initialImageDa
         : entry
     );
     setPrefetchedPhotos(mapped);
+    setHasMorePhotos(mapped.length > 0);
     if (mapped.length > 0 && selectedStockIndex === null) {
       setSelectedStockIndex(0);
       const first = mapped[0]!;
-      const photoUrl = first.src?.large ?? first.url;
+      const photoUrl = first.url;
       setSelectedBgUrl(photoUrl);
       setSelectedBgLabel("Stock photo");
     }
   }, [pexelsImages]);
+
+  const loadMorePhotos = useCallback(async () => {
+    if (isLoadingMorePhotos) return;
+    const gender = pexelsImages?.neutral ? "neutral" : pexelsImages?.male ? "male" : "female";
+    setIsLoadingMorePhotos(true);
+    try {
+      const res = await fetch(`/api/facts/${factId}/pexels-images?gender=${gender}&offset=${prefetchedPhotos.length}`);
+      if (!res.ok) throw new Error("Failed to load more photos");
+      const data = await res.json() as { photos: PexelsPhotoEntry[]; hasMore: boolean };
+      setPrefetchedPhotos(prev => [...prev, ...data.photos]);
+      setHasMorePhotos(data.hasMore);
+    } catch {
+      // silently fail — user can retry
+    } finally {
+      setIsLoadingMorePhotos(false);
+    }
+  }, [factId, isLoadingMorePhotos, pexelsImages, prefetchedPhotos.length]);
 
   // ── Load upload gallery for premium users ─────────────────────────────────
   useEffect(() => {
@@ -943,13 +940,13 @@ function VideoTab({ factId, factText, pexelsImages, aiMemeImages, initialImageDa
                     {prefetchedPhotos.slice(0, bgStockLimit).map((photo, i) => (
                       <ImageCard
                         key={photo.id}
-                        src={photo.src?.large ?? photo.src?.small ?? photo.url}
+                        src={photo.url}
                         alt={`Option ${i + 1}`}
                         aspectRatio="aspect-video"
                         selected={selectedStockIndex === i}
                         onSelect={() => {
                           setSelectedStockIndex(i);
-                          const photoUrl = photo.src?.large ?? photo.url;
+                          const photoUrl = photo.url;
                           setSelectedBgUrl(photoUrl);
                           setSelectedBgLabel("Stock photo");
                         }}
@@ -958,6 +955,18 @@ function VideoTab({ factId, factText, pexelsImages, aiMemeImages, initialImageDa
                       />
                     ))}
                   </div>
+                  {hasMorePhotos && (
+                    <button
+                      onClick={() => void loadMorePhotos()}
+                      disabled={isLoadingMorePhotos}
+                      className="w-full flex items-center justify-center gap-1.5 py-1.5 text-[11px] font-medium text-muted-foreground hover:text-foreground border border-dashed border-border hover:border-border/80 rounded-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {isLoadingMorePhotos
+                        ? <><Loader2 className="w-3 h-3 animate-spin" /> Loading…</>
+                        : <><RefreshCw className="w-3 h-3" /> Load more photos</>
+                      }
+                    </button>
+                  )}
                 </>
               ) : (
                 <div className="flex items-center justify-center py-8 text-muted-foreground text-sm">

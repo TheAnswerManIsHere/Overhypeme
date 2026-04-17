@@ -17,6 +17,7 @@ import { cn } from "@/components/ui/Button";
 import { usePersonName } from "@/hooks/use-person-name";
 import { AccessGate } from "@/components/AccessGate";
 import { renderFact } from "@/lib/render-fact";
+import type { FactPexelsImages } from "@/types/pexels";
 
 const MemeStudio = lazy(() => import("@/components/MemeStudio").then(m => ({ default: m.MemeStudio })));
 const HCaptcha = lazy(() => import("@hcaptcha/react-hcaptcha"));
@@ -176,13 +177,6 @@ function VariantFactCard({ id, useCase }: { id: number; useCase: string | null }
 
     </div>
   );
-}
-
-interface FactPexelsImages {
-  fact_type: "action" | "abstract";
-  male:    number[];
-  female:  number[];
-  neutral: number[];
 }
 
 // ── FactDetail ────────────────────────────────────────────────────────────────

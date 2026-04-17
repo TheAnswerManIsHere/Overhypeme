@@ -5,23 +5,24 @@ interface CollapsibleSectionProps {
   title: string;
   icon?: ReactNode;
   badge?: string;
+  badge2?: string;
   description?: string;
   children: ReactNode;
   className?: string;
-  storageKey?: string;
+  storageKey: string;
 }
 
 export function CollapsibleSection({
   title,
   icon,
   badge,
+  badge2,
   description,
   children,
   className = "",
   storageKey,
 }: CollapsibleSectionProps) {
   const [open, setOpen] = useState(() => {
-    if (!storageKey) return false;
     try {
       return localStorage.getItem(storageKey) === "1";
     } catch {
@@ -30,7 +31,6 @@ export function CollapsibleSection({
   });
 
   useEffect(() => {
-    if (!storageKey) return;
     try {
       if (open) {
         localStorage.setItem(storageKey, "1");
@@ -57,6 +57,11 @@ export function CollapsibleSection({
               {badge && (
                 <span className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-muted text-muted-foreground border border-border leading-none">
                   {badge}
+                </span>
+              )}
+              {badge2 && (
+                <span className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-muted text-muted-foreground border border-border leading-none">
+                  {badge2}
                 </span>
               )}
             </div>
