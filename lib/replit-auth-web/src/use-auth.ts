@@ -1,4 +1,5 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, createContext, useContext, createElement } from "react";
+import type { ReactNode } from "react";
 import type { AuthUser } from "@workspace/api-client-react";
 
 export type { AuthUser };
@@ -22,7 +23,9 @@ function deriveRole(user: AuthUser | null): UserRole {
   return "unregistered";
 }
 
-export function useAuth(): AuthState {
+const AuthContext = createContext<AuthState | null>(null);
+
+export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
@@ -62,9 +65,6 @@ export function useAuth(): AuthState {
 
   const logout = useCallback(async () => {
     try {
-      // Fetch BEFORE removing auth_token so the global fetch interceptor can
-      // attach the Bearer token — the server needs it to identify and delete
-      // the session record from the database (cookies are blocked in iframes).
       await fetch("/api/auth/logout", { method: "POST", credentials: "include" });
     } catch {
       // Ignore network errors — we'll still clear the token locally.
@@ -73,7 +73,7 @@ export function useAuth(): AuthState {
     window.location.href = "/";
   }, []);
 
-  return {
+  const value: AuthState = {
     user,
     isLoading,
     isAuthenticated: !!user,
@@ -81,4 +81,14 @@ export function useAuth(): AuthState {
     login,
     logout,
   };
+
+  return createElement(AuthContext.Provider, { value }, children);
+}
+
+export function useAuth(): AuthState {
+  const ctx = useContext(AuthContext);
+  if (!ctx) {
+    throw new Error("useAuth must be used inside <AuthProvider>");
+  }
+  return ctx;
 }
