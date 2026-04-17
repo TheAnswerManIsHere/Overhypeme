@@ -153,6 +153,31 @@ function ShareLinkAutoLogout() {
   return null;
 }
 
+/**
+ * Prefetches the most-visited page chunks during browser idle time so that
+ * first navigation to those routes has no visible loading delay.
+ * Less-visited pages (admin, pricing, auth, etc.) remain deferred.
+ */
+function PrefetchCriticalRoutes() {
+  useEffect(() => {
+    const prefetch = () => {
+      void import("@/pages/Home");
+      void import("@/pages/Search");
+      void import("@/pages/FactDetail");
+    };
+
+    if ("requestIdleCallback" in window) {
+      const id = requestIdleCallback(prefetch, { timeout: 3000 });
+      return () => cancelIdleCallback(id);
+    } else {
+      const id = setTimeout(prefetch, 200);
+      return () => clearTimeout(id);
+    }
+  }, []);
+
+  return null;
+}
+
 function GAPageTracker() {
   const [location] = useLocation();
   useEffect(() => {
@@ -174,6 +199,7 @@ function Router() {
     <>
       <ScrollToTop />
       <GAPageTracker />
+      <PrefetchCriticalRoutes />
       <AuthProfileSync />
       <ShareParamReader />
       <ShareLinkAutoLogout />
