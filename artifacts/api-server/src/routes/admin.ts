@@ -1,8 +1,8 @@
 import { Router, type IRouter, type Request, type Response, type NextFunction } from "express";
 import * as Sentry from "@sentry/node";
 import { db, usersTable, sessionsTable } from "@workspace/db";
-import { factsTable, commentsTable, adminConfigTable, videoStylesTable, featureFlagsTable, tierFeaturePermissionsTable, userGenerationCostsTable, lifetimeEntitlementsTable, subscriptionsTable, membershipHistoryTable, activityFeedTable, memesTable, userAiImagesTable, routeStatsTable } from "@workspace/db/schema";
-import { eq, desc, count, ilike, sql, and, or, inArray, isNull, asc, gt, gte } from "drizzle-orm";
+import { factsTable, commentsTable, adminConfigTable, videoStylesTable, featureFlagsTable, tierFeaturePermissionsTable, userGenerationCostsTable, lifetimeEntitlementsTable, subscriptionsTable, membershipHistoryTable, activityFeedTable, memesTable, userAiImagesTable, routeStatsTable, routeStatEventsTable } from "@workspace/db/schema";
+import { eq, desc, count, ilike, sql, and, or, inArray, isNull, asc, gt, gte, sum } from "drizzle-orm";
 import { getSessionId, getSession, updateSession } from "../lib/auth";
 import { isAdminById } from "./auth";
 import { deriveUserRole } from "../lib/userRole";
@@ -1718,6 +1718,10 @@ router.post("/route-stats", async (req: Request, res: Response) => {
     ),
   );
 
+  await db.insert(routeStatEventsTable).values(
+    entries.map(({ routeKey, delta }) => ({ routeKey, delta })),
+  );
+
   res.json({ accepted: entries.length });
 });
 
@@ -1742,10 +1746,24 @@ router.get("/admin/route-stats", requireAdmin, async (req: Request, res: Respons
     }
   }
 
+  if (sinceDate) {
+    const rows = await db
+      .select({
+        routeKey: routeStatEventsTable.routeKey,
+        visitCount: sum(routeStatEventsTable.delta).mapWith(Number),
+        updatedAt: sql<Date>`max(${routeStatEventsTable.recordedAt})`,
+      })
+      .from(routeStatEventsTable)
+      .where(gte(routeStatEventsTable.recordedAt, sinceDate))
+      .groupBy(routeStatEventsTable.routeKey)
+      .orderBy(desc(sum(routeStatEventsTable.delta)));
+    res.json({ stats: rows });
+    return;
+  }
+
   const rows = await db
     .select()
     .from(routeStatsTable)
-    .where(sinceDate ? gte(routeStatsTable.updatedAt, sinceDate) : undefined)
     .orderBy(desc(routeStatsTable.visitCount));
   res.json({ stats: rows });
 });

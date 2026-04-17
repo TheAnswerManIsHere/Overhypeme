@@ -1,0 +1,2 @@
+CREATE INDEX "route_stat_events_recorded_at_idx" ON "route_stat_events" USING btree ("recorded_at");--> statement-breakpoint
+CREATE INDEX "route_stat_events_route_key_recorded_at_idx" ON "route_stat_events" USING btree ("route_key","recorded_at");

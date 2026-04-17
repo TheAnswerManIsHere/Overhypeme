@@ -36,6 +36,7 @@ const LEGACY_MIGRATIONS = [
   { hash: "011be3a3027f68132d4b8e3fd22b77ac8b90b9bef36b5fff972843108dd100bd", createdAt: 1700000013000 },
   { hash: "2c054923ef760fe97057d095cd8b15313497b43878cd5d0a3626069a0d0c46de", createdAt: 1700000014000 },
   { hash: "3b54d050b601667d7b4f39dda2a66aa85435010b96687f1a3ea16efb23b06226", createdAt: 1700000015000 },
+  { hash: "5895871e31a16f40a59132a774c85b0c0c2f443ac1365264b0ca74582b2d57a2", createdAt: 1776300000000 },
 ];
 
 async function seedLegacyMigrations(client: pg.PoolClient): Promise<void> {
