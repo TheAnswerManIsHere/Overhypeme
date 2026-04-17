@@ -189,6 +189,7 @@ export default function AdminDashboard() {
         <CollapsibleSection
           title="Top Pages"
           icon={<BarChart2 className="w-4 h-4 text-primary" />}
+          badge={TIME_RANGE_LABELS[timeRange]}
           description="Aggregate route visit counts across all users — update the prefetch list based on these."
           storageKey="admin_section_dashboard_top_pages"
         >
