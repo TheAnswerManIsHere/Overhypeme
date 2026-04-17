@@ -412,6 +412,8 @@ interface MemeBuilderDraft {
   aiSelectedInfo: AiBgSelection | null;
   uploadObjectPath: string | null;
   uploadIsLowRes: boolean;
+  uploadWidth: number | null;
+  uploadHeight: number | null;
 }
 function draftKey(factId: number) { return `meme_builder_draft_${factId}`; }
 function readDraft(factId: number): MemeBuilderDraft | null {
@@ -591,8 +593,8 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
   const [uploadLocalUrl, setUploadLocalUrl] = useState<string | null>(null);
   const [isUploadingFile, setIsUploadingFile] = useState(false);
   const [uploadIsLowRes, setUploadIsLowRes] = useState<boolean>(() => readDraft(factId)?.uploadIsLowRes ?? false);
-  const [uploadWidth, setUploadWidth] = useState<number | null>(null);
-  const [uploadHeight, setUploadHeight] = useState<number | null>(null);
+  const [uploadWidth, setUploadWidth] = useState<number | null>(() => readDraft(factId)?.uploadWidth ?? null);
+  const [uploadHeight, setUploadHeight] = useState<number | null>(() => readDraft(factId)?.uploadHeight ?? null);
   const [isDragOver, setIsDragOver] = useState(false);
 
   // Upload gallery — existing uploads for premium users
@@ -1205,7 +1207,7 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
   // ── Generate ─────────────────────────────────────────────────────
   const handleGenerate = async () => {
     if (!isAuthenticated) {
-      saveDraft(factId, { imageMode, selectedTemplate, stockPhoto, prefetchedIndex, aiSelectedInfo, uploadObjectPath, uploadIsLowRes });
+      saveDraft(factId, { imageMode, selectedTemplate, stockPhoto, prefetchedIndex, aiSelectedInfo, uploadObjectPath, uploadIsLowRes, uploadWidth, uploadHeight });
       setLocation(`/login?from=${encodeURIComponent(window.location.pathname)}`);
       return;
     }
