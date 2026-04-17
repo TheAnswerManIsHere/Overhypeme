@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { AdminLayout } from "@/components/admin/AdminLayout";
 import { CollapsibleSection } from "@/components/CollapsibleSection";
-import { FileText, Users, TrendingUp, Shield, Zap, Settings } from "lucide-react";
+import { FileText, Users, TrendingUp, Shield, Zap, Settings, Bug } from "lucide-react";
 
 interface Stats {
   totalFacts: number;
@@ -10,6 +10,26 @@ interface Stats {
 
 export default function AdminDashboard() {
   const [stats, setStats] = useState<Stats | null>(null);
+  const [backendSentryStatus, setBackendSentryStatus] = useState<"idle" | "loading" | "sent" | "error">("idle");
+  const [throwForBoundary, setThrowForBoundary] = useState(false);
+
+  if (throwForBoundary) {
+    throw new Error("Sentry frontend test triggered by admin");
+  }
+
+  async function triggerBackendSentry() {
+    setBackendSentryStatus("loading");
+    try {
+      const res = await fetch("/api/admin/_debug/sentry", { method: "POST", credentials: "include" });
+      if (res.status === 500 || res.ok) {
+        setBackendSentryStatus("sent");
+      } else {
+        setBackendSentryStatus("error");
+      }
+    } catch {
+      setBackendSentryStatus("error");
+    }
+  }
 
   useEffect(() => {
     fetch("/api/admin/stats", { credentials: "include" })
@@ -64,6 +84,38 @@ export default function AdminDashboard() {
             </div>
           </div>
         ))}
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+        <CollapsibleSection
+          title="Sentry Error Reporting Test"
+          icon={<Bug className="w-4 h-4 text-red-400" />}
+          description="Verify end-to-end error reporting after setting Sentry DSN secrets."
+          storageKey="admin_section_dashboard_sentry"
+        >
+          <p className="text-xs text-muted-foreground mb-3">
+            Use these buttons to confirm errors flow into the correct Sentry projects.
+            Check your Sentry dashboard for the new issues after clicking.
+          </p>
+          <div className="flex flex-col gap-2">
+            <button
+              onClick={() => triggerBackendSentry()}
+              disabled={backendSentryStatus === "loading"}
+              className="w-full text-left px-3 py-2 rounded bg-muted border border-border text-sm hover:bg-red-950 hover:border-red-700 disabled:opacity-50 transition-colors"
+            >
+              {backendSentryStatus === "loading" && "Sending…"}
+              {backendSentryStatus === "sent" && "Backend error sent — check Sentry (backend project)"}
+              {backendSentryStatus === "error" && "Request failed — check credentials"}
+              {backendSentryStatus === "idle" && "Trigger backend Sentry error (POST /api/admin/_debug/sentry)"}
+            </button>
+            <button
+              onClick={() => setThrowForBoundary(true)}
+              className="w-full text-left px-3 py-2 rounded bg-muted border border-border text-sm hover:bg-red-950 hover:border-red-700 transition-colors"
+            >
+              Trigger frontend Sentry error (render-throws — caught by ErrorBoundary)
+            </button>
+          </div>
+        </CollapsibleSection>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
