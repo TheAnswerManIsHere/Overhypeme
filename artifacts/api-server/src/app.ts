@@ -80,7 +80,6 @@ app.use([
   "/api/login",
   "/api/logout",
   "/api/callback",
-  "/api/mobile-auth",
   "/api/admin",
   "/api/stripe/checkout",
   "/api/stripe/portal",

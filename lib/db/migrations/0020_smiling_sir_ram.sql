@@ -1,0 +1,1 @@
+ALTER TABLE "users" ADD COLUMN "oauth_provider" varchar(20);
