@@ -6,7 +6,7 @@ import {
   Loader2,
   Sparkles,
 } from "lucide-react";
-import type { AiMemeImages } from "@/components/MemeBuilder";
+import type { AiMemeImages } from "@/types/meme";
 import type { FactPexelsImages } from "@/types/pexels";
 import { useAuth } from "@workspace/replit-auth-web";
 import { AccessGate } from "@/components/AccessGate";
@@ -23,8 +23,6 @@ const VideoTab = lazy(() => import("@/components/MemeStudioVideoTab"));
 // ─── Types ──────────────────────────────────────────────────────────────────
 
 type StudioTab = "image" | "video";
-
-export type { AiMemeImages };
 
 interface MemeStudioProps {
   factId: number;

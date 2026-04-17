@@ -11,7 +11,7 @@ import { Link } from "wouter";
 import { ImageCard } from "@/components/ui/ImageCard";
 import { Button } from "@/components/ui/Button";
 import { IMAGE_STYLES } from "@/config/imageStyles";
-import type { AiMemeImages } from "@/components/MemeBuilder";
+import type { AiMemeImages } from "@/types/meme";
 
 // ─── Shared admin constants (same as MemeBuilder) ────────────────────────────
 

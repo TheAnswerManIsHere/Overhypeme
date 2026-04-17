@@ -16,7 +16,7 @@ import {
 import { cn } from "@/lib/utils";
 import type { VideoStyleDef } from "@/config/videoStyles";
 import { useVideoStyles } from "@/hooks/use-video-styles";
-import type { AiMemeImages } from "@/components/MemeBuilder";
+import type { AiMemeImages } from "@/types/meme";
 import type { PexelsPhotoEntry, FactPexelsImages } from "@/types/pexels";
 import { AiBgPicker, type AiBgSelection } from "@/components/AiBgPicker";
 import { Button } from "@/components/ui/Button";

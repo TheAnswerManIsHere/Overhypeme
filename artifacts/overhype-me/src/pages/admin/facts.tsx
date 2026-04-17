@@ -3,6 +3,7 @@ import { AdminLayout } from "@/components/admin/AdminLayout";
 import { Button } from "@/components/ui/Button";
 import { Textarea, Input } from "@/components/ui/Input";
 import { Trash2, Upload, Search, AlertCircle, CheckCircle, Pencil, X, Save, GitBranch, Plus, Brain, EyeOff, Eye, Sparkles, RefreshCw, ImageIcon } from "lucide-react";
+import type { AiMemeImages } from "@/types/meme";
 
 const USE_CASE_SUGGESTIONS = ["default", "one_line", "two_line", "short", "long", "meme_caption", "shirt_print", "social_media", "title_case"];
 
@@ -93,7 +94,6 @@ export default function AdminFacts() {
 
   // AI Meme Backgrounds state
   interface AiScenePrompts { fact_type: string; male: string; female: string; neutral: string; }
-  interface AiMemeImages { male: string[]; female: string[]; neutral: string[]; }
   const [aiMemeData, setAiMemeData] = useState<{ aiScenePrompts: AiScenePrompts | null; aiMemeImages: AiMemeImages | null } | null>(null);
   const [aiMemeLoading, setAiMemeLoading] = useState(false);
   const [aiMemeGenerating, setAiMemeGenerating] = useState(false);
