@@ -33,6 +33,12 @@ Sentry.init({
     Sentry.postgresIntegration(),
   ],
   beforeSend(event) {
+    if (
+      process.env.SENTRY_DROP_DEBUG_EVENTS === "true" &&
+      event.tags?.["debug"] === "sentry-test"
+    ) {
+      return null;
+    }
     if (event.request) {
       delete event.request.cookies;
       if (event.request.headers) {
