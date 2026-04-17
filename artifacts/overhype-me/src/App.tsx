@@ -132,13 +132,17 @@ function AuthProfileSync() {
           if (data?.displayName) {
             syncFromProfile(data.displayName, data.pronouns ?? "");
             // Update Sentry user scope with the resolved display name so the
-            // feedback widget pre-populates with what the user actually calls
-            // themselves, not just their raw first/last name from the auth token.
+            // feedback widget pre-populates the name field. Format:
+            // "First Last (DisplayName)" e.g. "David Franklin (Hyperion)"
             if (user?.id) {
+              const fullName = [user.firstName, user.lastName].filter(Boolean).join(" ");
+              const sentryName = fullName
+                ? `${fullName} (${data.displayName})`
+                : data.displayName;
               Sentry.setUser({
                 id: user.id,
                 email: user.email ?? undefined,
-                name: data.displayName,
+                name: sentryName,
               });
             }
           }
