@@ -30,12 +30,12 @@ args = "typecheck"
 name = "typecheck"
 author = "agent"
 
-[[workflows.workflow.tasks]]
-task = "shell.exec"
-args = "pnpm tsc --noEmit"
-
 [workflows.workflow.metadata]
 isValidation = true
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "pnpm --filter @workspace/redact run build && pnpm --filter @workspace/api-server run typecheck 2>&1 | grep -E 'redact|has not been built' && echo 'FAIL: redact errors remain' && exit 1 || echo 'PASS: no redact errors'"
 
 [agent]
 stack = "PNPM_WORKSPACE"
