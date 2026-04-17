@@ -9,6 +9,7 @@ import { logger } from "./lib/logger";
 import { authMiddleware } from "./middlewares/authMiddleware";
 import { WebhookHandlers } from "./lib/webhookHandlers";
 import { noStore } from "./lib/cacheHeaders";
+import { fallbackErrorHandler } from "./lib/errorHandler";
 
 const app: Express = express();
 
@@ -113,13 +114,9 @@ Sentry.setupExpressErrorHandler(app);
 
 // Final fallback error handler — returns a clean JSON 500 instead of leaking
 // HTML stack traces. Sentry has already captured the error by this point.
-app.use((err: Error, req: Request, res: Response, _next: NextFunction) => {
-  logger.error({ err, url: req.url, method: req.method }, "Unhandled route error");
-  if (res.headersSent) return;
-  res.status(500).json({
-    error: "Internal server error",
-    eventId: (res as Response & { sentry?: string }).sentry,
-  });
-});
+// Any structured details attached to the error (which may echo request body
+// data) are passed through scrubObject so that passwords, tokens, and other
+// PII are never returned to the client verbatim.
+app.use(fallbackErrorHandler);
 
 export default app;
