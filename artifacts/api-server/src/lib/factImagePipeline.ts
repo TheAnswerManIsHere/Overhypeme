@@ -105,6 +105,37 @@ async function extractImageKeywords(factText: string): Promise<LLMKeywordResult>
   };
 }
 
+// ─── Retry helper ────────────────────────────────────────────────────────────
+
+/**
+ * Runs `fn` up to `maxAttempts` times with exponential backoff between each
+ * failed attempt. Throws the last error if every attempt fails.
+ *
+ * Delays: 1 s → 2 s → 4 s (before retries 2, 3, 4 respectively).
+ */
+const MAX_PIPELINE_ATTEMPTS = 4; // 1 initial + 3 retries
+const BASE_RETRY_DELAY_MS   = 1_000;
+
+async function withRetry<T>(fn: () => Promise<T>, label: string): Promise<T> {
+  let lastErr: unknown;
+  for (let attempt = 1; attempt <= MAX_PIPELINE_ATTEMPTS; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      lastErr = err;
+      if (attempt < MAX_PIPELINE_ATTEMPTS) {
+        const delay = BASE_RETRY_DELAY_MS * 2 ** (attempt - 1); // 1s, 2s, 4s
+        console.warn(
+          `[factImagePipeline] ${label} attempt ${attempt}/${MAX_PIPELINE_ATTEMPTS} failed — retrying in ${delay}ms:`,
+          err instanceof Error ? err.message : err,
+        );
+        await new Promise<void>((resolve) => setTimeout(resolve, delay));
+      }
+    }
+  }
+  throw lastErr;
+}
+
 // ─── Pipeline orchestration ───────────────────────────────────────────────────
 
 /**
@@ -112,31 +143,40 @@ async function extractImageKeywords(factText: string): Promise<LLMKeywordResult>
  * Fetches up to 80 photos per gender variant in one request each (Pexels max).
  * Only operates on root facts (parentId = null) — variants inherit parent images.
  * Safe to call fire-and-forget: catches all errors internally.
+ *
+ * Retries up to 4 times total (1 initial + 3 retries) with exponential backoff
+ * (1 s, 2 s, 4 s) so transient OpenAI / Pexels / network hiccups don't leave
+ * a fact permanently without images.
  */
 export async function runFactImagePipeline(factId: number, factText: string): Promise<void> {
   try {
-    // 1. Extract keywords via OpenAI
-    const { fact_type, keywords } = await extractImageKeywords(factText);
+    await withRetry(async () => {
+      // 1. Extract keywords via OpenAI
+      const { fact_type, keywords } = await extractImageKeywords(factText);
 
-    // 2. Fetch photos per variant — count comes from admin config
-    const { getConfigInt } = await import("./adminConfig");
-    const pexelsCount = await getConfigInt("pexels_photos_per_gender", 80);
-    const [male, female, neutral] = await Promise.all([
-      searchPhotos(keywords.male,    pexelsCount),
-      searchPhotos(keywords.female,  pexelsCount),
-      searchPhotos(keywords.neutral, pexelsCount),
-    ]);
+      // 2. Fetch photos per variant — count comes from admin config
+      const { getConfigInt } = await import("./adminConfig");
+      const pexelsCount = await getConfigInt("pexels_photos_per_gender", 80);
+      const [male, female, neutral] = await Promise.all([
+        searchPhotos(keywords.male,    pexelsCount),
+        searchPhotos(keywords.female,  pexelsCount),
+        searchPhotos(keywords.neutral, pexelsCount),
+      ]);
 
-    const pexelsImages: FactPexelsImages = { fact_type, male, female, neutral, keywords };
+      const pexelsImages: FactPexelsImages = { fact_type, male, female, neutral, keywords };
 
-    // 3. Persist to DB
-    await db
-      .update(factsTable)
-      .set({ pexelsImages })
-      .where(eq(factsTable.id, factId));
+      // 3. Persist to DB
+      await db
+        .update(factsTable)
+        .set({ pexelsImages })
+        .where(eq(factsTable.id, factId));
 
-    console.log(`[factImagePipeline] fact ${factId}: ${male.length}m/${female.length}f/${neutral.length}n photos (type=${fact_type}, keywords=${JSON.stringify(keywords)})`);
+      console.log(
+        `[factImagePipeline] fact ${factId}: ${male.length}m/${female.length}f/${neutral.length}n photos` +
+        ` (type=${fact_type}, keywords=${JSON.stringify(keywords)})`,
+      );
+    }, `fact ${factId}`);
   } catch (err) {
-    console.error(`[factImagePipeline] Failed for fact ${factId}:`, err);
+    console.error(`[factImagePipeline] All ${MAX_PIPELINE_ATTEMPTS} attempts exhausted for fact ${factId}:`, err);
   }
 }
