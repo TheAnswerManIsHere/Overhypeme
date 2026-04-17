@@ -73,6 +73,15 @@ The app supports animating meme images into short videos using fal.ai's Kling im
 - Route ordering matters: `videosRouter` must come before `importRouter` in `routes/index.ts` because `importRouter` applies global `requireApiKey` middleware that would intercept unmatched routes
 - Route ordering matters in `memes.ts`: specific routes like `/memes/ai-user/image` must be registered BEFORE wildcard routes like `/memes/:slug/image`, otherwise the wildcard captures the specific path first
 
+### Error Reporting (Sentry)
+End-to-end error monitoring for backend (Node/Express) and frontend (React).
+- **Backend init**: `artifacts/api-server/src/instrument.ts` (imported as the very first line of `src/index.ts` so OpenTelemetry can patch http/express/pg before they load). Per-request user-id is attached via `Sentry.getIsolationScope().setUser({id})` middleware in `app.ts` so concurrent requests don't leak user context. `Sentry.setupExpressErrorHandler` runs after all routes; a JSON-only fallback handler returns `{error, eventId}` instead of HTML stack traces.
+- **Frontend init**: `artifacts/overhype-me/src/lib/sentry.ts` (imported first in `main.tsx`). App is wrapped in `Sentry.ErrorBoundary` with the branded `SentryFallback` component. User id is synced from `useAuth()` in `AuthProfileSync`. `tracePropagationTargets` is restricted to `/api/` to keep distributed-tracing headers off third-party fetches (Stripe, fal.ai, Resend).
+- **PII off everywhere**: `sendDefaultPii: false`; `beforeSend` strips cookies, `Authorization`/`Cookie` headers, and filters `password`/`token`/`email`/`secret` from request bodies. Only the user `id` (UUID, not PII) is attached.
+- **Sample rates**: traces 10% in production, 100% in development. Sentry init is a documented no-op when DSN is unset, so missing secrets disable reporting cleanly.
+- **Source maps**: `build.mjs` (esbuild) and `vite.config.ts` add `sentryEsbuildPlugin` / `sentryVitePlugin` gated on `SENTRY_AUTH_TOKEN + SENTRY_ORG + SENTRY_PROJECT_*`. Maps are uploaded to Sentry then deleted (`filesToDeleteAfterUpload`) so they're never served to end users. Note: `@opentelemetry/*` is intentionally bundled (not externalized) in the API build because @sentry/node depends on it transitively and pnpm's virtual store isn't reachable from `dist/` at runtime. `@workspace/db` declares `@opentelemetry/api` as a direct dep so the same drizzle-orm variant is shared with the API server.
+- **Required env vars**: `SENTRY_DSN_BACKEND`, `VITE_SENTRY_DSN` (runtime); `SENTRY_AUTH_TOKEN`, `SENTRY_ORG`, `SENTRY_PROJECT_BACKEND`, `SENTRY_PROJECT_FRONTEND` (build-time, source-map upload). Release version comes from `REPLIT_DEPLOYMENT_ID` or `REPLIT_GIT_COMMIT_SHA`.
+
 ### Email Notifications (Resend)
 Resend is integrated via `artifacts/api-server/src/lib/email.ts`:
 - Requires `RESEND_API_KEY` secret; `RESEND_FROM_EMAIL` env var overrides sender (default: `noreply@overhype.me`)

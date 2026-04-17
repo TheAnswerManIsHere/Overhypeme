@@ -3,6 +3,7 @@ import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import path from "path";
 import runtimeErrorOverlay from "@replit/vite-plugin-runtime-error-modal";
+import { sentryVitePlugin } from "@sentry/vite-plugin";
 
 const rawPort = process.env.PORT;
 
@@ -45,6 +46,24 @@ export default defineConfig({
           ),
         ]
       : []),
+    // Upload source maps to Sentry on production builds. Skipped automatically
+    // when SENTRY_AUTH_TOKEN is missing (e.g. local dev or contributor builds).
+    // Must be the LAST plugin so it runs after the build has emitted assets.
+    ...(process.env.SENTRY_AUTH_TOKEN && process.env.SENTRY_ORG && process.env.SENTRY_PROJECT_FRONTEND
+      ? [sentryVitePlugin({
+          authToken: process.env.SENTRY_AUTH_TOKEN,
+          org: process.env.SENTRY_ORG,
+          project: process.env.SENTRY_PROJECT_FRONTEND,
+          release: {
+            name: process.env.REPLIT_DEPLOYMENT_ID ?? process.env.REPLIT_GIT_COMMIT_SHA?.slice(0, 7) ?? "dev",
+          },
+          sourcemaps: {
+            // Delete .map files after upload so they're not served to end users.
+            filesToDeleteAfterUpload: ["./dist/public/**/*.map"],
+          },
+          telemetry: false,
+        })]
+      : []),
   ],
   resolve: {
     alias: {
@@ -57,6 +76,9 @@ export default defineConfig({
   build: {
     outDir: path.resolve(import.meta.dirname, "dist/public"),
     emptyOutDir: true,
+    // Source maps are required for Sentry to symbolicate production stack traces.
+    // The Sentry vite plugin (above) deletes them after upload so they're never served.
+    sourcemap: true,
   },
   server: {
     port,

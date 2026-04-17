@@ -1,3 +1,6 @@
+// Sentry must be imported before any other modules so its auto-instrumentation
+// can patch http/express/pg before they're loaded. Do not move this import.
+import "./instrument";
 import app from "./app";
 import { logger } from "./lib/logger";
 import { backfillWilsonScores, ensureSchema } from "./lib/seed";

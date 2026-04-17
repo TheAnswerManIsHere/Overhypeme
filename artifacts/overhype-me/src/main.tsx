@@ -1,3 +1,5 @@
+// Sentry init must run before App is imported so it can capture render errors.
+import "./lib/sentry";
 import { createRoot } from "react-dom/client";
 import App from "./App";
 import "./index.css";
