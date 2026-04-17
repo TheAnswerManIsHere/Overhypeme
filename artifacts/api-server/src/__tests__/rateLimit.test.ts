@@ -1,10 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import type { Request, Response } from "express";
-import { createRateLimiter } from "../lib/rateLimit.js";
-
-const RATE_MAX = 30;
-const RATE_WINDOW_MS = 60_000;
+import { createRateLimiter, RATE_MAX, RATE_WINDOW_MS } from "../lib/rateLimit.js";
 
 function makeReq(opts: { ip?: string; sessionId?: string } = {}): Request {
   const headers: Record<string, string> = {};

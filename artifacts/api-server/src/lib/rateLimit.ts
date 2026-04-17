@@ -6,8 +6,8 @@ function parsePositiveInt(value: string | undefined, defaultValue: number): numb
   return Number.isFinite(parsed) && parsed > 0 ? parsed : defaultValue;
 }
 
-const RATE_WINDOW_MS = parsePositiveInt(process.env.RATE_WINDOW_MS, 60_000);
-const RATE_MAX = parsePositiveInt(process.env.RATE_MAX, 30);
+export const RATE_WINDOW_MS = parsePositiveInt(process.env.RATE_WINDOW_MS, 60_000);
+export const RATE_MAX = parsePositiveInt(process.env.RATE_MAX, 30);
 
 function rateLimitKey(req: Request): string {
   const sid = getSessionId(req);
