@@ -6,6 +6,7 @@ import {
   Video,
   Loader2,
   Sparkles,
+  Lock,
 } from "lucide-react";
 import type { AiMemeImages } from "@/types/meme";
 import type { FactPexelsImages } from "@/types/pexels";
@@ -55,16 +56,18 @@ function TabButton({
   onClick,
   icon,
   label,
+  locked,
 }: {
   active: boolean;
   onClick: () => void;
   icon: React.ReactNode;
   label: string;
+  locked?: boolean;
 }) {
   return (
     <button
       onClick={onClick}
-      className={`relative flex-1 flex items-center justify-center gap-2 py-3 text-[11px] font-bold uppercase tracking-wider border-b-2 transition-all ${
+      className={`relative flex-1 flex items-center justify-center gap-1.5 py-3 text-[11px] font-bold uppercase tracking-wider border-b-2 transition-all ${
         active
           ? "border-[#ff6b35] text-[#ff6b35]"
           : "border-transparent text-muted-foreground hover:text-foreground hover:border-border"
@@ -72,6 +75,9 @@ function TabButton({
     >
       {icon}
       {label}
+      {locked && (
+        <Lock className="w-3 h-3 text-amber-400 shrink-0" />
+      )}
     </button>
   );
 }
@@ -133,6 +139,7 @@ export function MemeStudio({
           onClick={() => setActiveTab("video")}
           icon={<Video className="w-3.5 h-3.5" />}
           label="Video"
+          locked={!isLegendary}
         />
       </div>
 
