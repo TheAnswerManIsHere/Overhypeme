@@ -17,6 +17,24 @@ interface RouteVisitStat {
 
 type TimeRange = "7d" | "30d" | "all";
 
+function formatLastSeen(value: string | undefined | null): string {
+  if (!value) return "—";
+  const date = new Date(value);
+  if (isNaN(date.getTime())) return "—";
+  const now = Date.now();
+  const diffMs = now - date.getTime();
+  const diffSecs = Math.floor(diffMs / 1000);
+  const diffMins = Math.floor(diffSecs / 60);
+  const diffHours = Math.floor(diffMins / 60);
+  const diffDays = Math.floor(diffHours / 24);
+  if (diffSecs < 60) return "just now";
+  if (diffMins < 60) return `${diffMins}m ago`;
+  if (diffHours < 24) return `${diffHours}h ago`;
+  if (diffDays === 1) return "yesterday";
+  if (diffDays < 7) return `${diffDays} days ago`;
+  return date.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+}
+
 const TIME_RANGE_LABELS: Record<TimeRange, string> = {
   "7d": "Last 7 days",
   "30d": "Last 30 days",
@@ -247,10 +265,8 @@ export default function AdminDashboard() {
                       <td className="py-2 pr-3 text-right tabular-nums text-foreground font-medium w-16">
                         {row.visitCount.toLocaleString()}
                       </td>
-                      <td className="py-2 text-right text-muted-foreground tabular-nums text-xs w-20">
-                        {row.updatedAt
-                          ? new Date(row.updatedAt).toLocaleDateString(undefined, { month: "short", day: "numeric" })
-                          : "—"}
+                      <td className="py-2 text-right text-muted-foreground text-xs w-20" title={(() => { if (!row.updatedAt) return undefined; const d = new Date(row.updatedAt); return isNaN(d.getTime()) ? undefined : d.toLocaleString(); })()}>
+                        {formatLastSeen(row.updatedAt)}
                       </td>
                     </tr>
                   ))}
