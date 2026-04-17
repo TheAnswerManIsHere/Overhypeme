@@ -1,5 +1,5 @@
 import * as Sentry from "@sentry/node";
-import { scrubObject, scrubUrl } from "@workspace/redact";
+import { scrubSentryEvent, scrubSentryBreadcrumb } from "./lib/sentryFilter.js";
 
 // Sentry v10 emits a console warning when expressIntegration() can't verify
 // that its OTel shim patched express — this always happens in a bundled ESM
@@ -39,24 +39,15 @@ Sentry.init({
     ) {
       return null;
     }
-    if (event.request) {
-      delete event.request.cookies;
-      if (event.request.headers) {
-        delete event.request.headers.authorization;
-        delete event.request.headers.cookie;
-        delete event.request.headers["x-api-key"];
-      }
-      if (typeof event.request.url === "string") {
-        event.request.url = scrubUrl(event.request.url);
-      }
-      if (typeof event.request.query_string === "string") {
-        event.request.query_string = scrubUrl(`?${event.request.query_string}`).replace(/^\?/, "");
-      }
-      if (event.request.data && typeof event.request.data === "object") {
-        event.request.data = scrubObject(event.request.data) as typeof event.request.data;
-      }
-    }
+    scrubSentryEvent(event);
     return event;
+  },
+  beforeSendTransaction(event) {
+    scrubSentryEvent(event);
+    return event;
+  },
+  beforeBreadcrumb(breadcrumb) {
+    return scrubSentryBreadcrumb(breadcrumb);
   },
 });
 
