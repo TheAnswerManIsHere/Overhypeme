@@ -9,6 +9,46 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 
+    <!--
+      Resilient history patch — must run BEFORE Google Analytics / AdSense / any
+      third-party script that may monkey-patch history.pushState. Wouter (our
+      router) relies on pushState dispatching a "pushState" event so it can
+      re-render on SPA navigation. GA's gtag.js replaces pushState for its own
+      page-tracking and silently strips wouter's wrapper, breaking navigation
+      after gtag finishes loading. We install a getter/setter so any future
+      reassignment is automatically re-wrapped to keep dispatching the event.
+      The Symbol.for("wouter_v3") flag tells wouter to skip its own patch.
+    -->
+    <script id="history-patch">
+      (function() {
+        if (typeof history === "undefined") return;
+        var PATCH_KEY = Symbol.for("wouter_v3");
+        if (window[PATCH_KEY]) return;
+        ["pushState", "replaceState"].forEach(function(type) {
+          var wrap = function(fn) {
+            return function() {
+              var result = fn.apply(this, arguments);
+              try {
+                var event = new Event(type);
+                event.arguments = arguments;
+                dispatchEvent(event);
+              } catch (e) { /* ignore */ }
+              return result;
+            };
+          };
+          var current = wrap(history[type].bind(history));
+          Object.defineProperty(history, type, {
+            configurable: true,
+            get: function() { return current; },
+            set: function(newFn) {
+              if (typeof newFn === "function") current = wrap(newFn.bind(history));
+            }
+          });
+        });
+        Object.defineProperty(window, PATCH_KEY, { value: true });
+      })();
+    </script>
+
     <!-- Google Analytics 4 — loaded only when VITE_GA_MEASUREMENT_ID is set at build time -->
     <script id="ga4-init">
       (function() {
