@@ -7,6 +7,8 @@ import { renderCanonical } from "../lib/renderCanonical";
 import { logActivity } from "../lib/activity";
 import { validateTemplate } from "../lib/templateGrammar";
 import { type FactPexelsImages } from "../lib/factImagePipeline";
+import { trimPexelsImages, trimAiMemeImages } from "../lib/trimFactImages";
+import { getConfigInt } from "../lib/adminConfig";
 import { db } from "@workspace/db";
 import {
   factsTable, hashtagsTable, factHashtagsTable,
@@ -64,6 +66,8 @@ async function buildFactSummaries(facts: (typeof factsTable.$inferSelect)[], use
     for (const r of rows) sMap.set(r.id, r);
   }
 
+  const imageCap = await getConfigInt("api_images_per_gender_cap", 5);
+
   return facts.map((f) => ({
     id: f.id, text: f.text, upvotes: f.upvotes, downvotes: f.downvotes, score: f.score, wilsonScore: f.wilsonScore,
     commentCount: f.commentCount, hashtags: hMap.get(f.id) ?? [],
@@ -72,8 +76,8 @@ async function buildFactSummaries(facts: (typeof factsTable.$inferSelect)[], use
     userRating: userId ? (rMap.get(f.id) ?? null) : null,
     createdAt: f.createdAt.toISOString(),
     updatedAt: f.updatedAt.toISOString(),
-    pexelsImages: (f.pexelsImages as import("../lib/factImagePipeline").FactPexelsImages | null) ?? null,
-    aiMemeImages: (f.aiMemeImages as import("../lib/aiMemePipeline").AiMemeImages | null) ?? null,
+    pexelsImages: trimPexelsImages((f.pexelsImages as import("../lib/factImagePipeline").FactPexelsImages | null) ?? null, imageCap),
+    aiMemeImages: trimAiMemeImages((f.aiMemeImages as import("../lib/aiMemePipeline").AiMemeImages | null) ?? null, imageCap),
   }));
 }
 
@@ -120,8 +124,9 @@ router.get("/facts/:factId", async (req: Request, res: Response) => {
       .where(eq(factsTable.id, fact.parentId))
       .limit(1);
     if (parent) {
-      summary.pexelsImages = (parent.pexelsImages as import("../lib/factImagePipeline").FactPexelsImages | null) ?? null;
-      summary.aiMemeImages = (parent.aiMemeImages as import("../lib/aiMemePipeline").AiMemeImages | null) ?? null;
+      const inheritCap = await getConfigInt("api_images_per_gender_cap", 5);
+      summary.pexelsImages = trimPexelsImages((parent.pexelsImages as import("../lib/factImagePipeline").FactPexelsImages | null) ?? null, inheritCap);
+      summary.aiMemeImages = trimAiMemeImages((parent.aiMemeImages as import("../lib/aiMemePipeline").AiMemeImages | null) ?? null, inheritCap);
     }
   }
 

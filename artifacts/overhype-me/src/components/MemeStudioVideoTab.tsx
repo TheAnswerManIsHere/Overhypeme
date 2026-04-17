@@ -48,16 +48,6 @@ interface PexelsPhotoEntry {
   url: string;
   photographer?: string;
   photographer_url?: string;
-  src?: {
-    original: string;
-    large2x: string;
-    large: string;
-    medium: string;
-    small: string;
-    portrait: string;
-    landscape: string;
-    tiny: string;
-  };
 }
 
 interface FactPexelsImages {
@@ -618,7 +608,7 @@ function VideoTab({ factId, factText, pexelsImages, aiMemeImages, initialImageDa
     if (mapped.length > 0 && selectedStockIndex === null) {
       setSelectedStockIndex(0);
       const first = mapped[0]!;
-      const photoUrl = first.src?.large ?? first.url;
+      const photoUrl = first.url;
       setSelectedBgUrl(photoUrl);
       setSelectedBgLabel("Stock photo");
     }
@@ -943,13 +933,13 @@ function VideoTab({ factId, factText, pexelsImages, aiMemeImages, initialImageDa
                     {prefetchedPhotos.slice(0, bgStockLimit).map((photo, i) => (
                       <ImageCard
                         key={photo.id}
-                        src={photo.src?.large ?? photo.src?.small ?? photo.url}
+                        src={photo.url}
                         alt={`Option ${i + 1}`}
                         aspectRatio="aspect-video"
                         selected={selectedStockIndex === i}
                         onSelect={() => {
                           setSelectedStockIndex(i);
-                          const photoUrl = photo.src?.large ?? photo.url;
+                          const photoUrl = photo.url;
                           setSelectedBgUrl(photoUrl);
                           setSelectedBgLabel("Stock photo");
                         }}

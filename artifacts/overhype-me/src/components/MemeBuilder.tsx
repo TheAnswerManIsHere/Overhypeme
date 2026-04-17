@@ -366,23 +366,11 @@ type VideoState =
   | { status: "done"; url: string }
   | { status: "error"; message: string };
 
-interface PexelsPhotoSrc {
-  original: string;
-  large2x: string;
-  large: string;
-  medium: string;
-  small: string;
-  portrait: string;
-  landscape: string;
-  tiny: string;
-}
-
 interface PexelsPhotoEntry {
   id: number;
   url: string;
   photographer?: string;
   photographer_url?: string;
-  src?: PexelsPhotoSrc;
 }
 
 interface FactPexelsImages {
@@ -940,7 +928,7 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
       id: photo.id,
       photographerName: photo.photographer ?? "Pexels",
       photographerUrl: photo.photographer_url ?? "https://www.pexels.com",
-      photoUrl: photo.src?.large ?? photo.url,
+      photoUrl: photo.url,
     });
   }, []);
 
@@ -1499,7 +1487,7 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
                     {prefetchedPhotos.slice(0, bgStockLimit).map((photo, i) => (
                       <ImageCard
                         key={photo.id}
-                        src={photo.src?.large ?? photo.src?.small ?? photo.url}
+                        src={photo.url}
                         alt={`Option ${i + 1}`}
                         aspectRatio="aspect-video"
                         selected={prefetchedIndex === i}
