@@ -12,7 +12,7 @@ interface Stats {
 interface RouteVisitStat {
   routeKey: string;
   visitCount: number;
-  updatedAt: string;
+  updatedAt?: string;
 }
 
 export default function AdminDashboard() {
@@ -82,6 +82,7 @@ export default function AdminDashboard() {
   ];
 
   const maxCount = routeStats && routeStats.length > 0 ? routeStats[0]!.visitCount : 1;
+  const totalVisits = routeStats ? routeStats.reduce((sum, r) => sum + r.visitCount, 0) : 0;
 
   return (
     <AdminLayout title="Dashboard">
@@ -129,8 +130,11 @@ export default function AdminDashboard() {
                       style={{ width: `${Math.round((row.visitCount / maxCount) * 100)}%` }}
                     />
                   </div>
-                  <span className="w-16 text-right text-muted-foreground tabular-nums shrink-0">
+                  <span className="w-12 text-right tabular-nums shrink-0 text-foreground font-medium">
                     {row.visitCount.toLocaleString()}
+                  </span>
+                  <span className="w-10 text-right text-muted-foreground tabular-nums text-xs shrink-0">
+                    {totalVisits > 0 ? `${Math.round((row.visitCount / totalVisits) * 100)}%` : "—"}
                   </span>
                 </li>
               ))}

@@ -19,14 +19,20 @@ router.get("/route-stats", async (req, res) => {
   try {
     const n = Math.min(Number(req.query.n) || 3, 10);
     const rows = await db
-      .select({ routeKey: routeStatsTable.routeKey })
+      .select({
+        routeKey: routeStatsTable.routeKey,
+        visitCount: routeStatsTable.visitCount,
+      })
       .from(routeStatsTable)
       .orderBy(desc(routeStatsTable.visitCount))
       .limit(n);
-    res.json({ routes: rows.map((r) => r.routeKey) });
+    res.json({
+      routes: rows.map((r) => r.routeKey),
+      stats: rows,
+    });
   } catch (err) {
     req.log.warn({ err }, "route-stats: GET failed, returning empty list");
-    res.json({ routes: [] });
+    res.json({ routes: [], stats: [] });
   }
 });
 
