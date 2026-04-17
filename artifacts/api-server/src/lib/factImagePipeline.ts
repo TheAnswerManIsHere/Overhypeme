@@ -6,14 +6,18 @@
  * per variant in a single request (Pexels max per_page) and stores them on the
  * fact record.
  *
- * One HTTP request per gender variant — no retry loops, no deduplication,
- * no exhaustion tracking. The full photo library is seeded at fact creation
- * time. The client shuffles locally and cycles through the stored list.
+ * One HTTP request per gender variant — no deduplication, no exhaustion
+ * tracking. The full photo library is seeded at fact creation time. The
+ * client shuffles locally and cycles through the stored list.
+ *
+ * Retries up to 4 times with exponential backoff on transient failures.
+ * Persistent failures are captured as Sentry issues.
  *
  * Runs async (non-blocking) on fact create/edit. Should never throw — callers
  * fire-and-forget with void.
  */
 
+import * as Sentry from "@sentry/node";
 import { getOpenAIClient } from "@workspace/integrations-openai-ai-server";
 import { searchPhotos } from "./pexelsClient";
 import type { PexelsPhotoEntry } from "./pexelsClient";
@@ -178,5 +182,9 @@ export async function runFactImagePipeline(factId: number, factText: string): Pr
     }, `fact ${factId}`);
   } catch (err) {
     console.error(`[factImagePipeline] All ${MAX_PIPELINE_ATTEMPTS} attempts exhausted for fact ${factId}:`, err);
+    Sentry.captureException(err, {
+      tags: { pipeline: "factImagePipeline" },
+      extra: { factId, factText: factText.slice(0, 200) },
+    });
   }
 }
