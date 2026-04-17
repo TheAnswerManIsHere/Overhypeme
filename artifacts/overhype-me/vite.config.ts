@@ -94,6 +94,44 @@ export default defineConfig({
     // Source maps are required for Sentry to symbolicate production stack traces.
     // The Sentry vite plugin (above) deletes them after upload so they're never served.
     sourcemap: true,
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          // Core React runtime — tiny and loaded first
+          if (id.includes("node_modules/react/") || id.includes("node_modules/react-dom/") || id.includes("node_modules/scheduler/")) {
+            return "vendor-react";
+          }
+          // Routing + data-fetching — needed on every page
+          if (id.includes("node_modules/wouter/") || id.includes("node_modules/@tanstack/")) {
+            return "vendor-query";
+          }
+          // Recharts + d3 helpers — only used on admin pages
+          if (id.includes("node_modules/recharts/") || id.includes("node_modules/d3-") || id.includes("node_modules/victory-")) {
+            return "vendor-charts";
+          }
+          // Framer Motion — animation library, not needed immediately
+          if (id.includes("node_modules/framer-motion/")) {
+            return "vendor-animation";
+          }
+          // Radix UI primitives
+          if (id.includes("node_modules/@radix-ui/")) {
+            return "vendor-radix";
+          }
+          // Icon libraries
+          if (id.includes("node_modules/lucide-react/") || id.includes("node_modules/react-icons/")) {
+            return "vendor-icons";
+          }
+          // Forms + validation
+          if (id.includes("node_modules/react-hook-form/") || id.includes("node_modules/@hookform/") || id.includes("node_modules/zod/")) {
+            return "vendor-forms";
+          }
+          // Everything else from node_modules in one shared vendor chunk
+          if (id.includes("node_modules/")) {
+            return "vendor-misc";
+          }
+        },
+      },
+    },
   },
   server: {
     port,
