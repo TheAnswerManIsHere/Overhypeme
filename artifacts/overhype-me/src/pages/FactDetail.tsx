@@ -1,7 +1,6 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, lazy, Suspense } from "react";
 import { useRoute, Link, useLocation } from "wouter";
 import { format } from "date-fns";
-import HCaptcha from "@hcaptcha/react-hcaptcha";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { useGetFact, useListComments, getGetFactQueryKey, getListCommentsQueryKey } from "@workspace/api-client-react";
@@ -10,14 +9,17 @@ import { Layout } from "@/components/layout/Layout";
 import { Button } from "@/components/ui/Button";
 import { Textarea } from "@/components/ui/Input";
 import { useAppMutations } from "@/hooks/use-mutations";
-import { MemeStudio } from "@/components/MemeStudio";
 import { AdSlot } from "@/components/AdSlot";
+
 import { ThumbsUp, ThumbsDown, User, AlertCircle, ImageIcon, GitBranch, ArrowLeft, Crown, Flame, Globe, Lock, Video, Play, ExternalLink, Check, SlidersHorizontal } from "lucide-react";
 import { ImageCard } from "@/components/ui/ImageCard";
 import { cn } from "@/components/ui/Button";
 import { usePersonName } from "@/hooks/use-person-name";
 import { AccessGate } from "@/components/AccessGate";
 import { renderFact } from "@/lib/render-fact";
+
+const MemeStudio = lazy(() => import("@/components/MemeStudio").then(m => ({ default: m.MemeStudio })));
+const HCaptcha = lazy(() => import("@hcaptcha/react-hcaptcha"));
 
 type MemeItem = {
   id: number;
@@ -96,14 +98,16 @@ function VariantFactCard({ id, useCase }: { id: number; useCase: string | null }
   return (
     <div className="bg-card border-l-4 border-primary/60 p-6 md:p-8 shadow-lg relative">
       {showStudio && (
-        <MemeStudio
-          factId={id}
-          factText={renderedText}
-          rawFactText={fact.text}
-          aiMemeImages={(fact as unknown as { aiMemeImages?: import("@/components/MemeStudio").AiMemeImages | null })?.aiMemeImages ?? null}
-          onClose={() => setShowStudio(false)}
-          defaultTab={studioDefaultTab}
-        />
+        <Suspense fallback={null}>
+          <MemeStudio
+            factId={id}
+            factText={renderedText}
+            rawFactText={fact.text}
+            aiMemeImages={(fact as unknown as { aiMemeImages?: import("@/components/MemeStudio").AiMemeImages | null })?.aiMemeImages ?? null}
+            onClose={() => setShowStudio(false)}
+            defaultTab={studioDefaultTab}
+          />
+        </Suspense>
       )}
 
       {useCase && (
@@ -197,15 +201,12 @@ export default function FactDetail() {
     query: { queryKey: getGetFactQueryKey(factId), enabled: !!factId }
   });
 
-  const { data: commentsData } = useListComments(factId, { limit: 50 }, {
-    query: { queryKey: getListCommentsQueryKey(factId, { limit: 50 }), enabled: !!factId }
-  });
-
   const [showImages, setShowImages] = useState(() => localStorage.getItem("meme_show_images") !== "false");
   const [showVideos, setShowVideos] = useState(() => localStorage.getItem("meme_show_videos") !== "false");
   const [showCommunity, setShowCommunity] = useState(() => localStorage.getItem("meme_show_community") !== "false");
   const [showMyPublic, setShowMyPublic] = useState(() => localStorage.getItem("meme_show_my_public") !== "false");
   const [showMyPrivate, setShowMyPrivate] = useState(() => localStorage.getItem("meme_show_my_private") !== "false");
+  const [belowFoldMounted, setBelowFoldMounted] = useState(false);
   const queryClient = useQueryClient();
 
   useEffect(() => { localStorage.setItem("meme_show_images", String(showImages)); }, [showImages]);
@@ -214,22 +215,40 @@ export default function FactDetail() {
   useEffect(() => { localStorage.setItem("meme_show_my_public", String(showMyPublic)); }, [showMyPublic]);
   useEffect(() => { localStorage.setItem("meme_show_my_private", String(showMyPrivate)); }, [showMyPrivate]);
 
+  useEffect(() => {
+    const ric = typeof requestIdleCallback !== "undefined" ? requestIdleCallback : null;
+    let id: number;
+    if (ric) {
+      id = ric(() => setBelowFoldMounted(true));
+    } else {
+      id = setTimeout(() => setBelowFoldMounted(true), 0) as unknown as number;
+    }
+    return () => {
+      if (ric) cancelIdleCallback(id);
+      else clearTimeout(id as unknown as ReturnType<typeof setTimeout>);
+    };
+  }, []);
+
+  const { data: commentsData } = useListComments(factId, { limit: 50 }, {
+    query: { queryKey: getListCommentsQueryKey(factId, { limit: 50 }), enabled: !!factId && belowFoldMounted }
+  });
+
   const { data: communityMemesData } = useQuery({
     queryKey: ["listFactMemes", factId, "community"],
     queryFn: () => fetchMemes(factId, "community"),
-    enabled: !!factId,
+    enabled: !!factId && belowFoldMounted,
   });
 
   const { data: myPublicMemesData } = useQuery({
     queryKey: ["listFactMemes", factId, "my-public"],
     queryFn: () => fetchMemes(factId, "my-public"),
-    enabled: !!factId && isAuthenticated,
+    enabled: !!factId && isAuthenticated && belowFoldMounted,
   });
 
   const { data: myPrivateMemesData } = useQuery({
     queryKey: ["listFactMemes", factId, "my-private"],
     queryFn: () => fetchMemes(factId, "my-private"),
-    enabled: !!factId && isAuthenticated,
+    enabled: !!factId && isAuthenticated && belowFoldMounted,
   });
 
   const communityMemes = communityMemesData?.memes ?? [];
@@ -239,7 +258,7 @@ export default function FactDetail() {
   const { data: videosData } = useQuery({
     queryKey: ["listFactVideos", factId],
     queryFn: () => fetchVideos(factId),
-    enabled: !!factId,
+    enabled: !!factId && belowFoldMounted,
   });
 
   const { name, pronouns } = usePersonName();
@@ -302,16 +321,18 @@ export default function FactDetail() {
   return (
     <Layout>
       {showMemeStudio && (
-        <MemeStudio
-          factId={factId}
-          factText={renderedText}
-          rawFactText={fact.text}
-          pexelsImages={pexelsImages}
-          aiMemeImages={aiMemeImages}
-          onClose={closeMemeStudio}
-          defaultPrivate={memeBuilderDefaultPrivate}
-          defaultTab={isVideoRoute ? "video" : studioDefaultTab}
-        />
+        <Suspense fallback={null}>
+          <MemeStudio
+            factId={factId}
+            factText={renderedText}
+            rawFactText={fact.text}
+            pexelsImages={pexelsImages}
+            aiMemeImages={aiMemeImages}
+            onClose={closeMemeStudio}
+            defaultPrivate={memeBuilderDefaultPrivate}
+            defaultTab={isVideoRoute ? "video" : studioDefaultTab}
+          />
+        </Suspense>
       )}
       <div className="max-w-4xl mx-auto px-4 py-12 md:py-20">
 
@@ -390,6 +411,8 @@ export default function FactDetail() {
 
         {/* Ad slot below fact card — hidden for premium users */}
         <AdSlot slot={import.meta.env.VITE_ADSENSE_SLOT_FACT_FOOTER ?? "1234567890"} format="horizontal" className="mb-8" />
+
+        {belowFoldMounted && (<>
 
         {/* Media Gallery — above comments */}
         <div className="mb-12">
@@ -753,10 +776,12 @@ export default function FactDetail() {
                       </div>
                     ) : (
                       <div className="overflow-hidden rounded-sm border-2 border-border">
-                        <HCaptcha
-                          sitekey={HCAPTCHA_SITE_KEY}
-                          onVerify={setCaptchaToken}
-                        />
+                        <Suspense fallback={<div className="w-[303px] h-[78px] bg-muted animate-pulse rounded-sm" />}>
+                          <HCaptcha
+                            sitekey={HCAPTCHA_SITE_KEY}
+                            onVerify={setCaptchaToken}
+                          />
+                        </Suspense>
                       </div>
                     )}
                     <Button type="submit" isLoading={addComment.isPending} disabled={!commentText.trim()} className="w-full sm:w-auto">
@@ -811,6 +836,8 @@ export default function FactDetail() {
             </div>
           </div>
         )}
+
+        </>)}
 
       </div>
     </Layout>
