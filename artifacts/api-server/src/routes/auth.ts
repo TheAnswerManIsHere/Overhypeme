@@ -1,30 +1,24 @@
 import * as oidc from "openid-client";
+import * as Sentry from "@sentry/node";
 import { Router, type IRouter, type Request, type Response } from "express";
-import {
-  GetCurrentAuthUserResponse,
-  ExchangeMobileAuthorizationCodeBody,
-  ExchangeMobileAuthorizationCodeResponse,
-  LogoutMobileSessionResponse,
-} from "@workspace/api-zod";
+import { GetCurrentAuthUserResponse } from "@workspace/api-zod";
 import { db, usersTable } from "@workspace/db";
 import { eq, and } from "drizzle-orm";
 import {
   clearSession,
-  getOidcConfig,
+  getGoogleConfig,
+  getAppleConfig,
   getSessionId,
   getSession,
   createSession,
   updateSession,
-  deleteSession,
   SESSION_COOKIE,
   SESSION_TTL,
-  ISSUER_URL,
   type SessionData,
 } from "../lib/auth";
 import { deriveUserRole } from "../lib/userRole";
 
 const OIDC_COOKIE_TTL = 10 * 60 * 1000;
-const IS_PRODUCTION = process.env.NODE_ENV === "production";
 
 export function isAdminById(userId: string): boolean {
   const ids = process.env.ADMIN_USER_IDS?.split(",").map((s) => s.trim()) ?? [];
@@ -76,60 +70,192 @@ function getSafeReturnTo(value: unknown): string {
   }
 }
 
+type OAuthProvider = "google" | "apple";
+
 async function upsertUser(
   claims: Record<string, unknown>,
+  provider: OAuthProvider,
+  appleNameOverride?: { firstName?: string; lastName?: string },
 ): Promise<{ user: typeof usersTable.$inferSelect; isNewUser: boolean }> {
-  const id = claims.sub as string;
+  const email = ((claims.email as string) || "").toLowerCase().trim();
+  if (!email) throw new Error("No email in OAuth claims");
 
   const existing = await db
     .select()
     .from(usersTable)
-    .where(eq(usersTable.id, id))
+    .where(eq(usersTable.email, email))
     .limit(1);
+
   const isNewUser = existing.length === 0;
 
-  // Billing/fulfillment name fields: only set from OIDC claims when they are
-  // currently null/empty, so that values the user has explicitly set are never
-  // overwritten by the identity provider on subsequent logins.
-  const oidcFirstName = (claims.first_name as string) || null;
-  const oidcLastName = (claims.last_name as string) || null;
+  // Apple only sends the user's name on the first authorization, and via the
+  // form_post `user` parameter rather than the ID token. For Google we read
+  // standard OIDC claims.
+  const oidcFirstName =
+    provider === "apple"
+      ? (appleNameOverride?.firstName ?? null)
+      : ((claims.given_name as string) || null);
+
+  const oidcLastName =
+    provider === "apple"
+      ? (appleNameOverride?.lastName ?? null)
+      : ((claims.family_name as string) || null);
+
   const existingFirstName = existing[0]?.firstName ?? null;
   const existingLastName = existing[0]?.lastName ?? null;
 
-  const userData = {
-    id,
-    email: (claims.email as string) || null,
-    profileImageUrl: (claims.profile_image_url || claims.picture) as
-      | string
-      | null,
-  };
+  const profileImageUrl = (claims.picture as string) || null;
 
-  // For new users, seed firstName/lastName from OIDC; for existing users only
-  // write these if the user has never set them (preserves user-edited values).
-  const insertValues = {
-    ...userData,
-    firstName: oidcFirstName,
-    lastName: oidcLastName,
-    isActive: true,
-  };
-
+  // Preserve any value the user has already explicitly set; only seed fields
+  // from the identity provider when they are currently null/empty.
   const conflictSet: Record<string, unknown> = {
-    ...userData,
+    oauthProvider: existing[0]?.oauthProvider ?? provider,
     updatedAt: new Date(),
   };
-  if (!existingFirstName) conflictSet.firstName = oidcFirstName;
-  if (!existingLastName) conflictSet.lastName = oidcLastName;
+  if (!existing[0]?.profileImageUrl && profileImageUrl) {
+    conflictSet.profileImageUrl = profileImageUrl;
+  }
+  if (!existingFirstName && oidcFirstName) conflictSet.firstName = oidcFirstName;
+  if (!existingLastName && oidcLastName) conflictSet.lastName = oidcLastName;
 
   const [user] = await db
     .insert(usersTable)
-    .values(insertValues)
+    .values({
+      email,
+      firstName: oidcFirstName,
+      lastName: oidcLastName,
+      profileImageUrl,
+      oauthProvider: provider,
+      isActive: true,
+    })
     .onConflictDoUpdate({
-      target: usersTable.id,
+      target: usersTable.email,
       set: conflictSet,
     })
     .returning();
+
   return { user, isNewUser };
 }
+
+async function handleOAuthCallback(
+  req: Request,
+  res: Response,
+  provider: OAuthProvider,
+  code: string,
+  state: string,
+  appleNameOverride?: { firstName?: string; lastName?: string },
+): Promise<void> {
+  const config =
+    provider === "google" ? await getGoogleConfig() : await getAppleConfig();
+
+  const callbackUrl = `${getOrigin(req)}/api/callback/${provider}`;
+  const codeVerifier = req.cookies?.code_verifier;
+  const nonce = req.cookies?.nonce;
+  const expectedState = req.cookies?.state;
+
+  if (!codeVerifier || !expectedState) {
+    res.redirect(`/api/login/${provider}`);
+    return;
+  }
+
+  const currentUrl = new URL(callbackUrl);
+  currentUrl.searchParams.set("code", code);
+  currentUrl.searchParams.set("state", state);
+
+  let tokens: oidc.TokenEndpointResponse & oidc.TokenEndpointResponseHelpers;
+  try {
+    tokens = await oidc.authorizationCodeGrant(config, currentUrl, {
+      pkceCodeVerifier: codeVerifier,
+      expectedNonce: nonce,
+      expectedState,
+      idTokenExpected: true,
+    });
+  } catch (err) {
+    Sentry.captureException(err, {
+      tags: { auth: "oauth-callback" },
+      extra: { provider, stage: "authorizationCodeGrant" },
+    });
+    res.redirect(`/api/login/${provider}`);
+    return;
+  }
+
+  res.clearCookie("code_verifier", { path: "/" });
+  res.clearCookie("nonce", { path: "/" });
+  res.clearCookie("state", { path: "/" });
+
+  const claims = tokens.claims();
+  if (!claims) {
+    res.redirect(`/api/login/${provider}`);
+    return;
+  }
+
+  const returnTo = getSafeReturnTo(req.cookies?.return_to);
+  res.clearCookie("return_to", { path: "/" });
+
+  let dbUser: typeof usersTable.$inferSelect;
+  let isNewUser: boolean;
+  try {
+    ({ user: dbUser, isNewUser } = await upsertUser(
+      claims as unknown as Record<string, unknown>,
+      provider,
+      appleNameOverride,
+    ));
+  } catch (err) {
+    Sentry.captureException(err, {
+      tags: { auth: "oauth-callback" },
+      extra: { provider, stage: "upsertUser" },
+    });
+    res
+      .status(400)
+      .send(
+        "Unable to retrieve email from your account. Please use email/password sign-in.",
+      );
+    return;
+  }
+
+  if (!dbUser.isActive) {
+    res.status(403).send("Account deactivated");
+    return;
+  }
+
+  const sessionData: SessionData = {
+    user: {
+      id: dbUser.id,
+      email: dbUser.email,
+      displayName: dbUser.displayName,
+      profileImageUrl: dbUser.profileImageUrl,
+      membershipTier: dbUser.membershipTier,
+    },
+    access_token: tokens.access_token,
+    captchaVerified: dbUser.captchaVerified,
+    isAdmin: dbUser.isAdmin || isAdminById(dbUser.id),
+  };
+
+  const sid = await createSession(sessionData, dbUser.id);
+  setSessionCookie(res, sid);
+
+  const basePath = process.env.BASE_PATH || "";
+  const isPopup = req.cookies?.login_popup === "1";
+  res.clearCookie("login_popup", { path: "/" });
+
+  if (isPopup) {
+    const target = isNewUser
+      ? `${basePath}/onboard?returnTo=${encodeURIComponent(returnTo)}`
+      : basePath + returnTo;
+    const safeTarget = JSON.stringify(target);
+    res.send(`<!DOCTYPE html><html><body><script>
+      var t = ${safeTarget};
+      if (window.opener) { window.opener.location.href = t; window.close(); }
+      else { window.location.href = t; }
+    </script></body></html>`);
+  } else if (isNewUser) {
+    res.redirect(`${basePath}/onboard?returnTo=${encodeURIComponent(returnTo)}`);
+  } else {
+    res.redirect(returnTo);
+  }
+}
+
+// ── Auth routes ───────────────────────────────────────────────────────────────
 
 router.get("/auth/user", async (req: Request, res: Response) => {
   res.setHeader("Cache-Control", "no-store");
@@ -208,10 +334,17 @@ router.post("/auth/toggle-admin-mode", async (req: Request, res: Response) => {
   res.json({ adminModeActive: !session.adminModeDisabled });
 });
 
-router.get("/login", async (req: Request, res: Response) => {
-  const config = await getOidcConfig();
-  const callbackUrl = `${getOrigin(req)}/api/callback`;
+router.get("/login/:provider", async (req: Request, res: Response) => {
+  const provider = req.params.provider as OAuthProvider;
+  if (provider !== "google" && provider !== "apple") {
+    res.status(404).send("Unknown provider");
+    return;
+  }
 
+  const config =
+    provider === "google" ? await getGoogleConfig() : await getAppleConfig();
+
+  const callbackUrl = `${getOrigin(req)}/api/callback/${provider}`;
   const returnTo = getSafeReturnTo(req.query.returnTo);
 
   const state = oidc.randomState();
@@ -219,15 +352,21 @@ router.get("/login", async (req: Request, res: Response) => {
   const codeVerifier = oidc.randomPKCECodeVerifier();
   const codeChallenge = await oidc.calculatePKCECodeChallenge(codeVerifier);
 
-  const redirectTo = oidc.buildAuthorizationUrl(config, {
+  const params: Record<string, string> = {
     redirect_uri: callbackUrl,
-    scope: "openid email profile offline_access",
+    scope: provider === "apple" ? "openid name email" : "openid email profile",
     code_challenge: codeChallenge,
     code_challenge_method: "S256",
-    prompt: "login consent",
     state,
     nonce,
-  });
+  };
+  if (provider === "apple") {
+    // Apple requires response_mode=form_post when scopes other than openid are
+    // requested — the callback comes back as an HTTP POST form-data submission.
+    params.response_mode = "form_post";
+  }
+
+  const redirectTo = oidc.buildAuthorizationUrl(config, params);
 
   setOidcCookie(res, "code_verifier", codeVerifier);
   setOidcCookie(res, "nonce", nonce);
@@ -241,113 +380,44 @@ router.get("/login", async (req: Request, res: Response) => {
   res.redirect(redirectTo.href);
 });
 
-// Query params are not validated because the OIDC provider may include
-// parameters not expressed in the schema.
-router.get("/callback", async (req: Request, res: Response) => {
-  const config = await getOidcConfig();
-  const callbackUrl = `${getOrigin(req)}/api/callback`;
+router.get("/callback/google", async (req: Request, res: Response) => {
+  const code = req.query.code as string;
+  const state = req.query.state as string;
+  if (!code || !state) {
+    res.redirect("/api/login/google");
+    return;
+  }
+  await handleOAuthCallback(req, res, "google", code, state);
+});
 
-  const codeVerifier = req.cookies?.code_verifier;
-  const nonce = req.cookies?.nonce;
-  const expectedState = req.cookies?.state;
-
-  if (!codeVerifier || !expectedState) {
-    res.redirect("/api/login");
+router.post("/callback/apple", async (req: Request, res: Response) => {
+  const code = req.body?.code as string;
+  const state = req.body?.state as string;
+  if (!code || !state) {
+    res.redirect("/api/login/apple");
     return;
   }
 
-  const currentUrl = new URL(
-    `${callbackUrl}?${new URL(req.url, `http://${req.headers.host}`).searchParams}`,
-  );
-
-  let tokens: oidc.TokenEndpointResponse & oidc.TokenEndpointResponseHelpers;
-  try {
-    tokens = await oidc.authorizationCodeGrant(config, currentUrl, {
-      pkceCodeVerifier: codeVerifier,
-      expectedNonce: nonce,
-      expectedState,
-      idTokenExpected: true,
-    });
-  } catch {
-    res.redirect("/api/login");
-    return;
+  let appleNameOverride: { firstName?: string; lastName?: string } | undefined;
+  if (req.body?.user) {
+    try {
+      const appleUser = JSON.parse(req.body.user as string);
+      appleNameOverride = {
+        firstName: appleUser?.name?.firstName,
+        lastName: appleUser?.name?.lastName,
+      };
+    } catch {
+      // Apple only sends `user` on first login — its absence is expected.
+    }
   }
 
-  const returnTo = getSafeReturnTo(req.cookies?.return_to);
-
-  res.clearCookie("code_verifier", { path: "/" });
-  res.clearCookie("nonce", { path: "/" });
-  res.clearCookie("state", { path: "/" });
-  res.clearCookie("return_to", { path: "/" });
-
-  const claims = tokens.claims();
-  if (!claims) {
-    res.redirect("/api/login");
-    return;
-  }
-
-  const { user: dbUser, isNewUser } = await upsertUser(
-    claims as unknown as Record<string, unknown>,
-  );
-
-  if (!dbUser.isActive) {
-    res.status(403).send("Account deactivated");
-    return;
-  }
-
-  const now = Math.floor(Date.now() / 1000);
-  const sessionData: SessionData = {
-    user: {
-      id: dbUser.id,
-      email: dbUser.email,
-      displayName: dbUser.displayName,
-      profileImageUrl: dbUser.profileImageUrl,
-      membershipTier: dbUser.membershipTier,
-    },
-    access_token: tokens.access_token,
-    refresh_token: tokens.refresh_token,
-    expires_at: tokens.expiresIn() ? now + tokens.expiresIn()! : claims.exp,
-    captchaVerified: dbUser.captchaVerified,
-    isAdmin: dbUser.isAdmin || isAdminById(dbUser.id),
-  };
-
-  const sid = await createSession(sessionData, dbUser.id);
-  setSessionCookie(res, sid);
-
-  const basePath = process.env.BASE_PATH || "";
-  const isPopup = req.cookies?.login_popup === "1";
-  res.clearCookie("login_popup", { path: "/" });
-
-  if (isPopup) {
-    const target = isNewUser
-      ? `${basePath}/onboard?returnTo=${encodeURIComponent(returnTo)}`
-      : basePath + returnTo;
-    const safeTarget = JSON.stringify(target);
-    res.send(`<!DOCTYPE html><html><body><script>
-      var t = ${safeTarget};
-      if (window.opener) { window.opener.location.href = t; window.close(); }
-      else { window.location.href = t; }
-    </script></body></html>`);
-  } else if (isNewUser) {
-    res.redirect(`${basePath}/onboard?returnTo=${encodeURIComponent(returnTo)}`);
-  } else {
-    res.redirect(returnTo);
-  }
+  await handleOAuthCallback(req, res, "apple", code, state, appleNameOverride);
 });
 
 router.get("/logout", async (req: Request, res: Response) => {
-  const config = await getOidcConfig();
-  const origin = getOrigin(req);
-
   const sid = getSessionId(req);
   await clearSession(res, sid);
-
-  const endSessionUrl = oidc.buildEndSessionUrl(config, {
-    client_id: process.env.REPL_ID!,
-    post_logout_redirect_uri: origin,
-  });
-
-  res.redirect(endSessionUrl.href);
+  res.redirect(getOrigin(req));
 });
 
 // JSON logout endpoint — called via fetch so the interceptor can attach the
@@ -356,80 +426,6 @@ router.post("/auth/logout", async (req: Request, res: Response) => {
   const sid = getSessionId(req);
   await clearSession(res, sid);
   res.json({ ok: true });
-});
-
-router.post(
-  "/mobile-auth/token-exchange",
-  async (req: Request, res: Response) => {
-    const parsed = ExchangeMobileAuthorizationCodeBody.safeParse(req.body);
-    if (!parsed.success) {
-      res.status(400).json({ error: "Missing or invalid required parameters" });
-      return;
-    }
-
-    const { code, code_verifier, redirect_uri, state, nonce } = parsed.data;
-
-    try {
-      const config = await getOidcConfig();
-
-      const callbackUrl = new URL(redirect_uri);
-      callbackUrl.searchParams.set("code", code);
-      callbackUrl.searchParams.set("state", state);
-      callbackUrl.searchParams.set("iss", ISSUER_URL);
-
-      const tokens = await oidc.authorizationCodeGrant(config, callbackUrl, {
-        pkceCodeVerifier: code_verifier,
-        expectedNonce: nonce ?? undefined,
-        expectedState: state,
-        idTokenExpected: true,
-      });
-
-      const claims = tokens.claims();
-      if (!claims) {
-        res.status(401).json({ error: "No claims in ID token" });
-        return;
-      }
-
-      const { user: dbUser } = await upsertUser(
-        claims as unknown as Record<string, unknown>,
-      );
-
-      if (!dbUser.isActive) {
-        res.status(403).json({ error: "Account deactivated" });
-        return;
-      }
-
-      const now = Math.floor(Date.now() / 1000);
-      const sessionData: SessionData = {
-        user: {
-          id: dbUser.id,
-          email: dbUser.email,
-          displayName: dbUser.displayName,
-          profileImageUrl: dbUser.profileImageUrl,
-          membershipTier: dbUser.membershipTier,
-        },
-        access_token: tokens.access_token,
-        refresh_token: tokens.refresh_token,
-        expires_at: tokens.expiresIn() ? now + tokens.expiresIn()! : claims.exp,
-        captchaVerified: dbUser.captchaVerified,
-        isAdmin: dbUser.isAdmin || isAdminById(dbUser.id),
-      };
-
-      const sid = await createSession(sessionData, dbUser.id);
-      res.json(ExchangeMobileAuthorizationCodeResponse.parse({ token: sid }));
-    } catch (err) {
-      req.log.error({ err }, "Mobile token exchange error");
-      res.status(500).json({ error: "Token exchange failed" });
-    }
-  },
-);
-
-router.post("/mobile-auth/logout", async (req: Request, res: Response) => {
-  const sid = getSessionId(req);
-  if (sid) {
-    await deleteSession(sid);
-  }
-  res.json(LogoutMobileSessionResponse.parse({ success: true }));
 });
 
 export default router;

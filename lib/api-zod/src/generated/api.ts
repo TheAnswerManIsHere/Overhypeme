@@ -76,36 +76,6 @@ export const LogoutBrowserSessionHeader = zod.object({
 });
 
 /**
- * @summary Exchange a mobile OIDC code for a session token
- */
-
-export const ExchangeMobileAuthorizationCodeBody = zod.object({
-  code: zod.string().min(1),
-  code_verifier: zod.string().min(1),
-  redirect_uri: zod.string().url().min(1),
-  state: zod.string().min(1),
-  nonce: zod.string().min(1).optional(),
-});
-
-export const ExchangeMobileAuthorizationCodeResponse = zod.object({
-  token: zod.string(),
-});
-
-/**
- * @summary Delete a mobile session token
- */
-export const LogoutMobileSessionHeader = zod.object({
-  Authorization: zod
-    .string()
-    .optional()
-    .describe("Bearer session token (used by mobile clients)."),
-});
-
-export const LogoutMobileSessionResponse = zod.object({
-  success: zod.boolean(),
-});
-
-/**
  * @summary List facts
  */
 export const listFactsQuerySortDefault = `top`;
