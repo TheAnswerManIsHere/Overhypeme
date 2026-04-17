@@ -1,11 +1,13 @@
 import { useEffect, useRef } from "react";
 import { Switch, Route, Router as WouterRouter, useLocation } from "wouter";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { Sentry } from "@/lib/sentry";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { trackPageView } from "@/lib/analytics";
 import { PersonNameProvider, SHARE_LINK_ACTIVE, usePersonName } from "@/hooks/use-person-name";
 import { useAuth, AuthProvider } from "@workspace/replit-auth-web";
+import SentryFallback from "@/components/SentryFallback";
 
 // Pages
 import Home from "@/pages/Home";
@@ -87,9 +89,19 @@ function ShareParamReader() {
  * - On logout (authenticated → unauthenticated): resets to defaults and clears storage.
  */
 function AuthProfileSync() {
-  const { isAuthenticated, isLoading } = useAuth();
+  const { isAuthenticated, isLoading, user } = useAuth();
   const { reset, syncFromProfile } = usePersonName();
   const prevAuthRef = useRef<boolean | null>(null);
+
+  // Keep Sentry's user scope in sync with the auth state. ID only — no PII.
+  useEffect(() => {
+    if (isLoading) return;
+    if (isAuthenticated && user?.id) {
+      Sentry.setUser({ id: user.id });
+    } else {
+      Sentry.setUser(null);
+    }
+  }, [isAuthenticated, isLoading, user?.id]);
 
   useEffect(() => {
     if (isLoading) return;
@@ -201,18 +213,20 @@ function Router() {
 
 function App() {
   return (
-    <AuthProvider>
-      <QueryClientProvider client={queryClient}>
-        <TooltipProvider>
-          <PersonNameProvider>
-            <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
-              <Router />
-            </WouterRouter>
-            <Toaster />
-          </PersonNameProvider>
-        </TooltipProvider>
-      </QueryClientProvider>
-    </AuthProvider>
+    <Sentry.ErrorBoundary fallback={({ resetError }) => <SentryFallback resetError={resetError} />}>
+      <AuthProvider>
+        <QueryClientProvider client={queryClient}>
+          <TooltipProvider>
+            <PersonNameProvider>
+              <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
+                <Router />
+              </WouterRouter>
+              <Toaster />
+            </PersonNameProvider>
+          </TooltipProvider>
+        </QueryClientProvider>
+      </AuthProvider>
+    </Sentry.ErrorBoundary>
   );
 }
 

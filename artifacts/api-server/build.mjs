@@ -3,6 +3,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { build as esbuild } from "esbuild";
 import esbuildPluginPino from "esbuild-plugin-pino";
+import { sentryEsbuildPlugin } from "@sentry/esbuild-plugin";
 import { rm, cp } from "node:fs/promises";
 
 // Plugins (e.g. 'esbuild-plugin-pino') may use `require` to resolve dependencies
@@ -64,7 +65,10 @@ async function buildAll() {
       "@swc/*",
       "@aws-sdk/*",
       "@azure/*",
-      "@opentelemetry/*",
+      // Note: @opentelemetry/* is intentionally bundled (not externalized) because
+      // @sentry/node depends on it transitively. With pnpm those packages live in
+      // the virtual store and aren't reachable from dist/ at runtime — bundling
+      // them inlines the JS so the binary is fully self-contained.
       "@google-cloud/*",
       "@google/*",
       "googleapis",
@@ -106,7 +110,23 @@ async function buildAll() {
     sourcemap: "linked",
     plugins: [
       // pino relies on workers to handle logging, instead of externalizing it we use a plugin to handle it
-      esbuildPluginPino({ transports: ["pino-pretty"] })
+      esbuildPluginPino({ transports: ["pino-pretty"] }),
+      // Upload source maps to Sentry on production builds. Skipped automatically
+      // when SENTRY_AUTH_TOKEN is missing (e.g. in dev or contributor builds).
+      ...(process.env.SENTRY_AUTH_TOKEN && process.env.SENTRY_ORG && process.env.SENTRY_PROJECT_BACKEND
+        ? [sentryEsbuildPlugin({
+            authToken: process.env.SENTRY_AUTH_TOKEN,
+            org: process.env.SENTRY_ORG,
+            project: process.env.SENTRY_PROJECT_BACKEND,
+            release: {
+              name: process.env.REPLIT_DEPLOYMENT_ID ?? process.env.REPLIT_GIT_COMMIT_SHA?.slice(0, 7) ?? "dev",
+            },
+            sourcemaps: {
+              filesToDeleteAfterUpload: ["./dist/**/*.mjs.map"],
+            },
+            telemetry: false,
+          })]
+        : []),
     ],
     // Make sure packages that are cjs only (e.g. express) but are bundled continue to work in our esm output file
     banner: {

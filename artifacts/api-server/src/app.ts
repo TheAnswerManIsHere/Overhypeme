@@ -1,7 +1,8 @@
-import express, { type Express } from "express";
+import express, { type Express, type Request, type Response, type NextFunction } from "express";
 import cors from "cors";
 import cookieParser from "cookie-parser";
 import pinoHttp from "pino-http";
+import * as Sentry from "@sentry/node";
 import router from "./routes";
 import { logger } from "./lib/logger";
 import { authMiddleware } from "./middlewares/authMiddleware";
@@ -52,6 +53,20 @@ app.use(express.json({ limit: "2mb" }));
 app.use(express.urlencoded({ extended: true }));
 app.use(authMiddleware);
 
+// Attach the authenticated user (id only — no PII) to the per-request Sentry
+// isolation scope so every reported error/transaction in this request can be
+// filtered by user. Using the isolation scope (not setUser on the global scope)
+// ensures concurrent requests don't leak each other's user context.
+app.use((req: Request, _res: Response, next: NextFunction) => {
+  const scope = Sentry.getIsolationScope();
+  if (req.user?.id) {
+    scope.setUser({ id: req.user.id });
+  } else {
+    scope.setUser(null);
+  }
+  next();
+});
+
 // Ensure auth, admin, mutation, and webhook routes are never cached
 app.use([
   "/api/auth",
@@ -84,5 +99,21 @@ app.get("/api/config", async (_req, res) => {
 });
 
 app.use("/api", router);
+
+// Sentry's express error handler — must be registered AFTER all routes/middleware.
+// Captures any error thrown in a route handler (including async handlers in Express 5)
+// and forwards it to Sentry before passing to the next error handler.
+Sentry.setupExpressErrorHandler(app);
+
+// Final fallback error handler — returns a clean JSON 500 instead of leaking
+// HTML stack traces. Sentry has already captured the error by this point.
+app.use((err: Error, req: Request, res: Response, _next: NextFunction) => {
+  logger.error({ err, url: req.url, method: req.method }, "Unhandled route error");
+  if (res.headersSent) return;
+  res.status(500).json({
+    error: "Internal server error",
+    eventId: (res as Response & { sentry?: string }).sentry,
+  });
+});
 
 export default app;
