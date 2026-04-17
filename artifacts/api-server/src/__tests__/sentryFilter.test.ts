@@ -46,7 +46,7 @@ describe("scrubSentryEvent – request.query_string", () => {
       request: { query_string: "token=secret-tok&page=3" },
     };
     scrubSentryEvent(event);
-    assert.ok(!event.request?.query_string?.includes("secret-tok"), "token value must not appear");
+    assert.ok(!(event.request?.query_string as string)?.includes("secret-tok"), "token value must not appear");
     assert.ok(
       (event.request?.query_string as string).includes("page=3"),
       "page must be preserved",
@@ -58,7 +58,7 @@ describe("scrubSentryEvent – request.query_string", () => {
       request: { query_string: "password=hunter2&user=alice" },
     };
     scrubSentryEvent(event);
-    assert.ok(!event.request?.query_string?.includes("hunter2"), "password value must not appear");
+    assert.ok(!(event.request?.query_string as string)?.includes("hunter2"), "password value must not appear");
     assert.ok(
       (event.request?.query_string as string).includes("user=alice"),
       "user must be preserved",
