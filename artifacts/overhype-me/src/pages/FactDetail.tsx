@@ -104,7 +104,7 @@ function VariantFactCard({ id, useCase }: { id: number; useCase: string | null }
             factId={id}
             factText={renderedText}
             rawFactText={fact.text}
-            aiMemeImages={(fact as unknown as { aiMemeImages?: import("@/components/MemeStudio").AiMemeImages | null })?.aiMemeImages ?? null}
+            aiMemeImages={(fact as unknown as { aiMemeImages?: import("@/types/meme").AiMemeImages | null })?.aiMemeImages ?? null}
             onClose={() => setShowStudio(false)}
             defaultTab={studioDefaultTab}
           />
@@ -321,7 +321,7 @@ export default function FactDetail() {
   }
 
   const pexelsImages = ((fact as unknown as { pexelsImages?: FactPexelsImages | null })?.pexelsImages) ?? null;
-  const aiMemeImages = ((fact as unknown as { aiMemeImages?: import("@/components/MemeStudio").AiMemeImages | null })?.aiMemeImages) ?? null;
+  const aiMemeImages = ((fact as unknown as { aiMemeImages?: import("@/types/meme").AiMemeImages | null })?.aiMemeImages) ?? null;
 
   if (factLoading) return <Layout><div className="flex h-[50vh] items-center justify-center"><div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin" /></div></Layout>;
   if (factError || !fact) return <Layout><div className="max-w-2xl mx-auto mt-20 p-8 bg-destructive/10 border-2 border-destructive text-center"><AlertCircle className="w-16 h-16 text-destructive mx-auto mb-4"/><h2 className="text-3xl font-display text-destructive uppercase">Classified Record Not Found</h2></div></Layout>;

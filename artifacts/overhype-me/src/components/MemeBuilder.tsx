@@ -9,6 +9,7 @@ import {
 } from "react";
 import { Link, useLocation } from "wouter";
 import type { PexelsPhotoEntry, FactPexelsImages } from "@/types/pexels";
+import type { AiMemeImages } from "@/types/meme";
 import { AiBgPicker, type AiBgSelection } from "@/components/AiBgPicker";
 import { ImageCard } from "@/components/ui/ImageCard";
 import { usePersonName } from "@/hooks/use-person-name";
@@ -366,12 +367,6 @@ type VideoState =
   | { status: "generating" }
   | { status: "done"; url: string }
   | { status: "error"; message: string };
-
-export interface AiMemeImages {
-  male:    string[];
-  female:  string[];
-  neutral: string[];
-}
 
 // ─── Draft persistence (save/restore state across login redirect) ─────────────
 interface MemeBuilderDraft {
