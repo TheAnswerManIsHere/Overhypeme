@@ -387,6 +387,48 @@ router.get("/facts/:factId/links", async (req: Request, res: Response) => {
   res.json({ links });
 });
 
+// GET /facts/:factId/pexels-images — paginated Pexels images for "load more" UX
+router.get("/facts/:factId/pexels-images", async (req: Request, res: Response) => {
+  const factId = parseInt(String(req.params["factId"] ?? ""), 10);
+  if (isNaN(factId)) { res.status(400).json({ error: "Invalid factId" }); return; }
+
+  const gender = String(req.query["gender"] ?? "neutral");
+  if (!["male", "female", "neutral"].includes(gender)) {
+    res.status(400).json({ error: "Invalid gender — must be male, female, or neutral" }); return;
+  }
+  const rawOffset = parseInt(String(req.query["offset"] ?? "0"), 10);
+  const offset = isNaN(rawOffset) || rawOffset < 0 ? 0 : rawOffset;
+
+  const [fact] = await db.select().from(factsTable).where(and(eq(factsTable.id, factId), eq(factsTable.isActive, true))).limit(1);
+  if (!fact) { res.status(404).json({ error: "Fact not found" }); return; }
+
+  let rawImages = fact.pexelsImages as import("../lib/factImagePipeline").FactPexelsImages | null;
+  if (fact.parentId !== null) {
+    const [parent] = await db.select({ pexelsImages: factsTable.pexelsImages }).from(factsTable).where(eq(factsTable.id, fact.parentId)).limit(1);
+    if (parent) rawImages = parent.pexelsImages as import("../lib/factImagePipeline").FactPexelsImages | null;
+  }
+
+  if (!rawImages) { res.json({ photos: [], hasMore: false }); return; }
+
+  const cap = await getConfigInt("api_images_per_gender_cap", 5);
+  const pageSize = Math.max(1, Math.min(cap, 20));
+  const allForGender = (rawImages[gender as "male" | "female" | "neutral"] ?? []) as {
+    id: number; url: string; photographer?: string; photographer_url?: string;
+  }[];
+
+  const page = allForGender.slice(offset, offset + pageSize);
+  const hasMore = offset + pageSize < allForGender.length;
+
+  const photos = page.map((entry) => ({
+    id: entry.id,
+    url: entry.url,
+    ...(entry.photographer !== undefined ? { photographer: entry.photographer } : {}),
+    ...(entry.photographer_url !== undefined ? { photographer_url: entry.photographer_url } : {}),
+  }));
+
+  res.json({ photos, hasMore });
+});
+
 // GET /facts/:factId/image-preference — authenticated user's saved image index
 router.get("/facts/:factId/image-preference", async (req: AuthenticatedRequest, res: Response) => {
   if (!req.isAuthenticated()) { res.json({ imageIndex: 0 }); return; }

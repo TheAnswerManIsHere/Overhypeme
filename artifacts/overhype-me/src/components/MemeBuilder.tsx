@@ -555,6 +555,8 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
   const [stockPhoto, setStockPhoto] = useState<StockPhoto | null>(() => readDraft(factId)?.stockPhoto ?? null);
   const [isLoadingStock, setIsLoadingStock] = useState(false);
   const [stockError, setStockError] = useState<string | null>(null);
+  const [isLoadingMorePhotos, setIsLoadingMorePhotos] = useState(false);
+  const [hasMorePhotos, setHasMorePhotos] = useState(false);
   const [isBackfilling, setIsBackfilling] = useState(false);
   const [backfillResult, setBackfillResult] = useState<{ triggered?: number; error?: string } | null>(null);
   const [prefetchedIndex, setPrefetchedIndex] = useState<number | null>(() => readDraft(factId)?.prefetchedIndex ?? null);
@@ -894,14 +896,17 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
 
   useEffect(() => {
     setStockError(null);
+    setHasMorePhotos(false);
     if (!pexelsImages || !stockGender) { setPrefetchedPhotos([]); return; }
     const variant = GENDER_TO_VARIANT[stockGender];
     const raw = pexelsImages[variant] ?? [];
-    setPrefetchedPhotos(raw.map(entry =>
+    const photos = raw.map(entry =>
       typeof entry === "number"
         ? { id: entry, url: pexelsCdnUrl(entry) }
         : entry
-    ));
+    );
+    setPrefetchedPhotos(photos);
+    setHasMorePhotos(photos.length > 0);
   }, [pexelsImages, stockGender]);
 
   const selectPrefetchedPhoto = useCallback((photo: PexelsPhotoEntry, index: number) => {
@@ -913,6 +918,23 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
       photoUrl: photo.url,
     });
   }, []);
+
+  const loadMorePhotos = useCallback(async () => {
+    if (!stockGender || isLoadingMorePhotos) return;
+    const gender = GENDER_TO_VARIANT[stockGender];
+    setIsLoadingMorePhotos(true);
+    try {
+      const res = await fetch(`/api/facts/${factId}/pexels-images?gender=${gender}&offset=${prefetchedPhotos.length}`);
+      if (!res.ok) throw new Error("Failed to load more photos");
+      const data = await res.json() as { photos: PexelsPhotoEntry[]; hasMore: boolean };
+      setPrefetchedPhotos(prev => [...prev, ...data.photos]);
+      setHasMorePhotos(data.hasMore);
+    } catch {
+      // silently fail — user can retry by clicking again
+    } finally {
+      setIsLoadingMorePhotos(false);
+    }
+  }, [factId, stockGender, prefetchedPhotos.length, isLoadingMorePhotos]);
 
   const fetchStockPhoto = useCallback(async (gender: StockGender) => {
     const variant = GENDER_TO_VARIANT[gender];
@@ -1479,6 +1501,18 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
                       />
                     ))}
                   </div>
+                  {hasMorePhotos && (
+                    <button
+                      onClick={() => void loadMorePhotos()}
+                      disabled={isLoadingMorePhotos}
+                      className="w-full flex items-center justify-center gap-1.5 py-1.5 text-[11px] font-medium text-muted-foreground hover:text-foreground border border-dashed border-border hover:border-border/80 rounded-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {isLoadingMorePhotos
+                        ? <><Loader2 className="w-3 h-3 animate-spin" /> Loading…</>
+                        : <><RefreshCw className="w-3 h-3" /> Load more photos</>
+                      }
+                    </button>
+                  )}
                 </div>
               )}
               {pexelsImages?.keywords && stockGender && (
