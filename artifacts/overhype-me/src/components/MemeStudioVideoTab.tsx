@@ -904,9 +904,7 @@ function VideoTab({ factId, factText, pexelsImages, aiMemeImages, initialImageDa
                 >
                   {labels[mode]}
                   {needsPremium && (
-                    <span className="ml-1.5 inline-flex items-center text-amber-400 bg-amber-400/10 border border-amber-400/30 px-1 py-0.5 rounded-sm">
-                      <Lock className="w-2 h-2" />
-                    </span>
+                    <Lock className="ml-1.5 w-3 h-3 text-amber-400 shrink-0 inline-block align-middle" />
                   )}
                 </button>
               );
