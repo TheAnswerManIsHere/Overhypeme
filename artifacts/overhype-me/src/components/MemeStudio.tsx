@@ -513,6 +513,8 @@ function VideoTab({ factId, factText, pexelsImages, aiMemeImages, initialImageDa
 
   // ── Background image state ────────────────────────────────────────────────
   const [imageMode, setImageMode] = useState<VideoImageMode>("stock");
+  const [thumbSize, setThumbSize] = useState(40); // 0–100 slider value
+  const thumbPx = Math.round(70 + (thumbSize / 100) * (290 - 70)); // 70px–290px
 
   // Selected background image URL (URL or base64 data URL)
   const [selectedBgUrl, setSelectedBgUrl] = useState<string | null>(initialImageDataUrl ?? null);
@@ -948,6 +950,21 @@ function VideoTab({ factId, factText, pexelsImages, aiMemeImages, initialImageDa
             })}
           </div>
 
+          {/* Thumbnail size slider */}
+          <div className="flex items-center gap-2 py-1 mb-3">
+            <svg xmlns="http://www.w3.org/2000/svg" className="w-3 h-3 text-muted-foreground shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 9h6v6H9z"/></svg>
+            <input
+              type="range"
+              min={0}
+              max={100}
+              value={thumbSize}
+              onChange={e => setThumbSize(Number(e.target.value))}
+              className="flex-1 h-1 accent-primary cursor-pointer"
+              aria-label="Thumbnail size"
+            />
+            <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4 text-muted-foreground shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/></svg>
+          </div>
+
           {/* Stock photo mode */}
           {imageMode === "stock" && (
             <div className="space-y-3">
@@ -956,7 +973,7 @@ function VideoTab({ factId, factText, pexelsImages, aiMemeImages, initialImageDa
                   <p className="text-[10px] font-display uppercase tracking-widest text-muted-foreground">
                     Select a background image
                   </p>
-                  <div className="grid gap-1.5" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(120px, 1fr))" }}>
+                  <div className="grid gap-1.5" style={{ gridTemplateColumns: `repeat(auto-fill, minmax(${thumbPx}px, 1fr))` }}>
                     {prefetchedPhotos.slice(0, bgStockLimit).map((photo, i) => (
                       <ImageCard
                         key={photo.id}
@@ -1045,7 +1062,7 @@ function VideoTab({ factId, factText, pexelsImages, aiMemeImages, initialImageDa
                       <p className="text-[10px] font-display uppercase tracking-widest text-muted-foreground">
                         My Uploads
                       </p>
-                      <div className="grid gap-1.5 max-h-48 overflow-y-auto" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(100px, 1fr))" }}>
+                      <div className="grid gap-1.5 max-h-48 overflow-y-auto" style={{ gridTemplateColumns: `repeat(auto-fill, minmax(${thumbPx}px, 1fr))` }}>
                         {uploadGallery.slice(0, bgUploadLimit).map((entry) => {
                           const url = `/api/storage${entry.objectPath}`;
                           const isSelected = selectedBgUrl === url;
