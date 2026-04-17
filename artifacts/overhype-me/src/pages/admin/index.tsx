@@ -1,8 +1,15 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { AdminLayout } from "@/components/admin/AdminLayout";
 import { CollapsibleSection } from "@/components/CollapsibleSection";
 import { FileText, Users, TrendingUp, Shield, Zap, Settings, Bug, BarChart2, ChevronUp, ChevronDown, ChevronsUpDown } from "lucide-react";
-import { markNextEventAsDebugTest } from "@/lib/sentry";
+import { Sentry, markNextEventAsDebugTest } from "@/lib/sentry";
+import { getFeedback } from "@sentry/react";
+
+interface BackendSentryStatus {
+  dsnConfigured: boolean;
+  environment: string;
+  release: string;
+}
 
 interface Stats {
   totalFacts: number;
@@ -56,6 +63,9 @@ export default function AdminDashboard() {
   const [routeStats, setRouteStats] = useState<RouteVisitStat[] | null>(null);
   const [timeRange, setTimeRange] = useState<TimeRange>(loadStoredRange);
   const [backendSentryStatus, setBackendSentryStatus] = useState<"idle" | "loading" | "sent" | "error">("idle");
+  const [backendStatus, setBackendStatus] = useState<BackendSentryStatus | null>(null);
+  const [handledStatus, setHandledStatus] = useState<"idle" | "sent">("idle");
+  const [feedbackError, setFeedbackError] = useState<string | null>(null);
   type SortKey = "rank" | "routeKey" | "visitCount" | "updatedAt";
   type SortDir = "asc" | "desc";
   const VALID_SORT_KEYS: SortKey[] = ["rank", "routeKey", "visitCount", "updatedAt"];
@@ -119,6 +129,40 @@ export default function AdminDashboard() {
       setBackendSentryStatus("error");
     }
   }
+
+  const handledTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => { if (handledTimeoutRef.current) clearTimeout(handledTimeoutRef.current); }, []);
+
+  function sendHandledFrontendException() {
+    markNextEventAsDebugTest();
+    Sentry.captureException(new Error("Sentry frontend handled-exception smoke test"));
+    setHandledStatus("sent");
+    if (handledTimeoutRef.current) clearTimeout(handledTimeoutRef.current);
+    handledTimeoutRef.current = setTimeout(() => setHandledStatus("idle"), 4000);
+  }
+
+  function openFeedbackWidget() {
+    setFeedbackError(null);
+    const feedback = getFeedback();
+    if (!feedback) {
+      setFeedbackError("Feedback integration not loaded. Is VITE_SENTRY_DSN set?");
+      return;
+    }
+    const form = feedback.createForm();
+    form.then((f) => {
+      f.appendToDom();
+      f.open();
+    }).catch((err: unknown) => {
+      setFeedbackError(err instanceof Error ? err.message : String(err));
+    });
+  }
+
+  useEffect(() => {
+    fetch("/api/admin/sentry-status", { credentials: "include" })
+      .then((r) => r.ok ? r.json() : null)
+      .then((data: BackendSentryStatus | null) => setBackendStatus(data))
+      .catch(() => setBackendStatus(null));
+  }, []);
 
   useEffect(() => {
     fetch("/api/admin/stats", { credentials: "include" })
@@ -304,32 +348,71 @@ export default function AdminDashboard() {
         </CollapsibleSection>
 
         <CollapsibleSection
-          title="Sentry Error Reporting Test"
+          title="Sentry diagnostics"
           icon={<Bug className="w-4 h-4 text-red-400" />}
-          description="Verify end-to-end error reporting after setting Sentry DSN secrets."
+          description="Verify error reporting end-to-end. Issues land in the Issues tab; user feedback lands in the User Feedback tab."
           storageKey="admin_section_dashboard_sentry"
         >
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-4 text-xs">
+            <div className="border border-border rounded p-2 bg-muted/30">
+              <div className="font-semibold text-foreground mb-1">Frontend</div>
+              <div className="flex justify-between"><span className="text-muted-foreground">DSN</span><span className={import.meta.env.VITE_SENTRY_DSN ? "text-green-400" : "text-red-400"}>{import.meta.env.VITE_SENTRY_DSN ? "configured" : "missing"}</span></div>
+              <div className="flex justify-between"><span className="text-muted-foreground">environment</span><span className="font-mono">{import.meta.env.PROD ? "production" : "development"}</span></div>
+              <div className="flex justify-between"><span className="text-muted-foreground">release</span><span className="font-mono truncate ml-2" title={String(import.meta.env.VITE_SENTRY_RELEASE ?? "dev")}>{String(import.meta.env.VITE_SENTRY_RELEASE ?? "dev")}</span></div>
+            </div>
+            <div className="border border-border rounded p-2 bg-muted/30">
+              <div className="font-semibold text-foreground mb-1">Backend</div>
+              {backendStatus === null ? (
+                <div className="text-muted-foreground">Loading…</div>
+              ) : (
+                <>
+                  <div className="flex justify-between"><span className="text-muted-foreground">DSN</span><span className={backendStatus.dsnConfigured ? "text-green-400" : "text-red-400"}>{backendStatus.dsnConfigured ? "configured" : "missing"}</span></div>
+                  <div className="flex justify-between"><span className="text-muted-foreground">environment</span><span className="font-mono">{backendStatus.environment}</span></div>
+                  <div className="flex justify-between"><span className="text-muted-foreground">release</span><span className="font-mono truncate ml-2" title={backendStatus.release}>{backendStatus.release}</span></div>
+                </>
+              )}
+            </div>
+          </div>
           <p className="text-xs text-muted-foreground mb-3">
-            Use these buttons to confirm errors flow into the correct Sentry projects.
-            Check your Sentry dashboard for the new issues after clicking.
+            Each button below produces a different kind of Sentry event. After clicking, refresh
+            the corresponding Sentry project page (filter by <code className="bg-muted px-1 rounded">debug:sentry-test</code>)
+            to confirm it arrived. The feedback widget reports go to the <strong>User Feedback</strong> tab,
+            not the Issues tab.
           </p>
           <div className="flex flex-col gap-2">
+            <button
+              onClick={() => setThrowForBoundary(true)}
+              className="w-full text-left px-3 py-2 rounded bg-muted border border-border text-sm hover:bg-red-950 hover:border-red-700 transition-colors"
+            >
+              1. Throw frontend exception (caught by ErrorBoundary, shows fallback UI)
+            </button>
+            <button
+              onClick={sendHandledFrontendException}
+              className="w-full text-left px-3 py-2 rounded bg-muted border border-border text-sm hover:bg-red-950 hover:border-red-700 transition-colors"
+            >
+              {handledStatus === "sent"
+                ? "2. Handled exception sent — check Sentry (frontend project)"
+                : "2. Send handled frontend exception (Sentry.captureException)"}
+            </button>
             <button
               onClick={() => triggerBackendSentry()}
               disabled={backendSentryStatus === "loading"}
               className="w-full text-left px-3 py-2 rounded bg-muted border border-border text-sm hover:bg-red-950 hover:border-red-700 disabled:opacity-50 transition-colors"
             >
-              {backendSentryStatus === "loading" && "Sending…"}
-              {backendSentryStatus === "sent" && "Backend error sent — check Sentry (backend project)"}
-              {backendSentryStatus === "error" && "Request failed — check credentials"}
-              {backendSentryStatus === "idle" && "Trigger backend Sentry error (POST /api/admin/_debug/sentry)"}
+              {backendSentryStatus === "loading" && "3. Sending…"}
+              {backendSentryStatus === "sent" && "3. Backend error sent — check Sentry (backend project)"}
+              {backendSentryStatus === "error" && "3. Request failed — check credentials"}
+              {backendSentryStatus === "idle" && "3. Trigger backend exception (POST /api/admin/_debug/sentry)"}
             </button>
             <button
-              onClick={() => setThrowForBoundary(true)}
-              className="w-full text-left px-3 py-2 rounded bg-muted border border-border text-sm hover:bg-red-950 hover:border-red-700 transition-colors"
+              onClick={openFeedbackWidget}
+              className="w-full text-left px-3 py-2 rounded bg-muted border border-border text-sm hover:bg-blue-950 hover:border-blue-700 transition-colors"
             >
-              Trigger frontend Sentry error (render-throws — caught by ErrorBoundary)
+              4. Open feedback widget (sends to Sentry → User Feedback tab)
             </button>
+            {feedbackError && (
+              <p className="text-xs text-red-400">{feedbackError}</p>
+            )}
           </div>
         </CollapsibleSection>
       </div>

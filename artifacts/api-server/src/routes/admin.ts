@@ -1665,6 +1665,20 @@ router.post("/admin/_debug/sentry", requireAdmin, (req: Request, res: Response) 
   throw new Error(`Sentry test error triggered by admin user ${userId}`);
 });
 
+// Reports whether the backend Sentry SDK is configured, and with which
+// environment / release. Used by the admin "Sentry diagnostics" card.
+// The DSN value itself is never returned — only a boolean — so this is
+// safe to expose behind requireAdmin.
+router.get("/admin/sentry-status", requireAdmin, (_req: Request, res: Response) => {
+  const dsnConfigured = Boolean(process.env.SENTRY_DSN_BACKEND);
+  const environment = process.env.NODE_ENV === "production" ? "production" : "development";
+  const release =
+    process.env.REPLIT_DEPLOYMENT_ID ??
+    process.env.REPLIT_GIT_COMMIT_SHA?.slice(0, 7) ??
+    "dev";
+  res.json({ dsnConfigured, environment, release });
+});
+
 // ---------------------------------------------------------------------------
 // Route-visit stats — aggregate localStorage visit counts server-side
 // ---------------------------------------------------------------------------
