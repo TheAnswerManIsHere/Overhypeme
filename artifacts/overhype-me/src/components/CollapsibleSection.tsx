@@ -4,6 +4,7 @@ import { ChevronDown } from "lucide-react";
 interface CollapsibleSectionProps {
   title: string;
   icon?: ReactNode;
+  badge?: string;
   description?: string;
   children: ReactNode;
   className?: string;
@@ -13,6 +14,7 @@ interface CollapsibleSectionProps {
 export function CollapsibleSection({
   title,
   icon,
+  badge,
   description,
   children,
   className = "",
@@ -50,7 +52,14 @@ export function CollapsibleSection({
         <div className="flex items-start gap-3 min-w-0">
           {icon && <span className="shrink-0 mt-0.5">{icon}</span>}
           <div className="min-w-0">
-            <span className="font-semibold text-foreground">{title}</span>
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="font-semibold text-foreground">{title}</span>
+              {badge && (
+                <span className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-muted text-muted-foreground border border-border leading-none">
+                  {badge}
+                </span>
+              )}
+            </div>
             {description && (
               <p className="text-sm text-muted-foreground mt-0.5 line-clamp-1">{description}</p>
             )}
