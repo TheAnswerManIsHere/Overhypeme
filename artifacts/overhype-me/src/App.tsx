@@ -93,15 +93,22 @@ function AuthProfileSync() {
   const { reset, syncFromProfile } = usePersonName();
   const prevAuthRef = useRef<boolean | null>(null);
 
-  // Keep Sentry's user scope in sync with the auth state. ID only — no PII.
+  // Keep Sentry's user scope in sync with the auth state.
+  // ID is used for error events; name + email are also set so the feedback
+  // widget pre-populates its fields for logged-in users.
   useEffect(() => {
     if (isLoading) return;
     if (isAuthenticated && user?.id) {
-      Sentry.setUser({ id: user.id });
+      const name = [user.firstName, user.lastName].filter(Boolean).join(" ") || undefined;
+      Sentry.setUser({
+        id: user.id,
+        email: user.email ?? undefined,
+        name,
+      });
     } else {
       Sentry.setUser(null);
     }
-  }, [isAuthenticated, isLoading, user?.id]);
+  }, [isAuthenticated, isLoading, user?.id, user?.email, user?.firstName, user?.lastName]);
 
   useEffect(() => {
     if (isLoading) return;
@@ -117,14 +124,27 @@ function AuthProfileSync() {
 
     // Transition: unauthenticated → authenticated (or first load as authenticated)
     if (isAuthenticated && prev !== true) {
+      let cancelled = false;
       fetch("/api/users/me", { credentials: "include" })
         .then((r) => r.ok ? r.json() : null)
         .then((data) => {
+          if (cancelled) return;
           if (data?.displayName) {
             syncFromProfile(data.displayName, data.pronouns ?? "");
+            // Update Sentry user scope with the resolved display name so the
+            // feedback widget pre-populates with what the user actually calls
+            // themselves, not just their raw first/last name from the auth token.
+            if (user?.id) {
+              Sentry.setUser({
+                id: user.id,
+                email: user.email ?? undefined,
+                name: data.displayName,
+              });
+            }
           }
         })
         .catch(() => {});
+      return () => { cancelled = true; };
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isAuthenticated, isLoading]);
