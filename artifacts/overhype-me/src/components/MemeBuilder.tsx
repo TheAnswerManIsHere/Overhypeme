@@ -1416,10 +1416,7 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
             </ModeTab>
             <ModeTab
               active={imageMode === "upload"}
-              onClick={() => {
-                if (!isPremium && isAuthenticated) return;
-                setImageMode("upload");
-              }}
+              onClick={() => setImageMode("upload")}
               badge={!isPremium ? "PRO" : undefined}
             >
               Upload
