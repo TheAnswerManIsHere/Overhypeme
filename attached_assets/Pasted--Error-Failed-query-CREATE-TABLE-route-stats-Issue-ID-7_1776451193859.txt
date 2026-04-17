@@ -1,0 +1,67 @@
+# Error: Failed query: CREATE TABLE "route_stats" (
+
+**Issue ID:** 7421069085
+**Project:** sentry_project_backend
+**Date:** 4/17/2026, 12:32:10 PM
+## Issue Summary
+Table Creation Failure: Route Stats Table Already Exists
+**What's wrong:** Migration failed attempting to **CREATE TABLE "route_stats"**.
+**In the trace:** The failure occurred within a **database transaction** during the migration process.
+**Possible cause:** The primary error is **"relation \"route_stats\" already exists"**, suggesting a **repeated migration run**.
+
+## Tags
+
+- **environment:** development
+- **handled:** yes
+- **level:** fatal
+- **mechanism:** generic
+- **os:** Ubuntu Linux 24.04
+- **os.name:** Ubuntu Linux
+- **release:** dev
+- **runtime:** node v24.13.0
+- **runtime.name:** node
+- **server_name:** e306024a7bb2
+
+## Exceptions
+
+### Exception 1
+**Type:** error
+**Value:** relation "route_stats" already exists
+
+#### Stacktrace
+
+```
+ Unknown function in /home/runner/workspace/artifacts/api-server/dist/index.mjs [Line 57058] (In app)
+ process.processTicksAndRejections in node:internal/process/task_queues [Line 103] (Not in app)
+ Unknown function in /home/runner/workspace/artifacts/api-server/dist/index.mjs [Line 66472] (In app)
+ NodePgPreparedQuery.queryWithCache in /home/runner/workspace/artifacts/api-server/dist/index.mjs [Line 66183] (In app)
+ Unknown function in /home/runner/workspace/artifacts/api-server/dist/index.mjs [Line 62550] (In app)
+ _NodePgSession.transaction in /home/runner/workspace/artifacts/api-server/dist/index.mjs [Line 66545] (In app)
+ PgDialect.migrate in /home/runner/workspace/artifacts/api-server/dist/index.mjs [Line 62546] (In app)
+ migrate in /home/runner/workspace/artifacts/api-server/dist/index.mjs [Line 66721] (In app)
+ runMigrations in /home/runner/workspace/artifacts/api-server/dist/index.mjs [Line 79624] (In app)
+ Unknown function in /home/runner/workspace/artifacts/api-server/dist/index.mjs [Line 160825] (In app)
+```
+------
+### Exception 2
+**Type:** Error
+**Value:** Failed query: CREATE TABLE "route_stats" (
+	"route_key" varchar(50) PRIMARY KEY NOT NULL,
+	"visit_count" integer DEFAULT 0 NOT NULL,
+	"updated_at" timestamp with time zone DEFAULT now() NOT NULL
+);
+
+params: 
+
+#### Stacktrace
+
+```
+ NodePgPreparedQuery.queryWithCache in /home/runner/workspace/artifacts/api-server/dist/index.mjs [Line 66185] (In app)
+ process.processTicksAndRejections in node:internal/process/task_queues [Line 103] (Not in app)
+ Unknown function in /home/runner/workspace/artifacts/api-server/dist/index.mjs [Line 62550] (In app)
+ _NodePgSession.transaction in /home/runner/workspace/artifacts/api-server/dist/index.mjs [Line 66545] (In app)
+ PgDialect.migrate in /home/runner/workspace/artifacts/api-server/dist/index.mjs [Line 62546] (In app)
+ migrate in /home/runner/workspace/artifacts/api-server/dist/index.mjs [Line 66721] (In app)
+ runMigrations in /home/runner/workspace/artifacts/api-server/dist/index.mjs [Line 79624] (In app)
+ Unknown function in /home/runner/workspace/artifacts/api-server/dist/index.mjs [Line 160825] (In app)
+```

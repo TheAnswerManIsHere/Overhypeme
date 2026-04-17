@@ -1,8 +1,8 @@
 import { Router, type IRouter, type Request, type Response, type NextFunction } from "express";
 import * as Sentry from "@sentry/node";
 import { db, usersTable, sessionsTable } from "@workspace/db";
-import { factsTable, commentsTable, adminConfigTable, videoStylesTable, featureFlagsTable, tierFeaturePermissionsTable, userGenerationCostsTable, lifetimeEntitlementsTable, subscriptionsTable, membershipHistoryTable, activityFeedTable, memesTable, userAiImagesTable, routeStatsTable } from "@workspace/db/schema";
-import { eq, desc, count, ilike, sql, and, or, inArray, isNull, asc, gt } from "drizzle-orm";
+import { factsTable, commentsTable, adminConfigTable, videoStylesTable, featureFlagsTable, tierFeaturePermissionsTable, userGenerationCostsTable, lifetimeEntitlementsTable, subscriptionsTable, membershipHistoryTable, activityFeedTable, memesTable, userAiImagesTable, routeStatsTable, routeStatEventsTable } from "@workspace/db/schema";
+import { eq, desc, count, ilike, sql, and, or, inArray, isNull, asc, gt, gte, sum } from "drizzle-orm";
 import { getSessionId, getSession, updateSession } from "../lib/auth";
 import { isAdminById } from "./auth";
 import { deriveUserRole } from "../lib/userRole";
@@ -1718,15 +1718,49 @@ router.post("/route-stats", async (req: Request, res: Response) => {
     ),
   );
 
+  await db.insert(routeStatEventsTable).values(
+    entries.map(({ routeKey, delta }) => ({ routeKey, delta })),
+  );
+
   res.json({ accepted: entries.length });
 });
 
 /**
  * GET /admin/route-stats
- * Returns all route visit stats sorted by visit count descending.
+ * Returns route visit stats sorted by visit count descending.
+ * Optional query param: since — ISO date string or relative shorthand like "7d" or "30d".
  * Admin-only.
  */
-router.get("/admin/route-stats", requireAdmin, async (_req: Request, res: Response) => {
+router.get("/admin/route-stats", requireAdmin, async (req: Request, res: Response) => {
+  const { since } = req.query as { since?: string };
+
+  let sinceDate: Date | null = null;
+  if (since) {
+    const relMatch = since.match(/^(\d+)d$/);
+    if (relMatch) {
+      const days = parseInt(relMatch[1]!, 10);
+      sinceDate = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+    } else {
+      const parsed = new Date(since);
+      if (!isNaN(parsed.getTime())) sinceDate = parsed;
+    }
+  }
+
+  if (sinceDate) {
+    const rows = await db
+      .select({
+        routeKey: routeStatEventsTable.routeKey,
+        visitCount: sum(routeStatEventsTable.delta).mapWith(Number),
+        updatedAt: sql<Date>`max(${routeStatEventsTable.recordedAt})`,
+      })
+      .from(routeStatEventsTable)
+      .where(gte(routeStatEventsTable.recordedAt, sinceDate))
+      .groupBy(routeStatEventsTable.routeKey)
+      .orderBy(desc(sum(routeStatEventsTable.delta)));
+    res.json({ stats: rows });
+    return;
+  }
+
   const rows = await db
     .select()
     .from(routeStatsTable)

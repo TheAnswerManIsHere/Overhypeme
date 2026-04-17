@@ -127,6 +127,20 @@
       "when": 1776300000000,
       "tag": "0017_route_stats",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1776450557270,
+      "tag": "0018_cute_maestro",
+      "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1776451074957,
+      "tag": "0019_bright_gateway",
+      "breakpoints": true
     }
   ]
 }

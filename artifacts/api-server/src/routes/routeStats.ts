@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
 import { db } from "@workspace/db";
-import { routeStatsTable } from "@workspace/db/schema";
+import { routeStatsTable, routeStatEventsTable } from "@workspace/db/schema";
 import { desc, sql } from "drizzle-orm";
 import { z } from "zod";
 
@@ -58,6 +58,7 @@ router.post("/route-stats", async (req, res) => {
           updatedAt: sql`now()`,
         },
       });
+    await db.insert(routeStatEventsTable).values({ routeKey: route, delta: 1 });
   } catch {
     // Best-effort — never let a counting failure surface as an error
   }

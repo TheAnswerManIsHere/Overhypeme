@@ -18,3 +18,4 @@ export * from "./videoStyles";
 export * from "./featureFlags";
 export * from "./falPricing";
 export * from "./routeStats";
+export * from "./routeStatEvents";
