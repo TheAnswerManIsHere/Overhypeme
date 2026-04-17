@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { AdminLayout } from "@/components/admin/AdminLayout";
 import { CollapsibleSection } from "@/components/CollapsibleSection";
-import { FileText, Users, TrendingUp, Shield, Zap, Settings, Bug, BarChart2 } from "lucide-react";
+import { FileText, Users, TrendingUp, Shield, Zap, Settings, Bug, BarChart2, ChevronUp, ChevronDown, ChevronsUpDown } from "lucide-react";
 import { markNextEventAsDebugTest } from "@/lib/sentry";
 
 interface Stats {
@@ -19,6 +19,24 @@ export default function AdminDashboard() {
   const [stats, setStats] = useState<Stats | null>(null);
   const [routeStats, setRouteStats] = useState<RouteVisitStat[] | null>(null);
   const [backendSentryStatus, setBackendSentryStatus] = useState<"idle" | "loading" | "sent" | "error">("idle");
+  type SortKey = "rank" | "routeKey" | "visitCount" | "updatedAt";
+  type SortDir = "asc" | "desc";
+  const [sortKey, setSortKey] = useState<SortKey>("visitCount");
+  const [sortDir, setSortDir] = useState<SortDir>("desc");
+
+  function handleSort(key: SortKey) {
+    if (sortKey === key) {
+      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    } else {
+      setSortKey(key);
+      setSortDir(key === "routeKey" ? "asc" : "desc");
+    }
+  }
+
+  function SortIcon({ col }: { col: SortKey }) {
+    if (sortKey !== col) return <ChevronsUpDown className="w-3 h-3 opacity-40" />;
+    return sortDir === "asc" ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />;
+  }
   const [throwForBoundary, setThrowForBoundary] = useState(false);
 
   if (throwForBoundary) {
@@ -81,8 +99,28 @@ export default function AdminDashboard() {
     },
   ];
 
-  const maxCount = routeStats && routeStats.length > 0 ? routeStats[0]!.visitCount : 1;
-  const totalVisits = routeStats ? routeStats.reduce((sum, r) => sum + r.visitCount, 0) : 0;
+  const originalOrder = routeStats ?? [];
+  const totalVisits = originalOrder.reduce((sum, r) => sum + r.visitCount, 0);
+
+  const sortedStats: (RouteVisitStat & { originalRank: number })[] = [...originalOrder]
+    .map((r, i) => ({ ...r, originalRank: i + 1 }))
+    .sort((a, b) => {
+      let cmp = 0;
+      if (sortKey === "rank") {
+        cmp = a.originalRank - b.originalRank;
+      } else if (sortKey === "visitCount") {
+        cmp = a.visitCount - b.visitCount;
+      } else if (sortKey === "routeKey") {
+        cmp = a.routeKey.localeCompare(b.routeKey);
+      } else if (sortKey === "updatedAt") {
+        const ta = a.updatedAt ? new Date(a.updatedAt).getTime() : 0;
+        const tb = b.updatedAt ? new Date(b.updatedAt).getTime() : 0;
+        cmp = ta - tb;
+      }
+      return sortDir === "asc" ? cmp : -cmp;
+    });
+
+  const maxCount = originalOrder.length > 0 ? Math.max(...originalOrder.map((r) => r.visitCount)) : 1;
 
   return (
     <AdminLayout title="Dashboard">
@@ -119,26 +157,67 @@ export default function AdminDashboard() {
               No visit data yet. Counts are flushed from browsers on each page load.
             </p>
           ) : (
-            <ol className="space-y-3">
-              {routeStats.map((row, i) => (
-                <li key={row.routeKey} className="flex items-center gap-3 text-sm">
-                  <span className="w-5 text-right text-muted-foreground text-xs shrink-0">{i + 1}</span>
-                  <span className="w-20 font-mono text-foreground shrink-0">{row.routeKey}</span>
-                  <div className="flex-1 bg-muted rounded-full h-2 overflow-hidden">
-                    <div
-                      className="bg-primary h-2 rounded-full transition-all"
-                      style={{ width: `${Math.round((row.visitCount / maxCount) * 100)}%` }}
-                    />
-                  </div>
-                  <span className="w-12 text-right tabular-nums shrink-0 text-foreground font-medium">
-                    {row.visitCount.toLocaleString()}
-                  </span>
-                  <span className="w-10 text-right text-muted-foreground tabular-nums text-xs shrink-0">
-                    {totalVisits > 0 ? `${Math.round((row.visitCount / totalVisits) * 100)}%` : "—"}
-                  </span>
-                </li>
-              ))}
-            </ol>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-border">
+                    {(
+                      [
+                        { key: "rank", label: "#", className: "w-8 text-right pr-3" },
+                        { key: "routeKey", label: "Route", className: "text-left pr-3" },
+                        { key: "visitCount", label: "Visits", className: "w-16 text-right pr-3" },
+                        { key: "updatedAt", label: "Last Seen", className: "w-20 text-right" },
+                      ] as { key: "rank" | "routeKey" | "visitCount" | "updatedAt"; label: string; className: string }[]
+                    ).map(({ key, label, className }) => (
+                      <th
+                        key={key}
+                        className={`pb-2 text-xs font-medium text-muted-foreground uppercase tracking-wide ${className}`}
+                        aria-sort={sortKey === key ? (sortDir === "asc" ? "ascending" : "descending") : "none"}
+                      >
+                        <button
+                          onClick={() => handleSort(key)}
+                          className={`inline-flex items-center gap-1 w-full cursor-pointer select-none hover:text-foreground transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring rounded ${key === "routeKey" ? "justify-start" : "justify-end"}`}
+                        >
+                          {label}
+                          <SortIcon col={key} />
+                        </button>
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {sortedStats.map((row) => (
+                    <tr key={row.routeKey} className="border-b border-border/50 last:border-0 hover:bg-muted/30 transition-colors">
+                      <td className="py-2 pr-3 text-right text-muted-foreground text-xs tabular-nums w-8">
+                        {row.originalRank}
+                      </td>
+                      <td className="py-2 pr-3">
+                        <div className="flex items-center gap-2">
+                          <span className="font-mono text-foreground">{row.routeKey}</span>
+                          <div className="flex-1 bg-muted rounded-full h-1.5 overflow-hidden min-w-[40px]">
+                            <div
+                              className="bg-primary h-1.5 rounded-full transition-all"
+                              style={{ width: `${Math.round((row.visitCount / maxCount) * 100)}%` }}
+                            />
+                          </div>
+                          <span className="text-muted-foreground tabular-nums text-xs shrink-0">
+                            {totalVisits > 0 ? `${Math.round((row.visitCount / totalVisits) * 100)}%` : "—"}
+                          </span>
+                        </div>
+                      </td>
+                      <td className="py-2 pr-3 text-right tabular-nums text-foreground font-medium w-16">
+                        {row.visitCount.toLocaleString()}
+                      </td>
+                      <td className="py-2 text-right text-muted-foreground tabular-nums text-xs w-20">
+                        {row.updatedAt
+                          ? new Date(row.updatedAt).toLocaleDateString(undefined, { month: "short", day: "numeric" })
+                          : "—"}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           )}
         </CollapsibleSection>
 
