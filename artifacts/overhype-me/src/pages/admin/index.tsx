@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { AdminLayout } from "@/components/admin/AdminLayout";
 import { CollapsibleSection } from "@/components/CollapsibleSection";
 import { FileText, Users, TrendingUp, Shield, Zap, Settings, Bug } from "lucide-react";
+import { markNextEventAsDebugTest } from "@/lib/sentry";
 
 interface Stats {
   totalFacts: number;
@@ -14,6 +15,7 @@ export default function AdminDashboard() {
   const [throwForBoundary, setThrowForBoundary] = useState(false);
 
   if (throwForBoundary) {
+    markNextEventAsDebugTest();
     throw new Error("Sentry frontend test triggered by admin");
   }
 

@@ -9,6 +9,15 @@ const environment = import.meta.env.PROD ? "production" : "development";
 // release in Sentry — that's what makes stack traces symbolicate correctly.
 const release = (import.meta.env.VITE_SENTRY_RELEASE as string | undefined) ?? "dev";
 
+// One-shot flag: set before throwing a deliberate test error so that only
+// the very next captured event is tagged and dropped. Resets after use,
+// so no subsequent unrelated errors are affected.
+let _debugTestPending = false;
+
+export function markNextEventAsDebugTest(): void {
+  _debugTestPending = true;
+}
+
 Sentry.init({
   dsn,
   environment,
@@ -23,6 +32,13 @@ Sentry.init({
   // Resend, fal.ai, etc.) — that would leak our trace IDs and trip CORS.
   tracePropagationTargets: [/^\/api\//],
   beforeSend(event) {
+    if (_debugTestPending) {
+      _debugTestPending = false;
+      event.tags = { ...event.tags, debug: "sentry-test" };
+      if (import.meta.env.VITE_DROP_DEBUG_EVENTS === "true") {
+        return null;
+      }
+    }
     if (event.request?.cookies) delete event.request.cookies;
     if (event.request?.headers) {
       delete event.request.headers.Authorization;
