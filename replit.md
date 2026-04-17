@@ -73,6 +73,13 @@ The app supports animating meme images into short videos using fal.ai's Kling im
 - Route ordering matters: `videosRouter` must come before `importRouter` in `routes/index.ts` because `importRouter` applies global `requireApiKey` middleware that would intercept unmatched routes
 - Route ordering matters in `memes.ts`: specific routes like `/memes/ai-user/image` must be registered BEFORE wildcard routes like `/memes/:slug/image`, otherwise the wildcard captures the specific path first
 
+### PII Scrubbing Utility (`lib/redact`)
+A shared `@workspace/redact` package in `lib/redact/` provides the canonical PII-redaction logic used by both Sentry init files:
+- `SENSITIVE_KEY_PATTERNS` — array of regexes matching `password`, `token`, `secret`, `apiKey`, `email`, etc.
+- `scrubObject(value, depth?)` — recursively redacts matching keys in nested objects/arrays (max depth 6)
+- `scrubUrl(rawUrl, base?)` — redacts sensitive query params from a URL string; `base` defaults to `"http://internal.invalid"` (override with `window.location.origin` in browser contexts)
+Unit tests live in `lib/redact/src/__tests__/redact.test.ts`; run with `pnpm --filter @workspace/redact run test`.
+
 ### Error Reporting (Sentry)
 End-to-end error monitoring for backend (Node/Express) and frontend (React).
 - **Backend init**: `artifacts/api-server/src/instrument.ts` (imported as the very first line of `src/index.ts` so OpenTelemetry can patch http/express/pg before they load). Per-request user-id is attached via `Sentry.getIsolationScope().setUser({id})` middleware in `app.ts` so concurrent requests don't leak user context. `Sentry.setupExpressErrorHandler` runs after all routes; a JSON-only fallback handler returns `{error, eventId}` instead of HTML stack traces.

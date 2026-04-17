@@ -16,6 +16,9 @@
   },
   "references": [
     {
+      "path": "../../lib/redact"
+    },
+    {
       "path": "../../lib/api-client-react"
     },
     {

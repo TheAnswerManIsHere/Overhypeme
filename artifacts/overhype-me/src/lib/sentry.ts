@@ -1,4 +1,5 @@
 import * as Sentry from "@sentry/react";
+import { scrubUrl } from "@workspace/redact";
 
 const dsn = import.meta.env.VITE_SENTRY_DSN as string | undefined;
 const environment = import.meta.env.PROD ? "production" : "development";
@@ -7,27 +8,6 @@ const environment = import.meta.env.PROD ? "production" : "development";
 // to the source-map upload plugin so events and maps land under the same
 // release in Sentry — that's what makes stack traces symbolicate correctly.
 const release = (import.meta.env.VITE_SENTRY_RELEASE as string | undefined) ?? "dev";
-
-const SENSITIVE_KEY_PATTERNS = [
-  /pass(word)?/i, /token/i, /secret/i, /api[_-]?key/i,
-  /authoriz/i, /session/i, /cookie/i, /email/i, /otp/i, /code/i, /signature/i,
-];
-const isSensitiveKey = (k: string) => SENSITIVE_KEY_PATTERNS.some((re) => re.test(k));
-
-function scrubUrl(rawUrl: string): string {
-  try {
-    const url = new URL(rawUrl, window.location.origin);
-    let mutated = false;
-    for (const key of [...url.searchParams.keys()]) {
-      if (isSensitiveKey(key)) { url.searchParams.set(key, "[Filtered]"); mutated = true; }
-    }
-    if (!mutated) return rawUrl;
-    if (rawUrl.startsWith("/")) return `${url.pathname}${url.search}${url.hash}`;
-    return url.toString();
-  } catch {
-    return rawUrl;
-  }
-}
 
 Sentry.init({
   dsn,
@@ -49,10 +29,10 @@ Sentry.init({
       delete event.request.headers.Cookie;
     }
     if (typeof event.request?.url === "string") {
-      event.request.url = scrubUrl(event.request.url);
+      event.request.url = scrubUrl(event.request.url, window.location.origin);
     }
     if (typeof event.request?.query_string === "string") {
-      event.request.query_string = scrubUrl(`?${event.request.query_string}`).replace(/^\?/, "");
+      event.request.query_string = scrubUrl(`?${event.request.query_string}`, window.location.origin).replace(/^\?/, "");
     }
     return event;
   },

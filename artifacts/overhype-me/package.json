@@ -78,6 +78,7 @@
   },
   "dependencies": {
     "@hcaptcha/react-hcaptcha": "^2.0.2",
-    "@sentry/react": "^10.49.0"
+    "@sentry/react": "^10.49.0",
+    "@workspace/redact": "workspace:*"
   }
 }
