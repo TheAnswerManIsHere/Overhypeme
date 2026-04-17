@@ -64,6 +64,7 @@ export default function AdminDashboard() {
   const [timeRange, setTimeRange] = useState<TimeRange>(loadStoredRange);
   const [backendSentryStatus, setBackendSentryStatus] = useState<"idle" | "loading" | "sent" | "error">("idle");
   const [backendStatus, setBackendStatus] = useState<BackendSentryStatus | null>(null);
+  const [backendStatusError, setBackendStatusError] = useState<string | null>(null);
   const [handledStatus, setHandledStatus] = useState<"idle" | "sent">("idle");
   const [feedbackError, setFeedbackError] = useState<string | null>(null);
   type SortKey = "rank" | "routeKey" | "visitCount" | "updatedAt";
@@ -159,9 +160,15 @@ export default function AdminDashboard() {
 
   useEffect(() => {
     fetch("/api/admin/sentry-status", { credentials: "include" })
-      .then((r) => r.ok ? r.json() : null)
-      .then((data: BackendSentryStatus | null) => setBackendStatus(data))
-      .catch(() => setBackendStatus(null));
+      .then((r) => {
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        return r.json() as Promise<BackendSentryStatus>;
+      })
+      .then((data) => { setBackendStatus(data); setBackendStatusError(null); })
+      .catch((err: unknown) => {
+        setBackendStatus(null);
+        setBackendStatusError(err instanceof Error ? err.message : String(err));
+      });
   }, []);
 
   useEffect(() => {
@@ -363,7 +370,11 @@ export default function AdminDashboard() {
             <div className="border border-border rounded p-2 bg-muted/30">
               <div className="font-semibold text-foreground mb-1">Backend</div>
               {backendStatus === null ? (
-                <div className="text-muted-foreground">Loading…</div>
+                backendStatusError ? (
+                  <div className="text-red-400">Failed to load: {backendStatusError}</div>
+                ) : (
+                  <div className="text-muted-foreground">Loading…</div>
+                )
               ) : (
                 <>
                   <div className="flex justify-between"><span className="text-muted-foreground">DSN</span><span className={backendStatus.dsnConfigured ? "text-green-400" : "text-red-400"}>{backendStatus.dsnConfigured ? "configured" : "missing"}</span></div>

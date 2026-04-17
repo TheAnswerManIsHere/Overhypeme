@@ -79,12 +79,17 @@ distinct, debug-tagged event:
 4. **Open feedback widget** — opens the bug-report dialog programmatically.
    Submitting it sends to **User Feedback**, not Issues.
 
-All four events are tagged `debug=sentry-test`, so you can filter them in
-the Sentry UI search:
+The first three events (1, 2, 3) are tagged `debug=sentry-test`, so you
+can filter them in the Sentry UI search:
 
 ```
 debug:sentry-test
 ```
+
+Feedback submissions (4) go to a separate inbox (**User Feedback**) and
+do **not** carry the `debug` tag — Sentry's feedback transport doesn't
+expose a tagging hook on the form-submit path. To find your test
+submission, look in User Feedback rather than Issues.
 
 ### Verification checklist
 
