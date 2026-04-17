@@ -1,8 +1,13 @@
 import { type Request, type Response, type NextFunction } from "express";
 import { getSessionId } from "./auth";
 
-const RATE_WINDOW_MS = 60_000;
-const RATE_MAX = 30;
+function parsePositiveInt(value: string | undefined, defaultValue: number): number {
+  const parsed = parseInt(value ?? "", 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : defaultValue;
+}
+
+const RATE_WINDOW_MS = parsePositiveInt(process.env.RATE_WINDOW_MS, 60_000);
+const RATE_MAX = parsePositiveInt(process.env.RATE_MAX, 30);
 
 function rateLimitKey(req: Request): string {
   const sid = getSessionId(req);
