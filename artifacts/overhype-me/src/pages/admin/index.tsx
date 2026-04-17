@@ -215,6 +215,7 @@ export default function AdminDashboard() {
           title="Top Pages"
           icon={<BarChart2 className="w-4 h-4 text-primary" />}
           badge={TIME_RANGE_LABELS[timeRange]}
+          badge2={routeStats !== null ? `${totalVisits.toLocaleString()} visits` : undefined}
           description="Aggregate route visit counts across all users — update the prefetch list based on these."
           storageKey="admin_section_dashboard_top_pages"
         >

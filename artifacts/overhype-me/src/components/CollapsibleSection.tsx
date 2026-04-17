@@ -5,6 +5,7 @@ interface CollapsibleSectionProps {
   title: string;
   icon?: ReactNode;
   badge?: string;
+  badge2?: string;
   description?: string;
   children: ReactNode;
   className?: string;
@@ -15,6 +16,7 @@ export function CollapsibleSection({
   title,
   icon,
   badge,
+  badge2,
   description,
   children,
   className = "",
@@ -65,6 +67,11 @@ export function CollapsibleSection({
               {badge && (
                 <span className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-muted text-muted-foreground border border-border leading-none">
                   {badge}
+                </span>
+              )}
+              {badge2 && (
+                <span className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-muted text-muted-foreground border border-border leading-none">
+                  {badge2}
                 </span>
               )}
             </div>
