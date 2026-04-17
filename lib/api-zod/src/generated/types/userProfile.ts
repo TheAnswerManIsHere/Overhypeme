@@ -6,24 +6,8 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { FactSummary } from "./factSummary";
-
-export interface PendingSubmission {
-  id: number;
-  text: string;
-  status: string;
-  hashtags: string[];
-  createdAt: string;
-  reason: string | null;
-}
-
-export interface MyComment {
-  id: number;
-  factId: number;
-  factText: string | null;
-  text: string;
-  status: string;
-  createdAt: string;
-}
+import type { MyComment } from "./myComment";
+import type { PendingSubmission } from "./pendingSubmission";
 
 export interface UserProfile {
   id: string;
@@ -39,9 +23,9 @@ export interface UserProfile {
   avatarSource?: string | null;
   isPremium?: boolean;
   submittedFacts: FactSummary[];
-  pendingSubmissions?: PendingSubmission[];
-  myComments?: MyComment[];
   likedFacts: FactSummary[];
   favoriteHashtags: string[];
   searchHistory: string[];
+  pendingSubmissions?: PendingSubmission[];
+  myComments?: MyComment[];
 }

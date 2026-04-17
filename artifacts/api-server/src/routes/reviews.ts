@@ -66,7 +66,7 @@ router.post("/facts/submit-review", requireAuth, requireRateLimit, async (req: R
 
   const [review] = await db.insert(pendingReviewsTable).values({
     submittedText: text,
-    submittedById: req.user.id,
+    submittedById: req.user!.id,
     matchingFactId,
     matchingSimilarity,
     hashtags,
@@ -76,14 +76,14 @@ router.post("/facts/submit-review", requireAuth, requireRateLimit, async (req: R
 
   void notifyAdmins({
     type: "fact_review",
-    submitterName: req.user.displayName ?? req.user.email ?? "Unknown",
+    submitterName: req.user!.displayName ?? req.user!.email ?? "Unknown",
     itemText: text,
     reviewUrl: `${getSiteBaseUrl()}/admin/reviews`,
   });
 
   const isDuplicateFlagged = !!matchingFactId && isDuplicate;
   await logActivity({
-    userId: req.user.id,
+    userId: req.user!.id,
     actionType: "review_submitted",
     message: isDuplicateFlagged
       ? `You submitted a fact for admin review — flagged as a possible variant at ${matchingSimilarity}% similarity.`
@@ -238,7 +238,7 @@ router.post("/admin/reviews/:id/approve-variant", requireAdmin, async (req: Requ
 
   await db.update(pendingReviewsTable).set({
     status: "approved",
-    reviewedById: req.user.id,
+    reviewedById: req.user!.id,
     approvedFactId: fact.id,
     adminNote,
     reviewedAt: new Date(),
@@ -311,7 +311,7 @@ router.post("/admin/reviews/:id/approve", requireAdmin, async (req: Request, res
   // Mark review as approved
   await db.update(pendingReviewsTable).set({
     status: "approved",
-    reviewedById: req.user.id,
+    reviewedById: req.user!.id,
     approvedFactId: fact.id,
     adminNote,
     reviewedAt: new Date(),
@@ -365,7 +365,7 @@ router.post("/admin/reviews/:id/reject", requireAdmin, async (req: Request, res:
 
   await db.update(pendingReviewsTable).set({
     status: "rejected",
-    reviewedById: req.user.id,
+    reviewedById: req.user!.id,
     adminNote,
     reviewedAt: new Date(),
   }).where(eq(pendingReviewsTable.id, id));
@@ -403,13 +403,13 @@ router.get("/activity-feed", requireAuth, async (req: Request, res: Response) =>
 
   const [entries, [{ total }], [{ unread }]] = await Promise.all([
     db.select().from(activityFeedTable)
-      .where(eq(activityFeedTable.userId, req.user.id))
+      .where(eq(activityFeedTable.userId, req.user!.id))
       .orderBy(desc(activityFeedTable.createdAt))
       .limit(limit)
       .offset(offset),
-    db.select({ total: count() }).from(activityFeedTable).where(eq(activityFeedTable.userId, req.user.id)),
+    db.select({ total: count() }).from(activityFeedTable).where(eq(activityFeedTable.userId, req.user!.id)),
     db.select({ unread: count() }).from(activityFeedTable)
-      .where(and(eq(activityFeedTable.userId, req.user.id), eq(activityFeedTable.read, false))),
+      .where(and(eq(activityFeedTable.userId, req.user!.id), eq(activityFeedTable.read, false))),
   ]);
 
   res.json({
@@ -425,7 +425,7 @@ router.get("/activity-feed", requireAuth, async (req: Request, res: Response) =>
 router.post("/activity-feed/mark-read", requireAuth, async (req: Request, res: Response) => {
   await db.update(activityFeedTable)
     .set({ read: true })
-    .where(and(eq(activityFeedTable.userId, req.user.id), eq(activityFeedTable.read, false)));
+    .where(and(eq(activityFeedTable.userId, req.user!.id), eq(activityFeedTable.read, false)));
   res.json({ success: true });
 });
 

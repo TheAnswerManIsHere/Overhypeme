@@ -89,7 +89,7 @@ function EntryCard({ entry }: { entry: ActivityEntry }) {
 
         <p className="text-sm text-foreground leading-relaxed">{entry.message}</p>
 
-        {entry.metadata?.text && (
+        {entry.metadata?.text != null && (
           <p className="text-xs text-muted-foreground italic mt-1 truncate">
             "{String(entry.metadata.text)}"
           </p>

@@ -33,11 +33,16 @@ export const GetCurrentAuthUserResponse = zod.object({
       firstName: zod.string().nullish(),
       lastName: zod.string().nullish(),
       profileImageUrl: zod.string().nullish(),
-      membershipTier: zod.enum(["unregistered", "registered", "legendary"]).nullish(),
+      displayName: zod.string().nullish(),
+      membershipTier: zod
+        .enum(["unregistered", "registered", "legendary"])
+        .nullish(),
       isAdmin: zod.boolean().nullish(),
       isRealAdmin: zod.boolean().nullish(),
       pronouns: zod.string().nullish(),
-      userRole: zod.enum(["unregistered", "registered", "legendary", "admin"]).nullish(),
+      userRole: zod
+        .enum(["unregistered", "registered", "legendary", "admin"])
+        .nullish(),
       captchaVerified: zod.boolean().nullish(),
     }),
     zod.null(),
@@ -140,6 +145,7 @@ export const ListFactsResponse = zod.object({
       submittedBy: zod.string().nullish(),
       submittedByImage: zod.string().nullish(),
       userRating: zod.enum(["up", "down"]).nullish(),
+      useCase: zod.string().nullish(),
       createdAt: zod.coerce.date(),
     }),
   ),
@@ -185,6 +191,7 @@ export const GetFactResponse = zod
     submittedBy: zod.string().nullish(),
     submittedByImage: zod.string().nullish(),
     userRating: zod.enum(["up", "down"]).nullish(),
+    useCase: zod.string().nullish(),
     createdAt: zod.coerce.date(),
   })
   .and(
@@ -198,6 +205,25 @@ export const GetFactResponse = zod
             title: zod.string().nullish(),
             platform: zod.string().nullish(),
             addedBy: zod.string().nullish(),
+            createdAt: zod.coerce.date(),
+          }),
+        )
+        .optional(),
+      parentId: zod.number().nullish(),
+      variants: zod
+        .array(
+          zod.object({
+            id: zod.number(),
+            text: zod.string(),
+            upvotes: zod.number(),
+            downvotes: zod.number(),
+            score: zod.number().optional(),
+            commentCount: zod.number(),
+            hashtags: zod.array(zod.string()),
+            submittedBy: zod.string().nullish(),
+            submittedByImage: zod.string().nullish(),
+            userRating: zod.enum(["up", "down"]).nullish(),
+            useCase: zod.string().nullish(),
             createdAt: zod.coerce.date(),
           }),
         )
@@ -329,6 +355,7 @@ export const GetMyProfileResponse = zod.object({
   pronouns: zod.string().nullish(),
   profileImageUrl: zod.string().nullish(),
   avatarStyle: zod.string().nullish(),
+  avatarSource: zod.string().nullish(),
   isPremium: zod.boolean().optional(),
   submittedFacts: zod.array(
     zod.object({
@@ -342,6 +369,7 @@ export const GetMyProfileResponse = zod.object({
       submittedBy: zod.string().nullish(),
       submittedByImage: zod.string().nullish(),
       userRating: zod.enum(["up", "down"]).nullish(),
+      useCase: zod.string().nullish(),
       createdAt: zod.coerce.date(),
     }),
   ),
@@ -357,11 +385,36 @@ export const GetMyProfileResponse = zod.object({
       submittedBy: zod.string().nullish(),
       submittedByImage: zod.string().nullish(),
       userRating: zod.enum(["up", "down"]).nullish(),
+      useCase: zod.string().nullish(),
       createdAt: zod.coerce.date(),
     }),
   ),
   favoriteHashtags: zod.array(zod.string()),
   searchHistory: zod.array(zod.string()),
+  pendingSubmissions: zod
+    .array(
+      zod.object({
+        id: zod.number(),
+        text: zod.string(),
+        status: zod.string(),
+        hashtags: zod.array(zod.string()),
+        createdAt: zod.string(),
+        reason: zod.string().nullish(),
+      }),
+    )
+    .optional(),
+  myComments: zod
+    .array(
+      zod.object({
+        id: zod.number(),
+        factId: zod.number(),
+        factText: zod.string().nullish(),
+        text: zod.string(),
+        status: zod.string(),
+        createdAt: zod.string(),
+      }),
+    )
+    .optional(),
 });
 
 /**
@@ -386,6 +439,7 @@ export const UpdateMyProfileBody = zod.object({
   pronouns: zod.string().min(1).max(updateMyProfileBodyPronounsMax).optional(),
   email: zod.string().optional(),
   avatarStyle: zod.string().optional(),
+  avatarSource: zod.string().optional(),
   profileImageUrl: zod.string().optional(),
 });
 

@@ -16,6 +16,7 @@ export type AuthUserMembershipTier =
 export const AuthUserMembershipTier = {
   unregistered: "unregistered",
   registered: "registered",
+  legendary: "legendary",
 } as const;
 
 export type AuthUserUserRole =
@@ -25,6 +26,7 @@ export type AuthUserUserRole =
 export const AuthUserUserRole = {
   unregistered: "unregistered",
   registered: "registered",
+  legendary: "legendary",
   admin: "admin",
 } as const;
 
@@ -34,6 +36,7 @@ export interface AuthUser {
   firstName?: string | null;
   lastName?: string | null;
   profileImageUrl?: string | null;
+  displayName?: string | null;
   membershipTier?: AuthUserMembershipTier;
   isAdmin?: boolean | null;
   isRealAdmin?: boolean | null;
@@ -96,6 +99,7 @@ export interface AffiliateClickRequest {
   destination: AffiliateClickRequestDestination;
   text: string;
   imageUrl?: string | null;
+  /** The page URL where the user clicked "Make Merch", passed as continueUrl to Zazzle. */
   returnUrl?: string | null;
 }
 
@@ -177,6 +181,7 @@ export interface FactSummary {
   submittedBy?: string | null;
   submittedByImage?: string | null;
   userRating?: FactSummaryUserRating;
+  useCase?: string | null;
   createdAt: string;
 }
 
@@ -192,6 +197,8 @@ export interface ExternalLink {
 
 export type FactDetail = FactSummary & {
   links?: ExternalLink[];
+  parentId?: number | null;
+  variants?: FactSummary[];
 };
 
 export interface FactListResponse {
@@ -273,13 +280,13 @@ export interface PendingSubmission {
   status: string;
   hashtags: string[];
   createdAt: string;
-  reason: string | null;
+  reason?: string | null;
 }
 
 export interface MyComment {
   id: number;
   factId: number;
-  factText: string | null;
+  factText?: string | null;
   text: string;
   status: string;
   createdAt: string;
@@ -296,13 +303,14 @@ export interface UserProfile {
   pronouns?: string | null;
   profileImageUrl?: string | null;
   avatarStyle?: string | null;
+  avatarSource?: string | null;
   isPremium?: boolean;
   submittedFacts: FactSummary[];
-  pendingSubmissions?: PendingSubmission[];
-  myComments?: MyComment[];
   likedFacts: FactSummary[];
   favoriteHashtags: string[];
   searchHistory: string[];
+  pendingSubmissions?: PendingSubmission[];
+  myComments?: MyComment[];
 }
 
 export interface UpdateProfileRequest {
@@ -322,6 +330,7 @@ export interface UpdateProfileRequest {
   pronouns?: string;
   email?: string;
   avatarStyle?: string;
+  avatarSource?: string;
   profileImageUrl?: string;
 }
 

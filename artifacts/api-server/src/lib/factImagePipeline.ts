@@ -89,7 +89,7 @@ async function extractImageKeywords(factText: string): Promise<LLMKeywordResult>
   const parsed = JSON.parse(raw) as Partial<LLMKeywordResult>;
 
   const factType = parsed.fact_type === "abstract" ? "abstract" : "action";
-  const keywords = parsed.keywords ?? {};
+  const keywords = (parsed.keywords ?? {}) as { male?: string; female?: string; neutral?: string };
 
   const fallback = factType === "abstract"
     ? "dramatic cinematic landscape atmosphere"

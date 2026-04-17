@@ -66,7 +66,7 @@ export async function runFactOfTheDayJob(): Promise<{ sent: number; skipped: num
     return { sent: 0, skipped: 0 };
   }
 
-  let legendaryUsers: Array<{ id: string; email: string }> = [];
+  let legendaryUsers: Array<{ id: string; email: string; displayName: string | null; pronouns: string | null }> = [];
   try {
     legendaryUsers = await stripeStorage.getActiveLegendarySubscribers();
   } catch (err) {

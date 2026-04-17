@@ -13,4 +13,5 @@ export type AuthUserMembershipTier =
 export const AuthUserMembershipTier = {
   unregistered: "unregistered",
   registered: "registered",
+  legendary: "legendary",
 } as const;

@@ -110,14 +110,15 @@ describe("graceful shutdown", () => {
     await requestArrived;
 
     assert.ok(capturedSocket !== null, "socket should be captured from the request");
-    assert.equal(capturedSocket!.destroyed, false, "socket should be alive before shutdown");
+    const socket = capturedSocket as net.Socket;
+    assert.equal(socket.destroyed, false, "socket should be alive before shutdown");
 
     const serverClosed = waitForServerClose(server);
 
     shutdown("SIGTERM");
 
     assert.equal(
-      capturedSocket!.destroyed,
+      socket.destroyed,
       false,
       "socket should NOT be destroyed immediately after shutdown — request is still in-flight",
     );
@@ -126,7 +127,7 @@ describe("graceful shutdown", () => {
 
     await Promise.all([responseConsumed, serverClosed]);
 
-    assert.equal(capturedSocket!.destroyed, true, "socket should be destroyed after response finishes");
+    assert.equal(socket.destroyed, true, "socket should be destroyed after response finishes");
     assert.deepEqual(exitCodes, [0], "should exit with code 0 after in-flight request completes");
   });
 

@@ -994,9 +994,12 @@ components:
         profileImageUrl:
           type: string
           nullable: true
+        displayName:
+          type: string
+          nullable: true
         membershipTier:
           type: string
-          enum: [free, premium]
+          enum: [unregistered, registered, legendary]
           nullable: true
         isAdmin:
           type: boolean
@@ -1009,7 +1012,7 @@ components:
           nullable: true
         userRole:
           type: string
-          enum: [free, premium, admin]
+          enum: [unregistered, registered, legendary, admin]
           nullable: true
         captchaVerified:
           type: boolean
@@ -1202,6 +1205,9 @@ components:
           type: string
           enum: [up, down]
           nullable: true
+        useCase:
+          type: string
+          nullable: true
         createdAt:
           type: string
           format: date-time
@@ -1215,6 +1221,13 @@ components:
               type: array
               items:
                 $ref: "#/components/schemas/ExternalLink"
+            parentId:
+              type: integer
+              nullable: true
+            variants:
+              type: array
+              items:
+                $ref: "#/components/schemas/FactSummary"
 
     FactListResponse:
       type: object
@@ -1378,6 +1391,9 @@ components:
         avatarStyle:
           type: string
           nullable: true
+        avatarSource:
+          type: string
+          nullable: true
         isPremium:
           type: boolean
         submittedFacts:
@@ -1396,6 +1412,52 @@ components:
           type: array
           items:
             type: string
+        pendingSubmissions:
+          type: array
+          items:
+            $ref: "#/components/schemas/PendingSubmission"
+        myComments:
+          type: array
+          items:
+            $ref: "#/components/schemas/MyComment"
+
+    PendingSubmission:
+      type: object
+      required: [id, text, status, hashtags, createdAt]
+      properties:
+        id:
+          type: integer
+        text:
+          type: string
+        status:
+          type: string
+        hashtags:
+          type: array
+          items:
+            type: string
+        createdAt:
+          type: string
+        reason:
+          type: string
+          nullable: true
+
+    MyComment:
+      type: object
+      required: [id, factId, text, status, createdAt]
+      properties:
+        id:
+          type: integer
+        factId:
+          type: integer
+        factText:
+          type: string
+          nullable: true
+        text:
+          type: string
+        status:
+          type: string
+        createdAt:
+          type: string
 
     UpdateProfileRequest:
       type: object
@@ -1419,6 +1481,8 @@ components:
         email:
           type: string
         avatarStyle:
+          type: string
+        avatarSource:
           type: string
         profileImageUrl:
           type: string

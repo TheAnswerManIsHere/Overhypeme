@@ -13,5 +13,6 @@ export type AuthUserUserRole =
 export const AuthUserUserRole = {
   unregistered: "unregistered",
   registered: "registered",
+  legendary: "legendary",
   admin: "admin",
 } as const;

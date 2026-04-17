@@ -895,8 +895,8 @@ export default function AdminUsers() {
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-1.5">
                         <span className="text-sm font-medium text-foreground truncate">{displayName(user)}</span>
-                        {user.isAdmin && <Shield className="w-3 h-3 text-primary shrink-0" title="Admin" />}
-                        {(user.membershipTier === "registered" || user.membershipTier === "legendary") && <Crown className="w-3 h-3 text-yellow-500 shrink-0" title={user.membershipTier === "legendary" ? "Legendary" : "Registered"} />}
+                        {user.isAdmin && <Shield className="w-3 h-3 text-primary shrink-0" aria-label="Admin" />}
+                        {(user.membershipTier === "registered" || user.membershipTier === "legendary") && <Crown className="w-3 h-3 text-yellow-500 shrink-0" aria-label={user.membershipTier === "legendary" ? "Legendary" : "Registered"} />}
                         {isInactive && <span className="text-[10px] font-bold text-yellow-600 bg-yellow-500/15 px-1 py-0.5 rounded shrink-0">INACTIVE</span>}
                       </div>
                       <div className="text-xs text-muted-foreground truncate">

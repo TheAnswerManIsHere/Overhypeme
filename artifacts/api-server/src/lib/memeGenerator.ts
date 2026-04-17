@@ -275,5 +275,5 @@ export async function generateMemeBuffer(
   ctx.textAlign = "right";
   ctx.fillText("overhype.me", CANVAS_W - 18, CANVAS_H - 14);
 
-  return canvas.toBuffer("image/jpeg", { quality: 0.85 });
+  return canvas.toBuffer("image/jpeg", 0.85);
 }

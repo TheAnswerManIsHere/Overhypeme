@@ -172,14 +172,14 @@ router.post("/facts", requireAdmin, async (req: Request, res: Response) => {
   if (!grammarResult.valid) {
     const [review] = await db.insert(pendingReviewsTable).values({
       submittedText: tokenizedText,
-      submittedById: req.user.id,
+      submittedById: req.user!.id,
       hashtags,
       status: "pending",
       reason: "malformed_template",
     }).returning();
 
     void logActivity({
-      userId: req.user.id,
+      userId: req.user!.id,
       actionType: "review_submitted",
       message: `Your fact was queued for admin review due to a template grammar issue.`,
       metadata: { reviewId: review.id, text: text.slice(0, 120) },
@@ -187,7 +187,7 @@ router.post("/facts", requireAdmin, async (req: Request, res: Response) => {
 
     void notifyAdmins({
       type: "fact_grammar",
-      submitterName: req.user.displayName ?? req.user.email ?? "Unknown",
+      submitterName: req.user!.displayName ?? req.user!.email ?? "Unknown",
       itemText: tokenizedText,
       reviewUrl: `${getSiteBaseUrl()}/admin/reviews`,
     });
@@ -202,7 +202,7 @@ router.post("/facts", requireAdmin, async (req: Request, res: Response) => {
 
   const hasPronounsFlag = /\{(SUBJ|OBJ|POSS|POSS_PRO|REFL|Subj|Obj|Poss|Poss_Pro|Refl|he|him|his|himself|He|Him|His|Himself|he's|He's|[^|{}]+\|[^|{}]+)\}/.test(tokenizedText);
   const canonicalText = renderCanonical(tokenizedText);
-  const [fact] = await db.insert(factsTable).values({ text: tokenizedText, hasPronouns: hasPronounsFlag, submittedById: req.user.id, canonicalText, isActive: true }).returning();
+  const [fact] = await db.insert(factsTable).values({ text: tokenizedText, hasPronouns: hasPronounsFlag, submittedById: req.user!.id, canonicalText, isActive: true }).returning();
 
   // Generate and persist the pgvector embedding in the background (non-blocking)
   // Embed from canonicalText so duplicate checks work against plain-English queries
@@ -210,7 +210,7 @@ router.post("/facts", requireAdmin, async (req: Request, res: Response) => {
 
   // Log to activity feed
   void logActivity({
-    userId: req.user.id,
+    userId: req.user!.id,
     actionType: "fact_submitted",
     message: `You submitted a new fact to the database.`,
     metadata: { factId: fact.id, text: text.slice(0, 120) },
@@ -231,7 +231,7 @@ router.post("/facts", requireAdmin, async (req: Request, res: Response) => {
     }
   }
 
-  const [summary] = await buildFactSummaries([fact], req.user.id);
+  const [summary] = await buildFactSummaries([fact], req.user!.id);
   res.status(201).json({ ...summary, links: [] });
 });
 
@@ -243,7 +243,7 @@ router.post("/facts/:factId/rating", async (req: Request, res: Response) => {
   if (!paramsParsed.success || !bodyParsed.success) { res.status(400).json({ error: "Invalid input" }); return; }
 
   const factId = paramsParsed.data.factId;
-  const userId = req.user.id;
+  const userId = req.user!.id;
   const { rating } = bodyParsed.data;
 
   const [factExists] = await db.select({ id: factsTable.id }).from(factsTable).where(and(eq(factsTable.id, factId), eq(factsTable.isActive, true))).limit(1);
@@ -332,7 +332,7 @@ router.post("/facts/:factId/comments", async (req: Request, res: Response) => {
   const [factExists] = await db.select({ id: factsTable.id }).from(factsTable).where(and(eq(factsTable.id, factId), eq(factsTable.isActive, true))).limit(1);
   if (!factExists) { res.status(404).json({ error: "Fact not found" }); return; }
 
-  const [commentUser] = await db.select({ membershipTier: usersTable.membershipTier }).from(usersTable).where(eq(usersTable.id, req.user.id)).limit(1);
+  const [commentUser] = await db.select({ membershipTier: usersTable.membershipTier }).from(usersTable).where(eq(usersTable.id, req.user!.id)).limit(1);
   const userDbTier = commentUser?.membershipTier === "legendary" ? "legendary"
     : commentUser?.membershipTier === "registered" ? "registered"
     : "unregistered";
@@ -347,10 +347,10 @@ router.post("/facts/:factId/comments", async (req: Request, res: Response) => {
     }
   }
 
-  const [comment] = await db.insert(commentsTable).values({ factId, authorId: req.user.id, text, status: "pending" }).returning();
+  const [comment] = await db.insert(commentsTable).values({ factId, authorId: req.user!.id, text, status: "pending" }).returning();
 
   void logActivity({
-    userId: req.user.id,
+    userId: req.user!.id,
     actionType: "comment_posted",
     message: "Your comment was submitted and is pending review.",
     metadata: { commentId: comment.id, factId },
@@ -358,15 +358,15 @@ router.post("/facts/:factId/comments", async (req: Request, res: Response) => {
 
   void notifyAdmins({
     type: "comment",
-    submitterName: req.user.displayName ?? req.user.email ?? "Unknown",
+    submitterName: req.user!.displayName ?? req.user!.email ?? "Unknown",
     itemText: text,
     reviewUrl: `${getSiteBaseUrl()}/admin/facts/${factId}`,
   });
 
   res.status(201).json({
     id: comment.id, factId: comment.factId, text: comment.text, status: "pending",
-    authorId: req.user.id, authorName: req.user.displayName ?? null,
-    authorImage: req.user.profileImageUrl ?? null,
+    authorId: req.user!.id, authorName: req.user!.displayName ?? null,
+    authorImage: req.user!.profileImageUrl ?? null,
     createdAt: comment.createdAt.toISOString(),
     pending: true,
   });
@@ -389,7 +389,7 @@ router.get("/facts/:factId/image-preference", async (req: Request, res: Response
   const [pref] = await db
     .select({ imageIndex: userFactPreferencesTable.imageIndex })
     .from(userFactPreferencesTable)
-    .where(and(eq(userFactPreferencesTable.userId, req.user.id), eq(userFactPreferencesTable.factId, factId)))
+    .where(and(eq(userFactPreferencesTable.userId, req.user!.id), eq(userFactPreferencesTable.factId, factId)))
     .limit(1);
   res.json({ imageIndex: pref?.imageIndex ?? 0 });
 });
@@ -403,7 +403,7 @@ router.put("/facts/:factId/image-preference", async (req: Request, res: Response
   if (isNaN(imageIndex) || imageIndex < 0 || imageIndex > 99) { res.status(400).json({ error: "Invalid imageIndex" }); return; }
   await db
     .insert(userFactPreferencesTable)
-    .values({ userId: req.user.id, factId, imageIndex })
+    .values({ userId: req.user!.id, factId, imageIndex })
     .onConflictDoUpdate({
       target: [userFactPreferencesTable.userId, userFactPreferencesTable.factId],
       set: { imageIndex, updatedAt: new Date() },
@@ -420,7 +420,7 @@ router.delete("/facts/:factId/links/:linkId", async (req: Request, res: Response
   const { factId, linkId } = parsed.data;
   const [link] = await db.select().from(externalLinksTable).where(and(eq(externalLinksTable.id, linkId), eq(externalLinksTable.factId, factId))).limit(1);
   if (!link) { res.status(404).json({ error: "Link not found" }); return; }
-  if (link.addedById !== req.user.id) { res.status(403).json({ error: "Forbidden" }); return; }
+  if (link.addedById !== req.user!.id) { res.status(403).json({ error: "Forbidden" }); return; }
   await db.delete(externalLinksTable).where(eq(externalLinksTable.id, linkId));
   res.status(204).send();
 });

@@ -347,7 +347,7 @@ async function generateAndStoreImageFromReference(
   }
 
   // Upload reference photo to fal.ai transient storage so we have a URL to pass
-  const referenceBlob = new Blob([referenceBuffer], { type: "image/jpeg" });
+  const referenceBlob = new Blob([new Uint8Array(referenceBuffer)], { type: "image/jpeg" });
   const faceImageUrl = await fal.storage.upload(referenceBlob);
 
   // IMPORTANT: For PuLID and IP-Adapter models, face likeness comes from the image embedding,

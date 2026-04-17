@@ -14,6 +14,7 @@ export interface AuthUser {
   firstName?: string | null;
   lastName?: string | null;
   profileImageUrl?: string | null;
+  displayName?: string | null;
   membershipTier?: AuthUserMembershipTier;
   isAdmin?: boolean | null;
   isRealAdmin?: boolean | null;

@@ -12,7 +12,7 @@
  * - Word-wrapped to fit within 85% of the 1024px width
  */
 
-import { createCanvas, loadImage, GlobalFonts } from "@napi-rs/canvas";
+import { createCanvas, loadImage, GlobalFonts, type SKRSContext2D } from "@napi-rs/canvas";
 import path from "path";
 import { fileURLToPath } from "url";
 import { ObjectStorageService } from "./objectStorage";
@@ -50,7 +50,7 @@ async function loadBufferFromStorage(storedPath: string): Promise<Buffer> {
  * Returns an array of lines.
  */
 function wrapText(
-  ctx: ReturnType<typeof createCanvas>["getContext"],
+  ctx: SKRSContext2D,
   text: string,
   maxWidth: number,
 ): string[] {
@@ -76,7 +76,7 @@ function wrapText(
  * number of lines (start at MAX_FONT_SIZE, reduce by 4px each step).
  */
 function fitFont(
-  ctx: ReturnType<typeof createCanvas>["getContext"],
+  ctx: SKRSContext2D,
   text: string,
   maxWidth: number,
   maxLines: number,

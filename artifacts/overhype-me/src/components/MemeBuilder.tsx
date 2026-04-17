@@ -195,8 +195,9 @@ function drawMeme(
   bgOffsetX = 0,
   bgOffsetY = 0,
 ) {
-  const ctx = canvas.getContext("2d");
-  if (!ctx) return;
+  const ctxOrNull = canvas.getContext("2d");
+  if (!ctxOrNull) return;
+  const ctx = ctxOrNull;
 
   if (bgImage) {
     drawCroppedImage(ctx, bgImage, canvasW, canvasH, bgOffsetX, bgOffsetY);
@@ -715,7 +716,7 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
       let current = "";
       for (const w of words) {
         const test = current ? `${current} ${w}` : w;
-        if (ctx.measureText(test).width > maxW && current) { lines++; current = w; }
+        if (ctx!.measureText(test).width > maxW && current) { lines++; current = w; }
         else { current = test; }
       }
       return lines;

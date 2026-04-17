@@ -1,4 +1,4 @@
-import { useListFacts, useListHashtags } from "@workspace/api-client-react";
+import { useListFacts, useListHashtags, getListHashtagsQueryKey } from "@workspace/api-client-react";
 import { FactCard } from "@/components/facts/FactCard";
 import { Layout } from "@/components/layout/Layout";
 import { Button } from "@/components/ui/Button";
@@ -31,7 +31,7 @@ export default function Home() {
 
   const { data: hashtagData, isLoading: hashtagsLoading } = useListHashtags(
     { limit: 100 },
-    { query: { enabled: filterMode === "hashtags" } },
+    { query: { queryKey: getListHashtagsQueryKey({ limit: 100 }), enabled: filterMode === "hashtags" } },
   );
 
   const filteredFacts = useMemo(() => {

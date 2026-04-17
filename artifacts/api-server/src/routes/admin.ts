@@ -1213,7 +1213,7 @@ router.get("/admin/config", requireAdmin, async (_req: Request, res: Response) =
 });
 
 router.patch("/admin/config/:key", requireAdmin, async (req: Request, res: Response) => {
-  const { key } = req.params;
+  const key = String(req.params["key"]);
   const body = req.body as {
     value?: unknown;
     valueLabel?: unknown;
@@ -1386,7 +1386,7 @@ router.post("/admin/video-styles", requireAdmin, async (req: Request, res: Respo
 });
 
 router.patch("/admin/video-styles/:id", requireAdmin, async (req: Request, res: Response) => {
-  const { id } = req.params;
+  const id = String(req.params["id"]);
   const body = req.body as Record<string, unknown>;
 
   const updates: Record<string, unknown> = { updatedAt: new Date() };
@@ -1409,7 +1409,7 @@ router.patch("/admin/video-styles/:id", requireAdmin, async (req: Request, res: 
 });
 
 router.post("/admin/video-styles/:id/preview-gif", requireAdmin, async (req: Request, res: Response) => {
-  const { id } = req.params;
+  const id = String(req.params["id"]);
   const body = req.body as Record<string, unknown>;
   const base64 = String(body.base64 ?? "").trim();
   if (!base64) { res.status(400).json({ error: "base64 GIF data required" }); return; }
@@ -1437,7 +1437,7 @@ router.post("/admin/video-styles/:id/preview-gif", requireAdmin, async (req: Req
 });
 
 router.delete("/admin/video-styles/:id/preview-gif", requireAdmin, async (req: Request, res: Response) => {
-  const { id } = req.params;
+  const id = String(req.params["id"]);
 
   const [style] = await db
     .select({ previewGifPath: videoStylesTable.previewGifPath })
