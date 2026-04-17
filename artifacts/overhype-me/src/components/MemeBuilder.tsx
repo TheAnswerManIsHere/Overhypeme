@@ -8,6 +8,7 @@ import {
   type DragEvent,
 } from "react";
 import { Link, useLocation } from "wouter";
+import type { PexelsPhotoEntry, FactPexelsImages } from "@/types/pexels";
 import { AiBgPicker, type AiBgSelection } from "@/components/AiBgPicker";
 import { ImageCard } from "@/components/ui/ImageCard";
 import { usePersonName } from "@/hooks/use-person-name";
@@ -365,25 +366,6 @@ type VideoState =
   | { status: "generating" }
   | { status: "done"; url: string }
   | { status: "error"; message: string };
-
-interface PexelsPhotoEntry {
-  id: number;
-  url: string;
-  photographer?: string;
-  photographer_url?: string;
-}
-
-interface FactPexelsImages {
-  fact_type: "action" | "abstract";
-  male:    (number | PexelsPhotoEntry)[];
-  female:  (number | PexelsPhotoEntry)[];
-  neutral: (number | PexelsPhotoEntry)[];
-  keywords?: {
-    male:    string;
-    female:  string;
-    neutral: string;
-  };
-}
 
 export interface AiMemeImages {
   male:    string[];

@@ -17,6 +17,7 @@ import { cn } from "@/lib/utils";
 import type { VideoStyleDef } from "@/config/videoStyles";
 import { useVideoStyles } from "@/hooks/use-video-styles";
 import type { AiMemeImages } from "@/components/MemeBuilder";
+import type { PexelsPhotoEntry, FactPexelsImages } from "@/types/pexels";
 import { AiBgPicker, type AiBgSelection } from "@/components/AiBgPicker";
 import { Button } from "@/components/ui/Button";
 import { ImageCard } from "@/components/ui/ImageCard";
@@ -41,20 +42,6 @@ interface StockPhotoEntry {
   photoUrl: string;
   photographerName: string;
   photographerUrl: string;
-}
-
-interface PexelsPhotoEntry {
-  id: number;
-  url: string;
-  photographer?: string;
-  photographer_url?: string;
-}
-
-interface FactPexelsImages {
-  fact_type: "action" | "abstract";
-  male: (number | PexelsPhotoEntry)[];
-  female: (number | PexelsPhotoEntry)[];
-  neutral: (number | PexelsPhotoEntry)[];
 }
 
 export interface VideoTabProps {

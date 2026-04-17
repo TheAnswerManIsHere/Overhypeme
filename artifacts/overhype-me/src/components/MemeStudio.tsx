@@ -7,6 +7,7 @@ import {
   Sparkles,
 } from "lucide-react";
 import type { AiMemeImages } from "@/components/MemeBuilder";
+import type { FactPexelsImages } from "@/types/pexels";
 import { useAuth } from "@workspace/replit-auth-web";
 import { AccessGate } from "@/components/AccessGate";
 import type { VideoTabProps } from "@/components/MemeStudioVideoTab";
@@ -24,30 +25,6 @@ const VideoTab = lazy(() => import("@/components/MemeStudioVideoTab"));
 type StudioTab = "image" | "video";
 
 export type { AiMemeImages };
-
-interface PexelsPhotoEntry {
-  id: number;
-  url: string;
-  photographer?: string;
-  photographer_url?: string;
-  src?: {
-    original: string;
-    large2x: string;
-    large: string;
-    medium: string;
-    small: string;
-    portrait: string;
-    landscape: string;
-    tiny: string;
-  };
-}
-
-interface FactPexelsImages {
-  fact_type: "action" | "abstract";
-  male: (number | PexelsPhotoEntry)[];
-  female: (number | PexelsPhotoEntry)[];
-  neutral: (number | PexelsPhotoEntry)[];
-}
 
 interface MemeStudioProps {
   factId: number;
