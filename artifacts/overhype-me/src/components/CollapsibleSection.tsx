@@ -9,7 +9,7 @@ interface CollapsibleSectionProps {
   description?: string;
   children: ReactNode;
   className?: string;
-  storageKey?: string;
+  storageKey: string;
 }
 
 export function CollapsibleSection({
@@ -22,16 +22,7 @@ export function CollapsibleSection({
   className = "",
   storageKey,
 }: CollapsibleSectionProps) {
-  if (import.meta.env.DEV && !storageKey) {
-    console.warn(
-      `CollapsibleSection "${title}" is missing a storageKey prop. ` +
-        "Without it, the open/closed state will not be remembered between page loads. " +
-        "Pass a unique storageKey string to enable persistence."
-    );
-  }
-
   const [open, setOpen] = useState(() => {
-    if (!storageKey) return false;
     try {
       return localStorage.getItem(storageKey) === "1";
     } catch {
@@ -40,7 +31,6 @@ export function CollapsibleSection({
   });
 
   useEffect(() => {
-    if (!storageKey) return;
     try {
       if (open) {
         localStorage.setItem(storageKey, "1");
