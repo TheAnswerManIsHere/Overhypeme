@@ -1,4 +1,4 @@
-import { useState, useEffect, lazy, Suspense } from "react";
+import { useState, useEffect, useRef, lazy, Suspense } from "react";
 import { useRoute, Link, useLocation } from "wouter";
 import { format } from "date-fns";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -215,19 +215,56 @@ export default function FactDetail() {
   useEffect(() => { localStorage.setItem("meme_show_my_public", String(showMyPublic)); }, [showMyPublic]);
   useEffect(() => { localStorage.setItem("meme_show_my_private", String(showMyPrivate)); }, [showMyPrivate]);
 
+  const belowFoldSentinelRef = useRef<HTMLDivElement>(null);
+
   useEffect(() => {
-    const ric = typeof requestIdleCallback !== "undefined" ? requestIdleCallback : null;
-    let id: number;
-    if (ric) {
-      id = ric(() => setBelowFoldMounted(true));
+    if (belowFoldMounted) return;
+    const sentinel = belowFoldSentinelRef.current;
+    if (!sentinel) return;
+
+    if (typeof IntersectionObserver !== "undefined") {
+      const observer = new IntersectionObserver(
+        (entries) => {
+          if (entries[0].isIntersecting) {
+            setBelowFoldMounted(true);
+            observer.disconnect();
+          }
+        },
+        { rootMargin: "200px" }
+      );
+      observer.observe(sentinel);
+
+      const ric = typeof requestIdleCallback !== "undefined" ? requestIdleCallback : null;
+      let ricId: number;
+      const fallback = () => {
+        setBelowFoldMounted(true);
+        observer.disconnect();
+      };
+      if (ric) {
+        ricId = ric(fallback, { timeout: 5000 });
+      } else {
+        ricId = setTimeout(fallback, 5000) as unknown as number;
+      }
+
+      return () => {
+        observer.disconnect();
+        if (ric) cancelIdleCallback(ricId);
+        else clearTimeout(ricId as unknown as ReturnType<typeof setTimeout>);
+      };
     } else {
-      id = setTimeout(() => setBelowFoldMounted(true), 0) as unknown as number;
+      const ric = typeof requestIdleCallback !== "undefined" ? requestIdleCallback : null;
+      let id: number;
+      if (ric) {
+        id = ric(() => setBelowFoldMounted(true));
+      } else {
+        id = setTimeout(() => setBelowFoldMounted(true), 0) as unknown as number;
+      }
+      return () => {
+        if (ric) cancelIdleCallback(id);
+        else clearTimeout(id as unknown as ReturnType<typeof setTimeout>);
+      };
     }
-    return () => {
-      if (ric) cancelIdleCallback(id);
-      else clearTimeout(id as unknown as ReturnType<typeof setTimeout>);
-    };
-  }, []);
+  }, [fact, belowFoldMounted]);
 
   const { data: commentsData } = useListComments(factId, { limit: 50 }, {
     query: { queryKey: getListCommentsQueryKey(factId, { limit: 50 }), enabled: !!factId && belowFoldMounted }
@@ -411,6 +448,9 @@ export default function FactDetail() {
 
         {/* Ad slot below fact card — hidden for premium users */}
         <AdSlot slot={import.meta.env.VITE_ADSENSE_SLOT_FACT_FOOTER ?? "1234567890"} format="horizontal" className="mb-8" />
+
+        {/* Sentinel: IntersectionObserver watches this to trigger below-fold content */}
+        <div ref={belowFoldSentinelRef} aria-hidden="true" />
 
         {belowFoldMounted && (<>
 
