@@ -3,7 +3,7 @@ import cors from "cors";
 import cookieParser from "cookie-parser";
 import pinoHttp from "pino-http";
 import * as Sentry from "@sentry/node";
-import { scrubObject } from "@workspace/redact";
+import { scrubObject, scrubUrl } from "@workspace/redact";
 import router from "./routes";
 import { logger } from "./lib/logger";
 import { authMiddleware } from "./middlewares/authMiddleware";
@@ -25,7 +25,7 @@ app.use(
         return {
           id: req.id,
           method: req.method,
-          url: req.url?.split("?")[0],
+          url: req.url != null ? scrubUrl(req.url) : req.url,
           body: Buffer.isBuffer(req.raw?.body) ? "[Buffer]" : scrubObject(req.raw?.body),
         };
       },

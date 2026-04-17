@@ -5,7 +5,7 @@ import { Writable } from "node:stream";
 import express from "express";
 import pinoHttp from "pino-http";
 import pino from "pino";
-import { scrubObject } from "@workspace/redact";
+import { scrubObject, scrubUrl } from "@workspace/redact";
 
 function makeTestApp(logLines: string[]) {
   const captureStream = new Writable({
@@ -27,7 +27,7 @@ function makeTestApp(logLines: string[]) {
           return {
             id: req.id,
             method: req.method,
-            url: req.url?.split("?")[0],
+            url: req.url != null ? scrubUrl(req.url) : req.url,
             body: scrubObject(req.raw?.body),
           };
         },
@@ -38,6 +38,7 @@ function makeTestApp(logLines: string[]) {
     }),
   );
   app.post("/test", (_req, res) => res.json({ ok: true }));
+  app.get("/test", (_req, res) => res.json({ ok: true }));
   return app;
 }
 
@@ -67,6 +68,21 @@ function postJson(
     );
     req.once("error", reject);
     req.end(payload);
+  });
+}
+
+function getRequest(server: http.Server, path: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const addr = server.address() as { port: number };
+    const req = http.request(
+      { host: "127.0.0.1", port: addr.port, path, method: "GET" },
+      (res) => {
+        res.resume();
+        res.once("end", () => setTimeout(resolve, 20));
+      },
+    );
+    req.once("error", reject);
+    req.end();
   });
 }
 
@@ -155,7 +171,7 @@ describe("pino-http request body scrubbing (integration)", () => {
             return {
               id: req.id,
               method: req.method,
-              url: req.url?.split("?")[0],
+              url: req.url != null ? scrubUrl(req.url) : req.url,
               body: Buffer.isBuffer(req.raw?.body) ? "[Buffer]" : scrubObject(req.raw?.body),
             };
           },
@@ -215,6 +231,83 @@ describe("pino-http request body scrubbing (integration)", () => {
       assert.ok(log, "expected a request log line");
       const parsed = JSON.parse(log) as { req: { body?: unknown } };
       assert.equal(parsed.req.body, undefined);
+    } finally {
+      await new Promise<void>((r) => server.close(() => r()));
+    }
+  });
+});
+
+describe("pino-http URL query parameter scrubbing (integration)", () => {
+  it("filters sensitive query params and preserves non-sensitive ones", async () => {
+    const logLines: string[] = [];
+    const app = makeTestApp(logLines);
+    const server = http.createServer(app);
+    await listenRandom(server);
+
+    try {
+      await getRequest(server, "/test?token=abc123&page=2&sort=asc");
+      const log = logLines.find((l) => l.includes('"req"'));
+      assert.ok(log, "expected a request log line");
+      const parsed = JSON.parse(log) as { req: { url: string } };
+      assert.ok(parsed.req.url.includes("token=%5BFiltered%5D"), "token param must be filtered");
+      assert.ok(parsed.req.url.includes("page=2"), "page param must be preserved");
+      assert.ok(parsed.req.url.includes("sort=asc"), "sort param must be preserved");
+      assert.ok(!parsed.req.url.includes("abc123"), "token value must not appear in log URL");
+    } finally {
+      await new Promise<void>((r) => server.close(() => r()));
+    }
+  });
+
+  it("filters code and email query params", async () => {
+    const logLines: string[] = [];
+    const app = makeTestApp(logLines);
+    const server = http.createServer(app);
+    await listenRandom(server);
+
+    try {
+      await getRequest(server, "/test?code=oauth-code&email=alice%40example.com&redirect=home");
+      const log = logLines.find((l) => l.includes('"req"'));
+      assert.ok(log, "expected a request log line");
+      const parsed = JSON.parse(log) as { req: { url: string } };
+      assert.ok(!parsed.req.url.includes("oauth-code"), "code value must not appear in log URL");
+      assert.ok(!parsed.req.url.includes("alice"), "email value must not appear in log URL");
+      assert.ok(parsed.req.url.includes("redirect=home"), "redirect param must be preserved");
+    } finally {
+      await new Promise<void>((r) => server.close(() => r()));
+    }
+  });
+
+  it("preserves the full URL unchanged when there are no query params", async () => {
+    const logLines: string[] = [];
+    const app = makeTestApp(logLines);
+    const server = http.createServer(app);
+    await listenRandom(server);
+
+    try {
+      await getRequest(server, "/test");
+      const log = logLines.find((l) => l.includes('"req"'));
+      assert.ok(log, "expected a request log line");
+      const parsed = JSON.parse(log) as { req: { url: string } };
+      assert.equal(parsed.req.url, "/test", "URL without query string must be logged as-is");
+    } finally {
+      await new Promise<void>((r) => server.close(() => r()));
+    }
+  });
+
+  it("preserves non-sensitive query params verbatim when no sensitive params are present", async () => {
+    const logLines: string[] = [];
+    const app = makeTestApp(logLines);
+    const server = http.createServer(app);
+    await listenRandom(server);
+
+    try {
+      await getRequest(server, "/test?page=3&limit=10&sort=desc");
+      const log = logLines.find((l) => l.includes('"req"'));
+      assert.ok(log, "expected a request log line");
+      const parsed = JSON.parse(log) as { req: { url: string } };
+      assert.ok(parsed.req.url.includes("page=3"), "page must be preserved");
+      assert.ok(parsed.req.url.includes("limit=10"), "limit must be preserved");
+      assert.ok(parsed.req.url.includes("sort=desc"), "sort must be preserved");
     } finally {
       await new Promise<void>((r) => server.close(() => r()));
     }
