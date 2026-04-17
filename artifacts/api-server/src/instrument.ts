@@ -1,5 +1,18 @@
 import * as Sentry from "@sentry/node";
 
+// Sentry v10 emits a console warning when expressIntegration() can't verify
+// that its OTel shim patched express — this always happens in a bundled ESM
+// binary because esbuild inlines all modules, so there are no separate
+// require('express') calls for the shim to intercept. The warning is cosmetic:
+// error capture works correctly via setupExpressErrorHandler() in app.ts. We
+// suppress only this one specific message so dev logs stay clean.
+const _origWarn = console.warn.bind(console);
+console.warn = (...args: unknown[]) => {
+  const msg = typeof args[0] === "string" ? args[0] : "";
+  if (msg.includes("express is not instrumented")) return;
+  _origWarn(...args);
+};
+
 const dsn = process.env.SENTRY_DSN_BACKEND;
 const environment = process.env.NODE_ENV === "production" ? "production" : "development";
 const release =

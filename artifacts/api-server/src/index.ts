@@ -1,5 +1,7 @@
-// Sentry must be imported before any other modules so its auto-instrumentation
-// can patch http/express/pg before they're loaded. Do not move this import.
+// Sentry must be the very first import so its hooks register before any other
+// module loads. Because we bundle with esbuild, OTel can't intercept express
+// via the module loader — but setupExpressErrorHandler in app.ts captures all
+// unhandled errors, which is all we need.
 import "./instrument";
 import app from "./app";
 import { logger } from "./lib/logger";
