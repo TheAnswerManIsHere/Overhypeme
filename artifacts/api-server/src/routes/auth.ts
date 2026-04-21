@@ -334,10 +334,27 @@ router.post("/auth/toggle-admin-mode", async (req: Request, res: Response) => {
   res.json({ adminModeActive: !session.adminModeDisabled });
 });
 
+function isProviderConfigured(provider: OAuthProvider): boolean {
+  if (provider === "google") {
+    return !!(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET);
+  }
+  return !!(
+    process.env.APPLE_CLIENT_ID &&
+    process.env.APPLE_TEAM_ID &&
+    process.env.APPLE_KEY_ID &&
+    process.env.APPLE_PRIVATE_KEY
+  );
+}
+
 router.get("/login/:provider", async (req: Request, res: Response) => {
   const provider = req.params.provider as OAuthProvider;
   if (provider !== "google" && provider !== "apple") {
     res.status(404).send("Unknown provider");
+    return;
+  }
+
+  if (!isProviderConfigured(provider)) {
+    res.status(503).send(`${provider} sign-in is not yet configured`);
     return;
   }
 
