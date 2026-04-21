@@ -11,8 +11,6 @@ export const SESSION_TTL = 7 * 24 * 60 * 60 * 1000;
 export interface SessionData {
   user: AuthUser;
   access_token: string;
-  refresh_token?: string;
-  expires_at?: number;
   captchaVerified?: boolean;
   isAdmin?: boolean;
   adminModeDisabled?: boolean;
