@@ -182,15 +182,10 @@ async function handleOAuthCallback(
   const config =
     provider === "google" ? await getGoogleConfig() : await getAppleConfig();
 
-  const callbackUrl = `${getOrigin(req)}/api/callback/${provider}`;
-
-  // Reconstruct the full callback URL that openid-client needs for validation.
-  // We pass the actual code and state (plus the iss hint Google sends back).
-  const currentUrl = new URL(callbackUrl);
-  currentUrl.searchParams.set("code", code);
-  currentUrl.searchParams.set("state", state);
-  const iss = req.query.iss ?? req.body?.iss;
-  if (iss) currentUrl.searchParams.set("iss", iss as string);
+  // openid-client v6 validates ALL query parameters in the callback URL,
+  // including the `iss` parameter that Google (RFC 9207) includes. Build the
+  // full URL from the actual incoming request so nothing is lost.
+  const currentUrl = new URL(getOrigin(req) + req.originalUrl);
 
   let tokens: oidc.TokenEndpointResponse & oidc.TokenEndpointResponseHelpers;
   try {
