@@ -434,7 +434,32 @@ export class WebhookHandlers {
     // is guaranteed authentic — no second verification pass is needed or correct (the
     // integration manages its own signing secret, separate from STRIPE_WEBHOOK_SECRET).
     const sync = await getStripeSync();
-    await sync.processWebhook(payload, signature);
+    try {
+      await sync.processWebhook(payload, signature);
+    } catch (sigErr) {
+      // Best-effort: pull the event id out of the (untrusted) payload so the
+      // log line is correlatable with Stripe's dashboard even though we
+      // rejected the event. Falls back to undefined if the body isn't JSON.
+      let eventIdGuess: string | undefined;
+      try {
+        const parsed = JSON.parse(payload.toString()) as { id?: unknown };
+        if (typeof parsed?.id === "string") eventIdGuess = parsed.id;
+      } catch { /* non-JSON payload — skip */ }
+      const message = sigErr instanceof Error ? sigErr.message : String(sigErr);
+      let reason = "unknown error during signature verification";
+      if (/signature/i.test(message)) {
+        reason = "Stripe signature verification failed (signing secret mismatch or tampered payload)";
+      } else if (/secret/i.test(message)) {
+        reason = "Stripe webhook signing secret is missing or unreadable";
+      } else if (/timestamp/i.test(message)) {
+        reason = "Stripe webhook timestamp outside tolerance window";
+      }
+      logger.warn(
+        { err: sigErr, eventId: eventIdGuess, reason },
+        "Stripe webhook rejected before domain processing",
+      );
+      throw sigErr;
+    }
 
     // Phase 2: Acquire the Stripe client for domain processing.
     // If credentials are unavailable, skip domain logic — the sync already persisted

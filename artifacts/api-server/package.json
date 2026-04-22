@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "export NODE_ENV=development && pnpm run build && pnpm run start",
+    "dev": "bash ../../scripts/dev-supervisor.sh api-server bash -c 'fuser -k $PORT/tcp 2>/dev/null || true; export NODE_ENV=development && pnpm run build && pnpm run start'",
     "build": "node ./build.mjs",
     "start": "node --enable-source-maps ./dist/index.mjs",
     "test": "node --import tsx/esm --test 'src/__tests__/**/*.test.ts'",
