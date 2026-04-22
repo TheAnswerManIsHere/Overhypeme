@@ -66,15 +66,25 @@ async function seedLegacyMigrations(client: pg.PoolClient): Promise<void> {
     return;
   }
 
-  const { rows: existingRows } = await client.query<{ hash: string }>(
-    `SELECT hash FROM drizzle.__drizzle_migrations`,
+  const { rows: existingRows } = await client.query<{ hash: string; created_at: string | null }>(
+    `SELECT hash, created_at FROM drizzle.__drizzle_migrations`,
   );
-  const existingHashes = new Set(existingRows.map((r) => r.hash));
+  const existingByHash = new Map(
+    existingRows.map((r) => [r.hash, r.created_at === null ? null : Number(r.created_at)]),
+  );
 
   for (const m of LEGACY_MIGRATIONS) {
-    if (!existingHashes.has(m.hash)) {
+    if (!existingByHash.has(m.hash)) {
       await client.query(
         `INSERT INTO drizzle.__drizzle_migrations (hash, created_at) VALUES ($1, $2)`,
+        [m.hash, m.createdAt],
+      );
+    } else if (existingByHash.get(m.hash) !== m.createdAt) {
+      // Reconcile created_at so Drizzle's "select ... order by created_at desc limit 1"
+      // comparison correctly skips already-applied migrations whose folderMillis matches.
+      // IS DISTINCT FROM makes this a no-op if any row already matches (NULL-safe).
+      await client.query(
+        `UPDATE drizzle.__drizzle_migrations SET created_at = $2 WHERE hash = $1 AND created_at IS DISTINCT FROM $2`,
         [m.hash, m.createdAt],
       );
     }
