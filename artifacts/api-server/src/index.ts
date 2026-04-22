@@ -74,14 +74,6 @@ async function initStripe() {
   }
 }
 
-await initStripe();
-
-// Apply any pending database migrations before accepting requests
-await runMigrations();
-
-// Idempotent schema & config seed (ADD COLUMN IF NOT EXISTS, INSERT … ON CONFLICT DO NOTHING)
-await ensureSchema();
-
 // Reconcile membership tiers: any user with an active subscription but membership_tier != 'legendary'
 // should be upgraded. This catches webhook gaps (e.g. isMembershipPrice blocked the grant before
 // products were tagged, or the webhook handler crashed mid-flight).
@@ -122,42 +114,6 @@ async function reconcileMembershipTiers() {
   }
 }
 
-await reconcileMembershipTiers();
-
-// Backfill Wilson scores for any facts that have votes but no score yet
-await backfillWilsonScores().catch((err: unknown) => logger.error({ err }, "Wilson backfill failed"));
-
-// Non-blocking: generate embeddings for any facts that are missing them (e.g. after a DB seed/restore)
-backfillEmbeddings()
-  .then(({ processed, failed }) => {
-    if (processed > 0 || failed > 0) logger.info({ processed, failed }, "Embedding backfill complete");
-  })
-  .catch((err: unknown) => logger.warn({ err }, "Embedding backfill skipped (no OpenAI key?)"));
-
-// Daily cron: send Fact of the Day at 9:00 UTC
-function scheduleDailyFactJob() {
-  const schedule = () => {
-    const now = new Date();
-    const next9am = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 9, 0, 0, 0));
-    if (next9am <= now) next9am.setUTCDate(next9am.getUTCDate() + 1);
-    const msUntilNext = next9am.getTime() - now.getTime();
-    logger.info({ nextRunAt: next9am.toISOString(), msUntilNext }, "Fact of the Day scheduled");
-    setTimeout(async () => {
-      try {
-        const { runFactOfTheDayJob } = await import("./jobs/factOfTheDay");
-        const result = await runFactOfTheDayJob();
-        logger.info(result, "Fact of the Day sent");
-      } catch (err) {
-        logger.error({ err }, "Fact of the Day job failed");
-      }
-      schedule(); // reschedule for next day
-    }, msUntilNext);
-  };
-  schedule();
-}
-
-scheduleDailyFactJob();
-
 // ── fal.ai Pricing Cache ────────────────────────────────────────────────────
 async function initPricingCache(): Promise<void> {
   try {
@@ -196,10 +152,40 @@ async function initPricingCache(): Promise<void> {
   }
 }
 
-// Non-blocking: warm pricing cache in background, don't block server start
-initPricingCache().catch((err: unknown) => logger.warn({ err }, "Pricing cache init error"));
+// Daily cron: send Fact of the Day at 9:00 UTC
+function scheduleDailyFactJob() {
+  const schedule = () => {
+    const now = new Date();
+    const next9am = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 9, 0, 0, 0));
+    if (next9am <= now) next9am.setUTCDate(next9am.getUTCDate() + 1);
+    const msUntilNext = next9am.getTime() - now.getTime();
+    logger.info({ nextRunAt: next9am.toISOString(), msUntilNext }, "Fact of the Day scheduled");
+    setTimeout(async () => {
+      try {
+        const { runFactOfTheDayJob } = await import("./jobs/factOfTheDay");
+        const result = await runFactOfTheDayJob();
+        logger.info(result, "Fact of the Day sent");
+      } catch (err) {
+        logger.error({ err }, "Fact of the Day job failed");
+      }
+      schedule(); // reschedule for next day
+    }, msUntilNext);
+  };
+  schedule();
+}
 
+// ── Startup sequence ─────────────────────────────────────────────────────────
+// Only the two DB steps run before listen() so the port opens in seconds.
+// Everything else (Stripe, membership reconcile, backfills) runs in the
+// background and does not block port binding.
 
+// Apply any pending database migrations before accepting requests
+await runMigrations();
+
+// Idempotent schema & config seed (ADD COLUMN IF NOT EXISTS, INSERT … ON CONFLICT DO NOTHING)
+await ensureSchema();
+
+// Bind the port now — deployment health checks can pass immediately.
 const server = app.listen(port, (err) => {
   if (err) {
     logger.error({ err }, "Error listening on port");
@@ -221,3 +207,15 @@ process.on("SIGINT", () => {
   logger.info({ signal: "SIGINT" }, "Received signal, shutting down gracefully");
   shutdown("SIGINT");
 });
+
+// Non-blocking background tasks — failures are logged but never crash the server.
+initStripe().catch((err: unknown) => logger.error({ err }, "Stripe init error"));
+reconcileMembershipTiers().catch((err: unknown) => logger.error({ err }, "Membership reconciliation error"));
+backfillWilsonScores().catch((err: unknown) => logger.error({ err }, "Wilson backfill failed"));
+backfillEmbeddings()
+  .then(({ processed, failed }) => {
+    if (processed > 0 || failed > 0) logger.info({ processed, failed }, "Embedding backfill complete");
+  })
+  .catch((err: unknown) => logger.warn({ err }, "Embedding backfill skipped (no OpenAI key?)"));
+scheduleDailyFactJob();
+initPricingCache().catch((err: unknown) => logger.warn({ err }, "Pricing cache init error"));
