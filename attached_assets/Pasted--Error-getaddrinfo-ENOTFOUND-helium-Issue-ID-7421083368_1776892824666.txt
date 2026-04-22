@@ -1,0 +1,71 @@
+# Error: getaddrinfo ENOTFOUND helium
+
+**Issue ID:** 7421083368
+**Project:** sentry_project_backend
+**Date:** 4/21/2026, 9:53:02 PM
+## Issue Summary
+DB Migration Failure: ENOTFOUND for 'helium' Hostname
+**What's wrong:** **Database migration fails** due to **DNS resolution error** for host 'helium'.
+**In the trace:** Failure occurs during **initialization** after calling `await runMigrations()`.
+**Possible cause:** The **database connection string** is likely using an **unresolvable hostname** ('helium') instead of an IP or fully qualified domain name.
+
+## Tags
+
+- **environment:** production
+- **handled:** no
+- **level:** fatal
+- **mechanism:** auto.node.onuncaughtexception
+- **os:** Ubuntu Linux 24.04
+- **os.name:** Ubuntu Linux
+- **release:** dev
+- **runtime:** node v24.13.0
+- **runtime.name:** node
+- **server_name:** repl
+
+## Exception
+
+### Exception 1
+**Type:** Error
+**Value:** getaddrinfo ENOTFOUND helium
+
+#### Stacktrace
+
+```
+ result in ../../../node_modules/.pnpm/pg-pool@3.13.0_pg@8.20.0/node_modules/pg-pool/index.js [Line 45] (Not in app)
+    res = resolve
+    rej = reject
+  }).catch((err) => {
+    // replace the stack trace that leads to `TCP.onStreamRead` with one that leads back to the
+    // application that created the query
+    Error.captureStackTrace(err)  <-- SUSPECT LINE
+    throw err
+  })
+  return { callback: cb, result: result }
+}
+
+ process.processTicksAndRejections in node:internal/process/task_queues [Line 103] (Not in app)
+ runMigrations in ../../../lib/db/src/index.ts [Line 95] (In app)
+  return path.join(__dirname, "../migrations");
+}
+
+export async function runMigrations(): Promise<void> {
+  const migrationsFolder = getMigrationsFolder();
+  const client = await pool.connect();  <-- SUSPECT LINE
+  try {
+    await seedLegacyMigrations(client);
+  } finally {
+    client.release();
+  }
+ <unknown> in ../src/index.ts [Line 80] (In app)
+}
+
+await initStripe();
+
+// Apply any pending database migrations before accepting requests
+await runMigrations();  <-- SUSPECT LINE
+
+// Idempotent schema & config seed (ADD COLUMN IF NOT EXISTS, INSERT … ON CONFLICT DO NOTHING)
+await ensureSchema();
+
+// Reconcile membership tiers: any user with an active subscription but membership_tier != 'legendary'
+```
