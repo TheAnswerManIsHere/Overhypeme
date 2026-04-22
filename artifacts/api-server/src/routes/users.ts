@@ -9,7 +9,7 @@ import { eq, desc, inArray, and, sql, isNull } from "drizzle-orm";
 import { RecordSearchBody } from "@workspace/api-zod";
 import { getSessionId, getSession, updateSession } from "../lib/auth";
 import crypto from "crypto";
-import { sendEmail, buildEmailChangeVerificationEmail } from "../lib/email";
+import { sendEmail, buildEmailChangeVerificationEmail, getSiteBaseUrl } from "../lib/email";
 import { ObjectStorageService } from "../lib/objectStorage";
 import { getConfigInt } from "../lib/adminConfig";
 import { verifyCaptcha } from "../lib/captcha";
@@ -290,8 +290,7 @@ router.patch("/users/me", async (req: Request, res: Response) => {
       pendingEmail: emailNormalized,
     });
 
-    const domain = process.env.REPLIT_DOMAINS?.split(",")[0] ?? "localhost";
-    const verifyUrl = `https://${domain}/verify-email?token=${rawToken}`;
+    const verifyUrl = `${getSiteBaseUrl()}/verify-email?token=${rawToken}`;
     const emailContent = buildEmailChangeVerificationEmail(emailNormalized, verifyUrl);
     sendEmail({ to: emailNormalized, ...emailContent }).catch((err) => {
       console.error("[users] Failed to send email change verification:", err);
