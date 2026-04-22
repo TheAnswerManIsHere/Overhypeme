@@ -327,6 +327,18 @@ export const GetMyProfileResponse = zod.object({
   avatarStyle: zod.string().nullish(),
   avatarSource: zod.string().nullish(),
   isPremium: zod.boolean().optional(),
+  oauthProvider: zod
+    .string()
+    .nullish()
+    .describe(
+      'The OAuth provider linked to this account (e.g. \"google\", \"apple\"), or null for email\/password-only accounts.',
+    ),
+  hasPassword: zod
+    .boolean()
+    .optional()
+    .describe(
+      "Whether the account has a local password set (true for email+password and merged accounts, false for OAuth-only).",
+    ),
   submittedFacts: zod.array(
     zod.object({
       id: zod.number(),

@@ -5,7 +5,7 @@ import { Layout } from "@/components/layout/Layout";
 import { FactCard } from "@/components/facts/FactCard";
 import { Button } from "@/components/ui/Button";
 import { SubscriptionPanel } from "@/components/SubscriptionPanel";
-import { ShieldAlert, LogOut, Clock, ThumbsUp, FileText, Hash, Star, X, Pencil, Check, Mail, AlertTriangle, CheckCircle, Camera, Loader2, Images, ImageIcon, UserCircle2, Image, Eraser, ChevronLeft, ChevronRight } from "lucide-react";
+import { ShieldAlert, LogOut, Clock, ThumbsUp, FileText, Hash, Star, X, Pencil, Check, Mail, AlertTriangle, CheckCircle, Camera, Loader2, Images, ImageIcon, UserCircle2, Image, Eraser, ChevronLeft, ChevronRight, KeyRound, Eye, EyeOff } from "lucide-react";
 import { ImageCard } from "@/components/ui/ImageCard";
 import { Link, useLocation } from "wouter";
 import { useQueryClient, useQuery } from "@tanstack/react-query";
@@ -90,6 +90,48 @@ export default function Profile() {
   const [avatarSourceToggling, setAvatarSourceToggling] = useState(false);
   const [forgetMeConfirm, setForgetMeConfirm] = useState(false);
   const [forgetMeLoading, setForgetMeLoading] = useState(false);
+
+  const [showPasswordSection, setShowPasswordSection] = useState(false);
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [showCurrentPw, setShowCurrentPw] = useState(false);
+  const [showNewPw, setShowNewPw] = useState(false);
+  const [showConfirmPw, setShowConfirmPw] = useState(false);
+  const [passwordError, setPasswordError] = useState("");
+  const [passwordSuccess, setPasswordSuccess] = useState("");
+  const [passwordLoading, setPasswordLoading] = useState(false);
+
+  async function handleSetPassword() {
+    setPasswordError("");
+    setPasswordSuccess("");
+    if (!newPassword) { setPasswordError("New password is required."); return; }
+    if (newPassword.length < 8) { setPasswordError("Password must be at least 8 characters."); return; }
+    if (newPassword !== confirmPassword) { setPasswordError("Passwords do not match."); return; }
+    setPasswordLoading(true);
+    try {
+      const body: Record<string, string> = { newPassword };
+      if (profile?.hasPassword) body.currentPassword = currentPassword;
+      const res = await fetch(`${BASE_URL}api/auth/set-password`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify(body),
+      });
+      const data = await res.json() as { message?: string; error?: string };
+      if (!res.ok) { setPasswordError(data.error ?? "Failed to update password."); return; }
+      setPasswordSuccess(data.message ?? "Password updated successfully.");
+      setCurrentPassword("");
+      setNewPassword("");
+      setConfirmPassword("");
+      setShowPasswordSection(false);
+      await queryClient.invalidateQueries({ queryKey: getGetMyProfileQueryKey() });
+    } catch {
+      setPasswordError("Network error. Please try again.");
+    } finally {
+      setPasswordLoading(false);
+    }
+  }
 
   async function handleForgetMe() {
     setForgetMeLoading(true);
@@ -804,6 +846,138 @@ export default function Profile() {
             </div>
           </div>
         )}
+
+        {/* Sign-in Method & Password */}
+        {(() => {
+          const oauthProvider = profile?.oauthProvider ?? null;
+          const hasPassword = profile?.hasPassword ?? false;
+          return (
+            <div className="bg-card border-2 border-border p-6 rounded-sm shadow mb-8">
+              <h2 className="font-display text-xl uppercase tracking-wide text-foreground mb-4 border-b border-border pb-4 flex items-center gap-2">
+                <KeyRound className="w-5 h-5 text-primary" /> Sign-in Methods
+              </h2>
+
+              <div className="flex flex-col gap-3 mb-5">
+                {/* Google badge */}
+                <div className={`flex items-center gap-3 px-4 py-3 rounded-sm border ${oauthProvider === "google" ? "border-blue-500/40 bg-blue-500/5" : "border-border bg-secondary/30 opacity-50"}`}>
+                  <svg className="w-5 h-5 shrink-0" viewBox="0 0 24 24" aria-hidden="true">
+                    <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
+                    <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+                    <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l3.66-2.84z"/>
+                    <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
+                  </svg>
+                  <div className="flex-1">
+                    <p className="font-bold text-sm text-foreground">Google</p>
+                    <p className="text-xs text-muted-foreground">{oauthProvider === "google" ? "Connected — use Google to sign in" : "Not linked"}</p>
+                  </div>
+                  {oauthProvider === "google" && (
+                    <span className="text-xs bg-blue-500/20 text-blue-400 border border-blue-500/40 px-2 py-0.5 rounded-sm font-bold">Active</span>
+                  )}
+                </div>
+
+                {/* Email + Password badge */}
+                <div className={`flex items-center gap-3 px-4 py-3 rounded-sm border ${hasPassword ? "border-green-500/40 bg-green-500/5" : "border-border bg-secondary/30 opacity-60"}`}>
+                  <Mail className="w-5 h-5 shrink-0 text-muted-foreground" />
+                  <div className="flex-1">
+                    <p className="font-bold text-sm text-foreground">Email + Password</p>
+                    <p className="text-xs text-muted-foreground">{hasPassword ? "Password set — you can sign in with your email and password" : "No password set"}</p>
+                  </div>
+                  {hasPassword && (
+                    <span className="text-xs bg-green-500/20 text-green-400 border border-green-500/40 px-2 py-0.5 rounded-sm font-bold">Active</span>
+                  )}
+                </div>
+              </div>
+
+              {/* Password success message */}
+              {passwordSuccess && (
+                <div className="flex items-center gap-3 bg-green-500/20 border border-green-500/40 rounded-sm p-3 mb-4">
+                  <CheckCircle className="w-4 h-4 text-green-500 shrink-0" />
+                  <p className="text-sm text-foreground">{passwordSuccess}</p>
+                </div>
+              )}
+
+              {/* Toggle set/change password form */}
+              {!showPasswordSection ? (
+                <Button variant="outline" size="sm" onClick={() => { setShowPasswordSection(true); setPasswordError(""); setPasswordSuccess(""); }} className="gap-2">
+                  <KeyRound className="w-4 h-4" />
+                  {hasPassword ? "Change Password" : "Set a Password"}
+                </Button>
+              ) : (
+                <div className="border border-border rounded-sm p-4 bg-secondary/20 space-y-4">
+                  <p className="text-sm font-bold text-muted-foreground uppercase tracking-wide">
+                    {hasPassword ? "Change Password" : "Set a Password"}
+                  </p>
+                  {!hasPassword && (
+                    <p className="text-xs text-muted-foreground">Adding a password lets you sign in with your email and password in addition to any linked social accounts.</p>
+                  )}
+
+                  {hasPassword && (
+                    <div>
+                      <label className="block text-xs font-bold text-muted-foreground uppercase tracking-wide mb-1">Current Password</label>
+                      <div className="relative max-w-sm">
+                        <input
+                          type={showCurrentPw ? "text" : "password"}
+                          value={currentPassword}
+                          onChange={(e) => setCurrentPassword(e.target.value)}
+                          placeholder="Your current password"
+                          className="w-full bg-secondary border border-border rounded-sm px-3 py-2 pr-10 text-foreground outline-none focus:border-primary transition-colors text-sm"
+                        />
+                        <button type="button" onClick={() => setShowCurrentPw(v => !v)} className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
+                          {showCurrentPw ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  <div>
+                    <label className="block text-xs font-bold text-muted-foreground uppercase tracking-wide mb-1">New Password</label>
+                    <div className="relative max-w-sm">
+                      <input
+                        type={showNewPw ? "text" : "password"}
+                        value={newPassword}
+                        onChange={(e) => setNewPassword(e.target.value)}
+                        placeholder="At least 8 characters"
+                        className="w-full bg-secondary border border-border rounded-sm px-3 py-2 pr-10 text-foreground outline-none focus:border-primary transition-colors text-sm"
+                      />
+                      <button type="button" onClick={() => setShowNewPw(v => !v)} className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
+                        {showNewPw ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                      </button>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-muted-foreground uppercase tracking-wide mb-1">Confirm New Password</label>
+                    <div className="relative max-w-sm">
+                      <input
+                        type={showConfirmPw ? "text" : "password"}
+                        value={confirmPassword}
+                        onChange={(e) => setConfirmPassword(e.target.value)}
+                        placeholder="Repeat new password"
+                        className="w-full bg-secondary border border-border rounded-sm px-3 py-2 pr-10 text-foreground outline-none focus:border-primary transition-colors text-sm"
+                      />
+                      <button type="button" onClick={() => setShowConfirmPw(v => !v)} className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
+                        {showConfirmPw ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                      </button>
+                    </div>
+                  </div>
+
+                  {passwordError && (
+                    <p className="text-xs text-destructive font-medium">{passwordError}</p>
+                  )}
+
+                  <div className="flex gap-3">
+                    <Button onClick={handleSetPassword} disabled={passwordLoading} size="sm" className="gap-2">
+                      {passwordLoading ? <><Loader2 className="w-4 h-4 animate-spin" /> Saving…</> : <><Check className="w-4 h-4" /> Save Password</>}
+                    </Button>
+                    <Button variant="outline" size="sm" onClick={() => { setShowPasswordSection(false); setPasswordError(""); setCurrentPassword(""); setNewPassword(""); setConfirmPassword(""); }}>
+                      Cancel
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        })()}
 
         {/* Subscription Panel */}
         <SubscriptionPanel refetchTrigger={checkoutConfirmed || undefined} />

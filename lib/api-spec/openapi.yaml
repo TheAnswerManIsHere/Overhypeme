@@ -1309,6 +1309,13 @@ components:
           nullable: true
         isPremium:
           type: boolean
+        oauthProvider:
+          type: string
+          nullable: true
+          description: The OAuth provider linked to this account (e.g. "google", "apple"), or null for email/password-only accounts.
+        hasPassword:
+          type: boolean
+          description: Whether the account has a local password set (true for email+password and merged accounts, false for OAuth-only).
         submittedFacts:
           type: array
           items:
