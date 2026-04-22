@@ -910,6 +910,9 @@ export default function Profile() {
                       Unlink
                     </button>
                   )}
+                  {oauthProvider === "google" && !hasPassword && (
+                    <span className="text-xs text-amber-500/80 shrink-0 ml-1">Set a password to enable unlinking</span>
+                  )}
                 </div>
 
                 {/* Unlink confirmation / feedback */}
@@ -965,17 +968,27 @@ export default function Profile() {
 
               {/* Toggle set/change password form */}
               {!showPasswordSection ? (
-                <Button variant="outline" size="sm" onClick={() => { setShowPasswordSection(true); setPasswordError(""); setPasswordSuccess(""); }} className="gap-2">
-                  <KeyRound className="w-4 h-4" />
-                  {hasPassword ? "Change Password" : "Set a Password"}
-                </Button>
+                <div className="space-y-2">
+                  <Button variant="outline" size="sm" onClick={() => { setShowPasswordSection(true); setPasswordError(""); setPasswordSuccess(""); }} className="gap-2">
+                    <KeyRound className="w-4 h-4" />
+                    {hasPassword ? "Change Password" : "Set a Password"}
+                  </Button>
+                  {oauthProvider === "google" && !hasPassword && (
+                    <p className="text-xs text-amber-500/80">Setting a password also lets you unlink your Google account later.</p>
+                  )}
+                </div>
               ) : (
                 <div className="border border-border rounded-sm p-4 bg-secondary/20 space-y-4">
                   <p className="text-sm font-bold text-muted-foreground uppercase tracking-wide">
                     {hasPassword ? "Change Password" : "Set a Password"}
                   </p>
                   {!hasPassword && (
-                    <p className="text-xs text-muted-foreground">Adding a password lets you sign in with your email and password in addition to any linked social accounts.</p>
+                    <div className="space-y-1">
+                      <p className="text-xs text-muted-foreground">Adding a password lets you sign in with your email and password in addition to any linked social accounts.</p>
+                      {oauthProvider === "google" && (
+                        <p className="text-xs text-amber-500/80">Setting a password also lets you unlink your Google account later.</p>
+                      )}
+                    </div>
                   )}
 
                   {hasPassword && (
