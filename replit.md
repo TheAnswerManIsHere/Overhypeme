@@ -53,3 +53,25 @@ The frontend, `overhype-me`, is a React+Vite application featuring a dark theme 
 -   **Authentication:** Replit OAuth
 -   **Captcha:** hCaptcha
 -   **Hashing:** bcryptjs
+
+# Operations
+
+## Dev workflow resilience
+All three artifact dev workflows (`api-server`, `overhype-me`, `mockup-sandbox`) are wrapped in `scripts/dev-supervisor.sh`, which:
+- Frees the bound port (`fuser -k $PORT/tcp`) before each (re)start, so a leftover process from the previous run no longer causes `EADDRINUSE`.
+- Restarts the inner command on non-zero exit with backoff (1s → 2s → 3s → 10s capped).
+- Gives up after 20 crashes within 5 minutes so a hard-failing build doesn't bury the real error in scrolling logs — fix the underlying error and restart the workflow manually.
+- Forwards `SIGTERM`/`SIGINT` to the child so workflow stop/restart behaves normally.
+
+The api-server additionally has `process.on("uncaughtException")` and `process.on("unhandledRejection")` handlers that capture the error to Sentry, flush, and `process.exit(1)`. The supervisor then restarts the process automatically.
+
+## Health endpoints
+- `GET /api/healthz` — minimal `{status:"ok"}`, kept for backwards compatibility.
+- `GET /api/health` — richer payload including `lastStripeEvent` (event id, timestamp, age in minutes). Intended for external uptime monitors so the same check doubles as a Stripe-webhook-staleness signal.
+
+## Crash notifications (manual setup, one-time)
+The Sentry SDK is wired up via `SENTRY_DSN_BACKEND` and `VITE_SENTRY_DSN`; what's not in code is the per-project alert routing.
+
+1. **Sentry alert rule** — In Sentry → project (`SENTRY_PROJECT_BACKEND`) → Alerts → Create Alert → Issues. Use "A new issue is created" with action "Send a notification to a Member" (yourself). Frequency: every 1 minute. Save it as `prod-new-issues`. To verify, throw once from a route handler and confirm the email lands within ~1 minute.
+2. **External uptime monitor** — Create a monitor in UptimeRobot (free tier) hitting `https://<deployed-domain>/api/health` every 5 minutes, alerting after 2 consecutive failures, to the same email. Once created, paste the monitor URL/ID below so the next agent doesn't re-create it.
+   - UptimeRobot monitor URL: _TODO_ (set after creation)

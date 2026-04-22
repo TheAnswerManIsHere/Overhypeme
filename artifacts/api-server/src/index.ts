@@ -3,6 +3,7 @@
 // via the module loader — but setupExpressErrorHandler in app.ts captures all
 // unhandled errors, which is all we need.
 import "./instrument";
+import * as Sentry from "@sentry/node";
 import app from "./app";
 import { logger } from "./lib/logger";
 import { backfillWilsonScores, ensureSchema } from "./lib/seed";
@@ -207,6 +208,76 @@ process.on("SIGINT", () => {
   logger.info({ signal: "SIGINT" }, "Received signal, shutting down gracefully");
   shutdown("SIGINT");
 });
+
+// Catch-all for crashes that aren't already wrapped in try/catch.
+// Without these, an unhandled async error tears the process down silently
+// (no Sentry capture, no log of *what* crashed). We capture, flush, and exit
+// non-zero so the dev-supervisor.sh wrapper restarts the process and the
+// production deployment runtime restarts the container.
+//
+// Re-entrancy guard: cascading failures (e.g. an uncaughtException that
+// triggers an unhandledRejection during Sentry.flush) must not race two
+// flush/exit paths against each other. The first call wins; subsequent
+// fatal events are logged but ignored, and a hard 5s safety timeout
+// guarantees we never block forever inside flush.
+let fatalExitInProgress = false;
+async function fatalExit(err: unknown, kind: "uncaughtException" | "unhandledRejection") {
+  if (fatalExitInProgress) {
+    logger.error({ err, kind }, "Additional fatal error during shutdown — ignoring (already exiting)");
+    return;
+  }
+  fatalExitInProgress = true;
+  const safetyTimer = setTimeout(() => process.exit(1), 5_000);
+  safetyTimer.unref();
+  try {
+    logger.fatal({ err, kind }, "Fatal error — capturing to Sentry and exiting");
+    Sentry.captureException(err, { tags: { fatal: kind } });
+    await Sentry.flush(2000);
+  } catch (flushErr) {
+    logger.error({ err: flushErr }, "Sentry flush failed during fatal exit");
+  } finally {
+    clearTimeout(safetyTimer);
+    process.exit(1);
+  }
+}
+process.on("uncaughtException", (err) => { void fatalExit(err, "uncaughtException"); });
+process.on("unhandledRejection", (reason) => { void fatalExit(reason, "unhandledRejection"); });
+
+// Boot-time visibility into Stripe webhook freshness. Logs the most recently
+// processed Stripe event so a stalled webhook (signing-secret rotation, server
+// down for hours, etc.) is obvious in the workflow logs without having to
+// query the DB. Warns if the latest event is more than 24h old.
+async function logLastStripeEvent(): Promise<void> {
+  try {
+    const { db } = await import("@workspace/db");
+    const { stripeProcessedEventsTable } = await import("@workspace/db/schema");
+    const { desc } = await import("drizzle-orm");
+    const [row] = await db
+      .select()
+      .from(stripeProcessedEventsTable)
+      .orderBy(desc(stripeProcessedEventsTable.processedAt))
+      .limit(1);
+    if (!row) {
+      logger.warn("No Stripe webhook events have ever been processed — webhook may not be configured");
+      return;
+    }
+    const processedAt = new Date(row.processedAt);
+    const ageHours = (Date.now() - processedAt.getTime()) / 3_600_000;
+    const summary = {
+      eventId: row.eventId,
+      processedAt: processedAt.toISOString(),
+      ageHours: Math.round(ageHours * 10) / 10,
+    };
+    if (ageHours > 24) {
+      logger.warn(summary, "Last Stripe webhook is more than 24h old — webhook delivery may be stale");
+    } else {
+      logger.info(summary, "Last Stripe webhook event");
+    }
+  } catch (err) {
+    logger.warn({ err }, "Could not query last Stripe webhook event for boot summary");
+  }
+}
+void logLastStripeEvent();
 
 // Non-blocking background tasks — failures are logged but never crash the server.
 initStripe().catch((err: unknown) => logger.error({ err }, "Stripe init error"));
