@@ -585,6 +585,43 @@ router.post("/auth/set-password", async (req: Request, res: Response) => {
   res.status(200).json({ message: "Password updated successfully." });
 });
 
+// ── Unlink OAuth provider ─────────────────────────────────────────────────────
+// Only allowed when the user has a password set (to prevent lockout).
+router.delete("/auth/unlink-provider", async (req: Request, res: Response) => {
+  if (!req.isAuthenticated()) {
+    res.status(401).json({ error: "Not authenticated" });
+    return;
+  }
+
+  const [user] = await db
+    .select({ passwordHash: usersTable.passwordHash, oauthProvider: usersTable.oauthProvider })
+    .from(usersTable)
+    .where(eq(usersTable.id, req.user.id))
+    .limit(1);
+
+  if (!user) {
+    res.status(404).json({ error: "User not found" });
+    return;
+  }
+
+  if (!user.oauthProvider) {
+    res.status(400).json({ error: "No linked social account to remove" });
+    return;
+  }
+
+  if (!user.passwordHash) {
+    res.status(400).json({ error: "You must set a password before unlinking your social account, otherwise you would be locked out." });
+    return;
+  }
+
+  await db
+    .update(usersTable)
+    .set({ oauthProvider: null })
+    .where(eq(usersTable.id, req.user.id));
+
+  res.status(200).json({ message: "Google account unlinked successfully." });
+});
+
 // ── Secret admin login ────────────────────────────────────────────────────────
 // Dev: no credentials needed — triple-click the logo.
 // Production: requires the correct ADMIN_API_KEY in the x-admin-key header.
