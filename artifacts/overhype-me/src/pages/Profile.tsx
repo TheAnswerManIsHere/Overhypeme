@@ -976,6 +976,9 @@ export default function Profile() {
                   {oauthProvider === "google" && !hasPassword && (
                     <p className="text-xs text-amber-500/80">Setting a password also lets you unlink your Google account later.</p>
                   )}
+                  {oauthProvider === "google" && hasPassword && (
+                    <p className="text-xs text-amber-500/80">To remove Google sign-in from your account, use the <span className="font-semibold">Unlink</span> option in the Google row above.</p>
+                  )}
                 </div>
               ) : (
                 <div className="border border-border rounded-sm p-4 bg-secondary/20 space-y-4">
