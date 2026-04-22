@@ -994,10 +994,11 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
 
   // ── Upload flow ──────────────────────────────────────────────────
 
-  const CLIENT_MAX_DIMENSION = 3600;
+  const CLIENT_MAX_DIMENSION = 6000;
   const CLIENT_JPEG_QUALITY = 0.9;
   const LOW_RES_WARNING_PX = 1500;
   const CLIENT_MAX_UPLOAD_MB = 15;
+  const CLIENT_MAX_UPLOAD_BYTES = CLIENT_MAX_UPLOAD_MB * 1024 * 1024;
 
   async function preProcessImageFile(file: File): Promise<{ blob: Blob; width: number; height: number }> {
     return new Promise((resolve, reject) => {
@@ -1012,20 +1013,38 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
           w = Math.round(w * scale);
           h = Math.round(h * scale);
         }
-        const canvas = document.createElement("canvas");
-        canvas.width = w;
-        canvas.height = h;
-        const ctx = canvas.getContext("2d");
-        if (!ctx) { reject(new Error("Canvas unavailable")); return; }
-        ctx.drawImage(img, 0, 0, w, h);
-        canvas.toBlob(
-          (blob) => {
-            if (!blob) { reject(new Error("Image encoding failed")); return; }
-            resolve({ blob, width: w, height: h });
-          },
-          "image/jpeg",
-          CLIENT_JPEG_QUALITY,
-        );
+
+        // Iteratively shrink until the encoded JPEG fits under the upload cap.
+        // First try at full quality + dims; if too large, drop quality, then
+        // dimensions, until we land under the limit (or run out of headroom).
+        const attempt = (curW: number, curH: number, quality: number, attemptsLeft: number) => {
+          const c = document.createElement("canvas");
+          c.width = curW;
+          c.height = curH;
+          const cx = c.getContext("2d");
+          if (!cx) { reject(new Error("Canvas unavailable")); return; }
+          cx.drawImage(img, 0, 0, curW, curH);
+          c.toBlob(
+            (blob) => {
+              if (!blob) { reject(new Error("Image encoding failed")); return; }
+              if (blob.size <= CLIENT_MAX_UPLOAD_BYTES || attemptsLeft <= 0) {
+                resolve({ blob, width: curW, height: curH });
+                return;
+              }
+              // Shrink: drop quality first, then dimensions every other pass.
+              if (quality > 0.6) {
+                attempt(curW, curH, Math.max(0.6, quality - 0.1), attemptsLeft - 1);
+              } else {
+                const nextW = Math.round(curW * 0.85);
+                const nextH = Math.round(curH * 0.85);
+                attempt(nextW, nextH, 0.85, attemptsLeft - 1);
+              }
+            },
+            "image/jpeg",
+            quality,
+          );
+        };
+        attempt(w, h, CLIENT_JPEG_QUALITY, 8);
       };
       img.onerror = () => { URL.revokeObjectURL(url); reject(new Error("Failed to load image")); };
       img.src = url;

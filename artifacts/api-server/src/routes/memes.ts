@@ -180,19 +180,24 @@ router.get("/memes/templates", (_req: Request, res: Response) => {
   });
 });
 
-// GET /memes/templates/:id/preview
+// GET /memes/templates/:id/preview?aspectRatio=landscape|square|portrait
 router.get("/memes/templates/:id/preview", (req: Request, res: Response) => {
   const id = req.params["id"] as string;
   const template = MEME_TEMPLATES.find(t => t.id === id);
   if (!template) { res.status(404).end(); return; }
 
-  const etag = `"template-${id}"`;
+  const aspectParam = String(req.query["aspectRatio"] ?? "landscape");
+  const aspect = (["landscape", "square", "portrait"].includes(aspectParam)
+    ? aspectParam
+    : "landscape") as "landscape" | "square" | "portrait";
+
+  const etag = `"template-${id}-${aspect}"`;
   if (checkConditional(req, res, etag)) return;
 
   setPublicCors(res);
   res.setHeader("Content-Type", "image/png");
   setPublicCache(res, CACHE.MEME_TEMPLATE, etag);
-  res.sendFile(path.join(TEMPLATES_DIR, template.assetPath));
+  res.sendFile(path.join(TEMPLATES_DIR, aspect, template.assetPath));
 });
 
 // GET /memes/stock-photo?gender=man|woman|person
@@ -652,7 +657,7 @@ router.get("/memes/:slug/image", async (req: Request, res: Response) => {
       background = { type: "image", imageData: imageBuffer };
     }
 
-    const imageBuffer = await generateMemeBuffer(background, factText, textOptions);
+    const imageBuffer = await generateMemeBuffer(background, factText, textOptions, meme.aspectRatio ?? "landscape");
 
     const etag = `"meme-${slug}"`;
     if (checkConditional(req, res, etag)) return;
@@ -749,7 +754,7 @@ router.post("/memes/:slug/zazzle-export", async (req: Request, res: Response) =>
         background = { type: "image", imageData: buf };
       }
 
-      imageBuffer = await generateMemeBuffer(background, factText, textOptions);
+      imageBuffer = await generateMemeBuffer(background, factText, textOptions, meme.aspectRatio ?? "landscape");
     }
 
     // Store in object storage with a public ACL so Zazzle can fetch it directly
@@ -853,7 +858,7 @@ router.get("/memes/:slug/zazzle-redirect", async (req: Request, res: Response) =
         background = { type: "image", imageData: buf };
       }
 
-      imageBuffer = await generateMemeBuffer(background, factText, textOptions);
+      imageBuffer = await generateMemeBuffer(background, factText, textOptions, meme.aspectRatio ?? "landscape");
     }
 
     const subPath = `meme-exports/${slug}.jpg`;

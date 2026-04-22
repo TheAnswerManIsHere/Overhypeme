@@ -26,8 +26,6 @@ function parseEnvInt(name: string, defaultValue: number, min?: number, max?: num
 }
 
 const MAX_UPLOAD_SIZE_MB = parseEnvInt("MAX_UPLOAD_SIZE_MB", 15, 1);
-const MAX_IMAGE_DIMENSION_PX = parseEnvInt("MAX_IMAGE_DIMENSION_PX", 3000, 100);
-const IMAGE_QUALITY_PERCENT = parseEnvInt("IMAGE_QUALITY_PERCENT", 85, 1, 100);
 const LOW_RES_THRESHOLD_PX = parseEnvInt("LOW_RES_THRESHOLD_PX", 1500, 1);
 
 export interface ProcessedImageResult {
@@ -176,17 +174,18 @@ router.post(
  * POST /storage/upload-meme
  *
  * Server-side upload for meme background images.
- * Accepts the raw image binary as the request body (Content-Type: image/*).
- * Uploads directly to object storage from the server (avoids slow browser→GCS presigned PUT).
- * Returns the objectPath, dimensions, and low-res flag for use in meme creation.
+ * The client always sends a JPEG (Content-Type: image/jpeg) that has already
+ * been pre-processed (oriented, capped at the client max dimension, and
+ * compressed to fit under MAX_UPLOAD_SIZE_MB). To preserve every available
+ * pixel the server stores the bytes verbatim — no resize, no recompress.
  *
- * Processing pipeline:
- *  1. Hard-reject over MAX_UPLOAD_SIZE_MB (default 15MB) → 413
- *  2. Validate recognized image format → 422 on failure
- *  3. Auto-orient and strip EXIF via sharp().rotate()
- *  4. Resize down to MAX_IMAGE_DIMENSION_PX (default 3000px) on longest edge (no upscale)
- *  5. Convert to JPEG at IMAGE_QUALITY_PERCENT (default 85%)
- *  6. Flag is_low_res if output longest edge < LOW_RES_THRESHOLD_PX (default 1500px)
+ * Pipeline:
+ *  1. Hard-reject anything > MAX_UPLOAD_SIZE_MB → 413
+ *  2. Require Content-Type: image/jpeg → 415
+ *  3. Cheap header read (sharp().metadata()) to validate it's a real JPEG and
+ *     pull width/height for downstream low-res flagging.
+ *  4. Save buffer verbatim to object storage (always as .jpg).
+ *  5. Flag is_low_res when longest edge < LOW_RES_THRESHOLD_PX (default 1500px).
  */
 router.post(
   "/storage/upload-meme",
@@ -194,6 +193,12 @@ router.post(
   async (req: Request, res: Response) => {
     if (!req.isAuthenticated()) {
       res.status(401).json({ error: "Authentication required" });
+      return;
+    }
+
+    const contentType = (req.headers["content-type"] ?? "").split(";")[0].trim().toLowerCase();
+    if (contentType !== "image/jpeg") {
+      res.status(415).json({ error: "Only JPEG uploads are accepted." });
       return;
     }
 
@@ -210,32 +215,24 @@ router.post(
 
     let processed: ProcessedImageResult;
     try {
-      const pipeline = sharp(rawBuffer, { failOn: "error" })
-        .rotate()
-        .resize({
-          width: MAX_IMAGE_DIMENSION_PX,
-          height: MAX_IMAGE_DIMENSION_PX,
-          fit: "inside",
-          withoutEnlargement: true,
-        })
-        .jpeg({ quality: IMAGE_QUALITY_PERCENT, mozjpeg: false });
+      // Cheap header read only — does NOT decode pixels.
+      const meta = await sharp(rawBuffer, { failOn: "error" }).metadata();
+      if (meta.format !== "jpeg" || !meta.width || !meta.height) {
+        res.status(422).json({ error: "The uploaded file is not a valid JPEG image." });
+        return;
+      }
 
-      const outputBuffer = await pipeline.toBuffer({ resolveWithObject: true });
-      const { width, height } = outputBuffer.info;
-
-      const longestEdge = Math.max(width, height);
-      const isLowRes = longestEdge < LOW_RES_THRESHOLD_PX;
-
+      const longestEdge = Math.max(meta.width, meta.height);
       processed = {
-        buffer: outputBuffer.data,
-        width,
-        height,
-        isLowRes,
-        fileSizeBytes: outputBuffer.data.length,
+        buffer: rawBuffer,
+        width: meta.width,
+        height: meta.height,
+        isLowRes: longestEdge < LOW_RES_THRESHOLD_PX,
+        fileSizeBytes: rawBuffer.length,
       };
     } catch (err) {
-      req.log.warn({ err }, "Image processing failed — not a valid image");
-      res.status(422).json({ error: "The uploaded file is not a recognized image format." });
+      req.log.warn({ err }, "Image header parse failed — not a valid JPEG");
+      res.status(422).json({ error: "The uploaded file is not a valid JPEG image." });
       return;
     }
 

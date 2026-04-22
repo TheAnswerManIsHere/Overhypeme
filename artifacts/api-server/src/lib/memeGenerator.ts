@@ -1,25 +1,46 @@
 import { createCanvas, loadImage, type Canvas } from "@napi-rs/canvas";
 import path from "path";
+import fs from "fs";
 import { fileURLToPath } from "url";
+import {
+  MEME_ASPECT_RATIOS,
+  TEMPLATE_RENDER_SCALE,
+  DEFAULT_MEME_ASPECT_RATIO,
+  type MemeAspectRatio,
+} from "@workspace/api-zod";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const TEMPLATES_DIR = path.resolve(__dirname, "assets/meme-templates");
+// In production the build script copies src/assets → dist/assets, so
+// `<__dirname>/assets/meme-templates` resolves correctly. When running
+// directly from source (tests, tsx) `__dirname` is `src/lib`, so we must
+// walk up to `src/assets/meme-templates`.
+const TEMPLATES_DIR = (() => {
+  const candidates = [
+    path.resolve(__dirname, "assets/meme-templates"),        // built layout
+    path.resolve(__dirname, "..", "assets/meme-templates"),  // src/lib → src/assets
+  ];
+  for (const candidate of candidates) {
+    try { if (fs.statSync(candidate).isDirectory()) return candidate; } catch { /* try next */ }
+  }
+  return candidates[0]!;
+})();
 
-// Logical layout coordinate system. All layout math (font sizes, padding,
-// sidebar, text positions) is expressed in these units. The actual rendered
-// canvas is RENDER_SCALE× larger so user uploads keep their detail and text
-// edges stay crisp on high-DPI displays.
-export const CANVAS_W = 800;
-export const CANVAS_H = 420;
-const RENDER_SCALE = 2.4;
-const RENDER_W = Math.round(CANVAS_W * RENDER_SCALE);
-const RENDER_H = Math.round(CANVAS_H * RENDER_SCALE);
+/**
+ * Maximum longest-edge resolution for photo-backed meme renders.
+ * Matches the client-side upload cap so the server never produces
+ * an output larger than the source the user uploaded.
+ */
+const MAX_PHOTO_RENDER_PX = 6000;
+
+/** Output JPEG quality used for the final encode. */
+const OUTPUT_JPEG_QUALITY = 0.9;
 
 export interface MemeTemplate {
   id: string;
   name: string;
   description: string;
   previewColors: string[];
+  /** Filename (without aspect-ratio subdirectory) for the template gradient PNG. */
   assetPath: string;
 }
 
@@ -65,8 +86,8 @@ export interface TextOptions {
 
 /**
  * Where the background image comes from.
- * - template: one of the 5 built-in gradient PNGs
- * - image:    a URL string (stock photo from Pexels) or a Buffer (user upload)
+ * - template: one of the built-in gradient PNGs
+ * - image:    a URL string (stock photo) or a Buffer (user upload)
  */
 export type BackgroundSource =
   | { type: "template"; templateId: string }
@@ -77,12 +98,13 @@ const templateImageCache = new Map<
   Awaited<ReturnType<typeof loadImage>>
 >();
 
-async function getTemplateImage(assetPath: string) {
-  if (!templateImageCache.has(assetPath)) {
-    const img = await loadImage(path.join(TEMPLATES_DIR, assetPath));
-    templateImageCache.set(assetPath, img);
+async function getTemplateImage(aspectRatio: MemeAspectRatio, assetPath: string) {
+  const cacheKey = `${aspectRatio}/${assetPath}`;
+  if (!templateImageCache.has(cacheKey)) {
+    const img = await loadImage(path.join(TEMPLATES_DIR, aspectRatio, assetPath));
+    templateImageCache.set(cacheKey, img);
   }
-  return templateImageCache.get(assetPath)!;
+  return templateImageCache.get(cacheKey)!;
 }
 
 /** Accent sidebar colour per gradient template. */
@@ -139,11 +161,45 @@ export async function generateMemeBuffer(
   background: BackgroundSource,
   factText: string,
   options?: TextOptions,
+  aspectRatio: MemeAspectRatio = DEFAULT_MEME_ASPECT_RATIO,
 ): Promise<Buffer> {
-  const canvas: Canvas = createCanvas(RENDER_W, RENDER_H);
+  const { w: logicalW, h: logicalH } = MEME_ASPECT_RATIOS[aspectRatio];
+
+  // Decide actual render dimensions:
+  //  - templates: fixed scale of TEMPLATE_RENDER_SCALE on the logical canvas
+  //  - photos:    use the cropped source dimensions, capped at MAX_PHOTO_RENDER_PX
+  let renderW: number;
+  let renderH: number;
+  let photoData: { img: Awaited<ReturnType<typeof loadImage>>; sx: number; sy: number; sw: number; sh: number } | null = null;
+
+  if (background.type === "template") {
+    renderW = Math.round(logicalW * TEMPLATE_RENDER_SCALE);
+    renderH = Math.round(logicalH * TEMPLATE_RENDER_SCALE);
+  } else {
+    const img = await loadImage(background.imageData);
+    const crop = centerCropParams(img.width, img.height, logicalW, logicalH);
+    // Render at the cropped source resolution so we keep every available pixel,
+    // capped on the longest edge to bound output size.
+    let rW = Math.round(crop.sw);
+    let rH = Math.round(crop.sh);
+    const longest = Math.max(rW, rH);
+    if (longest > MAX_PHOTO_RENDER_PX) {
+      const scale = MAX_PHOTO_RENDER_PX / longest;
+      rW = Math.round(rW * scale);
+      rH = Math.round(rH * scale);
+    }
+    // Snap to the exact aspect ratio (rounding may have introduced ±1px drift).
+    rH = Math.round(rW * (logicalH / logicalW));
+    renderW = rW;
+    renderH = rH;
+    photoData = { img, ...crop };
+  }
+
+  const canvas: Canvas = createCanvas(renderW, renderH);
   const ctx = canvas.getContext("2d");
-  // Render in logical 800×420 coordinates; the canvas is RENDER_SCALE× larger.
-  ctx.scale(RENDER_SCALE, RENDER_SCALE);
+  // Render in logical coordinates; the canvas is scaled up uniformly.
+  const scale = renderW / logicalW;
+  ctx.scale(scale, scale);
 
   // ── Background ────────────────────────────────────────────────────
   let accentColor: string;
@@ -152,36 +208,29 @@ export async function generateMemeBuffer(
     const template = MEME_TEMPLATES.find(t => t.id === background.templateId);
     if (!template) throw new Error(`Unknown template: ${background.templateId}`);
 
-    const bgImage = await getTemplateImage(template.assetPath);
-    ctx.drawImage(bgImage, 0, 0, CANVAS_W, CANVAS_H);
+    const bgImage = await getTemplateImage(aspectRatio, template.assetPath);
+    ctx.drawImage(bgImage, 0, 0, logicalW, logicalH);
     accentColor = templateAccentColor(background.templateId);
   } else {
-    // Photo background (stock URL or uploaded buffer)
-    const img = await loadImage(background.imageData);
-    const { sx, sy, sw, sh } = centerCropParams(
-      img.width,
-      img.height,
-      CANVAS_W,
-      CANVAS_H,
-    );
-    ctx.drawImage(img, sx, sy, sw, sh, 0, 0, CANVAS_W, CANVAS_H);
+    const { img, sx, sy, sw, sh } = photoData!;
+    ctx.drawImage(img, sx, sy, sw, sh, 0, 0, logicalW, logicalH);
 
     // Semi-transparent dark overlay so text stays readable over any photo
     ctx.fillStyle = "rgba(0,0,0,0.48)";
-    ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
+    ctx.fillRect(0, 0, logicalW, logicalH);
     accentColor = "#FF3C00";
   }
 
   // ── Left accent bar ───────────────────────────────────────────────
   const sidebarW = 12;
   ctx.fillStyle = accentColor;
-  ctx.fillRect(0, 0, sidebarW, CANVAS_H);
+  ctx.fillRect(0, 0, sidebarW, logicalH);
 
   // ── Ghost watermark letters ───────────────────────────────────────
   ctx.fillStyle = "rgba(255,255,255,0.06)";
-  ctx.font = `bold ${Math.floor(CANVAS_H * 0.45)}px serif`;
+  ctx.font = `bold ${Math.floor(logicalH * 0.45)}px serif`;
   ctx.textAlign = "right";
-  ctx.fillText("OM", CANVAS_W - 24, CANVAS_H * 0.72);
+  ctx.fillText("OM", logicalW - 24, logicalH * 0.72);
 
   // ── Text ──────────────────────────────────────────────────────────
   const hasNewFormat = !!(options?.topText !== undefined || options?.bottomText !== undefined);
@@ -200,12 +249,12 @@ export async function generateMemeBuffer(
   const textOpacity = options?.opacity ?? 1;
 
   const padding = 40;
-  const maxW = CANVAS_W - padding * 2 - sidebarW;
+  const maxW = logicalW - padding * 2 - sidebarW;
   const fontStyle = `${isItalic ? "italic " : ""}${isBold ? "bold " : ""}`;
   const fontStr = `${fontStyle}${fontSize}px "${fontFamily}", sans-serif`;
 
   const textAreaLeft = padding + sidebarW;
-  const textAreaRight = CANVAS_W - padding;
+  const textAreaRight = logicalW - padding;
   const textX =
     textAlign === "right" ? textAreaRight
     : textAlign === "center" ? (textAreaLeft + textAreaRight) / 2
@@ -236,8 +285,8 @@ export async function generateMemeBuffer(
     const totalH = lines.length * lineH;
     let startY: number;
     if (position === "top") startY = padding + fontSize;
-    else if (position === "bottom") startY = CANVAS_H - padding - totalH + fontSize;
-    else startY = (CANVAS_H - totalH) / 2 + fontSize;
+    else if (position === "bottom") startY = logicalH - padding - totalH + fontSize;
+    else startY = (logicalH - totalH) / 2 + fontSize;
 
     ctx.save();
     ctx.globalAlpha = textOpacity;
@@ -282,7 +331,7 @@ export async function generateMemeBuffer(
   ctx.font = "bold 13px sans-serif";
   ctx.fillStyle = "rgba(255,255,255,0.45)";
   ctx.textAlign = "right";
-  ctx.fillText("overhype.me", CANVAS_W - 18, CANVAS_H - 14);
+  ctx.fillText("overhype.me", logicalW - 18, logicalH - 14);
 
-  return canvas.toBuffer("image/jpeg", 0.92);
+  return canvas.toBuffer("image/jpeg", OUTPUT_JPEG_QUALITY);
 }
