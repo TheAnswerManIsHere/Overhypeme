@@ -968,10 +968,15 @@ export default function Profile() {
 
               {/* Toggle set/change password form */}
               {!showPasswordSection ? (
-                <Button variant="outline" size="sm" onClick={() => { setShowPasswordSection(true); setPasswordError(""); setPasswordSuccess(""); }} className="gap-2">
-                  <KeyRound className="w-4 h-4" />
-                  {hasPassword ? "Change Password" : "Set a Password"}
-                </Button>
+                <div className="space-y-2">
+                  <Button variant="outline" size="sm" onClick={() => { setShowPasswordSection(true); setPasswordError(""); setPasswordSuccess(""); }} className="gap-2">
+                    <KeyRound className="w-4 h-4" />
+                    {hasPassword ? "Change Password" : "Set a Password"}
+                  </Button>
+                  {oauthProvider === "google" && !hasPassword && (
+                    <p className="text-xs text-amber-500/80">Setting a password also lets you unlink your Google account later.</p>
+                  )}
+                </div>
               ) : (
                 <div className="border border-border rounded-sm p-4 bg-secondary/20 space-y-4">
                   <p className="text-sm font-bold text-muted-foreground uppercase tracking-wide">
