@@ -5,7 +5,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createCanvas } from "@napi-rs/canvas";
 import sharp from "sharp";
-import { generateMemeBuffer, MEME_TEMPLATES } from "../lib/memeGenerator.ts";
+import { generateMemeBuffer, MEME_TEMPLATES } from "../lib/memeGenerator.js";
 import { MEME_ASPECT_RATIOS, type MemeAspectRatio } from "@workspace/api-zod";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));

@@ -30,6 +30,7 @@ import { getUploadImageMetadata } from "./storage";
 import { CACHE, setPublicCache, setPublicCors, checkConditional, setNoStore } from "../lib/cacheHeaders";
 import { getSiteBaseUrl } from "../lib/email";
 import { buildZazzleUrl } from "../lib/zazzle";
+import type { MemeAspectRatio } from "@workspace/api-zod";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const TEMPLATES_DIR = path.resolve(__dirname, "assets/meme-templates");
@@ -657,7 +658,7 @@ router.get("/memes/:slug/image", async (req: Request, res: Response) => {
       background = { type: "image", imageData: imageBuffer };
     }
 
-    const imageBuffer = await generateMemeBuffer(background, factText, textOptions, meme.aspectRatio ?? "landscape");
+    const imageBuffer = await generateMemeBuffer(background, factText, textOptions, (meme.aspectRatio as MemeAspectRatio | null) ?? "landscape");
 
     const etag = `"meme-${slug}"`;
     if (checkConditional(req, res, etag)) return;
@@ -754,7 +755,7 @@ router.post("/memes/:slug/zazzle-export", async (req: Request, res: Response) =>
         background = { type: "image", imageData: buf };
       }
 
-      imageBuffer = await generateMemeBuffer(background, factText, textOptions, meme.aspectRatio ?? "landscape");
+      imageBuffer = await generateMemeBuffer(background, factText, textOptions, (meme.aspectRatio as MemeAspectRatio | null) ?? "landscape");
     }
 
     // Store in object storage with a public ACL so Zazzle can fetch it directly
@@ -858,7 +859,7 @@ router.get("/memes/:slug/zazzle-redirect", async (req: Request, res: Response) =
         background = { type: "image", imageData: buf };
       }
 
-      imageBuffer = await generateMemeBuffer(background, factText, textOptions, meme.aspectRatio ?? "landscape");
+      imageBuffer = await generateMemeBuffer(background, factText, textOptions, (meme.aspectRatio as MemeAspectRatio | null) ?? "landscape");
     }
 
     const subPath = `meme-exports/${slug}.jpg`;
