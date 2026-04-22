@@ -1,14 +1,15 @@
 import { vi, describe, it, expect, afterEach } from "vitest";
 
-const { mockInit } = vi.hoisted(() => ({
+const { mockInit, mockReplayIntegration } = vi.hoisted(() => ({
   mockInit: vi.fn(),
+  mockReplayIntegration: vi.fn((opts?: unknown) => ({ name: "Replay", _opts: opts })),
 }));
 
 vi.mock("@sentry/react", () => ({
   init: mockInit,
   browserTracingIntegration: () => ({ name: "BrowserTracing" }),
   feedbackIntegration: () => ({ name: "Feedback" }),
-  replayIntegration: () => ({ name: "Replay" }),
+  replayIntegration: mockReplayIntegration,
 }));
 
 vi.mock("@workspace/redact", async (importOriginal) => {
@@ -29,6 +30,7 @@ async function loadSentry(dropDebugEvents: boolean): Promise<{ mod: typeof impor
   vi.resetModules();
   vi.stubEnv("VITE_DROP_DEBUG_EVENTS", dropDebugEvents ? "true" : "false");
   mockInit.mockClear();
+  mockReplayIntegration.mockClear();
   const mod = await import("./sentry");
   const initArg = mockInit.mock.calls[0][0] as SentryHooks;
   return { mod, hooks: initArg };
@@ -58,6 +60,21 @@ describe("sentry.ts init options", () => {
   it("keeps sendDefaultPii as false", async () => {
     const { hooks } = await loadSentry(false);
     expect(hooks.sendDefaultPii).toBe(false);
+  });
+
+  it("configures replayIntegration with maskAllInputs: true to protect PII", async () => {
+    await loadSentry(false);
+    expect(mockReplayIntegration).toHaveBeenCalledOnce();
+    expect(mockReplayIntegration).toHaveBeenCalledWith(
+      expect.objectContaining({ maskAllInputs: true })
+    );
+  });
+
+  it("configures replayIntegration with maskAllText: false to preserve replay utility", async () => {
+    await loadSentry(false);
+    expect(mockReplayIntegration).toHaveBeenCalledWith(
+      expect.objectContaining({ maskAllText: false })
+    );
   });
 });
 
