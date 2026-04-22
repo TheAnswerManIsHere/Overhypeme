@@ -18,7 +18,46 @@ import {
 } from "../lib/auth";
 import { deriveUserRole } from "../lib/userRole";
 
-const OIDC_COOKIE_TTL = 10 * 60 * 1000;
+// ── Pending OAuth state ───────────────────────────────────────────────────────
+// We store PKCE state server-side (keyed by the OAuth `state` parameter) rather
+// than in cookies. In Replit's dev environment the API and web servers run on
+// different internal ports behind the same proxy, and cross-port cookie
+// round-trips during OAuth redirects are unreliable. A server-side Map avoids
+// that class of problem entirely. TTL is 10 minutes — if the server restarts in
+// that window the user just clicks "Continue with Google" again.
+
+const PENDING_TTL = 10 * 60 * 1000; // 10 minutes
+
+interface PendingOAuthState {
+  codeVerifier: string;
+  nonce: string;
+  returnTo: string;
+  isPopup: boolean;
+  expiresAt: number;
+}
+
+const pendingStates = new Map<string, PendingOAuthState>();
+
+function storePendingState(state: string, data: Omit<PendingOAuthState, "expiresAt">) {
+  pendingStates.set(state, { ...data, expiresAt: Date.now() + PENDING_TTL });
+}
+
+function consumePendingState(state: string): PendingOAuthState | null {
+  const entry = pendingStates.get(state);
+  pendingStates.delete(state);
+  if (!entry || entry.expiresAt < Date.now()) return null;
+  return entry;
+}
+
+// Sweep expired entries every 5 minutes so the map doesn't grow unboundedly.
+setInterval(() => {
+  const now = Date.now();
+  for (const [k, v] of pendingStates) {
+    if (v.expiresAt < now) pendingStates.delete(k);
+  }
+}, 5 * 60 * 1000).unref();
+
+// ── Router ────────────────────────────────────────────────────────────────────
 
 export function isAdminById(userId: string): boolean {
   const ids = process.env.ADMIN_USER_IDS?.split(",").map((s) => s.trim()) ?? [];
@@ -44,16 +83,6 @@ function setSessionCookie(res: Response, sid: string) {
     sameSite: "none",
     path: "/",
     maxAge: SESSION_TTL,
-  });
-}
-
-function setOidcCookie(res: Response, name: string, value: string) {
-  res.cookie(name, value, {
-    httpOnly: true,
-    secure: true,
-    sameSite: "none",
-    path: "/",
-    maxAge: OIDC_COOKIE_TTL,
   });
 }
 
@@ -88,9 +117,6 @@ async function upsertUser(
 
   const isNewUser = existing.length === 0;
 
-  // Apple only sends the user's name on the first authorization, and via the
-  // form_post `user` parameter rather than the ID token. For Google we read
-  // standard OIDC claims.
   const oidcFirstName =
     provider === "apple"
       ? (appleNameOverride?.firstName ?? null)
@@ -106,8 +132,6 @@ async function upsertUser(
 
   const profileImageUrl = (claims.picture as string) || null;
 
-  // Preserve any value the user has already explicitly set; only seed fields
-  // from the identity provider when they are currently null/empty.
   const conflictSet: Record<string, unknown> = {
     oauthProvider: existing[0]?.oauthProvider ?? provider,
     updatedAt: new Date(),
@@ -145,29 +169,35 @@ async function handleOAuthCallback(
   state: string,
   appleNameOverride?: { firstName?: string; lastName?: string },
 ): Promise<void> {
-  const config =
-    provider === "google" ? await getGoogleConfig() : await getAppleConfig();
-
-  const callbackUrl = `${getOrigin(req)}/api/callback/${provider}`;
-  const codeVerifier = req.cookies?.code_verifier;
-  const nonce = req.cookies?.nonce;
-  const expectedState = req.cookies?.state;
-
-  if (!codeVerifier || !expectedState) {
+  // Retrieve PKCE state from server-side store — avoids cross-proxy cookie loss.
+  const pending = consumePendingState(state);
+  if (!pending) {
+    // State expired or never existed — restart the login flow.
     res.redirect(`/api/login/${provider}`);
     return;
   }
 
+  const { codeVerifier, nonce, returnTo, isPopup } = pending;
+
+  const config =
+    provider === "google" ? await getGoogleConfig() : await getAppleConfig();
+
+  const callbackUrl = `${getOrigin(req)}/api/callback/${provider}`;
+
+  // Reconstruct the full callback URL that openid-client needs for validation.
+  // We pass the actual code and state (plus the iss hint Google sends back).
   const currentUrl = new URL(callbackUrl);
   currentUrl.searchParams.set("code", code);
   currentUrl.searchParams.set("state", state);
+  const iss = req.query.iss ?? req.body?.iss;
+  if (iss) currentUrl.searchParams.set("iss", iss as string);
 
   let tokens: oidc.TokenEndpointResponse & oidc.TokenEndpointResponseHelpers;
   try {
     tokens = await oidc.authorizationCodeGrant(config, currentUrl, {
       pkceCodeVerifier: codeVerifier,
       expectedNonce: nonce,
-      expectedState,
+      expectedState: state,
       idTokenExpected: true,
     });
   } catch (err) {
@@ -179,18 +209,11 @@ async function handleOAuthCallback(
     return;
   }
 
-  res.clearCookie("code_verifier", { path: "/" });
-  res.clearCookie("nonce", { path: "/" });
-  res.clearCookie("state", { path: "/" });
-
   const claims = tokens.claims();
   if (!claims) {
     res.redirect(`/api/login/${provider}`);
     return;
   }
-
-  const returnTo = getSafeReturnTo(req.cookies?.return_to);
-  res.clearCookie("return_to", { path: "/" });
 
   let dbUser: typeof usersTable.$inferSelect;
   let isNewUser: boolean;
@@ -235,8 +258,6 @@ async function handleOAuthCallback(
   setSessionCookie(res, sid);
 
   const basePath = process.env.BASE_PATH || "";
-  const isPopup = req.cookies?.login_popup === "1";
-  res.clearCookie("login_popup", { path: "/" });
 
   if (isPopup) {
     const target = isNewUser
@@ -263,7 +284,6 @@ router.get("/auth/user", async (req: Request, res: Response) => {
     res.json(GetCurrentAuthUserResponse.parse({ user: null }));
     return;
   }
-  // Fetch fresh fields from DB — session only stores id/email/profileImageUrl/membershipTier
   const [dbUser] = await db
     .select({
       membershipTier: usersTable.membershipTier,
@@ -369,6 +389,14 @@ router.get("/login/:provider", async (req: Request, res: Response) => {
   const codeVerifier = oidc.randomPKCECodeVerifier();
   const codeChallenge = await oidc.calculatePKCECodeChallenge(codeVerifier);
 
+  // Store PKCE state server-side — more reliable than cookies across proxy hops.
+  storePendingState(state, {
+    codeVerifier,
+    nonce,
+    returnTo,
+    isPopup: req.query.popup === "1",
+  });
+
   const params: Record<string, string> = {
     redirect_uri: callbackUrl,
     scope: provider === "apple" ? "openid name email" : "openid email profile",
@@ -378,22 +406,10 @@ router.get("/login/:provider", async (req: Request, res: Response) => {
     nonce,
   };
   if (provider === "apple") {
-    // Apple requires response_mode=form_post when scopes other than openid are
-    // requested — the callback comes back as an HTTP POST form-data submission.
     params.response_mode = "form_post";
   }
 
   const redirectTo = oidc.buildAuthorizationUrl(config, params);
-
-  setOidcCookie(res, "code_verifier", codeVerifier);
-  setOidcCookie(res, "nonce", nonce);
-  setOidcCookie(res, "state", state);
-  setOidcCookie(res, "return_to", returnTo);
-
-  if (req.query.popup === "1") {
-    setOidcCookie(res, "login_popup", "1");
-  }
-
   res.redirect(redirectTo.href);
 });
 
@@ -437,8 +453,6 @@ router.get("/logout", async (req: Request, res: Response) => {
   res.redirect(getOrigin(req));
 });
 
-// JSON logout endpoint — called via fetch so the interceptor can attach the
-// Bearer token (navigation requests can't carry Authorization headers).
 router.post("/auth/logout", async (req: Request, res: Response) => {
   const sid = getSessionId(req);
   await clearSession(res, sid);
