@@ -5,8 +5,15 @@ import { fileURLToPath } from "url";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const TEMPLATES_DIR = path.resolve(__dirname, "assets/meme-templates");
 
+// Logical layout coordinate system. All layout math (font sizes, padding,
+// sidebar, text positions) is expressed in these units. The actual rendered
+// canvas is RENDER_SCALE× larger so user uploads keep their detail and text
+// edges stay crisp on high-DPI displays.
 export const CANVAS_W = 800;
 export const CANVAS_H = 420;
+const RENDER_SCALE = 2.4;
+const RENDER_W = Math.round(CANVAS_W * RENDER_SCALE);
+const RENDER_H = Math.round(CANVAS_H * RENDER_SCALE);
 
 export interface MemeTemplate {
   id: string;
@@ -133,8 +140,10 @@ export async function generateMemeBuffer(
   factText: string,
   options?: TextOptions,
 ): Promise<Buffer> {
-  const canvas: Canvas = createCanvas(CANVAS_W, CANVAS_H);
+  const canvas: Canvas = createCanvas(RENDER_W, RENDER_H);
   const ctx = canvas.getContext("2d");
+  // Render in logical 800×420 coordinates; the canvas is RENDER_SCALE× larger.
+  ctx.scale(RENDER_SCALE, RENDER_SCALE);
 
   // ── Background ────────────────────────────────────────────────────
   let accentColor: string;
@@ -275,5 +284,5 @@ export async function generateMemeBuffer(
   ctx.textAlign = "right";
   ctx.fillText("overhype.me", CANVAS_W - 18, CANVAS_H - 14);
 
-  return canvas.toBuffer("image/jpeg", 0.85);
+  return canvas.toBuffer("image/jpeg", 0.92);
 }
