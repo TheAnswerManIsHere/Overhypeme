@@ -8,6 +8,7 @@ vi.mock("@sentry/react", () => ({
   init: mockInit,
   browserTracingIntegration: () => ({}),
   feedbackIntegration: () => ({}),
+  replayIntegration: () => ({}),
 }));
 
 vi.mock("@workspace/redact", async (importOriginal) => {

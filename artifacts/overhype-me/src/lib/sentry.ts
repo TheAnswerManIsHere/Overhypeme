@@ -43,7 +43,10 @@ Sentry.init({
     Sentry.feedbackIntegration({
       colorScheme: "system",
     }),
+    Sentry.replayIntegration(),
   ],
+  replaysSessionSampleRate: 0.1,
+  replaysOnErrorSampleRate: 1.0,
   // Same-origin-only: propagate trace headers to relative /api/ paths only.
   // We never want to send tracing headers to third-party domains (Stripe,
   // Resend, fal.ai, etc.) — that would leak our trace IDs and trip CORS.
