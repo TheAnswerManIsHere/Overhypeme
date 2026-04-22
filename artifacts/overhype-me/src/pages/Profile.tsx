@@ -978,7 +978,12 @@ export default function Profile() {
                     {hasPassword ? "Change Password" : "Set a Password"}
                   </p>
                   {!hasPassword && (
-                    <p className="text-xs text-muted-foreground">Adding a password lets you sign in with your email and password in addition to any linked social accounts.</p>
+                    <div className="space-y-1">
+                      <p className="text-xs text-muted-foreground">Adding a password lets you sign in with your email and password in addition to any linked social accounts.</p>
+                      {oauthProvider === "google" && (
+                        <p className="text-xs text-amber-500/80">Setting a password also lets you unlink your Google account later.</p>
+                      )}
+                    </div>
                   )}
 
                   {hasPassword && (
