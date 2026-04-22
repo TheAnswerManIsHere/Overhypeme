@@ -102,6 +102,35 @@ export default function Profile() {
   const [passwordSuccess, setPasswordSuccess] = useState("");
   const [passwordLoading, setPasswordLoading] = useState(false);
 
+  const [unlinkLoading, setUnlinkLoading] = useState(false);
+  const [unlinkError, setUnlinkError] = useState("");
+  const [unlinkSuccess, setUnlinkSuccess] = useState("");
+  const [unlinkConfirm, setUnlinkConfirm] = useState(false);
+
+  async function handleUnlinkGoogle() {
+    setUnlinkError("");
+    setUnlinkSuccess("");
+    setUnlinkLoading(true);
+    try {
+      const res = await fetch(`${BASE_URL}api/auth/unlink-provider`, {
+        method: "DELETE",
+        credentials: "include",
+      });
+      const data = await res.json() as { message?: string; error?: string };
+      if (!res.ok) {
+        setUnlinkError(data.error ?? "Failed to unlink Google account.");
+        return;
+      }
+      setUnlinkSuccess(data.message ?? "Google account unlinked successfully.");
+      setUnlinkConfirm(false);
+      await queryClient.invalidateQueries({ queryKey: getGetMyProfileQueryKey() });
+    } catch {
+      setUnlinkError("Network error. Please try again.");
+    } finally {
+      setUnlinkLoading(false);
+    }
+  }
+
   async function handleSetPassword() {
     setPasswordError("");
     setPasswordSuccess("");
@@ -873,7 +902,45 @@ export default function Profile() {
                   {oauthProvider === "google" && (
                     <span className="text-xs bg-blue-500/20 text-blue-400 border border-blue-500/40 px-2 py-0.5 rounded-sm font-bold">Active</span>
                   )}
+                  {oauthProvider === "google" && hasPassword && !unlinkConfirm && (
+                    <button
+                      onClick={() => { setUnlinkConfirm(true); setUnlinkError(""); setUnlinkSuccess(""); }}
+                      className="text-xs text-muted-foreground hover:text-destructive transition-colors underline shrink-0 ml-1"
+                    >
+                      Unlink
+                    </button>
+                  )}
                 </div>
+
+                {/* Unlink confirmation / feedback */}
+                {oauthProvider === "google" && unlinkConfirm && (
+                  <div className="border border-destructive/40 bg-destructive/5 rounded-sm p-4 space-y-3">
+                    <p className="text-sm text-foreground font-medium">Remove Google sign-in from your account?</p>
+                    <p className="text-xs text-muted-foreground">You'll only be able to sign in with your email and password going forward.</p>
+                    {unlinkError && <p className="text-xs text-destructive font-medium">{unlinkError}</p>}
+                    <div className="flex gap-3">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={handleUnlinkGoogle}
+                        disabled={unlinkLoading}
+                        className="gap-2 border-destructive/60 text-destructive hover:bg-destructive/10"
+                      >
+                        {unlinkLoading ? <><Loader2 className="w-4 h-4 animate-spin" /> Unlinking…</> : "Yes, Unlink Google"}
+                      </Button>
+                      <Button variant="outline" size="sm" onClick={() => { setUnlinkConfirm(false); setUnlinkError(""); }}>
+                        Cancel
+                      </Button>
+                    </div>
+                  </div>
+                )}
+
+                {unlinkSuccess && (
+                  <div className="flex items-center gap-3 bg-green-500/20 border border-green-500/40 rounded-sm p-3">
+                    <CheckCircle className="w-4 h-4 text-green-500 shrink-0" />
+                    <p className="text-sm text-foreground">{unlinkSuccess}</p>
+                  </div>
+                )}
 
                 {/* Email + Password badge */}
                 <div className={`flex items-center gap-3 px-4 py-3 rounded-sm border ${hasPassword ? "border-green-500/40 bg-green-500/5" : "border-border bg-secondary/30 opacity-60"}`}>
