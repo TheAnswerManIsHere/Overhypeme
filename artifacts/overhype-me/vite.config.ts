@@ -5,8 +5,6 @@ import path from "path";
 import runtimeErrorOverlay from "@replit/vite-plugin-runtime-error-modal";
 import { sentryVitePlugin } from "@sentry/vite-plugin";
 
-const rawPort = process.env.PORT;
-
 // Single source of truth for the Sentry release name. Used by both the source-map
 // upload plugin (below) AND injected into the client bundle as
 // VITE_SENTRY_RELEASE so the SDK tags events with the matching release. If
@@ -18,28 +16,25 @@ const sentryRelease =
 // Inject into Vite's env so import.meta.env.VITE_SENTRY_RELEASE picks it up at build time.
 process.env.VITE_SENTRY_RELEASE = sentryRelease;
 
-if (!rawPort) {
-  throw new Error(
-    "PORT environment variable is required but was not provided.",
-  );
+// PORT and BASE_PATH are only required for the dev server, not during `vite build`.
+const isBuild = process.argv.includes("build");
+
+const rawPort = process.env.PORT;
+if (!rawPort && !isBuild) {
+  throw new Error("PORT environment variable is required but was not provided.");
 }
-
-const port = Number(rawPort);
-
-if (Number.isNaN(port) || port <= 0) {
+const port = rawPort ? Number(rawPort) : 3000;
+if (!isBuild && (Number.isNaN(port) || port <= 0)) {
   throw new Error(`Invalid PORT value: "${rawPort}"`);
 }
 
 const basePath = process.env.BASE_PATH;
-
-if (!basePath) {
-  throw new Error(
-    "BASE_PATH environment variable is required but was not provided.",
-  );
+if (!basePath && !isBuild) {
+  throw new Error("BASE_PATH environment variable is required but was not provided.");
 }
 
 export default defineConfig({
-  base: basePath,
+  base: basePath ?? "/",
   plugins: [
     react(),
     tailwindcss(),
