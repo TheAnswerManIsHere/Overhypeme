@@ -69,9 +69,24 @@ The api-server additionally has `process.on("uncaughtException")` and `process.o
 - `GET /api/healthz` — minimal `{status:"ok"}`, kept for backwards compatibility.
 - `GET /api/health` — richer payload including `lastStripeEvent` (event id, timestamp, age in minutes). Intended for external uptime monitors so the same check doubles as a Stripe-webhook-staleness signal.
 
-## Crash notifications (manual setup, one-time)
-The Sentry SDK is wired up via `SENTRY_DSN_BACKEND` and `VITE_SENTRY_DSN`; what's not in code is the per-project alert routing.
+## Crash notifications
 
-1. **Sentry alert rule** — In Sentry → project (`SENTRY_PROJECT_BACKEND`) → Alerts → Create Alert → Issues. Use "A new issue is created" with action "Send a notification to a Member" (yourself). Frequency: every 1 minute. Save it as `prod-new-issues`. To verify, throw once from a route handler and confirm the email lands within ~1 minute.
-2. **External uptime monitor** — Create a monitor in UptimeRobot (free tier) hitting `https://<deployed-domain>/api/health` every 5 minutes, alerting after 2 consecutive failures, to the same email. Once created, paste the monitor URL/ID below so the next agent doesn't re-create it.
-   - UptimeRobot monitor URL: _TODO_ (set after creation)
+### Sentry alert rule
+The Sentry SDK is wired via `SENTRY_DSN_BACKEND` and `VITE_SENTRY_DSN`. The backend project (`SENTRY_PROJECT_BACKEND`) has the following issue alert rule, created via the Sentry API on 2026-04-22:
+- **Rule ID:** 16951653
+- **Rule name:** `prod-new-issues`
+- **Condition:** "A new issue is created" (`first_seen_event.FirstSeenEventCondition`)
+- **Action:** Email `IssueOwners` with `ActiveMembers` fallthrough (matches the existing high-priority rule pattern, so anyone listed as an active member of the Sentry org receives the email).
+- **Verification:** Synthetic test event sent on 2026-04-22 (Sentry event id `8d717c4e2bf3467eacbd0187182c3c69`, `tags.verification = "task-219"`). The first email should arrive at the address attached to the Sentry account; confirm it landed and resolve the synthetic issue in the Sentry UI.
+
+If you need to add or change the destination email, edit the rule in Sentry → Alerts → `prod-new-issues`. There is also a pre-existing rule `Send a notification for high priority issues` (rule ID 16929187) covering high-priority new/existing issues — leave it as is.
+
+### External uptime monitor (manual one-time)
+The `/api/health` endpoint is intended to be hit by an external uptime monitor so a deployed server that's down (or whose Stripe webhooks are stalled) is detected from outside. There is no Replit integration for UptimeRobot/BetterStack/Pingdom, so this is the one piece of operations setup that requires the user's own account on a third-party service.
+
+Suggested setup (10 minutes, one time):
+1. Sign in to UptimeRobot (free tier covers 50 monitors at 5-minute intervals).
+2. Add an HTTP(s) monitor for `https://<deployed-domain>/api/health`. Interval: 5 minutes. Alert after 2 consecutive failures, to the user's email.
+3. Replace the placeholder below with the real monitor URL/ID.
+
+UptimeRobot monitor URL: _TODO_ (set after creation)
