@@ -1,0 +1,62 @@
+# ClientError: invalid response encountered
+
+**Issue ID:** 7431739790
+**Project:** sentry_project_backend
+**Date:** 4/21/2026, 8:34:43 PM
+## Issue Summary
+Google OAuth Callback Failure Due to Missing 'iss' Parameter
+**What's wrong:** Google OAuth callback failed during **authorizationCodeGrant**.
+**In the trace:** The primary error is **OperationProcessingError**: missing 'iss' (issuer) parameter in the response.
+**Possible cause:** The **Google OAuth provider** is likely sending an incomplete or malformed ID token response.
+
+## Tags
+
+- **auth:** oauth-callback
+- **browser:** Safari 26.4
+- **browser.name:** Safari
+- **client_os:** Mac OS X >=10.15.7
+- **client_os.name:** Mac OS X
+- **environment:** development
+- **handled:** yes
+- **level:** error
+- **mechanism:** generic
+- **os:** Ubuntu Linux 24.04
+- **os.name:** Ubuntu Linux
+- **release:** dev
+- **runtime:** node v24.13.0
+- **runtime.name:** node
+- **server_name:** 614bf4ac57bc
+- **transaction:** GET /api/callback/google
+- **url:** https://1f4dceef-1d85-4176-b8e7-de6afe117cc4-00-2g4ys2kfyzqjj.spock.replit.dev/api/callback/google
+
+## Exceptions
+
+### Exception 1
+**Type:** OperationProcessingError
+**Value:** response parameter "iss" (issuer) missing
+
+#### Stacktrace
+
+```
+ OPE in /home/runner/workspace/artifacts/api-server/dist/index.mjs [Line 138821] (In app)
+ validateAuthResponse in /home/runner/workspace/artifacts/api-server/dist/index.mjs [Line 139677] (In app)
+ authorizationCodeGrant in /home/runner/workspace/artifacts/api-server/dist/index.mjs [Line 140093] (In app)
+ handleOAuthCallback in /home/runner/workspace/artifacts/api-server/dist/index.mjs [Line 140374] (In app)
+ process.processTicksAndRejections in node:internal/process/task_queues [Line 103] (Not in app)
+ Unknown function in /home/runner/workspace/artifacts/api-server/dist/index.mjs [Line 140562] (In app)
+```
+------
+### Exception 2
+**Type:** ClientError
+**Value:** invalid response encountered
+
+#### Stacktrace
+
+```
+ e in /home/runner/workspace/artifacts/api-server/dist/index.mjs [Line 139803] (In app)
+ errorHandler in /home/runner/workspace/artifacts/api-server/dist/index.mjs [Line 139822] (In app)
+ authorizationCodeGrant in /home/runner/workspace/artifacts/api-server/dist/index.mjs [Line 140095] (In app)
+ handleOAuthCallback in /home/runner/workspace/artifacts/api-server/dist/index.mjs [Line 140374] (In app)
+ process.processTicksAndRejections in node:internal/process/task_queues [Line 103] (Not in app)
+ Unknown function in /home/runner/workspace/artifacts/api-server/dist/index.mjs [Line 140562] (In app)
+```
