@@ -1464,19 +1464,33 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
                 const stops = GRADIENT_DEFS[tpl.id];
                 const from = stops?.[0]?.[0] ?? "#000";
                 const to = stops?.[stops.length - 1]?.[0] ?? "#333";
+                const { w: aw, h: ah } = ASPECT_RATIOS[aspectRatio];
                 return (
                   <button
                     key={tpl.id}
                     onClick={() => setSelectedTemplate(tpl.id)}
                     title={tpl.description}
-                    className={`relative h-14 border-2 overflow-hidden transition-all ${
+                    className={`relative border-2 overflow-hidden transition-all ${
                       selectedTemplate === tpl.id
                         ? "border-primary ring-2 ring-primary/30 scale-105"
                         : "border-border hover:border-primary/50"
                     }`}
-                    style={{ background: `linear-gradient(135deg, ${from}, ${to})` }}
+                    style={{
+                      aspectRatio: `${aw} / ${ah}`,
+                      background: `linear-gradient(135deg, ${from}, ${to})`,
+                    }}
                   >
-                    <span className="absolute inset-0 flex items-end justify-center pb-1">
+                    <img
+                      key={`${tpl.id}-${aspectRatio}`}
+                      src={`/api/memes/templates/${tpl.id}/preview?aspectRatio=${aspectRatio}`}
+                      alt={tpl.name}
+                      loading="lazy"
+                      decoding="async"
+                      className="absolute inset-0 w-full h-full object-cover"
+                      onLoad={(e) => { (e.currentTarget as HTMLImageElement).style.visibility = "visible"; }}
+                      onError={(e) => { (e.currentTarget as HTMLImageElement).style.visibility = "hidden"; }}
+                    />
+                    <span className="absolute inset-0 flex items-end justify-center pb-1 pointer-events-none">
                       <span className="text-white text-[9px] font-bold drop-shadow-lg truncate px-1">
                         {tpl.name}
                       </span>
