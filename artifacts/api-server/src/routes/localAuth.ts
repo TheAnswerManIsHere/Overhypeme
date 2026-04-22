@@ -221,8 +221,20 @@ router.post("/auth/local-login", async (req: Request, res: Response) => {
     .where(and(eq(usersTable.email, email.trim().toLowerCase()), eq(usersTable.isActive, true)))
     .limit(1);
 
-  if (!user || !user.passwordHash) {
+  if (!user) {
     res.status(401).json({ error: "Invalid email or password" });
+    return;
+  }
+
+  if (!user.passwordHash) {
+    const provider = user.oauthProvider;
+    if (provider === "google") {
+      res.status(401).json({ error: "This account uses Google sign-in. Please click \"Continue with Google\" to log in." });
+    } else if (provider === "apple") {
+      res.status(401).json({ error: "This account uses Apple sign-in. Please click \"Continue with Apple\" to log in." });
+    } else {
+      res.status(401).json({ error: "This account does not have a password set. Please use your social sign-in method." });
+    }
     return;
   }
 
@@ -509,6 +521,68 @@ router.post("/auth/resend-verification", async (req: Request, res: Response) => 
   });
 
   res.status(200).json({ message: "Verification email sent. Please check your inbox." });
+});
+
+// ── Set / change password (authenticated) ────────────────────────────────────
+// Works for both OAuth-only users (no current password required) and
+// email/password users who want to change their password (current password required).
+router.post("/auth/set-password", async (req: Request, res: Response) => {
+  if (!req.isAuthenticated()) {
+    res.status(401).json({ error: "Not authenticated" });
+    return;
+  }
+
+  const { currentPassword, newPassword } = req.body as {
+    currentPassword?: string;
+    newPassword?: string;
+  };
+
+  if (!newPassword || typeof newPassword !== "string") {
+    res.status(400).json({ error: "New password is required" });
+    return;
+  }
+
+  if (newPassword.length < 8) {
+    res.status(400).json({ error: "Password must be at least 8 characters" });
+    return;
+  }
+
+  if (newPassword.length > 128) {
+    res.status(400).json({ error: "Password must be 128 characters or fewer" });
+    return;
+  }
+
+  const [user] = await db
+    .select({ passwordHash: usersTable.passwordHash })
+    .from(usersTable)
+    .where(eq(usersTable.id, req.user.id))
+    .limit(1);
+
+  if (!user) {
+    res.status(404).json({ error: "User not found" });
+    return;
+  }
+
+  // If the user already has a password, require the current one for verification
+  if (user.passwordHash) {
+    if (!currentPassword || typeof currentPassword !== "string") {
+      res.status(400).json({ error: "Current password is required to set a new one" });
+      return;
+    }
+    const valid = await bcrypt.compare(currentPassword, user.passwordHash);
+    if (!valid) {
+      res.status(401).json({ error: "Current password is incorrect" });
+      return;
+    }
+  }
+
+  const newHash = await bcrypt.hash(newPassword, SALT_ROUNDS);
+  await db
+    .update(usersTable)
+    .set({ passwordHash: newHash })
+    .where(eq(usersTable.id, req.user.id));
+
+  res.status(200).json({ message: "Password updated successfully." });
 });
 
 // ── Secret admin login ────────────────────────────────────────────────────────

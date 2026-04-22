@@ -59,6 +59,8 @@ router.get("/users/me", async (req: Request, res: Response) => {
       avatarSource: usersTable.avatarSource,
       emailVerifiedAt: usersTable.emailVerifiedAt,
       membershipTier: usersTable.membershipTier,
+      oauthProvider: usersTable.oauthProvider,
+      passwordHash: usersTable.passwordHash,
     })
     .from(usersTable)
     .where(eq(usersTable.id, userId))
@@ -135,6 +137,8 @@ router.get("/users/me", async (req: Request, res: Response) => {
     avatarStyle: userRow?.avatarStyle ?? "bottts",
     avatarSource: userRow?.avatarSource ?? "avatar",
     isPremium: userRow?.membershipTier === "legendary",
+    oauthProvider: userRow?.oauthProvider ?? null,
+    hasPassword: !!(userRow?.passwordHash),
     submittedFacts: submittedSummaries,
     pendingSubmissions: pendingRows.map((r) => ({
       id: r.id,

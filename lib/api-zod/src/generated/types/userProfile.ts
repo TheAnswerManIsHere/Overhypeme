@@ -22,6 +22,10 @@ export interface UserProfile {
   avatarStyle?: string | null;
   avatarSource?: string | null;
   isPremium?: boolean;
+  /** The OAuth provider linked to this account (e.g. "google", "apple"), or null for email/password-only accounts. */
+  oauthProvider?: string | null;
+  /** Whether the account has a local password set (true for email+password and merged accounts, false for OAuth-only). */
+  hasPassword?: boolean;
   submittedFacts: FactSummary[];
   likedFacts: FactSummary[];
   favoriteHashtags: string[];
