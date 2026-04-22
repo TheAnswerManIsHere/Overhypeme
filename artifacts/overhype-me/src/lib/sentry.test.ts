@@ -1,14 +1,15 @@
 import { vi, describe, it, expect, afterEach } from "vitest";
 
-const { mockInit } = vi.hoisted(() => ({
+const { mockInit, mockReplayIntegration } = vi.hoisted(() => ({
   mockInit: vi.fn(),
+  mockReplayIntegration: vi.fn((opts?: unknown) => ({ name: "Replay", _opts: opts })),
 }));
 
 vi.mock("@sentry/react", () => ({
   init: mockInit,
-  browserTracingIntegration: () => ({}),
-  feedbackIntegration: () => ({}),
-  replayIntegration: () => ({}),
+  browserTracingIntegration: () => ({ name: "BrowserTracing" }),
+  feedbackIntegration: () => ({ name: "Feedback" }),
+  replayIntegration: mockReplayIntegration,
 }));
 
 vi.mock("@workspace/redact", async (importOriginal) => {
@@ -16,6 +17,10 @@ vi.mock("@workspace/redact", async (importOriginal) => {
 });
 
 type SentryHooks = {
+  integrations: { name: string }[];
+  replaysSessionSampleRate: number;
+  replaysOnErrorSampleRate: number;
+  sendDefaultPii: boolean;
   beforeSend: (event: Record<string, unknown>) => Record<string, unknown> | null;
   beforeSendTransaction: (event: Record<string, unknown>) => Record<string, unknown> | null;
   beforeBreadcrumb: (crumb: Record<string, unknown>) => Record<string, unknown>;
@@ -25,6 +30,7 @@ async function loadSentry(dropDebugEvents: boolean): Promise<{ mod: typeof impor
   vi.resetModules();
   vi.stubEnv("VITE_DROP_DEBUG_EVENTS", dropDebugEvents ? "true" : "false");
   mockInit.mockClear();
+  mockReplayIntegration.mockClear();
   const mod = await import("./sentry");
   const initArg = mockInit.mock.calls[0][0] as SentryHooks;
   return { mod, hooks: initArg };
@@ -32,6 +38,44 @@ async function loadSentry(dropDebugEvents: boolean): Promise<{ mod: typeof impor
 
 afterEach(() => {
   vi.unstubAllEnvs();
+});
+
+describe("sentry.ts init options", () => {
+  it("includes replayIntegration in the integrations array", async () => {
+    const { hooks } = await loadSentry(false);
+    const names = hooks.integrations.map((i) => i.name);
+    expect(names).toContain("Replay");
+  });
+
+  it("sets replaysSessionSampleRate to 0.1", async () => {
+    const { hooks } = await loadSentry(false);
+    expect(hooks.replaysSessionSampleRate).toBe(0.1);
+  });
+
+  it("sets replaysOnErrorSampleRate to 1.0", async () => {
+    const { hooks } = await loadSentry(false);
+    expect(hooks.replaysOnErrorSampleRate).toBe(1.0);
+  });
+
+  it("keeps sendDefaultPii as false", async () => {
+    const { hooks } = await loadSentry(false);
+    expect(hooks.sendDefaultPii).toBe(false);
+  });
+
+  it("configures replayIntegration with maskAllInputs: true to protect PII", async () => {
+    await loadSentry(false);
+    expect(mockReplayIntegration).toHaveBeenCalledOnce();
+    expect(mockReplayIntegration).toHaveBeenCalledWith(
+      expect.objectContaining({ maskAllInputs: true })
+    );
+  });
+
+  it("configures replayIntegration with maskAllText: false to preserve replay utility", async () => {
+    await loadSentry(false);
+    expect(mockReplayIntegration).toHaveBeenCalledWith(
+      expect.objectContaining({ maskAllText: false })
+    );
+  });
 });
 
 describe("sentry.ts beforeSend filter", () => {
