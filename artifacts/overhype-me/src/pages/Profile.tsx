@@ -910,6 +910,9 @@ export default function Profile() {
                       Unlink
                     </button>
                   )}
+                  {oauthProvider === "google" && !hasPassword && (
+                    <span className="text-xs text-amber-500/80 shrink-0 ml-1">Set a password to enable unlinking</span>
+                  )}
                 </div>
 
                 {/* Unlink confirmation / feedback */}
