@@ -5,7 +5,8 @@ import { db, usersTable, passwordResetTokensTable, sessionsTable, emailVerificat
 import { eq, and } from "drizzle-orm";
 import { createSession, type SessionData } from "../lib/auth";
 import { isAdminById } from "./auth";
-import { sendEmail, buildPasswordResetEmail, buildEmailVerificationEmail, buildEmailChangeVerificationEmail, getSiteBaseUrl } from "../lib/email";
+import { sendEmail, buildPasswordResetEmail, buildEmailVerificationEmail, buildEmailChangeVerificationEmail } from "../lib/email";
+import { getSiteBaseUrl } from "../lib/siteUrl";
 
 const router: IRouter = Router();
 

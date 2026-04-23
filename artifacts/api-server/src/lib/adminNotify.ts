@@ -6,7 +6,8 @@
  */
 import { eq, and } from "drizzle-orm";
 import { db, usersTable } from "@workspace/db";
-import { sendEmail, buildEmailShell, ctaButton, divider, getSiteBaseUrl } from "./email.js";
+import { sendEmail, buildEmailShell, ctaButton, divider } from "./email.js";
+import { getSiteBaseUrl } from "./siteUrl.js";
 
 export type AdminNotifyType = "fact_review" | "comment" | "fact_grammar";
 

@@ -3,7 +3,8 @@ import { factsTable } from "@workspace/db/schema";
 import { desc, eq } from "drizzle-orm";
 import { stripeStorage } from "../lib/stripeStorage";
 import { logger } from "../lib/logger";
-import { sendEmail, buildEmailShell, ctaButton, divider, getSiteBaseUrl } from "../lib/email";
+import { sendEmail, buildEmailShell, ctaButton, divider } from "../lib/email";
+import { getSiteBaseUrl } from "../lib/siteUrl";
 import { renderPersonalized } from "../lib/renderCanonical";
 
 function buildFactOfTheDayEmail(

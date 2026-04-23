@@ -14,7 +14,7 @@ import { getAllConfig, bustConfigCache, getPublicConfig } from "../lib/adminConf
 import { getAllTierFeatureMatrix, setTierFeature, bustTierFeaturesCache } from "../lib/tierFeatures";
 import { ObjectStorageService } from "../lib/objectStorage";
 import { memeKey } from "../lib/storageKeys";
-import { getSiteBaseUrl } from "../lib/email";
+import { getSiteBaseUrl } from "../lib/siteUrl";
 import bcrypt from "bcryptjs";
 
 const _styleStorage = new ObjectStorageService();

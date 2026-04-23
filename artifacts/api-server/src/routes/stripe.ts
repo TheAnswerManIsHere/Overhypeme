@@ -1,7 +1,7 @@
 import { Router, type IRouter, type Request, type Response } from "express";
 import { getUncachableStripeClient, getStripePublishableKey } from "../lib/stripeClient";
 import { stripeStorage } from "../lib/stripeStorage";
-import { getSiteBaseUrl } from "../lib/email";
+import { getSiteBaseUrl } from "../lib/siteUrl";
 import { db } from "@workspace/db";
 import { lifetimeEntitlementsTable, subscriptionsTable } from "@workspace/db/schema";
 import { eq, desc } from "drizzle-orm";
