@@ -1,6 +1,7 @@
 import { Router, type IRouter, type Request, type Response } from "express";
 import type Stripe from "stripe";
 import { z } from "zod";
+import * as Sentry from "@sentry/node";
 import { getUncachableStripeClient, getStripePublishableKey } from "../lib/stripeClient";
 import { stripeStorage } from "../lib/stripeStorage";
 import { getSiteBaseUrl } from "../lib/siteUrl";
@@ -223,6 +224,7 @@ router.post("/stripe/checkout/confirm", async (req: Request, res: Response) => {
     res.json(result);
 
   } catch (err) {
+    Sentry.captureException(err, { extra: { sessionId, userId: req.user.id } });
     logger.error({ err, sessionId, userId: req.user.id }, "POST /stripe/checkout/confirm error");
     res.status(500).json({ error: "Confirmation failed — please try again or contact support" });
   }
