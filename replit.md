@@ -49,7 +49,7 @@ The frontend, `overhype-me`, is a React+Vite application featuring a dark theme 
 -   **Cloud Storage:** Google Cloud Storage (for meme uploads)
 -   **Error Reporting:** Sentry
 -   **Email Service:** Resend
--   **Payments:** Stripe (future integration)
+-   **Payments:** Stripe (active — subscription + one-time lifetime memberships)
 -   **Authentication:** Replit OAuth
 -   **Captcha:** hCaptcha
 -   **Hashing:** bcryptjs
@@ -64,6 +64,18 @@ All three artifact dev workflows (`api-server`, `overhype-me`, `mockup-sandbox`)
 - Forwards `SIGTERM`/`SIGINT` to the child so workflow stop/restart behaves normally.
 
 The api-server additionally has `process.on("uncaughtException")` and `process.on("unhandledRejection")` handlers that capture the error to Sentry, flush, and `process.exit(1)`. The supervisor then restarts the process automatically.
+
+## Stripe membership grant flow
+
+Memberships ("legendary" tier) are granted through two complementary paths that coexist as defense-in-depth:
+
+1. **Synchronous confirm** (`POST /api/stripe/checkout/confirm`) — the primary path for first-time grants. Called by the Profile page immediately after a successful checkout redirect. Accepts the `session_id` that Stripe injects into the success URL (`{CHECKOUT_SESSION_ID}`), fetches the session from Stripe's API, verifies ownership (via `metadata.userId` or matching `stripeCustomerId`), confirms payment succeeded, then writes the subscription/lifetime row and sets `membership_tier = 'legendary'`. Typically resolves in ~500ms. Retried up to 3× with 1s/2s/4s backoff on 5xx/network errors; 4xx errors are terminal.
+
+2. **Webhook handlers** (`webhookHandlers.ts`) — the source-of-truth path for ongoing lifecycle events: renewals, cancellations, refunds, and plan changes. Still runs on every event but is no longer in the critical path for the initial grant.
+
+**Why two paths?** Stripe webhooks can arrive up to 30 seconds after the redirect (or not at all during Stripe outages). The sync-confirm path removes this latency from the user's first impression of a paid product. The webhook path provides idempotent reconciliation for all subsequent events.
+
+**`isMembershipPrice` caveat:** the webhook path gates upgrades on `isMembershipPrice()` — a price must be tagged with `metadata.membership="true"` in the Stripe dashboard, or listed in the `MEMBERSHIP_PRICE_IDS` env var, to trigger a grant via webhook. The sync-confirm endpoint bypasses this check because the price was already validated at checkout-creation time. If a customer pays but stays `registered`, check that their price/product is tagged correctly in Stripe → the webhook is silently skipping it.
 
 ## Health endpoints
 - `GET /api/healthz` — minimal `{status:"ok"}`, kept for backwards compatibility.

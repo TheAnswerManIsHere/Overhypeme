@@ -12,6 +12,7 @@ import { useQueryClient, useQuery } from "@tanstack/react-query";
 import { PronounEditor } from "@/components/ui/PronounEditor";
 import { usePersonName } from "@/hooks/use-person-name";
 import { AccessGate } from "@/components/AccessGate";
+import { Sentry } from "@/lib/sentry";
 
 const BASE_URL = import.meta.env.BASE_URL ?? "/";
 
@@ -31,6 +32,8 @@ export default function Profile() {
   const [checkoutBanner, setCheckoutBanner] = useState<"success" | "cancel" | null>(null);
   const [checkoutPolling, setCheckoutPolling] = useState(false);
   const [checkoutConfirmed, setCheckoutConfirmed] = useState(false);
+  // session_id captured from the Stripe success_url redirect — used for sync confirm
+  const [checkoutSessionId, setCheckoutSessionId] = useState<string | null>(null);
   const [emailVerifiedBanner, setEmailVerifiedBanner] = useState(false);
 
   const AVATAR_STYLES = [
@@ -281,6 +284,10 @@ export default function Profile() {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     if (params.get("checkout") === "success") {
+      // Capture session_id BEFORE stripping the query string — Stripe injects it via
+      // {CHECKOUT_SESSION_ID} in the success_url and we use it for synchronous confirmation.
+      const sid = params.get("session_id");
+      if (sid?.startsWith("cs_")) setCheckoutSessionId(sid);
       setCheckoutBanner("success");
       setLocation(currentPath, { replace: true });
     }
@@ -291,47 +298,119 @@ export default function Profile() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Poll /api/stripe/membership directly after checkout — webhook may arrive after redirect.
-  // This effect runs only when checkoutBanner becomes "success" and does NOT depend on
-  // profile data (which may still be loading at that point).
+  // After checkout redirect: attempt synchronous confirmation via POST /api/stripe/checkout/confirm
+  // (fast, ~500ms). Falls back to polling /api/stripe/membership if the confirm endpoint is
+  // unavailable (network blip, Stripe API down) so we never strand a paying user.
   useEffect(() => {
     if (checkoutBanner !== "success") return;
 
-    setCheckoutPolling(true);
-    let attempts = 0;
-    const maxAttempts = 15; // ~30 seconds at 2s intervals
     let cancelled = false;
 
-    const poll = setInterval(async () => {
-      attempts++;
-      try {
-        const res = await fetch("/api/stripe/membership", { credentials: "include" });
-        if (!cancelled && res.ok) {
-          const data = (await res.json()) as { tier?: string };
-          if (data.tier === "legendary") {
-            clearInterval(poll);
-            setCheckoutPolling(false);
-            setCheckoutConfirmed(true);
-            // Refresh profile so the subscription panel reflects the new tier
-            await queryClient.invalidateQueries({ queryKey: getGetMyProfileQueryKey() });
-            return;
-          }
-        }
-      } catch {
-        // Network error — keep polling
-      }
-      if (attempts >= maxAttempts) {
-        clearInterval(poll);
-        setCheckoutPolling(false);
-        // checkoutConfirmed stays false — timeout banner tells user to check back
-      }
-    }, 2000);
+    function sleep(ms: number) {
+      return new Promise<void>(resolve => setTimeout(resolve, ms));
+    }
 
-    return () => {
-      cancelled = true;
-      clearInterval(poll);
-    };
-  }, [checkoutBanner]); // eslint-disable-line react-hooks/exhaustive-deps
+    async function grantConfirmed() {
+      if (cancelled) return;
+      setCheckoutPolling(false);
+      setCheckoutConfirmed(true);
+      await queryClient.invalidateQueries({ queryKey: getGetMyProfileQueryKey() });
+    }
+
+    async function startPolling() {
+      if (cancelled) return;
+      setCheckoutPolling(true);
+      let attempts = 0;
+      const maxAttempts = 15; // ~30 seconds at 2s intervals
+
+      const poll = setInterval(async () => {
+        if (cancelled) { clearInterval(poll); return; }
+        attempts++;
+        try {
+          const res = await fetch(`${BASE_URL}api/stripe/membership`, { credentials: "include" });
+          if (!cancelled && res.ok) {
+            const data = (await res.json()) as { tier?: string };
+            if (data.tier === "legendary") {
+              clearInterval(poll);
+              await grantConfirmed();
+              return;
+            }
+          }
+        } catch {
+          // Network error — keep polling
+        }
+        if (attempts >= maxAttempts) {
+          clearInterval(poll);
+          setCheckoutPolling(false);
+          // checkoutConfirmed stays false — timeout banner tells user to check back
+          Sentry.captureMessage("Checkout confirm and webhook polling both timed out", "warning");
+        }
+      }, 2000);
+
+      return () => clearInterval(poll);
+    }
+
+    async function runConfirmFlow() {
+      if (!checkoutSessionId) {
+        // No session_id in URL (old in-flight checkout, or manual navigation) — fall through to polling.
+        await startPolling();
+        return;
+      }
+
+      // Primary: synchronous confirm with exponential-backoff retries.
+      // Retry on 5xx / network errors only — 4xx means permanent rejection (wrong user, unpaid).
+      const retryDelays = [0, 1000, 2000, 4000]; // attempt 1 immediate, then 1s / 2s / 4s
+      let confirmedSync = false;
+
+      for (let i = 0; i < retryDelays.length; i++) {
+        if (cancelled) return;
+        if (retryDelays[i] > 0) await sleep(retryDelays[i]);
+        if (cancelled) return;
+
+        try {
+          const res = await fetch(`${BASE_URL}api/stripe/checkout/confirm`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            credentials: "include",
+            body: JSON.stringify({ sessionId: checkoutSessionId }),
+          });
+
+          if (res.ok) {
+            const data = (await res.json()) as { tier?: string };
+            if (data.tier === "legendary") {
+              confirmedSync = true;
+              await grantConfirmed();
+              return;
+            }
+          }
+
+          // 4xx = permanent rejection (ownership mismatch, session unpaid, bad sessionId).
+          // No retry — fall through to polling as last resort.
+          if (res.status >= 400 && res.status < 500) {
+            Sentry.addBreadcrumb({
+              category: "stripe",
+              message: `checkout/confirm rejected with ${res.status}`,
+              level: "warning",
+            });
+            break;
+          }
+          // 5xx = transient — will retry on next loop iteration
+        } catch {
+          // Network error — will retry on next loop iteration
+        }
+      }
+
+      // Last-resort: webhook polling. Catches the rare case where Stripe's API is down
+      // to us but their webhook delivery infrastructure is still working independently.
+      if (!confirmedSync && !cancelled) {
+        await startPolling();
+      }
+    }
+
+    void runConfirmFlow();
+
+    return () => { cancelled = true; };
+  }, [checkoutBanner, checkoutSessionId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   function openEditor() {
     setDraftDisplayName(profile?.displayName ?? "");
