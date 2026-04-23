@@ -14,6 +14,7 @@ import { getAllConfig, bustConfigCache, getPublicConfig } from "../lib/adminConf
 import { getAllTierFeatureMatrix, setTierFeature, bustTierFeaturesCache } from "../lib/tierFeatures";
 import { ObjectStorageService } from "../lib/objectStorage";
 import { memeKey } from "../lib/storageKeys";
+import { getSiteBaseUrl } from "../lib/email";
 import bcrypt from "bcryptjs";
 
 const _styleStorage = new ObjectStorageService();
@@ -1481,10 +1482,7 @@ router.get("/admin/stripe/summary", requireAdmin, async (_req: Request, res: Res
     const webhookSecretConfigured = !!process.env.STRIPE_WEBHOOK_SECRET;
     const priceIdsConfigured = !!(process.env.MEMBERSHIP_PRICE_IDS ?? "").trim();
 
-    const domain = process.env.REPLIT_DOMAINS?.split(",")[0]?.trim();
-    const webhookUrl = domain
-      ? `https://${domain}/api/stripe/webhook`
-      : null;
+    const webhookUrl = `${getSiteBaseUrl()}/api/stripe/webhook`;
 
     res.json({
       activeSubscribers: legendaryRows[0]?.cnt ?? 0,

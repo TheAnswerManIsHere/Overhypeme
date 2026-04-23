@@ -1,17 +1,12 @@
 import { Router, type IRouter, type Request, type Response } from "express";
 import { getUncachableStripeClient, getStripePublishableKey } from "../lib/stripeClient";
 import { stripeStorage } from "../lib/stripeStorage";
+import { getSiteBaseUrl } from "../lib/email";
 import { db } from "@workspace/db";
 import { lifetimeEntitlementsTable, subscriptionsTable } from "@workspace/db/schema";
 import { eq, desc } from "drizzle-orm";
 
 const router: IRouter = Router();
-
-function getBaseUrl(req: Request): string {
-  const domain = process.env.REPLIT_DOMAINS?.split(",")[0];
-  if (domain) return `https://${domain}`;
-  return `${req.protocol}://${req.get("host")}`;
-}
 
 // GET /stripe/config — return publishable key for frontend
 router.get("/stripe/config", async (_req: Request, res: Response) => {
@@ -118,7 +113,7 @@ router.post("/stripe/checkout", async (req: Request, res: Response) => {
       return;
     }
 
-    const base = getBaseUrl(req);
+    const base = getSiteBaseUrl();
     const session = await stripe.checkout.sessions.create({
       customer: customerId,
       payment_method_types: ["card"],
@@ -175,7 +170,7 @@ router.post("/stripe/portal", async (req: Request, res: Response) => {
     }
 
     const stripe = await getUncachableStripeClient();
-    const base = getBaseUrl(req);
+    const base = getSiteBaseUrl();
     const session = await stripe.billingPortal.sessions.create({
       customer: user.stripeCustomerId,
       return_url: `${base}/profile?from_portal=1`,
