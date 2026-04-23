@@ -517,7 +517,7 @@ export default function AdminBilling() {
           ) : (
             <div className="text-sm text-muted-foreground flex items-center gap-2">
               <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />
-              Could not determine webhook URL. Make sure <code className="text-xs bg-secondary px-1 rounded">REPLIT_DOMAINS</code> is set (it is auto-populated in Replit deployments).
+              Could not determine the canonical site URL, so we can't display the webhook URL here. The webhook is still wired up correctly in the running server.
             </div>
           )}
         </CollapsibleSection>

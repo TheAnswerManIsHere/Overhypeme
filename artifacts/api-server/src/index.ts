@@ -44,12 +44,10 @@ async function initStripe() {
     const { getStripeSync } = await import("./lib/stripeClient");
     const stripeSync = await getStripeSync();
 
-    const domain = process.env.REPLIT_DOMAINS?.split(",")[0];
-    if (domain) {
-      const webhookUrl = `https://${domain}/api/stripe/webhook`;
-      await stripeSync.findOrCreateManagedWebhook(webhookUrl);
-      logger.info({ webhookUrl }, "Stripe webhook configured");
-    }
+    const { getSiteBaseUrl } = await import("./lib/siteUrl");
+    const webhookUrl = `${getSiteBaseUrl()}/api/stripe/webhook`;
+    await stripeSync.findOrCreateManagedWebhook(webhookUrl);
+    logger.info({ webhookUrl }, "Stripe webhook configured");
 
     stripeSync.syncBackfill()
       .then(() => logger.info("Stripe backfill complete"))

@@ -17,7 +17,7 @@ import {
 } from "@workspace/db/schema";
 import { stripeStorage } from "../lib/stripeStorage";
 import { notifyAdmins } from "../lib/adminNotify";
-import { getSiteBaseUrl } from "../lib/email";
+import { getSiteBaseUrl } from "../lib/siteUrl";
 import { hasFeature } from "../lib/tierFeatures";
 import { verifyCaptcha } from "../lib/captcha";
 import { eq, sql, desc, asc, ilike, and, inArray, isNull } from "drizzle-orm";

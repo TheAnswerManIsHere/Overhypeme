@@ -28,7 +28,7 @@ import { isAdminById } from "./auth";
 import { requireAdmin } from "./admin";
 import { getUploadImageMetadata } from "./storage";
 import { CACHE, setPublicCache, setPublicCors, checkConditional, setNoStore } from "../lib/cacheHeaders";
-import { getSiteBaseUrl } from "../lib/email";
+import { getSiteBaseUrl } from "../lib/siteUrl";
 import { buildZazzleUrl } from "../lib/zazzle";
 import type { MemeAspectRatio } from "@workspace/api-zod";
 
