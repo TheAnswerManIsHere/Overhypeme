@@ -10,6 +10,7 @@ import {
 } from "@workspace/db/schema";
 import { eq, desc } from "drizzle-orm";
 import { logger } from "./logger";
+import { makeGrantDeps, grantLegendaryViaSubscription, grantLegendaryViaOneTimePayment } from "./membershipGrant";
 
 async function findUserByStripeCustomerId(customerId: string) {
   const [user] = await db
@@ -146,7 +147,6 @@ async function handleSubscriptionActivated(
 
   const priceItem = sub.items?.data?.[0];
   const priceId = priceItem?.price?.id ?? "";
-  const interval = priceItem?.price?.recurring?.interval;
   // Pass the already-expanded product when present to avoid an extra Stripe API call
   // (e.g. when the subscription was embedded in a checkout.session.completed event)
   const expandedProduct = priceItem?.price?.product != null && typeof priceItem.price.product === "object"
@@ -159,14 +159,14 @@ async function handleSubscriptionActivated(
     return;
   }
 
-  const plan = interval === "year" ? "annual" : "monthly";
-  await upsertSubscription(user.id, customerId, sub, plan);
-  await setMembershipTier(user.id, "legendary");
-  await recordHistory(user.id, "subscription_activated", {
-    plan,
-    stripeSubscriptionId: sub.id,
-  });
-  logger.info({ userId: user.id, plan }, "User upgraded to legendary");
+  // Delegate grant + DB writes + history to shared helper (same code path as checkout/confirm).
+  await grantLegendaryViaSubscription(
+    user.id,
+    customerId,
+    sub as Stripe.Subscription & { current_period_end?: number },
+    makeGrantDeps(),
+  );
+  logger.info({ userId: user.id }, "User upgraded to legendary via webhook");
 }
 
 async function handleSubscriptionCancelled(customerId: string, sub: Stripe.Subscription) {
@@ -222,7 +222,7 @@ async function handleInvoicePaid(
 }
 
 async function handleOneTimePayment(
-  stripe: Stripe,
+  _stripe: Stripe,
   customerId: string,
   paymentIntentId: string,
   amount: number,
@@ -232,7 +232,7 @@ async function handleOneTimePayment(
   const user = await findUserByStripeCustomerId(customerId);
   if (!user) return;
 
-  // Validate: must be tagged as membership purchase (fail-closed)
+  // Validate: must be tagged as membership purchase (fail-closed).
   // Checkout sessions tag PI with metadata: { membership: "true", plan: "lifetime" }
   const isTaggedMembership =
     metadata?.membership === "true" || metadata?.plan === "lifetime";
@@ -242,34 +242,19 @@ async function handleOneTimePayment(
     return;
   }
 
-  // Check idempotency: skip if already recorded
-  const existing = await db
-    .select({ id: lifetimeEntitlementsTable.id })
-    .from(lifetimeEntitlementsTable)
-    .where(eq(lifetimeEntitlementsTable.stripePaymentIntentId, paymentIntentId))
-    .limit(1);
-  if (existing.length > 0) {
+  // Delegate grant + idempotency + DB writes + history to shared helper (same code path as checkout/confirm).
+  const result = await grantLegendaryViaOneTimePayment(
+    user.id,
+    customerId,
+    { id: paymentIntentId, status: "succeeded", amount, currency },
+    makeGrantDeps(),
+  );
+
+  if (result === "already_recorded") {
     logger.info({ paymentIntentId }, "Legendary for Life entitlement already recorded — skipping");
-    return;
+  } else {
+    logger.info({ userId: user.id }, "User granted Legendary for Life tier via webhook");
   }
-
-  // Record durable lifetime entitlement
-  await db.insert(lifetimeEntitlementsTable).values({
-    userId: user.id,
-    stripePaymentIntentId: paymentIntentId,
-    stripeCustomerId: customerId,
-    amount,
-    currency,
-  });
-
-  await setMembershipTier(user.id, "legendary");
-  await recordHistory(user.id, "lifetime_purchase", {
-    plan: "lifetime",
-    amount,
-    currency,
-    stripePaymentIntentId: paymentIntentId,
-  });
-  logger.info({ userId: user.id }, "User granted Legendary for Life tier");
 }
 
 /** Shared domain-logic event processor used by both processWebhook and processEventDirectly */
