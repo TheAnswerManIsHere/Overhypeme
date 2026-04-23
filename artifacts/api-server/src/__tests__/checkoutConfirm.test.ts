@@ -1,16 +1,17 @@
 /**
  * Tests for the checkout/confirm flow.
  *
- * Split into two layers:
+ * Three test layers:
  *  1. HTTP integration tests — mount the real stripe router via Express and
  *     test the request-validation gate (auth, sessionId format). These fire
- *     BEFORE any Stripe API call so no module mocking is required.
- *     (Same pattern as uploadMeme.test.ts)
+ *     BEFORE any Stripe API call, so no module mocking is required.
  *
- *  2. Unit tests for the shared grant helpers (grantLegendaryViaSubscription /
- *     grantLegendaryViaOneTimePayment).  These are pure functions that accept
- *     injected GrantDeps, making them trivially testable without any module
- *     mocking — each test builds a fake deps object in plain JS.
+ *  2. handleConfirmRequest unit tests — exercise the full session-retrieval →
+ *     ownership-check → grant pipeline using a fake CheckoutSessionRetriever
+ *     (injected Stripe client) and fake GrantDeps. No live network calls.
+ *
+ *  3. Grant-helper unit tests — grantLegendaryViaSubscription /
+ *     grantLegendaryViaOneTimePayment in isolation via injected GrantDeps.
  */
 
 import { describe, it, test } from "node:test";
@@ -19,15 +20,18 @@ import http from "node:http";
 import type { AddressInfo } from "node:net";
 import express, { type Request, type Response, type NextFunction } from "express";
 
-// ── Shared grant helpers under test ─────────────────────────────────────────
+// ── Modules under test ───────────────────────────────────────────────────────
 import {
   grantLegendaryViaSubscription,
   grantLegendaryViaOneTimePayment,
+  handleConfirmRequest,
   type GrantDeps,
+  type CheckoutSessionRetriever,
+  type CheckoutSession,
 } from "../lib/membershipGrant.js";
 import type Stripe from "stripe";
 
-// ── Minimal Express integration server (for HTTP gate tests) ────────────────
+// ── Minimal Express integration server (for HTTP gate tests) ─────────────────
 import stripeRouter from "../routes/stripe.js";
 
 function startServer(opts: { authenticated: boolean; userId?: string }): Promise<{
@@ -84,10 +88,11 @@ function postConfirm(url: string, body: unknown): Promise<{ status: number; body
   });
 }
 
-// ── Fake GrantDeps factory ───────────────────────────────────────────────────
+// ── Fake GrantDeps factory ────────────────────────────────────────────────────
 
 type Calls = {
   upsert: unknown[][];
+  getSubBySubId: string[];
   setTier: string[];
   history: unknown[][];
   lifetimeInsert: unknown[][];
@@ -96,9 +101,21 @@ type Calls = {
 
 function makeFakeDeps(opts: {
   existingLifetimeRow?: boolean;
+  existingSubRow?: boolean;
 } = {}): { deps: GrantDeps; calls: Calls } {
-  const calls: Calls = { upsert: [], setTier: [], history: [], lifetimeInsert: [], lifetimeLookup: [] };
+  const calls: Calls = {
+    upsert: [],
+    getSubBySubId: [],
+    setTier: [],
+    history: [],
+    lifetimeInsert: [],
+    lifetimeLookup: [],
+  };
   const deps: GrantDeps = {
+    async getSubscriptionBySubId(subId) {
+      calls.getSubBySubId.push(subId);
+      return opts.existingSubRow ? { id: 1 } : null;
+    },
     async upsertSubscriptionRow(userId, customerId, subId, status, plan, periodEnd, cancelAtPeriodEnd) {
       calls.upsert.push([userId, customerId, subId, status, plan, periodEnd, cancelAtPeriodEnd]);
     },
@@ -119,7 +136,63 @@ function makeFakeDeps(opts: {
   return { deps, calls };
 }
 
-// ── HTTP gate tests ──────────────────────────────────────────────────────────
+// ── Fake CheckoutSessionRetriever factory ────────────────────────────────────
+
+function makeSubscriptionSession(overrides: Partial<CheckoutSession> = {}): CheckoutSession {
+  return {
+    id: "cs_test_sub123",
+    mode: "subscription",
+    payment_status: "no_payment_required",
+    metadata: { userId: "user-1" },
+    customer: "cus_1",
+    subscription: {
+      id: "sub_test_1",
+      status: "active",
+      cancel_at_period_end: false,
+      current_period_end: Math.floor(Date.now() / 1000) + 30 * 86400,
+      items: {
+        object: "list",
+        data: [{ price: { id: "price_1", recurring: { interval: "month" } } } as Stripe.SubscriptionItem],
+        has_more: false,
+        url: "",
+      },
+    } as Stripe.Subscription & { current_period_end?: number },
+    payment_intent: null,
+    ...overrides,
+  } as unknown as CheckoutSession;
+}
+
+function makePaymentSession(overrides: Partial<CheckoutSession> = {}): CheckoutSession {
+  return {
+    id: "cs_test_pay123",
+    mode: "payment",
+    payment_status: "paid",
+    metadata: { userId: "user-1" },
+    customer: "cus_1",
+    subscription: null,
+    payment_intent: {
+      id: "pi_test_1",
+      status: "succeeded",
+      amount: 29900,
+      currency: "usd",
+    } as Stripe.PaymentIntent,
+    ...overrides,
+  } as unknown as CheckoutSession;
+}
+
+function fakeRetriever(session: CheckoutSession): CheckoutSessionRetriever {
+  return {
+    checkout: {
+      sessions: {
+        retrieve: async (_id: string) => session,
+      },
+    },
+  };
+}
+
+const noopLink = async (_uid: string, _cid: string) => {};
+
+// ── HTTP gate tests ───────────────────────────────────────────────────────────
 
 test("POST /stripe/checkout/confirm → 401 when not authenticated", async () => {
   const server = await startServer({ authenticated: false });
@@ -153,7 +226,170 @@ test("POST /stripe/checkout/confirm → 400 when sessionId does not start with c
   }
 });
 
-// ── Unit tests for grantLegendaryViaSubscription ─────────────────────────────
+// ── handleConfirmRequest endpoint-logic unit tests ───────────────────────────
+
+describe("handleConfirmRequest", () => {
+  it("grants legendary for a subscription checkout session (matched by metadata.userId)", async () => {
+    const { deps, calls } = makeFakeDeps();
+    const session = makeSubscriptionSession({ metadata: { userId: "user-1" } });
+
+    const result = await handleConfirmRequest({
+      userId: "user-1",
+      userStripeCustomerId: null,
+      sessionId: "cs_test_sub123",
+      stripe: fakeRetriever(session),
+      deps,
+      linkCustomerId: noopLink,
+    });
+
+    assert.ok(!("httpStatus" in result), `Expected success, got: ${JSON.stringify(result)}`);
+    assert.equal(result.tier, "legendary");
+    assert.equal(result.source, "confirm");
+    assert.equal(result.result, "granted");
+    assert.equal(calls.setTier.length, 1);
+    assert.equal(calls.history.length, 1);
+    assert.equal((calls.history[0] as unknown[])[1], "subscription_activated");
+  });
+
+  it("grants legendary for a subscription checkout matched by stripeCustomerId", async () => {
+    const { deps } = makeFakeDeps();
+    const session = makeSubscriptionSession({ metadata: {} }); // no userId in metadata
+
+    const result = await handleConfirmRequest({
+      userId: "user-99",
+      userStripeCustomerId: "cus_1",   // matches session.customer
+      sessionId: "cs_test_sub123",
+      stripe: fakeRetriever(session),
+      deps,
+      linkCustomerId: noopLink,
+    });
+
+    assert.ok(!("httpStatus" in result));
+    assert.equal(result.tier, "legendary");
+  });
+
+  it("returns 403 when session does not belong to the user", async () => {
+    const { deps } = makeFakeDeps();
+    const session = makeSubscriptionSession({ metadata: { userId: "other-user" }, customer: "cus_other" });
+
+    const result = await handleConfirmRequest({
+      userId: "user-1",
+      userStripeCustomerId: "cus_mine",
+      sessionId: "cs_test_sub123",
+      stripe: fakeRetriever(session),
+      deps,
+      linkCustomerId: noopLink,
+    });
+
+    assert.ok("httpStatus" in result);
+    assert.equal(result.httpStatus, 403);
+  });
+
+  it("returns 400 when subscription status is incomplete (not active/trialing)", async () => {
+    const { deps } = makeFakeDeps();
+    const session = makeSubscriptionSession({
+      metadata: { userId: "user-1" },
+      subscription: {
+        id: "sub_incomplete",
+        status: "incomplete",
+        cancel_at_period_end: false,
+        items: { object: "list", data: [], has_more: false, url: "" },
+      } as unknown as Stripe.Subscription,
+    });
+
+    const result = await handleConfirmRequest({
+      userId: "user-1",
+      userStripeCustomerId: null,
+      sessionId: "cs_test_sub123",
+      stripe: fakeRetriever(session),
+      deps,
+      linkCustomerId: noopLink,
+    });
+
+    assert.ok("httpStatus" in result);
+    assert.equal(result.httpStatus, 400);
+  });
+
+  it("grants legendary for a one-time payment session", async () => {
+    const { deps, calls } = makeFakeDeps();
+    const session = makePaymentSession({ metadata: { userId: "user-1" } });
+
+    const result = await handleConfirmRequest({
+      userId: "user-1",
+      userStripeCustomerId: null,
+      sessionId: "cs_test_pay123",
+      stripe: fakeRetriever(session),
+      deps,
+      linkCustomerId: noopLink,
+    });
+
+    assert.ok(!("httpStatus" in result));
+    assert.equal(result.tier, "legendary");
+    assert.equal(result.result, "granted");
+    assert.equal(calls.lifetimeInsert.length, 1);
+    assert.equal((calls.lifetimeInsert[0] as unknown[])[2], "pi_test_1");
+  });
+
+  it("returns 400 when payment session is not paid", async () => {
+    const { deps } = makeFakeDeps();
+    const session = makePaymentSession({
+      metadata: { userId: "user-1" },
+      payment_status: "unpaid",
+    });
+
+    const result = await handleConfirmRequest({
+      userId: "user-1",
+      userStripeCustomerId: null,
+      sessionId: "cs_test_pay123",
+      stripe: fakeRetriever(session),
+      deps,
+      linkCustomerId: noopLink,
+    });
+
+    assert.ok("httpStatus" in result);
+    assert.equal(result.httpStatus, 400);
+  });
+
+  it("returns already_recorded when confirm is called again for same subscription", async () => {
+    const { deps, calls } = makeFakeDeps({ existingSubRow: true });
+    const session = makeSubscriptionSession({ metadata: { userId: "user-1" } });
+
+    const result = await handleConfirmRequest({
+      userId: "user-1",
+      userStripeCustomerId: null,
+      sessionId: "cs_test_sub123",
+      stripe: fakeRetriever(session),
+      deps,
+      linkCustomerId: noopLink,
+    });
+
+    assert.ok(!("httpStatus" in result));
+    assert.equal(result.result, "already_recorded");
+    assert.equal(calls.history.length, 0, "should NOT write duplicate history");
+    assert.equal(calls.setTier.length, 1, "should still set tier");
+  });
+
+  it("returns already_recorded for repeat one-time payment confirm", async () => {
+    const { deps, calls } = makeFakeDeps({ existingLifetimeRow: true });
+    const session = makePaymentSession({ metadata: { userId: "user-1" } });
+
+    const result = await handleConfirmRequest({
+      userId: "user-1",
+      userStripeCustomerId: null,
+      sessionId: "cs_test_pay123",
+      stripe: fakeRetriever(session),
+      deps,
+      linkCustomerId: noopLink,
+    });
+
+    assert.ok(!("httpStatus" in result));
+    assert.equal(result.result, "already_recorded");
+    assert.equal(calls.lifetimeInsert.length, 0, "should NOT insert duplicate lifetime row");
+    assert.equal(calls.history.length, 0, "should NOT write duplicate history");
+  });
+});
+
+// ── Unit tests for grantLegendaryViaSubscription ──────────────────────────────
 
 describe("grantLegendaryViaSubscription", () => {
   function makeSub(overrides: Partial<Stripe.Subscription & { current_period_end?: number }> = {}): Stripe.Subscription & { current_period_end?: number } {
@@ -232,18 +468,18 @@ describe("grantLegendaryViaSubscription", () => {
     );
   });
 
-  it("is idempotent — upsert always runs but setTier and history still fire", async () => {
-    const { deps, calls } = makeFakeDeps();
-    // Call twice with same sub ID — upsert uses onConflictDoUpdate semantics (handled by real DB);
-    // the fake just records calls. Both calls should complete without error.
-    await grantLegendaryViaSubscription("user-6", "cus_6", makeSub({ id: "sub_idem" }), deps);
-    await grantLegendaryViaSubscription("user-6", "cus_6", makeSub({ id: "sub_idem" }), deps);
-    assert.equal(calls.upsert.length, 2, "upsert called both times (idempotent via onConflictDoUpdate)");
-    assert.equal(calls.setTier.length, 2, "setTier called both times (idempotent UPDATE)");
+  it("returns already_recorded (no history) when sub row already exists", async () => {
+    const { deps, calls } = makeFakeDeps({ existingSubRow: true });
+    const result = await grantLegendaryViaSubscription("user-6", "cus_6", makeSub({ id: "sub_idem" }), deps);
+
+    assert.equal(result, "already_recorded");
+    assert.equal(calls.upsert.length, 1, "upsert still runs (idempotent via onConflictDoUpdate)");
+    assert.equal(calls.setTier.length, 1, "setTier still runs (idempotent UPDATE)");
+    assert.equal(calls.history.length, 0, "history NOT written on re-call");
   });
 });
 
-// ── Unit tests for grantLegendaryViaOneTimePayment ───────────────────────────
+// ── Unit tests for grantLegendaryViaOneTimePayment ────────────────────────────
 
 describe("grantLegendaryViaOneTimePayment", () => {
   function makePi(overrides: Partial<Pick<Stripe.PaymentIntent, "id" | "status" | "amount" | "currency">> = {}): Pick<Stripe.PaymentIntent, "id" | "status" | "amount" | "currency"> {
