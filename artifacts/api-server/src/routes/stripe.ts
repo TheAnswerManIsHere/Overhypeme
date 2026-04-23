@@ -1,10 +1,12 @@
 import { Router, type IRouter, type Request, type Response } from "express";
+import type Stripe from "stripe";
 import { getUncachableStripeClient, getStripePublishableKey } from "../lib/stripeClient";
 import { stripeStorage } from "../lib/stripeStorage";
 import { getSiteBaseUrl } from "../lib/siteUrl";
 import { db } from "@workspace/db";
-import { lifetimeEntitlementsTable, subscriptionsTable } from "@workspace/db/schema";
+import { lifetimeEntitlementsTable, subscriptionsTable, usersTable } from "@workspace/db/schema";
 import { eq, desc } from "drizzle-orm";
+import { logger } from "../lib/logger";
 
 const router: IRouter = Router();
 
@@ -124,7 +126,10 @@ router.post("/stripe/checkout", async (req: Request, res: Response) => {
       metadata: { userId: user.id },
       // Tag one-time payments so the webhook can identify lifetime purchases
       ...(isOneTime ? { payment_intent_data: { metadata: { membership: "true", plan: "lifetime", userId: user.id } } } : {}),
-      success_url: `${base}/profile?checkout=success`,
+      // {CHECKOUT_SESSION_ID} is a Stripe template substituted at redirect time.
+      // The confirm endpoint uses this ID to verify payment synchronously, so the
+      // frontend can grant Legendary immediately without waiting for the webhook.
+      success_url: `${base}/profile?checkout=success&session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${base}/pricing`,
     });
 
@@ -155,6 +160,149 @@ router.get("/stripe/membership", async (req: Request, res: Response) => {
     res.json({ tier });
   } catch {
     res.json({ tier: "unregistered" });
+  }
+});
+
+// POST /stripe/checkout/confirm — synchronously verify a completed checkout session and
+// immediately grant Legendary without waiting for the webhook. Called by the success page
+// with the session_id Stripe injects into {CHECKOUT_SESSION_ID} in the success_url.
+//
+// The webhook remains the source of truth for renewals, cancellations, and refunds.
+// This endpoint only handles the initial grant so the UX is instant (~500ms) instead
+// of waiting up to 30 seconds for the webhook to arrive.
+router.post("/stripe/checkout/confirm", async (req: Request, res: Response) => {
+  if (!req.isAuthenticated()) { res.status(401).json({ error: "Unauthorized" }); return; }
+
+  const { sessionId } = req.body as { sessionId?: string };
+  if (!sessionId || typeof sessionId !== "string" || !sessionId.startsWith("cs_")) {
+    res.status(400).json({ error: "Invalid sessionId" });
+    return;
+  }
+
+  try {
+    const stripe = await getUncachableStripeClient();
+    const user = await stripeStorage.getUserById(req.user.id);
+    if (!user) { res.status(404).json({ error: "User not found" }); return; }
+
+    // Fetch the session with the subscription and payment_intent expanded so we
+    // can verify status in a single round-trip.
+    const session = await stripe.checkout.sessions.retrieve(sessionId, {
+      expand: ["subscription", "payment_intent"],
+    });
+
+    // Verify ownership: either the session's metadata.userId matches (set during
+    // checkout creation as a safety net), or the Stripe customer on the session
+    // matches the user's linked customer ID.
+    const sessionUserId = session.metadata?.userId;
+    const sessionCustomerId =
+      typeof session.customer === "string" ? session.customer : (session.customer as Stripe.Customer | null)?.id ?? null;
+    const ownershipOk =
+      (sessionUserId != null && sessionUserId === req.user.id) ||
+      (sessionCustomerId != null && user.stripeCustomerId != null && sessionCustomerId === user.stripeCustomerId);
+
+    if (!ownershipOk) {
+      logger.warn({ userId: req.user.id, sessionId }, "checkout/confirm ownership check failed");
+      res.status(403).json({ error: "Session does not belong to this user" });
+      return;
+    }
+
+    // Idempotency: if already legendary, return success without re-writing.
+    const currentTier = await stripeStorage.getMembershipTierForUser(req.user.id);
+    if (currentTier === "legendary") {
+      logger.info({ userId: req.user.id, sessionId }, "checkout/confirm — user already legendary, skipping re-grant");
+      res.json({ tier: "legendary", source: "confirm" });
+      return;
+    }
+
+    // Ensure Stripe customer is linked to this user (same safety net as the webhook handler).
+    if (!user.stripeCustomerId && sessionCustomerId) {
+      await stripeStorage.updateUserStripeCustomerId(req.user.id, sessionCustomerId);
+    }
+    const customerId = user.stripeCustomerId ?? sessionCustomerId ?? "";
+
+    if (session.mode === "subscription") {
+      const sub = session.subscription as Stripe.Subscription | null;
+      if (!sub || !["active", "trialing"].includes(sub.status)) {
+        res.status(400).json({ error: "Subscription is not active" });
+        return;
+      }
+
+      const interval = (sub.items?.data?.[0]?.price as Stripe.Price | undefined)?.recurring?.interval;
+      const plan = interval === "year" ? "annual" : "monthly";
+      const rawSub = sub as unknown as { current_period_end?: number };
+      const currentPeriodEnd = rawSub.current_period_end
+        ? new Date(rawSub.current_period_end * 1000)
+        : null;
+
+      await db
+        .insert(subscriptionsTable)
+        .values({
+          userId: req.user.id,
+          stripeSubscriptionId: sub.id,
+          stripeCustomerId: customerId,
+          plan,
+          status: sub.status,
+          currentPeriodEnd,
+          cancelAtPeriodEnd: sub.cancel_at_period_end ?? false,
+        })
+        .onConflictDoUpdate({
+          target: subscriptionsTable.stripeSubscriptionId,
+          set: {
+            status: sub.status,
+            plan,
+            currentPeriodEnd,
+            cancelAtPeriodEnd: sub.cancel_at_period_end ?? false,
+            updatedAt: new Date(),
+          },
+        });
+
+    } else if (session.mode === "payment") {
+      if (session.payment_status !== "paid") {
+        res.status(400).json({ error: "Payment not completed" });
+        return;
+      }
+      const pi = session.payment_intent as Stripe.PaymentIntent | null;
+      if (!pi || pi.status !== "succeeded") {
+        res.status(400).json({ error: "Payment not succeeded" });
+        return;
+      }
+
+      // Idempotent: skip if lifetime entitlement already recorded for this PI.
+      const existing = await db
+        .select({ id: lifetimeEntitlementsTable.id })
+        .from(lifetimeEntitlementsTable)
+        .where(eq(lifetimeEntitlementsTable.stripePaymentIntentId, pi.id))
+        .limit(1);
+
+      if (existing.length === 0) {
+        await db.insert(lifetimeEntitlementsTable).values({
+          userId: req.user.id,
+          stripePaymentIntentId: pi.id,
+          stripeCustomerId: customerId,
+          amount: pi.amount,
+          currency: pi.currency,
+        });
+      }
+
+    } else {
+      res.status(400).json({ error: "Unsupported checkout mode" });
+      return;
+    }
+
+    // Grant Legendary tier.
+    await db.update(usersTable)
+      .set({ membershipTier: "legendary" })
+      .where(eq(usersTable.id, req.user.id));
+
+    logger.info(
+      { userId: req.user.id, sessionId, mode: session.mode, source: "confirm" },
+      "User granted Legendary via checkout/confirm (synchronous verification)",
+    );
+    res.json({ tier: "legendary", source: "confirm" });
+
+  } catch (err) {
+    logger.error({ err, sessionId, userId: req.user.id }, "POST /stripe/checkout/confirm error");
+    res.status(500).json({ error: "Confirmation failed — please try again or contact support" });
   }
 });
 
