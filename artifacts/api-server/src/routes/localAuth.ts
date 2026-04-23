@@ -624,18 +624,8 @@ router.delete("/auth/unlink-provider", async (req: Request, res: Response) => {
 });
 
 // ── Secret admin login ────────────────────────────────────────────────────────
-// Dev: no credentials needed — triple-click the logo.
-// Production: requires the correct ADMIN_API_KEY in the x-admin-key header.
+// Triple-click the logo to log in as the admin account — no key required.
 router.post("/auth/dev-admin-login", async (req: Request, res: Response) => {
-  if (process.env.NODE_ENV === "production") {
-    const adminKey = process.env.ADMIN_API_KEY;
-    const provided = req.headers["x-admin-key"];
-    if (!adminKey || !provided || provided !== adminKey) {
-      res.status(403).json({ error: "Invalid admin key" });
-      return;
-    }
-  }
-
   const ADMIN_EMAIL = "david@davidcarlos.net";
   const [user] = await db
     .select()
