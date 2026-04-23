@@ -6,7 +6,7 @@ export type { AuthUser };
 
 export type UserRole = "anonymous" | "unregistered" | "registered" | "legendary" | "admin";
 
-interface AuthState {
+export interface AuthState {
   user: AuthUser | null;
   isLoading: boolean;
   isAuthenticated: boolean;

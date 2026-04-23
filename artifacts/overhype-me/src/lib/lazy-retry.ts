@@ -12,7 +12,7 @@ import { lazy } from "react";
  *     page tries to load chunk URLs that no longer exist. A page reload fetches
  *     the current HTML and resolves everything.
  */
-export function lazyWithRetry<T extends React.ComponentType<Parameters<T>[0]>>(
+export function lazyWithRetry<T extends React.ComponentType<object>>(
   factory: () => Promise<{ default: T }>,
 ): React.LazyExoticComponent<T> {
   return lazy(() =>
