@@ -61,18 +61,10 @@ export function Navbar() {
       e.preventDefault();
       void (async () => {
         try {
-          const isProd = !window.location.hostname.endsWith(".replit.dev") && window.location.hostname !== "localhost";
-          const headers: Record<string, string> = {};
-          if (isProd) {
-            const key = window.prompt("Admin key:");
-            if (!key) return;
-            headers["x-admin-key"] = key;
-          }
           if (isAuthenticated) await logout();
           const res = await fetch("/api/auth/dev-admin-login", {
             method: "POST",
             credentials: "include",
-            headers,
           });
           if (res.ok) {
             const data = await res.json() as { sid?: string };
