@@ -403,6 +403,11 @@ export default function Profile() {
       // Last-resort: webhook polling. Catches the rare case where Stripe's API is down
       // to us but their webhook delivery infrastructure is still working independently.
       if (!confirmedSync && !cancelled) {
+        Sentry.addBreadcrumb({
+          category: "stripe",
+          message: "checkout/confirm exhausted retries — falling back to webhook polling",
+          level: "warning",
+        });
         await startPolling();
       }
     }
