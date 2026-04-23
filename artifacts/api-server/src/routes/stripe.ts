@@ -10,8 +10,7 @@ import { eq, desc } from "drizzle-orm";
 import { logger } from "../lib/logger";
 import {
   makeGrantDeps,
-  grantLegendaryViaSubscription,
-  grantLegendaryViaOneTimePayment,
+  handleConfirmRequest,
 } from "../lib/membershipGrant";
 
 const router: IRouter = Router();
@@ -194,77 +193,36 @@ router.post("/stripe/checkout/confirm", async (req: Request, res: Response) => {
   const { sessionId } = parsed.data;
 
   try {
-    const stripe = await getUncachableStripeClient();
-    const user = await stripeStorage.getUserById(req.user.id);
+    const [stripe, user] = await Promise.all([
+      getUncachableStripeClient(),
+      stripeStorage.getUserById(req.user.id),
+    ]);
     if (!user) { res.status(404).json({ error: "User not found" }); return; }
 
-    // Fetch the session with the subscription and payment_intent expanded so we
-    // can verify status in a single round-trip.
-    const session = await stripe.checkout.sessions.retrieve(sessionId, {
-      expand: ["subscription", "payment_intent"],
+    const result = await handleConfirmRequest({
+      userId: req.user.id,
+      userStripeCustomerId: user.stripeCustomerId ?? null,
+      sessionId,
+      stripe,
+      deps: makeGrantDeps(),
+      linkCustomerId: (uid, cid) => stripeStorage.updateUserStripeCustomerId(uid, cid),
     });
 
-    // Verify ownership: either the session's metadata.userId matches (set during
-    // checkout creation as a safety net), or the Stripe customer on the session
-    // matches the user's linked customer ID.
-    const sessionUserId = session.metadata?.userId;
-    const sessionCustomerId =
-      typeof session.customer === "string" ? session.customer : (session.customer as Stripe.Customer | null)?.id ?? null;
-    const ownershipOk =
-      (sessionUserId != null && sessionUserId === req.user.id) ||
-      (sessionCustomerId != null && user.stripeCustomerId != null && sessionCustomerId === user.stripeCustomerId);
-
-    if (!ownershipOk) {
-      logger.warn({ userId: req.user.id, sessionId }, "checkout/confirm ownership check failed");
-      res.status(403).json({ error: "Session does not belong to this user" });
-      return;
-    }
-
-    // Ensure Stripe customer is linked to this user (same safety net as the webhook handler).
-    if (!user.stripeCustomerId && sessionCustomerId) {
-      await stripeStorage.updateUserStripeCustomerId(req.user.id, sessionCustomerId);
-    }
-    const customerId = user.stripeCustomerId ?? sessionCustomerId ?? "";
-
-    const deps = makeGrantDeps();
-
-    if (session.mode === "subscription") {
-      const sub = session.subscription as (Stripe.Subscription & { current_period_end?: number }) | null;
-      // grantLegendaryViaSubscription throws with httpStatus 400 if subscription isn't active.
-      // It upserts the subscription row (idempotent) + sets tier + records history.
-      await grantLegendaryViaSubscription(req.user.id, customerId, sub!, deps);
-
-    } else if (session.mode === "payment") {
-      if (session.payment_status !== "paid") {
-        res.status(400).json({ error: "Payment not completed" });
-        return;
+    if ("httpStatus" in result) {
+      if (result.httpStatus === 403) {
+        logger.warn({ userId: req.user.id, sessionId }, "checkout/confirm ownership check failed");
       }
-      const pi = session.payment_intent as Stripe.PaymentIntent | null;
-      if (!pi) {
-        res.status(400).json({ error: "Payment intent not found" });
-        return;
-      }
-      // grantLegendaryViaOneTimePayment throws with httpStatus 400 if pi.status !== "succeeded".
-      // It checks idempotency (already-recorded PI) + sets tier + records history.
-      await grantLegendaryViaOneTimePayment(req.user.id, customerId, pi, deps);
-
-    } else {
-      res.status(400).json({ error: "Unsupported checkout mode" });
+      res.status(result.httpStatus).json({ error: result.error });
       return;
     }
 
     logger.info(
-      { userId: req.user.id, sessionId, mode: session.mode, source: "confirm" },
+      { userId: req.user.id, sessionId, source: result.source, result: result.result },
       "User granted Legendary via checkout/confirm (synchronous verification)",
     );
-    res.json({ tier: "legendary", source: "confirm" });
+    res.json(result);
 
   } catch (err) {
-    const httpStatus = (err as Record<string, unknown>).httpStatus;
-    if (typeof httpStatus === "number" && httpStatus >= 400 && httpStatus < 500) {
-      res.status(httpStatus).json({ error: (err as Error).message });
-      return;
-    }
     logger.error({ err, sessionId, userId: req.user.id }, "POST /stripe/checkout/confirm error");
     res.status(500).json({ error: "Confirmation failed — please try again or contact support" });
   }
