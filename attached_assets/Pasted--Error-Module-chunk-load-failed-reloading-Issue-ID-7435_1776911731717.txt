@@ -1,0 +1,57 @@
+# Error: Module chunk load failed — reloading
+
+**Issue ID:** 7435136955
+**Project:** sentry_project_frontend
+**Date:** 4/22/2026, 8:29:30 PM
+## Issue Summary
+Module Chunk Load Failure Linked to Network/Build Instability
+**What's wrong:** Primary error is **Module chunk load failed** during dynamic import.
+**In the trace:** Concurrent **Vite WebSocket connection failure** suggests HMR/dev server instability.
+**Possible cause:** The chunk load failure likely stems from **network instability** or **build artifact corruption** during deployment/loading.
+
+## Tags
+
+- **browser:** Mobile Safari 26.4
+- **browser.name:** Mobile Safari
+- **device:** iPhone
+- **device.family:** iPhone
+- **environment:** development
+- **handled:** yes
+- **level:** error
+- **mechanism:** generic
+- **os:** iOS 18.7
+- **os.name:** iOS
+- **release:** dev
+- **replayId:** 48a2f78bd9754e039d52dc881bfd6ac7
+- **transaction:** /
+- **url:** https://1f4dceef-1d85-4176-b8e7-de6afe117cc4-00-2g4ys2kfyzqjj.spock.replit.dev/
+
+## Exceptions
+
+### Exception 1
+**Type:** React ErrorBoundary Error
+**Value:** Module chunk load failed — reloading
+
+#### Stacktrace
+
+```
+ Route in /node_modules/.vite/deps/wouter.js [Line 299] (Not in app)
+ Switch in /node_modules/.vite/deps/wouter.js [Line 357] (Not in app)
+ Router in /node_modules/.vite/deps/wouter.js [Line 254] (Not in app)
+ PersonNameProvider in /src/hooks/use-person-name.ts [Line 79] (In app)
+ TooltipProviderProvider in /node_modules/.vite/deps/chunk-JJZWWWYA.js [Line 88] (Not in app)
+ TooltipProvider in /node_modules/.vite/deps/@radix-ui_react-tooltip.js [Line 2318] (Not in app)
+ QueryClientProvider in /node_modules/.vite/deps/@tanstack_react-query.js [Line 3103] (Not in app)
+ AuthProvider in /@fs/home/runner/workspace/lib/replit-auth-web/src/use-auth.ts [Line 12] (In app)
+ ErrorBoundary in /node_modules/.vite/deps/@sentry_react.js [Line 30289] (Not in app)
+```
+------
+### Exception 2
+**Type:** Error
+**Value:** Module chunk load failed — reloading
+
+#### Stacktrace
+
+```
+ Unknown function in /src/lib/lazy-retry.ts [Line 10] (In app)
+```
