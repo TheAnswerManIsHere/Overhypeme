@@ -8,7 +8,7 @@ import {
   lifetimeEntitlementsTable,
   stripeProcessedEventsTable,
 } from "@workspace/db/schema";
-import { eq, desc } from "drizzle-orm";
+import { eq, desc, and } from "drizzle-orm";
 import { logger } from "./logger";
 import { makeGrantDeps, grantLegendaryViaSubscription, grantLegendaryViaOneTimePayment } from "./membershipGrant";
 
@@ -38,7 +38,22 @@ async function userHasLifetimeEntitlement(userId: string): Promise<boolean> {
   const rows = await db
     .select({ id: lifetimeEntitlementsTable.id })
     .from(lifetimeEntitlementsTable)
-    .where(eq(lifetimeEntitlementsTable.userId, userId))
+    .where(and(
+      eq(lifetimeEntitlementsTable.userId, userId),
+      eq(lifetimeEntitlementsTable.status, "active"),
+    ))
+    .limit(1);
+  return rows.length > 0;
+}
+
+async function userHasActiveSubscription(userId: string): Promise<boolean> {
+  const rows = await db
+    .select({ id: subscriptionsTable.id })
+    .from(subscriptionsTable)
+    .where(and(
+      eq(subscriptionsTable.userId, userId),
+      eq(subscriptionsTable.status, "active"),
+    ))
     .limit(1);
   return rows.length > 0;
 }
@@ -53,6 +68,7 @@ async function recordHistory(
     stripePaymentIntentId?: string;
     stripeSubscriptionId?: string;
     stripeInvoiceId?: string;
+    stripeDisputeId?: string;
   } = {},
 ) {
   await db.insert(membershipHistoryTable).values({
@@ -64,6 +80,7 @@ async function recordHistory(
     stripePaymentIntentId: opts.stripePaymentIntentId,
     stripeSubscriptionId: opts.stripeSubscriptionId,
     stripeInvoiceId: opts.stripeInvoiceId,
+    stripeDisputeId: opts.stripeDisputeId,
   });
 }
 
@@ -257,6 +274,271 @@ async function handleOneTimePayment(
   }
 }
 
+/**
+ * Handle charge.refunded:
+ * - If the refunded charge's payment intent matches a lifetime entitlement, mark it refunded
+ *   and downgrade the user unless they have another active entitlement.
+ * - If the charge is from a subscription invoice, record history only (the subscription
+ *   cancellation flow handles downgrades separately).
+ */
+async function handleChargeRefunded(
+  charge: {
+    id: string;
+    customer: string | { id: string } | null;
+    payment_intent: string | { id: string } | null;
+    invoice: string | { id: string } | null;
+    amount_refunded: number;
+    currency: string;
+  },
+): Promise<void> {
+  const customerId = charge.customer
+    ? (typeof charge.customer === "string" ? charge.customer : charge.customer.id)
+    : null;
+  if (!customerId) {
+    logger.warn({ chargeId: charge.id }, "charge.refunded has no customer — skipping");
+    return;
+  }
+
+  const user = await findUserByStripeCustomerId(customerId);
+  if (!user) {
+    logger.warn({ customerId }, "charge.refunded: no user found for Stripe customer");
+    return;
+  }
+
+  const paymentIntentId = charge.payment_intent
+    ? (typeof charge.payment_intent === "string" ? charge.payment_intent : charge.payment_intent.id)
+    : null;
+
+  const isSubscriptionInvoice = charge.invoice !== null && charge.invoice !== undefined;
+
+  if (paymentIntentId && !isSubscriptionInvoice) {
+    // Check if this is a lifetime purchase payment intent
+    const [entitlement] = await db
+      .select()
+      .from(lifetimeEntitlementsTable)
+      .where(eq(lifetimeEntitlementsTable.stripePaymentIntentId, paymentIntentId))
+      .limit(1);
+
+    if (entitlement) {
+      // Mark the lifetime entitlement as refunded
+      await db
+        .update(lifetimeEntitlementsTable)
+        .set({ status: "refunded" })
+        .where(eq(lifetimeEntitlementsTable.id, entitlement.id));
+
+      // Downgrade only if the user has no other active entitlement
+      const hasOtherLifetime = await userHasLifetimeEntitlement(user.id);
+      const hasActiveSub = await userHasActiveSubscription(user.id);
+      if (!hasOtherLifetime && !hasActiveSub) {
+        await setMembershipTier(user.id, "registered");
+        logger.info({ userId: user.id, paymentIntentId }, "Lifetime entitlement refunded — user downgraded to registered");
+      } else {
+        logger.info({ userId: user.id, paymentIntentId }, "Lifetime entitlement refunded but user has other active entitlement — keeping legendary");
+      }
+
+      await recordHistory(user.id, "refund", {
+        plan: "lifetime",
+        amount: charge.amount_refunded,
+        currency: charge.currency,
+        stripePaymentIntentId: paymentIntentId,
+      });
+      return;
+    }
+  }
+
+  // Subscription invoice refund or unrecognized charge — record audit trail only
+  const invoiceId = charge.invoice
+    ? (typeof charge.invoice === "string" ? charge.invoice : charge.invoice.id)
+    : undefined;
+  await recordHistory(user.id, "refund", {
+    amount: charge.amount_refunded,
+    currency: charge.currency,
+    stripePaymentIntentId: paymentIntentId ?? undefined,
+    stripeInvoiceId: invoiceId,
+  });
+  logger.info({ userId: user.id, chargeId: charge.id, isSubscriptionInvoice }, "charge.refunded: recorded history (no tier change)");
+}
+
+/**
+ * Resolve the user for a disputed charge by trying three escalating lookups:
+ *   1. payment_intent → lifetime_entitlements (covers lifetime purchases)
+ *   2. payment_intent → membership_history (covers subscription invoice PIs recorded at invoice.paid)
+ *   3. Stripe API: retrieve charge → customer ID → usersTable (covers any remaining case)
+ * Returns null if the user cannot be resolved.
+ */
+async function resolveUserForDispute(
+  stripe: Stripe,
+  paymentIntentId: string | null,
+  chargeId: string,
+): Promise<{ user: Awaited<ReturnType<typeof findUserByStripeCustomerId>>; } | null> {
+  // 1. Lifetime entitlement lookup
+  if (paymentIntentId) {
+    const [entitlement] = await db
+      .select({ userId: lifetimeEntitlementsTable.userId })
+      .from(lifetimeEntitlementsTable)
+      .where(eq(lifetimeEntitlementsTable.stripePaymentIntentId, paymentIntentId))
+      .limit(1);
+    if (entitlement) {
+      const user = await findUserById(entitlement.userId);
+      if (user) return { user };
+    }
+  }
+
+  // 2. Membership history lookup (covers subscription invoice payment intents recorded at invoice.paid)
+  if (paymentIntentId) {
+    const [historyRow] = await db
+      .select({ userId: membershipHistoryTable.userId })
+      .from(membershipHistoryTable)
+      .where(eq(membershipHistoryTable.stripePaymentIntentId, paymentIntentId))
+      .limit(1);
+    if (historyRow) {
+      const user = await findUserById(historyRow.userId);
+      if (user) return { user };
+    }
+  }
+
+  // 3. Stripe API: retrieve charge to get the customer, then look up user
+  try {
+    const charge = await stripe.charges.retrieve(chargeId);
+    const customerId = charge.customer
+      ? (typeof charge.customer === "string" ? charge.customer : charge.customer.id)
+      : null;
+    if (customerId) {
+      const user = await findUserByStripeCustomerId(customerId);
+      if (user) return { user };
+    }
+  } catch (err) {
+    logger.warn({ err, chargeId }, "dispute: could not retrieve charge from Stripe for customer lookup");
+  }
+
+  return null;
+}
+
+/**
+ * Handle charge.dispute.created:
+ * Immediately revoke Legendary for the user associated with the disputed charge.
+ * Disputes can take weeks to resolve; we don't give paid features to users actively
+ * chargebacking us.
+ */
+async function handleDisputeCreated(
+  stripe: Stripe,
+  dispute: {
+    id: string;
+    charge: string | { id: string };
+    payment_intent: string | { id: string } | null;
+    amount: number;
+    currency: string;
+  },
+): Promise<void> {
+  const paymentIntentId = dispute.payment_intent
+    ? (typeof dispute.payment_intent === "string" ? dispute.payment_intent : dispute.payment_intent.id)
+    : null;
+  const chargeId = typeof dispute.charge === "string" ? dispute.charge : dispute.charge.id;
+
+  const resolved = await resolveUserForDispute(stripe, paymentIntentId, chargeId);
+  if (!resolved) {
+    logger.warn({ disputeId: dispute.id, chargeId }, "dispute.created: could not resolve user — skipping tier change");
+    return;
+  }
+
+  const { user } = resolved;
+  await setMembershipTier(user.id, "registered");
+  await recordHistory(user.id, "dispute_opened", {
+    amount: dispute.amount,
+    currency: dispute.currency,
+    stripePaymentIntentId: paymentIntentId ?? undefined,
+    stripeDisputeId: dispute.id,
+  });
+  logger.info({ userId: user.id, disputeId: dispute.id }, "Dispute opened — user immediately revoked from legendary");
+}
+
+/**
+ * Handle charge.dispute.closed:
+ * - won: re-grant Legendary if the user still has an active entitlement.
+ * - lost: keep at registered, also mark any related lifetime entitlement as refunded.
+ * - warning_closed / other: record history, no tier change.
+ */
+async function handleDisputeClosed(
+  stripe: Stripe,
+  dispute: {
+    id: string;
+    charge: string | { id: string };
+    payment_intent: string | { id: string } | null;
+    status: string;
+    amount: number;
+    currency: string;
+  },
+): Promise<void> {
+  const paymentIntentId = dispute.payment_intent
+    ? (typeof dispute.payment_intent === "string" ? dispute.payment_intent : dispute.payment_intent.id)
+    : null;
+  const chargeId = typeof dispute.charge === "string" ? dispute.charge : dispute.charge.id;
+
+  // Resolve user via the same three-level lookup used in handleDisputeCreated
+  const resolved = await resolveUserForDispute(stripe, paymentIntentId, chargeId);
+  if (!resolved) {
+    logger.info({ disputeId: dispute.id, status: dispute.status }, "dispute.closed: could not resolve user — skipping tier change");
+    return;
+  }
+  const { user } = resolved;
+
+  // Also check if there's a lifetime entitlement for this PI (for marking as refunded on loss)
+  let entitlementId: number | null = null;
+  if (paymentIntentId) {
+    const [entitlement] = await db
+      .select({ id: lifetimeEntitlementsTable.id })
+      .from(lifetimeEntitlementsTable)
+      .where(eq(lifetimeEntitlementsTable.stripePaymentIntentId, paymentIntentId))
+      .limit(1);
+    if (entitlement) entitlementId = entitlement.id;
+  }
+
+  if (dispute.status === "won") {
+    // Re-grant legendary if the user still has an active entitlement
+    const hasLifetime = await userHasLifetimeEntitlement(user.id);
+    const hasActiveSub = await userHasActiveSubscription(user.id);
+    if (hasLifetime || hasActiveSub) {
+      await setMembershipTier(user.id, "legendary");
+      logger.info({ userId: user.id, disputeId: dispute.id }, "Dispute won — user re-granted legendary");
+    } else {
+      logger.info({ userId: user.id, disputeId: dispute.id }, "Dispute won but no active entitlement found — not re-granting legendary");
+    }
+    await recordHistory(user.id, "dispute_won", {
+      amount: dispute.amount,
+      currency: dispute.currency,
+      stripePaymentIntentId: paymentIntentId ?? undefined,
+      stripeDisputeId: dispute.id,
+    });
+  } else if (dispute.status === "lost") {
+    // Explicitly revoke Legendary — idempotent if dispute.created already fired,
+    // but also handles the case where dispute.created was missed/failed.
+    await setMembershipTier(user.id, "registered");
+    // Also mark lifetime entitlement as refunded if applicable
+    if (entitlementId !== null) {
+      await db
+        .update(lifetimeEntitlementsTable)
+        .set({ status: "refunded" })
+        .where(eq(lifetimeEntitlementsTable.id, entitlementId));
+    }
+    await recordHistory(user.id, "dispute_lost", {
+      amount: dispute.amount,
+      currency: dispute.currency,
+      stripePaymentIntentId: paymentIntentId ?? undefined,
+      stripeDisputeId: dispute.id,
+    });
+    logger.info({ userId: user.id, disputeId: dispute.id }, "Dispute lost — user revoked to registered, entitlement marked refunded");
+  } else {
+    // warning_closed or other terminal non-won/non-lost statuses — record only
+    await recordHistory(user.id, "dispute_closed", {
+      amount: dispute.amount,
+      currency: dispute.currency,
+      stripePaymentIntentId: paymentIntentId ?? undefined,
+      stripeDisputeId: dispute.id,
+    });
+    logger.info({ userId: user.id, disputeId: dispute.id, status: dispute.status }, "Dispute closed with non-win/non-loss status — no tier change");
+  }
+}
+
 /** Shared domain-logic event processor used by both processWebhook and processEventDirectly */
 async function processDomainSwitch(stripe: Stripe, event: Stripe.Event): Promise<void> {
   switch (event.type) {
@@ -381,6 +663,42 @@ async function processDomainSwitch(stripe: Stripe, event: Stripe.Event): Promise
         const customerId = typeof pi.customer === "string" ? pi.customer : pi.customer.id;
         await handleOneTimePayment(stripe, customerId, pi.id, pi.amount, pi.currency, pi.metadata ?? {});
       }
+      break;
+    }
+    case "charge.refunded": {
+      const charge = event.data.object as unknown as {
+        id: string;
+        customer: string | { id: string } | null;
+        payment_intent: string | { id: string } | null;
+        invoice: string | { id: string } | null;
+        amount_refunded: number;
+        currency: string;
+      };
+      await handleChargeRefunded(charge);
+      break;
+    }
+    case "charge.dispute.created": {
+      const dispute = event.data.object as unknown as {
+        id: string;
+        charge: string | { id: string };
+        payment_intent: string | { id: string } | null;
+        status: string;
+        amount: number;
+        currency: string;
+      };
+      await handleDisputeCreated(stripe, dispute);
+      break;
+    }
+    case "charge.dispute.closed": {
+      const dispute = event.data.object as unknown as {
+        id: string;
+        charge: string | { id: string };
+        payment_intent: string | { id: string } | null;
+        status: string;
+        amount: number;
+        currency: string;
+      };
+      await handleDisputeClosed(stripe, dispute);
       break;
     }
     default:

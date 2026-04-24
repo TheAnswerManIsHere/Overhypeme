@@ -644,6 +644,14 @@ Return ONLY valid JSON:
         processed_at TIMESTAMPTZ NOT NULL DEFAULT now()
       )`,
     },
+    {
+      label: "lifetime_entitlements.status",
+      ddl: `ALTER TABLE lifetime_entitlements ADD COLUMN IF NOT EXISTS status varchar NOT NULL DEFAULT 'active'`,
+    },
+    {
+      label: "membership_history.stripe_dispute_id",
+      ddl: `ALTER TABLE membership_history ADD COLUMN IF NOT EXISTS stripe_dispute_id varchar`,
+    },
   ];
 
   for (const { label, ddl } of migrations) {
