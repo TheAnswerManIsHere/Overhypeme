@@ -11,6 +11,7 @@ import {
 import { eq, desc, and } from "drizzle-orm";
 import { logger } from "./logger";
 import { makeGrantDeps, grantLegendaryViaSubscription, grantLegendaryViaOneTimePayment } from "./membershipGrant";
+import { notifyAdminsOfDispute } from "./adminNotify";
 
 async function findUserByStripeCustomerId(customerId: string) {
   const [user] = await db
@@ -428,12 +429,23 @@ async function handleDisputeCreated(
     payment_intent: string | { id: string } | null;
     amount: number;
     currency: string;
+    livemode?: boolean;
   },
 ): Promise<void> {
   const paymentIntentId = dispute.payment_intent
     ? (typeof dispute.payment_intent === "string" ? dispute.payment_intent : dispute.payment_intent.id)
     : null;
   const chargeId = typeof dispute.charge === "string" ? dispute.charge : dispute.charge.id;
+
+  // Fire-and-forget admin alert. We send this regardless of whether we can resolve
+  // the user — Stripe's response window is short and the operator needs to know
+  // immediately so they can gather evidence and respond in the dashboard.
+  void notifyAdminsOfDispute({
+    disputeId: dispute.id,
+    amount: dispute.amount,
+    currency: dispute.currency,
+    livemode: dispute.livemode === true,
+  });
 
   const resolved = await resolveUserForDispute(stripe, paymentIntentId, chargeId);
   if (!resolved) {
@@ -685,8 +697,11 @@ async function processDomainSwitch(stripe: Stripe, event: Stripe.Event): Promise
         status: string;
         amount: number;
         currency: string;
+        livemode?: boolean;
       };
-      await handleDisputeCreated(stripe, dispute);
+      // Fall back to the event-level livemode flag if the dispute object omits it
+      // (e.g. minimal test fixtures), so the admin alert links to the correct dashboard.
+      await handleDisputeCreated(stripe, { ...dispute, livemode: dispute.livemode ?? event.livemode });
       break;
     }
     case "charge.dispute.closed": {
