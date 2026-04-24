@@ -46,6 +46,13 @@ async function initStripe() {
 
     const { getSiteBaseUrl } = await import("./lib/siteUrl");
     const webhookUrl = `${getSiteBaseUrl()}/api/stripe/webhook`;
+    // findOrCreateManagedWebhook registers the webhook endpoint and subscribes it to all
+    // event types returned by getSupportedEventTypes() in stripe-replit-sync.  That list
+    // must include every event that webhookHandlers.ts handles (currently:
+    //   charge.refunded, charge.dispute.created, charge.dispute.closed,
+    //   plus subscription/invoice events).
+    // When adding a new handler, ensure the matching event type is also present in
+    // getSupportedEventTypes() so Stripe actually delivers the event to this endpoint.
     await stripeSync.findOrCreateManagedWebhook(webhookUrl);
     logger.info({ webhookUrl }, "Stripe webhook configured");
 

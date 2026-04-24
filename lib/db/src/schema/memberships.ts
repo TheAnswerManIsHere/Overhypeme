@@ -26,6 +26,9 @@ export const lifetimeEntitlementsTable = pgTable("lifetime_entitlements", {
   stripeCustomerId: varchar("stripe_customer_id").notNull(),
   amount: integer("amount"),
   currency: varchar("currency").default("usd"),
+  // 'active' (default) or 'refunded' — set to 'refunded' when a charge.refunded event
+  // is received for this payment intent. Kept for audit trail; never deleted.
+  status: varchar("status").notNull().default("active"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
@@ -42,6 +45,7 @@ export const membershipHistoryTable = pgTable("membership_history", {
   stripePaymentIntentId: varchar("stripe_payment_intent_id"),
   stripeSubscriptionId: varchar("stripe_subscription_id"),
   stripeInvoiceId: varchar("stripe_invoice_id"),
+  stripeDisputeId: varchar("stripe_dispute_id"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [
   index("idx_membership_history_user_id").on(table.userId),
