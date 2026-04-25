@@ -5,6 +5,7 @@ import {
   AlertTriangle,
   ChevronLeft,
   ChevronRight,
+  Clock,
   Inbox,
   Loader2,
   RefreshCw,
@@ -262,6 +263,17 @@ export default function AdminEmailQueue() {
   const [clearError, setClearError] = useState<string | null>(null);
   const [loadKey, setLoadKey] = useState(0);
   const [selectedRow, setSelectedRow] = useState<EmailQueueRow | null>(null);
+  const [retentionDays, setRetentionDays] = useState<number | null>(null);
+
+  useEffect(() => {
+    fetch("/api/admin/config", { credentials: "include" })
+      .then((r) => r.json())
+      .then((rows: { key: string; value: string }[]) => {
+        const row = rows.find((r) => r.key === "email_outbox_retention_days");
+        if (row) setRetentionDays(parseInt(row.value, 10));
+      })
+      .catch(() => {});
+  }, []);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -386,6 +398,15 @@ export default function AdminEmailQueue() {
           <span className="ml-auto text-xs text-muted-foreground">
             {data ? `${data.total.toLocaleString()} record${data.total === 1 ? "" : "s"}` : ""}
           </span>
+          {retentionDays !== null && (
+            <span
+              className="flex items-center gap-1 text-xs text-muted-foreground border border-border rounded px-2 py-1"
+              title="Delivered and abandoned emails older than this are automatically purged each worker tick. Configure via Admin Config → email_outbox_retention_days."
+            >
+              <Clock className="w-3 h-3 shrink-0" />
+              {retentionDays > 0 ? `Auto-purge: ${retentionDays}d` : "Auto-purge: off"}
+            </span>
+          )}
           <Button
             variant="outline"
             size="sm"

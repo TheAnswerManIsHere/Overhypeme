@@ -11,7 +11,7 @@
  * Brand: dark bg (#0d0d0e), danger orange (#FF3C00), Oswald + Inter typography.
  */
 import { Resend } from "resend";
-import { eq, and, lte, lt, asc } from "drizzle-orm";
+import { eq, and, or, lte, lt, asc } from "drizzle-orm";
 import { db as defaultDb } from "@workspace/db";
 import { emailOutboxTable, type EmailOutboxRow } from "@workspace/db/schema";
 import { getConfigString, getConfigInt } from "./adminConfig";
@@ -101,7 +101,7 @@ export async function deliverFromOutbox(
   }
 }
 
-type DbWithTransaction = Pick<typeof defaultDb, "transaction">;
+type DbWithTransaction = Pick<typeof defaultDb, "transaction" | "delete">;
 type DeliverFn = (row: Pick<EmailOutboxRow, "to" | "subject" | "text" | "html">) => Promise<{ ok: boolean; error?: string }>;
 
 /**
@@ -117,6 +117,33 @@ async function getRetryConfig(): Promise<{ maxAttempts: number; retryDelays: num
     getConfigInt("email_retry_delay_4_ms",  RETRY_DELAYS_MS[4]!),
   ]);
   return { maxAttempts, retryDelays: [0, d1, d2, d3, d4] };
+}
+
+/**
+ * Delete delivered and abandoned rows older than `email_outbox_retention_days` days.
+ * Returns the number of rows deleted. A retention value of 0 or less disables purging.
+ * Exported for unit tests.
+ */
+export async function purgeTerminalEmailRows(
+  dbInstance: Pick<typeof defaultDb, "delete">,
+  now: Date = new Date(),
+): Promise<number> {
+  const retentionDays = await getConfigInt("email_outbox_retention_days", 30);
+  if (retentionDays <= 0) return 0;
+  const cutoff = new Date(now.getTime() - retentionDays * 24 * 3_600_000);
+  const deleted = await dbInstance
+    .delete(emailOutboxTable)
+    .where(
+      and(
+        or(
+          eq(emailOutboxTable.status, "delivered"),
+          eq(emailOutboxTable.status, "abandoned"),
+        ),
+        lt(emailOutboxTable.createdAt, cutoff),
+      ),
+    )
+    .returning({ id: emailOutboxTable.id });
+  return deleted.length;
 }
 
 /**
@@ -187,6 +214,8 @@ export async function emailOutboxTick(
       }
     }
   });
+
+  await purgeTerminalEmailRows(dbInstance, now);
 }
 
 /**
