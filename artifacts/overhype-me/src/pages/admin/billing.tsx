@@ -25,12 +25,23 @@ interface StripePlan {
   }>;
 }
 
+interface StripeEnvStatus {
+  secretKeyTest: boolean;
+  secretKeyLive: boolean;
+  publishableKeyTest: boolean;
+  publishableKeyLive: boolean;
+  webhookSecretTest: boolean;
+  webhookSecretLive: boolean;
+  webhookSecretFallback: boolean;
+}
+
 interface StripeSummary {
   activeSubscribers: number;
   registeredMembers: number;
   webhookSecretConfigured: boolean;
   priceIdsConfigured: boolean;
   webhookUrl: string | null;
+  stripeEnv?: StripeEnvStatus;
 }
 
 interface AdminConfigRow {
@@ -359,19 +370,29 @@ export default function AdminBilling() {
                 <p className="font-medium text-foreground">To connect Stripe, choose one option:</p>
                 <ol className="list-decimal list-inside space-y-1.5 ml-1">
                   <li>
-                    <strong>Replit integration (recommended):</strong> Open the{" "}
+                    <strong>Replit integration:</strong> Open the{" "}
                     <span className="text-primary">Integrations</span> panel in the Replit sidebar and connect your Stripe account.
                   </li>
                   <li>
-                    <strong>Environment variables:</strong> Add{" "}
-                    <code className="bg-secondary px-1 rounded text-xs">STRIPE_SECRET_KEY</code> and{" "}
-                    <code className="bg-secondary px-1 rounded text-xs">STRIPE_PUBLISHABLE_KEY</code>{" "}
-                    as secrets, then restart the server.
-                    <br />
-                    <span className="text-xs">
-                      For mode-specific keys use{" "}
-                      <code className="bg-secondary px-1 rounded">STRIPE_SECRET_KEY_TEST</code> /{" "}
-                      <code className="bg-secondary px-1 rounded">STRIPE_SECRET_KEY_LIVE</code>.
+                    <strong>Environment variables (recommended for prod):</strong>{" "}
+                    Set all six per-mode secrets so flipping the Stripe mode toggle above is a one-click switch:
+                    <ul className="list-disc list-inside ml-4 mt-1 space-y-0.5 text-xs">
+                      <li>
+                        <code className="bg-secondary px-1 rounded">STRIPE_SECRET_KEY_TEST</code>,{" "}
+                        <code className="bg-secondary px-1 rounded">STRIPE_PUBLISHABLE_KEY_TEST</code>,{" "}
+                        <code className="bg-secondary px-1 rounded">STRIPE_WEBHOOK_SECRET_TEST</code>
+                      </li>
+                      <li>
+                        <code className="bg-secondary px-1 rounded">STRIPE_SECRET_KEY_LIVE</code>,{" "}
+                        <code className="bg-secondary px-1 rounded">STRIPE_PUBLISHABLE_KEY_LIVE</code>,{" "}
+                        <code className="bg-secondary px-1 rounded">STRIPE_WEBHOOK_SECRET_LIVE</code>
+                      </li>
+                    </ul>
+                    <span className="text-xs block mt-1">
+                      The legacy <code className="bg-secondary px-1 rounded">STRIPE_SECRET_KEY</code> /{" "}
+                      <code className="bg-secondary px-1 rounded">STRIPE_PUBLISHABLE_KEY</code> /{" "}
+                      <code className="bg-secondary px-1 rounded">STRIPE_WEBHOOK_SECRET</code>{" "}
+                      vars still work as fallbacks for both modes.
                     </span>
                   </li>
                 </ol>
@@ -470,9 +491,35 @@ export default function AdminBilling() {
               done={!!(monthlyPrice || annualPrice || lifetimePrice)}
               label="Membership prices available (monthly, annual, or legendary for life)"
             />
-            <CheckRow done={hasWebhookSecret} label="STRIPE_WEBHOOK_SECRET environment variable set" />
+            <CheckRow done={hasWebhookSecret} label="Webhook signing secret available (any of the env vars below, or fallback)" />
             <CheckRow done={hasPriceIds || hasProducts} label="Membership price IDs configured (env or product metadata)" />
           </div>
+
+          {summary?.stripeEnv && (
+            <div className="mt-5 pt-5 border-t border-border space-y-3">
+              <p className="text-xs uppercase tracking-wide text-muted-foreground font-medium">
+                Per-mode environment variables
+              </p>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-2 text-sm">
+                <CheckRow done={summary.stripeEnv.secretKeyTest} label="STRIPE_SECRET_KEY_TEST" />
+                <CheckRow done={summary.stripeEnv.secretKeyLive} label="STRIPE_SECRET_KEY_LIVE" />
+                <CheckRow done={summary.stripeEnv.publishableKeyTest} label="STRIPE_PUBLISHABLE_KEY_TEST" />
+                <CheckRow done={summary.stripeEnv.publishableKeyLive} label="STRIPE_PUBLISHABLE_KEY_LIVE" />
+                <CheckRow done={summary.stripeEnv.webhookSecretTest} label="STRIPE_WEBHOOK_SECRET_TEST" />
+                <CheckRow done={summary.stripeEnv.webhookSecretLive} label="STRIPE_WEBHOOK_SECRET_LIVE" />
+              </div>
+              {summary.stripeEnv.webhookSecretFallback && (
+                <p className="text-xs text-muted-foreground flex items-start gap-2 pt-1">
+                  <AlertTriangle className="w-3.5 h-3.5 text-amber-400 shrink-0 mt-0.5" />
+                  <span>
+                    Legacy <code className="bg-secondary px-1 rounded">STRIPE_WEBHOOK_SECRET</code>{" "}
+                    is set and used as a fallback for both modes when the mode-specific var is missing.
+                    Prefer setting the per-mode vars above.
+                  </span>
+                </p>
+              )}
+            </div>
+          )}
         </CollapsibleSection>
 
         {/* Webhook Endpoint URL */}
