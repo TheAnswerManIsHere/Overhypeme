@@ -9,6 +9,7 @@ import {
   Loader2,
   RefreshCw,
   RotateCcw,
+  Trash2,
 } from "lucide-react";
 
 type OutboxStatus = "pending" | "sending" | "delivered" | "abandoned";
@@ -86,6 +87,9 @@ export default function AdminEmailQueue() {
   const [statusFilter, setStatusFilter] = useState<"" | OutboxStatus>("");
   const [retrying, setRetrying] = useState<Set<number>>(new Set());
   const [retryErrors, setRetryErrors] = useState<Record<number, string>>({});
+  const [clearing, setClearing] = useState<"delivered" | "abandoned" | null>(null);
+  const [clearError, setClearError] = useState<string | null>(null);
+  const [loadKey, setLoadKey] = useState(0);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -111,7 +115,7 @@ export default function AdminEmailQueue() {
     } finally {
       setLoading(false);
     }
-  }, [page, statusFilter]);
+  }, [page, statusFilter, loadKey]);
 
   useEffect(() => {
     void load();
@@ -154,6 +158,32 @@ export default function AdminEmailQueue() {
     }
   }
 
+  async function handleClear(status: "delivered" | "abandoned") {
+    const label = status === "delivered" ? "delivered" : "abandoned";
+    const confirmed = window.confirm(
+      `Delete all ${label} emails from the queue? This cannot be undone.`
+    );
+    if (!confirmed) return;
+    setClearing(status);
+    setClearError(null);
+    try {
+      const res = await fetch(`/api/admin/email-queue?status=${status}`, {
+        method: "DELETE",
+        credentials: "include",
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error((body as { error?: string }).error ?? `Failed (HTTP ${res.status})`);
+      }
+      setPage(1);
+      setLoadKey((k) => k + 1);
+    } catch (e) {
+      setClearError(e instanceof Error ? e.message : "Clear failed");
+    } finally {
+      setClearing(null);
+    }
+  }
+
   const rows = data?.rows ?? [];
 
   return (
@@ -182,6 +212,36 @@ export default function AdminEmailQueue() {
           <Button
             variant="outline"
             size="sm"
+            className="h-8 px-3 text-xs gap-1 text-green-600 dark:text-green-400 border-green-500/40 hover:bg-green-500/10"
+            onClick={() => void handleClear("delivered")}
+            disabled={clearing !== null || loading}
+            title="Delete all delivered emails"
+          >
+            {clearing === "delivered" ? (
+              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+            ) : (
+              <Trash2 className="w-3.5 h-3.5" />
+            )}
+            Clear delivered
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-8 px-3 text-xs gap-1 text-red-600 dark:text-red-400 border-red-500/40 hover:bg-red-500/10"
+            onClick={() => void handleClear("abandoned")}
+            disabled={clearing !== null || loading}
+            title="Delete all abandoned emails"
+          >
+            {clearing === "abandoned" ? (
+              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+            ) : (
+              <Trash2 className="w-3.5 h-3.5" />
+            )}
+            Clear abandoned
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
             className="h-8 px-3 text-xs gap-1"
             onClick={() => void load()}
             disabled={loading}
@@ -199,6 +259,13 @@ export default function AdminEmailQueue() {
           <div className="bg-destructive/10 border border-destructive/30 text-destructive rounded-lg p-3 text-sm flex items-center gap-2">
             <AlertTriangle className="w-4 h-4 shrink-0" />
             {error}
+          </div>
+        )}
+
+        {clearError && (
+          <div className="bg-destructive/10 border border-destructive/30 text-destructive rounded-lg p-3 text-sm flex items-center gap-2">
+            <AlertTriangle className="w-4 h-4 shrink-0" />
+            {clearError}
           </div>
         )}
 

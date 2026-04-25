@@ -1902,6 +1902,35 @@ router.get("/admin/email-queue", requireAdmin, async (req: Request, res: Respons
   }
 });
 
+// DELETE /admin/email-queue?status=delivered|abandoned — bulk-delete all rows with the given terminal status
+router.delete("/admin/email-queue", requireAdmin, async (req: Request, res: Response) => {
+  const CLEARABLE_STATUSES = ["delivered", "abandoned"] as const;
+  type ClearableStatus = typeof CLEARABLE_STATUSES[number];
+
+  const rawStatus = String(req.query["status"] ?? "").trim();
+  if (!rawStatus || !(CLEARABLE_STATUSES as readonly string[]).includes(rawStatus)) {
+    res.status(400).json({
+      error: `status query param must be one of: ${CLEARABLE_STATUSES.join(", ")}`,
+    });
+    return;
+  }
+
+  const status = rawStatus as ClearableStatus;
+
+  try {
+    const deleted = await db
+      .delete(emailOutboxTable)
+      .where(eq(emailOutboxTable.status, status))
+      .returning({ id: emailOutboxTable.id });
+
+    res.json({ success: true, deleted: deleted.length });
+  } catch (err) {
+    console.error("[admin] email-queue delete error:", err);
+    const msg = err instanceof Error ? err.message : "Delete failed";
+    res.status(500).json({ error: msg });
+  }
+});
+
 // POST /admin/email-queue/:id/retry — reset an abandoned row back to pending
 router.post("/admin/email-queue/:id/retry", requireAdmin, async (req: Request, res: Response) => {
   const id = parseInt(String(req.params["id"] ?? ""), 10);
