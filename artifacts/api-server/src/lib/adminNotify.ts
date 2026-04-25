@@ -74,7 +74,7 @@ export async function notifyAdmins(opts: AdminNotifyOpts): Promise<void> {
   }
 }
 
-function buildNotificationEmail(opts: AdminNotifyOpts) {
+export function buildNotificationEmail(opts: AdminNotifyOpts) {
   const typeLabel =
     opts.type === "fact_review" ? "Fact Submission"
     : opts.type === "fact_grammar" ? "Fact Submission (Grammar Review)"
