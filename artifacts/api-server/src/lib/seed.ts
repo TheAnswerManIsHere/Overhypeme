@@ -569,6 +569,46 @@ Return ONLY valid JSON:
             ON CONFLICT (key) DO NOTHING`,
     },
     {
+      label: "admin_config seed email_max_attempts",
+      ddl: `INSERT INTO admin_config (key, value, data_type, label, description, min_value, max_value, is_public)
+            VALUES ('email_max_attempts', '5', 'integer', 'Email Delivery Max Attempts',
+                    'Maximum number of delivery attempts before an outbox email is permanently abandoned. Includes the first attempt. Range: 1–20.',
+                    1, 20, false)
+            ON CONFLICT (key) DO NOTHING`,
+    },
+    {
+      label: "admin_config seed email_retry_delay_1_ms",
+      ddl: `INSERT INTO admin_config (key, value, data_type, label, description, min_value, is_public)
+            VALUES ('email_retry_delay_1_ms', '300000', 'integer', 'Email Retry Delay — Attempt 2 (ms)',
+                    'Milliseconds to wait before the 2nd delivery attempt after the 1st failure. Default: 300000 (5 minutes).',
+                    0, false)
+            ON CONFLICT (key) DO NOTHING`,
+    },
+    {
+      label: "admin_config seed email_retry_delay_2_ms",
+      ddl: `INSERT INTO admin_config (key, value, data_type, label, description, min_value, is_public)
+            VALUES ('email_retry_delay_2_ms', '1800000', 'integer', 'Email Retry Delay — Attempt 3 (ms)',
+                    'Milliseconds to wait before the 3rd delivery attempt. Default: 1800000 (30 minutes).',
+                    0, false)
+            ON CONFLICT (key) DO NOTHING`,
+    },
+    {
+      label: "admin_config seed email_retry_delay_3_ms",
+      ddl: `INSERT INTO admin_config (key, value, data_type, label, description, min_value, is_public)
+            VALUES ('email_retry_delay_3_ms', '7200000', 'integer', 'Email Retry Delay — Attempt 4 (ms)',
+                    'Milliseconds to wait before the 4th delivery attempt. Default: 7200000 (2 hours).',
+                    0, false)
+            ON CONFLICT (key) DO NOTHING`,
+    },
+    {
+      label: "admin_config seed email_retry_delay_4_ms",
+      ddl: `INSERT INTO admin_config (key, value, data_type, label, description, min_value, is_public)
+            VALUES ('email_retry_delay_4_ms', '28800000', 'integer', 'Email Retry Delay — Attempt 5 (ms)',
+                    'Milliseconds to wait before the 5th delivery attempt. Default: 28800000 (8 hours).',
+                    0, false)
+            ON CONFLICT (key) DO NOTHING`,
+    },
+    {
       label: "admin_config seed zazzle params",
       ddl: `INSERT INTO admin_config (key, value, data_type, label, description, is_public) VALUES
         ('zazzle_at', '238499514566968751', 'string', 'Zazzle Associate ID (at)',

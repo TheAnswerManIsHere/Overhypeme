@@ -14,7 +14,7 @@ import { Resend } from "resend";
 import { eq, and, lte, lt, asc } from "drizzle-orm";
 import { db as defaultDb } from "@workspace/db";
 import { emailOutboxTable, type EmailOutboxRow } from "@workspace/db/schema";
-import { getConfigString } from "./adminConfig";
+import { getConfigString, getConfigInt } from "./adminConfig";
 import { getSiteBaseUrl } from "./siteUrl";
 import { logger } from "./logger";
 
@@ -104,6 +104,21 @@ type DbWithTransaction = Pick<typeof defaultDb, "transaction">;
 type DeliverFn = (row: Pick<EmailOutboxRow, "to" | "subject" | "text" | "html">) => Promise<{ ok: boolean; error?: string }>;
 
 /**
+ * Reads the live retry schedule from admin config, falling back to RETRY_DELAYS_MS.
+ * Called once per tick so config changes take effect within the next 60s cache window.
+ */
+async function getRetryConfig(): Promise<{ maxAttempts: number; retryDelays: number[] }> {
+  const [maxAttempts, d1, d2, d3, d4] = await Promise.all([
+    getConfigInt("email_max_attempts",      5),
+    getConfigInt("email_retry_delay_1_ms",  RETRY_DELAYS_MS[1]!),
+    getConfigInt("email_retry_delay_2_ms",  RETRY_DELAYS_MS[2]!),
+    getConfigInt("email_retry_delay_3_ms",  RETRY_DELAYS_MS[3]!),
+    getConfigInt("email_retry_delay_4_ms",  RETRY_DELAYS_MS[4]!),
+  ]);
+  return { maxAttempts, retryDelays: [0, d1, d2, d3, d4] };
+}
+
+/**
  * Process one tick of the email outbox worker.
  * Exported for unit tests so they can inject a fake DB and delivery function.
  */
@@ -112,6 +127,8 @@ export async function emailOutboxTick(
   deliverFn: DeliverFn,
   now: Date = new Date(),
 ): Promise<void> {
+  const { maxAttempts, retryDelays } = await getRetryConfig();
+
   await dbInstance.transaction(async (tx) => {
     const rows = await tx
       .select()
@@ -137,14 +154,17 @@ export async function emailOutboxTick(
           .set({ status: "delivered", attempts: newAttempts, updatedAt: new Date() })
           .where(eq(emailOutboxTable.id, row.id));
       } else {
-        const delayMs = RETRY_DELAYS_MS[newAttempts] ?? null;
-        const abandoned = newAttempts >= row.maxAttempts || delayMs === null;
+        const abandoned = newAttempts >= maxAttempts;
+        // If we have more retries to go but have exhausted the per-slot schedule,
+        // repeat the last configured delay so extra attempts aren't silently dropped.
+        const scheduledDelay = retryDelays[newAttempts];
+        const delayMs = scheduledDelay ?? retryDelays[retryDelays.length - 1] ?? 0;
         await tx.update(emailOutboxTable)
           .set({
             status:        abandoned ? "abandoned" : "pending",
             attempts:      newAttempts,
             lastError:     error ?? "unknown",
-            nextAttemptAt: abandoned ? new Date() : new Date(Date.now() + delayMs!),
+            nextAttemptAt: abandoned ? new Date() : new Date(Date.now() + delayMs),
             updatedAt:     new Date(),
           })
           .where(eq(emailOutboxTable.id, row.id));
