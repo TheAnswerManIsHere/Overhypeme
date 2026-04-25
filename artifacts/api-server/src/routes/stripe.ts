@@ -169,6 +169,21 @@ router.get("/stripe/membership", async (req: Request, res: Response) => {
   }
 });
 
+// GET /stripe/access-revocation-notice — informational notice shown to users
+// who were involuntarily downgraded to 'registered' due to a refund or
+// dispute. Returns { notice: null } when no notice should be shown.
+// The payload intentionally omits all sensitive Stripe data (IDs, amounts).
+router.get("/stripe/access-revocation-notice", async (req: Request, res: Response) => {
+  if (!req.isAuthenticated()) { res.status(401).json({ error: "Unauthorized" }); return; }
+  try {
+    const notice = await stripeStorage.getAccessRevocationNotice(req.user.id);
+    res.json({ notice });
+  } catch (err) {
+    logger.error({ err, userId: req.user.id }, "GET /stripe/access-revocation-notice error");
+    res.json({ notice: null });
+  }
+});
+
 // POST /stripe/checkout/confirm — synchronously verify a completed checkout session and
 // immediately grant Legendary without waiting for the webhook. Called by the success page
 // with the session_id Stripe injects into {CHECKOUT_SESSION_ID} in the success_url.

@@ -140,6 +140,59 @@ function makeDisputeCreatedEvent(opts: {
   };
 }
 
+function makeDisputeUpdatedEvent(opts: {
+  disputeId?: string;
+  status?: string;
+  amount?: number;
+  currency?: string;
+  /** Unix timestamp in seconds when evidence is due (null/undefined → no due_by) */
+  dueBy?: number | null;
+}) {
+  return {
+    id: `evt_t226_${randomUUID().replace(/-/g, "").slice(0, 14)}`,
+    type: "charge.dispute.updated" as const,
+    object: "event" as const,
+    api_version: "2022-11-15" as const,
+    created: Math.floor(Date.now() / 1000),
+    livemode: false,
+    pending_webhooks: 0,
+    request: null,
+    data: {
+      object: {
+        id: opts.disputeId ?? `dp_t232_${randomUUID().replace(/-/g, "").slice(0, 14)}`,
+        status: opts.status ?? "needs_response",
+        amount: opts.amount ?? 19900,
+        currency: opts.currency ?? "usd",
+        evidence_details: opts.dueBy === undefined ? null : { due_by: opts.dueBy },
+      },
+    },
+  };
+}
+
+function makeDisputeFundsEvent(kind: "funds_withdrawn" | "funds_reinstated", opts: {
+  disputeId?: string;
+  amount?: number;
+  currency?: string;
+} = {}) {
+  return {
+    id: `evt_t232_${randomUUID().replace(/-/g, "").slice(0, 14)}`,
+    type: `charge.dispute.${kind}` as const,
+    object: "event" as const,
+    api_version: "2022-11-15" as const,
+    created: Math.floor(Date.now() / 1000),
+    livemode: false,
+    pending_webhooks: 0,
+    request: null,
+    data: {
+      object: {
+        id: opts.disputeId ?? `dp_t232_${randomUUID().replace(/-/g, "").slice(0, 14)}`,
+        amount: opts.amount ?? 19900,
+        currency: opts.currency ?? "usd",
+      },
+    },
+  };
+}
+
 function makeDisputeClosedEvent(opts: {
   disputeId?: string;
   chargeId: string;
@@ -443,5 +496,49 @@ describe("charge.dispute.closed — integration", () => {
     } finally {
       await cleanupUser(userId);
     }
+  });
+});
+
+// ── Task #232: alerts for dispute.updated / funds_withdrawn / funds_reinstated ──
+//
+// These handlers don't mutate domain state — they only fire admin email alerts
+// (fire-and-forget). The tests verify the handlers process the new event types
+// cleanly, exercise the per-kind email rendering paths, and tolerate the
+// fire-and-forget contract (failure must not interrupt webhook processing).
+
+describe("charge.dispute.updated — admin alert when deadline approaching", () => {
+  it("processes due_by < 48h actionable dispute without throwing", async () => {
+    const dueBy = Math.floor(Date.now() / 1000) + 60 * 60 * 24; // ~24h from now
+    const event = makeDisputeUpdatedEvent({ dueBy, status: "needs_response" });
+    await WebhookHandlers.processEventDirectly(event as unknown as import("stripe").default.Event);
+  });
+
+  it("processes due_by > 48h dispute without throwing (no alert path)", async () => {
+    const dueBy = Math.floor(Date.now() / 1000) + 60 * 60 * 24 * 5; // ~5 days from now
+    const event = makeDisputeUpdatedEvent({ dueBy, status: "needs_response" });
+    await WebhookHandlers.processEventDirectly(event as unknown as import("stripe").default.Event);
+  });
+
+  it("processes non-actionable status without throwing (no alert path)", async () => {
+    const dueBy = Math.floor(Date.now() / 1000) + 60 * 60 * 12; // ~12h from now
+    const event = makeDisputeUpdatedEvent({ dueBy, status: "under_review" });
+    await WebhookHandlers.processEventDirectly(event as unknown as import("stripe").default.Event);
+  });
+
+  it("processes update with no evidence_details cleanly", async () => {
+    const event = makeDisputeUpdatedEvent({ dueBy: undefined });
+    await WebhookHandlers.processEventDirectly(event as unknown as import("stripe").default.Event);
+  });
+});
+
+describe("charge.dispute.funds_withdrawn / funds_reinstated — admin alert", () => {
+  it("processes funds_withdrawn cleanly", async () => {
+    const event = makeDisputeFundsEvent("funds_withdrawn", { amount: 19900 });
+    await WebhookHandlers.processEventDirectly(event as unknown as import("stripe").default.Event);
+  });
+
+  it("processes funds_reinstated cleanly", async () => {
+    const event = makeDisputeFundsEvent("funds_reinstated", { amount: 19900 });
+    await WebhookHandlers.processEventDirectly(event as unknown as import("stripe").default.Event);
   });
 });

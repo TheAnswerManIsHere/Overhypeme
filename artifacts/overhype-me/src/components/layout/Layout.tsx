@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { Navbar } from "./Navbar";
 import { AdSlot } from "@/components/AdSlot";
 import { WelcomeModal } from "@/components/WelcomeModal";
+import { AccessRevocationBanner } from "@/components/AccessRevocationBanner";
 import { useAuth } from "@workspace/replit-auth-web";
 import { Mail, X, CheckCircle, Loader2 } from "lucide-react";
 
@@ -83,6 +84,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
     <>
       <Navbar />
       <EmailVerificationBanner />
+      <AccessRevocationBanner />
       <WelcomeModal />
       <main className="flex-1 w-full">
         {children}

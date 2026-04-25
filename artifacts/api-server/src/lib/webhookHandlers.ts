@@ -441,6 +441,7 @@ async function handleDisputeCreated(
   // the user — Stripe's response window is short and the operator needs to know
   // immediately so they can gather evidence and respond in the dashboard.
   void notifyAdminsOfDispute({
+    kind: "created",
     disputeId: dispute.id,
     amount: dispute.amount,
     currency: dispute.currency,
@@ -714,6 +715,58 @@ async function processDomainSwitch(stripe: Stripe, event: Stripe.Event): Promise
         currency: string;
       };
       await handleDisputeClosed(stripe, dispute);
+      break;
+    }
+    case "charge.dispute.updated": {
+      // Only fire admin alert when the evidence deadline is approaching (< 48h)
+      // AND the dispute is still in an actionable state. Stripe sends this event
+      // for many reasons (evidence updates, status transitions, etc) so the
+      // narrow predicate avoids spamming admins for every change.
+      const dispute = event.data.object as unknown as {
+        id: string;
+        status: string;
+        amount: number;
+        currency: string;
+        livemode?: boolean;
+        evidence_details?: { due_by?: number | null } | null;
+      };
+      const dueBy = dispute.evidence_details?.due_by ?? null;
+      const isActionable = dispute.status === "needs_response" || dispute.status === "warning_needs_response";
+      if (dueBy != null && isActionable) {
+        const nowSec = Math.floor(Date.now() / 1000);
+        const secondsUntilDue = dueBy - nowSec;
+        const hoursUntilDue = secondsUntilDue / 3600;
+        if (hoursUntilDue > 0 && hoursUntilDue < 48) {
+          // Round up so a deadline 30 minutes out reads as "1 hour" rather than
+          // "0 hours" — operators need a non-zero urgency cue in the subject line.
+          const ceiledHours = Math.max(1, Math.ceil(hoursUntilDue));
+          void notifyAdminsOfDispute({
+            kind: "deadline_approaching",
+            disputeId: dispute.id,
+            amount: dispute.amount,
+            currency: dispute.currency,
+            livemode: dispute.livemode ?? event.livemode,
+            hoursUntilDue: ceiledHours,
+          });
+        }
+      }
+      break;
+    }
+    case "charge.dispute.funds_withdrawn":
+    case "charge.dispute.funds_reinstated": {
+      const dispute = event.data.object as unknown as {
+        id: string;
+        amount: number;
+        currency: string;
+        livemode?: boolean;
+      };
+      void notifyAdminsOfDispute({
+        kind: event.type === "charge.dispute.funds_withdrawn" ? "funds_withdrawn" : "funds_reinstated",
+        disputeId: dispute.id,
+        amount: dispute.amount,
+        currency: dispute.currency,
+        livemode: dispute.livemode ?? event.livemode,
+      });
       break;
     }
     default:
