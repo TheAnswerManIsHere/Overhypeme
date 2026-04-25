@@ -18,7 +18,7 @@ const BASE_URL = import.meta.env.BASE_URL ?? "/";
 
 export default function Profile() {
   const [currentPath, setLocation] = useLocation();
-  const { isAuthenticated, isLoading: authLoading, login, logout, role } = useAuth();
+  const { isAuthenticated, isLoading: authLoading, login, logout, role, refreshUser } = useAuth();
   const isRealAdmin = role === "admin";
   const queryClient = useQueryClient();
   const { data: profile, isLoading } = useGetMyProfile({
@@ -314,7 +314,10 @@ export default function Profile() {
       if (cancelled) return;
       setCheckoutPolling(false);
       setCheckoutConfirmed(true);
-      await queryClient.invalidateQueries({ queryKey: getGetMyProfileQueryKey() });
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: getGetMyProfileQueryKey() }),
+        refreshUser(),
+      ]);
     }
 
     async function startPolling() {

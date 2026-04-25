@@ -24,7 +24,7 @@ import {
   stripeProcessedEventsTable,
   emailOutboxTable,
 } from "@workspace/db/schema";
-import { eq, and, gte } from "drizzle-orm";
+import { eq, and, gte, isNull, or, like } from "drizzle-orm";
 
 // ── Handler under test ───────────────────────────────────────────────────────
 import { WebhookHandlers } from "../lib/webhookHandlers.js";
@@ -41,9 +41,19 @@ import { WebhookHandlers } from "../lib/webhookHandlers.js";
 // every test-generated row is removed regardless of which handler made it.
 const TEST_FILE_START = new Date();
 after(async () => {
+  // Only delete rows that came from admin notification paths. Those rows have
+  // kind = null (dispute, fraud, SCA, card-update notifications) or a kind
+  // starting with "admin_" (e.g. "admin_abandoned_email_alert"). Other test
+  // files tag their outbox rows with kind = "t248_test" / "t259_test" etc.,
+  // so filtering by null-or-admin_ avoids deleting their rows in a concurrent run.
   await db
     .delete(emailOutboxTable)
-    .where(gte(emailOutboxTable.createdAt, TEST_FILE_START));
+    .where(
+      and(
+        gte(emailOutboxTable.createdAt, TEST_FILE_START),
+        or(isNull(emailOutboxTable.kind), like(emailOutboxTable.kind, "admin_%")),
+      ),
+    );
 });
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
