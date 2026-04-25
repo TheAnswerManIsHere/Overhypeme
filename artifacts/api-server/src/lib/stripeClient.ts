@@ -12,6 +12,26 @@ async function isLiveMode(): Promise<boolean> {
   }
 }
 
+/**
+ * Resolve the Stripe webhook signing secret for the active mode.
+ *
+ * Mirrors the precedence pattern used by the API key resolver:
+ *   live mode  → STRIPE_WEBHOOK_SECRET_LIVE  → STRIPE_WEBHOOK_SECRET
+ *   test mode  → STRIPE_WEBHOOK_SECRET_TEST  → STRIPE_WEBHOOK_SECRET
+ *
+ * Returns `null` when no env var is configured. In that case the
+ * stripe-replit-sync library falls back to the per-account managed-webhook
+ * signing secret stored in stripe._managed_webhooks (see processWebhook in
+ * the library), so signature verification still works end-to-end.
+ */
+export async function getStripeWebhookSecret(liveMode?: boolean): Promise<string | null> {
+  const useLive = liveMode !== undefined ? liveMode : await isLiveMode();
+  const envSecret = useLive
+    ? (process.env.STRIPE_WEBHOOK_SECRET_LIVE ?? process.env.STRIPE_WEBHOOK_SECRET)
+    : (process.env.STRIPE_WEBHOOK_SECRET_TEST ?? process.env.STRIPE_WEBHOOK_SECRET);
+  return envSecret ?? null;
+}
+
 async function getCredentials(liveMode?: boolean) {
   const useLive = liveMode !== undefined ? liveMode : await isLiveMode();
 
@@ -100,9 +120,14 @@ let stripeSyncLiveMode: boolean | null = null;
 async function buildStripeSync() {
   const { StripeSync } = await import("stripe-replit-sync");
   const secretKey = await getStripeSecretKey();
+  // If a webhook signing secret is configured for the active mode, pass it through
+  // so signature verification uses it directly. When null, the library falls back
+  // to the per-account managed-webhook secret stored in stripe._managed_webhooks.
+  const webhookSecret = await getStripeWebhookSecret();
   return new StripeSync({
     poolConfig: { connectionString: process.env.DATABASE_URL!, max: 2 },
     stripeSecretKey: secretKey,
+    ...(webhookSecret ? { stripeWebhookSecret: webhookSecret } : {}),
   });
 }
 

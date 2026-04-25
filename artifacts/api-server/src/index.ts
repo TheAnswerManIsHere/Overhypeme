@@ -26,8 +26,18 @@ if (Number.isNaN(port) || port <= 0) {
   throw new Error(`Invalid PORT value: "${rawPort}"`);
 }
 
-if (!process.env.STRIPE_WEBHOOK_SECRET) {
-  logger.warn("STRIPE_WEBHOOK_SECRET is not set — webhook signature verification is DISABLED. Forged webhooks may be accepted.");
+// Boot-time visibility for the webhook signing-secret env vars. The actual
+// signature verification still works without these (it falls back to the
+// per-account managed-webhook secret stored in stripe._managed_webhooks),
+// so this is informational, not fatal.
+if (
+  !process.env.STRIPE_WEBHOOK_SECRET &&
+  !process.env.STRIPE_WEBHOOK_SECRET_TEST &&
+  !process.env.STRIPE_WEBHOOK_SECRET_LIVE
+) {
+  logger.warn(
+    "No STRIPE_WEBHOOK_SECRET / _TEST / _LIVE env var is set — falling back to the managed-webhook signing secret stored in the database. Set the mode-specific env vars to use a Stripe-Dashboard-issued signing secret instead.",
+  );
 }
 
 async function initStripe() {
