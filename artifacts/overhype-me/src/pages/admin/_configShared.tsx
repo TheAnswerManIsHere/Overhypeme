@@ -198,6 +198,29 @@ export const FLOAT_TEXT_CONFIGS = new Set([
   "ai_scene_prompt_temperature",
 ]);
 
+export const DELAY_MS_KEYS = new Set([
+  "email_retry_delay_1_ms",
+  "email_retry_delay_2_ms",
+  "email_retry_delay_3_ms",
+  "email_retry_delay_4_ms",
+]);
+
+export function msToHuman(ms: number): string {
+  if (!isFinite(ms) || ms < 0) return "";
+  if (ms === 0) return "0 ms";
+  if (ms < 1000) return `${ms} ms`;
+  const totalSeconds = ms / 1000;
+  if (totalSeconds < 60) return `≈ ${Math.round(totalSeconds)} second${Math.round(totalSeconds) === 1 ? "" : "s"}`;
+  const totalMinutes = totalSeconds / 60;
+  if (totalMinutes < 60) {
+    const rounded = Math.round(totalMinutes * 10) / 10;
+    return `≈ ${rounded} minute${rounded === 1 ? "" : "s"}`;
+  }
+  const totalHours = totalMinutes / 60;
+  const rounded = Math.round(totalHours * 10) / 10;
+  return `≈ ${rounded} hour${rounded === 1 ? "" : "s"}`;
+}
+
 export const SELECT_CONFIGS: Record<string, { value: string; label: string }[]> = {
   ai_image_size:             FAL_IMAGE_SIZES,
   ai_image_model_standard:   FAL_IMAGE_MODELS_STANDARD,
@@ -414,6 +437,8 @@ export function ConfigInput({
   const isLong = row.dataType === "text" && !FLOAT_TEXT_CONFIGS.has(configKey);
   const dirty = kind === "std" ? stdDirty(configKey) : dbgDirty(configKey);
   const placeholder = kind === "dbg" ? (row.debugValue ?? "Same as standard (no override)") : undefined;
+  const isDelayMs = DELAY_MS_KEYS.has(configKey);
+  const delayHint = isDelayMs && state.value !== "" ? msToHuman(Number(state.value)) : null;
   const isDbgActive = debugActive && kind === "dbg";
   const borderClass = isDbgActive ? "border-amber-500/60 ring-1 ring-amber-500/30" : "border-border";
 
@@ -479,6 +504,9 @@ export function ConfigInput({
             onKeyDown={(e) => { if (e.key === "Enter" && dirty) onSave(); }}
             className={`w-36 bg-background border rounded px-3 py-1.5 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-primary ${borderClass} placeholder:text-muted-foreground/40`}
           />
+          {delayHint && (
+            <span className="text-xs text-muted-foreground font-medium">{delayHint}</span>
+          )}
           {row.minValue !== null && row.maxValue !== null && (
             <span className="text-xs text-muted-foreground">{row.minValue}–{row.maxValue}</span>
           )}
@@ -498,6 +526,8 @@ export function ConfigCard({ row }: { row: ConfigRow }) {
 
   const dbgSelectOptions = SELECT_CONFIGS[row.key];
   const dbgBorderClass = debugActive ? "border-amber-500/40" : "border-border";
+  const isDelayMs = DELAY_MS_KEYS.has(row.key);
+  const dbgDelayHint = isDelayMs && dbgState?.value ? msToHuman(Number(dbgState.value)) : null;
 
   const onDbgChange = (val: string) => {
     const selectedLabel = dbgSelectOptions?.find((o) => o.value === val)?.label ?? val;
@@ -603,6 +633,9 @@ export function ConfigCard({ row }: { row: ConfigRow }) {
                   onKeyDown={(e) => { if (e.key === "Enter" && dbgDirty(row.key)) saveDbg(row.key); }}
                   className={`w-36 bg-background border rounded px-3 py-1.5 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-amber-500/50 placeholder:text-muted-foreground/40 ${dbgBorderClass}`}
                 />
+                {dbgDelayHint && (
+                  <span className="text-xs text-muted-foreground font-medium">{dbgDelayHint}</span>
+                )}
                 {row.minValue !== null && row.maxValue !== null && (
                   <span className="text-xs text-muted-foreground">{row.minValue}–{row.maxValue}</span>
                 )}
