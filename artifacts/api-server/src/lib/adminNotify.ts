@@ -19,15 +19,32 @@ export interface AdminNotifyOpts {
   reviewUrl: string;
 }
 
+/**
+ * Discriminator for dispute lifecycle alerts.
+ *  - "created":              charge.dispute.created — new dispute opened
+ *  - "deadline_approaching": charge.dispute.updated with evidence due_by < 48h
+ *  - "funds_withdrawn":      charge.dispute.funds_withdrawn — Stripe pulled funds
+ *  - "funds_reinstated":     charge.dispute.funds_reinstated — Stripe returned funds
+ */
+export type AdminDisputeAlertKind =
+  | "created"
+  | "deadline_approaching"
+  | "funds_withdrawn"
+  | "funds_reinstated";
+
 export interface AdminDisputeNotifyOpts {
+  /** Which lifecycle event triggered this alert */
+  kind: AdminDisputeAlertKind;
   /** Stripe dispute ID (e.g. dp_1Abc...) */
   disputeId: string;
-  /** Amount disputed, in the smallest currency unit (e.g. cents) */
+  /** Amount disputed (or moved), in the smallest currency unit (e.g. cents) */
   amount: number;
   /** ISO currency code (e.g. "usd") */
   currency: string;
   /** Whether the dispute is from live mode (controls Stripe dashboard URL) */
   livemode: boolean;
+  /** Whole hours remaining until evidence is due — required when kind === "deadline_approaching" */
+  hoursUntilDue?: number;
 }
 
 /**
@@ -140,25 +157,97 @@ function formatAmount(amountMinor: number, currency: string): string {
   }
 }
 
+/**
+ * Per-kind copy for dispute alerts. Centralised so the subject line, headline,
+ * urgency strapline, lead paragraph, plain-text intro and CTA stay aligned.
+ */
+function disputeCopy(opts: AdminDisputeNotifyOpts, formattedAmount: string) {
+  switch (opts.kind) {
+    case "created":
+      return {
+        subject: `[Overhype.me] URGENT: Stripe dispute opened (${formattedAmount}) — respond within 7 days`,
+        textIntro: [
+          "URGENT: A STRIPE DISPUTE HAS BEEN OPENED.",
+          "",
+          "The user's Legendary access has been revoked automatically.",
+          "You have ~7 days to gather evidence and respond in Stripe.",
+        ],
+        headline: "Stripe Dispute<br/>Opened",
+        strapline: "Respond within 7 days",
+        urgent: true,
+        leadHtml: "The user&#39;s Legendary access has been revoked automatically. Gather evidence and respond in the Stripe dashboard before the response window closes.",
+        cta: "Open in Stripe",
+        amountLabel: "Amount",
+      };
+    case "deadline_approaching": {
+      const hours = Math.max(0, opts.hoursUntilDue ?? 0);
+      const hoursLabel = hours === 1 ? "1 hour" : `${hours} hours`;
+      return {
+        subject: `[Overhype.me] URGENT: Stripe dispute deadline in ${hoursLabel} — evidence due soon`,
+        textIntro: [
+          `URGENT: STRIPE DISPUTE DEADLINE IN ${hoursLabel.toUpperCase()}.`,
+          "",
+          "Evidence is due soon. Submit your response in Stripe before the window closes —",
+          "after the deadline the dispute is automatically lost.",
+        ],
+        headline: "Dispute Deadline<br/>Approaching",
+        strapline: `Evidence due in ${hoursLabel}`,
+        urgent: true,
+        leadHtml: `Stripe will close this dispute against you if no evidence is submitted before the deadline. You have approximately <strong style="color:#ffffff;">${hoursLabel}</strong> remaining.`,
+        cta: "Submit Evidence",
+        amountLabel: "Disputed amount",
+      };
+    }
+    case "funds_withdrawn":
+      return {
+        subject: `[Overhype.me] Stripe dispute funds withdrawn (${formattedAmount})`,
+        textIntro: [
+          "STRIPE HAS WITHDRAWN FUNDS FOR A DISPUTE.",
+          "",
+          "Stripe debited your balance for the disputed amount while the case is open.",
+          "If the dispute is won, the funds will be reinstated.",
+        ],
+        headline: "Dispute Funds<br/>Withdrawn",
+        strapline: "Funds debited from balance",
+        urgent: false,
+        leadHtml: "Stripe has debited your balance for the disputed amount while the case remains open. If the dispute is won, these funds will be reinstated automatically.",
+        cta: "View in Stripe",
+        amountLabel: "Amount withdrawn",
+      };
+    case "funds_reinstated":
+      return {
+        subject: `[Overhype.me] Stripe dispute funds reinstated (${formattedAmount})`,
+        textIntro: [
+          "STRIPE HAS REINSTATED FUNDS FOR A DISPUTE.",
+          "",
+          "The disputed amount has been credited back to your balance.",
+        ],
+        headline: "Dispute Funds<br/>Reinstated",
+        strapline: "Funds credited back to balance",
+        urgent: false,
+        leadHtml: "Stripe has credited the disputed amount back to your balance — typically because the dispute was won or withdrawn.",
+        cta: "View in Stripe",
+        amountLabel: "Amount reinstated",
+      };
+  }
+}
+
 function buildDisputeNotificationEmail(opts: AdminDisputeNotifyOpts) {
   const formattedAmount = formatAmount(opts.amount, opts.currency);
   const dashboardUrl = opts.livemode
     ? `https://dashboard.stripe.com/disputes/${opts.disputeId}`
     : `https://dashboard.stripe.com/test/disputes/${opts.disputeId}`;
 
-  const subject = `[Overhype.me] URGENT: Stripe dispute opened (${formattedAmount}) — respond within 7 days`;
+  const copy = disputeCopy(opts, formattedAmount);
 
   const text = [
-    "URGENT: A STRIPE DISPUTE HAS BEEN OPENED.",
-    "",
-    "The user's Legendary access has been revoked automatically.",
-    "You have ~7 days to gather evidence and respond in Stripe.",
+    ...copy.textIntro,
     "",
     `Dispute ID: ${opts.disputeId}`,
     `Amount:     ${formattedAmount}`,
     `Mode:       ${opts.livemode ? "LIVE" : "TEST"}`,
     "",
-    `Respond in Stripe: ${dashboardUrl}`,
+    `Open in Stripe: ${dashboardUrl}`,
     "",
     "— Overhype.me Admin System",
   ].join("\n");
@@ -169,25 +258,27 @@ function buildDisputeNotificationEmail(opts: AdminDisputeNotifyOpts) {
     ? `<span style="display:inline-block;padding:2px 8px;background:#FF3C00;color:#ffffff;font-size:10px;font-weight:700;letter-spacing:1px;text-transform:uppercase;font-family:'Oswald','Impact','Arial Narrow',sans-serif;mso-font-alt:'Impact';">Live</span>`
     : `<span style="display:inline-block;padding:2px 8px;background:#444444;color:#ffffff;font-size:10px;font-weight:700;letter-spacing:1px;text-transform:uppercase;font-family:'Oswald','Impact','Arial Narrow',sans-serif;mso-font-alt:'Impact';">Test</span>`;
 
+  const strapColor = copy.urgent ? "#FF3C00" : "#cccccc";
+
   const body = `
-<h1 style="margin:0 0 8px;font-family:'Oswald','Impact','Arial Narrow',sans-serif;font-size:24px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:#ffffff;line-height:1.2;mso-font-alt:'Impact';">Stripe Dispute<br/>Opened ${modeBadge}</h1>
-<p style="margin:0 0 24px;font-size:14px;color:#FF3C00;line-height:1.6;font-weight:600;text-transform:uppercase;letter-spacing:1px;font-family:'Oswald','Impact','Arial Narrow',sans-serif;mso-font-alt:'Impact';">Respond within 7 days</p>
-<p style="margin:0 0 20px;font-size:15px;color:#aaaaaa;line-height:1.75;">The user&#39;s Legendary access has been revoked automatically. Gather evidence and respond in the Stripe dashboard before the response window closes.</p>
+<h1 style="margin:0 0 8px;font-family:'Oswald','Impact','Arial Narrow',sans-serif;font-size:24px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:#ffffff;line-height:1.2;mso-font-alt:'Impact';">${copy.headline} ${modeBadge}</h1>
+<p style="margin:0 0 24px;font-size:14px;color:${strapColor};line-height:1.6;font-weight:600;text-transform:uppercase;letter-spacing:1px;font-family:'Oswald','Impact','Arial Narrow',sans-serif;mso-font-alt:'Impact';">${copy.strapline}</p>
+<p style="margin:0 0 20px;font-size:15px;color:#aaaaaa;line-height:1.75;">${copy.leadHtml}</p>
 <table cellpadding="0" cellspacing="0" border="0" width="100%" style="margin:0 0 28px;background:#1c1c1e;">
   <tr>
     <td style="padding:14px 16px;border-left:4px solid #FF3C00;">
-      <p style="margin:0 0 6px;font-size:11px;color:#777777;font-family:'Inter',-apple-system,sans-serif;text-transform:uppercase;letter-spacing:1px;">Amount</p>
+      <p style="margin:0 0 6px;font-size:11px;color:#777777;font-family:'Inter',-apple-system,sans-serif;text-transform:uppercase;letter-spacing:1px;">${copy.amountLabel}</p>
       <p style="margin:0 0 14px;font-size:18px;font-weight:700;color:#ffffff;font-family:'Oswald','Impact','Arial Narrow',sans-serif;mso-font-alt:'Impact';">${formattedAmount}</p>
       <p style="margin:0 0 6px;font-size:11px;color:#777777;font-family:'Inter',-apple-system,sans-serif;text-transform:uppercase;letter-spacing:1px;">Dispute ID</p>
       <p style="margin:0;font-size:13px;font-weight:600;color:#dddddd;font-family:'Courier New',monospace;word-break:break-all;">${safeDisputeId}</p>
     </td>
   </tr>
 </table>
-${ctaButton(dashboardUrl, "Open in Stripe")}
+${ctaButton(dashboardUrl, copy.cta)}
 ${divider()}
 <p style="margin:0;font-size:12px;color:#555555;line-height:1.7;font-family:'Inter',-apple-system,sans-serif;">You&#39;re receiving this because you have Stripe dispute alerts enabled on Overhype.me. <a href="${siteUrl}/admin/users" target="_blank" style="color:#FF3C00;text-decoration:none;">Manage notification settings.</a></p>`;
 
   const html = buildEmailShell(body, "Stripe dispute alert — Overhype.me.");
 
-  return { subject, text, html };
+  return { subject: copy.subject, text, html };
 }
