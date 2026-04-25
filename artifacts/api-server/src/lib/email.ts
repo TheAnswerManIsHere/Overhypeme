@@ -17,6 +17,7 @@ import { emailOutboxTable, type EmailOutboxRow } from "@workspace/db/schema";
 import { getConfigString, getConfigInt } from "./adminConfig";
 import { getSiteBaseUrl } from "./siteUrl";
 import { logger } from "./logger";
+import { notifyAdminsOfAbandonedEmail } from "./adminNotify";
 
 async function getFromAddress(): Promise<string> {
   return getConfigString("email_from_address", process.env.RESEND_FROM_EMAIL ?? "legends@overhype.me");
@@ -174,6 +175,14 @@ export async function emailOutboxTick(
             { outboxId: row.id, to: row.to, subject: row.subject, error },
             "Email permanently abandoned after max retries",
           );
+          if (row.kind !== "admin_abandoned_email_alert") {
+            void notifyAdminsOfAbandonedEmail({
+              outboxId: row.id,
+              to: row.to,
+              subject: row.subject,
+              lastError: error ?? "unknown",
+            });
+          }
         }
       }
     }

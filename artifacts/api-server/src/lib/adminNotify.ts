@@ -283,6 +283,102 @@ ${divider()}
   return { subject: copy.subject, text, html };
 }
 
+// ── Abandoned email admin alert ───────────────────────────────────────────────
+
+export interface AdminAbandonedEmailNotifyOpts {
+  /** The outbox row ID */
+  outboxId: number;
+  /** Recipient email address */
+  to: string;
+  /** Email subject line (i.e. what kind of email this was) */
+  subject: string;
+  /** Last error message returned by the delivery provider */
+  lastError: string;
+}
+
+/**
+ * Sends an alert to every admin who has `adminNotifications = true` when an
+ * outbox email is permanently abandoned after exhausting all retry attempts.
+ * Fire-and-forget — never throws.
+ */
+export async function notifyAdminsOfAbandonedEmail(
+  opts: AdminAbandonedEmailNotifyOpts,
+): Promise<void> {
+  try {
+    const admins = await db
+      .select({ email: usersTable.email })
+      .from(usersTable)
+      .where(
+        and(
+          eq(usersTable.isAdmin, true),
+          eq(usersTable.adminNotifications, true),
+          eq(usersTable.isActive, true),
+        ),
+      );
+
+    const emails = admins.map(a => a.email).filter((e): e is string => !!e);
+    if (emails.length === 0) return;
+
+    const { subject, text, html } = buildAbandonedEmailNotification(opts);
+    await Promise.all(emails.map(to => sendEmail({ to, subject, text, html, kind: "admin_abandoned_email_alert" })));
+  } catch (err) {
+    console.error("[notifyAdminsOfAbandonedEmail] Failed:", err);
+  }
+}
+
+function buildAbandonedEmailNotification(opts: AdminAbandonedEmailNotifyOpts) {
+  const siteUrl = getSiteBaseUrl();
+  const emailQueueUrl = `${siteUrl}/admin/email-queue`;
+
+  const subject = `[Overhype.me] Email delivery failed permanently — ${opts.to}`;
+
+  const safeLastError = opts.lastError.slice(0, 500).replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  const safeRecipient = opts.to.replace(/</g, "&lt;");
+  const safeSubject = opts.subject.slice(0, 200).replace(/</g, "&lt;").replace(/>/g, "&gt;");
+
+  const text = [
+    "EMAIL PERMANENTLY ABANDONED AFTER MAX RETRIES.",
+    "",
+    "An outgoing email could not be delivered and all retry attempts have been",
+    "exhausted. The recipient will NOT receive this email unless it is resent manually.",
+    "",
+    `Recipient:   ${opts.to}`,
+    `Subject:     ${opts.subject.slice(0, 200)}`,
+    `Outbox ID:   ${opts.outboxId}`,
+    `Last error:  ${opts.lastError.slice(0, 500)}`,
+    "",
+    `View the email queue: ${emailQueueUrl}`,
+    "",
+    "— Overhype.me Admin System",
+  ].join("\n");
+
+  const body = `
+<h1 style="margin:0 0 8px;font-family:'Oswald','Impact','Arial Narrow',sans-serif;font-size:24px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:#ffffff;line-height:1.2;mso-font-alt:'Impact';">Email Delivery<br/>Failed Permanently</h1>
+<p style="margin:0 0 24px;font-size:14px;color:#FF3C00;line-height:1.6;font-weight:600;text-transform:uppercase;letter-spacing:1px;font-family:'Oswald','Impact','Arial Narrow',sans-serif;mso-font-alt:'Impact';">All retry attempts exhausted</p>
+<p style="margin:0 0 20px;font-size:15px;color:#aaaaaa;line-height:1.75;">An outgoing email could not be delivered after all retry attempts. The recipient will <strong style="color:#ffffff;">not</strong> receive this message unless it is resent manually.</p>
+<table cellpadding="0" cellspacing="0" border="0" width="100%" style="margin:0 0 28px;background:#1c1c1e;">
+  <tr>
+    <td style="padding:14px 16px;border-left:4px solid #FF3C00;">
+      <p style="margin:0 0 6px;font-size:11px;color:#777777;font-family:'Inter',-apple-system,sans-serif;text-transform:uppercase;letter-spacing:1px;">Recipient</p>
+      <p style="margin:0 0 14px;font-size:14px;font-weight:600;color:#dddddd;word-break:break-all;">${safeRecipient}</p>
+      <p style="margin:0 0 6px;font-size:11px;color:#777777;font-family:'Inter',-apple-system,sans-serif;text-transform:uppercase;letter-spacing:1px;">Email subject</p>
+      <p style="margin:0 0 14px;font-size:14px;font-weight:600;color:#dddddd;">${safeSubject}</p>
+      <p style="margin:0 0 6px;font-size:11px;color:#777777;font-family:'Inter',-apple-system,sans-serif;text-transform:uppercase;letter-spacing:1px;">Outbox ID</p>
+      <p style="margin:0 0 14px;font-size:13px;font-weight:600;color:#dddddd;font-family:'Courier New',monospace;">${opts.outboxId}</p>
+      <p style="margin:0 0 6px;font-size:11px;color:#777777;font-family:'Inter',-apple-system,sans-serif;text-transform:uppercase;letter-spacing:1px;">Last error</p>
+      <p style="margin:0;font-size:13px;color:#dddddd;line-height:1.6;font-family:'Courier New',monospace;word-break:break-all;">${safeLastError}</p>
+    </td>
+  </tr>
+</table>
+${ctaButton(emailQueueUrl, "View Email Queue")}
+${divider()}
+<p style="margin:0;font-size:12px;color:#555555;line-height:1.7;font-family:'Inter',-apple-system,sans-serif;">You&#39;re receiving this because you have admin notifications enabled on Overhype.me. <a href="${siteUrl}/admin/users" target="_blank" style="color:#FF3C00;text-decoration:none;">Manage notification settings.</a></p>`;
+
+  const html = buildEmailShell(body, "Email delivery failure — Overhype.me.");
+
+  return { subject, text, html };
+}
+
 // ── Early fraud warning admin alert (Task #230) ──────────────────────────────
 
 export interface AdminFraudWarningNotifyOpts {
