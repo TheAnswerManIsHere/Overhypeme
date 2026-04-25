@@ -35,6 +35,11 @@ const LIMIT_KEYS = new Set([
 const EMAIL_KEYS = new Set([
   "email_from_address",
   "email_reply_to",
+  "email_max_attempts",
+  "email_retry_delay_1_ms",
+  "email_retry_delay_2_ms",
+  "email_retry_delay_3_ms",
+  "email_retry_delay_4_ms",
 ]);
 
 const ZAZZLE_KEYS = new Set([
@@ -441,7 +446,7 @@ export default function AdminConfig() {
                 <CollapsibleSection
                   title="Email"
                   icon={<Mail className="w-4 h-4 text-muted-foreground" />}
-                  description="From and reply-to addresses used for all outgoing transactional emails."
+                  description="Sender addresses and retry schedule for all outgoing transactional emails."
                   storageKey="admin_section_config_email"
                 >
                   <div className="space-y-3">

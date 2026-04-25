@@ -5,8 +5,8 @@
  * API specification for Overhype.me
  * OpenAPI spec version: 0.1.0
  */
-import type { AuthUserMembershipTier } from "./authUserMembershipTier";
-import type { AuthUserUserRole } from "./authUserUserRole";
+import type { AuthUserMembershipTier } from './authUserMembershipTier';
+import type { AuthUserUserRole } from './authUserUserRole';
 
 export interface AuthUser {
   id: string;

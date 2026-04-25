@@ -1,6 +1,33 @@
 import { useState } from "react";
 import { Crown, Calendar, AlertTriangle, Receipt, ChevronDown, ChevronUp } from "lucide-react";
-import { eventLabel, formatAmount } from "@/components/subscriptionHelpers";
+import { eventLabel, eventTone, formatAmount, type EventTone } from "@/components/subscriptionHelpers";
+
+function eventBadgeClass(tone: EventTone): string {
+  switch (tone) {
+    case "refund":
+      return "bg-blue-500/15 text-blue-500 dark:text-blue-400 border border-blue-500/30";
+    case "dispute":
+      return "bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30";
+    case "dispute-won":
+      return "bg-green-500/15 text-green-600 dark:text-green-400 border border-green-500/30";
+    default:
+      return "";
+  }
+}
+
+function amountIsNegative(event: string): boolean {
+  return event === "refund" || event === "dispute_lost";
+}
+
+function amountClass(event: string): string {
+  if (amountIsNegative(event)) return "text-red-500 dark:text-red-400";
+  return "text-foreground";
+}
+
+function formatSignedAmount(event: string, amount: number, currency: string): string {
+  const formatted = formatAmount(amount, currency);
+  return amountIsNegative(event) ? `-${formatted}` : formatted;
+}
 
 export interface SubscriptionInfoRecord {
   id: number;
@@ -84,24 +111,34 @@ export function SubscriptionInfo({ data, variant, reactivateButton, hideHistory 
             </button>
             {showHistory && (
               <div className="mt-2 flex flex-col gap-1">
-                {history.map((rec) => (
-                  <div key={rec.id} className="flex items-center justify-between px-2.5 py-2 bg-muted/40 rounded-sm border border-border/50">
-                    <div>
-                      <p className="text-xs font-medium text-foreground">
-                        {eventLabel(rec.event)}
-                        {rec.plan ? <span className="ml-1 text-primary uppercase text-[10px]">{rec.plan}</span> : null}
-                      </p>
-                      <p className="text-[10px] text-muted-foreground">
-                        {new Date(rec.createdAt).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" })}
-                      </p>
+                {history.map((rec) => {
+                  const tone = eventTone(rec.event);
+                  const badgeClass = eventBadgeClass(tone);
+                  return (
+                    <div key={rec.id} className="flex items-center justify-between px-2.5 py-2 bg-muted/40 rounded-sm border border-border/50">
+                      <div>
+                        <p className="text-xs font-medium text-foreground flex items-center gap-1.5 flex-wrap">
+                          {badgeClass ? (
+                            <span className={`px-1.5 py-0.5 rounded-sm text-[10px] font-bold uppercase tracking-wide ${badgeClass}`}>
+                              {eventLabel(rec.event)}
+                            </span>
+                          ) : (
+                            <span>{eventLabel(rec.event)}</span>
+                          )}
+                          {rec.plan ? <span className="text-primary uppercase text-[10px]">{rec.plan}</span> : null}
+                        </p>
+                        <p className="text-[10px] text-muted-foreground mt-0.5">
+                          {new Date(rec.createdAt).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" })}
+                        </p>
+                      </div>
+                      {rec.amount != null && rec.amount > 0 && rec.currency && (
+                        <span className={`text-xs font-bold ${amountClass(rec.event)}`}>
+                          {formatSignedAmount(rec.event, rec.amount, rec.currency)}
+                        </span>
+                      )}
                     </div>
-                    {rec.amount != null && rec.amount > 0 && rec.currency && (
-                      <span className="text-xs font-bold text-foreground">
-                        {formatAmount(rec.amount, rec.currency)}
-                      </span>
-                    )}
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>
@@ -188,28 +225,40 @@ export function SubscriptionInfo({ data, variant, reactivateButton, hideHistory 
 
           {showHistory && (
             <div className="mt-4 space-y-2">
-              {history.map((record) => (
-                <div key={record.id} className="flex items-center justify-between p-3 bg-secondary/50 rounded-sm border border-border/50 text-sm">
-                  <div>
-                    <p className="font-medium text-foreground">{eventLabel(record.event)}</p>
-                    <div className="flex items-center gap-2 mt-0.5">
-                      {record.plan && (
-                        <span className="text-xs text-primary uppercase">
-                          {record.plan.charAt(0).toUpperCase() + record.plan.slice(1)}
+              {history.map((record) => {
+                const tone = eventTone(record.event);
+                const badgeClass = eventBadgeClass(tone);
+                return (
+                  <div key={record.id} className="flex items-center justify-between p-3 bg-secondary/50 rounded-sm border border-border/50 text-sm">
+                    <div>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        {badgeClass ? (
+                          <span className={`px-1.5 py-0.5 rounded-sm text-[10px] font-bold uppercase tracking-wide ${badgeClass}`}>
+                            {eventLabel(record.event)}
+                          </span>
+                        ) : (
+                          <span className="font-medium text-foreground">{eventLabel(record.event)}</span>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-2 mt-1">
+                        {record.plan && (
+                          <span className="text-xs text-primary uppercase">
+                            {record.plan.charAt(0).toUpperCase() + record.plan.slice(1)}
+                          </span>
+                        )}
+                        <span className="text-xs text-muted-foreground">
+                          {new Date(record.createdAt).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" })}
                         </span>
-                      )}
-                      <span className="text-xs text-muted-foreground">
-                        {new Date(record.createdAt).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" })}
-                      </span>
+                      </div>
                     </div>
+                    {record.amount != null && record.amount > 0 && record.currency && (
+                      <span className={`font-bold ${amountClass(record.event)}`}>
+                        {formatSignedAmount(record.event, record.amount, record.currency)}
+                      </span>
+                    )}
                   </div>
-                  {record.amount != null && record.amount > 0 && record.currency && (
-                    <span className="font-bold text-foreground">
-                      {formatAmount(record.amount, record.currency)}
-                    </span>
-                  )}
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>

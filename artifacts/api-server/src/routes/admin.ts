@@ -1,7 +1,7 @@
 import { Router, type IRouter, type Request, type Response, type NextFunction } from "express";
 import * as Sentry from "@sentry/node";
 import { db, usersTable, sessionsTable } from "@workspace/db";
-import { factsTable, commentsTable, adminConfigTable, videoStylesTable, featureFlagsTable, tierFeaturePermissionsTable, userGenerationCostsTable, lifetimeEntitlementsTable, subscriptionsTable, membershipHistoryTable, activityFeedTable, memesTable, userAiImagesTable, routeStatsTable, routeStatEventsTable } from "@workspace/db/schema";
+import { factsTable, commentsTable, adminConfigTable, videoStylesTable, featureFlagsTable, tierFeaturePermissionsTable, userGenerationCostsTable, lifetimeEntitlementsTable, subscriptionsTable, membershipHistoryTable, activityFeedTable, memesTable, userAiImagesTable, routeStatsTable, routeStatEventsTable, emailOutboxTable } from "@workspace/db/schema";
 import { eq, desc, count, ilike, sql, and, or, inArray, isNull, asc, gt, gte, sum } from "drizzle-orm";
 import { getSessionId, getSession, updateSession } from "../lib/auth";
 import { isAdminById } from "./auth";
@@ -1854,6 +1854,96 @@ router.get("/admin/route-stats", requireAdmin, async (req: Request, res: Respons
     .from(routeStatsTable)
     .orderBy(desc(routeStatsTable.visitCount));
   res.json({ stats: rows });
+});
+
+// GET /admin/email-queue — paginated list of email outbox rows, filterable by status
+router.get("/admin/email-queue", requireAdmin, async (req: Request, res: Response) => {
+  const VALID_STATUSES = ["pending", "sending", "delivered", "abandoned"] as const;
+  type OutboxStatus = typeof VALID_STATUSES[number];
+
+  const page = Math.max(1, parseInt(String(req.query["page"] ?? "1"), 10));
+  const limit = Math.min(100, Math.max(1, parseInt(String(req.query["limit"] ?? "50"), 10)));
+  const offset = (page - 1) * limit;
+
+  const rawStatus = String(req.query["status"] ?? "").trim();
+  const statusFilter = rawStatus && (VALID_STATUSES as readonly string[]).includes(rawStatus)
+    ? eq(emailOutboxTable.status, rawStatus as OutboxStatus)
+    : undefined;
+
+  try {
+    const [rows, [{ total }]] = await Promise.all([
+      db
+        .select({
+          id: emailOutboxTable.id,
+          to: emailOutboxTable.to,
+          subject: emailOutboxTable.subject,
+          kind: emailOutboxTable.kind,
+          status: emailOutboxTable.status,
+          attempts: emailOutboxTable.attempts,
+          maxAttempts: emailOutboxTable.maxAttempts,
+          lastError: emailOutboxTable.lastError,
+          nextAttemptAt: emailOutboxTable.nextAttemptAt,
+          createdAt: emailOutboxTable.createdAt,
+          updatedAt: emailOutboxTable.updatedAt,
+        })
+        .from(emailOutboxTable)
+        .where(statusFilter)
+        .orderBy(desc(emailOutboxTable.createdAt))
+        .limit(limit)
+        .offset(offset),
+      db.select({ total: count() }).from(emailOutboxTable).where(statusFilter),
+    ]);
+
+    res.json({ rows, total, page, limit, validStatuses: VALID_STATUSES });
+  } catch (err) {
+    console.error("[admin] email-queue error:", err);
+    const msg = err instanceof Error ? err.message : "Failed to load email queue";
+    res.status(500).json({ error: msg });
+  }
+});
+
+// POST /admin/email-queue/:id/retry — reset an abandoned row back to pending
+router.post("/admin/email-queue/:id/retry", requireAdmin, async (req: Request, res: Response) => {
+  const id = parseInt(String(req.params["id"] ?? ""), 10);
+  if (isNaN(id)) {
+    res.status(400).json({ error: "Invalid email outbox id" });
+    return;
+  }
+
+  try {
+    // Atomic conditional update: only resets the row if it is still abandoned.
+    // This prevents a race where two concurrent admin retries both pass a
+    // read-then-check and then both reset the same row to pending.
+    const [updated] = await db
+      .update(emailOutboxTable)
+      .set({ status: "pending", nextAttemptAt: new Date(), updatedAt: new Date() })
+      .where(and(eq(emailOutboxTable.id, id), eq(emailOutboxTable.status, "abandoned")))
+      .returning();
+
+    if (!updated) {
+      // Row either doesn't exist or is no longer abandoned — fetch current state for a useful error.
+      const [current] = await db
+        .select({ id: emailOutboxTable.id, status: emailOutboxTable.status })
+        .from(emailOutboxTable)
+        .where(eq(emailOutboxTable.id, id))
+        .limit(1);
+
+      if (!current) {
+        res.status(404).json({ error: "Email outbox row not found" });
+        return;
+      }
+      res.status(400).json({
+        error: `Cannot retry a row with status "${current.status}" — only abandoned rows can be retried`,
+      });
+      return;
+    }
+
+    res.json({ success: true, row: updated });
+  } catch (err) {
+    console.error("[admin] email-queue retry error:", err);
+    const msg = err instanceof Error ? err.message : "Retry failed";
+    res.status(500).json({ error: msg });
+  }
 });
 
 export default router;
