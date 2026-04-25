@@ -1,6 +1,16 @@
 import { db } from "@workspace/db";
 import { usersTable, membershipHistoryTable } from "@workspace/db/schema";
-import { eq, desc, sql, and } from "drizzle-orm";
+import { eq, desc, sql, and, gte } from "drizzle-orm";
+
+// Membership history events that indicate the user lost Legendary access
+// involuntarily (refund or chargeback). These trigger an in-app notice so
+// the user understands why their tier was reduced.
+export const REVOCATION_EVENTS = ["refund", "dispute_opened", "dispute_lost"] as const;
+export type RevocationEvent = typeof REVOCATION_EVENTS[number];
+
+// How far back to look for a qualifying event. Events older than this are
+// considered stale and the notice is no longer shown.
+export const REVOCATION_NOTICE_WINDOW_DAYS = 90;
 
 export class StripeStorage {
   async getUserById(id: string) {
@@ -51,6 +61,47 @@ export class StripeStorage {
       .where(eq(membershipHistoryTable.userId, userId))
       .orderBy(desc(membershipHistoryTable.createdAt))
       .limit(50);
+  }
+
+  /**
+   * Returns a notice describing the most recent involuntary access revocation
+   * (refund or dispute) for the given user, or null when no such notice should
+   * be shown.
+   *
+   * The notice is only shown when:
+   *   1. The user's current tier is 'registered' (i.e. they were downgraded).
+   *   2. Their most recent membership_history event is one of REVOCATION_EVENTS
+   *      (a later positive event such as `lifetime_purchase` or
+   *      `subscription_started` supersedes the notice).
+   *   3. That event is within REVOCATION_NOTICE_WINDOW_DAYS.
+   *
+   * The returned payload is intentionally minimal and contains no Stripe IDs,
+   * amounts, or other sensitive billing data — only the event kind and the
+   * day it occurred.
+   */
+  async getAccessRevocationNotice(userId: string): Promise<{ kind: RevocationEvent; occurredAt: string } | null> {
+    const user = await this.getUserById(userId);
+    if (!user || user.membershipTier !== "registered") return null;
+
+    const cutoff = new Date(Date.now() - REVOCATION_NOTICE_WINDOW_DAYS * 24 * 60 * 60 * 1000);
+
+    const [latest] = await db
+      .select({ event: membershipHistoryTable.event, createdAt: membershipHistoryTable.createdAt })
+      .from(membershipHistoryTable)
+      .where(and(
+        eq(membershipHistoryTable.userId, userId),
+        gte(membershipHistoryTable.createdAt, cutoff),
+      ))
+      .orderBy(desc(membershipHistoryTable.createdAt))
+      .limit(1);
+
+    if (!latest) return null;
+    if (!(REVOCATION_EVENTS as readonly string[]).includes(latest.event)) return null;
+
+    return {
+      kind: latest.event as RevocationEvent,
+      occurredAt: latest.createdAt.toISOString(),
+    };
   }
 
   async listProductsWithPrices() {
