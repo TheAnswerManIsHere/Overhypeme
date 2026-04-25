@@ -18,6 +18,7 @@ import { runFactImagePipeline } from "../lib/factImagePipeline";
 import { generateAiMemeBackgrounds } from "../lib/aiMemePipeline";
 import { getSessionId, getSession } from "../lib/auth";
 import { createRateLimiter } from "../lib/rateLimit";
+import { validateTemplate } from "../lib/templateGrammar";
 
 const requireRateLimit = createRateLimiter();
 
@@ -65,6 +66,14 @@ router.post("/facts/submit-review", requireAuth, requireRateLimit, async (req: A
     return;
   }
   const { text, matchingFactId, matchingSimilarity = 0, isDuplicate = false, hashtags = [], reason } = parsed.data;
+
+  const grammarResult = validateTemplate(text);
+  if (!grammarResult.valid) {
+    res.status(422).json({
+      error: `Template grammar validation failed: ${grammarResult.error}`,
+    });
+    return;
+  }
 
   const [review] = await db.insert(pendingReviewsTable).values({
     submittedText: text,
