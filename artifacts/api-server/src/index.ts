@@ -26,17 +26,31 @@ if (Number.isNaN(port) || port <= 0) {
   throw new Error(`Invalid PORT value: "${rawPort}"`);
 }
 
-// Boot-time visibility for the webhook signing-secret env vars. The actual
-// signature verification still works without these (it falls back to the
-// per-account managed-webhook secret stored in stripe._managed_webhooks),
-// so this is informational, not fatal.
-if (
-  !process.env.STRIPE_WEBHOOK_SECRET &&
-  !process.env.STRIPE_WEBHOOK_SECRET_TEST &&
-  !process.env.STRIPE_WEBHOOK_SECRET_LIVE
-) {
+// Boot-time visibility for the per-mode Stripe env vars. Both mode-specific
+// secret keys and webhook signing secrets are required so that flipping the
+// stripe_live_mode toggle never lands on an unconfigured mode at runtime.
+// Webhook signature verification still works without the webhook secret (it
+// falls back to the per-account managed-webhook secret stored in
+// stripe._managed_webhooks), so the webhook-secret check is informational.
+// The secret-key check is also a warning rather than fatal so the server can
+// still boot for non-Stripe routes; getCredentials() throws when invoked.
+const missingStripeSecretVars: string[] = [];
+if (!process.env.STRIPE_SECRET_KEY_TEST) missingStripeSecretVars.push("STRIPE_SECRET_KEY_TEST");
+if (!process.env.STRIPE_SECRET_KEY_LIVE) missingStripeSecretVars.push("STRIPE_SECRET_KEY_LIVE");
+if (missingStripeSecretVars.length > 0) {
   logger.warn(
-    "No STRIPE_WEBHOOK_SECRET / _TEST / _LIVE env var is set — falling back to the managed-webhook signing secret stored in the database. Set the mode-specific env vars to use a Stripe-Dashboard-issued signing secret instead.",
+    { missing: missingStripeSecretVars },
+    "Missing Stripe secret-key env var(s) — Stripe calls in the affected mode will throw until they are set.",
+  );
+}
+
+const missingWebhookSecretVars: string[] = [];
+if (!process.env.STRIPE_WEBHOOK_SECRET_TEST) missingWebhookSecretVars.push("STRIPE_WEBHOOK_SECRET_TEST");
+if (!process.env.STRIPE_WEBHOOK_SECRET_LIVE) missingWebhookSecretVars.push("STRIPE_WEBHOOK_SECRET_LIVE");
+if (missingWebhookSecretVars.length > 0) {
+  logger.warn(
+    { missing: missingWebhookSecretVars },
+    "Missing Stripe webhook-signing-secret env var(s) — falling back to the managed-webhook signing secret stored in the database for the affected mode(s). Set the mode-specific env vars to use a Stripe-Dashboard-issued signing secret instead.",
   );
 }
 

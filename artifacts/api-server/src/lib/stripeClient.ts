@@ -15,87 +15,55 @@ async function isLiveMode(): Promise<boolean> {
 /**
  * Resolve the Stripe webhook signing secret for the active mode.
  *
- * Mirrors the precedence pattern used by the API key resolver:
- *   live mode  → STRIPE_WEBHOOK_SECRET_LIVE  → STRIPE_WEBHOOK_SECRET
- *   test mode  → STRIPE_WEBHOOK_SECRET_TEST  → STRIPE_WEBHOOK_SECRET
+ * Each mode reads from exactly one env var — no legacy fallback:
+ *   live mode  → STRIPE_WEBHOOK_SECRET_LIVE
+ *   test mode  → STRIPE_WEBHOOK_SECRET_TEST
  *
- * Returns `null` when no env var is configured. In that case the
- * stripe-replit-sync library falls back to the per-account managed-webhook
- * signing secret stored in stripe._managed_webhooks (see processWebhook in
- * the library), so signature verification still works end-to-end.
+ * Returns `null` when the env var for the active mode is not configured. In
+ * that case the stripe-replit-sync library falls back to the per-account
+ * managed-webhook signing secret stored in stripe._managed_webhooks (see
+ * processWebhook in the library), so signature verification still works
+ * end-to-end.
  */
 export async function getStripeWebhookSecret(liveMode?: boolean): Promise<string | null> {
   const useLive = liveMode !== undefined ? liveMode : await isLiveMode();
   const envSecret = useLive
-    ? (process.env.STRIPE_WEBHOOK_SECRET_LIVE ?? process.env.STRIPE_WEBHOOK_SECRET)
-    : (process.env.STRIPE_WEBHOOK_SECRET_TEST ?? process.env.STRIPE_WEBHOOK_SECRET);
+    ? process.env.STRIPE_WEBHOOK_SECRET_LIVE
+    : process.env.STRIPE_WEBHOOK_SECRET_TEST;
   return envSecret ?? null;
 }
 
 async function getCredentials(liveMode?: boolean) {
   const useLive = liveMode !== undefined ? liveMode : await isLiveMode();
 
-  // Primary: explicit environment variables (manual key config)
+  // Each mode reads from exactly one env var — no legacy fallback, no
+  // OAuth-connector fallback. If the required var for the active mode is
+  // missing, fail loudly so misconfiguration is obvious.
   const envSecret = useLive
-    ? (process.env.STRIPE_SECRET_KEY_LIVE ?? process.env.STRIPE_SECRET_KEY)
-    : (process.env.STRIPE_SECRET_KEY_TEST ?? process.env.STRIPE_SECRET_KEY);
+    ? process.env.STRIPE_SECRET_KEY_LIVE
+    : process.env.STRIPE_SECRET_KEY_TEST;
   const envPublishable = useLive
-    ? (process.env.STRIPE_PUBLISHABLE_KEY_LIVE ?? process.env.STRIPE_PUBLISHABLE_KEY)
-    : (process.env.STRIPE_PUBLISHABLE_KEY_TEST ?? process.env.STRIPE_PUBLISHABLE_KEY);
+    ? process.env.STRIPE_PUBLISHABLE_KEY_LIVE
+    : process.env.STRIPE_PUBLISHABLE_KEY_TEST;
 
-  if (envSecret && envPublishable) {
-    return {
-      publishableKey: envPublishable,
-      secretKey: envSecret,
-      environment: useLive ? "production" : "development",
-    };
+  const secretVar = useLive ? "STRIPE_SECRET_KEY_LIVE" : "STRIPE_SECRET_KEY_TEST";
+  const publishableVar = useLive ? "STRIPE_PUBLISHABLE_KEY_LIVE" : "STRIPE_PUBLISHABLE_KEY_TEST";
+
+  if (!envSecret) {
+    throw new Error(
+      `Stripe credentials not configured — set ${secretVar} in Replit Secrets (active mode: ${useLive ? "live" : "test"}).`,
+    );
   }
-
-  // Fallback: Replit connectors OAuth integration
-  const hostname = process.env.REPLIT_CONNECTORS_HOSTNAME;
-  const xReplitToken = process.env.REPL_IDENTITY
-    ? "repl " + process.env.REPL_IDENTITY
-    : process.env.WEB_REPL_RENEWAL
-      ? "depl " + process.env.WEB_REPL_RENEWAL
-      : null;
-
-  if (!xReplitToken || !hostname) {
-    throw new Error("Stripe credentials not configured — set STRIPE_SECRET_KEY and STRIPE_PUBLISHABLE_KEY, or connect via the Replit Stripe integration");
-  }
-
-  const connectorName = "stripe";
-  const targetEnvironment = useLive ? "production" : "development";
-
-  const url = new URL(`https://${hostname}/api/v2/connection`);
-  url.searchParams.set("include_secrets", "true");
-  url.searchParams.set("connector_names", connectorName);
-  url.searchParams.set("environment", targetEnvironment);
-
-  const response = await fetch(url.toString(), {
-    signal: AbortSignal.timeout(10_000),
-    headers: {
-      Accept: "application/json",
-      "X-Replit-Token": xReplitToken,
-    },
-  });
-
-  if (!response.ok) {
-    throw new Error(`Stripe credentials fetch failed: HTTP ${response.status}`);
-  }
-
-  const data = (await response.json()) as {
-    items?: Array<{ settings: { publishable: string; secret: string } }>;
-  };
-  const connectionSettings = data.items?.[0];
-
-  if (!connectionSettings?.settings?.publishable || !connectionSettings?.settings?.secret) {
-    throw new Error(`Stripe ${targetEnvironment} connection not found — set STRIPE_SECRET_KEY and STRIPE_PUBLISHABLE_KEY, or connect via the Replit Stripe integration`);
+  if (!envPublishable) {
+    throw new Error(
+      `Stripe credentials not configured — set ${publishableVar} in Replit Secrets (active mode: ${useLive ? "live" : "test"}).`,
+    );
   }
 
   return {
-    publishableKey: connectionSettings.settings.publishable,
-    secretKey: connectionSettings.settings.secret,
-    environment: targetEnvironment,
+    publishableKey: envPublishable,
+    secretKey: envSecret,
+    environment: useLive ? "production" : "development",
   };
 }
 

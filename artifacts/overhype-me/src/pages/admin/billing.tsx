@@ -32,7 +32,6 @@ interface StripeEnvStatus {
   publishableKeyLive: boolean;
   webhookSecretTest: boolean;
   webhookSecretLive: boolean;
-  webhookSecretFallback: boolean;
 }
 
 interface StripeSummary {
@@ -367,35 +366,23 @@ export default function AdminBilling() {
                 <p className="text-sm font-medium text-destructive">Stripe not connected</p>
               </div>
               <div className="bg-muted/50 border border-border rounded-sm p-4 space-y-2 text-sm text-muted-foreground">
-                <p className="font-medium text-foreground">To connect Stripe, choose one option:</p>
-                <ol className="list-decimal list-inside space-y-1.5 ml-1">
+                <p className="font-medium text-foreground">To connect Stripe, set all six per-mode secrets in Replit Secrets:</p>
+                <p>
+                  Each mode reads from exactly one variable — no legacy or fallback values are accepted.
+                  Once all six are set, flipping the Stripe mode toggle above is a one-click switch.
+                </p>
+                <ul className="list-disc list-inside ml-1 mt-1 space-y-0.5 text-xs">
                   <li>
-                    <strong>Replit integration:</strong> Open the{" "}
-                    <span className="text-primary">Integrations</span> panel in the Replit sidebar and connect your Stripe account.
+                    <code className="bg-secondary px-1 rounded">STRIPE_SECRET_KEY_TEST</code>,{" "}
+                    <code className="bg-secondary px-1 rounded">STRIPE_PUBLISHABLE_KEY_TEST</code>,{" "}
+                    <code className="bg-secondary px-1 rounded">STRIPE_WEBHOOK_SECRET_TEST</code>
                   </li>
                   <li>
-                    <strong>Environment variables (recommended for prod):</strong>{" "}
-                    Set all six per-mode secrets so flipping the Stripe mode toggle above is a one-click switch:
-                    <ul className="list-disc list-inside ml-4 mt-1 space-y-0.5 text-xs">
-                      <li>
-                        <code className="bg-secondary px-1 rounded">STRIPE_SECRET_KEY_TEST</code>,{" "}
-                        <code className="bg-secondary px-1 rounded">STRIPE_PUBLISHABLE_KEY_TEST</code>,{" "}
-                        <code className="bg-secondary px-1 rounded">STRIPE_WEBHOOK_SECRET_TEST</code>
-                      </li>
-                      <li>
-                        <code className="bg-secondary px-1 rounded">STRIPE_SECRET_KEY_LIVE</code>,{" "}
-                        <code className="bg-secondary px-1 rounded">STRIPE_PUBLISHABLE_KEY_LIVE</code>,{" "}
-                        <code className="bg-secondary px-1 rounded">STRIPE_WEBHOOK_SECRET_LIVE</code>
-                      </li>
-                    </ul>
-                    <span className="text-xs block mt-1">
-                      The legacy <code className="bg-secondary px-1 rounded">STRIPE_SECRET_KEY</code> /{" "}
-                      <code className="bg-secondary px-1 rounded">STRIPE_PUBLISHABLE_KEY</code> /{" "}
-                      <code className="bg-secondary px-1 rounded">STRIPE_WEBHOOK_SECRET</code>{" "}
-                      vars still work as fallbacks for both modes.
-                    </span>
+                    <code className="bg-secondary px-1 rounded">STRIPE_SECRET_KEY_LIVE</code>,{" "}
+                    <code className="bg-secondary px-1 rounded">STRIPE_PUBLISHABLE_KEY_LIVE</code>,{" "}
+                    <code className="bg-secondary px-1 rounded">STRIPE_WEBHOOK_SECRET_LIVE</code>
                   </li>
-                </ol>
+                </ul>
               </div>
             </div>
           )}
@@ -491,7 +478,7 @@ export default function AdminBilling() {
               done={!!(monthlyPrice || annualPrice || lifetimePrice)}
               label="Membership prices available (monthly, annual, or legendary for life)"
             />
-            <CheckRow done={hasWebhookSecret} label="Webhook signing secret available (any of the env vars below, or fallback)" />
+            <CheckRow done={hasWebhookSecret} label="Webhook signing secret available (one of the per-mode env vars below)" />
             <CheckRow done={hasPriceIds || hasProducts} label="Membership price IDs configured (env or product metadata)" />
           </div>
 
@@ -508,16 +495,6 @@ export default function AdminBilling() {
                 <CheckRow done={summary.stripeEnv.webhookSecretTest} label="STRIPE_WEBHOOK_SECRET_TEST" />
                 <CheckRow done={summary.stripeEnv.webhookSecretLive} label="STRIPE_WEBHOOK_SECRET_LIVE" />
               </div>
-              {summary.stripeEnv.webhookSecretFallback && (
-                <p className="text-xs text-muted-foreground flex items-start gap-2 pt-1">
-                  <AlertTriangle className="w-3.5 h-3.5 text-amber-400 shrink-0 mt-0.5" />
-                  <span>
-                    Legacy <code className="bg-secondary px-1 rounded">STRIPE_WEBHOOK_SECRET</code>{" "}
-                    is set and used as a fallback for both modes when the mode-specific var is missing.
-                    Prefer setting the per-mode vars above.
-                  </span>
-                </p>
-              )}
             </div>
           )}
         </CollapsibleSection>
@@ -560,8 +537,7 @@ export default function AdminBilling() {
                   <li>
                     Copy the <strong>Signing secret</strong> and save it as the matching per-mode env var:{" "}
                     <code className="bg-black/20 px-1 rounded">STRIPE_WEBHOOK_SECRET_TEST</code> for test-mode endpoints,{" "}
-                    <code className="bg-black/20 px-1 rounded">STRIPE_WEBHOOK_SECRET_LIVE</code> for live-mode endpoints. Repeat for the other mode so flipping the live-mode toggle stays one-click.{" "}
-                    <span className="text-amber-400/70">(Legacy <code className="bg-black/20 px-1 rounded">STRIPE_WEBHOOK_SECRET</code> still works as a fallback for either mode if a per-mode var is unset.)</span>
+                    <code className="bg-black/20 px-1 rounded">STRIPE_WEBHOOK_SECRET_LIVE</code> for live-mode endpoints. Repeat for the other mode so flipping the live-mode toggle stays one-click.
                   </li>
                 </ol>
               </div>

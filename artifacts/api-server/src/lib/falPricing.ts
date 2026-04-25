@@ -16,7 +16,7 @@ const FAL_PRICING_API = "https://api.fal.ai/v1/models/pricing";
 const CACHE_STALE_MS = 60 * 60 * 1000; // 1 hour
 
 function getFalApiKey(): string | undefined {
-  return process.env["FAL_AI_API_KEY"] ?? process.env["FAL_KEY"];
+  return process.env["FAL_AI_API_KEY"];
 }
 
 interface FalPricingEntry {
