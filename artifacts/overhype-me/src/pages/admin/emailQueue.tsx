@@ -121,6 +121,7 @@ interface EmailDetailModalProps {
 
 function EmailDetailModal({ row, onClose, onRetry, retrying, retryError }: EmailDetailModalProps) {
   const [bodyTab, setBodyTab] = useState<"text" | "html">("text");
+  const [htmlView, setHtmlView] = useState<"rendered" | "source">("rendered");
 
   useEffect(() => {
     function handleKey(e: KeyboardEvent) {
@@ -186,7 +187,7 @@ function EmailDetailModal({ row, onClose, onRetry, retrying, retryError }: Email
           </div>
 
           <div className="border-t border-border pt-4">
-            <div className="flex items-center gap-1 mb-3">
+            <div className="flex items-center gap-1 mb-3 flex-wrap">
               <button
                 onClick={() => setBodyTab("text")}
                 className={`px-2.5 py-1 text-xs font-medium rounded-sm border transition-colors ${
@@ -209,6 +210,30 @@ function EmailDetailModal({ row, onClose, onRetry, retrying, retryError }: Email
                   HTML
                 </button>
               )}
+              {bodyTab === "html" && row.html && (
+                <div className="ml-auto flex items-center gap-1">
+                  <button
+                    onClick={() => setHtmlView("rendered")}
+                    className={`px-2.5 py-1 text-xs font-medium rounded-sm border transition-colors ${
+                      htmlView === "rendered"
+                        ? "bg-primary text-primary-foreground border-primary"
+                        : "bg-muted text-muted-foreground border-border hover:bg-muted/80"
+                    }`}
+                  >
+                    Rendered
+                  </button>
+                  <button
+                    onClick={() => setHtmlView("source")}
+                    className={`px-2.5 py-1 text-xs font-medium rounded-sm border transition-colors ${
+                      htmlView === "source"
+                        ? "bg-primary text-primary-foreground border-primary"
+                        : "bg-muted text-muted-foreground border-border hover:bg-muted/80"
+                    }`}
+                  >
+                    Source
+                  </button>
+                </div>
+              )}
             </div>
 
             {bodyTab === "text" && (
@@ -217,7 +242,18 @@ function EmailDetailModal({ row, onClose, onRetry, retrying, retryError }: Email
               </pre>
             )}
 
-            {bodyTab === "html" && row.html && (
+            {bodyTab === "html" && row.html && htmlView === "rendered" && (
+              <div className="rounded-lg border border-border overflow-hidden bg-white" style={{ height: "16rem" }}>
+                <iframe
+                  srcDoc={row.html}
+                  sandbox=""
+                  className="w-full h-full"
+                  title="Email HTML preview"
+                />
+              </div>
+            )}
+
+            {bodyTab === "html" && row.html && htmlView === "source" && (
               <pre className="text-xs text-foreground font-mono whitespace-pre-wrap break-words bg-muted/40 rounded-lg p-3 max-h-64 overflow-y-auto border border-border">
                 {row.html}
               </pre>
