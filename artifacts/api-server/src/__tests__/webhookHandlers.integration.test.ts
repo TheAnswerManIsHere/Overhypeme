@@ -542,3 +542,407 @@ describe("charge.dispute.funds_withdrawn / funds_reinstated — admin alert", ()
     await WebhookHandlers.processEventDirectly(event as unknown as import("stripe").default.Event);
   });
 });
+
+// ── Task #230: tightened webhook event coverage ──────────────────────────────
+//
+// These tests cover the new events added in #230 (SCA action required, renewal
+// reminder, card automatically updated, early fraud warning) and the funds
+// movement history extension. The removed `payment_intent.succeeded` case is
+// also exercised to confirm it now ack-noops without throwing.
+
+function makeInvoicePaymentActionRequiredEvent(opts: {
+  customerId: string;
+  invoiceId?: string;
+  hostedInvoiceUrl?: string | null;
+  amountDue?: number | null;
+  currency?: string | null;
+  subscriptionId?: string | null;
+}) {
+  return {
+    id: `evt_t230_${randomUUID().replace(/-/g, "").slice(0, 14)}`,
+    type: "invoice.payment_action_required" as const,
+    object: "event" as const,
+    api_version: "2022-11-15" as const,
+    created: Math.floor(Date.now() / 1000),
+    livemode: false,
+    pending_webhooks: 0,
+    request: null,
+    data: {
+      object: {
+        id: opts.invoiceId ?? `in_t230_${randomUUID().replace(/-/g, "").slice(0, 14)}`,
+        customer: opts.customerId,
+        hosted_invoice_url: opts.hostedInvoiceUrl ?? "https://invoice.stripe.com/i/test_dummy",
+        amount_due: opts.amountDue ?? 999,
+        currency: opts.currency ?? "usd",
+        subscription: opts.subscriptionId ?? null,
+      },
+    },
+  };
+}
+
+function makeInvoiceUpcomingEvent(opts: {
+  customerId: string;
+  amountDue?: number | null;
+  currency?: string | null;
+  nextAttempt?: number | null;
+  subscriptionId?: string | null;
+}) {
+  return {
+    id: `evt_t230_${randomUUID().replace(/-/g, "").slice(0, 14)}`,
+    type: "invoice.upcoming" as const,
+    object: "event" as const,
+    api_version: "2022-11-15" as const,
+    created: Math.floor(Date.now() / 1000),
+    livemode: false,
+    pending_webhooks: 0,
+    request: null,
+    data: {
+      object: {
+        customer: opts.customerId,
+        amount_due: opts.amountDue ?? 999,
+        currency: opts.currency ?? "usd",
+        next_payment_attempt: opts.nextAttempt ?? Math.floor(Date.now() / 1000) + 60 * 60 * 24 * 7,
+        subscription: opts.subscriptionId ?? null,
+      },
+    },
+  };
+}
+
+function makePaymentMethodAutoUpdatedEvent(opts: {
+  customerId: string;
+  paymentMethodId?: string;
+  brand?: string;
+  last4?: string;
+}) {
+  return {
+    id: `evt_t230_${randomUUID().replace(/-/g, "").slice(0, 14)}`,
+    type: "payment_method.automatically_updated" as const,
+    object: "event" as const,
+    api_version: "2022-11-15" as const,
+    created: Math.floor(Date.now() / 1000),
+    livemode: false,
+    pending_webhooks: 0,
+    request: null,
+    data: {
+      object: {
+        id: opts.paymentMethodId ?? `pm_t230_${randomUUID().replace(/-/g, "").slice(0, 14)}`,
+        customer: opts.customerId,
+        card: { brand: opts.brand ?? "visa", last4: opts.last4 ?? "4242" },
+      },
+    },
+  };
+}
+
+function makePaymentIntentSucceededEvent() {
+  return {
+    id: `evt_t230_${randomUUID().replace(/-/g, "").slice(0, 14)}`,
+    type: "payment_intent.succeeded" as const,
+    object: "event" as const,
+    api_version: "2022-11-15" as const,
+    created: Math.floor(Date.now() / 1000),
+    livemode: false,
+    pending_webhooks: 0,
+    request: null,
+    data: {
+      object: {
+        id: `pi_t230_${randomUUID().replace(/-/g, "").slice(0, 14)}`,
+        customer: `cus_t230_${randomUUID().replace(/-/g, "").slice(0, 14)}`,
+        amount: 19900,
+        currency: "usd",
+        invoice: null,
+        metadata: { membership: "true", plan: "lifetime" },
+      },
+    },
+  };
+}
+
+function makeEarlyFraudWarningEvent(opts: {
+  chargeId: string;
+  paymentIntentId?: string | null;
+  fraudType?: string;
+  actionable?: boolean;
+}) {
+  return {
+    id: `evt_t230_${randomUUID().replace(/-/g, "").slice(0, 14)}`,
+    type: "radar.early_fraud_warning.created" as const,
+    object: "event" as const,
+    api_version: "2022-11-15" as const,
+    created: Math.floor(Date.now() / 1000),
+    livemode: false,
+    pending_webhooks: 0,
+    request: null,
+    data: {
+      object: {
+        id: `issfr_t230_${randomUUID().replace(/-/g, "").slice(0, 14)}`,
+        charge: opts.chargeId,
+        payment_intent: opts.paymentIntentId ?? null,
+        actionable: opts.actionable ?? true,
+        fraud_type: opts.fraudType ?? "fraudulent",
+      },
+    },
+  };
+}
+
+function makeFundsMovementWithChargeEvent(
+  kind: "funds_withdrawn" | "funds_reinstated",
+  opts: { chargeId: string; paymentIntentId: string | null; amount?: number; disputeId?: string },
+) {
+  return {
+    id: `evt_t230_${randomUUID().replace(/-/g, "").slice(0, 14)}`,
+    type: `charge.dispute.${kind}` as const,
+    object: "event" as const,
+    api_version: "2022-11-15" as const,
+    created: Math.floor(Date.now() / 1000),
+    livemode: false,
+    pending_webhooks: 0,
+    request: null,
+    data: {
+      object: {
+        id: opts.disputeId ?? `dp_t230_${randomUUID().replace(/-/g, "").slice(0, 14)}`,
+        charge: opts.chargeId,
+        payment_intent: opts.paymentIntentId,
+        amount: opts.amount ?? 19900,
+        currency: "usd",
+      },
+    },
+  };
+}
+
+describe("invoice.payment_action_required — SCA email + history (Task #230)", () => {
+  it("records payment_action_required history for the user", async () => {
+    const { id: userId, stripeCustomerId } = await createTestUser({ tier: "legendary" });
+    try {
+      const event = makeInvoicePaymentActionRequiredEvent({ customerId: stripeCustomerId });
+      await WebhookHandlers.processEventDirectly(event as unknown as import("stripe").default.Event);
+
+      const history = await getHistory(userId, "payment_action_required");
+      assert.equal(history.length, 1, "payment_action_required history row must exist");
+      assert.ok(history[0].stripeInvoiceId, "history row should have invoice ID");
+      assert.equal(history[0].amount, 999);
+    } finally {
+      await cleanupUser(userId);
+    }
+  });
+
+  it("ack-noops when customer has no matching user — does not throw", async () => {
+    const event = makeInvoicePaymentActionRequiredEvent({
+      customerId: `cus_t230_unknown_${randomUUID().replace(/-/g, "").slice(0, 8)}`,
+    });
+    await WebhookHandlers.processEventDirectly(event as unknown as import("stripe").default.Event);
+  });
+});
+
+describe("invoice.upcoming — renewal reminder + history (Task #230)", () => {
+  it("records renewal_reminder history for the user", async () => {
+    const { id: userId, stripeCustomerId } = await createTestUser({ tier: "legendary" });
+    try {
+      const event = makeInvoiceUpcomingEvent({ customerId: stripeCustomerId });
+      await WebhookHandlers.processEventDirectly(event as unknown as import("stripe").default.Event);
+
+      const history = await getHistory(userId, "renewal_reminder");
+      assert.equal(history.length, 1, "renewal_reminder history row must exist");
+      assert.equal(history[0].amount, 999);
+      assert.equal(history[0].currency, "usd");
+    } finally {
+      await cleanupUser(userId);
+    }
+  });
+
+  it("ack-noops when customer has no matching user — does not throw", async () => {
+    const event = makeInvoiceUpcomingEvent({
+      customerId: `cus_t230_unknown_${randomUUID().replace(/-/g, "").slice(0, 8)}`,
+    });
+    await WebhookHandlers.processEventDirectly(event as unknown as import("stripe").default.Event);
+  });
+});
+
+describe("payment_method.automatically_updated — card refresh + history (Task #230)", () => {
+  it("records payment_method_updated history for the user", async () => {
+    const { id: userId, stripeCustomerId } = await createTestUser({ tier: "legendary" });
+    try {
+      const event = makePaymentMethodAutoUpdatedEvent({ customerId: stripeCustomerId });
+      await WebhookHandlers.processEventDirectly(event as unknown as import("stripe").default.Event);
+
+      const history = await getHistory(userId, "payment_method_updated");
+      assert.equal(history.length, 1, "payment_method_updated history row must exist");
+      assert.equal(await getUserTier(userId), "legendary", "tier unchanged by card refresh");
+    } finally {
+      await cleanupUser(userId);
+    }
+  });
+
+  it("ack-noops when customer has no matching user — does not throw", async () => {
+    const event = makePaymentMethodAutoUpdatedEvent({
+      customerId: `cus_t230_unknown_${randomUUID().replace(/-/g, "").slice(0, 8)}`,
+    });
+    await WebhookHandlers.processEventDirectly(event as unknown as import("stripe").default.Event);
+  });
+});
+
+describe("payment_intent.succeeded — removed/no-op (Task #230)", () => {
+  it("acks 200 silently without throwing or granting anything", async () => {
+    // Removed in #230 — handled by checkout.session.completed (one-time) and
+    // invoice.paid (subscription). The case is intentionally retained as a
+    // logged no-op to handle in-flight retries during the Dashboard cutover.
+    const event = makePaymentIntentSucceededEvent();
+    await WebhookHandlers.processEventDirectly(event as unknown as import("stripe").default.Event);
+  });
+});
+
+describe("radar.early_fraud_warning.created — admin alert + history (Task #230)", () => {
+  it("records early_fraud_warning history for resolved user (lifetime payment intent path)", async () => {
+    const { id: userId, stripeCustomerId } = await createTestUser({ tier: "legendary" });
+    const { piId } = await createTestLifetimeEntitlement(userId, stripeCustomerId);
+    try {
+      const event = makeEarlyFraudWarningEvent({
+        chargeId: `ch_t230_${randomUUID().replace(/-/g, "").slice(0, 14)}`,
+        paymentIntentId: piId,
+        fraudType: "fraudulent",
+        actionable: true,
+      });
+      await WebhookHandlers.processEventDirectly(event as unknown as import("stripe").default.Event);
+
+      const history = await getHistory(userId, "early_fraud_warning");
+      assert.equal(history.length, 1, "early_fraud_warning history row must exist");
+      assert.equal(history[0].stripePaymentIntentId, piId);
+      // Critical guarantee: warning must NOT auto-revoke or auto-refund.
+      assert.equal(await getUserTier(userId), "legendary", "fraud warning must not auto-revoke");
+      assert.equal(await getLifetimeStatus(piId), "active", "fraud warning must not auto-refund");
+    } finally {
+      await cleanupUser(userId);
+    }
+  });
+
+  it("ack-noops when payment intent and charge are unresolvable — admin alert still fires (no throw)", async () => {
+    const event = makeEarlyFraudWarningEvent({
+      chargeId: `ch_t230_fake_${randomUUID().replace(/-/g, "").slice(0, 8)}`,
+      paymentIntentId: `pi_t230_unknown_${randomUUID().replace(/-/g, "").slice(0, 8)}`,
+    });
+    await WebhookHandlers.processEventDirectly(event as unknown as import("stripe").default.Event);
+  });
+});
+
+describe("charge.dispute.funds_withdrawn — funds movement history (Task #230)", () => {
+  it("records dispute_funds_withdrawn history for the user when charge is resolvable", async () => {
+    const { id: userId, stripeCustomerId } = await createTestUser({ tier: "registered" });
+    const { piId } = await createTestLifetimeEntitlement(userId, stripeCustomerId);
+    const disputeId = `dp_t230_fw_${randomUUID().replace(/-/g, "").slice(0, 8)}`;
+    try {
+      const event = makeFundsMovementWithChargeEvent("funds_withdrawn", {
+        chargeId: `ch_t230_${randomUUID().replace(/-/g, "").slice(0, 14)}`,
+        paymentIntentId: piId,
+        disputeId,
+        amount: 19900,
+      });
+      await WebhookHandlers.processEventDirectly(event as unknown as import("stripe").default.Event);
+
+      const history = await getHistory(userId, "dispute_funds_withdrawn");
+      assert.equal(history.length, 1, "dispute_funds_withdrawn history row must exist");
+      assert.equal(history[0].stripeDisputeId, disputeId);
+      assert.equal(history[0].amount, 19900);
+    } finally {
+      await cleanupUser(userId);
+    }
+  });
+
+  it("records dispute_funds_reinstated history when funds returned to balance", async () => {
+    const { id: userId, stripeCustomerId } = await createTestUser({ tier: "legendary" });
+    const { piId } = await createTestLifetimeEntitlement(userId, stripeCustomerId);
+    const disputeId = `dp_t230_fr_${randomUUID().replace(/-/g, "").slice(0, 8)}`;
+    try {
+      const event = makeFundsMovementWithChargeEvent("funds_reinstated", {
+        chargeId: `ch_t230_${randomUUID().replace(/-/g, "").slice(0, 14)}`,
+        paymentIntentId: piId,
+        disputeId,
+        amount: 19900,
+      });
+      await WebhookHandlers.processEventDirectly(event as unknown as import("stripe").default.Event);
+
+      const history = await getHistory(userId, "dispute_funds_reinstated");
+      assert.equal(history.length, 1, "dispute_funds_reinstated history row must exist");
+      assert.equal(history[0].stripeDisputeId, disputeId);
+    } finally {
+      await cleanupUser(userId);
+    }
+  });
+});
+
+describe("Task #230 — idempotent re-delivery of new handlers", () => {
+  // These tests mirror the convention used elsewhere in this file: replay the
+  // same event via processEventDirectly twice and assert state stays sane. In
+  // production processWebhook gates duplicate event IDs at the
+  // stripe_processed_events table BEFORE dispatch — see processWebhook in
+  // webhookHandlers.ts. processEventDirectly intentionally bypasses that gate
+  // so we can verify each handler is internally well-behaved on replay.
+
+  it("invoice.payment_action_required — replay does not corrupt state", async () => {
+    const { id: userId, stripeCustomerId } = await createTestUser({ tier: "legendary" });
+    try {
+      const event = makeInvoicePaymentActionRequiredEvent({ customerId: stripeCustomerId });
+      await WebhookHandlers.processEventDirectly(event as unknown as import("stripe").default.Event);
+      const after1 = await getHistory(userId, "payment_action_required");
+      await WebhookHandlers.processEventDirectly(event as unknown as import("stripe").default.Event);
+      assert.ok(after1.length >= 1, "first delivery must have recorded history");
+      assert.equal(await getUserTier(userId), "legendary", "tier unchanged across replays");
+    } finally {
+      await cleanupUser(userId);
+    }
+  });
+
+  it("invoice.upcoming — replay does not corrupt state", async () => {
+    const { id: userId, stripeCustomerId } = await createTestUser({ tier: "legendary" });
+    try {
+      const event = makeInvoiceUpcomingEvent({ customerId: stripeCustomerId });
+      await WebhookHandlers.processEventDirectly(event as unknown as import("stripe").default.Event);
+      const after1 = await getHistory(userId, "renewal_reminder");
+      await WebhookHandlers.processEventDirectly(event as unknown as import("stripe").default.Event);
+      assert.ok(after1.length >= 1, "first delivery must have recorded history");
+      assert.equal(await getUserTier(userId), "legendary", "tier unchanged across replays");
+    } finally {
+      await cleanupUser(userId);
+    }
+  });
+
+  it("payment_method.automatically_updated — replay does not corrupt state", async () => {
+    const { id: userId, stripeCustomerId } = await createTestUser({ tier: "legendary" });
+    try {
+      const event = makePaymentMethodAutoUpdatedEvent({ customerId: stripeCustomerId });
+      await WebhookHandlers.processEventDirectly(event as unknown as import("stripe").default.Event);
+      const after1 = await getHistory(userId, "payment_method_updated");
+      await WebhookHandlers.processEventDirectly(event as unknown as import("stripe").default.Event);
+      assert.ok(after1.length >= 1, "first delivery must have recorded history");
+      assert.equal(await getUserTier(userId), "legendary", "tier unchanged across replays");
+    } finally {
+      await cleanupUser(userId);
+    }
+  });
+
+  it("radar.early_fraud_warning.created — replay does not auto-revoke or auto-refund", async () => {
+    const { id: userId, stripeCustomerId } = await createTestUser({ tier: "legendary" });
+    const { piId } = await createTestLifetimeEntitlement(userId, stripeCustomerId);
+    try {
+      const event = makeEarlyFraudWarningEvent({
+        chargeId: `ch_t230_${randomUUID().replace(/-/g, "").slice(0, 14)}`,
+        paymentIntentId: piId,
+      });
+      await WebhookHandlers.processEventDirectly(event as unknown as import("stripe").default.Event);
+      const after1 = await getHistory(userId, "early_fraud_warning");
+      await WebhookHandlers.processEventDirectly(event as unknown as import("stripe").default.Event);
+      assert.ok(after1.length >= 1, "first delivery must have recorded history");
+      // Critical guarantee: replays must never auto-revoke or auto-refund.
+      assert.equal(await getUserTier(userId), "legendary", "fraud warning replay must not auto-revoke");
+      assert.equal(await getLifetimeStatus(piId), "active", "fraud warning replay must not auto-refund");
+    } finally {
+      await cleanupUser(userId);
+    }
+  });
+
+  it("payment_intent.succeeded (no-op) — replay is silent", async () => {
+    const event = makePaymentIntentSucceededEvent();
+    await WebhookHandlers.processEventDirectly(event as unknown as import("stripe").default.Event);
+    await WebhookHandlers.processEventDirectly(event as unknown as import("stripe").default.Event);
+    // No assertions needed — the requirement is that replaying the removed
+    // event neither throws nor produces side effects. Lack of throw is the
+    // assertion.
+  });
+});

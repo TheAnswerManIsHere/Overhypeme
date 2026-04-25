@@ -404,3 +404,182 @@ ${divider()}
 
   return { subject, text, html };
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Stripe billing lifecycle emails (Task #230 — webhook coverage)
+// ─────────────────────────────────────────────────────────────────────────────
+
+function formatMoney(amountMinor: number, currency: string): string {
+  const upperCurrency = currency.toUpperCase();
+  try {
+    return new Intl.NumberFormat("en-US", {
+      style: "currency",
+      currency: upperCurrency,
+    }).format(amountMinor / 100);
+  } catch {
+    return `${(amountMinor / 100).toFixed(2)} ${upperCurrency}`;
+  }
+}
+
+function formatDate(unixSeconds: number): string {
+  try {
+    return new Intl.DateTimeFormat("en-US", {
+      month: "long",
+      day: "numeric",
+      year: "numeric",
+    }).format(new Date(unixSeconds * 1000));
+  } catch {
+    return new Date(unixSeconds * 1000).toISOString().slice(0, 10);
+  }
+}
+
+/**
+ * Sent when Stripe fires `invoice.payment_action_required`. The customer's bank
+ * is asking for SCA / 3DS confirmation before the renewal can settle. Failure to
+ * complete will lapse Legendary access at the next billing attempt.
+ */
+export function buildSCAActionRequiredEmail(opts: {
+  hostedInvoiceUrl: string;
+  amountMinor?: number | null;
+  currency?: string | null;
+}): Pick<EmailPayload, "subject" | "text" | "html"> {
+  const subject = "Action required: confirm your renewal — Overhype.me";
+  const amountLine =
+    opts.amountMinor != null && opts.currency
+      ? `Amount: ${formatMoney(opts.amountMinor, opts.currency)}`
+      : "";
+
+  const text = [
+    "ACTION REQUIRED — CONFIRM YOUR RENEWAL.",
+    "",
+    "Your bank is asking us to verify your renewal payment (SCA/3DS).",
+    "Until you confirm, your Legendary access is at risk of lapsing.",
+    ...(amountLine ? ["", amountLine] : []),
+    "",
+    "Confirm here:",
+    opts.hostedInvoiceUrl,
+    "",
+    "— The Overhype.me Team",
+  ].join("\n");
+
+  const amountHtml =
+    opts.amountMinor != null && opts.currency
+      ? `<p style="margin:0 0 24px;font-size:15px;color:#aaaaaa;line-height:1.75;">Amount due: <strong style="color:#ffffff;">${formatMoney(opts.amountMinor, opts.currency)}</strong></p>`
+      : "";
+
+  const body = `
+<h1 style="margin:0 0 16px;font-family:'Oswald','Impact','Arial Narrow',sans-serif;font-size:28px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:#ffffff;line-height:1.2;mso-font-alt:'Impact';">Confirm Your<br/>Renewal.</h1>
+<p style="margin:0 0 16px;font-size:15px;color:#aaaaaa;line-height:1.75;">Your bank is asking us to verify your renewal payment before it can settle (SCA / 3D Secure). Until you confirm, your <strong style="color:#ffffff;">Legendary</strong>&nbsp;access is at risk of&nbsp;lapsing.</p>
+${amountHtml}
+${ctaButton(opts.hostedInvoiceUrl, "Confirm Payment")}
+${linkFallback(opts.hostedInvoiceUrl)}
+${divider()}
+<p style="margin:0;font-size:12px;color:#555555;line-height:1.7;font-family:'Inter',-apple-system,sans-serif;">You&#39;re receiving this because your bank requested additional verification on your Overhype.me renewal.</p>`;
+
+  const html = buildEmailShell(
+    body,
+    "You&#39;re receiving this because your bank requested additional verification on your Overhype.me renewal.",
+  );
+  return { subject, text, html };
+}
+
+/**
+ * Sent when Stripe fires `payment_method.automatically_updated` — the card
+ * network handed Stripe a new expiration / number for the saved card.
+ */
+export function buildCardAutomaticallyUpdatedEmail(opts: {
+  brand?: string | null;
+  last4?: string | null;
+}): Pick<EmailPayload, "subject" | "text" | "html"> {
+  const subject = "Your card on file was updated — Overhype.me";
+  const cardLabel = opts.brand && opts.last4
+    ? `${opts.brand.toUpperCase()} ending in ${opts.last4}`
+    : opts.last4
+      ? `card ending in ${opts.last4}`
+      : "your card on file";
+
+  const text = [
+    "YOUR CARD ON FILE WAS UPDATED.",
+    "",
+    `Your card network sent us refreshed details for ${cardLabel}.`,
+    "No action required — your Legendary renewals will continue uninterrupted.",
+    "",
+    "If you didn't expect this, manage billing from your profile.",
+    "",
+    "— The Overhype.me Team",
+  ].join("\n");
+
+  const safeCard = cardLabel.replace(/</g, "&lt;");
+
+  const body = `
+<h1 style="margin:0 0 16px;font-family:'Oswald','Impact','Arial Narrow',sans-serif;font-size:28px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:#ffffff;line-height:1.2;mso-font-alt:'Impact';">Card On File<br/>Updated.</h1>
+<p style="margin:0 0 16px;font-size:15px;color:#aaaaaa;line-height:1.75;">Your card network sent us refreshed details for <strong style="color:#ffffff;">${safeCard}</strong>.</p>
+<p style="margin:0 0 24px;font-size:15px;color:#aaaaaa;line-height:1.75;">No action required — your Legendary renewals will continue uninterrupted.</p>
+${divider()}
+<p style="margin:0;font-size:12px;color:#555555;line-height:1.7;font-family:'Inter',-apple-system,sans-serif;">If you didn&#39;t expect this update, manage billing from your Overhype.me profile.</p>`;
+
+  const html = buildEmailShell(
+    body,
+    "You&#39;re receiving this because your saved Overhype.me payment method was updated by the card network.",
+  );
+  return { subject, text, html };
+}
+
+/**
+ * Sent when Stripe fires `invoice.upcoming` (~7 days before renewal). Gives the
+ * customer notice so they can update their card or cancel before the charge.
+ */
+export function buildRenewalReminderEmail(opts: {
+  amountMinor: number;
+  currency: string;
+  /** Unix seconds for next charge attempt; null/undefined → omitted from copy */
+  nextAttemptAt?: number | null;
+  /** Plan label for the body copy (e.g. "monthly", "annual") */
+  plan?: string | null;
+}): Pick<EmailPayload, "subject" | "text" | "html"> {
+  const formattedAmount = formatMoney(opts.amountMinor, opts.currency);
+  const dateLabel = opts.nextAttemptAt ? formatDate(opts.nextAttemptAt) : null;
+  const planLabel = opts.plan ? `${opts.plan} ` : "";
+
+  const subject = dateLabel
+    ? `Your Overhype.me renewal — ${formattedAmount} on ${dateLabel}`
+    : `Your Overhype.me renewal — ${formattedAmount}`;
+
+  const text = [
+    "RENEWAL COMING UP.",
+    "",
+    `Your ${planLabel}Legendary subscription renews for ${formattedAmount}${dateLabel ? ` on ${dateLabel}` : ""}.`,
+    "If your card needs updating or you want to cancel, do it before the charge.",
+    "",
+    "Manage billing from your Overhype.me profile.",
+    "",
+    "— The Overhype.me Team",
+  ].join("\n");
+
+  const dateHtml = dateLabel
+    ? `<p style="margin:0 0 6px;font-size:11px;color:#777777;font-family:'Inter',-apple-system,sans-serif;text-transform:uppercase;letter-spacing:1px;">Renewal date</p>
+<p style="margin:0 0 18px;font-size:16px;font-weight:600;color:#ffffff;">${dateLabel}</p>`
+    : "";
+
+  const body = `
+<h1 style="margin:0 0 16px;font-family:'Oswald','Impact','Arial Narrow',sans-serif;font-size:28px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:#ffffff;line-height:1.2;mso-font-alt:'Impact';">Renewal<br/>Coming Up.</h1>
+<p style="margin:0 0 24px;font-size:15px;color:#aaaaaa;line-height:1.75;">Your ${planLabel}<strong style="color:#ffffff;">Legendary</strong> subscription is about to&nbsp;renew.</p>
+<table cellpadding="0" cellspacing="0" border="0" width="100%" style="margin:0 0 28px;background:#1c1c1e;">
+  <tr>
+    <td style="padding:14px 16px;border-left:4px solid #FF3C00;">
+      <p style="margin:0 0 6px;font-size:11px;color:#777777;font-family:'Inter',-apple-system,sans-serif;text-transform:uppercase;letter-spacing:1px;">Amount</p>
+      <p style="margin:0 0 ${dateLabel ? "18" : "0"}px;font-size:18px;font-weight:700;color:#ffffff;font-family:'Oswald','Impact','Arial Narrow',sans-serif;mso-font-alt:'Impact';">${formattedAmount}</p>
+      ${dateHtml}
+    </td>
+  </tr>
+</table>
+<p style="margin:0 0 24px;font-size:15px;color:#aaaaaa;line-height:1.75;">If your card needs updating or you&#39;d like to cancel, manage billing from your Overhype.me profile before the charge runs.</p>
+${divider()}
+<p style="margin:0;font-size:12px;color:#555555;line-height:1.7;font-family:'Inter',-apple-system,sans-serif;">You&#39;re receiving this renewal reminder because you have an active Overhype.me Legendary subscription.</p>`;
+
+  const html = buildEmailShell(
+    body,
+    "You&#39;re receiving this because you have an active Overhype.me Legendary subscription.",
+  );
+  return { subject, text, html };
+}

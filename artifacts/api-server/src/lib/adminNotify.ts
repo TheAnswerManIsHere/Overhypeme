@@ -282,3 +282,131 @@ ${divider()}
 
   return { subject: copy.subject, text, html };
 }
+
+// ── Early fraud warning admin alert (Task #230) ──────────────────────────────
+
+export interface AdminFraudWarningNotifyOpts {
+  /** Stripe early fraud warning ID (e.g. issfr_xxx) */
+  warningId: string;
+  /** Stripe charge ID being flagged (e.g. ch_xxx) */
+  chargeId: string;
+  /** Charge amount in the smallest currency unit (e.g. cents) */
+  amount: number;
+  /** ISO currency code (e.g. "usd") */
+  currency: string;
+  /** Whether the warning is from live mode (controls Stripe dashboard URL) */
+  livemode: boolean;
+  /** Stripe-supplied fraud type label (e.g. "fraudulent", "merchandise_not_received") */
+  fraudType?: string | null;
+  /** Whether Stripe says this charge is actionable (we can refund to dodge a chargeback) */
+  actionable?: boolean | null;
+}
+
+/**
+ * Sends an early fraud warning alert to every admin who has `disputeNotifications = true`.
+ * Fired by `radar.early_fraud_warning.created` — admins must decide whether to proactively
+ * refund within the 24–72 hour window before the cardholder files a formal chargeback.
+ *
+ * Reuses the dispute-notifications opt-in flag (per Task #230) — fraud warnings are the
+ * pre-cursor to a dispute, so the same audience cares about both. Fire-and-forget.
+ */
+export async function notifyAdminsOfFraudWarning(opts: AdminFraudWarningNotifyOpts): Promise<void> {
+  try {
+    const admins = await db
+      .select({ email: usersTable.email })
+      .from(usersTable)
+      .where(
+        and(
+          eq(usersTable.isAdmin, true),
+          eq(usersTable.disputeNotifications, true),
+          eq(usersTable.isActive, true),
+        ),
+      );
+
+    const emails = admins.map(a => a.email).filter((e): e is string => !!e);
+    if (emails.length === 0) return;
+
+    const { subject, text, html } = buildFraudWarningEmail(opts);
+    await Promise.all(emails.map(to => sendEmail({ to, subject, text, html })));
+  } catch (err) {
+    console.error("[notifyAdminsOfFraudWarning] Failed:", err);
+  }
+}
+
+function buildFraudWarningEmail(opts: AdminFraudWarningNotifyOpts) {
+  const formattedAmount = formatAmount(opts.amount, opts.currency);
+  const dashboardUrl = opts.livemode
+    ? `https://dashboard.stripe.com/radar/early-fraud-warnings/${opts.warningId}`
+    : `https://dashboard.stripe.com/test/radar/early-fraud-warnings/${opts.warningId}`;
+
+  const subject = `[Overhype.me] URGENT: Early fraud warning (${formattedAmount}) — refund within 24–72h to avoid chargeback`;
+
+  const fraudTypeLine = opts.fraudType ? `Fraud type: ${opts.fraudType}` : "";
+  const actionableLine =
+    opts.actionable === true
+      ? "Stripe marks this as actionable — proactively refunding now will likely prevent a chargeback."
+      : opts.actionable === false
+        ? "Stripe marks this as non-actionable — a refund will not prevent a chargeback."
+        : "";
+
+  const text = [
+    "URGENT: STRIPE FLAGGED A CHARGE FOR EARLY FRAUD.",
+    "",
+    "Stripe's Radar issued an early fraud warning for one of your charges.",
+    "You typically have 24–72 hours to proactively refund before the",
+    "cardholder files a formal chargeback. Disputes cost more than refunds.",
+    ...(actionableLine ? ["", actionableLine] : []),
+    ...(fraudTypeLine ? ["", fraudTypeLine] : []),
+    "",
+    `Warning ID: ${opts.warningId}`,
+    `Charge ID:  ${opts.chargeId}`,
+    `Amount:     ${formattedAmount}`,
+    `Mode:       ${opts.livemode ? "LIVE" : "TEST"}`,
+    "",
+    `Open in Stripe: ${dashboardUrl}`,
+    "",
+    "— Overhype.me Admin System",
+  ].join("\n");
+
+  const siteUrl = getSiteBaseUrl();
+  const safeWarningId = opts.warningId.replace(/</g, "&lt;");
+  const safeChargeId = opts.chargeId.replace(/</g, "&lt;");
+  const modeBadge = opts.livemode
+    ? `<span style="display:inline-block;padding:2px 8px;background:#FF3C00;color:#ffffff;font-size:10px;font-weight:700;letter-spacing:1px;text-transform:uppercase;font-family:'Oswald','Impact','Arial Narrow',sans-serif;mso-font-alt:'Impact';">Live</span>`
+    : `<span style="display:inline-block;padding:2px 8px;background:#444444;color:#ffffff;font-size:10px;font-weight:700;letter-spacing:1px;text-transform:uppercase;font-family:'Oswald','Impact','Arial Narrow',sans-serif;mso-font-alt:'Impact';">Test</span>`;
+
+  const fraudTypeHtml = opts.fraudType
+    ? `<p style="margin:0 0 6px;font-size:11px;color:#777777;font-family:'Inter',-apple-system,sans-serif;text-transform:uppercase;letter-spacing:1px;">Fraud type</p>
+<p style="margin:0 0 14px;font-size:14px;font-weight:600;color:#dddddd;">${opts.fraudType.replace(/</g, "&lt;")}</p>`
+    : "";
+
+  const actionableHtml = actionableLine
+    ? `<p style="margin:0 0 20px;font-size:14px;color:${opts.actionable ? "#FF3C00" : "#aaaaaa"};line-height:1.7;font-weight:${opts.actionable ? "600" : "400"};">${actionableLine}</p>`
+    : "";
+
+  const body = `
+<h1 style="margin:0 0 8px;font-family:'Oswald','Impact','Arial Narrow',sans-serif;font-size:24px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:#ffffff;line-height:1.2;mso-font-alt:'Impact';">Early Fraud<br/>Warning ${modeBadge}</h1>
+<p style="margin:0 0 24px;font-size:14px;color:#FF3C00;line-height:1.6;font-weight:600;text-transform:uppercase;letter-spacing:1px;font-family:'Oswald','Impact','Arial Narrow',sans-serif;mso-font-alt:'Impact';">Refund window: 24–72 hours</p>
+<p style="margin:0 0 16px;font-size:15px;color:#aaaaaa;line-height:1.75;">Stripe&#39;s Radar flagged a charge as likely-fraudulent. Proactively refunding now usually prevents the cardholder from filing a formal chargeback later — and chargebacks cost more than the refund itself.</p>
+${actionableHtml}
+<table cellpadding="0" cellspacing="0" border="0" width="100%" style="margin:0 0 28px;background:#1c1c1e;">
+  <tr>
+    <td style="padding:14px 16px;border-left:4px solid #FF3C00;">
+      <p style="margin:0 0 6px;font-size:11px;color:#777777;font-family:'Inter',-apple-system,sans-serif;text-transform:uppercase;letter-spacing:1px;">Amount</p>
+      <p style="margin:0 0 14px;font-size:18px;font-weight:700;color:#ffffff;font-family:'Oswald','Impact','Arial Narrow',sans-serif;mso-font-alt:'Impact';">${formattedAmount}</p>
+      ${fraudTypeHtml}
+      <p style="margin:0 0 6px;font-size:11px;color:#777777;font-family:'Inter',-apple-system,sans-serif;text-transform:uppercase;letter-spacing:1px;">Warning ID</p>
+      <p style="margin:0 0 10px;font-size:13px;font-weight:600;color:#dddddd;font-family:'Courier New',monospace;word-break:break-all;">${safeWarningId}</p>
+      <p style="margin:0 0 6px;font-size:11px;color:#777777;font-family:'Inter',-apple-system,sans-serif;text-transform:uppercase;letter-spacing:1px;">Charge ID</p>
+      <p style="margin:0;font-size:13px;font-weight:600;color:#dddddd;font-family:'Courier New',monospace;word-break:break-all;">${safeChargeId}</p>
+    </td>
+  </tr>
+</table>
+${ctaButton(dashboardUrl, "Review in Stripe")}
+${divider()}
+<p style="margin:0;font-size:12px;color:#555555;line-height:1.7;font-family:'Inter',-apple-system,sans-serif;">You&#39;re receiving this because you have Stripe dispute alerts enabled on Overhype.me. <a href="${siteUrl}/admin/users" target="_blank" style="color:#FF3C00;text-decoration:none;">Manage notification settings.</a></p>`;
+
+  const html = buildEmailShell(body, "Stripe early fraud warning — Overhype.me.");
+
+  return { subject, text, html };
+}

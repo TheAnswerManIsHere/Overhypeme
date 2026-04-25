@@ -11,8 +11,51 @@ import {
 import { eq, desc, and } from "drizzle-orm";
 import { logger } from "./logger";
 import { makeGrantDeps, grantLegendaryViaSubscription, grantLegendaryViaOneTimePayment } from "./membershipGrant";
-import { notifyAdminsOfDispute } from "./adminNotify";
+import { notifyAdminsOfDispute, notifyAdminsOfFraudWarning } from "./adminNotify";
 import { notifyUserAccessRevoked } from "./userNotify";
+import {
+  sendEmail,
+  buildSCAActionRequiredEmail,
+  buildCardAutomaticallyUpdatedEmail,
+  buildRenewalReminderEmail,
+} from "./email";
+
+/**
+ * ─── Stripe webhook event coverage (Task #230) ────────────────────────────────
+ *
+ * The Stripe Dashboard webhook endpoint(s) — both test and live — must subscribe
+ * to exactly this set of events. Update both Dashboards whenever this list changes.
+ *
+ * Membership lifecycle (grants & cancellations)
+ *   - checkout.session.completed
+ *   - customer.subscription.created
+ *   - customer.subscription.updated
+ *   - customer.subscription.deleted
+ *
+ * Invoice / billing lifecycle
+ *   - invoice.paid
+ *   - invoice.payment_failed
+ *   - invoice.payment_action_required   (SCA/3DS — new in #230)
+ *   - invoice.upcoming                   (renewal reminder — new in #230)
+ *
+ * Refund / dispute / fraud (also see #226, #227, #228, #229)
+ *   - charge.refunded
+ *   - charge.dispute.created
+ *   - charge.dispute.updated
+ *   - charge.dispute.closed
+ *   - charge.dispute.funds_withdrawn
+ *   - charge.dispute.funds_reinstated
+ *   - radar.early_fraud_warning.created (new in #230)
+ *
+ * Card maintenance
+ *   - payment_method.automatically_updated (new in #230)
+ *
+ * REMOVED in #230:
+ *   - payment_intent.succeeded — redundant with checkout.session.completed
+ *     (one-time lifetime) and invoice.paid (subscription renewals). The handler
+ *     case is retained as a logged no-op so any in-flight retries during the
+ *     Dashboard cutover ack 200 instead of erroring.
+ */
 
 async function findUserByStripeCustomerId(customerId: string) {
   const [user] = await db
@@ -691,14 +734,213 @@ async function processDomainSwitch(stripe: Stripe, event: Stripe.Event): Promise
       break;
     }
     case "payment_intent.succeeded": {
-      const pi = event.data.object as unknown as {
-        id: string; customer: string | { id: string } | null; amount: number; currency: string;
-        invoice?: string | null; metadata?: Record<string, string>;
+      // Removed in Task #230 — handled redundantly by checkout.session.completed
+      // (one-time lifetime) and invoice.paid (subscription renewals). The case
+      // remains as a logged no-op so any in-flight retries from the Stripe
+      // Dashboard during cutover ack 200 instead of erroring out.
+      logger.info({ eventId: event.id }, "payment_intent.succeeded received — handled by checkout.session.completed / invoice.paid; no-op");
+      break;
+    }
+    case "invoice.payment_action_required": {
+      // SCA / 3DS — Stripe needs the customer to confirm the payment. Email them
+      // the hosted invoice URL so they can complete authentication and keep their
+      // Legendary access alive.
+      const inv = event.data.object as unknown as {
+        id: string;
+        customer: string | { id: string } | null;
+        hosted_invoice_url?: string | null;
+        amount_due?: number | null;
+        currency?: string | null;
+        subscription?: string | { id: string } | null;
       };
-      if (pi.customer && !pi.invoice) {
-        const customerId = typeof pi.customer === "string" ? pi.customer : pi.customer.id;
-        await handleOneTimePayment(stripe, customerId, pi.id, pi.amount, pi.currency, pi.metadata ?? {});
+      const customerId = inv.customer
+        ? (typeof inv.customer === "string" ? inv.customer : inv.customer.id)
+        : null;
+      if (!customerId) { logger.warn({ invoiceId: inv.id }, "invoice.payment_action_required: no customer — skipping"); break; }
+      const user = await findUserByStripeCustomerId(customerId);
+      if (!user) { logger.warn({ customerId, invoiceId: inv.id }, "invoice.payment_action_required: no user found"); break; }
+
+      const subscriptionId = inv.subscription
+        ? (typeof inv.subscription === "string" ? inv.subscription : inv.subscription.id)
+        : undefined;
+      await recordHistory(user.id, "payment_action_required", {
+        amount: inv.amount_due ?? undefined,
+        currency: inv.currency ?? undefined,
+        stripeInvoiceId: inv.id,
+        stripeSubscriptionId: subscriptionId,
+      });
+
+      if (inv.hosted_invoice_url && user.email) {
+        const { subject, text, html } = buildSCAActionRequiredEmail({
+          hostedInvoiceUrl: inv.hosted_invoice_url,
+          amountMinor: inv.amount_due ?? null,
+          currency: inv.currency ?? null,
+        });
+        try {
+          await sendEmail({ to: user.email, subject, text, html });
+          logger.info({ userId: user.id, invoiceId: inv.id }, "Sent SCA action-required email");
+        } catch (err) {
+          logger.error({ err, userId: user.id, invoiceId: inv.id }, "SCA email send failed");
+        }
+      } else {
+        logger.warn(
+          { userId: user.id, invoiceId: inv.id, hasUrl: !!inv.hosted_invoice_url, hasEmail: !!user.email },
+          "invoice.payment_action_required: cannot send SCA email — TODO investigate (missing hosted_invoice_url or user email)",
+        );
       }
+      break;
+    }
+    case "invoice.upcoming": {
+      // Renewal reminder — fired ~7 days before the next charge attempt. Email
+      // the customer so they can update their card or cancel before being billed.
+      const inv = event.data.object as unknown as {
+        customer: string | { id: string } | null;
+        amount_due?: number | null;
+        currency?: string | null;
+        next_payment_attempt?: number | null;
+        subscription?: string | { id: string } | null;
+      };
+      const customerId = inv.customer
+        ? (typeof inv.customer === "string" ? inv.customer : inv.customer.id)
+        : null;
+      if (!customerId) { logger.warn("invoice.upcoming: no customer — skipping"); break; }
+      const user = await findUserByStripeCustomerId(customerId);
+      if (!user) { logger.warn({ customerId }, "invoice.upcoming: no user found"); break; }
+
+      // Look up plan label from the local subscriptions table (if present)
+      let plan: string | undefined;
+      const subscriptionId = inv.subscription
+        ? (typeof inv.subscription === "string" ? inv.subscription : inv.subscription.id)
+        : undefined;
+      if (subscriptionId) {
+        const [appSub] = await db
+          .select({ plan: subscriptionsTable.plan })
+          .from(subscriptionsTable)
+          .where(eq(subscriptionsTable.stripeSubscriptionId, subscriptionId))
+          .limit(1);
+        plan = appSub?.plan ?? undefined;
+      }
+
+      await recordHistory(user.id, "renewal_reminder", {
+        plan,
+        amount: inv.amount_due ?? undefined,
+        currency: inv.currency ?? undefined,
+        stripeSubscriptionId: subscriptionId,
+      });
+
+      if (user.email && inv.amount_due != null && inv.currency) {
+        const { subject, text, html } = buildRenewalReminderEmail({
+          amountMinor: inv.amount_due,
+          currency: inv.currency,
+          nextAttemptAt: inv.next_payment_attempt ?? null,
+          plan: plan ?? null,
+        });
+        try {
+          await sendEmail({ to: user.email, subject, text, html });
+          logger.info({ userId: user.id, subscriptionId }, "Sent renewal reminder email");
+        } catch (err) {
+          logger.error({ err, userId: user.id, subscriptionId }, "Renewal reminder email send failed");
+        }
+      } else {
+        logger.warn(
+          { userId: user.id, hasEmail: !!user.email, hasAmount: inv.amount_due != null },
+          "invoice.upcoming: cannot send renewal reminder email — TODO investigate (missing email/amount/currency)",
+        );
+      }
+      break;
+    }
+    case "payment_method.automatically_updated": {
+      // Card network handed Stripe refreshed expiration / number for a saved card.
+      // Log so analytics doesn't read the silent re-auth as churn, and email the
+      // customer a heads-up.
+      const pm = event.data.object as unknown as {
+        id: string;
+        customer: string | { id: string } | null;
+        card?: { brand?: string | null; last4?: string | null } | null;
+      };
+      const customerId = pm.customer
+        ? (typeof pm.customer === "string" ? pm.customer : pm.customer.id)
+        : null;
+      if (!customerId) { logger.warn({ paymentMethodId: pm.id }, "payment_method.automatically_updated: no customer — skipping"); break; }
+      const user = await findUserByStripeCustomerId(customerId);
+      if (!user) { logger.warn({ customerId, paymentMethodId: pm.id }, "payment_method.automatically_updated: no user found"); break; }
+
+      await recordHistory(user.id, "payment_method_updated", {
+        stripePaymentIntentId: pm.id, // reuse column to record the PM id
+      });
+      logger.info(
+        { userId: user.id, paymentMethodId: pm.id, brand: pm.card?.brand, last4: pm.card?.last4 },
+        "Card on file automatically updated by network",
+      );
+
+      if (user.email) {
+        const { subject, text, html } = buildCardAutomaticallyUpdatedEmail({
+          brand: pm.card?.brand ?? null,
+          last4: pm.card?.last4 ?? null,
+        });
+        try {
+          await sendEmail({ to: user.email, subject, text, html });
+        } catch (err) {
+          logger.error({ err, userId: user.id, paymentMethodId: pm.id }, "Card-updated email send failed");
+        }
+      }
+      break;
+    }
+    case "radar.early_fraud_warning.created": {
+      // Stripe Radar flagged a charge as likely-fraudulent. Record against the
+      // user/charge and alert admins so they can decide whether to proactively
+      // refund within the 24–72h window before a formal chargeback is filed.
+      // We deliberately DO NOT auto-refund.
+      const warning = event.data.object as unknown as {
+        id: string;
+        charge: string | { id: string };
+        payment_intent?: string | { id: string } | null;
+        actionable?: boolean | null;
+        fraud_type?: string | null;
+        livemode?: boolean;
+      };
+      const chargeId = typeof warning.charge === "string" ? warning.charge : warning.charge.id;
+      const paymentIntentId = warning.payment_intent
+        ? (typeof warning.payment_intent === "string" ? warning.payment_intent : warning.payment_intent.id)
+        : null;
+
+      // Best-effort user resolution + history record — but the admin alert fires
+      // regardless so the team always finds out within the 24h window.
+      let chargeAmount = 0;
+      let chargeCurrency = "usd";
+      try {
+        const charge = await stripe.charges.retrieve(chargeId);
+        chargeAmount = charge.amount ?? 0;
+        chargeCurrency = charge.currency ?? "usd";
+      } catch (err) {
+        logger.warn({ err, chargeId }, "early_fraud_warning: could not retrieve charge from Stripe");
+      }
+
+      void notifyAdminsOfFraudWarning({
+        warningId: warning.id,
+        chargeId,
+        amount: chargeAmount,
+        currency: chargeCurrency,
+        livemode: warning.livemode ?? event.livemode,
+        fraudType: warning.fraud_type ?? null,
+        actionable: warning.actionable ?? null,
+      });
+
+      const resolved = await resolveUserForDispute(stripe, paymentIntentId, chargeId);
+      if (!resolved) {
+        logger.warn({ warningId: warning.id, chargeId }, "early_fraud_warning: could not resolve user — alert sent, no history recorded");
+        break;
+      }
+      const { user } = resolved;
+      await recordHistory(user.id, "early_fraud_warning", {
+        amount: chargeAmount,
+        currency: chargeCurrency,
+        stripePaymentIntentId: paymentIntentId ?? undefined,
+      });
+      logger.info(
+        { userId: user.id, warningId: warning.id, chargeId, actionable: warning.actionable, fraudType: warning.fraud_type },
+        "Early fraud warning recorded — admin alerted (no auto-refund)",
+      );
       break;
     }
     case "charge.refunded": {
@@ -779,10 +1021,15 @@ async function processDomainSwitch(stripe: Stripe, event: Stripe.Event): Promise
     case "charge.dispute.funds_reinstated": {
       const dispute = event.data.object as unknown as {
         id: string;
+        charge?: string | { id: string } | null;
+        payment_intent?: string | { id: string } | null;
         amount: number;
         currency: string;
         livemode?: boolean;
       };
+
+      // Always alert admins regardless of whether we can resolve the user — balance
+      // accounting matters even when the user lookup fails.
       void notifyAdminsOfDispute({
         kind: event.type === "charge.dispute.funds_withdrawn" ? "funds_withdrawn" : "funds_reinstated",
         disputeId: dispute.id,
@@ -790,6 +1037,40 @@ async function processDomainSwitch(stripe: Stripe, event: Stripe.Event): Promise
         currency: dispute.currency,
         livemode: dispute.livemode ?? event.livemode,
       });
+
+      // Record a history entry against the user/dispute so the admin dispute
+      // history page (#229) can show when Stripe actually debited / reinstated
+      // funds, separately from when the dispute was opened.
+      const chargeId = dispute.charge
+        ? (typeof dispute.charge === "string" ? dispute.charge : dispute.charge.id)
+        : null;
+      const paymentIntentId = dispute.payment_intent
+        ? (typeof dispute.payment_intent === "string" ? dispute.payment_intent : dispute.payment_intent.id)
+        : null;
+
+      if (chargeId) {
+        const resolved = await resolveUserForDispute(stripe, paymentIntentId, chargeId);
+        if (resolved) {
+          await recordHistory(
+            resolved.user.id,
+            event.type === "charge.dispute.funds_withdrawn" ? "dispute_funds_withdrawn" : "dispute_funds_reinstated",
+            {
+              amount: dispute.amount,
+              currency: dispute.currency,
+              stripePaymentIntentId: paymentIntentId ?? undefined,
+              stripeDisputeId: dispute.id,
+            },
+          );
+          logger.info(
+            { userId: resolved.user.id, disputeId: dispute.id, eventType: event.type },
+            "Recorded dispute funds movement against dispute history",
+          );
+        } else {
+          logger.warn({ disputeId: dispute.id, chargeId, eventType: event.type }, "dispute funds movement: could not resolve user — admin alert sent, no history recorded");
+        }
+      } else {
+        logger.warn({ disputeId: dispute.id, eventType: event.type }, "dispute funds movement: no charge on dispute object — admin alert sent, no history recorded");
+      }
       break;
     }
     default:
