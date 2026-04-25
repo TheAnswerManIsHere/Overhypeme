@@ -27,6 +27,7 @@ const AdminModeration = lazy(() => import("@/pages/admin/moderation"));
 const AdminVideoStyles = lazy(() => import("@/pages/admin/videoStyles"));
 const AdminConfig = lazy(() => import("@/pages/admin/config"));
 const AdminFeatures = lazy(() => import("@/pages/admin/features"));
+const AdminEmailQueue = lazy(() => import("@/pages/admin/emailQueue"));
 const ActivityFeed = lazy(() => import("@/pages/ActivityFeed"));
 const MemePage = lazy(() => import("@/pages/MemePage"));
 const VideoPage = lazy(() => import("@/pages/VideoPage"));
@@ -361,6 +362,7 @@ function Router() {
         <Route path="/admin/config" component={AdminConfig} />
         <Route path="/admin/ai"><AdminAIRedirect /></Route>
         <Route path="/admin/features" component={AdminFeatures} />
+        <Route path="/admin/email-queue" component={AdminEmailQueue} />
         <Route path="/admin" component={AdminDashboard} />
         <Route path="/activity" component={ActivityFeed} />
         <Route path="/meme/:slug" component={MemePage} />
