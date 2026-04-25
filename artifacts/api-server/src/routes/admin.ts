@@ -115,6 +115,7 @@ router.patch("/admin/users/:id", requireAdmin, async (req: Request, res: Respons
   if (typeof body["isActive"] === "boolean") updates.isActive = body["isActive"];
   if (typeof body["isAdmin"] === "boolean") updates.isAdmin = body["isAdmin"];
   if (typeof body["adminNotifications"] === "boolean") updates.adminNotifications = body["adminNotifications"];
+  if (typeof body["disputeNotifications"] === "boolean") updates.disputeNotifications = body["disputeNotifications"];
   if (typeof body["captchaVerified"] === "boolean") updates.captchaVerified = body["captchaVerified"];
   if (body["displayName"] !== undefined) updates.displayName = body["displayName"] ? String(body["displayName"]) : null;
   if (body["email"] !== undefined) updates.email = body["email"] ? String(body["email"]).trim().toLowerCase() : null;
@@ -172,6 +173,7 @@ router.get("/admin/administrators", requireAdmin, async (_req: Request, res: Res
       displayName: usersTable.displayName,
       email: usersTable.email,
       adminNotifications: usersTable.adminNotifications,
+      disputeNotifications: usersTable.disputeNotifications,
       isActive: usersTable.isActive,
     })
     .from(usersTable)
