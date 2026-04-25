@@ -354,7 +354,23 @@ router.get("/admin/users/:id/membership", requireAdmin, async (req: Request, res
   const id = String(req.params["id"] ?? "");
   try {
     const [lifetimeRows, subRows, historyRows] = await Promise.all([
-      db.select().from(lifetimeEntitlementsTable).where(eq(lifetimeEntitlementsTable.userId, id)).limit(1),
+      db.select({
+        id: lifetimeEntitlementsTable.id,
+        userId: lifetimeEntitlementsTable.userId,
+        stripePaymentIntentId: lifetimeEntitlementsTable.stripePaymentIntentId,
+        stripeCustomerId: lifetimeEntitlementsTable.stripeCustomerId,
+        amount: lifetimeEntitlementsTable.amount,
+        currency: lifetimeEntitlementsTable.currency,
+        status: lifetimeEntitlementsTable.status,
+        grantedByAdminId: lifetimeEntitlementsTable.grantedByAdminId,
+        createdAt: lifetimeEntitlementsTable.createdAt,
+        grantedByAdminDisplayName: usersTable.displayName,
+        grantedByAdminEmail: usersTable.email,
+      })
+        .from(lifetimeEntitlementsTable)
+        .leftJoin(usersTable, eq(lifetimeEntitlementsTable.grantedByAdminId, usersTable.id))
+        .where(eq(lifetimeEntitlementsTable.userId, id))
+        .limit(1),
       db.select().from(subscriptionsTable)
         .where(eq(subscriptionsTable.userId, id))
         .orderBy(desc(subscriptionsTable.createdAt))
@@ -495,6 +511,7 @@ router.post("/admin/users/:id/grant-lifetime", requireAdmin, async (req: Request
     }
 
     const fakePaymentIntentId = `admin_grant_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
+    const adminUserId = req.user!.id;
     await db.transaction(async (tx) => {
       await tx.insert(lifetimeEntitlementsTable).values({
         userId: id,
@@ -502,6 +519,7 @@ router.post("/admin/users/:id/grant-lifetime", requireAdmin, async (req: Request
         stripeCustomerId: userRows[0]!.stripeCustomerId ?? "admin_grant",
         amount: 0,
         currency: "usd",
+        grantedByAdminId: adminUserId,
       });
       await tx.update(usersTable).set({ membershipTier: "legendary" }).where(eq(usersTable.id, id));
       await tx.insert(membershipHistoryTable).values({

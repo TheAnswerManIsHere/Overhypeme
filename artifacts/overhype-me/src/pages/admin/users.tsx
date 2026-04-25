@@ -57,7 +57,15 @@ interface HistoryRecord {
 
 interface MembershipData {
   isLifetime: boolean;
-  lifetimeEntitlement: { id: number; stripePaymentIntentId: string; amount: number | null; createdAt: string } | null;
+  lifetimeEntitlement: {
+    id: number;
+    stripePaymentIntentId: string;
+    amount: number | null;
+    createdAt: string;
+    grantedByAdminId: string | null;
+    grantedByAdminDisplayName: string | null;
+    grantedByAdminEmail: string | null;
+  } | null;
   appSubscription: AppSubscription | null;
   stripeSub: { id: string; status: string; current_period_end: number | null; cancel_at_period_end: boolean } | null;
   history: HistoryRecord[];
@@ -1080,7 +1088,18 @@ export default function AdminUsers() {
                         <div>
                           <p className="text-xs text-muted-foreground">
                             Granted {new Date(membershipData.lifetimeEntitlement.createdAt).toLocaleDateString()}
-                            {membershipData.lifetimeEntitlement.stripePaymentIntentId.startsWith("admin_grant") ? " (admin)" : ""}
+                            {membershipData.lifetimeEntitlement.stripePaymentIntentId.startsWith("admin_grant") ? (
+                              <span>
+                                {" (admin"}
+                                {(membershipData.lifetimeEntitlement.grantedByAdminDisplayName || membershipData.lifetimeEntitlement.grantedByAdminEmail) && (
+                                  <span className="font-medium">
+                                    {": "}
+                                    {membershipData.lifetimeEntitlement.grantedByAdminDisplayName ?? membershipData.lifetimeEntitlement.grantedByAdminEmail}
+                                  </span>
+                                )}
+                                {")"}
+                              </span>
+                            ) : ""}
                           </p>
                           {!membershipData.lifetimeEntitlement.stripePaymentIntentId.startsWith("admin_grant") && (
                             <div className="flex items-center gap-1 mt-0.5">
