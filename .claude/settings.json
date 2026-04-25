@@ -1,0 +1,18 @@
+{
+  "env": {
+    "DATABASE_URL": "postgres://overhype:overhype@localhost:5432/overhype_test"
+  },
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash scripts/setup-test-db.sh"
+          }
+        ]
+      }
+    ]
+  }
+}
