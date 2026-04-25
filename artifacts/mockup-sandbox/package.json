@@ -4,7 +4,7 @@
   "type": "module",
   "private": true,
   "scripts": {
-    "dev": "bash ../../scripts/dev-supervisor.sh mockup-sandbox bash -c 'fuser -k $PORT/tcp 2>/dev/null || true; vite dev'",
+    "dev": "bash ../../scripts/dev-supervisor.sh mockup-sandbox bash -c 'fuser -k $PORT/tcp 2>/dev/null || true; sleep 1; vite dev'",
     "build": "vite build",
     "preview": "vite preview",
     "typecheck": "tsc -p tsconfig.json --noEmit"

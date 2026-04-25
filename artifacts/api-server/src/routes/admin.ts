@@ -1877,6 +1877,8 @@ router.get("/admin/email-queue", requireAdmin, async (req: Request, res: Respons
           id: emailOutboxTable.id,
           to: emailOutboxTable.to,
           subject: emailOutboxTable.subject,
+          text: emailOutboxTable.text,
+          html: emailOutboxTable.html,
           kind: emailOutboxTable.kind,
           status: emailOutboxTable.status,
           attempts: emailOutboxTable.attempts,

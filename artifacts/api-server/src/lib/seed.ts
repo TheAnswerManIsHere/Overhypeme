@@ -692,6 +692,14 @@ Return ONLY valid JSON:
       label: "membership_history.stripe_dispute_id",
       ddl: `ALTER TABLE membership_history ADD COLUMN IF NOT EXISTS stripe_dispute_id varchar`,
     },
+    {
+      label: "admin_config seed email_outbox_retention_days",
+      ddl: `INSERT INTO admin_config (key, value, data_type, label, description, min_value, max_value, is_public)
+        VALUES ('email_outbox_retention_days', '30', 'integer', 'Email Outbox Retention (days)',
+          'Number of days to keep delivered and abandoned emails in the outbox before they are automatically purged. Set to 0 to disable auto-purge.',
+          0, 3650, false)
+        ON CONFLICT (key) DO NOTHING`,
+    },
   ];
 
   for (const { label, ddl } of migrations) {
