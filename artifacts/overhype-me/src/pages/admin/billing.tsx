@@ -557,7 +557,12 @@ export default function AdminBilling() {
                   <li>Find your existing webhook endpoint (or click <strong>Add endpoint</strong>)</li>
                   <li>Set the endpoint URL to the value above</li>
                   <li>Ensure the following events are selected: <code className="bg-black/20 px-1 rounded">checkout.session.completed</code>, <code className="bg-black/20 px-1 rounded">customer.subscription.*</code>, <code className="bg-black/20 px-1 rounded">invoice.paid</code>, <code className="bg-black/20 px-1 rounded">invoice.payment_failed</code>, <code className="bg-black/20 px-1 rounded">payment_intent.succeeded</code></li>
-                  <li>Copy the <strong>Signing secret</strong> and save it as <code className="bg-black/20 px-1 rounded">STRIPE_WEBHOOK_SECRET</code> in your environment secrets</li>
+                  <li>
+                    Copy the <strong>Signing secret</strong> and save it as the matching per-mode env var:{" "}
+                    <code className="bg-black/20 px-1 rounded">STRIPE_WEBHOOK_SECRET_TEST</code> for test-mode endpoints,{" "}
+                    <code className="bg-black/20 px-1 rounded">STRIPE_WEBHOOK_SECRET_LIVE</code> for live-mode endpoints. Repeat for the other mode so flipping the live-mode toggle stays one-click.{" "}
+                    <span className="text-amber-400/70">(Legacy <code className="bg-black/20 px-1 rounded">STRIPE_WEBHOOK_SECRET</code> still works as a fallback for either mode if a per-mode var is unset.)</span>
+                  </li>
                 </ol>
               </div>
             </div>
