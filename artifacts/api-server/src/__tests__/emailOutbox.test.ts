@@ -1,17 +1,19 @@
-import { describe, it, before, after, beforeEach } from "node:test";
+import { describe, it, before, after, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
 
 import { db } from "@workspace/db";
-import { emailOutboxTable } from "@workspace/db/schema";
+import { emailOutboxTable, adminConfigTable } from "@workspace/db/schema";
 import { eq } from "drizzle-orm";
 
 import {
   sendEmail,
   emailOutboxTick,
   recoverStuckSendingRows,
+  purgeTerminalEmailRows,
   RETRY_DELAYS_MS,
   isEnabled,
 } from "../lib/email.js";
+import { bustConfigCache } from "../lib/adminConfig.js";
 
 const TEST_TAG = "t248_test";
 
@@ -21,6 +23,7 @@ async function insertOutboxRow(overrides: Partial<{
   maxAttempts: number;
   nextAttemptAt: Date;
   updatedAt: Date;
+  createdAt: Date;
 }> = {}) {
   const [row] = await db.insert(emailOutboxTable).values({
     to:            "test@example.com",
@@ -33,6 +36,7 @@ async function insertOutboxRow(overrides: Partial<{
     maxAttempts:   overrides.maxAttempts ?? 5,
     nextAttemptAt: overrides.nextAttemptAt ?? new Date(),
     ...(overrides.updatedAt ? { updatedAt: overrides.updatedAt } : {}),
+    ...(overrides.createdAt ? { createdAt: overrides.createdAt } : {}),
   }).returning();
   return row!;
 }
@@ -49,13 +53,6 @@ async function cleanupTestRows() {
   await db.delete(emailOutboxTable).where(eq(emailOutboxTable.kind, TEST_TAG));
 }
 
-/** Wipe the entire outbox. Called once before the suite starts so rows left
- *  over from other test files (e.g. webhook integration tests that call
- *  sendEmail() with a real RESEND_API_KEY) don't fill the LIMIT 10 window
- *  and push our test rows out. */
-async function truncateOutbox() {
-  await db.delete(emailOutboxTable);
-}
 
 const alwaysOk: () => Promise<{ ok: boolean; error?: string }> =
   async () => ({ ok: true });
@@ -63,16 +60,38 @@ const alwaysOk: () => Promise<{ ok: boolean; error?: string }> =
 const alwaysFail: () => Promise<{ ok: boolean; error?: string }> =
   async () => ({ ok: false, error: "simulated delivery failure" });
 
+const RETENTION_CONFIG_KEY = "email_outbox_retention_days";
+
+async function setRetentionDays(days: number): Promise<void> {
+  await db
+    .insert(adminConfigTable)
+    .values({
+      key:      RETENTION_CONFIG_KEY,
+      value:    String(days),
+      dataType: "integer",
+      label:    "Email outbox retention days (test)",
+    })
+    .onConflictDoUpdate({
+      target: adminConfigTable.key,
+      set:    { value: String(days) },
+    });
+  bustConfigCache();
+}
+
+async function removeRetentionConfig(): Promise<void> {
+  await db.delete(adminConfigTable).where(eq(adminConfigTable.key, RETENTION_CONFIG_KEY));
+  bustConfigCache();
+}
+
 describe("email outbox engine", () => {
-  // Wipe the entire outbox once before the suite so that rows left over from
-  // other test files (e.g. webhook integration tests that call sendEmail() with
-  // a real RESEND_API_KEY) don't occupy the LIMIT 10 window and crowd out our
-  // single-row test inserts.
+  // Clean up our own test rows before the suite starts, and after it finishes.
+  // We do NOT truncate the entire outbox here to avoid racing with other
+  // concurrent test files (e.g. adminEmailQueue.delete.test.ts) that also
+  // insert into email_outbox.
   before(async () => {
-    await truncateOutbox();
+    await cleanupTestRows();
   });
 
-  // Always clean up after all tests.
   after(async () => {
     await cleanupTestRows();
   });
@@ -136,10 +155,11 @@ describe("email outbox engine", () => {
   });
 
   describe("emailOutboxTick()", () => {
-    // Truncate the entire outbox before each tick test so that rows inserted
-    // by side-effects (e.g. abandoned-email admin alert rows with a different
-    // kind) cannot leak into the next test and cause false positives.
-    beforeEach(async () => { await truncateOutbox(); });
+    // Clean up only our own kind-tagged rows before each tick test.
+    // We intentionally avoid a full-outbox truncation here because this file
+    // runs concurrently with adminEmailQueue.delete.test.ts; a global
+    // DELETE would race with that file's INSERT/DELETE assertions.
+    beforeEach(async () => { await cleanupTestRows(); });
 
     it("delivers a pending row: marks delivered and increments attempts", async () => {
       const row = await insertOutboxRow({ status: "pending", attempts: 0 });
@@ -205,20 +225,167 @@ describe("email outbox engine", () => {
 
     it("skips rows where nextAttemptAt is in the future", async () => {
       const futureTime = new Date(Date.now() + 10 * 60_000);
-      const row = await insertOutboxRow({ status: "pending", nextAttemptAt: futureTime });
+      // Use a unique subject so we can identify our row in the delivery function even if
+      // other pending rows (e.g. from concurrent async notifications) are present.
+      const uniqueSubject = `Future-skip-test-${Date.now()}`;
+      const [ourRow] = await db.insert(emailOutboxTable).values({
+        to:            "test@example.com",
+        subject:       uniqueSubject,
+        text:          "Test body",
+        html:          "<p>Test body</p>",
+        kind:          TEST_TAG,
+        status:        "pending",
+        attempts:      0,
+        maxAttempts:   5,
+        nextAttemptAt: futureTime,
+      }).returning();
 
-      let deliverCalled = false;
-      const trackingDeliver = async () => {
-        deliverCalled = true;
-        return { ok: true };
+      let ourRowDelivered = false;
+      const trackingDeliver = async (row: { subject: string }) => {
+        if (row.subject === uniqueSubject) ourRowDelivered = true;
+        return { ok: true as const };
       };
 
       await emailOutboxTick(db, trackingDeliver, new Date());
 
-      assert.equal(deliverCalled, false, "Delivery should not be called for future rows");
+      assert.equal(ourRowDelivered, false, "Delivery should not be called for our future-dated row");
 
-      const updated = await getRow(row.id);
+      const updated = await getRow(ourRow!.id);
+      assert.ok(updated, "Future-dated row must still exist");
       assert.equal(updated!.status, "pending", "Future row should still be pending");
+    });
+
+    it("purges old terminal rows as a side effect of the tick", async () => {
+      await setRetentionDays(30);
+      try {
+        const oldDate    = new Date(Date.now() - 40 * 24 * 3_600_000);
+        const futureTime = new Date(Date.now() + 10 * 60_000);
+
+        const oldDelivered    = await insertOutboxRow({ status: "delivered", createdAt: oldDate });
+        const oldAbandoned    = await insertOutboxRow({ status: "abandoned", createdAt: oldDate });
+        const recentDelivered = await insertOutboxRow({ status: "delivered" });
+        // Pending row with a future nextAttemptAt: tick skips it, purge must also ignore it
+        const skippedPending  = await insertOutboxRow({ status: "pending",   createdAt: oldDate, nextAttemptAt: futureTime });
+
+        await emailOutboxTick(db, alwaysOk, new Date());
+
+        assert.equal(await getRow(oldDelivered.id),    null, "Old delivered row should be purged by tick");
+        assert.equal(await getRow(oldAbandoned.id),    null, "Old abandoned row should be purged by tick");
+        assert.ok(  await getRow(recentDelivered.id),        "Recent delivered row must not be purged");
+        assert.ok(  await getRow(skippedPending.id),         "Old pending row must never be purged even when old");
+      } finally {
+        await removeRetentionConfig();
+      }
+    });
+
+    it("does not purge any rows when retention is disabled (0) during a tick", async () => {
+      await setRetentionDays(0);
+      try {
+        const oldDate = new Date(Date.now() - 40 * 24 * 3_600_000);
+        const oldDelivered = await insertOutboxRow({ status: "delivered", createdAt: oldDate });
+
+        await emailOutboxTick(db, alwaysOk, new Date());
+
+        assert.ok(await getRow(oldDelivered.id), "Old delivered row must survive when retention is disabled");
+      } finally {
+        await removeRetentionConfig();
+      }
+    });
+  });
+
+  describe("purgeTerminalEmailRows()", () => {
+    // Use kind-based cleanup so we don't race with other concurrent test files
+    // that also insert into email_outbox. Count assertions are avoided for the
+    // same reason; we assert on specific row IDs instead.
+    beforeEach(async () => { await cleanupTestRows(); });
+    afterEach(async () => {
+      await cleanupTestRows();
+      await removeRetentionConfig();
+    });
+
+    it("deletes a delivered row older than the retention window", async () => {
+      const oldDate = new Date(Date.now() - 40 * 24 * 3_600_000);
+      await setRetentionDays(30);
+      const row = await insertOutboxRow({ status: "delivered", createdAt: oldDate });
+
+      await purgeTerminalEmailRows(db, new Date());
+
+      assert.equal(await getRow(row.id), null, "Delivered row older than retention should be deleted");
+    });
+
+    it("deletes an abandoned row older than the retention window", async () => {
+      const oldDate = new Date(Date.now() - 40 * 24 * 3_600_000);
+      await setRetentionDays(30);
+      const row = await insertOutboxRow({ status: "abandoned", createdAt: oldDate });
+
+      await purgeTerminalEmailRows(db, new Date());
+
+      assert.equal(await getRow(row.id), null, "Abandoned row older than retention should be deleted");
+    });
+
+    it("does not delete a delivered row within the retention window", async () => {
+      const recentDate = new Date(Date.now() - 10 * 24 * 3_600_000);
+      await setRetentionDays(30);
+      const row = await insertOutboxRow({ status: "delivered", createdAt: recentDate });
+
+      await purgeTerminalEmailRows(db, new Date());
+
+      const remaining = await getRow(row.id);
+      assert.ok(remaining, "Delivered row within retention window should still exist");
+      assert.equal(remaining!.status, "delivered");
+    });
+
+    it("does not delete a pending row regardless of age", async () => {
+      const oldDate = new Date(Date.now() - 40 * 24 * 3_600_000);
+      await setRetentionDays(30);
+      const row = await insertOutboxRow({ status: "pending", createdAt: oldDate });
+
+      await purgeTerminalEmailRows(db, new Date());
+
+      const remaining = await getRow(row.id);
+      assert.ok(remaining, "Old pending row should still exist");
+      assert.equal(remaining!.status, "pending");
+    });
+
+    it("does not delete a sending row regardless of age", async () => {
+      const oldDate = new Date(Date.now() - 40 * 24 * 3_600_000);
+      await setRetentionDays(30);
+      const row = await insertOutboxRow({ status: "sending", createdAt: oldDate });
+
+      await purgeTerminalEmailRows(db, new Date());
+
+      const remaining = await getRow(row.id);
+      assert.ok(remaining, "Old sending row should still exist");
+      assert.equal(remaining!.status, "sending");
+    });
+
+    it("returns 0 and deletes nothing when retention is set to 0", async () => {
+      const oldDate = new Date(Date.now() - 40 * 24 * 3_600_000);
+      await setRetentionDays(0);
+      const row = await insertOutboxRow({ status: "delivered", createdAt: oldDate });
+
+      const deleted = await purgeTerminalEmailRows(db, new Date());
+
+      assert.equal(deleted, 0, "retention=0 must disable purging entirely — function must return 0 immediately");
+      const remaining = await getRow(row.id);
+      assert.ok(remaining, "Row must not be deleted when retention is disabled");
+    });
+
+    it("purges only terminal rows when mixed statuses exist", async () => {
+      const oldDate = new Date(Date.now() - 40 * 24 * 3_600_000);
+      await setRetentionDays(30);
+
+      const deliveredRow = await insertOutboxRow({ status: "delivered", createdAt: oldDate });
+      const abandonedRow = await insertOutboxRow({ status: "abandoned", createdAt: oldDate });
+      const pendingRow   = await insertOutboxRow({ status: "pending",   createdAt: oldDate });
+      const sendingRow   = await insertOutboxRow({ status: "sending",   createdAt: oldDate });
+
+      await purgeTerminalEmailRows(db, new Date());
+
+      assert.equal(await getRow(deliveredRow.id), null, "delivered row should be gone");
+      assert.equal(await getRow(abandonedRow.id), null, "abandoned row should be gone");
+      assert.ok(await getRow(pendingRow.id),  "pending row must survive");
+      assert.ok(await getRow(sendingRow.id),  "sending row must survive");
     });
   });
 
