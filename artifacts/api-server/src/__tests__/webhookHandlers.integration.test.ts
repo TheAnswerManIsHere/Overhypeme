@@ -11,7 +11,7 @@
  * "t226_") and cleans them up in a finally block to avoid polluting the DB.
  */
 
-import { describe, it } from "node:test";
+import { describe, it, after } from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 
@@ -22,11 +22,29 @@ import {
   lifetimeEntitlementsTable,
   membershipHistoryTable,
   stripeProcessedEventsTable,
+  emailOutboxTable,
 } from "@workspace/db/schema";
-import { eq, and } from "drizzle-orm";
+import { eq, and, gte } from "drizzle-orm";
 
 // ── Handler under test ───────────────────────────────────────────────────────
 import { WebhookHandlers } from "../lib/webhookHandlers.js";
+
+// ── Outbox cleanup ────────────────────────────────────────────────────────────
+// These integration tests run real webhook handlers against the dev DB. Some
+// handlers (disputes, fraud warnings, SCA, card updates) call sendEmail(),
+// which inserts a row into email_outbox when RESEND_API_KEY is configured.
+// Without cleanup the email worker will then attempt to deliver those test
+// notifications to the admin inbox, burning the daily quota.
+//
+// We capture the file's start time and, in a top-level after() hook, delete
+// any outbox rows created during this test run. Recipient is not filtered so
+// every test-generated row is removed regardless of which handler made it.
+const TEST_FILE_START = new Date();
+after(async () => {
+  await db
+    .delete(emailOutboxTable)
+    .where(gte(emailOutboxTable.createdAt, TEST_FILE_START));
+});
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
