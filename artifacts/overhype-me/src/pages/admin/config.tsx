@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { AdminLayout } from "@/components/admin/AdminLayout";
 import { CollapsibleSection } from "@/components/CollapsibleSection";
-import { Settings, Loader2, Palette, Bug, Bot, Film, Sliders, DollarSign, Shield, Mail, ShoppingBag } from "lucide-react";
+import { Settings, Loader2, Palette, Bug, Bot, Film, Sliders, DollarSign, Shield, Mail, ShoppingBag, Clock } from "lucide-react";
 import {
   ConfigPageContext,
   ConfigPageCtx,
@@ -10,8 +10,10 @@ import {
   ConfigInput,
   MODEL_CONFIG_KEYS,
   STYLE_OPTIONS,
+  RETRY_DELAY_MS_KEYS,
   useConfigCtx,
   useConfigPageState,
+  msToHuman,
 } from "./_configShared";
 
 // Keys that belong to named sections — excluded from the catch-all generic list
@@ -118,6 +120,60 @@ const MODEL_PARAMS: Record<string, ParamDef[]> = {
     { key: "ai_std_seed" },
   ],
 };
+
+// ── RetryTimelinePanel ────────────────────────────────────────────────────────
+
+function RetryTimelinePanel() {
+  const { stdEdits } = useConfigCtx();
+
+  const delays = RETRY_DELAY_MS_KEYS.map((key) => {
+    const raw = stdEdits[key]?.value;
+    const ms = raw !== undefined && raw !== "" ? Number(raw) : NaN;
+    return isFinite(ms) && ms >= 0 ? ms : null;
+  });
+
+  const hasAnyDelay = delays.some((d) => d !== null);
+  if (!hasAnyDelay) return null;
+
+  const cumulative: (number | null)[] = [];
+  let running = 0;
+  for (const d of delays) {
+    if (d === null) {
+      cumulative.push(null);
+    } else {
+      running += d;
+      cumulative.push(running);
+    }
+  }
+
+  return (
+    <div className="rounded-lg border border-border bg-muted/40 p-4 space-y-3">
+      <div className="flex items-center gap-2">
+        <Clock className="w-4 h-4 text-muted-foreground shrink-0" />
+        <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+          Predicted retry timeline
+        </p>
+      </div>
+      <p className="text-xs text-muted-foreground">
+        Cumulative offsets from the moment of the first failure:
+      </p>
+      <ol className="space-y-1.5">
+        {cumulative.map((total, i) => (
+          <li key={RETRY_DELAY_MS_KEYS[i]} className="flex items-center gap-2 text-sm">
+            <span className="w-16 shrink-0 text-xs text-muted-foreground">Retry {i + 1}</span>
+            {total === null ? (
+              <span className="text-muted-foreground/60 italic text-xs">not set</span>
+            ) : (
+              <span className="font-mono text-foreground">
+                +{msToHuman(total)}
+              </span>
+            )}
+          </li>
+        ))}
+      </ol>
+    </div>
+  );
+}
 
 // ── ModelConfigSection ────────────────────────────────────────────────────────
 
@@ -451,6 +507,7 @@ export default function AdminConfig() {
                 >
                   <div className="space-y-3">
                     {emailRows.map((row) => <ConfigCard key={row.key} row={row} />)}
+                    <RetryTimelinePanel />
                   </div>
                 </CollapsibleSection>
               )}

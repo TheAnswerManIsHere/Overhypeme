@@ -334,12 +334,14 @@ export const FLOAT_TEXT_CONFIGS = new Set([
   "ai_scene_prompt_temperature",
 ]);
 
-export const DELAY_MS_KEYS = new Set([
+export const RETRY_DELAY_MS_KEYS = [
   "email_retry_delay_1_ms",
   "email_retry_delay_2_ms",
   "email_retry_delay_3_ms",
   "email_retry_delay_4_ms",
-]);
+] as const;
+
+export const DELAY_MS_KEYS: Set<string> = new Set(RETRY_DELAY_MS_KEYS);
 
 export function msToHuman(ms: number): string {
   if (!isFinite(ms) || ms < 0) return "";
