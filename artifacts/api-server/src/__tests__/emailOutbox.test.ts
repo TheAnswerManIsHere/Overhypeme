@@ -136,9 +136,10 @@ describe("email outbox engine", () => {
   });
 
   describe("emailOutboxTick()", () => {
-    // Each test starts with a clean outbox so global pending rows don't
-    // interfere with per-row assertions.
-    beforeEach(async () => { await cleanupTestRows(); });
+    // Truncate the entire outbox before each tick test so that rows inserted
+    // by side-effects (e.g. abandoned-email admin alert rows with a different
+    // kind) cannot leak into the next test and cause false positives.
+    beforeEach(async () => { await truncateOutbox(); });
 
     it("delivers a pending row: marks delivered and increments attempts", async () => {
       const row = await insertOutboxRow({ status: "pending", attempts: 0 });
