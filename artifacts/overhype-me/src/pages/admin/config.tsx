@@ -124,38 +124,59 @@ const MODEL_PARAMS: Record<string, ParamDef[]> = {
 // ── RetryTimelinePanel ────────────────────────────────────────────────────────
 
 function RetryTimelinePanel() {
-  const { stdEdits, stdDirty } = useConfigCtx();
+  const { stdEdits, dbgEdits, debugActive, stdDirty, dbgDirty } = useConfigCtx();
 
-  const delays = RETRY_DELAY_MS_KEYS.map((key) => {
-    const raw = stdEdits[key]?.value;
+  const isDebug = debugActive;
+
+  const resolved = RETRY_DELAY_MS_KEYS.map((key) => {
+    const dbgRaw = dbgEdits[key]?.value;
+    const dbgHasValue = dbgRaw !== undefined && dbgRaw !== "";
+    const useDbg = isDebug && dbgHasValue;
+    const raw = useDbg ? dbgRaw : stdEdits[key]?.value;
     const ms = raw !== undefined && raw !== "" ? Number(raw) : NaN;
-    return isFinite(ms) && ms >= 0 ? ms : null;
+    return {
+      ms: isFinite(ms) && ms >= 0 ? ms : null,
+      fromDbg: useDbg,
+    };
   });
 
-  const hasAnyDelay = delays.some((d) => d !== null);
+  const hasAnyDelay = resolved.some((r) => r.ms !== null);
   if (!hasAnyDelay) return null;
 
   const cumulative: (number | null)[] = [];
   let running = 0;
-  for (const d of delays) {
-    if (d === null) {
+  for (const r of resolved) {
+    if (r.ms === null) {
       cumulative.push(null);
     } else {
-      running += d;
+      running += r.ms;
       cumulative.push(running);
     }
   }
 
-  const dirtyFlags = RETRY_DELAY_MS_KEYS.map((key) => stdDirty(key));
+  const dirtyFlags = RETRY_DELAY_MS_KEYS.map((key, i) => {
+    if (!isDebug) return stdDirty(key);
+    if (resolved[i].fromDbg) return dbgDirty(key);
+    return dbgDirty(key) || stdDirty(key);
+  });
   const anyUnsaved = dirtyFlags.some(Boolean);
 
   return (
-    <div className="rounded-lg border border-border bg-muted/40 p-4 space-y-3">
+    <div className={`rounded-lg border p-4 space-y-3 ${isDebug ? "border-amber-500/40 bg-amber-500/5" : "border-border bg-muted/40"}`}>
       <div className="flex items-center gap-2">
-        <Clock className="w-4 h-4 text-muted-foreground shrink-0" />
+        <Clock className={`w-4 h-4 shrink-0 ${isDebug ? "text-amber-400" : "text-muted-foreground"}`} />
         <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
           Predicted retry timeline
         </p>
+        {isDebug ? (
+          <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-amber-500/20 text-amber-400 font-medium flex items-center gap-1">
+            <Bug className="w-3 h-3" /> Debug schedule
+          </span>
+        ) : (
+          <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-primary/15 text-primary font-medium">
+            Standard schedule
+          </span>
+        )}
         {anyUnsaved && (
           <span className="text-xs text-amber-400 italic ml-auto">preview — unsaved changes</span>
         )}
