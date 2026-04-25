@@ -359,7 +359,17 @@ router.get("/admin/users/:id/membership", requireAdmin, async (req: Request, res
         .where(eq(subscriptionsTable.userId, id))
         .orderBy(desc(subscriptionsTable.createdAt))
         .limit(1),
-      db.select().from(membershipHistoryTable)
+      db.select({
+        id: membershipHistoryTable.id,
+        event: membershipHistoryTable.event,
+        plan: membershipHistoryTable.plan,
+        amount: membershipHistoryTable.amount,
+        currency: membershipHistoryTable.currency,
+        createdAt: membershipHistoryTable.createdAt,
+        stripePaymentIntentId: membershipHistoryTable.stripePaymentIntentId,
+        stripeInvoiceId: membershipHistoryTable.stripeInvoiceId,
+        stripeDisputeId: membershipHistoryTable.stripeDisputeId,
+      }).from(membershipHistoryTable)
         .where(eq(membershipHistoryTable.userId, id))
         .orderBy(desc(membershipHistoryTable.createdAt))
         .limit(30),
@@ -376,12 +386,16 @@ router.get("/admin/users/:id/membership", requireAdmin, async (req: Request, res
       stripeSub = (result.rows[0] as Record<string, unknown>) ?? null;
     }
 
+    const { getConfigStringRaw } = await import("../lib/adminConfig");
+    const liveMode = (await getConfigStringRaw("stripe_live_mode", "false")) === "true";
+
     res.json({
       isLifetime: lifetimeRows.length > 0,
       lifetimeEntitlement: lifetimeRows[0] ?? null,
       appSubscription: appSub,
       stripeSub,
       history: historyRows,
+      liveMode,
     });
   } catch (err) {
     const msg = err instanceof Error ? err.message : "Failed to fetch membership data";

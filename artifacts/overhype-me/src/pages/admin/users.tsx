@@ -50,6 +50,9 @@ interface HistoryRecord {
   amount: number | null;
   currency: string | null;
   createdAt: string;
+  stripePaymentIntentId?: string | null;
+  stripeInvoiceId?: string | null;
+  stripeDisputeId?: string | null;
 }
 
 interface MembershipData {
@@ -58,6 +61,7 @@ interface MembershipData {
   appSubscription: AppSubscription | null;
   stripeSub: { id: string; status: string; current_period_end: number | null; cancel_at_period_end: boolean } | null;
   history: HistoryRecord[];
+  liveMode: boolean;
 }
 
 const LIMIT = 50;
@@ -1126,6 +1130,7 @@ export default function AdminUsers() {
                       <SubscriptionInfo
                         key={selectedUser.id}
                         variant="compact"
+                        liveMode={membershipData.liveMode}
                         data={{
                           isLifetime: membershipData.isLifetime,
                           cancelAtPeriodEnd: membershipData.appSubscription.cancelAtPeriodEnd,
@@ -1145,7 +1150,7 @@ export default function AdminUsers() {
                       <div className="flex items-center gap-1.5 text-xs text-muted-foreground font-mono mt-1">
                         <span className="truncate">{membershipData.appSubscription.stripeSubscriptionId}</span>
                         <a
-                          href={`https://dashboard.stripe.com/test/subscriptions/${membershipData.appSubscription.stripeSubscriptionId}`}
+                          href={`https://dashboard.stripe.com${membershipData.liveMode ? "" : "/test"}/subscriptions/${membershipData.appSubscription.stripeSubscriptionId}`}
                           target="_blank" rel="noopener noreferrer"
                           className="text-primary shrink-0 hover:underline"
                         >
@@ -1160,6 +1165,7 @@ export default function AdminUsers() {
                         <SubscriptionInfo
                           key={selectedUser.id}
                           variant="compact"
+                          liveMode={membershipData.liveMode}
                           data={{
                             isLifetime: membershipData.isLifetime,
                             cancelAtPeriodEnd: false,

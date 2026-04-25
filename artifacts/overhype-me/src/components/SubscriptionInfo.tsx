@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Crown, Calendar, AlertTriangle, Receipt, ChevronDown, ChevronUp } from "lucide-react";
+import { Crown, Calendar, AlertTriangle, Receipt, ChevronDown, ChevronUp, ExternalLink } from "lucide-react";
 import { eventLabel, eventTone, formatAmount, type EventTone } from "@/components/subscriptionHelpers";
 
 function eventBadgeClass(tone: EventTone): string {
@@ -36,6 +36,9 @@ export interface SubscriptionInfoRecord {
   amount: number | null;
   currency: string | null;
   createdAt: string;
+  stripePaymentIntentId?: string | null;
+  stripeInvoiceId?: string | null;
+  stripeDisputeId?: string | null;
 }
 
 export interface SubscriptionInfoData {
@@ -50,13 +53,23 @@ export interface SubscriptionInfoData {
 interface SubscriptionInfoProps {
   data: SubscriptionInfoData;
   variant: "full" | "compact";
+  liveMode?: boolean;
   reactivateButton?: React.ReactNode;
   hideHistory?: boolean;
 }
 
-export function SubscriptionInfo({ data, variant, reactivateButton, hideHistory = false }: SubscriptionInfoProps) {
+function stripeRecordLinks(rec: SubscriptionInfoRecord, stripeBase: string): { href: string; label: string }[] {
+  const links: { href: string; label: string }[] = [];
+  if (rec.stripeDisputeId) links.push({ href: `${stripeBase}/disputes/${rec.stripeDisputeId}`, label: "dispute" });
+  if (rec.stripePaymentIntentId) links.push({ href: `${stripeBase}/payments/${rec.stripePaymentIntentId}`, label: "payment" });
+  if (rec.stripeInvoiceId) links.push({ href: `${stripeBase}/invoices/${rec.stripeInvoiceId}`, label: "invoice" });
+  return links;
+}
+
+export function SubscriptionInfo({ data, variant, liveMode = false, reactivateButton, hideHistory = false }: SubscriptionInfoProps) {
   const [showHistory, setShowHistory] = useState(false);
   const { isLifetime, cancelAtPeriodEnd, periodEnd, status, plan, history } = data;
+  const sBase = liveMode ? "https://dashboard.stripe.com" : "https://dashboard.stripe.com/test";
 
   if (variant === "compact") {
     const hasSubscriptionInfo = status !== null || isLifetime;
@@ -131,11 +144,25 @@ export function SubscriptionInfo({ data, variant, reactivateButton, hideHistory 
                           {new Date(rec.createdAt).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" })}
                         </p>
                       </div>
-                      {rec.amount != null && rec.amount > 0 && rec.currency && (
-                        <span className={`text-xs font-bold ${amountClass(rec.event)}`}>
-                          {formatSignedAmount(rec.event, rec.amount, rec.currency)}
-                        </span>
-                      )}
+                      <div className="flex items-center gap-1.5 shrink-0 ml-2">
+                        {rec.amount != null && rec.amount > 0 && rec.currency && (
+                          <span className={`text-xs font-bold ${amountClass(rec.event)}`}>
+                            {formatSignedAmount(rec.event, rec.amount, rec.currency)}
+                          </span>
+                        )}
+                        {stripeRecordLinks(rec, sBase).map((link) => (
+                          <a
+                            key={link.href}
+                            href={link.href}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            title={`Open ${link.label} in Stripe`}
+                            className="text-muted-foreground hover:text-primary transition-colors"
+                          >
+                            <ExternalLink className="w-3 h-3" />
+                          </a>
+                        ))}
+                      </div>
                     </div>
                   );
                 })}
@@ -251,11 +278,25 @@ export function SubscriptionInfo({ data, variant, reactivateButton, hideHistory 
                         </span>
                       </div>
                     </div>
-                    {record.amount != null && record.amount > 0 && record.currency && (
-                      <span className={`font-bold ${amountClass(record.event)}`}>
-                        {formatSignedAmount(record.event, record.amount, record.currency)}
-                      </span>
-                    )}
+                    <div className="flex items-center gap-2 shrink-0 ml-2">
+                      {record.amount != null && record.amount > 0 && record.currency && (
+                        <span className={`font-bold ${amountClass(record.event)}`}>
+                          {formatSignedAmount(record.event, record.amount, record.currency)}
+                        </span>
+                      )}
+                      {stripeRecordLinks(record, sBase).map((link) => (
+                        <a
+                          key={link.href}
+                          href={link.href}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          title={`Open ${link.label} in Stripe`}
+                          className="text-muted-foreground hover:text-primary transition-colors"
+                        >
+                          <ExternalLink className="w-3.5 h-3.5" />
+                        </a>
+                      ))}
+                    </div>
                   </div>
                 );
               })}
