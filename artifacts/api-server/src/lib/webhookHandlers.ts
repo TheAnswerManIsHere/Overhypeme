@@ -12,6 +12,7 @@ import { eq, desc, and } from "drizzle-orm";
 import { logger } from "./logger";
 import { makeGrantDeps, grantLegendaryViaSubscription, grantLegendaryViaOneTimePayment } from "./membershipGrant";
 import { notifyAdminsOfDispute } from "./adminNotify";
+import { notifyUserAccessRevoked } from "./userNotify";
 
 async function findUserByStripeCustomerId(customerId: string) {
   const [user] = await db
@@ -331,8 +332,16 @@ async function handleChargeRefunded(
       const hasOtherLifetime = await userHasLifetimeEntitlement(user.id);
       const hasActiveSub = await userHasActiveSubscription(user.id);
       if (!hasOtherLifetime && !hasActiveSub) {
+        const wasLegendary = user.membershipTier === "legendary";
         await setMembershipTier(user.id, "registered");
         logger.info({ userId: user.id, paymentIntentId }, "Lifetime entitlement refunded — user downgraded to registered");
+        // Only email when this event actually caused a downgrade (legendary → registered).
+        // If the user was already on registered (e.g. an earlier event already revoked
+        // them), suppress the email so we don't spam them about a state change that
+        // didn't happen here.
+        if (wasLegendary) {
+          void notifyUserAccessRevoked(user.id, "refund");
+        }
       } else {
         logger.info({ userId: user.id, paymentIntentId }, "Lifetime entitlement refunded but user has other active entitlement — keeping legendary");
       }
@@ -455,6 +464,7 @@ async function handleDisputeCreated(
   }
 
   const { user } = resolved;
+  const wasLegendary = user.membershipTier === "legendary";
   await setMembershipTier(user.id, "registered");
   await recordHistory(user.id, "dispute_opened", {
     amount: dispute.amount,
@@ -462,6 +472,11 @@ async function handleDisputeCreated(
     stripePaymentIntentId: paymentIntentId ?? undefined,
     stripeDisputeId: dispute.id,
   });
+  // Only email when this event actually downgraded the user. If they were
+  // already on registered (e.g. an earlier event flipped them), don't spam.
+  if (wasLegendary) {
+    void notifyUserAccessRevoked(user.id, "dispute_opened");
+  }
   logger.info({ userId: user.id, disputeId: dispute.id }, "Dispute opened — user immediately revoked from legendary");
 }
 
@@ -525,6 +540,7 @@ async function handleDisputeClosed(
   } else if (dispute.status === "lost") {
     // Explicitly revoke Legendary — idempotent if dispute.created already fired,
     // but also handles the case where dispute.created was missed/failed.
+    const wasLegendary = user.membershipTier === "legendary";
     await setMembershipTier(user.id, "registered");
     // Also mark lifetime entitlement as refunded if applicable
     if (entitlementId !== null) {
@@ -539,6 +555,13 @@ async function handleDisputeClosed(
       stripePaymentIntentId: paymentIntentId ?? undefined,
       stripeDisputeId: dispute.id,
     });
+    // Only email when this event actually downgraded the user. In the common
+    // path dispute.created already revoked them and they're already on
+    // registered, so no email is sent here. The fallback path (dispute.created
+    // was missed) is the one that needs the notification.
+    if (wasLegendary) {
+      void notifyUserAccessRevoked(user.id, "dispute_lost");
+    }
     logger.info({ userId: user.id, disputeId: dispute.id }, "Dispute lost — user revoked to registered, entitlement marked refunded");
   } else {
     // warning_closed or other terminal non-won/non-lost statuses — record only
