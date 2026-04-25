@@ -13,6 +13,7 @@ export interface AuthState {
   role: UserRole;
   login: () => void;
   logout: () => Promise<void>;
+  refreshUser: () => Promise<void>;
 }
 
 function deriveRole(user: AuthUser | null): UserRole {
@@ -25,38 +26,36 @@ function deriveRole(user: AuthUser | null): UserRole {
 
 const AuthContext = createContext<AuthState | null>(null);
 
+async function fetchAuthUser(): Promise<AuthUser | null> {
+  const res = await fetch("/api/auth/user", {
+    credentials: "include",
+    cache: "no-store",
+    headers: { "Cache-Control": "no-cache" },
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const data = (await res.json()) as { user: AuthUser | null };
+  return data.user ?? null;
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
     let cancelled = false;
+    fetchAuthUser()
+      .then((u) => { if (!cancelled) { setUser(u); setIsLoading(false); } })
+      .catch(() => { if (!cancelled) { setUser(null); setIsLoading(false); } });
+    return () => { cancelled = true; };
+  }, []);
 
-    fetch("/api/auth/user", {
-      credentials: "include",
-      cache: "no-store",
-      headers: { "Cache-Control": "no-cache" },
-    })
-      .then((res) => {
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        return res.json() as Promise<{ user: AuthUser | null }>;
-      })
-      .then((data) => {
-        if (!cancelled) {
-          setUser(data.user ?? null);
-          setIsLoading(false);
-        }
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setUser(null);
-          setIsLoading(false);
-        }
-      });
-
-    return () => {
-      cancelled = true;
-    };
+  const refreshUser = useCallback(async () => {
+    try {
+      const u = await fetchAuthUser();
+      setUser(u);
+    } catch {
+      // Silently ignore — stale state is better than crashing.
+    }
   }, []);
 
   const login = useCallback(() => {
@@ -80,6 +79,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     role: deriveRole(user),
     login,
     logout,
+    refreshUser,
   };
 
   return createElement(AuthContext.Provider, { value }, children);
