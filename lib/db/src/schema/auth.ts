@@ -20,6 +20,7 @@ export const usersTable = pgTable("users", {
   captchaVerified: boolean("captcha_verified").notNull().default(false),
   isAdmin: boolean("is_admin").notNull().default(false),
   adminNotifications: boolean("admin_notifications").notNull().default(true),
+  disputeNotifications: boolean("dispute_notifications").notNull().default(true),
   isActive: boolean("is_active").notNull().default(true),
   stripeCustomerId: varchar("stripe_customer_id").unique(),
   membershipTier: membershipTierEnum("membership_tier").notNull().default("registered"),

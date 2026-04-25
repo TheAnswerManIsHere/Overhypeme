@@ -101,7 +101,7 @@ ${divider()}
 }
 
 /**
- * Sends a high-priority dispute alert to every admin who has `adminNotifications = true`.
+ * Sends a high-priority dispute alert to every admin who has `disputeNotifications = true`.
  * Stripe gives us ~7 days to respond to disputes, so this alert is meant to be acted on
  * immediately. Safe to call without await — errors are swallowed and logged.
  */
@@ -113,7 +113,7 @@ export async function notifyAdminsOfDispute(opts: AdminDisputeNotifyOpts): Promi
       .where(
         and(
           eq(usersTable.isAdmin, true),
-          eq(usersTable.adminNotifications, true),
+          eq(usersTable.disputeNotifications, true),
           eq(usersTable.isActive, true),
         ),
       );
@@ -185,7 +185,7 @@ function buildDisputeNotificationEmail(opts: AdminDisputeNotifyOpts) {
 </table>
 ${ctaButton(dashboardUrl, "Open in Stripe")}
 ${divider()}
-<p style="margin:0;font-size:12px;color:#555555;line-height:1.7;font-family:'Inter',-apple-system,sans-serif;">You&#39;re receiving this because you have admin notifications enabled on Overhype.me. <a href="${siteUrl}/admin/users" target="_blank" style="color:#FF3C00;text-decoration:none;">Manage notification settings.</a></p>`;
+<p style="margin:0;font-size:12px;color:#555555;line-height:1.7;font-family:'Inter',-apple-system,sans-serif;">You&#39;re receiving this because you have Stripe dispute alerts enabled on Overhype.me. <a href="${siteUrl}/admin/users" target="_blank" style="color:#FF3C00;text-decoration:none;">Manage notification settings.</a></p>`;
 
   const html = buildEmailShell(body, "Stripe dispute alert — Overhype.me.");
 
