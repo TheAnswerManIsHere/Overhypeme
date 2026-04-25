@@ -124,7 +124,7 @@ const MODEL_PARAMS: Record<string, ParamDef[]> = {
 // ── RetryTimelinePanel ────────────────────────────────────────────────────────
 
 function RetryTimelinePanel() {
-  const { stdEdits } = useConfigCtx();
+  const { stdEdits, stdDirty } = useConfigCtx();
 
   const delays = RETRY_DELAY_MS_KEYS.map((key) => {
     const raw = stdEdits[key]?.value;
@@ -146,6 +146,9 @@ function RetryTimelinePanel() {
     }
   }
 
+  const dirtyFlags = RETRY_DELAY_MS_KEYS.map((key) => stdDirty(key));
+  const anyUnsaved = dirtyFlags.some(Boolean);
+
   return (
     <div className="rounded-lg border border-border bg-muted/40 p-4 space-y-3">
       <div className="flex items-center gap-2">
@@ -153,23 +156,38 @@ function RetryTimelinePanel() {
         <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
           Predicted retry timeline
         </p>
+        {anyUnsaved && (
+          <span className="text-xs text-amber-400 italic ml-auto">preview — unsaved changes</span>
+        )}
       </div>
       <p className="text-xs text-muted-foreground">
         Cumulative offsets from the moment of the first failure:
       </p>
       <ol className="space-y-1.5">
-        {cumulative.map((total, i) => (
-          <li key={RETRY_DELAY_MS_KEYS[i]} className="flex items-center gap-2 text-sm">
-            <span className="w-16 shrink-0 text-xs text-muted-foreground">Retry {i + 1}</span>
-            {total === null ? (
-              <span className="text-muted-foreground/60 italic text-xs">not set</span>
-            ) : (
-              <span className="font-mono text-foreground">
-                +{msToHuman(total)}
-              </span>
-            )}
-          </li>
-        ))}
+        {cumulative.map((total, i) => {
+          const key = RETRY_DELAY_MS_KEYS[i];
+          const directlyUnsaved = dirtyFlags[i];
+          const cumulativelyAffected = !directlyUnsaved && dirtyFlags.slice(0, i).some(Boolean);
+          const highlight = directlyUnsaved || cumulativelyAffected;
+          return (
+            <li key={key} className="flex items-center gap-2 text-sm">
+              <span className="w-16 shrink-0 text-xs text-muted-foreground">Retry {i + 1}</span>
+              {total === null ? (
+                <span className="text-muted-foreground/60 italic text-xs">not set</span>
+              ) : (
+                <span className={`font-mono ${highlight ? "text-amber-400" : "text-foreground"}`}>
+                  +{msToHuman(total)}
+                </span>
+              )}
+              {directlyUnsaved && (
+                <span className="text-[10px] text-amber-400/80 italic">unsaved</span>
+              )}
+              {cumulativelyAffected && total !== null && (
+                <span className="text-[10px] text-amber-400/60 italic">affected</span>
+              )}
+            </li>
+          );
+        })}
       </ol>
     </div>
   );
