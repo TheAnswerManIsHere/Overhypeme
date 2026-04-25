@@ -1,0 +1,73 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # NOTE: typecheck is intentionally not wired up here. The repo currently has
+  # pre-existing tsc errors in lib/integrations-anthropic-ai (pRetry.AbortError
+  # type mismatch with the upgraded p-retry types). Adding `pnpm typecheck` to
+  # CI would block every push until those are resolved. Once the lib types are
+  # fixed, add a `typecheck` job back here mirroring the install steps below.
+
+  tests:
+    name: tests
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: overhype
+          POSTGRES_PASSWORD: overhype
+          POSTGRES_DB: overhype_test
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+        ports:
+          - 5432:5432
+
+    env:
+      DATABASE_URL: postgres://overhype:overhype@localhost:5432/overhype_test
+      # The api-server tests load modules that throw at import time when
+      # Stripe keys are missing. Real Stripe API calls are not made — these
+      # dummy values are only to satisfy the SDK's init guard.
+      STRIPE_SECRET_KEY: sk_test_dummy
+      STRIPE_PUBLISHABLE_KEY: pk_test_dummy
+      # Same story for the email outbox tests — the worker is gated on
+      # RESEND_API_KEY being present; tests assert DB state, not delivery.
+      RESEND_API_KEY: re_test_dummy
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Apply DB schema
+        run: pnpm --filter @workspace/db push-force
+
+      - name: api-server tests
+        run: pnpm --filter @workspace/api-server test
+
+      - name: overhype-me frontend tests
+        run: pnpm --filter @workspace/overhype-me test
+
+      - name: redact lib tests
+        run: pnpm --filter @workspace/redact test
