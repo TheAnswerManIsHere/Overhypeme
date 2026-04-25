@@ -1077,10 +1077,24 @@ export default function AdminUsers() {
                     <div>
                       <p className="text-xs font-semibold text-foreground">Legendary for Life</p>
                       {membershipData?.isLifetime && membershipData.lifetimeEntitlement ? (
-                        <p className="text-xs text-muted-foreground">
-                          Granted {new Date(membershipData.lifetimeEntitlement.createdAt).toLocaleDateString()}
-                          {membershipData.lifetimeEntitlement.stripePaymentIntentId.startsWith("admin_grant") ? " (admin)" : ""}
-                        </p>
+                        <div>
+                          <p className="text-xs text-muted-foreground">
+                            Granted {new Date(membershipData.lifetimeEntitlement.createdAt).toLocaleDateString()}
+                            {membershipData.lifetimeEntitlement.stripePaymentIntentId.startsWith("admin_grant") ? " (admin)" : ""}
+                          </p>
+                          {!membershipData.lifetimeEntitlement.stripePaymentIntentId.startsWith("admin_grant") && (
+                            <div className="flex items-center gap-1 mt-0.5">
+                              <span className="text-xs text-muted-foreground font-mono truncate">{membershipData.lifetimeEntitlement.stripePaymentIntentId}</span>
+                              <a
+                                href={`https://dashboard.stripe.com${membershipData.liveMode ? "" : "/test"}/payment_intents/${membershipData.lifetimeEntitlement.stripePaymentIntentId}`}
+                                target="_blank" rel="noopener noreferrer"
+                                className="text-primary shrink-0 hover:underline"
+                              >
+                                <ExternalLink className="w-3 h-3" />
+                              </a>
+                            </div>
+                          )}
+                        </div>
                       ) : (
                         <p className="text-xs text-muted-foreground">{membershipLoading ? "—" : "Not granted"}</p>
                       )}
