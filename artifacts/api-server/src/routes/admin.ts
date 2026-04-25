@@ -1556,10 +1556,7 @@ router.get("/admin/stripe/summary", requireAdmin, async (_req: Request, res: Res
     ]);
 
     // Boolean-only presence checks for the Stripe env vars. We never echo the
-    // values themselves — only whether each one is configured. The legacy
-    // STRIPE_WEBHOOK_SECRET still works at runtime as a fallback for both
-    // modes (see getStripeWebhookSecret in stripeClient.ts), so we surface it
-    // separately so admins can see when they're relying on the fallback.
+    // values themselves — only whether each one is configured.
     const stripeEnv = {
       secretKeyTest: !!process.env.STRIPE_SECRET_KEY_TEST,
       secretKeyLive: !!process.env.STRIPE_SECRET_KEY_LIVE,
@@ -1567,10 +1564,9 @@ router.get("/admin/stripe/summary", requireAdmin, async (_req: Request, res: Res
       publishableKeyLive: !!process.env.STRIPE_PUBLISHABLE_KEY_LIVE,
       webhookSecretTest: !!process.env.STRIPE_WEBHOOK_SECRET_TEST,
       webhookSecretLive: !!process.env.STRIPE_WEBHOOK_SECRET_LIVE,
-      webhookSecretFallback: !!process.env.STRIPE_WEBHOOK_SECRET,
     };
     const webhookSecretConfigured =
-      stripeEnv.webhookSecretTest || stripeEnv.webhookSecretLive || stripeEnv.webhookSecretFallback;
+      stripeEnv.webhookSecretTest || stripeEnv.webhookSecretLive;
     const priceIdsConfigured = !!(process.env.MEMBERSHIP_PRICE_IDS ?? "").trim();
 
     const webhookUrl = `${getSiteBaseUrl()}/api/stripe/webhook`;

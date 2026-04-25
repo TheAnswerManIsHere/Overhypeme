@@ -2,12 +2,12 @@
  * Tests for getStripeWebhookSecret() — the mode-aware resolver that picks the
  * right Stripe webhook signing secret based on the active stripe_live_mode.
  *
- * Precedence (mirrors the API-key resolver):
- *   live mode  → STRIPE_WEBHOOK_SECRET_LIVE  → STRIPE_WEBHOOK_SECRET
- *   test mode  → STRIPE_WEBHOOK_SECRET_TEST  → STRIPE_WEBHOOK_SECRET
+ * Each mode reads from exactly one env var — no legacy fallback:
+ *   live mode  → STRIPE_WEBHOOK_SECRET_LIVE
+ *   test mode  → STRIPE_WEBHOOK_SECRET_TEST
  *
- * Returns null when no env var is configured (caller falls back to the
- * managed-webhook secret stored in stripe._managed_webhooks).
+ * Returns null when the env var for the active mode is not configured (caller
+ * falls back to the managed-webhook secret stored in stripe._managed_webhooks).
  */
 
 import { describe, it, beforeEach, afterEach } from "node:test";
@@ -54,30 +54,24 @@ describe("getStripeWebhookSecret", () => {
     assert.equal(got, "whsec_live_only");
   });
 
-  it("falls back to STRIPE_WEBHOOK_SECRET in test mode when *_TEST is missing", async () => {
-    process.env.STRIPE_WEBHOOK_SECRET = "whsec_fallback";
+  it("ignores the legacy STRIPE_WEBHOOK_SECRET in test mode", async () => {
+    process.env.STRIPE_WEBHOOK_SECRET = "whsec_legacy";
     const got = await getStripeWebhookSecret(false);
-    assert.equal(got, "whsec_fallback");
+    assert.equal(
+      got,
+      null,
+      "the legacy single-value var must NOT be used as a fallback — each mode reads from exactly one env var",
+    );
   });
 
-  it("falls back to STRIPE_WEBHOOK_SECRET in live mode when *_LIVE is missing", async () => {
-    process.env.STRIPE_WEBHOOK_SECRET = "whsec_fallback";
+  it("ignores the legacy STRIPE_WEBHOOK_SECRET in live mode", async () => {
+    process.env.STRIPE_WEBHOOK_SECRET = "whsec_legacy";
     const got = await getStripeWebhookSecret(true);
-    assert.equal(got, "whsec_fallback");
-  });
-
-  it("prefers the mode-specific var over the generic fallback in test mode", async () => {
-    process.env.STRIPE_WEBHOOK_SECRET_TEST = "whsec_test_specific";
-    process.env.STRIPE_WEBHOOK_SECRET = "whsec_generic";
-    const got = await getStripeWebhookSecret(false);
-    assert.equal(got, "whsec_test_specific");
-  });
-
-  it("prefers the mode-specific var over the generic fallback in live mode", async () => {
-    process.env.STRIPE_WEBHOOK_SECRET_LIVE = "whsec_live_specific";
-    process.env.STRIPE_WEBHOOK_SECRET = "whsec_generic";
-    const got = await getStripeWebhookSecret(true);
-    assert.equal(got, "whsec_live_specific");
+    assert.equal(
+      got,
+      null,
+      "the legacy single-value var must NOT be used as a fallback — each mode reads from exactly one env var",
+    );
   });
 
   it("does NOT use *_LIVE when running in test mode", async () => {
