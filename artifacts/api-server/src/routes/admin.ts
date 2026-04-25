@@ -389,6 +389,80 @@ router.get("/admin/users/:id/membership", requireAdmin, async (req: Request, res
   }
 });
 
+// GET /admin/refunds-disputes — paginated list of refund/dispute events from membership_history
+// Returns rows for events: refund, dispute_opened, dispute_won, dispute_lost, dispute_closed.
+// Joined with the users table so the UI can display who was affected without a second round-trip.
+router.get("/admin/refunds-disputes", requireAdmin, async (req: Request, res: Response) => {
+  const REFUND_DISPUTE_EVENTS = [
+    "refund",
+    "dispute_opened",
+    "dispute_won",
+    "dispute_lost",
+    "dispute_closed",
+  ] as const;
+
+  const page = Math.max(1, parseInt(String(req.query["page"] ?? "1"), 10));
+  const limit = Math.min(100, Math.max(1, parseInt(String(req.query["limit"] ?? "50"), 10)));
+  const offset = (page - 1) * limit;
+  const search = String(req.query["search"] ?? "").trim();
+
+  // Event filter: comma-separated list, falling back to all refund/dispute events.
+  const rawEvent = String(req.query["event"] ?? "").trim();
+  const requestedEvents = rawEvent
+    ? rawEvent.split(",").map((e) => e.trim()).filter((e): e is typeof REFUND_DISPUTE_EVENTS[number] =>
+        (REFUND_DISPUTE_EVENTS as readonly string[]).includes(e),
+      )
+    : [...REFUND_DISPUTE_EVENTS];
+  const eventList = requestedEvents.length > 0 ? requestedEvents : [...REFUND_DISPUTE_EVENTS];
+
+  const eventFilter = inArray(membershipHistoryTable.event, eventList);
+  const searchFilter = search
+    ? sql`(${usersTable.email} ilike ${`%${search}%`} OR ${usersTable.displayName} ilike ${`%${search}%`} OR ${usersTable.id}::text ilike ${`%${search}%`})`
+    : undefined;
+  const where = searchFilter ? and(eventFilter, searchFilter) : eventFilter;
+
+  try {
+    const { getConfigStringRaw } = await import("../lib/adminConfig");
+    const liveMode = (await getConfigStringRaw("stripe_live_mode", "false")) === "true";
+
+    const [rows, [{ total }]] = await Promise.all([
+      db
+        .select({
+          id: membershipHistoryTable.id,
+          createdAt: membershipHistoryTable.createdAt,
+          event: membershipHistoryTable.event,
+          plan: membershipHistoryTable.plan,
+          amount: membershipHistoryTable.amount,
+          currency: membershipHistoryTable.currency,
+          stripePaymentIntentId: membershipHistoryTable.stripePaymentIntentId,
+          stripeSubscriptionId: membershipHistoryTable.stripeSubscriptionId,
+          stripeInvoiceId: membershipHistoryTable.stripeInvoiceId,
+          stripeDisputeId: membershipHistoryTable.stripeDisputeId,
+          userId: membershipHistoryTable.userId,
+          userEmail: usersTable.email,
+          userDisplayName: usersTable.displayName,
+        })
+        .from(membershipHistoryTable)
+        .leftJoin(usersTable, eq(membershipHistoryTable.userId, usersTable.id))
+        .where(where)
+        .orderBy(desc(membershipHistoryTable.createdAt))
+        .limit(limit)
+        .offset(offset),
+      db
+        .select({ total: count() })
+        .from(membershipHistoryTable)
+        .leftJoin(usersTable, eq(membershipHistoryTable.userId, usersTable.id))
+        .where(where),
+    ]);
+
+    res.json({ rows, total, page, limit, liveMode, eventTypes: REFUND_DISPUTE_EVENTS });
+  } catch (err) {
+    console.error("[admin] refunds-disputes error:", err);
+    const msg = err instanceof Error ? err.message : "Failed to load refunds and disputes";
+    res.status(500).json({ error: msg });
+  }
+});
+
 // POST /admin/users/:id/grant-lifetime — manually grant Legendary for Life
 router.post("/admin/users/:id/grant-lifetime", requireAdmin, async (req: Request, res: Response) => {
   const id = String(req.params["id"] ?? "");

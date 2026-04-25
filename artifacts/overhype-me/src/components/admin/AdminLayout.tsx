@@ -16,6 +16,7 @@ import {
   PanelLeftOpen,
   ToggleLeft,
   ShieldAlert,
+  Undo2,
 } from "lucide-react";
 
 interface AdminLayoutProps {
@@ -29,6 +30,7 @@ const NAV_ITEMS = [
   { href: "/admin/users", label: "Users", icon: Users, badge: false as const },
   { href: "/admin/moderation", label: "Moderation", icon: ShieldAlert, badge: "moderation" as const },
   { href: "/admin/billing", label: "Billing", icon: CreditCard, badge: false as const },
+  { href: "/admin/refunds-disputes", label: "Refunds & Disputes", icon: Undo2, badge: false as const },
   { href: "/admin/affiliate", label: "Affiliate", icon: ShoppingBag, badge: false as const },
   { href: "/admin/video-styles", label: "Video Styles", icon: Film, badge: false as const },
   { href: "/admin/features", label: "Features", icon: ToggleLeft, badge: false as const },

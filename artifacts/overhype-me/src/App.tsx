@@ -21,6 +21,7 @@ const AdminDashboard = lazy(() => import("@/pages/admin/index"));
 const AdminFacts = lazy(() => import("@/pages/admin/facts"));
 const AdminUsers = lazy(() => import("@/pages/admin/users"));
 const AdminBilling = lazy(() => import("@/pages/admin/billing"));
+const AdminRefundsDisputes = lazy(() => import("@/pages/admin/refundsDisputes"));
 const AdminAffiliate = lazy(() => import("@/pages/admin/affiliate"));
 const AdminModeration = lazy(() => import("@/pages/admin/moderation"));
 const AdminVideoStyles = lazy(() => import("@/pages/admin/videoStyles"));
@@ -351,6 +352,7 @@ function Router() {
         <Route path="/admin/facts" component={AdminFacts} />
         <Route path="/admin/users" component={AdminUsers} />
         <Route path="/admin/billing" component={AdminBilling} />
+        <Route path="/admin/refunds-disputes" component={AdminRefundsDisputes} />
         <Route path="/admin/moderation" component={AdminModeration} />
         <Route path="/admin/comments"><AdminModerationRedirect /></Route>
         <Route path="/admin/reviews"><AdminModerationRedirect /></Route>
