@@ -10,6 +10,7 @@ import {
   RefreshCw,
   RotateCcw,
   Trash2,
+  X,
 } from "lucide-react";
 
 type OutboxStatus = "pending" | "sending" | "delivered" | "abandoned";
@@ -18,6 +19,8 @@ interface EmailQueueRow {
   id: number;
   to: string;
   subject: string;
+  text: string;
+  html: string | null;
   kind: string | null;
   status: string;
   attempts: number;
@@ -79,6 +82,174 @@ function formatRelative(value: string | null | undefined): string {
   return date.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
 }
 
+function formatFull(value: string | null | undefined): string {
+  if (!value) return "—";
+  const date = new Date(value);
+  if (isNaN(date.getTime())) return "—";
+  return date.toLocaleString(undefined, {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  });
+}
+
+interface DetailField {
+  label: string;
+  value: React.ReactNode;
+}
+
+function DetailRow({ label, value }: DetailField) {
+  return (
+    <div className="grid grid-cols-[120px_1fr] gap-x-3 gap-y-0.5 items-start">
+      <span className="text-xs font-medium text-muted-foreground pt-0.5">{label}</span>
+      <span className="text-xs text-foreground break-all">{value}</span>
+    </div>
+  );
+}
+
+interface EmailDetailModalProps {
+  row: EmailQueueRow;
+  onClose: () => void;
+  onRetry: (id: number) => Promise<void>;
+  retrying: boolean;
+  retryError: string | null;
+}
+
+function EmailDetailModal({ row, onClose, onRetry, retrying, retryError }: EmailDetailModalProps) {
+  const [bodyTab, setBodyTab] = useState<"text" | "html">("text");
+
+  useEffect(() => {
+    function handleKey(e: KeyboardEvent) {
+      if (e.key === "Escape") onClose();
+    }
+    document.addEventListener("keydown", handleKey);
+    return () => document.removeEventListener("keydown", handleKey);
+  }, [onClose]);
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4"
+      onClick={onClose}
+    >
+      <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" />
+      <div
+        className="relative z-10 w-full max-w-2xl max-h-[90vh] flex flex-col bg-card border border-border rounded-xl shadow-2xl overflow-hidden"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between px-5 py-3.5 border-b border-border shrink-0">
+          <h2 className="text-sm font-semibold text-foreground">Email Detail #{row.id}</h2>
+          <button
+            onClick={onClose}
+            className="text-muted-foreground hover:text-foreground transition-colors rounded p-0.5"
+            aria-label="Close"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+
+        <div className="overflow-y-auto flex-1 px-5 py-4 space-y-4">
+          <div className="space-y-2">
+            <DetailRow label="Recipient" value={<span className="font-mono">{row.to}</span>} />
+            <DetailRow label="Subject" value={row.subject} />
+            <DetailRow label="Kind" value={row.kind ?? "—"} />
+            <DetailRow
+              label="Status"
+              value={
+                <span
+                  className={`inline-flex items-center px-2 py-0.5 text-xs font-semibold rounded-full border ${statusBadgeClass(row.status)}`}
+                >
+                  {row.status}
+                </span>
+              }
+            />
+            <DetailRow
+              label="Attempts"
+              value={`${row.attempts} of ${row.maxAttempts}`}
+            />
+            {row.lastError && (
+              <DetailRow
+                label="Last Error"
+                value={
+                  <span className="font-mono text-red-400 whitespace-pre-wrap">{row.lastError}</span>
+                }
+              />
+            )}
+            <DetailRow label="Created" value={formatFull(row.createdAt)} />
+            <DetailRow label="Updated" value={formatFull(row.updatedAt)} />
+            {row.status !== "delivered" && row.status !== "abandoned" && (
+              <DetailRow label="Next Attempt" value={formatFull(row.nextAttemptAt)} />
+            )}
+          </div>
+
+          <div className="border-t border-border pt-4">
+            <div className="flex items-center gap-1 mb-3">
+              <button
+                onClick={() => setBodyTab("text")}
+                className={`px-2.5 py-1 text-xs font-medium rounded-sm border transition-colors ${
+                  bodyTab === "text"
+                    ? "bg-primary text-primary-foreground border-primary"
+                    : "bg-muted text-muted-foreground border-border hover:bg-muted/80"
+                }`}
+              >
+                Plain Text
+              </button>
+              {row.html && (
+                <button
+                  onClick={() => setBodyTab("html")}
+                  className={`px-2.5 py-1 text-xs font-medium rounded-sm border transition-colors ${
+                    bodyTab === "html"
+                      ? "bg-primary text-primary-foreground border-primary"
+                      : "bg-muted text-muted-foreground border-border hover:bg-muted/80"
+                  }`}
+                >
+                  HTML
+                </button>
+              )}
+            </div>
+
+            {bodyTab === "text" && (
+              <pre className="text-xs text-foreground font-mono whitespace-pre-wrap break-words bg-muted/40 rounded-lg p-3 max-h-64 overflow-y-auto border border-border">
+                {row.text || "—"}
+              </pre>
+            )}
+
+            {bodyTab === "html" && row.html && (
+              <pre className="text-xs text-foreground font-mono whitespace-pre-wrap break-words bg-muted/40 rounded-lg p-3 max-h-64 overflow-y-auto border border-border">
+                {row.html}
+              </pre>
+            )}
+          </div>
+        </div>
+
+        {row.status === "abandoned" && (
+          <div className="px-5 py-3 border-t border-border shrink-0 flex items-center gap-3">
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-8 px-3 text-xs gap-1.5"
+              disabled={retrying}
+              onClick={() => void onRetry(row.id)}
+            >
+              {retrying ? (
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              ) : (
+                <RotateCcw className="w-3.5 h-3.5" />
+              )}
+              Retry
+            </Button>
+            {retryError && (
+              <span className="text-xs text-red-400">{retryError}</span>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function AdminEmailQueue() {
   const [data, setData] = useState<ApiResponse | null>(null);
   const [loading, setLoading] = useState(false);
@@ -90,6 +261,7 @@ export default function AdminEmailQueue() {
   const [clearing, setClearing] = useState<"delivered" | "abandoned" | null>(null);
   const [clearError, setClearError] = useState<string | null>(null);
   const [loadKey, setLoadKey] = useState(0);
+  const [selectedRow, setSelectedRow] = useState<EmailQueueRow | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -110,6 +282,11 @@ export default function AdminEmailQueue() {
       }
       const json = (await res.json()) as ApiResponse;
       setData(json);
+      setSelectedRow((prev) => {
+        if (!prev) return null;
+        const updated = json.rows.find((r) => r.id === prev.id);
+        return updated ?? prev;
+      });
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load");
     } finally {
@@ -304,7 +481,8 @@ export default function AdminEmailQueue() {
                   rows.map((row) => (
                     <tr
                       key={row.id}
-                      className="border-t border-border hover:bg-muted/20 transition-colors align-top"
+                      className="border-t border-border hover:bg-muted/20 transition-colors align-top cursor-pointer"
+                      onClick={() => setSelectedRow(row)}
                     >
                       <td className="px-3 py-2.5 max-w-[200px]">
                         <span className="block truncate text-foreground font-mono text-xs" title={row.to}>
@@ -355,7 +533,7 @@ export default function AdminEmailQueue() {
                       >
                         {formatRelative(row.createdAt)}
                       </td>
-                      <td className="px-3 py-2.5 whitespace-nowrap">
+                      <td className="px-3 py-2.5 whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
                         {row.status === "abandoned" && (
                           <div className="flex flex-col items-end gap-0.5">
                             <Button
@@ -414,6 +592,16 @@ export default function AdminEmailQueue() {
           )}
         </div>
       </div>
+
+      {selectedRow && (
+        <EmailDetailModal
+          row={selectedRow}
+          onClose={() => setSelectedRow(null)}
+          onRetry={handleRetry}
+          retrying={retrying.has(selectedRow.id)}
+          retryError={retryErrors[selectedRow.id] ?? null}
+        />
+      )}
     </AdminLayout>
   );
 }
