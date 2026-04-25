@@ -12,6 +12,7 @@ import { backfillEmbeddings } from "./lib/embeddings";
 import { refreshPricingCache } from "./lib/falPricing";
 import { getConfigString, getConfigInt } from "./lib/adminConfig";
 import { attachShutdownHandlers } from "./shutdown";
+import { runEmailOutboxWorker } from "./lib/email.js";
 
 const rawPort = process.env["PORT"];
 
@@ -295,3 +296,4 @@ backfillEmbeddings()
   .catch((err: unknown) => logger.warn({ err }, "Embedding backfill skipped (no OpenAI key?)"));
 scheduleDailyFactJob();
 initPricingCache().catch((err: unknown) => logger.warn({ err }, "Pricing cache init error"));
+runEmailOutboxWorker();

@@ -3,11 +3,20 @@
  * Requires RESEND_API_KEY. RESEND_FROM_EMAIL overrides the default sender.
  * When the key is absent, emails are logged to stdout (development fallback).
  *
+ * Production mode: sendEmail() inserts into the email_outbox table and returns
+ * immediately. The outbox worker (runEmailOutboxWorker) polls every 30 seconds,
+ * claims pending rows, calls Resend, and retries on failure using exponential
+ * backoff (5m → 30m → 2h → 8h). After maxAttempts the row is marked abandoned.
+ *
  * Brand: dark bg (#0d0d0e), danger orange (#FF3C00), Oswald + Inter typography.
  */
 import { Resend } from "resend";
+import { eq, and, lte, lt, asc } from "drizzle-orm";
+import { db as defaultDb } from "@workspace/db";
+import { emailOutboxTable, type EmailOutboxRow } from "@workspace/db/schema";
 import { getConfigString } from "./adminConfig";
 import { getSiteBaseUrl } from "./siteUrl";
+import { logger } from "./logger";
 
 async function getFromAddress(): Promise<string> {
   return getConfigString("email_from_address", process.env.RESEND_FROM_EMAIL ?? "legends@overhype.me");
@@ -18,7 +27,7 @@ async function getReplyToAddress(): Promise<string | undefined> {
   return v.trim() || undefined;
 }
 
-function isEnabled(): boolean {
+export function isEnabled(): boolean {
   return !!process.env.RESEND_API_KEY;
 }
 
@@ -34,10 +43,13 @@ export interface EmailPayload {
   html?: string;
 }
 
-export async function sendEmail(payload: EmailPayload): Promise<void> {
-  const from    = await getFromAddress();
-  const replyTo = await getReplyToAddress();
-  if (!isEnabled() || !resend) {
+export async function sendEmail(
+  payload: EmailPayload & { kind?: string },
+  dbOverride?: Pick<typeof defaultDb, "insert">,
+): Promise<void> {
+  if (!isEnabled()) {
+    const from = await getFromAddress();
+    const replyTo = await getReplyToAddress();
     console.log("[email] Resend not configured — would have sent:");
     console.log(`  To:       ${payload.to}`);
     console.log(`  From:     ${from}`);
@@ -46,21 +58,155 @@ export async function sendEmail(payload: EmailPayload): Promise<void> {
     console.log(`  Body:     ${payload.text}`);
     return;
   }
+  const dbInstance = dbOverride ?? defaultDb;
+  await dbInstance.insert(emailOutboxTable).values({
+    to:      payload.to,
+    subject: payload.subject,
+    text:    payload.text,
+    html:    payload.html ?? null,
+    kind:    payload.kind ?? null,
+  });
+}
+
+/**
+ * Retry delay schedule (in ms). Index = attempt number after the failure.
+ * Attempt 1 (first try fails) → 5 min, attempt 2 → 30 min, etc.
+ * Index 0 means "immediate" — used for the very first attempt.
+ */
+export const RETRY_DELAYS_MS = [0, 5 * 60_000, 30 * 60_000, 2 * 3_600_000, 8 * 3_600_000];
+
+/**
+ * Actually call the Resend API for a single outbox row.
+ * Never throws — returns { ok, error } instead.
+ */
+export async function deliverFromOutbox(
+  row: Pick<EmailOutboxRow, "to" | "subject" | "text" | "html">,
+): Promise<{ ok: boolean; error?: string }> {
+  const from    = await getFromAddress();
+  const replyTo = await getReplyToAddress();
   try {
-    const { error } = await resend.emails.send({
-      to: payload.to,
+    const { error } = await resend!.emails.send({
+      to:      row.to,
       from,
       ...(replyTo ? { replyTo } : {}),
-      subject: payload.subject,
-      text: payload.text,
-      html: payload.html ?? payload.text,
+      subject: row.subject,
+      text:    row.text,
+      html:    row.html ?? row.text,
     });
-    if (error) {
-      console.error("[email] Resend delivery failed:", error);
-    }
+    if (error) return { ok: false, error: String(error.message) };
+    return { ok: true };
   } catch (err) {
-    console.error("[email] Resend delivery error:", err);
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
   }
+}
+
+type DbWithTransaction = Pick<typeof defaultDb, "transaction">;
+type DeliverFn = (row: Pick<EmailOutboxRow, "to" | "subject" | "text" | "html">) => Promise<{ ok: boolean; error?: string }>;
+
+/**
+ * Process one tick of the email outbox worker.
+ * Exported for unit tests so they can inject a fake DB and delivery function.
+ */
+export async function emailOutboxTick(
+  dbInstance: DbWithTransaction,
+  deliverFn: DeliverFn,
+  now: Date = new Date(),
+): Promise<void> {
+  await dbInstance.transaction(async (tx) => {
+    const rows = await tx
+      .select()
+      .from(emailOutboxTable)
+      .where(and(
+        eq(emailOutboxTable.status, "pending"),
+        lte(emailOutboxTable.nextAttemptAt, now),
+      ))
+      .orderBy(asc(emailOutboxTable.nextAttemptAt), asc(emailOutboxTable.id))
+      .limit(10)
+      .for("update", { skipLocked: true });
+
+    for (const row of rows) {
+      await tx.update(emailOutboxTable)
+        .set({ status: "sending", updatedAt: new Date() })
+        .where(eq(emailOutboxTable.id, row.id));
+
+      const { ok, error } = await deliverFn(row);
+      const newAttempts = row.attempts + 1;
+
+      if (ok) {
+        await tx.update(emailOutboxTable)
+          .set({ status: "delivered", attempts: newAttempts, updatedAt: new Date() })
+          .where(eq(emailOutboxTable.id, row.id));
+      } else {
+        const delayMs = RETRY_DELAYS_MS[newAttempts] ?? null;
+        const abandoned = newAttempts >= row.maxAttempts || delayMs === null;
+        await tx.update(emailOutboxTable)
+          .set({
+            status:        abandoned ? "abandoned" : "pending",
+            attempts:      newAttempts,
+            lastError:     error ?? "unknown",
+            nextAttemptAt: abandoned ? new Date() : new Date(Date.now() + delayMs!),
+            updatedAt:     new Date(),
+          })
+          .where(eq(emailOutboxTable.id, row.id));
+
+        if (abandoned) {
+          logger.error(
+            { outboxId: row.id, to: row.to, subject: row.subject, error },
+            "Email permanently abandoned after max retries",
+          );
+        }
+      }
+    }
+  });
+}
+
+/**
+ * On startup: reset any rows stuck in 'sending' (crash mid-delivery) back to
+ * 'pending' so they will be retried by the next worker tick.
+ * Rows are only reset if they have been in 'sending' for longer than cutoffMinutes.
+ */
+export async function recoverStuckSendingRows(
+  dbInstance: Pick<typeof defaultDb, "update">,
+  cutoffMinutes = 5,
+): Promise<void> {
+  if (!isEnabled()) return;
+  const cutoff = new Date(Date.now() - cutoffMinutes * 60_000);
+  await dbInstance.update(emailOutboxTable)
+    .set({ status: "pending", updatedAt: new Date() })
+    .where(and(
+      eq(emailOutboxTable.status, "sending"),
+      lt(emailOutboxTable.updatedAt, cutoff),
+    ));
+}
+
+/**
+ * Start the email outbox background worker.
+ * Polls every `intervalMs` milliseconds (default 30s) and delivers pending rows.
+ * Should be called once on server startup.
+ */
+export function runEmailOutboxWorker(intervalMs = 30_000): NodeJS.Timeout {
+  if (!isEnabled()) {
+    logger.info("Email outbox worker skipped — RESEND_API_KEY not set");
+    const noop = setInterval(() => { /* no-op */ }, intervalMs);
+    noop.unref();
+    return noop;
+  }
+
+  recoverStuckSendingRows(defaultDb).catch((err) => {
+    logger.error({ err }, "Email outbox: startup recovery failed");
+  });
+
+  const tick = async () => {
+    try {
+      await emailOutboxTick(defaultDb, deliverFromOutbox);
+    } catch (err) {
+      logger.error({ err }, "Email outbox worker tick failed");
+    }
+  };
+
+  const handle = setInterval(() => void tick(), intervalMs);
+  handle.unref();
+  return handle;
 }
 
 /**
@@ -160,10 +306,6 @@ function linkFallback(url: string): string {
 export function divider(): string {
   return `<table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 24px;"><tr><td height="1" bgcolor="#222222" style="font-size:0;line-height:0;mso-line-height-rule:exactly;">&nbsp;</td></tr></table>`;
 }
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Email builders
-// ─────────────────────────────────────────────────────────────────────────────
 
 export function buildEmailVerificationEmail(verifyUrl: string): Pick<EmailPayload, "subject" | "text" | "html"> {
   const subject = "Verify your email — Overhype.me";
@@ -359,10 +501,6 @@ ${divider()}
   return { subject, text, html };
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Share / invite email
-// ─────────────────────────────────────────────────────────────────────────────
-
 export function buildShareInviteEmail(
   recipientName: string,
   shareUrl: string,
@@ -404,10 +542,6 @@ ${divider()}
 
   return { subject, text, html };
 }
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Stripe billing lifecycle emails (Task #230 — webhook coverage)
-// ─────────────────────────────────────────────────────────────────────────────
 
 function formatMoney(amountMinor: number, currency: string): string {
   const upperCurrency = currency.toUpperCase();
