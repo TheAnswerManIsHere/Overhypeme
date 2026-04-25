@@ -232,7 +232,7 @@ function disputeCopy(opts: AdminDisputeNotifyOpts, formattedAmount: string) {
   }
 }
 
-function buildDisputeNotificationEmail(opts: AdminDisputeNotifyOpts) {
+export function buildDisputeNotificationEmail(opts: AdminDisputeNotifyOpts) {
   const formattedAmount = formatAmount(opts.amount, opts.currency);
   const dashboardUrl = opts.livemode
     ? `https://dashboard.stripe.com/disputes/${opts.disputeId}`
