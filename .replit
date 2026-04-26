@@ -118,6 +118,7 @@ ADMIN_USER_IDS = "6f2b1072-469b-47c8-9de0-0d5ebdaeb8eb"
 RESEND_FROM_EMAIL = "noreply@overhype.me"
 VITE_GA_MEASUREMENT_ID = "G-QYCH0VLMB3"
 MEMBERSHIP_PRICE_IDS = "price_1TK14sPUPouDdcHbDJXbPHaY,price_1TK15uPUPouDdcHbJoH8Z3rP,price_1TKuLtPUPouDdcHbHjGrUWOs"
+STRIPE_ACCOUNT_ID_TEST = "acct_1TGbDFBoYd2wqzWn"
 
 [userenv.development]
 
