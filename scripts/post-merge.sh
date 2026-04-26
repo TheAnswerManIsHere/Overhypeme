@@ -55,6 +55,10 @@ pnpm --filter './lib/**' --if-present run build
 # (e.g. api-server) always pick up the latest schema types after a merge.
 pnpm --filter @workspace/db exec tsc -p tsconfig.json
 
+# Rebuild api-zod so consumers never see stale compiled output (e.g. missing
+# User.id) after merges that change the OpenAPI spec or generated types.
+pnpm tsc -p lib/api-zod/tsconfig.json
+
 pnpm --filter @workspace/db run migrate
 
 # Safety: drizzle-kit sometimes records a migration as applied in _journal.json
