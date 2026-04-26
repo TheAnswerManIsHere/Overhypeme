@@ -234,12 +234,12 @@ describe("DELETE /admin/email-queue", () => {
       );
     });
 
-    it("returns 400 when status is pending (non-terminal status)", async () => {
+    it("returns 200 when status is pending", async () => {
       const { status } = await deleteRequest(
         server,
         "/api/admin/email-queue?status=pending",
       );
-      assert.equal(status, 400, "pending is not a clearable status");
+      assert.equal(status, 200, "pending is a clearable status");
     });
   });
 
@@ -309,6 +309,33 @@ describe("DELETE /admin/email-queue", () => {
       assert.ok(!remainingIds.has(a2.id), "second abandoned row must be removed");
       assert.ok(remainingIds.has(dl.id),  "delivered row must remain");
       assert.ok(remainingIds.has(pe.id),  "pending row must remain");
+    });
+
+    it("deleting pending removes only pending rows", async () => {
+      const p1 = await insertOutboxRow("pending");
+      const p2 = await insertOutboxRow("pending");
+      const dl = await insertOutboxRow("delivered");
+      const ab = await insertOutboxRow("abandoned");
+
+      const { status, body } = await deleteRequest(
+        server,
+        "/api/admin/email-queue?status=pending",
+      );
+
+      assert.equal(status, 200, "should succeed with 200");
+      assert.equal(body["success"], true, "body.success should be true");
+      assert.ok(
+        typeof body["deleted"] === "number" && (body["deleted"] as number) >= 2,
+        `deleted count should be at least 2, got ${body["deleted"]}`,
+      );
+
+      const remaining = await getTestRows();
+      const remainingIds = new Set(remaining.map((r) => r.id));
+
+      assert.ok(!remainingIds.has(p1.id), "first pending row must be removed");
+      assert.ok(!remainingIds.has(p2.id), "second pending row must be removed");
+      assert.ok(remainingIds.has(dl.id),  "delivered row must remain");
+      assert.ok(remainingIds.has(ab.id),  "abandoned row must remain");
     });
 
     it("leaves non-matching rows intact when deleting a different status", async () => {

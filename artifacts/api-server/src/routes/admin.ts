@@ -1950,7 +1950,7 @@ router.get("/admin/email-queue", requireAdmin, async (req: Request, res: Respons
 
 // DELETE /admin/email-queue?status=delivered|abandoned — bulk-delete all rows with the given terminal status
 router.delete("/admin/email-queue", requireAdmin, async (req: Request, res: Response) => {
-  const CLEARABLE_STATUSES = ["delivered", "abandoned"] as const;
+  const CLEARABLE_STATUSES = ["delivered", "abandoned", "pending"] as const;
   type ClearableStatus = typeof CLEARABLE_STATUSES[number];
 
   const rawStatus = String(req.query["status"] ?? "").trim();

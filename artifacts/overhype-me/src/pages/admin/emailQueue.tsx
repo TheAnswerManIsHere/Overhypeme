@@ -295,7 +295,7 @@ export default function AdminEmailQueue() {
   const [statusFilter, setStatusFilter] = useState<"" | OutboxStatus>("");
   const [retrying, setRetrying] = useState<Set<number>>(new Set());
   const [retryErrors, setRetryErrors] = useState<Record<number, string>>({});
-  const [clearing, setClearing] = useState<"delivered" | "abandoned" | null>(null);
+  const [clearing, setClearing] = useState<"delivered" | "abandoned" | "pending" | null>(null);
   const [clearError, setClearError] = useState<string | null>(null);
   const [loadKey, setLoadKey] = useState(0);
   const [selectedRow, setSelectedRow] = useState<EmailQueueRow | null>(null);
@@ -383,8 +383,8 @@ export default function AdminEmailQueue() {
     }
   }
 
-  async function handleClear(status: "delivered" | "abandoned") {
-    const label = status === "delivered" ? "delivered" : "abandoned";
+  async function handleClear(status: "delivered" | "abandoned" | "pending") {
+    const label = status === "delivered" ? "delivered" : status === "abandoned" ? "abandoned" : "pending";
     const confirmed = window.confirm(
       `Delete all ${label} emails from the queue? This cannot be undone.`
     );
@@ -443,6 +443,21 @@ export default function AdminEmailQueue() {
               {retentionDays > 0 ? `Auto-purge: ${retentionDays}d` : "Auto-purge: off"}
             </span>
           )}
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-8 px-3 text-xs gap-1 text-amber-600 dark:text-amber-400 border-amber-500/40 hover:bg-amber-500/10"
+            onClick={() => void handleClear("pending")}
+            disabled={clearing !== null || loading}
+            title="Delete all pending emails"
+          >
+            {clearing === "pending" ? (
+              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+            ) : (
+              <Trash2 className="w-3.5 h-3.5" />
+            )}
+            Clear pending
+          </Button>
           <Button
             variant="outline"
             size="sm"
