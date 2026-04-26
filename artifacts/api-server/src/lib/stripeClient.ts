@@ -1,6 +1,6 @@
 import Stripe from "stripe";
 
-async function isLiveMode(): Promise<boolean> {
+export async function isLiveMode(): Promise<boolean> {
   try {
     // Use getConfigStringRaw to read `value` directly, bypassing debug-mode resolution.
     // Stripe mode must be independent from the debug overlay (task requirement).

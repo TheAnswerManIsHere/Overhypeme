@@ -2,7 +2,7 @@ import { Router, type IRouter, type Request, type Response } from "express";
 import type Stripe from "stripe";
 import { z } from "zod";
 import * as Sentry from "@sentry/node";
-import { getUncachableStripeClient, getStripePublishableKey } from "../lib/stripeClient";
+import { getUncachableStripeClient, getStripePublishableKey, isLiveMode } from "../lib/stripeClient";
 import { stripeStorage } from "../lib/stripeStorage";
 import { getSiteBaseUrl } from "../lib/siteUrl";
 import { db } from "@workspace/db";
@@ -30,7 +30,8 @@ router.get("/stripe/config", async (_req: Request, res: Response) => {
 // Only returns products tagged with metadata.membership="true" OR in MEMBERSHIP_PRICE_IDS allowlist
 router.get("/stripe/plans", async (_req: Request, res: Response) => {
   try {
-    const products = await stripeStorage.listProductsWithPrices();
+    const live = await isLiveMode();
+    const products = await stripeStorage.listProductsWithPrices(live);
     const allowlist = (process.env.MEMBERSHIP_PRICE_IDS ?? "").split(",").map((s: string) => s.trim()).filter(Boolean);
 
     const membershipProducts = products.filter(p => {
