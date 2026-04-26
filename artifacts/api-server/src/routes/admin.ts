@@ -1451,11 +1451,15 @@ router.patch("/admin/config/:key", requireAdmin, async (req: Request, res: Respo
 
   bustConfigCache();
 
-  // When stripe_live_mode changes, explicitly invalidate the cached Stripe instance
-  // so the next request picks up the correct connector credentials.
+  // When stripe_live_mode changes, invalidate the cached Stripe instance and
+  // kick off a fresh backfill so the new mode's products/prices populate immediately.
   if (key === "stripe_live_mode") {
-    const { invalidateStripeSync } = await import("../lib/stripeClient");
+    const { invalidateStripeSync, getStripeSync } = await import("../lib/stripeClient");
     invalidateStripeSync();
+    getStripeSync()
+      .then(sync => sync.syncBackfill())
+      .then(() => console.info("[admin] Stripe backfill complete after mode toggle"))
+      .catch((err: unknown) => console.error("[admin] Stripe backfill error after mode toggle", err));
   }
 
   res.json(updated);
@@ -1614,6 +1618,22 @@ router.get("/admin/stripe/summary", requireAdmin, async (_req: Request, res: Res
   } catch (err) {
     console.error("[admin] stripe/summary error:", err);
     res.status(500).json({ error: "Failed to load stripe summary" });
+  }
+});
+
+// POST /admin/stripe/sync — trigger an immediate Stripe data backfill (runs in background)
+router.post("/admin/stripe/sync", requireAdmin, async (_req: Request, res: Response) => {
+  try {
+    const { getStripeSync } = await import("../lib/stripeClient");
+    const sync = await getStripeSync();
+    // Fire backfill in background — don't await, respond immediately
+    sync.syncBackfill()
+      .then(() => console.info("[admin] Stripe manual sync complete"))
+      .catch((err: unknown) => console.error("[admin] Stripe manual sync error", err));
+    res.json({ success: true, message: "Stripe sync started — products will appear within a few seconds." });
+  } catch (err) {
+    console.error("[admin] POST /admin/stripe/sync error", err);
+    res.status(500).json({ error: "Failed to start sync" });
   }
 });
 

@@ -75,6 +75,8 @@ export default function AdminBilling() {
   const [testEventResult, setTestEventResult] = useState<{ ok: boolean; message: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [syncing, setSyncing] = useState(false);
+  const [syncResult, setSyncResult] = useState<{ ok: boolean; message: string } | null>(null);
 
   // fal.ai Active Endpoints config
   const [falEndpoints, setFalEndpoints] = useState<string>("");
@@ -187,6 +189,33 @@ export default function AdminBilling() {
       setTestEventResult({ ok: false, message: "Network error" });
     } finally {
       setTestEventLoading(false);
+    }
+  }
+
+  async function syncStripe() {
+    setSyncing(true);
+    setSyncResult(null);
+    try {
+      const resp = await fetch("/api/admin/stripe/sync", {
+        method: "POST",
+        credentials: "include",
+      });
+      const data = (await resp.json()) as { success?: boolean; message?: string; error?: string };
+      setSyncResult({ ok: data.success === true, message: data.message ?? data.error ?? "Unknown result" });
+      // Re-fetch plans after a short delay to pick up newly synced products
+      if (data.success) {
+        setTimeout(() => {
+          setPlansLoading(true);
+          fetch("/api/stripe/plans")
+            .then(r => r.json())
+            .then((d: { plans: StripePlan[] }) => { setPlans(d.plans ?? []); setPlansLoading(false); })
+            .catch(() => setPlansLoading(false));
+        }, 4000);
+      }
+    } catch {
+      setSyncResult({ ok: false, message: "Network error" });
+    } finally {
+      setSyncing(false);
     }
   }
 
@@ -421,6 +450,29 @@ export default function AdminBilling() {
           description="Membership products and prices fetched from Stripe."
           storageKey="admin_section_billing_plans"
         >
+          <div className="flex items-center justify-between mb-3">
+            <p className="text-xs text-muted-foreground">
+              {plans.length > 0 ? `${plans.length} product${plans.length !== 1 ? "s" : ""} found` : "No products synced yet"}
+            </p>
+            <div className="flex items-center gap-2">
+              {syncResult && (
+                <span className={`text-xs ${syncResult.ok ? "text-green-400" : "text-red-400"}`}>
+                  {syncResult.message}
+                </span>
+              )}
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-7 px-2.5 text-xs gap-1.5"
+                onClick={() => void syncStripe()}
+                disabled={syncing}
+                title="Pull latest products and prices from Stripe"
+              >
+                {syncing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
+                {syncing ? "Syncing…" : "Sync Stripe data"}
+              </Button>
+            </div>
+          </div>
           {plansLoading ? (
             <div className="animate-pulse space-y-3">
               <div className="h-10 bg-secondary rounded-sm" />
