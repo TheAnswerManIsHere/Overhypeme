@@ -104,7 +104,7 @@ export class StripeStorage {
     };
   }
 
-  async listProductsWithPrices() {
+  async listProductsWithPrices(liveMode: boolean = false) {
     const result = await db.execute(
       sql`SELECT
             p.id as product_id,
@@ -117,8 +117,8 @@ export class StripeStorage {
             pr.recurring,
             pr.active as price_active
           FROM stripe.products p
-          LEFT JOIN stripe.prices pr ON pr.product = p.id AND pr.active = true
-          WHERE p.active = true
+          LEFT JOIN stripe.prices pr ON pr.product = p.id AND pr.active = true AND pr.livemode = ${liveMode}
+          WHERE p.active = true AND p.livemode = ${liveMode}
           ORDER BY p.id, pr.unit_amount`,
     );
 
