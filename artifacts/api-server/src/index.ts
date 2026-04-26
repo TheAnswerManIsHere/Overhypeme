@@ -87,17 +87,22 @@ async function initStripe() {
 
     // Ensure membership products are tagged with metadata.membership = "true"
     // so isMembershipPrice() can identify them. Idempotent — safe on every boot.
-    const stripe = stripeSync.stripe;
-    const membershipProductIds = ["prod_UIcJvpLFJwiKaH", "prod_UIcKBQY3i1dRpq", "prod_UJXQaM9DqVyrJr"];
-    for (const prodId of membershipProductIds) {
-      try {
-        const product = await stripe.products.retrieve(prodId);
-        if (product.metadata?.membership !== "true") {
-          await stripe.products.update(prodId, { metadata: { membership: "true" } });
-          logger.info({ productId: prodId }, "Tagged Stripe product with membership metadata");
+    // These IDs are test-mode only — skip in live mode (live products have different IDs).
+    const { isLiveMode } = await import("./lib/stripeClient");
+    const currentlyLive = await isLiveMode();
+    if (!currentlyLive) {
+      const stripe = stripeSync.stripe;
+      const membershipProductIds = ["prod_UIcJvpLFJwiKaH", "prod_UIcKBQY3i1dRpq", "prod_UJXQaM9DqVyrJr"];
+      for (const prodId of membershipProductIds) {
+        try {
+          const product = await stripe.products.retrieve(prodId);
+          if (product.metadata?.membership !== "true") {
+            await stripe.products.update(prodId, { metadata: { membership: "true" } });
+            logger.info({ productId: prodId }, "Tagged Stripe product with membership metadata");
+          }
+        } catch (err) {
+          logger.warn({ err, productId: prodId }, "Could not verify/tag Stripe product metadata");
         }
-      } catch (err) {
-        logger.warn({ err, productId: prodId }, "Could not verify/tag Stripe product metadata");
       }
     }
   } catch (err) {
