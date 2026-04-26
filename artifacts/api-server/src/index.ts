@@ -81,6 +81,25 @@ async function initStripe() {
     await stripeSync.findOrCreateManagedWebhook(webhookUrl);
     logger.info({ webhookUrl }, "Stripe webhook configured");
 
+    // Validate the connected Stripe account matches the expected account ID for this mode.
+    // Catches misconfigured API keys early so the wrong account is never silently used.
+    const { isLiveMode } = await import("./lib/stripeClient");
+    const currentlyLive = await isLiveMode();
+    const expectedAccountId = currentlyLive
+      ? process.env.STRIPE_ACCOUNT_ID_LIVE
+      : process.env.STRIPE_ACCOUNT_ID_TEST;
+    if (expectedAccountId) {
+      const connectedAccount = await stripeSync.getCurrentAccount();
+      if (connectedAccount?.id !== expectedAccountId) {
+        logger.error(
+          { expected: expectedAccountId, actual: connectedAccount?.id, liveMode: currentlyLive },
+          "STRIPE ACCOUNT MISMATCH — API keys are pointing at the wrong account. Check STRIPE_SECRET_KEY_TEST / STRIPE_SECRET_KEY_LIVE in Secrets.",
+        );
+      } else {
+        logger.info({ accountId: connectedAccount?.id, liveMode: currentlyLive }, "Stripe account verified");
+      }
+    }
+
     stripeSync.syncBackfill({ object: "all" })
       .then(() => logger.info("Stripe backfill complete"))
       .catch((err: unknown) => logger.error({ err }, "Stripe backfill error"));
@@ -88,8 +107,6 @@ async function initStripe() {
     // Ensure membership products are tagged with metadata.membership = "true"
     // so isMembershipPrice() can identify them. Idempotent — safe on every boot.
     // These IDs are test-mode only — skip in live mode (live products have different IDs).
-    const { isLiveMode } = await import("./lib/stripeClient");
-    const currentlyLive = await isLiveMode();
     if (!currentlyLive) {
       const stripe = stripeSync.stripe;
       const membershipProductIds = ["prod_UIcJvpLFJwiKaH", "prod_UIcKBQY3i1dRpq", "prod_UJXQaM9DqVyrJr"];
