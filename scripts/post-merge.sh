@@ -63,3 +63,22 @@ pnpm --filter @workspace/db run migrate
 psql "$DATABASE_URL" -f lib/db/migrations/0022_email_outbox.sql 2>&1 | grep -v "already exists" || true
 
 pnpm --filter @workspace/scripts run seed
+
+# Clean up stale task-agent git remotes and branches.
+# subrepl-2dbyp1qx is the GitHub remote — never remove it.
+KEEP_REMOTE="subrepl-2dbyp1qx"
+for remote in $(git remote | grep '^subrepl-' || true); do
+  if [ "$remote" = "$KEEP_REMOTE" ]; then
+    continue
+  fi
+  echo "Removing stale remote: $remote"
+  git remote remove "$remote"
+done
+
+for branch in $(git branch --format='%(refname:short)' | grep '^subrepl-' || true); do
+  if [ "$branch" = "$KEEP_REMOTE" ]; then
+    continue
+  fi
+  echo "Removing stale branch: $branch"
+  git branch -D "$branch"
+done
