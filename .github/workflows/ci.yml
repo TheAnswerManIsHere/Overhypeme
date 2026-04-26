@@ -10,11 +10,23 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # NOTE: typecheck is intentionally not wired up here. The repo currently has
-  # pre-existing tsc errors in lib/integrations-anthropic-ai (pRetry.AbortError
-  # type mismatch with the upgraded p-retry types). Adding `pnpm typecheck` to
-  # CI would block every push until those are resolved. Once the lib types are
-  # fixed, add a `typecheck` job back here mirroring the install steps below.
+  typecheck:
+    name: typecheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck
 
   tests:
     name: tests
