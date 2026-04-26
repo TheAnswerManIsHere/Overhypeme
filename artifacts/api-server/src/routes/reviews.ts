@@ -40,7 +40,7 @@ const SubmitReviewBody = z.object({
   matchingSimilarity: z.number().int().min(0).max(100).optional(),
   isDuplicate: z.boolean().optional(),
   hashtags: z.array(z.string()).max(10).optional(),
-  reason: z.enum(["duplicate"]).optional(),
+  reason: z.enum(["duplicate", "spam", "offensive"]).optional(),
 });
 
 router.post("/facts/submit-review", requireAuth, requireRateLimit, async (req: AuthenticatedRequest, res: Response) => {

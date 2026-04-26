@@ -94,6 +94,20 @@ function ReasonBadge({ reason }: { reason: string | null }) {
       </span>
     );
   }
+  if (reason === "spam") {
+    return (
+      <span className="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-semibold rounded-full border bg-orange-500/15 text-orange-600 dark:text-orange-400 border-orange-500/30">
+        Spam
+      </span>
+    );
+  }
+  if (reason === "offensive") {
+    return (
+      <span className="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-semibold rounded-full border bg-red-500/15 text-red-600 dark:text-red-400 border-red-500/30">
+        Offensive
+      </span>
+    );
+  }
   return null;
 }
 
