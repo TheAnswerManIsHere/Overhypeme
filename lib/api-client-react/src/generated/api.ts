@@ -54,6 +54,8 @@ import type {
   RecordSearchRequest,
   SuggestHashtags200,
   SuggestHashtagsBody,
+  UpdateNotificationsRequest,
+  UpdateNotificationsResponse,
   UpdateProfileRequest,
   UpdateProfileResponse,
   UploadUrlRequest,
@@ -1464,6 +1466,96 @@ export const useUpdateMyProfile = <
   TContext
 > => {
   return useMutation(getUpdateMyProfileMutationOptions(options));
+};
+
+/**
+ * @summary Update the current admin's notification preferences (admin only)
+ */
+export const getUpdateMyNotificationsUrl = () => {
+  return `/api/users/me/notifications`;
+};
+
+export const updateMyNotifications = async (
+  updateNotificationsRequest: UpdateNotificationsRequest,
+  options?: RequestInit,
+): Promise<UpdateNotificationsResponse> => {
+  return customFetch<UpdateNotificationsResponse>(
+    getUpdateMyNotificationsUrl(),
+    {
+      ...options,
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", ...options?.headers },
+      body: JSON.stringify(updateNotificationsRequest),
+    },
+  );
+};
+
+export const getUpdateMyNotificationsMutationOptions = <
+  TError = ErrorType<ErrorEnvelope>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof updateMyNotifications>>,
+    TError,
+    { data: BodyType<UpdateNotificationsRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof updateMyNotifications>>,
+  TError,
+  { data: BodyType<UpdateNotificationsRequest> },
+  TContext
+> => {
+  const mutationKey = ["updateMyNotifications"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof updateMyNotifications>>,
+    { data: BodyType<UpdateNotificationsRequest> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return updateMyNotifications(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type UpdateMyNotificationsMutationResult = NonNullable<
+  Awaited<ReturnType<typeof updateMyNotifications>>
+>;
+export type UpdateMyNotificationsMutationBody =
+  BodyType<UpdateNotificationsRequest>;
+export type UpdateMyNotificationsMutationError = ErrorType<ErrorEnvelope>;
+
+/**
+ * @summary Update the current admin's notification preferences (admin only)
+ */
+export const useUpdateMyNotifications = <
+  TError = ErrorType<ErrorEnvelope>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof updateMyNotifications>>,
+    TError,
+    { data: BodyType<UpdateNotificationsRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof updateMyNotifications>>,
+  TError,
+  { data: BodyType<UpdateNotificationsRequest> },
+  TContext
+> => {
+  return useMutation(getUpdateMyNotificationsMutationOptions(options));
 };
 
 /**

@@ -87,17 +87,24 @@ function ReviewStatusBadge({ status }: { status: Review["status"] }) {
 }
 
 function ReasonBadge({ reason }: { reason: string | null }) {
-  if (reason === "malformed_template") {
-    return (
-      <span className="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-semibold rounded-full border bg-orange-500/15 text-orange-600 dark:text-orange-400 border-orange-500/30">
-        <AlertTriangle className="w-3 h-3" /> Malformed Template
-      </span>
-    );
-  }
   if (reason === "duplicate") {
     return (
       <span className="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-semibold rounded-full border bg-blue-500/15 text-blue-600 dark:text-blue-400 border-blue-500/30">
         Duplicate Conflict
+      </span>
+    );
+  }
+  if (reason === "spam") {
+    return (
+      <span className="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-semibold rounded-full border bg-orange-500/15 text-orange-600 dark:text-orange-400 border-orange-500/30">
+        Spam
+      </span>
+    );
+  }
+  if (reason === "offensive") {
+    return (
+      <span className="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-semibold rounded-full border bg-red-500/15 text-red-600 dark:text-red-400 border-red-500/30">
+        Offensive
       </span>
     );
   }
@@ -364,7 +371,7 @@ function FactReviewsPanel() {
                     <ReviewStatusBadge status={r.status} />
                     <ReasonBadge reason={r.reason} />
                     <span className="text-xs text-muted-foreground">
-                      {r.reason !== "malformed_template" && `${r.matchingSimilarity}% match · `}
+                      {r.matchingSimilarity > 0 ? `${r.matchingSimilarity}% match · ` : ""}
                       by {r.submitter?.displayName ?? r.submitter?.email ?? "unknown"} · {new Date(r.createdAt).toLocaleDateString()}
                     </span>
                   </div>

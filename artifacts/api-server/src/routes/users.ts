@@ -62,6 +62,9 @@ router.get("/users/me", async (req: Request, res: Response) => {
       membershipTier: usersTable.membershipTier,
       oauthProvider: usersTable.oauthProvider,
       passwordHash: usersTable.passwordHash,
+      isAdmin: usersTable.isAdmin,
+      adminNotifications: usersTable.adminNotifications,
+      disputeNotifications: usersTable.disputeNotifications,
     })
     .from(usersTable)
     .where(eq(usersTable.id, userId))
@@ -124,6 +127,8 @@ router.get("/users/me", async (req: Request, res: Response) => {
       .limit(50),
   ]);
 
+  const isAdmin = userRow?.isAdmin === true;
+
   res.json({
     id: userId,
     email: userRow?.email ?? null,
@@ -140,6 +145,10 @@ router.get("/users/me", async (req: Request, res: Response) => {
     isPremium: userRow?.membershipTier === "legendary",
     oauthProvider: userRow?.oauthProvider ?? null,
     hasPassword: !!(userRow?.passwordHash),
+    ...(isAdmin && {
+      adminNotifications: userRow?.adminNotifications ?? true,
+      disputeNotifications: userRow?.disputeNotifications ?? true,
+    }),
     submittedFacts: submittedSummaries,
     pendingSubmissions: pendingRows.map((r) => ({
       id: r.id,
@@ -305,6 +314,44 @@ router.patch("/users/me", async (req: Request, res: Response) => {
   }
 
   res.json({ success: true, emailVerificationPending });
+});
+
+router.patch("/users/me/notifications", async (req: Request, res: Response) => {
+  if (!req.isAuthenticated()) { res.status(401).json({ error: "Unauthorized" }); return; }
+  const userId = req.user.id;
+
+  const [userRow] = await db
+    .select({ isAdmin: usersTable.isAdmin })
+    .from(usersTable)
+    .where(eq(usersTable.id, userId))
+    .limit(1);
+
+  if (!userRow?.isAdmin) {
+    res.status(403).json({ error: "Forbidden" });
+    return;
+  }
+
+  const body = req.body as Record<string, unknown>;
+  const updates: Record<string, unknown> = {};
+
+  if (typeof body["adminNotifications"] === "boolean") updates.adminNotifications = body["adminNotifications"];
+  if (typeof body["disputeNotifications"] === "boolean") updates.disputeNotifications = body["disputeNotifications"];
+
+  if (Object.keys(updates).length === 0) {
+    res.status(400).json({ error: "No valid fields to update" });
+    return;
+  }
+
+  const [updated] = await db
+    .update(usersTable)
+    .set(updates)
+    .where(eq(usersTable.id, userId))
+    .returning({
+      adminNotifications: usersTable.adminNotifications,
+      disputeNotifications: usersTable.disputeNotifications,
+    });
+
+  res.json({ success: true, adminNotifications: updated?.adminNotifications, disputeNotifications: updated?.disputeNotifications });
 });
 
 router.post("/users/me/search-history", async (req: Request, res: Response) => {

@@ -23,6 +23,9 @@
     },
     {
       "path": "../../lib/replit-auth-web"
+    },
+    {
+      "path": "../../lib/api-zod"
     }
   ]
 }

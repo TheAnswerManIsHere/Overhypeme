@@ -29,6 +29,8 @@ export const lifetimeEntitlementsTable = pgTable("lifetime_entitlements", {
   // 'active' (default) or 'refunded' — set to 'refunded' when a charge.refunded event
   // is received for this payment intent. Kept for audit trail; never deleted.
   status: varchar("status").notNull().default("active"),
+  // Set for admin-granted lifetime memberships; null for self-purchased ones.
+  grantedByAdminId: varchar("granted_by_admin_id").references(() => usersTable.id),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 

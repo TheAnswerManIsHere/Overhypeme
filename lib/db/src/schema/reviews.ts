@@ -3,6 +3,7 @@ import { usersTable } from "./auth";
 import { factsTable } from "./facts";
 
 export const reviewStatusEnum = pgEnum("review_status", ["pending", "approved", "rejected"]);
+export const reviewReasonEnum = pgEnum("review_reason", ["duplicate", "spam", "offensive"]);
 
 export const pendingReviewsTable = pgTable("pending_reviews", {
   id: serial("id").primaryKey(),
@@ -12,7 +13,7 @@ export const pendingReviewsTable = pgTable("pending_reviews", {
   matchingSimilarity: integer("matching_similarity").notNull().default(0),
   hashtags: jsonb("hashtags").$type<string[]>().default([]),
   status: reviewStatusEnum("status").notNull().default("pending"),
-  reason: text("reason"),
+  reason: reviewReasonEnum("reason"),
   adminNote: text("admin_note"),
   reviewedById: varchar("reviewed_by_id").references(() => usersTable.id),
   approvedFactId: integer("approved_fact_id").references(() => factsTable.id),

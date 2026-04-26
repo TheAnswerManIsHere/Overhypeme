@@ -5,7 +5,7 @@ import { Layout } from "@/components/layout/Layout";
 import { FactCard } from "@/components/facts/FactCard";
 import { Button } from "@/components/ui/Button";
 import { SubscriptionPanel } from "@/components/SubscriptionPanel";
-import { ShieldAlert, LogOut, Clock, ThumbsUp, FileText, Hash, Star, X, Pencil, Check, Mail, AlertTriangle, CheckCircle, Camera, Loader2, Images, ImageIcon, UserCircle2, Image, Eraser, ChevronLeft, ChevronRight, KeyRound, Eye, EyeOff } from "lucide-react";
+import { ShieldAlert, LogOut, Clock, ThumbsUp, FileText, Hash, Star, X, Pencil, Check, Mail, AlertTriangle, CheckCircle, Camera, Loader2, Images, ImageIcon, UserCircle2, Image, Eraser, ChevronLeft, ChevronRight, KeyRound, Eye, EyeOff, Bell } from "lucide-react";
 import { ImageCard } from "@/components/ui/ImageCard";
 import { Link, useLocation } from "wouter";
 import { useQueryClient, useQuery } from "@tanstack/react-query";
@@ -109,6 +109,12 @@ export default function Profile() {
   const [unlinkError, setUnlinkError] = useState("");
   const [unlinkSuccess, setUnlinkSuccess] = useState("");
   const [unlinkConfirm, setUnlinkConfirm] = useState(false);
+
+  const [notifAdminAlerts, setNotifAdminAlerts] = useState<boolean>(true);
+  const [notifDisputeAlerts, setNotifDisputeAlerts] = useState<boolean>(true);
+  const [notifSaving, setNotifSaving] = useState(false);
+  const [notifError, setNotifError] = useState("");
+  const [notifSuccess, setNotifSuccess] = useState("");
 
   async function handleUnlinkGoogle() {
     setUnlinkError("");
@@ -419,6 +425,47 @@ export default function Profile() {
 
     return () => { cancelled = true; };
   }, [checkoutBanner, checkoutSessionId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (!profile || !isRealAdmin) return;
+    const data = profile as Record<string, unknown>;
+    if (typeof data["adminNotifications"] === "boolean") setNotifAdminAlerts(data["adminNotifications"]);
+    if (typeof data["disputeNotifications"] === "boolean") setNotifDisputeAlerts(data["disputeNotifications"]);
+  }, [profile, isRealAdmin]);
+
+  async function handleToggleNotification(field: "adminNotifications" | "disputeNotifications", value: boolean) {
+    setNotifError("");
+    setNotifSuccess("");
+    setNotifSaving(true);
+    const prev = field === "adminNotifications" ? notifAdminAlerts : notifDisputeAlerts;
+    if (field === "adminNotifications") setNotifAdminAlerts(value);
+    else setNotifDisputeAlerts(value);
+    try {
+      const res = await fetch(`${BASE_URL}api/users/me/notifications`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ [field]: value }),
+      });
+      const data = await res.json() as { error?: string; adminNotifications?: boolean; disputeNotifications?: boolean };
+      if (!res.ok) {
+        if (field === "adminNotifications") setNotifAdminAlerts(prev);
+        else setNotifDisputeAlerts(prev);
+        setNotifError(data.error ?? "Failed to update notification preferences.");
+        return;
+      }
+      if (typeof data.adminNotifications === "boolean") setNotifAdminAlerts(data.adminNotifications);
+      if (typeof data.disputeNotifications === "boolean") setNotifDisputeAlerts(data.disputeNotifications);
+      setNotifSuccess("Notification preferences saved.");
+      await queryClient.invalidateQueries({ queryKey: getGetMyProfileQueryKey() });
+    } catch {
+      if (field === "adminNotifications") setNotifAdminAlerts(prev);
+      else setNotifDisputeAlerts(prev);
+      setNotifError("Network error. Please try again.");
+    } finally {
+      setNotifSaving(false);
+    }
+  }
 
   function openEditor() {
     setDraftDisplayName(profile?.displayName ?? "");
@@ -1152,6 +1199,74 @@ export default function Profile() {
             </div>
           );
         })()}
+
+        {/* Admin Notification Preferences — visible to admins only */}
+        {isRealAdmin && (
+          <div className="bg-card border-2 border-border p-6 rounded-sm shadow mb-8">
+            <h2 className="font-display text-xl uppercase tracking-wide text-foreground mb-4 border-b border-border pb-4 flex items-center gap-2">
+              <Bell className="w-5 h-5 text-primary" /> Notification Preferences
+            </h2>
+            <p className="text-sm text-muted-foreground mb-5">Control which admin email alerts you receive.</p>
+
+            <div className="space-y-4">
+              {/* Moderation alerts toggle */}
+              <label className="flex items-center justify-between gap-4 cursor-pointer group">
+                <div>
+                  <p className="font-bold text-sm text-foreground">Moderation alerts</p>
+                  <p className="text-xs text-muted-foreground">Emails for new fact submissions awaiting review.</p>
+                </div>
+                <button
+                  role="switch"
+                  aria-checked={notifAdminAlerts}
+                  disabled={notifSaving}
+                  onClick={() => handleToggleNotification("adminNotifications", !notifAdminAlerts)}
+                  className={`relative inline-flex h-6 w-11 shrink-0 rounded-full border-2 transition-colors focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 focus:ring-offset-card disabled:opacity-60 ${
+                    notifAdminAlerts ? "bg-primary border-primary" : "bg-secondary border-border"
+                  }`}
+                >
+                  <span
+                    className={`pointer-events-none block h-4 w-4 rounded-full bg-white shadow-sm transition-transform mt-0.5 ${
+                      notifAdminAlerts ? "translate-x-5" : "translate-x-0.5"
+                    }`}
+                  />
+                </button>
+              </label>
+
+              {/* Dispute alerts toggle */}
+              <label className="flex items-center justify-between gap-4 cursor-pointer group">
+                <div>
+                  <p className="font-bold text-sm text-foreground">Dispute alerts</p>
+                  <p className="text-xs text-muted-foreground">Emails for new payment disputes that need attention.</p>
+                </div>
+                <button
+                  role="switch"
+                  aria-checked={notifDisputeAlerts}
+                  disabled={notifSaving}
+                  onClick={() => handleToggleNotification("disputeNotifications", !notifDisputeAlerts)}
+                  className={`relative inline-flex h-6 w-11 shrink-0 rounded-full border-2 transition-colors focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 focus:ring-offset-card disabled:opacity-60 ${
+                    notifDisputeAlerts ? "bg-primary border-primary" : "bg-secondary border-border"
+                  }`}
+                >
+                  <span
+                    className={`pointer-events-none block h-4 w-4 rounded-full bg-white shadow-sm transition-transform mt-0.5 ${
+                      notifDisputeAlerts ? "translate-x-5" : "translate-x-0.5"
+                    }`}
+                  />
+                </button>
+              </label>
+            </div>
+
+            {notifError && (
+              <p className="text-xs text-destructive font-medium mt-4">{notifError}</p>
+            )}
+            {notifSuccess && (
+              <div className="flex items-center gap-2 mt-4">
+                <CheckCircle className="w-4 h-4 text-green-500 shrink-0" />
+                <p className="text-xs text-green-400">{notifSuccess}</p>
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Subscription Panel */}
         <SubscriptionPanel refetchTrigger={checkoutConfirmed || undefined} />
