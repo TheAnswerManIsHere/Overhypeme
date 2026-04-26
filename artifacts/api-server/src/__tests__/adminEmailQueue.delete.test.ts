@@ -30,6 +30,11 @@ const TEST_TAG = "t259_test";
 // ── DB helpers ────────────────────────────────────────────────────────────────
 
 async function insertOutboxRow(status: string) {
+  // Use a far-future nextAttemptAt so that emailOutboxTick calls in concurrently
+  // running test files never pick up these rows and mutate their status mid-test.
+  // This test suite only exercises the DELETE endpoint, not delivery behaviour,
+  // so the scheduled time is irrelevant to what is being tested here.
+  const farFuture = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000);
   const [row] = await db.insert(emailOutboxTable).values({
     to:            "test@example.com",
     subject:       "Test subject",
@@ -39,7 +44,7 @@ async function insertOutboxRow(status: string) {
     status,
     attempts:      1,
     maxAttempts:   5,
-    nextAttemptAt: new Date(),
+    nextAttemptAt: farFuture,
   }).returning();
   return row!;
 }
