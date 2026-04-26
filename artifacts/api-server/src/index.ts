@@ -89,14 +89,14 @@ async function initStripe() {
       ? process.env.STRIPE_ACCOUNT_ID_LIVE
       : process.env.STRIPE_ACCOUNT_ID_TEST;
     if (expectedAccountId) {
-      const connectedAccount = await stripeSync.getCurrentAccount();
-      if (connectedAccount?.id !== expectedAccountId) {
+      const actualAccountId = await stripeSync.getAccountId();
+      if (actualAccountId !== expectedAccountId) {
         logger.error(
-          { expected: expectedAccountId, actual: connectedAccount?.id, liveMode: currentlyLive },
+          { expected: expectedAccountId, actual: actualAccountId, liveMode: currentlyLive },
           "STRIPE ACCOUNT MISMATCH — API keys are pointing at the wrong account. Check STRIPE_SECRET_KEY_TEST / STRIPE_SECRET_KEY_LIVE in Secrets.",
         );
       } else {
-        logger.info({ accountId: connectedAccount?.id, liveMode: currentlyLive }, "Stripe account verified");
+        logger.info({ accountId: actualAccountId, liveMode: currentlyLive }, "Stripe account verified");
       }
     }
 
@@ -104,24 +104,6 @@ async function initStripe() {
       .then(() => logger.info("Stripe backfill complete"))
       .catch((err: unknown) => logger.error({ err }, "Stripe backfill error"));
 
-    // Ensure membership products are tagged with metadata.membership = "true"
-    // so isMembershipPrice() can identify them. Idempotent — safe on every boot.
-    // These IDs are test-mode only — skip in live mode (live products have different IDs).
-    if (!currentlyLive) {
-      const stripe = stripeSync.stripe;
-      const membershipProductIds = ["prod_UIcJvpLFJwiKaH", "prod_UIcKBQY3i1dRpq", "prod_UJXQaM9DqVyrJr"];
-      for (const prodId of membershipProductIds) {
-        try {
-          const product = await stripe.products.retrieve(prodId);
-          if (product.metadata?.membership !== "true") {
-            await stripe.products.update(prodId, { metadata: { membership: "true" } });
-            logger.info({ productId: prodId }, "Tagged Stripe product with membership metadata");
-          }
-        } catch (err) {
-          logger.warn({ err, productId: prodId }, "Could not verify/tag Stripe product metadata");
-        }
-      }
-    }
   } catch (err) {
     logger.error({ err }, "Stripe init failed — continuing without payments");
   }
