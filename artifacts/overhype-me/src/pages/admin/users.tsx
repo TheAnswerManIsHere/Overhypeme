@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { PronounEditor } from "@/components/ui/PronounEditor";
 import { AdminLayout } from "@/components/admin/AdminLayout";
 import { Button } from "@/components/ui/Button";
@@ -157,6 +157,10 @@ export default function AdminUsers() {
   const [reactivating, setReactivating] = useState(false);
 
   const [administrators, setAdministrators] = useState<Administrator[]>([]);
+  const administratorsById = useMemo(
+    () => new Map(administrators.map((a) => [a.id, a])),
+    [administrators],
+  );
   const [adminNotifSaving, setAdminNotifSaving] = useState<{ id: string; field: "adminNotifications" | "disputeNotifications" } | null>(null);
 
   const [membershipData, setMembershipData] = useState<MembershipData | null>(null);
@@ -913,6 +917,47 @@ export default function AdminUsers() {
                       <div className="flex items-center gap-1.5">
                         <span className="text-sm font-medium text-foreground truncate">{displayName(user)}</span>
                         {user.isAdmin && <Shield className="w-3 h-3 text-primary shrink-0" aria-label="Admin" />}
+                        {user.isAdmin && (() => {
+                          const adminEntry = administratorsById.get(user.id);
+                          if (!adminEntry) return null;
+                          const bothOff = !adminEntry.adminNotifications && !adminEntry.disputeNotifications;
+                          const modOff = !adminEntry.adminNotifications && adminEntry.disputeNotifications;
+                          const dispOff = adminEntry.adminNotifications && !adminEntry.disputeNotifications;
+                          if (bothOff) {
+                            return (
+                              <span
+                                className="flex items-center gap-0.5 text-[10px] font-medium text-muted-foreground bg-muted/60 border border-border/60 px-1 py-0.5 rounded shrink-0"
+                                title="All notifications off"
+                              >
+                                <BellOff className="w-2.5 h-2.5" />
+                                off
+                              </span>
+                            );
+                          }
+                          if (modOff) {
+                            return (
+                              <span
+                                className="flex items-center gap-0.5 text-[10px] font-medium text-muted-foreground bg-muted/60 border border-border/60 px-1 py-0.5 rounded shrink-0"
+                                title="Moderation alerts off"
+                              >
+                                <BellOff className="w-2.5 h-2.5" />
+                                mod
+                              </span>
+                            );
+                          }
+                          if (dispOff) {
+                            return (
+                              <span
+                                className="flex items-center gap-0.5 text-[10px] font-medium text-muted-foreground bg-muted/60 border border-border/60 px-1 py-0.5 rounded shrink-0"
+                                title="Dispute alerts off"
+                              >
+                                <BellOff className="w-2.5 h-2.5" />
+                                disp
+                              </span>
+                            );
+                          }
+                          return null;
+                        })()}
                         {(user.membershipTier === "registered" || user.membershipTier === "legendary") && <Crown className="w-3 h-3 text-yellow-500 shrink-0" aria-label={user.membershipTier === "legendary" ? "Legendary" : "Registered"} />}
                         {isInactive && <span className="text-[10px] font-bold text-yellow-600 bg-yellow-500/15 px-1 py-0.5 rounded shrink-0">INACTIVE</span>}
                       </div>
