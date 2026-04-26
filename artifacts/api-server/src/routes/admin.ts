@@ -1457,7 +1457,7 @@ router.patch("/admin/config/:key", requireAdmin, async (req: Request, res: Respo
     const { invalidateStripeSync, getStripeSync } = await import("../lib/stripeClient");
     invalidateStripeSync();
     getStripeSync()
-      .then(sync => sync.syncBackfill())
+      .then(sync => sync.syncBackfill({ object: "all" }))
       .then(() => console.info("[admin] Stripe backfill complete after mode toggle"))
       .catch((err: unknown) => console.error("[admin] Stripe backfill error after mode toggle", err));
   }
@@ -1627,7 +1627,7 @@ router.post("/admin/stripe/sync", requireAdmin, async (_req: Request, res: Respo
     const { getStripeSync } = await import("../lib/stripeClient");
     const sync = await getStripeSync();
     // Fire backfill in background — don't await, respond immediately
-    sync.syncBackfill()
+    sync.syncBackfill({ object: "all" })
       .then(() => console.info("[admin] Stripe manual sync complete"))
       .catch((err: unknown) => console.error("[admin] Stripe manual sync error", err));
     res.json({ success: true, message: "Stripe sync started — products will appear within a few seconds." });
