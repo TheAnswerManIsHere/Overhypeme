@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { useLocation, Link } from "wouter";
 import HCaptcha from "@hcaptcha/react-hcaptcha";
 import { useAuth } from "@workspace/replit-auth-web";
+import { validateTemplate } from "@workspace/api-zod";
 
 import { Layout } from "@/components/layout/Layout";
 import { AccessGate } from "@/components/AccessGate";
@@ -66,6 +67,8 @@ export default function SubmitFact() {
   const [tokenizing, setTokenizing] = useState(false);
   const [tokenizeError, setTokenizeError] = useState("");
   const [showAdvanced, setShowAdvanced] = useState(false);
+
+  const [templateGrammarError, setTemplateGrammarError] = useState<string | null>(null);
 
   const [hashtagsStr, setHashtagsStr] = useState("");
   const [captchaToken, setCaptchaToken] = useState("");
@@ -141,6 +144,12 @@ export default function SubmitFact() {
     }, 30_000);
     return () => clearInterval(interval);
   }, [draftSavedAt]);
+
+  useEffect(() => {
+    if (!template) { setTemplateGrammarError(null); return; }
+    const result = validateTemplate(template);
+    setTemplateGrammarError(result.valid ? null : (result.error ?? "Invalid template"));
+  }, [template]);
 
   const checkDuplicate = useCallback(async (factText: string) => {
     if (factText.length < 20) { setDuplicate(null); return; }
@@ -589,8 +598,14 @@ export default function SubmitFact() {
                       <Textarea
                         value={template}
                         onChange={(e) => setTemplate(e.target.value)}
-                        className="font-mono text-sm min-h-[100px] bg-background/50"
+                        className={`font-mono text-sm min-h-[100px] bg-background/50 ${templateGrammarError ? "border-destructive" : ""}`}
                       />
+                      {templateGrammarError && (
+                        <div className="mt-2 flex items-start gap-2 text-destructive text-sm">
+                          <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+                          <span>{templateGrammarError}</span>
+                        </div>
+                      )}
                     </div>
                     <div className="p-3 bg-muted/30 rounded-lg text-xs text-muted-foreground space-y-1.5">
                       <p>
@@ -630,7 +645,7 @@ export default function SubmitFact() {
                 <Button
                   size="lg"
                   className="flex-1 text-lg font-bold"
-                  disabled={!template.trim()}
+                  disabled={!template.trim() || !!templateGrammarError}
                   onClick={() => setStep("submit")}
                 >
                   Looks Correct <ChevronRight className="w-4 h-4 ml-1" />
@@ -761,7 +776,7 @@ export default function SubmitFact() {
                     type="submit"
                     size="lg"
                     className="flex-1 text-lg font-bold"
-                    disabled={submitting}
+                    disabled={submitting || !!templateGrammarError}
                   >
                     {submitting
                       ? <><Loader2 className="w-5 h-5 animate-spin mr-2" /> Submitting…</>

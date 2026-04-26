@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { PronounEditor } from "@/components/ui/PronounEditor";
 import { AdminLayout } from "@/components/admin/AdminLayout";
 import { Button } from "@/components/ui/Button";
@@ -50,14 +50,26 @@ interface HistoryRecord {
   amount: number | null;
   currency: string | null;
   createdAt: string;
+  stripePaymentIntentId?: string | null;
+  stripeInvoiceId?: string | null;
+  stripeDisputeId?: string | null;
 }
 
 interface MembershipData {
   isLifetime: boolean;
-  lifetimeEntitlement: { id: number; stripePaymentIntentId: string; amount: number | null; createdAt: string } | null;
+  lifetimeEntitlement: {
+    id: number;
+    stripePaymentIntentId: string;
+    amount: number | null;
+    createdAt: string;
+    grantedByAdminId: string | null;
+    grantedByAdminDisplayName: string | null;
+    grantedByAdminEmail: string | null;
+  } | null;
   appSubscription: AppSubscription | null;
   stripeSub: { id: string; status: string; current_period_end: number | null; cancel_at_period_end: boolean } | null;
   history: HistoryRecord[];
+  liveMode: boolean;
 }
 
 const LIMIT = 50;
@@ -145,6 +157,10 @@ export default function AdminUsers() {
   const [reactivating, setReactivating] = useState(false);
 
   const [administrators, setAdministrators] = useState<Administrator[]>([]);
+  const administratorsById = useMemo(
+    () => new Map(administrators.map((a) => [a.id, a])),
+    [administrators],
+  );
   const [adminNotifSaving, setAdminNotifSaving] = useState<{ id: string; field: "adminNotifications" | "disputeNotifications" } | null>(null);
 
   const [membershipData, setMembershipData] = useState<MembershipData | null>(null);
@@ -901,6 +917,47 @@ export default function AdminUsers() {
                       <div className="flex items-center gap-1.5">
                         <span className="text-sm font-medium text-foreground truncate">{displayName(user)}</span>
                         {user.isAdmin && <Shield className="w-3 h-3 text-primary shrink-0" aria-label="Admin" />}
+                        {user.isAdmin && (() => {
+                          const adminEntry = administratorsById.get(user.id);
+                          if (!adminEntry) return null;
+                          const bothOff = !adminEntry.adminNotifications && !adminEntry.disputeNotifications;
+                          const modOff = !adminEntry.adminNotifications && adminEntry.disputeNotifications;
+                          const dispOff = adminEntry.adminNotifications && !adminEntry.disputeNotifications;
+                          if (bothOff) {
+                            return (
+                              <span
+                                className="flex items-center gap-0.5 text-[10px] font-medium text-muted-foreground bg-muted/60 border border-border/60 px-1 py-0.5 rounded shrink-0"
+                                title="All notifications off"
+                              >
+                                <BellOff className="w-2.5 h-2.5" />
+                                off
+                              </span>
+                            );
+                          }
+                          if (modOff) {
+                            return (
+                              <span
+                                className="flex items-center gap-0.5 text-[10px] font-medium text-muted-foreground bg-muted/60 border border-border/60 px-1 py-0.5 rounded shrink-0"
+                                title="Moderation alerts off"
+                              >
+                                <BellOff className="w-2.5 h-2.5" />
+                                mod
+                              </span>
+                            );
+                          }
+                          if (dispOff) {
+                            return (
+                              <span
+                                className="flex items-center gap-0.5 text-[10px] font-medium text-muted-foreground bg-muted/60 border border-border/60 px-1 py-0.5 rounded shrink-0"
+                                title="Dispute alerts off"
+                              >
+                                <BellOff className="w-2.5 h-2.5" />
+                                disp
+                              </span>
+                            );
+                          }
+                          return null;
+                        })()}
                         {(user.membershipTier === "registered" || user.membershipTier === "legendary") && <Crown className="w-3 h-3 text-yellow-500 shrink-0" aria-label={user.membershipTier === "legendary" ? "Legendary" : "Registered"} />}
                         {isInactive && <span className="text-[10px] font-bold text-yellow-600 bg-yellow-500/15 px-1 py-0.5 rounded shrink-0">INACTIVE</span>}
                       </div>
@@ -1073,10 +1130,35 @@ export default function AdminUsers() {
                     <div>
                       <p className="text-xs font-semibold text-foreground">Legendary for Life</p>
                       {membershipData?.isLifetime && membershipData.lifetimeEntitlement ? (
-                        <p className="text-xs text-muted-foreground">
-                          Granted {new Date(membershipData.lifetimeEntitlement.createdAt).toLocaleDateString()}
-                          {membershipData.lifetimeEntitlement.stripePaymentIntentId.startsWith("admin_grant") ? " (admin)" : ""}
-                        </p>
+                        <div>
+                          <p className="text-xs text-muted-foreground">
+                            Granted {new Date(membershipData.lifetimeEntitlement.createdAt).toLocaleDateString()}
+                            {membershipData.lifetimeEntitlement.stripePaymentIntentId.startsWith("admin_grant") ? (
+                              <span>
+                                {" (admin"}
+                                {(membershipData.lifetimeEntitlement.grantedByAdminDisplayName || membershipData.lifetimeEntitlement.grantedByAdminEmail) && (
+                                  <span className="font-medium">
+                                    {": "}
+                                    {membershipData.lifetimeEntitlement.grantedByAdminDisplayName ?? membershipData.lifetimeEntitlement.grantedByAdminEmail}
+                                  </span>
+                                )}
+                                {")"}
+                              </span>
+                            ) : ""}
+                          </p>
+                          {!membershipData.lifetimeEntitlement.stripePaymentIntentId.startsWith("admin_grant") && (
+                            <div className="flex items-center gap-1 mt-0.5">
+                              <span className="text-xs text-muted-foreground font-mono truncate">{membershipData.lifetimeEntitlement.stripePaymentIntentId}</span>
+                              <a
+                                href={`https://dashboard.stripe.com${membershipData.liveMode ? "" : "/test"}/payment_intents/${membershipData.lifetimeEntitlement.stripePaymentIntentId}`}
+                                target="_blank" rel="noopener noreferrer"
+                                className="text-primary shrink-0 hover:underline"
+                              >
+                                <ExternalLink className="w-3 h-3" />
+                              </a>
+                            </div>
+                          )}
+                        </div>
                       ) : (
                         <p className="text-xs text-muted-foreground">{membershipLoading ? "—" : "Not granted"}</p>
                       )}
@@ -1126,6 +1208,7 @@ export default function AdminUsers() {
                       <SubscriptionInfo
                         key={selectedUser.id}
                         variant="compact"
+                        liveMode={membershipData.liveMode}
                         data={{
                           isLifetime: membershipData.isLifetime,
                           cancelAtPeriodEnd: membershipData.appSubscription.cancelAtPeriodEnd,
@@ -1145,7 +1228,7 @@ export default function AdminUsers() {
                       <div className="flex items-center gap-1.5 text-xs text-muted-foreground font-mono mt-1">
                         <span className="truncate">{membershipData.appSubscription.stripeSubscriptionId}</span>
                         <a
-                          href={`https://dashboard.stripe.com/test/subscriptions/${membershipData.appSubscription.stripeSubscriptionId}`}
+                          href={`https://dashboard.stripe.com${membershipData.liveMode ? "" : "/test"}/subscriptions/${membershipData.appSubscription.stripeSubscriptionId}`}
                           target="_blank" rel="noopener noreferrer"
                           className="text-primary shrink-0 hover:underline"
                         >
@@ -1160,6 +1243,7 @@ export default function AdminUsers() {
                         <SubscriptionInfo
                           key={selectedUser.id}
                           variant="compact"
+                          liveMode={membershipData.liveMode}
                           data={{
                             isLifetime: membershipData.isLifetime,
                             cancelAtPeriodEnd: false,

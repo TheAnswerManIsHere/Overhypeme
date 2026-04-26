@@ -83,6 +83,37 @@ async function removeRetentionConfig(): Promise<void> {
   bustConfigCache();
 }
 
+const RETRY_CONFIG_KEYS = [
+  "email_max_attempts",
+  "email_retry_delay_1_ms",
+  "email_retry_delay_2_ms",
+  "email_retry_delay_3_ms",
+  "email_retry_delay_4_ms",
+] as const;
+
+async function setRetryConfigValue(key: typeof RETRY_CONFIG_KEYS[number], value: number): Promise<void> {
+  await db
+    .insert(adminConfigTable)
+    .values({
+      key,
+      value:    String(value),
+      dataType: "integer",
+      label:    `${key} (test override)`,
+    })
+    .onConflictDoUpdate({
+      target: adminConfigTable.key,
+      set:    { value: String(value) },
+    });
+  bustConfigCache();
+}
+
+async function removeRetryConfigs(): Promise<void> {
+  for (const key of RETRY_CONFIG_KEYS) {
+    await db.delete(adminConfigTable).where(eq(adminConfigTable.key, key));
+  }
+  bustConfigCache();
+}
+
 describe("email outbox engine", () => {
   // Clean up our own test rows before the suite starts, and after it finishes.
   // We do NOT truncate the entire outbox here to avoid racing with other
@@ -290,6 +321,105 @@ describe("email outbox engine", () => {
       } finally {
         await removeRetentionConfig();
       }
+    });
+
+    describe("configurable retry behaviour", () => {
+      afterEach(async () => {
+        await cleanupTestRows();
+        await removeRetryConfigs();
+      });
+
+      it("honours a lower email_max_attempts — abandons after fewer failures", async () => {
+        await setRetryConfigValue("email_max_attempts", 2);
+
+        const row = await insertOutboxRow({ status: "pending", attempts: 1, maxAttempts: 5 });
+
+        await emailOutboxTick(db, alwaysFail, new Date());
+
+        const updated = await getRow(row.id);
+        assert.ok(updated, "Row must still exist");
+        assert.equal(updated!.status, "abandoned", "Row should be abandoned when attempts reaches config maxAttempts (2)");
+        assert.equal(updated!.attempts, 2);
+      });
+
+      it("honours a higher email_max_attempts — does not abandon before the configured limit", async () => {
+        await setRetryConfigValue("email_max_attempts", 10);
+
+        const row = await insertOutboxRow({ status: "pending", attempts: 4, maxAttempts: 5 });
+
+        await emailOutboxTick(db, alwaysFail, new Date());
+
+        const updated = await getRow(row.id);
+        assert.ok(updated, "Row must still exist");
+        assert.equal(updated!.status, "pending", "Row should still be pending when attempts (5) is below config maxAttempts (10)");
+        assert.equal(updated!.attempts, 5);
+      });
+
+      it("honours a custom email_retry_delay_1_ms — sets nextAttemptAt using the configured delay", async () => {
+        const customDelayMs = 60_000;
+        await setRetryConfigValue("email_retry_delay_1_ms", customDelayMs);
+
+        const row = await insertOutboxRow({ status: "pending", attempts: 0, maxAttempts: 5 });
+        const before = Date.now();
+
+        await emailOutboxTick(db, alwaysFail, new Date());
+
+        const updated = await getRow(row.id);
+        assert.ok(updated, "Row must still exist");
+        assert.equal(updated!.status, "pending");
+        assert.equal(updated!.attempts, 1);
+
+        const actualDelay = updated!.nextAttemptAt.getTime() - before;
+        assert.ok(
+          Math.abs(actualDelay - customDelayMs) < 5_000,
+          `nextAttemptAt delay should be ~${customDelayMs}ms (custom delay_1), got ${actualDelay}ms`,
+        );
+      });
+
+      it("honours a custom email_retry_delay_2_ms — sets nextAttemptAt using the configured delay for attempt 2", async () => {
+        const customDelayMs = 120_000;
+        await setRetryConfigValue("email_retry_delay_2_ms", customDelayMs);
+
+        const row = await insertOutboxRow({ status: "pending", attempts: 1, maxAttempts: 5 });
+        const before = Date.now();
+
+        await emailOutboxTick(db, alwaysFail, new Date());
+
+        const updated = await getRow(row.id);
+        assert.ok(updated, "Row must still exist");
+        assert.equal(updated!.status, "pending");
+        assert.equal(updated!.attempts, 2);
+
+        const actualDelay = updated!.nextAttemptAt.getTime() - before;
+        assert.ok(
+          Math.abs(actualDelay - customDelayMs) < 5_000,
+          `nextAttemptAt delay should be ~${customDelayMs}ms (custom delay_2), got ${actualDelay}ms`,
+        );
+      });
+
+      it("picks up a new email_max_attempts value after bustConfigCache", async () => {
+        await setRetryConfigValue("email_max_attempts", 10);
+
+        const row = await insertOutboxRow({ status: "pending", attempts: 4, maxAttempts: 5 });
+
+        await emailOutboxTick(db, alwaysFail, new Date());
+
+        const afterFirstTick = await getRow(row.id);
+        assert.ok(afterFirstTick, "Row must exist after first tick");
+        assert.equal(afterFirstTick!.status, "pending", "Row should still be pending with maxAttempts=10");
+
+        await setRetryConfigValue("email_max_attempts", 5);
+
+        await db.update(emailOutboxTable)
+          .set({ status: "pending", nextAttemptAt: new Date() })
+          .where(eq(emailOutboxTable.id, row.id));
+
+        await emailOutboxTick(db, alwaysFail, new Date());
+
+        const afterSecondTick = await getRow(row.id);
+        assert.ok(afterSecondTick, "Row must exist after second tick");
+        assert.equal(afterSecondTick!.status, "abandoned", "Row should be abandoned after config bust reduces maxAttempts to 5");
+      });
     });
   });
 

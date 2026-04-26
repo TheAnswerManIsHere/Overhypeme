@@ -9,7 +9,7 @@ import { db, usersTable } from "@workspace/db";
 import { sendEmail, buildEmailShell, ctaButton, divider } from "./email.js";
 import { getSiteBaseUrl } from "./siteUrl.js";
 
-export type AdminNotifyType = "fact_review" | "comment" | "fact_grammar";
+export type AdminNotifyType = "fact_review" | "comment";
 
 export interface AdminNotifyOpts {
   type: AdminNotifyType;
@@ -77,7 +77,6 @@ export async function notifyAdmins(opts: AdminNotifyOpts): Promise<void> {
 export function buildNotificationEmail(opts: AdminNotifyOpts) {
   const typeLabel =
     opts.type === "fact_review" ? "Fact Submission"
-    : opts.type === "fact_grammar" ? "Fact Submission (Grammar Review)"
     : "Comment";
 
   const subject = `[Overhype.me] New ${typeLabel} Needs Review`;

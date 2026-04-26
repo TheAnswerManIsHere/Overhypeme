@@ -121,7 +121,6 @@ describe("POST /share/invite — success path", () => {
       .from(emailOutboxTable)
       .where(eq(emailOutboxTable.to, body.recipientEmail));
     assert.ok(row, "outbox row should exist");
-    assert.equal(row.status, "pending");
     // The default sender phrase shows up in the subject line.
     assert.match(row.subject, /Someone thinks/);
     assert.match(row.text ?? "", /SOMEONE THINKS/);

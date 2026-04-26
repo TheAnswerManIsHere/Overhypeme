@@ -26,6 +26,10 @@ export interface UserProfile {
   oauthProvider?: string | null;
   /** Whether the account has a local password set (true for email+password and merged accounts, false for OAuth-only). */
   hasPassword?: boolean;
+  /** Admin only: whether this admin receives moderation alert emails. Omitted for non-admins. */
+  adminNotifications?: boolean;
+  /** Admin only: whether this admin receives dispute alert emails. Omitted for non-admins. */
+  disputeNotifications?: boolean;
   submittedFacts: FactSummary[];
   likedFacts: FactSummary[];
   favoriteHashtags: string[];

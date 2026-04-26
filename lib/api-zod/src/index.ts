@@ -6,3 +6,7 @@ export {
   TEMPLATE_RENDER_SCALE,
   DEFAULT_MEME_ASPECT_RATIO,
 } from "./memeAspectRatios";
+export {
+  validateTemplate,
+  type GrammarValidationResult,
+} from "./templateGrammar";

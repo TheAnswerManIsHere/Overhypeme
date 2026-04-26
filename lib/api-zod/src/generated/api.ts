@@ -339,6 +339,18 @@ export const GetMyProfileResponse = zod.object({
     .describe(
       "Whether the account has a local password set (true for email+password and merged accounts, false for OAuth-only).",
     ),
+  adminNotifications: zod
+    .boolean()
+    .optional()
+    .describe(
+      "Admin only: whether this admin receives moderation alert emails. Omitted for non-admins.",
+    ),
+  disputeNotifications: zod
+    .boolean()
+    .optional()
+    .describe(
+      "Admin only: whether this admin receives dispute alert emails. Omitted for non-admins.",
+    ),
   submittedFacts: zod.array(
     zod.object({
       id: zod.number(),
@@ -428,6 +440,26 @@ export const UpdateMyProfileBody = zod.object({
 export const UpdateMyProfileResponse = zod.object({
   success: zod.boolean(),
   emailVerificationPending: zod.boolean().optional(),
+});
+
+/**
+ * @summary Update the current admin's notification preferences (admin only)
+ */
+export const UpdateMyNotificationsBody = zod.object({
+  adminNotifications: zod
+    .boolean()
+    .optional()
+    .describe("Whether to receive moderation alert emails."),
+  disputeNotifications: zod
+    .boolean()
+    .optional()
+    .describe("Whether to receive dispute alert emails."),
+});
+
+export const UpdateMyNotificationsResponse = zod.object({
+  success: zod.boolean(),
+  adminNotifications: zod.boolean().optional(),
+  disputeNotifications: zod.boolean().optional(),
 });
 
 /**

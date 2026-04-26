@@ -354,12 +354,38 @@ router.get("/admin/users/:id/membership", requireAdmin, async (req: Request, res
   const id = String(req.params["id"] ?? "");
   try {
     const [lifetimeRows, subRows, historyRows] = await Promise.all([
-      db.select().from(lifetimeEntitlementsTable).where(eq(lifetimeEntitlementsTable.userId, id)).limit(1),
+      db.select({
+        id: lifetimeEntitlementsTable.id,
+        userId: lifetimeEntitlementsTable.userId,
+        stripePaymentIntentId: lifetimeEntitlementsTable.stripePaymentIntentId,
+        stripeCustomerId: lifetimeEntitlementsTable.stripeCustomerId,
+        amount: lifetimeEntitlementsTable.amount,
+        currency: lifetimeEntitlementsTable.currency,
+        status: lifetimeEntitlementsTable.status,
+        grantedByAdminId: lifetimeEntitlementsTable.grantedByAdminId,
+        createdAt: lifetimeEntitlementsTable.createdAt,
+        grantedByAdminDisplayName: usersTable.displayName,
+        grantedByAdminEmail: usersTable.email,
+      })
+        .from(lifetimeEntitlementsTable)
+        .leftJoin(usersTable, eq(lifetimeEntitlementsTable.grantedByAdminId, usersTable.id))
+        .where(eq(lifetimeEntitlementsTable.userId, id))
+        .limit(1),
       db.select().from(subscriptionsTable)
         .where(eq(subscriptionsTable.userId, id))
         .orderBy(desc(subscriptionsTable.createdAt))
         .limit(1),
-      db.select().from(membershipHistoryTable)
+      db.select({
+        id: membershipHistoryTable.id,
+        event: membershipHistoryTable.event,
+        plan: membershipHistoryTable.plan,
+        amount: membershipHistoryTable.amount,
+        currency: membershipHistoryTable.currency,
+        createdAt: membershipHistoryTable.createdAt,
+        stripePaymentIntentId: membershipHistoryTable.stripePaymentIntentId,
+        stripeInvoiceId: membershipHistoryTable.stripeInvoiceId,
+        stripeDisputeId: membershipHistoryTable.stripeDisputeId,
+      }).from(membershipHistoryTable)
         .where(eq(membershipHistoryTable.userId, id))
         .orderBy(desc(membershipHistoryTable.createdAt))
         .limit(30),
@@ -376,12 +402,16 @@ router.get("/admin/users/:id/membership", requireAdmin, async (req: Request, res
       stripeSub = (result.rows[0] as Record<string, unknown>) ?? null;
     }
 
+    const { getConfigStringRaw } = await import("../lib/adminConfig");
+    const liveMode = (await getConfigStringRaw("stripe_live_mode", "false")) === "true";
+
     res.json({
       isLifetime: lifetimeRows.length > 0,
       lifetimeEntitlement: lifetimeRows[0] ?? null,
       appSubscription: appSub,
       stripeSub,
       history: historyRows,
+      liveMode,
     });
   } catch (err) {
     const msg = err instanceof Error ? err.message : "Failed to fetch membership data";
@@ -481,6 +511,7 @@ router.post("/admin/users/:id/grant-lifetime", requireAdmin, async (req: Request
     }
 
     const fakePaymentIntentId = `admin_grant_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
+    const adminUserId = req.user!.id;
     await db.transaction(async (tx) => {
       await tx.insert(lifetimeEntitlementsTable).values({
         userId: id,
@@ -488,6 +519,7 @@ router.post("/admin/users/:id/grant-lifetime", requireAdmin, async (req: Request
         stripeCustomerId: userRows[0]!.stripeCustomerId ?? "admin_grant",
         amount: 0,
         currency: "usd",
+        grantedByAdminId: adminUserId,
       });
       await tx.update(usersTable).set({ membershipTier: "legendary" }).where(eq(usersTable.id, id));
       await tx.insert(membershipHistoryTable).values({
@@ -1556,10 +1588,7 @@ router.get("/admin/stripe/summary", requireAdmin, async (_req: Request, res: Res
     ]);
 
     // Boolean-only presence checks for the Stripe env vars. We never echo the
-    // values themselves — only whether each one is configured. The legacy
-    // STRIPE_WEBHOOK_SECRET still works at runtime as a fallback for both
-    // modes (see getStripeWebhookSecret in stripeClient.ts), so we surface it
-    // separately so admins can see when they're relying on the fallback.
+    // values themselves — only whether each one is configured.
     const stripeEnv = {
       secretKeyTest: !!process.env.STRIPE_SECRET_KEY_TEST,
       secretKeyLive: !!process.env.STRIPE_SECRET_KEY_LIVE,
@@ -1567,10 +1596,9 @@ router.get("/admin/stripe/summary", requireAdmin, async (_req: Request, res: Res
       publishableKeyLive: !!process.env.STRIPE_PUBLISHABLE_KEY_LIVE,
       webhookSecretTest: !!process.env.STRIPE_WEBHOOK_SECRET_TEST,
       webhookSecretLive: !!process.env.STRIPE_WEBHOOK_SECRET_LIVE,
-      webhookSecretFallback: !!process.env.STRIPE_WEBHOOK_SECRET,
     };
     const webhookSecretConfigured =
-      stripeEnv.webhookSecretTest || stripeEnv.webhookSecretLive || stripeEnv.webhookSecretFallback;
+      stripeEnv.webhookSecretTest || stripeEnv.webhookSecretLive;
     const priceIdsConfigured = !!(process.env.MEMBERSHIP_PRICE_IDS ?? "").trim();
 
     const webhookUrl = `${getSiteBaseUrl()}/api/stripe/webhook`;

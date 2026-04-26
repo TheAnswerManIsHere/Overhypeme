@@ -39,15 +39,6 @@ describe("buildNotificationEmail – subject lines", () => {
     );
   });
 
-  it("contains 'Fact Submission (Grammar Review)' for fact_grammar", () => {
-    const { subject } = build({ type: "fact_grammar" });
-    assert.match(
-      subject,
-      /Fact Submission \(Grammar Review\)/,
-      `subject should contain 'Fact Submission (Grammar Review)': ${subject}`,
-    );
-  });
-
   it("contains 'Comment' for comment", () => {
     const { subject } = build({ type: "comment" });
     assert.match(subject, /Comment/, `subject should contain 'Comment': ${subject}`);
@@ -56,10 +47,9 @@ describe("buildNotificationEmail – subject lines", () => {
   it("emits a distinct subject line for every type", () => {
     const subjects = new Set([
       build({ type: "fact_review" }).subject,
-      build({ type: "fact_grammar" }).subject,
       build({ type: "comment" }).subject,
     ]);
-    assert.equal(subjects.size, 3, "each type must produce a unique subject");
+    assert.equal(subjects.size, 2, "each type must produce a unique subject");
   });
 });
 
@@ -72,14 +62,6 @@ describe("buildNotificationEmail – plain-text body", () => {
     );
   });
 
-  it("opens with the grammar-review headline for fact_grammar", () => {
-    const { text } = build({ type: "fact_grammar" });
-    assert.ok(
-      text.startsWith("NEW FACT SUBMISSION (GRAMMAR REVIEW) NEEDS YOUR APPROVAL"),
-      `text should start with the fact_grammar headline:\n${text}`,
-    );
-  });
-
   it("opens with the comment headline for comment", () => {
     const { text } = build({ type: "comment" });
     assert.ok(
@@ -89,7 +71,7 @@ describe("buildNotificationEmail – plain-text body", () => {
   });
 
   it("includes the submitter name for every type", () => {
-    const TYPES: AdminNotifyType[] = ["fact_review", "fact_grammar", "comment"];
+    const TYPES: AdminNotifyType[] = ["fact_review", "comment"];
     for (const type of TYPES) {
       const { text } = build({ type });
       assert.ok(
@@ -101,7 +83,7 @@ describe("buildNotificationEmail – plain-text body", () => {
 });
 
 describe("buildNotificationEmail – review URL", () => {
-  const TYPES: AdminNotifyType[] = ["fact_review", "fact_grammar", "comment"];
+  const TYPES: AdminNotifyType[] = ["fact_review", "comment"];
   const REVIEW_URL = BASE_OPTS.reviewUrl;
 
   for (const type of TYPES) {

@@ -1,8 +1,144 @@
-import { useEffect, useState, useCallback, createContext, useContext } from "react";
+import { useEffect, useRef, useState, useCallback, createContext, useContext } from "react";
 import {
   Clock, Check, AlertCircle, Loader2, Bug, X,
 } from "lucide-react";
 import { IMAGE_STYLES } from "@/config/imageStyles";
+
+// ── Delay-ms unit helpers ──────────────────────────────────────────────────────
+
+type DelayUnit = "ms" | "s" | "min" | "hr";
+
+const UNIT_OPTIONS: { value: DelayUnit; label: string; factor: number }[] = [
+  { value: "ms",  label: "ms",      factor: 1 },
+  { value: "s",   label: "sec",     factor: 1_000 },
+  { value: "min", label: "min",     factor: 60_000 },
+  { value: "hr",  label: "hr",      factor: 3_600_000 },
+];
+
+function bestUnit(ms: number): DelayUnit {
+  if (!isFinite(ms) || ms < 1000) return "ms";
+  if (ms < 60_000) return "s";
+  if (ms < 3_600_000) return "min";
+  return "hr";
+}
+
+function msToFriendly(ms: number, unit: DelayUnit): string {
+  const factor = UNIT_OPTIONS.find((u) => u.value === unit)!.factor;
+  const v = ms / factor;
+  return Number.isInteger(v) ? String(v) : String(Math.round(v * 1000) / 1000);
+}
+
+export function DelayMsInput({
+  msValue,
+  onChange,
+  placeholder,
+  borderClass,
+  focusRingClass,
+  minMs,
+  maxMs,
+}: {
+  msValue: string;
+  onChange: (msString: string) => void;
+  placeholder?: string;
+  borderClass?: string;
+  focusRingClass?: string;
+  minMs?: number | null;
+  maxMs?: number | null;
+}) {
+  const parsedMs = msValue !== "" ? Number(msValue) : NaN;
+  const initialUnit = isFinite(parsedMs) ? bestUnit(parsedMs) : "min";
+
+  const [unit, setUnit] = useState<DelayUnit>(initialUnit);
+  const [friendlyValue, setFriendlyValue] = useState<string>(
+    isFinite(parsedMs) ? msToFriendly(parsedMs, initialUnit) : ""
+  );
+
+  // Track the last ms value we emitted ourselves so the effect below can
+  // distinguish between an external reset (e.g. after a successful save that
+  // round-trips through the API) and a local edit we triggered.
+  const internalMsRef = useRef<string>(msValue);
+
+  useEffect(() => {
+    if (msValue === internalMsRef.current) return;
+    internalMsRef.current = msValue;
+    const ms = msValue !== "" ? Number(msValue) : NaN;
+    if (!isFinite(ms)) {
+      setFriendlyValue("");
+      return;
+    }
+    const newUnit = bestUnit(ms);
+    setUnit(newUnit);
+    setFriendlyValue(msToFriendly(ms, newUnit));
+  }, [msValue]);
+
+  const handleValueChange = (raw: string) => {
+    setFriendlyValue(raw);
+    const num = parseFloat(raw);
+    if (raw === "" || !isFinite(num)) {
+      internalMsRef.current = "";
+      onChange("");
+      return;
+    }
+    const factor = UNIT_OPTIONS.find((u2) => u2.value === unit)!.factor;
+    const ms = String(Math.round(num * factor));
+    internalMsRef.current = ms;
+    onChange(ms);
+  };
+
+  const handleUnitChange = (newUnit: DelayUnit) => {
+    setUnit(newUnit);
+    const ms = msValue !== "" ? Number(msValue) : NaN;
+    if (isFinite(ms)) {
+      setFriendlyValue(msToFriendly(ms, newUnit));
+    }
+  };
+
+  const rawMs = msValue !== "" && isFinite(Number(msValue)) ? Number(msValue) : null;
+  const border = borderClass ?? "border-border";
+  const focusRing = focusRingClass ?? "focus:ring-primary";
+  const outOfRange = rawMs !== null && (
+    (minMs != null && rawMs < minMs) || (maxMs != null && rawMs > maxMs)
+  );
+
+  return (
+    <div className="space-y-1.5">
+      <div className="flex items-center gap-1.5">
+        <input
+          type="number"
+          min={0}
+          step="any"
+          value={friendlyValue}
+          onChange={(e) => handleValueChange(e.target.value)}
+          placeholder={placeholder}
+          className={`w-28 bg-background border rounded px-3 py-1.5 text-sm text-foreground focus:outline-none focus:ring-1 ${focusRing} ${border} placeholder:text-muted-foreground/40`}
+        />
+        <select
+          value={unit}
+          onChange={(e) => handleUnitChange(e.target.value as DelayUnit)}
+          className={`bg-background border rounded px-2 py-1.5 text-sm text-foreground focus:outline-none focus:ring-1 ${focusRing} ${border}`}
+        >
+          {UNIT_OPTIONS.map((u) => (
+            <option key={u.value} value={u.value}>{u.label}</option>
+          ))}
+        </select>
+      </div>
+      {rawMs !== null && (
+        <p className="text-xs text-muted-foreground">
+          Raw ms: <code className="bg-muted px-1 py-0.5 rounded font-mono">{rawMs.toLocaleString()}</code>
+          {minMs != null && maxMs != null && (
+            <span className="ml-1.5">({minMs.toLocaleString()}–{maxMs.toLocaleString()} ms allowed)</span>
+          )}
+        </p>
+      )}
+      {outOfRange && (
+        <p className="text-xs text-destructive flex items-center gap-1">
+          <AlertCircle className="w-3 h-3" />
+          Value is outside the allowed range
+        </p>
+      )}
+    </div>
+  );
+}
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -197,6 +333,31 @@ export const FAL_VIDEO_RESOLUTION: { value: string; label: string }[] = [
 export const FLOAT_TEXT_CONFIGS = new Set([
   "ai_scene_prompt_temperature",
 ]);
+
+export const RETRY_DELAY_MS_KEYS = [
+  "email_retry_delay_1_ms",
+  "email_retry_delay_2_ms",
+  "email_retry_delay_3_ms",
+  "email_retry_delay_4_ms",
+] as const;
+
+export const DELAY_MS_KEYS: Set<string> = new Set(RETRY_DELAY_MS_KEYS);
+
+export function msToHuman(ms: number): string {
+  if (!isFinite(ms) || ms < 0) return "";
+  if (ms === 0) return "0 ms";
+  if (ms < 1000) return `${ms} ms`;
+  const totalSeconds = ms / 1000;
+  if (totalSeconds < 60) return `≈ ${Math.round(totalSeconds)} second${Math.round(totalSeconds) === 1 ? "" : "s"}`;
+  const totalMinutes = totalSeconds / 60;
+  if (totalMinutes < 60) {
+    const rounded = Math.round(totalMinutes * 10) / 10;
+    return `≈ ${rounded} minute${rounded === 1 ? "" : "s"}`;
+  }
+  const totalHours = totalMinutes / 60;
+  const rounded = Math.round(totalHours * 10) / 10;
+  return `≈ ${rounded} hour${rounded === 1 ? "" : "s"}`;
+}
 
 export const SELECT_CONFIGS: Record<string, { value: string; label: string }[]> = {
   ai_image_size:             FAL_IMAGE_SIZES,
@@ -414,6 +575,7 @@ export function ConfigInput({
   const isLong = row.dataType === "text" && !FLOAT_TEXT_CONFIGS.has(configKey);
   const dirty = kind === "std" ? stdDirty(configKey) : dbgDirty(configKey);
   const placeholder = kind === "dbg" ? (row.debugValue ?? "Same as standard (no override)") : undefined;
+  const isDelayMs = DELAY_MS_KEYS.has(configKey);
   const isDbgActive = debugActive && kind === "dbg";
   const borderClass = isDbgActive ? "border-amber-500/60 ring-1 ring-amber-500/30" : "border-border";
 
@@ -468,18 +630,30 @@ export function ConfigInput({
         </>
       ) : (
         <>
-          <input
-            type={row.dataType === "integer" || row.dataType === "float" || FLOAT_TEXT_CONFIGS.has(configKey) ? "number" : "text"}
-            step={row.dataType === "float" || FLOAT_TEXT_CONFIGS.has(configKey) ? "0.01" : undefined}
-            min={row.minValue ?? undefined}
-            max={row.maxValue ?? undefined}
-            value={state.value}
-            onChange={(e) => onChange(e.target.value)}
-            placeholder={placeholder}
-            onKeyDown={(e) => { if (e.key === "Enter" && dirty) onSave(); }}
-            className={`w-36 bg-background border rounded px-3 py-1.5 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-primary ${borderClass} placeholder:text-muted-foreground/40`}
-          />
-          {row.minValue !== null && row.maxValue !== null && (
+          {isDelayMs ? (
+            <DelayMsInput
+              msValue={state.value}
+              onChange={(ms) => onChange(ms)}
+              placeholder={placeholder}
+              borderClass={borderClass}
+              focusRingClass={isDbgActive ? "focus:ring-amber-500/50" : "focus:ring-primary"}
+              minMs={row.minValue}
+              maxMs={row.maxValue}
+            />
+          ) : (
+            <input
+              type={row.dataType === "integer" || row.dataType === "float" || FLOAT_TEXT_CONFIGS.has(configKey) ? "number" : "text"}
+              step={row.dataType === "float" || FLOAT_TEXT_CONFIGS.has(configKey) ? "0.01" : undefined}
+              min={row.minValue ?? undefined}
+              max={row.maxValue ?? undefined}
+              value={state.value}
+              onChange={(e) => onChange(e.target.value)}
+              placeholder={placeholder}
+              onKeyDown={(e) => { if (e.key === "Enter" && dirty) onSave(); }}
+              className={`w-36 bg-background border rounded px-3 py-1.5 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-primary ${borderClass} placeholder:text-muted-foreground/40`}
+            />
+          )}
+          {!isDelayMs && row.minValue !== null && row.maxValue !== null && (
             <span className="text-xs text-muted-foreground">{row.minValue}–{row.maxValue}</span>
           )}
           <SaveButton dirty={dirty} saving={state.saving} saved={state.saved} onClick={onSave} />
@@ -498,6 +672,7 @@ export function ConfigCard({ row }: { row: ConfigRow }) {
 
   const dbgSelectOptions = SELECT_CONFIGS[row.key];
   const dbgBorderClass = debugActive ? "border-amber-500/40" : "border-border";
+  const isDelayMs = DELAY_MS_KEYS.has(row.key);
 
   const onDbgChange = (val: string) => {
     const selectedLabel = dbgSelectOptions?.find((o) => o.value === val)?.label ?? val;
@@ -590,6 +765,31 @@ export function ConfigCard({ row }: { row: ConfigRow }) {
                   {dbgState.error && <p className="text-destructive text-xs flex items-center gap-1"><AlertCircle className="w-3 h-3" />{dbgState.error}</p>}
                 </div>
               </>
+            ) : isDelayMs ? (
+              <div className="space-y-2">
+                <DelayMsInput
+                  msValue={dbgState.value}
+                  onChange={onDbgChange}
+                  placeholder="— standard"
+                  borderClass={dbgBorderClass}
+                  focusRingClass="focus:ring-amber-500/50"
+                  minMs={row.minValue}
+                  maxMs={row.maxValue}
+                />
+                <div className="flex items-center gap-3">
+                  <SaveButton dirty={dbgDirty(row.key)} saving={dbgState.saving} saved={dbgState.saved} onClick={() => saveDbg(row.key)} />
+                  {dbgState.value !== "" && (
+                    <button
+                      onClick={() => onDbgChange("")}
+                      className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1"
+                      title="Clear debug value (fall back to standard)"
+                    >
+                      <X className="w-3 h-3" /> Clear
+                    </button>
+                  )}
+                  {dbgState.error && <p className="text-destructive text-xs flex items-center gap-1"><AlertCircle className="w-3 h-3" />{dbgState.error}</p>}
+                </div>
+              </div>
             ) : (
               <div className="flex items-center gap-3">
                 <input

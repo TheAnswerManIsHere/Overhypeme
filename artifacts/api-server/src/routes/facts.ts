@@ -176,32 +176,8 @@ router.post("/facts", requireAdmin, async (req: AuthenticatedRequest, res: Respo
   // Validate template grammar before storage
   const grammarResult = validateTemplate(tokenizedText);
   if (!grammarResult.valid) {
-    const [review] = await db.insert(pendingReviewsTable).values({
-      submittedText: tokenizedText,
-      submittedById: req.user.id,
-      hashtags,
-      status: "pending",
-      reason: "malformed_template",
-    }).returning();
-
-    void logActivity({
-      userId: req.user.id,
-      actionType: "review_submitted",
-      message: `Your fact was queued for admin review due to a template grammar issue.`,
-      metadata: { reviewId: review.id, text: text.slice(0, 120) },
-    });
-
-    void notifyAdmins({
-      type: "fact_grammar",
-      submitterName: req.user.displayName ?? req.user.email ?? "Unknown",
-      itemText: tokenizedText,
-      reviewUrl: `${getSiteBaseUrl()}/admin/reviews`,
-    });
-
-    res.status(202).json({
-      underReview: true,
-      reviewId: review.id,
-      error: `Template grammar validation failed: ${grammarResult.error}. Your fact has been queued for admin review.`,
+    res.status(422).json({
+      error: `Template grammar validation failed: ${grammarResult.error}`,
     });
     return;
   }

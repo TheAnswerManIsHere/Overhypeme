@@ -18,6 +18,7 @@ import { runFactImagePipeline } from "../lib/factImagePipeline";
 import { generateAiMemeBackgrounds } from "../lib/aiMemePipeline";
 import { getSessionId, getSession } from "../lib/auth";
 import { createRateLimiter } from "../lib/rateLimit";
+import { validateTemplate } from "../lib/templateGrammar";
 
 const requireRateLimit = createRateLimiter();
 
@@ -39,7 +40,7 @@ const SubmitReviewBody = z.object({
   matchingSimilarity: z.number().int().min(0).max(100).optional(),
   isDuplicate: z.boolean().optional(),
   hashtags: z.array(z.string()).max(10).optional(),
-  reason: z.string().max(100).optional(),
+  reason: z.enum(["duplicate", "spam", "offensive"]).optional(),
 });
 
 router.post("/facts/submit-review", requireAuth, requireRateLimit, async (req: AuthenticatedRequest, res: Response) => {
@@ -65,6 +66,14 @@ router.post("/facts/submit-review", requireAuth, requireRateLimit, async (req: A
     return;
   }
   const { text, matchingFactId, matchingSimilarity = 0, isDuplicate = false, hashtags = [], reason } = parsed.data;
+
+  const grammarResult = validateTemplate(text);
+  if (!grammarResult.valid) {
+    res.status(422).json({
+      error: `Template grammar validation failed: ${grammarResult.error}`,
+    });
+    return;
+  }
 
   const [review] = await db.insert(pendingReviewsTable).values({
     submittedText: text,

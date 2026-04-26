@@ -435,6 +435,43 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
 
+  /users/me/notifications:
+    patch:
+      operationId: updateMyNotifications
+      tags: [users]
+      summary: Update the current admin's notification preferences (admin only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateNotificationsRequest"
+      responses:
+        "200":
+          description: Notification preferences updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UpdateNotificationsResponse"
+        "400":
+          description: No valid fields to update
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden (not an admin)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
   /users/me/search-history:
     post:
       operationId: recordSearch
@@ -1316,6 +1353,12 @@ components:
         hasPassword:
           type: boolean
           description: Whether the account has a local password set (true for email+password and merged accounts, false for OAuth-only).
+        adminNotifications:
+          type: boolean
+          description: "Admin only: whether this admin receives moderation alert emails. Omitted for non-admins."
+        disputeNotifications:
+          type: boolean
+          description: "Admin only: whether this admin receives dispute alert emails. Omitted for non-admins."
         submittedFacts:
           type: array
           items:
@@ -1414,6 +1457,27 @@ components:
         success:
           type: boolean
         emailVerificationPending:
+          type: boolean
+
+    UpdateNotificationsRequest:
+      type: object
+      properties:
+        adminNotifications:
+          type: boolean
+          description: Whether to receive moderation alert emails.
+        disputeNotifications:
+          type: boolean
+          description: Whether to receive dispute alert emails.
+
+    UpdateNotificationsResponse:
+      type: object
+      required: [success]
+      properties:
+        success:
+          type: boolean
+        adminNotifications:
+          type: boolean
+        disputeNotifications:
           type: boolean
 
     RecordSearchRequest:
