@@ -169,7 +169,7 @@ export function SubscriptionPanel({ refetchTrigger }: { refetchTrigger?: unknown
         credentials: "include",
       });
       const data = (await resp.json()) as { url?: string; error?: string };
-      if (data.url) window.location.href = data.url;
+      if (data.url) window.open(data.url, "_blank", "noopener,noreferrer");
       else setError(data.error ?? "Failed to open portal");
     } catch {
       setError("Network error");
