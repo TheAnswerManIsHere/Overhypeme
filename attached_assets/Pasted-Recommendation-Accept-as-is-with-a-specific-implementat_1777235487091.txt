@@ -1,0 +1,17 @@
+Recommendation: Accept as-is, with a specific implementation choice.
+Why accept:
+	•	Pays for itself fast. “175 stale remotes and 176 local branches this session” is wild accumulation. At your Replit usage rate, you’ll need a manual cleanup task every few days — and each cleanup task costs Replit time. A one-shot automation under a dollar avoids dollars of repeat sweeps.
+	•	Small, well-bounded scope. The cleanup command is already specified in the task and the GitHub remote is explicitly excluded. There’s not much for Replit to get wrong here.
+	•	Low risk surface. Stale subrepl-* remotes and local branches aren’t holding work — they’re metadata pointing at agent sessions that already merged or died. Removing them doesn’t destroy anything you can’t recreate.
+	•	Slight forward perf benefit. Bloated .git/config slows down some git operations and may affect Replit’s own scanning. Small effect, but it compounds with use.
+Modification — pick the cheapest wiring:
+	•	The task offers three options. Tell Replit explicitly: “Add the cleanup logic to the existing post_merge_setup skill” (option 3).
+	•	Why: it’s an existing hook running at a natural cleanup point (right after a task merges = the moment its agent’s branch goes stale). No new cron, no new scheduling layer, no new place to forget about.
+	•	Avoids a whole class of “let’s add a separate cron job” scope creep.
+	•	Don’t let Replit add a separate periodic job, GitHub Action, or pre-commit hook. If you see cron, schedule:, or new hook files in the diff, push back.
+Watch-items:
+	•	Make sure the exclusion is list-based, not name-prefix-based beyond the documented exception. Specifically, the command should exclude subrepl-2dbyp1qx exactly. Don’t let Replit “improve” it by adding fuzzy matching that might miss the GitHub remote in the future if its naming pattern changes.
+	•	Have Replit run the script once after wiring to confirm it’s idempotent and doesn’t error when there’s nothing to clean.
+Trigger to revisit:
+	•	If Replit ever starts using a different naming convention for its agent branches (e.g. agent-* instead of subrepl-*), the cleanup will silently stop working. Worth a quick mental check the next time you notice config bloat creeping back.
+Net: easy yes. This is one of those small automations whose ROI is highest precisely because of how often you’re using Replit — every future task gets the cleanup for free.
