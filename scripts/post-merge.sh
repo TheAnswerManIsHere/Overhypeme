@@ -50,6 +50,11 @@ pnpm tsc -p lib/api-zod/tsconfig.json
 pnpm tsc -p lib/api-client-react/tsconfig.json
 pnpm tsc -p lib/replit-auth-web/tsconfig.json
 pnpm --filter './lib/**' --if-present run build
+
+# Explicitly rebuild the @workspace/db package so that TypeScript consumers
+# (e.g. api-server) always pick up the latest schema types after a merge.
+pnpm --filter @workspace/db exec tsc -p tsconfig.json
+
 pnpm --filter @workspace/db run migrate
 
 # Safety: drizzle-kit sometimes records a migration as applied in _journal.json
