@@ -1603,7 +1603,6 @@ router.get("/admin/stripe/summary", requireAdmin, async (_req: Request, res: Res
     };
     const webhookSecretConfigured =
       stripeEnv.webhookSecretTest || stripeEnv.webhookSecretLive;
-    const priceIdsConfigured = !!(process.env.MEMBERSHIP_PRICE_IDS ?? "").trim();
 
     const webhookUrl = `${getSiteBaseUrl()}/api/stripe/webhook`;
 
@@ -1611,7 +1610,6 @@ router.get("/admin/stripe/summary", requireAdmin, async (_req: Request, res: Res
       activeSubscribers: legendaryRows[0]?.cnt ?? 0,
       registeredMembers: registeredRows[0]?.cnt ?? 0,
       webhookSecretConfigured,
-      priceIdsConfigured,
       webhookUrl,
       stripeEnv,
     });
@@ -1680,15 +1678,9 @@ router.post("/admin/stripe/test-event", requireAdmin, async (req: Request, res: 
 
     // Build a minimal checkout.session.completed event with an embedded subscription object
     // (not a string ID) so the handler can process it without additional Stripe API calls.
-    // Use a test price ID that IS in the MEMBERSHIP_PRICE_IDS allowlist or embed product
-    // metadata so isMembershipPrice passes without external lookup.
     const { WebhookHandlers } = await import("../lib/webhookHandlers");
 
     const fakeSubId = `sub_test_${Date.now()}`;
-    // Use the first configured membership price ID if available, otherwise use a recognizable test key
-    const allowedPriceIds = (process.env.MEMBERSHIP_PRICE_IDS ?? "").split(",").map((s: string) => s.trim()).filter(Boolean);
-    // We embed the full price+product object in the subscription so isMembershipPrice
-    // can read product.metadata.membership without hitting the Stripe API.
     const embeddedSub = {
       id: fakeSubId,
       object: "subscription",
@@ -1703,16 +1695,15 @@ router.post("/admin/stripe/test-event", requireAdmin, async (req: Request, res: 
             id: `si_test_${Date.now()}`,
             object: "subscription_item",
             price: {
-              id: allowedPriceIds[0] ?? `price_test_${Date.now()}`,
+              id: `price_test_${Date.now()}`,
               object: "price",
               type: "recurring",
               recurring: { interval: "month", interval_count: 1, usage_type: "licensed", aggregate_usage: null },
-              // Embed product with membership metadata so price validation passes without Stripe API call
               product: {
                 id: "prod_test",
                 object: "product",
                 active: true,
-                metadata: { membership: "true" },
+                metadata: {},
               },
             },
           },

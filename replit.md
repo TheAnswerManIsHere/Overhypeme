@@ -75,7 +75,7 @@ Memberships ("legendary" tier) are granted through two complementary paths that 
 
 **Why two paths?** Stripe webhooks can arrive up to 30 seconds after the redirect (or not at all during Stripe outages). The sync-confirm path removes this latency from the user's first impression of a paid product. The webhook path provides idempotent reconciliation for all subsequent events.
 
-**`isMembershipPrice` caveat:** the webhook path gates upgrades on `isMembershipPrice()` — a price must be tagged with `metadata.membership="true"` in the Stripe dashboard, or listed in the `MEMBERSHIP_PRICE_IDS` env var, to trigger a grant via webhook. The sync-confirm endpoint bypasses this check because the price was already validated at checkout-creation time. If a customer pays but stays `registered`, check that their price/product is tagged correctly in Stripe → the webhook is silently skipping it.
+**Membership grant model:** any payment from a registered user qualifies them for Legendary — no product metadata tags or price ID allowlists required. Both the webhook path and the sync-confirm endpoint grant Legendary for any active Stripe price. If a customer pays but stays `registered`, check that the webhook is receiving events and that the `checkout.session.completed` handler fired successfully.
 
 ## Health endpoints
 - `GET /api/healthz` — minimal `{status:"ok"}`, kept for backwards compatibility.
