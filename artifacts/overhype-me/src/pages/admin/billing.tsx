@@ -38,7 +38,6 @@ interface StripeSummary {
   activeSubscribers: number;
   registeredMembers: number;
   webhookSecretConfigured: boolean;
-  priceIdsConfigured: boolean;
   webhookUrl: string | null;
   stripeEnv?: StripeEnvStatus;
 }
@@ -293,7 +292,6 @@ export default function AdminBilling() {
 
   const hasProducts = plans.length > 0;
   const hasWebhookSecret = summary?.webhookSecretConfigured ?? false;
-  const hasPriceIds = summary?.priceIdsConfigured ?? false;
 
   const allPrices = plans.flatMap(p => p.prices);
   const monthlyPrice = allPrices.find(p => p.recurring?.interval === "month");
@@ -481,7 +479,7 @@ export default function AdminBilling() {
           ) : plans.length === 0 ? (
             <div className="text-sm text-muted-foreground flex items-center gap-2 py-2">
               <AlertTriangle className="w-4 h-4 text-amber-400" />
-              No products found in Stripe. Create products with <code className="text-xs bg-secondary px-1 py-0.5 rounded">metadata.membership=true</code> in the Stripe dashboard.
+              No products found in Stripe. Create products in the Stripe dashboard and sync.
             </div>
           ) : (
             <div className="space-y-4">
@@ -490,9 +488,6 @@ export default function AdminBilling() {
                   <p className="font-bold text-foreground flex items-center gap-2">
                     <Star className="w-4 h-4 text-primary" />
                     {plan.name}
-                    {plan.metadata?.membership === "true" && (
-                      <span className="text-xs bg-green-500/20 text-green-400 px-2 py-0.5 rounded-sm">membership tagged</span>
-                    )}
                   </p>
                   {plan.description && <p className="text-xs text-muted-foreground mt-1">{plan.description}</p>}
                   {plan.prices.length > 0 && (
@@ -531,7 +526,6 @@ export default function AdminBilling() {
               label="Membership prices available (monthly, annual, or legendary for life)"
             />
             <CheckRow done={hasWebhookSecret} label="Webhook signing secret available (one of the per-mode env vars below)" />
-            <CheckRow done={hasPriceIds || hasProducts} label="Membership price IDs configured (env or product metadata)" />
           </div>
 
           {summary?.stripeEnv && (

@@ -26,22 +26,13 @@ router.get("/stripe/config", async (_req: Request, res: Response) => {
   }
 });
 
-// GET /stripe/plans — list membership products+prices from Stripe (synced to local DB)
-// Only returns products tagged with metadata.membership="true" OR in MEMBERSHIP_PRICE_IDS allowlist
+// GET /stripe/plans — list all active products+prices from Stripe (synced to local DB)
+// Any product a registered user pays for qualifies them for Legendary membership.
 router.get("/stripe/plans", async (_req: Request, res: Response) => {
   try {
     const live = await isLiveMode();
     const products = await stripeStorage.listProductsWithPrices(live);
-    const allowlist = (process.env.MEMBERSHIP_PRICE_IDS ?? "").split(",").map((s: string) => s.trim()).filter(Boolean);
-
-    const membershipProducts = products.filter(p => {
-      const hasMetaTag = p.metadata?.membership === "true";
-      const hasPriceInAllowlist = allowlist.length > 0 && p.prices.some(pr => allowlist.includes(pr.id));
-      return hasMetaTag || hasPriceInAllowlist;
-    });
-
-    // Return all if no products are tagged (dev/initial setup — no products configured yet)
-    res.json({ plans: membershipProducts.length > 0 ? membershipProducts : products });
+    res.json({ plans: products });
   } catch {
     res.json({ plans: [] });
   }
@@ -104,21 +95,12 @@ router.post("/stripe/checkout", async (req: Request, res: Response) => {
       customerId = customer.id;
     }
 
-    // Validate + resolve price — always fetch with product expanded
-    const priceObj = await stripe.prices.retrieve(priceId, { expand: ["product"] });
+    // Validate + resolve price — confirm it exists and is active in Stripe
+    const priceObj = await stripe.prices.retrieve(priceId);
     const isOneTime = priceObj.type === "one_time";
 
-    // Membership validation: price must be in allowlist OR product must have
-    // metadata.membership="true". Mirrors the /stripe/plans fallback: if neither
-    // is configured (no allowlist set, no tagged products), allow all prices through
-    // so the app works out of the box before Stripe metadata is configured.
-    const allowlist = (process.env.MEMBERSHIP_PRICE_IDS ?? "").split(",").map((s: string) => s.trim()).filter(Boolean);
-    const inAllowlist = allowlist.length > 0 && allowlist.includes(priceId);
-    const prod = priceObj.product as import("stripe").Stripe.Product | null;
-    const hasMetaTag = prod && typeof prod !== "string" && prod.metadata?.membership === "true";
-    const noGlobalConfig = allowlist.length === 0 && !hasMetaTag;
-    if (!inAllowlist && !hasMetaTag && !noGlobalConfig) {
-      res.status(400).json({ error: "Invalid price: not a recognized membership product" });
+    if (!priceObj.active) {
+      res.status(400).json({ error: "Invalid price: price is not active" });
       return;
     }
 
@@ -397,14 +379,10 @@ router.get("/stripe/subscription/switch-preview", async (req: Request, res: Resp
 
     const stripe = await getUncachableStripeClient();
 
-    // Validate target price is a recognized membership price — fail-closed
-    const priceObj = await stripe.prices.retrieve(targetPriceId, { expand: ["product"] });
-    const allowlist = (process.env.MEMBERSHIP_PRICE_IDS ?? "").split(",").map((s: string) => s.trim()).filter(Boolean);
-    const inAllowlist = allowlist.length > 0 && allowlist.includes(targetPriceId);
-    const prod = priceObj.product as import("stripe").Stripe.Product | null;
-    const hasMetaTag = prod && typeof prod !== "string" && prod.metadata?.membership === "true";
-    if (!inAllowlist && !hasMetaTag) {
-      res.status(400).json({ error: "Invalid price: not a recognized membership product" });
+    // Validate target price exists and is active
+    const priceObj = await stripe.prices.retrieve(targetPriceId);
+    if (!priceObj.active) {
+      res.status(400).json({ error: "Invalid price: price is not active" });
       return;
     }
 
@@ -466,14 +444,10 @@ router.post("/stripe/subscription/switch-plan", async (req: Request, res: Respon
   try {
     const stripe = await getUncachableStripeClient();
 
-    // Validate target price — fail-closed (no allowlist bypass for mutation endpoints)
-    const priceObj = await stripe.prices.retrieve(targetPriceId, { expand: ["product"] });
-    const allowlist = (process.env.MEMBERSHIP_PRICE_IDS ?? "").split(",").map((s: string) => s.trim()).filter(Boolean);
-    const inAllowlist = allowlist.length > 0 && allowlist.includes(targetPriceId);
-    const prod = priceObj.product as import("stripe").Stripe.Product | null;
-    const hasMetaTag = prod && typeof prod !== "string" && prod.metadata?.membership === "true";
-    if (!inAllowlist && !hasMetaTag) {
-      res.status(400).json({ error: "Invalid price: not a recognized membership product" });
+    // Validate target price exists and is active
+    const priceObj = await stripe.prices.retrieve(targetPriceId);
+    if (!priceObj.active) {
+      res.status(400).json({ error: "Invalid price: price is not active" });
       return;
     }
 

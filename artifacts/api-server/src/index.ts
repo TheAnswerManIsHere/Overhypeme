@@ -110,8 +110,7 @@ async function initStripe() {
 }
 
 // Reconcile membership tiers: any user with an active subscription but membership_tier != 'legendary'
-// should be upgraded. This catches webhook gaps (e.g. isMembershipPrice blocked the grant before
-// products were tagged, or the webhook handler crashed mid-flight).
+// should be upgraded. This catches webhook gaps (e.g. the webhook handler crashed mid-flight).
 async function reconcileMembershipTiers() {
   try {
     const { db } = await import("@workspace/db");

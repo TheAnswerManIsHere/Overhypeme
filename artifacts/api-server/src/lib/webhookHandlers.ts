@@ -129,41 +129,6 @@ async function recordHistory(
   });
 }
 
-// Returns true if the product/price is a recognized membership product.
-// Validates via product metadata (membership: "true") OR env allowlist.
-// ALWAYS fails closed: if neither allowlist nor metadata tag is present, membership is NOT granted.
-async function isMembershipPrice(
-  stripe: Stripe,
-  priceId: string,
-  expandedProduct?: Stripe.Product | null,
-): Promise<boolean> {
-  try {
-    const allowlist = (process.env.MEMBERSHIP_PRICE_IDS ?? "").split(",").map(s => s.trim()).filter(Boolean);
-    if (allowlist.length > 0 && allowlist.includes(priceId)) return true;
-
-    // If an already-expanded product was provided (e.g. embedded in a test event),
-    // use it directly to avoid an unnecessary Stripe API call.
-    const product = expandedProduct ?? (async () => {
-      const price = await stripe.prices.retrieve(priceId, { expand: ["product"] });
-      return price.product as Stripe.Product | null;
-    })();
-    const resolvedProduct = product instanceof Promise ? await product : product;
-
-    if (!resolvedProduct || typeof resolvedProduct === "string") return false;
-
-    // Accept ONLY if product metadata explicitly marks it as membership
-    const isTagged = resolvedProduct.metadata?.membership === "true";
-    if (isTagged) return true;
-
-    // Fail closed: no allowlist entry and no metadata tag → deny
-    logger.warn({ priceId }, "Price not in membership allowlist and product has no membership=true metadata — skipping tier grant");
-    return false;
-  } catch (err) {
-    // Fail closed on error
-    logger.error({ err, priceId }, "Could not validate membership price — denying");
-    return false;
-  }
-}
 
 async function upsertSubscription(
   userId: string,
@@ -200,28 +165,14 @@ async function upsertSubscription(
 }
 
 async function handleSubscriptionActivated(
-  stripe: Stripe,
+  _stripe: Stripe,
   customerId: string,
   sub: Stripe.Subscription,
 ) {
   const user = await findUserByStripeCustomerId(customerId);
   if (!user) { logger.warn({ customerId }, "No user found for Stripe customer"); return; }
 
-  const priceItem = sub.items?.data?.[0];
-  const priceId = priceItem?.price?.id ?? "";
-  // Pass the already-expanded product when present to avoid an extra Stripe API call
-  // (e.g. when the subscription was embedded in a checkout.session.completed event)
-  const expandedProduct = priceItem?.price?.product != null && typeof priceItem.price.product === "object"
-    ? (priceItem.price.product as Stripe.Product)
-    : null;
-
-  const isAllowed = await isMembershipPrice(stripe, priceId, expandedProduct);
-  if (!isAllowed) {
-    logger.warn({ priceId, userId: user.id }, "Subscription price not in membership allowlist — skipping tier grant");
-    return;
-  }
-
-  // Delegate grant + DB writes + history to shared helper (same code path as checkout/confirm).
+  // Any active subscription payment from a registered user qualifies for Legendary.
   await grantLegendaryViaSubscription(
     user.id,
     customerId,
