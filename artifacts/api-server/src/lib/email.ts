@@ -517,6 +517,7 @@ const REJECTION_REASON_LABELS: Record<string, string> = {
   duplicate: "Duplicate — this fact is too similar to one already in the database.",
   spam: "Spam — this submission doesn't meet our community guidelines.",
   offensive: "Offensive — this fact contains content that violates our standards.",
+  lame: "Lame — this fact just didn't have the energy we're looking for.",
 };
 
 export function buildReviewRejectedEmail(opts: {
