@@ -49,8 +49,19 @@ router.post("/facts/submit-review", requireAuth, requireRateLimit, async (req: A
   const sid = getSessionId(req);
   const session = sid ? await getSession(sid) : null;
   const isAdmin = session?.isAdmin === true;
-  const isPremium = session?.user?.membershipTier === "legendary";
   const isCaptchaVerified = session?.captchaVerified === true;
+
+  // The session's membershipTier is written at login and never refreshed on upgrade.
+  // Do a live DB lookup so a user who became Legendary after their last login isn't blocked.
+  let isPremium = session?.user?.membershipTier === "legendary";
+  if (!isPremium) {
+    const [freshUser] = await db
+      .select({ membershipTier: usersTable.membershipTier })
+      .from(usersTable)
+      .where(eq(usersTable.id, req.user.id))
+      .limit(1);
+    isPremium = freshUser?.membershipTier === "legendary";
+  }
 
   if (!isAdmin && !isPremium && !isCaptchaVerified) {
     res.status(403).json({
