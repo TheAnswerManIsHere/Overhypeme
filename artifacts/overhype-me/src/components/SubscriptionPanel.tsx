@@ -526,7 +526,7 @@ export function SubscriptionPanel({ refetchTrigger }: { refetchTrigger?: unknown
       )}
 
       {/* Cancel Confirmation Dialog */}
-      {showCancelDialog && periodEnd && (
+      {showCancelDialog && (
         <ConfirmDialog
           title="Cancel Subscription"
           confirmLabel="Yes, Cancel"
@@ -535,11 +535,23 @@ export function SubscriptionPanel({ refetchTrigger }: { refetchTrigger?: unknown
           onConfirm={handleCancel}
           onCancel={() => setShowCancelDialog(false)}
         >
-          <p>
-            Your subscription will remain active until <strong className="text-foreground">{periodEnd}</strong>.
-            After that date, you will lose access to premium features.
-          </p>
-          <p>You can reactivate at any time before that date.</p>
+          {periodEnd ? (
+            <>
+              <p>
+                Your subscription will remain active until <strong className="text-foreground">{periodEnd}</strong>.
+                After that date, you will lose access to premium features.
+              </p>
+              <p>You can reactivate at any time before that date.</p>
+            </>
+          ) : (
+            <>
+              <p>
+                Your subscription will be cancelled at the end of the current billing period.
+                You will lose access to premium features after that date.
+              </p>
+              <p>You can reactivate at any time before the period ends.</p>
+            </>
+          )}
         </ConfirmDialog>
       )}
 
