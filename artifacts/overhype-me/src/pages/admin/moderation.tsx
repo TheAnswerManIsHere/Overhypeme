@@ -111,6 +111,14 @@ function ReasonBadge({ reason }: { reason: string | null }) {
   return null;
 }
 
+const REJECTION_REASONS = [
+  { value: "duplicate", label: "Duplicate" },
+  { value: "spam",      label: "Spam" },
+  { value: "offensive", label: "Offensive" },
+] as const;
+
+type RejectionReason = typeof REJECTION_REASONS[number]["value"];
+
 function ReviewModal({
   review,
   onClose,
@@ -118,18 +126,21 @@ function ReviewModal({
 }: {
   review: Review;
   onClose: () => void;
-  onDecision: (id: number, action: "approve" | "reject" | "approve-variant", note: string, parentFactId?: number) => Promise<void>;
+  onDecision: (id: number, action: "approve" | "reject" | "approve-variant", note: string, parentFactId?: number, rejectionReason?: RejectionReason) => Promise<void>;
 }) {
   const [note, setNote] = useState(review.adminNote ?? "");
   const [loading, setLoading] = useState(false);
   const [parentFactId, setParentFactId] = useState<string>(String(review.matchingFact?.id ?? ""));
   const [showVariantPanel, setShowVariantPanel] = useState(false);
+  const [rejectionReason, setRejectionReason] = useState<RejectionReason | "">("");
 
   const handle = async (action: "approve" | "reject" | "approve-variant") => {
     setLoading(true);
     if (action === "approve-variant") {
       const pid = parseInt(parentFactId, 10);
       await onDecision(review.id, action, note, isNaN(pid) ? undefined : pid);
+    } else if (action === "reject") {
+      await onDecision(review.id, action, note, undefined, rejectionReason || undefined);
     } else {
       await onDecision(review.id, action, note);
     }
@@ -184,20 +195,54 @@ function ReviewModal({
           </div>
 
           {review.status === "pending" && (
-            <div>
-              <label className="block text-sm font-semibold text-foreground mb-2">Admin Note (optional, sent to user)</label>
-              <textarea
-                value={note}
-                onChange={(e) => setNote(e.target.value)}
-                rows={3}
-                maxLength={500}
-                placeholder="Explain your decision to help the user understand…"
-                className="w-full px-3 py-2 bg-background border border-border rounded-sm text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary resize-none"
-              />
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-semibold text-foreground mb-2">
+                  Rejection Reason <span className="text-muted-foreground font-normal">(optional, shown to user if rejecting)</span>
+                </label>
+                <select
+                  value={rejectionReason}
+                  onChange={(e) => setRejectionReason(e.target.value as RejectionReason | "")}
+                  className="w-full px-3 py-2 bg-background border border-border rounded-sm text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+                >
+                  <option value="">— No specific reason —</option>
+                  {REJECTION_REASONS.map((r) => (
+                    <option key={r.value} value={r.value}>{r.label}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-semibold text-foreground mb-2">Admin Note <span className="text-muted-foreground font-normal">(optional, sent to user)</span></label>
+                <textarea
+                  value={note}
+                  onChange={(e) => setNote(e.target.value)}
+                  rows={3}
+                  maxLength={500}
+                  placeholder="Add a personal message to explain your decision…"
+                  className="w-full px-3 py-2 bg-background border border-border rounded-sm text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary resize-none"
+                />
+              </div>
             </div>
           )}
 
-          {review.adminNote && review.status !== "pending" && (
+          {review.status === "rejected" && (review.reason || review.adminNote) && (
+            <div className="bg-muted/40 border border-border rounded-sm p-3 space-y-2">
+              {review.reason && (
+                <div>
+                  <p className="text-xs font-semibold text-muted-foreground uppercase mb-1">Rejection Reason</p>
+                  <ReasonBadge reason={review.reason} />
+                </div>
+              )}
+              {review.adminNote && (
+                <div>
+                  <p className="text-xs font-semibold text-muted-foreground uppercase mb-1">Admin Note</p>
+                  <p className="text-sm text-foreground">{review.adminNote}</p>
+                </div>
+              )}
+            </div>
+          )}
+
+          {review.status === "approved" && review.adminNote && (
             <div className="bg-muted/40 border border-border rounded-sm p-3">
               <p className="text-xs font-semibold text-muted-foreground uppercase mb-1">Admin Note</p>
               <p className="text-sm text-foreground">{review.adminNote}</p>
@@ -286,10 +331,12 @@ function FactReviewsPanel() {
     action: "approve" | "reject" | "approve-variant",
     note: string,
     parentFactId?: number,
+    rejectionReason?: RejectionReason,
   ) => {
     setActionMsg("");
     const body: Record<string, unknown> = { adminNote: note || undefined };
     if (action === "approve-variant" && parentFactId !== undefined) body.parentFactId = parentFactId;
+    if (action === "reject" && rejectionReason) body.rejectionReason = rejectionReason;
     const r = await fetch(`/api/admin/reviews/${id}/${action}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },

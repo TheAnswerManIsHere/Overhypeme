@@ -198,6 +198,10 @@ router.get("/admin/reviews/:id", requireAdmin, async (req: Request, res: Respons
 // ─── Approve Review (admin) ───────────────────────────────────────────────────
 
 const ReviewDecisionBody = z.object({ adminNote: z.string().max(500).optional() });
+const RejectBody = z.object({
+  adminNote: z.string().max(500).optional(),
+  rejectionReason: z.enum(["duplicate", "spam", "offensive"]).optional(),
+});
 const ApproveVariantBody = z.object({
   parentFactId: z.number().int().positive(),
   adminNote: z.string().max(500).optional(),
@@ -366,8 +370,9 @@ router.post("/admin/reviews/:id/reject", requireAdmin, async (req: Authenticated
   const id = parseInt(String(req.params["id"] ?? ""), 10);
   if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
 
-  const bodyParsed = ReviewDecisionBody.safeParse(req.body);
+  const bodyParsed = RejectBody.safeParse(req.body);
   const adminNote = bodyParsed.success ? (bodyParsed.data.adminNote ?? null) : null;
+  const rejectionReason = bodyParsed.success ? (bodyParsed.data.rejectionReason ?? null) : null;
 
   const [review] = await db.select().from(pendingReviewsTable).where(eq(pendingReviewsTable.id, id));
   if (!review) { res.status(404).json({ error: "Review not found" }); return; }
@@ -377,6 +382,7 @@ router.post("/admin/reviews/:id/reject", requireAdmin, async (req: Authenticated
     status: "rejected",
     reviewedById: req.user.id,
     adminNote,
+    reason: rejectionReason,
     reviewedAt: new Date(),
   }).where(eq(pendingReviewsTable.id, id));
 
@@ -396,6 +402,7 @@ router.post("/admin/reviews/:id/reject", requireAdmin, async (req: Authenticated
         username: submitter.displayName ?? "there",
         submittedText: review.submittedText,
         adminNote,
+        rejectionReason,
       });
       void sendEmail({ to: submitter.email, ...emailContent });
     }
