@@ -371,8 +371,11 @@ router.post("/admin/reviews/:id/reject", requireAdmin, async (req: Authenticated
   if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
 
   const bodyParsed = RejectBody.safeParse(req.body);
-  const adminNote = bodyParsed.success ? (bodyParsed.data.adminNote ?? null) : null;
-  const rejectionReason = bodyParsed.success ? (bodyParsed.data.rejectionReason ?? null) : null;
+  if (!bodyParsed.success) {
+    res.status(400).json({ error: "Invalid request body", details: bodyParsed.error.issues });
+    return;
+  }
+  const { adminNote = null, rejectionReason = null } = bodyParsed.data;
 
   const [review] = await db.select().from(pendingReviewsTable).where(eq(pendingReviewsTable.id, id));
   if (!review) { res.status(404).json({ error: "Review not found" }); return; }
