@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Crown, Calendar, AlertTriangle, Receipt, ChevronDown, ChevronUp, ExternalLink } from "lucide-react";
 import { eventLabel, eventTone, formatAmount, type EventTone } from "@/components/subscriptionHelpers";
-import { stripeDashboardUrl } from "@/lib/stripeDashboardUrl";
+import { StripeLink } from "@/components/StripeLink";
 
 function eventBadgeClass(tone: EventTone): string {
   switch (tone) {
@@ -62,15 +62,6 @@ interface SubscriptionInfoProps {
   hideHistory?: boolean;
 }
 
-function stripeRecordLinks(rec: SubscriptionInfoRecord, liveMode: boolean): { href: string; label: string }[] {
-  const links: { href: string; label: string }[] = [];
-  if (rec.stripeDisputeId) links.push({ href: stripeDashboardUrl("disputes", rec.stripeDisputeId, { liveMode }), label: "dispute" });
-  if (rec.stripePaymentIntentId) links.push({ href: stripeDashboardUrl("payments", rec.stripePaymentIntentId, { liveMode }), label: "payment" });
-  // Use the backend receipt redirect so the user sees the customer-facing hosted
-  // invoice page (no Stripe login required) rather than the dashboard URL.
-  if (rec.stripeInvoiceId) links.push({ href: `/api/stripe/invoice/${rec.stripeInvoiceId}/receipt`, label: "invoice" });
-  return links;
-}
 
 export function SubscriptionInfo({ data, variant, liveMode = false, reactivateButton, hideHistory = false }: SubscriptionInfoProps) {
   const [showHistory, setShowHistory] = useState(false);
@@ -160,18 +151,23 @@ export function SubscriptionInfo({ data, variant, liveMode = false, reactivateBu
                             {formatSignedAmount(rec.event, rec.amount, rec.currency)}
                           </span>
                         )}
-                        {stripeRecordLinks(rec, liveMode).map((link) => (
+                        {rec.stripeDisputeId && (
+                          <StripeLink entity="disputes" id={rec.stripeDisputeId} liveMode={liveMode} />
+                        )}
+                        {rec.stripePaymentIntentId && (
+                          <StripeLink entity="payments" id={rec.stripePaymentIntentId} liveMode={liveMode} />
+                        )}
+                        {rec.stripeInvoiceId && (
                           <a
-                            key={link.href}
-                            href={link.href}
+                            href={`/api/stripe/invoice/${rec.stripeInvoiceId}/receipt`}
                             target="_blank"
                             rel="noopener noreferrer"
-                            title={link.label === "invoice" ? "View receipt" : `Open ${link.label} in Stripe`}
+                            title="View receipt"
                             className="text-muted-foreground hover:text-primary transition-colors"
                           >
                             <ExternalLink className="w-3 h-3" />
                           </a>
-                        ))}
+                        )}
                       </div>
                     </div>
                   );
@@ -299,18 +295,23 @@ export function SubscriptionInfo({ data, variant, liveMode = false, reactivateBu
                           {formatSignedAmount(record.event, record.amount, record.currency)}
                         </span>
                       )}
-                      {stripeRecordLinks(record, liveMode).map((link) => (
+                      {record.stripeDisputeId && (
+                        <StripeLink entity="disputes" id={record.stripeDisputeId} liveMode={liveMode} className="text-muted-foreground hover:text-primary transition-colors" />
+                      )}
+                      {record.stripePaymentIntentId && (
+                        <StripeLink entity="payments" id={record.stripePaymentIntentId} liveMode={liveMode} className="text-muted-foreground hover:text-primary transition-colors" />
+                      )}
+                      {record.stripeInvoiceId && (
                         <a
-                          key={link.href}
-                          href={link.href}
+                          href={`/api/stripe/invoice/${record.stripeInvoiceId}/receipt`}
                           target="_blank"
                           rel="noopener noreferrer"
-                          title={`Open ${link.label} in Stripe`}
+                          title="View receipt"
                           className="text-muted-foreground hover:text-primary transition-colors"
                         >
                           <ExternalLink className="w-3.5 h-3.5" />
                         </a>
-                      ))}
+                      )}
                     </div>
                   </div>
                 );
