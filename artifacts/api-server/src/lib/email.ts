@@ -11,7 +11,7 @@
  * Brand: dark bg (#0d0d0e), danger orange (#FF3C00), Oswald + Inter typography.
  */
 import { Resend } from "resend";
-import { eq, and, or, lte, lt, asc } from "drizzle-orm";
+import { eq, and, or, lte, lt, asc, not, like, isNull } from "drizzle-orm";
 import { db as defaultDb } from "@workspace/db";
 import { emailOutboxTable, type EmailOutboxRow } from "@workspace/db/schema";
 import { getConfigString, getConfigInt } from "./adminConfig";
@@ -127,6 +127,7 @@ async function getRetryConfig(): Promise<{ maxAttempts: number; retryDelays: num
 export async function purgeTerminalEmailRows(
   dbInstance: Pick<typeof defaultDb, "delete">,
   now: Date = new Date(),
+  excludeKindPrefix?: string,
 ): Promise<number> {
   const retentionDays = await getConfigInt("email_outbox_retention_days", 30);
   if (retentionDays <= 0) return 0;
@@ -140,6 +141,12 @@ export async function purgeTerminalEmailRows(
           eq(emailOutboxTable.status, "abandoned"),
         ),
         lt(emailOutboxTable.createdAt, cutoff),
+        excludeKindPrefix
+          ? or(
+              isNull(emailOutboxTable.kind),
+              not(like(emailOutboxTable.kind, `${excludeKindPrefix}%`)),
+            )
+          : undefined,
       ),
     )
     .returning({ id: emailOutboxTable.id });
@@ -154,6 +161,7 @@ export async function emailOutboxTick(
   dbInstance: DbWithTransaction,
   deliverFn: DeliverFn,
   now: Date = new Date(),
+  excludeKindPrefix?: string,
 ): Promise<void> {
   const { maxAttempts, retryDelays } = await getRetryConfig();
 
@@ -215,7 +223,7 @@ export async function emailOutboxTick(
     }
   });
 
-  await purgeTerminalEmailRows(dbInstance, now);
+  await purgeTerminalEmailRows(dbInstance, now, excludeKindPrefix);
 }
 
 /**
