@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { AdminLayout } from "@/components/admin/AdminLayout";
 import { Button } from "@/components/ui/Button";
+import { stripeDashboardUrl } from "@/lib/stripeDashboardUrl";
 import {
   AlertTriangle,
   ChevronLeft,
@@ -98,12 +99,6 @@ function formatAmount(amount: number | null, currency: string | null): string {
   return `${value.toFixed(2)} ${cur}`;
 }
 
-function stripeBase(liveMode: boolean): string {
-  return liveMode
-    ? "https://dashboard.stripe.com"
-    : "https://dashboard.stripe.com/test";
-}
-
 export default function AdminRefundsDisputes() {
   const [data, setData] = useState<ApiResponse | null>(null);
   const [loading, setLoading] = useState(false);
@@ -168,7 +163,6 @@ export default function AdminRefundsDisputes() {
   }
 
   const liveMode = data?.liveMode ?? false;
-  const sBase = stripeBase(liveMode);
   const rows = data?.rows ?? [];
 
   return (
@@ -281,13 +275,13 @@ export default function AdminRefundsDisputes() {
                 ) : (
                   rows.map((row) => {
                     const piUrl = row.stripePaymentIntentId
-                      ? `${sBase}/payments/${row.stripePaymentIntentId}`
+                      ? stripeDashboardUrl("payments", row.stripePaymentIntentId, { liveMode })
                       : null;
                     const disputeUrl = row.stripeDisputeId
-                      ? `${sBase}/disputes/${row.stripeDisputeId}`
+                      ? stripeDashboardUrl("disputes", row.stripeDisputeId, { liveMode })
                       : null;
                     const subUrl = row.stripeSubscriptionId
-                      ? `${sBase}/subscriptions/${row.stripeSubscriptionId}`
+                      ? stripeDashboardUrl("subscriptions", row.stripeSubscriptionId, { liveMode })
                       : null;
 
                     return (

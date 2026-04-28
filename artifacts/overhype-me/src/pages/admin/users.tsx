@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/Input";
 import { SpendInline } from "@/components/ui/SpendHistory";
 import { Shield, ShieldOff, Search, Pencil, X, Save, AlertCircle, CheckCircle, Crown, Star, Gem, UserPlus, MailCheck, Trash2, UserX, ExternalLink, CreditCard, Infinity, Loader2, XCircle, Bell, BellOff, AlertTriangle } from "lucide-react";
 import { SubscriptionInfo } from "@/components/SubscriptionInfo";
+import { stripeDashboardUrl } from "@/lib/stripeDashboardUrl";
 
 interface User {
   id: string;
@@ -1024,15 +1025,19 @@ export default function AdminUsers() {
               <div>
                 <p className="text-xs font-bold text-muted-foreground uppercase tracking-wide mb-1">Stripe Customer ID</p>
                 {selectedUser.stripeCustomerId ? (
-                  <a
-                    href={`https://dashboard.stripe.com/test/customers/${selectedUser.stripeCustomerId}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="flex items-center gap-1.5 text-sm font-mono text-primary hover:underline truncate"
-                  >
-                    {selectedUser.stripeCustomerId}
-                    <ExternalLink className="w-3 h-3 shrink-0" />
-                  </a>
+                  membershipData ? (
+                    <a
+                      href={stripeDashboardUrl("customers", selectedUser.stripeCustomerId, { liveMode: membershipData.liveMode })}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center gap-1.5 text-sm font-mono text-primary hover:underline truncate"
+                    >
+                      {selectedUser.stripeCustomerId}
+                      <ExternalLink className="w-3 h-3 shrink-0" />
+                    </a>
+                  ) : (
+                    <p className="text-sm font-mono text-muted-foreground truncate">{selectedUser.stripeCustomerId}</p>
+                  )
                 ) : (
                   <p className="text-sm text-muted-foreground italic">—</p>
                 )}
@@ -1150,7 +1155,7 @@ export default function AdminUsers() {
                             <div className="flex items-center gap-1 mt-0.5">
                               <span className="text-xs text-muted-foreground font-mono truncate">{membershipData.lifetimeEntitlement.stripePaymentIntentId}</span>
                               <a
-                                href={`https://dashboard.stripe.com${membershipData.liveMode ? "" : "/test"}/payment_intents/${membershipData.lifetimeEntitlement.stripePaymentIntentId}`}
+                                href={stripeDashboardUrl("payment_intents", membershipData.lifetimeEntitlement.stripePaymentIntentId, { liveMode: membershipData.liveMode })}
                                 target="_blank" rel="noopener noreferrer"
                                 className="text-primary shrink-0 hover:underline"
                               >
@@ -1228,7 +1233,7 @@ export default function AdminUsers() {
                       <div className="flex items-center gap-1.5 text-xs text-muted-foreground font-mono mt-1">
                         <span className="truncate">{membershipData.appSubscription.stripeSubscriptionId}</span>
                         <a
-                          href={`https://dashboard.stripe.com${membershipData.liveMode ? "" : "/test"}/subscriptions/${membershipData.appSubscription.stripeSubscriptionId}`}
+                          href={stripeDashboardUrl("subscriptions", membershipData.appSubscription.stripeSubscriptionId, { liveMode: membershipData.liveMode })}
                           target="_blank" rel="noopener noreferrer"
                           className="text-primary shrink-0 hover:underline"
                         >

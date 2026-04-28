@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Crown, Calendar, AlertTriangle, Receipt, ChevronDown, ChevronUp, ExternalLink } from "lucide-react";
 import { eventLabel, eventTone, formatAmount, type EventTone } from "@/components/subscriptionHelpers";
+import { stripeDashboardUrl } from "@/lib/stripeDashboardUrl";
 
 function eventBadgeClass(tone: EventTone): string {
   switch (tone) {
@@ -58,10 +59,10 @@ interface SubscriptionInfoProps {
   hideHistory?: boolean;
 }
 
-function stripeRecordLinks(rec: SubscriptionInfoRecord, stripeBase: string): { href: string; label: string }[] {
+function stripeRecordLinks(rec: SubscriptionInfoRecord, liveMode: boolean): { href: string; label: string }[] {
   const links: { href: string; label: string }[] = [];
-  if (rec.stripeDisputeId) links.push({ href: `${stripeBase}/disputes/${rec.stripeDisputeId}`, label: "dispute" });
-  if (rec.stripePaymentIntentId) links.push({ href: `${stripeBase}/payments/${rec.stripePaymentIntentId}`, label: "payment" });
+  if (rec.stripeDisputeId) links.push({ href: stripeDashboardUrl("disputes", rec.stripeDisputeId, { liveMode }), label: "dispute" });
+  if (rec.stripePaymentIntentId) links.push({ href: stripeDashboardUrl("payments", rec.stripePaymentIntentId, { liveMode }), label: "payment" });
   // Use the backend receipt redirect so the user sees the customer-facing hosted
   // invoice page (no Stripe login required) rather than the dashboard URL.
   if (rec.stripeInvoiceId) links.push({ href: `/api/stripe/invoice/${rec.stripeInvoiceId}/receipt`, label: "invoice" });
@@ -71,7 +72,6 @@ function stripeRecordLinks(rec: SubscriptionInfoRecord, stripeBase: string): { h
 export function SubscriptionInfo({ data, variant, liveMode = false, reactivateButton, hideHistory = false }: SubscriptionInfoProps) {
   const [showHistory, setShowHistory] = useState(false);
   const { isLifetime, cancelAtPeriodEnd, periodEnd, status, plan, history } = data;
-  const sBase = liveMode ? "https://dashboard.stripe.com" : "https://dashboard.stripe.com/test";
 
   if (variant === "compact") {
     const hasSubscriptionInfo = status !== null || isLifetime;
@@ -152,7 +152,7 @@ export function SubscriptionInfo({ data, variant, liveMode = false, reactivateBu
                             {formatSignedAmount(rec.event, rec.amount, rec.currency)}
                           </span>
                         )}
-                        {stripeRecordLinks(rec, sBase).map((link) => (
+                        {stripeRecordLinks(rec, liveMode).map((link) => (
                           <a
                             key={link.href}
                             href={link.href}
@@ -286,7 +286,7 @@ export function SubscriptionInfo({ data, variant, liveMode = false, reactivateBu
                           {formatSignedAmount(record.event, record.amount, record.currency)}
                         </span>
                       )}
-                      {stripeRecordLinks(record, sBase).map((link) => (
+                      {stripeRecordLinks(record, liveMode).map((link) => (
                         <a
                           key={link.href}
                           href={link.href}
