@@ -226,6 +226,18 @@ export function SubscriptionPanel({ refetchTrigger }: { refetchTrigger?: unknown
       if (data.error) {
         setError(data.error);
       } else {
+        // Optimistically flip cancelAtPeriodEnd back to false so the reactivate
+        // button disappears immediately without waiting for the Stripe webhook.
+        setSubData(prev => {
+          if (!prev) return prev;
+          return {
+            ...prev,
+            subscription: prev.subscription ? { ...prev.subscription, cancel_at_period_end: false } : prev.subscription,
+            appSubscription: prev.appSubscription ? { ...prev.appSubscription, cancelAtPeriodEnd: false } : prev.appSubscription,
+          };
+        });
+        setCancelSuccessMessage("Your subscription has been reactivated and will renew as normal.");
+        // Background refetch to sync full server state
         fetchSubData();
       }
     } catch {
