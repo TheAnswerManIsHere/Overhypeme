@@ -1,12 +1,14 @@
 import { type Request, type Response, type NextFunction } from "express";
-import { stripeStorage } from "../lib/stripeStorage";
-import { deriveUserRole } from "../lib/userRole";
-import { getSessionId, getSession } from "../lib/auth";
+import { deriveUserRole, type UserRole } from "../lib/userRole";
 
 /**
  * Middleware that requires the user to be a legendary (paid) member.
  * Returns 403 with { error: "legendary_required" } if user is not legendary or admin.
- * Admin users (determined via session) bypass this check.
+ *
+ * Reads `req.user.membershipTier` and `req.user.isRealAdmin`, both of which
+ * are populated fresh from the database by `authMiddleware` on every
+ * authenticated request. Real admins bypass the legendary check regardless
+ * of the session-scoped admin-mode toggle.
  */
 export async function requireLegendary(req: Request, res: Response, next: NextFunction) {
   if (!req.isAuthenticated()) {
@@ -14,16 +16,15 @@ export async function requireLegendary(req: Request, res: Response, next: NextFu
     return;
   }
   try {
-    const sid = getSessionId(req);
-    const session = sid ? await getSession(sid) : null;
-    const isAdmin = !!(session?.isAdmin);
-    const tier = await stripeStorage.getMembershipTierForUser(req.user.id);
-    const role = deriveUserRole(tier, isAdmin);
-    if (role !== "legendary" && role !== "admin") {
-      res.status(403).json({ error: "legendary_required", message: "This feature requires a Legendary membership." });
+    const tier = req.user.membershipTier ?? "unregistered";
+    if (tier === "legendary" || req.user.isRealAdmin) {
+      next();
       return;
     }
-    next();
+    res.status(403).json({
+      error: "legendary_required",
+      message: "This feature requires a Legendary membership.",
+    });
   } catch {
     res.status(403).json({ error: "legendary_required" });
   }
@@ -31,15 +32,18 @@ export async function requireLegendary(req: Request, res: Response, next: NextFu
 
 /**
  * Inject membership tier into request for conditional logic downstream.
+ *
+ * Reads `req.user.membershipTier` and `req.user.userRole` populated by
+ * `authMiddleware`. No additional DB roundtrip — this middleware exists only
+ * to project those fields onto the top-level request object for callers that
+ * predate the AuthUser shape.
  */
 export async function injectMembershipTier(req: Request, _res: Response, next: NextFunction) {
   if (req.isAuthenticated()) {
     try {
-      const sid = getSessionId(req);
-      const session = sid ? await getSession(sid) : null;
-      const isAdmin = !!(session?.isAdmin);
-      const tier = await stripeStorage.getMembershipTierForUser(req.user.id);
-      const role = deriveUserRole(tier, isAdmin);
+      const tier = req.user.membershipTier ?? "unregistered";
+      const role: UserRole =
+        req.user.userRole ?? deriveUserRole(tier, !!req.user.isAdmin);
       (req as Request & { membershipTier?: string; userRole?: string }).membershipTier = tier;
       (req as Request & { membershipTier?: string; userRole?: string }).userRole = role;
     } catch {

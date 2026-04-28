@@ -1,6 +1,6 @@
 import { Router, type IRouter, type Request, type Response, type NextFunction } from "express";
 import { db } from "@workspace/db";
-import { factsTable, hashtagsTable, commentsTable, usersTable } from "@workspace/db/schema";
+import { factsTable, hashtagsTable, commentsTable } from "@workspace/db/schema";
 import { eq, sql, desc } from "drizzle-orm";
 import { getOpenAIClient } from "@workspace/integrations-openai-ai-server";
 import { z } from "zod";
@@ -284,25 +284,12 @@ router.post("/ai/tokenize-fact", requireRateLimit, async (req: Request, res: Res
   const { text, captchaToken } = bodyParsed.data;
 
   // Captcha gate — bypass for: admin, legendary/premium, or users who already
-  // completed onboarding (captchaVerified in session).
-  const sid = getSessionId(req);
-  const session = sid ? await getSession(sid) : null;
-  const isAdmin = session?.isAdmin === true;
-  const isCaptchaVerified = session?.captchaVerified === true;
-
-  // The session's user.membershipTier is written at login time and never updated
-  // when the user upgrades. Use a live DB lookup for authenticated users so that
-  // a Legendary member who upgraded after their last login isn't incorrectly
-  // required to complete a CAPTCHA.
-  let isPremium = session?.user?.membershipTier === "legendary";
-  if (!isPremium && req.isAuthenticated()) {
-    const [freshUser] = await db
-      .select({ membershipTier: usersTable.membershipTier })
-      .from(usersTable)
-      .where(eq(usersTable.id, req.user.id))
-      .limit(1);
-    isPremium = freshUser?.membershipTier === "legendary";
-  }
+  // completed onboarding (captchaVerified in session or persisted on user row).
+  // Membership/admin/captcha state on `req.user` is always fresh from the
+  // database (rebuilt by authMiddleware on every authenticated request).
+  const isAdmin = req.isAuthenticated() && !!req.user.isRealAdmin;
+  const isPremium = req.isAuthenticated() && req.user.membershipTier === "legendary";
+  const isCaptchaVerified = req.isAuthenticated() && !!req.user.captchaVerified;
 
   const captchaRequired = !isAdmin && !isPremium && !isCaptchaVerified;
 

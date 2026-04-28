@@ -16,6 +16,14 @@ export interface SessionData {
   adminModeDisabled?: boolean;
 }
 
+// Returns true when the given user id appears in the comma-separated
+// ADMIN_USER_IDS env var. Lives here (rather than in a route module) so the
+// auth middleware can import it without creating a route ↔ middleware cycle.
+export function isAdminById(userId: string): boolean {
+  const ids = process.env["ADMIN_USER_IDS"]?.split(",").map((s) => s.trim()) ?? [];
+  return ids.includes(userId);
+}
+
 // ── Google ────────────────────────────────────────────────────────────────────
 
 let googleConfig: client.Configuration | null = null;
