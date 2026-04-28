@@ -3,7 +3,7 @@ import { Link, useLocation } from "wouter";
 import { Button } from "@/components/ui/Button";
 import { SubscriptionInfo } from "@/components/SubscriptionInfo";
 import { formatAmount } from "@/components/subscriptionHelpers";
-import { Star, CreditCard, Zap, ExternalLink, AlertCircle, RefreshCw, ArrowUpCircle, XCircle } from "lucide-react";
+import { Star, CreditCard, Zap, ExternalLink, AlertCircle, RefreshCw, ArrowUpCircle, XCircle, CheckCircle2 } from "lucide-react";
 
 interface Subscription {
   id: string;
@@ -110,6 +110,7 @@ export function SubscriptionPanel({ refetchTrigger }: { refetchTrigger?: unknown
   // Cancel dialog state
   const [showCancelDialog, setShowCancelDialog] = useState(false);
   const [cancelLoading, setCancelLoading] = useState(false);
+  const [cancelSuccessMessage, setCancelSuccessMessage] = useState<string | null>(null);
 
   // Reactivate state
   const [reactivateLoading, setReactivateLoading] = useState(false);
@@ -190,7 +191,19 @@ export function SubscriptionPanel({ refetchTrigger }: { refetchTrigger?: unknown
       if (data.error) {
         setError(data.error);
       } else {
+        // Optimistically flip cancelAtPeriodEnd so the button hides immediately
+        // without waiting for the Stripe webhook to update the sync table.
+        setSubData(prev => {
+          if (!prev) return prev;
+          return {
+            ...prev,
+            subscription: prev.subscription ? { ...prev.subscription, cancel_at_period_end: true } : prev.subscription,
+            appSubscription: prev.appSubscription ? { ...prev.appSubscription, cancelAtPeriodEnd: true } : prev.appSubscription,
+          };
+        });
         setShowCancelDialog(false);
+        setCancelSuccessMessage("Your subscription has been cancelled. You'll keep access until the end of the billing period.");
+        // Background refetch to sync full server state
         fetchSubData();
       }
     } catch {
@@ -203,6 +216,7 @@ export function SubscriptionPanel({ refetchTrigger }: { refetchTrigger?: unknown
   async function handleReactivate() {
     setReactivateLoading(true);
     setError(null);
+    setCancelSuccessMessage(null);
     try {
       const resp = await fetch("/api/stripe/subscription/reactivate", {
         method: "POST",
@@ -351,7 +365,10 @@ export function SubscriptionPanel({ refetchTrigger }: { refetchTrigger?: unknown
     ? new Date(appSub.currentPeriodEnd).toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" })
     : null;
 
-  const cancelAtPeriodEnd = sub?.cancel_at_period_end ?? appSub?.cancelAtPeriodEnd ?? false;
+  // Use || (not ??) so that either source being true is sufficient.
+  // The Stripe sync table may lag behind the app DB (webhook hasn't arrived yet),
+  // so we must not let a false from one source override a true from the other.
+  const cancelAtPeriodEnd = !!(sub?.cancel_at_period_end || appSub?.cancelAtPeriodEnd);
 
   const price = sub?.items?.data?.[0]?.price;
   const planLabel = isLifetime
@@ -457,6 +474,13 @@ export function SubscriptionPanel({ refetchTrigger }: { refetchTrigger?: unknown
             </div>
           )}
 
+          {cancelSuccessMessage && (
+            <div className="flex items-center gap-2 text-sm text-green-400 bg-green-500/10 border border-green-500/30 rounded-sm p-3">
+              <CheckCircle2 className="w-4 h-4 shrink-0" />
+              {cancelSuccessMessage}
+            </div>
+          )}
+
           {/* Subscription action controls — only for active recurring subscribers */}
           {showSubscriptionControls && !cancelAtPeriodEnd && (
             <div className="flex flex-col gap-3 pt-1">
@@ -476,7 +500,7 @@ export function SubscriptionPanel({ refetchTrigger }: { refetchTrigger?: unknown
               <Button
                 variant="outline"
                 size="sm"
-                onClick={() => { setError(null); setShowCancelDialog(true); }}
+                onClick={() => { setError(null); setCancelSuccessMessage(null); setShowCancelDialog(true); }}
                 className="gap-2 self-start border-destructive/40 text-destructive hover:bg-destructive/10"
               >
                 <XCircle className="w-4 h-4" />
