@@ -3,6 +3,7 @@ import * as Sentry from "@sentry/node";
 import { db, usersTable, sessionsTable } from "@workspace/db";
 import { factsTable, commentsTable, adminConfigTable, videoStylesTable, featureFlagsTable, tierFeaturePermissionsTable, userGenerationCostsTable, lifetimeEntitlementsTable, subscriptionsTable, membershipHistoryTable, activityFeedTable, memesTable, userAiImagesTable, routeStatsTable, routeStatEventsTable, emailOutboxTable } from "@workspace/db/schema";
 import { eq, desc, count, ilike, sql, and, or, inArray, isNull, asc, gt, gte, sum } from "drizzle-orm";
+import { alias } from "drizzle-orm/pg-core";
 import { backfillEmbeddings } from "../lib/embeddings";
 import { runFactImagePipeline } from "../lib/factImagePipeline";
 import { generateAiMemeBackgrounds, type AiScenePrompts, type AiMemeImages } from "../lib/aiMemePipeline";
@@ -358,20 +359,27 @@ router.get("/admin/users/:id/membership", requireAdmin, async (req: Request, res
         .where(eq(subscriptionsTable.userId, id))
         .orderBy(desc(subscriptionsTable.createdAt))
         .limit(1),
-      db.select({
-        id: membershipHistoryTable.id,
-        event: membershipHistoryTable.event,
-        plan: membershipHistoryTable.plan,
-        amount: membershipHistoryTable.amount,
-        currency: membershipHistoryTable.currency,
-        createdAt: membershipHistoryTable.createdAt,
-        stripePaymentIntentId: membershipHistoryTable.stripePaymentIntentId,
-        stripeInvoiceId: membershipHistoryTable.stripeInvoiceId,
-        stripeDisputeId: membershipHistoryTable.stripeDisputeId,
-      }).from(membershipHistoryTable)
-        .where(eq(membershipHistoryTable.userId, id))
-        .orderBy(desc(membershipHistoryTable.createdAt))
-        .limit(30),
+      (() => {
+        const adminUsers = alias(usersTable, "admin_users");
+        return db.select({
+          id: membershipHistoryTable.id,
+          event: membershipHistoryTable.event,
+          plan: membershipHistoryTable.plan,
+          amount: membershipHistoryTable.amount,
+          currency: membershipHistoryTable.currency,
+          createdAt: membershipHistoryTable.createdAt,
+          stripePaymentIntentId: membershipHistoryTable.stripePaymentIntentId,
+          stripeInvoiceId: membershipHistoryTable.stripeInvoiceId,
+          stripeDisputeId: membershipHistoryTable.stripeDisputeId,
+          performedByAdminId: membershipHistoryTable.performedByAdminId,
+          performedByAdminDisplayName: adminUsers.displayName,
+          performedByAdminEmail: adminUsers.email,
+        }).from(membershipHistoryTable)
+          .leftJoin(adminUsers, eq(membershipHistoryTable.performedByAdminId, adminUsers.id))
+          .where(eq(membershipHistoryTable.userId, id))
+          .orderBy(desc(membershipHistoryTable.createdAt))
+          .limit(30);
+      })(),
     ]);
 
     const appSub = subRows[0] ?? null;
@@ -533,12 +541,14 @@ router.post("/admin/users/:id/revoke-lifetime", requireAdmin, async (req: Reques
       return;
     }
 
+    const adminUserId = req.user!.id;
     await db.transaction(async (tx) => {
       await tx.delete(lifetimeEntitlementsTable).where(eq(lifetimeEntitlementsTable.userId, id));
       await tx.insert(membershipHistoryTable).values({
         userId: id,
         event: "subscription_cancelled",
         plan: "lifetime",
+        performedByAdminId: adminUserId,
       });
     });
 

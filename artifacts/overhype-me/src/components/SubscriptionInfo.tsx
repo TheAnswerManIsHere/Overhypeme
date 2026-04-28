@@ -40,6 +40,9 @@ export interface SubscriptionInfoRecord {
   stripePaymentIntentId?: string | null;
   stripeInvoiceId?: string | null;
   stripeDisputeId?: string | null;
+  performedByAdminId?: string | null;
+  performedByAdminDisplayName?: string | null;
+  performedByAdminEmail?: string | null;
 }
 
 export interface SubscriptionInfoData {
@@ -145,6 +148,11 @@ export function SubscriptionInfo({ data, variant, liveMode = false, reactivateBu
                         <p className="text-[10px] text-muted-foreground mt-0.5">
                           {new Date(rec.createdAt).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" })}
                         </p>
+                        {rec.performedByAdminId && (
+                          <p className="text-[10px] text-muted-foreground mt-0.5">
+                            by {rec.performedByAdminDisplayName ?? rec.performedByAdminEmail ?? rec.performedByAdminId}
+                          </p>
+                        )}
                       </div>
                       <div className="flex items-center gap-1.5 shrink-0 ml-2">
                         {rec.amount != null && rec.amount > 0 && rec.currency && (
@@ -279,6 +287,11 @@ export function SubscriptionInfo({ data, variant, liveMode = false, reactivateBu
                           {new Date(record.createdAt).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" })}
                         </span>
                       </div>
+                      {record.performedByAdminId && (
+                        <p className="text-xs text-muted-foreground mt-0.5">
+                          by {record.performedByAdminDisplayName ?? record.performedByAdminEmail ?? record.performedByAdminId}
+                        </p>
+                      )}
                     </div>
                     <div className="flex items-center gap-2 shrink-0 ml-2">
                       {record.amount != null && record.amount > 0 && record.currency && (
