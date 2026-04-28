@@ -1645,66 +1645,70 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
                         <p className="text-xs text-muted-foreground">Uploading…</p>
                       </div>
                     ) : uploadFile ? (
-                      <div className="flex items-center gap-3">
+                      <div className="flex flex-col items-center gap-2 w-full">
                         {uploadLocalUrl && (
                           <img
                             src={uploadLocalUrl}
                             alt="Upload preview"
-                            className="w-16 h-10 object-cover border border-border flex-shrink-0"
+                            className="w-full max-h-48 object-contain border border-border"
                           />
                         )}
-                        <div className="min-w-0 text-left">
-                          <p className="text-xs font-bold text-foreground truncate">{uploadFile.name}</p>
-                          <p className="text-[10px] text-muted-foreground">
-                            {(uploadFile.size / 1024 / 1024).toFixed(1)} MB
-                            {uploadObjectPath ? " · Uploaded ✓" : " · Uploading…"}
-                            {uploadObjectPath && uploadIsLowRes && (
-                              <span className="ml-1 text-amber-400"> · Low res</span>
-                            )}
-                          </p>
+                        <div className="flex items-center gap-2 w-full">
+                          <div className="min-w-0 flex-1 text-left">
+                            <p className="text-xs font-bold text-foreground truncate">{uploadFile.name}</p>
+                            <p className="text-[10px] text-muted-foreground">
+                              {(uploadFile.size / 1024 / 1024).toFixed(1)} MB
+                              {uploadObjectPath ? " · Uploaded ✓" : " · Uploading…"}
+                              {uploadObjectPath && uploadIsLowRes && (
+                                <span className="ml-1 text-amber-400"> · Low res</span>
+                              )}
+                            </p>
+                          </div>
+                          <button
+                            onClick={e => {
+                              e.stopPropagation();
+                              setUploadFile(null);
+                              setUploadObjectPath(null);
+                              if (uploadLocalUrl) URL.revokeObjectURL(uploadLocalUrl);
+                              setUploadLocalUrl(null);
+                              setUploadDisplayUrl(null);
+                            }}
+                            className="text-muted-foreground hover:text-foreground flex-shrink-0"
+                          >
+                            <X className="w-4 h-4" />
+                          </button>
                         </div>
-                        <button
-                          onClick={e => {
-                            e.stopPropagation();
-                            setUploadFile(null);
-                            setUploadObjectPath(null);
-                            if (uploadLocalUrl) URL.revokeObjectURL(uploadLocalUrl);
-                            setUploadLocalUrl(null);
-                            setUploadDisplayUrl(null);
-                          }}
-                          className="ml-auto text-muted-foreground hover:text-foreground"
-                        >
-                          <X className="w-4 h-4" />
-                        </button>
                       </div>
                     ) : uploadObjectPath && uploadDisplayUrl ? (
-                      <div className="flex items-center gap-3">
+                      <div className="flex flex-col items-center gap-2 w-full">
                         <img
                           src={uploadDisplayUrl}
                           alt="Upload preview"
-                          className="w-16 h-10 object-cover border border-border flex-shrink-0"
+                          className="w-full max-h-48 object-contain border border-border"
                         />
-                        <div className="min-w-0 text-left">
-                          <p className="text-xs font-bold text-foreground">Uploaded image</p>
-                          <p className="text-[10px] text-muted-foreground">
-                            Uploaded ✓
-                            {uploadIsLowRes && (
-                              <span className="ml-1 text-amber-400"> · Low res</span>
-                            )}
-                          </p>
+                        <div className="flex items-center gap-2 w-full">
+                          <div className="min-w-0 flex-1 text-left">
+                            <p className="text-xs font-bold text-foreground">Uploaded image</p>
+                            <p className="text-[10px] text-muted-foreground">
+                              Uploaded ✓
+                              {uploadIsLowRes && (
+                                <span className="ml-1 text-amber-400"> · Low res</span>
+                              )}
+                            </p>
+                          </div>
+                          <button
+                            onClick={e => {
+                              e.stopPropagation();
+                              setUploadFile(null);
+                              setUploadObjectPath(null);
+                              setUploadLocalUrl(null);
+                              setUploadDisplayUrl(null);
+                            }}
+                            className="text-muted-foreground hover:text-foreground flex-shrink-0"
+                          >
+                            <X className="w-4 h-4" />
+                          </button>
                         </div>
-                        <button
-                          onClick={e => {
-                            e.stopPropagation();
-                            setUploadFile(null);
-                            setUploadObjectPath(null);
-                            setUploadLocalUrl(null);
-                            setUploadDisplayUrl(null);
-                          }}
-                          className="ml-auto text-muted-foreground hover:text-foreground"
-                        >
-                          <X className="w-4 h-4" />
-                        </button>
                       </div>
                     ) : (
                       <div className="flex flex-col items-center gap-2">

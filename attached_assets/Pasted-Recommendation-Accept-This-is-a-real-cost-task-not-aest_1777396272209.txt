@@ -1,0 +1,16 @@
+Recommendation: Accept.
+This is a real-cost task, not aesthetic cleanup. Different from 298:
+	•	Measurable, recurring cost. ~3 minutes per CI run, paid on every Replit task that runs tests. At your iteration rate, that’s serious cumulative overhead — and Replit is billing for that time.
+	•	ROI math favors the fix. ~$2-4 one-time fix vs. ~3 minutes × every future test run. Probably pays back within a week of normal pre-launch development. The longer you wait, the more you’ve paid.
+	•	Compounds with the test suite growing. “32 files now run one-at-a-time” — that number only goes up. Removing concurrency is a tax that grows with the codebase, even if you don’t add more files yourself.
+	•	Same logic as 271 (typecheck race fix). Both are about CI reliability/speed. Both compound across every future task. Both deserve priority before you accept more test-adding tasks (272, etc.) that will run on this slow harness.
+Modifications — keep the fix surgical:
+	•	Tell Replit explicitly: “Use the kindPrefix exclusion approach. Do NOT create a separate test-mode variant of purgeTerminalEmailRows.” The kindPrefix approach is one parameter and one query change. The test-mode-variant approach forks the function, doubles the maintenance surface, and invites future drift.
+	•	Define the test-row tag in one shared constant. E.g., TEST_KIND_PREFIX = "test:" exported from a shared test helper. If Replit hardcodes the string in multiple places, it’ll drift. Ask for a single source of truth.
+	•	Don’t let Replit “improve” purgeTerminalEmailRows while it’s there. If you see refactors beyond the kindPrefix parameter — query restructuring, new return types, telemetry — push back. Surgical change only.
+Bundle decision vs. 298:
+	•	Don’t bundle with 298. I deferred 298 because the workaround works and the cleanup is aesthetic. This task is about removing a recurring cost — different value tier. Accept this one standalone. If Replit naturally touches the same test files while doing this and the 298 cleanup falls out for free, fine. But don’t direct Replit to do both.
+Watch-items:
+	•	After the fix, ask Replit to run the test suite twice to confirm consistent passes under concurrency. Race conditions can hide for a few runs. A single green run isn’t sufficient evidence the race is gone.
+	•	Confirm --test-concurrency=1 is actually removed from package.json in the diff. It would be very Replit to “fix” the underlying issue but leave the workaround in place “just in case.” The workaround becoming permanent defeats the entire point of the task.
+Net: accept, scope tightly, verify the time saving actually materializes after the fix.

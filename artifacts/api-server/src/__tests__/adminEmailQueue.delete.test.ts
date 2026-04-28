@@ -8,7 +8,7 @@
  *  - returns 401 for unauthenticated requests
  *  - returns 403 for authenticated non-admin requests
  *
- * Each test manages its own DB rows (prefixed "t259_test") and cleans up
+ * Each test manages its own DB rows (prefixed "test:t259") and cleans up
  * after itself. A shared HTTP test server (started once per sub-suite) is used
  * for all request assertions.
  */
@@ -16,7 +16,7 @@
 import { describe, it, before, after, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 import http from "node:http";
-import express, { type Request, type Response, type NextFunction } from "express";
+import express from "express";
 import { randomUUID } from "node:crypto";
 
 import { db } from "@workspace/db";
@@ -24,9 +24,10 @@ import { emailOutboxTable, usersTable } from "@workspace/db/schema";
 import { eq } from "drizzle-orm";
 
 import adminRouter from "../routes/admin.js";
-import { deriveUserRole } from "../lib/userRole.js";
+import { buildTestApp, type FakeAuth } from "./helpers/buildTestApp.js";
+import { TEST_KIND_PREFIX } from "./helpers/testConstants.js";
 
-const TEST_TAG = "t259_test";
+const TEST_TAG = `${TEST_KIND_PREFIX}t259`;
 
 // ── DB helpers ────────────────────────────────────────────────────────────────
 
@@ -74,43 +75,6 @@ async function deleteTestUser(id: string) {
 }
 
 // ── HTTP helpers ─────────────────────────────────────────────────────────────
-
-type FakeAuth =
-  | { kind: "unauthenticated" }
-  | { kind: "authenticated"; userId: string };
-
-/**
- * Build a minimal Express app that mounts the real admin router.
- * A stub middleware installed before the router mirrors what authMiddleware
- * does in production: it fetches the user row by id and populates req.user
- * with the canonical fields requireAdmin reads (id + isRealAdmin), so the
- * admin authorisation path is exercised end-to-end without real session
- * cookies.
- */
-function buildTestApp(auth: FakeAuth): express.Express {
-  const app = express();
-  app.use(express.json());
-
-  app.use(async (req: Request, _res: Response, next: NextFunction) => {
-    if (auth.kind === "authenticated") {
-      const [dbUser] = await db
-        .select({ id: usersTable.id, isAdmin: usersTable.isAdmin })
-        .from(usersTable)
-        .where(eq(usersTable.id, auth.userId))
-        .limit(1);
-      if (dbUser) {
-        req.user = { id: dbUser.id, isRealAdmin: !!dbUser.isAdmin, realUserRole: deriveUserRole(undefined, !!dbUser.isAdmin) };
-      }
-    }
-    req.isAuthenticated = function (this: Request) {
-      return this.user != null;
-    } as Request["isAuthenticated"];
-    next();
-  });
-
-  app.use("/api", adminRouter);
-  return app;
-}
 
 function startServer(app: express.Express): Promise<http.Server> {
   return new Promise((resolve) => {
@@ -181,7 +145,7 @@ describe("DELETE /admin/email-queue", () => {
 
   describe("auth enforcement", () => {
     it("returns 401 for unauthenticated requests", async () => {
-      const app    = buildTestApp({ kind: "unauthenticated" });
+      const app    = buildTestApp({ kind: "unauthenticated" }, adminRouter);
       const server = await startServer(app);
       try {
         const { status } = await deleteRequest(
@@ -195,7 +159,7 @@ describe("DELETE /admin/email-queue", () => {
     });
 
     it("returns 403 for authenticated non-admin requests", async () => {
-      const app    = buildTestApp({ kind: "authenticated", userId: nonAdminUserId });
+      const app    = buildTestApp({ kind: "authenticated", userId: nonAdminUserId }, adminRouter);
       const server = await startServer(app);
       try {
         const { status } = await deleteRequest(
@@ -215,7 +179,7 @@ describe("DELETE /admin/email-queue", () => {
     let server: http.Server;
 
     before(async () => {
-      const app = buildTestApp({ kind: "authenticated", userId: adminUserId });
+      const app = buildTestApp({ kind: "authenticated", userId: adminUserId }, adminRouter);
       server    = await startServer(app);
     });
 
@@ -259,7 +223,7 @@ describe("DELETE /admin/email-queue", () => {
     let server: http.Server;
 
     before(async () => {
-      const app = buildTestApp({ kind: "authenticated", userId: adminUserId });
+      const app = buildTestApp({ kind: "authenticated", userId: adminUserId }, adminRouter);
       server    = await startServer(app);
     });
 

@@ -3,7 +3,7 @@ import { usersTable } from "./auth";
 import { factsTable } from "./facts";
 
 export const reviewStatusEnum = pgEnum("review_status", ["pending", "approved", "rejected"]);
-export const reviewReasonEnum = pgEnum("review_reason", ["duplicate", "spam", "offensive"]);
+export const reviewReasonEnum = pgEnum("review_reason", ["duplicate", "spam", "offensive", "lame"]);
 
 export const pendingReviewsTable = pgTable("pending_reviews", {
   id: serial("id").primaryKey(),

@@ -100,8 +100,22 @@ function ReasonBadge({ reason }: { reason: string | null }) {
       </span>
     );
   }
+  if (reason === "lame") {
+    return (
+      <span className="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-semibold rounded-full border bg-purple-500/15 text-purple-600 dark:text-purple-400 border-purple-500/30">
+        Lame
+      </span>
+    );
+  }
   return null;
 }
+
+const REJECTION_REASONS = [
+  { value: "spam", label: "Spam" },
+  { value: "duplicate", label: "Duplicate" },
+  { value: "lame", label: "Lame" },
+  { value: "offensive", label: "Offensive" },
+] as const;
 
 function ReviewModal({
   review,
@@ -110,9 +124,10 @@ function ReviewModal({
 }: {
   review: Review;
   onClose: () => void;
-  onDecision: (id: number, action: "approve" | "reject" | "approve-variant", note: string, parentFactId?: number) => Promise<void>;
+  onDecision: (id: number, action: "approve" | "reject" | "approve-variant", note: string, parentFactId?: number, rejectionReason?: string) => Promise<void>;
 }) {
   const [note, setNote] = useState(review.adminNote ?? "");
+  const [rejectionReason, setRejectionReason] = useState("");
   const [loading, setLoading] = useState(false);
   const [parentFactId, setParentFactId] = useState<string>(
     String(review.matchingFact?.id ?? "")
@@ -124,6 +139,8 @@ function ReviewModal({
     if (action === "approve-variant") {
       const pid = parseInt(parentFactId, 10);
       await onDecision(review.id, action, note, isNaN(pid) ? undefined : pid);
+    } else if (action === "reject") {
+      await onDecision(review.id, action, note, undefined, rejectionReason);
     } else {
       await onDecision(review.id, action, note);
     }
@@ -184,18 +201,36 @@ function ReviewModal({
             </div>
           </div>
 
-          {/* Admin note */}
+          {/* Rejection reason + admin note */}
           {review.status === "pending" && (
-            <div>
-              <label className="block text-sm font-semibold text-foreground mb-2">Admin Note (optional, sent to user)</label>
-              <textarea
-                value={note}
-                onChange={(e) => setNote(e.target.value)}
-                rows={3}
-                maxLength={500}
-                placeholder="Explain your decision to help the user understand…"
-                className="w-full px-3 py-2 bg-background border border-border rounded-sm text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary resize-none"
-              />
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-semibold text-foreground mb-2">
+                  Rejection Reason <span className="text-destructive">*</span>
+                  <span className="text-xs font-normal text-muted-foreground ml-1">(required to reject)</span>
+                </label>
+                <select
+                  value={rejectionReason}
+                  onChange={(e) => setRejectionReason(e.target.value)}
+                  className="w-full px-3 py-2 bg-background border border-border rounded-sm text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+                >
+                  <option value="">— Select a reason —</option>
+                  {REJECTION_REASONS.map((r) => (
+                    <option key={r.value} value={r.value}>{r.label}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-semibold text-foreground mb-2">Admin Note (optional, sent to user)</label>
+                <textarea
+                  value={note}
+                  onChange={(e) => setNote(e.target.value)}
+                  rows={3}
+                  maxLength={500}
+                  placeholder="Explain your decision to help the user understand…"
+                  className="w-full px-3 py-2 bg-background border border-border rounded-sm text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary resize-none"
+                />
+              </div>
             </div>
           )}
 
@@ -231,6 +266,7 @@ function ReviewModal({
                   variant="outline"
                   onClick={() => handle("reject")}
                   isLoading={loading}
+                  disabled={loading || !rejectionReason}
                   className="border-destructive text-destructive hover:bg-destructive/10 gap-2"
                 >
                   <XCircle className="w-4 h-4" />
@@ -320,11 +356,15 @@ export default function AdminReviews() {
     action: "approve" | "reject" | "approve-variant",
     note: string,
     parentFactId?: number,
+    rejectionReason?: string,
   ) => {
     setActionMsg("");
     const body: Record<string, unknown> = { adminNote: note || undefined };
     if (action === "approve-variant" && parentFactId !== undefined) {
       body.parentFactId = parentFactId;
+    }
+    if (action === "reject" && rejectionReason) {
+      body.rejectionReason = rejectionReason;
     }
     const r = await fetch(`/api/admin/reviews/${id}/${action}`, {
       method: "POST",

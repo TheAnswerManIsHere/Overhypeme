@@ -65,12 +65,23 @@ function TimeAgo({ iso }: { iso: string }) {
   return <span>{new Date(iso).toLocaleDateString()}</span>;
 }
 
+const REJECTION_REASON_LABELS: Record<string, string> = {
+  duplicate: "Duplicate",
+  spam: "Spam",
+  offensive: "Offensive",
+  lame: "Lame",
+};
+
 function EntryCard({ entry }: { entry: ActivityEntry }) {
   const meta = ACTION_META[entry.actionType] ?? ACTION_META.system_message;
   const Icon = meta.icon;
 
   const factId = entry.metadata?.factId as number | undefined;
   const reviewId = entry.metadata?.reviewId as number | undefined;
+  const rejectionReason = entry.metadata?.rejectionReason as string | undefined;
+  const adminNote = entry.metadata?.adminNote as string | undefined;
+
+  const rejectionReasonLabel = rejectionReason ? REJECTION_REASON_LABELS[rejectionReason] ?? rejectionReason : null;
 
   return (
     <div className={`flex gap-4 p-4 rounded-sm border transition-colors ${entry.read ? "bg-card border-border" : "bg-primary/5 border-primary/20"}`}>
@@ -92,6 +103,18 @@ function EntryCard({ entry }: { entry: ActivityEntry }) {
         {entry.metadata?.text != null && (
           <p className="text-xs text-muted-foreground italic mt-1 truncate">
             "{String(entry.metadata.text)}"
+          </p>
+        )}
+
+        {entry.actionType === "review_rejected" && rejectionReasonLabel && (
+          <p className="text-xs text-muted-foreground mt-2">
+            <span className="font-semibold text-foreground">Reason:</span> {rejectionReasonLabel}
+          </p>
+        )}
+
+        {entry.actionType === "review_rejected" && adminNote && (
+          <p className="text-xs text-muted-foreground mt-1 border-l-2 border-border pl-2">
+            <span className="font-semibold text-foreground">Note:</span> {adminNote}
           </p>
         )}
 

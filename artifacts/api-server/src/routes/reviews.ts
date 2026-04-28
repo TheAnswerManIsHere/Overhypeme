@@ -200,7 +200,7 @@ router.get("/admin/reviews/:id", requireAdmin, async (req: Request, res: Respons
 const ReviewDecisionBody = z.object({ adminNote: z.string().max(500).optional() });
 const RejectBody = z.object({
   adminNote: z.string().max(500).optional(),
-  rejectionReason: z.enum(["duplicate", "spam", "offensive"]).optional(),
+  rejectionReason: z.enum(["duplicate", "spam", "offensive", "lame"]),
 });
 const ApproveVariantBody = z.object({
   parentFactId: z.number().int().positive(),
@@ -371,8 +371,11 @@ router.post("/admin/reviews/:id/reject", requireAdmin, async (req: Authenticated
   if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
 
   const bodyParsed = RejectBody.safeParse(req.body);
-  const adminNote = bodyParsed.success ? (bodyParsed.data.adminNote ?? null) : null;
-  const rejectionReason = bodyParsed.success ? (bodyParsed.data.rejectionReason ?? null) : null;
+  if (!bodyParsed.success) {
+    res.status(400).json({ error: "rejectionReason is required and must be one of: duplicate, spam, offensive, lame", details: bodyParsed.error.flatten() });
+    return;
+  }
+  const { adminNote = null, rejectionReason } = bodyParsed.data;
 
   const [review] = await db.select().from(pendingReviewsTable).where(eq(pendingReviewsTable.id, id));
   if (!review) { res.status(404).json({ error: "Review not found" }); return; }
@@ -394,7 +397,7 @@ router.post("/admin/reviews/:id/reject", requireAdmin, async (req: Authenticated
       userId: review.submittedById,
       actionType: "review_rejected",
       message: `Your submitted fact was reviewed and could not be added to the database.`,
-      metadata: { reviewId: id, adminNote },
+      metadata: { reviewId: id, rejectionReason, adminNote },
     });
 
     if (submitter?.email) {

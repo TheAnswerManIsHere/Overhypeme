@@ -14,8 +14,16 @@ import {
   isEnabled,
 } from "../lib/email.js";
 import { bustConfigCache } from "../lib/adminConfig.js";
+import { TEST_KIND_PREFIX } from "./helpers/testConstants.js";
 
-const TEST_TAG = "t248_test";
+const TEST_TAG = `${TEST_KIND_PREFIX}t248`;
+
+/**
+ * Kind used for rows that purge tests explicitly expect to be deleted.
+ * Must NOT start with TEST_KIND_PREFIX so that purgeTerminalEmailRows calls
+ * passing TEST_KIND_PREFIX as excludeKindPrefix still delete these rows.
+ */
+const PURGE_TEST_KIND = "purge:t248";
 
 async function insertOutboxRow(overrides: Partial<{
   status: string;
@@ -41,6 +49,30 @@ async function insertOutboxRow(overrides: Partial<{
   return row!;
 }
 
+async function insertPurgeableRow(overrides: Partial<{
+  status: string;
+  attempts: number;
+  maxAttempts: number;
+  nextAttemptAt: Date;
+  updatedAt: Date;
+  createdAt: Date;
+}> = {}) {
+  const [row] = await db.insert(emailOutboxTable).values({
+    to:            "test@example.com",
+    subject:       "Test subject",
+    text:          "Test body",
+    html:          "<p>Test body</p>",
+    kind:          PURGE_TEST_KIND,
+    status:        overrides.status ?? "pending",
+    attempts:      overrides.attempts ?? 0,
+    maxAttempts:   overrides.maxAttempts ?? 5,
+    nextAttemptAt: overrides.nextAttemptAt ?? new Date(),
+    ...(overrides.updatedAt ? { updatedAt: overrides.updatedAt } : {}),
+    ...(overrides.createdAt ? { createdAt: overrides.createdAt } : {}),
+  }).returning();
+  return row!;
+}
+
 async function getRow(id: number) {
   const [row] = await db
     .select()
@@ -51,6 +83,7 @@ async function getRow(id: number) {
 
 async function cleanupTestRows() {
   await db.delete(emailOutboxTable).where(eq(emailOutboxTable.kind, TEST_TAG));
+  await db.delete(emailOutboxTable).where(eq(emailOutboxTable.kind, PURGE_TEST_KIND));
 }
 
 
@@ -195,7 +228,7 @@ describe("email outbox engine", () => {
     it("delivers a pending row: marks delivered and increments attempts", async () => {
       const row = await insertOutboxRow({ status: "pending", attempts: 0 });
 
-      await emailOutboxTick(db, alwaysOk, new Date());
+      await emailOutboxTick(db, alwaysOk, new Date(), TEST_KIND_PREFIX);
 
       const updated = await getRow(row.id);
       assert.ok(updated, "Row must still exist after delivery");
@@ -207,7 +240,7 @@ describe("email outbox engine", () => {
       const row = await insertOutboxRow({ status: "pending", attempts: 0, maxAttempts: 5 });
       const before = Date.now();
 
-      await emailOutboxTick(db, alwaysFail, new Date());
+      await emailOutboxTick(db, alwaysFail, new Date(), TEST_KIND_PREFIX);
 
       const updated = await getRow(row.id);
       assert.ok(updated, "Row must still exist");
@@ -227,7 +260,7 @@ describe("email outbox engine", () => {
       const row = await insertOutboxRow({ status: "pending", attempts: 1, maxAttempts: 5 });
       const before = Date.now();
 
-      await emailOutboxTick(db, alwaysFail, new Date());
+      await emailOutboxTick(db, alwaysFail, new Date(), TEST_KIND_PREFIX);
 
       const updated = await getRow(row.id);
       assert.ok(updated, "Row must still exist");
@@ -245,7 +278,7 @@ describe("email outbox engine", () => {
     it("abandons a row after maxAttempts exhausted", async () => {
       const row = await insertOutboxRow({ status: "pending", attempts: 4, maxAttempts: 5 });
 
-      await emailOutboxTick(db, alwaysFail, new Date());
+      await emailOutboxTick(db, alwaysFail, new Date(), TEST_KIND_PREFIX);
 
       const updated = await getRow(row.id);
       assert.ok(updated, "Row must still exist");
@@ -277,7 +310,7 @@ describe("email outbox engine", () => {
         return { ok: true as const };
       };
 
-      await emailOutboxTick(db, trackingDeliver, new Date());
+      await emailOutboxTick(db, trackingDeliver, new Date(), TEST_KIND_PREFIX);
 
       assert.equal(ourRowDelivered, false, "Delivery should not be called for our future-dated row");
 
@@ -292,13 +325,15 @@ describe("email outbox engine", () => {
         const oldDate    = new Date(Date.now() - 40 * 24 * 3_600_000);
         const futureTime = new Date(Date.now() + 10 * 60_000);
 
-        const oldDelivered    = await insertOutboxRow({ status: "delivered", createdAt: oldDate });
-        const oldAbandoned    = await insertOutboxRow({ status: "abandoned", createdAt: oldDate });
+        // Rows to be purged use PURGE_TEST_KIND (not protected by excludeKindPrefix)
+        const oldDelivered    = await insertPurgeableRow({ status: "delivered", createdAt: oldDate });
+        const oldAbandoned    = await insertPurgeableRow({ status: "abandoned", createdAt: oldDate });
+        // Rows that must survive use TEST_TAG (protected by excludeKindPrefix, also not old/non-terminal)
         const recentDelivered = await insertOutboxRow({ status: "delivered" });
         // Pending row with a future nextAttemptAt: tick skips it, purge must also ignore it
         const skippedPending  = await insertOutboxRow({ status: "pending",   createdAt: oldDate, nextAttemptAt: futureTime });
 
-        await emailOutboxTick(db, alwaysOk, new Date());
+        await emailOutboxTick(db, alwaysOk, new Date(), TEST_KIND_PREFIX);
 
         assert.equal(await getRow(oldDelivered.id),    null, "Old delivered row should be purged by tick");
         assert.equal(await getRow(oldAbandoned.id),    null, "Old abandoned row should be purged by tick");
@@ -313,9 +348,9 @@ describe("email outbox engine", () => {
       await setRetentionDays(0);
       try {
         const oldDate = new Date(Date.now() - 40 * 24 * 3_600_000);
-        const oldDelivered = await insertOutboxRow({ status: "delivered", createdAt: oldDate });
+        const oldDelivered = await insertPurgeableRow({ status: "delivered", createdAt: oldDate });
 
-        await emailOutboxTick(db, alwaysOk, new Date());
+        await emailOutboxTick(db, alwaysOk, new Date(), TEST_KIND_PREFIX);
 
         assert.ok(await getRow(oldDelivered.id), "Old delivered row must survive when retention is disabled");
       } finally {
@@ -334,7 +369,7 @@ describe("email outbox engine", () => {
 
         const row = await insertOutboxRow({ status: "pending", attempts: 1, maxAttempts: 5 });
 
-        await emailOutboxTick(db, alwaysFail, new Date());
+        await emailOutboxTick(db, alwaysFail, new Date(), TEST_KIND_PREFIX);
 
         const updated = await getRow(row.id);
         assert.ok(updated, "Row must still exist");
@@ -347,7 +382,7 @@ describe("email outbox engine", () => {
 
         const row = await insertOutboxRow({ status: "pending", attempts: 4, maxAttempts: 5 });
 
-        await emailOutboxTick(db, alwaysFail, new Date());
+        await emailOutboxTick(db, alwaysFail, new Date(), TEST_KIND_PREFIX);
 
         const updated = await getRow(row.id);
         assert.ok(updated, "Row must still exist");
@@ -362,7 +397,7 @@ describe("email outbox engine", () => {
         const row = await insertOutboxRow({ status: "pending", attempts: 0, maxAttempts: 5 });
         const before = Date.now();
 
-        await emailOutboxTick(db, alwaysFail, new Date());
+        await emailOutboxTick(db, alwaysFail, new Date(), TEST_KIND_PREFIX);
 
         const updated = await getRow(row.id);
         assert.ok(updated, "Row must still exist");
@@ -383,7 +418,7 @@ describe("email outbox engine", () => {
         const row = await insertOutboxRow({ status: "pending", attempts: 1, maxAttempts: 5 });
         const before = Date.now();
 
-        await emailOutboxTick(db, alwaysFail, new Date());
+        await emailOutboxTick(db, alwaysFail, new Date(), TEST_KIND_PREFIX);
 
         const updated = await getRow(row.id);
         assert.ok(updated, "Row must still exist");
@@ -402,7 +437,7 @@ describe("email outbox engine", () => {
 
         const row = await insertOutboxRow({ status: "pending", attempts: 4, maxAttempts: 5 });
 
-        await emailOutboxTick(db, alwaysFail, new Date());
+        await emailOutboxTick(db, alwaysFail, new Date(), TEST_KIND_PREFIX);
 
         const afterFirstTick = await getRow(row.id);
         assert.ok(afterFirstTick, "Row must exist after first tick");
@@ -414,7 +449,7 @@ describe("email outbox engine", () => {
           .set({ status: "pending", nextAttemptAt: new Date() })
           .where(eq(emailOutboxTable.id, row.id));
 
-        await emailOutboxTick(db, alwaysFail, new Date());
+        await emailOutboxTick(db, alwaysFail, new Date(), TEST_KIND_PREFIX);
 
         const afterSecondTick = await getRow(row.id);
         assert.ok(afterSecondTick, "Row must exist after second tick");
@@ -436,9 +471,9 @@ describe("email outbox engine", () => {
     it("deletes a delivered row older than the retention window", async () => {
       const oldDate = new Date(Date.now() - 40 * 24 * 3_600_000);
       await setRetentionDays(30);
-      const row = await insertOutboxRow({ status: "delivered", createdAt: oldDate });
+      const row = await insertPurgeableRow({ status: "delivered", createdAt: oldDate });
 
-      await purgeTerminalEmailRows(db, new Date());
+      await purgeTerminalEmailRows(db, new Date(), TEST_KIND_PREFIX);
 
       assert.equal(await getRow(row.id), null, "Delivered row older than retention should be deleted");
     });
@@ -446,9 +481,9 @@ describe("email outbox engine", () => {
     it("deletes an abandoned row older than the retention window", async () => {
       const oldDate = new Date(Date.now() - 40 * 24 * 3_600_000);
       await setRetentionDays(30);
-      const row = await insertOutboxRow({ status: "abandoned", createdAt: oldDate });
+      const row = await insertPurgeableRow({ status: "abandoned", createdAt: oldDate });
 
-      await purgeTerminalEmailRows(db, new Date());
+      await purgeTerminalEmailRows(db, new Date(), TEST_KIND_PREFIX);
 
       assert.equal(await getRow(row.id), null, "Abandoned row older than retention should be deleted");
     });
@@ -458,7 +493,7 @@ describe("email outbox engine", () => {
       await setRetentionDays(30);
       const row = await insertOutboxRow({ status: "delivered", createdAt: recentDate });
 
-      await purgeTerminalEmailRows(db, new Date());
+      await purgeTerminalEmailRows(db, new Date(), TEST_KIND_PREFIX);
 
       const remaining = await getRow(row.id);
       assert.ok(remaining, "Delivered row within retention window should still exist");
@@ -470,7 +505,7 @@ describe("email outbox engine", () => {
       await setRetentionDays(30);
       const row = await insertOutboxRow({ status: "pending", createdAt: oldDate });
 
-      await purgeTerminalEmailRows(db, new Date());
+      await purgeTerminalEmailRows(db, new Date(), TEST_KIND_PREFIX);
 
       const remaining = await getRow(row.id);
       assert.ok(remaining, "Old pending row should still exist");
@@ -482,7 +517,7 @@ describe("email outbox engine", () => {
       await setRetentionDays(30);
       const row = await insertOutboxRow({ status: "sending", createdAt: oldDate });
 
-      await purgeTerminalEmailRows(db, new Date());
+      await purgeTerminalEmailRows(db, new Date(), TEST_KIND_PREFIX);
 
       const remaining = await getRow(row.id);
       assert.ok(remaining, "Old sending row should still exist");
@@ -492,9 +527,9 @@ describe("email outbox engine", () => {
     it("returns 0 and deletes nothing when retention is set to 0", async () => {
       const oldDate = new Date(Date.now() - 40 * 24 * 3_600_000);
       await setRetentionDays(0);
-      const row = await insertOutboxRow({ status: "delivered", createdAt: oldDate });
+      const row = await insertPurgeableRow({ status: "delivered", createdAt: oldDate });
 
-      const deleted = await purgeTerminalEmailRows(db, new Date());
+      const deleted = await purgeTerminalEmailRows(db, new Date(), TEST_KIND_PREFIX);
 
       assert.equal(deleted, 0, "retention=0 must disable purging entirely — function must return 0 immediately");
       const remaining = await getRow(row.id);
@@ -505,12 +540,12 @@ describe("email outbox engine", () => {
       const oldDate = new Date(Date.now() - 40 * 24 * 3_600_000);
       await setRetentionDays(30);
 
-      const deliveredRow = await insertOutboxRow({ status: "delivered", createdAt: oldDate });
-      const abandonedRow = await insertOutboxRow({ status: "abandoned", createdAt: oldDate });
+      const deliveredRow = await insertPurgeableRow({ status: "delivered", createdAt: oldDate });
+      const abandonedRow = await insertPurgeableRow({ status: "abandoned", createdAt: oldDate });
       const pendingRow   = await insertOutboxRow({ status: "pending",   createdAt: oldDate });
       const sendingRow   = await insertOutboxRow({ status: "sending",   createdAt: oldDate });
 
-      await purgeTerminalEmailRows(db, new Date());
+      await purgeTerminalEmailRows(db, new Date(), TEST_KIND_PREFIX);
 
       assert.equal(await getRow(deliveredRow.id), null, "delivered row should be gone");
       assert.equal(await getRow(abandonedRow.id), null, "abandoned row should be gone");
