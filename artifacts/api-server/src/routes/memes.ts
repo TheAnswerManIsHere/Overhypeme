@@ -1204,16 +1204,16 @@ router.post("/memes/ai/:factId/generate", requireLegendary, async (req: Request,
 
   // Admin-only: allow model override for testing different fal.ai models
   const rawModelOverride = body["modelOverride"];
-  const adminViaEnv = req.user?.isRealAdmin ?? false;
+  const isAdmin = req.user?.isRealAdmin ?? false;
   const modelOverride =
-    adminViaEnv && typeof rawModelOverride === "string" && rawModelOverride.trim()
+    isAdmin && typeof rawModelOverride === "string" && rawModelOverride.trim()
       ? rawModelOverride.trim()
       : undefined;
 
   // Admin-only: per-request parameter overrides (e.g. guidance_scale, num_inference_steps)
   const rawParamsOverride = body["paramsOverride"];
   const paramsOverride: Record<string, string> | undefined =
-    adminViaEnv &&
+    isAdmin &&
     rawParamsOverride !== null &&
     typeof rawParamsOverride === "object" &&
     !Array.isArray(rawParamsOverride)
