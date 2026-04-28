@@ -377,10 +377,14 @@ export function SubscriptionPanel({ refetchTrigger }: { refetchTrigger?: unknown
     ? new Date(appSub.currentPeriodEnd).toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" })
     : null;
 
-  // Use || (not ??) so that either source being true is sufficient.
-  // The Stripe sync table may lag behind the app DB (webhook hasn't arrived yet),
-  // so we must not let a false from one source override a true from the other.
-  const cancelAtPeriodEnd = !!(sub?.cancel_at_period_end || appSub?.cancelAtPeriodEnd);
+  // Prefer the app DB (appSub.cancelAtPeriodEnd) over the Stripe sync table
+  // (sub.cancel_at_period_end) because the app DB is updated synchronously by
+  // our cancel/reactivate endpoints, while the sync table lags until the webhook
+  // arrives. Using || was wrong: after reactivate, sync table still has true while
+  // app DB has false — true || false = true kept the UI stuck in "cancelling".
+  const cancelAtPeriodEnd = appSub != null
+    ? appSub.cancelAtPeriodEnd
+    : !!(sub?.cancel_at_period_end);
 
   const price = sub?.items?.data?.[0]?.price;
   const planLabel = isLifetime
