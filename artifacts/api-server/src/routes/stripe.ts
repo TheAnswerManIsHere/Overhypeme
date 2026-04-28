@@ -147,7 +147,7 @@ router.get("/stripe/payment-history", async (req: Request, res: Response) => {
 router.get("/stripe/invoice/:invoiceId/receipt", async (req: Request, res: Response) => {
   if (!req.isAuthenticated()) { res.status(401).json({ error: "Unauthorized" }); return; }
   const { invoiceId } = req.params;
-  if (!invoiceId || !invoiceId.startsWith("in_")) {
+  if (typeof invoiceId !== "string" || !invoiceId.startsWith("in_")) {
     res.status(400).json({ error: "Invalid invoice ID" });
     return;
   }
