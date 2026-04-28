@@ -1,6 +1,6 @@
 import { Router, type IRouter, type Request, type Response, type NextFunction } from "express";
 import { db } from "@workspace/db";
-import { factsTable, hashtagsTable, commentsTable } from "@workspace/db/schema";
+import { factsTable, hashtagsTable, commentsTable, usersTable } from "@workspace/db/schema";
 import { eq, sql, desc } from "drizzle-orm";
 import { getOpenAIClient } from "@workspace/integrations-openai-ai-server";
 import { z } from "zod";
@@ -288,8 +288,22 @@ router.post("/ai/tokenize-fact", requireRateLimit, async (req: Request, res: Res
   const sid = getSessionId(req);
   const session = sid ? await getSession(sid) : null;
   const isAdmin = session?.isAdmin === true;
-  const isPremium = session?.user?.membershipTier === "legendary";
   const isCaptchaVerified = session?.captchaVerified === true;
+
+  // The session's user.membershipTier is written at login time and never updated
+  // when the user upgrades. Use a live DB lookup for authenticated users so that
+  // a Legendary member who upgraded after their last login isn't incorrectly
+  // required to complete a CAPTCHA.
+  let isPremium = session?.user?.membershipTier === "legendary";
+  if (!isPremium && req.isAuthenticated()) {
+    const [freshUser] = await db
+      .select({ membershipTier: usersTable.membershipTier })
+      .from(usersTable)
+      .where(eq(usersTable.id, req.user.id))
+      .limit(1);
+    isPremium = freshUser?.membershipTier === "legendary";
+  }
+
   const captchaRequired = !isAdmin && !isPremium && !isCaptchaVerified;
 
   if (captchaRequired) {
