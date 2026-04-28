@@ -2,7 +2,11 @@
  * Integration tests for budgetGate.ts (checkBudget + recordCost).
  *
  * Talks to the real dev database. Each test creates its own users and ledger
- * rows tagged with the prefix "t_bg_" and cleans them up in afterEach.
+ * rows tagged with the prefix "tbg-" and cleans them up in afterEach.
+ *
+ * Prefix uses `-` (not `_`) so SQL LIKE wildcards in the cleanup can't
+ * accidentally match other test files' rows during parallel runs. See
+ * authMiddleware.test.ts for the full convention.
  *
  * The admin_config rows that drive budget limits (budget_period,
  * budget_limit_free_usd, budget_limit_legend_usd) are snapshotted in `before`
@@ -26,7 +30,7 @@ import { bustConfigCache } from "../lib/adminConfig.js";
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
-const USER_PREFIX = "t_bg_";
+const USER_PREFIX = "tbg-";
 
 function uid(): string {
   return `${USER_PREFIX}${randomUUID()}`;
@@ -68,6 +72,8 @@ async function insertCost(
 }
 
 async function cleanupTestRows(): Promise<void> {
+  // USER_PREFIX uses `-` (not `_`) so SQL LIKE wildcards can't match other
+  // test files' rows during parallel runs. See the file header comment.
   await db
     .delete(userGenerationCostsTable)
     .where(like(userGenerationCostsTable.userId, `${USER_PREFIX}%`));

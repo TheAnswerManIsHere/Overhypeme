@@ -18,7 +18,10 @@ import { like } from "drizzle-orm";
 
 import healthRouter from "../routes/health.js";
 
-const ID_PREFIX = "t_routes_evt_";
+// Prefix uses `-` (not `_`) so SQL LIKE wildcards in the cleanup can't
+// accidentally match other test files' rows during parallel runs. See
+// authMiddleware.test.ts for the full convention.
+const ID_PREFIX = "troutesevt-";
 
 function makeApp(): Express {
   const app = express();
@@ -31,6 +34,8 @@ async function insertEvent(eventId: string, processedAt: Date): Promise<void> {
 }
 
 async function cleanup(): Promise<void> {
+  // ID_PREFIX uses `-` (not `_`) so SQL LIKE wildcards can't match other
+  // test files' rows during parallel runs. See the prefix declaration above.
   await db
     .delete(stripeProcessedEventsTable)
     .where(like(stripeProcessedEventsTable.eventId, `${ID_PREFIX}%`));

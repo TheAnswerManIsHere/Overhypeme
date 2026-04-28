@@ -2,7 +2,11 @@
  * Integration tests for tierMiddleware.
  *
  * Talks to the real dev database. Each test creates its own user (and optionally
- * a session) tagged with the prefix "t_tm_" and cleans them up in afterEach.
+ * a session) tagged with the prefix "ttm-" and cleans them up in afterEach.
+ *
+ * Prefix uses `-` (not `_`) so SQL LIKE wildcards in the cleanup can't
+ * accidentally match other test files' rows during parallel runs. See
+ * authMiddleware.test.ts for the full convention.
  */
 
 import { describe, it, before, after } from "node:test";
@@ -21,7 +25,7 @@ import {
 import { deriveUserRole } from "../lib/userRole.js";
 import { createSession, SESSION_COOKIE, type SessionData } from "../lib/auth.js";
 
-const USER_PREFIX = "t_tm_";
+const USER_PREFIX = "ttm-";
 
 interface MockRes {
   statusCode: number;
@@ -124,6 +128,8 @@ async function createSessionWithAdminFlag(userId: string, isAdmin: boolean): Pro
 }
 
 async function cleanupTestUsers() {
+  // USER_PREFIX uses `-` (not `_`) so SQL LIKE wildcards can't match other
+  // test files' rows during parallel runs. See the file header comment.
   await db.delete(usersTable).where(like(usersTable.id, `${USER_PREFIX}%`));
 }
 

@@ -9,14 +9,11 @@
  * authMiddleware reflects the new row — without re-login.
  *
  * Talks to the real dev database. Each test creates its own user + session
- * tagged with the prefix "tfresh_" and cleans them up before/after.
+ * tagged with the prefix "tauthfresh-" and cleans them up before/after.
  *
- * NOTE on the prefix: the existing `authMiddleware.test.ts` uses the prefix
- * `t_am_` and cleans up with `like(id, 't_am_%')`. In SQL LIKE, `_` matches
- * any single character, so `t_am_%` would also match anything starting with
- * `t_am` + 1 char + …, which would clobber a `t_amf_*` prefix mid-run when
- * the two test files execute in parallel. We deliberately avoid both `_`-as-
- * second-character collisions and any overlap with sibling test prefixes.
+ * Prefix uses `-` (not `_`) so SQL LIKE wildcards in the cleanup can't
+ * accidentally match other test files' rows during parallel runs. See
+ * authMiddleware.test.ts for the full convention.
  */
 
 import { describe, it, before, after } from "node:test";
@@ -31,7 +28,7 @@ import { eq, like } from "drizzle-orm";
 import { authMiddleware } from "../middlewares/authMiddleware.js";
 import { createSession, SESSION_COOKIE, type SessionData } from "../lib/auth.js";
 
-const USER_PREFIX = "tfresh_";
+const USER_PREFIX = "tauthfresh-";
 
 interface MockRes {
   clearCookieCalls: Array<{ name: string; opts?: unknown }>;
@@ -108,6 +105,8 @@ async function createSessionFor(userId: string): Promise<string> {
 }
 
 async function cleanupTestUsers() {
+  // USER_PREFIX uses `-` (not `_`) so SQL LIKE wildcards can't match other
+  // test files' rows during parallel runs. See the file header comment.
   await db.delete(usersTable).where(like(usersTable.id, `${USER_PREFIX}%`));
 }
 

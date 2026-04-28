@@ -428,7 +428,7 @@ export default function Profile() {
 
   useEffect(() => {
     if (!profile || !isRealAdmin) return;
-    const data = profile as Record<string, unknown>;
+    const data = profile as unknown as Record<string, unknown>;
     if (typeof data["adminNotifications"] === "boolean") setNotifAdminAlerts(data["adminNotifications"]);
     if (typeof data["disputeNotifications"] === "boolean") setNotifDisputeAlerts(data["disputeNotifications"]);
   }, [profile, isRealAdmin]);

@@ -7,7 +7,11 @@
  * RESEND_API_KEY is set to a dummy value so sendEmail's isEnabled() check
  * passes and the email-outbox row gets inserted (instead of just being
  * console-logged). Inserted rows are tagged via recipient prefix
- * "t_routes_s_" and cleaned up before/after each test.
+ * "trouteshareem-" and cleaned up before/after each test.
+ *
+ * Prefixes use `-` (not `_`) so SQL LIKE wildcards in the cleanup can't
+ * accidentally match other test files' rows during parallel runs. See
+ * authMiddleware.test.ts for the full convention.
  */
 
 import { describe, it, before, after, beforeEach, afterEach } from "node:test";
@@ -24,8 +28,8 @@ import { eq, like } from "drizzle-orm";
 import shareRouter from "../routes/share.js";
 import { createSession, type SessionData } from "../lib/auth.js";
 
-const RECIPIENT_PREFIX = "t_routes_s_";
-const USER_PREFIX = "t_routes_su_";
+const RECIPIENT_PREFIX = "trouteshareem-";
+const USER_PREFIX = "trouteshareu-";
 
 process.env.RESEND_API_KEY = process.env.RESEND_API_KEY ?? "re_test_dummy";
 
@@ -47,6 +51,8 @@ async function createTestUser(displayName: string | null): Promise<string> {
 }
 
 async function cleanup(): Promise<void> {
+  // Prefixes use `-` (not `_`) so SQL LIKE wildcards can't match other test
+  // files' rows during parallel runs. See the file header comment.
   await db
     .delete(emailOutboxTable)
     .where(like(emailOutboxTable.to, `${RECIPIENT_PREFIX}%`));

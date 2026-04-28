@@ -3,7 +3,11 @@
  *
  * Mounts the router on an ephemeral Express app and drives it via supertest.
  * Talks to the real test DB; cleans up rows tagged with the prefix
- * "t_routes_h_" in afterEach.
+ * "trouteshashtag-" in afterEach.
+ *
+ * Prefix uses `-` (not `_`) so SQL LIKE wildcards in the cleanup can't
+ * accidentally match other test files' rows during parallel runs. See
+ * authMiddleware.test.ts for the full convention.
  */
 
 import { describe, it, before, after, beforeEach, afterEach } from "node:test";
@@ -17,7 +21,7 @@ import { like } from "drizzle-orm";
 
 import hashtagsRouter from "../routes/hashtags.js";
 
-const TAG_PREFIX = "t_routes_h_";
+const TAG_PREFIX = "trouteshashtag-";
 
 function makeApp(): Express {
   const app = express();
@@ -30,6 +34,8 @@ async function insertTag(name: string, factCount: number): Promise<void> {
 }
 
 async function cleanup(): Promise<void> {
+  // TAG_PREFIX uses `-` (not `_`) so SQL LIKE wildcards can't match other
+  // test files' rows during parallel runs. See the file header comment.
   await db.delete(hashtagsTable).where(like(hashtagsTable.name, `${TAG_PREFIX}%`));
 }
 
