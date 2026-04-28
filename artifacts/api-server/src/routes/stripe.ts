@@ -43,8 +43,10 @@ router.get("/stripe/subscription", async (req: Request, res: Response) => {
   if (!req.isAuthenticated()) { res.status(401).json({ error: "Unauthorized" }); return; }
   try {
     const userId = req.user.id;
-    const [tier, lifetimeRows, appSubRows] = await Promise.all([
-      stripeStorage.getMembershipTierForUser(userId),
+    // authMiddleware already loaded the canonical user row, so prefer
+    // req.user.membershipTier over re-querying the DB here.
+    const tier = req.user.membershipTier ?? "unregistered";
+    const [lifetimeRows, appSubRows] = await Promise.all([
       db.select().from(lifetimeEntitlementsTable).where(eq(lifetimeEntitlementsTable.userId, userId)).limit(1),
       db.select().from(subscriptionsTable)
         .where(eq(subscriptionsTable.userId, userId))
@@ -178,12 +180,10 @@ router.get("/stripe/invoice/:invoiceId/receipt", async (req: Request, res: Respo
 // GET /stripe/membership — current user's membership tier
 router.get("/stripe/membership", async (req: Request, res: Response) => {
   if (!req.isAuthenticated()) { res.status(401).json({ error: "Unauthorized" }); return; }
-  try {
-    const tier = await stripeStorage.getMembershipTierForUser(req.user.id);
-    res.json({ tier });
-  } catch {
-    res.json({ tier: "unregistered" });
-  }
+  // authMiddleware already loaded the canonical user row, so prefer
+  // req.user.membershipTier over re-querying the DB here.
+  const tier = req.user.membershipTier ?? "unregistered";
+  res.json({ tier });
 });
 
 // GET /stripe/access-revocation-notice — informational notice shown to users

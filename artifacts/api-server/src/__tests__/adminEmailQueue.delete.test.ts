@@ -80,17 +80,26 @@ type FakeAuth =
 
 /**
  * Build a minimal Express app that mounts the real admin router.
- * A stub middleware installed before the router injects req.user (and
- * req.isAuthenticated) so the requireAdmin middleware can make real decisions
- * against the database without needing real session cookies.
+ * A stub middleware installed before the router mirrors what authMiddleware
+ * does in production: it fetches the user row by id and populates req.user
+ * with the canonical fields requireAdmin reads (id + isRealAdmin), so the
+ * admin authorisation path is exercised end-to-end without real session
+ * cookies.
  */
 function buildTestApp(auth: FakeAuth): express.Express {
   const app = express();
   app.use(express.json());
 
-  app.use((req: Request, _res: Response, next: NextFunction) => {
+  app.use(async (req: Request, _res: Response, next: NextFunction) => {
     if (auth.kind === "authenticated") {
-      req.user = { id: auth.userId };
+      const [dbUser] = await db
+        .select({ id: usersTable.id, isAdmin: usersTable.isAdmin })
+        .from(usersTable)
+        .where(eq(usersTable.id, auth.userId))
+        .limit(1);
+      if (dbUser) {
+        req.user = { id: dbUser.id, isRealAdmin: !!dbUser.isAdmin };
+      }
     }
     req.isAuthenticated = function (this: Request) {
       return this.user != null;

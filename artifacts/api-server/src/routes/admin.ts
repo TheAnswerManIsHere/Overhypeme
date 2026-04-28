@@ -3,9 +3,6 @@ import * as Sentry from "@sentry/node";
 import { db, usersTable, sessionsTable } from "@workspace/db";
 import { factsTable, commentsTable, adminConfigTable, videoStylesTable, featureFlagsTable, tierFeaturePermissionsTable, userGenerationCostsTable, lifetimeEntitlementsTable, subscriptionsTable, membershipHistoryTable, activityFeedTable, memesTable, userAiImagesTable, routeStatsTable, routeStatEventsTable, emailOutboxTable } from "@workspace/db/schema";
 import { eq, desc, count, ilike, sql, and, or, inArray, isNull, asc, gt, gte, sum } from "drizzle-orm";
-import { getSessionId, getSession, updateSession } from "../lib/auth";
-import { isAdminById } from "./auth";
-import { deriveUserRole } from "../lib/userRole";
 import { backfillEmbeddings } from "../lib/embeddings";
 import { runFactImagePipeline } from "../lib/factImagePipeline";
 import { generateAiMemeBackgrounds, type AiScenePrompts, type AiMemeImages } from "../lib/aiMemePipeline";
@@ -48,26 +45,12 @@ export async function requireAdmin(req: Request, res: Response, next: NextFuncti
     return;
   }
 
-  const sid = getSessionId(req);
-  const session = sid ? await getSession(sid) : null;
-
-  const adminViaEnv = isAdminById(req.user.id);
-  const adminViaSession = session?.isAdmin === true;
-
-  if (!adminViaEnv && !adminViaSession) {
-    const [dbUser] = await db
-      .select({ isAdmin: usersTable.isAdmin, membershipTier: usersTable.membershipTier })
-      .from(usersTable)
-      .where(and(eq(usersTable.id, req.user.id), eq(usersTable.isActive, true)))
-      .limit(1);
-    const role = deriveUserRole(dbUser?.membershipTier, dbUser?.isAdmin);
-    if (role !== "admin") {
-      res.status(403).json({ error: "Forbidden" });
-      return;
-    }
-    if (session && sid) {
-      await updateSession(sid, { ...session, isAdmin: true });
-    }
+  // authMiddleware re-fetches the user row on every request and exposes
+  // req.user.isRealAdmin (DB truth, ignoring the "view as user" toggle), so
+  // backend authorization can rely on it as the single source of truth.
+  if (!req.user.isRealAdmin) {
+    res.status(403).json({ error: "Forbidden" });
+    return;
   }
 
   next();

@@ -5,15 +5,12 @@ import { db, videoJobsTable, usersTable, memesTable, factsTable } from "@workspa
 import { renderPersonalized } from "../lib/renderCanonical.js";
 import { videoStylesTable } from "@workspace/db/schema";
 import { eq, and, gte, desc, or, asc } from "drizzle-orm";
-import { deriveUserRole } from "../lib/userRole.js";
 import { getConfigString } from "../lib/adminConfig.js";
 import { getCachedPrice } from "../lib/falPricing.js";
 import { computeVideoCost, resolveVideoDimensions } from "../lib/costComputation.js";
 import { checkBudget, recordCost } from "../lib/budgetGate.js";
 import { requireAdmin } from "./admin.js";
-import { isAdminById } from "./auth.js";
 import { hasFeature } from "../lib/tierFeatures.js";
-import { getSessionId, getSession } from "../lib/auth.js";
 import { ObjectStorageService } from "../lib/objectStorage.js";
 
 const router: IRouter = Router();
@@ -733,22 +730,14 @@ router.post("/videos/generate", async (req, res) => {
     return;
   }
 
-  const sid = getSessionId(req);
-  const session = sid ? await getSession(sid) : null;
+  // authMiddleware already populates req.user.isRealAdmin (DB truth) and
+  // req.user.membershipTier on every authenticated request, so we read those
+  // directly instead of consulting the session blob or re-querying the DB.
   let isAdmin = false;
-  let userTier = "unregistered";
+  let userTier: string = "unregistered";
   if (req.isAuthenticated()) {
-    if (isAdminById(req.user.id) || session?.isAdmin === true) {
-      isAdmin = true;
-    } else {
-      const [dbUser] = await db
-        .select({ isAdmin: usersTable.isAdmin, membershipTier: usersTable.membershipTier })
-        .from(usersTable)
-        .where(and(eq(usersTable.id, req.user.id), eq(usersTable.isActive, true)))
-        .limit(1);
-      isAdmin = deriveUserRole(dbUser?.membershipTier, dbUser?.isAdmin) === "admin";
-      userTier = dbUser?.membershipTier ?? "unregistered";
-    }
+    isAdmin = !!req.user.isRealAdmin;
+    userTier = req.user.membershipTier ?? "unregistered";
   }
 
   // Video generation requires authentication
