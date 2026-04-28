@@ -24,6 +24,7 @@ import { emailOutboxTable, usersTable } from "@workspace/db/schema";
 import { eq } from "drizzle-orm";
 
 import adminRouter from "../routes/admin.js";
+import { deriveUserRole } from "../lib/userRole.js";
 
 const TEST_TAG = "t259_test";
 
@@ -98,7 +99,7 @@ function buildTestApp(auth: FakeAuth): express.Express {
         .where(eq(usersTable.id, auth.userId))
         .limit(1);
       if (dbUser) {
-        req.user = { id: dbUser.id, isRealAdmin: !!dbUser.isAdmin };
+        req.user = { id: dbUser.id, isRealAdmin: !!dbUser.isAdmin, realUserRole: deriveUserRole(undefined, !!dbUser.isAdmin) };
       }
     }
     req.isAuthenticated = function (this: Request) {
