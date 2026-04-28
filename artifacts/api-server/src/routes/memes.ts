@@ -245,14 +245,9 @@ router.post("/memes", async (req: Request, res: Response) => {
   const { factId, imageSource, textOptions, previewImageBase64, isPublic: isPublicReq, aspectRatio: aspectRatioReq } = parsed.data;
 
   // ── Membership check ────────────────────────────────────────────
-  const [userRow] = await db
-    .select({ membershipTier: usersTable.membershipTier, displayName: usersTable.displayName, pronouns: usersTable.pronouns })
-    .from(usersTable)
-    .where(eq(usersTable.id, req.user.id))
-    .limit(1);
-  const dbTier = userRow?.membershipTier === "legendary" ? "legendary"
-    : userRow?.membershipTier === "registered" ? "registered"
-    : "unregistered";
+  // Profile fields on `req.user` (membershipTier, displayName, pronouns) are
+  // rebuilt fresh from the DB on every authenticated request by authMiddleware.
+  const dbTier = req.user.membershipTier ?? "unregistered";
   const [canPrivate, canUpload, highRateLimit] = await Promise.all([
     hasFeature(dbTier, "meme_private_visibility"),
     hasFeature(dbTier, "meme_upload_photo"),
@@ -300,8 +295,8 @@ router.post("/memes", async (req: Request, res: Response) => {
 
   // ── Freeze the rendered fact text at creation time ───────────────
   const rawTemplate = fact.text ?? fact.canonicalText ?? "";
-  const renderedFactText = userRow?.displayName && rawTemplate
-    ? renderPersonalized(rawTemplate, userRow.displayName, userRow.pronouns ?? null)
+  const renderedFactText = req.user.displayName && rawTemplate
+    ? renderPersonalized(rawTemplate, req.user.displayName, req.user.pronouns ?? null)
     : (fact.canonicalText ?? fact.text ?? null);
 
   // ── Unique slug ──────────────────────────────────────────────────

@@ -12,11 +12,16 @@ import {
   getSession,
   createSession,
   updateSession,
+  isAdminById,
   SESSION_COOKIE,
   SESSION_TTL,
   type SessionData,
 } from "../lib/auth";
-import { deriveUserRole } from "../lib/userRole";
+
+// Re-exported for back-compat with other route modules that import from "./auth".
+// Canonical home is `lib/auth.ts` so the auth middleware can use it without a
+// route ↔ middleware import cycle.
+export { isAdminById };
 
 // ── Pending OAuth state ───────────────────────────────────────────────────────
 // We store PKCE state server-side (keyed by the OAuth `state` parameter) rather
@@ -58,11 +63,6 @@ setInterval(() => {
 }, 5 * 60 * 1000).unref();
 
 // ── Router ────────────────────────────────────────────────────────────────────
-
-export function isAdminById(userId: string): boolean {
-  const ids = process.env.ADMIN_USER_IDS?.split(",").map((s) => s.trim()) ?? [];
-  return ids.includes(userId);
-}
 
 const router: IRouter = Router();
 
@@ -279,40 +279,10 @@ router.get("/auth/user", async (req: Request, res: Response) => {
     res.json(GetCurrentAuthUserResponse.parse({ user: null }));
     return;
   }
-  const [dbUser] = await db
-    .select({
-      membershipTier: usersTable.membershipTier,
-      isAdmin: usersTable.isAdmin,
-      pronouns: usersTable.pronouns,
-      displayName: usersTable.displayName,
-      captchaVerified: usersTable.captchaVerified,
-    })
-    .from(usersTable)
-    .where(and(eq(usersTable.id, req.user.id), eq(usersTable.isActive, true)))
-    .limit(1);
-
-  const sid = getSessionId(req);
-  const session = sid ? await getSession(sid) : null;
-  const isRealAdmin = !!(dbUser?.isAdmin || isAdminById(req.user.id));
-  const adminModeActive = isRealAdmin && !session?.adminModeDisabled;
-  const effectiveTier = dbUser?.membershipTier ?? req.user.membershipTier ?? "unregistered";
-  const userRole = deriveUserRole(effectiveTier, adminModeActive);
-  const captchaVerified = !!(dbUser?.captchaVerified || session?.captchaVerified);
-
-  res.json(
-    GetCurrentAuthUserResponse.parse({
-      user: {
-        ...req.user,
-        membershipTier: effectiveTier,
-        isAdmin: adminModeActive,
-        isRealAdmin,
-        pronouns: dbUser?.pronouns ?? null,
-        displayName: dbUser?.displayName ?? null,
-        userRole,
-        captchaVerified,
-      },
-    }),
-  );
+  // `req.user` is rebuilt from the database on every authenticated request by
+  // authMiddleware, so it is the authoritative source of profile state. No
+  // additional DB roundtrip needed here.
+  res.json(GetCurrentAuthUserResponse.parse({ user: req.user }));
 });
 
 router.post("/auth/toggle-admin-mode", async (req: Request, res: Response) => {

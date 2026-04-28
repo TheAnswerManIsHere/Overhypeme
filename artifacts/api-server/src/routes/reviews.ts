@@ -16,7 +16,6 @@ import { getSiteBaseUrl } from "../lib/siteUrl";
 import { notifyAdmins } from "../lib/adminNotify";
 import { runFactImagePipeline } from "../lib/factImagePipeline";
 import { generateAiMemeBackgrounds } from "../lib/aiMemePipeline";
-import { getSessionId, getSession } from "../lib/auth";
 import { createRateLimiter } from "../lib/rateLimit";
 import { validateTemplate } from "../lib/templateGrammar";
 
@@ -46,22 +45,11 @@ const SubmitReviewBody = z.object({
 router.post("/facts/submit-review", requireAuth, requireRateLimit, async (req: AuthenticatedRequest, res: Response) => {
   // Bypass matrix — mirrors the tokenize-fact gate.
   // Admin and legendary members may skip captcha/onboarding; all others must have completed onboarding.
-  const sid = getSessionId(req);
-  const session = sid ? await getSession(sid) : null;
-  const isAdmin = session?.isAdmin === true;
-  const isCaptchaVerified = session?.captchaVerified === true;
-
-  // The session's membershipTier is written at login and never refreshed on upgrade.
-  // Do a live DB lookup so a user who became Legendary after their last login isn't blocked.
-  let isPremium = session?.user?.membershipTier === "legendary";
-  if (!isPremium) {
-    const [freshUser] = await db
-      .select({ membershipTier: usersTable.membershipTier })
-      .from(usersTable)
-      .where(eq(usersTable.id, req.user.id))
-      .limit(1);
-    isPremium = freshUser?.membershipTier === "legendary";
-  }
+  // Membership/admin/captcha state on `req.user` is rebuilt fresh from the DB
+  // on every authenticated request by authMiddleware.
+  const isAdmin = !!req.user.isRealAdmin;
+  const isPremium = req.user.membershipTier === "legendary";
+  const isCaptchaVerified = !!req.user.captchaVerified;
 
   if (!isAdmin && !isPremium && !isCaptchaVerified) {
     res.status(403).json({

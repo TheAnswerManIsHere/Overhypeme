@@ -18,6 +18,7 @@ import {
   requireLegendary,
   injectMembershipTier,
 } from "../middlewares/tierMiddleware.js";
+import { deriveUserRole } from "../lib/userRole.js";
 import { createSession, SESSION_COOKIE, type SessionData } from "../lib/auth.js";
 
 const USER_PREFIX = "t_tm_";
@@ -50,6 +51,13 @@ interface MakeReqOpts {
   userId?: string;
   bearer?: string;
   cookieSid?: string;
+  // The new architecture moves the DB lookup into authMiddleware, so callers
+  // of these middlewares always see a fully-populated `req.user`. These mocks
+  // simulate that by constructing the same shape authMiddleware would have
+  // produced for the test scenario.
+  membershipTier?: "unregistered" | "registered" | "legendary";
+  isRealAdmin?: boolean;
+  isAdmin?: boolean;
 }
 
 function makeReq(opts: MakeReqOpts): Request & {
@@ -58,10 +66,22 @@ function makeReq(opts: MakeReqOpts): Request & {
 } {
   const headers: Record<string, string> = {};
   if (opts.bearer) headers["authorization"] = `Bearer ${opts.bearer}`;
+  let user: Record<string, unknown> | undefined;
+  if (opts.userId) {
+    const tier = opts.membershipTier ?? "unregistered";
+    const isAdmin = opts.isAdmin ?? false;
+    user = {
+      id: opts.userId,
+      membershipTier: tier,
+      isAdmin,
+      isRealAdmin: opts.isRealAdmin ?? isAdmin,
+      userRole: deriveUserRole(tier, isAdmin),
+    };
+  }
   const req = {
     headers,
     cookies: opts.cookieSid ? { [SESSION_COOKIE]: opts.cookieSid } : {},
-    user: opts.userId ? { id: opts.userId } : undefined,
+    user,
     isAuthenticated() {
       return opts.authenticated;
     },
@@ -124,7 +144,13 @@ describe("requireLegendary", () => {
   it("returns 403 legendary_required when the user is registered (not legendary, not admin)", async () => {
     const userId = await createTestUser({ tier: "registered" });
     const sid = await createSessionWithAdminFlag(userId, false);
-    const req = makeReq({ authenticated: true, userId, bearer: sid });
+    const req = makeReq({
+      authenticated: true,
+      userId,
+      bearer: sid,
+      membershipTier: "registered",
+      isRealAdmin: false,
+    });
     const res = makeRes();
     const next = makeNext();
     await requireLegendary(req, res as unknown as Response, next.fn);
@@ -139,7 +165,13 @@ describe("requireLegendary", () => {
   it("calls next when the user is on the legendary tier", async () => {
     const userId = await createTestUser({ tier: "legendary" });
     const sid = await createSessionWithAdminFlag(userId, false);
-    const req = makeReq({ authenticated: true, userId, bearer: sid });
+    const req = makeReq({
+      authenticated: true,
+      userId,
+      bearer: sid,
+      membershipTier: "legendary",
+      isRealAdmin: false,
+    });
     const res = makeRes();
     const next = makeNext();
     await requireLegendary(req, res as unknown as Response, next.fn);
@@ -147,10 +179,17 @@ describe("requireLegendary", () => {
     assert.equal(next.calls, 1);
   });
 
-  it("calls next when the session marks the user as admin, even on a non-legendary tier", async () => {
-    const userId = await createTestUser({ tier: "registered" });
+  it("calls next when req.user.isRealAdmin is true, even on a non-legendary tier", async () => {
+    const userId = await createTestUser({ tier: "registered", isAdmin: true });
     const sid = await createSessionWithAdminFlag(userId, true);
-    const req = makeReq({ authenticated: true, userId, bearer: sid });
+    const req = makeReq({
+      authenticated: true,
+      userId,
+      bearer: sid,
+      membershipTier: "registered",
+      isAdmin: true,
+      isRealAdmin: true,
+    });
     const res = makeRes();
     const next = makeNext();
     await requireLegendary(req, res as unknown as Response, next.fn);
@@ -158,9 +197,14 @@ describe("requireLegendary", () => {
     assert.equal(next.calls, 1);
   });
 
-  it("treats a missing session id (authenticated but no bearer/cookie) as non-admin → 403 for registered tier", async () => {
+  it("treats a registered user with no admin flags as non-admin → 403 regardless of session", async () => {
     const userId = await createTestUser({ tier: "registered" });
-    const req = makeReq({ authenticated: true, userId });
+    const req = makeReq({
+      authenticated: true,
+      userId,
+      membershipTier: "registered",
+      isRealAdmin: false,
+    });
     const res = makeRes();
     const next = makeNext();
     await requireLegendary(req, res as unknown as Response, next.fn);
@@ -168,7 +212,7 @@ describe("requireLegendary", () => {
     assert.equal(next.calls, 0);
   });
 
-  it("returns 403 legendary_required when the user lookup throws (try/catch fallback)", async () => {
+  it("returns 403 legendary_required when the user accessor throws (try/catch fallback)", async () => {
     const req = makeReq({
       authenticated: true,
       userId: `${USER_PREFIX}does-not-exist-${randomUUID()}`,
@@ -204,7 +248,13 @@ describe("injectMembershipTier", () => {
   it("sets membershipTier and userRole when the user is on the legendary tier", async () => {
     const userId = await createTestUser({ tier: "legendary" });
     const sid = await createSessionWithAdminFlag(userId, false);
-    const req = makeReq({ authenticated: true, userId, bearer: sid });
+    const req = makeReq({
+      authenticated: true,
+      userId,
+      bearer: sid,
+      membershipTier: "legendary",
+      isRealAdmin: false,
+    });
     const res = makeRes();
     const next = makeNext();
     await injectMembershipTier(req, res as unknown as Response, next.fn);
@@ -213,10 +263,17 @@ describe("injectMembershipTier", () => {
     assert.equal(next.calls, 1);
   });
 
-  it("sets userRole='admin' when the session marks the user as admin", async () => {
-    const userId = await createTestUser({ tier: "registered" });
+  it("sets userRole='admin' when req.user.isAdmin is true", async () => {
+    const userId = await createTestUser({ tier: "registered", isAdmin: true });
     const sid = await createSessionWithAdminFlag(userId, true);
-    const req = makeReq({ authenticated: true, userId, bearer: sid });
+    const req = makeReq({
+      authenticated: true,
+      userId,
+      bearer: sid,
+      membershipTier: "registered",
+      isAdmin: true,
+      isRealAdmin: true,
+    });
     const res = makeRes();
     const next = makeNext();
     await injectMembershipTier(req, res as unknown as Response, next.fn);
@@ -225,9 +282,14 @@ describe("injectMembershipTier", () => {
     assert.equal(next.calls, 1);
   });
 
-  it("sets userRole='registered' when authenticated with no session row (admin=false)", async () => {
+  it("sets userRole='registered' when authenticated with no admin flags", async () => {
     const userId = await createTestUser({ tier: "registered" });
-    const req = makeReq({ authenticated: true, userId });
+    const req = makeReq({
+      authenticated: true,
+      userId,
+      membershipTier: "registered",
+      isRealAdmin: false,
+    });
     const res = makeRes();
     const next = makeNext();
     await injectMembershipTier(req, res as unknown as Response, next.fn);

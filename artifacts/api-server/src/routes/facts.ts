@@ -314,12 +314,11 @@ router.post("/facts/:factId/comments", async (req: AuthenticatedRequest, res: Re
   const [factExists] = await db.select({ id: factsTable.id }).from(factsTable).where(and(eq(factsTable.id, factId), eq(factsTable.isActive, true))).limit(1);
   if (!factExists) { res.status(404).json({ error: "Fact not found" }); return; }
 
-  const [commentUser] = await db.select({ membershipTier: usersTable.membershipTier }).from(usersTable).where(eq(usersTable.id, req.user.id)).limit(1);
-  const userDbTier = commentUser?.membershipTier === "legendary" ? "legendary"
-    : commentUser?.membershipTier === "registered" ? "registered"
-    : "unregistered";
-  // Intentional premium-tier exception: legendary members and above are granted
-  // comment_captcha_bypass via the tier features table, skipping per-comment captcha.
+  // `req.user.membershipTier` is rebuilt from the DB on every authenticated
+  // request by authMiddleware, so it's always fresh. Intentional premium-tier
+  // exception: legendary members and above are granted comment_captcha_bypass
+  // via the tier features table, skipping per-comment captcha.
+  const userDbTier = req.user.membershipTier ?? "unregistered";
   const captchaBypass = await hasFeature(userDbTier, "comment_captcha_bypass");
 
   if (!captchaBypass) {
