@@ -7,6 +7,7 @@ import { SpendInline } from "@/components/ui/SpendHistory";
 import { Shield, ShieldOff, Search, Pencil, X, Save, AlertCircle, CheckCircle, Crown, Star, Gem, UserPlus, MailCheck, Trash2, UserX, ExternalLink, CreditCard, Infinity, Loader2, XCircle, Bell, BellOff, AlertTriangle } from "lucide-react";
 import { SubscriptionInfo } from "@/components/SubscriptionInfo";
 import { stripeDashboardUrl } from "@/lib/stripeDashboardUrl";
+import { makeAbortController } from "@/lib/makeAbortController";
 
 interface User {
   id: string;
@@ -168,6 +169,7 @@ export default function AdminUsers() {
   const [membershipLoading, setMembershipLoading] = useState(false);
   const [lifetimeActionLoading, setLifetimeActionLoading] = useState(false);
   const [lifetimeActionResult, setLifetimeActionResult] = useState<{ type: "success" | "error"; message: string } | null>(null);
+  const membershipFetchCtrl = useRef(makeAbortController());
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
@@ -225,13 +227,14 @@ export default function AdminUsers() {
   }
 
   function fetchMembership(userId: string) {
+    const { signal, isLatest } = membershipFetchCtrl.current.next();
     setMembershipLoading(true);
     setMembershipData(null);
     setLifetimeActionResult(null);
-    fetch(`/api/admin/users/${userId}/membership`, { credentials: "include" })
+    fetch(`/api/admin/users/${userId}/membership`, { credentials: "include", signal })
       .then(async (r) => { if (r.ok) setMembershipData((await r.json()) as MembershipData); })
       .catch(() => {})
-      .finally(() => setMembershipLoading(false));
+      .finally(() => { if (isLatest()) setMembershipLoading(false); });
   }
 
   function selectUser(user: User) {
