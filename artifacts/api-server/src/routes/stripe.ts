@@ -157,6 +157,7 @@ router.get("/stripe/invoice/:invoiceId/receipt", async (req: Request, res: Respo
       res.status(403).json({ error: "No billing account found" });
       return;
     }
+    const stripe = await getUncachableStripeClient();
     const invoice = await stripe.invoices.retrieve(invoiceId);
     const invoiceCustomer = typeof invoice.customer === "string" ? invoice.customer : invoice.customer?.id;
     if (invoiceCustomer !== user.stripeCustomerId) {
