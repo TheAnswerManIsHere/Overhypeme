@@ -254,7 +254,7 @@ describe("POST /admin/reviews/:id/reject – reason persistence", () => {
     assert.equal(updated?.reason, "offensive", "reason should be persisted as 'offensive'");
   });
 
-  it("persists null when no reason is provided", async () => {
+  it("returns 400 when rejectionReason is omitted (now required)", async () => {
     const review = await insertPendingReview();
 
     const { status } = await postJson(
@@ -263,10 +263,10 @@ describe("POST /admin/reviews/:id/reject – reason persistence", () => {
       {},
     );
 
-    assert.equal(status, 200, "expected 200 when no reason is given");
+    assert.equal(status, 400, "expected 400 when rejectionReason is missing");
 
-    const updated = await getReview(review.id);
-    assert.equal(updated?.reason, null, "reason should be null when not provided");
+    const notUpdated = await getReview(review.id);
+    assert.equal(notUpdated?.status, "pending", "review should remain pending when request is invalid");
   });
 });
 
