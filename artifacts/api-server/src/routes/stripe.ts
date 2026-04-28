@@ -141,6 +141,39 @@ router.get("/stripe/payment-history", async (req: Request, res: Response) => {
   }
 });
 
+// GET /stripe/invoice/:invoiceId/receipt — redirect to the customer-facing hosted
+// invoice page (no Stripe login required). Verifies the invoice belongs to the
+// authenticated user before redirecting, to prevent information disclosure.
+router.get("/stripe/invoice/:invoiceId/receipt", async (req: Request, res: Response) => {
+  if (!req.isAuthenticated()) { res.status(401).json({ error: "Unauthorized" }); return; }
+  const { invoiceId } = req.params;
+  if (!invoiceId || !invoiceId.startsWith("in_")) {
+    res.status(400).json({ error: "Invalid invoice ID" });
+    return;
+  }
+  try {
+    const user = await stripeStorage.getUserById(req.user.id);
+    if (!user?.stripeCustomerId) {
+      res.status(403).json({ error: "No billing account found" });
+      return;
+    }
+    const invoice = await stripe.invoices.retrieve(invoiceId);
+    const invoiceCustomer = typeof invoice.customer === "string" ? invoice.customer : invoice.customer?.id;
+    if (invoiceCustomer !== user.stripeCustomerId) {
+      res.status(403).json({ error: "Forbidden" });
+      return;
+    }
+    if (!invoice.hosted_invoice_url) {
+      res.status(404).json({ error: "No receipt available for this charge" });
+      return;
+    }
+    res.redirect(302, invoice.hosted_invoice_url);
+  } catch (err) {
+    logger.error({ err, invoiceId }, "GET /stripe/invoice/:invoiceId/receipt error");
+    res.status(500).json({ error: "Failed to retrieve receipt" });
+  }
+});
+
 // GET /stripe/membership — current user's membership tier
 router.get("/stripe/membership", async (req: Request, res: Response) => {
   if (!req.isAuthenticated()) { res.status(401).json({ error: "Unauthorized" }); return; }

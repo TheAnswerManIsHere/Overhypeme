@@ -62,7 +62,9 @@ function stripeRecordLinks(rec: SubscriptionInfoRecord, stripeBase: string): { h
   const links: { href: string; label: string }[] = [];
   if (rec.stripeDisputeId) links.push({ href: `${stripeBase}/disputes/${rec.stripeDisputeId}`, label: "dispute" });
   if (rec.stripePaymentIntentId) links.push({ href: `${stripeBase}/payments/${rec.stripePaymentIntentId}`, label: "payment" });
-  if (rec.stripeInvoiceId) links.push({ href: `${stripeBase}/invoices/${rec.stripeInvoiceId}`, label: "invoice" });
+  // Use the backend receipt redirect so the user sees the customer-facing hosted
+  // invoice page (no Stripe login required) rather than the dashboard URL.
+  if (rec.stripeInvoiceId) links.push({ href: `/api/stripe/invoice/${rec.stripeInvoiceId}/receipt`, label: "invoice" });
   return links;
 }
 
@@ -156,7 +158,7 @@ export function SubscriptionInfo({ data, variant, liveMode = false, reactivateBu
                             href={link.href}
                             target="_blank"
                             rel="noopener noreferrer"
-                            title={`Open ${link.label} in Stripe`}
+                            title={link.label === "invoice" ? "View receipt" : `Open ${link.label} in Stripe`}
                             className="text-muted-foreground hover:text-primary transition-colors"
                           >
                             <ExternalLink className="w-3 h-3" />
