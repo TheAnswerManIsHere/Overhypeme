@@ -505,6 +505,7 @@ router.post("/admin/users/:id/grant-lifetime", requireAdmin, async (req: Request
         amount: 0,
         currency: "usd",
         stripePaymentIntentId: fakePaymentIntentId,
+        performedByAdminId: adminUserId,
       });
     });
 
