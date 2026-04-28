@@ -34,7 +34,22 @@ export class StripeStorage {
           ORDER BY s.created DESC
           LIMIT 1`,
     );
-    return (result.rows[0] as Record<string, unknown>) ?? null;
+    const row = (result.rows[0] as Record<string, unknown>) ?? null;
+    if (!row) return null;
+
+    // In newer Stripe API versions (basil+), current_period_end moved from the
+    // Subscription object to the SubscriptionItem. The sync library column stays
+    // null in that case, so fall back to items.data[0].current_period_end.
+    if (!row.current_period_end) {
+      const rawData = row._raw_data as Record<string, unknown> | null;
+      const items = rawData?.items as { data?: Array<Record<string, unknown>> } | null;
+      const firstItem = items?.data?.[0];
+      if (firstItem?.current_period_end) {
+        row.current_period_end = firstItem.current_period_end;
+      }
+    }
+
+    return row;
   }
 
   async getActiveLegendarySubscribers(): Promise<Array<{ id: string; email: string; displayName: string | null; pronouns: string | null }>> {
