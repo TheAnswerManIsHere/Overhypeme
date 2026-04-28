@@ -43,6 +43,9 @@ export const GetCurrentAuthUserResponse = zod.object({
       userRole: zod
         .enum(["unregistered", "registered", "legendary", "admin"])
         .nullish(),
+      realUserRole: zod
+        .enum(["unregistered", "registered", "legendary", "admin"])
+        .nullish(),
       captchaVerified: zod.boolean().nullish(),
     }),
     zod.null(),

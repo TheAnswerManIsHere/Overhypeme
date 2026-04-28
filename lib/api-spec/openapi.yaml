@@ -999,6 +999,10 @@ components:
           type: string
           enum: [unregistered, registered, legendary, admin]
           nullable: true
+        realUserRole:
+          type: string
+          enum: [unregistered, registered, legendary, admin]
+          nullable: true
         captchaVerified:
           type: boolean
           nullable: true

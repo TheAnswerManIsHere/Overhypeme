@@ -126,6 +126,7 @@ describe("authMiddleware (fresh user row on every request)", () => {
       await authMiddleware(req, res as unknown as Response, next.fn);
       assert.equal(req.user?.membershipTier, "registered");
       assert.equal(req.user?.userRole, "registered");
+      assert.equal(req.user?.realUserRole, "registered");
       assert.equal(next.calls, 1);
     }
 
@@ -147,6 +148,7 @@ describe("authMiddleware (fresh user row on every request)", () => {
         "next request should see the upgraded tier without re-login",
       );
       assert.equal(req.user?.userRole, "legendary");
+      assert.equal(req.user?.realUserRole, "legendary");
       assert.equal(next.calls, 1);
       assert.equal(res.clearCookieCalls.length, 0);
     }
@@ -219,6 +221,7 @@ describe("authMiddleware (fresh user row on every request)", () => {
       assert.equal(req.user?.isAdmin, false);
       assert.equal(req.user?.isRealAdmin, false);
       assert.equal(req.user?.userRole, "registered");
+      assert.equal(req.user?.realUserRole, "registered");
     }
 
     // Simulate an admin granting this user the admin role in the DB.
@@ -238,7 +241,35 @@ describe("authMiddleware (fresh user row on every request)", () => {
       );
       assert.equal(req.user?.isRealAdmin, true);
       assert.equal(req.user?.userRole, "admin");
+      assert.equal(req.user?.realUserRole, "admin");
     }
+  });
+
+  it("realUserRole stays 'admin' even when adminModeDisabled toggle is set (userRole becomes 'registered')", async () => {
+    const userId = await createTestUser({ isAdmin: true });
+    // Create a session with adminModeDisabled: true (simulating the "view as user" toggle)
+    const sessionData: SessionData = {
+      user: {
+        id: userId,
+        email: `${userId}@test.local`,
+        membershipTier: "registered",
+        isAdmin: true,
+      } as unknown as SessionData["user"],
+      access_token: "test-token",
+      isAdmin: false,
+      adminModeDisabled: true,
+    };
+    const sid = await createSession(sessionData, userId);
+
+    const req = makeReq({ bearer: sid });
+    const next = makeNext();
+    await authMiddleware(req, makeRes() as unknown as Response, next.fn);
+
+    // The toggle suppresses isAdmin but isRealAdmin and realUserRole must stay true/admin
+    assert.equal(req.user?.isAdmin, false, "toggle OFF: isAdmin should be false");
+    assert.equal(req.user?.isRealAdmin, true, "isRealAdmin is always the DB truth");
+    assert.equal(req.user?.userRole, "registered", "toggle OFF: userRole should reflect the toggled state");
+    assert.equal(req.user?.realUserRole, "admin", "realUserRole must always be admin regardless of toggle");
   });
 
   it("soft-deleting the user (isActive=false) logs them out on the very next request", async () => {

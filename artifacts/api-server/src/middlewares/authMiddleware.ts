@@ -113,6 +113,7 @@ export async function authMiddleware(
     isRealAdmin,
     captchaVerified,
     userRole: deriveUserRole(dbUser.membershipTier, isAdmin),
+    realUserRole: deriveUserRole(dbUser.membershipTier, isRealAdmin),
   };
 
   next();

@@ -14,7 +14,7 @@ function dicebearUrl(style: string, seed: string) {
 }
 
 export function Navbar() {
-  const { user, isAuthenticated, isLoading: authLoading, role, logout } = useAuth();
+  const { user, isAuthenticated, isLoading: authLoading, role, realRole, logout } = useAuth();
   const { data: profile } = useGetMyProfile({
     query: { queryKey: getGetMyProfileQueryKey(), enabled: isAuthenticated, staleTime: 60_000 }
   });
@@ -102,8 +102,8 @@ export function Navbar() {
     }
   };
 
-  const isRealAdmin = user?.isRealAdmin;
-  const isAdminModeOn = user?.isAdmin;
+  const isRealAdmin = realRole === "admin";
+  const isAdminModeOn = role === "admin";
   const isPremium = role === "legendary" || role === "admin";
 
   return (

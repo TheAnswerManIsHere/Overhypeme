@@ -4,6 +4,7 @@ import { db, usersTable, sessionsTable } from "@workspace/db";
 import { factsTable, commentsTable, adminConfigTable, videoStylesTable, featureFlagsTable, tierFeaturePermissionsTable, userGenerationCostsTable, lifetimeEntitlementsTable, subscriptionsTable, membershipHistoryTable, activityFeedTable, memesTable, userAiImagesTable, routeStatsTable, routeStatEventsTable, emailOutboxTable } from "@workspace/db/schema";
 import { eq, desc, count, ilike, sql, and, or, inArray, isNull, asc, gt, gte, sum } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
+import { requireRole } from "../middlewares/tierMiddleware";
 import { backfillEmbeddings } from "../lib/embeddings";
 import { runFactImagePipeline } from "../lib/factImagePipeline";
 import { generateAiMemeBackgrounds, type AiScenePrompts, type AiMemeImages } from "../lib/aiMemePipeline";
@@ -40,22 +41,11 @@ async function resolveUserTierOnReinstatement(userId: string): Promise<"register
 
 const router: IRouter = Router();
 
-export async function requireAdmin(req: Request, res: Response, next: NextFunction) {
-  if (!req.isAuthenticated()) {
-    res.status(401).json({ error: "Unauthorized" });
-    return;
-  }
-
-  // authMiddleware re-fetches the user row on every request and exposes
-  // req.user.isRealAdmin (DB truth, ignoring the "view as user" toggle), so
-  // backend authorization can rely on it as the single source of truth.
-  if (!req.user.isRealAdmin) {
-    res.status(403).json({ error: "Forbidden" });
-    return;
-  }
-
-  next();
-}
+/**
+ * Shim for backwards-compatibility.
+ * Delegates to requireRole("admin") — the single source of admin gating.
+ */
+export const requireAdmin = requireRole("admin");
 
 router.get("/admin/me", requireAdmin, (_req: Request, res: Response) => {
   res.json({ isAdmin: true });
@@ -1010,7 +1000,7 @@ async function requireAdminOrApiKey(req: Request, res: Response, next: NextFunct
     next();
     return;
   }
-  return requireAdmin(req, res, next);
+  return requireAdmin(req, res, next) as unknown as void;
 }
 
 // POST /admin/users/set-password — reset a user's password by email (API key auth)
