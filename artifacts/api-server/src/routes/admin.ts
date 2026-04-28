@@ -47,11 +47,6 @@ const router: IRouter = Router();
  */
 export const requireAdmin = requireRole("admin");
 
-router.get("/admin/me", requireAdmin, (_req: Request, res: Response) => {
-  res.json({ isAdmin: true });
-});
-
-
 router.get("/admin/stats", requireAdmin, async (_req: Request, res: Response) => {
   const [[{ totalFacts }], [{ totalUsers }]] = await Promise.all([
     db.select({ totalFacts: count() }).from(factsTable).where(eq(factsTable.isActive, true)),
