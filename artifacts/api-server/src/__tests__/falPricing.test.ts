@@ -4,8 +4,12 @@
  * These touch the real fal_pricing_cache table on the dev DB. globalThis.fetch
  * is stubbed per-test so no real HTTP call goes to api.fal.ai.
  *
- * All test endpoint IDs are prefixed with "test_t_fp/" and cleaned up in
+ * All test endpoint IDs are prefixed with "tfppricing-" and cleaned up in
  * afterEach.
+ *
+ * Prefix uses `-` (not `_`) so SQL LIKE wildcards in the cleanup can't
+ * accidentally match other test files' rows during parallel runs. See
+ * authMiddleware.test.ts for the full convention.
  */
 
 import { describe, it, before, after, beforeEach, afterEach } from "node:test";
@@ -19,13 +23,15 @@ import { refreshPricingCache, getCachedPrice } from "../lib/falPricing.js";
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
-const ENDPOINT_PREFIX = "test_t_fp/";
+const ENDPOINT_PREFIX = "tfppricing-";
 
 function endpoint(suffix: string): string {
   return `${ENDPOINT_PREFIX}${suffix}`;
 }
 
 async function cleanupTestRows(): Promise<void> {
+  // ENDPOINT_PREFIX uses `-` (not `_`) so SQL LIKE wildcards can't match other
+  // test files' rows during parallel runs. See the file header comment.
   await db
     .delete(falPricingCacheTable)
     .where(like(falPricingCacheTable.endpointId, `${ENDPOINT_PREFIX}%`));

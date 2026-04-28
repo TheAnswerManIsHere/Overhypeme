@@ -2,7 +2,11 @@
  * Integration tests for src/lib/auth.ts session helpers.
  *
  * Talks to the real test DB. Each test creates its own user/session rows
- * tagged with the prefix "t_au_" and cleans them up in afterEach.
+ * tagged with the prefix "tau-" and cleans them up in afterEach.
+ *
+ * Prefix uses `-` (not `_`) so SQL LIKE wildcards in the cleanup can't
+ * accidentally match other test files' rows during parallel runs. See
+ * authMiddleware.test.ts for the full convention.
  *
  * The OIDC provider helpers (getGoogleConfig, getAppleConfig) are out of
  * scope — they require live network calls to OpenID discovery endpoints.
@@ -29,7 +33,7 @@ import {
   type SessionData,
 } from "../lib/auth.js";
 
-const USER_PREFIX = "t_au_";
+const USER_PREFIX = "tau-";
 
 interface MockRes {
   clearCookieCalls: Array<{ name: string; opts?: unknown }>;
@@ -73,6 +77,8 @@ function makeSessionData(userId: string): SessionData {
 }
 
 async function cleanupTestUsers() {
+  // USER_PREFIX uses `-` (not `_`) so SQL LIKE wildcards can't match other
+  // test files' rows during parallel runs. See the file header comment.
   await db.delete(sessionsTable).where(like(sessionsTable.sid, `${USER_PREFIX}%`));
   await db.delete(usersTable).where(like(usersTable.id, `${USER_PREFIX}%`));
 }
