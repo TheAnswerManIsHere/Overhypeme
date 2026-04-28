@@ -30,6 +30,17 @@ export const AuthUserUserRole = {
   admin: "admin",
 } as const;
 
+export type AuthUserRealUserRole =
+  | (typeof AuthUserRealUserRole)[keyof typeof AuthUserRealUserRole]
+  | null;
+
+export const AuthUserRealUserRole = {
+  unregistered: "unregistered",
+  registered: "registered",
+  legendary: "legendary",
+  admin: "admin",
+} as const;
+
 export interface AuthUser {
   id: string;
   email?: string | null;
@@ -42,6 +53,7 @@ export interface AuthUser {
   isRealAdmin?: boolean | null;
   pronouns?: string | null;
   userRole?: AuthUserUserRole;
+  realUserRole?: AuthUserRealUserRole;
   captchaVerified?: boolean | null;
 }
 

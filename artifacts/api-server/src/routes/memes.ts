@@ -24,7 +24,6 @@ import { BudgetExceededError } from "../lib/budgetGate";
 import type { AiMemeImages } from "../lib/aiMemePipeline";
 import { requireLegendary } from "../middlewares/tierMiddleware";
 import { hasFeature } from "../lib/tierFeatures";
-import { isAdminById } from "./auth";
 import { requireAdmin } from "./admin";
 import { getUploadImageMetadata } from "./storage";
 import { CACHE, setPublicCache, setPublicCors, checkConditional, setNoStore } from "../lib/cacheHeaders";
@@ -1205,7 +1204,7 @@ router.post("/memes/ai/:factId/generate", requireLegendary, async (req: Request,
 
   // Admin-only: allow model override for testing different fal.ai models
   const rawModelOverride = body["modelOverride"];
-  const adminViaEnv = req.user?.id ? isAdminById(req.user.id) : false;
+  const adminViaEnv = req.user?.isRealAdmin ?? false;
   const modelOverride =
     adminViaEnv && typeof rawModelOverride === "string" && rawModelOverride.trim()
       ? rawModelOverride.trim()

@@ -513,12 +513,20 @@ ${divider()}
   return { subject, text, html };
 }
 
+const REJECTION_REASON_LABELS: Record<string, string> = {
+  duplicate: "Duplicate — this fact is too similar to one already in the database.",
+  spam: "Spam — this submission doesn't meet our community guidelines.",
+  offensive: "Offensive — this fact contains content that violates our standards.",
+};
+
 export function buildReviewRejectedEmail(opts: {
   username: string;
   submittedText: string;
   adminNote?: string | null;
+  rejectionReason?: string | null;
 }): Pick<EmailPayload, "subject" | "text" | "html"> {
   const subject = "Update on your submitted Overhype.me fact";
+  const reasonLabel = opts.rejectionReason ? REJECTION_REASON_LABELS[opts.rejectionReason] : null;
 
   const text = [
     `HEY ${opts.username.toUpperCase()}, NOT EVERY LEGEND MAKES THE CUT.`,
@@ -526,12 +534,17 @@ export function buildReviewRejectedEmail(opts: {
     "After review, we weren't able to add this one to the database.",
     "",
     `"${opts.submittedText}"`,
-    ...(opts.adminNote ? ["", `Admin note: ${opts.adminNote}`] : []),
+    ...(reasonLabel ? ["", `Reason: ${reasonLabel}`] : []),
+    ...(opts.adminNote ? ["", `Note from the team: ${opts.adminNote}`] : []),
     "",
     "Don't sweat it. Keep submitting — greatness takes practice.",
     "",
     "— The Overhype.me Team",
   ].join("\n");
+
+  const reasonHtml = reasonLabel
+    ? `<p style="margin:0 0 20px;font-size:13px;color:#aaaaaa;line-height:1.7;"><strong style="color:#ffffff;">Reason:</strong> ${reasonLabel}</p>`
+    : "";
 
   const adminNoteHtml = opts.adminNote
     ? `<p style="margin:0 0 28px;font-size:13px;color:#888888;line-height:1.7;border-left:3px solid #2a2a2a;padding-left:14px;"><strong style="color:#aaaaaa;">Note from the team:</strong> ${opts.adminNote}</p>`
@@ -547,7 +560,7 @@ export function buildReviewRejectedEmail(opts: {
     </td>
   </tr>
 </table>
-${adminNoteHtml}
+${reasonHtml}${adminNoteHtml}
 ${divider()}
 <p style="margin:0;font-size:12px;color:#555555;line-height:1.7;font-family:'Inter',-apple-system,sans-serif;">Don&#39;t sweat it. Greatness takes practice. Keep&nbsp;submitting.</p>`;
 

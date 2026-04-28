@@ -48,6 +48,7 @@ export const membershipHistoryTable = pgTable("membership_history", {
   stripeSubscriptionId: varchar("stripe_subscription_id"),
   stripeInvoiceId: varchar("stripe_invoice_id"),
   stripeDisputeId: varchar("stripe_dispute_id"),
+  performedByAdminId: varchar("performed_by_admin_id").references(() => usersTable.id),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [
   index("idx_membership_history_user_id").on(table.userId),

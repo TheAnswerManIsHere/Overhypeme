@@ -19,6 +19,7 @@ import { usersTable } from "@workspace/db/schema";
 import { like } from "drizzle-orm";
 
 import {
+  requireRole,
   requireLegendary,
   injectMembershipTier,
 } from "../middlewares/tierMiddleware.js";
@@ -74,12 +75,14 @@ function makeReq(opts: MakeReqOpts): Request & {
   if (opts.userId) {
     const tier = opts.membershipTier ?? "unregistered";
     const isAdmin = opts.isAdmin ?? false;
+    const isRealAdmin = opts.isRealAdmin ?? isAdmin;
     user = {
       id: opts.userId,
       membershipTier: tier,
       isAdmin,
-      isRealAdmin: opts.isRealAdmin ?? isAdmin,
+      isRealAdmin,
       userRole: deriveUserRole(tier, isAdmin),
+      realUserRole: deriveUserRole(tier, isRealAdmin),
     };
   }
   const req = {
@@ -320,5 +323,128 @@ describe("injectMembershipTier", () => {
     assert.equal(req.membershipTier, "unregistered");
     assert.equal(req.userRole, "unregistered");
     assert.equal(next.calls, 1);
+  });
+});
+
+describe("requireRole('legendary') — unified middleware", () => {
+  before(async () => { await cleanupTestUsers(); });
+  after(async () => { await cleanupTestUsers(); });
+
+  it("returns 401 when the request is not authenticated", async () => {
+    const req = makeReq({ authenticated: false });
+    const res = makeRes();
+    const next = makeNext();
+    await requireRole("legendary")(req, res as unknown as Response, next.fn);
+    assert.equal(res.statusCode, 401);
+    assert.deepEqual(res.body, { error: "Unauthorized" });
+    assert.equal(next.calls, 0);
+  });
+
+  it("returns 403 legendary_required for a registered (non-legendary) user", async () => {
+    const userId = await createTestUser({ tier: "registered" });
+    const req = makeReq({ authenticated: true, userId, membershipTier: "registered", isRealAdmin: false });
+    const res = makeRes();
+    const next = makeNext();
+    await requireRole("legendary")(req, res as unknown as Response, next.fn);
+    assert.equal(res.statusCode, 403);
+    assert.equal((res.body as Record<string, string>)["error"], "legendary_required");
+    assert.equal(next.calls, 0);
+  });
+
+  it("calls next for a legendary-tier user", async () => {
+    const userId = await createTestUser({ tier: "legendary" });
+    const req = makeReq({ authenticated: true, userId, membershipTier: "legendary", isRealAdmin: false });
+    const res = makeRes();
+    const next = makeNext();
+    await requireRole("legendary")(req, res as unknown as Response, next.fn);
+    assert.equal(res.statusCode, 200);
+    assert.equal(next.calls, 1);
+  });
+
+  it("calls next for an admin (admin satisfies legendary)", async () => {
+    const userId = await createTestUser({ tier: "registered", isAdmin: true });
+    const req = makeReq({ authenticated: true, userId, membershipTier: "registered", isAdmin: true, isRealAdmin: true });
+    const res = makeRes();
+    const next = makeNext();
+    await requireRole("legendary")(req, res as unknown as Response, next.fn);
+    assert.equal(res.statusCode, 200);
+    assert.equal(next.calls, 1);
+  });
+});
+
+describe("requireRole('admin') — unified middleware", () => {
+  before(async () => { await cleanupTestUsers(); });
+  after(async () => { await cleanupTestUsers(); });
+
+  it("returns 401 when the request is not authenticated", async () => {
+    const req = makeReq({ authenticated: false });
+    const res = makeRes();
+    const next = makeNext();
+    await requireRole("admin")(req, res as unknown as Response, next.fn);
+    assert.equal(res.statusCode, 401);
+    assert.deepEqual(res.body, { error: "Unauthorized" });
+    assert.equal(next.calls, 0);
+  });
+
+  it("returns 403 admin_required for a non-admin user", async () => {
+    const userId = await createTestUser({ tier: "legendary" });
+    const req = makeReq({ authenticated: true, userId, membershipTier: "legendary", isRealAdmin: false });
+    const res = makeRes();
+    const next = makeNext();
+    await requireRole("admin")(req, res as unknown as Response, next.fn);
+    assert.equal(res.statusCode, 403);
+    assert.deepEqual(res.body, { error: "admin_required" });
+    assert.equal(next.calls, 0);
+  });
+
+  it("returns 403 admin_required for a registered user", async () => {
+    const userId = await createTestUser({ tier: "registered" });
+    const req = makeReq({ authenticated: true, userId, membershipTier: "registered", isRealAdmin: false });
+    const res = makeRes();
+    const next = makeNext();
+    await requireRole("admin")(req, res as unknown as Response, next.fn);
+    assert.equal(res.statusCode, 403);
+    assert.deepEqual(res.body, { error: "admin_required" });
+    assert.equal(next.calls, 0);
+  });
+
+  it("calls next for a DB admin (isRealAdmin=true)", async () => {
+    const userId = await createTestUser({ tier: "registered", isAdmin: true });
+    const req = makeReq({ authenticated: true, userId, membershipTier: "registered", isAdmin: true, isRealAdmin: true });
+    const res = makeRes();
+    const next = makeNext();
+    await requireRole("admin")(req, res as unknown as Response, next.fn);
+    assert.equal(res.statusCode, 200);
+    assert.equal(next.calls, 1);
+  });
+
+  it("calls next for an admin even when adminModeDisabled (realUserRole ignores the toggle)", async () => {
+    // Simulate an admin who has toggled admin mode OFF: isAdmin=false, isRealAdmin=true
+    // realUserRole should still be "admin", so the gate must pass.
+    const userId = await createTestUser({ tier: "registered", isAdmin: true });
+    const req = makeReq({
+      authenticated: true,
+      userId,
+      membershipTier: "registered",
+      isAdmin: false,       // toggle is OFF (view-as-user mode)
+      isRealAdmin: true,    // DB truth — still an admin
+    });
+    const res = makeRes();
+    const next = makeNext();
+    await requireRole("admin")(req, res as unknown as Response, next.fn);
+    assert.equal(res.statusCode, 200);
+    assert.equal(next.calls, 1);
+  });
+
+  it("role hierarchy: admin satisfies legendary satisfies registered", async () => {
+    const userId = await createTestUser({ tier: "registered", isAdmin: true });
+    const req = makeReq({ authenticated: true, userId, membershipTier: "registered", isAdmin: true, isRealAdmin: true });
+
+    for (const role of ["admin", "legendary", "registered"] as const) {
+      const res = makeRes();
+      const next = makeNext();
+      await requireRole(role)(req, res as unknown as Response, next.fn);
+      assert.equal(next.calls, 1, `admin should satisfy requireRole("${role}")`);
+    }
   });
 });

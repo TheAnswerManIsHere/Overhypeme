@@ -3,6 +3,8 @@ import * as Sentry from "@sentry/node";
 import { db, usersTable, sessionsTable } from "@workspace/db";
 import { factsTable, commentsTable, adminConfigTable, videoStylesTable, featureFlagsTable, tierFeaturePermissionsTable, userGenerationCostsTable, lifetimeEntitlementsTable, subscriptionsTable, membershipHistoryTable, activityFeedTable, memesTable, userAiImagesTable, routeStatsTable, routeStatEventsTable, emailOutboxTable } from "@workspace/db/schema";
 import { eq, desc, count, ilike, sql, and, or, inArray, isNull, asc, gt, gte, sum } from "drizzle-orm";
+import { alias } from "drizzle-orm/pg-core";
+import { requireRole } from "../middlewares/tierMiddleware";
 import { backfillEmbeddings } from "../lib/embeddings";
 import { runFactImagePipeline } from "../lib/factImagePipeline";
 import { generateAiMemeBackgrounds, type AiScenePrompts, type AiMemeImages } from "../lib/aiMemePipeline";
@@ -39,27 +41,11 @@ async function resolveUserTierOnReinstatement(userId: string): Promise<"register
 
 const router: IRouter = Router();
 
-export async function requireAdmin(req: Request, res: Response, next: NextFunction) {
-  if (!req.isAuthenticated()) {
-    res.status(401).json({ error: "Unauthorized" });
-    return;
-  }
-
-  // authMiddleware re-fetches the user row on every request and exposes
-  // req.user.isRealAdmin (DB truth, ignoring the "view as user" toggle), so
-  // backend authorization can rely on it as the single source of truth.
-  if (!req.user.isRealAdmin) {
-    res.status(403).json({ error: "Forbidden" });
-    return;
-  }
-
-  next();
-}
-
-router.get("/admin/me", requireAdmin, (_req: Request, res: Response) => {
-  res.json({ isAdmin: true });
-});
-
+/**
+ * Shim for backwards-compatibility.
+ * Delegates to requireRole("admin") — the single source of admin gating.
+ */
+export const requireAdmin = requireRole("admin");
 
 router.get("/admin/stats", requireAdmin, async (_req: Request, res: Response) => {
   const [[{ totalFacts }], [{ totalUsers }]] = await Promise.all([
@@ -358,20 +344,27 @@ router.get("/admin/users/:id/membership", requireAdmin, async (req: Request, res
         .where(eq(subscriptionsTable.userId, id))
         .orderBy(desc(subscriptionsTable.createdAt))
         .limit(1),
-      db.select({
-        id: membershipHistoryTable.id,
-        event: membershipHistoryTable.event,
-        plan: membershipHistoryTable.plan,
-        amount: membershipHistoryTable.amount,
-        currency: membershipHistoryTable.currency,
-        createdAt: membershipHistoryTable.createdAt,
-        stripePaymentIntentId: membershipHistoryTable.stripePaymentIntentId,
-        stripeInvoiceId: membershipHistoryTable.stripeInvoiceId,
-        stripeDisputeId: membershipHistoryTable.stripeDisputeId,
-      }).from(membershipHistoryTable)
-        .where(eq(membershipHistoryTable.userId, id))
-        .orderBy(desc(membershipHistoryTable.createdAt))
-        .limit(30),
+      (() => {
+        const adminUsers = alias(usersTable, "admin_users");
+        return db.select({
+          id: membershipHistoryTable.id,
+          event: membershipHistoryTable.event,
+          plan: membershipHistoryTable.plan,
+          amount: membershipHistoryTable.amount,
+          currency: membershipHistoryTable.currency,
+          createdAt: membershipHistoryTable.createdAt,
+          stripePaymentIntentId: membershipHistoryTable.stripePaymentIntentId,
+          stripeInvoiceId: membershipHistoryTable.stripeInvoiceId,
+          stripeDisputeId: membershipHistoryTable.stripeDisputeId,
+          performedByAdminId: membershipHistoryTable.performedByAdminId,
+          performedByAdminDisplayName: adminUsers.displayName,
+          performedByAdminEmail: adminUsers.email,
+        }).from(membershipHistoryTable)
+          .leftJoin(adminUsers, eq(membershipHistoryTable.performedByAdminId, adminUsers.id))
+          .where(eq(membershipHistoryTable.userId, id))
+          .orderBy(desc(membershipHistoryTable.createdAt))
+          .limit(30);
+      })(),
     ]);
 
     const appSub = subRows[0] ?? null;
@@ -512,6 +505,7 @@ router.post("/admin/users/:id/grant-lifetime", requireAdmin, async (req: Request
         amount: 0,
         currency: "usd",
         stripePaymentIntentId: fakePaymentIntentId,
+        performedByAdminId: adminUserId,
       });
     });
 
@@ -533,12 +527,14 @@ router.post("/admin/users/:id/revoke-lifetime", requireAdmin, async (req: Reques
       return;
     }
 
+    const adminUserId = req.user!.id;
     await db.transaction(async (tx) => {
       await tx.delete(lifetimeEntitlementsTable).where(eq(lifetimeEntitlementsTable.userId, id));
       await tx.insert(membershipHistoryTable).values({
         userId: id,
         event: "subscription_cancelled",
         plan: "lifetime",
+        performedByAdminId: adminUserId,
       });
     });
 
@@ -1000,7 +996,7 @@ async function requireAdminOrApiKey(req: Request, res: Response, next: NextFunct
     next();
     return;
   }
-  return requireAdmin(req, res, next);
+  return requireAdmin(req, res, next) as unknown as void;
 }
 
 // POST /admin/users/set-password — reset a user's password by email (API key auth)

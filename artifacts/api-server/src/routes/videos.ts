@@ -730,13 +730,14 @@ router.post("/videos/generate", async (req, res) => {
     return;
   }
 
-  // authMiddleware already populates req.user.isRealAdmin (DB truth) and
-  // req.user.membershipTier on every authenticated request, so we read those
-  // directly instead of consulting the session blob or re-querying the DB.
+  // authMiddleware populates req.user.realUserRole (DB truth, ignores the
+  // "view as user" toggle) and req.user.membershipTier on every authenticated
+  // request.  Use realUserRole as the gating signal — no direct reads of the
+  // isRealAdmin boolean for authorization decisions.
   let isAdmin = false;
   let userTier: string = "unregistered";
   if (req.isAuthenticated()) {
-    isAdmin = !!req.user.isRealAdmin;
+    isAdmin = req.user.realUserRole === "admin";
     userTier = req.user.membershipTier ?? "unregistered";
   }
 

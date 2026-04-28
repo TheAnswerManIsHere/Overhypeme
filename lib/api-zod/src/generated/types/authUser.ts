@@ -20,5 +20,6 @@ export interface AuthUser {
   isRealAdmin?: boolean | null;
   pronouns?: string | null;
   userRole?: AuthUserUserRole;
+  realUserRole?: AuthUserUserRole;
   captchaVerified?: boolean | null;
 }

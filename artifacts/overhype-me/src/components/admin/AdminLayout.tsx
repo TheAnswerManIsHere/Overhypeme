@@ -43,8 +43,7 @@ const COLLAPSED_KEY = "admin_sidebar_collapsed";
 
 export function AdminLayout({ children, title }: AdminLayoutProps) {
   const [location] = useLocation();
-  const { isAuthenticated, logout, isLoading } = useAuth();
-  const [isAdmin, setIsAdmin] = useState<boolean | null>(null);
+  const { isAuthenticated, logout, isLoading, role } = useAuth();
   const [pendingReviews, setPendingReviews] = useState(0);
   const [pendingComments, setPendingComments] = useState(0);
   const [collapsed, setCollapsed] = useState(() => {
@@ -59,30 +58,21 @@ export function AdminLayout({ children, title }: AdminLayoutProps) {
     });
   };
 
-  useEffect(() => {
-    if (isLoading) return;
-    if (!isAuthenticated) {
-      setIsAdmin(false);
-      return;
-    }
-    fetch("/api/admin/me", { credentials: "include" })
-      .then((r) => {
-        setIsAdmin(r.ok);
-        if (r.ok) {
-          fetch("/api/admin/reviews/count", { credentials: "include" })
-            .then((cr) => cr.json())
-            .then((d: { total?: number }) => setPendingReviews(d.total ?? 0))
-            .catch(() => {});
-          fetch("/api/admin/comments/pending/count", { credentials: "include" })
-            .then((cr) => cr.json())
-            .then((d: { total?: number }) => setPendingComments(d.total ?? 0))
-            .catch(() => {});
-        }
-      })
-      .catch(() => setIsAdmin(false));
-  }, [isAuthenticated, isLoading]);
+  const isAdmin = role === "admin";
 
-  if (isLoading || isAdmin === null) {
+  useEffect(() => {
+    if (isLoading || !isAdmin) return;
+    fetch("/api/admin/reviews/count", { credentials: "include" })
+      .then((cr) => cr.json())
+      .then((d: { total?: number }) => setPendingReviews(d.total ?? 0))
+      .catch(() => {});
+    fetch("/api/admin/comments/pending/count", { credentials: "include" })
+      .then((cr) => cr.json())
+      .then((d: { total?: number }) => setPendingComments(d.total ?? 0))
+      .catch(() => {});
+  }, [isLoading, isAdmin]);
+
+  if (isLoading) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
         <div className="text-muted-foreground">Loading…</div>
@@ -90,7 +80,7 @@ export function AdminLayout({ children, title }: AdminLayoutProps) {
     );
   }
 
-  if (!isAuthenticated || isAdmin === false) {
+  if (!isAuthenticated || !isAdmin) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center p-4">
         <div className="text-center space-y-4 max-w-md">

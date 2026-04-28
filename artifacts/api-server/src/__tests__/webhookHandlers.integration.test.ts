@@ -46,12 +46,17 @@ after(async () => {
   // starting with "admin_" (e.g. "admin_abandoned_email_alert"). Other test
   // files tag their outbox rows with kind = "t248_test" / "t259_test" etc.,
   // so filtering by null-or-admin_ avoids deleting their rows in a concurrent run.
+  //
+  // IMPORTANT: the pattern uses "admin\\_%" — the backslash escapes the
+  // underscore so PostgreSQL LIKE treats it as a literal "_", not the
+  // single-character wildcard. Without the escape, a kind like "adminXfoo"
+  // would also match, silently deleting unintended rows.
   await db
     .delete(emailOutboxTable)
     .where(
       and(
         gte(emailOutboxTable.createdAt, TEST_FILE_START),
-        or(isNull(emailOutboxTable.kind), like(emailOutboxTable.kind, "admin_%")),
+        or(isNull(emailOutboxTable.kind), like(emailOutboxTable.kind, "admin\\_%")),
       ),
     );
 });

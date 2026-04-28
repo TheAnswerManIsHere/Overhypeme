@@ -13,6 +13,7 @@ import {
   makeGrantDeps,
   handleConfirmRequest,
 } from "../lib/membershipGrant";
+import { handleReceiptRequest } from "../lib/receiptHandler";
 
 const router: IRouter = Router();
 
@@ -154,23 +155,16 @@ router.get("/stripe/invoice/:invoiceId/receipt", async (req: Request, res: Respo
     return;
   }
   try {
-    const user = await stripeStorage.getUserById(req.user.id);
-    if (!user?.stripeCustomerId) {
-      res.status(403).json({ error: "No billing account found" });
-      return;
-    }
     const stripe = await getUncachableStripeClient();
-    const invoice = await stripe.invoices.retrieve(invoiceId);
-    const invoiceCustomer = typeof invoice.customer === "string" ? invoice.customer : invoice.customer?.id;
-    if (invoiceCustomer !== user.stripeCustomerId) {
-      res.status(403).json({ error: "Forbidden" });
-      return;
+    const result = await handleReceiptRequest(req.user.id, invoiceId, {
+      getUserById: (id) => stripeStorage.getUserById(id),
+      retrieveInvoice: (id) => stripe.invoices.retrieve(id),
+    });
+    if (result.type === "redirect") {
+      res.redirect(302, result.url);
+    } else {
+      res.status(result.status).json({ error: result.message });
     }
-    if (!invoice.hosted_invoice_url) {
-      res.status(404).json({ error: "No receipt available for this charge" });
-      return;
-    }
-    res.redirect(302, invoice.hosted_invoice_url);
   } catch (err) {
     logger.error({ err, invoiceId }, "GET /stripe/invoice/:invoiceId/receipt error");
     res.status(500).json({ error: "Failed to retrieve receipt" });

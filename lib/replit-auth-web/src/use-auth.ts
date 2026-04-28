@@ -11,6 +11,7 @@ export interface AuthState {
   isLoading: boolean;
   isAuthenticated: boolean;
   role: UserRole;
+  realRole: UserRole;
   login: () => void;
   logout: () => Promise<void>;
   refreshUser: () => Promise<void>;
@@ -21,6 +22,14 @@ function deriveRole(user: AuthUser | null): UserRole {
   if (user.userRole === "admin") return "admin";
   if (user.userRole === "legendary" || user.membershipTier === "legendary") return "legendary";
   if (user.userRole === "registered" || user.membershipTier === "registered") return "registered";
+  return "unregistered";
+}
+
+function deriveRealRole(user: AuthUser | null): UserRole {
+  if (!user) return "anonymous";
+  if (user.realUserRole === "admin" || user.isRealAdmin) return "admin";
+  if (user.realUserRole === "legendary" || user.membershipTier === "legendary") return "legendary";
+  if (user.realUserRole === "registered" || user.membershipTier === "registered") return "registered";
   return "unregistered";
 }
 
@@ -77,6 +86,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     isLoading,
     isAuthenticated: !!user,
     role: deriveRole(user),
+    realRole: deriveRealRole(user),
     login,
     logout,
     refreshUser,
