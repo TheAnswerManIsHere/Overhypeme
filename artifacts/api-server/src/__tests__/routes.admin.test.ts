@@ -266,3 +266,123 @@ describe("GET /admin/comments/flagged", () => {
     assert.ok(Array.isArray(res.body.comments), "comments should be an array");
   });
 });
+
+// ── PATCH /admin/users/:id ────────────────────────────────────────────────────
+
+describe("PATCH /admin/users/:id", () => {
+  it("returns 401 with no credentials", async () => {
+    const res = await request(makeApp())
+      .patch("/admin/users/some-id")
+      .send({ isActive: true });
+    assert.equal(res.status, 401);
+    assert.equal(res.body.error, "Unauthorized");
+  });
+
+  it("returns 403 admin_required for a non-admin user", async () => {
+    const res = await request(makeApp())
+      .patch("/admin/users/some-id")
+      .set("authorization", `Bearer ${userSid}`)
+      .send({ isActive: true });
+    assert.equal(res.status, 403);
+    assert.equal(res.body.error, "admin_required");
+  });
+});
+
+// ── DELETE /admin/users/:id ───────────────────────────────────────────────────
+
+describe("DELETE /admin/users/:id", () => {
+  it("returns 401 with no credentials", async () => {
+    const res = await request(makeApp()).delete("/admin/users/some-id");
+    assert.equal(res.status, 401);
+    assert.equal(res.body.error, "Unauthorized");
+  });
+
+  it("returns 403 admin_required for a non-admin user", async () => {
+    const res = await request(makeApp())
+      .delete("/admin/users/some-id")
+      .set("authorization", `Bearer ${userSid}`);
+    assert.equal(res.status, 403);
+    assert.equal(res.body.error, "admin_required");
+  });
+});
+
+// ── POST /admin/users/:id/grant-lifetime ──────────────────────────────────────
+
+describe("POST /admin/users/:id/grant-lifetime", () => {
+  it("returns 401 with no credentials", async () => {
+    const res = await request(makeApp())
+      .post("/admin/users/some-id/grant-lifetime")
+      .send({});
+    assert.equal(res.status, 401);
+    assert.equal(res.body.error, "Unauthorized");
+  });
+
+  it("returns 403 admin_required for a non-admin user", async () => {
+    const res = await request(makeApp())
+      .post("/admin/users/some-id/grant-lifetime")
+      .set("authorization", `Bearer ${userSid}`)
+      .send({});
+    assert.equal(res.status, 403);
+    assert.equal(res.body.error, "admin_required");
+  });
+});
+
+// ── PATCH /admin/facts/:id ────────────────────────────────────────────────────
+
+describe("PATCH /admin/facts/:id", () => {
+  it("returns 401 with no credentials", async () => {
+    const res = await request(makeApp())
+      .patch("/admin/facts/some-id")
+      .send({ isActive: true });
+    assert.equal(res.status, 401);
+    assert.equal(res.body.error, "Unauthorized");
+  });
+
+  it("returns 403 admin_required for a non-admin user", async () => {
+    const res = await request(makeApp())
+      .patch("/admin/facts/some-id")
+      .set("authorization", `Bearer ${userSid}`)
+      .send({ isActive: true });
+    assert.equal(res.status, 403);
+    assert.equal(res.body.error, "admin_required");
+  });
+});
+
+// ── DELETE /admin/facts/:id ───────────────────────────────────────────────────
+
+describe("DELETE /admin/facts/:id", () => {
+  it("returns 401 with no credentials", async () => {
+    const res = await request(makeApp()).delete("/admin/facts/some-id");
+    assert.equal(res.status, 401);
+    assert.equal(res.body.error, "Unauthorized");
+  });
+
+  it("returns 403 admin_required for a non-admin user", async () => {
+    const res = await request(makeApp())
+      .delete("/admin/facts/some-id")
+      .set("authorization", `Bearer ${userSid}`);
+    assert.equal(res.status, 403);
+    assert.equal(res.body.error, "admin_required");
+  });
+});
+
+// ── PATCH /admin/config/:key ──────────────────────────────────────────────────
+
+describe("PATCH /admin/config/:key", () => {
+  it("returns 401 with no credentials", async () => {
+    const res = await request(makeApp())
+      .patch("/admin/config/some-key")
+      .send({ value: "test" });
+    assert.equal(res.status, 401);
+    assert.equal(res.body.error, "Unauthorized");
+  });
+
+  it("returns 403 admin_required for a non-admin user", async () => {
+    const res = await request(makeApp())
+      .patch("/admin/config/some-key")
+      .set("authorization", `Bearer ${userSid}`)
+      .send({ value: "test" });
+    assert.equal(res.status, 403);
+    assert.equal(res.body.error, "admin_required");
+  });
+});
