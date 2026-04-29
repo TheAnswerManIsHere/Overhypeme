@@ -165,13 +165,17 @@ describe("handleReceiptRequest", () => {
     }
   });
 
-  it("returns 403 when the user has no Stripe customer ID (no billing account)", async () => {
+  it("returns 404 with a user-friendly message when the user has no Stripe customer ID", async () => {
     const deps = makeFakeDeps({ stripeCustomerId: null });
     const result = await handleReceiptRequest("user-1", "in_valid", deps);
 
     assert.equal(result.type, "error");
     if (result.type === "error") {
-      assert.equal(result.status, 403);
+      assert.equal(result.status, 404, "expected 404 when user has no billing account");
+      assert.ok(
+        result.message.toLowerCase().includes("invoice"),
+        `expected message to mention invoices, got: "${result.message}"`,
+      );
     }
   });
 
