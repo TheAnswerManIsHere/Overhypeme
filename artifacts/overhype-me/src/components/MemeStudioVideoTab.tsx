@@ -21,6 +21,7 @@ import type { PexelsPhotoEntry, FactPexelsImages } from "@/types/pexels";
 import { AiBgPicker, type AiBgSelection } from "@/components/AiBgPicker";
 import { Button } from "@/components/ui/Button";
 import { ImageCard } from "@/components/ui/ImageCard";
+import { AdminMediaInfo, AdminMediaInfoForUrl, getFileNameFromUrl, getMimeTypeFromUrl } from "@/components/ui/AdminMediaInfo";
 import { useAuth } from "@workspace/replit-auth-web";
 import { usePersonName } from "@/hooks/use-person-name";
 import { AccessGate } from "@/components/AccessGate";
@@ -465,6 +466,7 @@ function VideoTab({ factId, factText, pexelsImages, aiMemeImages, initialImageDa
   const [step, setStep] = useState<VideoStep>(initialImageDataUrl ? 2 : 1);
   const [selectedStyleId, setSelectedStyleId] = useState("cinematic");
   const [videoState, setVideoState] = useState<VideoState>({ status: "idle" });
+  const [videoDims, setVideoDims] = useState<{ width: number; height: number } | null>(null);
 
   // ── Background image state ────────────────────────────────────────────────
   const [imageMode, setImageMode] = useState<VideoImageMode>("stock");
@@ -512,7 +514,7 @@ function VideoTab({ factId, factText, pexelsImages, aiMemeImages, initialImageDa
   // Upload
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isUploadingFile, setIsUploadingFile] = useState(false);
-  const [uploadGallery, setUploadGallery] = useState<Array<{ objectPath: string; width: number; height: number }>>([]);
+  const [uploadGallery, setUploadGallery] = useState<Array<{ objectPath: string; width: number; height: number; fileSizeBytes: number }>>([]);
   const [isLoadingGallery, setIsLoadingGallery] = useState(false);
 
   // ── Video generation progress ───────────────────────────────────────────────
@@ -627,7 +629,7 @@ function VideoTab({ factId, factText, pexelsImages, aiMemeImages, initialImageDa
     setIsLoadingGallery(true);
     fetch("/api/users/me/uploads", { credentials: "include" })
       .then((r) => r.json())
-      .then((data: { uploads?: Array<{ objectPath: string; width: number; height: number }> }) => {
+      .then((data: { uploads?: Array<{ objectPath: string; width: number; height: number; fileSizeBytes: number }> }) => {
         setUploadGallery(data.uploads ?? []);
       })
       .catch(() => {})
@@ -950,6 +952,7 @@ function VideoTab({ factId, factText, pexelsImages, aiMemeImages, initialImageDa
                         }}
                         compact
                         actions={["openFull"]}
+                        footer={<AdminMediaInfoForUrl url={photo.url} mimeType={getMimeTypeFromUrl(photo.url)} />}
                       />
                     ))}
                   </div>
@@ -1053,6 +1056,7 @@ function VideoTab({ factId, factText, pexelsImages, aiMemeImages, initialImageDa
                               }}
                               compact
                               actions={["openFull"]}
+                              footer={<AdminMediaInfo fileName={getFileNameFromUrl(entry.objectPath)} fileSizeBytes={entry.fileSizeBytes} mimeType={getMimeTypeFromUrl(entry.objectPath)} width={entry.width} height={entry.height} />}
                             />
                           );
                         })}
@@ -1571,7 +1575,22 @@ function VideoTab({ factId, factText, pexelsImages, aiMemeImages, initialImageDa
             <div className="space-y-3 mb-4">
               <p className="text-xs font-display uppercase tracking-widest text-[#ff6b35]">Your Video</p>
               <div className="border-2 border-border overflow-hidden">
-                <video src={videoState.url} controls autoPlay className="w-full" />
+                <video
+                  src={videoState.url}
+                  controls
+                  autoPlay
+                  className="w-full"
+                  onLoadedMetadata={(e) => {
+                    const v = e.currentTarget;
+                    setVideoDims({ width: v.videoWidth, height: v.videoHeight });
+                  }}
+                />
+                <AdminMediaInfo
+                  fileName={getFileNameFromUrl(videoState.url)}
+                  mimeType={getMimeTypeFromUrl(videoState.url)}
+                  width={videoDims?.width}
+                  height={videoDims?.height}
+                />
               </div>
               <div className="grid grid-cols-2 gap-2">
                 <Button onClick={handleDownload} variant="secondary" className="gap-2">

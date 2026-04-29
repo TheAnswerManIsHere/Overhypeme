@@ -5,6 +5,7 @@ import { Layout } from "@/components/layout/Layout";
 import { Button } from "@/components/ui/Button";
 import { MerchButtons } from "@/components/MerchButtons";
 import { Share2, AlertCircle, ArrowLeft, Download, Ban } from "lucide-react";
+import { AdminMediaInfo, getFileNameFromUrl, getMimeTypeFromUrl } from "@/components/ui/AdminMediaInfo";
 
 type MemeData = {
   id: number;
@@ -16,6 +17,9 @@ type MemeData = {
   factText: string;
   createdAt: string;
   createdByName: string | null;
+  originalWidth: number | null;
+  originalHeight: number | null;
+  uploadFileSizeBytes: number | null;
 };
 
 export default function MemePage() {
@@ -140,6 +144,13 @@ export default function MemePage() {
             alt="Fact meme"
             className="w-full rounded-sm border-2 border-border"
             loading="lazy"
+          />
+          <AdminMediaInfo
+            fileName={getFileNameFromUrl(meme.imageUrl)}
+            fileSizeBytes={meme.uploadFileSizeBytes}
+            mimeType={getMimeTypeFromUrl(meme.imageUrl)}
+            width={meme.originalWidth}
+            height={meme.originalHeight}
           />
 
           <div className="border-t-2 border-border pt-6">

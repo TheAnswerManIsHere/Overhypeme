@@ -12,6 +12,7 @@ import type { PexelsPhotoEntry, FactPexelsImages } from "@/types/pexels";
 import type { AiMemeImages } from "@/types/meme";
 import { AiBgPicker, type AiBgSelection } from "@/components/AiBgPicker";
 import { ImageCard } from "@/components/ui/ImageCard";
+import { AdminMediaInfo, AdminMediaInfoForUrl, getFileNameFromUrl, getMimeTypeFromUrl } from "@/components/ui/AdminMediaInfo";
 import { usePersonName } from "@/hooks/use-person-name";
 import { useListMemeTemplates } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -484,6 +485,7 @@ const ADMIN_MODEL_PARAMS: Record<string, AdminParamDef[]> = {
 export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMemeImages, onClose, defaultPrivate, embedded, fullScreen }: MemeBuilderProps) {
   const { isAuthenticated, login, role, user } = useAuth();
   const isPremium = role === "legendary" || role === "admin";
+  const isRegistered = isAuthenticated && role !== "unregistered";
   const isAdmin = role === "admin";
   const { pronouns } = usePersonName();
   const [, setLocation] = useLocation();
@@ -559,6 +561,7 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
   const [uploadIsLowRes, setUploadIsLowRes] = useState<boolean>(() => readDraft(factId)?.uploadIsLowRes ?? false);
   const [uploadWidth, setUploadWidth] = useState<number | null>(() => readDraft(factId)?.uploadWidth ?? null);
   const [uploadHeight, setUploadHeight] = useState<number | null>(() => readDraft(factId)?.uploadHeight ?? null);
+  const [uploadFileSizeBytes, setUploadFileSizeBytes] = useState<number | null>(null);
   const [isDragOver, setIsDragOver] = useState(false);
 
   // Upload gallery — existing uploads for premium users
@@ -1149,9 +1152,9 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
     };
   }, [uploadLocalUrl]);
 
-  // Fetch the existing upload gallery when premium user is in upload mode
+  // Fetch the existing upload gallery when registered user is in upload mode
   useEffect(() => {
-    if (!isPremium || imageMode !== "upload") return;
+    if (!isRegistered || imageMode !== "upload") return;
     let cancelled = false;
     setIsLoadingGallery(true);
     fetch("/api/users/me/uploads", { credentials: "include" })
@@ -1166,7 +1169,7 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
       .catch(() => {})
       .finally(() => { if (!cancelled) setIsLoadingGallery(false); });
     return () => { cancelled = true; };
-  }, [isPremium, imageMode]);
+  }, [isRegistered, imageMode]);
 
 
   // Select an existing uploaded image as the meme background (no re-upload)
@@ -1178,6 +1181,7 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
     setUploadIsLowRes(entry.isLowRes);
     setUploadWidth(entry.width);
     setUploadHeight(entry.height);
+    setUploadFileSizeBytes(entry.fileSizeBytes);
     // Set the display URL — the canvas background effect will pick it up automatically
     setUploadDisplayUrl(`/api/storage${entry.objectPath}`);
   }, [uploadLocalUrl]);
@@ -1436,7 +1440,7 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
             <ModeTab
               active={imageMode === "upload"}
               onClick={() => setImageMode("upload")}
-              badge={!isPremium ? "PRO" : undefined}
+              badge={!isRegistered ? "PRO" : undefined}
             >
               Upload
             </ModeTab>
@@ -1520,6 +1524,7 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
                         onSelect={() => selectPrefetchedPhoto(photo, i)}
                         compact
                         actions={["openFull"]}
+                        footer={<AdminMediaInfoForUrl url={photo.url} mimeType={getMimeTypeFromUrl(photo.url)} />}
                       />
                     ))}
                   </div>
@@ -1604,18 +1609,16 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
           {/* Upload mode */}
           {imageMode === "upload" && (
             <>
-              {!isPremium ? (
-                <div className="border-2 border-dashed border-amber-400/30 bg-amber-400/5 p-5 text-center space-y-2">
-                  <Lock className="w-6 h-6 text-amber-400 mx-auto" />
-                  <p className="text-sm font-bold text-amber-400 uppercase tracking-wider">
-                    Legendary Feature
+              {!isRegistered ? (
+                <div className="border-2 border-dashed border-border bg-muted/20 p-5 text-center space-y-2">
+                  <Lock className="w-6 h-6 text-muted-foreground mx-auto" />
+                  <p className="text-sm font-bold text-foreground uppercase tracking-wider">
+                    Sign In Required
                   </p>
                   <p className="text-xs text-muted-foreground">
-                    Upload your own photos with a Legendary membership.
+                    Create a free account to upload your own photos as meme backgrounds.
                   </p>
-                  <Link href="/pricing">
-                    <Button size="sm" className="mt-2">Go Legendary</Button>
-                  </Link>
+                  <Button size="sm" className="mt-2" onClick={login}>Sign In / Register</Button>
                 </div>
               ) : (
                 <div className="space-y-4">
@@ -1768,6 +1771,7 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
                                   LOW RES
                                 </div>
                               ) : undefined}
+                              footer={<AdminMediaInfo fileName={getFileNameFromUrl(entry.objectPath)} fileSizeBytes={entry.fileSizeBytes} mimeType={getMimeTypeFromUrl(entry.objectPath)} width={entry.width} height={entry.height} />}
                             />
                           );
                         })}
@@ -1882,6 +1886,33 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
                 </p>
               )}
             </div>
+
+            {/* Admin media info strip — below canvas, above resize handle */}
+            {isAdmin && imageMode === "upload" && (uploadFile || uploadObjectPath) && (
+              <div className="px-4 md:px-5 mt-0.5">
+                <AdminMediaInfo
+                  fileName={uploadFile ? uploadFile.name : getFileNameFromUrl(uploadObjectPath!)}
+                  fileSizeBytes={uploadFile ? uploadFile.size : uploadFileSizeBytes}
+                  mimeType={uploadFile ? getMimeTypeFromUrl(uploadFile.name) : getMimeTypeFromUrl(uploadObjectPath!)}
+                  width={uploadWidth}
+                  height={uploadHeight}
+                />
+              </div>
+            )}
+            {isAdmin && imageMode === "stock" && stockPhoto && (
+              <div className="px-4 md:px-5 mt-0.5">
+                <AdminMediaInfoForUrl url={stockPhoto.photoUrl} mimeType={getMimeTypeFromUrl(stockPhoto.photoUrl)} />
+              </div>
+            )}
+            {isAdmin && imageMode === "ai" && aiSelectedInfo && (
+              <div className="px-4 md:px-5 mt-0.5">
+                <AdminMediaInfoForUrl
+                  url={aiSelectedInfo.url}
+                  fileName={aiSelectedInfo.storagePath ? getFileNameFromUrl(aiSelectedInfo.storagePath) : null}
+                  mimeType={aiSelectedInfo.storagePath ? getMimeTypeFromUrl(aiSelectedInfo.storagePath) : getMimeTypeFromUrl(aiSelectedInfo.url)}
+                />
+              </div>
+            )}
 
             {/* Resize drag handle */}
             <div

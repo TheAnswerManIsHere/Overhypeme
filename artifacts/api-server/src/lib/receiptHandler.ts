@@ -33,7 +33,11 @@ export async function handleReceiptRequest(
 ): Promise<ReceiptResult> {
   const user = await deps.getUserById(userId);
   if (!user?.stripeCustomerId) {
-    return { type: "error", status: 403, message: "No billing account found" };
+    return {
+      type: "error",
+      status: 404,
+      message: "You don't have any invoices yet. Receipts will appear here once you make a purchase.",
+    };
   }
 
   const invoice = await deps.retrieveInvoice(invoiceId);

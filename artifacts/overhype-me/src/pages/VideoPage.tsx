@@ -1,8 +1,10 @@
+import { useState, useEffect } from "react";
 import { useRoute, Link } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { Layout } from "@/components/layout/Layout";
 import { Button } from "@/components/ui/Button";
 import { Share2, AlertCircle, ArrowLeft, Play, Download } from "lucide-react";
+import { AdminMediaInfo, getFileNameFromUrl, getMimeTypeFromUrl } from "@/components/ui/AdminMediaInfo";
 
 type VideoData = {
   id: number;
@@ -20,6 +22,7 @@ type VideoData = {
 export default function VideoPage() {
   const [, params] = useRoute("/video/:id");
   const videoId = params?.id ?? "";
+  const [videoDims, setVideoDims] = useState<{ width: number; height: number } | null>(null);
 
   const { data: videoResult, isLoading, error } = useQuery<{ video: VideoData }>({
     queryKey: ["video-page", videoId],
@@ -34,6 +37,10 @@ export default function VideoPage() {
 
   const video = videoResult?.video ?? null;
   const factId = video?.factId;
+
+  useEffect(() => {
+    setVideoDims(null);
+  }, [video?.videoUrl]);
 
   const handleShare = () => {
     if (navigator.share) {
@@ -118,6 +125,10 @@ export default function VideoPage() {
                 autoPlay
                 playsInline
                 className="w-full h-full object-contain"
+                onLoadedMetadata={(e) => {
+                  const v = e.currentTarget;
+                  if (v.videoWidth > 0) setVideoDims({ width: v.videoWidth, height: v.videoHeight });
+                }}
               />
             ) : (
               <div className="absolute inset-0 flex flex-col items-center justify-center gap-3">
@@ -126,6 +137,15 @@ export default function VideoPage() {
               </div>
             )}
           </div>
+          {video.videoUrl && (
+            <AdminMediaInfo
+              fileName={getFileNameFromUrl(video.videoUrl)}
+              fileSizeBytes={null}
+              mimeType={getMimeTypeFromUrl(video.videoUrl)}
+              width={videoDims?.width ?? null}
+              height={videoDims?.height ?? null}
+            />
+          )}
 
           {video.factText && (
             <div className="border-t-2 border-border pt-6">

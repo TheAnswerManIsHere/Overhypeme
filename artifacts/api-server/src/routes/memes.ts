@@ -424,9 +424,13 @@ router.get("/memes/:slug", async (req: Request, res: Response) => {
     templateId: meme.templateId,
     imageUrl: meme.imageUrl,
     permalinkSlug: meme.permalinkSlug,
+    isPublic: meme.isPublic,
     factText,
     createdAt: meme.createdAt.toISOString(),
     createdByName,
+    originalWidth: meme.originalWidth ?? null,
+    originalHeight: meme.originalHeight ?? null,
+    uploadFileSizeBytes: meme.uploadFileSizeBytes ?? null,
   });
 });
 
@@ -502,6 +506,9 @@ router.get("/facts/:factId/memes", async (req: Request, res: Response) => {
       createdById: m.createdById,
       createdAt: m.createdAt.toISOString(),
       aspectRatio: m.aspectRatio ?? "landscape",
+      originalWidth: m.originalWidth ?? null,
+      originalHeight: m.originalHeight ?? null,
+      uploadFileSizeBytes: m.uploadFileSizeBytes ?? null,
     })),
   });
 });
