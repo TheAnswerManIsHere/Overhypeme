@@ -427,7 +427,7 @@ export async function notifyAdminsOfFraudWarning(opts: AdminFraudWarningNotifyOp
   }
 }
 
-function buildFraudWarningEmail(opts: AdminFraudWarningNotifyOpts) {
+export function buildFraudWarningEmail(opts: AdminFraudWarningNotifyOpts) {
   const formattedAmount = formatAmount(opts.amount, opts.currency);
   const dashboardUrl = stripeDashboardUrl("radar_early_fraud_warnings", opts.warningId, { liveMode: opts.livemode });
 
