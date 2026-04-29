@@ -485,6 +485,7 @@ const ADMIN_MODEL_PARAMS: Record<string, AdminParamDef[]> = {
 export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMemeImages, onClose, defaultPrivate, embedded, fullScreen }: MemeBuilderProps) {
   const { isAuthenticated, login, role, user } = useAuth();
   const isPremium = role === "legendary" || role === "admin";
+  const isRegistered = isAuthenticated && role !== "unregistered";
   const isAdmin = role === "admin";
   const { pronouns } = usePersonName();
   const [, setLocation] = useLocation();
@@ -1151,9 +1152,9 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
     };
   }, [uploadLocalUrl]);
 
-  // Fetch the existing upload gallery when premium user is in upload mode
+  // Fetch the existing upload gallery when registered user is in upload mode
   useEffect(() => {
-    if (!isPremium || imageMode !== "upload") return;
+    if (!isRegistered || imageMode !== "upload") return;
     let cancelled = false;
     setIsLoadingGallery(true);
     fetch("/api/users/me/uploads", { credentials: "include" })
@@ -1168,7 +1169,7 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
       .catch(() => {})
       .finally(() => { if (!cancelled) setIsLoadingGallery(false); });
     return () => { cancelled = true; };
-  }, [isPremium, imageMode]);
+  }, [isRegistered, imageMode]);
 
 
   // Select an existing uploaded image as the meme background (no re-upload)
@@ -1439,7 +1440,7 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
             <ModeTab
               active={imageMode === "upload"}
               onClick={() => setImageMode("upload")}
-              badge={!isPremium ? "PRO" : undefined}
+              badge={!isRegistered ? "PRO" : undefined}
             >
               Upload
             </ModeTab>
@@ -1608,18 +1609,16 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
           {/* Upload mode */}
           {imageMode === "upload" && (
             <>
-              {!isPremium ? (
-                <div className="border-2 border-dashed border-amber-400/30 bg-amber-400/5 p-5 text-center space-y-2">
-                  <Lock className="w-6 h-6 text-amber-400 mx-auto" />
-                  <p className="text-sm font-bold text-amber-400 uppercase tracking-wider">
-                    Legendary Feature
+              {!isRegistered ? (
+                <div className="border-2 border-dashed border-border bg-muted/20 p-5 text-center space-y-2">
+                  <Lock className="w-6 h-6 text-muted-foreground mx-auto" />
+                  <p className="text-sm font-bold text-foreground uppercase tracking-wider">
+                    Sign In Required
                   </p>
                   <p className="text-xs text-muted-foreground">
-                    Upload your own photos with a Legendary membership.
+                    Create a free account to upload your own photos as meme backgrounds.
                   </p>
-                  <Link href="/pricing">
-                    <Button size="sm" className="mt-2">Go Legendary</Button>
-                  </Link>
+                  <Button size="sm" className="mt-2" onClick={login}>Sign In / Register</Button>
                 </div>
               ) : (
                 <div className="space-y-4">
