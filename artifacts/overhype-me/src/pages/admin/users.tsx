@@ -4,9 +4,9 @@ import { AdminLayout } from "@/components/admin/AdminLayout";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { SpendInline } from "@/components/ui/SpendHistory";
-import { Shield, ShieldOff, Search, Pencil, X, Save, AlertCircle, CheckCircle, Crown, Star, Gem, UserPlus, MailCheck, Trash2, UserX, ExternalLink, CreditCard, Infinity, Loader2, XCircle, Bell, BellOff, AlertTriangle } from "lucide-react";
+import { Shield, ShieldOff, Search, Pencil, X, Save, AlertCircle, CheckCircle, Crown, Star, Gem, UserPlus, MailCheck, Trash2, UserX, CreditCard, Infinity, Loader2, XCircle, Bell, BellOff, AlertTriangle } from "lucide-react";
 import { SubscriptionInfo } from "@/components/SubscriptionInfo";
-import { stripeDashboardUrl } from "@/lib/stripeDashboardUrl";
+import { StripeLink } from "@/components/StripeLink";
 import { makeAbortController } from "@/lib/makeAbortController";
 
 interface User {
@@ -1029,15 +1029,13 @@ export default function AdminUsers() {
                 <p className="text-xs font-bold text-muted-foreground uppercase tracking-wide mb-1">Stripe Customer ID</p>
                 {selectedUser.stripeCustomerId ? (
                   membershipData ? (
-                    <a
-                      href={stripeDashboardUrl("customers", selectedUser.stripeCustomerId, { liveMode: membershipData.liveMode })}
-                      target="_blank"
-                      rel="noopener noreferrer"
+                    <StripeLink
+                      entity="customers"
+                      id={selectedUser.stripeCustomerId}
+                      liveMode={membershipData.liveMode}
+                      label={selectedUser.stripeCustomerId}
                       className="flex items-center gap-1.5 text-sm font-mono text-primary hover:underline truncate"
-                    >
-                      {selectedUser.stripeCustomerId}
-                      <ExternalLink className="w-3 h-3 shrink-0" />
-                    </a>
+                    />
                   ) : (
                     <p className="text-sm font-mono text-muted-foreground truncate">{selectedUser.stripeCustomerId}</p>
                   )
@@ -1155,15 +1153,14 @@ export default function AdminUsers() {
                             ) : ""}
                           </p>
                           {!membershipData.lifetimeEntitlement.stripePaymentIntentId.startsWith("admin_grant") && (
-                            <div className="flex items-center gap-1 mt-0.5">
-                              <span className="text-xs text-muted-foreground font-mono truncate">{membershipData.lifetimeEntitlement.stripePaymentIntentId}</span>
-                              <a
-                                href={stripeDashboardUrl("payment_intents", membershipData.lifetimeEntitlement.stripePaymentIntentId, { liveMode: membershipData.liveMode })}
-                                target="_blank" rel="noopener noreferrer"
-                                className="text-primary shrink-0 hover:underline"
-                              >
-                                <ExternalLink className="w-3 h-3" />
-                              </a>
+                            <div className="mt-0.5">
+                              <StripeLink
+                                entity="payment_intents"
+                                id={membershipData.lifetimeEntitlement.stripePaymentIntentId}
+                                liveMode={membershipData.liveMode}
+                                label={membershipData.lifetimeEntitlement.stripePaymentIntentId}
+                                className="flex items-center gap-1 text-xs text-muted-foreground font-mono hover:text-primary hover:underline transition-colors"
+                              />
                             </div>
                           )}
                         </div>
@@ -1233,15 +1230,14 @@ export default function AdminUsers() {
                       {membershipData.history.length === 0 && (
                         <p className="text-xs text-muted-foreground italic border-t border-border pt-3 mt-1">No payment history</p>
                       )}
-                      <div className="flex items-center gap-1.5 text-xs text-muted-foreground font-mono mt-1">
-                        <span className="truncate">{membershipData.appSubscription.stripeSubscriptionId}</span>
-                        <a
-                          href={stripeDashboardUrl("subscriptions", membershipData.appSubscription.stripeSubscriptionId, { liveMode: membershipData.liveMode })}
-                          target="_blank" rel="noopener noreferrer"
-                          className="text-primary shrink-0 hover:underline"
-                        >
-                          <ExternalLink className="w-3 h-3" />
-                        </a>
+                      <div className="mt-1">
+                        <StripeLink
+                          entity="subscriptions"
+                          id={membershipData.appSubscription.stripeSubscriptionId}
+                          liveMode={membershipData.liveMode}
+                          label={membershipData.appSubscription.stripeSubscriptionId}
+                          className="flex items-center gap-1.5 text-xs text-muted-foreground font-mono hover:text-primary hover:underline transition-colors"
+                        />
                       </div>
                     </div>
                   ) : (

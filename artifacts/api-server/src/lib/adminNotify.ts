@@ -8,6 +8,7 @@ import { eq, and } from "drizzle-orm";
 import { db, usersTable } from "@workspace/db";
 import { sendEmail, buildEmailShell, ctaButton, divider } from "./email.js";
 import { getSiteBaseUrl } from "./siteUrl.js";
+import { stripeDashboardUrl } from "./stripeDashboardUrl.js";
 
 export type AdminNotifyType = "fact_review" | "comment";
 
@@ -233,9 +234,7 @@ function disputeCopy(opts: AdminDisputeNotifyOpts, formattedAmount: string) {
 
 export function buildDisputeNotificationEmail(opts: AdminDisputeNotifyOpts) {
   const formattedAmount = formatAmount(opts.amount, opts.currency);
-  const dashboardUrl = opts.livemode
-    ? `https://dashboard.stripe.com/disputes/${opts.disputeId}`
-    : `https://dashboard.stripe.com/test/disputes/${opts.disputeId}`;
+  const dashboardUrl = stripeDashboardUrl("disputes", opts.disputeId, { liveMode: opts.livemode });
 
   const copy = disputeCopy(opts, formattedAmount);
 
@@ -430,9 +429,7 @@ export async function notifyAdminsOfFraudWarning(opts: AdminFraudWarningNotifyOp
 
 function buildFraudWarningEmail(opts: AdminFraudWarningNotifyOpts) {
   const formattedAmount = formatAmount(opts.amount, opts.currency);
-  const dashboardUrl = opts.livemode
-    ? `https://dashboard.stripe.com/radar/early-fraud-warnings/${opts.warningId}`
-    : `https://dashboard.stripe.com/test/radar/early-fraud-warnings/${opts.warningId}`;
+  const dashboardUrl = stripeDashboardUrl("radar_early_fraud_warnings", opts.warningId, { liveMode: opts.livemode });
 
   const subject = `[Overhype.me] URGENT: Early fraud warning (${formattedAmount}) — refund within 24–72h to avoid chargeback`;
 
