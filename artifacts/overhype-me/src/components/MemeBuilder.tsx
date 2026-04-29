@@ -12,6 +12,7 @@ import type { PexelsPhotoEntry, FactPexelsImages } from "@/types/pexels";
 import type { AiMemeImages } from "@/types/meme";
 import { AiBgPicker, type AiBgSelection } from "@/components/AiBgPicker";
 import { ImageCard } from "@/components/ui/ImageCard";
+import { AdminMediaInfo, AdminMediaInfoForUrl, getFileNameFromUrl, getMimeTypeFromUrl } from "@/components/ui/AdminMediaInfo";
 import { usePersonName } from "@/hooks/use-person-name";
 import { useListMemeTemplates } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -559,6 +560,7 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
   const [uploadIsLowRes, setUploadIsLowRes] = useState<boolean>(() => readDraft(factId)?.uploadIsLowRes ?? false);
   const [uploadWidth, setUploadWidth] = useState<number | null>(() => readDraft(factId)?.uploadWidth ?? null);
   const [uploadHeight, setUploadHeight] = useState<number | null>(() => readDraft(factId)?.uploadHeight ?? null);
+  const [uploadFileSizeBytes, setUploadFileSizeBytes] = useState<number | null>(null);
   const [isDragOver, setIsDragOver] = useState(false);
 
   // Upload gallery — existing uploads for premium users
@@ -1178,6 +1180,7 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
     setUploadIsLowRes(entry.isLowRes);
     setUploadWidth(entry.width);
     setUploadHeight(entry.height);
+    setUploadFileSizeBytes(entry.fileSizeBytes);
     // Set the display URL — the canvas background effect will pick it up automatically
     setUploadDisplayUrl(`/api/storage${entry.objectPath}`);
   }, [uploadLocalUrl]);
@@ -1520,6 +1523,7 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
                         onSelect={() => selectPrefetchedPhoto(photo, i)}
                         compact
                         actions={["openFull"]}
+                        footer={<AdminMediaInfoForUrl url={photo.url} mimeType={getMimeTypeFromUrl(photo.url)} />}
                       />
                     ))}
                   </div>
@@ -1768,6 +1772,7 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
                                   LOW RES
                                 </div>
                               ) : undefined}
+                              footer={<AdminMediaInfo fileName={getFileNameFromUrl(entry.objectPath)} fileSizeBytes={entry.fileSizeBytes} mimeType={getMimeTypeFromUrl(entry.objectPath)} width={entry.width} height={entry.height} />}
                             />
                           );
                         })}
@@ -1882,6 +1887,33 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
                 </p>
               )}
             </div>
+
+            {/* Admin media info strip — below canvas, above resize handle */}
+            {isAdmin && imageMode === "upload" && (uploadFile || uploadObjectPath) && (
+              <div className="px-4 md:px-5 mt-0.5">
+                <AdminMediaInfo
+                  fileName={uploadFile ? uploadFile.name : getFileNameFromUrl(uploadObjectPath!)}
+                  fileSizeBytes={uploadFile ? uploadFile.size : uploadFileSizeBytes}
+                  mimeType={uploadFile ? getMimeTypeFromUrl(uploadFile.name) : getMimeTypeFromUrl(uploadObjectPath!)}
+                  width={uploadWidth}
+                  height={uploadHeight}
+                />
+              </div>
+            )}
+            {isAdmin && imageMode === "stock" && stockPhoto && (
+              <div className="px-4 md:px-5 mt-0.5">
+                <AdminMediaInfoForUrl url={stockPhoto.photoUrl} mimeType={getMimeTypeFromUrl(stockPhoto.photoUrl)} />
+              </div>
+            )}
+            {isAdmin && imageMode === "ai" && aiSelectedInfo && (
+              <div className="px-4 md:px-5 mt-0.5">
+                <AdminMediaInfoForUrl
+                  url={aiSelectedInfo.url}
+                  fileName={aiSelectedInfo.storagePath ? getFileNameFromUrl(aiSelectedInfo.storagePath) : null}
+                  mimeType={aiSelectedInfo.storagePath ? getMimeTypeFromUrl(aiSelectedInfo.storagePath) : getMimeTypeFromUrl(aiSelectedInfo.url)}
+                />
+              </div>
+            )}
 
             {/* Resize drag handle */}
             <div

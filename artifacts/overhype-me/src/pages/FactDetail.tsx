@@ -20,6 +20,7 @@ import { renderFact } from "@/lib/render-fact";
 import type { FactPexelsImages } from "@/types/pexels";
 
 import { lazyWithRetry } from "@/lib/lazy-retry";
+import { AdminMediaInfo, getFileNameFromUrl, getMimeTypeFromUrl } from "@/components/ui/AdminMediaInfo";
 
 const MemeStudio = lazyWithRetry(() => import("@/components/MemeStudio").then(m => ({ default: m.MemeStudio })));
 const HCaptcha = lazyWithRetry(() => import("@hcaptcha/react-hcaptcha"));
@@ -34,6 +35,9 @@ type MemeItem = {
   createdById: string | null;
   createdAt: string;
   aspectRatio?: "landscape" | "square" | "portrait";
+  originalWidth: number | null;
+  originalHeight: number | null;
+  uploadFileSizeBytes: number | null;
 };
 
 const MEME_ASPECT_CLASS: Record<string, string> = {
@@ -177,6 +181,54 @@ function VariantFactCard({ id, useCase }: { id: number; useCase: string | null }
         </Link>
       </div>
 
+    </div>
+  );
+}
+
+// ── VideoCardItem ─────────────────────────────────────────────────────────────
+// Isolated component so each video card tracks its own playback dimensions
+
+function VideoCardItem({ video }: { video: VideoItem }) {
+  const [dims, setDims] = useState<{ width: number; height: number } | null>(null);
+  return (
+    <div className="space-y-1.5">
+      <div className="relative border-2 border-border rounded-sm overflow-hidden group hover:border-primary/60 transition-all">
+        <div className="aspect-video relative bg-black">
+          <video
+            src={video.videoUrl ?? ""}
+            poster={video.imageUrl}
+            controls
+            preload="metadata"
+            className="w-full h-full object-cover"
+            onLoadedMetadata={(e) => {
+              const v = e.currentTarget;
+              if (v.videoWidth > 0) setDims({ width: v.videoWidth, height: v.videoHeight });
+            }}
+          />
+          {!video.videoUrl && (
+            <div className="absolute inset-0 flex items-center justify-center">
+              <Play className="w-10 h-10 text-white/40" />
+            </div>
+          )}
+        </div>
+        {video.motionPrompt && (
+          <div className="px-2 py-1.5 bg-secondary/80 border-t border-border">
+            <p className="text-[10px] text-muted-foreground line-clamp-1">{video.motionPrompt}</p>
+          </div>
+        )}
+      </div>
+      {video.videoUrl && (
+        <AdminMediaInfo
+          fileName={getFileNameFromUrl(video.videoUrl)}
+          fileSizeBytes={null}
+          mimeType={getMimeTypeFromUrl(video.videoUrl)}
+          width={dims?.width ?? null}
+          height={dims?.height ?? null}
+        />
+      )}
+      <Link href={`/video/${video.id}`} className="w-full flex items-center justify-center gap-1.5 text-[10px] font-display font-bold uppercase tracking-wider text-muted-foreground hover:text-primary transition-colors py-1">
+        <ExternalLink className="w-3 h-3" /> View Permalink
+      </Link>
     </div>
   );
 }
@@ -592,6 +644,7 @@ export default function FactDetail() {
                               zazzleUrl={`/api/memes/${meme.permalinkSlug}/zazzle-redirect?returnUrl=${encodeURIComponent(window.location.href)}`}
                               deleteConfirmMessage="Remove this meme? It will no longer be visible to anyone."
                               permalink={memePermalink}
+                              footer={<AdminMediaInfo fileName={getFileNameFromUrl(meme.imageUrl)} fileSizeBytes={meme.uploadFileSizeBytes} mimeType={getMimeTypeFromUrl(meme.imageUrl)} width={meme.originalWidth} height={meme.originalHeight} />}
                             />
                             <Link href={`/meme/${meme.permalinkSlug}`} className="w-full flex items-center justify-center gap-1.5 text-[10px] font-display font-bold uppercase tracking-wider text-muted-foreground hover:text-primary transition-colors py-1">
                               <ExternalLink className="w-3 h-3" /> View Permalink
@@ -628,6 +681,7 @@ export default function FactDetail() {
                               zazzleUrl={`/api/memes/${meme.permalinkSlug}/zazzle-redirect?returnUrl=${encodeURIComponent(window.location.href)}`}
                               deleteConfirmMessage="Remove this meme? It will no longer be visible to anyone."
                               permalink={memePermalink}
+                              footer={<AdminMediaInfo fileName={getFileNameFromUrl(meme.imageUrl)} fileSizeBytes={meme.uploadFileSizeBytes} mimeType={getMimeTypeFromUrl(meme.imageUrl)} width={meme.originalWidth} height={meme.originalHeight} />}
                             />
                             <Link href={`/meme/${meme.permalinkSlug}`} className="w-full flex items-center justify-center gap-1.5 text-[10px] font-display font-bold uppercase tracking-wider text-muted-foreground hover:text-primary transition-colors py-1">
                               <ExternalLink className="w-3 h-3" /> View Permalink
@@ -672,6 +726,7 @@ export default function FactDetail() {
                               zazzleUrl={`/api/memes/${meme.permalinkSlug}/zazzle-redirect?returnUrl=${encodeURIComponent(window.location.href)}`}
                               deleteConfirmMessage="Remove this meme? It will no longer be visible to anyone."
                               permalink={memePermalink}
+                              footer={<AdminMediaInfo fileName={getFileNameFromUrl(meme.imageUrl)} fileSizeBytes={meme.uploadFileSizeBytes} mimeType={getMimeTypeFromUrl(meme.imageUrl)} width={meme.originalWidth} height={meme.originalHeight} />}
                             />
                             <Link href={`/meme/${meme.permalinkSlug}`} className="w-full flex items-center justify-center gap-1.5 text-[10px] font-display font-bold uppercase tracking-wider text-muted-foreground hover:text-primary transition-colors py-1">
                               <ExternalLink className="w-3 h-3" /> View Permalink
@@ -706,32 +761,7 @@ export default function FactDetail() {
             const VideoGrid = ({ videos }: { videos: VideoItem[] }) => (
               <div className="grid grid-cols-2 md:grid-cols-3 gap-4 items-start">
                 {videos.map(video => (
-                  <div key={video.id} className="space-y-1.5">
-                    <div className="relative border-2 border-border rounded-sm overflow-hidden group hover:border-primary/60 transition-all">
-                      <div className="aspect-video relative bg-black">
-                        <video
-                          src={video.videoUrl ?? ""}
-                          poster={video.imageUrl}
-                          controls
-                          preload="metadata"
-                          className="w-full h-full object-cover"
-                        />
-                        {!video.videoUrl && (
-                          <div className="absolute inset-0 flex items-center justify-center">
-                            <Play className="w-10 h-10 text-white/40" />
-                          </div>
-                        )}
-                      </div>
-                      {video.motionPrompt && (
-                        <div className="px-2 py-1.5 bg-secondary/80 border-t border-border">
-                          <p className="text-[10px] text-muted-foreground line-clamp-1">{video.motionPrompt}</p>
-                        </div>
-                      )}
-                    </div>
-                    <Link href={`/video/${video.id}`} className="w-full flex items-center justify-center gap-1.5 text-[10px] font-display font-bold uppercase tracking-wider text-muted-foreground hover:text-primary transition-colors py-1">
-                      <ExternalLink className="w-3 h-3" /> View Permalink
-                    </Link>
-                  </div>
+                  <VideoCardItem key={video.id} video={video} />
                 ))}
               </div>
             );

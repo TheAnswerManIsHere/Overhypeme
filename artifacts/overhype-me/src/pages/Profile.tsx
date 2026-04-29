@@ -13,6 +13,7 @@ import { PronounEditor } from "@/components/ui/PronounEditor";
 import { usePersonName } from "@/hooks/use-person-name";
 import { AccessGate } from "@/components/AccessGate";
 import { Sentry } from "@/lib/sentry";
+import { AdminMediaInfo, AdminMediaInfoForUrl, getFileNameFromUrl, getMimeTypeFromUrl } from "@/components/ui/AdminMediaInfo";
 
 const BASE_URL = import.meta.env.BASE_URL ?? "/";
 
@@ -232,6 +233,9 @@ export default function Profile() {
     permalinkSlug: string;
     isPublic: boolean;
     createdAt: string;
+    originalWidth: number | null;
+    originalHeight: number | null;
+    uploadFileSizeBytes: number | null;
   };
 
   const { data: myMemesData, isLoading: isMyMemesLoading } = useQuery<{ memes: MyMemeItem[] }>({
@@ -1502,6 +1506,7 @@ export default function Profile() {
                             LOW RES
                           </div>
                         ) : undefined}
+                        footer={<AdminMediaInfo fileName={getFileNameFromUrl(upload.objectPath)} fileSizeBytes={upload.fileSizeBytes} mimeType={getMimeTypeFromUrl(upload.objectPath)} width={upload.width} height={upload.height} />}
                       />
                     );
                   })}
@@ -1543,6 +1548,7 @@ export default function Profile() {
                                 <span className="text-[10px] text-white/70 uppercase tracking-wider">{img.gender}</span>
                               </div>
                             }
+                            footer={<AdminMediaInfoForUrl url={imgUrl} fileName={getFileNameFromUrl(img.storagePath)} mimeType={getMimeTypeFromUrl(img.storagePath)} />}
                           />
                         );
                       })}
@@ -1577,6 +1583,7 @@ export default function Profile() {
                         onDelete={() => deleteMemeFromProfile(meme.permalinkSlug)}
                         deleteConfirmMessage="Remove this meme? It will no longer be visible to anyone."
                         permalink={memePermalink}
+                        footer={<AdminMediaInfo fileName={getFileNameFromUrl(meme.imageUrl)} fileSizeBytes={meme.uploadFileSizeBytes} mimeType={getMimeTypeFromUrl(meme.imageUrl)} width={meme.originalWidth} height={meme.originalHeight} />}
                       />
                     );
                   })}

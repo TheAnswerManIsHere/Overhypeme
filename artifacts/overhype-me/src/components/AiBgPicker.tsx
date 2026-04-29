@@ -9,6 +9,7 @@ import { Sparkles, Loader2, Upload, X, RefreshCw, AlertTriangle } from "lucide-r
 import { AccessGate } from "@/components/AccessGate";
 import { Link } from "wouter";
 import { ImageCard } from "@/components/ui/ImageCard";
+import { AdminMediaInfo, AdminMediaInfoForUrl, getFileNameFromUrl, getMimeTypeFromUrl } from "@/components/ui/AdminMediaInfo";
 import { Button } from "@/components/ui/Button";
 import { IMAGE_STYLES } from "@/config/imageStyles";
 import type { AiMemeImages } from "@/types/meme";
@@ -696,20 +697,24 @@ export function AiBgPicker({
               <span className="ml-1 text-primary">({aiGender})</span>
             </p>
             <div className="grid gap-1.5" style={{ gridTemplateColumns: `repeat(auto-fill, minmax(${thumbPx}px, 1fr))` }}>
-              {aiImageSlots.map((slot, displayIdx) => (
-                <ImageCard
-                  key={slot.path}
-                  src={getGenericUrl(slot.origIdx)}
-                  alt={`AI option ${displayIdx + 1}`}
-                  aspectRatio="aspect-video"
-                  selected={selectedAiIndex === slot.origIdx}
-                  onSelect={() => setSelectedAiIndex(slot.origIdx)}
-                  compact
-                  actions={["delete", "openFull"]}
-                  onDelete={() => handleDeleteGenericImage(slot.origIdx)}
-                  deleteConfirmMessage="Remove this AI background? This cannot be undone."
-                />
-              ))}
+              {aiImageSlots.map((slot, displayIdx) => {
+                const srcUrl = getGenericUrl(slot.origIdx);
+                return (
+                  <ImageCard
+                    key={slot.path}
+                    src={srcUrl}
+                    alt={`AI option ${displayIdx + 1}`}
+                    aspectRatio="aspect-video"
+                    selected={selectedAiIndex === slot.origIdx}
+                    onSelect={() => setSelectedAiIndex(slot.origIdx)}
+                    compact
+                    actions={["delete", "openFull"]}
+                    onDelete={() => handleDeleteGenericImage(slot.origIdx)}
+                    deleteConfirmMessage="Remove this AI background? This cannot be undone."
+                    footer={<AdminMediaInfoForUrl url={srcUrl} fileName={getFileNameFromUrl(slot.path)} mimeType={getMimeTypeFromUrl(slot.path)} />}
+                  />
+                );
+              })}
             </div>
           </>
         ) : (
@@ -744,19 +749,23 @@ export function AiBgPicker({
               <span className="ml-1 text-primary">({aiGender})</span>
             </p>
             <div className="grid gap-1.5" style={{ gridTemplateColumns: `repeat(auto-fill, minmax(${thumbPx}px, 1fr))` }}>
-              {myRefImages.map((img, idx) => (
-                <ImageCard
-                  key={img.storagePath}
-                  src={getRefUrl(img.storagePath)}
-                  alt={`Reference AI option ${idx + 1}`}
-                  aspectRatio="aspect-video"
-                  isAuthProtected
-                  selected={selectedRefGenPath === img.storagePath}
-                  onSelect={() => setSelectedRefGenPath(img.storagePath)}
-                  compact
-                  actions={["openFull"]}
-                />
-              ))}
+              {myRefImages.map((img, idx) => {
+                const srcUrl = getRefUrl(img.storagePath);
+                return (
+                  <ImageCard
+                    key={img.storagePath}
+                    src={srcUrl}
+                    alt={`Reference AI option ${idx + 1}`}
+                    aspectRatio="aspect-video"
+                    isAuthProtected
+                    selected={selectedRefGenPath === img.storagePath}
+                    onSelect={() => setSelectedRefGenPath(img.storagePath)}
+                    compact
+                    actions={["openFull"]}
+                    footer={<AdminMediaInfoForUrl url={srcUrl} fileName={getFileNameFromUrl(img.storagePath)} mimeType={getMimeTypeFromUrl(img.storagePath)} />}
+                  />
+                );
+              })}
             </div>
           </>
         ) : (
@@ -830,6 +839,7 @@ export function AiBgPicker({
                     onSelect={() => setSelectedRefUpload(isSelected ? null : entry)}
                     compact
                     actions={["openFull"]}
+                    footer={<AdminMediaInfo fileName={getFileNameFromUrl(entry.objectPath)} fileSizeBytes={entry.fileSizeBytes} mimeType={getMimeTypeFromUrl(entry.objectPath)} width={entry.width} height={entry.height} />}
                   />
                 );
               })}

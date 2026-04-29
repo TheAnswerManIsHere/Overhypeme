@@ -430,6 +430,9 @@ router.get("/users/me/memes", async (req: Request, res: Response) => {
       permalinkSlug: memesTable.permalinkSlug,
       isPublic: memesTable.isPublic,
       createdAt: memesTable.createdAt,
+      originalWidth: memesTable.originalWidth,
+      originalHeight: memesTable.originalHeight,
+      uploadFileSizeBytes: memesTable.uploadFileSizeBytes,
     })
     .from(memesTable)
     .where(and(eq(memesTable.createdById, req.user.id), isNull(memesTable.deletedAt)))
@@ -440,6 +443,9 @@ router.get("/users/me/memes", async (req: Request, res: Response) => {
     memes: memes.map(m => ({
       ...m,
       createdAt: m.createdAt.toISOString(),
+      originalWidth: m.originalWidth ?? null,
+      originalHeight: m.originalHeight ?? null,
+      uploadFileSizeBytes: m.uploadFileSizeBytes ?? null,
     })),
   });
 });
