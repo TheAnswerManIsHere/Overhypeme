@@ -1,12 +1,53 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { AdminLayout } from "@/components/admin/AdminLayout";
 import { CollapsibleSection } from "@/components/CollapsibleSection";
 import { Button } from "@/components/ui/Button";
 import {
   CreditCard, Zap, Star, CheckCircle, XCircle, AlertTriangle,
   ToggleLeft, ToggleRight, Loader2, RefreshCw, Send, Package,
-  Users, Lock, ShieldCheck, Link, Copy, Cpu,
+  Users, Lock, ShieldCheck, Link, Copy, Cpu, Circle,
 } from "lucide-react";
+
+type SyncResource = "products" | "prices" | "plans";
+
+interface SyncResourceStatus {
+  resource: SyncResource;
+  status: "idle" | "running" | "complete" | "error";
+  lastSyncedAt: string | null;
+  errorMessage: string | null;
+  syncedCount: number | null;
+}
+
+interface SyncStatusResponse {
+  inProgress: boolean;
+  resources: SyncResourceStatus[];
+  startedAt: string | null;
+  finishedAt: string | null;
+  durationMs: number | null;
+}
+
+const RESOURCE_LABELS: Record<SyncResource, string> = {
+  products: "Products",
+  prices: "Prices",
+  plans: "Plans",
+};
+
+function formatRelative(iso: string | null): string {
+  if (!iso) return "never";
+  const t = new Date(iso).getTime();
+  if (Number.isNaN(t)) return "never";
+  const diff = Date.now() - t;
+  if (diff < 0) return "just now";
+  const s = Math.floor(diff / 1000);
+  if (s < 5) return "just now";
+  if (s < 60) return `${s}s ago`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}m ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h ago`;
+  const d = Math.floor(h / 24);
+  return `${d}d ago`;
+}
 
 interface StripeConfig {
   publishableKey: string | null;
@@ -75,7 +116,10 @@ export default function AdminBilling() {
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [syncing, setSyncing] = useState(false);
-  const [syncResult, setSyncResult] = useState<{ ok: boolean; message: string } | null>(null);
+  const [syncStatus, setSyncStatus] = useState<SyncStatusResponse | null>(null);
+  const [syncFinalMessage, setSyncFinalMessage] = useState<{ ok: boolean; message: string } | null>(null);
+  const syncPollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const syncPollDeadlineRef = useRef<number>(0);
 
   // fal.ai Active Endpoints config
   const [falEndpoints, setFalEndpoints] = useState<string>("");
@@ -191,29 +235,117 @@ export default function AdminBilling() {
     }
   }
 
+  // Stop polling and clean up the interval handle.
+  const stopSyncPolling = useCallback(() => {
+    if (syncPollTimerRef.current !== null) {
+      clearInterval(syncPollTimerRef.current);
+      syncPollTimerRef.current = null;
+    }
+  }, []);
+
+  // Reload the plans list — called when a sync completes successfully.
+  const refreshPlans = useCallback(async () => {
+    setPlansLoading(true);
+    try {
+      const r = await fetch("/api/stripe/plans");
+      const d = (await r.json()) as { plans: StripePlan[] };
+      setPlans(d.plans ?? []);
+    } catch {
+      // leave existing plans in place on error
+    } finally {
+      setPlansLoading(false);
+    }
+  }, []);
+
+  // Single fetch of the sync status (used both for polling and the passive
+  // page-load fetch that populates the "Last synced X ago" stamp).
+  const fetchSyncStatusOnce = useCallback(async (): Promise<SyncStatusResponse | null> => {
+    try {
+      const r = await fetch("/api/admin/stripe/sync/status", { credentials: "include" });
+      if (!r.ok) return null;
+      return (await r.json()) as SyncStatusResponse;
+    } catch {
+      return null;
+    }
+  }, []);
+
+  // Passive load: hit the status endpoint once on mount so the "Last synced"
+  // stamp is populated before the admin clicks anything.
+  useEffect(() => {
+    void (async () => {
+      const initial = await fetchSyncStatusOnce();
+      if (initial) setSyncStatus(initial);
+    })();
+    return () => stopSyncPolling();
+  }, [fetchSyncStatusOnce, stopSyncPolling]);
+
   async function syncStripe() {
     setSyncing(true);
-    setSyncResult(null);
+    setSyncFinalMessage(null);
     try {
       const resp = await fetch("/api/admin/stripe/sync", {
         method: "POST",
         credentials: "include",
       });
-      const data = (await resp.json()) as { success?: boolean; message?: string; error?: string };
-      setSyncResult({ ok: data.success === true, message: data.message ?? data.error ?? "Unknown result" });
-      // Re-fetch plans after a short delay to pick up newly synced products
-      if (data.success) {
-        setTimeout(() => {
-          setPlansLoading(true);
-          fetch("/api/stripe/plans")
-            .then(r => r.json())
-            .then((d: { plans: StripePlan[] }) => { setPlans(d.plans ?? []); setPlansLoading(false); })
-            .catch(() => setPlansLoading(false));
-        }, 4000);
+      const data = (await resp.json()) as {
+        success?: boolean; message?: string; error?: string; alreadyRunning?: boolean;
+      };
+
+      if (resp.status === 409 && data.alreadyRunning) {
+        // Surface the conflict but still start polling — the in-flight run
+        // will complete and we can show its result.
+        setSyncFinalMessage({ ok: false, message: data.message ?? "Sync already in progress." });
+      } else if (!resp.ok || data.success !== true) {
+        setSyncFinalMessage({ ok: false, message: data.error ?? data.message ?? "Failed to start sync" });
+        setSyncing(false);
+        return;
       }
+
+      // Begin polling. Hard timeout of 60s.
+      stopSyncPolling();
+      syncPollDeadlineRef.current = Date.now() + 60_000;
+      syncPollTimerRef.current = setInterval(() => {
+        void (async () => {
+          const status = await fetchSyncStatusOnce();
+          if (status) setSyncStatus(status);
+
+          const allTerminal =
+            !!status &&
+            !status.inProgress &&
+            status.resources.every(r => r.status === "complete" || r.status === "error");
+
+          if (allTerminal) {
+            stopSyncPolling();
+            setSyncing(false);
+            const errored = status.resources.find(r => r.status === "error");
+            if (errored) {
+              setSyncFinalMessage({
+                ok: false,
+                message: `Sync failed: ${RESOURCE_LABELS[errored.resource]} — ${errored.errorMessage ?? "unknown error"}`,
+              });
+            } else {
+              const totals = status.resources
+                .map(r => `${r.syncedCount ?? 0} ${RESOURCE_LABELS[r.resource].toLowerCase()}`)
+                .join(", ");
+              const dur = status.durationMs !== null ? `${(status.durationMs / 1000).toFixed(1)}s` : "—";
+              setSyncFinalMessage({ ok: true, message: `Sync complete — ${totals} synced in ${dur}` });
+            }
+            void refreshPlans();
+            return;
+          }
+
+          if (Date.now() > syncPollDeadlineRef.current) {
+            stopSyncPolling();
+            setSyncing(false);
+            setSyncFinalMessage({
+              ok: false,
+              message: "Sync still running — check back in a moment.",
+            });
+          }
+        })();
+      }, 1000);
     } catch {
-      setSyncResult({ ok: false, message: "Network error" });
-    } finally {
+      setSyncFinalMessage({ ok: false, message: "Network error" });
       setSyncing(false);
     }
   }
@@ -448,29 +580,85 @@ export default function AdminBilling() {
           description="Membership products and prices fetched from Stripe."
           storageKey="admin_section_billing_plans"
         >
-          <div className="flex items-center justify-between mb-3">
-            <p className="text-xs text-muted-foreground">
-              {plans.length > 0 ? `${plans.length} product${plans.length !== 1 ? "s" : ""} found` : "No products synced yet"}
-            </p>
-            <div className="flex items-center gap-2">
-              {syncResult && (
-                <span className={`text-xs ${syncResult.ok ? "text-green-400" : "text-red-400"}`}>
-                  {syncResult.message}
-                </span>
-              )}
-              <Button
-                variant="outline"
-                size="sm"
-                className="h-7 px-2.5 text-xs gap-1.5"
-                onClick={() => void syncStripe()}
-                disabled={syncing}
-                title="Pull latest products and prices from Stripe"
-              >
-                {syncing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
-                {syncing ? "Syncing…" : "Sync Stripe data"}
-              </Button>
+          <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className={`text-xs px-2 py-0.5 rounded-sm font-medium ${liveMode ? "bg-amber-500/20 text-amber-400" : "bg-blue-500/20 text-blue-400"}`}>
+                {liveMode === null ? "…" : liveMode ? "LIVE" : "TEST"}
+              </span>
+              <p className="text-xs text-muted-foreground">
+                {plans.length > 0 ? `${plans.length} product${plans.length !== 1 ? "s" : ""} found` : "No products synced yet"}
+              </p>
+              {(() => {
+                const stamps = (syncStatus?.resources ?? [])
+                  .map(r => r.lastSyncedAt)
+                  .filter((s): s is string => !!s)
+                  .map(s => new Date(s).getTime())
+                  .filter(t => !Number.isNaN(t));
+                const latest = stamps.length > 0 ? Math.max(...stamps) : null;
+                if (latest === null) return null;
+                return (
+                  <span className="text-xs text-muted-foreground">
+                    · Last synced: {formatRelative(new Date(latest).toISOString())}
+                  </span>
+                );
+              })()}
             </div>
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-7 px-2.5 text-xs gap-1.5"
+              onClick={() => void syncStripe()}
+              disabled={syncing}
+              title="Pull latest products, prices, and plans from Stripe"
+            >
+              {syncing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
+              {syncing ? "Syncing…" : "Sync Stripe data"}
+            </Button>
           </div>
+
+          {/* Progress panel — shown while syncing or after the most recent run */}
+          {(syncing || syncFinalMessage || syncStatus?.inProgress) && (
+            <div className="mb-4 border border-border rounded-sm p-3 bg-secondary/30 space-y-2">
+              {syncFinalMessage && (
+                <div className={`text-xs px-2 py-1.5 rounded-sm border flex items-start gap-2 ${syncFinalMessage.ok ? "bg-green-500/10 border-green-500/30 text-green-400" : "bg-destructive/10 border-destructive/30 text-destructive"}`}>
+                  {syncFinalMessage.ok ? <CheckCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" /> : <XCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />}
+                  <span>{syncFinalMessage.message}</span>
+                </div>
+              )}
+              <div className="space-y-1.5">
+                {(["products", "prices", "plans"] as const).map(resource => {
+                  const row = syncStatus?.resources.find(r => r.resource === resource);
+                  const status = row?.status ?? "idle";
+                  let icon;
+                  if (status === "running") {
+                    icon = <Loader2 className="w-3.5 h-3.5 text-blue-400 animate-spin" />;
+                  } else if (status === "complete") {
+                    icon = <CheckCircle className="w-3.5 h-3.5 text-green-400" />;
+                  } else if (status === "error") {
+                    icon = <XCircle className="w-3.5 h-3.5 text-destructive" />;
+                  } else {
+                    icon = <Circle className="w-3.5 h-3.5 text-muted-foreground" />;
+                  }
+                  return (
+                    <div key={resource} className="flex items-center gap-2 text-xs flex-wrap">
+                      {icon}
+                      <span className="font-medium text-foreground w-20">{RESOURCE_LABELS[resource]}</span>
+                      <span className="text-muted-foreground">
+                        {status === "running"
+                          ? "syncing…"
+                          : status === "complete"
+                            ? `${row?.syncedCount ?? 0} synced · ${formatRelative(row?.lastSyncedAt ?? null)}`
+                            : status === "error"
+                              ? `error · ${(row?.errorMessage ?? "unknown").slice(0, 80)}`
+                              : "pending"}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
           {plansLoading ? (
             <div className="animate-pulse space-y-3">
               <div className="h-10 bg-secondary rounded-sm" />
@@ -479,7 +667,7 @@ export default function AdminBilling() {
           ) : plans.length === 0 ? (
             <div className="text-sm text-muted-foreground flex items-center gap-2 py-2">
               <AlertTriangle className="w-4 h-4 text-amber-400" />
-              No products found in Stripe. Create products in the Stripe dashboard and sync.
+              No {liveMode === true ? "live-mode " : liveMode === false ? "test-mode " : ""}products found in Stripe. Create products in the Stripe dashboard and sync.
             </div>
           ) : (
             <div className="space-y-4">
