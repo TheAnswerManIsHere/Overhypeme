@@ -67,10 +67,10 @@ export async function checkBudget(
 ): Promise<BudgetStatus> {
   try {
     // Fetch config values
-    const [budgetPeriod, freeLimitStr, legendLimitStr] = await Promise.all([
+    const [budgetPeriod, registeredLimitStr, legendaryLimitStr] = await Promise.all([
       getConfigString("budget_period", "monthly"),
-      getConfigFloat("budget_limit_free_usd", 0.50),
-      getConfigFloat("budget_limit_legend_usd", 10.00),
+      getConfigFloat("budget_limit_registered_usd", 0.50),
+      getConfigFloat("budget_limit_legendary_usd", 10.00),
     ]);
 
     // Look up user tier and per-user override
@@ -88,13 +88,13 @@ export async function checkBudget(
       return { allowed: true, currentSpend: 0, limit: Infinity, remainingBudget: Infinity };
     }
 
-    const globalLegendLimit = tier === "legendary" ? legendLimitStr : freeLimitStr;
+    const globalLimit = tier === "legendary" ? legendaryLimitStr : registeredLimitStr;
     const perUserOverride = user?.monthlyGenerationLimitOverrideUsd != null
       ? parseFloat(String(user.monthlyGenerationLimitOverrideUsd))
       : null;
     const limit = (perUserOverride !== null && !isNaN(perUserOverride))
       ? perUserOverride
-      : globalLegendLimit;
+      : globalLimit;
     const periodStart = getPeriodStart(budgetPeriod as string);
 
     // Sum spend for this user in the current period

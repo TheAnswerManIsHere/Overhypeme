@@ -119,7 +119,8 @@ describe("GET /users/me", () => {
     assert.equal(res.body.id, userId);
     assert.equal(res.body.email, `${userId}@test.local`);
     assert.equal(res.body.emailVerified, false);
-    assert.equal(res.body.isPremium, false);
+    assert.equal(res.body.membershipTier, "registered");
+    assert.equal("isPremium" in res.body, false);
     assert.equal(res.body.hasPassword, false);
     assert.equal(res.body.avatarStyle, "bottts");
     assert.equal(res.body.avatarSource, "avatar");
@@ -145,13 +146,14 @@ describe("GET /users/me", () => {
     assert.equal(res.body.disputeNotifications, true);
   });
 
-  it("isPremium is true when membershipTier is legendary", async () => {
+  it("returns membershipTier='legendary' for legendary users (no isPremium field)", async () => {
     const userId = await createTestUser({ membershipTier: "legendary" });
     const sid = await bearerForUser(userId);
     const res = await request(makeApp())
       .get("/users/me")
       .set("authorization", `Bearer ${sid}`);
-    assert.equal(res.body.isPremium, true);
+    assert.equal(res.body.membershipTier, "legendary");
+    assert.equal("isPremium" in res.body, false);
   });
 
   it("dedupes searchHistory keeping the most-recent occurrence", async () => {

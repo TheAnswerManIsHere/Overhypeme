@@ -31,9 +31,10 @@ const TIER_LABELS: Record<string, string> = {
   unregistered: "Unregistered",
   registered: "Registered",
   legendary: "Legendary",
+  admin: "Admin",
 };
 
-const TIER_ORDER = ["unregistered", "registered", "legendary"];
+const TIER_ORDER = ["unregistered", "registered", "legendary", "admin"];
 
 export default function AdminFeatures() {
   const [loading, setLoading] = useState(true);

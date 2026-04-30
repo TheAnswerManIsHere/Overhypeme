@@ -9,8 +9,8 @@
  * authMiddleware.test.ts for the full convention.
  *
  * The admin_config rows that drive budget limits (budget_period,
- * budget_limit_free_usd, budget_limit_legend_usd) are snapshotted in `before`
- * and restored in `after` so tests can override them safely.
+ * budget_limit_registered_usd, budget_limit_legendary_usd) are snapshotted in
+ * `before` and restored in `after` so tests can override them safely.
  */
 
 import { describe, it, before, after, beforeEach, afterEach } from "node:test";
@@ -91,8 +91,8 @@ interface ConfigSnapshot {
 
 const SNAPSHOTTED_KEYS = [
   "budget_period",
-  "budget_limit_free_usd",
-  "budget_limit_legend_usd",
+  "budget_limit_registered_usd",
+  "budget_limit_legendary_usd",
 ];
 
 const snapshot: Map<string, ConfigSnapshot | null> = new Map();
@@ -157,12 +157,12 @@ async function setConfig(
 
 async function setStandardLimits(opts: {
   period?: "monthly" | "rolling_30d";
-  freeUsd?: number;
-  legendUsd?: number;
+  registeredUsd?: number;
+  legendaryUsd?: number;
 } = {}): Promise<void> {
   await setConfig("budget_period", opts.period ?? "monthly", "string");
-  await setConfig("budget_limit_free_usd", String(opts.freeUsd ?? 0.5), "float");
-  await setConfig("budget_limit_legend_usd", String(opts.legendUsd ?? 10), "float");
+  await setConfig("budget_limit_registered_usd", String(opts.registeredUsd ?? 0.5), "float");
+  await setConfig("budget_limit_legendary_usd", String(opts.legendaryUsd ?? 10), "float");
 }
 
 // ── Lifecycle ──────────────────────────────────────────────────────────────────
@@ -188,7 +188,7 @@ afterEach(async () => {
 
 describe("checkBudget — admin", () => {
   it("admins are exempt and always allowed with infinite limit", async () => {
-    await setStandardLimits({ freeUsd: 0.5 });
+    await setStandardLimits({ registeredUsd: 0.5 });
     const userId = await createTestUser({ isAdmin: true });
     const status = await checkBudget(userId, 99999);
     assert.equal(status.allowed, true);
@@ -197,9 +197,9 @@ describe("checkBudget — admin", () => {
   });
 });
 
-describe("checkBudget — registered (free) tier", () => {
-  it("allows a request that fits inside the free limit", async () => {
-    await setStandardLimits({ freeUsd: 0.50 });
+describe("checkBudget — registered tier", () => {
+  it("allows a request that fits inside the registered limit", async () => {
+    await setStandardLimits({ registeredUsd: 0.50 });
     const userId = await createTestUser({ tier: "registered" });
     const status = await checkBudget(userId, 0.10);
     assert.equal(status.allowed, true);
@@ -208,8 +208,8 @@ describe("checkBudget — registered (free) tier", () => {
     assert.equal(status.remainingBudget, 0.5);
   });
 
-  it("denies when current spend + proposed exceeds the free limit", async () => {
-    await setStandardLimits({ freeUsd: 0.50 });
+  it("denies when current spend + proposed exceeds the registered limit", async () => {
+    await setStandardLimits({ registeredUsd: 0.50 });
     const userId = await createTestUser({ tier: "registered" });
     await insertCost(userId, 0.45);
     const status = await checkBudget(userId, 0.10);
@@ -219,7 +219,7 @@ describe("checkBudget — registered (free) tier", () => {
   });
 
   it("allows a request that lands exactly at the limit", async () => {
-    await setStandardLimits({ freeUsd: 0.50 });
+    await setStandardLimits({ registeredUsd: 0.50 });
     const userId = await createTestUser({ tier: "registered" });
     await insertCost(userId, 0.40);
     const status = await checkBudget(userId, 0.10);
@@ -227,7 +227,7 @@ describe("checkBudget — registered (free) tier", () => {
   });
 
   it("reports remainingBudget = 0 (never negative) when already over", async () => {
-    await setStandardLimits({ freeUsd: 0.50 });
+    await setStandardLimits({ registeredUsd: 0.50 });
     const userId = await createTestUser({ tier: "registered" });
     await insertCost(userId, 0.75);
     const status = await checkBudget(userId, 0.01);
@@ -237,8 +237,8 @@ describe("checkBudget — registered (free) tier", () => {
 });
 
 describe("checkBudget — legendary tier", () => {
-  it("uses the legendary limit, not the free limit", async () => {
-    await setStandardLimits({ freeUsd: 0.50, legendUsd: 10 });
+  it("uses the legendary limit, not the registered limit", async () => {
+    await setStandardLimits({ registeredUsd: 0.50, legendaryUsd: 10 });
     const userId = await createTestUser({ tier: "legendary" });
     const status = await checkBudget(userId, 5);
     assert.equal(status.allowed, true);
@@ -246,7 +246,7 @@ describe("checkBudget — legendary tier", () => {
   });
 
   it("denies a legendary user that exceeds the legendary limit", async () => {
-    await setStandardLimits({ freeUsd: 0.50, legendUsd: 10 });
+    await setStandardLimits({ registeredUsd: 0.50, legendaryUsd: 10 });
     const userId = await createTestUser({ tier: "legendary" });
     await insertCost(userId, 9.50);
     const status = await checkBudget(userId, 1);
@@ -256,7 +256,7 @@ describe("checkBudget — legendary tier", () => {
 
 describe("checkBudget — per-user override", () => {
   it("a per-user override beats the tier limit (higher)", async () => {
-    await setStandardLimits({ freeUsd: 0.50 });
+    await setStandardLimits({ registeredUsd: 0.50 });
     const userId = await createTestUser({ tier: "registered", overrideUsd: 5 });
     const status = await checkBudget(userId, 4);
     assert.equal(status.allowed, true);
@@ -264,7 +264,7 @@ describe("checkBudget — per-user override", () => {
   });
 
   it("a per-user override beats the tier limit (lower than legendary)", async () => {
-    await setStandardLimits({ legendUsd: 10 });
+    await setStandardLimits({ legendaryUsd: 10 });
     const userId = await createTestUser({ tier: "legendary", overrideUsd: 1 });
     const status = await checkBudget(userId, 0.5);
     assert.equal(status.allowed, true);
@@ -272,7 +272,7 @@ describe("checkBudget — per-user override", () => {
   });
 
   it("a zero override caps the user at zero", async () => {
-    await setStandardLimits({ legendUsd: 10 });
+    await setStandardLimits({ legendaryUsd: 10 });
     const userId = await createTestUser({ tier: "legendary", overrideUsd: 0 });
     const status = await checkBudget(userId, 0.01);
     assert.equal(status.allowed, false);
@@ -282,7 +282,7 @@ describe("checkBudget — per-user override", () => {
 
 describe("checkBudget — period boundaries", () => {
   it("monthly period: a row from a prior month is not counted", async () => {
-    await setStandardLimits({ period: "monthly", freeUsd: 0.50 });
+    await setStandardLimits({ period: "monthly", registeredUsd: 0.50 });
     const userId = await createTestUser({ tier: "registered" });
     // Row dated to first day of last month — well before the current monthly window
     const lastMonth = new Date();
@@ -295,7 +295,7 @@ describe("checkBudget — period boundaries", () => {
   });
 
   it("rolling_30d period: a row from 40 days ago is not counted", async () => {
-    await setStandardLimits({ period: "rolling_30d", freeUsd: 0.50 });
+    await setStandardLimits({ period: "rolling_30d", registeredUsd: 0.50 });
     const userId = await createTestUser({ tier: "registered" });
     const fortyDaysAgo = new Date(Date.now() - 40 * 24 * 60 * 60 * 1000);
     await insertCost(userId, 999, fortyDaysAgo);
@@ -305,7 +305,7 @@ describe("checkBudget — period boundaries", () => {
   });
 
   it("rolling_30d period: a row from 5 days ago IS counted", async () => {
-    await setStandardLimits({ period: "rolling_30d", freeUsd: 0.50 });
+    await setStandardLimits({ period: "rolling_30d", registeredUsd: 0.50 });
     const userId = await createTestUser({ tier: "registered" });
     const fiveDaysAgo = new Date(Date.now() - 5 * 24 * 60 * 60 * 1000);
     await insertCost(userId, 0.45, fiveDaysAgo);
@@ -315,8 +315,8 @@ describe("checkBudget — period boundaries", () => {
 });
 
 describe("checkBudget — unknown user", () => {
-  it("treats a user that doesn't exist as 'unregistered' tier (uses free limit)", async () => {
-    await setStandardLimits({ freeUsd: 0.50 });
+  it("treats a user that doesn't exist as 'unregistered' tier (uses registered limit)", async () => {
+    await setStandardLimits({ registeredUsd: 0.50 });
     const ghostId = uid();
     const status = await checkBudget(ghostId, 0.10);
     assert.equal(status.limit, 0.5);
@@ -373,7 +373,7 @@ describe("recordCost", () => {
   });
 
   it("recorded cost shows up in subsequent checkBudget call", async () => {
-    await setStandardLimits({ freeUsd: 0.50 });
+    await setStandardLimits({ registeredUsd: 0.50 });
     const userId = await createTestUser({ tier: "registered" });
     await recordCost({
       userId,

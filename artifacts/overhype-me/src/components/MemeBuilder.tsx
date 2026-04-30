@@ -484,7 +484,7 @@ const ADMIN_MODEL_PARAMS: Record<string, AdminParamDef[]> = {
 
 export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMemeImages, onClose, defaultPrivate, embedded, fullScreen }: MemeBuilderProps) {
   const { isAuthenticated, login, role, user } = useAuth();
-  const isPremium = role === "legendary" || role === "admin";
+  const isLegendary = role === "legendary" || role === "admin";
   const isRegistered = isAuthenticated && role !== "unregistered";
   const isAdmin = role === "admin";
   const { pronouns } = usePersonName();
@@ -1224,7 +1224,7 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
       setErrorMsg("Please wait for a stock photo to load, or shuffle to try again.");
       return;
     }
-    if ((imageMode === "upload" || imageMode === "ai") && !isPremium) {
+    if ((imageMode === "upload" || imageMode === "ai") && !isLegendary) {
       setErrorMsg("This image source requires a Legendary membership.");
       return;
     }
@@ -1433,7 +1433,7 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
             <ModeTab
               active={imageMode === "ai"}
               onClick={() => setImageMode("ai")}
-              badge={!isPremium ? "PRO" : undefined}
+              badge={!isLegendary ? "LEGENDARY" : undefined}
             >
               AI Generated
             </ModeTab>
@@ -1597,7 +1597,7 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
               initialImages={aiMemeImages ?? null}
               aiGender={aiGender}
               isGendered={factIsGendered}
-              isPremium={isPremium}
+              isLegendary={isLegendary}
               isAdmin={isAdmin}
               onSelect={setAiSelectedInfo}
               showStylePicker
@@ -2282,7 +2282,7 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
             ) : (
               <div className="space-y-3">
                 {/* Visibility toggle (premium) — just above save */}
-                {isPremium && (
+                {isLegendary && (
                   <div className="flex items-center gap-3 p-3 bg-secondary border border-border">
                     <button
                       type="button"

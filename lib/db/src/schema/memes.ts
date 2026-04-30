@@ -12,7 +12,7 @@ export const memesTable = pgTable("memes", {
   textOptions: jsonb("text_options"),
   /** Populated for photo-based memes; null means gradient template background. */
   imageSource: jsonb("image_source"),
-  /** Whether this meme is visible in the public gallery. Free users always get true; premium can set false. */
+  /** Whether this meme is visible in the public gallery. Non-legendary users always get true; legendary can set false. */
   isPublic: boolean("is_public").notNull().default(true),
   /** Flagged true if the uploaded image longest edge is below LOW_RES_THRESHOLD_PX (default 1500px). */
   isLowRes: boolean("is_low_res").notNull().default(false),

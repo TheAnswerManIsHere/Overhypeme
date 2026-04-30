@@ -79,3 +79,4 @@ export * from "./updateProfileResponse";
 export * from "./uploadUrlRequest";
 export * from "./uploadUrlResponse";
 export * from "./userProfile";
+export * from "./userProfileMembershipTier";

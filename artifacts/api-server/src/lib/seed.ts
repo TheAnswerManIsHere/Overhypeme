@@ -537,18 +537,18 @@ Return ONLY valid JSON:
             ON CONFLICT (key) DO NOTHING`,
     },
     {
-      label: "admin_config seed budget_limit_free_usd",
+      label: "admin_config seed budget_limit_registered_usd",
       ddl: `INSERT INTO admin_config (key, value, data_type, label, description, is_public)
-            VALUES ('budget_limit_free_usd', '0.50', 'string', 'Free Tier Generation Budget (USD)',
-                    'Maximum fal.ai generation spend per budget period for free-tier users (USD).',
+            VALUES ('budget_limit_registered_usd', '0.50', 'string', 'Registered Tier Generation Budget (USD)',
+                    'Maximum fal.ai generation spend per budget period for users on the Registered Tier (USD).',
                     false)
             ON CONFLICT (key) DO NOTHING`,
     },
     {
-      label: "admin_config seed budget_limit_legend_usd",
+      label: "admin_config seed budget_limit_legendary_usd",
       ddl: `INSERT INTO admin_config (key, value, data_type, label, description, is_public)
-            VALUES ('budget_limit_legend_usd', '10.00', 'string', 'Legendary Tier Generation Budget (USD)',
-                    'Maximum fal.ai generation spend per budget period for legendary-tier users (USD).',
+            VALUES ('budget_limit_legendary_usd', '10.00', 'string', 'Legendary Tier Generation Budget (USD)',
+                    'Maximum fal.ai generation spend per budget period for users on the Legendary Tier (USD).',
                     false)
             ON CONFLICT (key) DO NOTHING`,
     },
@@ -665,7 +665,8 @@ Return ONLY valid JSON:
             VALUES
               ('unregistered', 'video_generation', false),
               ('registered',   'video_generation', false),
-              ('legendary',    'video_generation', true)
+              ('legendary',    'video_generation', true),
+              ('admin',        'video_generation', true)
             ON CONFLICT (tier, feature_key) DO UPDATE SET enabled = EXCLUDED.enabled`,
     },
     // ── Stripe hardening migrations ───────────────────────────────────────────

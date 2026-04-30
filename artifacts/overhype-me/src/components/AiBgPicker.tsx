@@ -135,7 +135,7 @@ export interface AiBgPickerProps {
   initialImages: AiMemeImages | null;
   aiGender: "male" | "female" | "neutral";
   isGendered: boolean;
-  isPremium: boolean;
+  isLegendary: boolean;
   isAdmin: boolean;
   onSelect: (selection: AiBgSelection | null) => void;
   /** Whether to show the style picker (AI generation style). Default: false */
@@ -190,7 +190,7 @@ export function AiBgPicker({
   initialImages,
   aiGender,
   isGendered,
-  isPremium,
+  isLegendary,
   isAdmin,
   onSelect,
   showStylePicker = false,
@@ -274,7 +274,7 @@ export function AiBgPicker({
   }, [factId]);
 
   useEffect(() => {
-    if (!isPremium || aiSubMode !== "reference") return;
+    if (!isLegendary || aiSubMode !== "reference") return;
     const controller = new AbortController();
     setIsLoadingRefGenImages(true);
     fetchRefGenImages(controller.signal)
@@ -282,7 +282,7 @@ export function AiBgPicker({
       .catch(() => {})
       .finally(() => setIsLoadingRefGenImages(false));
     return () => { controller.abort(); };
-  }, [isPremium, aiSubMode, fetchRefGenImages]);
+  }, [isLegendary, aiSubMode, fetchRefGenImages]);
 
   // ── Reference photo uploads ─────────────────────────────────────────────────
   const [refUploads, setRefUploads] = useState<UploadEntry[]>([]);
@@ -292,7 +292,7 @@ export function AiBgPicker({
   const refFileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    if (!isPremium || aiSubMode !== "reference") return;
+    if (!isLegendary || aiSubMode !== "reference") return;
     let cancelled = false;
     setIsLoadingRefUploads(true);
     fetch("/api/users/me/uploads", { credentials: "include" })
@@ -303,7 +303,7 @@ export function AiBgPicker({
       .catch(() => {})
       .finally(() => { if (!cancelled) setIsLoadingRefUploads(false); });
     return () => { cancelled = true; };
-  }, [isPremium, aiSubMode]);
+  }, [isLegendary, aiSubMode]);
 
   const handleRefPhotoUpload = useCallback(async (file: File) => {
     if (!file.type.startsWith("image/")) return;
@@ -660,7 +660,7 @@ export function AiBgPicker({
 
   // ─── Render ─────────────────────────────────────────────────────────────────
 
-  if (!isPremium) {
+  if (!isLegendary) {
     return <AccessGate reason="legendary" size="sm" description="AI-generated backgrounds require a Legendary membership." />;
   }
 

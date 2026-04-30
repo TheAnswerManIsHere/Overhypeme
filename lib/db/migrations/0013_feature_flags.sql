@@ -1,3 +1,11 @@
+-- NOTE: The tier='free' inserts at the bottom of this migration are LEGACY.
+-- The canonical tiers are { unregistered, registered, legendary } plus the
+-- separate is_admin flag. Migration 0029_permissions_cleanup.sql deletes those
+-- 'free' rows and backfills any missing (tier, feature_key) combinations for
+-- the four valid tier identifiers (unregistered, registered, legendary, admin).
+-- Do NOT modify the body below — it is preserved verbatim to keep the
+-- historical migration hash stable.
+
 CREATE TABLE IF NOT EXISTS feature_flags (
   key varchar(100) PRIMARY KEY,
   display_name varchar(200) NOT NULL,
