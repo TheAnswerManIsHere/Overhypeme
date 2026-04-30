@@ -49,6 +49,7 @@ function makeApp(): Express {
 async function createTestUser(opts: {
   isAdmin?: boolean;
   membershipTier?: "unregistered" | "registered" | "legendary";
+  captchaVerified?: boolean;
 } = {}): Promise<string> {
   const id = `${USER_PREFIX}${randomUUID()}`;
   await db.insert(usersTable).values({
@@ -56,7 +57,10 @@ async function createTestUser(opts: {
     email: `${id}@test.local`,
     isAdmin: opts.isAdmin ?? false,
     membershipTier: opts.membershipTier ?? "registered",
-    captchaVerified: true, // bypasses the onboarding gate by default
+    // Default to true so the onboarding gate is bypassed in most tests.
+    // The middleware ORs DB and session captchaVerified, so tests that
+    // need the gate to fire must set this to false here.
+    captchaVerified: opts.captchaVerified ?? true,
   });
   return id;
 }
@@ -106,7 +110,7 @@ describe("POST /facts/submit-review", () => {
   });
 
   it("returns 403 ONBOARDING_REQUIRED for non-admin/non-legendary/non-captcha users", async () => {
-    const userId = await createTestUser();
+    const userId = await createTestUser({ captchaVerified: false });
     const sid = await bearerForUser(userId, { captchaVerified: false });
     const res = await request(makeApp())
       .post("/facts/submit-review")
@@ -271,7 +275,7 @@ describe("POST /admin/reviews/:id/reject", () => {
     const res = await request(makeApp())
       .post("/admin/reviews/999999/reject")
       .set("authorization", `Bearer ${sid}`)
-      .send({});
+      .send({ rejectionReason: "spam" });
     assert.equal(res.status, 404);
   });
 
@@ -289,7 +293,7 @@ describe("POST /admin/reviews/:id/reject", () => {
     const res = await request(makeApp())
       .post(`/admin/reviews/${r.id}/reject`)
       .set("authorization", `Bearer ${sid}`)
-      .send({});
+      .send({ rejectionReason: "spam" });
     assert.equal(res.status, 409);
     assert.match(res.body.error, /already approved/);
   });
@@ -308,7 +312,7 @@ describe("POST /admin/reviews/:id/reject", () => {
     const res = await request(makeApp())
       .post(`/admin/reviews/${r.id}/reject`)
       .set("authorization", `Bearer ${sid}`)
-      .send({ adminNote: "doesn't fit" });
+      .send({ adminNote: "doesn't fit", rejectionReason: "spam" });
     assert.equal(res.status, 200);
     assert.equal(res.body.success, true);
 
@@ -318,6 +322,7 @@ describe("POST /admin/reviews/:id/reject", () => {
       .where(eq(pendingReviewsTable.id, r.id));
     assert.equal(after.status, "rejected");
     assert.equal(after.adminNote, "doesn't fit");
+    assert.equal(after.reason, "spam");
     assert.equal(after.reviewedById, adminId);
   });
 });
