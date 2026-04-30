@@ -1431,14 +1431,19 @@ router.patch("/admin/config/:key", requireAdmin, async (req: Request, res: Respo
   bustConfigCache();
 
   // When stripe_live_mode changes, invalidate the cached Stripe instance and
-  // kick off a fresh backfill so the new mode's products/prices populate immediately.
+  // kick off a scoped resync so the new mode's products/prices populate
+  // immediately. Scoped to products+prices+plans (the admin Plans block);
+  // customers/subs/invoices stay current via webhooks.
   if (key === "stripe_live_mode") {
     const { invalidateStripeSync, getStripeSync } = await import("../lib/stripeClient");
+    const { runScopedSync } = await import("../lib/stripeSyncRunner");
     invalidateStripeSync();
-    getStripeSync()
-      .then(sync => sync.syncBackfill({ object: "all" }))
-      .then(() => console.info("[admin] Stripe backfill complete after mode toggle"))
-      .catch((err: unknown) => console.error("[admin] Stripe backfill error after mode toggle", err));
+    try {
+      const sync = await getStripeSync();
+      runScopedSync(sync);
+    } catch (err) {
+      console.error("[admin] Stripe scoped sync error after mode toggle", err);
+    }
   }
 
   res.json(updated);
@@ -1598,19 +1603,53 @@ router.get("/admin/stripe/summary", requireAdmin, async (_req: Request, res: Res
   }
 });
 
-// POST /admin/stripe/sync — trigger an immediate Stripe data backfill (runs in background)
+// POST /admin/stripe/sync — trigger a scoped resync of products/prices/plans.
+//
+// Scoped intentionally: customers/subscriptions/invoices/etc. are kept fresh
+// by webhooks already, so the admin button only refreshes what it actually
+// affects (the Plans block + checkout price IDs).
+//
+// Returns immediately after kicking off the background sync. The UI polls
+// /admin/stripe/sync/status to render real-time progress per resource.
+//
+// If a sync is already running, this returns HTTP 409 + alreadyRunning:true
+// rather than starting a duplicate concurrent sync.
 router.post("/admin/stripe/sync", requireAdmin, async (_req: Request, res: Response) => {
   try {
     const { getStripeSync } = await import("../lib/stripeClient");
+    const { runScopedSync } = await import("../lib/stripeSyncRunner");
     const sync = await getStripeSync();
-    // Fire backfill in background — don't await, respond immediately
-    sync.syncBackfill({ object: "all" })
-      .then(() => console.info("[admin] Stripe manual sync complete"))
-      .catch((err: unknown) => console.error("[admin] Stripe manual sync error", err));
-    res.json({ success: true, message: "Stripe sync started — products will appear within a few seconds." });
+    const result = runScopedSync(sync);
+    if (result.alreadyRunning) {
+      res.status(409).json({
+        success: false,
+        alreadyRunning: true,
+        message: "Sync already in progress — current run will finish shortly.",
+      });
+      return;
+    }
+    res.json({
+      success: true,
+      message: "Stripe sync started — watch progress below.",
+    });
   } catch (err) {
     console.error("[admin] POST /admin/stripe/sync error", err);
     res.status(500).json({ error: "Failed to start sync" });
+  }
+});
+
+// GET /admin/stripe/sync/status — read per-resource sync state for the UI poller.
+router.get("/admin/stripe/sync/status", requireAdmin, async (_req: Request, res: Response) => {
+  try {
+    const { getStripeSync } = await import("../lib/stripeClient");
+    const { readSyncStatus } = await import("../lib/stripeSyncRunner");
+    const sync = await getStripeSync();
+    const accountId = await sync.getAccountId();
+    const status = await readSyncStatus(accountId);
+    res.json(status);
+  } catch (err) {
+    console.error("[admin] GET /admin/stripe/sync/status error", err);
+    res.status(500).json({ error: "Failed to read sync status" });
   }
 });
 
