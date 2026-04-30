@@ -17,7 +17,14 @@ import { emailOutboxTable, type EmailOutboxRow } from "@workspace/db/schema";
 import { getConfigString, getConfigInt } from "./adminConfig";
 import { getSiteBaseUrl } from "./siteUrl";
 import { logger } from "./logger";
-import { notifyAdminsOfAbandonedEmail } from "./adminNotify";
+// NOTE: Do NOT add a static import of ./adminNotify here. adminNotify imports
+// sendEmail from this file, so a static import would create a circular module
+// dependency. With ESM + top-level await anywhere in the bundled graph, esbuild
+// turns module init into async wrappers that deadlock on the cycle (Node exit
+// code 13: "Detected unsettled top-level await"). Use a lazy dynamic import
+// inside the function body instead — see notifyAdminsOfAbandonedEmail call below.
+// The validate-no-cycles script (pnpm --filter @workspace/api-server run check:cycles)
+// will fail CI if a static import is reintroduced.
 
 async function getFromAddress(): Promise<string> {
   return getConfigString("email_from_address", process.env.RESEND_FROM_EMAIL ?? "legends@overhype.me");
@@ -211,12 +218,16 @@ export async function emailOutboxTick(
             "Email permanently abandoned after max retries",
           );
           if (row.kind !== "admin_abandoned_email_alert") {
-            void notifyAdminsOfAbandonedEmail({
-              outboxId: row.id,
-              to: row.to,
-              subject: row.subject,
-              lastError: error ?? "unknown",
-            });
+            // Lazy dynamic import to break the email <-> adminNotify circular
+            // dependency. See the import-block comment at top of this file.
+            void import("./adminNotify").then(({ notifyAdminsOfAbandonedEmail }) =>
+              notifyAdminsOfAbandonedEmail({
+                outboxId: row.id,
+                to: row.to,
+                subject: row.subject,
+                lastError: error ?? "unknown",
+              }),
+            );
           }
         }
       }
