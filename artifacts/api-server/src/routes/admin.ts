@@ -1,7 +1,7 @@
 import { Router, type IRouter, type Request, type Response, type NextFunction } from "express";
 import * as Sentry from "@sentry/node";
 import { db, usersTable, sessionsTable } from "@workspace/db";
-import { factsTable, commentsTable, adminConfigTable, videoStylesTable, featureFlagsTable, tierFeaturePermissionsTable, userGenerationCostsTable, lifetimeEntitlementsTable, subscriptionsTable, membershipHistoryTable, activityFeedTable, memesTable, userAiImagesTable, routeStatsTable, routeStatEventsTable, emailOutboxTable } from "@workspace/db/schema";
+import { factsTable, commentsTable, adminConfigTable, videoStylesTable, featureFlagsTable, tierFeaturePermissionsTable, userGenerationCostsTable, lifetimeEntitlementsTable, subscriptionsTable, membershipHistoryTable, activityFeedTable, memesTable, userAiImagesTable, routeStatsTable, routeStatEventsTable, emailOutboxTable, stripeWebhookAuditTable } from "@workspace/db/schema";
 import { eq, desc, count, ilike, sql, and, or, inArray, isNull, asc, gt, gte, sum } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import { requireRole } from "../middlewares/tierMiddleware";
@@ -1585,12 +1585,24 @@ router.get("/admin/stripe/summary", requireAdmin, async (_req: Request, res: Res
 
     const webhookUrl = `${getSiteBaseUrl()}/api/stripe/webhook`;
 
+    const [duplicateSuppressedRows, recentFailures] = await Promise.all([
+      db.select({ cnt: sql<number>`count(*)::int` }).from(stripeWebhookAuditTable).where(eq(stripeWebhookAuditTable.state, "ignored_duplicate")),
+      db.select().from(stripeWebhookAuditTable)
+        .where(eq(stripeWebhookAuditTable.state, "failed"))
+        .orderBy(desc(stripeWebhookAuditTable.createdAt))
+        .limit(20),
+    ]);
+
     res.json({
       activeSubscribers: legendaryRows[0]?.cnt ?? 0,
       registeredMembers: registeredRows[0]?.cnt ?? 0,
       webhookSecretConfigured,
       webhookUrl,
       stripeEnv,
+      webhookAudit: {
+        duplicateSuppressedCount: duplicateSuppressedRows[0]?.cnt ?? 0,
+        recentFailures,
+      },
     });
   } catch (err) {
     console.error("[admin] stripe/summary error:", err);

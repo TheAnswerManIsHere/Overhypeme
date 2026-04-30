@@ -22,6 +22,7 @@ import {
   lifetimeEntitlementsTable,
   membershipHistoryTable,
   stripeProcessedEventsTable,
+  stripeWebhookAuditTable,
   emailOutboxTable,
 } from "@workspace/db/schema";
 import { eq, and, gte, isNull, or, like } from "drizzle-orm";
@@ -977,5 +978,33 @@ describe("Task #230 — idempotent re-delivery of new handlers", () => {
     // No assertions needed — the requirement is that replaying the removed
     // event neither throws nor produces side effects. Lack of throw is the
     // assertion.
+  });
+});
+
+describe("Webhook reliability/audit primitives", () => {
+  it("suppresses duplicate event IDs via unique key (concurrent replay safety)", async () => {
+    const eventId = `evt_dedup_${randomUUID().replace(/-/g, "").slice(0, 14)}`;
+    const results = await Promise.allSettled([
+      db.insert(stripeProcessedEventsTable).values({ eventId }),
+      db.insert(stripeProcessedEventsTable).values({ eventId }),
+      db.insert(stripeProcessedEventsTable).values({ eventId }),
+    ]);
+    const fulfilled = results.filter((r) => r.status === "fulfilled").length;
+    const rejected = results.filter((r) => r.status === "rejected").length;
+    assert.equal(fulfilled, 1);
+    assert.equal(rejected, 2);
+    await db.delete(stripeProcessedEventsTable).where(eq(stripeProcessedEventsTable.eventId, eventId));
+  });
+
+  it("records webhook audit states for diagnostics", async () => {
+    const eventId = `evt_audit_${randomUUID().replace(/-/g, "").slice(0, 14)}`;
+    await db.insert(stripeWebhookAuditTable).values([
+      { eventId, eventType: "checkout.session.completed", state: "received" },
+      { eventId, eventType: "checkout.session.completed", state: "processed" },
+    ]);
+    const rows = await db.select().from(stripeWebhookAuditTable).where(eq(stripeWebhookAuditTable.eventId, eventId));
+    assert.ok(rows.some((r) => r.state === "received"));
+    assert.ok(rows.some((r) => r.state === "processed"));
+    await db.delete(stripeWebhookAuditTable).where(eq(stripeWebhookAuditTable.eventId, eventId));
   });
 });

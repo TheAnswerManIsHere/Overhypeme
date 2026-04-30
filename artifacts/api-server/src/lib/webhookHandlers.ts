@@ -7,6 +7,7 @@ import {
   subscriptionsTable,
   lifetimeEntitlementsTable,
   stripeProcessedEventsTable,
+  stripeWebhookAuditTable,
 } from "@workspace/db/schema";
 import { eq, desc, and } from "drizzle-orm";
 import { logger } from "./logger";
@@ -1030,6 +1031,9 @@ async function processDomainSwitch(stripe: Stripe, event: Stripe.Event): Promise
 }
 
 export class WebhookHandlers {
+  private static async audit(eventId: string, eventType: string, state: "received" | "processed" | "ignored_duplicate" | "failed", detail?: string) {
+    await db.insert(stripeWebhookAuditTable).values({ eventId, eventType, state, detail });
+  }
   /**
    * Process a pre-constructed Stripe event object directly through the domain event switch,
    * skipping Stripe sync and signature verification. For use in test mode QA only.
@@ -1107,19 +1111,21 @@ export class WebhookHandlers {
       logger.error({ err: parseErr }, "Failed to parse webhook event payload");
       return;
     }
+    await this.audit(event.id, event.type, "received");
 
-    // Idempotency guard: skip events already processed (handles Stripe retries)
+    // Atomic idempotency claim: insert fails on duplicate under concurrent deliveries.
     try {
       await db.insert(stripeProcessedEventsTable).values({ eventId: event.id });
     } catch (err) {
       const isUniqueViolation = err instanceof Error &&
         ((err as unknown as { code?: string }).code === "23505" || err.message.toLowerCase().includes("unique"));
       if (isUniqueViolation) {
+        await this.audit(event.id, event.type, "ignored_duplicate");
         logger.info({ eventId: event.id, eventType: event.type }, "Webhook event already processed — skipping (idempotency)");
         return;
       }
-      // On other DB errors, log but continue so Stripe doesn't retry endlessly
-      logger.warn({ err, eventId: event.id }, "Idempotency insert failed — proceeding with event processing");
+      await this.audit(event.id, event.type, "failed", "idempotency_claim_failed");
+      throw err;
     }
 
     // Process domain-specific logic via shared switch
@@ -1127,8 +1133,11 @@ export class WebhookHandlers {
     // in phase 1, or we returned early in the degraded-mode branch above.
     try {
       await processDomainSwitch(stripe!, event);
+      await this.audit(event.id, event.type, "processed");
     } catch (err) {
+      await this.audit(event.id, event.type, "failed", err instanceof Error ? err.message.slice(0, 400) : String(err));
       logger.error({ err, eventType: event.type }, "Webhook domain handler error");
+      throw err;
     }
   }
 }
