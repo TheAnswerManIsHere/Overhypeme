@@ -14,7 +14,21 @@ if (!process.env.DATABASE_URL) {
   );
 }
 
-export const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+export const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  // Proactively recycle idle connections before Neon auto-suspend (~5 min) resets them.
+  idleTimeoutMillis: 60_000,
+  // Hard limit on connection lifetime to avoid stale TLS sessions.
+  maxLifetimeSeconds: 3600,
+});
+
+// Without this handler, an ECONNRESET on an idle pool client (e.g. from Neon
+// auto-suspend) becomes an uncaught exception and crashes the process.
+// The pool automatically removes the errored client and opens a fresh one.
+pool.on("error", (err) => {
+  console.error("Idle db client error (pool will reconnect):", err.message);
+});
+
 export const db = drizzle(pool, { schema });
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
