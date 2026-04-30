@@ -1,0 +1,226 @@
+# Error: Failed query: ALTER TABLE "membership_history" ADD COLUMN "performed_by_admin_id" varchar;
+
+**Issue ID:** 7421183992
+**Project:** sentry_project_backend
+**Date:** 4/28/2026, 9:29:34 PM
+## Issue Summary
+Migration Failure: Column Already Exists in membership_history
+**What's wrong:** Migration failed attempting to **add an existing column** to `membership_history`.
+**In the trace:** The failure occurred during **database migration** execution within a transaction.
+**Possible cause:** The migration script is **idempotency-impaired**; it runs an `ALTER TABLE ADD COLUMN` command that has already been executed.
+
+## Tags
+
+- **environment:** production
+- **handled:** yes
+- **level:** fatal
+- **mechanism:** generic
+- **os:** Ubuntu Linux 24.04
+- **os.name:** Ubuntu Linux
+- **release:** 395688cb-2d23-4436-891f-493321e1ae97
+- **runtime:** node v24.13.0
+- **runtime.name:** node
+- **server_name:** localhost
+
+## Exceptions
+
+### Exception 1
+**Type:** error
+**Value:** column "performed_by_admin_id" of relation "membership_history" already exists
+
+#### Stacktrace
+
+```
+ result in ../../../node_modules/.pnpm/pg@8.20.0/node_modules/pg/lib/client.js [Line 631] (Not in app)
+        result = new this._Promise((resolve, reject) => {
+          query.callback = (err, res) => (err ? reject(err) : resolve(res))
+        }).catch((err) => {
+          // replace the stack trace that leads to `TCP.onStreamRead` with one that leads back to the
+          // application that created the query
+          Error.captureStackTrace(err)  <-- SUSPECT LINE
+          throw err
+        })
+      }
+    }
+
+ process.processTicksAndRejections in node:internal/process/task_queues [Line 103] (Not in app)
+ <anonymous> in ../../../node_modules/.pnpm/drizzle-orm@0.45.1_@opentelemetry+api@1.9.1_@types+pg@8.18.0_pg@8.20.0_postgres@3.4.8/node_modules/src/node-postgres/session.ts [Line 149] (Not in app)
+						'drizzle.query.name': rawQuery.name,
+						'drizzle.query.text': rawQuery.text,
+						'drizzle.query.params': JSON.stringify(params),
+					});
+					return this.queryWithCache(rawQuery.text, params, async () => {
+						return await client.query(rawQuery, params);  <-- SUSPECT LINE
+					});
+				});
+			}
+
+			const result = await tracer.startActiveSpan('drizzle.driver.execute', (span) => {
+ PgPreparedQuery.queryWithCache in ../../../node_modules/.pnpm/drizzle-orm@0.45.1_@opentelemetry+api@1.9.1_@types+pg@8.18.0_pg@8.20.0_postgres@3.4.8/node_modules/src/pg-core/session.ts [Line 71] (Not in app)
+		params: any[],
+		query: () => Promise<T>,
+	): Promise<T> {
+		if (this.cache === undefined || is(this.cache, NoopCache) || this.queryMetadata === undefined) {
+			try {
+				return await query();  <-- SUSPECT LINE
+			} catch (e) {
+				throw new DrizzleQueryError(queryString, params, e as Error);
+			}
+		}
+
+ <anonymous> in ../../../node_modules/.pnpm/drizzle-orm@0.45.1_@opentelemetry+api@1.9.1_@types+pg@8.18.0_pg@8.20.0_postgres@3.4.8/node_modules/src/pg-core/dialect.ts [Line 102] (Not in app)
+				if (
+					!lastDbMigration
+					|| Number(lastDbMigration.created_at) < migration.folderMillis
+				) {
+					for (const stmt of migration.sql) {
+						await tx.execute(sql.raw(stmt));  <-- SUSPECT LINE
+					}
+					await tx.execute(
+						sql`insert into ${sql.identifier(migrationsSchema)}.${
+							sql.identifier(migrationsTable)
+						} ("hash", "created_at") values(${migration.hash}, ${migration.folderMillis})`,
+ NodePgSession._NodePgSession.transaction in ../../../node_modules/.pnpm/drizzle-orm@0.45.1_@opentelemetry+api@1.9.1_@types+pg@8.18.0_pg@8.20.0_postgres@3.4.8/node_modules/src/node-postgres/session.ts [Line 259] (Not in app)
+			? new NodePgSession(await (<pg.Pool> this.client).connect(), this.dialect, this.schema, this.options)
+			: this;
+		const tx = new NodePgTransaction<TFullSchema, TSchema>(this.dialect, session, this.schema);
+		await tx.execute(sql`begin${config ? sql` ${tx.getTransactionConfigSQL(config)}` : undefined}`);
+		try {
+			const result = await transaction(tx);  <-- SUSPECT LINE
+			await tx.execute(sql`commit`);
+			return result;
+		} catch (error) {
+			await tx.execute(sql`rollback`);
+			throw error;
+ PgDialect.migrate in ../../../node_modules/.pnpm/drizzle-orm@0.45.1_@opentelemetry+api@1.9.1_@types+pg@8.18.0_pg@8.20.0_postgres@3.4.8/node_modules/src/pg-core/dialect.ts [Line 95] (Not in app)
+				sql.identifier(migrationsTable)
+			} order by created_at desc limit 1`,
+		);
+
+		const lastDbMigration = dbMigrations[0];
+		await session.transaction(async (tx) => {  <-- SUSPECT LINE
+			for await (const migration of migrations) {
+				if (
+					!lastDbMigration
+					|| Number(lastDbMigration.created_at) < migration.folderMillis
+				) {
+ migrate in ../../../node_modules/.pnpm/drizzle-orm@0.45.1_@opentelemetry+api@1.9.1_@types+pg@8.18.0_pg@8.20.0_postgres@3.4.8/node_modules/src/node-postgres/migrator.ts [Line 10] (Not in app)
+export async function migrate<TSchema extends Record<string, unknown>>(
+	db: NodePgDatabase<TSchema>,
+	config: MigrationConfig,
+) {
+	const migrations = readMigrationFiles(config);
+	await db.dialect.migrate(migrations, db.session, config);  <-- SUSPECT LINE
+}
+ runMigrations in ../../../lib/db/src/index.ts [Line 113] (In app)
+  try {
+    await seedLegacyMigrations(client);
+  } finally {
+    client.release();
+  }
+  await migrate(db, { migrationsFolder });  <-- SUSPECT LINE
+}
+
+export * from "./schema";
+ <unknown> in ../src/index.ts [Line 217] (In app)
+// Only the two DB steps run before listen() so the port opens in seconds.
+// Everything else (Stripe, membership reconcile, backfills) runs in the
+// background and does not block port binding.
+
+// Apply any pending database migrations before accepting requests
+await runMigrations();  <-- SUSPECT LINE
+
+// Idempotent schema & config seed (ADD COLUMN IF NOT EXISTS, INSERT … ON CONFLICT DO NOTHING)
+await ensureSchema();
+
+// Bind the port now — deployment health checks can pass immediately.
+```
+------
+### Exception 2
+**Type:** Error
+**Value:** Failed query: ALTER TABLE "membership_history" ADD COLUMN "performed_by_admin_id" varchar;
+params: 
+
+#### Stacktrace
+
+```
+ PgPreparedQuery.queryWithCache in ../../../node_modules/.pnpm/drizzle-orm@0.45.1_@opentelemetry+api@1.9.1_@types+pg@8.18.0_pg@8.20.0_postgres@3.4.8/node_modules/src/pg-core/session.ts [Line 73] (Not in app)
+	): Promise<T> {
+		if (this.cache === undefined || is(this.cache, NoopCache) || this.queryMetadata === undefined) {
+			try {
+				return await query();
+			} catch (e) {
+				throw new DrizzleQueryError(queryString, params, e as Error);  <-- SUSPECT LINE
+			}
+		}
+
+		// don't do any mutations, if globally is false
+		if (this.cacheConfig && !this.cacheConfig.enable) {
+ process.processTicksAndRejections in node:internal/process/task_queues [Line 103] (Not in app)
+ <anonymous> in ../../../node_modules/.pnpm/drizzle-orm@0.45.1_@opentelemetry+api@1.9.1_@types+pg@8.18.0_pg@8.20.0_postgres@3.4.8/node_modules/src/pg-core/dialect.ts [Line 102] (Not in app)
+				if (
+					!lastDbMigration
+					|| Number(lastDbMigration.created_at) < migration.folderMillis
+				) {
+					for (const stmt of migration.sql) {
+						await tx.execute(sql.raw(stmt));  <-- SUSPECT LINE
+					}
+					await tx.execute(
+						sql`insert into ${sql.identifier(migrationsSchema)}.${
+							sql.identifier(migrationsTable)
+						} ("hash", "created_at") values(${migration.hash}, ${migration.folderMillis})`,
+ NodePgSession._NodePgSession.transaction in ../../../node_modules/.pnpm/drizzle-orm@0.45.1_@opentelemetry+api@1.9.1_@types+pg@8.18.0_pg@8.20.0_postgres@3.4.8/node_modules/src/node-postgres/session.ts [Line 259] (Not in app)
+			? new NodePgSession(await (<pg.Pool> this.client).connect(), this.dialect, this.schema, this.options)
+			: this;
+		const tx = new NodePgTransaction<TFullSchema, TSchema>(this.dialect, session, this.schema);
+		await tx.execute(sql`begin${config ? sql` ${tx.getTransactionConfigSQL(config)}` : undefined}`);
+		try {
+			const result = await transaction(tx);  <-- SUSPECT LINE
+			await tx.execute(sql`commit`);
+			return result;
+		} catch (error) {
+			await tx.execute(sql`rollback`);
+			throw error;
+ PgDialect.migrate in ../../../node_modules/.pnpm/drizzle-orm@0.45.1_@opentelemetry+api@1.9.1_@types+pg@8.18.0_pg@8.20.0_postgres@3.4.8/node_modules/src/pg-core/dialect.ts [Line 95] (Not in app)
+				sql.identifier(migrationsTable)
+			} order by created_at desc limit 1`,
+		);
+
+		const lastDbMigration = dbMigrations[0];
+		await session.transaction(async (tx) => {  <-- SUSPECT LINE
+			for await (const migration of migrations) {
+				if (
+					!lastDbMigration
+					|| Number(lastDbMigration.created_at) < migration.folderMillis
+				) {
+ migrate in ../../../node_modules/.pnpm/drizzle-orm@0.45.1_@opentelemetry+api@1.9.1_@types+pg@8.18.0_pg@8.20.0_postgres@3.4.8/node_modules/src/node-postgres/migrator.ts [Line 10] (Not in app)
+export async function migrate<TSchema extends Record<string, unknown>>(
+	db: NodePgDatabase<TSchema>,
+	config: MigrationConfig,
+) {
+	const migrations = readMigrationFiles(config);
+	await db.dialect.migrate(migrations, db.session, config);  <-- SUSPECT LINE
+}
+ runMigrations in ../../../lib/db/src/index.ts [Line 113] (In app)
+  try {
+    await seedLegacyMigrations(client);
+  } finally {
+    client.release();
+  }
+  await migrate(db, { migrationsFolder });  <-- SUSPECT LINE
+}
+
+export * from "./schema";
+ <unknown> in ../src/index.ts [Line 217] (In app)
+// Only the two DB steps run before listen() so the port opens in seconds.
+// Everything else (Stripe, membership reconcile, backfills) runs in the
+// background and does not block port binding.
+
+// Apply any pending database migrations before accepting requests
+await runMigrations();  <-- SUSPECT LINE
+
+// Idempotent schema & config seed (ADD COLUMN IF NOT EXISTS, INSERT … ON CONFLICT DO NOTHING)
+await ensureSchema();
+
+// Bind the port now — deployment health checks can pass immediately.
+```
