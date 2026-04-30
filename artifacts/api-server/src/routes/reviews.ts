@@ -48,10 +48,10 @@ router.post("/facts/submit-review", requireAuth, requireRateLimit, async (req: A
   // Membership/admin/captcha state on `req.user` is rebuilt fresh from the DB
   // on every authenticated request by authMiddleware.
   const isAdmin = !!req.user.isRealAdmin;
-  const isPremium = req.user.membershipTier === "legendary";
+  const isLegendary = req.user.membershipTier === "legendary";
   const isCaptchaVerified = !!req.user.captchaVerified;
 
-  if (!isAdmin && !isPremium && !isCaptchaVerified) {
+  if (!isAdmin && !isLegendary && !isCaptchaVerified) {
     res.status(403).json({
       error: "You must complete onboarding before submitting facts.",
       code: "ONBOARDING_REQUIRED",

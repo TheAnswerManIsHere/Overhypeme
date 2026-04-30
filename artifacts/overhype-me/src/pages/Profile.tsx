@@ -270,8 +270,11 @@ export default function Profile() {
     return `https://api.dicebear.com/9.x/${style}/svg?seed=${encodeURIComponent(seed)}`;
   }
 
+  // Computed locally from auth role; admins are treated as legendary for UI gates.
+  const isLegendary = role === "legendary" || role === "admin";
+
   function getAvatarUrl() {
-    if (profile?.isPremium && profile?.profileImageUrl && (profile?.avatarSource ?? "avatar") === "photo") {
+    if (isLegendary && profile?.profileImageUrl && (profile?.avatarSource ?? "avatar") === "photo") {
       return profile.profileImageUrl;
     }
     return dicebearUrl(profile?.avatarStyle ?? "bottts", profile?.id ?? "default");
@@ -719,10 +722,10 @@ export default function Profile() {
               onChange={handlePhotoChange}
             />
             <button
-              onClick={() => profile.isPremium ? fileInputRef.current?.click() : openEditor()}
+              onClick={() => isLegendary ? fileInputRef.current?.click() : openEditor()}
               disabled={photoUploading}
               className="relative block rounded-sm focus:outline-none focus:ring-2 focus:ring-primary"
-              title={profile.isPremium ? "Change profile photo" : "Choose avatar style"}
+              title={isLegendary ? "Change profile photo" : "Choose avatar style"}
             >
               <img
                 src={getAvatarUrl()}
@@ -741,7 +744,7 @@ export default function Profile() {
             )}
 
             {/* Avatar source toggle — Legendary users with a custom photo */}
-            {profile.isPremium && profile.profileImageUrl && (
+            {isLegendary && profile.profileImageUrl && (
               <div className="mt-2 flex items-center gap-1 bg-secondary/80 rounded-sm p-0.5 border border-border/60">
                 <button
                   disabled={avatarSourceToggling}
@@ -903,7 +906,7 @@ export default function Profile() {
               </div>
 
               {/* Photo Upload — Premium only */}
-              {profile.isPremium ? (
+              {isLegendary ? (
                 <div>
                   <label className="block text-sm font-bold text-muted-foreground uppercase tracking-wide mb-2 flex items-center gap-2">
                     <Camera className="w-3.5 h-3.5" /> Custom Photo <span className="text-primary text-xs">Legendary</span>
@@ -1333,7 +1336,7 @@ export default function Profile() {
             >
               <Clock className="w-5 h-5" /> Search History
             </button>
-            {profile.isPremium && (
+            {isLegendary && (
               <button
                 onClick={() => setActiveTab("images")}
                 className={`flex items-center gap-2 px-6 py-4 font-display text-lg uppercase tracking-wider transition-colors border-b-2 whitespace-nowrap ${activeTab === "images" ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground hover:border-border"}`}

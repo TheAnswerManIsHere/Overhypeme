@@ -242,7 +242,7 @@ export default function FactDetail() {
   const isVideoRoute = params?.sub === "video";
   const [, setLocation] = useLocation();
   const { isAuthenticated, role, user } = useAuth();
-  const isPremium = role === "legendary" || role === "admin";
+  const isLegendary = role === "legendary" || role === "admin";
   const { rateFact, addComment } = useAppMutations();
 
   const { data: fact, isLoading: factLoading, error: factError } = useGetFact(factId, {
@@ -855,7 +855,7 @@ export default function FactDetail() {
                     className="bg-background min-h-[100px]"
                   />
                   <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between">
-                    {isPremium ? (
+                    {isLegendary ? (
                       <div className="flex items-center gap-2 text-yellow-500 text-sm font-display font-bold uppercase tracking-wider">
                         <Crown className="w-4 h-4" /> Captcha skipped (Legendary)
                       </div>

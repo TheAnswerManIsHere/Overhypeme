@@ -204,6 +204,13 @@
       "when": 1746000000000,
       "tag": "0028_upload_photo_registered",
       "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "7",
+      "when": 1746100000000,
+      "tag": "0029_permissions_cleanup",
+      "breakpoints": true
     }
   ]
 }

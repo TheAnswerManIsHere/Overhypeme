@@ -199,7 +199,7 @@ async function handleSubscriptionCancelled(customerId: string, sub: Stripe.Subsc
 
   await setMembershipTier(user.id, "registered");
   await recordHistory(user.id, "subscription_cancelled", { stripeSubscriptionId: sub.id });
-  logger.info({ userId: user.id }, "User reverted to registered (free) after subscription cancel");
+  logger.info({ userId: user.id }, "User reverted to registered after subscription cancel");
 }
 
 async function handleInvoicePaid(

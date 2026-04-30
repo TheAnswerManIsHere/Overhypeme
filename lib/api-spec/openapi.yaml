@@ -1348,8 +1348,6 @@ components:
         avatarSource:
           type: string
           nullable: true
-        isPremium:
-          type: boolean
         oauthProvider:
           type: string
           nullable: true
@@ -1357,6 +1355,10 @@ components:
         hasPassword:
           type: boolean
           description: Whether the account has a local password set (true for email+password and merged accounts, false for OAuth-only).
+        membershipTier:
+          type: string
+          enum: [unregistered, registered, legendary]
+          description: The user's current membership tier. Clients should derive paid/legendary access from this field rather than a separate flag.
         adminNotifications:
           type: boolean
           description: "Admin only: whether this admin receives moderation alert emails. Omitted for non-admins."

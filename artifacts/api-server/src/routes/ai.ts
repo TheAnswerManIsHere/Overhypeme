@@ -288,10 +288,10 @@ router.post("/ai/tokenize-fact", requireRateLimit, async (req: Request, res: Res
   // Membership/admin/captcha state on `req.user` is always fresh from the
   // database (rebuilt by authMiddleware on every authenticated request).
   const isAdmin = req.isAuthenticated() && !!req.user.isRealAdmin;
-  const isPremium = req.isAuthenticated() && req.user.membershipTier === "legendary";
+  const isLegendary = req.isAuthenticated() && req.user.membershipTier === "legendary";
   const isCaptchaVerified = req.isAuthenticated() && !!req.user.captchaVerified;
 
-  const captchaRequired = !isAdmin && !isPremium && !isCaptchaVerified;
+  const captchaRequired = !isAdmin && !isLegendary && !isCaptchaVerified;
 
   if (captchaRequired) {
     if (!captchaToken || !(await verifyCaptcha(captchaToken))) {

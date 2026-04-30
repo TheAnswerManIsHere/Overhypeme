@@ -65,13 +65,13 @@ function isNoFaceError(err: unknown): boolean {
 // Simple in-memory limiter — sufficient for a single Replit instance.
 // If the app ever scales horizontally, swap this for a Redis-backed solution.
 
-const FREE_LIMIT_PER_HOUR = 10;
+const REGISTERED_LIMIT_PER_HOUR = 10;
 const LEGENDARY_LIMIT_PER_HOUR = 100;
 
 const rateLimitMap = new Map<string, { count: number; resetAt: number }>();
 
 function checkRateLimit(userId: string, isLegendary: boolean): { allowed: boolean; resetAt: number } {
-  const limit = isLegendary ? LEGENDARY_LIMIT_PER_HOUR : FREE_LIMIT_PER_HOUR;
+  const limit = isLegendary ? LEGENDARY_LIMIT_PER_HOUR : REGISTERED_LIMIT_PER_HOUR;
   const now = Date.now();
   const entry = rateLimitMap.get(userId);
 

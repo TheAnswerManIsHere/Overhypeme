@@ -19,8 +19,11 @@ export function Navbar() {
     query: { queryKey: getGetMyProfileQueryKey(), enabled: isAuthenticated, staleTime: 60_000 }
   });
 
+  // Admins are treated as legendary for UI gates like custom photo avatars.
+  const isLegendary = role === "legendary" || role === "admin";
+
   const navAvatarUrl = (() => {
-    if (profile?.isPremium && profile?.profileImageUrl && (profile?.avatarSource ?? "avatar") === "photo") {
+    if (isLegendary && profile?.profileImageUrl && (profile?.avatarSource ?? "avatar") === "photo") {
       return profile.profileImageUrl;
     }
     if (profile?.id) {
@@ -104,7 +107,6 @@ export function Navbar() {
 
   const isRealAdmin = realRole === "admin";
   const isAdminModeOn = role === "admin";
-  const isPremium = role === "legendary" || role === "admin";
 
   return (
     <nav className="sticky top-0 z-50 w-full bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80 border-b-2 border-border shadow-lg">
@@ -151,7 +153,7 @@ export function Navbar() {
             <Button variant="outline" size="sm" onClick={() => setLocation('/submit')} className="hidden lg:flex gap-2 whitespace-nowrap">
               <Plus className="w-4 h-4" /> SUBMIT FACT
             </Button>
-            {isPremium ? (
+            {isLegendary ? (
               <div className="hidden lg:flex items-center gap-1.5 px-3 py-1.5 bg-yellow-500/15 border border-yellow-500/40 rounded-sm">
                 <Crown className="w-4 h-4 text-yellow-500" />
                 <span className="text-xs font-display font-bold uppercase tracking-wider text-yellow-500">Legendary</span>
@@ -281,7 +283,7 @@ export function Navbar() {
               <Button variant="outline" className="w-full gap-2" onClick={() => { setLocation('/submit'); setMobileMenuOpen(false); }}>
                 <Plus className="w-5 h-5" /> SUBMIT NEW FACT
               </Button>
-              {isPremium ? (
+              {isLegendary ? (
                 <div className="flex items-center justify-center gap-2 py-2 bg-yellow-500/15 border border-yellow-500/40 rounded-sm">
                   <Crown className="w-5 h-5 text-yellow-500" />
                   <span className="text-sm font-display font-bold uppercase tracking-wider text-yellow-500">Legendary Member</span>

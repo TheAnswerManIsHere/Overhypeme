@@ -129,7 +129,7 @@ export function buildAccessRevokedEmail(kind: AccessRevocationKind): {
     "Think this happened by mistake, or want to talk through your options?",
     `Reach the team at: ${SUPPORT_EMAIL}`,
     "",
-    "You can keep using Overhype.me on the free tier. If you ever want",
+    "You can keep using your free Overhype.me account. If you ever want",
     "Legendary access back, you can upgrade again any time.",
     "",
     "— The Overhype.me Team",
@@ -142,7 +142,7 @@ export function buildAccessRevokedEmail(kind: AccessRevocationKind): {
 <p style="margin:0 0 24px;font-size:15px;color:#aaaaaa;line-height:1.75;">Think this happened by mistake, or want to talk through your options? We&#39;re here to&nbsp;help.</p>
 <p style="margin:0 0 32px;font-size:15px;color:#aaaaaa;line-height:1.75;"><a href="${supportMailto}" style="color:#FF3C00;text-decoration:none;font-weight:600;">${SUPPORT_EMAIL}</a></p>
 ${divider()}
-<p style="margin:0;font-size:12px;color:#555555;line-height:1.7;font-family:'Inter',-apple-system,sans-serif;">You can keep using Overhype.me on the free tier. If you ever want Legendary access back, you can upgrade again any&nbsp;time.</p>`;
+<p style="margin:0;font-size:12px;color:#555555;line-height:1.7;font-family:'Inter',-apple-system,sans-serif;">You can keep using your free Overhype.me account. If you ever want Legendary access back, you can upgrade again any&nbsp;time.</p>`;
 
   const html = buildEmailShell(
     body,

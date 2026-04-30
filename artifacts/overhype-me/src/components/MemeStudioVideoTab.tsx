@@ -985,7 +985,7 @@ function VideoTab({ factId, factText, pexelsImages, aiMemeImages, initialImageDa
               initialImages={aiMemeImages ?? null}
               aiGender={aiGender}
               isGendered={factIsGendered}
-              isPremium={isLegendary}
+              isLegendary={isLegendary}
               isAdmin={isAdmin}
               onSelect={(sel: AiBgSelection | null) => {
                 setSelectedBgUrl(sel?.url ?? null);

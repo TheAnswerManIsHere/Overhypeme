@@ -329,7 +329,6 @@ export const GetMyProfileResponse = zod.object({
   profileImageUrl: zod.string().nullish(),
   avatarStyle: zod.string().nullish(),
   avatarSource: zod.string().nullish(),
-  isPremium: zod.boolean().optional(),
   oauthProvider: zod
     .string()
     .nullish()
@@ -341,6 +340,12 @@ export const GetMyProfileResponse = zod.object({
     .optional()
     .describe(
       "Whether the account has a local password set (true for email+password and merged accounts, false for OAuth-only).",
+    ),
+  membershipTier: zod
+    .enum(["unregistered", "registered", "legendary"])
+    .optional()
+    .describe(
+      "The user's current membership tier. Clients should derive paid\/legendary access from this field rather than a separate flag.",
     ),
   adminNotifications: zod
     .boolean()

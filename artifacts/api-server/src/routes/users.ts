@@ -142,7 +142,7 @@ router.get("/users/me", async (req: Request, res: Response) => {
     profileImageUrl: userRow?.profileImageUrl ?? null,
     avatarStyle: userRow?.avatarStyle ?? "bottts",
     avatarSource: userRow?.avatarSource ?? "avatar",
-    isPremium: userRow?.membershipTier === "legendary",
+    membershipTier: userRow?.membershipTier ?? "registered",
     oauthProvider: userRow?.oauthProvider ?? null,
     hasPassword: !!(userRow?.passwordHash),
     ...(isAdmin && {

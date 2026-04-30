@@ -54,8 +54,8 @@ export default function SubmitFact() {
   const [, setLocation] = useLocation();
   const { toast } = useToast();
 
-  const isPremium = role === "legendary" || role === "admin";
-  const isCaptchaVerified = isPremium || !!user?.captchaVerified;
+  const isLegendary = role === "legendary" || role === "admin";
+  const isCaptchaVerified = isLegendary || !!user?.captchaVerified;
 
   const [step, setStep] = useState<Step>("write");
 

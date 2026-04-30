@@ -1558,7 +1558,7 @@ router.delete("/admin/video-styles/:id/preview-gif", requireAdmin, async (req: R
 router.get("/admin/stripe/summary", requireAdmin, async (_req: Request, res: Response) => {
   try {
     // Active legendary subscribers = users with legendary tier and an active subscription
-    // Registered (free) members = users with registered tier (no payment)
+    // Registered members = users with registered tier (no payment)
     const [legendaryRows, registeredRows] = await Promise.all([
       db
         .select({ cnt: sql<number>`count(*)::int` })

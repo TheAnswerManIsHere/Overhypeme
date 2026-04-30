@@ -367,9 +367,10 @@ export function SubscriptionPanel({ refetchTrigger }: { refetchTrigger?: unknown
   const appSub = subData?.appSubscription ?? null;
   const membershipTier = subData?.membershipTier ?? "unregistered";
   const isLifetime = subData?.isLifetime ?? false;
-  const isLegendary = membershipTier === "legendary";
-  // isPremium: only actual paid/lifetime members — NOT free "registered" accounts
-  const isPremium = isLegendary || isLifetime;
+  // Legendary covers paid recurring members AND Legendary-for-Life users
+  // (lifetime is a billing artifact; their membershipTier is still 'legendary').
+  // The `|| isLifetime` is a defensive fallback in case the tier hasn't synced yet.
+  const isLegendary = membershipTier === "legendary" || isLifetime;
 
   const periodEnd = sub?.current_period_end
     ? new Date(sub.current_period_end * 1000).toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" })
@@ -406,7 +407,7 @@ export function SubscriptionPanel({ refetchTrigger }: { refetchTrigger?: unknown
   const savingsPercent = getAnnualSavingsPercent();
 
   // Show the portal button for any paid member or anyone with payment history
-  const showPortalButton = history.length > 0 || isPremium;
+  const showPortalButton = history.length > 0 || isLegendary;
 
   // Show cancel/reactivate controls for active recurring legendary subscribers (not lifetime)
   const showSubscriptionControls = isLegendary && !isLifetime && !!sub;
@@ -422,7 +423,7 @@ export function SubscriptionPanel({ refetchTrigger }: { refetchTrigger?: unknown
         <div className="animate-pulse h-20 bg-secondary rounded-sm" />
       )}
 
-      {subData !== undefined && !isPremium && (
+      {subData !== undefined && !isLegendary && (
         <div className="flex flex-col gap-4 p-4 bg-secondary/50 rounded-sm border border-border">
           <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
             <div className="flex items-center gap-3">
@@ -447,7 +448,7 @@ export function SubscriptionPanel({ refetchTrigger }: { refetchTrigger?: unknown
         </div>
       )}
 
-      {subData !== undefined && isPremium && (
+      {subData !== undefined && isLegendary && (
         <div className="space-y-4">
           <SubscriptionInfo
             variant="full"
@@ -551,7 +552,7 @@ export function SubscriptionPanel({ refetchTrigger }: { refetchTrigger?: unknown
       )}
 
       {/* Payment history for non-premium users — always shown when available */}
-      {subData !== undefined && !isPremium && history.length > 0 && (
+      {subData !== undefined && !isLegendary && history.length > 0 && (
         <SubscriptionInfo
           variant="full"
           data={{
