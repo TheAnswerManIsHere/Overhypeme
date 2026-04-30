@@ -7,6 +7,7 @@ import { createSession, type SessionData } from "../lib/auth";
 import { isAdminById } from "./auth";
 import { sendEmail, buildPasswordResetEmail, buildEmailVerificationEmail, buildEmailChangeVerificationEmail } from "../lib/email";
 import { getSiteBaseUrl } from "../lib/siteUrl";
+import { checkSharedRateLimit } from "../lib/sharedRateLimiter";
 
 const router: IRouter = Router();
 
@@ -14,39 +15,11 @@ const SALT_ROUNDS = 10;
 
 const IS_PRODUCTION = process.env.NODE_ENV === "production";
 
-// Simple in-memory rate limiter for forgot-password: max 5 requests per IP per 15 minutes
-const forgotPasswordAttempts = new Map<string, { count: number; resetAt: number }>();
 const FORGOT_PASSWORD_MAX = 5;
 const FORGOT_PASSWORD_WINDOW_MS = 15 * 60 * 1000;
 
-function checkForgotPasswordRateLimit(ip: string): boolean {
-  const now = Date.now();
-  const entry = forgotPasswordAttempts.get(ip);
-  if (!entry || now > entry.resetAt) {
-    forgotPasswordAttempts.set(ip, { count: 1, resetAt: now + FORGOT_PASSWORD_WINDOW_MS });
-    return true;
-  }
-  if (entry.count >= FORGOT_PASSWORD_MAX) return false;
-  entry.count += 1;
-  return true;
-}
-
-// Rate limiter for resend-verification: max 3 requests per user per hour
-const resendVerificationAttempts = new Map<string, { count: number; resetAt: number }>();
 const RESEND_VERIFICATION_MAX = 3;
 const RESEND_VERIFICATION_WINDOW_MS = 60 * 60 * 1000;
-
-function checkResendVerificationRateLimit(userId: string): boolean {
-  const now = Date.now();
-  const entry = resendVerificationAttempts.get(userId);
-  if (!entry || now > entry.resetAt) {
-    resendVerificationAttempts.set(userId, { count: 1, resetAt: now + RESEND_VERIFICATION_WINDOW_MS });
-    return true;
-  }
-  if (entry.count >= RESEND_VERIFICATION_MAX) return false;
-  entry.count += 1;
-  return true;
-}
 
 async function sendVerificationEmail(userId: string, email: string, pendingEmail?: string): Promise<void> {
   const rawToken = crypto.randomBytes(32).toString("hex");
@@ -274,14 +247,19 @@ router.post("/auth/local-login", async (req: Request, res: Response) => {
 const GENERIC_RESET_MESSAGE = "If an account with that email exists and has a local password, you will receive a reset link shortly.";
 
 router.post("/auth/forgot-password", async (req: Request, res: Response) => {
+  const { email } = req.body as { email?: string };
   const ip = (req.headers["x-forwarded-for"] as string | undefined)?.split(",")[0]?.trim() ?? req.socket.remoteAddress ?? "unknown";
 
-  if (!checkForgotPasswordRateLimit(ip)) {
+  const forgotLimit = await checkSharedRateLimit(
+    { endpoint: "auth.forgot-password", ip, recipientEmail: typeof email === "string" ? email.trim().toLowerCase() : null },
+    { limit: FORGOT_PASSWORD_MAX, windowMs: FORGOT_PASSWORD_WINDOW_MS },
+  );
+
+  if (!forgotLimit.allowed) {
     res.status(429).json({ message: GENERIC_RESET_MESSAGE });
     return;
   }
 
-  const { email } = req.body as { email?: string };
   if (!email || typeof email !== "string") {
     res.status(200).json({ message: GENERIC_RESET_MESSAGE });
     return;
@@ -482,8 +460,13 @@ router.post("/auth/resend-verification", async (req: Request, res: Response) => 
 
   const userId = req.user.id;
 
-  if (!checkResendVerificationRateLimit(userId)) {
-    res.status(429).json({ error: "Too many requests. Please wait before requesting another verification email." });
+  const resendLimit = await checkSharedRateLimit(
+    { endpoint: "auth.resend-verification", userId, recipientEmail: req.user.email ?? null, ip: req.ip ?? "unknown" },
+    { limit: RESEND_VERIFICATION_MAX, windowMs: RESEND_VERIFICATION_WINDOW_MS },
+  );
+
+  if (!resendLimit.allowed) {
+    res.status(429).json({ error: "Too many resend attempts. Try again later." });
     return;
   }
 
