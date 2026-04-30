@@ -1,4 +1,5 @@
 export const SENSITIVE_KEY_PATTERNS: RegExp[] = [
+  /^sid$/i,
   /pass(word)?/i,
   /token/i,
   /secret/i,

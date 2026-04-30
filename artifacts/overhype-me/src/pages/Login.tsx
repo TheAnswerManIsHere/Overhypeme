@@ -123,10 +123,6 @@ export default function Login() {
         return;
       }
 
-      if (data.sid) {
-        localStorage.setItem("auth_token", data.sid);
-      }
-
       if (mode === "register" && email) {
         setRegisteredEmail(email);
         return;
