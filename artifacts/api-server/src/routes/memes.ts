@@ -30,6 +30,7 @@ import { CACHE, setPublicCache, setPublicCors, checkConditional, setNoStore } fr
 import { getSiteBaseUrl } from "../lib/siteUrl";
 import { buildZazzleUrl } from "../lib/zazzle";
 import type { MemeAspectRatio } from "@workspace/api-zod";
+import { enforceGovernance } from "../lib/resourceGovernance";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const TEMPLATES_DIR = path.resolve(__dirname, "assets/meme-templates");
@@ -1129,6 +1130,14 @@ router.post("/memes/ai/:factId/regenerate-scene-prompts", requireAdmin, async (r
 
 // POST /memes/ai/:factId/generate — legendary user triggers AI image generation for a fact
 router.post("/memes/ai/:factId/generate", requireLegendary, async (req: Request, res: Response) => {
+  const gate = enforceGovernance(req, res, {
+    path: "meme",
+    provider: "fal",
+    model: "fal-ai-image",
+    estimatedCostUsd: 0.04,
+    payloadBytes: Buffer.byteLength(JSON.stringify(req.body ?? {}), "utf8"),
+  });
+  if (!gate.ok) return;
   const factId = parseInt(String(req.params["factId"] ?? ""), 10);
   if (isNaN(factId)) { res.status(400).json({ error: "Invalid factId" }); return; }
 

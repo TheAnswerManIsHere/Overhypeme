@@ -12,6 +12,7 @@ import { checkBudget, recordCost } from "../lib/budgetGate.js";
 import { requireAdmin } from "./admin.js";
 import { hasFeature } from "../lib/tierFeatures.js";
 import { ObjectStorageService } from "../lib/objectStorage.js";
+import { completeGovernance, enforceGovernance } from "../lib/resourceGovernance.js";
 
 const router: IRouter = Router();
 
@@ -706,6 +707,16 @@ router.get("/videos/:factId", async (req, res) => {
 });
 
 router.post("/videos/generate", async (req, res) => {
+  const governanceGate = enforceGovernance(req, res, {
+    path: "video",
+    provider: "fal",
+    model: String((req.body as Record<string, unknown>)?.videoModel ?? DEFAULT_VIDEO_MODEL),
+    estimatedCostUsd: 0.12,
+    maxDurationSec: Number((req.body as Record<string, unknown>)?.adminDuration ?? 5),
+    payloadBytes: Buffer.byteLength(JSON.stringify(req.body ?? {}), "utf8"),
+  });
+  if (!governanceGate.ok) return;
+  const governanceStartedAt = Date.now();
   const apiKey = process.env.FAL_AI_API_KEY;
   if (!apiKey) {
     res
@@ -1022,13 +1033,16 @@ router.post("/videos/generate", async (req, res) => {
       });
     }
 
-    res.json({
+    const responseBody = {
       videoUrl,
       id: updated?.id,
       status: "completed",
       record: updated ?? null,
-    });
+    };
+    completeGovernance(req, { provider: "fal", latencyMs: Date.now() - governanceStartedAt, failed: false, actualCostUsd: estimatedCostUsd, responseStatus: 200, responseBody, idempotencyKey: governanceGate.idempotencyKey });
+    res.json(responseBody);
   } catch (err) {
+    completeGovernance(req, { provider: "fal", latencyMs: Date.now() - governanceStartedAt, failed: true, actualCostUsd: 0, idempotencyKey: governanceGate.idempotencyKey });
     await db
       .update(videoJobsTable)
       .set({ status: "failed" })
