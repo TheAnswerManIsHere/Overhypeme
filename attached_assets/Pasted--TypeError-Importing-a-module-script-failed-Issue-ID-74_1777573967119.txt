@@ -1,0 +1,166 @@
+# TypeError: Importing a module script failed.
+
+**Issue ID:** 7420916149
+**Project:** sentry_project_frontend
+**Date:** 4/30/2026, 2:25:48 PM
+
+## Root Cause
+```
+# Root Cause of the Issue
+
+Database migration inconsistency causes API 502s, leading to module script import failures.
+
+### User navigates to the root path of the application.
+The user initiates a session by accessing the application's root URL. This triggers the initial HTML load and subsequent script execution.
+
+### Browser loads index.html and main.tsx as a module script.
+The browser fetches `index.html`. The `<script type="module" src="/src/main.tsx"></script>` tag instructs the browser to load `main.tsx` as an ES module. This is the entry point for the React application.
+
+```html
+<script type="module" src="/src/main.tsx"></script>
+```
+(See @artifacts/overhype-me/index.html)
+
+### React application starts rendering, triggering PrefetchCriticalRoutes.
+The `App` component renders, which includes the `Router` component. Inside `Router`, `PrefetchCriticalRoutes` is rendered, which uses a `useEffect` hook to initiate prefetching.
+
+```tsx
+function Router() {
+  return (
+    <>
+      {/* ... other components ... */}
+      <PrefetchCriticalRoutes />
+      {/* ... other components ... */}
+    </>
+  );
+}
+
+function App() {
+  return (
+    <Sentry.ErrorBoundary fallback={({ resetError }) => <SentryFallback resetError={resetError} />}>
+      <AuthProvider>
+        <QueryClientProvider client={queryClient}>
+          <TooltipProvider>
+            <PersonNameProvider>
+              <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
+                <Router />
+              </WouterRouter>
+              <Toaster />
+            </PersonNameProvider>
+          </TooltipProvider>
+        </QueryClientProvider>
+      </AuthProvider>
+    </Sentry.ErrorBoundary>
+  );
+}
+```
+(See @artifacts/overhype-me/src/App.tsx)
+
+### PrefetchCriticalRoutes calls resolvePrefetchRoutes to get top routes.
+The `PrefetchCriticalRoutes` component's `useEffect` schedules `resolvePrefetchRoutes` to run during idle time or after a short delay. This function attempts to fetch a server snapshot of popular routes.
+
+```tsx
+function PrefetchCriticalRoutes() {
+  useEffect(() => {
+    let cancelled = false;
+
+    const run = () => {
+      resolvePrefetchRoutes().then((keys) => {
+        if (cancelled) return;
+        for (const key of keys) {
+          ROUTE_IMPORT_MAP[key]?.();
+        }
+      }).catch(() => {
+        if (cancelled) return;
+        for (const key of DEFAULT_PREFETCH_ROUTES) {
+          ROUTE_IMPORT_MAP[key]?.();
+        }
+      });
+    };
+    // ... idle callback / setTimeout logic ...
+  }, []);
+
+  return null;
+}
+```
+(See @artifacts/overhype-me/src/App.tsx)
+
+### Frontend fetches /api/route-stats?n=3, which returns a 502 Bad Gateway.
+The `resolvePrefetchRoutes` function attempts to fetch data from the backend API. Due to a database migration issue, the API server encounters an error when trying to access the `route_stat_events` table, leading to a 502 response.
+
+```tsx
+async function resolvePrefetchRoutes(): Promise<string[]> {
+  // ... sessionStorage check ...
+
+  // 2. Fetch a fresh server snapshot.
+  try {
+    const base: string = import.meta.env.BASE_URL ?? "/";
+    const url = `${base}api/route-stats?n=3`;
+    const res = await fetch(url, { credentials: "same-origin" });
+    // ... res.ok check fails here ...
+  } catch {
+    // Network or parse error — fall through to localStorage
+  }
+  // ... fallback logic ...
+}
+```
+(See @artifacts/overhype-me/src/App.tsx)
+
+### API server's /api/route-stats endpoint fails due to database issue.
+The `GET /route-stats` handler in the API server attempts to query the `routeStatsTable`. If the database is in an inconsistent state (e.g., `route_stat_events` table is missing or corrupted due to migration issues), the database query fails, causing the API endpoint to return a 502.
+
+```typescript
+router.get("/route-stats", async (req, res) => {
+  try {
+    const n = Math.min(Number(req.query.n) || 3, 10);
+    const rows = await db
+      .select({
+        routeKey: routeStatsTable.routeKey,
+        visitCount: routeStatsTable.visitCount,
+      })
+      .from(routeStatsTable)
+      .orderBy(desc(routeStatsTable.visitCount))
+      .limit(n);
+    res.json({
+      routes: rows.map((r) => r.routeKey),
+      stats: rows,
+    });
+  } catch (err) {
+    req.log.warn({ err }, "route-stats: GET failed, returning empty list");
+    res.json({ routes: [], stats: [] });
+  }
+});
+```
+
+*Analysis*: While the `GET` endpoint has a `try/catch` that returns an empty list on error, the `POST` endpoint (which is also failing with 502s according to breadcrumbs) does not explicitly return a 200/204 on error, which could lead to a 502 if the database operation throws an unhandled exception or if the connection pool itself is unhealthy. The `POST` handler also attempts to insert into `routeStatEventsTable`, which is the table introduced in the problematic migration.
+(See @artifacts/api-server/src/routes/routeStats.ts)
+
+### Browser receives 502 for module script, leading to TypeError.
+If the web server itself is returning 502s for static assets (including JavaScript module chunks), the browser cannot parse the response as a valid module script. This results in the `TypeError: Importing a module script failed.`
+
+*Analysis*: The 502 errors on `/api/route-stats` indicate a general instability or misconfiguration of the backend. If this instability extends to serving static assets, the browser will fail to load the main application bundle, leading to the observed `TypeError` at the root path.
+```
+
+## Tags
+
+- **browser:** Mobile Safari UI/WKWebView
+- **browser.name:** Mobile Safari UI/WKWebView
+- **device:** Mac
+- **device.family:** Mac
+- **environment:** development
+- **handled:** no
+- **level:** error
+- **mechanism:** auto.browser.global_handlers.onunhandledrejection
+- **os:** Mac OS X >=10.15.7
+- **os.name:** Mac OS X
+- **release:** dev
+- **replayId:** be4b9327df824e598da8a763a70a7bfc
+- **transaction:** /
+- **url:** https://1f4dceef-1d85-4176-b8e7-de6afe117cc4-00-2g4ys2kfyzqjj-y6q9aryu.spock.replit.dev/
+
+## Exception
+
+### Exception 1
+**Type:** TypeError
+**Value:** Importing a module script failed.
+
