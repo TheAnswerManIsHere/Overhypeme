@@ -57,11 +57,6 @@ pnpm --filter @workspace/db exec tsc -p tsconfig.json
 
 pnpm --filter @workspace/db run migrate
 
-# Safety: drizzle-kit sometimes records a migration as applied in _journal.json
-# (from a task agent environment) but never executes the SQL against the local DB.
-# Apply idempotent migrations directly to guard against this.
-psql "$DATABASE_URL" -f lib/db/migrations/0022_email_outbox.sql 2>&1 | grep -v "already exists" || true
-
 pnpm --filter @workspace/scripts run seed
 
 # Clean up stale task-agent git remotes and branches.
