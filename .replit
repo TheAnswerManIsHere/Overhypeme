@@ -36,14 +36,6 @@ args = "api-server-tests"
 
 [[workflows.workflow.tasks]]
 task = "workflow.run"
-args = "api-server-typecheck"
-
-[[workflows.workflow.tasks]]
-task = "workflow.run"
-args = "db-typecheck"
-
-[[workflows.workflow.tasks]]
-task = "workflow.run"
 args = "db-tests"
 
 [[workflows.workflow]]
@@ -55,7 +47,7 @@ isValidation = true
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"
-args = "pnpm --filter @workspace/api-spec run codegen && pnpm tsc -p lib/api-zod/tsconfig.json && pnpm tsc -p lib/api-client-react/tsconfig.json && pnpm --filter @workspace/redact run build && (pnpm --filter @workspace/api-server run typecheck 2>&1 | grep -E 'redact|has not been built' && echo 'FAIL: redact errors remain' && exit 1 || echo 'PASS: no redact errors')"
+args = "pnpm --filter @workspace/api-spec run codegen && pnpm tsc -p lib/api-zod/tsconfig.json && pnpm tsc -p lib/api-client-react/tsconfig.json && pnpm --filter @workspace/redact run build && pnpm --filter @workspace/db exec tsc -p tsconfig.json && pnpm --filter @workspace/api-server run typecheck"
 
 [[workflows.workflow]]
 name = "sentry-tests"
@@ -75,28 +67,6 @@ author = "agent"
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "pnpm --filter @workspace/api-server run test"
-
-[workflows.workflow.metadata]
-isValidation = true
-
-[[workflows.workflow]]
-name = "api-server-typecheck"
-author = "agent"
-
-[[workflows.workflow.tasks]]
-task = "shell.exec"
-args = "pnpm --filter @workspace/api-server run typecheck"
-
-[workflows.workflow.metadata]
-isValidation = true
-
-[[workflows.workflow]]
-name = "db-typecheck"
-author = "agent"
-
-[[workflows.workflow.tasks]]
-task = "shell.exec"
-args = "pnpm --filter @workspace/db exec tsc -p tsconfig.json"
 
 [workflows.workflow.metadata]
 isValidation = true

@@ -149,9 +149,15 @@ describe("POST /ai/tokenize-fact — body validation", () => {
 
 describe("POST /ai/suggest-pronouns — body validation", () => {
   it("does not require auth (public)", async () => {
+    // Send a body that fails Zod (empty name) so the handler responds
+    // with a 400 BEFORE invoking OpenAI. We only need to confirm the
+    // request isn't bounced with 401 by the auth middleware — getting
+    // a 400 from the Zod check inside the handler proves auth was
+    // bypassed. Sending a valid body would trigger a 1+ second OpenAI
+    // round trip in CI for no additional coverage.
     const res = await request(makeApp())
       .post("/ai/suggest-pronouns")
-      .send({ name: "Alex" });
+      .send({ name: "" });
     assert.notEqual(res.status, 401);
   });
 
