@@ -10,7 +10,7 @@
  * own rate-limit bucket.
  */
 
-import { describe, it, before, after, beforeEach, afterEach } from "node:test";
+import { describe, it, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID, createHash } from "node:crypto";
 
@@ -89,8 +89,6 @@ before(cleanupUsers);
 after(cleanupUsers);
 
 describe("POST /auth/register — validation", () => {
-  beforeEach(cleanupUsers);
-  afterEach(cleanupUsers);
 
   it("rejects missing email or password", async () => {
     const r1 = await request(makeApp()).post("/auth/register").send({ password: "x" });
@@ -168,8 +166,6 @@ describe("POST /auth/register — validation", () => {
 });
 
 describe("POST /auth/register — success", () => {
-  beforeEach(cleanupUsers);
-  afterEach(cleanupUsers);
 
   it("creates the user and returns a session", async () => {
     const email = uniqueEmail();
@@ -198,8 +194,6 @@ describe("POST /auth/register — success", () => {
 });
 
 describe("POST /auth/local-login", () => {
-  beforeEach(cleanupUsers);
-  afterEach(cleanupUsers);
 
   it("returns 400 when email or password is missing", async () => {
     const res = await request(makeApp()).post("/auth/local-login").send({});
@@ -265,8 +259,6 @@ describe("POST /auth/local-login", () => {
 });
 
 describe("POST /auth/forgot-password", () => {
-  beforeEach(cleanupUsers);
-  afterEach(cleanupUsers);
 
   function ipFor(testName: string): string {
     return `10.${(testName.length * 13) % 256}.${(testName.length * 17) % 256}.1`;
@@ -306,8 +298,6 @@ describe("POST /auth/forgot-password", () => {
 });
 
 describe("POST /auth/reset-password", () => {
-  beforeEach(cleanupUsers);
-  afterEach(cleanupUsers);
 
   it("returns 400 for missing token", async () => {
     const res = await request(makeApp())
@@ -414,8 +404,6 @@ describe("POST /auth/reset-password", () => {
 });
 
 describe("GET /auth/verify-email", () => {
-  beforeEach(cleanupUsers);
-  afterEach(cleanupUsers);
 
   it("returns 400 for missing token", async () => {
     const res = await request(makeApp()).get("/auth/verify-email");
@@ -476,8 +464,6 @@ describe("GET /auth/verify-email", () => {
 });
 
 describe("GET /auth/email-status", () => {
-  beforeEach(cleanupUsers);
-  afterEach(cleanupUsers);
 
   it("returns 401 when unauthenticated", async () => {
     const res = await request(makeApp()).get("/auth/email-status");
@@ -497,8 +483,6 @@ describe("GET /auth/email-status", () => {
 });
 
 describe("POST /auth/set-password", () => {
-  beforeEach(cleanupUsers);
-  afterEach(cleanupUsers);
 
   it("returns 401 when unauthenticated", async () => {
     const res = await request(makeApp())
@@ -576,8 +560,6 @@ describe("POST /auth/set-password", () => {
 });
 
 describe("DELETE /auth/unlink-provider", () => {
-  beforeEach(cleanupUsers);
-  afterEach(cleanupUsers);
 
   it("returns 401 when unauthenticated", async () => {
     const res = await request(makeApp()).delete("/auth/unlink-provider");
@@ -623,8 +605,6 @@ describe("DELETE /auth/unlink-provider", () => {
 });
 
 describe("POST /auth/resend-verification", () => {
-  beforeEach(cleanupUsers);
-  afterEach(cleanupUsers);
 
   it("returns 401 when unauthenticated", async () => {
     const res = await request(makeApp()).post("/auth/resend-verification").send({});

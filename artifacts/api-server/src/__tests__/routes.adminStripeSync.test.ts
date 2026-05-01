@@ -117,6 +117,15 @@ describe("POST /admin/stripe/sync — concurrency", () => {
       },
       async syncPrices() { return { synced: 0 }; },
       async syncPlans() { return { synced: 0 }; },
+      // The expanded driver shape includes the customer-graph resources so
+      // both runScopedSync and runFullSync compile against the stub. They
+      // are unreachable here because syncProducts never resolves, holding
+      // the lock for the duration of the test.
+      async syncCustomers() { return { synced: 0 }; },
+      async syncSubscriptions() { return { synced: 0 }; },
+      async syncInvoices() { return { synced: 0 }; },
+      async syncCharges() { return { synced: 0 }; },
+      async syncPaymentMethods() { return { synced: 0 }; },
     };
     runScopedSync(driver);
     assert.equal(isSyncRunning(), true, "test setup: lock should be held");

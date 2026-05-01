@@ -8,7 +8,15 @@ import {
   Users, Lock, ShieldCheck, Link, Copy, Cpu, Circle,
 } from "lucide-react";
 
-type SyncResource = "products" | "prices" | "plans";
+type SyncResource =
+  | "products"
+  | "prices"
+  | "plans"
+  | "customers"
+  | "subscriptions"
+  | "invoices"
+  | "charges"
+  | "payment_methods";
 
 interface SyncResourceStatus {
   resource: SyncResource;
@@ -30,7 +38,25 @@ const RESOURCE_LABELS: Record<SyncResource, string> = {
   products: "Products",
   prices: "Prices",
   plans: "Plans",
+  customers: "Customers",
+  subscriptions: "Subscriptions",
+  invoices: "Invoices",
+  charges: "Charges",
+  payment_methods: "Payment Methods",
 };
+
+// Display order — mirrors the server's SYNC_RESOURCES ordering so the panel
+// reads top-to-bottom in the same order the backfill processes them.
+const RESOURCE_DISPLAY_ORDER: readonly SyncResource[] = [
+  "products",
+  "prices",
+  "plans",
+  "customers",
+  "subscriptions",
+  "invoices",
+  "charges",
+  "payment_methods",
+];
 
 function formatRelative(iso: string | null): string {
   if (!iso) return "never";
@@ -208,6 +234,10 @@ export default function AdminBilling() {
       const cfgRes = await fetch("/api/stripe/config").then(r => r.json()) as StripeConfig;
       setStripeConfig(cfgRes);
       setConfigLoading(false);
+      // The server kicked off a full backfill (all 8 resources). Surface
+      // its progress in the same panel that the manual sync button uses
+      // so the admin sees customers/subscriptions/invoices/etc. land.
+      startSyncPolling({ timeoutMs: 180_000 });
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to toggle mode");
     } finally {
@@ -279,6 +309,69 @@ export default function AdminBilling() {
     return () => stopSyncPolling();
   }, [fetchSyncStatusOnce, stopSyncPolling]);
 
+  // Begin polling /sync/status until every tracked resource is in a terminal
+  // state (complete or error), or the timeout elapses. Used by both the
+  // manual "Sync Stripe data" button and the live-mode toggle (which kicks
+  // off a full backfill server-side). Idempotent — safe to call when already
+  // polling; the previous interval is cleared first.
+  function startSyncPolling(opts: { timeoutMs: number }): void {
+    setSyncing(true);
+    stopSyncPolling();
+    syncPollDeadlineRef.current = Date.now() + opts.timeoutMs;
+    syncPollTimerRef.current = setInterval(() => {
+      void (async () => {
+        const status = await fetchSyncStatusOnce();
+        if (status) setSyncStatus(status);
+
+        // Only consider resources that actually ran during this window —
+        // a scoped manual sync touches 3 resources; the others may sit at
+        // their previous stored state. We treat the run as done when no
+        // resource is "running" and the in-process lock is released.
+        const allTerminal =
+          !!status &&
+          !status.inProgress &&
+          status.resources.every(r => r.status !== "running");
+
+        if (allTerminal) {
+          stopSyncPolling();
+          setSyncing(false);
+          const errored = status.resources.find(r => r.status === "error");
+          if (errored) {
+            setSyncFinalMessage({
+              ok: false,
+              message: `Sync failed: ${RESOURCE_LABELS[errored.resource]} — ${errored.errorMessage ?? "unknown error"}`,
+            });
+          } else {
+            // Only count resources that finished as "complete" in this window
+            // — the others may be idle (not part of this scoped run).
+            const completed = status.resources.filter(r => r.status === "complete");
+            const totals = completed
+              .map(r => `${r.syncedCount ?? 0} ${RESOURCE_LABELS[r.resource].toLowerCase()}`)
+              .join(", ");
+            const dur = status.durationMs !== null ? `${(status.durationMs / 1000).toFixed(1)}s` : "—";
+            setSyncFinalMessage({
+              ok: true,
+              message: totals.length > 0
+                ? `Sync complete — ${totals} synced in ${dur}`
+                : `Sync complete in ${dur}`,
+            });
+          }
+          void refreshPlans();
+          return;
+        }
+
+        if (Date.now() > syncPollDeadlineRef.current) {
+          stopSyncPolling();
+          setSyncing(false);
+          setSyncFinalMessage({
+            ok: false,
+            message: "Sync still running — check back in a moment.",
+          });
+        }
+      })();
+    }, 1000);
+  }
+
   async function syncStripe() {
     setSyncing(true);
     setSyncFinalMessage(null);
@@ -301,49 +394,8 @@ export default function AdminBilling() {
         return;
       }
 
-      // Begin polling. Hard timeout of 60s.
-      stopSyncPolling();
-      syncPollDeadlineRef.current = Date.now() + 60_000;
-      syncPollTimerRef.current = setInterval(() => {
-        void (async () => {
-          const status = await fetchSyncStatusOnce();
-          if (status) setSyncStatus(status);
-
-          const allTerminal =
-            !!status &&
-            !status.inProgress &&
-            status.resources.every(r => r.status === "complete" || r.status === "error");
-
-          if (allTerminal) {
-            stopSyncPolling();
-            setSyncing(false);
-            const errored = status.resources.find(r => r.status === "error");
-            if (errored) {
-              setSyncFinalMessage({
-                ok: false,
-                message: `Sync failed: ${RESOURCE_LABELS[errored.resource]} — ${errored.errorMessage ?? "unknown error"}`,
-              });
-            } else {
-              const totals = status.resources
-                .map(r => `${r.syncedCount ?? 0} ${RESOURCE_LABELS[r.resource].toLowerCase()}`)
-                .join(", ");
-              const dur = status.durationMs !== null ? `${(status.durationMs / 1000).toFixed(1)}s` : "—";
-              setSyncFinalMessage({ ok: true, message: `Sync complete — ${totals} synced in ${dur}` });
-            }
-            void refreshPlans();
-            return;
-          }
-
-          if (Date.now() > syncPollDeadlineRef.current) {
-            stopSyncPolling();
-            setSyncing(false);
-            setSyncFinalMessage({
-              ok: false,
-              message: "Sync still running — check back in a moment.",
-            });
-          }
-        })();
-      }, 1000);
+      // Scoped manual sync — 3 resources, generally finishes within seconds.
+      startSyncPolling({ timeoutMs: 60_000 });
     } catch {
       setSyncFinalMessage({ ok: false, message: "Network error" });
       setSyncing(false);
@@ -626,7 +678,7 @@ export default function AdminBilling() {
                 </div>
               )}
               <div className="space-y-1.5">
-                {(["products", "prices", "plans"] as const).map(resource => {
+                {RESOURCE_DISPLAY_ORDER.map(resource => {
                   const row = syncStatus?.resources.find(r => r.resource === resource);
                   const status = row?.status ?? "idle";
                   let icon;
@@ -642,7 +694,7 @@ export default function AdminBilling() {
                   return (
                     <div key={resource} className="flex items-center gap-2 text-xs flex-wrap">
                       {icon}
-                      <span className="font-medium text-foreground w-20">{RESOURCE_LABELS[resource]}</span>
+                      <span className="font-medium text-foreground w-32">{RESOURCE_LABELS[resource]}</span>
                       <span className="text-muted-foreground">
                         {status === "running"
                           ? "syncing…"

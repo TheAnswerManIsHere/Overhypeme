@@ -9,7 +9,7 @@
  * moderation, embeddings, and captcha — out of scope for this batch.
  */
 
-import { describe, it, before, after, beforeEach, afterEach } from "node:test";
+import { describe, it, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 
@@ -91,8 +91,6 @@ before(cleanup);
 after(cleanup);
 
 describe("GET /facts", () => {
-  beforeEach(cleanup);
-  afterEach(cleanup);
 
   it("returns empty arrays when nothing matches", async () => {
     const res = await request(makeApp()).get("/facts").query({ search: "no-such-text-anywhere-zzz" });
@@ -145,8 +143,6 @@ describe("GET /facts", () => {
 });
 
 describe("GET /facts/:factId", () => {
-  beforeEach(cleanup);
-  afterEach(cleanup);
 
   it("returns 400 for a non-numeric factId", async () => {
     const res = await request(makeApp()).get("/facts/not-a-number");
@@ -187,8 +183,6 @@ describe("GET /facts/:factId", () => {
 });
 
 describe("POST /facts/:factId/rating", () => {
-  beforeEach(cleanup);
-  afterEach(cleanup);
 
   it("returns 401 when unauthenticated", async () => {
     const res = await request(makeApp()).post("/facts/1/rating").send({ rating: "up" });
@@ -273,8 +267,6 @@ describe("POST /facts/:factId/rating", () => {
 });
 
 describe("GET /facts/:factId/comments", () => {
-  beforeEach(cleanup);
-  afterEach(cleanup);
 
   it("returns 400 for a non-numeric factId", async () => {
     const res = await request(makeApp()).get("/facts/not-a-number/comments");
@@ -310,8 +302,6 @@ describe("GET /facts/:factId/comments", () => {
 });
 
 describe("GET /facts/:factId/links", () => {
-  beforeEach(cleanup);
-  afterEach(cleanup);
 
   it("returns 400 for a non-numeric factId", async () => {
     const res = await request(makeApp()).get("/facts/abc/links");

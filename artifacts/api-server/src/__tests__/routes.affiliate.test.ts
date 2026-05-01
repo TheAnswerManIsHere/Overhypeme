@@ -12,7 +12,7 @@
  * same USER_PREFIX pattern as other route tests.
  */
 
-import { describe, it, before, after, beforeEach, afterEach } from "node:test";
+import { describe, it, before, after, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 
@@ -72,8 +72,6 @@ const validClick = () => ({
 describe("POST /affiliate/click — input validation", () => {
   before(cleanup);
   after(cleanup);
-  beforeEach(cleanup);
-  afterEach(cleanup);
 
   it("returns 400 when any required field is missing", async () => {
     for (const omit of ["sourceType", "sourceId", "destination", "text"] as const) {
@@ -157,7 +155,6 @@ describe("POST /affiliate/click — success path", () => {
   before(cleanup);
   after(cleanup);
   beforeEach(cleanup);
-  afterEach(cleanup);
 
   it("inserts a click row (with null userId for unauthenticated callers) and returns a Zazzle URL", async () => {
     const body = validClick();
@@ -242,8 +239,6 @@ describe("POST /affiliate/click — success path", () => {
 describe("GET /affiliate/zazzle-url — admin-only", () => {
   before(cleanup);
   after(cleanup);
-  beforeEach(cleanup);
-  afterEach(cleanup);
 
   it("returns 403 for unauthenticated callers", async () => {
     const res = await request(makeApp()).get("/affiliate/zazzle-url");
@@ -275,8 +270,6 @@ describe("GET /affiliate/zazzle-url — admin-only", () => {
 describe("GET /affiliate/stats — admin-only", () => {
   before(cleanup);
   after(cleanup);
-  beforeEach(cleanup);
-  afterEach(cleanup);
 
   it("returns 401 for unauthenticated callers (via requireAdmin)", async () => {
     const res = await request(makeApp()).get("/affiliate/stats");
