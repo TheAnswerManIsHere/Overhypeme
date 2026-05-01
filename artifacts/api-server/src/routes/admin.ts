@@ -1431,18 +1431,20 @@ router.patch("/admin/config/:key", requireAdmin, async (req: Request, res: Respo
   bustConfigCache();
 
   // When stripe_live_mode changes, invalidate the cached Stripe instance and
-  // kick off a scoped resync so the new mode's products/prices populate
-  // immediately. Scoped to products+prices+plans (the admin Plans block);
-  // customers/subs/invoices stay current via webhooks.
+  // kick off a FULL resync so every mode-scoped resource (products, prices,
+  // plans, customers, subscriptions, invoices, charges, payment methods) lands
+  // for the new mode without waiting for webhook traffic. Shares the same
+  // in-process lock as the manual scoped sync, so a concurrent admin click on
+  // "Sync Stripe data" will see alreadyRunning and short-circuit with 409.
   if (key === "stripe_live_mode") {
     const { invalidateStripeSync, getStripeSync } = await import("../lib/stripeClient");
-    const { runScopedSync } = await import("../lib/stripeSyncRunner");
+    const { runFullSync } = await import("../lib/stripeSyncRunner");
     invalidateStripeSync();
     try {
       const sync = await getStripeSync();
-      runScopedSync(sync);
+      runFullSync(sync);
     } catch (err) {
-      console.error("[admin] Stripe scoped sync error after mode toggle", err);
+      console.error("[admin] Stripe full sync error after mode toggle", err);
     }
   }
 

@@ -1,28 +1,66 @@
 /**
- * In-process orchestration for the admin "Sync Stripe data" button.
+ * In-process orchestration for Stripe data syncs (admin Billing UI).
  *
- * Why this exists:
- *   - The admin UI needs scoped, fast syncing of *just* products/prices/plans.
- *     Customers/subscriptions/invoices/etc. are kept current by webhooks.
- *   - The UI polls a status endpoint to render real-time progress.
- *   - We must guard against two concurrent runs of the manual sync (a single
- *     in-memory lock is sufficient for this single-instance setup).
- *   - The library's `_sync_status` table only records last-run timestamps and
- *     status — it does NOT persist per-run synced counts. We cache the latest
- *     counts in memory keyed by accountId+resource so the status endpoint can
- *     surface "5 prices synced" alongside the green check.
+ * Two entry points share the same lock + status surface:
+ *   - runScopedSync  → products/prices/plans (the manual "Sync Stripe data"
+ *                      button — fast, refreshes only what the Plans block uses).
+ *   - runFullSync    → the scoped resources PLUS customers, subscriptions,
+ *                      invoices, charges, and payment methods. Used after a
+ *                      live/test mode toggle (and any future "Sync everything"
+ *                      button) so the new mode's data lands without waiting
+ *                      for webhooks.
  *
- * Lock granularity: a single boolean. Even though products/prices/plans are
- * three separate sync calls, they always run sequentially under one lock so
- * the status endpoint can be polled without races.
+ * Why both share one lock:
+ *   - There is exactly one Stripe account active at a time, and the library
+ *     (`stripe-replit-sync`) writes to a single `_sync_status` row per
+ *     resource. Running two backfills in parallel would race on those rows
+ *     and on the cached counts. A single boolean lock is enough for this
+ *     single-instance setup; concurrent attempts return alreadyRunning:true
+ *     and the HTTP layer maps that to 409.
+ *
+ * Why we cache counts in memory:
+ *   - The library's `_sync_status` table records timestamps, status, and
+ *     error messages — but NOT the per-run synced count. The status endpoint
+ *     needs counts ("5 prices synced") so we keep the latest count per
+ *     account+resource here. Persists in-process so a resource that wasn't
+ *     touched by the most recent run still shows its previous count.
  */
 
 import { db } from "@workspace/db";
 import { sql } from "drizzle-orm";
 
-export type SyncResource = "products" | "prices" | "plans";
+export type SyncResource =
+  | "products"
+  | "prices"
+  | "plans"
+  | "customers"
+  | "subscriptions"
+  | "invoices"
+  | "charges"
+  | "payment_methods";
 
-export const SYNC_RESOURCES: readonly SyncResource[] = ["products", "prices", "plans"] as const;
+/**
+ * The full set of resources the UI tracks. Order matters — it's also the
+ * sequential order of the full backfill, and the order resources render in
+ * the progress panel. Plan-related resources first (Products → Prices →
+ * Plans), then customer-graph resources (Customers → Subscriptions → ...).
+ */
+export const SYNC_RESOURCES: readonly SyncResource[] = [
+  "products",
+  "prices",
+  "plans",
+  "customers",
+  "subscriptions",
+  "invoices",
+  "charges",
+  "payment_methods",
+] as const;
+
+/** Resources synced by the manual "Sync Stripe data" button. */
+const SCOPED_RESOURCES: readonly SyncResource[] = ["products", "prices", "plans"] as const;
+
+/** Resources synced by the full backfill (live/test toggle, future "Sync everything"). */
+const FULL_RESOURCES: readonly SyncResource[] = SYNC_RESOURCES;
 
 export interface SyncResourceStatus {
   resource: SyncResource;
@@ -84,13 +122,19 @@ export function _resetSyncRunnerForTests(): void {
 
 /**
  * Minimal interface of `StripeSync` we depend on. Defined locally so tests
- * can pass a stub without pulling in the real client.
+ * can pass a stub without pulling in the real client. Each method matches
+ * one entry in `SyncResource`.
  */
 export interface SyncRunnerDriver {
   getAccountId(): Promise<string>;
   syncProducts(): Promise<{ synced: number }>;
   syncPrices(): Promise<{ synced: number }>;
   syncPlans(): Promise<{ synced: number }>;
+  syncCustomers(): Promise<{ synced: number }>;
+  syncSubscriptions(): Promise<{ synced: number }>;
+  syncInvoices(): Promise<{ synced: number }>;
+  syncCharges(): Promise<{ synced: number }>;
+  syncPaymentMethods(): Promise<{ synced: number }>;
 }
 
 export interface RunScopedSyncResult {
@@ -98,15 +142,31 @@ export interface RunScopedSyncResult {
   startedAt: number;
 }
 
+function invokeResource(driver: SyncRunnerDriver, resource: SyncResource): Promise<{ synced: number }> {
+  switch (resource) {
+    case "products":        return driver.syncProducts();
+    case "prices":          return driver.syncPrices();
+    case "plans":           return driver.syncPlans();
+    case "customers":       return driver.syncCustomers();
+    case "subscriptions":   return driver.syncSubscriptions();
+    case "invoices":        return driver.syncInvoices();
+    case "charges":         return driver.syncCharges();
+    case "payment_methods": return driver.syncPaymentMethods();
+  }
+}
+
 /**
- * Kicks off a scoped sync run if one is not already in progress. The actual
- * sync runs on a detached promise; this function returns synchronously after
- * acquiring the lock so the HTTP request can respond immediately.
+ * Acquire the single in-process lock and run the given resources sequentially
+ * on a detached promise. Returns synchronously after acquiring the lock so
+ * the HTTP request can respond immediately.
  *
  * The detached run is responsible for clearing the lock and capturing counts
  * regardless of success or failure.
  */
-export function runScopedSync(driver: SyncRunnerDriver): RunScopedSyncResult {
+function runWithResources(
+  driver: SyncRunnerDriver,
+  resources: readonly SyncResource[],
+): RunScopedSyncResult {
   if (isSyncRunning()) {
     return { alreadyRunning: true, startedAt: lock!.startedAt };
   }
@@ -118,20 +178,37 @@ export function runScopedSync(driver: SyncRunnerDriver): RunScopedSyncResult {
       const accountId = await driver.getAccountId();
       // Sequential so the library's _sync_status rows update one-at-a-time
       // and the polling UI can show meaningful progression.
-      const productsResult = await driver.syncProducts();
-      setCachedSyncedCount(accountId, "products", productsResult.synced);
-      const pricesResult = await driver.syncPrices();
-      setCachedSyncedCount(accountId, "prices", pricesResult.synced);
-      const plansResult = await driver.syncPlans();
-      setCachedSyncedCount(accountId, "plans", plansResult.synced);
+      for (const resource of resources) {
+        const result = await invokeResource(driver, resource);
+        setCachedSyncedCount(accountId, resource, result.synced);
+      }
     } catch (err) {
-      console.error("[stripeSyncRunner] scoped sync failed", err);
+      console.error("[stripeSyncRunner] sync failed", err);
     } finally {
       if (lock) lock.finishedAt = Date.now();
     }
   })();
 
   return { alreadyRunning: false, startedAt };
+}
+
+/**
+ * Manual button path: refresh products + prices + plans only.
+ * Customers/subscriptions/invoices/etc. stay current via webhooks, so this
+ * is the fast path the admin reaches for to refresh the Plans block.
+ */
+export function runScopedSync(driver: SyncRunnerDriver): RunScopedSyncResult {
+  return runWithResources(driver, SCOPED_RESOURCES);
+}
+
+/**
+ * Full-backfill path: refresh every tracked resource. Used after a live/test
+ * mode toggle so the new mode's data lands without waiting for webhooks,
+ * and reusable for any future "Sync everything" button. Shares the same lock
+ * as runScopedSync — a concurrent call returns alreadyRunning:true.
+ */
+export function runFullSync(driver: SyncRunnerDriver): RunScopedSyncResult {
+  return runWithResources(driver, FULL_RESOURCES);
 }
 
 interface StatusRow {
@@ -145,17 +222,26 @@ interface StatusRow {
  * Read per-resource sync status rows for the given account from
  * stripe._sync_status. Returns an idle row for any tracked resource that
  * has no row yet (first-ever sync).
+ *
+ * Note: the library's `_sync_status` table uses the column name `account_id`
+ * (without the leading underscore that the per-resource tables use). See
+ * stripe-replit-sync migrations 0048→0049 for the rename history.
  */
 export async function readSyncStatus(accountId: string): Promise<SyncStatus> {
   // The schema may not exist yet (first install before migrations) — handle
   // that gracefully by returning all-idle.
   let rows: StatusRow[] = [];
   try {
+    // Drizzle's `sql` template expands a JS array into a parenthesised
+    // parameter list (`($1, $2, ...)`), which is the row-tuple form Postgres
+    // expects after `IN`. Using `ANY(...)` here would require an actual
+    // ARRAY[...] literal and fail with "op ANY/ALL (array) requires array on
+    // right side".
     const result = await db.execute(
       sql`SELECT resource, status, last_synced_at, error_message
           FROM stripe._sync_status
-          WHERE _account_id = ${accountId}
-            AND resource = ANY(${SYNC_RESOURCES as unknown as string[]})`,
+          WHERE account_id = ${accountId}
+            AND resource IN ${SYNC_RESOURCES as unknown as string[]}`,
     );
     rows = result.rows as unknown as StatusRow[];
   } catch (err) {
