@@ -15,6 +15,7 @@ import { ObjectStorageService } from "../lib/objectStorage";
 import { memeKey } from "../lib/storageKeys";
 import { getSiteBaseUrl } from "../lib/siteUrl";
 import bcrypt from "bcryptjs";
+import { getGovernanceAdminView } from "../lib/resourceGovernance";
 
 const _styleStorage = new ObjectStorageService();
 
@@ -53,6 +54,10 @@ router.get("/admin/stats", requireAdmin, async (_req: Request, res: Response) =>
     db.select({ totalUsers: count() }).from(usersTable).where(eq(usersTable.isActive, true)),
   ]);
   res.json({ totalFacts, totalUsers });
+});
+
+router.get("/admin/resource-governance", requireAdmin, async (_req: Request, res: Response) => {
+  res.json(getGovernanceAdminView());
 });
 
 router.get("/admin/users", requireAdmin, async (req: Request, res: Response) => {

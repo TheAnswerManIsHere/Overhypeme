@@ -9,6 +9,16 @@ import "./index.css";
 // /api/ request when a token is stored in localStorage (auth_token key).
 // This bypasses iframe cookie restrictions that plague Replit's preview pane.
 // ---------------------------------------------------------------------------
+
+function readCookie(name: string): string | null {
+  const match = document.cookie.match(new RegExp(`(?:^|; )${name}=([^;]*)`));
+  return match ? decodeURIComponent(match[1]) : null;
+}
+
+function isMutatingMethod(method: string): boolean {
+  return ["POST", "PUT", "PATCH", "DELETE"].includes(method.toUpperCase());
+}
+
 const _originalFetch = window.fetch.bind(window);
 window.fetch = function (input, init) {
   const url =
@@ -19,14 +29,22 @@ window.fetch = function (input, init) {
         : (input as Request).url;
 
   if (url.startsWith("/api/") || url.includes("/api/")) {
+    const headers = new Headers((init?.headers as HeadersInit) ?? {});
+
     const token = localStorage.getItem("auth_token");
-    if (token) {
-      const headers = new Headers((init?.headers as HeadersInit) ?? {});
-      if (!headers.has("Authorization")) {
-        headers.set("Authorization", `Bearer ${token}`);
-      }
-      init = { ...init, headers };
+    if (token && !headers.has("Authorization")) {
+      headers.set("Authorization", `Bearer ${token}`);
     }
+
+    const method = (init?.method ?? (input as Request)?.method ?? "GET");
+    if (isMutatingMethod(method) && !headers.has("X-CSRF-Token")) {
+      const csrfToken = readCookie("csrf_token");
+      if (csrfToken) {
+        headers.set("X-CSRF-Token", csrfToken);
+      }
+    }
+
+    init = { ...init, headers };
   }
 
   return _originalFetch(input, init);
