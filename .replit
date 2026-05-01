@@ -38,6 +38,11 @@ args = "api-server-tests"
 task = "workflow.run"
 args = "db-tests"
 
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "git-lock-cleaner-tests"
+
 [[workflows.workflow.tasks]]
 task = "workflow.run"
 args = "git-lock-watcher"
@@ -125,3 +130,15 @@ STRIPE_ACCOUNT_ID_LIVE = "acct_1TGk96PUPouDdcHb"
 
 [objectStorage]
 defaultBucketID = "replit-objstore-ae743525-77de-4797-8785-8a65fa3c45c3"
+
+
+[[workflows.workflow]]
+name = "git-lock-cleaner-tests"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "bash scripts/__tests__/clean-stale-git-locks.test.sh"
+
+[workflows.workflow.metadata]
+isValidation = true
