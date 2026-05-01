@@ -30,15 +30,14 @@ fi
 # keep each shard single-process (file ordering inside a shard stays
 # sequential), and we let Node expand the glob.
 #
-# --test-force-exit is critical: without it Node's test runner waits for the
-# event loop to drain after the last test, which adds ~60s of idle time per
-# shard because the @workspace/db pool keeps unref'd connection-keepalive
-# work alive. With --test-force-exit the runner calls process.exit() once
-# all tests have completed, which is safe here because each shard is a
-# short-lived test process that does not need graceful shutdown.
+# TEST_DB_ALLOW_EXIT_ON_IDLE=1 tells the @workspace/db Pool to set
+# allowExitOnIdle: true at construction time.  This unrefs idle-timeout
+# timers and client sockets so Node exits cleanly once all tests have
+# finished, without waiting up to idleTimeoutMillis (60 s) for idle
+# connections to drain.  That lets us drop --test-force-exit and regain
+# the ability to detect leaked promises.
 common_args=(
   --import tsx/esm
-  --test-force-exit
   --test-isolation=none
   --test-concurrency=1
   --test
@@ -46,7 +45,7 @@ common_args=(
 
 pids=()
 for ((k = 1; k <= shards; k++)); do
-  node "${common_args[@]}" --test-shard="${k}/${shards}" \
+  TEST_DB_ALLOW_EXIT_ON_IDLE=1 node "${common_args[@]}" --test-shard="${k}/${shards}" \
     'src/__tests__/**/*.test.ts' &
   pids+=("$!")
 done

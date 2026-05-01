@@ -27,6 +27,7 @@ import affiliateRouter from "../routes/affiliate.js";
 import { authMiddleware } from "../middlewares/authMiddleware.js";
 import { createSession, type SessionData } from "../lib/auth.js";
 
+
 const SOURCE_PREFIX = "t_routes_aff_";
 const USER_PREFIX = "t_routes_au_";
 
