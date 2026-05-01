@@ -12,7 +12,7 @@
  * logic) require live OPENAI_API_KEY and are out of scope.
  */
 
-import { describe, it, before, after, beforeEach, afterEach } from "node:test";
+import { describe, it, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 
@@ -64,8 +64,6 @@ before(cleanup);
 after(cleanup);
 
 describe("POST /ai/check-duplicate — auth + validation", () => {
-  beforeEach(cleanup);
-  afterEach(cleanup);
 
   it("returns 401 when no session is presented", async () => {
     const res = await request(makeApp())
@@ -105,8 +103,6 @@ describe("POST /ai/check-duplicate — auth + validation", () => {
 });
 
 describe("POST /ai/suggest-hashtags — auth + validation", () => {
-  beforeEach(cleanup);
-  afterEach(cleanup);
 
   it("returns 401 when no session is presented", async () => {
     const res = await request(makeApp())
@@ -153,9 +149,15 @@ describe("POST /ai/tokenize-fact — body validation", () => {
 
 describe("POST /ai/suggest-pronouns — body validation", () => {
   it("does not require auth (public)", async () => {
+    // Send a body that fails Zod (empty name) so the handler responds
+    // with a 400 BEFORE invoking OpenAI. We only need to confirm the
+    // request isn't bounced with 401 by the auth middleware — getting
+    // a 400 from the Zod check inside the handler proves auth was
+    // bypassed. Sending a valid body would trigger a 1+ second OpenAI
+    // round trip in CI for no additional coverage.
     const res = await request(makeApp())
       .post("/ai/suggest-pronouns")
-      .send({ name: "Alex" });
+      .send({ name: "" });
     assert.notEqual(res.status, 401);
   });
 

@@ -11,7 +11,17 @@ import { checkSharedRateLimit } from "../lib/sharedRateLimiter";
 
 const router: IRouter = Router();
 
-const SALT_ROUNDS = 10;
+// bcrypt cost. Production uses 10 rounds (~70ms/hash). Tests can override
+// with BCRYPT_SALT_ROUNDS to keep auth-test wall time low — 4 rounds runs
+// in ~1ms while still exercising the same hash/compare code path. Clamped
+// to bcrypt's supported range [4, 31].
+const SALT_ROUNDS = (() => {
+  const fromEnv = Number(process.env.BCRYPT_SALT_ROUNDS);
+  if (Number.isInteger(fromEnv) && fromEnv >= 4 && fromEnv <= 31) {
+    return fromEnv;
+  }
+  return 10;
+})();
 
 const IS_PRODUCTION = process.env.NODE_ENV === "production";
 

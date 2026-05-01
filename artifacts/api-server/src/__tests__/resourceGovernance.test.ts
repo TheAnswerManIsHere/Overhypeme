@@ -1,5 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
+import type { Request, Response } from "express";
 import { enforceGovernance, completeGovernance } from "../lib/resourceGovernance";
 
 function makeReq(userId = "u1", tier: "registered" | "legendary" = "registered") {
@@ -7,16 +8,17 @@ function makeReq(userId = "u1", tier: "registered" | "legendary" = "registered")
     user: { id: userId, membershipTier: tier, realUserRole: "user" },
     path: "/videos/generate",
     header: (_: string) => null,
-  } as any;
+  } as unknown as Request;
 }
 
 function makeRes() {
-  return {
+  const res = {
     code: 200,
-    body: null as any,
+    body: null as unknown,
     status(c: number) { this.code = c; return this; },
-    json(b: any) { this.body = b; return this; },
-  } as any;
+    json(b: unknown) { this.body = b; return this; },
+  };
+  return res as unknown as Response & { code: number; body: unknown };
 }
 
 describe("resourceGovernance", () => {

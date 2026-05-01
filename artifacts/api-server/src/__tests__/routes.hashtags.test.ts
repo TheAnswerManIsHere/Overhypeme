@@ -10,7 +10,7 @@
  * authMiddleware.test.ts for the full convention.
  */
 
-import { describe, it, before, after, beforeEach, afterEach } from "node:test";
+import { describe, it, before, after } from "node:test";
 import assert from "node:assert/strict";
 import express, { type Express } from "express";
 import request from "supertest";
@@ -42,8 +42,6 @@ async function cleanup(): Promise<void> {
 describe("GET /hashtags", () => {
   before(cleanup);
   after(cleanup);
-  beforeEach(cleanup);
-  afterEach(cleanup);
 
   it("returns hashtags ordered by factCount descending", async () => {
     await insertTag(`${TAG_PREFIX}low`, 1);

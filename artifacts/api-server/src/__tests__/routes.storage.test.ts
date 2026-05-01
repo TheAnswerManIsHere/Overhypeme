@@ -9,7 +9,7 @@
  *   - content-type / body / size validation
  */
 
-import { describe, it, before, after, beforeEach, afterEach } from "node:test";
+import { describe, it, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 
@@ -62,8 +62,6 @@ before(cleanup);
 after(cleanup);
 
 describe("POST /storage/uploads/request-url — auth + body validation", () => {
-  beforeEach(cleanup);
-  afterEach(cleanup);
 
   it("returns 401 when unauthenticated", async () => {
     const res = await request(makeApp())
@@ -86,8 +84,6 @@ describe("POST /storage/uploads/request-url — auth + body validation", () => {
 });
 
 describe("POST /storage/upload-avatar — pre-GCS gates", () => {
-  beforeEach(cleanup);
-  afterEach(cleanup);
 
   it("returns 401 when unauthenticated", async () => {
     const res = await request(makeApp())
@@ -123,8 +119,6 @@ describe("POST /storage/upload-avatar — pre-GCS gates", () => {
 });
 
 describe("POST /storage/upload-meme — pre-GCS gates", () => {
-  beforeEach(cleanup);
-  afterEach(cleanup);
 
   it("returns 401 when unauthenticated", async () => {
     const res = await request(makeApp())

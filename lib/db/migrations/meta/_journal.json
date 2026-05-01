@@ -217,8 +217,20 @@
       "version": "7",
       "when": 1746200000000,
       "tag": "0030_stripe_webhook_audit",
+      "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
       "when": 1777586077775,
       "tag": "0030_rate_limit_counters",
+      "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1746400000000,
+      "tag": "0032_checkout_request_ledger",
       "breakpoints": true
     }
   ]

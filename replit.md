@@ -102,3 +102,17 @@ Suggested setup (10 minutes, one time):
 3. Replace the placeholder below with the real monitor URL/ID.
 
 UptimeRobot monitor URL: _TODO_ (set after creation)
+
+## Security hardening (Task #371, merged 2026-05-01)
+The following origin/main commits were manually merged into local main:
+
+- **Webhook dedup / audit** — `stripeWebhookAuditTable` (`lib/db/src/schema/memberships.ts`) records every webhook event as `received | processed | ignored_duplicate | failed`. `stripeProcessedEventsTable` provides unique-key dedup. Migration `0030_stripe_webhook_audit`.
+- **Checkout idempotency** — `stripeCheckoutRequestLedgerTable` prevents duplicate Stripe checkout sessions for the same `(userId, priceId)` within a window. Migration `0031_rate_limit_counters` (also adds `rate_limit_counters` for the shared rate limiter).
+- **Shared rate limiter** — `artifacts/api-server/src/lib/sharedRateLimiter.ts` backs the DB-persisted `rate_limit_counters` table; used by `routes/localAuth.ts` (login/register throttling) to replace the old in-memory buckets.
+- **Data lifecycle / DSR** — `artifacts/api-server/src/lib/dataLifecycle.ts` + admin routes (`DELETE /admin/users/:id/data`) for subject-access and erasure requests.
+- **Resource governance** — `artifacts/api-server/src/lib/resourceGovernance.ts` + admin routes (`GET /admin/resource-usage`) for per-user resource cap enforcement.
+- **Share-route hardening** — `routes/share.ts` gained honeypot field, `formStartedAt` min-age check, per-recipient / per-origin rate limits, fingerprint dedup, and allowlisted `shareUrl` domains.
+- **Image URL validation** — `routes/share.ts` and related image helpers sanitize user-supplied URLs before fetch.
+- **Stripe 5xx sanitization** — Stripe error responses are stripped of raw API detail before returning to callers.
+- **sid redaction** — Session IDs are no longer echoed in JSON responses from `routes/localAuth.ts`; they are set only via `Set-Cookie`.
+- **CSRF guard** — share invite route exports `__resetShareInviteGuardsForTests()` for test isolation of rate-limit and fingerprint state.

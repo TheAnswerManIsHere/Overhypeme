@@ -523,7 +523,7 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
   }, [pronouns]);
 
   // Image source state — initialised from sessionStorage draft when returning from login
-  const [imageMode, setImageMode] = useState<ImageMode>(() => readDraft(factId)?.imageMode ?? "stock");
+  const [imageMode, setImageMode] = useState<ImageMode>(() => readDraft(factId)?.imageMode ?? "upload");
 
   // Display limits (from public config, fetched once)
   const [bgStockLimit, setBgStockLimit] = useState(20);
@@ -1413,6 +1413,13 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
           {/* Mode tabs */}
           <div className="flex border-b border-border mb-4">
             <ModeTab
+              active={imageMode === "upload"}
+              onClick={() => setImageMode("upload")}
+              badge={!isRegistered ? "PRO" : undefined}
+            >
+              Upload
+            </ModeTab>
+            <ModeTab
               active={imageMode === "stock"}
               onClick={() => {
                 setImageMode("stock");
@@ -1436,13 +1443,6 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
               badge={!isLegendary ? "LEGENDARY" : undefined}
             >
               AI Generated
-            </ModeTab>
-            <ModeTab
-              active={imageMode === "upload"}
-              onClick={() => setImageMode("upload")}
-              badge={!isRegistered ? "PRO" : undefined}
-            >
-              Upload
             </ModeTab>
           </div>
 

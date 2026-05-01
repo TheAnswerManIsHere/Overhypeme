@@ -38,17 +38,18 @@ function makeNext(): { calls: number; fn: NextFunction } {
   return { get calls() { return state.calls; }, fn };
 }
 
-const ORIGINAL_KEY = process.env.ADMIN_API_KEY;
-
 describe("requireApiKey — fail-closed when ADMIN_API_KEY is unset", () => {
+  let savedKey: string | undefined;
+
   beforeEach(() => {
+    savedKey = process.env.ADMIN_API_KEY;
     delete process.env.ADMIN_API_KEY;
   });
   afterEach(() => {
-    if (ORIGINAL_KEY === undefined) {
+    if (savedKey === undefined) {
       delete process.env.ADMIN_API_KEY;
     } else {
-      process.env.ADMIN_API_KEY = ORIGINAL_KEY;
+      process.env.ADMIN_API_KEY = savedKey;
     }
   });
 
@@ -74,14 +75,17 @@ describe("requireApiKey — fail-closed when ADMIN_API_KEY is unset", () => {
 });
 
 describe("requireApiKey — with ADMIN_API_KEY set", () => {
+  let savedKey: string | undefined;
+
   beforeEach(() => {
+    savedKey = process.env.ADMIN_API_KEY;
     process.env.ADMIN_API_KEY = "secret-key-123";
   });
   afterEach(() => {
-    if (ORIGINAL_KEY === undefined) {
+    if (savedKey === undefined) {
       delete process.env.ADMIN_API_KEY;
     } else {
-      process.env.ADMIN_API_KEY = ORIGINAL_KEY;
+      process.env.ADMIN_API_KEY = savedKey;
     }
   });
 

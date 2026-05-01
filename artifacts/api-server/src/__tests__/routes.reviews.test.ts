@@ -14,7 +14,7 @@
  * Pexels + AI meme image pipelines, which need external API access.
  */
 
-import { describe, it, before, after, beforeEach, afterEach } from "node:test";
+import { describe, it, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 
@@ -99,8 +99,6 @@ before(cleanup);
 after(cleanup);
 
 describe("POST /facts/submit-review", () => {
-  beforeEach(cleanup);
-  afterEach(cleanup);
 
   it("returns 401 when unauthenticated", async () => {
     const res = await request(makeApp())
@@ -163,8 +161,6 @@ describe("POST /facts/submit-review", () => {
 });
 
 describe("GET /admin/reviews/count", () => {
-  beforeEach(cleanup);
-  afterEach(cleanup);
 
   it("returns 401 when unauthenticated", async () => {
     const res = await request(makeApp()).get("/admin/reviews/count");
@@ -199,8 +195,6 @@ describe("GET /admin/reviews/count", () => {
 });
 
 describe("GET /admin/reviews", () => {
-  beforeEach(cleanup);
-  afterEach(cleanup);
 
   it("returns paginated reviews for admins", async () => {
     const adminId = await createTestUser({ isAdmin: true });
@@ -223,8 +217,6 @@ describe("GET /admin/reviews", () => {
 });
 
 describe("GET /admin/reviews/:id", () => {
-  beforeEach(cleanup);
-  afterEach(cleanup);
 
   it("returns 400 for a non-numeric id", async () => {
     const adminId = await createTestUser({ isAdmin: true });
@@ -266,8 +258,6 @@ describe("GET /admin/reviews/:id", () => {
 });
 
 describe("POST /admin/reviews/:id/reject", () => {
-  beforeEach(cleanup);
-  afterEach(cleanup);
 
   it("returns 404 when the review doesn't exist", async () => {
     const adminId = await createTestUser({ isAdmin: true });
@@ -328,8 +318,6 @@ describe("POST /admin/reviews/:id/reject", () => {
 });
 
 describe("POST /admin/reviews/:id/approve-variant", () => {
-  beforeEach(cleanup);
-  afterEach(cleanup);
 
   it("returns 400 when parentFactId is missing", async () => {
     const adminId = await createTestUser({ isAdmin: true });
@@ -390,8 +378,6 @@ describe("POST /admin/reviews/:id/approve-variant", () => {
 });
 
 describe("GET /activity-feed", () => {
-  beforeEach(cleanup);
-  afterEach(cleanup);
 
   it("returns 401 when unauthenticated", async () => {
     const res = await request(makeApp()).get("/activity-feed");
@@ -432,8 +418,6 @@ describe("GET /activity-feed", () => {
 });
 
 describe("POST /activity-feed/mark-read", () => {
-  beforeEach(cleanup);
-  afterEach(cleanup);
 
   it("returns 401 when unauthenticated", async () => {
     const res = await request(makeApp()).post("/activity-feed/mark-read").send({});

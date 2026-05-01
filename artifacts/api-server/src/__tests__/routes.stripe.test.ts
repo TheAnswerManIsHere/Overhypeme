@@ -122,8 +122,6 @@ describe("GET /stripe/plans", () => {
 });
 
 describe("GET /stripe/membership", () => {
-  beforeEach(cleanupUsers);
-  afterEach(cleanupUsers);
 
   it("returns the user's tier", async () => {
     const userId = await createTestUser({ membershipTier: "legendary" });
@@ -146,8 +144,6 @@ describe("GET /stripe/membership", () => {
 });
 
 describe("GET /stripe/payment-history", () => {
-  beforeEach(cleanupUsers);
-  afterEach(cleanupUsers);
 
   it("returns an empty history array for a new user", async () => {
     const userId = await createTestUser();
@@ -178,8 +174,6 @@ describe("GET /stripe/payment-history", () => {
 });
 
 describe("GET /stripe/access-revocation-notice", () => {
-  beforeEach(cleanupUsers);
-  afterEach(cleanupUsers);
 
   it("returns { notice: null } for a user with no revocation history", async () => {
     const userId = await createTestUser();
@@ -212,8 +206,6 @@ describe("GET /stripe/access-revocation-notice", () => {
 });
 
 describe("POST /stripe/checkout — body validation", () => {
-  beforeEach(cleanupUsers);
-  afterEach(cleanupUsers);
 
   it("returns 400 when priceId is missing from the body", async () => {
     const userId = await createTestUser();
@@ -228,8 +220,6 @@ describe("POST /stripe/checkout — body validation", () => {
 });
 
 describe("POST /stripe/checkout/confirm — body validation", () => {
-  beforeEach(cleanupUsers);
-  afterEach(cleanupUsers);
 
   it("returns 400 when sessionId is missing", async () => {
     const userId = await createTestUser();
@@ -255,8 +245,6 @@ describe("POST /stripe/checkout/confirm — body validation", () => {
 });
 
 describe("GET /stripe/subscription/switch-preview — query validation", () => {
-  beforeEach(cleanupUsers);
-  afterEach(cleanupUsers);
 
   it("returns 400 when targetPriceId is missing", async () => {
     const userId = await createTestUser();
@@ -270,8 +258,6 @@ describe("GET /stripe/subscription/switch-preview — query validation", () => {
 });
 
 describe("POST /stripe/subscription/switch-plan — body validation", () => {
-  beforeEach(cleanupUsers);
-  afterEach(cleanupUsers);
 
   it("returns 400 when targetPriceId is missing", async () => {
     const userId = await createTestUser();
@@ -286,8 +272,6 @@ describe("POST /stripe/subscription/switch-plan — body validation", () => {
 });
 
 describe("POST /stripe/portal — pre-Stripe guard", () => {
-  beforeEach(cleanupUsers);
-  afterEach(cleanupUsers);
 
   it("returns 400 when the user has no Stripe customer ID yet", async () => {
     const userId = await createTestUser();

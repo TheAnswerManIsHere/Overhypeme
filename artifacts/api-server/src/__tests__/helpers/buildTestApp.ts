@@ -10,6 +10,11 @@
  *
  * Centralising the stub here means future test files never accidentally omit
  * a required field (e.g. realUserRole) by copying-and-pasting a partial stub.
+ *
+ * The DB lookup is memoised per userId for the lifetime of each buildTestApp()
+ * call.  Since the userId is fixed for the lifetime of one app instance, this
+ * avoids a SELECT on every authenticated supertest request.  Tests that need
+ * to observe a changed user row mid-test should build a fresh app.
  */
 
 import express, { type Request, type Response, type NextFunction, type Router } from "express";
@@ -32,6 +37,9 @@ export type FakeAuth =
  * the live DB row identified by `auth.userId`.  This exercises the real
  * authorisation path end-to-end without requiring actual session cookies.
  *
+ * The user row is fetched once per buildTestApp() call and reused for all
+ * subsequent requests on the same app instance.
+ *
  * @param auth      - Whether the request should appear authenticated, and if so
  *                    which DB user to use.
  * @param router    - The Express Router under test.
@@ -46,29 +54,45 @@ export function buildTestApp(
   const app = express();
   app.use(express.json());
 
-  app.use(async (req: Request, _res: Response, next: NextFunction) => {
-    if (auth.kind === "authenticated") {
-      const [dbUser] = await db
-        .select({ id: usersTable.id, isAdmin: usersTable.isAdmin })
-        .from(usersTable)
-        .where(eq(usersTable.id, auth.userId))
-        .limit(1);
+  if (auth.kind === "authenticated") {
+    const { userId } = auth;
+    let cachedUser: { id: string; isRealAdmin: boolean; realUserRole: ReturnType<typeof deriveUserRole> } | null | undefined;
 
-      if (dbUser) {
-        req.user = {
-          id:           dbUser.id,
-          isRealAdmin:  !!dbUser.isAdmin,
-          realUserRole: deriveUserRole(undefined, !!dbUser.isAdmin),
-        };
+    app.use(async (req: Request, _res: Response, next: NextFunction) => {
+      if (cachedUser === undefined) {
+        const [dbUser] = await db
+          .select({ id: usersTable.id, isAdmin: usersTable.isAdmin })
+          .from(usersTable)
+          .where(eq(usersTable.id, userId))
+          .limit(1);
+
+        cachedUser = dbUser
+          ? {
+              id:           dbUser.id,
+              isRealAdmin:  !!dbUser.isAdmin,
+              realUserRole: deriveUserRole(undefined, !!dbUser.isAdmin),
+            }
+          : null;
       }
-    }
 
-    req.isAuthenticated = function (this: Request) {
-      return this.user != null;
-    } as Request["isAuthenticated"];
+      if (cachedUser) {
+        req.user = cachedUser;
+      }
 
-    next();
-  });
+      req.isAuthenticated = function (this: Request) {
+        return this.user != null;
+      } as Request["isAuthenticated"];
+
+      next();
+    });
+  } else {
+    app.use((_req: Request, _res: Response, next: NextFunction) => {
+      _req.isAuthenticated = function (this: Request) {
+        return this.user != null;
+      } as Request["isAuthenticated"];
+      next();
+    });
+  }
 
   app.use(mountPath, router);
   return app;

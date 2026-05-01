@@ -7,7 +7,7 @@
  * via per-test UUIDs and cleans up at the end.
  */
 
-import { describe, it, before, after, beforeEach, afterEach } from "node:test";
+import { describe, it, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 
@@ -99,8 +99,6 @@ before(cleanupUsers);
 after(cleanupUsers);
 
 describe("GET /users/me", () => {
-  beforeEach(cleanupUsers);
-  afterEach(cleanupUsers);
 
   it("returns 401 when unauthenticated", async () => {
     const res = await request(makeApp()).get("/users/me");
@@ -177,8 +175,6 @@ describe("GET /users/me", () => {
 });
 
 describe("PATCH /users/me — validation", () => {
-  beforeEach(cleanupUsers);
-  afterEach(cleanupUsers);
 
   async function authedPatch(body: Record<string, unknown>) {
     const userId = await createTestUser();
@@ -251,8 +247,6 @@ describe("PATCH /users/me — validation", () => {
     assert.deepEqual(res.body, { error: "Custom photo upload is a Legendary feature" });
   });
 
-
-
   it("rejects profileImageUrl on unknown hosts", async () => {
     const userId = await createTestUser({ membershipTier: "legendary" });
     const sid = await bearerForUser(userId);
@@ -272,6 +266,7 @@ describe("PATCH /users/me — validation", () => {
       .send({ profileImageUrl: "https://images.unsplash.com/photo-1?utm_source=a&utm_medium=b&utm_campaign=c" });
     assert.equal(res.status, 400);
   });
+
   it("rejects a profileImageUrl that isn't on a supported scheme", async () => {
     const userId = await createTestUser({ membershipTier: "legendary" });
     const sid = await bearerForUser(userId);
@@ -285,8 +280,6 @@ describe("PATCH /users/me — validation", () => {
 });
 
 describe("PATCH /users/me — success", () => {
-  beforeEach(cleanupUsers);
-  afterEach(cleanupUsers);
 
   it("trims and persists string fields", async () => {
     const userId = await createTestUser();
@@ -326,8 +319,6 @@ describe("PATCH /users/me — success", () => {
     assert.equal(row.lastName, null);
   });
 
-
-
   it("accepts and normalizes trusted remote profile image URLs", async () => {
     const userId = await createTestUser({ membershipTier: "legendary" });
     const sid = await bearerForUser(userId);
@@ -351,6 +342,7 @@ describe("PATCH /users/me — success", () => {
     assert.equal(res.status, 200);
     assert.equal(res.body.profileImageUrl, null);
   });
+
   it("rejects an email already in use by another user", async () => {
     const otherId = await createTestUser({ email: `${USER_PREFIX}taken@test.local` });
     void otherId; // reserved
@@ -392,8 +384,6 @@ describe("PATCH /users/me — success", () => {
 });
 
 describe("PATCH /users/me/notifications", () => {
-  beforeEach(cleanupUsers);
-  afterEach(cleanupUsers);
 
   it("returns 401 when unauthenticated", async () => {
     const res = await request(makeApp())
@@ -437,8 +427,6 @@ describe("PATCH /users/me/notifications", () => {
 });
 
 describe("POST /users/me/search-history", () => {
-  beforeEach(cleanupUsers);
-  afterEach(cleanupUsers);
 
   it("silently 204s for unauthenticated callers", async () => {
     const res = await request(makeApp())
@@ -508,8 +496,6 @@ describe("POST /users/me/search-history", () => {
 });
 
 describe("GET /users/me/uploads", () => {
-  beforeEach(cleanupUsers);
-  afterEach(cleanupUsers);
 
   it("returns 401 when unauthenticated", async () => {
     const res = await request(makeApp()).get("/users/me/uploads");
@@ -549,8 +535,6 @@ describe("GET /users/me/uploads", () => {
 });
 
 describe("GET /users/me/memes", () => {
-  beforeEach(cleanupUsers);
-  afterEach(cleanupUsers);
 
   it("returns 401 when unauthenticated", async () => {
     const res = await request(makeApp()).get("/users/me/memes");
@@ -588,8 +572,6 @@ describe("GET /users/me/memes", () => {
 });
 
 describe("GET /users/me/ai-images", () => {
-  beforeEach(cleanupUsers);
-  afterEach(cleanupUsers);
 
   it("returns 401 when unauthenticated", async () => {
     const res = await request(makeApp()).get("/users/me/ai-images");
@@ -631,8 +613,6 @@ describe("GET /users/me/ai-images", () => {
 });
 
 describe("DELETE /users/me/uploads", () => {
-  beforeEach(cleanupUsers);
-  afterEach(cleanupUsers);
 
   it("returns 401 when unauthenticated", async () => {
     const res = await request(makeApp()).delete("/users/me/uploads");
@@ -662,8 +642,6 @@ describe("DELETE /users/me/uploads", () => {
 });
 
 describe("POST /users/me/complete-onboarding", () => {
-  beforeEach(cleanupUsers);
-  afterEach(cleanupUsers);
 
   it("returns 401 when unauthenticated", async () => {
     const res = await request(makeApp())
@@ -703,8 +681,6 @@ describe("POST /users/me/complete-onboarding", () => {
 });
 
 describe("GET /users/me/spend", () => {
-  beforeEach(cleanupUsers);
-  afterEach(cleanupUsers);
 
   it("returns 401 when unauthenticated", async () => {
     const res = await request(makeApp()).get("/users/me/spend");

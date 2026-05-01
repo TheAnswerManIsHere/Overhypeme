@@ -7,7 +7,7 @@
  *               and the catch branch (DB error → lastStripeEventError filled).
  */
 
-import { describe, it, before, after, beforeEach, afterEach } from "node:test";
+import { describe, it, before, after } from "node:test";
 import assert from "node:assert/strict";
 import express, { type Express } from "express";
 import request from "supertest";
@@ -50,10 +50,13 @@ describe("GET /healthz", () => {
 });
 
 describe("GET /health", () => {
+  // The describe contains exactly one test, so suite-level before/after
+  // is enough — beforeEach/afterEach would just duplicate the same cleanup
+  // pass. Each test inserts its own UUID-suffixed eventId so the cleanup's
+  // prefix LIKE never sees rows from sibling test files (validated by the
+  // ID_PREFIX hyphen convention above).
   before(cleanup);
   after(cleanup);
-  beforeEach(cleanup);
-  afterEach(cleanup);
 
   it("returns 200 with lastStripeEvent populated when at least one event row exists", async () => {
     const eventId = `${ID_PREFIX}${Date.now()}`;

@@ -1437,14 +1437,21 @@ router.patch("/admin/config/:key", requireAdmin, async (req: Request, res: Respo
   bustConfigCache();
 
   // When stripe_live_mode changes, invalidate the cached Stripe instance and
-  // kick off a fresh backfill so the new mode's products/prices populate immediately.
+  // kick off a FULL resync so every mode-scoped resource (products, prices,
+  // plans, customers, subscriptions, invoices, charges, payment methods) lands
+  // for the new mode without waiting for webhook traffic. Shares the same
+  // in-process lock as the manual scoped sync, so a concurrent admin click on
+  // "Sync Stripe data" will see alreadyRunning and short-circuit with 409.
   if (key === "stripe_live_mode") {
     const { invalidateStripeSync, getStripeSync } = await import("../lib/stripeClient");
+    const { runFullSync } = await import("../lib/stripeSyncRunner");
     invalidateStripeSync();
-    getStripeSync()
-      .then(sync => sync.syncBackfill({ object: "all" }))
-      .then(() => console.info("[admin] Stripe backfill complete after mode toggle"))
-      .catch((err: unknown) => console.error("[admin] Stripe backfill error after mode toggle", err));
+    try {
+      const sync = await getStripeSync();
+      runFullSync(sync);
+    } catch (err) {
+      console.error("[admin] Stripe full sync error after mode toggle", err);
+    }
   }
 
   res.json(updated);
@@ -1616,19 +1623,146 @@ router.get("/admin/stripe/summary", requireAdmin, async (_req: Request, res: Res
   }
 });
 
-// POST /admin/stripe/sync — trigger an immediate Stripe data backfill (runs in background)
+// POST /admin/stripe/sync — trigger a scoped resync of products/prices/plans.
+//
+// Scoped intentionally: customers/subscriptions/invoices/etc. are kept fresh
+// by webhooks already, so the admin button only refreshes what it actually
+// affects (the Plans block + checkout price IDs).
+//
+// Returns immediately after kicking off the background sync. The UI polls
+// /admin/stripe/sync/status to render real-time progress per resource.
+//
+// If a sync is already running, this returns HTTP 409 + alreadyRunning:true
+// rather than starting a duplicate concurrent sync.
 router.post("/admin/stripe/sync", requireAdmin, async (_req: Request, res: Response) => {
   try {
     const { getStripeSync } = await import("../lib/stripeClient");
+    const { runScopedSync } = await import("../lib/stripeSyncRunner");
     const sync = await getStripeSync();
-    // Fire backfill in background — don't await, respond immediately
-    sync.syncBackfill({ object: "all" })
-      .then(() => console.info("[admin] Stripe manual sync complete"))
-      .catch((err: unknown) => console.error("[admin] Stripe manual sync error", err));
-    res.json({ success: true, message: "Stripe sync started — products will appear within a few seconds." });
+    const result = runScopedSync(sync);
+    if (result.alreadyRunning) {
+      res.status(409).json({
+        success: false,
+        alreadyRunning: true,
+        message: "Sync already in progress — current run will finish shortly.",
+      });
+      return;
+    }
+    res.json({
+      success: true,
+      message: "Stripe sync started — watch progress below.",
+    });
   } catch (err) {
     console.error("[admin] POST /admin/stripe/sync error", err);
     res.status(500).json({ error: "Failed to start sync" });
+  }
+});
+
+// POST /admin/stripe/sync/_test/simulate — test-only hook used by the UI test
+// for the per-resource progress panel. Drives the same `runScopedSync`
+// machinery the real button uses, but with a stub driver that writes status
+// rows directly so we can deterministically exercise success and failure paths
+// without depending on what's in the test Stripe account at the moment.
+//
+// Disabled in production (returns 404) and gated behind requireAdmin like the
+// real sync routes.
+router.post("/admin/stripe/sync/_test/simulate", requireAdmin, async (req: Request, res: Response) => {
+  if (process.env.NODE_ENV === "production") {
+    res.status(404).end();
+    return;
+  }
+  try {
+    const body = (req.body ?? {}) as { failResource?: string; delayMs?: number };
+    const failResource = body.failResource;
+    const delayMs = typeof body.delayMs === "number" && body.delayMs >= 0 ? body.delayMs : 250;
+    const allowed = ["products", "prices", "plans"] as const;
+    type Res = (typeof allowed)[number];
+    if (failResource !== undefined && !allowed.includes(failResource as Res)) {
+      res.status(400).json({ error: "failResource must be one of products|prices|plans" });
+      return;
+    }
+
+    const { getStripeSync } = await import("../lib/stripeClient");
+    const { runScopedSync } = await import("../lib/stripeSyncRunner");
+    const sync = await getStripeSync();
+    const accountId = await sync.getAccountId();
+
+    const makeStub = (resource: Res, shouldFail: boolean) => async (): Promise<{ synced: number }> => {
+      await db.execute(sql`
+        INSERT INTO stripe._sync_status (resource, account_id, status)
+        VALUES (${resource}, ${accountId}, 'running')
+        ON CONFLICT (resource, account_id) DO UPDATE
+          SET status = 'running', error_message = NULL, updated_at = now()
+      `);
+      await new Promise(resolve => setTimeout(resolve, delayMs));
+      if (shouldFail) {
+        await db.execute(sql`
+          UPDATE stripe._sync_status
+          SET status = 'error', error_message = ${"Simulated failure for testing"}, updated_at = now()
+          WHERE resource = ${resource} AND account_id = ${accountId}
+        `);
+        throw new Error("Simulated failure for testing");
+      }
+      await db.execute(sql`
+        UPDATE stripe._sync_status
+        SET status = 'complete', error_message = NULL, last_synced_at = now(), updated_at = now()
+        WHERE resource = ${resource} AND account_id = ${accountId}
+      `);
+      return { synced: 0 };
+    };
+
+    // Reset existing _sync_status rows for these three resources so the UI
+    // observes a true pending → running → complete transition. Without this,
+    // a previous successful run leaves rows as "complete" and the UI would
+    // show "N synced · X ago" for resources that haven't started yet in the
+    // simulated run, defeating intermediate-state assertions.
+    await db.execute(sql`
+      DELETE FROM stripe._sync_status
+      WHERE account_id = ${accountId}
+        AND resource IN ('products', 'prices', 'plans')
+    `);
+
+    // SyncRunnerDriver requires every resource method, but `runScopedSync`
+    // only invokes products/prices/plans. The customer-graph methods are
+    // unreachable from this path; we stub them with a no-op resolving to 0
+    // so the type is satisfied without changing simulate behaviour.
+    const unreachable = async (): Promise<{ synced: number }> => ({ synced: 0 });
+    const stub = {
+      getAccountId: async () => accountId,
+      syncProducts: makeStub("products", failResource === "products"),
+      syncPrices: makeStub("prices", failResource === "prices"),
+      syncPlans: makeStub("plans", failResource === "plans"),
+      syncCustomers: unreachable,
+      syncSubscriptions: unreachable,
+      syncInvoices: unreachable,
+      syncCharges: unreachable,
+      syncPaymentMethods: unreachable,
+    };
+
+    const result = runScopedSync(stub);
+    if (result.alreadyRunning) {
+      res.status(409).json({ alreadyRunning: true, message: "Sync already in progress" });
+      return;
+    }
+    res.json({ success: true, failResource: failResource ?? null, delayMs });
+  } catch (err) {
+    console.error("[admin] POST /admin/stripe/sync/_test/simulate error", err);
+    res.status(500).json({ error: "Failed to simulate sync" });
+  }
+});
+
+// GET /admin/stripe/sync/status — read per-resource sync state for the UI poller.
+router.get("/admin/stripe/sync/status", requireAdmin, async (_req: Request, res: Response) => {
+  try {
+    const { getStripeSync } = await import("../lib/stripeClient");
+    const { readSyncStatus } = await import("../lib/stripeSyncRunner");
+    const sync = await getStripeSync();
+    const accountId = await sync.getAccountId();
+    const status = await readSyncStatus(accountId);
+    res.json(status);
+  } catch (err) {
+    console.error("[admin] GET /admin/stripe/sync/status error", err);
+    res.status(500).json({ error: "Failed to read sync status" });
   }
 });
 

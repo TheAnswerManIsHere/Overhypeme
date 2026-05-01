@@ -4,13 +4,13 @@
  * Covers email/password registration, login, password reset,
  * email-verification, set-password, and unlink-provider.
  *
- * The forgot-password rate limiter is a process-wide in-memory map keyed by
- * IP — supertest hits all share the same loopback IP. To stay independent,
- * forgot-password tests vary the X-Forwarded-For header so each gets its
- * own rate-limit bucket.
+ * The forgot-password and resend-verification rate limiters are DB-backed
+ * (rate_limit_counters). Forgot-password tests vary the X-Forwarded-For
+ * header so each gets its own bucket. The before() hook clears any stale
+ * rate-limit rows so back-to-back validation runs start from a clean state.
  */
 
-import { describe, it, before, after, beforeEach, afterEach } from "node:test";
+import { describe, it, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID, createHash } from "node:crypto";
 
@@ -24,8 +24,9 @@ import {
   passwordResetTokensTable,
   emailVerificationTokensTable,
   sessionsTable,
+  rateLimitCountersTable,
 } from "@workspace/db/schema";
-import { eq, like } from "drizzle-orm";
+import { eq, like, sql } from "drizzle-orm";
 
 import localAuthRouter from "../routes/localAuth.js";
 import { authMiddleware } from "../middlewares/authMiddleware.js";
@@ -73,6 +74,15 @@ async function bearerForUser(userId: string): Promise<string> {
   return createSession(sessionData, userId);
 }
 
+async function cleanupRateLimitCounters() {
+  await db
+    .delete(rateLimitCountersTable)
+    .where(sql`${rateLimitCountersTable.keyRaw} LIKE 'rl|auth.forgot-password|%'`);
+  await db
+    .delete(rateLimitCountersTable)
+    .where(sql`${rateLimitCountersTable.keyRaw} LIKE 'rl|auth.resend-verification|%'`);
+}
+
 async function cleanupUsers() {
   // Clean dependent rows first, then users.
   await db
@@ -85,12 +95,16 @@ async function cleanupUsers() {
   await db.delete(usersTable).where(like(usersTable.email, `${USER_PREFIX}%`));
 }
 
-before(cleanupUsers);
-after(cleanupUsers);
+before(async () => {
+  await cleanupRateLimitCounters();
+  await cleanupUsers();
+});
+after(async () => {
+  await cleanupRateLimitCounters();
+  await cleanupUsers();
+});
 
 describe("POST /auth/register — validation", () => {
-  beforeEach(cleanupUsers);
-  afterEach(cleanupUsers);
 
   it("rejects missing email or password", async () => {
     const r1 = await request(makeApp()).post("/auth/register").send({ password: "x" });
@@ -168,8 +182,6 @@ describe("POST /auth/register — validation", () => {
 });
 
 describe("POST /auth/register — success", () => {
-  beforeEach(cleanupUsers);
-  afterEach(cleanupUsers);
 
   it("creates the user and returns a session", async () => {
     const email = uniqueEmail();
@@ -186,8 +198,9 @@ describe("POST /auth/register — success", () => {
     assert.equal(res.status, 201);
     assert.equal("sid" in res.body, false);
     assert.equal(res.body.user.email, email);
-    const setCookie = res.headers["set-cookie"] ?? [];
-    assert.ok(setCookie.some((cookie: string) => cookie.startsWith("sid=")), "sid cookie should be set");
+    const rawCookies1 = res.headers["set-cookie"];
+    const setCookie1: string[] = Array.isArray(rawCookies1) ? rawCookies1 : rawCookies1 ? [rawCookies1] : [];
+    assert.ok(setCookie1.some((c) => c.startsWith("sid=")), "sid cookie should be set");
 
     const [row] = await db.select().from(usersTable).where(eq(usersTable.email, email));
     assert.ok(row);
@@ -200,8 +213,6 @@ describe("POST /auth/register — success", () => {
 });
 
 describe("POST /auth/local-login", () => {
-  beforeEach(cleanupUsers);
-  afterEach(cleanupUsers);
 
   it("returns 400 when email or password is missing", async () => {
     const res = await request(makeApp()).post("/auth/local-login").send({});
@@ -263,14 +274,13 @@ describe("POST /auth/local-login", () => {
     assert.equal(res.status, 200);
     assert.equal("sid" in res.body, false);
     assert.equal(res.body.user.email, email);
-    const setCookie = res.headers["set-cookie"] ?? [];
-    assert.ok(setCookie.some((cookie: string) => cookie.startsWith("sid=")), "sid cookie should be set");
+    const rawCookies2 = res.headers["set-cookie"];
+    const setCookie2: string[] = Array.isArray(rawCookies2) ? rawCookies2 : rawCookies2 ? [rawCookies2] : [];
+    assert.ok(setCookie2.some((c) => c.startsWith("sid=")), "sid cookie should be set");
   });
 });
 
 describe("POST /auth/forgot-password", () => {
-  beforeEach(cleanupUsers);
-  afterEach(cleanupUsers);
 
   function ipFor(testName: string): string {
     return `10.${(testName.length * 13) % 256}.${(testName.length * 17) % 256}.1`;
@@ -310,8 +320,6 @@ describe("POST /auth/forgot-password", () => {
 });
 
 describe("POST /auth/reset-password", () => {
-  beforeEach(cleanupUsers);
-  afterEach(cleanupUsers);
 
   it("returns 400 for missing token", async () => {
     const res = await request(makeApp())
@@ -418,8 +426,6 @@ describe("POST /auth/reset-password", () => {
 });
 
 describe("GET /auth/verify-email", () => {
-  beforeEach(cleanupUsers);
-  afterEach(cleanupUsers);
 
   it("returns 400 for missing token", async () => {
     const res = await request(makeApp()).get("/auth/verify-email");
@@ -480,8 +486,6 @@ describe("GET /auth/verify-email", () => {
 });
 
 describe("GET /auth/email-status", () => {
-  beforeEach(cleanupUsers);
-  afterEach(cleanupUsers);
 
   it("returns 401 when unauthenticated", async () => {
     const res = await request(makeApp()).get("/auth/email-status");
@@ -501,8 +505,6 @@ describe("GET /auth/email-status", () => {
 });
 
 describe("POST /auth/set-password", () => {
-  beforeEach(cleanupUsers);
-  afterEach(cleanupUsers);
 
   it("returns 401 when unauthenticated", async () => {
     const res = await request(makeApp())
@@ -580,8 +582,6 @@ describe("POST /auth/set-password", () => {
 });
 
 describe("DELETE /auth/unlink-provider", () => {
-  beforeEach(cleanupUsers);
-  afterEach(cleanupUsers);
 
   it("returns 401 when unauthenticated", async () => {
     const res = await request(makeApp()).delete("/auth/unlink-provider");
@@ -627,8 +627,6 @@ describe("DELETE /auth/unlink-provider", () => {
 });
 
 describe("POST /auth/resend-verification", () => {
-  beforeEach(cleanupUsers);
-  afterEach(cleanupUsers);
 
   it("returns 401 when unauthenticated", async () => {
     const res = await request(makeApp()).post("/auth/resend-verification").send({});

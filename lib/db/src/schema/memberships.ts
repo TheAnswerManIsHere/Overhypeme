@@ -74,6 +74,8 @@ export const stripeWebhookAuditTable = pgTable("stripe_webhook_audit", {
 }, (table) => [
   index("idx_stripe_webhook_audit_event_id").on(table.eventId),
   index("idx_stripe_webhook_audit_created_at").on(table.createdAt),
+]);
+
 export const stripeCheckoutRequestLedgerTable = pgTable("stripe_checkout_request_ledger", {
   id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
   userId: varchar("user_id").notNull().references(() => usersTable.id),
