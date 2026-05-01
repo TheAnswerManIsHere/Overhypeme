@@ -5,8 +5,8 @@ import { getUncachableStripeClient, getStripePublishableKey, isLiveMode } from "
 import { stripeStorage } from "../lib/stripeStorage";
 import { getSiteBaseUrl } from "../lib/siteUrl";
 import { db } from "@workspace/db";
-import { lifetimeEntitlementsTable, subscriptionsTable, usersTable } from "@workspace/db/schema";
-import { eq, desc } from "drizzle-orm";
+import { lifetimeEntitlementsTable, stripeCheckoutRequestLedgerTable, subscriptionsTable, usersTable } from "@workspace/db/schema";
+import { eq, desc, and } from "drizzle-orm";
 import { logger } from "../lib/logger";
 import { paymentErrorResponse } from "../lib/paymentErrorResponse";
 import {
@@ -14,6 +14,7 @@ import {
   handleConfirmRequest,
 } from "../lib/membershipGrant";
 import { handleReceiptRequest } from "../lib/receiptHandler";
+import { resolveCheckoutRequestKey } from "../lib/checkoutIdempotency";
 
 const router: IRouter = Router();
 
@@ -80,7 +81,7 @@ router.get("/stripe/subscription", async (req: Request, res: Response) => {
 router.post("/stripe/checkout", async (req: Request, res: Response) => {
   if (!req.isAuthenticated()) { res.status(401).json({ error: "Unauthorized" }); return; }
 
-  const { priceId } = req.body as { priceId?: string };
+  const { priceId, clientRequestId } = req.body as { priceId?: string; clientRequestId?: string };
   if (!priceId) { res.status(400).json({ error: "priceId required" }); return; }
 
   try {
@@ -108,6 +109,28 @@ router.post("/stripe/checkout", async (req: Request, res: Response) => {
     }
 
     const base = getSiteBaseUrl();
+    const requestKey = resolveCheckoutRequestKey({
+      userId: user.id,
+      priceId,
+      clientRequestId,
+    });
+
+    const existing = await db.select().from(stripeCheckoutRequestLedgerTable)
+      .where(and(
+        eq(stripeCheckoutRequestLedgerTable.userId, user.id),
+        eq(stripeCheckoutRequestLedgerTable.priceId, priceId),
+        eq(stripeCheckoutRequestLedgerTable.requestKey, requestKey),
+      ))
+      .orderBy(desc(stripeCheckoutRequestLedgerTable.createdAt))
+      .limit(1);
+    if (existing[0]?.sessionId) {
+      const reusedSession = await stripe.checkout.sessions.retrieve(existing[0].sessionId);
+      if (reusedSession.url) {
+        res.json({ url: reusedSession.url, reused: true });
+        return;
+      }
+    }
+
     const session = await stripe.checkout.sessions.create({
       customer: customerId,
       payment_method_types: ["card"],
@@ -123,7 +146,18 @@ router.post("/stripe/checkout", async (req: Request, res: Response) => {
       // frontend can grant Legendary immediately without waiting for the webhook.
       success_url: `${base}/profile?checkout=success&session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${base}/pricing`,
+    }, {
+      idempotencyKey: requestKey,
     });
+
+    if (session.id) {
+      await db.insert(stripeCheckoutRequestLedgerTable).values({
+        userId: user.id,
+        priceId,
+        requestKey,
+        sessionId: session.id,
+      }).onConflictDoNothing();
+    }
 
     res.json({ url: session.url });
   } catch (err) {

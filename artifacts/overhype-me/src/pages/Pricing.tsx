@@ -97,6 +97,7 @@ export default function Pricing() {
   const [error, setError] = useState<string | null>(null);
   const [plans, setPlans] = useState<StripePlan[]>([]);
   const [plansLoading, setPlansLoading] = useState(true);
+  const [checkoutRequestIds, setCheckoutRequestIds] = useState<Record<string, string>>({});
 
   useEffect(() => {
     fetch("/api/stripe/plans")
@@ -113,11 +114,15 @@ export default function Pricing() {
     setLoadingPriceId(priceId);
     setError(null);
     try {
+      const clientRequestId = checkoutRequestIds[priceId] ?? crypto.randomUUID();
+      if (!checkoutRequestIds[priceId]) {
+        setCheckoutRequestIds((prev) => ({ ...prev, [priceId]: clientRequestId }));
+      }
       const resp = await fetch("/api/stripe/checkout", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ priceId }),
+        body: JSON.stringify({ priceId, clientRequestId }),
       });
       const data = (await resp.json()) as { url?: string; error?: string };
       if (data.url) {

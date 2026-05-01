@@ -63,3 +63,14 @@ export const stripeProcessedEventsTable = pgTable("stripe_processed_events", {
 });
 
 export type StripeProcessedEvent = typeof stripeProcessedEventsTable.$inferSelect;
+
+export const stripeCheckoutRequestLedgerTable = pgTable("stripe_checkout_request_ledger", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  userId: varchar("user_id").notNull().references(() => usersTable.id),
+  priceId: varchar("price_id").notNull(),
+  requestKey: varchar("request_key").notNull().unique(),
+  sessionId: varchar("session_id").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  index("idx_checkout_request_ledger_user_id").on(table.userId),
+]);
