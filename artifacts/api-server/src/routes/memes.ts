@@ -1140,6 +1140,7 @@ router.post("/memes/ai/:factId/generate", requireLegendary, async (req: Request,
   });
   if (!gate.ok) return;
   const governanceStartedAt = Date.now();
+  let governanceFailed = false;
   try {
     const factId = parseInt(String(req.params["factId"] ?? ""), 10);
   if (isNaN(factId)) { res.status(400).json({ error: "Invalid factId" }); return; }
@@ -1324,12 +1325,15 @@ router.post("/memes/ai/:factId/generate", requireLegendary, async (req: Request,
   }
 
   res.json({ success: true });
+  } catch (error) {
+    governanceFailed = true;
+    throw error;
   } finally {
     completeGovernance(req, {
       provider: "fal",
       latencyMs: Date.now() - governanceStartedAt,
-      failed: res.statusCode >= 400,
-      actualCostUsd: res.statusCode < 400 ? estimatedCostUsd : 0,
+      failed: governanceFailed || res.statusCode >= 400,
+      actualCostUsd: !governanceFailed && res.statusCode < 400 ? estimatedCostUsd : 0,
       responseStatus: res.statusCode,
       idempotencyKey: gate.idempotencyKey,
     });
