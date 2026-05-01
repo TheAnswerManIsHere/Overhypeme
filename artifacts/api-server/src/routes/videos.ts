@@ -717,6 +717,7 @@ router.post("/videos/generate", async (req, res) => {
   });
   if (!governanceGate.ok) return;
   const governanceStartedAt = Date.now();
+  let governanceActualCostUsd = 0;
   const apiKey = process.env.FAL_AI_API_KEY;
   if (!apiKey) {
     res
@@ -1039,10 +1040,9 @@ router.post("/videos/generate", async (req, res) => {
       status: "completed",
       record: updated ?? null,
     };
-    completeGovernance(req, { provider: "fal", latencyMs: Date.now() - governanceStartedAt, failed: false, actualCostUsd: estimatedCostUsd, responseStatus: 200, responseBody, idempotencyKey: governanceGate.idempotencyKey });
+    governanceActualCostUsd = estimatedCostUsd;
     res.json(responseBody);
   } catch (err) {
-    completeGovernance(req, { provider: "fal", latencyMs: Date.now() - governanceStartedAt, failed: true, actualCostUsd: 0, idempotencyKey: governanceGate.idempotencyKey });
     await db
       .update(videoJobsTable)
       .set({ status: "failed" })
@@ -1097,6 +1097,15 @@ router.post("/videos/generate", async (req, res) => {
     res
       .status(500)
       .json({ error: userFacingError });
+  } finally {
+    completeGovernance(req, {
+      provider: "fal",
+      latencyMs: Date.now() - governanceStartedAt,
+      failed: res.statusCode >= 400,
+      actualCostUsd: res.statusCode < 400 ? governanceActualCostUsd : 0,
+      responseStatus: res.statusCode,
+      idempotencyKey: governanceGate.idempotencyKey,
+    });
   }
 });
 
