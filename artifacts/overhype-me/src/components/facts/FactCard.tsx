@@ -1,6 +1,6 @@
 import { Link, useLocation } from "wouter";
 import { motion } from "framer-motion";
-import { ThumbsUp, ThumbsDown, MessageSquare } from "lucide-react";
+import { MessageSquare, ThumbsUp, ThumbsDown } from "lucide-react";
 import { FactSummary } from "@workspace/api-client-react";
 import { useAppMutations } from "@/hooks/use-mutations";
 import { useAuth } from "@workspace/replit-auth-web";
@@ -24,65 +24,79 @@ export function FactCard({ fact, rank, showRank = false }: { fact: FactSummary, 
     <motion.div
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
-      whileHover={{ y: -4 }}
-      className="relative group block bg-card border-2 border-border hover:border-primary/50 rounded-sm shadow-xl transition-all duration-300 overflow-hidden"
+      whileHover={{ y: -3 }}
+      className="relative group block bg-card rounded-[20px] shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] border border-border hover:border-primary/40 transition-all duration-300 overflow-hidden"
     >
-      {/* Decorative corner accents */}
-      <div className="absolute top-0 right-0 w-8 h-8 border-t-2 border-r-2 border-primary opacity-0 group-hover:opacity-100 transition-opacity translate-x-1 -translate-y-1 z-10" />
-      <div className="absolute bottom-0 left-0 w-8 h-8 border-b-2 border-l-2 border-primary opacity-0 group-hover:opacity-100 transition-opacity -translate-x-1 translate-y-1 z-10" />
-
       {showRank && rank && (
-        <div className="absolute top-0 left-0 min-w-[2.5rem] h-10 px-2 bg-primary text-primary-foreground font-display font-bold text-xl flex items-center justify-center shadow-[0_0_15px_rgba(249,115,22,0.4)] z-10">
+        <div className="absolute top-0 left-0 min-w-[2.5rem] h-10 px-2 bg-primary text-primary-foreground font-display font-bold text-xl flex items-center justify-center z-10 rounded-tl-[20px] rounded-br-[12px]">
           #{rank}
         </div>
       )}
 
-      <div className={cn("relative z-10 p-6 sm:p-8", showRank && rank && "pt-14 sm:pt-14")}>
-        <Link href={`/facts/${fact.id}`} className="block mb-6">
-          <h3 className="text-xl sm:text-2xl md:text-3xl font-bold text-foreground leading-tight">
+      <div className={cn("relative z-10 p-5 sm:p-6", showRank && rank && "pt-14 sm:pt-14")}>
+        {/* Fact text */}
+        <Link href={`/facts/${fact.id}`} className="block mb-4">
+          <h3 className="text-lg sm:text-xl md:text-2xl font-display font-bold text-foreground leading-tight uppercase tracking-tight">
             "{renderFact(fact.text, name, pronouns)}"
           </h3>
         </Link>
 
-        <div className="flex flex-wrap gap-2 mb-8">
-          {fact.hashtags.map(tag => (
-            <Link key={tag} href={`/search?q=%23${tag}`} className="text-xs font-bold font-display tracking-wider text-muted-foreground hover:text-primary transition-colors bg-secondary px-3 py-1 rounded-sm uppercase">
-              #{tag}
-            </Link>
-          ))}
-        </div>
+        {/* Hashtags */}
+        {fact.hashtags.length > 0 && (
+          <div className="flex flex-wrap gap-1.5 mb-4">
+            {fact.hashtags.map(tag => (
+              <Link
+                key={tag}
+                href={`/search?q=%23${tag}`}
+                className="text-xs font-semibold font-display tracking-wide text-muted-foreground hover:text-primary transition-colors bg-secondary/80 px-2.5 py-1 rounded-full uppercase"
+              >
+                #{tag}
+              </Link>
+            ))}
+          </div>
+        )}
 
-        <div className="flex items-center justify-between border-t border-border pt-4">
-          <div className="flex items-center gap-1">
+        {/* Engagement row */}
+        <div className="flex items-center justify-between pt-3 border-t border-border/50">
+          <div className="flex items-center gap-3">
             <button
               onClick={() => handleRate("up")}
               disabled={rateFact.isPending}
               className={cn(
-                "flex items-center gap-2 px-3 py-2 rounded-sm transition-colors font-bold text-sm",
-                fact.userRating === "up" ? "text-primary bg-primary/10" : "text-muted-foreground hover:bg-secondary hover:text-foreground"
+                "flex items-center gap-1.5 transition-colors",
+                fact.userRating === "up" ? "text-primary" : "text-muted-foreground hover:text-primary"
               )}
             >
               <ThumbsUp className={cn("w-5 h-5", fact.userRating === "up" && "fill-current")} />
-              {fact.upvotes}
+              <span className="text-xs font-semibold">{fact.upvotes}</span>
             </button>
 
             <button
               onClick={() => handleRate("down")}
               disabled={rateFact.isPending}
               className={cn(
-                "flex items-center gap-2 px-3 py-2 rounded-sm transition-colors font-bold text-sm",
-                fact.userRating === "down" ? "text-destructive bg-destructive/10" : "text-muted-foreground hover:bg-secondary hover:text-foreground"
+                "flex items-center gap-1.5 transition-colors",
+                fact.userRating === "down" ? "text-destructive" : "text-muted-foreground hover:text-destructive"
               )}
             >
               <ThumbsDown className={cn("w-5 h-5", fact.userRating === "down" && "fill-current")} />
-              {fact.downvotes}
+              <span className="text-xs font-semibold">{fact.downvotes}</span>
             </button>
+
+            <Link
+              href={`/facts/${fact.id}`}
+              className="flex items-center gap-1.5 text-muted-foreground hover:text-foreground transition-colors"
+            >
+              <MessageSquare className="w-5 h-5" />
+              <span className="text-xs font-semibold">{fact.commentCount}</span>
+            </Link>
           </div>
 
-          <Link href={`/facts/${fact.id}`} className="flex items-center gap-2 text-muted-foreground hover:text-primary transition-colors text-sm font-bold px-3 py-2 rounded-sm hover:bg-secondary">
-            <MessageSquare className="w-5 h-5" />
-            {fact.commentCount} <span className="hidden sm:inline">COMMENTS</span>
-          </Link>
+          <button className="text-muted-foreground hover:text-foreground transition-colors" title="Share">
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24">
+              <line x1="22" y1="2" x2="11" y2="13" /><polygon points="22 2 15 22 11 13 2 9 22 2" />
+            </svg>
+          </button>
         </div>
       </div>
     </motion.div>
