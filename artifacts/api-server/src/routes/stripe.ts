@@ -109,11 +109,12 @@ router.post("/stripe/checkout", async (req: Request, res: Response) => {
     }
 
     const base = getSiteBaseUrl();
-    const requestKey = resolveCheckoutRequestKey({
+    const baseRequestKey = resolveCheckoutRequestKey({
       userId: user.id,
       priceId,
       clientRequestId,
     });
+    let requestKey = baseRequestKey;
 
     const existing = await db.select().from(stripeCheckoutRequestLedgerTable)
       .where(and(
@@ -129,6 +130,11 @@ router.post("/stripe/checkout", async (req: Request, res: Response) => {
         res.json({ url: reusedSession.url, reused: true });
         return;
       }
+
+      // Reusing the same idempotency key for an expired/completed Checkout
+      // session would cause Stripe to return the cached null-url response for
+      // up to 24 hours. Rotate to a fresh key so retried checkout can proceed.
+      requestKey = `${baseRequestKey}:retry:${Date.now()}`;
     }
 
     const session = await stripe.checkout.sessions.create({
