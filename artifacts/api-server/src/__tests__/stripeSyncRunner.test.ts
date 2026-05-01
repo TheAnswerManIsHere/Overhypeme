@@ -101,6 +101,84 @@ async function clearStatusRows() {
   }
 }
 
+/**
+ * Best-effort cleanup of test-owned rows from every per-resource data table
+ * AND the account row itself. Used by readSyncStatus tests so each test
+ * starts with a known empty state for `_account_id = TEST_ACCOUNT`.
+ *
+ * Tables are cleared in an order that respects FK references to
+ * stripe.accounts (FKs from data tables → accounts.id). Each statement is
+ * independently try/catch so a missing table doesn't abort the whole reset.
+ */
+async function clearStripeDataRows() {
+  const tables = [
+    "payment_methods",
+    "charges",
+    "invoices",
+    "subscriptions",
+    "customers",
+    "plans",
+    "prices",
+    "products",
+  ] as const;
+  for (const t of tables) {
+    try {
+      await db.execute(sql.raw(`DELETE FROM stripe.${t} WHERE _account_id = '${TEST_ACCOUNT}'`));
+    } catch {
+      // table may not exist in some test envs
+    }
+  }
+  try {
+    await db.execute(sql`DELETE FROM stripe.accounts WHERE id = ${TEST_ACCOUNT}`);
+  } catch {
+    // schema may not exist in some test envs
+  }
+}
+
+/**
+ * Insert N rows into stripe.<table> for TEST_ACCOUNT. Each row gets a
+ * synthetic `_raw_data` jsonb whose `id` is unique within the table. Returns
+ * `false` if the schema isn't installed so the caller can `return` to skip
+ * row-level assertions in environments without Stripe migrations.
+ */
+async function seedRows(table: string, count: number, idPrefix: string): Promise<boolean> {
+  if (count <= 0) return true;
+  try {
+    for (let i = 0; i < count; i++) {
+      const raw = JSON.stringify({ id: `${idPrefix}_${i}` });
+      await db.execute(
+        sql.raw(
+          `INSERT INTO stripe.${table} (_raw_data, _account_id) VALUES ('${raw}'::jsonb, '${TEST_ACCOUNT}')`,
+        ),
+      );
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Ensure the FK target row for TEST_ACCOUNT exists in stripe.accounts.
+ * Returns false on schema-missing so callers can skip data-row assertions.
+ *
+ * Note: the accounts table has `id` as a GENERATED column derived from
+ * `_raw_data->>'id'`, so the insert sets `_raw_data` only.
+ */
+async function ensureTestAccountRow(): Promise<boolean> {
+  try {
+    const raw = JSON.stringify({ id: TEST_ACCOUNT });
+    await db.execute(
+      sql.raw(
+        `INSERT INTO stripe.accounts (_raw_data) VALUES ('${raw}'::jsonb) ON CONFLICT (id) DO NOTHING`,
+      ),
+    );
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 describe("stripeSyncRunner — in-process lock", () => {
   beforeEach(() => _resetSyncRunnerForTests());
   afterEach(() => _resetSyncRunnerForTests());
@@ -193,10 +271,12 @@ describe("stripeSyncRunner — readSyncStatus", () => {
   beforeEach(async () => {
     _resetSyncRunnerForTests();
     await clearStatusRows();
+    await clearStripeDataRows();
   });
   afterEach(async () => {
     _resetSyncRunnerForTests();
     await clearStatusRows();
+    await clearStripeDataRows();
   });
 
   it("returns idle rows for every tracked resource when _sync_status is empty", async () => {
@@ -209,7 +289,15 @@ describe("stripeSyncRunner — readSyncStatus", () => {
       assert.equal(r.status, "idle");
       assert.equal(r.lastSyncedAt, null);
       assert.equal(r.errorMessage, null);
-      assert.equal(r.syncedCount, null);
+      // syncedCount is now derived from the per-resource data tables. With
+      // no rows for this account it's a real `0` (schema present, empty
+      // table) — or `null` if the stripe schema isn't installed at all
+      // (count query fails and readSyncedCounts returns nulls). Either
+      // outcome renders identically in the UI (`syncedCount ?? 0`).
+      assert.ok(
+        r.syncedCount === null || r.syncedCount === 0,
+        `expected syncedCount to be 0 or null for empty/idle ${r.resource}, got ${r.syncedCount}`,
+      );
     }
   });
 
@@ -222,14 +310,10 @@ describe("stripeSyncRunner — readSyncStatus", () => {
     await waitFor(() => !isSyncRunning());
   });
 
-  it("surfaces stored row state (running / complete / error) and synced counts for every resource", async () => {
-    // Ensure account row exists (FK constraint from _sync_status.account_id).
-    try {
-      await db.execute(
-        sql`INSERT INTO stripe.accounts (id, raw_data) VALUES (${TEST_ACCOUNT}, ${'{"id":"' + TEST_ACCOUNT + '"}'}::jsonb)
-            ON CONFLICT (id) DO NOTHING`,
-      );
-    } catch {
+  it("surfaces stored row state (running / complete / error) and per-resource counts derived from the data tables", async () => {
+    // Ensure account row exists (FK constraint from _sync_status.account_id
+    // and from each data table's _account_id → accounts.id).
+    if (!(await ensureTestAccountRow())) {
       // schema not present — skip the row-shape assertion
       return;
     }
@@ -252,17 +336,19 @@ describe("stripeSyncRunner — readSyncStatus", () => {
         error_message  = EXCLUDED.error_message
     `);
 
-    // Run a full sync to exercise the counts cache for every resource.
-    const driver = makeDriver({
-      counts: {
-        products: 7, prices: 11, plans: 1,
-        customers: 42, subscriptions: 3, invoices: 99,
-        charges: 50, payment_methods: 8,
-      },
-    });
-    runFullSync(driver);
-    resolveAll(driver);
-    await waitFor(() => !isSyncRunning());
+    // Seed real rows in each per-resource table so the count derivation has
+    // something to count. Counts intentionally vary per resource so we'd
+    // catch a copy-paste bug that returned the same value for every column.
+    const seeded =
+      (await seedRows("products",        3, "prod"))    &&
+      (await seedRows("prices",          5, "price"))   &&
+      (await seedRows("plans",           1, "plan"))    &&
+      (await seedRows("customers",       4, "cust"))    &&
+      (await seedRows("subscriptions",   2, "sub"))     &&
+      (await seedRows("invoices",        6, "inv"))     &&
+      (await seedRows("charges",         7, "ch"))      &&
+      (await seedRows("payment_methods", 8, "pm"));
+    if (!seeded) return;
 
     const status = await readSyncStatus(TEST_ACCOUNT);
 
@@ -276,10 +362,52 @@ describe("stripeSyncRunner — readSyncStatus", () => {
     assert.equal(get("subscriptions").status, "complete");
     assert.equal(get("payment_methods").status, "complete");
 
-    // Synced count cache should be populated from the run we just executed.
-    assert.equal(get("products").syncedCount, 7);
-    assert.equal(get("customers").syncedCount, 42);
-    assert.equal(get("invoices").syncedCount, 99);
+    // Synced counts must come from actual row counts in the per-resource
+    // tables — not from a per-run cache (which is what this task fixed).
+    assert.equal(get("products").syncedCount, 3);
+    assert.equal(get("prices").syncedCount, 5);
+    assert.equal(get("plans").syncedCount, 1);
+    assert.equal(get("customers").syncedCount, 4);
+    assert.equal(get("subscriptions").syncedCount, 2);
+    assert.equal(get("invoices").syncedCount, 6);
+    assert.equal(get("charges").syncedCount, 7);
     assert.equal(get("payment_methods").syncedCount, 8);
+  });
+
+  it("preserves syncedCount across a simulated server restart (regression: counts survive process loss)", async () => {
+    // The bug this guards against: counts used to live in an in-memory Map
+    // that was wiped on every process restart, leaving "0 synced" next to a
+    // recent timestamp. Counts are now derived from row counts in the
+    // stripe.* tables, so they must survive resetting the runner state.
+    if (!(await ensureTestAccountRow())) return;
+
+    const seeded = await seedRows("products", 4, "prod_persist");
+    if (!seeded) return;
+
+    // Pretend a sync just completed and recorded its status row.
+    await db.execute(sql`
+      INSERT INTO stripe._sync_status (resource, status, last_synced_at, error_message, account_id)
+      VALUES ('products', 'complete', now(), NULL, ${TEST_ACCOUNT})
+      ON CONFLICT (resource, account_id) DO UPDATE SET
+        status = EXCLUDED.status,
+        last_synced_at = EXCLUDED.last_synced_at
+    `);
+
+    const before = await readSyncStatus(TEST_ACCOUNT);
+    const productsBefore = before.resources.find(r => r.resource === "products")!;
+    assert.equal(productsBefore.syncedCount, 4, "pre-restart count should reflect seeded rows");
+
+    // Simulate a server restart by wiping all in-process state.
+    _resetSyncRunnerForTests();
+
+    const after = await readSyncStatus(TEST_ACCOUNT);
+    const productsAfter = after.resources.find(r => r.resource === "products")!;
+    assert.equal(
+      productsAfter.syncedCount,
+      4,
+      "post-restart count must equal pre-restart count — derived from persisted rows, not in-memory cache",
+    );
+    assert.equal(productsAfter.status, "complete");
+    assert.notEqual(productsAfter.lastSyncedAt, null);
   });
 });

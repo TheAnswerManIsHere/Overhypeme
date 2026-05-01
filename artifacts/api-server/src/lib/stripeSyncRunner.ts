@@ -18,12 +18,18 @@
  *     single-instance setup; concurrent attempts return alreadyRunning:true
  *     and the HTTP layer maps that to 409.
  *
- * Why we cache counts in memory:
+ * Why we derive counts from the data tables:
  *   - The library's `_sync_status` table records timestamps, status, and
  *     error messages — but NOT the per-run synced count. The status endpoint
- *     needs counts ("5 prices synced") so we keep the latest count per
- *     account+resource here. Persists in-process so a resource that wasn't
- *     touched by the most recent run still shows its previous count.
+ *     needs counts ("5 prices synced"). We previously kept these counts in
+ *     an in-process Map (countsCache) populated from each `result.synced`,
+ *     but that cache is wiped on every server restart/redeploy — so until
+ *     the next manual sync, the panel would show "0 synced" next to a
+ *     perfectly valid "5m ago" timestamp.
+ *   - Instead we count rows directly from `stripe.<resource>` filtered by
+ *     the account. The library upserts rows as part of each sync, so the
+ *     row count is updated the moment a sync completes (no regression in
+ *     the live flow) AND it persists across restarts.
  */
 
 import { db } from "@workspace/db";
@@ -85,24 +91,6 @@ interface LockState {
 
 let lock: LockState | null = null;
 
-// Most recently observed synced counts, keyed by `${accountId}::${resource}`.
-// Persists across runs in-process so a row that has not been re-synced still
-// shows the count from its last successful run.
-const countsCache = new Map<string, number>();
-
-function countsKey(accountId: string, resource: SyncResource): string {
-  return `${accountId}::${resource}`;
-}
-
-export function getCachedSyncedCount(accountId: string, resource: SyncResource): number | null {
-  const v = countsCache.get(countsKey(accountId, resource));
-  return v === undefined ? null : v;
-}
-
-export function setCachedSyncedCount(accountId: string, resource: SyncResource, count: number): void {
-  countsCache.set(countsKey(accountId, resource), count);
-}
-
 export function isSyncRunning(): boolean {
   return lock !== null && lock.finishedAt === null;
 }
@@ -113,11 +101,75 @@ export function getLockSnapshot(): { startedAt: number | null; finishedAt: numbe
 }
 
 /**
- * Reset all in-process state. Test-only.
+ * Reset all in-process state. Test-only. Simulates a server restart for the
+ * purposes of asserting that sync state survives restarts.
  */
 export function _resetSyncRunnerForTests(): void {
   lock = null;
-  countsCache.clear();
+}
+
+/**
+ * Per-resource → table name. Resources happen to share their name with the
+ * underlying `stripe.<table>` the library writes to, but kept explicit so a
+ * future divergence (e.g. a derived view) wouldn't silently break counts.
+ */
+const RESOURCE_TABLES: Readonly<Record<SyncResource, string>> = {
+  products:        "products",
+  prices:          "prices",
+  plans:           "plans",
+  customers:       "customers",
+  subscriptions:   "subscriptions",
+  invoices:        "invoices",
+  charges:         "charges",
+  payment_methods: "payment_methods",
+};
+
+/**
+ * Read the current row count per resource from `stripe.<table>` for the given
+ * account. This is the source of truth for the "X synced" label in the admin
+ * Billing UI — derived from the data tables themselves so the value persists
+ * across server restarts (the previous in-memory cache was wiped on every
+ * redeploy, leaving "0 synced" next to a recent timestamp).
+ *
+ * If the stripe schema isn't installed yet (first install before migrations)
+ * the whole query fails and we return all-null — same idle posture the
+ * status reader takes for missing `_sync_status`.
+ *
+ * NOTE: data tables use `_account_id` (with leading underscore). The
+ * metadata table `_sync_status` uses `account_id` (without). See migration
+ * 0049 for the underscore-removal on metadata tables only.
+ */
+export async function readSyncedCounts(
+  accountId: string,
+): Promise<Map<SyncResource, number | null>> {
+  const counts = new Map<SyncResource, number | null>();
+  for (const r of SYNC_RESOURCES) counts.set(r, null);
+
+  try {
+    // Single batched UNION query so polling stays O(1) round-trips.
+    // Each branch is a separate scalar `count(*)` filtered by `_account_id`.
+    const result = await db.execute(sql`
+      SELECT 'products'::text        AS resource, count(*)::bigint AS n FROM stripe.products        WHERE _account_id = ${accountId}
+      UNION ALL SELECT 'prices',          count(*)::bigint FROM stripe.prices          WHERE _account_id = ${accountId}
+      UNION ALL SELECT 'plans',           count(*)::bigint FROM stripe.plans           WHERE _account_id = ${accountId}
+      UNION ALL SELECT 'customers',       count(*)::bigint FROM stripe.customers       WHERE _account_id = ${accountId}
+      UNION ALL SELECT 'subscriptions',   count(*)::bigint FROM stripe.subscriptions   WHERE _account_id = ${accountId}
+      UNION ALL SELECT 'invoices',        count(*)::bigint FROM stripe.invoices        WHERE _account_id = ${accountId}
+      UNION ALL SELECT 'charges',         count(*)::bigint FROM stripe.charges         WHERE _account_id = ${accountId}
+      UNION ALL SELECT 'payment_methods', count(*)::bigint FROM stripe.payment_methods WHERE _account_id = ${accountId}
+    `);
+    for (const row of result.rows as unknown as Array<{ resource: string; n: string | number }>) {
+      const resource = row.resource as SyncResource;
+      if (!RESOURCE_TABLES[resource]) continue;
+      // pg returns bigint as string; coerce to number (safe for any plausible row count).
+      const n = typeof row.n === "string" ? Number(row.n) : row.n;
+      counts.set(resource, Number.isFinite(n) ? n : null);
+    }
+  } catch (err) {
+    console.warn("[stripeSyncRunner] readSyncedCounts failed, returning nulls", err);
+  }
+
+  return counts;
 }
 
 /**
@@ -175,12 +227,16 @@ function runWithResources(
 
   void (async () => {
     try {
-      const accountId = await driver.getAccountId();
+      // We resolve the account up-front so a future change can pre-fetch
+      // counts or status per-account if needed; not needed for the loop today.
+      await driver.getAccountId();
       // Sequential so the library's _sync_status rows update one-at-a-time
       // and the polling UI can show meaningful progression.
       for (const resource of resources) {
-        const result = await invokeResource(driver, resource);
-        setCachedSyncedCount(accountId, resource, result.synced);
+        // The library upserts rows into stripe.<resource> as part of each
+        // sync, which is what readSyncedCounts reads — so the count surfaces
+        // automatically without any extra bookkeeping here.
+        await invokeResource(driver, resource);
       }
     } catch (err) {
       console.error("[stripeSyncRunner] sync failed", err);
@@ -254,6 +310,11 @@ export async function readSyncStatus(accountId: string): Promise<SyncStatus> {
   const byResource = new Map<string, StatusRow>();
   for (const r of rows) byResource.set(r.resource, r);
 
+  // Counts come from row counts in the per-resource stripe.* tables (see
+  // readSyncedCounts). They survive restarts because they are derived from
+  // persisted data, not an in-memory cache.
+  const counts = await readSyncedCounts(accountId);
+
   const inProgress = isSyncRunning() || rows.some(r => r.status === "running");
   const resources: SyncResourceStatus[] = SYNC_RESOURCES.map(resource => {
     const row = byResource.get(resource);
@@ -265,7 +326,7 @@ export async function readSyncStatus(accountId: string): Promise<SyncStatus> {
       status: (row?.status as SyncResourceStatus["status"]) ?? "idle",
       lastSyncedAt,
       errorMessage: row?.error_message ?? null,
-      syncedCount: getCachedSyncedCount(accountId, resource),
+      syncedCount: counts.get(resource) ?? null,
     };
   });
 
