@@ -718,6 +718,7 @@ router.post("/videos/generate", async (req, res) => {
   if (!governanceGate.ok) return;
   const governanceStartedAt = Date.now();
   let governanceActualCostUsd = 0;
+  try {
   const apiKey = process.env.FAL_AI_API_KEY;
   if (!apiKey) {
     res
@@ -1097,6 +1098,7 @@ router.post("/videos/generate", async (req, res) => {
     res
       .status(500)
       .json({ error: userFacingError });
+  }
   } finally {
     completeGovernance(req, {
       provider: "fal",
