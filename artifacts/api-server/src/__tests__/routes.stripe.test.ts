@@ -12,7 +12,7 @@
  * test fixture; they're left as a separate batch.
  */
 
-import { describe, it, before, after } from "node:test";
+import { describe, it, before, after, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 
@@ -281,5 +281,26 @@ describe("POST /stripe/portal — pre-Stripe guard", () => {
       .set("authorization", `Bearer ${sid}`);
     assert.equal(res.status, 400);
     assert.deepEqual(res.body, { error: "No billing account found" });
+  });
+});
+
+describe("payment 5xx responses do not leak provider diagnostics", () => {
+  beforeEach(cleanupUsers);
+  afterEach(cleanupUsers);
+
+  it("POST /stripe/portal returns a generic message on Stripe failures", async () => {
+    const userId = await createTestUser();
+    await db.update(usersTable).set({ stripeCustomerId: "cus_test_bad" }).where(eq(usersTable.id, userId));
+    const sid = await bearerForUser(userId);
+
+    const res = await request(makeApp())
+      .post("/stripe/portal")
+      .set("authorization", `Bearer ${sid}`)
+      .send({});
+
+    assert.equal(res.status, 500);
+    assert.equal(res.body.error, "Unable to open billing portal. Please try again.");
+    assert.equal(typeof res.body.requestId, "undefined");
+    assert.doesNotMatch(JSON.stringify(res.body), /Invalid API Key|Stripe|sk_test_dummy/i);
   });
 });

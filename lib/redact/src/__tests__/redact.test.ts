@@ -22,6 +22,12 @@ describe("scrubObject", () => {
     assert.equal(result.id, 1);
   });
 
+  it("redacts sid fields", () => {
+    const result = scrubObject({ sid: "session-value", id: 1 }) as Record<string, unknown>;
+    assert.equal(result.sid, "[Filtered]");
+    assert.equal(result.id, 1);
+  });
+
   it("redacts email fields", () => {
     const result = scrubObject({ userEmail: "alice@example.com" }) as Record<string, unknown>;
     assert.equal(result.userEmail, "[Filtered]");
