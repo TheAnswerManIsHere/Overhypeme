@@ -287,6 +287,27 @@ describe("PATCH /admin/users/:id", () => {
     assert.equal(res.status, 403);
     assert.equal(res.body.error, "admin_required");
   });
+
+  // Happy-path: confirms requireAdmin admits an admin and the route
+  // updates the target row. Regression-catches both auth admission and
+  // basic handler behaviour. Other write routes in this file deliberately
+  // share the same middleware (`requireAdmin`); a single happy-path here
+  // is sufficient to catch admit-admins regressions, since the read-route
+  // 200 tests above also exercise the same gate.
+  it("returns 200 and updates the target user when called by an admin", async () => {
+    const targetId = await createTestUser({ isAdmin: false });
+    const res = await request(makeApp())
+      .patch(`/admin/users/${targetId}`)
+      .set("authorization", `Bearer ${adminSid}`)
+      .send({ displayName: "patched-by-test" });
+    assert.equal(
+      res.status,
+      200,
+      `expected 200, got ${res.status} (body: ${JSON.stringify(res.body)})`,
+    );
+    assert.equal(res.body.success, true);
+    assert.equal((res.body.user as { displayName?: string }).displayName, "patched-by-test");
+  });
 });
 
 // ── DELETE /admin/users/:id ───────────────────────────────────────────────────

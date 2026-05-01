@@ -29,6 +29,18 @@ WINDOW_SEC=300
 restart_times=()  # epoch seconds, append-on-restart, prune-on-loop
 child_pid=""
 
+# Opportunistic stale-git-lock cleanup at startup. A crash often leaves both
+# a stale `.git/*.lock` AND restarts a workflow at roughly the same moment,
+# so this gives every workflow restart a free pass at clearing locks before
+# the watcher's next tick. The sweeper has its own guardrails (allowlist,
+# stale-age threshold, active-`git`-process check) so this is safe to call
+# blindly. We never let sweeper errors block the wrapped command.
+SUPERVISOR_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SWEEPER="${SUPERVISOR_DIR}/clean-stale-git-locks.sh"
+if [ -x "${SWEEPER}" ]; then
+  bash "${SWEEPER}" || true
+fi
+
 prune_window() {
   local now=$1
   local cutoff=$((now - WINDOW_SEC))

@@ -36,6 +36,7 @@ const Login = lazy(() => import("@/pages/Login"));
 const ForgotPassword = lazy(() => import("@/pages/ForgotPassword"));
 const ResetPassword = lazy(() => import("@/pages/ResetPassword"));
 const VerifyEmail = lazy(() => import("@/pages/VerifyEmail"));
+const HallOfFame = lazy(() => import("@/pages/HallOfFame"));
 const NotFound = lazy(() => import("@/pages/not-found"));
 
 const queryClient = new QueryClient({
@@ -195,7 +196,8 @@ const ROUTE_IMPORT_MAP: Record<string, () => Promise<unknown>> = {
   activity: () => import("@/pages/ActivityFeed"),
   meme:     () => import("@/pages/MemePage"),
   video:    () => import("@/pages/VideoPage"),
-  pricing:  () => import("@/pages/Pricing"),
+  pricing:      () => import("@/pages/Pricing"),
+  "hall-of-fame": () => import("@/pages/HallOfFame"),
 };
 
 /** Route keys used when no visit data has been recorded yet. */
@@ -364,6 +366,7 @@ function Router() {
         <Route path="/admin/features" component={AdminFeatures} />
         <Route path="/admin/email-queue" component={AdminEmailQueue} />
         <Route path="/admin" component={AdminDashboard} />
+        <Route path="/hall-of-fame" component={HallOfFame} />
         <Route path="/activity" component={ActivityFeed} />
         <Route path="/meme/:slug" component={MemePage} />
         <Route path="/video/:id" component={VideoPage} />

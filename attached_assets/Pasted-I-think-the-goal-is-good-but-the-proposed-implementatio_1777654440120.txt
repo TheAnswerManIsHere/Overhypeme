@@ -1,0 +1,47 @@
+I think the goal is good, but the proposed implementation is a little too aggressive unless tightened.
+
+My take
+
+Yes, stale Git locks are a real pain in Replit, and an external workflow-based sweeper is a reasonable workaround if the normal agent cannot delete .git/*.lock.
+
+But I would not approve it exactly as written without adding a few guardrails.
+
+Main concern
+
+A plain find .git -name "*.lock" -mmin/+mtime threshold -delete style approach can be dangerous because mtime age alone does not prove no Git process is still using the lock.
+
+Thirty seconds is probably fine for normal commits, but not always for:
+
+Operation	Risk
+large pushes/fetches	lock may live longer than 30s
+slow Replit filesystem stalls	Git process may appear “stuck” but still be alive
+background maintenance	could take longer than expected
+concurrent Codex/Replit/Claude operations	multiple tools may touch Git at once
+
+Deleting an active lock can corrupt Git state or cause weird partial updates.
+
+What I would change
+
+I would make the task stricter:
+
+1. Only target known lock paths, not every *.lock under .git.
+    The listed files are reasonable. Avoid deleting arbitrary locks recursively unless intentionally allowlisted.
+2. Check for active Git processes before deleting anything.
+    For example, skip cleanup if pgrep -f "git" finds an active Git process owned by the same user. This is conservative but much safer.
+3. Use a longer default threshold.
+    I would use 120 seconds by default, not 30. The user-facing goal of “sync works within ~10 seconds” is nice, but not worth risking active Git operations.
+4. Log skips as well as removals.
+    Example: “found stale-looking lock but active git process exists, skipping.”
+5. Make it opt-in or easy to disable.
+    Something like:
+
+GIT_LOCK_WATCHER_ENABLED=1
+GIT_LOCK_STALE_SECONDS=120
+
+Verdict
+
+I’d approve the concept, but revise the acceptance criteria:
+
+Automatically remove allowlisted Git lock files only when they are older than a conservative threshold and no active Git process appears to be running.
+
+That gets you the self-healing behavior without turning the watcher into a tiny Git-corruption machine.
