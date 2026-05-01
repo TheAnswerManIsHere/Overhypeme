@@ -15,6 +15,7 @@ import { eq, and, gte } from "drizzle-orm";
 
 import { logActivity, type ActivityType } from "../lib/activity.js";
 
+
 const TEST_USER_ID = `t_act_${randomUUID().replace(/-/g, "").slice(0, 12)}`;
 const SUITE_START = new Date();
 

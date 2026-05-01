@@ -36,6 +36,7 @@ import { authMiddleware } from "../middlewares/authMiddleware.js";
 import adminRouter from "../routes/admin.js";
 import { createSession, type SessionData } from "../lib/auth.js";
 
+
 const USER_PREFIX = "troutesadmin-";
 
 function makeApp(): Express {

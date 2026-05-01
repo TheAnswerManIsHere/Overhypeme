@@ -30,6 +30,7 @@ import stripeRouter from "../routes/stripe.js";
 import { authMiddleware } from "../middlewares/authMiddleware.js";
 import { createSession, type SessionData } from "../lib/auth.js";
 
+
 const USER_PREFIX = "t_routes_st_";
 
 process.env.STRIPE_SECRET_KEY_TEST = process.env.STRIPE_SECRET_KEY_TEST ?? "sk_test_dummy";

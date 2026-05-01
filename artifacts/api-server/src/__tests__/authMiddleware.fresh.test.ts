@@ -28,6 +28,7 @@ import { eq, like } from "drizzle-orm";
 import { authMiddleware } from "../middlewares/authMiddleware.js";
 import { createSession, SESSION_COOKIE, type SessionData } from "../lib/auth.js";
 
+
 const USER_PREFIX = "tauthfresh-";
 
 interface MockRes {

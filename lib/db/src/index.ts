@@ -17,6 +17,10 @@ export const pool = new Pool({
   idleTimeoutMillis: 60_000,
   // Hard limit on connection lifetime to avoid stale TLS sessions.
   maxLifetimeSeconds: 3600,
+  // When TEST_DB_ALLOW_EXIT_ON_IDLE=1 (set by the test runner), pg-pool unrefs idle
+  // timeout timers and client sockets so Node can exit cleanly once the test process
+  // finishes without waiting up to idleTimeoutMillis (60 s) for connections to drain.
+  allowExitOnIdle: process.env.TEST_DB_ALLOW_EXIT_ON_IDLE === "1",
 });
 
 // Without this handler, an ECONNRESET on an idle pool client (e.g. from Neon
@@ -38,6 +42,21 @@ export async function runMigrations(): Promise<void> {
   } finally {
     client.release();
   }
+}
+
+/**
+ * Drain and close the connection pool.
+ *
+ * Waits for all checked-out clients to be returned, then destroys every
+ * connection and prevents the pool from creating new ones.  Useful for
+ * scripts and integration-test suites that need an explicit, synchronous
+ * shutdown signal (rather than relying on allowExitOnIdle).
+ *
+ * Note: pg's Pool.end() rejects any call after the first, so callers that
+ * may invoke this more than once should guard with a flag.
+ */
+export async function closePool(): Promise<void> {
+  await pool.end();
 }
 
 export * from "./schema";

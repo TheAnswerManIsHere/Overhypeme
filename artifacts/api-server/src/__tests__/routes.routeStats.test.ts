@@ -20,6 +20,7 @@ import { eq } from "drizzle-orm";
 
 import routeStatsRouter from "../routes/routeStats.js";
 
+
 function makeApp(): Express {
   const app = express();
   app.use(express.json());

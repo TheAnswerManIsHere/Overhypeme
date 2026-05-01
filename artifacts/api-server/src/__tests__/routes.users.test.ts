@@ -34,6 +34,7 @@ import usersRouter from "../routes/users.js";
 import { authMiddleware } from "../middlewares/authMiddleware.js";
 import { createSession, type SessionData } from "../lib/auth.js";
 
+
 const USER_PREFIX = "t_routes_um_";
 
 process.env.RESEND_API_KEY = process.env.RESEND_API_KEY ?? "re_test_dummy";

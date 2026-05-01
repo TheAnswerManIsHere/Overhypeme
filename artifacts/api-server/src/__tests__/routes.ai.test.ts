@@ -27,6 +27,7 @@ import aiRouter from "../routes/ai.js";
 import { authMiddleware } from "../middlewares/authMiddleware.js";
 import { createSession, type SessionData } from "../lib/auth.js";
 
+
 const USER_PREFIX = "t_routes_ai_";
 
 function makeApp(): Express {

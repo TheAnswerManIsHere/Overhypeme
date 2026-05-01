@@ -30,6 +30,7 @@ import {
   type SyncResource,
 } from "../lib/stripeSyncRunner";
 
+
 const TEST_ACCOUNT = "acct_syncrunner_test";
 
 interface RecordedDriver extends SyncRunnerDriver {

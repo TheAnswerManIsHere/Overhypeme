@@ -34,6 +34,7 @@ import reviewsRouter from "../routes/reviews.js";
 import { authMiddleware } from "../middlewares/authMiddleware.js";
 import { createSession, type SessionData } from "../lib/auth.js";
 
+
 const USER_PREFIX = "t_routes_rv_";
 
 process.env.RESEND_API_KEY = process.env.RESEND_API_KEY ?? "re_test_dummy";
