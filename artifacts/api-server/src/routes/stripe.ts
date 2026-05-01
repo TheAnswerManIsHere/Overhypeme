@@ -1,19 +1,20 @@
 import { Router, type IRouter, type Request, type Response } from "express";
 import type Stripe from "stripe";
 import { z } from "zod";
-import * as Sentry from "@sentry/node";
 import { getUncachableStripeClient, getStripePublishableKey, isLiveMode } from "../lib/stripeClient";
 import { stripeStorage } from "../lib/stripeStorage";
 import { getSiteBaseUrl } from "../lib/siteUrl";
 import { db } from "@workspace/db";
-import { lifetimeEntitlementsTable, subscriptionsTable, usersTable } from "@workspace/db/schema";
-import { eq, desc } from "drizzle-orm";
+import { lifetimeEntitlementsTable, stripeCheckoutRequestLedgerTable, subscriptionsTable, usersTable } from "@workspace/db/schema";
+import { eq, desc, and } from "drizzle-orm";
 import { logger } from "../lib/logger";
+import { paymentErrorResponse } from "../lib/paymentErrorResponse";
 import {
   makeGrantDeps,
   handleConfirmRequest,
 } from "../lib/membershipGrant";
 import { handleReceiptRequest } from "../lib/receiptHandler";
+import { resolveCheckoutRequestKey } from "../lib/checkoutIdempotency";
 
 const router: IRouter = Router();
 
@@ -80,7 +81,7 @@ router.get("/stripe/subscription", async (req: Request, res: Response) => {
 router.post("/stripe/checkout", async (req: Request, res: Response) => {
   if (!req.isAuthenticated()) { res.status(401).json({ error: "Unauthorized" }); return; }
 
-  const { priceId } = req.body as { priceId?: string };
+  const { priceId, clientRequestId } = req.body as { priceId?: string; clientRequestId?: string };
   if (!priceId) { res.status(400).json({ error: "priceId required" }); return; }
 
   try {
@@ -108,6 +109,28 @@ router.post("/stripe/checkout", async (req: Request, res: Response) => {
     }
 
     const base = getSiteBaseUrl();
+    const requestKey = resolveCheckoutRequestKey({
+      userId: user.id,
+      priceId,
+      clientRequestId,
+    });
+
+    const existing = await db.select().from(stripeCheckoutRequestLedgerTable)
+      .where(and(
+        eq(stripeCheckoutRequestLedgerTable.userId, user.id),
+        eq(stripeCheckoutRequestLedgerTable.priceId, priceId),
+        eq(stripeCheckoutRequestLedgerTable.requestKey, requestKey),
+      ))
+      .orderBy(desc(stripeCheckoutRequestLedgerTable.createdAt))
+      .limit(1);
+    if (existing[0]?.sessionId) {
+      const reusedSession = await stripe.checkout.sessions.retrieve(existing[0].sessionId);
+      if (reusedSession.url) {
+        res.json({ url: reusedSession.url, reused: true });
+        return;
+      }
+    }
+
     const session = await stripe.checkout.sessions.create({
       customer: customerId,
       payment_method_types: ["card"],
@@ -123,13 +146,29 @@ router.post("/stripe/checkout", async (req: Request, res: Response) => {
       // frontend can grant Legendary immediately without waiting for the webhook.
       success_url: `${base}/profile?checkout=success&session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${base}/pricing`,
+    }, {
+      idempotencyKey: requestKey,
     });
+
+    if (session.id) {
+      await db.insert(stripeCheckoutRequestLedgerTable).values({
+        userId: user.id,
+        priceId,
+        requestKey,
+        sessionId: session.id,
+      }).onConflictDoNothing();
+    }
 
     res.json({ url: session.url });
   } catch (err) {
-    const { logger } = await import("../lib/logger");
-    logger.error({ err }, "POST /stripe/checkout error");
-    res.status(500).json({ error: "Checkout failed — please try again" });
+    paymentErrorResponse({
+      req,
+      res,
+      err,
+      clientMessage: "Unable to start checkout. Please try again.",
+      logMessage: "POST /stripe/checkout error",
+      extra: { userId: req.user.id, priceId },
+    });
   }
 });
 
@@ -166,8 +205,14 @@ router.get("/stripe/invoice/:invoiceId/receipt", async (req: Request, res: Respo
       res.status(result.status).json({ error: result.message });
     }
   } catch (err) {
-    logger.error({ err, invoiceId }, "GET /stripe/invoice/:invoiceId/receipt error");
-    res.status(500).json({ error: "Failed to retrieve receipt" });
+    paymentErrorResponse({
+      req,
+      res,
+      err,
+      clientMessage: "Unable to retrieve receipt. Please try again.",
+      logMessage: "GET /stripe/invoice/:invoiceId/receipt error",
+      extra: { userId: req.user.id, invoiceId },
+    });
   }
 });
 
@@ -250,9 +295,14 @@ router.post("/stripe/checkout/confirm", async (req: Request, res: Response) => {
     res.json(result);
 
   } catch (err) {
-    Sentry.captureException(err, { extra: { sessionId, userId: req.user.id } });
-    logger.error({ err, sessionId, userId: req.user.id }, "POST /stripe/checkout/confirm error");
-    res.status(500).json({ error: "Confirmation failed — please try again or contact support" });
+    paymentErrorResponse({
+      req,
+      res,
+      err,
+      clientMessage: "Unable to confirm checkout. Please try again or contact support.",
+      logMessage: "POST /stripe/checkout/confirm error",
+      extra: { sessionId, userId: req.user.id },
+    });
   }
 });
 
@@ -276,8 +326,14 @@ router.post("/stripe/portal", async (req: Request, res: Response) => {
 
     res.json({ url: session.url });
   } catch (err) {
-    const msg = err instanceof Error ? err.message : "Portal session failed";
-    res.status(500).json({ error: msg });
+    paymentErrorResponse({
+      req,
+      res,
+      err,
+      clientMessage: "Unable to open billing portal. Please try again.",
+      logMessage: "POST /stripe/portal error",
+      extra: { userId: req.user.id },
+    });
   }
 });
 
@@ -336,8 +392,14 @@ router.post("/stripe/subscription/cancel", async (req: Request, res: Response) =
 
     res.json({ subscription: updated });
   } catch (err) {
-    const msg = err instanceof Error ? err.message : "Cancel failed";
-    res.status(500).json({ error: msg });
+    paymentErrorResponse({
+      req,
+      res,
+      err,
+      clientMessage: "Unable to cancel subscription. Please try again.",
+      logMessage: "POST /stripe/subscription/cancel error",
+      extra: { userId: req.user.id },
+    });
   }
 });
 
@@ -385,8 +447,14 @@ router.post("/stripe/subscription/reactivate", async (req: Request, res: Respons
 
     res.json({ subscription: updated });
   } catch (err) {
-    const msg = err instanceof Error ? err.message : "Reactivate failed";
-    res.status(500).json({ error: msg });
+    paymentErrorResponse({
+      req,
+      res,
+      err,
+      clientMessage: "Unable to reactivate subscription. Please try again.",
+      logMessage: "POST /stripe/subscription/reactivate error",
+      extra: { userId: req.user.id },
+    });
   }
 });
 
@@ -457,8 +525,14 @@ router.get("/stripe/subscription/switch-preview", async (req: Request, res: Resp
       })),
     });
   } catch (err) {
-    const msg = err instanceof Error ? err.message : "Preview failed";
-    res.status(500).json({ error: msg });
+    paymentErrorResponse({
+      req,
+      res,
+      err,
+      clientMessage: "Unable to preview subscription change. Please try again.",
+      logMessage: "GET /stripe/subscription/switch-preview error",
+      extra: { userId: req.user.id, targetPriceId },
+    });
   }
 });
 
@@ -523,8 +597,14 @@ router.post("/stripe/subscription/switch-plan", async (req: Request, res: Respon
 
     res.json({ subscription: updated });
   } catch (err) {
-    const msg = err instanceof Error ? err.message : "Plan switch failed";
-    res.status(500).json({ error: msg });
+    paymentErrorResponse({
+      req,
+      res,
+      err,
+      clientMessage: "Unable to switch subscription plan. Please try again.",
+      logMessage: "POST /stripe/subscription/switch-plan error",
+      extra: { userId: req.user.id, targetPriceId },
+    });
   }
 });
 

@@ -1,7 +1,7 @@
 import { Router, type IRouter, type Request, type Response, type NextFunction } from "express";
 import * as Sentry from "@sentry/node";
 import { db, usersTable, sessionsTable } from "@workspace/db";
-import { factsTable, commentsTable, adminConfigTable, videoStylesTable, featureFlagsTable, tierFeaturePermissionsTable, userGenerationCostsTable, lifetimeEntitlementsTable, subscriptionsTable, membershipHistoryTable, activityFeedTable, memesTable, userAiImagesTable, routeStatsTable, routeStatEventsTable, emailOutboxTable } from "@workspace/db/schema";
+import { factsTable, commentsTable, adminConfigTable, videoStylesTable, featureFlagsTable, tierFeaturePermissionsTable, userGenerationCostsTable, lifetimeEntitlementsTable, subscriptionsTable, membershipHistoryTable, activityFeedTable, memesTable, userAiImagesTable, routeStatsTable, routeStatEventsTable, emailOutboxTable, stripeWebhookAuditTable } from "@workspace/db/schema";
 import { eq, desc, count, ilike, sql, and, or, inArray, isNull, asc, gt, gte, sum } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import { requireRole } from "../middlewares/tierMiddleware";
@@ -15,6 +15,8 @@ import { ObjectStorageService } from "../lib/objectStorage";
 import { memeKey } from "../lib/storageKeys";
 import { getSiteBaseUrl } from "../lib/siteUrl";
 import bcrypt from "bcryptjs";
+import { softDeleteUserLifecycle, hardDeleteUserLifecycle, exportUserData, anonymizePaymentHistoryForUser, runRetentionWindowJobs } from "../lib/dataLifecycle";
+import { getGovernanceAdminView } from "../lib/resourceGovernance";
 
 const _styleStorage = new ObjectStorageService();
 
@@ -53,6 +55,10 @@ router.get("/admin/stats", requireAdmin, async (_req: Request, res: Response) =>
     db.select({ totalUsers: count() }).from(usersTable).where(eq(usersTable.isActive, true)),
   ]);
   res.json({ totalFacts, totalUsers });
+});
+
+router.get("/admin/resource-governance", requireAdmin, async (_req: Request, res: Response) => {
+  res.json(getGovernanceAdminView());
 });
 
 router.get("/admin/users", requireAdmin, async (req: Request, res: Response) => {
@@ -1592,12 +1598,24 @@ router.get("/admin/stripe/summary", requireAdmin, async (_req: Request, res: Res
 
     const webhookUrl = `${getSiteBaseUrl()}/api/stripe/webhook`;
 
+    const [duplicateSuppressedRows, recentFailures] = await Promise.all([
+      db.select({ cnt: sql<number>`count(*)::int` }).from(stripeWebhookAuditTable).where(eq(stripeWebhookAuditTable.state, "ignored_duplicate")),
+      db.select().from(stripeWebhookAuditTable)
+        .where(eq(stripeWebhookAuditTable.state, "failed"))
+        .orderBy(desc(stripeWebhookAuditTable.createdAt))
+        .limit(20),
+    ]);
+
     res.json({
       activeSubscribers: legendaryRows[0]?.cnt ?? 0,
       registeredMembers: registeredRows[0]?.cnt ?? 0,
       webhookSecretConfigured,
       webhookUrl,
       stripeEnv,
+      webhookAudit: {
+        duplicateSuppressedCount: duplicateSuppressedRows[0]?.cnt ?? 0,
+        recentFailures,
+      },
     });
   } catch (err) {
     console.error("[admin] stripe/summary error:", err);
@@ -2143,6 +2161,35 @@ router.post("/admin/email-queue/:id/retry", requireAdmin, async (req: Request, r
     const msg = err instanceof Error ? err.message : "Retry failed";
     res.status(500).json({ error: msg });
   }
+});
+
+
+router.get("/admin/users/:id/data-export", requireAdmin, async (req: Request, res: Response) => {
+  const id = String(req.params["id"] ?? "");
+  const payload = await exportUserData(id);
+  res.json({ success: true, ...payload });
+});
+
+router.post("/admin/users/:id/data-delete", requireAdmin, async (req: Request, res: Response) => {
+  const id = String(req.params["id"] ?? "");
+  const phase = String((req.body as Record<string, unknown>)?.["phase"] ?? "soft");
+  if (phase === "soft") {
+    const result = await softDeleteUserLifecycle(id);
+    res.json({ success: true, phase, ...result });
+    return;
+  }
+  if (phase === "hard") {
+    await anonymizePaymentHistoryForUser(id);
+    const result = await hardDeleteUserLifecycle(id);
+    res.json({ success: true, phase, ...result });
+    return;
+  }
+  res.status(400).json({ error: "Unsupported phase" });
+});
+
+router.post("/admin/retention/run", requireAdmin, async (_req: Request, res: Response) => {
+  const result = await runRetentionWindowJobs();
+  res.json({ success: true, result });
 });
 
 export default router;

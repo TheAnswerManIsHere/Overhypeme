@@ -70,8 +70,7 @@ export function Navbar() {
             credentials: "include",
           });
           if (res.ok) {
-            const data = await res.json() as { sid?: string };
-            if (data.sid) localStorage.setItem("auth_token", data.sid);
+            await res.json();
             window.location.href = "/";
           }
         } catch {

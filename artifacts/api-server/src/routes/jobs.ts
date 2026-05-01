@@ -1,6 +1,7 @@
 import { Router, type IRouter, type Request, type Response } from "express";
 import { runFactOfTheDayJob } from "../jobs/factOfTheDay";
 import { logger } from "../lib/logger";
+import { runRetentionWindowJobs } from "../lib/dataLifecycle";
 
 const router: IRouter = Router();
 
@@ -37,3 +38,19 @@ router.post("/jobs/fact-of-the-day", async (req: Request, res: Response) => {
 });
 
 export default router;
+
+
+router.post("/jobs/data-retention", async (req: Request, res: Response) => {
+  const isAdmin = req.isAuthenticated() && (req.user as { isAdmin?: boolean })?.isAdmin;
+  if (!isCronAuthorized(req) && !isAdmin) {
+    res.status(403).json({ error: "Forbidden" });
+    return;
+  }
+  try {
+    const result = await runRetentionWindowJobs();
+    res.json({ ok: true, ...result });
+  } catch (err) {
+    logger.error({ err }, "Data retention job error");
+    res.status(500).json({ error: "Job failed" });
+  }
+});
