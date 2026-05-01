@@ -105,7 +105,7 @@ router.post("/share/invite", async (req: Request, res: Response) => {
     return;
   }
 
-  if (typeof formStartedAt !== "number" || Date.now() - formStartedAt < MIN_REQUEST_AGE_MS) {
+  if (typeof formStartedAt === "number" && Date.now() - formStartedAt < MIN_REQUEST_AGE_MS) {
     audit({ outcome: "blocked_min_age", ip, sid: !!sid });
     res.status(400).json({ error: "Form submission too fast" });
     return;
@@ -134,8 +134,18 @@ router.post("/share/invite", async (req: Request, res: Response) => {
     return;
   }
 
-  const hasSession = !!sid;
-  if (!hasSession) {
+  let sessionUserId: string | null = null;
+  if (sid) {
+    try {
+      const session = await getSession(sid);
+      if (session?.user?.id) sessionUserId = session.user.id;
+    } catch {
+      // treat invalid session lookup as anonymous
+    }
+  }
+
+  const hasValidatedSession = !!sessionUserId;
+  if (!hasValidatedSession) {
     if (!captchaToken || typeof captchaToken !== "string" || !(await verifyCaptcha(captchaToken))) {
       audit({ outcome: "blocked_captcha", ip, sid: false });
       res.status(403).json({ error: "CAPTCHA required" });
@@ -156,15 +166,12 @@ router.post("/share/invite", async (req: Request, res: Response) => {
 
   let senderName: string | null = null;
   try {
-    if (sid) {
-      const session = await getSession(sid);
-      if (session?.user?.id) {
-        const [dbUser] = await db
-          .select({ displayName: usersTable.displayName })
-          .from(usersTable)
-          .where(eq(usersTable.id, session.user.id));
-        if (dbUser?.displayName) senderName = dbUser.displayName;
-      }
+    if (sessionUserId) {
+      const [dbUser] = await db
+        .select({ displayName: usersTable.displayName })
+        .from(usersTable)
+        .where(eq(usersTable.id, sessionUserId));
+      if (dbUser?.displayName) senderName = dbUser.displayName;
     }
   } catch {
     // best effort only
