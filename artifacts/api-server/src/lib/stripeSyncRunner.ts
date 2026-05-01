@@ -34,6 +34,7 @@
 
 import { db } from "@workspace/db";
 import { sql } from "drizzle-orm";
+import * as Sentry from "@sentry/node";
 
 export type SyncResource =
   | "products"
@@ -275,6 +276,47 @@ interface StatusRow {
 }
 
 /**
+ * Postgres SQLSTATE codes we treat as the "schema not migrated yet" first-
+ * install case. Anything else is a real bug we want to hear about loudly.
+ *   - 3F000 invalid_schema_name → `stripe` schema doesn't exist
+ *   - 42P01 undefined_table     → `stripe._sync_status` table doesn't exist
+ *     (schema present but the library hasn't run its migrations yet)
+ */
+const SCHEMA_MISSING_PG_CODES = new Set(["3F000", "42P01"]);
+
+function isSchemaMissingError(err: unknown): boolean {
+  if (typeof err !== "object" || err === null) return false;
+  const code = (err as { code?: unknown }).code;
+  return typeof code === "string" && SCHEMA_MISSING_PG_CODES.has(code);
+}
+
+/**
+ * Indirection so tests can swap in a spy. We can't `mock.method` the imported
+ * `Sentry` namespace directly — ESM module namespace exports are read-only,
+ * so attempting to redefine `captureException` throws. Routing through this
+ * variable keeps the production path identical (a thin wrapper around
+ * `Sentry.captureException`) while giving tests a writable seam.
+ */
+type ErrorReporter = (
+  err: unknown,
+  context: { tags?: Record<string, string>; extra?: Record<string, unknown> },
+) => void;
+
+const defaultReportError: ErrorReporter = (err, context) => {
+  Sentry.captureException(err, context);
+};
+
+let reportError: ErrorReporter = defaultReportError;
+
+/**
+ * Test-only: swap the Sentry reporter for a spy. Pass `null` to restore the
+ * default. Always pair with the corresponding restore in afterEach.
+ */
+export function _setErrorReporterForTests(fn: ErrorReporter | null): void {
+  reportError = fn ?? defaultReportError;
+}
+
+/**
  * Read per-resource sync status rows for the given account from
  * stripe._sync_status. Returns an idle row for any tracked resource that
  * has no row yet (first-ever sync).
@@ -285,12 +327,16 @@ interface StatusRow {
  */
 export async function readSyncStatus(accountId: string): Promise<SyncStatus> {
   // The schema may not exist yet (first install before migrations) — handle
-  // that gracefully by returning all-idle.
+  // that single case gracefully by returning all-idle. Anything else is a
+  // real bug (wrong column name, bad parameter binding, connection failure)
+  // and we MUST surface it loudly — the previous broad `console.warn` hid
+  // two such bugs for months.
   let rows: StatusRow[] = [];
   try {
     // NOTE: column is `account_id` (migration 0049 renamed it from
-    // `_account_id`). Using the wrong name here was a silent bug — the catch
-    // below swallowed the "column does not exist" error and returned all-idle.
+    // `_account_id`). Using the wrong name here was a silent bug — the
+    // previous broad catch swallowed the "column does not exist" error and
+    // returned all-idle.
     //
     // We intentionally do NOT filter by `resource = ANY(...)` here — drizzle's
     // `sql` template expands a JS array into a tuple `($2, $3, $4)` rather
@@ -304,7 +350,22 @@ export async function readSyncStatus(accountId: string): Promise<SyncStatus> {
     );
     rows = result.rows as unknown as StatusRow[];
   } catch (err) {
-    console.warn("[stripeSyncRunner] readSyncStatus failed, returning idle", err);
+    if (isSchemaMissingError(err)) {
+      // First-install / pre-migration: legitimately degrade to all-idle and
+      // stay quiet so the UI can render a clean empty state.
+      console.info(
+        "[stripeSyncRunner] readSyncStatus: stripe._sync_status not present yet, returning idle",
+      );
+    } else {
+      // Anything else is a regression. Log at error level AND report to
+      // Sentry so we hear about it the first time it happens in production.
+      console.error("[stripeSyncRunner] readSyncStatus failed", err);
+      reportError(err, {
+        tags: { component: "stripeSyncRunner", op: "readSyncStatus" },
+        extra: { accountId },
+      });
+      throw err;
+    }
   }
 
   const byResource = new Map<string, StatusRow>();

@@ -12,7 +12,7 @@
  * The StripeSync driver is a stub — these tests never touch the real Stripe API.
  */
 
-import { describe, it, beforeEach, afterEach } from "node:test";
+import { describe, it, beforeEach, afterEach, mock } from "node:test";
 import assert from "node:assert/strict";
 
 import { db } from "@workspace/db";
@@ -24,6 +24,7 @@ import {
   isSyncRunning,
   readSyncStatus,
   _resetSyncRunnerForTests,
+  _setErrorReporterForTests,
   SYNC_RESOURCES,
   type SyncRunnerDriver,
   type SyncResource,
@@ -411,3 +412,102 @@ describe("stripeSyncRunner — readSyncStatus", () => {
     assert.notEqual(productsAfter.lastSyncedAt, null);
   });
 });
+
+describe("stripeSyncRunner — readSyncStatus error handling", () => {
+  // Each test installs a stub for db.execute (writable — drizzle returns a
+  // plain object) and a stub error reporter (via the module's test seam,
+  // because the @sentry/node namespace import is read-only and can't be
+  // reassigned from a test). All stubs are restored in afterEach.
+  let reporterCalls: Array<{ err: unknown; ctx: { tags?: Record<string, string>; extra?: Record<string, unknown> } }>;
+
+  beforeEach(() => {
+    _resetSyncRunnerForTests();
+    reporterCalls = [];
+    _setErrorReporterForTests((err, ctx) => { reporterCalls.push({ err, ctx }); });
+  });
+  afterEach(() => {
+    _resetSyncRunnerForTests();
+    _setErrorReporterForTests(null);
+    mock.restoreAll();
+  });
+
+  it("degrades to all-idle (no Sentry alert) when the stripe schema is missing", async () => {
+    // Pre-migration first-install case: pg raises invalid_schema_name (3F000).
+    const schemaMissingErr = Object.assign(
+      new Error('schema "stripe" does not exist'),
+      { code: "3F000" },
+    );
+    mock.method(db, "execute", async () => { throw schemaMissingErr; });
+
+    const status = await readSyncStatus(TEST_ACCOUNT);
+
+    // Same shape as the empty-table case: every tracked resource is idle.
+    assert.equal(status.inProgress, false);
+    assert.equal(status.resources.length, SYNC_RESOURCES.length);
+    for (const r of status.resources) {
+      assert.equal(r.status, "idle", `${r.resource} should be idle when schema is missing`);
+      assert.equal(r.lastSyncedAt, null);
+      assert.equal(r.errorMessage, null);
+    }
+
+    // Crucially: we did NOT alert. Schema-missing is the legitimate first-
+    // install path the runner is allowed to swallow.
+    assert.equal(
+      reporterCalls.length, 0,
+      "schema-missing must not page on-call — it's the documented first-install case",
+    );
+  });
+
+  it("degrades to all-idle (no Sentry alert) when the _sync_status table is missing", async () => {
+    // Schema present, table not yet created: pg raises undefined_table (42P01).
+    const tableMissingErr = Object.assign(
+      new Error('relation "stripe._sync_status" does not exist'),
+      { code: "42P01" },
+    );
+    mock.method(db, "execute", async () => { throw tableMissingErr; });
+
+    const status = await readSyncStatus(TEST_ACCOUNT);
+    assert.equal(status.inProgress, false);
+    for (const r of status.resources) assert.equal(r.status, "idle");
+    assert.equal(reporterCalls.length, 0);
+  });
+
+  it("rethrows AND reports to Sentry on any other DB error so regressions are loud", async () => {
+    // The exact class of bug this task is hardening against: a wrong column
+    // name (undefined_column / 42703) used to be silently swallowed by the
+    // previous broad `console.warn` + return-idle catch.
+    const undefinedColumnErr = Object.assign(
+      new Error('column "_account_id" does not exist'),
+      { code: "42703" },
+    );
+    mock.method(db, "execute", async () => { throw undefinedColumnErr; });
+
+    await assert.rejects(
+      readSyncStatus(TEST_ACCOUNT),
+      /column "_account_id" does not exist/,
+      "non-schema-missing errors must propagate so the route returns 500",
+    );
+
+    assert.equal(
+      reporterCalls.length, 1,
+      "the regression-class error must be reported to Sentry on first occurrence",
+    );
+    const reported = reporterCalls[0]!;
+    assert.equal(reported.err, undefinedColumnErr);
+    assert.equal(reported.ctx.tags?.component, "stripeSyncRunner");
+    assert.equal(reported.ctx.tags?.op, "readSyncStatus");
+    assert.equal(reported.ctx.extra?.accountId, TEST_ACCOUNT);
+  });
+
+  it("treats errors without a pg `code` field as real errors (not schema-missing)", async () => {
+    // A plain Error (e.g. connection drop, type coercion bug) must NOT be
+    // mistaken for the schema-missing case just because it lacks a SQLSTATE.
+    mock.method(db, "execute", async () => {
+      throw new Error("connection terminated unexpectedly");
+    });
+
+    await assert.rejects(readSyncStatus(TEST_ACCOUNT), /connection terminated/);
+    assert.equal(reporterCalls.length, 1);
+  });
+});
+

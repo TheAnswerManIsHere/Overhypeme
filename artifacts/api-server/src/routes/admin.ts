@@ -1704,21 +1704,21 @@ router.post("/admin/stripe/sync/_test/simulate", requireAdmin, async (req: Reque
         AND resource IN ('products', 'prices', 'plans')
     `);
 
-    // SyncRunnerDriver requires all 8 sync methods, but runScopedSync only
-    // calls products/prices/plans. The customer-graph methods are no-op
-    // stubs purely to satisfy the type signature; they will never be
-    // invoked from this code path.
-    const noop = async (): Promise<{ synced: number }> => ({ synced: 0 });
+    // SyncRunnerDriver requires every resource method, but `runScopedSync`
+    // only invokes products/prices/plans. The customer-graph methods are
+    // unreachable from this path; we stub them with a no-op resolving to 0
+    // so the type is satisfied without changing simulate behaviour.
+    const unreachable = async (): Promise<{ synced: number }> => ({ synced: 0 });
     const stub = {
       getAccountId: async () => accountId,
       syncProducts: makeStub("products", failResource === "products"),
       syncPrices: makeStub("prices", failResource === "prices"),
       syncPlans: makeStub("plans", failResource === "plans"),
-      syncCustomers: noop,
-      syncSubscriptions: noop,
-      syncInvoices: noop,
-      syncCharges: noop,
-      syncPaymentMethods: noop,
+      syncCustomers: unreachable,
+      syncSubscriptions: unreachable,
+      syncInvoices: unreachable,
+      syncCharges: unreachable,
+      syncPaymentMethods: unreachable,
     };
 
     const result = runScopedSync(stub);
