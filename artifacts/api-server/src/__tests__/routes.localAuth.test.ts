@@ -4,10 +4,10 @@
  * Covers email/password registration, login, password reset,
  * email-verification, set-password, and unlink-provider.
  *
- * The forgot-password rate limiter is a process-wide in-memory map keyed by
- * IP — supertest hits all share the same loopback IP. To stay independent,
- * forgot-password tests vary the X-Forwarded-For header so each gets its
- * own rate-limit bucket.
+ * The forgot-password and resend-verification rate limiters are DB-backed
+ * (rate_limit_counters). Forgot-password tests vary the X-Forwarded-For
+ * header so each gets its own bucket. The before() hook clears any stale
+ * rate-limit rows so back-to-back validation runs start from a clean state.
  */
 
 import { describe, it, before, after } from "node:test";
@@ -24,8 +24,9 @@ import {
   passwordResetTokensTable,
   emailVerificationTokensTable,
   sessionsTable,
+  rateLimitCountersTable,
 } from "@workspace/db/schema";
-import { eq, like } from "drizzle-orm";
+import { eq, like, sql } from "drizzle-orm";
 
 import localAuthRouter from "../routes/localAuth.js";
 import { authMiddleware } from "../middlewares/authMiddleware.js";
@@ -73,6 +74,15 @@ async function bearerForUser(userId: string): Promise<string> {
   return createSession(sessionData, userId);
 }
 
+async function cleanupRateLimitCounters() {
+  await db
+    .delete(rateLimitCountersTable)
+    .where(sql`${rateLimitCountersTable.keyRaw} LIKE 'rl|auth.forgot-password|%'`);
+  await db
+    .delete(rateLimitCountersTable)
+    .where(sql`${rateLimitCountersTable.keyRaw} LIKE 'rl|auth.resend-verification|%'`);
+}
+
 async function cleanupUsers() {
   // Clean dependent rows first, then users.
   await db
@@ -85,8 +95,14 @@ async function cleanupUsers() {
   await db.delete(usersTable).where(like(usersTable.email, `${USER_PREFIX}%`));
 }
 
-before(cleanupUsers);
-after(cleanupUsers);
+before(async () => {
+  await cleanupRateLimitCounters();
+  await cleanupUsers();
+});
+after(async () => {
+  await cleanupRateLimitCounters();
+  await cleanupUsers();
+});
 
 describe("POST /auth/register — validation", () => {
 
