@@ -9,7 +9,13 @@ export function resolveCheckoutRequestKey(input: {
 }): string {
   const { userId, priceId, clientRequestId } = input;
   if (clientRequestId && clientRequestId.trim().length > 0) {
-    return `checkout:client:${clientRequestId.trim()}`;
+    // Scope the key by userId+priceId so two different users cannot share
+    // the same checkout session even if they submit the same clientRequestId.
+    const digest = createHash("sha256")
+      .update(`${userId}:${priceId}:${clientRequestId.trim()}`)
+      .digest("hex")
+      .slice(0, 32);
+    return `checkout:client:${digest}`;
   }
 
   const now = input.now ?? new Date();
