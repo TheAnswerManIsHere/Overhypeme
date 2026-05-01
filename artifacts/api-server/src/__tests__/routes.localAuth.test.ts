@@ -184,8 +184,10 @@ describe("POST /auth/register — success", () => {
         pronouns: "they/them",
       });
     assert.equal(res.status, 201);
-    assert.equal(typeof res.body.sid, "string");
+    assert.equal("sid" in res.body, false);
     assert.equal(res.body.user.email, email);
+    const setCookie = res.headers["set-cookie"] ?? [];
+    assert.ok(setCookie.some((cookie: string) => cookie.startsWith("sid=")), "sid cookie should be set");
 
     const [row] = await db.select().from(usersTable).where(eq(usersTable.email, email));
     assert.ok(row);
@@ -259,8 +261,10 @@ describe("POST /auth/local-login", () => {
       .post("/auth/local-login")
       .send({ email, password });
     assert.equal(res.status, 200);
-    assert.equal(typeof res.body.sid, "string");
+    assert.equal("sid" in res.body, false);
     assert.equal(res.body.user.email, email);
+    const setCookie = res.headers["set-cookie"] ?? [];
+    assert.ok(setCookie.some((cookie: string) => cookie.startsWith("sid=")), "sid cookie should be set");
   });
 });
 

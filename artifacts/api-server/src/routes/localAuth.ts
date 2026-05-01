@@ -189,7 +189,6 @@ router.post("/auth/register", async (req: Request, res: Response) => {
   }
 
   res.status(201).json({
-    sid,
     user: {
       id: user.id,
       email: user.email,
@@ -261,7 +260,6 @@ router.post("/auth/local-login", async (req: Request, res: Response) => {
   setSessionCookie(res, sid);
 
   res.json({
-    sid,
     user: {
       id: user.id,
       email: user.email,
@@ -652,7 +650,7 @@ router.post("/auth/dev-admin-login", async (req: Request, res: Response) => {
 
   const sid = await createSession(sessionData, user.id);
   setSessionCookie(res, sid);
-  res.json({ sid, user: { id: user.id, email: user.email } });
+  res.json({ user: { id: user.id, email: user.email } });
 });
 
 export default router;
