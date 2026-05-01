@@ -33,3 +33,6 @@ jobs:
 
       - name: Build app
         run: pnpm run build
+        env:
+          PORT: "8081"
+          BASE_PATH: "/__mockup"
