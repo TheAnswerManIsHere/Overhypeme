@@ -1640,6 +1640,89 @@ router.post("/admin/stripe/sync", requireAdmin, async (_req: Request, res: Respo
   }
 });
 
+// POST /admin/stripe/sync/_test/simulate — test-only hook used by the UI test
+// for the per-resource progress panel. Drives the same `runScopedSync`
+// machinery the real button uses, but with a stub driver that writes status
+// rows directly so we can deterministically exercise success and failure paths
+// without depending on what's in the test Stripe account at the moment.
+//
+// Disabled in production (returns 404) and gated behind requireAdmin like the
+// real sync routes.
+router.post("/admin/stripe/sync/_test/simulate", requireAdmin, async (req: Request, res: Response) => {
+  if (process.env.NODE_ENV === "production") {
+    res.status(404).end();
+    return;
+  }
+  try {
+    const body = (req.body ?? {}) as { failResource?: string; delayMs?: number };
+    const failResource = body.failResource;
+    const delayMs = typeof body.delayMs === "number" && body.delayMs >= 0 ? body.delayMs : 250;
+    const allowed = ["products", "prices", "plans"] as const;
+    type Res = (typeof allowed)[number];
+    if (failResource !== undefined && !allowed.includes(failResource as Res)) {
+      res.status(400).json({ error: "failResource must be one of products|prices|plans" });
+      return;
+    }
+
+    const { getStripeSync } = await import("../lib/stripeClient");
+    const { runScopedSync } = await import("../lib/stripeSyncRunner");
+    const sync = await getStripeSync();
+    const accountId = await sync.getAccountId();
+
+    const makeStub = (resource: Res, shouldFail: boolean) => async (): Promise<{ synced: number }> => {
+      await db.execute(sql`
+        INSERT INTO stripe._sync_status (resource, account_id, status)
+        VALUES (${resource}, ${accountId}, 'running')
+        ON CONFLICT (resource, account_id) DO UPDATE
+          SET status = 'running', error_message = NULL, updated_at = now()
+      `);
+      await new Promise(resolve => setTimeout(resolve, delayMs));
+      if (shouldFail) {
+        await db.execute(sql`
+          UPDATE stripe._sync_status
+          SET status = 'error', error_message = ${"Simulated failure for testing"}, updated_at = now()
+          WHERE resource = ${resource} AND account_id = ${accountId}
+        `);
+        throw new Error("Simulated failure for testing");
+      }
+      await db.execute(sql`
+        UPDATE stripe._sync_status
+        SET status = 'complete', error_message = NULL, last_synced_at = now(), updated_at = now()
+        WHERE resource = ${resource} AND account_id = ${accountId}
+      `);
+      return { synced: 0 };
+    };
+
+    // Reset existing _sync_status rows for these three resources so the UI
+    // observes a true pending → running → complete transition. Without this,
+    // a previous successful run leaves rows as "complete" and the UI would
+    // show "N synced · X ago" for resources that haven't started yet in the
+    // simulated run, defeating intermediate-state assertions.
+    await db.execute(sql`
+      DELETE FROM stripe._sync_status
+      WHERE account_id = ${accountId}
+        AND resource IN ('products', 'prices', 'plans')
+    `);
+
+    const stub = {
+      getAccountId: async () => accountId,
+      syncProducts: makeStub("products", failResource === "products"),
+      syncPrices: makeStub("prices", failResource === "prices"),
+      syncPlans: makeStub("plans", failResource === "plans"),
+    };
+
+    const result = runScopedSync(stub);
+    if (result.alreadyRunning) {
+      res.status(409).json({ alreadyRunning: true, message: "Sync already in progress" });
+      return;
+    }
+    res.json({ success: true, failResource: failResource ?? null, delayMs });
+  } catch (err) {
+    console.error("[admin] POST /admin/stripe/sync/_test/simulate error", err);
+    res.status(500).json({ error: "Failed to simulate sync" });
+  }
+});
+
 // GET /admin/stripe/sync/status — read per-resource sync state for the UI poller.
 router.get("/admin/stripe/sync/status", requireAdmin, async (_req: Request, res: Response) => {
   try {

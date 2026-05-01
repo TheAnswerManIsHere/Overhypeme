@@ -232,16 +232,19 @@ export async function readSyncStatus(accountId: string): Promise<SyncStatus> {
   // that gracefully by returning all-idle.
   let rows: StatusRow[] = [];
   try {
-    // Drizzle's `sql` template expands a JS array into a parenthesised
-    // parameter list (`($1, $2, ...)`), which is the row-tuple form Postgres
-    // expects after `IN`. Using `ANY(...)` here would require an actual
-    // ARRAY[...] literal and fail with "op ANY/ALL (array) requires array on
-    // right side".
+    // NOTE: column is `account_id` (migration 0049 renamed it from
+    // `_account_id`). Using the wrong name here was a silent bug — the catch
+    // below swallowed the "column does not exist" error and returned all-idle.
+    //
+    // We intentionally do NOT filter by `resource = ANY(...)` here — drizzle's
+    // `sql` template expands a JS array into a tuple `($2, $3, $4)` rather
+    // than a Postgres array, which trips `op ANY/ALL (array) requires array
+    // on right side`. Filtering in JS via `byResource.get(...)` is fine since
+    // the table only ever has a handful of rows per account.
     const result = await db.execute(
       sql`SELECT resource, status, last_synced_at, error_message
           FROM stripe._sync_status
-          WHERE account_id = ${accountId}
-            AND resource IN ${SYNC_RESOURCES as unknown as string[]}`,
+          WHERE account_id = ${accountId}`,
     );
     rows = result.rows as unknown as StatusRow[];
   } catch (err) {
