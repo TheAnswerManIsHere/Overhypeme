@@ -38,6 +38,10 @@ args = "api-server-tests"
 task = "workflow.run"
 args = "db-tests"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "git-lock-watcher"
+
 [[workflows.workflow]]
 name = "typecheck"
 author = "agent"
@@ -81,6 +85,17 @@ args = "pnpm --filter @workspace/db run test"
 
 [workflows.workflow.metadata]
 isValidation = true
+
+[[workflows.workflow]]
+name = "git-lock-watcher"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "bash scripts/dev-supervisor.sh git-lock-watcher bash -c 'while true; do bash scripts/clean-stale-git-locks.sh; sleep \"${GIT_LOCK_WATCHER_INTERVAL:-10}\"; done'"
+
+[workflows.workflow.metadata]
+outputType = "console"
 
 [agent]
 stack = "PNPM_WORKSPACE"

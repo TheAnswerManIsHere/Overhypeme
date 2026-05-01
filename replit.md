@@ -65,6 +65,9 @@ All three artifact dev workflows (`api-server`, `overhype-me`, `mockup-sandbox`)
 
 The api-server additionally has `process.on("uncaughtException")` and `process.on("unhandledRejection")` handlers that capture the error to Sentry, flush, and `process.exit(1)`. The supervisor then restarts the process automatically.
 
+## Stale Git lock self-healing
+The `git-lock-watcher` workflow runs `scripts/clean-stale-git-locks.sh` in a loop (default every 10s) so that stale `.git/*.lock` files left by crashed Git operations no longer block the Replit Sync button. The sweeper has three guardrails: a hardcoded allowlist of well-known lock paths (`index.lock`, `HEAD.lock`, `ORIG_HEAD.lock`, `packed-refs.lock`, `shallow.lock`, `config.lock`, `objects/maintenance.lock`, plus `refs/**/*.lock`), a stale-age threshold (`GIT_LOCK_STALE_SECONDS`, default 120s), and a hard skip if any `git`/`git-remote-https`/`git-upload-pack`/`git-receive-pack` process is currently running. `dev-supervisor.sh` also invokes the sweeper once at startup so any workflow restart gets a free pass at clearing locks. Disable the whole feature with `GIT_LOCK_WATCHER_ENABLED=0`; tune the loop interval with `GIT_LOCK_WATCHER_INTERVAL`.
+
 ## Stripe membership grant flow
 
 Memberships ("legendary" tier) are granted through two complementary paths that coexist as defense-in-depth:
