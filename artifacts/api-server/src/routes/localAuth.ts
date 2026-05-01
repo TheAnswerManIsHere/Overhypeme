@@ -251,7 +251,7 @@ router.post("/auth/forgot-password", async (req: Request, res: Response) => {
   const ip = (req.headers["x-forwarded-for"] as string | undefined)?.split(",")[0]?.trim() ?? req.socket.remoteAddress ?? "unknown";
 
   const forgotLimit = await checkSharedRateLimit(
-    { endpoint: "auth.forgot-password", ip, recipientEmail: typeof email === "string" ? email.trim().toLowerCase() : null },
+    { endpoint: "auth.forgot-password", ip },
     { limit: FORGOT_PASSWORD_MAX, windowMs: FORGOT_PASSWORD_WINDOW_MS },
   );
 
@@ -461,7 +461,7 @@ router.post("/auth/resend-verification", async (req: Request, res: Response) => 
   const userId = req.user.id;
 
   const resendLimit = await checkSharedRateLimit(
-    { endpoint: "auth.resend-verification", userId, recipientEmail: req.user.email ?? null, ip: req.ip ?? "unknown" },
+    { endpoint: "auth.resend-verification", userId, recipientEmail: req.user.email ?? null },
     { limit: RESEND_VERIFICATION_MAX, windowMs: RESEND_VERIFICATION_WINDOW_MS },
   );
 
