@@ -17,6 +17,44 @@ import { verifyCaptcha } from "../lib/captcha";
 
 const router: IRouter = Router();
 
+const PROFILE_IMAGE_FIRST_PARTY_PREFIX = "/api/storage/objects/";
+const PROFILE_IMAGE_TRUSTED_HOSTS = new Set([
+  "images.unsplash.com",
+  "cdn.pixabay.com",
+]);
+
+function normalizeProfileImageUrl(raw: string): string | null {
+  const value = raw.trim();
+  if (!value) return null;
+
+  if (value.startsWith(PROFILE_IMAGE_FIRST_PARTY_PREFIX)) {
+    return value;
+  }
+
+  let parsed: URL;
+  try {
+    parsed = new URL(value);
+  } catch {
+    return null;
+  }
+
+  if (parsed.protocol !== "https:") return null;
+  if (parsed.username || parsed.password) return null;
+  if (parsed.hash) return null;
+  if (parsed.pathname === "/" || parsed.pathname.length < 2) return null;
+
+  const host = parsed.hostname.toLowerCase();
+  if (!PROFILE_IMAGE_TRUSTED_HOSTS.has(host)) return null;
+
+  const params = [...parsed.searchParams.keys()];
+  if (params.length > 2) return null;
+  const blocked = ["utm_source", "utm_medium", "utm_campaign", "gclid", "fbclid", "redirect", "url", "next", "target"];
+  if (params.some((k) => blocked.includes(k.toLowerCase()))) return null;
+
+  parsed.search = parsed.searchParams.toString() ? `?${parsed.searchParams.toString()}` : "";
+  return `${parsed.origin}${parsed.pathname}${parsed.search}`;
+}
+
 async function buildFactSummaries(facts: (typeof factsTable.$inferSelect)[], userId?: string) {
   if (!facts.length) return [];
   const ids = facts.map((f) => f.id);
@@ -139,7 +177,7 @@ router.get("/users/me", async (req: Request, res: Response) => {
     lastName: userRow?.lastName ?? null,
     displayName: userRow?.displayName ?? null,
     pronouns: userRow?.pronouns ?? null,
-    profileImageUrl: userRow?.profileImageUrl ?? null,
+    profileImageUrl: normalizeProfileImageUrl(userRow?.profileImageUrl ?? "") ?? null,
     avatarStyle: userRow?.avatarStyle ?? "bottts",
     avatarSource: userRow?.avatarSource ?? "avatar",
     membershipTier: userRow?.membershipTier ?? "registered",
@@ -238,13 +276,13 @@ router.patch("/users/me", async (req: Request, res: Response) => {
     if (typeof profileImageUrl !== "string") {
       res.status(400).json({ error: "Invalid profile image URL" }); return;
     }
-    const valid = profileImageUrl.startsWith("/api/storage/objects/") || profileImageUrl.startsWith("https://");
-    if (!valid) { res.status(400).json({ error: "Invalid profile image URL" }); return; }
-    updates.profileImageUrl = profileImageUrl;
+    const normalizedProfileImageUrl = normalizeProfileImageUrl(profileImageUrl);
+    if (!normalizedProfileImageUrl) { res.status(400).json({ error: "Invalid profile image URL" }); return; }
+    updates.profileImageUrl = normalizedProfileImageUrl;
 
     // Set the uploaded file as public so it can be served as an <img> to any viewer
-    if (profileImageUrl.startsWith("/api/storage/objects/")) {
-      const objectPath = profileImageUrl.replace("/api/storage", "");
+    if (typeof updates.profileImageUrl === "string" && updates.profileImageUrl.startsWith(PROFILE_IMAGE_FIRST_PARTY_PREFIX)) {
+      const objectPath = updates.profileImageUrl.replace("/api/storage", "");
       try {
         const objectStorageService = new ObjectStorageService();
         await objectStorageService.trySetObjectEntityAclPolicy(objectPath, { owner: userId, visibility: "public" });

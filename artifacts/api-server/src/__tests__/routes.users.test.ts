@@ -246,11 +246,32 @@ describe("PATCH /users/me — validation", () => {
   });
 
   it("rejects a profileImageUrl when the user is not legendary", async () => {
-    const { res } = await authedPatch({ profileImageUrl: "https://cdn.example.com/x.png" });
+    const { res } = await authedPatch({ profileImageUrl: "https://images.unsplash.com/photo-1" });
     assert.equal(res.status, 403);
     assert.deepEqual(res.body, { error: "Custom photo upload is a Legendary feature" });
   });
 
+
+
+  it("rejects profileImageUrl on unknown hosts", async () => {
+    const userId = await createTestUser({ membershipTier: "legendary" });
+    const sid = await bearerForUser(userId);
+    const res = await request(makeApp())
+      .patch("/users/me")
+      .set("authorization", `Bearer ${sid}`)
+      .send({ profileImageUrl: "https://evil.example.com/x.png" });
+    assert.equal(res.status, 400);
+  });
+
+  it("rejects profileImageUrl with tracking-heavy query params", async () => {
+    const userId = await createTestUser({ membershipTier: "legendary" });
+    const sid = await bearerForUser(userId);
+    const res = await request(makeApp())
+      .patch("/users/me")
+      .set("authorization", `Bearer ${sid}`)
+      .send({ profileImageUrl: "https://images.unsplash.com/photo-1?utm_source=a&utm_medium=b&utm_campaign=c" });
+    assert.equal(res.status, 400);
+  });
   it("rejects a profileImageUrl that isn't on a supported scheme", async () => {
     const userId = await createTestUser({ membershipTier: "legendary" });
     const sid = await bearerForUser(userId);
@@ -305,6 +326,31 @@ describe("PATCH /users/me — success", () => {
     assert.equal(row.lastName, null);
   });
 
+
+
+  it("accepts and normalizes trusted remote profile image URLs", async () => {
+    const userId = await createTestUser({ membershipTier: "legendary" });
+    const sid = await bearerForUser(userId);
+    const res = await request(makeApp())
+      .patch("/users/me")
+      .set("authorization", `Bearer ${sid}`)
+      .send({ profileImageUrl: "  https://images.unsplash.com/photo-1?w=128&h=128  " });
+    assert.equal(res.status, 200);
+
+    const [row] = await db.select().from(usersTable).where(eq(usersTable.id, userId));
+    assert.equal(row.profileImageUrl, "https://images.unsplash.com/photo-1?w=128&h=128");
+  });
+
+  it("hides legacy unsafe profileImageUrl values in /users/me", async () => {
+    const userId = await createTestUser({ membershipTier: "legendary" });
+    await db.update(usersTable).set({ profileImageUrl: "https://evil.example.com/tracker.png" }).where(eq(usersTable.id, userId));
+    const sid = await bearerForUser(userId);
+    const res = await request(makeApp())
+      .get("/users/me")
+      .set("authorization", `Bearer ${sid}`);
+    assert.equal(res.status, 200);
+    assert.equal(res.body.profileImageUrl, null);
+  });
   it("rejects an email already in use by another user", async () => {
     const otherId = await createTestUser({ email: `${USER_PREFIX}taken@test.local` });
     void otherId; // reserved

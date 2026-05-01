@@ -12,6 +12,7 @@ import { checkBudget, recordCost } from "../lib/budgetGate.js";
 import { requireAdmin } from "./admin.js";
 import { hasFeature } from "../lib/tierFeatures.js";
 import { ObjectStorageService } from "../lib/objectStorage.js";
+import { completeGovernance, enforceGovernance } from "../lib/resourceGovernance.js";
 
 const router: IRouter = Router();
 
@@ -706,6 +707,19 @@ router.get("/videos/:factId", async (req, res) => {
 });
 
 router.post("/videos/generate", async (req, res) => {
+  const governanceGate = enforceGovernance(req, res, {
+    path: "video",
+    provider: "fal",
+    model: String((req.body as Record<string, unknown>)?.videoModel ?? DEFAULT_VIDEO_MODEL),
+    estimatedCostUsd: 0.12,
+    maxDurationSec: Number((req.body as Record<string, unknown>)?.adminDuration ?? 5),
+    payloadBytes: Buffer.byteLength(JSON.stringify(req.body ?? {}), "utf8"),
+  });
+  if (!governanceGate.ok) return;
+  const governanceStartedAt = Date.now();
+  let governanceActualCostUsd = 0;
+  let governanceFailed = false;
+  try {
   const apiKey = process.env.FAL_AI_API_KEY;
   if (!apiKey) {
     res
@@ -1022,12 +1036,14 @@ router.post("/videos/generate", async (req, res) => {
       });
     }
 
-    res.json({
+    const responseBody = {
       videoUrl,
       id: updated?.id,
       status: "completed",
       record: updated ?? null,
-    });
+    };
+    governanceActualCostUsd = estimatedCostUsd;
+    res.json(responseBody);
   } catch (err) {
     await db
       .update(videoJobsTable)
@@ -1083,6 +1099,19 @@ router.post("/videos/generate", async (req, res) => {
     res
       .status(500)
       .json({ error: userFacingError });
+  }
+  } catch (error) {
+    governanceFailed = true;
+    throw error;
+  } finally {
+    completeGovernance(req, {
+      provider: "fal",
+      latencyMs: Date.now() - governanceStartedAt,
+      failed: governanceFailed || res.statusCode >= 400,
+      actualCostUsd: !governanceFailed && res.statusCode < 400 ? governanceActualCostUsd : 0,
+      responseStatus: res.statusCode,
+      idempotencyKey: governanceGate.idempotencyKey,
+    });
   }
 });
 

@@ -10,6 +10,7 @@ import { verifyCaptcha } from "../lib/captcha";
 import { embedText, findSimilarFacts } from "../lib/embeddings";
 import { validateTemplate } from "../lib/templateGrammar";
 import { renderCanonical } from "../lib/renderCanonical";
+import { completeGovernance, enforceGovernance } from "../lib/resourceGovernance";
 
 const router: IRouter = Router();
 const requireRateLimit = createRateLimiter();
@@ -204,6 +205,15 @@ router.post("/ai/suggest-hashtags", requireAuth, requireRateLimit, async (req: R
   const { text } = bodyParsed.data;
 
   try {
+    const gate = enforceGovernance(req, res, {
+      path: "ai",
+      provider: "openai",
+      model: "gpt-4o-mini",
+      estimatedCostUsd: 0.005,
+      payloadBytes: Buffer.byteLength(JSON.stringify(req.body ?? {}), "utf8"),
+    });
+    if (!gate.ok) return;
+    const started = Date.now();
     const existing = await db
       .select({ name: hashtagsTable.name })
       .from(hashtagsTable)
@@ -246,8 +256,11 @@ router.post("/ai/suggest-hashtags", requireAuth, requireRateLimit, async (req: R
       tags = [];
     }
 
-    res.json({ hashtags: tags });
+    const body = { hashtags: tags };
+    completeGovernance(req, { provider: "openai", latencyMs: Date.now() - started, failed: false, actualCostUsd: 0.005, responseStatus: 200, responseBody: body, idempotencyKey: gate.idempotencyKey });
+    res.json(body);
   } catch (err) {
+    completeGovernance(req, { provider: "openai", latencyMs: 0, failed: true, actualCostUsd: 0 });
     console.error("[AI] suggest-hashtags error:", err);
     res.json({ hashtags: [] });
   }

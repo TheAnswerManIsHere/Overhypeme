@@ -30,6 +30,7 @@ import { CACHE, setPublicCache, setPublicCors, checkConditional, setNoStore } fr
 import { getSiteBaseUrl } from "../lib/siteUrl";
 import { buildZazzleUrl } from "../lib/zazzle";
 import type { MemeAspectRatio } from "@workspace/api-zod";
+import { completeGovernance, enforceGovernance } from "../lib/resourceGovernance";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const TEMPLATES_DIR = path.resolve(__dirname, "assets/meme-templates");
@@ -1129,7 +1130,19 @@ router.post("/memes/ai/:factId/regenerate-scene-prompts", requireAdmin, async (r
 
 // POST /memes/ai/:factId/generate — legendary user triggers AI image generation for a fact
 router.post("/memes/ai/:factId/generate", requireLegendary, async (req: Request, res: Response) => {
-  const factId = parseInt(String(req.params["factId"] ?? ""), 10);
+  const estimatedCostUsd = 0.04;
+  const gate = enforceGovernance(req, res, {
+    path: "meme",
+    provider: "fal",
+    model: "fal-ai-image",
+    estimatedCostUsd,
+    payloadBytes: Buffer.byteLength(JSON.stringify(req.body ?? {}), "utf8"),
+  });
+  if (!gate.ok) return;
+  const governanceStartedAt = Date.now();
+  let governanceFailed = false;
+  try {
+    const factId = parseInt(String(req.params["factId"] ?? ""), 10);
   if (isNaN(factId)) { res.status(400).json({ error: "Invalid factId" }); return; }
 
   const body = req.body as Record<string, unknown>;
@@ -1312,6 +1325,19 @@ router.post("/memes/ai/:factId/generate", requireLegendary, async (req: Request,
   }
 
   res.json({ success: true });
+  } catch (error) {
+    governanceFailed = true;
+    throw error;
+  } finally {
+    completeGovernance(req, {
+      provider: "fal",
+      latencyMs: Date.now() - governanceStartedAt,
+      failed: governanceFailed || res.statusCode >= 400,
+      actualCostUsd: !governanceFailed && res.statusCode < 400 ? estimatedCostUsd : 0,
+      responseStatus: res.statusCode,
+      idempotencyKey: gate.idempotencyKey,
+    });
+  }
 });
 
 // DELETE /memes/:slug — soft-delete a meme (creator only)

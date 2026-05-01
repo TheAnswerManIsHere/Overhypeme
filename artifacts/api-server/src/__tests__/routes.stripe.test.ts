@@ -299,3 +299,24 @@ describe("POST /stripe/portal — pre-Stripe guard", () => {
     assert.deepEqual(res.body, { error: "No billing account found" });
   });
 });
+
+describe("payment 5xx responses do not leak provider diagnostics", () => {
+  beforeEach(cleanupUsers);
+  afterEach(cleanupUsers);
+
+  it("POST /stripe/portal returns a generic message on Stripe failures", async () => {
+    const userId = await createTestUser();
+    await db.update(usersTable).set({ stripeCustomerId: "cus_test_bad" }).where(eq(usersTable.id, userId));
+    const sid = await bearerForUser(userId);
+
+    const res = await request(makeApp())
+      .post("/stripe/portal")
+      .set("authorization", `Bearer ${sid}`)
+      .send({});
+
+    assert.equal(res.status, 500);
+    assert.equal(res.body.error, "Unable to open billing portal. Please try again.");
+    assert.equal(typeof res.body.requestId, "undefined");
+    assert.doesNotMatch(JSON.stringify(res.body), /Invalid API Key|Stripe|sk_test_dummy/i);
+  });
+});
