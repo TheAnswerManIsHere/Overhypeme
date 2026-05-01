@@ -74,4 +74,13 @@ export const stripeWebhookAuditTable = pgTable("stripe_webhook_audit", {
 }, (table) => [
   index("idx_stripe_webhook_audit_event_id").on(table.eventId),
   index("idx_stripe_webhook_audit_created_at").on(table.createdAt),
+export const stripeCheckoutRequestLedgerTable = pgTable("stripe_checkout_request_ledger", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  userId: varchar("user_id").notNull().references(() => usersTable.id),
+  priceId: varchar("price_id").notNull(),
+  requestKey: varchar("request_key").notNull().unique(),
+  sessionId: varchar("session_id").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  index("idx_checkout_request_ledger_user_id").on(table.userId),
 ]);

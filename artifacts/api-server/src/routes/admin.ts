@@ -15,6 +15,7 @@ import { ObjectStorageService } from "../lib/objectStorage";
 import { memeKey } from "../lib/storageKeys";
 import { getSiteBaseUrl } from "../lib/siteUrl";
 import bcrypt from "bcryptjs";
+import { softDeleteUserLifecycle, hardDeleteUserLifecycle, exportUserData, anonymizePaymentHistoryForUser, runRetentionWindowJobs } from "../lib/dataLifecycle";
 import { getGovernanceAdminView } from "../lib/resourceGovernance";
 
 const _styleStorage = new ObjectStorageService();
@@ -2026,6 +2027,35 @@ router.post("/admin/email-queue/:id/retry", requireAdmin, async (req: Request, r
     const msg = err instanceof Error ? err.message : "Retry failed";
     res.status(500).json({ error: msg });
   }
+});
+
+
+router.get("/admin/users/:id/data-export", requireAdmin, async (req: Request, res: Response) => {
+  const id = String(req.params["id"] ?? "");
+  const payload = await exportUserData(id);
+  res.json({ success: true, ...payload });
+});
+
+router.post("/admin/users/:id/data-delete", requireAdmin, async (req: Request, res: Response) => {
+  const id = String(req.params["id"] ?? "");
+  const phase = String((req.body as Record<string, unknown>)?.["phase"] ?? "soft");
+  if (phase === "soft") {
+    const result = await softDeleteUserLifecycle(id);
+    res.json({ success: true, phase, ...result });
+    return;
+  }
+  if (phase === "hard") {
+    await anonymizePaymentHistoryForUser(id);
+    const result = await hardDeleteUserLifecycle(id);
+    res.json({ success: true, phase, ...result });
+    return;
+  }
+  res.status(400).json({ error: "Unsupported phase" });
+});
+
+router.post("/admin/retention/run", requireAdmin, async (_req: Request, res: Response) => {
+  const result = await runRetentionWindowJobs();
+  res.json({ success: true, result });
 });
 
 export default router;
