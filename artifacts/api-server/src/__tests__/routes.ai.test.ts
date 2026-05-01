@@ -12,7 +12,7 @@
  * logic) require live OPENAI_API_KEY and are out of scope.
  */
 
-import { describe, it, before, after, beforeEach, afterEach } from "node:test";
+import { describe, it, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 
@@ -64,8 +64,6 @@ before(cleanup);
 after(cleanup);
 
 describe("POST /ai/check-duplicate — auth + validation", () => {
-  beforeEach(cleanup);
-  afterEach(cleanup);
 
   it("returns 401 when no session is presented", async () => {
     const res = await request(makeApp())
@@ -105,8 +103,6 @@ describe("POST /ai/check-duplicate — auth + validation", () => {
 });
 
 describe("POST /ai/suggest-hashtags — auth + validation", () => {
-  beforeEach(cleanup);
-  afterEach(cleanup);
 
   it("returns 401 when no session is presented", async () => {
     const res = await request(makeApp())

@@ -14,7 +14,7 @@
  * authMiddleware.test.ts for the full convention.
  */
 
-import { describe, it, before, after, beforeEach, afterEach } from "node:test";
+import { describe, it, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 
@@ -68,8 +68,6 @@ const validBody = () => ({
 describe("POST /share/invite — input validation", () => {
   before(cleanup);
   after(cleanup);
-  beforeEach(cleanup);
-  afterEach(cleanup);
 
   it("returns 400 when recipientEmail is missing", async () => {
     const { recipientEmail: _omit, ...body } = validBody();
@@ -112,8 +110,6 @@ describe("POST /share/invite — input validation", () => {
 describe("POST /share/invite — success path", () => {
   before(cleanup);
   after(cleanup);
-  beforeEach(cleanup);
-  afterEach(cleanup);
 
   it("returns 200 and queues an email row tagged with the recipient", async () => {
     const body = validBody();

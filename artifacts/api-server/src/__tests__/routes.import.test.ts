@@ -6,7 +6,8 @@
  * Zod per-item validation, dryRun mode, and the real-write happy path
  * including the exact-text dedup against existing rows.
  *
- * Sets ADMIN_API_KEY at module load so the auth middleware is configured.
+ * ADMIN_API_KEY is set in before() and restored in after() so it does not
+ * leak into sibling test files when running under --test-isolation=none.
  */
 
 import { describe, it, before, after, beforeEach, afterEach } from "node:test";
@@ -20,10 +21,9 @@ import { db } from "@workspace/db";
 import { factsTable, hashtagsTable, factHashtagsTable } from "@workspace/db/schema";
 import { eq, inArray, like } from "drizzle-orm";
 
-const TEST_API_KEY = "t-routes-import-key-secret";
-process.env.ADMIN_API_KEY = TEST_API_KEY;
-
 import importRouter from "../routes/import.js";
+
+const TEST_API_KEY = "t-routes-import-key-secret";
 
 const TEXT_PREFIX = "t_routes_imp_";
 const HASHTAG_PREFIX = "t_routes_imp_";
@@ -47,8 +47,22 @@ async function cleanup() {
   await db.delete(hashtagsTable).where(like(hashtagsTable.name, `${HASHTAG_PREFIX}%`));
 }
 
-before(cleanup);
-after(cleanup);
+let savedAdminApiKey: string | undefined;
+
+before(async () => {
+  savedAdminApiKey = process.env.ADMIN_API_KEY;
+  process.env.ADMIN_API_KEY = TEST_API_KEY;
+  await cleanup();
+});
+
+after(async () => {
+  if (savedAdminApiKey === undefined) {
+    delete process.env.ADMIN_API_KEY;
+  } else {
+    process.env.ADMIN_API_KEY = savedAdminApiKey;
+  }
+  await cleanup();
+});
 
 const validItem = (suffix = randomUUID()) => ({
   text: `${TEXT_PREFIX}sample fact ${suffix}`,

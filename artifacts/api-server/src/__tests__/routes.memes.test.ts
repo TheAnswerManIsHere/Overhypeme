@@ -10,7 +10,7 @@
  * sharp/canvas + external APIs and are out of scope for this batch.
  */
 
-import { describe, it, before, after, beforeEach, afterEach } from "node:test";
+import { describe, it, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 
@@ -118,8 +118,6 @@ describe("GET /memes/templates", () => {
 });
 
 describe("GET /memes/:slug", () => {
-  beforeEach(cleanup);
-  afterEach(cleanup);
 
   it("returns 404 when the slug doesn't exist", async () => {
     const res = await request(makeApp()).get("/memes/no-such-slug");
@@ -151,8 +149,6 @@ describe("GET /memes/:slug", () => {
 });
 
 describe("GET /facts/:factId/memes", () => {
-  beforeEach(cleanup);
-  afterEach(cleanup);
 
   it("returns 400 for a non-numeric factId", async () => {
     const res = await request(makeApp()).get("/facts/not-a-number/memes");
@@ -192,8 +188,6 @@ describe("GET /facts/:factId/memes", () => {
 });
 
 describe("GET /facts/:factId/ai-meme-preference", () => {
-  beforeEach(cleanup);
-  afterEach(cleanup);
 
   it("returns aiMemeImageIndex=0 for unauthenticated callers (no error)", async () => {
     const res = await request(makeApp()).get("/facts/1/ai-meme-preference");
@@ -236,8 +230,6 @@ describe("GET /facts/:factId/ai-meme-preference", () => {
 });
 
 describe("PUT /facts/:factId/ai-meme-preference", () => {
-  beforeEach(cleanup);
-  afterEach(cleanup);
 
   it("returns 401 when unauthenticated", async () => {
     const res = await request(makeApp())
@@ -294,8 +286,6 @@ describe("PUT /facts/:factId/ai-meme-preference", () => {
 });
 
 describe("DELETE /memes/:slug", () => {
-  beforeEach(cleanup);
-  afterEach(cleanup);
 
   it("returns 401 when unauthenticated", async () => {
     const res = await request(makeApp()).delete("/memes/some-slug");

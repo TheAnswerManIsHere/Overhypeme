@@ -12,7 +12,7 @@
  * scope — they require live network calls to OpenID discovery endpoints.
  */
 
-import { describe, it, before, after, afterEach } from "node:test";
+import { describe, it, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 
@@ -128,7 +128,7 @@ describe("getSessionId", () => {
 });
 
 describe("createSession", () => {
-  afterEach(async () => { await cleanupTestUsers(); });
+  after(async () => { await cleanupTestUsers(); });
 
   it("inserts a row with a random 64-char hex sid and links the user", async () => {
     const userId = await createTestUser();
@@ -160,7 +160,7 @@ describe("createSession", () => {
 });
 
 describe("getSession", () => {
-  afterEach(async () => { await cleanupTestUsers(); });
+  after(async () => { await cleanupTestUsers(); });
 
   it("returns the stored sess data for a non-expired sid", async () => {
     const userId = await createTestUser();
@@ -194,7 +194,7 @@ describe("getSession", () => {
 });
 
 describe("updateSession", () => {
-  afterEach(async () => { await cleanupTestUsers(); });
+  after(async () => { await cleanupTestUsers(); });
 
   it("rewrites the sess payload and pushes expire forward", async () => {
     const userId = await createTestUser();
@@ -218,7 +218,7 @@ describe("updateSession", () => {
 });
 
 describe("deleteSession", () => {
-  afterEach(async () => { await cleanupTestUsers(); });
+  after(async () => { await cleanupTestUsers(); });
 
   it("removes the row for the given sid", async () => {
     const userId = await createTestUser();
@@ -235,7 +235,7 @@ describe("deleteSession", () => {
 });
 
 describe("clearSession", () => {
-  afterEach(async () => { await cleanupTestUsers(); });
+  after(async () => { await cleanupTestUsers(); });
 
   it("clears the cookie and (when sid is given) deletes the matching row", async () => {
     const userId = await createTestUser();
