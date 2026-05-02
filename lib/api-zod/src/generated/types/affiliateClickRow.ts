@@ -12,6 +12,8 @@ export interface AffiliateClickRow {
   sourceType: AffiliateClickRowSourceType;
   sourceId: string;
   destination: AffiliateClickRowDestination;
+  /** Where in the product the click originated (e.g. "meme-page", "wear-page", "fact-detail"). Null for legacy rows. */
+  source: string | null;
   clicks: number;
   lastClicked: Date;
 }

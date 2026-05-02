@@ -16,6 +16,8 @@ export * from "./affiliateClickRowDestination";
 export * from "./affiliateClickRowSourceType";
 export * from "./affiliateDestinationTotal";
 export * from "./affiliateDestinationTotalDestination";
+export * from "./affiliateSourceDailyPoint";
+export * from "./affiliateSourceTotal";
 export * from "./affiliateStatsResponse";
 export * from "./authorizationSessionHeaderParameter";
 export * from "./authUser";

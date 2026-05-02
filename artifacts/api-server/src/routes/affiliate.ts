@@ -164,7 +164,12 @@ router.get("/affiliate/stats", requireAdmin, async (req: Request, res: Response)
 
   const whereClause = dateRangeWhere(dateFrom, dateTo);
 
-  const [rows, totals, bySource] = await Promise.all([
+  // Bucket-by-day expression. We render the day as YYYY-MM-DD (UTC) so the
+  // response is JSON-stable regardless of the server's local timezone, and so
+  // the chart on the admin page can index points without re-parsing dates.
+  const dayExpr = sql<string>`to_char(date_trunc('day', ${affiliateClicksTable.clickedAt} AT TIME ZONE 'UTC'), 'YYYY-MM-DD')`;
+
+  const [rows, totals, bySource, bySourceDaily] = await Promise.all([
     db
       .select({
         sourceType: affiliateClicksTable.sourceType,
@@ -203,9 +208,20 @@ router.get("/affiliate/stats", requireAdmin, async (req: Request, res: Response)
       .where(whereClause)
       .groupBy(affiliateClicksTable.source)
       .orderBy(desc(count())),
+
+    db
+      .select({
+        source: affiliateClicksTable.source,
+        day: dayExpr,
+        total: count(),
+      })
+      .from(affiliateClicksTable)
+      .where(whereClause)
+      .groupBy(affiliateClicksTable.source, dayExpr)
+      .orderBy(dayExpr),
   ]);
 
-  res.json({ rows, totals, bySource });
+  res.json({ rows, totals, bySource, bySourceDaily });
 });
 
 export default router;

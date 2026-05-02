@@ -1089,7 +1089,7 @@ components:
 
     AffiliateClickRow:
       type: object
-      required: [sourceType, sourceId, destination, clicks, lastClicked]
+      required: [sourceType, sourceId, destination, source, clicks, lastClicked]
       properties:
         sourceType:
           type: string
@@ -1099,6 +1099,10 @@ components:
         destination:
           type: string
           enum: [zazzle]
+        source:
+          type: string
+          nullable: true
+          description: Where in the product the click originated (e.g. "meme-page", "wear-page", "fact-detail"). Null for legacy rows.
         clicks:
           type: integer
         lastClicked:
@@ -1115,9 +1119,33 @@ components:
         total:
           type: integer
 
+    AffiliateSourceTotal:
+      type: object
+      required: [source, total]
+      properties:
+        source:
+          type: string
+          nullable: true
+        total:
+          type: integer
+
+    AffiliateSourceDailyPoint:
+      type: object
+      required: [source, day, total]
+      properties:
+        source:
+          type: string
+          nullable: true
+        day:
+          type: string
+          format: date
+          description: UTC calendar day for this bucket (YYYY-MM-DD).
+        total:
+          type: integer
+
     AffiliateStatsResponse:
       type: object
-      required: [rows, totals]
+      required: [rows, totals, bySource, bySourceDaily]
       properties:
         rows:
           type: array
@@ -1127,6 +1155,15 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/AffiliateDestinationTotal"
+        bySource:
+          type: array
+          items:
+            $ref: "#/components/schemas/AffiliateSourceTotal"
+        bySourceDaily:
+          type: array
+          description: Daily click counts bucketed by `source`, ordered by day ascending.
+          items:
+            $ref: "#/components/schemas/AffiliateSourceDailyPoint"
 
     ErrorEnvelope:
       type: object

@@ -117,6 +117,8 @@ export interface AffiliateClickRow {
   sourceType: AffiliateClickRowSourceType;
   sourceId: string;
   destination: AffiliateClickRowDestination;
+  /** Where in the product the click originated (e.g. "meme-page", "wear-page", "fact-detail"). Null for legacy rows. */
+  source: string | null;
   clicks: number;
   lastClicked: string;
 }
@@ -133,9 +135,24 @@ export interface AffiliateDestinationTotal {
   total: number;
 }
 
+export interface AffiliateSourceTotal {
+  source: string | null;
+  total: number;
+}
+
+export interface AffiliateSourceDailyPoint {
+  source: string | null;
+  /** UTC calendar day for this bucket (YYYY-MM-DD). */
+  day: string;
+  total: number;
+}
+
 export interface AffiliateStatsResponse {
   rows: AffiliateClickRow[];
   totals: AffiliateDestinationTotal[];
+  bySource: AffiliateSourceTotal[];
+  /** Daily click counts bucketed by `source`, ordered by day ascending. */
+  bySourceDaily: AffiliateSourceDailyPoint[];
 }
 
 export interface ErrorEnvelope {

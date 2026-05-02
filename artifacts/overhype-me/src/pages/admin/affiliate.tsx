@@ -1,8 +1,18 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { AdminLayout } from "@/components/admin/AdminLayout";
 import { ResponsiveTable, type ResponsiveColumn } from "@/components/admin/ResponsiveTable";
 import { Link } from "wouter";
-import { ExternalLink, TrendingUp, ShoppingBag, MapPin } from "lucide-react";
+import { ExternalLink, TrendingUp, ShoppingBag, MapPin, LineChart as LineChartIcon } from "lucide-react";
+import {
+  CartesianGrid,
+  Legend,
+  Line,
+  LineChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
 
 interface ClickRow {
   sourceType: "fact" | "meme";
@@ -23,10 +33,38 @@ interface SourceTotal {
   total: number;
 }
 
+interface SourceDailyPoint {
+  source: string | null;
+  day: string;
+  total: number;
+}
+
 interface StatsResponse {
   rows: ClickRow[];
   totals: DestTotal[];
   bySource: SourceTotal[];
+  bySourceDaily: SourceDailyPoint[];
+}
+
+// Color palette mirroring SourcePill so the chart's series visually align with
+// the totals pills above. Keep these in sync if the pill palette changes.
+const SOURCE_COLORS: Record<string, string> = {
+  "meme-page": "hsl(280 80% 60%)",
+  "wear-page": "hsl(160 70% 45%)",
+  "fact-detail": "hsl(210 80% 60%)",
+};
+const FALLBACK_COLORS = [
+  "hsl(45 80% 55%)",
+  "hsl(0 70% 60%)",
+  "hsl(190 70% 55%)",
+  "hsl(330 70% 60%)",
+];
+const NULL_SOURCE_KEY = "__none__";
+const NULL_SOURCE_LABEL = "(no source)";
+
+function colorForSource(source: string | null, fallbackIndex: number): string {
+  if (!source) return "hsl(220 10% 50%)";
+  return SOURCE_COLORS[source] ?? FALLBACK_COLORS[fallbackIndex % FALLBACK_COLORS.length];
 }
 
 function SourcePill({ value }: { value: string | null }) {
@@ -83,6 +121,45 @@ export default function AdminAffiliate() {
   const grandTotal = zazzleTotal;
   const bySource = data?.bySource ?? [];
 
+  // Reshape the per-source-per-day series into the wide format Recharts expects:
+  // one row per day, with one numeric column per source. Days that exist for
+  // some sources but not others are zero-filled so the lines stay continuous.
+  const { chartRows, sourceKeys } = useMemo(() => {
+    const daily = data?.bySourceDaily ?? [];
+    if (daily.length === 0) return { chartRows: [], sourceKeys: [] as string[] };
+
+    const keys = new Set<string>();
+    const byDay = new Map<string, Record<string, number | string>>();
+    for (const point of daily) {
+      const key = point.source ?? NULL_SOURCE_KEY;
+      keys.add(key);
+      let row = byDay.get(point.day);
+      if (!row) {
+        row = { day: point.day };
+        byDay.set(point.day, row);
+      }
+      row[key] = (row[key] as number | undefined ?? 0) + point.total;
+    }
+
+    const sortedKeys = Array.from(keys).sort((a, b) => {
+      // Push the null/legacy bucket to the end so the named sources lead.
+      if (a === NULL_SOURCE_KEY) return 1;
+      if (b === NULL_SOURCE_KEY) return -1;
+      return a.localeCompare(b);
+    });
+
+    const rows = Array.from(byDay.values())
+      .map((r) => {
+        for (const k of sortedKeys) {
+          if (r[k] === undefined) r[k] = 0;
+        }
+        return r;
+      })
+      .sort((a, b) => String(a.day).localeCompare(String(b.day)));
+
+    return { chartRows: rows, sourceKeys: sortedKeys };
+  }, [data]);
+
   return (
     <AdminLayout title="Affiliate Click-Throughs">
       {/* Error state */}
@@ -130,6 +207,67 @@ export default function AdminAffiliate() {
                 <span className="font-mono text-sm text-foreground tabular-nums">{s.total}</span>
               </div>
             ))}
+          </div>
+        </div>
+      )}
+
+      {/* Daily clicks-by-source trend — answers "is meme-page growing or
+          shrinking week-over-week?". Hidden when there are no daily points so
+          we don't render an awkward empty axis on a fresh install. The series
+          are zero-filled across days in the data transform above so each line
+          stays continuous even on days where one source got no clicks. */}
+      {chartRows.length > 0 && sourceKeys.length > 0 && (
+        <div
+          className="mb-8 bg-card border border-border rounded-lg p-5"
+          data-testid="affiliate-source-trend"
+        >
+          <div className="flex items-center gap-2 mb-3">
+            <LineChartIcon className="w-4 h-4 text-muted-foreground" />
+            <h3 className="text-xs uppercase tracking-wide text-muted-foreground font-medium">
+              Daily clicks by source
+            </h3>
+          </div>
+          <div className="h-64 w-full">
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={chartRows} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
+                <CartesianGrid stroke="hsl(var(--border))" strokeDasharray="3 3" />
+                <XAxis
+                  dataKey="day"
+                  tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }}
+                  stroke="hsl(var(--border))"
+                />
+                <YAxis
+                  allowDecimals={false}
+                  tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }}
+                  stroke="hsl(var(--border))"
+                />
+                <Tooltip
+                  contentStyle={{
+                    background: "hsl(var(--card))",
+                    border: "1px solid hsl(var(--border))",
+                    borderRadius: 4,
+                    fontSize: 12,
+                  }}
+                  labelStyle={{ color: "hsl(var(--muted-foreground))" }}
+                />
+                <Legend
+                  formatter={(value) => (value === NULL_SOURCE_KEY ? NULL_SOURCE_LABEL : value)}
+                  wrapperStyle={{ fontSize: 11 }}
+                />
+                {sourceKeys.map((key, i) => (
+                  <Line
+                    key={key}
+                    type="monotone"
+                    dataKey={key}
+                    name={key}
+                    stroke={colorForSource(key === NULL_SOURCE_KEY ? null : key, i)}
+                    strokeWidth={2}
+                    dot={false}
+                    activeDot={{ r: 4 }}
+                  />
+                ))}
+              </LineChart>
+            </ResponsiveContainer>
           </div>
         </div>
       )}

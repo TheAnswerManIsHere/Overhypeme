@@ -727,6 +727,12 @@ export const GetAffiliateStatsResponse = zod.object({
       sourceType: zod.enum(["fact", "meme"]),
       sourceId: zod.string(),
       destination: zod.enum(["zazzle"]),
+      source: zod
+        .string()
+        .nullable()
+        .describe(
+          'Where in the product the click originated (e.g. \"meme-page\", \"wear-page\", \"fact-detail\"). Null for legacy rows.',
+        ),
       clicks: zod.number(),
       lastClicked: zod.coerce.date(),
     }),
@@ -737,6 +743,25 @@ export const GetAffiliateStatsResponse = zod.object({
       total: zod.number(),
     }),
   ),
+  bySource: zod.array(
+    zod.object({
+      source: zod.string().nullable(),
+      total: zod.number(),
+    }),
+  ),
+  bySourceDaily: zod
+    .array(
+      zod.object({
+        source: zod.string().nullable(),
+        day: zod.coerce
+          .date()
+          .describe("UTC calendar day for this bucket (YYYY-MM-DD)."),
+        total: zod.number(),
+      }),
+    )
+    .describe(
+      "Daily click counts bucketed by `source`, ordered by day ascending.",
+    ),
 });
 
 /**
