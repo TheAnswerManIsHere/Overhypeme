@@ -208,6 +208,188 @@ describe("applyMigrations() concurrency", () => {
     }
   });
 
+  it("throws a verification error naming any journal tag whose hash is missing from drizzle.__drizzle_migrations", async () => {
+    // Regression guard for the verification block at the end of
+    // applyMigrations(). That block is the runner's last line of defence
+    // against the silent-skip failure mode that prompted the hash-based
+    // runner: if a journal entry's hash never makes it into
+    // drizzle.__drizzle_migrations, the deploy must fail loudly with the
+    // missing tag named in the error so an operator can act on it.
+    //
+    // Simulating the divergence: we wrap the PoolClient so the INSERT into
+    // drizzle.__drizzle_migrations for one specific hash is silently
+    // dropped while every other query (including the surrounding BEGIN /
+    // SAVEPOINT / COMMIT and the DDL itself) passes through to the real
+    // client. After the apply loop completes, the journal references both
+    // hashes but only one row is in the table — exactly the divergence the
+    // verification block is designed to catch.
+    const VERIFY_RUN_ID = crypto.randomBytes(4).toString("hex");
+    const TAG_C = `9101_verify_c_${VERIFY_RUN_ID}`;
+    const TAG_D = `9102_verify_d_${VERIFY_RUN_ID}`;
+    const TABLE_C = `migrate_test_c_${VERIFY_RUN_ID}`;
+    const TABLE_D = `migrate_test_d_${VERIFY_RUN_ID}`;
+    const SQL_C = `CREATE TABLE "${TABLE_C}" (id integer PRIMARY KEY);`;
+    const SQL_D = `CREATE TABLE "${TABLE_D}" (id integer PRIMARY KEY);`;
+    const HASH_C = crypto.createHash("sha256").update(SQL_C).digest("hex");
+    const HASH_D = crypto.createHash("sha256").update(SQL_D).digest("hex");
+
+    const verifyDir = fs.mkdtempSync(path.join(os.tmpdir(), "migrate-verify-"));
+    fs.mkdirSync(path.join(verifyDir, "meta"));
+    fs.writeFileSync(path.join(verifyDir, `${TAG_C}.sql`), SQL_C);
+    fs.writeFileSync(path.join(verifyDir, `${TAG_D}.sql`), SQL_D);
+    fs.writeFileSync(
+      path.join(verifyDir, "meta/_journal.json"),
+      JSON.stringify(
+        {
+          version: "7",
+          dialect: "postgresql",
+          entries: [
+            { idx: 0, version: "7", when: 1900000100000, tag: TAG_C, breakpoints: true },
+            { idx: 1, version: "7", when: 1900000101000, tag: TAG_D, breakpoints: true },
+          ],
+        },
+        null,
+        2,
+      ),
+    );
+
+    const previousFolder = process.env.DRIZZLE_MIGRATIONS_FOLDER;
+    process.env.DRIZZLE_MIGRATIONS_FOLDER = verifyDir;
+
+    // Pre-clean any leftovers (extremely unlikely with random hex but cheap).
+    const pre = await pool.connect();
+    try {
+      await pre.query(`DROP TABLE IF EXISTS "${TABLE_C}"`);
+      await pre.query(`DROP TABLE IF EXISTS "${TABLE_D}"`);
+      await pre.query(
+        `DELETE FROM drizzle.__drizzle_migrations WHERE hash = ANY($1::text[])`,
+        [[HASH_C, HASH_D]],
+      );
+    } finally {
+      pre.release();
+    }
+
+    const real = await pool.connect();
+
+    // Proxy the PoolClient so calls to .query() pass through verbatim
+    // EXCEPT the INSERT INTO drizzle.__drizzle_migrations for HASH_D, which
+    // we silently swallow to simulate the silent-skip bug. Every other
+    // method (release, on, etc.) is forwarded so the runner is unaware it
+    // is talking to a wrapper.
+    // Typed forwarder: pg.PoolClient.query is overloaded, but we only need
+    // to forward the call verbatim, so a permissive callable signature
+    // (no `any`) is sufficient and keeps the lint policy clean.
+    type ForwardQuery = (...forwardedArgs: unknown[]) => unknown;
+    const forwardQuery = (real.query as unknown as ForwardQuery).bind(real);
+
+    const wrapped = new Proxy(real, {
+      get(target, prop, receiver) {
+        if (prop === "query") {
+          return (...args: unknown[]) => {
+            const [textOrConfig, params] = args;
+            const text =
+              typeof textOrConfig === "string"
+                ? textOrConfig
+                : (textOrConfig as { text?: string } | undefined)?.text;
+            if (
+              typeof text === "string" &&
+              text.includes("INSERT INTO drizzle.__drizzle_migrations") &&
+              Array.isArray(params) &&
+              params[0] === HASH_D
+            ) {
+              return Promise.resolve({
+                rows: [],
+                rowCount: 0,
+                command: "INSERT",
+                oid: 0,
+                fields: [],
+              });
+            }
+            return forwardQuery(...args);
+          };
+        }
+        const value = Reflect.get(target, prop, receiver);
+        return typeof value === "function" ? value.bind(target) : value;
+      },
+    }) as pg.PoolClient;
+
+    try {
+      await assert.rejects(
+        applyMigrations(wrapped),
+        (err: Error) => {
+          // The error must clearly identify the verification stage so an
+          // operator triaging a failed deploy knows what went wrong.
+          assert.match(
+            err.message,
+            /Migration verification failed/,
+            `expected verification-failure message, got: ${err.message}`,
+          );
+          // The missing tag must appear by name on the "Missing:" line so
+          // the operator can act on it without spelunking the journal.
+          assert.match(
+            err.message,
+            new RegExp(`Missing:[^\\n]*${TAG_D}`),
+            `expected missing tag ${TAG_D} to be named in error, got: ${err.message}`,
+          );
+          // The non-missing tag must NOT be named — otherwise the message
+          // would mislead the operator into chasing the wrong migration.
+          assert.ok(
+            !new RegExp(`Missing:[^\\n]*${TAG_C}`).test(err.message),
+            `tag ${TAG_C} should not appear in Missing list, got: ${err.message}`,
+          );
+          return true;
+        },
+        "applyMigrations should throw a verification error naming the missing tag",
+      );
+
+      // Confirm the simulated divergence is real: HASH_C is persisted (its
+      // INSERT was let through) but HASH_D is not (its INSERT was dropped).
+      // Without this, the test could pass even if the verifier was throwing
+      // for the wrong reason.
+      const probe = await pool.connect();
+      try {
+        const { rows } = await probe.query<{ hash: string }>(
+          `SELECT hash FROM drizzle.__drizzle_migrations WHERE hash = ANY($1::text[])`,
+          [[HASH_C, HASH_D]],
+        );
+        const hashes = new Set(rows.map((r) => r.hash));
+        assert.ok(hashes.has(HASH_C), "HASH_C should have been recorded by the runner");
+        assert.ok(
+          !hashes.has(HASH_D),
+          "HASH_D should be missing — the dropped INSERT is what the verifier must catch",
+        );
+      } finally {
+        probe.release();
+      }
+    } finally {
+      real.release();
+
+      // Cleanup: drop synthetic tables and rows, restore env var, remove tempdir.
+      const cleanup = await pool.connect();
+      try {
+        await cleanup.query(`DROP TABLE IF EXISTS "${TABLE_C}"`);
+        await cleanup.query(`DROP TABLE IF EXISTS "${TABLE_D}"`);
+        await cleanup.query(
+          `DELETE FROM drizzle.__drizzle_migrations WHERE hash = ANY($1::text[])`,
+          [[HASH_C, HASH_D]],
+        );
+      } finally {
+        cleanup.release();
+      }
+
+      if (previousFolder === undefined) {
+        delete process.env.DRIZZLE_MIGRATIONS_FOLDER;
+      } else {
+        process.env.DRIZZLE_MIGRATIONS_FOLDER = previousFolder;
+      }
+      // Restore the test-suite-wide override so subsequent tests in this
+      // describe block still see the synthetic A/B journal.
+      process.env.DRIZZLE_MIGRATIONS_FOLDER = tempDir;
+
+      fs.rmSync(verifyDir, { recursive: true, force: true });
+    }
+  });
+
   it("a third caller after the race sees 0 applied and reports both migrations skipped", async () => {
     // Re-running after the race must be a clean no-op — this is the same
     // code path a freshly-started instance hits when migrations are already
