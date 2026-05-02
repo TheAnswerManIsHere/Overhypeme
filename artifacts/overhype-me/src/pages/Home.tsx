@@ -95,6 +95,7 @@ function HeroBillboardMobile({
   onShuffle: () => void;
   isShuffling: boolean;
 }) {
+  const swapKey = fact ? `f-${fact.id}` : "loading";
   return (
     <div className="px-4 pb-4">
       <div className="rounded-[20px] bg-card shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] p-5 relative overflow-hidden">
@@ -114,21 +115,58 @@ function HeroBillboardMobile({
             className="w-8 h-8 rounded-full bg-secondary border border-border flex items-center justify-center text-muted-foreground hover:text-foreground hover:border-primary/40 transition-colors disabled:opacity-50"
             aria-label="Shuffle hero fact"
           >
-            <Shuffle className={cn("w-3.5 h-3.5", isShuffling && "animate-spin")} />
+            <Shuffle className={cn("w-3.5 h-3.5 transition-transform", isShuffling && "animate-spin")} />
           </button>
         </div>
 
-        <h2 className="font-display font-bold text-2xl uppercase tracking-tight leading-[1.05] mb-5 min-h-[3.5rem]">
-          <HeroHeadline rendered={rendered} name={name} />
-        </h2>
+        <div className="min-h-[3.5rem] mb-5 relative">
+          <AnimatePresence mode="wait" initial={false}>
+            {fact ? (
+              <motion.h2
+                key={swapKey}
+                initial={{ opacity: 0, y: 6 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -6 }}
+                transition={{ duration: 0.18, ease: "easeOut" }}
+                className="font-display font-bold text-2xl uppercase tracking-tight leading-[1.05]"
+              >
+                <HeroHeadline rendered={rendered} name={name} />
+              </motion.h2>
+            ) : (
+              <motion.div
+                key="skeleton"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.15 }}
+                className="space-y-2 pt-1"
+                aria-hidden="true"
+              >
+                <div className="h-5 w-11/12 rounded bg-secondary animate-pulse" />
+                <div className="h-5 w-3/4 rounded bg-secondary animate-pulse" />
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
 
-        {fact && (
-          <div className="flex items-center gap-4 pt-3 border-t border-border/50 text-muted-foreground text-[12px] font-semibold">
-            <span>{(fact.upvotes / 1000).toFixed(1)}k likes</span>
-            <span className="text-border">·</span>
-            <span>{fact.commentCount} comments</span>
-          </div>
-        )}
+        <div className="flex items-center gap-4 pt-3 border-t border-border/50 text-muted-foreground text-[12px] font-semibold min-h-[1.25rem]">
+          <AnimatePresence mode="wait" initial={false}>
+            {fact ? (
+              <motion.div
+                key={`stats-${fact.id}`}
+                initial={{ opacity: 0, y: 4 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -4 }}
+                transition={{ duration: 0.18, ease: "easeOut" }}
+                className="flex items-center gap-4"
+              >
+                <span>{(fact.upvotes / 1000).toFixed(1)}k likes</span>
+                <span className="text-border">·</span>
+                <span>{fact.commentCount} comments</span>
+              </motion.div>
+            ) : null}
+          </AnimatePresence>
+        </div>
       </div>
     </div>
   );
@@ -150,6 +188,7 @@ function DesktopHeroBillboard({
   isShuffling: boolean;
   onMakeMeme: ((factId: number) => void) | null;
 }) {
+  const swapKey = fact ? `f-${fact.id}` : "loading";
   return (
     <div className="rounded-[32px] bg-card border border-border shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] px-10 py-9 relative overflow-hidden">
       <div className="flex items-center justify-between mb-6">
@@ -167,38 +206,86 @@ function DesktopHeroBillboard({
           disabled={isShuffling}
           className="h-9 px-3 rounded-full bg-secondary border border-border flex items-center gap-1.5 text-xs font-display font-bold uppercase tracking-[0.1em] text-muted-foreground hover:text-foreground hover:border-primary/40 transition-colors disabled:opacity-50"
         >
-          <Shuffle className={cn("w-3.5 h-3.5", isShuffling && "animate-spin")} />
+          <Shuffle className={cn("w-3.5 h-3.5 transition-transform", isShuffling && "animate-spin")} />
           Shuffle
         </button>
       </div>
 
-      <h2
-        className="font-display font-bold text-[52px] leading-[0.96] uppercase tracking-tight mb-8 min-h-[6rem]"
-        style={{ textWrap: "pretty" } as React.CSSProperties}
-      >
-        <HeroHeadline rendered={rendered} name={name} />
-      </h2>
-
-      <div className="flex items-center justify-between pt-5 border-t border-border/50">
-        <div className="flex items-center gap-4 text-muted-foreground text-[13px] font-semibold">
+      <div className="min-h-[6rem] mb-8 relative">
+        <AnimatePresence mode="wait" initial={false}>
           {fact ? (
-            <>
-              <span>{(fact.upvotes / 1000).toFixed(1)}k likes</span>
-              <span className="text-border">·</span>
-              <span>{fact.commentCount} comments</span>
-            </>
+            <motion.h2
+              key={swapKey}
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -8 }}
+              transition={{ duration: 0.2, ease: "easeOut" }}
+              className="font-display font-bold text-[52px] leading-[0.96] uppercase tracking-tight"
+              style={{ textWrap: "pretty" } as React.CSSProperties}
+            >
+              <HeroHeadline rendered={rendered} name={name} />
+            </motion.h2>
           ) : (
-            <span>Fresh hype loading…</span>
+            <motion.div
+              key="skeleton"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.15 }}
+              className="space-y-3 pt-2"
+              aria-hidden="true"
+            >
+              <div className="h-10 w-11/12 rounded bg-secondary animate-pulse" />
+              <div className="h-10 w-3/4 rounded bg-secondary animate-pulse" />
+            </motion.div>
           )}
+        </AnimatePresence>
+      </div>
+
+      <div className="flex items-center justify-between pt-5 border-t border-border/50 min-h-[44px]">
+        <div className="flex items-center gap-4 text-muted-foreground text-[13px] font-semibold">
+          <AnimatePresence mode="wait" initial={false}>
+            {fact ? (
+              <motion.div
+                key={`stats-${fact.id}`}
+                initial={{ opacity: 0, y: 4 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -4 }}
+                transition={{ duration: 0.2, ease: "easeOut" }}
+                className="flex items-center gap-4"
+              >
+                <span>{(fact.upvotes / 1000).toFixed(1)}k likes</span>
+                <span className="text-border">·</span>
+                <span>{fact.commentCount} comments</span>
+              </motion.div>
+            ) : (
+              <motion.span
+                key="loading-stats"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.15 }}
+              >
+                Fresh hype loading…
+              </motion.span>
+            )}
+          </AnimatePresence>
         </div>
-        {fact && onMakeMeme && (
-          <button
-            onClick={() => onMakeMeme(fact.id)}
-            className="h-[44px] px-7 bg-primary text-white rounded-[12px] font-display font-bold text-[13px] uppercase tracking-[0.1em] hover:bg-primary/90 transition-colors"
-          >
-            Make a meme
-          </button>
-        )}
+        <AnimatePresence mode="wait" initial={false}>
+          {fact && onMakeMeme && (
+            <motion.button
+              key={`meme-${fact.id}`}
+              initial={{ opacity: 0, scale: 0.96 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.96 }}
+              transition={{ duration: 0.18, ease: "easeOut" }}
+              onClick={() => onMakeMeme(fact.id)}
+              className="h-[44px] px-7 bg-primary text-white rounded-[12px] font-display font-bold text-[13px] uppercase tracking-[0.1em] hover:bg-primary/90 transition-colors"
+            >
+              Make a meme
+            </motion.button>
+          )}
+        </AnimatePresence>
       </div>
     </div>
   );
