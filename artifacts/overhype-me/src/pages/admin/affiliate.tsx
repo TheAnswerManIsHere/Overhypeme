@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { AdminLayout } from "@/components/admin/AdminLayout";
+import { ResponsiveTable, type ResponsiveColumn } from "@/components/admin/ResponsiveTable";
 import { Link } from "wouter";
 import { ExternalLink, TrendingUp, ShoppingBag } from "lucide-react";
 
@@ -113,71 +114,120 @@ export default function AdminAffiliate() {
       </div>
 
       {/* Table */}
-      <div className="bg-card border border-border rounded-lg overflow-hidden">
-        <table className="w-full text-sm">
-          <thead className="bg-muted border-b border-border">
-            <tr>
-              <th className="text-left px-4 py-3 text-xs uppercase tracking-wide text-muted-foreground">Source</th>
-              <th className="text-left px-4 py-3 text-xs uppercase tracking-wide text-muted-foreground">ID</th>
-              <th className="text-left px-4 py-3 text-xs uppercase tracking-wide text-muted-foreground">Destination</th>
-              <th className="text-right px-4 py-3 text-xs uppercase tracking-wide text-muted-foreground">Clicks</th>
-              <th className="text-right px-4 py-3 text-xs uppercase tracking-wide text-muted-foreground">Last Click</th>
-              <th className="px-4 py-3"></th>
-            </tr>
-          </thead>
-          <tbody>
-            {loading && (
-              <tr>
-                <td colSpan={6} className="text-center py-12 text-muted-foreground">Loading…</td>
-              </tr>
-            )}
-            {!loading && (!data?.rows || data.rows.length === 0) && (
-              <tr>
-                <td colSpan={6} className="text-center py-12 text-muted-foreground">No affiliate clicks recorded yet.</td>
-              </tr>
-            )}
-            {!loading && data?.rows.map((row, i) => (
-              <tr key={i} className="border-b border-border/50 hover:bg-secondary/30 transition-colors">
-                <td className="px-4 py-3">
-                  <span className={`text-xs font-bold uppercase px-2 py-0.5 rounded-sm ${row.sourceType === "fact" ? "bg-primary/20 text-primary" : "bg-blue-500/20 text-blue-400"}`}>
-                    {row.sourceType}
-                  </span>
-                </td>
-                <td className="px-4 py-3 font-mono text-foreground">{row.sourceId}</td>
-                <td className="px-4 py-3">
-                  <span className="text-xs uppercase font-medium text-orange-400">
-                    {row.destination}
-                  </span>
-                </td>
-                <td className="px-4 py-3 text-right font-bold text-foreground">{row.clicks}</td>
-                <td className="px-4 py-3 text-right text-muted-foreground text-xs">
-                  {new Date(row.lastClicked).toLocaleDateString()}
-                </td>
-                <td className="px-4 py-3 text-right">
-                  {row.sourceType === "fact" ? (
-                    <Link href={`/facts/${row.sourceId}`}>
-                      <a className="text-primary hover:underline text-xs flex items-center gap-1 justify-end">
-                        View <ExternalLink className="w-3 h-3" />
-                      </a>
-                    </Link>
-                  ) : (
-                    <Link href={`/meme/${row.sourceId}`}>
-                      <a className="text-primary hover:underline text-xs flex items-center gap-1 justify-end">
-                        View <ExternalLink className="w-3 h-3" />
-                      </a>
-                    </Link>
-                  )}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-        {!loading && data?.rows && data.rows.length >= 200 && (
-          <p className="text-xs text-muted-foreground px-4 py-3 border-t border-border/50">
-            Showing the 200 most recent grouped rows. Use date filters to narrow the range and see all results.
-          </p>
+      <ResponsiveTable<ClickRow>
+        rows={data?.rows ?? []}
+        getKey={(row) => `${row.sourceType}-${row.sourceId}-${row.destination}`}
+        loading={loading}
+        emptyState="No affiliate clicks recorded yet."
+        mobilePrimary={(row) => (
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2 min-w-0">
+              <span
+                className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded-sm shrink-0 ${
+                  row.sourceType === "fact"
+                    ? "bg-primary/20 text-primary"
+                    : "bg-blue-500/20 text-blue-400"
+                }`}
+              >
+                {row.sourceType}
+              </span>
+              <span className="font-mono text-sm text-foreground truncate">{row.sourceId}</span>
+            </div>
+            <span className="text-base font-bold text-foreground tabular-nums shrink-0">
+              {row.clicks}
+            </span>
+          </div>
         )}
-      </div>
+        mobileFooter={(row) =>
+          row.sourceType === "fact" ? (
+            <Link href={`/facts/${row.sourceId}`}>
+              <a className="inline-flex items-center justify-center gap-1.5 min-h-[44px] w-full text-sm text-primary border border-primary/30 hover:bg-primary/10 rounded-sm px-3">
+                View source <ExternalLink className="w-3.5 h-3.5" />
+              </a>
+            </Link>
+          ) : (
+            <Link href={`/meme/${row.sourceId}`}>
+              <a className="inline-flex items-center justify-center gap-1.5 min-h-[44px] w-full text-sm text-primary border border-primary/30 hover:bg-primary/10 rounded-sm px-3">
+                View source <ExternalLink className="w-3.5 h-3.5" />
+              </a>
+            </Link>
+          )
+        }
+        columns={[
+          {
+            key: "source",
+            header: "Source",
+            hideOnMobile: true,
+            cell: (row) => (
+              <span
+                className={`text-xs font-bold uppercase px-2 py-0.5 rounded-sm ${
+                  row.sourceType === "fact"
+                    ? "bg-primary/20 text-primary"
+                    : "bg-blue-500/20 text-blue-400"
+                }`}
+              >
+                {row.sourceType}
+              </span>
+            ),
+          },
+          {
+            key: "id",
+            header: "ID",
+            hideOnMobile: true,
+            cell: (row) => <span className="font-mono text-foreground">{row.sourceId}</span>,
+          },
+          {
+            key: "destination",
+            header: "Destination",
+            mobileLabel: "Destination",
+            cell: (row) => (
+              <span className="text-xs uppercase font-medium text-orange-400">{row.destination}</span>
+            ),
+          },
+          {
+            key: "clicks",
+            header: "Clicks",
+            hideOnMobile: true,
+            className: "text-right font-bold text-foreground",
+            cell: (row) => row.clicks,
+          },
+          {
+            key: "lastClicked",
+            header: "Last Click",
+            mobileLabel: "Last click",
+            className: "text-right text-muted-foreground text-xs",
+            cell: (row) => new Date(row.lastClicked).toLocaleDateString(),
+            mobileSecondary: true,
+          },
+          {
+            key: "view",
+            header: "",
+            hideOnMobile: true,
+            className: "text-right",
+            cell: (row) =>
+              row.sourceType === "fact" ? (
+                <Link href={`/facts/${row.sourceId}`}>
+                  <a className="text-primary hover:underline text-xs inline-flex items-center gap-1 justify-end">
+                    View <ExternalLink className="w-3 h-3" />
+                  </a>
+                </Link>
+              ) : (
+                <Link href={`/meme/${row.sourceId}`}>
+                  <a className="text-primary hover:underline text-xs inline-flex items-center gap-1 justify-end">
+                    View <ExternalLink className="w-3 h-3" />
+                  </a>
+                </Link>
+              ),
+          },
+        ] satisfies ResponsiveColumn<ClickRow>[]}
+        footer={
+          !loading && data?.rows && data.rows.length >= 200 ? (
+            <p className="text-xs text-muted-foreground px-4 py-3 border-t border-border/50">
+              Showing the 200 most recent grouped rows. Use date filters to narrow the range and see all results.
+            </p>
+          ) : null
+        }
+      />
     </AdminLayout>
   );
 }

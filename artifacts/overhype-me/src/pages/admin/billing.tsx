@@ -600,7 +600,7 @@ export default function AdminBilling() {
         </CollapsibleSection>
 
         {/* Subscriber Summary */}
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div className="bg-card border border-border rounded-lg p-5">
             <div className="flex items-center gap-2 mb-1">
               <Users className="w-4 h-4 text-primary" />
@@ -658,7 +658,7 @@ export default function AdminBilling() {
             <Button
               variant="outline"
               size="sm"
-              className="h-7 px-2.5 text-xs gap-1.5"
+              className="min-h-[44px] sm:min-h-0 sm:h-8 px-3 text-xs gap-1.5 w-full sm:w-auto"
               onClick={() => void syncStripe()}
               disabled={syncing}
               title="Pull latest products, prices, and plans from Stripe"
