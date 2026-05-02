@@ -18,6 +18,7 @@ import {
 import { stripeStorage } from "../lib/stripeStorage";
 import { notifyAdmins } from "../lib/adminNotify";
 import { getSiteBaseUrl } from "../lib/siteUrl";
+import { logger } from "../lib/logger";
 import { hasFeature } from "../lib/tierFeatures";
 import { verifyCaptcha } from "../lib/captcha";
 import { eq, sql, desc, asc, ilike, and, inArray, isNull } from "drizzle-orm";
@@ -195,7 +196,7 @@ router.get("/facts/hero", async (req: AuthenticatedRequest, res: Response) => {
         target: [userFactPreferencesTable.userId, userFactPreferencesTable.factId],
         set: { lastSeenAsHeroAt: new Date(), updatedAt: new Date() },
       })
-      .catch((err: unknown) => console.error("Failed to record hero pick", err));
+      .catch((err: unknown) => logger.error({ err }, "Failed to record hero pick"));
   }
 
   const [summary] = await buildFactSummaries([pick], req.user?.id);

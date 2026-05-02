@@ -1,3 +1,9 @@
+// Install stdio guard so EIO/EPIPE on stdout/stderr (e.g. piped to `head`,
+// terminal disconnect, container log-pipe overrun) cannot crash the script.
+// CLI scripts intentionally keep using console.* for human-readable output.
+import { installStdioGuard } from "../src/lib/stdioGuard.js";
+installStdioGuard();
+
 import { objectStorageClient } from "../src/lib/objectStorage";
 
 async function main() {

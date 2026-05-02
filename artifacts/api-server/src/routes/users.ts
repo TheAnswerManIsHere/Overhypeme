@@ -14,6 +14,7 @@ import { getSiteBaseUrl } from "../lib/siteUrl";
 import { ObjectStorageService } from "../lib/objectStorage";
 import { getConfigInt } from "../lib/adminConfig";
 import { verifyCaptcha } from "../lib/captcha";
+import { logger } from "../lib/logger";
 
 const router: IRouter = Router();
 
@@ -281,7 +282,7 @@ router.patch("/users/me", async (req: Request, res: Response) => {
         const objectStorageService = new ObjectStorageService();
         await objectStorageService.trySetObjectEntityAclPolicy(objectPath, { owner: userId, visibility: "public" });
       } catch (err) {
-        console.error("[users] Failed to set ACL on profile image:", err);
+        logger.error({ err }, "[users] Failed to set ACL on profile image");
       }
     }
   }
@@ -335,7 +336,7 @@ router.patch("/users/me", async (req: Request, res: Response) => {
     const verifyUrl = `${getSiteBaseUrl()}/verify-email?token=${rawToken}`;
     const emailContent = buildEmailChangeVerificationEmail(emailNormalized, verifyUrl);
     sendEmail({ to: emailNormalized, ...emailContent }).catch((err) => {
-      console.error("[users] Failed to send email change verification:", err);
+      logger.error({ err }, "[users] Failed to send email change verification");
     });
 
     emailVerificationPending = true;
@@ -555,7 +556,7 @@ router.delete("/users/me/uploads", async (req: Request, res: Response) => {
     const storageService = new ObjectStorageService();
     await storageService.deleteObject(objectPath);
   } catch (e) {
-    console.error("[DELETE /users/me/uploads] Storage delete failed:", e);
+    logger.error({ err: e }, "[DELETE /users/me/uploads] Storage delete failed");
     res.status(500).json({ error: "Failed to delete image from storage. Please try again." });
     return;
   }

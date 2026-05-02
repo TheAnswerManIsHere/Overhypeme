@@ -9,6 +9,8 @@
  * not required (we surface photographer credit in the UI as good practice).
  */
 
+import { logger } from "./logger";
+
 const PEXELS_BASE = "https://api.pexels.com/v1";
 
 // Used only by getRandomStockPhoto for the generic gender fallback
@@ -102,11 +104,11 @@ export async function searchPhotos(query: string, count: number = 80): Promise<P
     });
 
     if (response.status === 401) {
-      console.error("[pexels] 401 Unauthorized — check PEXELS_API_KEY secret.");
+      logger.error("[pexels] 401 Unauthorized — check PEXELS_API_KEY secret.");
       return [];
     }
     if (!response.ok) {
-      console.warn(`[pexels] searchPhotos("${query}") failed with status ${response.status}`);
+      logger.warn({ query, status: response.status }, "[pexels] searchPhotos failed");
       return [];
     }
 
@@ -119,7 +121,7 @@ export async function searchPhotos(query: string, count: number = 80): Promise<P
       src: p.src,
     }));
   } catch (err) {
-    console.warn(`[pexels] searchPhotos("${query}") error:`, err);
+    logger.warn({ err, query }, "[pexels] searchPhotos error");
     return [];
   }
 }
@@ -181,7 +183,7 @@ export async function getRandomStockPhoto(
   });
 
   if (response.status === 401) {
-    console.error("[pexels] 401 Unauthorized — check PEXELS_API_KEY secret.");
+    logger.error("[pexels] 401 Unauthorized — check PEXELS_API_KEY secret.");
     throw new Error("Image service is currently unavailable.");
   }
   if (response.status === 429) throw new PexelsRateLimitError();

@@ -7,6 +7,7 @@ import {
 import { eq, sql, gt } from "drizzle-orm";
 import { SEED_FACTS } from "../data/seed-facts";
 import { embedFactAsync } from "./embeddings";
+import { logger } from "./logger";
 
 /**
  * Idempotent schema migration that adds any columns which may be missing when
@@ -707,7 +708,7 @@ Return ONLY valid JSON:
     try {
       await db.execute(sql.raw(ddl));
     } catch (err) {
-      console.warn(`[schema] Could not apply migration "${label}":`, err);
+      logger.warn({ err, label }, "[schema] Could not apply migration");
     }
   }
 }
@@ -741,9 +742,7 @@ export async function backfillWilsonScores(): Promise<void> {
   );
   if (!toUpdate.length) return;
 
-  console.log(
-    `[wilson] Backfilling Wilson scores for ${toUpdate.length} facts...`,
-  );
+  logger.info({ count: toUpdate.length }, "[wilson] Backfilling Wilson scores");
   for (const f of toUpdate) {
     const wilsonScore = computeWilsonScore(f.upvotes, f.downvotes);
     await db
@@ -751,7 +750,7 @@ export async function backfillWilsonScores(): Promise<void> {
       .set({ wilsonScore })
       .where(eq(factsTable.id, f.id));
   }
-  console.log("[wilson] Backfill complete.");
+  logger.info("[wilson] Backfill complete.");
 }
 
 export async function seedIfEmpty(): Promise<void> {
@@ -763,11 +762,7 @@ export async function seedIfEmpty(): Promise<void> {
     return;
   }
 
-  console.log(
-    "[seed] Production database is empty — seeding",
-    SEED_FACTS.length,
-    "facts...",
-  );
+  logger.info({ count: SEED_FACTS.length }, "[seed] Production database is empty — seeding facts");
 
   for (const item of SEED_FACTS) {
     const [fact] = await db
@@ -802,5 +797,5 @@ export async function seedIfEmpty(): Promise<void> {
     embedFactAsync(fact.id, item.text).catch(() => {});
   }
 
-  console.log("[seed] Done seeding facts.");
+  logger.info("[seed] Done seeding facts.");
 }

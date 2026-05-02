@@ -95,12 +95,16 @@ export async function sendEmail(
   if (!isEnabled()) {
     const from = await getFromAddress();
     const replyTo = await getReplyToAddress();
-    console.log("[email] Resend not configured — would have sent:");
-    console.log(`  To:       ${payload.to}`);
-    console.log(`  From:     ${from}`);
-    if (replyTo) console.log(`  Reply-To: ${replyTo}`);
-    console.log(`  Subject:  ${payload.subject}`);
-    console.log(`  Body:     ${payload.text}`);
+    logger.info(
+      {
+        to: payload.to,
+        from,
+        replyTo,
+        subject: payload.subject,
+        body: payload.text,
+      },
+      "[email] Resend not configured — would have sent",
+    );
     return;
   }
   const dbInstance = dbOverride ?? defaultDb;

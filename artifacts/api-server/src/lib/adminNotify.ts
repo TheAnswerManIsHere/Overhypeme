@@ -9,6 +9,7 @@ import { db, usersTable } from "@workspace/db";
 import { sendEmail, buildEmailShell, ctaButton, divider } from "./email.js";
 import { getSiteBaseUrl } from "./siteUrl.js";
 import { stripeDashboardUrl } from "./stripeDashboardUrl.js";
+import { logger } from "./logger.js";
 
 export type AdminNotifyType = "fact_review" | "comment";
 
@@ -71,7 +72,7 @@ export async function notifyAdmins(opts: AdminNotifyOpts): Promise<void> {
     const { subject, text, html } = buildNotificationEmail(opts);
     await Promise.all(emails.map(to => sendEmail({ to, subject, text, html })));
   } catch (err) {
-    console.error("[notifyAdmins] Failed:", err);
+    logger.error({ err }, "[notifyAdmins] Failed");
   }
 }
 
@@ -141,7 +142,7 @@ export async function notifyAdminsOfDispute(opts: AdminDisputeNotifyOpts): Promi
     const { subject, text, html } = buildDisputeNotificationEmail(opts);
     await Promise.all(emails.map(to => sendEmail({ to, subject, text, html })));
   } catch (err) {
-    console.error("[notifyAdminsOfDispute] Failed:", err);
+    logger.error({ err }, "[notifyAdminsOfDispute] Failed");
   }
 }
 
@@ -320,7 +321,7 @@ export async function notifyAdminsOfAbandonedEmail(
     const { subject, text, html } = buildAbandonedEmailNotification(opts);
     await Promise.all(emails.map(to => sendEmail({ to, subject, text, html, kind: "admin_abandoned_email_alert" })));
   } catch (err) {
-    console.error("[notifyAdminsOfAbandonedEmail] Failed:", err);
+    logger.error({ err }, "[notifyAdminsOfAbandonedEmail] Failed");
   }
 }
 
@@ -423,7 +424,7 @@ export async function notifyAdminsOfFraudWarning(opts: AdminFraudWarningNotifyOp
     const { subject, text, html } = buildFraudWarningEmail(opts);
     await Promise.all(emails.map(to => sendEmail({ to, subject, text, html })));
   } catch (err) {
-    console.error("[notifyAdminsOfFraudWarning] Failed:", err);
+    logger.error({ err }, "[notifyAdminsOfFraudWarning] Failed");
   }
 }
 

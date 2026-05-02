@@ -28,6 +28,7 @@ import { requireAdmin } from "./admin";
 import { getUploadImageMetadata } from "./storage";
 import { CACHE, setPublicCache, setPublicCors, checkConditional, setNoStore } from "../lib/cacheHeaders";
 import { getSiteBaseUrl } from "../lib/siteUrl";
+import { logger } from "../lib/logger";
 import { buildZazzleUrl } from "../lib/zazzle";
 import type { MemeAspectRatio } from "@workspace/api-zod";
 import { completeGovernance, enforceGovernance } from "../lib/resourceGovernance";
@@ -1465,7 +1466,7 @@ router.delete("/memes/ai/:factId/image", requireLegendary, async (req: Authentic
   try {
     await objectStorageService.deleteObject(storagePath);
   } catch (e) {
-    console.error("[DELETE /memes/ai/:factId/image] Storage delete failed:", e);
+    logger.error({ err: e }, "[DELETE /memes/ai/:factId/image] Storage delete failed");
     res.status(500).json({ error: "Failed to delete image from storage. Please try again." }); return;
   }
 

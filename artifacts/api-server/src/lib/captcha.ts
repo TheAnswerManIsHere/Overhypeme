@@ -5,6 +5,8 @@
  * - Dev/staging: if HCAPTCHA_SECRET is not set, verification is skipped with a warning.
  * - Production: if HCAPTCHA_SECRET is not set, all verifications fail (returns false).
  */
+import { logger } from "./logger";
+
 export async function verifyCaptcha(token: string): Promise<boolean> {
   const secret = process.env.HCAPTCHA_SECRET;
   const isProd = process.env.NODE_ENV === "production";
@@ -14,7 +16,7 @@ export async function verifyCaptcha(token: string): Promise<boolean> {
       return false;
     }
     // Dev bypass — intentional, keeps local dev frictionless.
-    console.warn("[dev] HCAPTCHA_SECRET not set — bypassing CAPTCHA verification");
+    logger.warn("[dev] HCAPTCHA_SECRET not set — bypassing CAPTCHA verification");
     return true;
   }
 

@@ -4,6 +4,7 @@
  */
 import { db } from "@workspace/db";
 import { activityFeedTable } from "@workspace/db/schema";
+import { logger } from "./logger";
 
 export type ActivityType =
   | "fact_submitted"
@@ -34,6 +35,6 @@ export async function logActivity(opts: LogActivityOptions): Promise<void> {
       metadata: opts.metadata,
     });
   } catch (err) {
-    console.error("[activity] Failed to log activity:", err);
+    logger.error({ err }, "[activity] Failed to log activity");
   }
 }

@@ -22,6 +22,7 @@ import { getConfigInt, getConfigString } from "./adminConfig";
 import { getCachedPrice, type CachedPrice } from "./falPricing";
 import { computeImageCost, resolveImageSizePx } from "./costComputation";
 import { checkBudget, recordCost, BudgetExceededError } from "./budgetGate";
+import { logger } from "./logger";
 
 const DEFAULT_REFERENCE_FRAME_PROMPT =
   "The person's face, facial structure, skin tone, eye shape, hair, and all distinguishing features must be preserved with photorealistic accuracy and remain visually identical to the reference — this is the highest priority. Do not alter, stylize, or idealize the person's facial features in any way. The person should be placed into the scene as described. The scene and environment should be stylized as described, but the person's face and likeness must remain untouched by any stylization. No text, words, or letters anywhere in the image.";
@@ -64,7 +65,7 @@ export interface AiMemeImages {
 function getFalApiKey(): string {
   const key = process.env.FAL_AI_API_KEY;
   if (!key) {
-    console.error("[aiMemePipeline] FAL_AI_API_KEY environment variable is not set — image generation unavailable");
+    logger.error("[aiMemePipeline] FAL_AI_API_KEY environment variable is not set — image generation unavailable");
     throw new Error("FAL_AI_API_KEY environment variable is not set — image generation unavailable");
   }
   return key;
@@ -231,7 +232,7 @@ async function generateAndStoreImage(
     } catch (err) {
       if (err instanceof BudgetExceededError) throw err;
       // Pricing unavailable — fail open, log and continue
-      console.warn(`[aiMemePipeline] Budget gate skipped for model ${model}:`, err instanceof Error ? err.message : err);
+      logger.warn({ err, model }, "[aiMemePipeline] Budget gate skipped");
     }
   }
 
@@ -263,7 +264,7 @@ async function generateAndStoreImage(
       visibility: "public",
     });
   } catch (aclErr) {
-    console.warn(`[aiMemePipeline] Failed to set ACL for ${storedPath}:`, aclErr);
+    logger.warn({ err: aclErr, storedPath }, "[aiMemePipeline] Failed to set ACL");
   }
 
   // Record cost AFTER successful storage (spec: not before)
@@ -342,7 +343,7 @@ async function generateAndStoreImageFromReference(
   // If the selected model is not reference-capable (e.g. FLUX Pro 1.1 chosen via admin override),
   // fall through to standard generation — don't upload the reference photo or pass a face param.
   if (!isReferenceCapableModel(model)) {
-    console.log(`[aiMemePipeline] model "${model}" is not reference-capable — falling back to standard generation`);
+    logger.info({ model }, "[aiMemePipeline] model is not reference-capable — falling back to standard generation");
     return generateAndStoreImage(factId, gender, uniqueKey, prompt, model, paramsOverride, userId);
   }
 
@@ -411,7 +412,7 @@ async function generateAndStoreImageFromReference(
       if (!budget.allowed) throw new BudgetExceededError(budget);
     } catch (err) {
       if (err instanceof BudgetExceededError) throw err;
-      console.warn(`[aiMemePipeline] Budget gate skipped for ref model ${model}:`, err instanceof Error ? err.message : err);
+      logger.warn({ err, model }, "[aiMemePipeline] Budget gate skipped for ref model");
     }
   }
 
@@ -441,7 +442,7 @@ async function generateAndStoreImageFromReference(
       visibility: "public",
     });
   } catch (aclErr) {
-    console.warn(`[aiMemePipeline] Failed to set ACL for ${storedPath}:`, aclErr);
+    logger.warn({ err: aclErr, storedPath }, "[aiMemePipeline] Failed to set ACL");
   }
 
   // Record cost AFTER successful storage
@@ -488,7 +489,7 @@ export async function generateAiMemeBackgroundFromReference(
 ): Promise<void> {
   try {
     if (!options?.userId) {
-      console.warn(`[aiMemePipeline] Reference generation for fact ${factId} called without userId — skipping`);
+      logger.warn({ factId }, "[aiMemePipeline] Reference generation called without userId — skipping");
       return;
     }
 
@@ -496,7 +497,7 @@ export async function generateAiMemeBackgroundFromReference(
     if (options?.existingPrompts) {
       prompts = options.existingPrompts;
     } else {
-      console.log(`[aiMemePipeline] Generating scene prompts for fact ${factId} (reference mode)`);
+      logger.info({ factId }, "[aiMemePipeline] Generating scene prompts (reference mode)");
       prompts = await generateScenePrompts(factText);
       await db
         .update(factsTable)
@@ -507,19 +508,25 @@ export async function generateAiMemeBackgroundFromReference(
     const uniqueKey = `${Date.now()}`;
     const basePrompt = prompts[targetGender];
     const prompt = options?.styleSuffix ? `${basePrompt.trim()} ${options.styleSuffix}` : basePrompt;
-    console.log(`[aiMemePipeline] Generating reference-based image for fact ${factId}, gender=${targetGender}${options?.modelOverride ? ` (model override: ${options.modelOverride})` : ""}`);
+    logger.info(
+      { factId, gender: targetGender, modelOverride: options?.modelOverride },
+      "[aiMemePipeline] Generating reference-based image",
+    );
     const storedPath = await generateAndStoreImageFromReference(factId, targetGender, uniqueKey, prompt, referenceBuffer, options?.modelOverride, options?.paramsOverride, options?.userId);
 
     // Track only in user_ai_images (type='reference') — NOT in the shared aiMemeImages on the fact
     try {
       await trackUserAiImage(options.userId, factId, targetGender, storedPath, "reference");
     } catch (trackErr) {
-      console.warn(`[aiMemePipeline] Failed to track reference image for user ${options.userId}:`, trackErr);
+      logger.warn({ err: trackErr, userId: options.userId }, "[aiMemePipeline] Failed to track reference image");
     }
 
-    console.log(`[aiMemePipeline] fact ${factId}: reference-based AI image stored for user ${options.userId} (gender=${targetGender})`);
+    logger.info(
+      { factId, userId: options.userId, gender: targetGender },
+      "[aiMemePipeline] reference-based AI image stored",
+    );
   } catch (err) {
-    console.error(`[aiMemePipeline] Reference generation failed for fact ${factId}:`, err);
+    logger.error({ err, factId }, "[aiMemePipeline] Reference generation failed");
     if (!options?.suppressErrors) throw err;
   }
 }
@@ -573,7 +580,7 @@ export async function generateAiMemeBackgrounds(
     if (options?.existingPrompts) {
       prompts = options.existingPrompts;
     } else {
-      console.log(`[aiMemePipeline] Generating scene prompts for fact ${factId}`);
+      logger.info({ factId }, "[aiMemePipeline] Generating scene prompts");
       prompts = await generateScenePrompts(factText);
 
       // Persist prompts immediately
@@ -626,7 +633,10 @@ export async function generateAiMemeBackgrounds(
       const uniqueKey = `${batchKey}_${slotCounter++}`;
       const basePrompt = prompts[gender];
       const prompt = options?.styleSuffix ? `${basePrompt.trim()} ${options.styleSuffix}` : basePrompt;
-      console.log(`[aiMemePipeline] Generating image for fact ${factId}, gender=${gender}, key=${uniqueKey}${options?.modelOverride ? ` (model override: ${options.modelOverride})` : ""}`);
+      logger.info(
+        { factId, gender, key: uniqueKey, modelOverride: options?.modelOverride },
+        "[aiMemePipeline] Generating image",
+      );
       const storedPath = await generateAndStoreImage(factId, gender, uniqueKey, prompt, options?.modelOverride, options?.paramsOverride, userId);
       // Prepend newest image at the front — gallery always shows newest-first
       result[gender].unshift(storedPath);
@@ -639,7 +649,7 @@ export async function generateAiMemeBackgrounds(
         try {
           await trackUserAiImage(userId, factId, gender, storedPath);
         } catch (trackErr) {
-          console.warn(`[aiMemePipeline] Failed to track user image for ${userId}:`, trackErr);
+          logger.warn({ err: trackErr, userId }, "[aiMemePipeline] Failed to track user image");
         }
       }
     }
@@ -653,9 +663,9 @@ export async function generateAiMemeBackgrounds(
     const totalImages = result.male.filter(Boolean).length +
       result.female.filter(Boolean).length +
       result.neutral.filter(Boolean).length;
-    console.log(`[aiMemePipeline] fact ${factId}: ${totalImages} AI meme images stored (scope=${scope})`);
+    logger.info({ factId, totalImages, scope }, "[aiMemePipeline] AI meme images stored");
   } catch (err) {
-    console.error(`[aiMemePipeline] Failed for fact ${factId}:`, err);
+    logger.error({ err, factId }, "[aiMemePipeline] Failed");
     if (!options?.suppressErrors) throw err;
   }
 }
