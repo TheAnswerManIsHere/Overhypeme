@@ -206,7 +206,7 @@ function DesktopHeroBillboard({
             onClick={() => setIdx((idx + 1) % facts.length)}
             className="h-[44px] px-5 bg-background border border-border rounded-[12px] font-display font-bold text-[13px] uppercase tracking-[0.1em] text-muted-foreground hover:text-foreground hover:border-primary/40 transition-colors"
           >
-            Skip
+            Next
           </button>
         </div>
       </div>
