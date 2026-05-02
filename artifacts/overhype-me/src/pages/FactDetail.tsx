@@ -405,6 +405,32 @@ export default function FactDetail() {
 
   return (
     <Layout>
+      {/* Desktop Meme Creator stepper — fixed bar below the nav */}
+      {showMemeStudio && (
+        <div className="hidden md:flex fixed top-16 left-0 right-0 z-[200] bg-background/95 backdrop-blur border-b border-border items-center justify-center h-10 gap-0">
+          <div className="flex items-center gap-1.5 px-5">
+            <div className="w-4 h-4 rounded-full bg-green-500 flex items-center justify-center flex-shrink-0">
+              <Check className="w-2.5 h-2.5 text-white" />
+            </div>
+            <span className="text-[11px] font-bold tracking-[0.1em] uppercase text-green-500 font-display">Pick a fact</span>
+          </div>
+          <span className="text-muted-foreground/30 text-xs">›</span>
+          <div className="flex items-center gap-1.5 px-5">
+            <div className="w-4 h-4 rounded-full bg-primary flex items-center justify-center flex-shrink-0">
+              <span className="text-[8px] font-bold text-white leading-none">2</span>
+            </div>
+            <span className="text-[11px] font-bold tracking-[0.1em] uppercase text-foreground font-display">Add your face</span>
+          </div>
+          <span className="text-muted-foreground/30 text-xs">›</span>
+          <div className="flex items-center gap-1.5 px-5">
+            <div className="w-4 h-4 rounded-full border border-border flex items-center justify-center flex-shrink-0">
+              <span className="text-[8px] font-bold text-muted-foreground leading-none">3</span>
+            </div>
+            <span className="text-[11px] font-bold tracking-[0.1em] uppercase text-muted-foreground font-display">Style &amp; share</span>
+          </div>
+        </div>
+      )}
+
       {showMemeStudio && (
         <Suspense fallback={null}>
           <MemeStudio

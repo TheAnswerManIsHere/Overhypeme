@@ -179,113 +179,155 @@ export function WelcomeModal() {
   const teaserRendered = renderFact(TEASER_FACT, displayName, draftPronouns);
   const teaserParts = teaserRendered.split(displayName);
 
-  return (
-    <div className="fixed inset-0 z-[100] flex flex-col justify-end">
-      {/* Backdrop */}
-      <div className="absolute inset-0 bg-black/65 backdrop-blur-sm" onClick={handleSkip} />
+  const nameForm = (
+    <>
+      <h2 className="font-display font-bold text-2xl md:text-[36px] uppercase tracking-tight leading-tight mb-1 md:mb-2">
+        What's <span className="text-primary">your</span> name?
+      </h2>
+      <p className="text-[13px] md:text-[15px] text-muted-foreground mb-5 md:mb-7 leading-relaxed">
+        Type your name and every fact in the database becomes about you.
+      </p>
 
-      {/* Billboard teaser — above the sheet */}
-      <div className="relative z-10 px-6 pb-0 pt-safe-or-8" style={{ paddingTop: "max(env(safe-area-inset-top, 0px), 2rem)" }}>
-        <div className="flex items-center gap-2 mb-3 text-[11px] font-bold tracking-[0.18em] text-muted-foreground uppercase font-display">
-          <span className="w-5 h-px bg-muted-foreground/40" />
-          ABOUT {displayName.toUpperCase()}
-          <span className="w-5 h-px bg-muted-foreground/40" />
-        </div>
-        <h1 className="font-display font-bold text-4xl md:text-5xl uppercase tracking-tight leading-[1.0] text-foreground" style={{ textWrap: "pretty" } as React.CSSProperties}>
-          {teaserParts.map((p, i) =>
-            i < teaserParts.length - 1
-              ? <span key={i}>{p}<span className="text-primary">{displayName}</span></span>
-              : <span key={i}>{p}</span>
-          )}
-        </h1>
-        <p className="mt-4 text-sm text-muted-foreground italic">
-          — Enough about {draftName.trim() || "them"}.
-        </p>
+      <div className="relative mb-3">
+        <input
+          ref={nameInputRef}
+          type="text"
+          value={draftName}
+          onChange={handleNameChange}
+          onKeyDown={handleKeyDown}
+          placeholder="First name"
+          maxLength={100}
+          autoComplete="given-name"
+          className="w-full h-[52px] md:h-[56px] px-4 bg-secondary border border-border rounded-[14px] text-[17px] md:text-[18px] font-medium text-foreground outline-none focus:border-primary transition-colors placeholder:text-muted-foreground/50"
+        />
+        {aiLoading && (
+          <div className="absolute right-4 top-1/2 -translate-y-1/2">
+            <Loader2 className="w-4 h-4 text-muted-foreground animate-spin" />
+          </div>
+        )}
       </div>
 
-      {/* Bottom sheet */}
-      <motion.div
-        initial={{ y: "100%" }}
-        animate={{ y: 0 }}
-        exit={{ y: "100%" }}
-        transition={{ type: "spring", damping: 30, stiffness: 300 }}
-        className="relative z-10 w-full bg-card rounded-t-[24px] shadow-[0_-20px_40px_rgba(0,0,0,0.5)] mt-6"
+      <button
+        type="button"
+        onClick={() => setPronounsExpanded(v => !v)}
+        className="flex items-center gap-1.5 text-[12px] text-muted-foreground hover:text-foreground transition-colors mb-3 font-medium"
       >
-        {/* Drag handle */}
-        <div className="flex justify-center pt-3 pb-0">
-          <div className="w-9 h-1 rounded-full bg-border" />
+        {pronounsExpanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+        Customize pronouns
+        {aiLoading && !pronounsExpanded && <span className="text-[10px] italic ml-1">detecting…</span>}
+      </button>
+
+      <AnimatePresence>
+        {pronounsExpanded && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: "auto", opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.2 }}
+            className="overflow-hidden mb-3"
+          >
+            <PronounEditor value={draftPronouns} onChange={handlePronounsChange} />
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <button
+        onClick={handleSave}
+        disabled={!saveEnabled}
+        className="w-full h-[52px] md:h-[56px] bg-primary text-white rounded-[14px] font-display font-bold text-[15px] uppercase tracking-[0.12em] flex items-center justify-center gap-2 hover:bg-primary/90 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+      >
+        <FlameMark /> Hype me
+      </button>
+
+      <div className="text-center mt-3.5 text-[11px] md:text-[12px] text-muted-foreground">
+        Stored on this device · No account required ·{" "}
+        <button onClick={handleSkip} className="underline underline-offset-2 hover:text-foreground transition-colors">
+          skip
+        </button>
+      </div>
+    </>
+  );
+
+  const billboard = (
+    <>
+      <div className="flex items-center gap-2 mb-3 text-[11px] font-bold tracking-[0.18em] text-muted-foreground uppercase font-display">
+        <span className="w-5 h-px bg-muted-foreground/40" />
+        ABOUT {displayName.toUpperCase()}
+        <span className="w-5 h-px bg-muted-foreground/40" />
+      </div>
+      <h1 className="font-display font-bold text-4xl md:text-[88px] uppercase tracking-tight leading-[1.0] md:leading-[0.95] text-foreground" style={{ textWrap: "pretty" } as React.CSSProperties}>
+        {teaserParts.map((p, i) =>
+          i < teaserParts.length - 1
+            ? <span key={i}>{p}<span className="text-primary">{displayName}</span></span>
+            : <span key={i}>{p}</span>
+        )}
+      </h1>
+      <p className="mt-4 text-sm md:text-base text-muted-foreground italic flex items-center gap-3">
+        <span className="hidden md:inline-block w-9 h-px bg-border flex-shrink-0" />
+        Enough about {draftName.trim() || "them"}.
+      </p>
+    </>
+  );
+
+  return (
+    <>
+      {/* ── Mobile: bottom sheet ───────────────────────────── */}
+      <div className="md:hidden fixed inset-0 z-[100] flex flex-col justify-end">
+        <div className="absolute inset-0 bg-black/65 backdrop-blur-sm" onClick={handleSkip} />
+
+        <div className="relative z-10 px-6 pb-0" style={{ paddingTop: "max(env(safe-area-inset-top, 0px), 2rem)" }}>
+          {billboard}
         </div>
 
-        <div className="px-6 pt-5">
-          <h2 className="font-display font-bold text-2xl uppercase tracking-tight leading-tight mb-1">
-            Your turn.
-          </h2>
-          <p className="text-[13px] text-muted-foreground mb-5">
-            Add your name. Every fact becomes about you.
-          </p>
+        <motion.div
+          initial={{ y: "100%" }}
+          animate={{ y: 0 }}
+          exit={{ y: "100%" }}
+          transition={{ type: "spring", damping: 30, stiffness: 300 }}
+          className="relative z-10 w-full bg-card rounded-t-[24px] shadow-[0_-20px_40px_rgba(0,0,0,0.5)] mt-6"
+        >
+          <div className="flex justify-center pt-3">
+            <div className="w-9 h-1 rounded-full bg-border" />
+          </div>
+          <div className="px-6 pt-4">
+            <h2 className="font-display font-bold text-2xl uppercase tracking-tight leading-tight mb-1">Your turn.</h2>
+            <p className="text-[13px] text-muted-foreground mb-5">Add your name. Every fact becomes about you.</p>
+            {nameForm}
+            <div style={{ paddingBottom: "max(env(safe-area-inset-bottom, 0px), 2rem)" }} />
+          </div>
+        </motion.div>
+      </div>
 
-          {/* Name input */}
-          <div className="relative mb-3">
-            <input
-              ref={nameInputRef}
-              type="text"
-              value={draftName}
-              onChange={handleNameChange}
-              onKeyDown={handleKeyDown}
-              placeholder="First name"
-              maxLength={100}
-              autoComplete="given-name"
-              className="w-full h-[52px] px-4 bg-secondary border border-border rounded-[14px] text-[17px] font-medium text-foreground outline-none focus:border-primary transition-colors placeholder:text-muted-foreground/50"
-            />
-            {aiLoading && (
-              <div className="absolute right-4 top-1/2 -translate-y-1/2">
-                <Loader2 className="w-4 h-4 text-muted-foreground animate-spin" />
+      {/* ── Desktop: two-column overlay ────────────────────── */}
+      <div className="hidden md:flex fixed inset-0 z-[100]">
+        <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={handleSkip} />
+
+        <div className="relative z-10 w-full m-auto max-w-[1100px] grid grid-cols-[1.4fr_1fr] shadow-[0_40px_100px_rgba(0,0,0,0.7)] rounded-[28px] overflow-hidden">
+          {/* Billboard L */}
+          <div className="bg-background px-20 py-24 flex flex-col justify-center">
+            {billboard}
+
+            {/* Stats row */}
+            <div className="flex items-center gap-8 mt-12">
+              <div>
+                <div className="font-display font-bold text-2xl">4,832</div>
+                <div className="text-[11px] text-muted-foreground uppercase tracking-[0.1em] font-display mt-1">Facts in database</div>
               </div>
-            )}
+              <div className="w-px h-9 bg-border" />
+              <div>
+                <div className="font-display font-bold text-2xl">192k</div>
+                <div className="text-[11px] text-muted-foreground uppercase tracking-[0.1em] font-display mt-1">Memes made</div>
+              </div>
+            </div>
           </div>
 
-          {/* Pronouns toggle */}
-          <button
-            type="button"
-            onClick={() => setPronounsExpanded(v => !v)}
-            className="flex items-center gap-1.5 text-[12px] text-muted-foreground hover:text-foreground transition-colors mb-3 font-medium"
-          >
-            {pronounsExpanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
-            Customize pronouns
-            {aiLoading && !pronounsExpanded && <span className="text-[10px] italic ml-1">detecting…</span>}
-          </button>
-
-          <AnimatePresence>
-            {pronounsExpanded && (
-              <motion.div
-                initial={{ height: 0, opacity: 0 }}
-                animate={{ height: "auto", opacity: 1 }}
-                exit={{ height: 0, opacity: 0 }}
-                transition={{ duration: 0.2 }}
-                className="overflow-hidden mb-3"
-              >
-                <PronounEditor value={draftPronouns} onChange={handlePronounsChange} />
-              </motion.div>
-            )}
-          </AnimatePresence>
-
-          {/* CTA */}
-          <button
-            onClick={handleSave}
-            disabled={!saveEnabled}
-            className="w-full h-[52px] bg-primary text-white rounded-[14px] font-display font-bold text-[15px] uppercase tracking-[0.1em] flex items-center justify-center gap-2 hover:bg-primary/90 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-          >
-            <FlameMark /> Hype me
-          </button>
-
-          <div className="text-center mt-3.5 text-[11px] text-muted-foreground pb-8" style={{ paddingBottom: "max(env(safe-area-inset-bottom, 0px), 2rem)" }}>
-            Stored on this device · No account needed ·{" "}
-            <button onClick={handleSkip} className="underline underline-offset-2 hover:text-foreground transition-colors">
-              skip
-            </button>
+          {/* Sign-up card R */}
+          <div className="bg-secondary border-l border-border px-16 py-24 flex flex-col justify-center">
+            <div className="text-[12px] font-bold tracking-[0.22em] text-primary uppercase font-display mb-3">Your turn</div>
+            {nameForm}
           </div>
         </div>
-      </motion.div>
-    </div>
+      </div>
+    </>
   );
 }
