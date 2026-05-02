@@ -708,8 +708,78 @@ export default function Profile() {
           </div>
         )}
 
+        {/* ── DESKTOP: Wide hero ──────────────────────────────────── */}
+        <div className="hidden md:flex items-end gap-10 pb-10 mb-10 border-b border-border">
+          {/* Avatar */}
+          <div className="relative group shrink-0">
+            <img
+              src={getAvatarUrl()}
+              alt={profile.displayName ?? "User"}
+              className="w-[120px] h-[120px] rounded-full border-2 border-primary object-cover bg-secondary shadow-[0_0_24px_rgba(249,115,22,0.25)]"
+            />
+            {isLegendary && (
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                disabled={photoUploading}
+                className="absolute inset-0 rounded-full bg-black/50 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+              >
+                {photoUploading ? <Loader2 className="w-6 h-6 text-white animate-spin" /> : <Camera className="w-6 h-6 text-white" />}
+              </button>
+            )}
+          </div>
+
+          {/* Name + stats */}
+          <div className="flex-1 pb-1">
+            <div className="flex items-center gap-3 mb-1">
+              {isLegendary && (
+                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-primary/15 border border-primary/30 text-[10px] font-bold tracking-[0.14em] uppercase text-primary font-display">
+                  <Star className="w-3 h-3" /> Legendary
+                </span>
+              )}
+            </div>
+            <h1
+              className="font-display font-bold uppercase tracking-tight leading-[0.9] text-foreground mb-4"
+              style={{ fontSize: "clamp(36px, 4vw, 56px)" }}
+            >
+              {profile.displayName ?? profile.email}
+            </h1>
+            <div className="flex items-center gap-8">
+              <div>
+                <div className="font-display font-bold text-xl">{profile.likedFacts.length}</div>
+                <div className="text-[11px] text-muted-foreground uppercase tracking-[0.1em] font-display mt-0.5">Liked</div>
+              </div>
+              <div className="w-px h-8 bg-border" />
+              <div>
+                <div className="font-display font-bold text-xl">{profile.submittedFacts.length}</div>
+                <div className="text-[11px] text-muted-foreground uppercase tracking-[0.1em] font-display mt-0.5">Submitted</div>
+              </div>
+              {myMemesData && (
+                <>
+                  <div className="w-px h-8 bg-border" />
+                  <div>
+                    <div className="font-display font-bold text-xl">{myMemesData.memes.length}</div>
+                    <div className="text-[11px] text-muted-foreground uppercase tracking-[0.1em] font-display mt-0.5">Memes</div>
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+
+          {/* Actions */}
+          <div className="flex flex-col gap-2 pb-1 shrink-0">
+            <Button onClick={openEditor} variant="outline" className="gap-2">
+              <Pencil className="w-4 h-4" /> Edit Profile
+            </Button>
+            {!isLegendary && (
+              <Button onClick={() => setLocation("/pricing")} className="gap-2">
+                <Crown className="w-4 h-4" /> Go Legendary
+              </Button>
+            )}
+          </div>
+        </div>
+
         {/* Profile Header */}
-        <div className="bg-card border-2 border-border p-8 rounded-sm shadow-xl flex flex-col md:flex-row items-center gap-8 relative overflow-hidden mb-8">
+        <div className="md:hidden bg-card border-2 border-border p-8 rounded-sm shadow-xl flex flex-col md:flex-row items-center gap-8 relative overflow-hidden mb-8">
           <div className="absolute top-0 right-0 w-32 h-32 bg-primary/10 rounded-bl-full -mr-16 -mt-16 pointer-events-none" />
 
           {/* Clickable avatar */}

@@ -163,13 +163,145 @@ export default function Pricing() {
 
   return (
     <Layout>
-      <div className="max-w-5xl mx-auto px-4 py-16 md:py-24">
+
+      {/* ── DESKTOP: Two-column upsell layout ──────────────────────── */}
+      <div className="hidden md:grid" style={{ gridTemplateColumns: "1fr 1fr", minHeight: "calc(100vh - 64px)" }}>
+        {/* Left: pitch + AI vibes */}
+        <div className="bg-background border-r border-border flex flex-col justify-center px-16 py-20">
+          <div className="flex items-center gap-2 mb-4">
+            <Crown className="w-5 h-5 text-primary" />
+            <span className="text-[11px] font-bold tracking-[0.2em] text-primary uppercase font-display">Legendary</span>
+          </div>
+          <h1 className="font-display font-bold text-[54px] uppercase tracking-tight leading-[0.95] mb-4">
+            See yourself as the<br /><span className="text-primary">actual subject.</span>
+          </h1>
+          <p className="text-[15px] text-muted-foreground mb-10 leading-relaxed max-w-sm">
+            AI generates a scene where you literally star in the fact. Not just your name — you, dramatized.
+          </p>
+
+          {/* AI vibe cards */}
+          <div className="grid grid-cols-3 gap-3">
+            {[
+              { label: "Cosmic", emoji: "🌌", sub: "Universal scale" },
+              { label: "Galactic", emoji: "⚡", sub: "Epic energy" },
+              { label: "Mythic", emoji: "👑", sub: "Legendary status" },
+            ].map(v => (
+              <div key={v.label} className="rounded-[16px] bg-card border border-border p-4 text-center shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]">
+                <div className="text-2xl mb-2">{v.emoji}</div>
+                <div className="font-display font-bold text-[12px] uppercase tracking-[0.1em] text-foreground">{v.label}</div>
+                <div className="text-[10px] text-muted-foreground mt-0.5">{v.sub}</div>
+              </div>
+            ))}
+          </div>
+
+          <p className="text-[12px] text-muted-foreground mt-8 flex items-center gap-2">
+            <Lock className="w-3.5 h-3.5" />
+            Billed securely via Stripe · Cancel anytime
+          </p>
+        </div>
+
+        {/* Right: plan picker */}
+        <div className="bg-card flex flex-col justify-center px-16 py-20">
+          <div className="text-[12px] font-bold tracking-[0.22em] text-primary uppercase font-display mb-2">Choose your plan</div>
+          <h2 className="font-display font-bold text-[32px] uppercase tracking-tight leading-tight mb-8">Turn it up to 11.</h2>
+
+          {error && (
+            <div className="bg-destructive/20 border border-destructive/40 text-destructive rounded-[12px] p-3 mb-4 text-sm text-center">
+              {error}
+            </div>
+          )}
+
+          {plansLoading ? (
+            <div className="space-y-3">
+              {[1, 2].map(i => <div key={i} className="h-20 rounded-[16px] bg-secondary animate-pulse" />)}
+            </div>
+          ) : (
+            <div className="space-y-3 mb-6">
+              {monthlyPlan && monthlyPrice && (
+                <button
+                  onClick={() => handleSelect(monthlyPrice.id)}
+                  disabled={loadingPriceId === monthlyPrice.id}
+                  className="w-full flex items-center justify-between p-5 rounded-[16px] bg-background border border-border hover:border-primary/60 transition-colors text-left disabled:opacity-50"
+                >
+                  <div>
+                    <div className="font-display font-bold text-[15px] uppercase tracking-tight">Monthly</div>
+                    <div className="text-[12px] text-muted-foreground mt-0.5">Cancel any time</div>
+                  </div>
+                  <div className="text-right">
+                    <div className="font-display font-bold text-[20px]">{fmt(monthlyPrice.unit_amount)}</div>
+                    <div className="text-[11px] text-muted-foreground">/month</div>
+                  </div>
+                </button>
+              )}
+              {lifetimePlan && lifetimePrice && (
+                <button
+                  onClick={() => handleSelect(lifetimePrice.id)}
+                  disabled={loadingPriceId === lifetimePrice.id}
+                  className="w-full flex items-center justify-between p-5 rounded-[16px] bg-primary text-white shadow-[0_8px_24px_rgba(249,115,22,0.35)] hover:bg-primary/90 transition-colors text-left disabled:opacity-50"
+                >
+                  <div>
+                    <div className="font-display font-bold text-[15px] uppercase tracking-tight">Forever</div>
+                    <div className="text-[12px] opacity-85 mt-0.5">Pay once · access forever</div>
+                  </div>
+                  <div className="text-right">
+                    <div className="font-display font-bold text-[20px]">{fmt(lifetimePrice.unit_amount)}</div>
+                    <div className="text-[11px] opacity-85">one-time</div>
+                  </div>
+                </button>
+              )}
+              {annualPlan && annualPrice && (
+                <button
+                  onClick={() => handleSelect(annualPrice.id)}
+                  disabled={loadingPriceId === annualPrice.id}
+                  className="w-full flex items-center justify-between p-5 rounded-[16px] bg-background border border-border hover:border-primary/60 transition-colors text-left disabled:opacity-50"
+                >
+                  <div>
+                    <div className="font-display font-bold text-[15px] uppercase tracking-tight flex items-center gap-2">
+                      Annual
+                      {savingsPct && savingsPct > 0 && (
+                        <span className="text-[10px] bg-primary text-white px-2 py-0.5 rounded-full font-bold">Save {savingsPct}%</span>
+                      )}
+                    </div>
+                    <div className="text-[12px] text-muted-foreground mt-0.5">
+                      {annualPerMonth !== null ? `$${annualPerMonth.toFixed(2)}/mo` : ""} · billed yearly
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <div className="font-display font-bold text-[20px]">{fmt(annualPrice.unit_amount)}</div>
+                    <div className="text-[11px] text-muted-foreground">/year</div>
+                  </div>
+                </button>
+              )}
+              {!monthlyPlan && !annualPlan && !lifetimePlan && (
+                <p className="text-center text-muted-foreground py-8">No plans available right now.</p>
+              )}
+            </div>
+          )}
+
+          <ul className="space-y-2.5 mb-8">
+            {LEGENDARY_FEATURES.map(f => (
+              <li key={f.text} className="flex items-center gap-2.5 text-[13px] text-muted-foreground">
+                <span className="text-primary flex-shrink-0">{f.icon}</span>
+                {f.text}
+              </li>
+            ))}
+          </ul>
+
+          <p className="text-[11px] text-muted-foreground text-center">
+            Already a member?{" "}
+            <Link href="/profile" className="underline underline-offset-2 hover:text-foreground transition-colors">View subscription</Link>
+          </p>
+        </div>
+      </div>
+
+      {/* ── MOBILE: Stacked layout ──────────────────────────────────── */}
+      <div className="md:hidden max-w-5xl mx-auto px-4 py-16">
 
         {/* Hero */}
         <div className="text-center mb-16">
           <div className="flex items-center justify-center gap-2 mb-4">
             <Zap className="w-8 h-8 text-primary" />
-            <h1 className="text-4xl md:text-5xl font-display uppercase tracking-widest text-foreground">Go Legendary</h1>
+            <h1 className="text-4xl font-display uppercase tracking-widest text-foreground">Go Legendary</h1>
           </div>
           <p className="text-xl text-muted-foreground max-w-xl mx-auto">
             Unlock the full experience. Because average is for other people.
