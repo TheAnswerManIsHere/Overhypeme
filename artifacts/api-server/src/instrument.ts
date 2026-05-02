@@ -1,5 +1,14 @@
 import * as Sentry from "@sentry/node";
 import { scrubSentryEvent, scrubSentryBreadcrumb } from "./lib/sentryFilter.js";
+import { installStdioGuard } from "./lib/stdioGuard.js";
+
+// Install the stdio guard before anything else can write to process.stdout /
+// process.stderr. This absorbs EIO / EPIPE / ERR_STREAM_DESTROYED on those
+// streams so a torn-down parent pipe (workflow restart, terminal disconnect,
+// container log-pipe overrun) does not become an uncaughtException that kills
+// the process. Safe to call repeatedly — this also covers scripts under
+// scripts/ that import instrument.ts directly.
+installStdioGuard();
 
 // Sentry v10 emits a console warning when expressIntegration() can't verify
 // that its OTel shim patched express — this always happens in a bundled ESM

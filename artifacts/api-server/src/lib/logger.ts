@@ -34,7 +34,17 @@ function writeFallback(level: string, err: unknown): void {
     });
     process.stderr.write(line + "\n");
   } catch {
-    // Last-resort: nothing we can do if stderr or JSON.stringify itself is broken.
+    // Best-effort: any synchronous throw is swallowed. The two realistic
+    // failure modes both already have coverage elsewhere:
+    //   - JSON.stringify on an exotic err (cycle / bad toJSON) — there's
+    //     nothing to retry with.
+    //   - process.stderr.write throwing on a torn-down pipe (EIO/EPIPE) —
+    //     the matching async `error` event is absorbed by installStdioGuard()
+    //     in src/lib/stdioGuard.ts, which also reports it to Sentry once.
+    // writeFallback is called from contexts that cannot themselves recover
+    // from a re-thrown error (the safeLog proxy below, and pino's transport
+    // `error` listener), so swallowing here is intentional and prevents
+    // cascading the failure into a new uncaughtException.
   }
 }
 

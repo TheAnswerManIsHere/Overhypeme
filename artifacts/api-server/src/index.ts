@@ -6,6 +6,7 @@ import "./instrument";
 import * as Sentry from "@sentry/node";
 import app from "./app";
 import { logger } from "./lib/logger";
+import { absorbFatalStreamError } from "./lib/stdioGuard";
 import { backfillWilsonScores, ensureSchema } from "./lib/seed";
 import { runMigrations } from "@workspace/db";
 import { backfillEmbeddings } from "./lib/embeddings";
@@ -255,6 +256,19 @@ process.on("SIGINT", () => {
 // guarantees we never block forever inside flush.
 let fatalExitInProgress = false;
 async function fatalExit(err: unknown, kind: "uncaughtException" | "unhandledRejection") {
+  // Stream-teardown errors on stdout/stderr are not application bugs — they
+  // happen when the parent pipe goes away (workflow restart, terminal
+  // disconnect, container log-pipe overrun). The stdio guard absorbs them
+  // when emitted as async `error` events, but a synchronous throw from a TTY
+  // write can still land here. absorbFatalStreamError() reports the first
+  // occurrence to Sentry and returns true so we skip process.exit and keep
+  // serving requests.
+  const absorbed = absorbFatalStreamError(err, { kind }, {
+    captureException: (e, ctx) => Sentry.captureException(e, ctx),
+    warn: (obj, msg) => logger.warn(obj, msg),
+  });
+  if (absorbed) return;
+
   if (fatalExitInProgress) {
     logger.error({ err, kind }, "Additional fatal error during shutdown — ignoring (already exiting)");
     return;
