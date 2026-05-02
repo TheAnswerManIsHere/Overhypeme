@@ -551,6 +551,13 @@ interface MemeBuilderProps {
   embedded?: boolean;
   /** @deprecated Previously enabled two-panel full-screen layout; no longer affects layout. Kept for backward compatibility. */
   fullScreen?: boolean;
+  /**
+   * Studio Hub path mode — pre-selects the background source and HIDES the
+   * mode-tab strip in step 1. Used when entering from the Studio entry hub
+   * which routes the user to a specific source path (Photo / Stock / AI /
+   * Gradient) rather than the legacy "all-tabs" view.
+   */
+  initialPathMode?: ImageMode;
 }
 
 const ADMIN_FAL_MODELS: { group: string; models: { value: string; label: string }[] }[] = [
@@ -626,7 +633,7 @@ const ADMIN_MODEL_PARAMS: Record<string, AdminParamDef[]> = {
   ],
 };
 
-export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMemeImages, onClose, defaultPrivate, embedded, fullScreen }: MemeBuilderProps) {
+export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMemeImages, onClose, defaultPrivate, embedded, fullScreen, initialPathMode }: MemeBuilderProps) {
   const { isAuthenticated, login, role, user, refreshUser } = useAuth();
   const isLegendary = role === "legendary" || role === "admin";
   const isRegistered = isAuthenticated && role !== "unregistered";
@@ -671,8 +678,10 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
   // photo it's a one-tap "use my face" path, and for users without one the
   // IdentityPhotoSection renders an inline upload (or sign-in) prompt — so
   // landing on this tab is always the highest-intent next action.
+  // When entering via the Studio Hub (initialPathMode set), the chosen path
+  // wins over any persisted draft so the user lands on the source they picked.
   const [imageMode, setImageMode] = useState<ImageMode>(() =>
-    readDraft(factId)?.imageMode ?? "identity"
+    initialPathMode ?? readDraft(factId)?.imageMode ?? "identity"
   );
   // No post-mount mode promotion is needed anymore: identity is the default
   // regardless of whether profileImageUrl resolves before or after mount.
@@ -1526,47 +1535,49 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
             <StepDots current={1} total={2} />
           </div>
 
-          {/* Mode tabs */}
-          <div className="flex border-b border-border mb-4 overflow-x-auto">
-            <ModeTab
-              active={imageMode === "identity"}
-              onClick={() => handleSetImageMode("identity")}
-            >
-              You
-            </ModeTab>
-            <ModeTab
-              active={imageMode === "upload"}
-              onClick={() => handleSetImageMode("upload")}
-              badge={!isRegistered ? "PRO" : undefined}
-            >
-              Upload
-            </ModeTab>
-            <ModeTab
-              active={imageMode === "stock"}
-              onClick={() => {
-                handleSetImageMode("stock");
-                if (!stockGender) {
-                  setStockGender(inferredGender);
-                  fetchStockPhoto(inferredGender);
-                }
-              }}
-            >
-              Stock Photo
-            </ModeTab>
-            <ModeTab
-              active={imageMode === "gradient"}
-              onClick={() => handleSetImageMode("gradient")}
-            >
-              Gradient
-            </ModeTab>
-            <ModeTab
-              active={imageMode === "ai"}
-              onClick={() => handleSetImageMode("ai")}
-              badge={!isLegendary ? "LEGENDARY" : undefined}
-            >
-              AI Generated
-            </ModeTab>
-          </div>
+          {/* Mode tabs — hidden when entered via Studio Hub path */}
+          {!initialPathMode && (
+            <div className="flex border-b border-border mb-4 overflow-x-auto">
+              <ModeTab
+                active={imageMode === "identity"}
+                onClick={() => handleSetImageMode("identity")}
+              >
+                You
+              </ModeTab>
+              <ModeTab
+                active={imageMode === "upload"}
+                onClick={() => handleSetImageMode("upload")}
+                badge={!isRegistered ? "PRO" : undefined}
+              >
+                Upload
+              </ModeTab>
+              <ModeTab
+                active={imageMode === "stock"}
+                onClick={() => {
+                  handleSetImageMode("stock");
+                  if (!stockGender) {
+                    setStockGender(inferredGender);
+                    fetchStockPhoto(inferredGender);
+                  }
+                }}
+              >
+                Stock Photo
+              </ModeTab>
+              <ModeTab
+                active={imageMode === "gradient"}
+                onClick={() => handleSetImageMode("gradient")}
+              >
+                Gradient
+              </ModeTab>
+              <ModeTab
+                active={imageMode === "ai"}
+                onClick={() => handleSetImageMode("ai")}
+                badge={!isLegendary ? "LEGENDARY" : undefined}
+              >
+                AI Generated
+              </ModeTab>
+            </div>
+          )}
 
           {/* Thumbnail size slider */}
           <div className="flex items-center gap-2 py-1 mb-3">
