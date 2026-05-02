@@ -1,0 +1,59 @@
+# Error: Module chunk load failed — reloading
+
+**Issue ID:** 7435136955
+**Project:** sentry_project_frontend
+**Date:** 5/2/2026, 12:53:25 PM
+## Issue Summary
+Module Chunk Load Failure on /admin/refunds-disputes
+**What's wrong:** Critical **chunk load failure** occurred during navigation to **/admin/refunds-disputes**.
+**In the trace:** A **403 Forbidden** error was logged during a POST request to **/api/route-stats**.
+**Possible cause:** The chunk load failure likely stems from a **network issue or deployment mismatch** preventing asset retrieval.
+
+## Tags
+
+- **browser:** HeadlessChrome 140.0.0
+- **browser.name:** HeadlessChrome
+- **environment:** development
+- **handled:** yes
+- **level:** error
+- **mechanism:** generic
+- **os:** Linux
+- **os.name:** Linux
+- **release:** dev
+- **replayId:** 5862b7a1d4f74db9bde2adfb5da33e29
+- **transaction:** /admin/refunds-disputes
+- **url:** http://localhost/admin/refunds-disputes
+
+## Exceptions
+
+### Exception 1
+**Type:** React ErrorBoundary Error
+**Value:** Module chunk load failed — reloading
+
+#### Stacktrace
+
+```
+ Lazy in <anonymous> [Line null] (In app)
+ Route in /node_modules/.vite/deps/wouter.js [Line 299] (Not in app)
+ Switch in /node_modules/.vite/deps/wouter.js [Line 356] (Not in app)
+ Suspense in <anonymous> [Line null] (In app)
+ Router in <anonymous> [Line null] (In app)
+ Router in /node_modules/.vite/deps/wouter.js [Line 254] (Not in app)
+ PersonNameProvider in /src/hooks/use-person-name.ts [Line 86] (In app)
+ Provider in /node_modules/.vite/deps/chunk-JJZWWWYA.js [Line 88] (Not in app)
+ TooltipProvider in /node_modules/.vite/deps/@radix-ui_react-tooltip.js [Line 2313] (Not in app)
+ QueryClientProvider in /node_modules/.vite/deps/@tanstack_react-query.js [Line 3103] (Not in app)
+ AuthProvider in /@fs/home/runner/workspace/lib/replit-auth-web/src/use-auth.ts [Line 28] (In app)
+ ErrorBoundary in /node_modules/.vite/deps/@sentry_react.js [Line 30289] (Not in app)
+ App in <anonymous> [Line null] (In app)
+```
+------
+### Exception 2
+**Type:** Error
+**Value:** Module chunk load failed — reloading
+
+#### Stacktrace
+
+```
+ Unknown function in /src/lib/lazy-retry.ts [Line 10] (In app)
+```
