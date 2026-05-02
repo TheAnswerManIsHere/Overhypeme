@@ -151,26 +151,46 @@ export default function MemePage() {
     );
   }
 
-  // The dopamine-afterglow upgrade card is shown ONLY in the immediate
-  // post-success transition from the meme builder for a photo meme, when the
-  // viewer is not yet Legendary. This is the moment of peak satisfaction and
-  // the highest-converting place to tease the AI / video upsell.
+  // The dopamine-afterglow "What's next?" panel is shown to every
+  // non-Legendary viewer — both the creator (immediately after building, the
+  // moment of peak satisfaction) and visitors who land here via a share link
+  // (where the upsell becomes "this could be you"). Legendary users already
+  // have access and fall back to the simpler 3-track layout.
   //
   // When `showAfterglowUpgrade` is true, the page presents two co-equal
   // "What's next?" answers — Wear (physical artifact) and AI (more / wilder
   // generation). Wear and AI are not competing; they're two different replies
-  // to "I loved that, what now?". When it's false (e.g. an older meme being
-  // re-viewed, or a Legendary creator who already has AI), we fall back to a
-  // simpler 3-track layout.
-  const showAfterglowUpgrade = justCreatedPhotoMeme && !isLegendary;
+  // to "I loved that, what now?". Copy diverges based on whether this is the
+  // creator's post-success transition (deterministic via
+  // ?just_created=1&source=photo) so visitors aren't told they made the meme.
+  const showAfterglowUpgrade = !isLegendary;
+  const isCreatorAfterglow = justCreatedPhotoMeme;
   const showLegendaryTile = !showAfterglowUpgrade;
-  // Personalize the teaser with the creator's name when we have it.
+  // Personalize the creator-variant teaser with the creator's name when we
+  // have it; fall back to the signed-in user's name, then "you".
   const teaserName = meme.createdByName ?? user?.displayName ?? "you";
 
   // Pass `?source=meme-page` through to /wear/:slug so when the user
   // ultimately taps "Open in Zazzle" on the WearIt page, the affiliate click
   // is attributed to where the journey actually started.
   const wearHref = `/wear/${slug}?source=meme-page`;
+
+  // Copy that diverges between the creator (post-success afterglow) and a
+  // visitor (landed via a share link). Anything that would imply ownership
+  // of the meme — the mobile eyebrow and the desktop subheader — flips to a
+  // "this could be you" framing for visitors. The Wear / AI cards
+  // themselves and the universal "What's next?" header stay the same.
+  const afterglowCopy = isCreatorAfterglow
+    ? {
+        mobileEyebrow: "Nice. That's a good one.",
+        desktopSubheader:
+          "Your meme is yours. Share it free, wear it, or turn it into something nobody's ever seen.",
+      }
+    : {
+        mobileEyebrow: "Like this one? Take it further.",
+        desktopSubheader:
+          "Like this one? Share it, wear it — or make a Legendary one with you as the literal subject.",
+      };
 
   const tracks = [
     {
@@ -222,7 +242,7 @@ export default function MemePage() {
         {showAfterglowUpgrade && (
           <div className="mb-3">
             <p className="text-[10px] font-bold tracking-[0.18em] text-primary uppercase font-display mb-0.5">
-              Nice. That&apos;s a good one.
+              {afterglowCopy.mobileEyebrow}
             </p>
             <h2 className="font-display font-bold text-[18px] uppercase tracking-tight leading-tight">
               What&apos;s next?
@@ -396,7 +416,7 @@ export default function MemePage() {
             What's <span className="text-primary">next</span>?
           </h1>
           <p className="text-[15px] text-muted-foreground mb-8 leading-relaxed">
-            Your meme is yours. Share it free, wear it, or turn it into something nobody's ever seen.
+            {afterglowCopy.desktopSubheader}
           </p>
 
           {/* Afterglow path: two co-equal cards side-by-side. Wear (physical
