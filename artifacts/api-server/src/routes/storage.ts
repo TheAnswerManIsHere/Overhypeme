@@ -11,8 +11,7 @@ import {
 import { ObjectStorageService, ObjectNotFoundError } from "../lib/objectStorage";
 import { ObjectPermission } from "../lib/objectAcl";
 import { db } from "@workspace/db";
-import { usersTable } from "@workspace/db/schema";
-import { eq, sql } from "drizzle-orm";
+import { sql } from "drizzle-orm";
 import { CACHE, setPublicCache, setPublicCors, setNoStore } from "../lib/cacheHeaders";
 
 function parseEnvInt(name: string, defaultValue: number, min?: number, max?: number): number {
@@ -112,9 +111,12 @@ router.post("/storage/uploads/request-url", async (req: Request, res: Response) 
 /**
  * POST /storage/upload-avatar
  *
- * Server-side avatar upload for legendary users.
- * Accepts the raw image binary as the request body (Content-Type: image/*).
- * Uploads to object storage, sets public ACL, and returns the objectPath.
+ * Server-side profile photo upload, available to every authenticated user.
+ * The profile photo is treated as a free identity asset — it is reused as the
+ * face/likeness reference for memes, AI image generation, and AI video memes.
+ * Accepts the raw image binary as the request body (Content-Type: image/*),
+ * capped at 5 MB. Uploads to object storage, sets public ACL, and returns the
+ * objectPath.
  */
 router.post(
   "/storage/upload-avatar",
@@ -122,17 +124,6 @@ router.post(
   async (req: Request, res: Response) => {
     if (!req.isAuthenticated()) {
       res.status(401).json({ error: "Authentication required" });
-      return;
-    }
-
-    const [userRow] = await db
-      .select({ membershipTier: usersTable.membershipTier })
-      .from(usersTable)
-      .where(eq(usersTable.id, req.user.id))
-      .limit(1);
-
-    if (userRow?.membershipTier !== "legendary") {
-      res.status(403).json({ error: "Custom photo upload is a Legendary feature" });
       return;
     }
 

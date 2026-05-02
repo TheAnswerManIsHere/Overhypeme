@@ -432,7 +432,7 @@ export function SubscriptionPanel({ refetchTrigger }: { refetchTrigger?: unknown
               </div>
               <div>
                 <p className="font-bold text-foreground">Free Plan</p>
-                <p className="text-sm text-muted-foreground">Upgrade to unlock daily emails, HD memes & more</p>
+                <p className="text-sm text-muted-foreground">Go Legendary for AI memes &amp; AI video memes of you</p>
               </div>
             </div>
             <Link href="/pricing">

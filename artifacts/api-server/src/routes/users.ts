@@ -264,15 +264,9 @@ router.patch("/users/me", async (req: Request, res: Response) => {
   }
 
   if (profileImageUrl !== undefined) {
-    // Photo uploads require legendary membership
-    const [userRow] = await db
-      .select({ membershipTier: usersTable.membershipTier })
-      .from(usersTable)
-      .where(eq(usersTable.id, userId))
-      .limit(1);
-    if (userRow?.membershipTier !== "legendary") {
-      res.status(403).json({ error: "Custom photo upload is a Legendary feature" }); return;
-    }
+    // Profile photo is a free identity asset, available to every authenticated
+    // user. Reused downstream as the face/likeness reference for memes, AI
+    // image generation, and AI video memes.
     if (typeof profileImageUrl !== "string") {
       res.status(400).json({ error: "Invalid profile image URL" }); return;
     }

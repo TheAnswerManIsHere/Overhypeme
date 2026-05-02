@@ -3,26 +3,28 @@ import { Link, useLocation } from "wouter";
 import { useAuth } from "@workspace/replit-auth-web";
 import { Layout } from "@/components/layout/Layout";
 import { Button } from "@/components/ui/Button";
-import { Zap, Star, Check, Lock, ThumbsUp, Send, MessageSquare, Image, Share2, ShoppingBag, ShieldOff, ImagePlus, Video, Clapperboard, UserCircle, Crown, CalendarDays } from "lucide-react";
+import { Zap, Star, Check, Lock, ThumbsUp, Send, MessageSquare, Image, Share2, ShoppingBag, ShieldOff, Sparkles, Clapperboard, UserCircle, Crown, CalendarDays } from "lucide-react";
 
+// Pricing framing: "cost-as-gate"
+//   Free  = anything that doesn't cost us money to run for you
+//   Legendary = the AI work that costs real money per generation (image + video memes of YOU)
 const FREE_FEATURES = [
-  { icon: <Check className="w-4 h-4" />,        text: "Browse all Facts" },
-  { icon: <ThumbsUp className="w-4 h-4" />,     text: "Vote on Facts" },
-  { icon: <Send className="w-4 h-4" />,         text: "Submit Facts (with CAPTCHA)" },
+  { icon: <Check className="w-4 h-4" />,         text: "Browse all Facts" },
+  { icon: <ThumbsUp className="w-4 h-4" />,      text: "Vote on Facts" },
+  { icon: <Send className="w-4 h-4" />,          text: "Submit Facts (with CAPTCHA)" },
   { icon: <MessageSquare className="w-4 h-4" />, text: "Leave Comments (with CAPTCHA)" },
-  { icon: <Image className="w-4 h-4" />,        text: "Generate Generic Image Memes" },
-  { icon: <Share2 className="w-4 h-4" />,       text: "Share Memes" },
-  { icon: <ShoppingBag className="w-4 h-4" />,  text: "Purchase Meme Merch" },
+  { icon: <UserCircle className="w-4 h-4" />,    text: "Profile Photo (your face, reused everywhere)" },
+  { icon: <Image className="w-4 h-4" />,         text: "Photo Memes of You (your face on meme templates)" },
+  { icon: <Share2 className="w-4 h-4" />,        text: "Share Memes" },
+  { icon: <ShoppingBag className="w-4 h-4" />,   text: "Purchase Meme Merch" },
 ];
 
 const LEGENDARY_FEATURES = [
-  { icon: <Check className="w-4 h-4" />,          text: "Everything in Free" },
-  { icon: <ShieldOff className="w-4 h-4" />,      text: "No CAPTCHAs" },
-  { icon: <CalendarDays className="w-4 h-4" />,   text: "Fact of the Day" },
-  { icon: <ImagePlus className="w-4 h-4" />,      text: "Generate Custom Image Memes" },
-  { icon: <Video className="w-4 h-4" />,          text: "Generate Generic Video Memes" },
-  { icon: <Clapperboard className="w-4 h-4" />,   text: "Generate Custom Video Memes" },
-  { icon: <UserCircle className="w-4 h-4" />,     text: "Custom Profile Image" },
+  { icon: <Check className="w-4 h-4" />,        text: "Everything in Free" },
+  { icon: <Sparkles className="w-4 h-4" />,     text: "AI Memes of You in impossible scenarios" },
+  { icon: <Clapperboard className="w-4 h-4" />, text: "AI Video Memes of You" },
+  { icon: <ShieldOff className="w-4 h-4" />,    text: "No CAPTCHAs" },
+  { icon: <CalendarDays className="w-4 h-4" />, text: "Fact of the Day email" },
 ];
 
 interface StripePlan {
@@ -175,8 +177,11 @@ export default function Pricing() {
           <h1 className="font-display font-bold text-[54px] uppercase tracking-tight leading-[0.95] mb-4">
             See yourself as the<br /><span className="text-primary">actual subject.</span>
           </h1>
-          <p className="text-[15px] text-muted-foreground mb-10 leading-relaxed max-w-sm">
+          <p className="text-[15px] text-muted-foreground mb-4 leading-relaxed max-w-sm">
             AI generates a scene where you literally star in the fact. Not just your name — you, dramatized.
+          </p>
+          <p className="text-[12px] text-muted-foreground/80 mb-10 leading-relaxed max-w-sm italic">
+            Free covers everything that doesn't cost us money. Legendary covers the AI image &amp; video generations of you — that part has a real per-render cost.
           </p>
 
           {/* AI vibe cards */}
@@ -294,36 +299,41 @@ export default function Pricing() {
         </div>
       </div>
 
-      {/* ── MOBILE: Stacked layout ──────────────────────────────────── */}
-      <div className="md:hidden max-w-5xl mx-auto px-4 py-16">
+      {/* ── MOBILE: Stacked layout — tuned to fit one thumb-reachable scroll.
+            pb-24 reserves room for the sticky upgrade CTA pinned to the
+            bottom of the viewport so the primary action is always reachable. */}
+      <div className="md:hidden max-w-5xl mx-auto px-4 py-6 pb-24">
 
         {/* Hero */}
-        <div className="text-center mb-16">
-          <div className="flex items-center justify-center gap-2 mb-4">
-            <Zap className="w-8 h-8 text-primary" />
-            <h1 className="text-4xl font-display uppercase tracking-widest text-foreground">Go Legendary</h1>
+        <div className="text-center mb-5">
+          <div className="flex items-center justify-center gap-2 mb-2">
+            <Zap className="w-6 h-6 text-primary" />
+            <h1 className="text-2xl font-display uppercase tracking-widest text-foreground">Go Legendary</h1>
           </div>
-          <p className="text-xl text-muted-foreground max-w-xl mx-auto">
-            Unlock the full experience. Because average is for other people.
+          <p className="text-sm text-muted-foreground max-w-xl mx-auto leading-snug">
+            AI memes &amp; AI video memes <span className="text-foreground font-semibold">of you</span>.
+          </p>
+          <p className="text-[11px] text-muted-foreground/80 max-w-xs mx-auto mt-2 italic leading-snug">
+            Free covers everything that doesn't cost us money. Legendary covers the AI generations of you.
           </p>
         </div>
 
-        {/* Tier comparison */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-16">
+        {/* Tier comparison — compact */}
+        <div className="grid grid-cols-1 gap-3 mb-5">
           {/* Free */}
-          <div className="bg-card border-2 border-border rounded-sm p-8">
-            <div className="flex items-center gap-3 mb-6">
-              <div className="w-10 h-10 rounded-sm bg-secondary flex items-center justify-center">
-                <Lock className="w-5 h-5 text-muted-foreground" />
+          <div className="bg-card border-2 border-border rounded-sm p-4">
+            <div className="flex items-center gap-2 mb-3">
+              <div className="w-8 h-8 rounded-sm bg-secondary flex items-center justify-center">
+                <Lock className="w-4 h-4 text-muted-foreground" />
               </div>
               <div>
-                <h2 className="text-xl font-display uppercase tracking-wide text-foreground">Free</h2>
-                <p className="text-2xl font-bold text-foreground">$0<span className="text-sm text-muted-foreground font-normal">/forever</span></p>
+                <h2 className="text-base font-display uppercase tracking-wide text-foreground leading-tight">Free</h2>
+                <p className="text-base font-bold text-foreground leading-none">$0<span className="text-xs text-muted-foreground font-normal">/forever</span></p>
               </div>
             </div>
-            <ul className="space-y-3">
+            <ul className="space-y-1.5">
               {FREE_FEATURES.map(f => (
-                <li key={f.text} className="flex items-center gap-3 text-muted-foreground">
+                <li key={f.text} className="flex items-center gap-2 text-muted-foreground text-xs">
                   <span className="text-primary shrink-0">{f.icon}</span>
                   {f.text}
                 </li>
@@ -332,27 +342,27 @@ export default function Pricing() {
           </div>
 
           {/* Legendary */}
-          <div className="bg-card border-2 border-primary rounded-sm p-8 shadow-[0_0_30px_rgba(249,115,22,0.15)] relative overflow-hidden">
-            <div className="absolute top-0 right-0 w-24 h-24 bg-primary/10 rounded-bl-full -mr-12 -mt-12 pointer-events-none" />
-            <div className="flex items-center gap-3 mb-6">
-              <div className="w-10 h-10 rounded-sm bg-primary/20 flex items-center justify-center">
-                <Star className="w-5 h-5 text-primary" />
+          <div className="bg-card border-2 border-primary rounded-sm p-4 shadow-[0_0_30px_rgba(249,115,22,0.15)] relative overflow-hidden">
+            <div className="absolute top-0 right-0 w-20 h-20 bg-primary/10 rounded-bl-full -mr-10 -mt-10 pointer-events-none" />
+            <div className="flex items-center gap-2 mb-3">
+              <div className="w-8 h-8 rounded-sm bg-primary/20 flex items-center justify-center">
+                <Star className="w-4 h-4 text-primary" />
               </div>
               <div>
-                <h2 className="text-xl font-display uppercase tracking-wide text-primary">Legendary</h2>
-                <p className="text-2xl font-bold text-foreground">
+                <h2 className="text-base font-display uppercase tracking-wide text-primary leading-tight">Legendary</h2>
+                <p className="text-base font-bold text-foreground leading-none">
                   {monthlyPrice
                     ? fmt(monthlyPrice.unit_amount)
                     : annualPerMonth !== null
                       ? `$${annualPerMonth.toFixed(2)}`
                       : "$3.99"}
-                  <span className="text-sm text-muted-foreground font-normal">/month</span>
+                  <span className="text-xs text-muted-foreground font-normal">/month</span>
                 </p>
               </div>
             </div>
-            <ul className="space-y-3 mb-6">
+            <ul className="space-y-1.5">
               {LEGENDARY_FEATURES.map(f => (
-                <li key={f.text} className="flex items-center gap-3 text-foreground">
+                <li key={f.text} className="flex items-center gap-2 text-foreground text-xs">
                   <span className="text-primary shrink-0">{f.icon}</span>
                   {f.text}
                 </li>
@@ -362,18 +372,18 @@ export default function Pricing() {
         </div>
 
         {/* Plan picker */}
-        <h3 className="text-2xl font-display uppercase tracking-widest text-center mb-8 text-foreground">Choose Your Plan</h3>
+        <h3 className="text-sm font-display uppercase tracking-widest text-center mb-3 text-foreground">Choose Your Plan</h3>
 
         {error && (
-          <div className="bg-destructive/20 border border-destructive/40 text-destructive rounded-sm p-4 mb-6 text-center text-sm">
+          <div className="bg-destructive/20 border border-destructive/40 text-destructive rounded-sm p-2 mb-3 text-center text-xs">
             {error}
           </div>
         )}
 
         {plansLoading ? (
-          <div className="text-center text-muted-foreground py-12">Loading plans…</div>
+          <div className="text-center text-muted-foreground py-6 text-sm">Loading plans…</div>
         ) : (
-          <div className={`grid gap-6 mb-12 ${[monthlyPlan, annualPlan, lifetimePlan].filter(Boolean).length === 1 ? "max-w-xs mx-auto" : [monthlyPlan, annualPlan, lifetimePlan].filter(Boolean).length === 2 ? "grid-cols-1 md:grid-cols-2 max-w-2xl mx-auto" : "grid-cols-1 md:grid-cols-3"}`}>
+          <div className={`grid gap-2 mb-4 ${[monthlyPlan, annualPlan, lifetimePlan].filter(Boolean).length === 1 ? "max-w-xs mx-auto" : [monthlyPlan, annualPlan, lifetimePlan].filter(Boolean).length === 2 ? "grid-cols-1 md:grid-cols-2 max-w-2xl mx-auto" : "grid-cols-1 md:grid-cols-3"}`}>
             {monthlyPlan && monthlyPrice && (
               <PricingCard
                 label="Monthly"
@@ -417,22 +427,37 @@ export default function Pricing() {
           </div>
         )}
 
-        <div className="text-center">
-          <p className="text-muted-foreground text-sm mb-2">Already a member?</p>
-          <Link href="/profile">
-            <Button variant="outline">View my subscription</Button>
-          </Link>
-        </div>
-
-        {/* Fact of the Day callout */}
-        <div className="mt-16 bg-card border-2 border-border rounded-sm p-8 text-center">
-          <Zap className="w-8 h-8 text-primary mx-auto mb-4" />
-          <h3 className="text-xl font-display uppercase tracking-wide text-foreground mb-3">What is Fact of the Day?</h3>
-          <p className="text-muted-foreground max-w-lg mx-auto">
-            Every morning, Legendary members receive a daily email featuring a randomly selected top-rated fact — personalized with your name. Start your day right.
-          </p>
-        </div>
+        <p className="text-center text-[11px] text-muted-foreground">
+          Already a member?{" "}
+          <Link href="/profile" className="underline underline-offset-2 hover:text-foreground transition-colors">View subscription</Link>
+        </p>
       </div>
+
+      {/* ── MOBILE: persistent thumb-reachable upgrade CTA ──────────
+          Pinned to the bottom of the viewport so the primary action
+          (start the cheapest checkout) is always one tap away no
+          matter how far the user scrolls. */}
+      {(() => {
+        const ctaPrice = monthlyPrice ?? annualPrice ?? lifetimePrice;
+        if (!ctaPrice) return null;
+        const ctaLabel = monthlyPrice
+          ? `${fmt(monthlyPrice.unit_amount)}/mo`
+          : annualPrice
+            ? `${fmt(annualPrice.unit_amount)}/yr`
+            : `${fmt(ctaPrice.unit_amount)} once`;
+        return (
+          <div className="md:hidden fixed bottom-0 inset-x-0 z-40 bg-card/95 backdrop-blur border-t-2 border-primary/40 px-4 py-3 shadow-[0_-8px_24px_rgba(0,0,0,0.35)]">
+            <Button
+              onClick={() => handleSelect(ctaPrice.id)}
+              disabled={loadingPriceId === ctaPrice.id}
+              className="w-full gap-2"
+            >
+              <Crown className="w-4 h-4" />
+              {loadingPriceId === ctaPrice.id ? "Loading…" : <>Go Legendary <span className="opacity-80 font-normal">· {ctaLabel}</span></>}
+            </Button>
+          </div>
+        );
+      })()}
     </Layout>
   );
 }

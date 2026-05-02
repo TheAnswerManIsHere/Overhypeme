@@ -5,7 +5,7 @@ import { Layout } from "@/components/layout/Layout";
 import { FactCard } from "@/components/facts/FactCard";
 import { Button } from "@/components/ui/Button";
 import { SubscriptionPanel } from "@/components/SubscriptionPanel";
-import { ShieldAlert, LogOut, Clock, ThumbsUp, FileText, Hash, Star, X, Pencil, Check, Mail, AlertTriangle, CheckCircle, Camera, Loader2, Images, ImageIcon, UserCircle2, Image, Eraser, ChevronLeft, ChevronRight, KeyRound, Eye, EyeOff, Bell } from "lucide-react";
+import { ShieldAlert, LogOut, Clock, ThumbsUp, FileText, Hash, Star, X, Pencil, Check, Mail, AlertTriangle, CheckCircle, Camera, Loader2, Images, ImageIcon, UserCircle2, Image, Eraser, ChevronLeft, ChevronRight, KeyRound, Eye, EyeOff, Bell, Crown } from "lucide-react";
 import { ImageCard } from "@/components/ui/ImageCard";
 import { Link, useLocation } from "wouter";
 import { useQueryClient, useQuery } from "@tanstack/react-query";
@@ -16,6 +16,44 @@ import { Sentry } from "@/lib/sentry";
 import { AdminMediaInfo, AdminMediaInfoForUrl, getFileNameFromUrl, getMimeTypeFromUrl } from "@/components/ui/AdminMediaInfo";
 
 const BASE_URL = import.meta.env.BASE_URL ?? "/";
+
+/**
+ * Center-crop an image to a square and re-encode as JPEG, downscaled to
+ * `maxSize` on the long edge. The cropped image is the user's reusable
+ * identity asset — meme overlays, AI image generation, and AI video memes
+ * all consume a square face crop, so we normalise on upload.
+ */
+async function cropToSquareJpeg(file: File, maxSize: number): Promise<File> {
+  const dataUrl = await new Promise<string>((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve(typeof r.result === "string" ? r.result : "");
+    r.onerror = () => reject(new Error("Could not read image"));
+    r.readAsDataURL(file);
+  });
+  const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+    const i = new globalThis.Image();
+    i.onload = () => resolve(i);
+    i.onerror = () => reject(new Error("Could not decode image"));
+    i.src = dataUrl;
+  });
+  const side = Math.min(img.naturalWidth, img.naturalHeight);
+  if (side <= 0) throw new Error("Image has no pixels");
+  const sx = Math.floor((img.naturalWidth - side) / 2);
+  const sy = Math.floor((img.naturalHeight - side) / 2);
+  const out = Math.min(side, maxSize);
+  const canvas = document.createElement("canvas");
+  canvas.width = out;
+  canvas.height = out;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) throw new Error("Canvas not supported");
+  ctx.drawImage(img, sx, sy, side, side, 0, 0, out, out);
+  const blob = await new Promise<Blob | null>((resolve) =>
+    canvas.toBlob((b) => resolve(b), "image/jpeg", 0.9),
+  );
+  if (!blob) throw new Error("Could not encode image");
+  const baseName = file.name.replace(/\.[^.]+$/, "");
+  return new File([blob], `${baseName}.jpg`, { type: "image/jpeg" });
+}
 
 export default function Profile() {
   const [currentPath, setLocation] = useLocation();
@@ -274,7 +312,7 @@ export default function Profile() {
   const isLegendary = role === "legendary" || role === "admin";
 
   function getAvatarUrl() {
-    if (isLegendary && profile?.profileImageUrl && (profile?.avatarSource ?? "avatar") === "photo") {
+    if (profile?.profileImageUrl && (profile?.avatarSource ?? "avatar") === "photo") {
       return profile.profileImageUrl;
     }
     return dicebearUrl(profile?.avatarStyle ?? "bottts", profile?.id ?? "default");
@@ -546,11 +584,18 @@ export default function Profile() {
     setPhotoError("");
     setPhotoUploading(true);
     try {
+      // Center-square crop + downscale on the client. The photo becomes the
+      // user's reusable identity asset (memes, AI images, AI video memes), and
+      // the downstream meme/AI flows expect a square face crop. Keep GIFs
+      // untouched so animation isn't lost.
+      const cropped = file.type === "image/gif"
+        ? file
+        : await cropToSquareJpeg(file, 1024).catch(() => file);
       const uploadRes = await fetch(`${BASE_URL}api/storage/upload-avatar`, {
         method: "POST",
-        headers: { "Content-Type": file.type },
+        headers: { "Content-Type": cropped.type },
         credentials: "include",
-        body: file,
+        body: cropped,
       });
       if (!uploadRes.ok) {
         const errData = await uploadRes.json() as { error?: string };
@@ -615,9 +660,71 @@ export default function Profile() {
     );
   }
 
+  const hasCustomPhoto = Boolean(profile.profileImageUrl);
+  const hasDisplayName = Boolean(profile.displayName && profile.displayName.trim().length > 0);
+  const identityIncomplete = !hasCustomPhoto || !hasDisplayName;
+
   return (
     <Layout>
       <div className="max-w-5xl mx-auto px-4 py-12 md:py-20">
+
+        {/* ── Identity-first card ─────────────────────────────────────
+            The profile photo + display name are the user's reusable
+            identity asset. Every meme, AI image, and AI video meme
+            reuses them, so prompt the user to set them up the moment
+            they land here. Free for everyone — no upgrade gate. */}
+        {identityIncomplete && (
+          <div className="bg-card border-2 border-primary/40 rounded-sm p-5 md:p-6 mb-6 shadow-[0_0_24px_rgba(249,115,22,0.12)]">
+            <div className="flex flex-col md:flex-row md:items-center gap-4 md:gap-6">
+              <div className="flex items-center gap-4 md:shrink-0">
+                <div className="relative shrink-0">
+                  <img
+                    src={getAvatarUrl()}
+                    alt={profile.displayName ?? "Your avatar"}
+                    className="w-16 h-16 md:w-20 md:h-20 rounded-sm border-2 border-primary/60 object-cover bg-secondary"
+                  />
+                  {!hasCustomPhoto && (
+                    <span className="absolute -top-1 -right-1 w-5 h-5 rounded-full bg-primary text-primary-foreground text-[10px] font-bold flex items-center justify-center shadow">!</span>
+                  )}
+                </div>
+                <div className="md:hidden flex-1 min-w-0">
+                  <div className="text-[10px] font-display uppercase tracking-[0.18em] text-primary mb-0.5">Complete your identity</div>
+                  <h2 className="text-base font-display uppercase tracking-wide text-foreground leading-tight">Your face is the meme</h2>
+                </div>
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="hidden md:block text-[11px] font-display uppercase tracking-[0.18em] text-primary mb-1">Complete your identity</div>
+                <h2 className="hidden md:block text-xl font-display uppercase tracking-wide text-foreground mb-1">Your face is the meme</h2>
+                <p className="text-xs md:text-sm text-muted-foreground leading-snug">
+                  Add your <strong className="text-foreground">name</strong> and a <strong className="text-foreground">photo of you</strong> — we reuse them everywhere: photo memes, AI memes of you in impossible scenarios, and AI video memes. Free for everyone.
+                </p>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {!hasCustomPhoto && (
+                    <Button
+                      onClick={() => fileInputRef.current?.click()}
+                      disabled={photoUploading}
+                      size="sm"
+                      className="gap-2"
+                    >
+                      {photoUploading ? <><Loader2 className="w-4 h-4 animate-spin" /> Uploading…</> : <><Camera className="w-4 h-4" /> Add Photo</>}
+                    </Button>
+                  )}
+                  {!hasDisplayName && (
+                    <Button
+                      onClick={openEditor}
+                      variant={hasCustomPhoto ? "primary" : "outline"}
+                      size="sm"
+                      className="gap-2"
+                    >
+                      <Pencil className="w-4 h-4" /> Add Name
+                    </Button>
+                  )}
+                </div>
+                {photoError && <p className="text-xs text-destructive mt-2">{photoError}</p>}
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Checkout Success Banner */}
         {checkoutBanner === "success" && (
@@ -717,15 +824,14 @@ export default function Profile() {
               alt={profile.displayName ?? "User"}
               className="w-[120px] h-[120px] rounded-full border-2 border-primary object-cover bg-secondary shadow-[0_0_24px_rgba(249,115,22,0.25)]"
             />
-            {isLegendary && (
-              <button
-                onClick={() => fileInputRef.current?.click()}
-                disabled={photoUploading}
-                className="absolute inset-0 rounded-full bg-black/50 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
-              >
-                {photoUploading ? <Loader2 className="w-6 h-6 text-white animate-spin" /> : <Camera className="w-6 h-6 text-white" />}
-              </button>
-            )}
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              disabled={photoUploading}
+              className="absolute inset-0 rounded-full bg-black/50 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+              title="Upload profile photo"
+            >
+              {photoUploading ? <Loader2 className="w-6 h-6 text-white animate-spin" /> : <Camera className="w-6 h-6 text-white" />}
+            </button>
           </div>
 
           {/* Name + stats */}
@@ -792,10 +898,10 @@ export default function Profile() {
               onChange={handlePhotoChange}
             />
             <button
-              onClick={() => isLegendary ? fileInputRef.current?.click() : openEditor()}
+              onClick={() => fileInputRef.current?.click()}
               disabled={photoUploading}
               className="relative block rounded-sm focus:outline-none focus:ring-2 focus:ring-primary"
-              title={isLegendary ? "Change profile photo" : "Choose avatar style"}
+              title="Upload profile photo"
             >
               <img
                 src={getAvatarUrl()}
@@ -813,8 +919,8 @@ export default function Profile() {
               <p className="absolute top-full mt-1 left-0 w-48 text-xs text-destructive font-medium bg-card border border-destructive/40 rounded-sm px-2 py-1 z-20">{photoError}</p>
             )}
 
-            {/* Avatar source toggle — Legendary users with a custom photo */}
-            {isLegendary && profile.profileImageUrl && (
+            {/* Avatar source toggle — anyone with a custom photo */}
+            {profile.profileImageUrl && (
               <div className="mt-2 flex items-center gap-1 bg-secondary/80 rounded-sm p-0.5 border border-border/60">
                 <button
                   disabled={avatarSourceToggling}
@@ -975,67 +1081,63 @@ export default function Profile() {
                 <p className="text-xs text-muted-foreground mt-1">Your avatar is generated from your unique ID — same look everywhere, no photo needed.</p>
               </div>
 
-              {/* Photo Upload — Premium only */}
-              {isLegendary ? (
-                <div>
-                  <label className="block text-sm font-bold text-muted-foreground uppercase tracking-wide mb-2 flex items-center gap-2">
-                    <Camera className="w-3.5 h-3.5" /> Custom Photo <span className="text-primary text-xs">Legendary</span>
-                  </label>
-                  <div className="flex items-center gap-4 flex-wrap">
-                    {profile.profileImageUrl && (
-                      <img src={profile.profileImageUrl} alt="Current photo" className="w-12 h-12 rounded-sm border border-border object-cover" />
-                    )}
-                    <Button
-                      type="button"
-                      variant="outline"
-                      onClick={() => fileInputRef.current?.click()}
-                      disabled={photoUploading}
-                      className="gap-2 text-sm"
-                    >
-                      {photoUploading ? <><Loader2 className="w-4 h-4 animate-spin" /> Uploading…</> : <><Camera className="w-4 h-4" /> {profile.profileImageUrl ? "Change Photo" : "Upload Photo"}</>}
-                    </Button>
-                    {profile.profileImageUrl && (
-                      <div className="flex flex-col gap-1">
-                        <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wide">Display as</p>
-                        <div className="flex items-center gap-1 bg-secondary/80 rounded-sm p-0.5 border border-border/60">
-                          <button
-                            type="button"
-                            disabled={avatarSourceToggling}
-                            onClick={() => (profile.avatarSource ?? "avatar") !== "avatar" && toggleAvatarSource()}
-                            className={`flex items-center gap-1 px-2 py-1 rounded-sm text-[10px] font-bold uppercase tracking-wider transition-colors ${
-                              (profile.avatarSource ?? "avatar") === "avatar"
-                                ? "bg-primary text-primary-foreground"
-                                : "text-muted-foreground hover:text-foreground"
-                            }`}
-                          >
-                            <UserCircle2 className="w-3 h-3" /> Avatar
-                          </button>
-                          <button
-                            type="button"
-                            disabled={avatarSourceToggling}
-                            onClick={() => (profile.avatarSource ?? "avatar") !== "photo" && toggleAvatarSource()}
-                            className={`flex items-center gap-1 px-2 py-1 rounded-sm text-[10px] font-bold uppercase tracking-wider transition-colors ${
-                              (profile.avatarSource ?? "avatar") === "photo"
-                                ? "bg-primary text-primary-foreground"
-                                : "text-muted-foreground hover:text-foreground"
-                            }`}
-                          >
-                            <Image className="w-3 h-3" /> Photo
-                          </button>
-                        </div>
+              {/* Photo Upload — free identity asset for everyone */}
+              <div>
+                <label className="block text-sm font-bold text-muted-foreground uppercase tracking-wide mb-2 flex items-center gap-2">
+                  <Camera className="w-3.5 h-3.5" /> Profile Photo <span className="text-muted-foreground/70 text-[10px] font-normal normal-case tracking-normal">— free, reused for memes &amp; AI</span>
+                </label>
+                <div className="flex items-center gap-4 flex-wrap">
+                  {profile.profileImageUrl && (
+                    <img src={profile.profileImageUrl} alt="Current photo" className="w-12 h-12 rounded-sm border border-border object-cover" />
+                  )}
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={photoUploading}
+                    className="gap-2 text-sm"
+                  >
+                    {photoUploading ? <><Loader2 className="w-4 h-4 animate-spin" /> Uploading…</> : <><Camera className="w-4 h-4" /> {profile.profileImageUrl ? "Change Photo" : "Upload Photo"}</>}
+                  </Button>
+                  {profile.profileImageUrl && (
+                    <div className="flex flex-col gap-1">
+                      <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wide">Display as</p>
+                      <div className="flex items-center gap-1 bg-secondary/80 rounded-sm p-0.5 border border-border/60">
+                        <button
+                          type="button"
+                          disabled={avatarSourceToggling}
+                          onClick={() => (profile.avatarSource ?? "avatar") !== "avatar" && toggleAvatarSource()}
+                          className={`flex items-center gap-1 px-2 py-1 rounded-sm text-[10px] font-bold uppercase tracking-wider transition-colors ${
+                            (profile.avatarSource ?? "avatar") === "avatar"
+                              ? "bg-primary text-primary-foreground"
+                              : "text-muted-foreground hover:text-foreground"
+                          }`}
+                        >
+                          <UserCircle2 className="w-3 h-3" /> Avatar
+                        </button>
+                        <button
+                          type="button"
+                          disabled={avatarSourceToggling}
+                          onClick={() => (profile.avatarSource ?? "avatar") !== "photo" && toggleAvatarSource()}
+                          className={`flex items-center gap-1 px-2 py-1 rounded-sm text-[10px] font-bold uppercase tracking-wider transition-colors ${
+                            (profile.avatarSource ?? "avatar") === "photo"
+                              ? "bg-primary text-primary-foreground"
+                              : "text-muted-foreground hover:text-foreground"
+                          }`}
+                        >
+                          <Image className="w-3 h-3" /> Photo
+                        </button>
                       </div>
-                    )}
-                  </div>
-                  {photoError && <p className="text-xs text-destructive mt-1">{photoError}</p>}
-                  <p className="text-xs text-muted-foreground mt-1">
-                    {profile.profileImageUrl
-                      ? "Toggle between your avatar style and your custom photo, or upload a new photo."
-                      : "Upload a photo to replace your generated avatar. JPEG, PNG, WebP or GIF, max 5 MB."}
-                  </p>
+                    </div>
+                  )}
                 </div>
-              ) : (
-                <AccessGate reason="legendary" size="sm" description="Go Legendary to replace your generated avatar with a custom photo." />
-              )}
+                {photoError && <p className="text-xs text-destructive mt-1">{photoError}</p>}
+                <p className="text-xs text-muted-foreground mt-1">
+                  {profile.profileImageUrl
+                    ? "Toggle between your avatar style and your custom photo, or upload a new photo. We reuse this photo as your face for memes and AI generation."
+                    : "Upload a photo of your face. We reuse it for memes, AI images, and AI video memes of you. JPEG, PNG, WebP or GIF, max 5 MB."}
+                </p>
+              </div>
 
               <div>
                 <label className="block text-sm font-bold text-muted-foreground uppercase tracking-wide mb-1">Pronouns</label>
