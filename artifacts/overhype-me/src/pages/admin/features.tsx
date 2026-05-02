@@ -191,7 +191,8 @@ export default function AdminFeatures() {
             </span>
           </div>
 
-          <div className="overflow-x-auto rounded-lg border border-border">
+          {/* Desktop matrix table — hidden on small screens */}
+          <div className="hidden md:block overflow-x-auto rounded-lg border border-border">
             <table className="w-full text-sm border-collapse">
               <thead>
                 <tr className="bg-muted/60">
@@ -265,6 +266,60 @@ export default function AdminFeatures() {
                 ))}
               </tbody>
             </table>
+          </div>
+
+          {/* Mobile card stack — one card per tier, feature toggles stacked inside */}
+          <div className="md:hidden space-y-3">
+            {tiers.map((tier) => (
+              <div key={tier} className="rounded-lg border border-border bg-card overflow-hidden">
+                <div className="px-4 py-3 bg-muted/40 border-b border-border">
+                  <div className="text-sm font-semibold text-foreground">{TIER_LABELS[tier] ?? tier}</div>
+                  <div className="font-mono text-[10px] text-muted-foreground">{tier}</div>
+                </div>
+                <ul className="divide-y divide-border">
+                  {features.map((feat) => {
+                    const cell = cells[tier]?.[feat.key];
+                    const enabled = cell?.enabled ?? false;
+                    const saveState = cell?.saveState ?? "idle";
+                    return (
+                      <li key={feat.key}>
+                        <button
+                          onClick={() => toggle(tier, feat.key)}
+                          disabled={saveState === "saving"}
+                          aria-pressed={enabled}
+                          title={`${enabled ? "Disable" : "Enable"} ${feat.displayName} for ${TIER_LABELS[tier] ?? tier}`}
+                          className="w-full flex items-center gap-3 min-h-[44px] px-4 py-2.5 text-left transition-colors hover:bg-muted/30 active:bg-muted/40 disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus:bg-muted/30"
+                        >
+                          <span className="inline-flex items-center justify-center w-6 h-6 shrink-0">
+                            {saveState === "saving" ? (
+                              <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
+                            ) : saveState === "error" ? (
+                              <AlertCircle className="w-5 h-5 text-destructive" />
+                            ) : enabled ? (
+                              <CheckSquare
+                                className={`w-5 h-5 transition-colors ${
+                                  saveState === "saved" ? "text-green-500" : "text-primary"
+                                }`}
+                              />
+                            ) : (
+                              <Square
+                                className={`w-5 h-5 transition-colors ${
+                                  saveState === "saved" ? "text-muted-foreground" : "text-muted-foreground/40"
+                                }`}
+                              />
+                            )}
+                          </span>
+                          <span className="min-w-0 flex-1">
+                            <span className="block text-sm font-medium text-foreground truncate">{feat.displayName}</span>
+                            <span className="block font-mono text-[10px] text-muted-foreground truncate">{feat.key}</span>
+                          </span>
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </div>
+            ))}
           </div>
 
           <p className="text-xs text-muted-foreground">

@@ -856,13 +856,13 @@ export default function AdminBilling() {
                 value={testEventUserId}
                 onChange={e => setTestEventUserId(e.target.value)}
                 placeholder="User ID"
-                className="flex-1 min-w-48 h-9 px-3 rounded-sm bg-secondary border border-border text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary"
+                className="flex-1 min-w-0 sm:min-w-48 min-h-[44px] sm:h-9 px-3 rounded-sm bg-secondary border border-border text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary"
               />
               <Button
                 size="sm"
                 onClick={sendTestEvent}
                 disabled={testEventLoading || !testEventUserId.trim()}
-                className="gap-2"
+                className="gap-2 min-h-[44px] sm:min-h-0"
               >
                 {testEventLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
                 Send
@@ -900,11 +900,11 @@ export default function AdminBilling() {
               <XCircle className="w-3.5 h-3.5 shrink-0" />{falEndpointsError}
             </p>
           )}
-          <div className="flex items-center gap-3 mt-2">
+          <div className="flex items-center gap-3 mt-2 flex-wrap">
             <button
               onClick={() => void saveFalEndpoints()}
               disabled={falEndpointsSaving || falEndpoints === falEndpointsOriginal}
-              className="px-3 py-1.5 rounded text-sm font-medium bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-40 disabled:cursor-not-allowed transition-colors flex items-center gap-1.5"
+              className="min-h-[44px] px-3 py-1.5 rounded text-sm font-medium bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-40 disabled:cursor-not-allowed transition-colors flex items-center gap-1.5"
             >
               {falEndpointsSaving ? (
                 <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Saving…</>
@@ -936,12 +936,12 @@ export default function AdminBilling() {
                 step={1000}
                 value={pricingInterval}
                 onChange={e => { setPricingInterval(e.target.value); setPricingIntervalError(null); setPricingIntervalSaved(false); }}
-                className="w-48 bg-background border border-border rounded px-3 py-1.5 text-sm font-mono text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+                className="w-full sm:w-48 min-h-[44px] bg-background border border-border rounded px-3 py-1.5 text-sm font-mono text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
               />
               <button
                 onClick={() => void savePricingInterval()}
                 disabled={pricingIntervalSaving || pricingInterval === pricingIntervalOriginal}
-                className="px-3 py-1.5 rounded text-sm font-medium bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-40 disabled:cursor-not-allowed transition-colors flex items-center gap-1.5"
+                className="min-h-[44px] px-3 py-1.5 rounded text-sm font-medium bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-40 disabled:cursor-not-allowed transition-colors flex items-center gap-1.5"
               >
                 {pricingIntervalSaving ? (
                   <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Saving…</>
@@ -976,26 +976,26 @@ export default function AdminBilling() {
             description="Currently resolved monthly, annual, and legendary for life price IDs."
             storageKey="admin_section_billing_price_mapping"
           >
-            <div className="space-y-2 text-sm">
+            <div className="space-y-3 text-sm">
               {monthlyPrice && (
-                <div className="flex items-center justify-between gap-4">
-                  <span className="text-muted-foreground">Monthly</span>
-                  <span className="font-mono text-xs text-foreground">{monthlyPrice.id}</span>
-                  <span className="font-bold text-foreground">${(monthlyPrice.unit_amount / 100).toFixed(2)}/mo</span>
+                <div className="grid grid-cols-[auto_1fr_auto] sm:flex sm:items-center sm:justify-between gap-x-4 gap-y-1">
+                  <span className="text-muted-foreground col-start-1">Monthly</span>
+                  <span className="font-bold text-foreground col-start-3 text-right sm:order-last">${(monthlyPrice.unit_amount / 100).toFixed(2)}/mo</span>
+                  <span className="font-mono text-xs text-foreground col-span-3 break-all sm:col-span-1 sm:flex-1 sm:text-center sm:break-normal sm:truncate">{monthlyPrice.id}</span>
                 </div>
               )}
               {annualPrice && (
-                <div className="flex items-center justify-between gap-4">
-                  <span className="text-muted-foreground">Annual</span>
-                  <span className="font-mono text-xs text-foreground">{annualPrice.id}</span>
-                  <span className="font-bold text-foreground">${(annualPrice.unit_amount / 100).toFixed(2)}/yr</span>
+                <div className="grid grid-cols-[auto_1fr_auto] sm:flex sm:items-center sm:justify-between gap-x-4 gap-y-1">
+                  <span className="text-muted-foreground col-start-1">Annual</span>
+                  <span className="font-bold text-foreground col-start-3 text-right sm:order-last">${(annualPrice.unit_amount / 100).toFixed(2)}/yr</span>
+                  <span className="font-mono text-xs text-foreground col-span-3 break-all sm:col-span-1 sm:flex-1 sm:text-center sm:break-normal sm:truncate">{annualPrice.id}</span>
                 </div>
               )}
               {lifetimePrice && (
-                <div className="flex items-center justify-between gap-4">
-                  <span className="text-muted-foreground">Legendary for Life</span>
-                  <span className="font-mono text-xs text-foreground">{lifetimePrice.id}</span>
-                  <span className="font-bold text-foreground">${(lifetimePrice.unit_amount / 100).toFixed(2)} once</span>
+                <div className="grid grid-cols-[auto_1fr_auto] sm:flex sm:items-center sm:justify-between gap-x-4 gap-y-1">
+                  <span className="text-muted-foreground col-start-1">Legendary for Life</span>
+                  <span className="font-bold text-foreground col-start-3 text-right sm:order-last">${(lifetimePrice.unit_amount / 100).toFixed(2)} once</span>
+                  <span className="font-mono text-xs text-foreground col-span-3 break-all sm:col-span-1 sm:flex-1 sm:text-center sm:break-normal sm:truncate">{lifetimePrice.id}</span>
                 </div>
               )}
             </div>

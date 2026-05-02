@@ -349,7 +349,7 @@ function AISettingsGroup() {
                 <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Standard suffix</label>
                 <code className="text-xs text-muted-foreground bg-muted px-2 py-0.5 rounded">{standardKey}</code>
               </div>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <div className={`rounded-lg border p-3 space-y-2 ${!debugActive ? "border-primary/40 bg-primary/5" : "border-border"}`}>
                   <div className="flex items-center justify-between">
                     <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Standard</span>
@@ -372,7 +372,7 @@ function AISettingsGroup() {
                 <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Reference photo suffix</label>
                 <code className="text-xs text-muted-foreground bg-muted px-2 py-0.5 rounded">{referenceKey}</code>
               </div>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <div className={`rounded-lg border p-3 space-y-2 ${!debugActive ? "border-primary/40 bg-primary/5" : "border-border"}`}>
                   <div className="flex items-center justify-between">
                     <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Standard</span>
@@ -456,7 +456,7 @@ export default function AdminConfig() {
 
           {/* ── Debug Mode ── always visible at the top ── */}
           <div className={`rounded-xl border-2 p-5 transition-colors ${debugActive ? "border-amber-500/60 bg-amber-500/5" : "border-border bg-card"}`}>
-            <div className="flex items-center justify-between gap-6">
+            <div className="flex items-center justify-between gap-4 flex-wrap">
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2">
                   <Bug className={`w-5 h-5 ${debugActive ? "text-amber-400" : "text-muted-foreground"}`} />
@@ -473,7 +473,7 @@ export default function AdminConfig() {
               <button
                 onClick={() => void toggleDebugMode()}
                 disabled={debugToggling}
-                className={`shrink-0 px-6 py-2.5 rounded-lg font-semibold text-sm transition-colors flex items-center gap-2 ${
+                className={`shrink-0 min-h-[44px] px-6 py-2.5 rounded-lg font-semibold text-sm transition-colors flex items-center gap-2 ${
                   debugActive
                     ? "bg-amber-500 hover:bg-amber-400 text-black"
                     : "bg-muted hover:bg-muted/80 text-foreground border border-border"
