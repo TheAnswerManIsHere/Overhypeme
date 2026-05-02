@@ -1,0 +1,50 @@
+# Error: the worker has exited
+
+**Issue ID:** 7452561223
+**Project:** sentry_project_backend
+**Date:** 5/2/2026, 1:38:46 PM
+## Issue Summary
+Worker Exit During Stats Endpoint Due to Underlying Auth/Logging Failure
+**What's wrong:** Worker process **exited unexpectedly** during **GET /api/route-stats** request processing.
+**In the trace:** Repeated **401 Unauthorized** errors when POSTing to **Resend API** suggest **authentication failure**.
+**Possible cause:** The worker exit may be caused by an **unhandled exception** during logging/response finalization, possibly triggered by **Resend API credential issues**.
+
+## Tags
+
+- **browser:** Mobile Safari UI/WKWebView
+- **browser.name:** Mobile Safari UI/WKWebView
+- **client_os:** Mac OS X >=10.15.7
+- **client_os.name:** Mac OS X
+- **environment:** development
+- **handled:** no
+- **level:** fatal
+- **mechanism:** auto.node.onuncaughtexception
+- **os:** Ubuntu Linux 24.04
+- **os.name:** Ubuntu Linux
+- **release:** dev
+- **runtime:** node v24.13.0
+- **runtime.name:** node
+- **server_name:** d59245d2e05a
+- **transaction:** GET /api/auth/user
+- **url:** https://1f4dceef-1d85-4176-b8e7-de6afe117cc4-00-2g4ys2kfyzqjj.spock.replit.dev/api/auth/user
+
+## Exception
+
+### Exception 1
+**Type:** Error
+**Value:** the worker has exited
+
+#### Stacktrace
+
+```
+ ThreadStream.write in /home/runner/workspace/artifacts/api-server/dist/index.mjs [Line 72071] (In app)
+ Pino.write in /home/runner/workspace/artifacts/api-server/dist/index.mjs [Line 73218] (In app)
+ Pino.LOG [as info] in /home/runner/workspace/artifacts/api-server/dist/index.mjs [Line 72504] (In app)
+ onResFinished in /home/runner/workspace/artifacts/api-server/dist/index.mjs [Line 74349] (In app)
+ ServerResponse.onResponseComplete in /home/runner/workspace/artifacts/api-server/dist/index.mjs [Line 74388] (In app)
+ Unknown function in /home/runner/workspace/artifacts/api-server/dist/index.mjs [Line 26467] (In app)
+ AsyncLocalStorage.run in node:internal/async_local_storage/async_context_frame [Line 63] (Not in app)
+ _SentryAsyncLocalStorageContextManager.with in /home/runner/workspace/artifacts/api-server/dist/index.mjs [Line 26436] (In app)
+ ServerResponse.contextWrapper in /home/runner/workspace/artifacts/api-server/dist/index.mjs [Line 26467] (In app)
+ ServerResponse.emit in node:events [Line 520] (Not in app)
+```

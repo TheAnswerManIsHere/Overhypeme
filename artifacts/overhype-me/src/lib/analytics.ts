@@ -97,6 +97,7 @@ function reportRouteVisitToServer(routeKey: string): void {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ route: routeKey }),
     keepalive: true,
+    credentials: "omit",
   }).catch(() => {});
 }
 
@@ -127,6 +128,7 @@ export function flushRouteStatsToServer(): void {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ counts }),
       keepalive: true,
+      credentials: "omit",
     }).catch(() => {});
   } catch {
     // localStorage may be unavailable

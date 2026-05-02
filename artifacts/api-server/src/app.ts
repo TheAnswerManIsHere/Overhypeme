@@ -45,24 +45,66 @@ const app: Express = express();
 // SameSite=None; Secure cookies are correctly accepted by Express.
 app.set("trust proxy", 1);
 
-app.use(
-  pinoHttp({
-    logger,
-    serializers: {
-      req(req) {
+// pino-http calls `logger.info()` on response finish. If the pino-pretty
+// transport worker has exited, that write would throw synchronously and kill
+// the response lifecycle. The `logger` exported from ./lib/logger is already
+// wrapped to swallow such errors, but we still wrap the request-logger
+// middleware itself so that any synchronous throw from pino-http or our
+// custom serializers (e.g. scrubUrl/scrubObject choking on an exotic body)
+// can never bubble out and crash the process.
+const requestLogger = pinoHttp({
+  logger,
+  serializers: {
+    req(req) {
+      try {
         return {
           id: req.id,
           method: req.method,
           url: req.url != null ? scrubUrl(req.url) : req.url,
           body: Buffer.isBuffer(req.raw?.body) ? "[Buffer]" : scrubObject(req.raw?.body),
         };
-      },
-      res(res) {
-        return { statusCode: res.statusCode };
-      },
+      } catch {
+        return { id: req.id, method: req.method };
+      }
     },
-  }),
-);
+    res(res) {
+      try {
+        return { statusCode: res.statusCode };
+      } catch {
+        return {};
+      }
+    },
+  },
+});
+
+app.use((req: Request, res: Response, next: NextFunction) => {
+  try {
+    requestLogger(req, res, next);
+  } catch (err) {
+    // Transport dead or some other logging-pipeline failure. Swallow so the
+    // request can still be served; the safe logger has already written the
+    // error to stderr. Note: this only catches synchronous setup-time
+    // throws from pino-http itself. Throws from the response-finish hook
+    // (`onResFinished` -> `logger.info`) are caught upstream by the safe
+    // logger Proxy in ./lib/logger.
+    try {
+      process.stderr.write(
+        JSON.stringify({
+          level: 50,
+          time: Date.now(),
+          pid: process.pid,
+          msg: "request logger middleware failed (transport may have exited)",
+          err: err instanceof Error
+            ? { type: err.name, message: err.message }
+            : { type: typeof err, message: String(err) },
+        }) + "\n",
+      );
+    } catch {
+      // Nothing more we can do.
+    }
+    next();
+  }
+});
 
 // Stripe webhook MUST be registered BEFORE express.json() to get raw Buffer
 app.post(
