@@ -67,6 +67,14 @@ function colorForSource(source: string | null, fallbackIndex: number): string {
   return SOURCE_COLORS[source] ?? FALLBACK_COLORS[fallbackIndex % FALLBACK_COLORS.length];
 }
 
+// Bind ResponsiveTable's row type via a TypeScript instantiation expression
+// so we don't need inline JSX generics (`<ResponsiveTable<ClickRow>`) at the
+// call site. Inline JSX generics break in dev because @replit/vite-plugin-cartographer
+// injects `data-component-name` attributes between the component name and the
+// type argument, producing invalid JSX that babel rejects with an
+// "Unexpected token" parser error.
+const ClickRowTable = ResponsiveTable<ClickRow>;
+
 function SourcePill({ value }: { value: string | null }) {
   // Visualize the click-origin (`source` column). null/empty = legacy row
   // logged before the column existed or a click that arrived without
@@ -307,7 +315,7 @@ export default function AdminAffiliate() {
       </div>
 
       {/* Table */}
-      <ResponsiveTable<ClickRow>
+      <ClickRowTable
         rows={data?.rows ?? []}
         getKey={(row) => `${row.sourceType}-${row.sourceId}-${row.destination}-${row.source ?? "__none__"}`}
         loading={loading}

@@ -1,11 +1,49 @@
 type GarmentType = "tee" | "hoodie" | "mug" | "sticker" | "cap" | "tote";
+type LayoutId = "full" | "crop" | "text";
 
 interface GarmentProps {
   type: GarmentType;
   accentColor?: string;
+  imageUrl?: string;
+  layoutId?: LayoutId;
 }
 
-export function GarmentPreview({ type, accentColor = "#0F0F11" }: GarmentProps) {
+type OverlayBox = { top: number; left: number; width: number; height: number };
+
+const OVERLAY_POSITIONS: Record<GarmentType, Record<LayoutId, OverlayBox>> = {
+  tee: {
+    full: { top: 44, left: 30, width: 40, height: 40 },
+    crop: { top: 46, left: 36, width: 28, height: 28 },
+    text: { top: 48, left: 28, width: 44, height: 24 },
+  },
+  hoodie: {
+    full: { top: 50, left: 30, width: 40, height: 38 },
+    crop: { top: 52, left: 36, width: 28, height: 28 },
+    text: { top: 54, left: 28, width: 44, height: 22 },
+  },
+  mug: {
+    full: { top: 36, left: 27, width: 40, height: 40 },
+    crop: { top: 38, left: 32, width: 30, height: 30 },
+    text: { top: 40, left: 27, width: 40, height: 26 },
+  },
+  sticker: {
+    full: { top: 23, left: 23, width: 54, height: 54 },
+    crop: { top: 28, left: 28, width: 44, height: 44 },
+    text: { top: 30, left: 22, width: 56, height: 36 },
+  },
+  cap: {
+    full: { top: 46, left: 38, width: 24, height: 22 },
+    crop: { top: 48, left: 41, width: 18, height: 18 },
+    text: { top: 50, left: 33, width: 34, height: 16 },
+  },
+  tote: {
+    full: { top: 48, left: 32, width: 36, height: 36 },
+    crop: { top: 50, left: 38, width: 24, height: 24 },
+    text: { top: 52, left: 28, width: 44, height: 24 },
+  },
+};
+
+export function GarmentPreview({ type, accentColor = "#0F0F11", imageUrl, layoutId = "full" }: GarmentProps) {
   const svgProps = { viewBox: "0 0 200 200", width: "100%", height: "100%", style: { position: "absolute" as const, inset: 0 } };
   const fill = accentColor;
   const stroke = "rgba(255,255,255,0.07)";
@@ -44,9 +82,33 @@ export function GarmentPreview({ type, accentColor = "#0F0F11" }: GarmentProps) 
     ),
   };
 
+  const box = OVERLAY_POSITIONS[type][layoutId];
+  // The "crop" layout zooms in on the meme image (face-only effect) by scaling
+  // the background larger than its container and clipping the rest.
+  const backgroundSize = layoutId === "crop" ? "180% auto" : "cover";
+  const backgroundPosition = layoutId === "crop" ? "center 20%" : "center";
+
   return (
     <div className="relative w-full h-full" style={{ background: "linear-gradient(180deg, #1a1a1d 0%, #0f0f11 100%)" }}>
       {shapes[type]}
+      {imageUrl && (
+        <div
+          aria-hidden
+          style={{
+            position: "absolute",
+            top: `${box.top}%`,
+            left: `${box.left}%`,
+            width: `${box.width}%`,
+            height: `${box.height}%`,
+            backgroundImage: `url(${JSON.stringify(imageUrl)})`,
+            backgroundSize,
+            backgroundPosition,
+            backgroundRepeat: "no-repeat",
+            backgroundColor: "rgba(0,0,0,0.2)",
+            boxShadow: "0 6px 18px rgba(0,0,0,0.35)",
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -61,9 +123,9 @@ export const PRODUCTS = [
 ] as const;
 
 export const LAYOUTS = [
-  { id: "full",   label: "Full meme",  sub: "Image + caption" },
-  { id: "crop",   label: "Tight crop", sub: "Face only" },
-  { id: "text",   label: "Text only",  sub: "Big quote" },
+  { id: "full" as LayoutId, label: "Full meme",  sub: "Image + caption" },
+  { id: "crop" as LayoutId, label: "Tight crop", sub: "Face only" },
+  { id: "text" as LayoutId, label: "Text only",  sub: "Big quote" },
 ] as const;
 
-export type { GarmentType };
+export type { GarmentType, LayoutId };

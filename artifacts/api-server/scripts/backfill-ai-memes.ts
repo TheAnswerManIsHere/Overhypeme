@@ -13,8 +13,14 @@
 import { db } from "@workspace/db";
 import { factsTable } from "@workspace/db/schema";
 import { and, eq, isNull } from "drizzle-orm";
+import { installStdioGuard } from "../src/lib/stdioGuard";
 import { generateAiMemeBackgrounds } from "../src/lib/aiMemePipeline";
 import type { AiMemeImages } from "../src/lib/aiMemePipeline";
+
+// Task #402 / #404: absorb EIO/EPIPE on stdout/stderr so a torn-down pipe
+// (e.g. workflow restart while this long-running backfill is mid-flight)
+// does not crash the process. Must run before any console.* call.
+installStdioGuard();
 
 const DELAY_BETWEEN_FACTS_MS = 8000;
 

@@ -24,9 +24,15 @@ import { db } from "@workspace/db";
 import { factsTable, userAiImagesTable, memesTable, usersTable, videoJobsTable } from "@workspace/db/schema";
 import { isNotNull, eq, like } from "drizzle-orm";
 import { sql } from "drizzle-orm";
+import { installStdioGuard } from "../src/lib/stdioGuard";
 import { objectStorageClient } from "../src/lib/objectStorage";
 import { aiBackgroundKey, memeKey, uploadKey } from "../src/lib/storageKeys";
 import type { AiMemeImages } from "../src/lib/aiMemePipeline";
+
+// Task #402 / #404: absorb EIO/EPIPE on stdout/stderr so a torn-down pipe
+// (e.g. workflow restart while this long-running migration is mid-flight)
+// does not crash the process. Must run before any console.* call.
+installStdioGuard();
 
 // ─── Storage helpers ─────────────────────────────────────────────────────────
 

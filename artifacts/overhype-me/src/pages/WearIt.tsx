@@ -52,8 +52,6 @@ export default function WearIt() {
 
   const product = PRODUCTS[selectedProduct];
   const layout = LAYOUTS[selectedLayout];
-  void layout;
-  void memeData;
 
   // Send the user to Zazzle through the server-side redirect endpoint, which:
   //   1. Logs an affiliate click (with the `source` attribution we pass).
@@ -94,7 +92,12 @@ export default function WearIt() {
             without fighting the horizontal product picker below it. */}
         <div className="rounded-[20px] bg-card border border-border overflow-hidden mb-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]" style={{ touchAction: "pan-y" }}>
           <div className="aspect-square relative">
-            <GarmentPreview type={product.type} accentColor={product.color} />
+            <GarmentPreview
+              type={product.type}
+              accentColor={product.color}
+              imageUrl={memeData?.imageUrl}
+              layoutId={layout.id}
+            />
           </div>
           <div className="px-4 py-3 border-t border-border flex items-center justify-between">
             <span className="text-[11px] text-muted-foreground">Bella+Canvas 3001 · Unisex</span>
@@ -178,7 +181,12 @@ export default function WearIt() {
         <div className="bg-secondary border-r border-border flex flex-col items-center justify-center p-12 overflow-auto">
           <p className="text-[11px] font-bold tracking-[0.18em] text-muted-foreground uppercase font-display mb-4 self-start">Preview</p>
           <div className="w-full max-w-[480px] aspect-square rounded-[24px] overflow-hidden shadow-[0_30px_80px_rgba(0,0,0,0.5)]">
-            <GarmentPreview type={product.type} accentColor={product.color} />
+            <GarmentPreview
+              type={product.type}
+              accentColor={product.color}
+              imageUrl={memeData?.imageUrl}
+              layoutId={layout.id}
+            />
           </div>
           <p className="text-[13px] text-muted-foreground mt-4 flex gap-2.5">
             <span>Bella+Canvas 3001</span><span className="opacity-40">·</span>
