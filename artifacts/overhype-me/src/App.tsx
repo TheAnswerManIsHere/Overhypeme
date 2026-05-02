@@ -279,12 +279,12 @@ function PrefetchCriticalRoutes() {
       resolvePrefetchRoutes().then((keys) => {
         if (cancelled) return;
         for (const key of keys) {
-          ROUTE_IMPORT_MAP[key]?.();
+          ROUTE_IMPORT_MAP[key]?.().catch(() => {});
         }
       }).catch(() => {
         if (cancelled) return;
         for (const key of DEFAULT_PREFETCH_ROUTES) {
-          ROUTE_IMPORT_MAP[key]?.();
+          ROUTE_IMPORT_MAP[key]?.().catch(() => {});
         }
       });
     };
