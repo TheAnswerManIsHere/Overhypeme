@@ -49,6 +49,14 @@ interface ApiResponse {
 
 const PAGE_SIZE = 25;
 
+// Bind ResponsiveTable's row type via a TypeScript instantiation expression so
+// we don't need inline JSX generics (`<ResponsiveTable<RefundDisputeRow>`) at
+// the call site. Inline JSX generics break in dev because
+// @replit/vite-plugin-cartographer injects `data-component-name` attributes
+// between the component name and the type argument, producing invalid JSX
+// that babel rejects with an "Unexpected token" parser error.
+const RefundDisputeTable = ResponsiveTable<RefundDisputeRow>;
+
 const FILTER_OPTIONS: { value: "" | RefundDisputeEvent; label: string }[] = [
   { value: "", label: "All" },
   { value: "refund", label: "Refunds" },
@@ -245,7 +253,7 @@ export default function AdminRefundsDisputes() {
         )}
 
         {/* Table */}
-        <ResponsiveTable<RefundDisputeRow>
+        <RefundDisputeTable
           rows={rows}
           getKey={(row) => row.id}
           loading={loading}
