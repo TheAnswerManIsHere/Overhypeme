@@ -20,6 +20,10 @@ import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@workspace/replit-auth-web";
 import { Button } from "@/components/ui/Button";
 import {
+  preProcessImageFile,
+  CLIENT_MAX_UPLOAD_MB,
+} from "@/lib/image-upload";
+import {
   X,
   Download,
   Share2,
@@ -356,58 +360,6 @@ function StepDots({ current, total }: { current: MemeStep; total: number }) {
       ))}
     </div>
   );
-}
-
-// ─── Image pre-processor (shared by all upload code paths) ──────────────────
-const CLIENT_MAX_DIMENSION = 6000;
-const CLIENT_JPEG_QUALITY = 0.9;
-const CLIENT_MAX_UPLOAD_MB = 15;
-const CLIENT_MAX_UPLOAD_BYTES = CLIENT_MAX_UPLOAD_MB * 1024 * 1024;
-
-async function preProcessImageFile(file: File): Promise<{ blob: Blob; width: number; height: number }> {
-  return new Promise((resolve, reject) => {
-    const img = new Image();
-    const url = URL.createObjectURL(file);
-    img.onload = () => {
-      URL.revokeObjectURL(url);
-      let { naturalWidth: w, naturalHeight: h } = img;
-      const longestEdge = Math.max(w, h);
-      if (longestEdge > CLIENT_MAX_DIMENSION) {
-        const scale = CLIENT_MAX_DIMENSION / longestEdge;
-        w = Math.round(w * scale);
-        h = Math.round(h * scale);
-      }
-      const attempt = (curW: number, curH: number, quality: number, attemptsLeft: number) => {
-        const c = document.createElement("canvas");
-        c.width = curW;
-        c.height = curH;
-        const cx = c.getContext("2d");
-        if (!cx) { reject(new Error("Canvas unavailable")); return; }
-        cx.drawImage(img, 0, 0, curW, curH);
-        c.toBlob(
-          (blob) => {
-            if (!blob) { reject(new Error("Image encoding failed")); return; }
-            if (blob.size <= CLIENT_MAX_UPLOAD_BYTES || attemptsLeft <= 0) {
-              resolve({ blob, width: curW, height: curH });
-              return;
-            }
-            if (quality > 0.6) {
-              attempt(curW, curH, Math.max(0.6, quality - 0.1), attemptsLeft - 1);
-            } else {
-              const nextW = Math.round(curW * 0.85);
-              const nextH = Math.round(curH * 0.85);
-              attempt(nextW, nextH, 0.85, attemptsLeft - 1);
-            }
-          },
-          "image/jpeg",
-          quality,
-        );
-      };
-      attempt(w, h, CLIENT_JPEG_QUALITY, 8);
-    };
-    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error("Failed to load image")); };
-    img.src = url;
-  });
 }
 
 // ─── Identity (your-photo) source ────────────────────────────────────────────
@@ -1204,8 +1156,8 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
 
 
   // ── Upload flow ──────────────────────────────────────────────────
-  // Image pre-processor & size constants are hoisted to module scope so the
-  // standalone IdentityPhotoSection can reuse them.
+  // The image pre-processor & size constants live in `@/lib/image-upload` so
+  // the standalone IdentityPhotoSection (and other consumers) can reuse them.
   const LOW_RES_WARNING_PX = 1500;
 
   const handleFile = useCallback(async (file: File) => {

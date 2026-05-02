@@ -13,6 +13,7 @@ import { AdminMediaInfo, AdminMediaInfoForUrl, getFileNameFromUrl, getMimeTypeFr
 import { Button } from "@/components/ui/Button";
 import { IMAGE_STYLES } from "@/config/imageStyles";
 import type { AiMemeImages } from "@/types/meme";
+import { preProcessImageFile } from "@/lib/image-upload";
 
 // ─── Shared admin constants (same as MemeBuilder) ────────────────────────────
 
@@ -103,8 +104,9 @@ const ADMIN_MODEL_PARAMS: Record<string, AdminParamDef[]> = {
   ],
 };
 
-const CLIENT_MAX_DIMENSION = 3600;
-const CLIENT_JPEG_QUALITY = 0.9;
+// AiBgPicker reference photos go to FLUX/IP-Adapter at lower resolution than
+// regular meme uploads, so we cap the longest edge at 3600px.
+const REF_PHOTO_MAX_DIMENSION = 3600;
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -152,41 +154,6 @@ export interface AiBgPickerProps {
    * a default-selected "Identity Photo" so the user does not need to re-upload it.
    */
   profileImageUrl?: string | null;
-}
-
-// ─── Image pre-processor (same as MemeBuilder) ───────────────────────────────
-
-async function preProcessImageFile(file: File): Promise<{ blob: Blob; width: number; height: number }> {
-  return new Promise((resolve, reject) => {
-    const img = new Image();
-    const url = URL.createObjectURL(file);
-    img.onload = () => {
-      URL.revokeObjectURL(url);
-      let { naturalWidth: w, naturalHeight: h } = img;
-      const longestEdge = Math.max(w, h);
-      if (longestEdge > CLIENT_MAX_DIMENSION) {
-        const scale = CLIENT_MAX_DIMENSION / longestEdge;
-        w = Math.round(w * scale);
-        h = Math.round(h * scale);
-      }
-      const canvas = document.createElement("canvas");
-      canvas.width = w;
-      canvas.height = h;
-      const ctx = canvas.getContext("2d");
-      if (!ctx) { reject(new Error("Canvas unavailable")); return; }
-      ctx.drawImage(img, 0, 0, w, h);
-      canvas.toBlob(
-        (blob) => {
-          if (!blob) { reject(new Error("Image encoding failed")); return; }
-          resolve({ blob, width: w, height: h });
-        },
-        "image/jpeg",
-        CLIENT_JPEG_QUALITY,
-      );
-    };
-    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error("Failed to load image")); };
-    img.src = url;
-  });
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
@@ -346,7 +313,7 @@ export function AiBgPicker({
     try {
       let uploadBlob: Blob = file;
       try {
-        const processed = await preProcessImageFile(file);
+        const processed = await preProcessImageFile(file, { maxDimension: REF_PHOTO_MAX_DIMENSION });
         uploadBlob = processed.blob;
       } catch { /* use original */ }
       const uploadRes = await fetch("/api/storage/upload-meme", {
