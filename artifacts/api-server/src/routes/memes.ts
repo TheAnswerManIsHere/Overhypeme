@@ -147,6 +147,13 @@ const ImageSourceSchema = z.discriminatedUnion("type", [
     type: z.literal("upload"),
     uploadKey: z.string().regex(/^\/objects\//).max(500),
   }),
+  // "identity" — a free identity-photo meme. The server resolves the upload
+  // key from the authenticated user's profileImageUrl. Available to every
+  // registered user (no Legendary gate) because the profile photo is a free
+  // identity asset reused as the face/likeness reference across the app.
+  z.object({
+    type: z.literal("identity"),
+  }),
 ]);
 
 const CreateMemeBody = z.object({
@@ -242,7 +249,10 @@ router.post("/memes", async (req: Request, res: Response) => {
     return;
   }
 
-  const { factId, imageSource, textOptions, previewImageBase64, isPublic: isPublicReq, aspectRatio: aspectRatioReq } = parsed.data;
+  const { factId, textOptions, previewImageBase64, isPublic: isPublicReq, aspectRatio: aspectRatioReq } = parsed.data;
+  // `imageSource` may be reassigned below when type === "identity" (resolved
+  // server-side into an upload-shaped source backed by the user's profile photo).
+  let imageSource = parsed.data.imageSource;
 
   // ── Membership check ────────────────────────────────────────────
   // Profile fields on `req.user` (membershipTier, displayName, pronouns) are
@@ -270,17 +280,35 @@ router.post("/memes", async (req: Request, res: Response) => {
 
   // ── Source-specific validation ───────────────────────────────────
   if (imageSource.type === "template") {
-    const valid = MEME_TEMPLATES.find(t => t.id === imageSource.templateId);
+    // Capture into a const so the discriminated-union narrow survives the
+    // closure inside `find` (imageSource above is `let`, so TS otherwise widens).
+    const templateSrc = imageSource;
+    const valid = MEME_TEMPLATES.find(t => t.id === templateSrc.templateId);
     if (!valid) {
       res.status(400).json({ error: "Invalid template ID" });
       return;
     }
   }
 
-  if (imageSource.type === "upload" && !canUpload) {
-    res.status(403).json({ error: "Custom photo upload is a Legendary feature" });
-    return;
+  // Resolve "identity" → an upload-shaped source backed by the user's profile
+  // photo. This MUST happen before the canUpload gate because identity memes
+  // are free for every registered user.
+  if (imageSource.type === "identity") {
+    const profileUrl = req.user.profileImageUrl;
+    const PROFILE_PREFIX = "/api/storage";
+    if (!profileUrl || typeof profileUrl !== "string" || !profileUrl.startsWith(`${PROFILE_PREFIX}/objects/`)) {
+      res.status(400).json({ error: "Add a profile photo to create an identity meme." });
+      return;
+    }
+    const uploadKey = profileUrl.slice(PROFILE_PREFIX.length); // "/objects/..."
+    imageSource = { type: "upload", uploadKey };
   }
+
+  // Photo upload memes are free for every registered user (Task #382 —
+  // identity-first meme creation). The legacy canUpload gate has been removed
+  // for the meme creation route; AI-image and AI-video sources retain their
+  // Legendary gating through their own dedicated routes.
+  void canUpload;
 
   // ── Look up fact ─────────────────────────────────────────────────
   const [fact] = await db
@@ -652,12 +680,15 @@ router.get("/memes/:slug/image", async (req: Request, res: Response) => {
       const photoUrl = await resolveStockPhotoUrl(source.pexelsPhotoId, source.photoUrl);
       background = { type: "image", imageData: photoUrl };
 
-    } else {
-      // upload — fetch buffer from GCS
+    } else if (source.type === "upload") {
+      // Identity is always resolved → upload before storage, so by this point
+      // the only remaining variant is the persisted "upload" shape.
       const objectFile = await objectStorageService.getObjectEntityFile(source.uploadKey);
       const downloadResponse = await objectStorageService.downloadObject(objectFile);
       const imageBuffer = Buffer.from(await downloadResponse.arrayBuffer());
       background = { type: "image", imageData: imageBuffer };
+    } else {
+      throw new Error(`Unsupported stored image source type: ${(source as { type: string }).type}`);
     }
 
     const imageBuffer = await generateMemeBuffer(background, factText, textOptions, (meme.aspectRatio as MemeAspectRatio | null) ?? "landscape");
@@ -750,11 +781,13 @@ router.post("/memes/:slug/zazzle-export", async (req: Request, res: Response) =>
       } else if (source.type === "stock") {
         const photoUrl = await resolveStockPhotoUrl(source.pexelsPhotoId, source.photoUrl);
         background = { type: "image", imageData: photoUrl };
-      } else {
+      } else if (source.type === "upload") {
         const objectFile = await objectStorageService.getObjectEntityFile(source.uploadKey);
         const downloadResponse = await objectStorageService.downloadObject(objectFile);
         const buf = Buffer.from(await downloadResponse.arrayBuffer());
         background = { type: "image", imageData: buf };
+      } else {
+        throw new Error(`Unsupported stored image source type: ${(source as { type: string }).type}`);
       }
 
       imageBuffer = await generateMemeBuffer(background, factText, textOptions, (meme.aspectRatio as MemeAspectRatio | null) ?? "landscape");
@@ -854,11 +887,13 @@ router.get("/memes/:slug/zazzle-redirect", async (req: Request, res: Response) =
       } else if (source.type === "stock") {
         const photoUrl = await resolveStockPhotoUrl(source.pexelsPhotoId, source.photoUrl);
         background = { type: "image", imageData: photoUrl };
-      } else {
+      } else if (source.type === "upload") {
         const objectFile = await objectStorageService.getObjectEntityFile(source.uploadKey);
         const downloadResponse = await objectStorageService.downloadObject(objectFile);
         const buf = Buffer.from(await downloadResponse.arrayBuffer());
         background = { type: "image", imageData: buf };
+      } else {
+        throw new Error(`Unsupported stored image source type: ${(source as { type: string }).type}`);
       }
 
       imageBuffer = await generateMemeBuffer(background, factText, textOptions, (meme.aspectRatio as MemeAspectRatio | null) ?? "landscape");

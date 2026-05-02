@@ -94,7 +94,7 @@ const ACCENT_COLORS: Record<string, string> = {
 };
 
 type TextAlign = "left" | "center" | "right";
-type ImageMode = "gradient" | "stock" | "upload" | "ai";
+type ImageMode = "gradient" | "stock" | "upload" | "ai" | "identity";
 type StockGender = "man" | "woman" | "person";
 type TextEffect = "shadow" | "outline" | "none";
 type MemeStep = 1 | 2;
@@ -358,6 +358,198 @@ function StepDots({ current, total }: { current: MemeStep; total: number }) {
   );
 }
 
+// ─── Image pre-processor (shared by all upload code paths) ──────────────────
+const CLIENT_MAX_DIMENSION = 6000;
+const CLIENT_JPEG_QUALITY = 0.9;
+const CLIENT_MAX_UPLOAD_MB = 15;
+const CLIENT_MAX_UPLOAD_BYTES = CLIENT_MAX_UPLOAD_MB * 1024 * 1024;
+
+async function preProcessImageFile(file: File): Promise<{ blob: Blob; width: number; height: number }> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      let { naturalWidth: w, naturalHeight: h } = img;
+      const longestEdge = Math.max(w, h);
+      if (longestEdge > CLIENT_MAX_DIMENSION) {
+        const scale = CLIENT_MAX_DIMENSION / longestEdge;
+        w = Math.round(w * scale);
+        h = Math.round(h * scale);
+      }
+      const attempt = (curW: number, curH: number, quality: number, attemptsLeft: number) => {
+        const c = document.createElement("canvas");
+        c.width = curW;
+        c.height = curH;
+        const cx = c.getContext("2d");
+        if (!cx) { reject(new Error("Canvas unavailable")); return; }
+        cx.drawImage(img, 0, 0, curW, curH);
+        c.toBlob(
+          (blob) => {
+            if (!blob) { reject(new Error("Image encoding failed")); return; }
+            if (blob.size <= CLIENT_MAX_UPLOAD_BYTES || attemptsLeft <= 0) {
+              resolve({ blob, width: curW, height: curH });
+              return;
+            }
+            if (quality > 0.6) {
+              attempt(curW, curH, Math.max(0.6, quality - 0.1), attemptsLeft - 1);
+            } else {
+              const nextW = Math.round(curW * 0.85);
+              const nextH = Math.round(curH * 0.85);
+              attempt(nextW, nextH, 0.85, attemptsLeft - 1);
+            }
+          },
+          "image/jpeg",
+          quality,
+        );
+      };
+      attempt(w, h, CLIENT_JPEG_QUALITY, 8);
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error("Failed to load image")); };
+    img.src = url;
+  });
+}
+
+// ─── Identity (your-photo) source ────────────────────────────────────────────
+// Free for every signed-in user. When the user already has a profile photo we
+// just preview it; otherwise we render an inline upload prompt that posts the
+// raw image to /api/storage/upload-avatar and writes back via PATCH /api/users/me.
+function IdentityPhotoSection({
+  profileImageUrl,
+  isAuthenticated,
+  onLogin,
+  refreshUser,
+}: {
+  profileImageUrl: string | null;
+  isAuthenticated: boolean;
+  onLogin: () => void;
+  refreshUser: () => Promise<void>;
+}) {
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [uploading, setUploading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const handlePick = async (file: File) => {
+    if (!file.type.startsWith("image/")) {
+      setError("Please choose an image file.");
+      return;
+    }
+    setError(null);
+    setUploading(true);
+    try {
+      const { blob } = await preProcessImageFile(file);
+      const uploadRes = await fetch("/api/storage/upload-avatar", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "image/jpeg" },
+        body: blob,
+      });
+      if (!uploadRes.ok) {
+        const j = await uploadRes.json().catch(() => ({})) as { error?: string };
+        throw new Error(j.error ?? `Upload failed (${uploadRes.status})`);
+      }
+      const { objectPath } = await uploadRes.json() as { objectPath: string };
+
+      const patchRes = await fetch("/api/users/me", {
+        method: "PATCH",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          profileImageUrl: `/api/storage${objectPath}`,
+          avatarSource: "photo",
+        }),
+      });
+      if (!patchRes.ok) {
+        const j = await patchRes.json().catch(() => ({})) as { error?: string };
+        throw new Error(j.error ?? `Profile update failed (${patchRes.status})`);
+      }
+      await refreshUser();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Upload failed");
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  if (!isAuthenticated) {
+    return (
+      <div className="border-2 border-dashed border-border bg-muted/20 p-5 text-center space-y-2">
+        <Lock className="w-6 h-6 text-muted-foreground mx-auto" />
+        <p className="text-sm font-bold text-foreground uppercase tracking-wider">
+          Sign In to Use Your Photo
+        </p>
+        <p className="text-xs text-muted-foreground">
+          Create a free account to make memes starring you.
+        </p>
+        <Button size="sm" className="mt-2" onClick={onLogin}>Sign In / Register</Button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-3">
+      <input
+        ref={inputRef}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        onChange={e => {
+          const f = e.target.files?.[0];
+          if (f) void handlePick(f);
+          e.target.value = "";
+        }}
+      />
+      {profileImageUrl ? (
+        <div className="space-y-2">
+          <div className="bg-secondary border border-border p-3 flex items-center gap-3">
+            <img
+              src={profileImageUrl}
+              alt="Your profile photo"
+              className="w-20 h-20 object-cover border border-border shrink-0"
+            />
+            <div className="min-w-0 flex-1">
+              <p className="text-[10px] font-display uppercase tracking-widest text-muted-foreground mb-0.5">
+                Your photo
+              </p>
+              <p className="text-xs text-foreground">
+                Free for registered users — make this meme star you.
+              </p>
+              <button
+                onClick={() => inputRef.current?.click()}
+                disabled={uploading}
+                className="mt-1 text-[10px] font-display uppercase tracking-widest text-primary hover:text-primary/80 disabled:opacity-50"
+              >
+                {uploading ? "Uploading…" : "Replace photo"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : (
+        <button
+          onClick={() => inputRef.current?.click()}
+          disabled={uploading}
+          className="w-full border-2 border-dashed border-border hover:border-primary transition-colors p-5 text-center flex flex-col items-center gap-2 disabled:opacity-50"
+        >
+          {uploading
+            ? <Loader2 className="w-6 h-6 text-primary animate-spin" />
+            : <Upload className="w-6 h-6 text-muted-foreground" />
+          }
+          <p className="text-sm font-bold text-foreground uppercase tracking-wider">
+            {uploading ? "Uploading…" : "Add Your Photo"}
+          </p>
+          <p className="text-xs text-muted-foreground">
+            One photo. We&apos;ll reuse it across every meme &amp; AI scene.
+          </p>
+          <p className="text-[10px] text-muted-foreground/60">
+            PNG · JPG · WebP — free for registered users
+          </p>
+        </button>
+      )}
+      {error && <p className="text-[10px] text-destructive">{error}</p>}
+    </div>
+  );
+}
+
 // ─── Main component ────────────────────────────────────────────────────────────
 
 type VideoState =
@@ -483,7 +675,7 @@ const ADMIN_MODEL_PARAMS: Record<string, AdminParamDef[]> = {
 };
 
 export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMemeImages, onClose, defaultPrivate, embedded, fullScreen }: MemeBuilderProps) {
-  const { isAuthenticated, login, role, user } = useAuth();
+  const { isAuthenticated, login, role, user, refreshUser } = useAuth();
   const isLegendary = role === "legendary" || role === "admin";
   const isRegistered = isAuthenticated && role !== "unregistered";
   const isAdmin = role === "admin";
@@ -522,8 +714,24 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
     return "person";
   }, [pronouns]);
 
-  // Image source state — initialised from sessionStorage draft when returning from login
-  const [imageMode, setImageMode] = useState<ImageMode>(() => readDraft(factId)?.imageMode ?? "upload");
+  // Image source state — initialised from sessionStorage draft when returning
+  // from login. Identity is the universal default: for users with a profile
+  // photo it's a one-tap "use my face" path, and for users without one the
+  // IdentityPhotoSection renders an inline upload (or sign-in) prompt — so
+  // landing on this tab is always the highest-intent next action.
+  const [imageMode, setImageMode] = useState<ImageMode>(() =>
+    readDraft(factId)?.imageMode ?? "identity"
+  );
+  // No post-mount mode promotion is needed anymore: identity is the default
+  // regardless of whether profileImageUrl resolves before or after mount.
+  // We still track explicit user interaction with the tabs so that any future
+  // automatic mode changes (if added) won't clobber a deliberate choice.
+  const userPickedImageModeRef = useRef(false);
+  const handleSetImageMode = useCallback((mode: ImageMode) => {
+    userPickedImageModeRef.current = true;
+    setImageMode(mode);
+  }, []);
+  void userPickedImageModeRef;
 
   // Display limits (from public config, fetched once)
   const [bgStockLimit, setBgStockLimit] = useState(20);
@@ -996,63 +1204,9 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
 
 
   // ── Upload flow ──────────────────────────────────────────────────
-
-  const CLIENT_MAX_DIMENSION = 6000;
-  const CLIENT_JPEG_QUALITY = 0.9;
+  // Image pre-processor & size constants are hoisted to module scope so the
+  // standalone IdentityPhotoSection can reuse them.
   const LOW_RES_WARNING_PX = 1500;
-  const CLIENT_MAX_UPLOAD_MB = 15;
-  const CLIENT_MAX_UPLOAD_BYTES = CLIENT_MAX_UPLOAD_MB * 1024 * 1024;
-
-  async function preProcessImageFile(file: File): Promise<{ blob: Blob; width: number; height: number }> {
-    return new Promise((resolve, reject) => {
-      const img = new Image();
-      const url = URL.createObjectURL(file);
-      img.onload = () => {
-        URL.revokeObjectURL(url);
-        let { naturalWidth: w, naturalHeight: h } = img;
-        const longestEdge = Math.max(w, h);
-        if (longestEdge > CLIENT_MAX_DIMENSION) {
-          const scale = CLIENT_MAX_DIMENSION / longestEdge;
-          w = Math.round(w * scale);
-          h = Math.round(h * scale);
-        }
-
-        // Iteratively shrink until the encoded JPEG fits under the upload cap.
-        // First try at full quality + dims; if too large, drop quality, then
-        // dimensions, until we land under the limit (or run out of headroom).
-        const attempt = (curW: number, curH: number, quality: number, attemptsLeft: number) => {
-          const c = document.createElement("canvas");
-          c.width = curW;
-          c.height = curH;
-          const cx = c.getContext("2d");
-          if (!cx) { reject(new Error("Canvas unavailable")); return; }
-          cx.drawImage(img, 0, 0, curW, curH);
-          c.toBlob(
-            (blob) => {
-              if (!blob) { reject(new Error("Image encoding failed")); return; }
-              if (blob.size <= CLIENT_MAX_UPLOAD_BYTES || attemptsLeft <= 0) {
-                resolve({ blob, width: curW, height: curH });
-                return;
-              }
-              // Shrink: drop quality first, then dimensions every other pass.
-              if (quality > 0.6) {
-                attempt(curW, curH, Math.max(0.6, quality - 0.1), attemptsLeft - 1);
-              } else {
-                const nextW = Math.round(curW * 0.85);
-                const nextH = Math.round(curH * 0.85);
-                attempt(nextW, nextH, 0.85, attemptsLeft - 1);
-              }
-            },
-            "image/jpeg",
-            quality,
-          );
-        };
-        attempt(w, h, CLIENT_JPEG_QUALITY, 8);
-      };
-      img.onerror = () => { URL.revokeObjectURL(url); reject(new Error("Failed to load image")); };
-      img.src = url;
-    });
-  }
 
   const handleFile = useCallback(async (file: File) => {
     if (!file.type.startsWith("image/")) {
@@ -1224,8 +1378,14 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
       setErrorMsg("Please wait for a stock photo to load, or shuffle to try again.");
       return;
     }
-    if ((imageMode === "upload" || imageMode === "ai") && !isLegendary) {
-      setErrorMsg("This image source requires a Legendary membership.");
+    // Photo memes (upload + identity) are free for registered users; only AI
+    // backgrounds remain Legendary-gated.
+    if (imageMode === "ai" && !isLegendary) {
+      setErrorMsg("AI-generated backgrounds require a Legendary membership.");
+      return;
+    }
+    if (imageMode === "identity" && !user?.profileImageUrl) {
+      setErrorMsg("Add a profile photo to use Identity mode.");
       return;
     }
     if (imageMode === "upload" && !uploadObjectPath) {
@@ -1263,6 +1423,8 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
               type: "upload" as const,
               uploadKey: aiStoragePath!,
             }
+          : imageMode === "identity"
+          ? { type: "identity" as const }
           : {
               type: "upload" as const,
               uploadKey: uploadObjectPath!,
@@ -1370,15 +1532,17 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
     if (imageMode === "stock") return stockPhoto !== null;
     if (imageMode === "upload") return uploadObjectPath !== null;
     if (imageMode === "ai") return aiSelectedInfo !== null;
+    if (imageMode === "identity") return Boolean(user?.profileImageUrl);
     return false;
-  }, [imageMode, stockPhoto, uploadObjectPath, aiSelectedInfo]);
+  }, [imageMode, stockPhoto, uploadObjectPath, aiSelectedInfo, user?.profileImageUrl]);
 
   const previewBgUrl = useMemo(() => {
     if (imageMode === "stock") return stockPhoto?.photoUrl ?? null;
     if (imageMode === "upload") return uploadDisplayUrl ?? uploadLocalUrl ?? null;
     if (imageMode === "ai") return aiSelectedInfo?.url ?? null;
+    if (imageMode === "identity") return user?.profileImageUrl ?? null;
     return null;
-  }, [imageMode, stockPhoto, uploadDisplayUrl, uploadLocalUrl, aiSelectedInfo]);
+  }, [imageMode, stockPhoto, uploadDisplayUrl, uploadLocalUrl, aiSelectedInfo, user?.profileImageUrl]);
 
   const previewBgGradient = useMemo(() => {
     if (imageMode !== "gradient") return null;
@@ -1411,10 +1575,16 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
           </div>
 
           {/* Mode tabs */}
-          <div className="flex border-b border-border mb-4">
+          <div className="flex border-b border-border mb-4 overflow-x-auto">
+            <ModeTab
+              active={imageMode === "identity"}
+              onClick={() => handleSetImageMode("identity")}
+            >
+              You
+            </ModeTab>
             <ModeTab
               active={imageMode === "upload"}
-              onClick={() => setImageMode("upload")}
+              onClick={() => handleSetImageMode("upload")}
               badge={!isRegistered ? "PRO" : undefined}
             >
               Upload
@@ -1422,7 +1592,7 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
             <ModeTab
               active={imageMode === "stock"}
               onClick={() => {
-                setImageMode("stock");
+                handleSetImageMode("stock");
                 if (!stockGender) {
                   setStockGender(inferredGender);
                   fetchStockPhoto(inferredGender);
@@ -1433,13 +1603,13 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
             </ModeTab>
             <ModeTab
               active={imageMode === "gradient"}
-              onClick={() => setImageMode("gradient")}
+              onClick={() => handleSetImageMode("gradient")}
             >
               Gradient
             </ModeTab>
             <ModeTab
               active={imageMode === "ai"}
-              onClick={() => setImageMode("ai")}
+              onClick={() => handleSetImageMode("ai")}
               badge={!isLegendary ? "LEGENDARY" : undefined}
             >
               AI Generated
@@ -1602,7 +1772,18 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
               onSelect={setAiSelectedInfo}
               showStylePicker
               thumbPx={thumbPx}
-              onGoToUpload={() => setImageMode("upload")}
+              onGoToUpload={() => handleSetImageMode("upload")}
+              profileImageUrl={user?.profileImageUrl ?? null}
+            />
+          )}
+
+          {/* Identity (your photo) mode */}
+          {imageMode === "identity" && (
+            <IdentityPhotoSection
+              profileImageUrl={user?.profileImageUrl ?? null}
+              isAuthenticated={isAuthenticated}
+              onLogin={login}
+              refreshUser={refreshUser}
             />
           )}
 
@@ -1783,14 +1964,15 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
             </>
           )}
 
-          {/* Continue button */}
-          <div className="mt-5">
+          {/* Continue button — extra bottom padding tracks the iOS safe area
+              so the CTA sits comfortably in the thumb-reach zone on mobile. */}
+          <div className="mt-5 pb-[env(safe-area-inset-bottom)]">
             <Button
               onClick={() => setStep(2)}
               disabled={!hasBackground || isUploadingFile}
               variant="primary"
               size="lg"
-              className="w-full gap-2"
+              className="w-full gap-2 min-h-[52px]"
               style={hasBackground ? { background: "#ff6b35", borderColor: "#ff6b35" } : undefined}
             >
               <Sparkles className="w-4 h-4" />
@@ -2262,7 +2444,15 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
                     </span>
                   </div>
                   <div className="flex flex-wrap gap-3">
-                    <Link href={`/meme/${permalinkSlug}`}>
+                    {/* Pass `?just_created=1&source=<photo|other>` so MemePage
+                        can show the dopamine-afterglow upgrade card only on
+                        the immediate post-success transition for photo memes
+                        (vs. relying on a fragile display-name match). */}
+                    <Link
+                      href={`/meme/${permalinkSlug}?just_created=1&source=${
+                        imageMode === "identity" || imageMode === "upload" ? "photo" : "other"
+                      }`}
+                    >
                       <Button size="sm" variant="outline" className="gap-2">
                         <Share2 className="w-4 h-4" /> View Permalink
                       </Button>

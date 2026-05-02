@@ -36,7 +36,7 @@ type VideoState =
   | { status: "done"; url: string }
   | { status: "error"; message: string };
 
-type VideoImageMode = "stock" | "ai" | "upload";
+type VideoImageMode = "stock" | "ai" | "upload" | "identity";
 
 interface StockPhotoEntry {
   id: number;
@@ -456,9 +456,10 @@ function getModelParamSpec(model: string): ModelParamSpec {
 // ─── Video Tab wizard ────────────────────────────────────────────────────────
 
 function VideoTab({ factId, factText, pexelsImages, aiMemeImages, initialImageDataUrl, defaultPrivate }: VideoTabProps) {
-  const { role } = useAuth();
+  const { role, user } = useAuth();
   const isAdmin = role === "admin";
   const isLegendary = role === "legendary" || role === "admin";
+  const profileImageUrl = user?.profileImageUrl ?? null;
   const { pronouns } = usePersonName();
   const { styles: videoStyles } = useVideoStyles();
 
@@ -469,14 +470,29 @@ function VideoTab({ factId, factText, pexelsImages, aiMemeImages, initialImageDa
   const [videoDims, setVideoDims] = useState<{ width: number; height: number } | null>(null);
 
   // ── Background image state ────────────────────────────────────────────────
-  const [imageMode, setImageMode] = useState<VideoImageMode>("stock");
+  // Default to "identity" so the video creator opens with the "use my face"
+  // path. When a profile photo is missing the identity panel renders the
+  // inline "add your photo" prompt; when an initialImageDataUrl is supplied
+  // (e.g. continuing from an existing photo meme) we honor that and start in
+  // stock mode so the preselected image renders immediately.
+  const [imageMode, setImageMode] = useState<VideoImageMode>(
+    initialImageDataUrl ? "stock" : "identity"
+  );
+  // Track explicit tab interactions so future automatic mode promotions
+  // won't override a deliberate user choice.
+  const userPickedVideoModeRef = useRef(false);
   const [thumbSize, setThumbSize] = useState(40); // 0–100 slider value
   const thumbPx = Math.round(70 + (thumbSize / 100) * (290 - 70)); // 70px–290px
 
   // Selected background image URL (URL or base64 data URL)
-  const [selectedBgUrl, setSelectedBgUrl] = useState<string | null>(initialImageDataUrl ?? null);
+  // Pre-fill with the user's profile photo when defaulting to identity mode.
+  const [selectedBgUrl, setSelectedBgUrl] = useState<string | null>(
+    initialImageDataUrl ?? (profileImageUrl ? profileImageUrl : null)
+  );
   // Human-readable label for the selected background
-  const [selectedBgLabel, setSelectedBgLabel] = useState<string | null>(initialImageDataUrl ? "From meme builder" : null);
+  const [selectedBgLabel, setSelectedBgLabel] = useState<string | null>(
+    initialImageDataUrl ? "From meme builder" : (profileImageUrl ? "Your photo" : null)
+  );
 
   // Stock photos
   const [prefetchedPhotos, setPrefetchedPhotos] = useState<PexelsPhotoEntry[]>([]);
@@ -587,6 +603,11 @@ function VideoTab({ factId, factText, pexelsImages, aiMemeImages, initialImageDa
   const selectedStyle = videoStyles.find((s) => s.id === selectedStyleId) ?? videoStyles[0];
 
   // ── Load prefetched Pexels photos on mount ────────────────────────────────
+  // This effect ONLY populates the photo list; it intentionally does NOT
+  // auto-select a stock photo, because doing so would silently override an
+  // identity-mode selection (the user could be on the "You" tab while the
+  // effective background was a stock photo). Selection is handled by the
+  // mode-sync effect below, which is mode-aware.
   useEffect(() => {
     if (!pexelsImages) return;
     const raw = pexelsImages.neutral ?? pexelsImages.male ?? pexelsImages.female ?? [];
@@ -597,14 +618,27 @@ function VideoTab({ factId, factText, pexelsImages, aiMemeImages, initialImageDa
     );
     setPrefetchedPhotos(mapped);
     setHasMorePhotos(mapped.length > 0);
-    if (mapped.length > 0 && selectedStockIndex === null) {
+  }, [pexelsImages]);
+
+  // ── Mode-aware default background selection ───────────────────────────────
+  // Whenever imageMode (or the inputs that feed each mode) changes, force the
+  // selected background to match the mode so the preview never lies about
+  // what will actually render. Skipped when we have an initialImageDataUrl —
+  // that path provides its own preselected source the user is editing.
+  useEffect(() => {
+    if (initialImageDataUrl) return;
+    if (imageMode === "identity" && profileImageUrl) {
+      setSelectedBgUrl(profileImageUrl);
+      setSelectedBgLabel("Your photo");
+      return;
+    }
+    if (imageMode === "stock" && prefetchedPhotos.length > 0 && selectedStockIndex === null) {
+      const first = prefetchedPhotos[0]!;
       setSelectedStockIndex(0);
-      const first = mapped[0]!;
-      const photoUrl = first.url;
-      setSelectedBgUrl(photoUrl);
+      setSelectedBgUrl(first.url);
       setSelectedBgLabel("Stock photo");
     }
-  }, [pexelsImages]);
+  }, [imageMode, profileImageUrl, prefetchedPhotos, selectedStockIndex, initialImageDataUrl]);
 
   const loadMorePhotos = useCallback(async () => {
     if (isLoadingMorePhotos) return;
@@ -890,14 +924,23 @@ function VideoTab({ factId, factText, pexelsImages, aiMemeImages, initialImageDa
           </div>
 
           {/* Image mode tabs */}
-          <div className="flex border-b border-border mb-4">
-            {(["stock", "ai", "upload"] as VideoImageMode[]).map((mode) => {
-              const labels: Record<VideoImageMode, string> = { stock: "Stock Photo", ai: "AI Generated", upload: "Upload" };
-              const needsPremium = mode !== "stock" && !isLegendary;
+          <div className="flex border-b border-border mb-4 overflow-x-auto">
+            {(["identity", "stock", "ai", "upload"] as VideoImageMode[]).map((mode) => {
+              const labels: Record<VideoImageMode, string> = { identity: "You", stock: "Stock Photo", ai: "AI Generated", upload: "Upload" };
+              // "identity" + "stock" are free; the legacy "upload" + "ai" tabs
+              // still require Legendary because of the underlying source flow.
+              const needsPremium = (mode === "ai" || mode === "upload") && !isLegendary;
               return (
                 <button
                   key={mode}
-                  onClick={() => setImageMode(mode)}
+                  onClick={() => {
+                    userPickedVideoModeRef.current = true;
+                    setImageMode(mode);
+                    if (mode === "identity" && profileImageUrl) {
+                      setSelectedBgUrl(profileImageUrl);
+                      setSelectedBgLabel("Your photo");
+                    }
+                  }}
                   className={`relative flex-1 py-2 text-[11px] font-bold uppercase tracking-wider border-b-2 transition-all ${
                     imageMode === mode
                       ? "border-[#ff6b35] text-[#ff6b35]"
@@ -993,7 +1036,38 @@ function VideoTab({ factId, factText, pexelsImages, aiMemeImages, initialImageDa
               }}
               showStylePicker
               onGoToUpload={() => setImageMode("upload")}
+              profileImageUrl={profileImageUrl}
             />
+          )}
+
+          {/* Identity (your-photo) mode — free for every signed-in user */}
+          {imageMode === "identity" && (
+            profileImageUrl ? (
+              <div className="bg-secondary border border-border p-3 flex items-center gap-3">
+                <img
+                  src={profileImageUrl}
+                  alt="Your profile photo"
+                  className="w-20 h-20 object-cover border border-border shrink-0"
+                />
+                <div className="min-w-0 flex-1">
+                  <p className="text-[10px] font-display uppercase tracking-widest text-muted-foreground mb-0.5">
+                    Your photo
+                  </p>
+                  <p className="text-xs text-foreground">
+                    Free for registered users — your face will star in the video.
+                  </p>
+                </div>
+              </div>
+            ) : (
+              <div className="border-2 border-dashed border-border bg-muted/20 p-5 text-center space-y-2">
+                <p className="text-sm font-bold text-foreground uppercase tracking-wider">
+                  No profile photo yet
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  Add a profile photo from the meme builder&apos;s &ldquo;You&rdquo; tab and we&apos;ll reuse it everywhere.
+                </p>
+              </div>
+            )
           )}
 
           {/* Upload mode */}

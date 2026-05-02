@@ -1,6 +1,7 @@
 import { useRoute, useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { useGetFact, getGetFactQueryKey } from "@workspace/api-client-react";
+import { useAuth } from "@workspace/replit-auth-web";
 import { Layout } from "@/components/layout/Layout";
 import { GarmentPreview, PRODUCTS } from "@/components/merch/GarmentPreview";
 import { AlertCircle, Ban, ArrowLeft } from "lucide-react";
@@ -51,8 +52,21 @@ function TeeIcon() {
 
 export default function MemePage() {
   const [, params] = useRoute("/meme/:slug");
-  const [, setLocation] = useLocation();
+  const [location, setLocation] = useLocation();
+  const { user, role } = useAuth();
+  const isLegendary = role === "legendary" || role === "admin";
   const slug = params?.slug ?? "";
+
+  // Deterministic "just created a photo meme" signal — set by MemeBuilder when
+  // it navigates here on success (`?just_created=1&source=photo`). This is far
+  // more reliable than matching on display name (which can collide or change).
+  const searchParams = new URLSearchParams(
+    typeof window !== "undefined" ? window.location.search : ""
+  );
+  const justCreated = searchParams.get("just_created") === "1";
+  const createdSource = searchParams.get("source");
+  const justCreatedPhotoMeme = justCreated && createdSource === "photo";
+  void location;
 
   const { data: memeResult, isLoading, error } = useQuery<
     { meme: MemeData; deleted: false } | { meme: null; deleted: true }
@@ -137,6 +151,15 @@ export default function MemePage() {
     );
   }
 
+  // The dopamine-afterglow upgrade card is shown ONLY in the immediate
+  // post-success transition from the meme builder for a photo meme, when the
+  // viewer is not yet Legendary. This is the moment of peak satisfaction and
+  // the highest-converting place to tease the AI / video upsell.
+  const showAfterglowUpgrade = justCreatedPhotoMeme && !isLegendary;
+  const showLegendaryTile = !showAfterglowUpgrade;
+  // Personalize the teaser with the creator's name when we have it.
+  const teaserName = meme.createdByName ?? user?.displayName ?? "you";
+
   const tracks = [
     {
       label: "Share",
@@ -152,13 +175,15 @@ export default function MemePage() {
       primary: true,
       onClick: () => setLocation(`/wear/${slug}`),
     },
-    {
-      label: "Legendary",
-      sub: "AI",
-      icon: <span className="text-xl">👑</span>,
-      primary: false,
-      onClick: () => setLocation("/pricing"),
-    },
+    ...(showLegendaryTile
+      ? [{
+          label: "Legendary",
+          sub: "AI",
+          icon: <span className="text-xl">👑</span>,
+          primary: false,
+          onClick: () => setLocation("/pricing"),
+        }]
+      : []),
   ];
 
   return (
@@ -231,6 +256,34 @@ export default function MemePage() {
             Powered by Zazzle <ExtLinkIcon size={10} />
           </div>
         </div>
+
+        {/* Mobile dopamine afterglow upgrade card */}
+        {showAfterglowUpgrade && (
+          <div className="mt-5 rounded-[18px] p-4 bg-gradient-to-br from-primary/15 via-card to-card border border-primary/40">
+            <div className="flex items-start gap-3">
+              <div className="w-[44px] h-[44px] rounded-full bg-primary/15 flex items-center justify-center text-2xl shrink-0">
+                🎉
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-[9px] font-display font-bold tracking-[0.16em] text-primary uppercase mb-0.5">
+                  Nice. That&apos;s a good one.
+                </p>
+                <h3 className="font-display font-bold text-[16px] uppercase tracking-tight leading-tight mb-1">
+                  Now imagine {teaserName} as the subject.
+                </h3>
+                <p className="text-[12px] text-muted-foreground leading-snug mb-3">
+                  AI dramatizes the fact and casts you in it — same meme, ten times bigger.
+                </p>
+                <button
+                  onClick={() => setLocation(factId ? `/facts/${factId}?mode=ai` : "/pricing")}
+                  className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-[10px] bg-primary text-white font-display font-bold text-[11px] uppercase tracking-wider"
+                >
+                  Try AI mode →
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {meme.createdByName && (
           <p className="text-xs text-muted-foreground text-center mt-4">
@@ -313,23 +366,57 @@ export default function MemePage() {
               <ExtLinkIcon size={20} />
             </button>
 
-            {/* AI / Legendary */}
-            <button
-              onClick={() => setLocation("/pricing")}
-              className="flex items-center gap-4 p-5 rounded-[18px] bg-card border border-primary/40 hover:border-primary transition-colors text-left"
-            >
-              <div className="w-[52px] h-[52px] rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0 text-2xl">
-                👑
-              </div>
-              <div className="flex-1">
-                <div className="font-display font-bold text-[18px] text-primary uppercase tracking-tight">Turn this up to 11</div>
-                <div className="text-[13px] text-muted-foreground mt-0.5">
-                  AI dramatizes the fact — see {meme.createdByName ?? "you"} as the literal subject
+            {/* AI / Legendary — hidden when we instead show the dopamine
+                afterglow upgrade card to non-Legendary creators below. */}
+            {showLegendaryTile && (
+              <button
+                onClick={() => setLocation("/pricing")}
+                className="flex items-center gap-4 p-5 rounded-[18px] bg-card border border-primary/40 hover:border-primary transition-colors text-left"
+              >
+                <div className="w-[52px] h-[52px] rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0 text-2xl">
+                  👑
+                </div>
+                <div className="flex-1">
+                  <div className="font-display font-bold text-[18px] text-primary uppercase tracking-tight">Turn this up to 11</div>
+                  <div className="text-[13px] text-muted-foreground mt-0.5">
+                    AI dramatizes the fact — see {meme.createdByName ?? "you"} as the literal subject
+                  </div>
+                </div>
+                <span className="text-primary text-xl">›</span>
+              </button>
+            )}
+          </div>
+
+          {/* Dopamine afterglow upgrade card — shown immediately after a
+              photo meme is created (deterministic via ?just_created=1 query
+              param) for non-Legendary viewers. */}
+          {showAfterglowUpgrade && (
+            <div className="mt-6 rounded-[20px] p-6 bg-gradient-to-br from-primary/15 via-card to-card border border-primary/40 shadow-[0_18px_44px_rgba(249,115,22,0.18)]">
+              <div className="flex items-start gap-4">
+                <div className="w-[56px] h-[56px] rounded-full bg-primary/15 flex items-center justify-center text-3xl shrink-0">
+                  🎉
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-[10px] font-display font-bold tracking-[0.18em] text-primary uppercase mb-1">
+                    Nice. That&apos;s a good one.
+                  </p>
+                  <h3 className="font-display font-bold text-[20px] uppercase tracking-tight leading-tight mb-1.5">
+                    Now imagine {teaserName} as the literal subject.
+                  </h3>
+                  <p className="text-[13px] text-muted-foreground leading-relaxed mb-4">
+                    AI dramatizes the fact and casts you in it — same meme, ten times bigger.
+                  </p>
+                  <button
+                    onClick={() => setLocation(factId ? `/facts/${factId}?mode=ai` : "/pricing")}
+                    className="inline-flex items-center gap-2 px-4 py-2.5 rounded-[12px] bg-primary text-white font-display font-bold text-[12px] uppercase tracking-wider hover:bg-primary/90 transition-colors"
+                  >
+                    Try AI mode
+                    <span className="text-base leading-none">→</span>
+                  </button>
                 </div>
               </div>
-              <span className="text-primary text-xl">›</span>
-            </button>
-          </div>
+            </div>
+          )}
 
           {fact && (
             <Link href={`/facts/${factId}`}>

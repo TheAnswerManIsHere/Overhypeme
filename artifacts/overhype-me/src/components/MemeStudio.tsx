@@ -160,9 +160,9 @@ export function MemeStudio({
             />
           </Suspense>
         ) : !isAuthenticated ? (
-          <AccessGate reason="login" description="Log in to access Video Generation." />
+          <AccessGate reason="login" description="Log in to bring your face to life with AI video." />
         ) : !isLegendary ? (
-          <AccessGate reason="legendary" description="Video generation is exclusive to Legendary members. Upgrade to unlock AI-powered video creation." />
+          <AccessGate reason="legendary" description="Bring your face to life with AI video — animate yourself starring in any fact." />
         ) : (
           <div className="p-4 md:p-5 max-w-2xl mx-auto">
             <Suspense fallback={<TabLoader />}>
