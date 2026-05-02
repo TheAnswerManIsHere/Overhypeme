@@ -119,3 +119,19 @@ The following origin/main commits were manually merged into local main:
 - **Stripe 5xx sanitization** — Stripe error responses are stripped of raw API detail before returning to callers.
 - **sid redaction** — Session IDs are no longer echoed in JSON responses from `routes/localAuth.ts`; they are set only via `Set-Cookie`.
 - **CSRF guard** — share invite route exports `__resetShareInviteGuardsForTests()` for test isolation of rate-limit and fingerprint state.
+
+## Mobile-first onboarding & home (Task #380, merged 2026-05-02)
+The home page now distinguishes **cold visitors** (no stored name, no share-link param) from **warm visitors** (name typed, returning, or arriving via share link):
+
+- **Cold:** placeholder hero rendered with the `___` `{NAME}` fallback + an inline name input. The auto-popping `WelcomeModal` is suppressed on `/` (it would just duplicate the inline interaction); the mobile top bar also drops the left avatar/login chip so the wordmark leads.
+- **Warm:** weighted-random hero from the top ~50 Wilson-ranked facts. The pick is sticky for the browser tab via `sessionStorage` (`overhype_hero_seen`) and recently-shown IDs (cap 20) are kept in `localStorage` and sent as `?exclude=` so the rotator doesn't repeat. Logged-in users additionally have hero history persisted server-side via `user_fact_preferences.last_seen_as_hero_at` (migration `0033_user_fact_pref_seen_as_hero`).
+- **Endpoint:** `GET /facts/hero?exclude=` (`artifacts/api-server/src/routes/facts.ts`) returns `{ fact, poolSize }`. Weight = `wilsonScore + ε` so brand-new facts at score 0 stay occasionally selectable.
+- **Default seed dropped:** `DEFAULT_NAME` in `use-person-name.ts` is now `""`. Returning visitors with the legacy "David Franklin" string in localStorage are migrated to empty on next load (unless they had explicitly chosen it). `renderFact` falls back to `___` when no name is set.
+- **Mobile chrome reduction:** the sticky filter rail (`Hall of Fame / # Tags / Latest`) is hidden on first paint and revealed once the user has scrolled past 60px or interacts with a hashtag. `BottomTabBar` lost its duplicate "Meme" entry — three tabs (Feed / Hall / Me).
+
+### TikTok-style vertical-swipe feed — explicitly NOT shipped
+A swipeable full-screen feed was considered and rejected for this iteration. Trade-off:
+
+- **Pros:** higher session length and per-fact engagement on mobile; matches the "doomscroll" muscle-memory; obvious "next" gesture.
+- **Cons:** kills SEO (single-route SPA, no shareable per-fact URL surfaces), wrecks the desktop experience (vertical swipe is unnatural on pointer devices), explodes the test surface (intersection-observer playback, scroll snap, prefetch chains, gesture conflicts with the existing share modal / pronoun editor), and makes the meme-creation flow a second-class citizen — currently the primary monetization funnel.
+- **Verdict:** revisit only after we have (a) per-fact shareable canonical URLs working in production, (b) a desktop fallback layout for the same component, and (c) an analytics signal that the current grid feed has plateaued. Until then the weighted-random hero gives us most of the variety upside without the routing/SEO regressions.

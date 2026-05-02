@@ -38,9 +38,11 @@ import type {
   FactListResponse,
   GetAdminFlaggedComments200,
   GetAffiliateStatsParams,
+  GetHeroFactParams,
   HandleBrowserLoginCallbackParams,
   HashtagListResponse,
   HealthStatus,
+  HeroFactResponse,
   LinkListResponse,
   ListCommentsParams,
   ListFactsParams,
@@ -679,6 +681,100 @@ export const useCreateFact = <
 > => {
   return useMutation(getCreateFactMutationOptions(options));
 };
+
+/**
+ * @summary Weighted-random hero fact (top ~50 Wilson-ranked, with optional exclusions)
+ */
+export const getGetHeroFactUrl = (params?: GetHeroFactParams) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/facts/hero?${stringifiedParams}`
+    : `/api/facts/hero`;
+};
+
+export const getHeroFact = async (
+  params?: GetHeroFactParams,
+  options?: RequestInit,
+): Promise<HeroFactResponse> => {
+  return customFetch<HeroFactResponse>(getGetHeroFactUrl(params), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetHeroFactQueryKey = (params?: GetHeroFactParams) => {
+  return [`/api/facts/hero`, ...(params ? [params] : [])] as const;
+};
+
+export const getGetHeroFactQueryOptions = <
+  TData = Awaited<ReturnType<typeof getHeroFact>>,
+  TError = ErrorType<ErrorEnvelope>,
+>(
+  params?: GetHeroFactParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getHeroFact>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetHeroFactQueryKey(params);
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof getHeroFact>>> = ({
+    signal,
+  }) => getHeroFact(params, { signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getHeroFact>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetHeroFactQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getHeroFact>>
+>;
+export type GetHeroFactQueryError = ErrorType<ErrorEnvelope>;
+
+/**
+ * @summary Weighted-random hero fact (top ~50 Wilson-ranked, with optional exclusions)
+ */
+
+export function useGetHeroFact<
+  TData = Awaited<ReturnType<typeof getHeroFact>>,
+  TError = ErrorType<ErrorEnvelope>,
+>(
+  params?: GetHeroFactParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getHeroFact>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetHeroFactQueryOptions(params, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
 
 /**
  * @summary Get a single fact with details

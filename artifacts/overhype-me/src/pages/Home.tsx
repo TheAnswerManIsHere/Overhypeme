@@ -1,15 +1,21 @@
-import { useListFacts, useListHashtags, getListHashtagsQueryKey } from "@workspace/api-client-react";
+import { useListFacts, useListHashtags, getListHashtagsQueryKey, type FactSummary } from "@workspace/api-client-react";
 import { FactCard } from "@/components/facts/FactCard";
 import { Layout } from "@/components/layout/Layout";
-import { Flame } from "lucide-react";
+import { Flame, Shuffle } from "lucide-react";
 import { useLocation } from "wouter";
-import { useState, useMemo } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { usePersonName } from "@/hooks/use-person-name";
+import { usePersonName, SHARE_LINK_ACTIVE } from "@/hooks/use-person-name";
+import { useHeroFact } from "@/hooks/use-hero-fact";
 import { cn } from "@/components/ui/Button";
 import { renderFact } from "@/lib/render-fact";
 
 type FilterMode = "default" | "hall-of-fame" | "hashtags";
+
+// Placeholder fact used in the cold-visitor hero before they've typed a name.
+// Renders with the {NAME} → "___" fallback so the sentence still scans and
+// signals "fill me in".
+const COLD_TEASER_FACT = "The universe doesn't expand. {NAME} pushes it.";
 
 function HashtagRail({
   hashtags,
@@ -59,17 +65,36 @@ function HashtagRail({
   );
 }
 
-// Mobile billboard
-function HeroBillboard({ name, pronouns }: { name: string; pronouns: string }) {
-  const { data } = useListFacts({ sort: "top", limit: 5 });
-  const facts = data?.facts ?? [];
-  const [idx, setIdx] = useState(0);
-
-  if (!facts.length) return null;
-  const fact = facts[idx];
-  const rendered = renderFact(fact.text, name, pronouns);
+function HeroHeadline({ rendered, name }: { rendered: string; name: string }) {
+  if (!name) {
+    return <>{rendered}</>;
+  }
   const parts = rendered.split(name);
+  return (
+    <>
+      {parts.map((p, i) =>
+        i < parts.length - 1
+          ? <span key={i}>{p}<span className="text-primary">{name}</span></span>
+          : <span key={i}>{p}</span>
+      )}
+    </>
+  );
+}
 
+// Mobile billboard — single weighted-random fact with a shuffle button.
+function HeroBillboardMobile({
+  fact,
+  rendered,
+  name,
+  onShuffle,
+  isShuffling,
+}: {
+  fact: FactSummary | null;
+  rendered: string;
+  name: string;
+  onShuffle: () => void;
+  isShuffling: boolean;
+}) {
   return (
     <div className="px-4 pb-4">
       <div className="rounded-[20px] bg-card shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] p-5 relative overflow-hidden">
@@ -80,78 +105,51 @@ function HeroBillboard({ name, pronouns }: { name: string; pronouns: string }) {
             </div>
             <div>
               <p className="text-[11px] font-bold tracking-[0.14em] text-primary uppercase font-display">Hall of Fame</p>
-              <p className="text-[10px] text-muted-foreground">#{idx + 1} today</p>
+              <p className="text-[10px] text-muted-foreground">Random hype</p>
             </div>
           </div>
-          <div className="flex gap-1">
-            {facts.map((_, i) => (
-              <button
-                key={i}
-                onClick={() => setIdx(i)}
-                className={cn(
-                  "h-0.5 rounded-full transition-all",
-                  i === idx ? "w-5 bg-primary" : "w-4 bg-border"
-                )}
-              />
-            ))}
-          </div>
-        </div>
-
-        <h2 className="font-display font-bold text-2xl uppercase tracking-tight leading-[1.05] mb-5">
-          {parts.map((p, i) =>
-            i < parts.length - 1 ? (
-              <span key={i}>{p}<span className="text-primary">{name}</span></span>
-            ) : (
-              <span key={i}>{p}</span>
-            )
-          )}
-        </h2>
-
-        <div className="flex items-center justify-between pt-3 border-t border-border/50">
-          <div className="flex items-center gap-4">
-            <button className="flex items-center gap-1.5 text-muted-foreground hover:text-primary transition-colors">
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24">
-                <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" />
-              </svg>
-              <span className="text-xs font-semibold">{(fact.upvotes / 1000).toFixed(1)}k</span>
-            </button>
-            <button className="flex items-center gap-1.5 text-muted-foreground hover:text-foreground transition-colors">
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24">
-                <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8z" />
-              </svg>
-              <span className="text-xs font-semibold">{fact.commentCount}</span>
-            </button>
-          </div>
-          <button className="text-muted-foreground hover:text-foreground transition-colors">
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24">
-              <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z" />
-            </svg>
+          <button
+            onClick={onShuffle}
+            disabled={isShuffling}
+            className="w-8 h-8 rounded-full bg-secondary border border-border flex items-center justify-center text-muted-foreground hover:text-foreground hover:border-primary/40 transition-colors disabled:opacity-50"
+            aria-label="Shuffle hero fact"
+          >
+            <Shuffle className={cn("w-3.5 h-3.5", isShuffling && "animate-spin")} />
           </button>
         </div>
+
+        <h2 className="font-display font-bold text-2xl uppercase tracking-tight leading-[1.05] mb-5 min-h-[3.5rem]">
+          <HeroHeadline rendered={rendered} name={name} />
+        </h2>
+
+        {fact && (
+          <div className="flex items-center gap-4 pt-3 border-t border-border/50 text-muted-foreground text-[12px] font-semibold">
+            <span>{(fact.upvotes / 1000).toFixed(1)}k likes</span>
+            <span className="text-border">·</span>
+            <span>{fact.commentCount} comments</span>
+          </div>
+        )}
       </div>
     </div>
   );
 }
 
-// Desktop billboard card with carousel + CTAs
+// Desktop billboard — single hero with shuffle + make-meme CTAs.
 function DesktopHeroBillboard({
+  fact,
+  rendered,
   name,
-  pronouns,
+  onShuffle,
+  isShuffling,
   onMakeMeme,
 }: {
+  fact: FactSummary | null;
+  rendered: string;
   name: string;
-  pronouns: string;
-  onMakeMeme: (factId: number) => void;
+  onShuffle: () => void;
+  isShuffling: boolean;
+  onMakeMeme: ((factId: number) => void) | null;
 }) {
-  const { data } = useListFacts({ sort: "top", limit: 5 });
-  const facts = data?.facts ?? [];
-  const [idx, setIdx] = useState(0);
-
-  if (!facts.length) return null;
-  const fact = facts[idx];
-  const rendered = renderFact(fact.text, name, pronouns);
-  const parts = rendered.split(name);
-
   return (
     <div className="rounded-[32px] bg-card border border-border shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] px-10 py-9 relative overflow-hidden">
       <div className="flex items-center justify-between mb-6">
@@ -161,56 +159,84 @@ function DesktopHeroBillboard({
           </div>
           <div>
             <p className="text-[11px] font-bold tracking-[0.16em] text-primary uppercase font-display">Hall of Fame</p>
-            <p className="text-[10px] text-muted-foreground">#{idx + 1} most hyped</p>
+            <p className="text-[10px] text-muted-foreground">Random hype</p>
           </div>
         </div>
-        <div className="flex items-center gap-1.5">
-          {facts.map((_, i) => (
-            <button
-              key={i}
-              onClick={() => setIdx(i)}
-              className={cn(
-                "h-1 rounded-full transition-all",
-                i === idx ? "w-6 bg-primary" : "w-3.5 bg-border hover:bg-muted-foreground"
-              )}
-            />
-          ))}
-        </div>
+        <button
+          onClick={onShuffle}
+          disabled={isShuffling}
+          className="h-9 px-3 rounded-full bg-secondary border border-border flex items-center gap-1.5 text-xs font-display font-bold uppercase tracking-[0.1em] text-muted-foreground hover:text-foreground hover:border-primary/40 transition-colors disabled:opacity-50"
+        >
+          <Shuffle className={cn("w-3.5 h-3.5", isShuffling && "animate-spin")} />
+          Shuffle
+        </button>
       </div>
 
       <h2
-        className="font-display font-bold text-[52px] leading-[0.96] uppercase tracking-tight mb-8"
+        className="font-display font-bold text-[52px] leading-[0.96] uppercase tracking-tight mb-8 min-h-[6rem]"
         style={{ textWrap: "pretty" } as React.CSSProperties}
       >
-        {parts.map((p, i) =>
-          i < parts.length - 1
-            ? <span key={i}>{p}<span className="text-primary">{name}</span></span>
-            : <span key={i}>{p}</span>
-        )}
+        <HeroHeadline rendered={rendered} name={name} />
       </h2>
 
       <div className="flex items-center justify-between pt-5 border-t border-border/50">
         <div className="flex items-center gap-4 text-muted-foreground text-[13px] font-semibold">
-          <span>{(fact.upvotes / 1000).toFixed(1)}k likes</span>
-          <span className="text-border">·</span>
-          <span>{fact.commentCount} comments</span>
+          {fact ? (
+            <>
+              <span>{(fact.upvotes / 1000).toFixed(1)}k likes</span>
+              <span className="text-border">·</span>
+              <span>{fact.commentCount} comments</span>
+            </>
+          ) : (
+            <span>Fresh hype loading…</span>
+          )}
         </div>
-        <div className="flex items-center gap-2.5">
+        {fact && onMakeMeme && (
           <button
             onClick={() => onMakeMeme(fact.id)}
             className="h-[44px] px-7 bg-primary text-white rounded-[12px] font-display font-bold text-[13px] uppercase tracking-[0.1em] hover:bg-primary/90 transition-colors"
           >
             Make a meme
           </button>
-          <button
-            onClick={() => setIdx((idx + 1) % facts.length)}
-            className="h-[44px] px-5 bg-background border border-border rounded-[12px] font-display font-bold text-[13px] uppercase tracking-[0.1em] text-muted-foreground hover:text-foreground hover:border-primary/40 transition-colors"
-          >
-            Next
-          </button>
-        </div>
+        )}
       </div>
     </div>
+  );
+}
+
+// Inline name input shown on the cold-visitor home — replaces the auto-popping
+// WelcomeModal on `/` so onboarding stays in-line with the hero.
+function InlineNameInput({ onSubmit }: { onSubmit: (name: string) => void }) {
+  const [value, setValue] = useState("");
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    const trimmed = value.trim();
+    if (!trimmed) return;
+    onSubmit(trimmed);
+  }
+
+  return (
+    <form onSubmit={handleSubmit} className="flex gap-2">
+      <input
+        ref={inputRef}
+        type="text"
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        placeholder="Type your first name…"
+        maxLength={100}
+        autoComplete="given-name"
+        className="flex-1 h-12 px-4 bg-secondary border border-border rounded-[12px] text-[15px] font-medium text-foreground outline-none focus:border-primary transition-colors placeholder:text-muted-foreground/50"
+      />
+      <button
+        type="submit"
+        disabled={!value.trim()}
+        className="h-12 px-5 bg-primary text-white rounded-[12px] font-display font-bold text-[12px] uppercase tracking-[0.12em] hover:bg-primary/90 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+      >
+        Hype me
+      </button>
+    </form>
   );
 }
 
@@ -219,7 +245,32 @@ export default function Home() {
   const [filterMode, setFilterMode] = useState<FilterMode>("default");
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [showHashtagRail, setShowHashtagRail] = useState(false);
-  const { name, pronouns } = usePersonName();
+  const { name, pronouns, setName } = usePersonName();
+
+  // The mobile sticky filter strip is hidden on first paint and revealed once
+  // the user has scrolled a bit (or interacted with a filter), so the very top
+  // of the home view is just the wordmark + hero billboard.
+  const [filterRailRevealed, setFilterRailRevealed] = useState(false);
+  useEffect(() => {
+    if (filterRailRevealed) return;
+    function onScroll() {
+      if (window.scrollY > 60) setFilterRailRevealed(true);
+    }
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => window.removeEventListener("scroll", onScroll);
+  }, [filterRailRevealed]);
+
+  // Cold visitor = no stored name AND no share-link override.  In that state
+  // the hero shows a placeholder fact + inline name input instead of querying
+  // a real hero.  As soon as a name is set we flip to warm mode.
+  const isCold = !name && !SHARE_LINK_ACTIVE;
+  const { fact: heroFact, isLoading: heroLoading, shuffle: shuffleHero } = useHeroFact();
+
+  const heroRendered = useMemo(() => {
+    if (isCold) return renderFact(COLD_TEASER_FACT, "", pronouns);
+    if (!heroFact) return "";
+    return renderFact(heroFact.text, name, pronouns);
+  }, [isCold, heroFact, name, pronouns]);
 
   const primaryTag = selectedTags[0] ?? undefined;
 
@@ -246,6 +297,7 @@ export default function Home() {
 
   const toggleTag = (tagName: string) => {
     setFilterMode("hashtags");
+    setFilterRailRevealed(true);
     setSelectedTags(prev =>
       prev.includes(tagName) ? prev.filter(t => t !== tagName) : [...prev, tagName]
     );
@@ -256,77 +308,88 @@ export default function Home() {
 
   return (
     <Layout>
-      {/* ── MOBILE: Hashtag rail (toggleable, sticky) ───────────── */}
-      <div className="md:hidden sticky top-14 z-30 bg-background/95 backdrop-blur border-b border-border">
-        <AnimatePresence>
-          {showHashtagRail && (
-            <motion.div
-              key="rail"
-              initial={{ height: 0, opacity: 0 }}
-              animate={{ height: "auto", opacity: 1 }}
-              exit={{ height: 0, opacity: 0 }}
-              transition={{ duration: 0.18 }}
-              className="overflow-hidden"
-            >
-              {hashtagsLoading ? (
-                <div className="flex gap-2 px-4 py-3">
-                  {Array.from({ length: 6 }).map((_, i) => (
-                    <div key={i} className="h-8 w-20 rounded-full bg-card animate-pulse flex-shrink-0" />
-                  ))}
-                </div>
-              ) : (
-                <HashtagRail
-                  hashtags={hashtagData?.hashtags ?? []}
-                  selectedTags={selectedTags}
-                  onToggle={toggleTag}
-                  onForYou={() => { setFilterMode("default"); setSelectedTags([]); }}
-                  isForYou={filterMode === "default"}
-                />
+      {/* ── MOBILE: Hashtag rail (toggleable, sticky, scroll-revealed) ─── */}
+      <AnimatePresence initial={false}>
+        {filterRailRevealed && (
+          <motion.div
+            key="mobile-filter-rail"
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: "auto", opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.2 }}
+            className="md:hidden sticky top-14 z-30 bg-background/95 backdrop-blur border-b border-border overflow-hidden"
+          >
+            <AnimatePresence>
+              {showHashtagRail && (
+                <motion.div
+                  key="rail"
+                  initial={{ height: 0, opacity: 0 }}
+                  animate={{ height: "auto", opacity: 1 }}
+                  exit={{ height: 0, opacity: 0 }}
+                  transition={{ duration: 0.18 }}
+                  className="overflow-hidden"
+                >
+                  {hashtagsLoading ? (
+                    <div className="flex gap-2 px-4 py-3">
+                      {Array.from({ length: 6 }).map((_, i) => (
+                        <div key={i} className="h-8 w-20 rounded-full bg-card animate-pulse flex-shrink-0" />
+                      ))}
+                    </div>
+                  ) : (
+                    <HashtagRail
+                      hashtags={hashtagData?.hashtags ?? []}
+                      selectedTags={selectedTags}
+                      onToggle={toggleTag}
+                      onForYou={() => { setFilterMode("default"); setSelectedTags([]); }}
+                      isForYou={filterMode === "default"}
+                    />
+                  )}
+                </motion.div>
               )}
-            </motion.div>
-          )}
-        </AnimatePresence>
+            </AnimatePresence>
 
-        <div className="flex items-center gap-2 px-4 py-2">
-          <button
-            onClick={() => { setFilterMode("hall-of-fame"); setSelectedTags([]); setShowHashtagRail(false); }}
-            className={cn(
-              "flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold uppercase tracking-wide transition-colors",
-              filterMode === "hall-of-fame"
-                ? "bg-primary text-white"
-                : "bg-card border border-border text-muted-foreground"
-            )}
-          >
-            🏆 Hall of Fame
-          </button>
-          <button
-            onClick={() => {
-              const next = !showHashtagRail;
-              setShowHashtagRail(next);
-              if (!next) { setFilterMode("default"); setSelectedTags([]); }
-              else setFilterMode("hashtags");
-            }}
-            className={cn(
-              "flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold uppercase tracking-wide transition-colors",
-              filterMode === "hashtags"
-                ? "bg-primary text-white"
-                : "bg-card border border-border text-muted-foreground"
-            )}
-          >
-            # Tags
-          </button>
-          <div className="flex-1" />
-          <button
-            onClick={() => { setFilterMode("default"); setSelectedTags([]); setShowHashtagRail(false); }}
-            className={cn(
-              "text-xs font-bold uppercase tracking-wide transition-colors px-3 py-1.5 rounded-full",
-              filterMode === "default" ? "text-foreground" : "text-muted-foreground"
-            )}
-          >
-            Latest
-          </button>
-        </div>
-      </div>
+            <div className="flex items-center gap-2 px-4 py-2">
+              <button
+                onClick={() => { setFilterMode("hall-of-fame"); setSelectedTags([]); setShowHashtagRail(false); }}
+                className={cn(
+                  "flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold uppercase tracking-wide transition-colors",
+                  filterMode === "hall-of-fame"
+                    ? "bg-primary text-white"
+                    : "bg-card border border-border text-muted-foreground"
+                )}
+              >
+                🏆 Hall of Fame
+              </button>
+              <button
+                onClick={() => {
+                  const next = !showHashtagRail;
+                  setShowHashtagRail(next);
+                  if (!next) { setFilterMode("default"); setSelectedTags([]); }
+                  else setFilterMode("hashtags");
+                }}
+                className={cn(
+                  "flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold uppercase tracking-wide transition-colors",
+                  filterMode === "hashtags"
+                    ? "bg-primary text-white"
+                    : "bg-card border border-border text-muted-foreground"
+                )}
+              >
+                # Tags
+              </button>
+              <div className="flex-1" />
+              <button
+                onClick={() => { setFilterMode("default"); setSelectedTags([]); setShowHashtagRail(false); }}
+                className={cn(
+                  "text-xs font-bold uppercase tracking-wide transition-colors px-3 py-1.5 rounded-full",
+                  filterMode === "default" ? "text-foreground" : "text-muted-foreground"
+                )}
+              >
+                Latest
+              </button>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* ── DESKTOP: Sticky hashtag rail ─────────────────────────── */}
       <div className="hidden md:block sticky top-16 z-30 bg-background/95 backdrop-blur border-b border-border">
@@ -353,11 +416,37 @@ export default function Home() {
       {filterMode === "default" && (
         <div className="hidden md:block pt-6 pb-2">
           <div className="max-w-[1120px] mx-auto px-6">
-            <DesktopHeroBillboard
-              name={name}
-              pronouns={pronouns}
-              onMakeMeme={(factId) => setLocation(`/facts/${factId}`)}
-            />
+            {isCold ? (
+              <div className="rounded-[32px] bg-card border border-border shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] px-10 py-9">
+                <div className="flex items-center gap-2 mb-3 text-[11px] font-bold tracking-[0.18em] text-muted-foreground uppercase font-display">
+                  <span className="w-5 h-px bg-muted-foreground/40" />
+                  ABOUT YOU
+                </div>
+                <h2
+                  className="font-display font-bold text-[52px] leading-[0.96] uppercase tracking-tight mb-8 text-foreground"
+                  style={{ textWrap: "pretty" } as React.CSSProperties}
+                >
+                  {heroRendered.split("___").map((p, i, arr) =>
+                    i < arr.length - 1
+                      ? <span key={i}>{p}<span className="text-primary">___</span></span>
+                      : <span key={i}>{p}</span>
+                  )}
+                </h2>
+                <p className="text-[14px] text-muted-foreground mb-5">Type your name and every fact in the database becomes about you.</p>
+                <div className="max-w-[420px]">
+                  <InlineNameInput onSubmit={setName} />
+                </div>
+              </div>
+            ) : (
+              <DesktopHeroBillboard
+                fact={heroFact}
+                rendered={heroRendered}
+                name={name}
+                onShuffle={shuffleHero}
+                isShuffling={heroLoading}
+                onMakeMeme={(factId) => setLocation(`/facts/${factId}`)}
+              />
+            )}
           </div>
         </div>
       )}
@@ -365,7 +454,32 @@ export default function Home() {
       {/* ── MOBILE: Hero billboard ────────────────────────────── */}
       {filterMode === "default" && (
         <div className="md:hidden pt-3">
-          <HeroBillboard name={name} pronouns={pronouns} />
+          {isCold ? (
+            <div className="px-4 pb-4">
+              <div className="rounded-[20px] bg-card shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] p-5">
+                <div className="text-[10px] font-bold tracking-[0.16em] text-muted-foreground uppercase font-display mb-3">
+                  About you
+                </div>
+                <h2 className="font-display font-bold text-2xl uppercase tracking-tight leading-[1.05] mb-5 min-h-[3.5rem]">
+                  {heroRendered.split("___").map((p, i, arr) =>
+                    i < arr.length - 1
+                      ? <span key={i}>{p}<span className="text-primary">___</span></span>
+                      : <span key={i}>{p}</span>
+                  )}
+                </h2>
+                <p className="text-[12px] text-muted-foreground mb-3">Add your name. Every fact becomes about you.</p>
+                <InlineNameInput onSubmit={setName} />
+              </div>
+            </div>
+          ) : (
+            <HeroBillboardMobile
+              fact={heroFact}
+              rendered={heroRendered}
+              name={name}
+              onShuffle={shuffleHero}
+              isShuffling={heroLoading}
+            />
+          )}
         </div>
       )}
 
@@ -381,7 +495,7 @@ export default function Home() {
 
         {error && (
           <div className="bg-destructive/10 border-2 border-destructive p-8 text-center rounded-[20px]">
-            <p className="text-destructive font-bold text-xl uppercase">Error loading facts. {name} destroyed the server.</p>
+            <p className="text-destructive font-bold text-xl uppercase">Error loading facts. {name || "Someone"} destroyed the server.</p>
           </div>
         )}
 

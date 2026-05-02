@@ -3,7 +3,7 @@ import { Loader2, ChevronDown, ChevronUp } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useAuth } from "@workspace/replit-auth-web";
 import { useLocation } from "wouter";
-import { usePersonName, SHARE_LINK_ACTIVE, DEFAULT_NAME } from "@/hooks/use-person-name";
+import { usePersonName, SHARE_LINK_ACTIVE } from "@/hooks/use-person-name";
 import { PronounEditor } from "@/components/ui/PronounEditor";
 import {
   PRONOUN_PRESETS,
@@ -14,7 +14,10 @@ import { renderFact } from "@/lib/render-fact";
 
 const TEASER_FACT = "The universe doesn't expand. {NAME} pushes it.";
 
-const SUPPRESSED_PATHS = ["/login", "/onboard", "/forgot-password", "/reset-password", "/verify-email", "/admin"];
+// Home now has an inline name input baked into the cold-visitor hero, so the
+// auto-popping bottom-sheet would just duplicate that interaction.  We also
+// suppress on auth/admin paths where it has always been intrusive.
+const SUPPRESSED_PATHS = ["/", "/login", "/onboard", "/forgot-password", "/reset-password", "/verify-email", "/admin"];
 
 async function fetchSuggestedPronouns(name: string, signal: AbortSignal): Promise<string | null> {
   try {
@@ -48,7 +51,7 @@ function shouldShowModal(): boolean {
   try {
     if (localStorage.getItem("fact_db_name_explicit") === "1") return false;
     const storedName = localStorage.getItem("fact_db_name");
-    if (storedName && storedName !== DEFAULT_NAME) return false;
+    if (storedName) return false;
   } catch {
     return false;
   }
@@ -69,7 +72,7 @@ export function WelcomeModal() {
   const [location] = useLocation();
 
   const [open, setOpen] = useState(false);
-  const [draftName, setDraftName] = useState(name === DEFAULT_NAME ? "" : name);
+  const [draftName, setDraftName] = useState(name || "");
   const [draftPronouns, setDraftPronouns] = useState(pronouns);
   const [aiLoading, setAiLoading] = useState(false);
   const [pronounsExpanded, setPronounsExpanded] = useState(false);
@@ -153,7 +156,8 @@ export function WelcomeModal() {
     if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
     abortControllerRef.current?.abort();
     setAiLoading(false);
-    const finalName = draftName.trim() || DEFAULT_NAME;
+    const finalName = draftName.trim();
+    if (!finalName) return; // disabled state should prevent this, but be defensive
     setName(finalName);
     setPronouns(draftPronouns);
     setOpen(false);

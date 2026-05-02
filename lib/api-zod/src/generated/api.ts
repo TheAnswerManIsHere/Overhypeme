@@ -146,6 +146,36 @@ export const CreateFactBody = zod.object({
 });
 
 /**
+ * @summary Weighted-random hero fact (top ~50 Wilson-ranked, with optional exclusions)
+ */
+export const GetHeroFactQueryParams = zod.object({
+  exclude: zod.coerce
+    .string()
+    .optional()
+    .describe("Comma-separated list of fact IDs to exclude from selection."),
+});
+
+export const GetHeroFactResponse = zod.object({
+  fact: zod.object({
+    id: zod.number(),
+    text: zod.string(),
+    upvotes: zod.number(),
+    downvotes: zod.number(),
+    score: zod.number().optional(),
+    commentCount: zod.number(),
+    hashtags: zod.array(zod.string()),
+    submittedBy: zod.string().nullish(),
+    submittedByImage: zod.string().nullish(),
+    userRating: zod.enum(["up", "down"]).nullish(),
+    useCase: zod.string().nullish(),
+    createdAt: zod.coerce.date(),
+  }),
+  poolSize: zod
+    .number()
+    .describe("Size of the candidate pool the pick was drawn from."),
+});
+
+/**
  * @summary Get a single fact with details
  */
 export const GetFactParams = zod.object({

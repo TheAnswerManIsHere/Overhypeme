@@ -197,6 +197,12 @@ export interface FactListResponse {
   total: number;
 }
 
+export interface HeroFactResponse {
+  fact: FactSummary;
+  /** Size of the candidate pool the pick was drawn from. */
+  poolSize: number;
+}
+
 export interface CreateFactRequest {
   /**
    * @minLength 10
@@ -540,6 +546,13 @@ export const ListFactsSort = {
   newest: "newest",
   trending: "trending",
 } as const;
+
+export type GetHeroFactParams = {
+  /**
+   * Comma-separated list of fact IDs to exclude from selection.
+   */
+  exclude?: string;
+};
 
 export type ListCommentsParams = {
   limit?: number;

@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/Input";
 import { useState, useRef } from "react";
 import { NameTag } from "@/components/NameTag";
 import { ShareModal } from "@/components/ShareModal";
+import { usePersonName } from "@/hooks/use-person-name";
 import { useGetMyProfile, getGetMyProfileQueryKey } from "@workspace/api-client-react";
 
 function dicebearUrl(style: string, seed: string) {
@@ -23,9 +24,15 @@ function FlameMark({ className = "" }: { className?: string }) {
 
 export function Navbar() {
   const { user, isAuthenticated, isLoading: authLoading, role, realRole, logout } = useAuth();
+  const { name } = usePersonName();
   const { data: profile } = useGetMyProfile({
     query: { queryKey: getGetMyProfileQueryKey(), enabled: isAuthenticated, staleTime: 60_000 }
   });
+  // Cold visitor on mobile = nobody is logged in AND we don't yet have a stored
+  // name.  In that state we collapse the left avatar/login chip so the top bar
+  // is just the wordmark + search icon — the inline name input on Home does
+  // the onboarding work instead of a competing nav button.
+  const isColdMobile = !isAuthenticated && !authLoading && !name;
 
   const isLegendary = role === "legendary" || role === "admin";
 
@@ -115,7 +122,9 @@ export function Navbar() {
       {/* ── MOBILE top bar ───────────────────────────────────────────── */}
       <header className="md:hidden sticky top-0 z-50 w-full bg-background/95 backdrop-blur border-b border-border">
         <div className="flex items-center h-14 px-4">
-          {/* Left: avatar / profile link */}
+          {/* Left: avatar / profile link.  Suppressed entirely for cold visitors
+              so the top bar is wordmark-first; the inline name input on Home
+              owns the onboarding moment. */}
           <div className="w-10 flex items-center">
             {isAuthenticated && !authLoading ? (
               <button onClick={() => setLocation("/profile")} className="w-8 h-8 rounded-full overflow-hidden ring-1 ring-border flex-shrink-0">
@@ -127,11 +136,11 @@ export function Navbar() {
                   </div>
                 )}
               </button>
-            ) : (
+            ) : !isColdMobile ? (
               <button onClick={() => setLocation("/login")} className="w-8 h-8 rounded-full bg-secondary border border-border flex items-center justify-center text-muted-foreground">
                 <User className="w-4 h-4" />
               </button>
-            )}
+            ) : null}
           </div>
 
           {/* Center: wordmark */}

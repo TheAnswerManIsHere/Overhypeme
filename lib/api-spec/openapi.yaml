@@ -195,6 +195,32 @@ paths:
               schema:
                 $ref: "#/components/schemas/DuplicateConflict"
 
+  /facts/hero:
+    get:
+      operationId: getHeroFact
+      tags: [facts]
+      summary: Weighted-random hero fact (top ~50 Wilson-ranked, with optional exclusions)
+      parameters:
+        - name: exclude
+          in: query
+          required: false
+          description: Comma-separated list of fact IDs to exclude from selection.
+          schema:
+            type: string
+      responses:
+        "200":
+          description: A weighted-random hero fact
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HeroFactResponse"
+        "404":
+          description: No facts available
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
   /facts/{factId}:
     get:
       operationId: getFact
@@ -1193,6 +1219,16 @@ components:
             $ref: "#/components/schemas/FactSummary"
         total:
           type: integer
+
+    HeroFactResponse:
+      type: object
+      required: [fact, poolSize]
+      properties:
+        fact:
+          $ref: "#/components/schemas/FactSummary"
+        poolSize:
+          type: integer
+          description: Size of the candidate pool the pick was drawn from.
 
     CreateFactRequest:
       type: object

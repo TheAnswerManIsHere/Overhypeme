@@ -232,6 +232,13 @@
       "when": 1746400000000,
       "tag": "0032_checkout_request_ledger",
       "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1777800000000,
+      "tag": "0033_user_fact_pref_seen_as_hero",
+      "breakpoints": true
     }
   ]
 }
