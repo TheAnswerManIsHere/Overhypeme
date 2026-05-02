@@ -324,7 +324,7 @@ export async function notifyAdminsOfAbandonedEmail(
   }
 }
 
-function buildAbandonedEmailNotification(opts: AdminAbandonedEmailNotifyOpts) {
+export function buildAbandonedEmailNotification(opts: AdminAbandonedEmailNotifyOpts) {
   const siteUrl = getSiteBaseUrl();
   const emailQueueUrl = `${siteUrl}/admin/email-queue`;
 
