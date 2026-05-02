@@ -40,6 +40,7 @@ router.post("/affiliate/click", async (req: Request, res: Response) => {
     text,
     imageUrl,
     returnUrl,
+    source,
   } = req.body as {
     sourceType?: "fact" | "meme";
     sourceId?: string | number;
@@ -47,6 +48,7 @@ router.post("/affiliate/click", async (req: Request, res: Response) => {
     text?: string;
     imageUrl?: string;
     returnUrl?: string;
+    source?: string;
   };
 
   if (!sourceType || !sourceId || !destination || !text) {
@@ -94,12 +96,18 @@ router.post("/affiliate/click", async (req: Request, res: Response) => {
     return;
   }
 
+  if (source !== undefined && (typeof source !== "string" || source.length > 64)) {
+    res.status(400).json({ error: "source must be a string of 64 characters or fewer" });
+    return;
+  }
+
   try {
     await db.insert(affiliateClicksTable).values({
       userId: req.isAuthenticated() ? req.user.id : null,
       sourceType,
       sourceId: String(sourceId),
       destination,
+      source: source && source.trim() ? source.trim() : null,
     });
   } catch {
   }
@@ -156,12 +164,13 @@ router.get("/affiliate/stats", requireAdmin, async (req: Request, res: Response)
 
   const whereClause = dateRangeWhere(dateFrom, dateTo);
 
-  const [rows, totals] = await Promise.all([
+  const [rows, totals, bySource] = await Promise.all([
     db
       .select({
         sourceType: affiliateClicksTable.sourceType,
         sourceId: affiliateClicksTable.sourceId,
         destination: affiliateClicksTable.destination,
+        source: affiliateClicksTable.source,
         clicks: count(),
         lastClicked: sql<string>`max(${affiliateClicksTable.clickedAt})`,
       })
@@ -171,6 +180,7 @@ router.get("/affiliate/stats", requireAdmin, async (req: Request, res: Response)
         affiliateClicksTable.sourceType,
         affiliateClicksTable.sourceId,
         affiliateClicksTable.destination,
+        affiliateClicksTable.source,
       )
       .orderBy(desc(sql`max(${affiliateClicksTable.clickedAt})`))
       .limit(200),
@@ -183,9 +193,19 @@ router.get("/affiliate/stats", requireAdmin, async (req: Request, res: Response)
       .from(affiliateClicksTable)
       .where(whereClause)
       .groupBy(affiliateClicksTable.destination),
+
+    db
+      .select({
+        source: affiliateClicksTable.source,
+        total: count(),
+      })
+      .from(affiliateClicksTable)
+      .where(whereClause)
+      .groupBy(affiliateClicksTable.source)
+      .orderBy(desc(count())),
   ]);
 
-  res.json({ rows, totals });
+  res.json({ rows, totals, bySource });
 });
 
 export default router;

@@ -4,7 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Layout } from "@/components/layout/Layout";
 import { GarmentPreview, PRODUCTS, LAYOUTS } from "@/components/merch/GarmentPreview";
 import { cn } from "@/components/ui/Button";
-import { ArrowLeft, ExternalLink } from "lucide-react";
+import { ArrowLeft } from "lucide-react";
 
 type MemeData = {
   id: number;
@@ -21,6 +21,14 @@ function ExtLinkIcon({ size = 16, className = "" }: { size?: number; className?:
       <path d="M15 3h6v6" /><path d="M10 14 21 3" />
     </svg>
   );
+}
+
+// Forwarded by MemePage as `?source=meme-page`. Falls back to `wear-page`
+// when the user lands here directly (deep link, share, refresh).
+function getSourceFromQuery(): string {
+  if (typeof window === "undefined") return "wear-page";
+  const v = new URLSearchParams(window.location.search).get("source")?.trim();
+  return v && v.length <= 64 ? v : "wear-page";
 }
 
 export default function WearIt() {
@@ -44,19 +52,35 @@ export default function WearIt() {
 
   const product = PRODUCTS[selectedProduct];
   const layout = LAYOUTS[selectedLayout];
+  void layout;
+  void memeData;
 
+  // Send the user to Zazzle through the server-side redirect endpoint, which:
+  //   1. Logs an affiliate click (with the `source` attribution we pass).
+  //   2. Re-exports the meme JPEG to a public URL.
+  //   3. Builds the full Zazzle creator URL (with rf/ax/sr/etc. + the image)
+  //      from admin-config and 302s the browser there.
+  // Done as a normal link navigation (set `window.location.href`) so we
+  // avoid Safari/iOS popup-blocker issues.
   const handleZazzle = () => {
-    // Zazzle handoff — in production this would open a deep link with the meme image
-    window.open("https://www.zazzle.com", "_blank", "noopener");
+    if (!slug) return;
+    const source = getSourceFromQuery();
+    const returnUrl = window.location.href;
+    const url =
+      `/api/memes/${encodeURIComponent(slug)}/zazzle-redirect` +
+      `?source=${encodeURIComponent(source)}` +
+      `&returnUrl=${encodeURIComponent(returnUrl)}`;
+    window.location.href = url;
   };
 
   return (
     <Layout>
-      {/* Mobile layout */}
-      <div className="md:hidden px-4 pt-4 pb-8">
+      {/* Mobile layout — sticky CTA so the primary action stays thumb-reachable
+          regardless of where the user is in the picker scroll position. */}
+      <div className="md:hidden px-4 pt-4 pb-[calc(96px+env(safe-area-inset-bottom))]">
         <button
           onClick={() => slug ? setLocation(`/meme/${slug}`) : setLocation("/")}
-          className="flex items-center gap-1.5 text-muted-foreground hover:text-foreground text-sm mb-5 transition-colors"
+          className="flex items-center gap-1.5 text-muted-foreground hover:text-foreground text-sm mb-5 transition-colors min-h-[44px] -ml-1 px-1"
         >
           <ArrowLeft className="w-4 h-4" /> Back
         </button>
@@ -66,8 +90,9 @@ export default function WearIt() {
         </h1>
         <p className="text-[13px] text-muted-foreground mb-5">Pick a thing. Pick a layout. Done.</p>
 
-        {/* Garment preview */}
-        <div className="rounded-[20px] bg-card border border-border overflow-hidden mb-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]">
+        {/* Garment preview — touch-action set so the page scrolls vertically
+            without fighting the horizontal product picker below it. */}
+        <div className="rounded-[20px] bg-card border border-border overflow-hidden mb-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]" style={{ touchAction: "pan-y" }}>
           <div className="aspect-square relative">
             <GarmentPreview type={product.type} accentColor={product.color} />
           </div>
@@ -77,15 +102,20 @@ export default function WearIt() {
           </div>
         </div>
 
-        {/* Product picker */}
+        {/* Product picker — horizontal scroll. `touch-action: pan-x` so a
+            horizontal swipe here is unambiguously a picker scroll, not a
+            page scroll. Scroll snap keeps each chip aligned. */}
         <p className="text-[11px] font-bold tracking-[0.16em] text-muted-foreground uppercase font-display mb-3">Product</p>
-        <div className="flex gap-2 overflow-x-auto pb-2 mb-5 no-scrollbar">
+        <div
+          className="flex gap-2 overflow-x-auto pb-2 mb-5 no-scrollbar -mx-4 px-4 snap-x snap-mandatory"
+          style={{ touchAction: "pan-x", overscrollBehaviorX: "contain" }}
+        >
           {PRODUCTS.map((p, i) => (
             <button
               key={p.type}
               onClick={() => setSelectedProduct(i)}
               className={cn(
-                "flex-shrink-0 w-[78px] rounded-[12px] overflow-hidden border transition-all",
+                "flex-shrink-0 w-[78px] rounded-[12px] overflow-hidden border transition-all snap-start",
                 i === selectedProduct ? "border-primary border-2 bg-background" : "border-border bg-card"
               )}
             >
@@ -100,7 +130,7 @@ export default function WearIt() {
           ))}
         </div>
 
-        {/* Layout picker */}
+        {/* Layout picker — fits in 3-up grid, no horizontal overflow. */}
         <p className="text-[11px] font-bold tracking-[0.16em] text-muted-foreground uppercase font-display mb-3">Layout</p>
         <div className="grid grid-cols-3 gap-2 mb-6">
           {LAYOUTS.map((l, i) => (
@@ -108,7 +138,7 @@ export default function WearIt() {
               key={l.id}
               onClick={() => setSelectedLayout(i)}
               className={cn(
-                "p-3 rounded-[12px] text-left border transition-all",
+                "p-3 rounded-[12px] text-left border transition-all min-h-[64px]",
                 i === selectedLayout ? "border-primary border-2 bg-background" : "border-border bg-card"
               )}
             >
@@ -117,17 +147,28 @@ export default function WearIt() {
             </button>
           ))}
         </div>
+      </div>
 
-        {/* CTA */}
+      {/* Mobile sticky CTA bar. Anchored above the device safe area so it's
+          always thumb-reachable. The price reflects the currently-selected
+          product so the user never has to tap to discover the price. */}
+      <div
+        className="md:hidden fixed left-0 right-0 bottom-0 z-40 bg-background/95 backdrop-blur-md border-t border-border px-4 pt-3"
+        style={{ paddingBottom: "calc(0.75rem + env(safe-area-inset-bottom))" }}
+      >
+        <div className="flex items-center justify-between mb-2 px-1">
+          <span className="text-[11px] text-muted-foreground">{product.label} · From</span>
+          <span className="font-display font-bold text-sm text-foreground">{product.price}+</span>
+        </div>
         <button
           onClick={handleZazzle}
-          className="w-full h-[52px] bg-primary text-white rounded-[14px] font-display font-bold text-[14px] uppercase tracking-[0.1em] flex items-center justify-center gap-2.5 hover:bg-primary/90 transition-colors"
+          disabled={!slug}
+          className="w-full h-[52px] bg-primary text-white rounded-[14px] font-display font-bold text-[14px] uppercase tracking-[0.1em] flex items-center justify-center gap-2.5 hover:bg-primary/90 transition-colors disabled:opacity-50"
         >
-          Order on Zazzle <ExtLinkIcon size={16} />
+          Open in Zazzle <ExtLinkIcon size={16} />
         </button>
-        <p className="text-center text-[11px] text-muted-foreground mt-3 leading-relaxed">
-          Color &amp; size on Zazzle · Ships in 5–7 days<br />
-          <span className="opacity-70">You'll continue checkout there.</span>
+        <p className="text-center text-[10px] text-muted-foreground mt-1.5 leading-tight">
+          Color &amp; size on Zazzle · You'll continue checkout there.
         </p>
       </div>
 
@@ -206,9 +247,10 @@ export default function WearIt() {
           {/* CTA */}
           <button
             onClick={handleZazzle}
-            className="w-full h-[60px] bg-primary text-white rounded-[14px] font-display font-bold text-[15px] uppercase tracking-[0.12em] flex items-center justify-center gap-3 hover:bg-primary/90 transition-colors"
+            disabled={!slug}
+            className="w-full h-[60px] bg-primary text-white rounded-[14px] font-display font-bold text-[15px] uppercase tracking-[0.12em] flex items-center justify-center gap-3 hover:bg-primary/90 transition-colors disabled:opacity-50"
           >
-            Order on Zazzle <ExtLinkIcon size={18} />
+            Open in Zazzle <ExtLinkIcon size={18} />
           </button>
           <p className="text-center text-[12px] text-muted-foreground mt-3.5 leading-relaxed">
             Color &amp; size on Zazzle · Ships in 5–7 days · You'll continue checkout there.

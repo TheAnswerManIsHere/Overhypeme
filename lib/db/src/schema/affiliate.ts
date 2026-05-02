@@ -10,6 +10,11 @@ export const affiliateClicksTable = pgTable("affiliate_clicks", {
   sourceType: affiliateSourceTypeEnum("source_type").notNull(),
   sourceId: varchar("source_id").notNull(),
   destination: affiliateDestinationEnum("destination").notNull(),
+  // Where in the product the click originated from — e.g. "meme-page",
+  // "wear-page", "fact-detail". Free-form so we can grow surfaces without
+  // touching the DB. Nullable for historical rows logged before this column
+  // existed.
+  source: varchar("source", { length: 64 }),
   clickedAt: timestamp("clicked_at", { withTimezone: true }).notNull().defaultNow(),
 });
 

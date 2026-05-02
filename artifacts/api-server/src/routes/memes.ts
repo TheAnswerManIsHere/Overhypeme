@@ -5,7 +5,7 @@ import { Readable } from "stream";
 import path from "path";
 import { fileURLToPath } from "url";
 import { db } from "@workspace/db";
-import { memesTable, factsTable, usersTable, userFactPreferencesTable } from "@workspace/db/schema";
+import { memesTable, factsTable, usersTable, userFactPreferencesTable, affiliateClicksTable } from "@workspace/db/schema";
 import { eq, ne, desc, and, inArray, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 import {
@@ -822,6 +822,10 @@ router.get("/memes/:slug/zazzle-redirect", async (req: Request, res: Response) =
   if (!slug) { res.status(400).end(); return; }
   const returnUrl = typeof req.query["returnUrl"] === "string" ? req.query["returnUrl"] : undefined;
   const preview = req.query["preview"] === "true";
+  // ?source=meme-page|wear-page|fact-detail|... — attribution for the
+  // admin Affiliate page. Free-form, capped at 64 chars to match the schema.
+  const sourceRaw = typeof req.query["source"] === "string" ? req.query["source"].trim() : "";
+  const source = sourceRaw && sourceRaw.length <= 64 ? sourceRaw : null;
 
   const [meme] = await db
     .select()
@@ -830,6 +834,25 @@ router.get("/memes/:slug/zazzle-redirect", async (req: Request, res: Response) =
     .limit(1);
   if (!meme) { res.status(404).end(); return; }
   if (meme.deletedAt) { res.status(410).end(); return; }
+
+  // Record the affiliate click before doing the (potentially-slow) image
+  // export. We deliberately don't log on `?preview=true` — admin debug
+  // previews shouldn't pollute the stats. Failures are swallowed so a
+  // logging hiccup never blocks the user from getting to Zazzle.
+  if (!preview) {
+    try {
+      const userIdFromReq = (req as { user?: { id?: string } }).user?.id;
+      await db.insert(affiliateClicksTable).values({
+        userId: typeof userIdFromReq === "string" ? userIdFromReq : null,
+        sourceType: "meme",
+        sourceId: String(meme.id),
+        destination: "zazzle",
+        source,
+      });
+    } catch (err) {
+      req.log.warn({ err, slug, source }, "Failed to log affiliate click for zazzle-redirect");
+    }
+  }
 
   try {
     let imageBuffer: Buffer;

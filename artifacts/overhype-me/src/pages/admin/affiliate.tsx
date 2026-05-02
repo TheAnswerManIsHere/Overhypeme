@@ -2,12 +2,13 @@ import { useEffect, useState } from "react";
 import { AdminLayout } from "@/components/admin/AdminLayout";
 import { ResponsiveTable, type ResponsiveColumn } from "@/components/admin/ResponsiveTable";
 import { Link } from "wouter";
-import { ExternalLink, TrendingUp, ShoppingBag } from "lucide-react";
+import { ExternalLink, TrendingUp, ShoppingBag, MapPin } from "lucide-react";
 
 interface ClickRow {
   sourceType: "fact" | "meme";
   sourceId: string;
   destination: "zazzle";
+  source: string | null;
   clicks: number;
   lastClicked: string;
 }
@@ -17,9 +18,38 @@ interface DestTotal {
   total: number;
 }
 
+interface SourceTotal {
+  source: string | null;
+  total: number;
+}
+
 interface StatsResponse {
   rows: ClickRow[];
   totals: DestTotal[];
+  bySource: SourceTotal[];
+}
+
+function SourcePill({ value }: { value: string | null }) {
+  // Visualize the click-origin (`source` column). null/empty = legacy row
+  // logged before the column existed or a click that arrived without
+  // attribution; render as a muted "—" so it's visually distinct from a
+  // real source value.
+  if (!value) {
+    return <span className="text-xs text-muted-foreground">—</span>;
+  }
+  // Reserve a couple of color slots for the canonical sources we ship; new
+  // sources fall through to a neutral pill.
+  const palette: Record<string, string> = {
+    "meme-page": "bg-primary/20 text-primary",
+    "wear-page": "bg-emerald-500/20 text-emerald-400",
+    "fact-detail": "bg-blue-500/20 text-blue-400",
+  };
+  const cls = palette[value] ?? "bg-muted text-foreground";
+  return (
+    <span className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded-sm tracking-wider ${cls}`}>
+      {value}
+    </span>
+  );
 }
 
 export default function AdminAffiliate() {
@@ -51,6 +81,7 @@ export default function AdminAffiliate() {
   const totals = data?.totals ?? [];
   const zazzleTotal = totals.find((t) => t.destination === "zazzle")?.total ?? 0;
   const grandTotal = zazzleTotal;
+  const bySource = data?.bySource ?? [];
 
   return (
     <AdminLayout title="Affiliate Click-Throughs">
@@ -62,7 +93,7 @@ export default function AdminAffiliate() {
       )}
 
       {/* Summary cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-8">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
         {[
           { label: "Total Clicks", value: grandTotal, icon: TrendingUp, color: "text-primary" },
           { label: "Zazzle", value: zazzleTotal, icon: ShoppingBag, color: "text-orange-400" },
@@ -78,6 +109,30 @@ export default function AdminAffiliate() {
           </div>
         ))}
       </div>
+
+      {/* Clicks-by-source breakdown — surfaces the new `source` attribution
+          so it's the first thing an admin sees alongside the top-line totals.
+          Shown only when at least one row has a source, so the panel doesn't
+          appear empty for fresh installs. */}
+      {bySource.length > 0 && (
+        <div className="mb-8 bg-card border border-border rounded-lg p-5">
+          <div className="flex items-center gap-2 mb-3">
+            <MapPin className="w-4 h-4 text-muted-foreground" />
+            <h3 className="text-xs uppercase tracking-wide text-muted-foreground font-medium">By source</h3>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {bySource.map((s) => (
+              <div
+                key={s.source ?? "__none__"}
+                className="flex items-center gap-2 bg-background border border-border rounded-sm px-3 py-2"
+              >
+                <SourcePill value={s.source} />
+                <span className="font-mono text-sm text-foreground tabular-nums">{s.total}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Date filter */}
       <div className="flex flex-wrap items-end gap-3 mb-6">
@@ -116,7 +171,7 @@ export default function AdminAffiliate() {
       {/* Table */}
       <ResponsiveTable<ClickRow>
         rows={data?.rows ?? []}
-        getKey={(row) => `${row.sourceType}-${row.sourceId}-${row.destination}`}
+        getKey={(row) => `${row.sourceType}-${row.sourceId}-${row.destination}-${row.source ?? "__none__"}`}
         loading={loading}
         emptyState="No affiliate clicks recorded yet."
         mobilePrimary={(row) => (
@@ -155,8 +210,8 @@ export default function AdminAffiliate() {
         }
         columns={[
           {
-            key: "source",
-            header: "Source",
+            key: "sourceType",
+            header: "Type",
             hideOnMobile: true,
             cell: (row) => (
               <span
@@ -175,6 +230,13 @@ export default function AdminAffiliate() {
             header: "ID",
             hideOnMobile: true,
             cell: (row) => <span className="font-mono text-foreground">{row.sourceId}</span>,
+          },
+          {
+            key: "source",
+            header: "Source",
+            mobileLabel: "From",
+            mobileSecondary: true,
+            cell: (row) => <SourcePill value={row.source} />,
           },
           {
             key: "destination",
