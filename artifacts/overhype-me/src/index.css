@@ -103,3 +103,13 @@
     @apply bg-border rounded-full hover:bg-muted-foreground transition-colors;
   }
 }
+
+#sentry-feedback {
+  --bottom: calc(56px + env(safe-area-inset-bottom, 0px) + 12px);
+}
+
+@media (min-width: 768px) {
+  #sentry-feedback {
+    --bottom: 1rem;
+  }
+}
