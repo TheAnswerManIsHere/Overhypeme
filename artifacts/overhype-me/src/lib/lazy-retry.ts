@@ -18,13 +18,16 @@ export function lazyWithRetry<T extends React.ComponentType<object>>(
   return lazy(() =>
     factory().catch(
       () =>
-        new Promise<{ default: T }>((resolve, reject) => {
+        new Promise<{ default: T }>((resolve) => {
           setTimeout(() => {
             factory()
               .then(resolve)
               .catch(() => {
+                // Trigger a full reload to fetch fresh chunk URLs. We
+                // intentionally never settle this promise — the page is being
+                // replaced, so propagating a rejection would only surface as
+                // noise in Sentry via the Suspense error boundary.
                 window.location.reload();
-                reject(new Error("Module chunk load failed — reloading"));
               });
           }, 400);
         }),
