@@ -5,8 +5,11 @@
  * which talks to GCS and isn't reachable from the sandbox. Tests focus on
  * the gates that fire BEFORE the GCS call:
  *   - auth checks
- *   - membership-tier checks (avatar upload requires legendary)
  *   - content-type / body / size validation
+ *
+ * NOTE: Profile photo upload is a free identity asset — no membership-tier
+ * gate. It is reused as the face/likeness reference for memes and AI
+ * generation downstream.
  */
 
 import { describe, it, before, after } from "node:test";
@@ -94,19 +97,21 @@ describe("POST /storage/upload-avatar — pre-GCS gates", () => {
     assert.equal(res.status, 401);
   });
 
-  it("returns 403 for non-legendary users (Custom photo upload is a Legendary feature)", async () => {
+  it("returns 400 for an unsupported content-type (registered, free user)", async () => {
+    // Profile photo is a free identity asset — registered users can upload.
+    // The next gate after auth is content-type validation.
     const userId = await createTestUser({ membershipTier: "registered" });
     const sid = await bearerForUser(userId);
     const res = await request(makeApp())
       .post("/storage/upload-avatar")
       .set("authorization", `Bearer ${sid}`)
-      .set("content-type", "image/png")
-      .send(Buffer.from("anything"));
-    assert.equal(res.status, 403);
-    assert.match(res.body.error, /Legendary feature/);
+      .set("content-type", "image/svg+xml")
+      .send(Buffer.from("<svg/>"));
+    assert.equal(res.status, 400);
+    assert.match(res.body.error, /JPEG, PNG, WebP, or GIF/);
   });
 
-  it("returns 400 for an unsupported content-type when caller is legendary", async () => {
+  it("returns 400 for an unsupported content-type (legendary user)", async () => {
     const userId = await createTestUser({ membershipTier: "legendary" });
     const sid = await bearerForUser(userId);
     const res = await request(makeApp())

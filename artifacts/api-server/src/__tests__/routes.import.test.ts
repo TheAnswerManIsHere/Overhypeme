@@ -87,8 +87,17 @@ describe("POST /admin/import/facts — auth gate", () => {
   });
 });
 
+// Re-asserts ADMIN_API_KEY before each test so a sibling test file cannot
+// silently wipe the env var between describe blocks under the sharded
+// `--test-isolation=none` runner. Without this, the auth middleware rejects
+// requests with 401 even though the test sends the correct X-API-Key.
+async function ensureAdminApiKey() {
+  process.env.ADMIN_API_KEY = TEST_API_KEY;
+  await cleanup();
+}
+
 describe("POST /admin/import/facts — body-shape validation", () => {
-  beforeEach(cleanup);
+  beforeEach(ensureAdminApiKey);
   afterEach(cleanup);
 
   it("rejects bodies that are neither an array nor an { facts: [] } object", async () => {
@@ -130,7 +139,7 @@ describe("POST /admin/import/facts — body-shape validation", () => {
 });
 
 describe("POST /admin/import/facts — dryRun", () => {
-  beforeEach(cleanup);
+  beforeEach(ensureAdminApiKey);
   afterEach(cleanup);
 
   it("validates without writing when dryRun=true", async () => {
@@ -165,7 +174,7 @@ describe("POST /admin/import/facts — dryRun", () => {
 });
 
 describe("POST /admin/import/facts — write path", () => {
-  beforeEach(cleanup);
+  beforeEach(ensureAdminApiKey);
   afterEach(cleanup);
 
   it("inserts the valid items, returns 201 with counts, and skips invalid ones", async () => {

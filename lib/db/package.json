@@ -12,7 +12,8 @@
     "migrate": "tsx src/migrate.ts",
     "push": "drizzle-kit push --config ./drizzle.config.ts",
     "push-force": "drizzle-kit push --force --config ./drizzle.config.ts",
-    "test": "node --import tsx/esm --test 'src/**/*.test.ts'"
+    "test": "node --import tsx/esm --test 'src/**/*.test.ts'",
+    "typecheck": "bash ../../scripts/with-time-limit.sh 15000 tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
     "@opentelemetry/api": "^1.9.1",

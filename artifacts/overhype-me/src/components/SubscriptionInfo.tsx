@@ -193,8 +193,8 @@ export function SubscriptionInfo({ data, variant, liveMode = false, reactivateBu
         }`}>
           <Crown className={`w-6 h-6 shrink-0 ${isLifetime ? "text-amber-400" : "text-primary"}`} />
           <div>
-            <p className="font-bold text-foreground flex items-center gap-2">
-              Legendary Member
+            <p className="font-bold text-foreground flex items-center gap-2 flex-wrap">
+              AI memes &amp; video memes of you
               <span className={`text-xs px-2 py-0.5 rounded-sm uppercase tracking-wide ${
                 cancelAtPeriodEnd && !isLifetime
                   ? "bg-orange-500/20 text-orange-400"
@@ -205,7 +205,7 @@ export function SubscriptionInfo({ data, variant, liveMode = false, reactivateBu
             </p>
             <p className="text-sm text-muted-foreground">
               {plan ? plan.charAt(0).toUpperCase() + plan.slice(1) : "Legendary"}{" "}
-              {isLifetime ? "— access never expires" : "subscription"}
+              {isLifetime ? "— access never expires" : "subscription · unlocks the AI generations of you"}
             </p>
           </div>
         </div>

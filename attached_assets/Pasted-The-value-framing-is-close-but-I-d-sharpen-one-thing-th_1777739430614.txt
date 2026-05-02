@@ -1,0 +1,19 @@
+The value framing is close but I’d sharpen one thing: the dopamine isn’t from being told you’re wonderful in the abstract - it’s the cognitive surprise of seeing your specific name in an impossibly heroic context. The mechanic is closer to “the universe briefly bending around me” than to flattery. This matters for design because the payoff is the first read of the personalized fact. The punch is in the substitution, and every screen element competing for attention before the user’s eyes hit that line is tax on the joke.
+
+That reframe collapses your three concerns into a single principle: minimize anything that interrupts the substitution-to-laugh path on first paint. Everything below flows from that.
+
+On rotating the hero fact, you’re right, but the rotation strategy has a few sub-decisions worth being deliberate about:
+
+	•	Pool source: Top Wilson-ranked alone goes stale fast for repeat visitors - the top 5 facts become the new “static.” Better: weighted random from the top ~50, with selection probability proportional to score. Variety + quality floor.
+	•	Stickiness within session: Don’t shuffle on re-render or back-navigation - that breaks the sense of “this is my fact.” Pin per session, re-roll only on fresh visit or explicit shuffle action.
+	•	De-duplication: For returning users, exclude already-seen facts via user_fact_preferences. Compounds well with what you’ve already built.
+	•	Hero singular vs. feed: Worth genuinely interrogating whether mobile-first should treat the whole screen as a vertically scrollable fact feed (TikTok pattern) rather than one hero with a “next” button. The first fact is the hook; subsequent facts are immediate payoff for one swipe gesture. This collapses your funnel from two actions to one.
+
+On screen real estate, the test I’d run: crop the page to the top ~600px of a 6.1” iPhone viewport. Can a first-time visitor get the joke from what’s visible? If any element in that zone isn’t serving the joke (brand mark, the fact, maybe one action), it’s a candidate for relocation. On mobile the hierarchy is brutal: brand (1 thin line), the fact (dominant), one or two action affordances adjacent. Everything else lives behind a single affordance.
+
+On the menu causing confusion, your instinct is right and the underlying issue is framing. Search and login on first paint signal “service to learn” rather than “thing to laugh at.” Two moves:
+
+	•	Progressive disclosure: Hide auth/search behind a single icon, reveal more on scroll or interaction. Reddit mobile and Pinterest both do this - chrome stays minimal until the user commits to engagement.
+	•	Contextual auth: Login isn’t a feature; it’s a gate. It should appear only when a user tries to do something gated (save, AI meme, LEGEND upgrade). On the cold first paint, no login button visible at all - it just isn’t relevant yet.
+
+One diagnostic question to push on before we go further: what do you want the user’s second action to be? If they arrive cold (no shared link, no name), the second action is “enter your own name” - so that input becomes the second-most-important pixel after the fact. If they arrive warm (shared link, name pre-filled), the second action is “see another” - and a swipe/next affordance earns that real estate. The answer shapes which secondary element gets above-the-fold priority, and may differ between the two entry paths.

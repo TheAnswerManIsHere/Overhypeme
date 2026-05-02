@@ -242,14 +242,16 @@ describe("PATCH /users/me — validation", () => {
     assert.deepEqual(res.body, { error: "A valid email address is required" });
   });
 
-  it("rejects a profileImageUrl when the user is not legendary", async () => {
-    const { res } = await authedPatch({ profileImageUrl: "https://images.unsplash.com/photo-1" });
-    assert.equal(res.status, 403);
-    assert.deepEqual(res.body, { error: "Custom photo upload is a Legendary feature" });
+  it("accepts a valid profileImageUrl from a registered (free) user — photo is a free identity asset", async () => {
+    const { res, userId } = await authedPatch({ profileImageUrl: "https://images.unsplash.com/photo-1" });
+    assert.equal(res.status, 200);
+    assert.equal(res.body.success, true);
+    const [row] = await db.select().from(usersTable).where(eq(usersTable.id, userId));
+    assert.ok(row.profileImageUrl?.startsWith("https://images.unsplash.com/photo-1"));
   });
 
   it("rejects profileImageUrl on unknown hosts", async () => {
-    const userId = await createTestUser({ membershipTier: "legendary" });
+    const userId = await createTestUser({ membershipTier: "registered" });
     const sid = await bearerForUser(userId);
     const res = await request(makeApp())
       .patch("/users/me")
@@ -259,7 +261,7 @@ describe("PATCH /users/me — validation", () => {
   });
 
   it("rejects profileImageUrl with tracking-heavy query params", async () => {
-    const userId = await createTestUser({ membershipTier: "legendary" });
+    const userId = await createTestUser({ membershipTier: "registered" });
     const sid = await bearerForUser(userId);
     const res = await request(makeApp())
       .patch("/users/me")
@@ -269,7 +271,7 @@ describe("PATCH /users/me — validation", () => {
   });
 
   it("rejects a profileImageUrl that isn't on a supported scheme", async () => {
-    const userId = await createTestUser({ membershipTier: "legendary" });
+    const userId = await createTestUser({ membershipTier: "registered" });
     const sid = await bearerForUser(userId);
     const res = await request(makeApp())
       .patch("/users/me")

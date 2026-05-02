@@ -146,6 +146,36 @@ export const CreateFactBody = zod.object({
 });
 
 /**
+ * @summary Weighted-random hero fact (top ~50 Wilson-ranked, with optional exclusions)
+ */
+export const GetHeroFactQueryParams = zod.object({
+  exclude: zod.coerce
+    .string()
+    .optional()
+    .describe("Comma-separated list of fact IDs to exclude from selection."),
+});
+
+export const GetHeroFactResponse = zod.object({
+  fact: zod.object({
+    id: zod.number(),
+    text: zod.string(),
+    upvotes: zod.number(),
+    downvotes: zod.number(),
+    score: zod.number().optional(),
+    commentCount: zod.number(),
+    hashtags: zod.array(zod.string()),
+    submittedBy: zod.string().nullish(),
+    submittedByImage: zod.string().nullish(),
+    userRating: zod.enum(["up", "down"]).nullish(),
+    useCase: zod.string().nullish(),
+    createdAt: zod.coerce.date(),
+  }),
+  poolSize: zod
+    .number()
+    .describe("Size of the candidate pool the pick was drawn from."),
+});
+
+/**
  * @summary Get a single fact with details
  */
 export const GetFactParams = zod.object({
@@ -697,6 +727,12 @@ export const GetAffiliateStatsResponse = zod.object({
       sourceType: zod.enum(["fact", "meme"]),
       sourceId: zod.string(),
       destination: zod.enum(["zazzle"]),
+      source: zod
+        .string()
+        .nullable()
+        .describe(
+          'Where in the product the click originated (e.g. \"meme-page\", \"wear-page\", \"fact-detail\"). Null for legacy rows.',
+        ),
       clicks: zod.number(),
       lastClicked: zod.coerce.date(),
     }),
@@ -707,6 +743,25 @@ export const GetAffiliateStatsResponse = zod.object({
       total: zod.number(),
     }),
   ),
+  bySource: zod.array(
+    zod.object({
+      source: zod.string().nullable(),
+      total: zod.number(),
+    }),
+  ),
+  bySourceDaily: zod
+    .array(
+      zod.object({
+        source: zod.string().nullable(),
+        day: zod.coerce
+          .date()
+          .describe("UTC calendar day for this bucket (YYYY-MM-DD)."),
+        total: zod.number(),
+      }),
+    )
+    .describe(
+      "Daily click counts bucketed by `source`, ordered by day ascending.",
+    ),
 });
 
 /**

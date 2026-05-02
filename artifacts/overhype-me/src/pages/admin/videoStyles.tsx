@@ -133,29 +133,27 @@ function StyleEditor({ style, onSaved }: { style: StyleRow; onSaved: (updated: S
             className="w-full px-3 py-1.5 text-sm bg-muted/30 border border-border rounded-sm focus:outline-none focus:border-primary"
           />
         </div>
-        <div className="flex items-center gap-4">
+        <div className="flex flex-wrap items-end gap-4">
           <div>
             <label className="block text-xs font-semibold text-muted-foreground mb-1 uppercase tracking-wide">Sort Order</label>
             <input
               type="number"
               value={form.sortOrder}
               onChange={(e) => set("sortOrder", e.target.value)}
-              className="w-24 px-3 py-1.5 text-sm bg-muted/30 border border-border rounded-sm focus:outline-none focus:border-primary"
+              className="w-24 min-h-[44px] px-3 py-1.5 text-sm bg-muted/30 border border-border rounded-sm focus:outline-none focus:border-primary"
             />
           </div>
-          <div className="pt-5">
-            <button
-              onClick={() => set("isActive", !form.isActive)}
-              className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-sm border transition-colors ${
-                form.isActive
-                  ? "bg-green-500/10 border-green-500/40 text-green-400"
-                  : "bg-muted/30 border-border text-muted-foreground"
-              }`}
-            >
-              {form.isActive ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
-              {form.isActive ? "Active" : "Inactive"}
-            </button>
-          </div>
+          <button
+            onClick={() => set("isActive", !form.isActive)}
+            className={`flex items-center gap-1.5 min-h-[44px] px-3 py-1.5 text-xs font-bold rounded-sm border transition-colors ${
+              form.isActive
+                ? "bg-green-500/10 border-green-500/40 text-green-400"
+                : "bg-muted/30 border-border text-muted-foreground"
+            }`}
+          >
+            {form.isActive ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
+            {form.isActive ? "Active" : "Inactive"}
+          </button>
         </div>
       </div>
 
@@ -178,7 +176,7 @@ function StyleEditor({ style, onSaved }: { style: StyleRow; onSaved: (updated: S
         />
       </div>
 
-      <div className="flex items-center gap-4">
+      <div className="flex flex-wrap items-end gap-4">
         <div>
           <label className="block text-xs font-semibold text-muted-foreground mb-1 uppercase tracking-wide">Gradient From</label>
           <div className="flex items-center gap-2">
@@ -186,12 +184,12 @@ function StyleEditor({ style, onSaved }: { style: StyleRow; onSaved: (updated: S
               type="color"
               value={form.gradientFrom}
               onChange={(e) => set("gradientFrom", e.target.value)}
-              className="w-8 h-8 rounded cursor-pointer border border-border"
+              className="w-11 h-11 rounded cursor-pointer border border-border"
             />
             <input
               value={form.gradientFrom}
               onChange={(e) => set("gradientFrom", e.target.value)}
-              className="w-28 px-2 py-1 text-xs font-mono bg-muted/30 border border-border rounded-sm focus:outline-none"
+              className="w-28 min-h-[44px] px-2 py-1 text-xs font-mono bg-muted/30 border border-border rounded-sm focus:outline-none"
             />
           </div>
         </div>
@@ -202,16 +200,16 @@ function StyleEditor({ style, onSaved }: { style: StyleRow; onSaved: (updated: S
               type="color"
               value={form.gradientTo}
               onChange={(e) => set("gradientTo", e.target.value)}
-              className="w-8 h-8 rounded cursor-pointer border border-border"
+              className="w-11 h-11 rounded cursor-pointer border border-border"
             />
             <input
               value={form.gradientTo}
               onChange={(e) => set("gradientTo", e.target.value)}
-              className="w-28 px-2 py-1 text-xs font-mono bg-muted/30 border border-border rounded-sm focus:outline-none"
+              className="w-28 min-h-[44px] px-2 py-1 text-xs font-mono bg-muted/30 border border-border rounded-sm focus:outline-none"
             />
           </div>
         </div>
-        <div className="flex-1 h-8 rounded-sm mt-5" style={{ background: `linear-gradient(135deg, ${form.gradientFrom}, ${form.gradientTo})` }} />
+        <div className="basis-full sm:basis-auto sm:flex-1 h-8 rounded-sm" style={{ background: `linear-gradient(135deg, ${form.gradientFrom}, ${form.gradientTo})` }} />
       </div>
 
       {error && <p className="text-xs text-destructive">{error}</p>}
@@ -219,7 +217,7 @@ function StyleEditor({ style, onSaved }: { style: StyleRow; onSaved: (updated: S
       <button
         onClick={handleSave}
         disabled={saving}
-        className="flex items-center gap-1.5 px-4 py-1.5 text-xs font-bold uppercase tracking-wide bg-primary text-primary-foreground rounded-sm hover:bg-primary/90 disabled:opacity-50 transition-colors"
+        className="flex items-center gap-1.5 min-h-[44px] px-4 py-1.5 text-xs font-bold uppercase tracking-wide bg-primary text-primary-foreground rounded-sm hover:bg-primary/90 disabled:opacity-50 transition-colors"
       >
         <Save className="w-3.5 h-3.5" />
         {saving ? "Saving…" : saved ? "Saved!" : "Save Changes"}
@@ -230,18 +228,18 @@ function StyleEditor({ style, onSaved }: { style: StyleRow; onSaved: (updated: S
         {style.previewGifPath ? (
           <div className="space-y-2">
             <GifPreview styleId={style.id} gifPath={style.previewGifPath} />
-            <div className="flex gap-2">
+            <div className="flex flex-wrap gap-2">
               <button
                 onClick={() => fileRef.current?.click()}
                 disabled={uploadingGif}
-                className="flex items-center gap-1.5 px-3 py-1 text-xs font-bold bg-muted/50 border border-border rounded-sm hover:border-primary/50 transition-colors"
+                className="flex items-center gap-1.5 min-h-[44px] px-3 py-1 text-xs font-bold bg-muted/50 border border-border rounded-sm hover:border-primary/50 transition-colors"
               >
                 <Upload className="w-3 h-3" /> Replace GIF
               </button>
               <button
                 onClick={handleRemoveGif}
                 disabled={removingGif}
-                className="flex items-center gap-1.5 px-3 py-1 text-xs font-bold text-destructive border border-destructive/30 rounded-sm hover:bg-destructive/10 transition-colors"
+                className="flex items-center gap-1.5 min-h-[44px] px-3 py-1 text-xs font-bold text-destructive border border-destructive/30 rounded-sm hover:bg-destructive/10 transition-colors"
               >
                 <Trash2 className="w-3 h-3" /> {removingGif ? "Removing…" : "Remove"}
               </button>
@@ -252,7 +250,7 @@ function StyleEditor({ style, onSaved }: { style: StyleRow; onSaved: (updated: S
             <button
               onClick={() => fileRef.current?.click()}
               disabled={uploadingGif}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold border border-dashed border-border rounded-sm hover:border-primary/50 text-muted-foreground hover:text-foreground transition-colors"
+              className="flex items-center gap-1.5 min-h-[44px] px-3 py-1.5 text-xs font-bold border border-dashed border-border rounded-sm hover:border-primary/50 text-muted-foreground hover:text-foreground transition-colors"
             >
               <Upload className="w-3.5 h-3.5" />
               {uploadingGif ? "Uploading…" : "Upload animated GIF (max 1.8 MB)"}
@@ -344,7 +342,7 @@ function NewStyleForm({ onCreated }: { onCreated: (style: StyleRow) => void }) {
     return (
       <button
         onClick={() => setOpen(true)}
-        className="flex items-center gap-2 px-4 py-2 text-sm font-bold border border-dashed border-border rounded-sm text-muted-foreground hover:border-primary/50 hover:text-foreground transition-colors"
+        className="flex items-center gap-2 min-h-[44px] px-4 py-2 text-sm font-bold border border-dashed border-border rounded-sm text-muted-foreground hover:border-primary/50 hover:text-foreground transition-colors"
       >
         <Plus className="w-4 h-4" /> Add New Style
       </button>
@@ -357,14 +355,14 @@ function NewStyleForm({ onCreated }: { onCreated: (style: StyleRow) => void }) {
         <h3 className="text-sm font-bold text-foreground uppercase tracking-wide">New Style</h3>
         <button onClick={() => setOpen(false)} className="text-muted-foreground hover:text-foreground"><X className="w-4 h-4" /></button>
       </div>
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <div>
           <label className="block text-xs font-semibold text-muted-foreground mb-1 uppercase tracking-wide">ID (slug, e.g. "horror")</label>
-          <input value={form.id} onChange={(e) => set("id", e.target.value)} placeholder="my-style" className="w-full px-3 py-1.5 text-sm bg-muted/30 border border-border rounded-sm focus:outline-none focus:border-primary font-mono" />
+          <input value={form.id} onChange={(e) => set("id", e.target.value)} placeholder="my-style" className="w-full min-h-[44px] px-3 py-1.5 text-sm bg-muted/30 border border-border rounded-sm focus:outline-none focus:border-primary font-mono" />
         </div>
         <div>
           <label className="block text-xs font-semibold text-muted-foreground mb-1 uppercase tracking-wide">Label</label>
-          <input value={form.label} onChange={(e) => set("label", e.target.value)} placeholder="My Style" className="w-full px-3 py-1.5 text-sm bg-muted/30 border border-border rounded-sm focus:outline-none focus:border-primary" />
+          <input value={form.label} onChange={(e) => set("label", e.target.value)} placeholder="My Style" className="w-full min-h-[44px] px-3 py-1.5 text-sm bg-muted/30 border border-border rounded-sm focus:outline-none focus:border-primary" />
         </div>
       </div>
       <div>
@@ -376,7 +374,7 @@ function NewStyleForm({ onCreated }: { onCreated: (style: StyleRow) => void }) {
         <textarea value={form.motionPrompt} onChange={(e) => set("motionPrompt", e.target.value)} rows={2} className="w-full px-3 py-1.5 text-sm bg-muted/30 border border-border rounded-sm focus:outline-none focus:border-primary font-mono resize-y" />
       </div>
       {error && <p className="text-xs text-destructive">{error}</p>}
-      <button onClick={handleCreate} disabled={saving || !form.id || !form.label} className="flex items-center gap-1.5 px-4 py-1.5 text-xs font-bold uppercase tracking-wide bg-primary text-primary-foreground rounded-sm hover:bg-primary/90 disabled:opacity-50 transition-colors">
+      <button onClick={handleCreate} disabled={saving || !form.id || !form.label} className="flex items-center gap-1.5 min-h-[44px] px-4 py-1.5 text-xs font-bold uppercase tracking-wide bg-primary text-primary-foreground rounded-sm hover:bg-primary/90 disabled:opacity-50 transition-colors">
         <Plus className="w-3.5 h-3.5" /> {saving ? "Creating…" : "Create Style"}
       </button>
     </div>

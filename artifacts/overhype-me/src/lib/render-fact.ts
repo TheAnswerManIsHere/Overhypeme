@@ -137,8 +137,9 @@ export function renderFact(
   const isSingular = p.plurality === "singular";
 
   return text
-    // Name
-    .replace(/\{NAME\}/g, name || "David Franklin")
+    // Name — when no name is set (cold visitor) we render an underscored
+    // placeholder so the sentence still scans and signals "fill me in".
+    .replace(/\{NAME\}/g, name || "___")
 
     // Verb conjugation: {singular_form|plural_form}
     .replace(/\{([^|{}]+)\|([^|{}]+)\}/g, (_, singular, plural) =>

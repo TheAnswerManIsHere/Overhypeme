@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { AdminLayout } from "@/components/admin/AdminLayout";
+import { ResponsiveTable, type ResponsiveColumn } from "@/components/admin/ResponsiveTable";
 import { Button } from "@/components/ui/Button";
 import {
   AlertTriangle,
@@ -518,151 +519,174 @@ export default function AdminEmailQueue() {
           </div>
         )}
 
-        <div className="bg-card border border-border rounded-lg overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead className="bg-muted/40">
-                <tr className="text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                  <th className="px-3 py-2.5">Recipient</th>
-                  <th className="px-3 py-2.5">Subject</th>
-                  <th className="px-3 py-2.5">Kind</th>
-                  <th className="px-3 py-2.5">Status</th>
-                  <th className="px-3 py-2.5 text-right">Attempts</th>
-                  <th className="px-3 py-2.5">Last Error</th>
-                  <th className="px-3 py-2.5">Next Attempt</th>
-                  <th className="px-3 py-2.5">Created</th>
-                  <th className="px-3 py-2.5"></th>
-                </tr>
-              </thead>
-              <tbody>
-                {loading && rows.length === 0 ? (
-                  <tr>
-                    <td colSpan={9} className="px-3 py-10 text-center text-muted-foreground">
-                      <Loader2 className="w-4 h-4 animate-spin inline mr-2" />
-                      Loading…
-                    </td>
-                  </tr>
-                ) : rows.length === 0 ? (
-                  <tr>
-                    <td colSpan={9} className="px-3 py-10 text-center text-muted-foreground">
-                      <Inbox className="w-5 h-5 mx-auto mb-2 opacity-60" />
-                      No email queue entries match the current filter.
-                    </td>
-                  </tr>
-                ) : (
-                  rows.map((row) => (
-                    <tr
-                      key={row.id}
-                      className="border-t border-border hover:bg-muted/20 transition-colors align-top cursor-pointer"
-                      onClick={() => setSelectedRow(row)}
-                    >
-                      <td className="px-3 py-2.5 max-w-[200px]">
-                        <span className="block truncate text-foreground font-mono text-xs" title={row.to}>
-                          {row.to}
-                        </span>
-                      </td>
-                      <td className="px-3 py-2.5 max-w-[220px]">
-                        <span className="block truncate text-foreground text-xs" title={row.subject}>
-                          {row.subject}
-                        </span>
-                      </td>
-                      <td className="px-3 py-2.5 whitespace-nowrap text-muted-foreground text-xs">
-                        {row.kind ?? "—"}
-                      </td>
-                      <td className="px-3 py-2.5 whitespace-nowrap">
-                        <span
-                          className={`inline-flex items-center px-2 py-0.5 text-xs font-semibold rounded-full border ${statusBadgeClass(row.status)}`}
-                        >
-                          {row.status}
-                        </span>
-                      </td>
-                      <td className="px-3 py-2.5 text-right tabular-nums whitespace-nowrap text-xs text-muted-foreground">
-                        {row.attempts} / {row.maxAttempts}
-                      </td>
-                      <td className="px-3 py-2.5 max-w-[240px]">
-                        {row.lastError ? (
-                          <span
-                            className="block truncate text-xs text-red-400 font-mono"
-                            title={row.lastError}
-                          >
-                            {row.lastError}
-                          </span>
-                        ) : (
-                          <span className="text-muted-foreground text-xs">—</span>
-                        )}
-                      </td>
-                      <td
-                        className="px-3 py-2.5 whitespace-nowrap text-xs text-muted-foreground"
-                        title={new Date(row.nextAttemptAt).toLocaleString()}
-                      >
-                        {row.status === "delivered" || row.status === "abandoned"
-                          ? "—"
-                          : formatRelative(row.nextAttemptAt)}
-                      </td>
-                      <td
-                        className="px-3 py-2.5 whitespace-nowrap text-xs text-muted-foreground"
-                        title={new Date(row.createdAt).toLocaleString()}
-                      >
-                        {formatRelative(row.createdAt)}
-                      </td>
-                      <td className="px-3 py-2.5 whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
-                        {row.status === "abandoned" && (
-                          <div className="flex flex-col items-end gap-0.5">
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              className="h-7 px-2 text-xs gap-1"
-                              disabled={retrying.has(row.id)}
-                              onClick={() => void handleRetry(row.id)}
-                            >
-                              {retrying.has(row.id) ? (
-                                <Loader2 className="w-3 h-3 animate-spin" />
-                              ) : (
-                                <RotateCcw className="w-3 h-3" />
-                              )}
-                              Retry
-                            </Button>
-                            {retryErrors[row.id] && (
-                              <span className="text-[10px] text-red-400">{retryErrors[row.id]}</span>
-                            )}
-                          </div>
-                        )}
-                      </td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
-
-          {data && data.total > 0 && (
-            <div className="flex items-center justify-between px-3 py-2 border-t border-border bg-muted/20 text-xs">
-              <span className="text-muted-foreground">
-                Page {data.page} of {totalPages} · {data.total.toLocaleString()} total
-              </span>
-              <div className="flex items-center gap-1">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="h-7 px-2"
-                  disabled={page <= 1 || loading}
-                  onClick={() => setPage((p) => Math.max(1, p - 1))}
-                >
-                  <ChevronLeft className="w-3.5 h-3.5" />
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="h-7 px-2"
-                  disabled={page >= totalPages || loading}
-                  onClick={() => setPage((p) => p + 1)}
-                >
-                  <ChevronRight className="w-3.5 h-3.5" />
-                </Button>
+        <ResponsiveTable<EmailQueueRow>
+          rows={rows}
+          getKey={(row) => row.id}
+          loading={loading}
+          onRowClick={(row) => setSelectedRow(row)}
+          emptyState={
+            <div className="flex flex-col items-center gap-2">
+              <Inbox className="w-5 h-5 opacity-60" />
+              <span>No email queue entries match the current filter.</span>
+            </div>
+          }
+          mobilePrimary={(row) => (
+            <div className="flex items-start justify-between gap-2">
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-medium text-foreground truncate" title={row.subject}>
+                  {row.subject}
+                </p>
+                <p className="text-xs text-muted-foreground font-mono truncate mt-0.5" title={row.to}>
+                  {row.to}
+                </p>
               </div>
+              <span
+                className={`shrink-0 inline-flex items-center px-2 py-0.5 text-[10px] font-semibold rounded-full border ${statusBadgeClass(row.status)}`}
+              >
+                {row.status}
+              </span>
             </div>
           )}
-        </div>
+          mobileFooter={(row) =>
+            row.status === "abandoned" ? (
+              <div onClick={(e) => e.stopPropagation()} className="flex flex-col gap-1">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="min-h-[44px] w-full gap-1.5"
+                  disabled={retrying.has(row.id)}
+                  onClick={() => void handleRetry(row.id)}
+                >
+                  {retrying.has(row.id) ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  ) : (
+                    <RotateCcw className="w-3.5 h-3.5" />
+                  )}
+                  Retry
+                </Button>
+                {retryErrors[row.id] && (
+                  <span className="text-[10px] text-red-400">{retryErrors[row.id]}</span>
+                )}
+              </div>
+            ) : null
+          }
+          columns={[
+            {
+              key: "to",
+              header: "Recipient",
+              hideOnMobile: true,
+              className: "max-w-[200px]",
+              cell: (row) => (
+                <span className="block truncate text-foreground font-mono text-xs" title={row.to}>
+                  {row.to}
+                </span>
+              ),
+            },
+            {
+              key: "subject",
+              header: "Subject",
+              hideOnMobile: true,
+              className: "max-w-[220px]",
+              cell: (row) => (
+                <span className="block truncate text-foreground text-xs" title={row.subject}>
+                  {row.subject}
+                </span>
+              ),
+            },
+            {
+              key: "kind",
+              header: "Kind",
+              className: "whitespace-nowrap text-muted-foreground text-xs",
+              cell: (row) => row.kind ?? "—",
+              mobileSecondary: true,
+            },
+            {
+              key: "status",
+              header: "Status",
+              hideOnMobile: true,
+              className: "whitespace-nowrap",
+              cell: (row) => (
+                <span
+                  className={`inline-flex items-center px-2 py-0.5 text-xs font-semibold rounded-full border ${statusBadgeClass(row.status)}`}
+                >
+                  {row.status}
+                </span>
+              ),
+            },
+            {
+              key: "attempts",
+              header: "Attempts",
+              className: "text-right tabular-nums whitespace-nowrap text-xs text-muted-foreground",
+              cell: (row) => `${row.attempts} / ${row.maxAttempts}`,
+            },
+            {
+              key: "lastError",
+              header: "Last Error",
+              className: "max-w-[240px]",
+              cell: (row) =>
+                row.lastError ? (
+                  <span className="block truncate text-xs text-red-400 font-mono" title={row.lastError}>
+                    {row.lastError}
+                  </span>
+                ) : (
+                  <span className="text-muted-foreground text-xs">—</span>
+                ),
+              mobileValue: (row) =>
+                row.lastError ? (
+                  <span className="text-xs text-red-400 font-mono break-words">{row.lastError}</span>
+                ) : null,
+            },
+            {
+              key: "nextAttempt",
+              header: "Next Attempt",
+              className: "whitespace-nowrap text-xs text-muted-foreground",
+              cell: (row) =>
+                row.status === "delivered" || row.status === "abandoned"
+                  ? "—"
+                  : formatRelative(row.nextAttemptAt),
+              mobileValue: (row) =>
+                row.status === "delivered" || row.status === "abandoned"
+                  ? null
+                  : formatRelative(row.nextAttemptAt),
+            },
+            {
+              key: "createdAt",
+              header: "Created",
+              className: "whitespace-nowrap text-xs text-muted-foreground",
+              cell: (row) => formatRelative(row.createdAt),
+              mobileSecondary: true,
+            },
+          ] satisfies ResponsiveColumn<EmailQueueRow>[]}
+          footer={
+            data && data.total > 0 ? (
+              <div className="flex items-center justify-between px-3 py-2 border-t border-border bg-muted/20 text-xs">
+                <span className="text-muted-foreground">
+                  Page {data.page} of {totalPages} · {data.total.toLocaleString()} total
+                </span>
+                <div className="flex items-center gap-1">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-8 min-w-[40px] px-2"
+                    disabled={page <= 1 || loading}
+                    onClick={() => setPage((p) => Math.max(1, p - 1))}
+                  >
+                    <ChevronLeft className="w-3.5 h-3.5" />
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-8 min-w-[40px] px-2"
+                    disabled={page >= totalPages || loading}
+                    onClick={() => setPage((p) => p + 1)}
+                  >
+                    <ChevronRight className="w-3.5 h-3.5" />
+                  </Button>
+                </div>
+              </div>
+            ) : null
+          }
+        />
       </div>
 
       {selectedRow && (

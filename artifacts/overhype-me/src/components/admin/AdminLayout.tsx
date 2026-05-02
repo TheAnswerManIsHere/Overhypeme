@@ -18,6 +18,8 @@ import {
   ShieldAlert,
   Undo2,
   Mail,
+  Menu,
+  X,
 } from "lucide-react";
 
 interface AdminLayoutProps {
@@ -49,6 +51,7 @@ export function AdminLayout({ children, title }: AdminLayoutProps) {
   const [collapsed, setCollapsed] = useState(() => {
     try { return localStorage.getItem(COLLAPSED_KEY) === "true"; } catch { return false; }
   });
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
 
   const toggleCollapsed = () => {
     setCollapsed((v) => {
@@ -71,6 +74,17 @@ export function AdminLayout({ children, title }: AdminLayoutProps) {
       .then((d: { total?: number }) => setPendingComments(d.total ?? 0))
       .catch(() => {});
   }, [isLoading, isAdmin]);
+
+  // Close the mobile drawer whenever the route changes.
+  useEffect(() => { setMobileNavOpen(false); }, [location]);
+
+  // Lock body scroll while the mobile drawer is open.
+  useEffect(() => {
+    if (!mobileNavOpen) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => { document.body.style.overflow = prev; };
+  }, [mobileNavOpen]);
 
   if (isLoading) {
     return (
@@ -106,10 +120,60 @@ export function AdminLayout({ children, title }: AdminLayoutProps) {
     );
   }
 
+  const totalBadge = pendingReviews + pendingComments;
+
+  function renderNav(forMobile: boolean) {
+    return (
+      <nav className={`flex-1 p-2 space-y-1 ${forMobile ? "overflow-y-auto" : ""}`}>
+        {NAV_ITEMS.map(({ href, label, icon: Icon, exact, badge }) => {
+          const active = exact ? location === href : location.startsWith(href);
+          const badgeCount = badge === "moderation" ? totalBadge : 0;
+          const compact = !forMobile && collapsed;
+          return (
+            <Link key={href} href={href}>
+              <div
+                title={compact ? label : undefined}
+                className={`flex items-center rounded-sm cursor-pointer transition-colors ${
+                  compact ? "justify-center px-2 py-2.5" : "gap-3 px-3 py-3 min-h-[44px]"
+                } ${
+                  active
+                    ? "bg-primary text-primary-foreground"
+                    : "text-muted-foreground hover:text-foreground hover:bg-muted"
+                }`}
+              >
+                <div className="relative shrink-0">
+                  <Icon className="w-4 h-4" />
+                  {compact && badgeCount > 0 && (
+                    <span className="absolute -top-1.5 -right-1.5 w-3.5 h-3.5 flex items-center justify-center text-[8px] font-bold rounded-full bg-destructive text-destructive-foreground leading-none">
+                      {badgeCount > 9 ? "9+" : badgeCount}
+                    </span>
+                  )}
+                </div>
+                {!compact && (
+                  <>
+                    <span className="text-sm font-medium flex-1">{label}</span>
+                    {badgeCount > 0 && (
+                      <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full leading-none ${
+                        active ? "bg-primary-foreground/20 text-primary-foreground" : "bg-destructive text-destructive-foreground"
+                      }`}>
+                        {badgeCount}
+                      </span>
+                    )}
+                  </>
+                )}
+              </div>
+            </Link>
+          );
+        })}
+      </nav>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-background flex">
+      {/* Persistent sidebar — hidden on mobile */}
       <aside
-        className={`shrink-0 bg-card border-r border-border flex flex-col transition-all duration-200 ${
+        className={`hidden md:flex shrink-0 bg-card border-r border-border flex-col transition-all duration-200 ${
           collapsed ? "w-14" : "w-56"
         }`}
       >
@@ -134,74 +198,74 @@ export function AdminLayout({ children, title }: AdminLayoutProps) {
             )}
           </button>
         </div>
-
-        <nav className="flex-1 p-2 space-y-1">
-          {NAV_ITEMS.map(({ href, label, icon: Icon, exact, badge }) => {
-            const active = exact
-              ? location === href
-              : location.startsWith(href);
-            const badgeCount = badge === "moderation" ? pendingReviews + pendingComments : 0;
-            return (
-              <Link key={href} href={href}>
-                <div
-                  title={collapsed ? label : undefined}
-                  className={`flex items-center rounded-sm cursor-pointer transition-colors ${
-                    collapsed ? "justify-center px-2 py-2.5" : "gap-3 px-3 py-2.5"
-                  } ${
-                    active
-                      ? "bg-primary text-primary-foreground"
-                      : "text-muted-foreground hover:text-foreground hover:bg-muted"
-                  }`}
-                >
-                  <div className="relative shrink-0">
-                    <Icon className="w-4 h-4" />
-                    {collapsed && badgeCount > 0 && (
-                      <span className="absolute -top-1.5 -right-1.5 w-3.5 h-3.5 flex items-center justify-center text-[8px] font-bold rounded-full bg-destructive text-destructive-foreground leading-none">
-                        {badgeCount > 9 ? "9+" : badgeCount}
-                      </span>
-                    )}
-                  </div>
-                  {!collapsed && (
-                    <>
-                      <span className="text-sm font-medium flex-1">{label}</span>
-                      {badgeCount > 0 && (
-                        <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full leading-none ${
-                          active ? "bg-primary-foreground/20 text-primary-foreground" : "bg-destructive text-destructive-foreground"
-                        }`}>
-                          {badgeCount}
-                        </span>
-                      )}
-                    </>
-                  )}
-                </div>
-              </Link>
-            );
-          })}
-        </nav>
+        {renderNav(false)}
       </aside>
 
+      {/* Mobile drawer — overlay on small screens */}
+      {mobileNavOpen && (
+        <div className="md:hidden fixed inset-0 z-50 flex">
+          <div
+            className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+            onClick={() => setMobileNavOpen(false)}
+            aria-hidden="true"
+          />
+          <aside className="relative z-10 w-64 max-w-[80vw] bg-card border-r border-border flex flex-col shadow-xl">
+            <div className="border-b border-border flex items-center justify-between p-4">
+              <div className="flex items-center gap-2 min-w-0">
+                <Shield className="w-5 h-5 text-primary shrink-0" />
+                <span className="font-display font-bold text-foreground uppercase tracking-widest text-sm truncate">
+                  Admin
+                </span>
+              </div>
+              <button
+                onClick={() => setMobileNavOpen(false)}
+                aria-label="Close menu"
+                className="p-2 rounded text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            {renderNav(true)}
+          </aside>
+        </div>
+      )}
+
       <main className="flex-1 min-w-0 flex flex-col">
-        <header className="border-b border-border px-6 py-3 bg-card flex items-center justify-between gap-4">
-          <h1 className="text-xl font-display font-bold text-foreground uppercase tracking-wide">
-            {title}
-          </h1>
+        <header className="border-b border-border px-3 sm:px-6 py-3 bg-card flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2 min-w-0">
+            <button
+              onClick={() => setMobileNavOpen(true)}
+              aria-label="Open menu"
+              className="md:hidden relative p-2 -ml-1 rounded text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+            >
+              <Menu className="w-5 h-5" />
+              {totalBadge > 0 && (
+                <span className="absolute top-0.5 right-0.5 w-3.5 h-3.5 flex items-center justify-center text-[8px] font-bold rounded-full bg-destructive text-destructive-foreground leading-none">
+                  {totalBadge > 9 ? "9+" : totalBadge}
+                </span>
+              )}
+            </button>
+            <h1 className="text-base sm:text-xl font-display font-bold text-foreground uppercase tracking-wide truncate">
+              {title}
+            </h1>
+          </div>
           <div className="flex items-center gap-1 shrink-0">
             <Link href="/">
-              <div className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground hover:bg-muted rounded-sm cursor-pointer transition-colors">
+              <div className="flex items-center gap-1.5 px-2 sm:px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground hover:bg-muted rounded-sm cursor-pointer transition-colors">
                 <ChevronRight className="w-4 h-4" />
-                <span>View Site</span>
+                <span className="hidden sm:inline">View Site</span>
               </div>
             </Link>
             <button
               onClick={() => logout()}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-muted-foreground hover:text-destructive hover:bg-muted rounded-sm cursor-pointer transition-colors"
+              className="flex items-center gap-1.5 px-2 sm:px-3 py-1.5 text-sm text-muted-foreground hover:text-destructive hover:bg-muted rounded-sm cursor-pointer transition-colors"
             >
               <LogOut className="w-4 h-4" />
-              <span>Log Out</span>
+              <span className="hidden sm:inline">Log Out</span>
             </button>
           </div>
         </header>
-        <div className="flex-1 p-6 overflow-auto">{children}</div>
+        <div className="flex-1 p-3 sm:p-6 overflow-auto">{children}</div>
       </main>
     </div>
   );

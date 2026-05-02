@@ -146,6 +146,12 @@ export interface AiBgPickerProps {
   thumbPx?: number;
   /** Called when user clicks "Go to Uploads" after a no-face error. */
   onGoToUpload?: () => void;
+  /**
+   * The signed-in user's profile photo URL (first-party `/api/storage/objects/...`).
+   * When provided, surfaces the photo at the top of the reference photo picker as
+   * a default-selected "Identity Photo" so the user does not need to re-upload it.
+   */
+  profileImageUrl?: string | null;
 }
 
 // ─── Image pre-processor (same as MemeBuilder) ───────────────────────────────
@@ -197,6 +203,7 @@ export function AiBgPicker({
   defaultStyleId = "none",
   thumbPx = 158,
   onGoToUpload,
+  profileImageUrl,
 }: AiBgPickerProps) {
 
   // ── Config from server ──────────────────────────────────────────────────────
@@ -304,6 +311,34 @@ export function AiBgPicker({
       .finally(() => { if (!cancelled) setIsLoadingRefUploads(false); });
     return () => { cancelled = true; };
   }, [isLegendary, aiSubMode]);
+
+  // ── Identity photo entry (Task #382) ────────────────────────────────────────
+  // When the user has a first-party profile photo, surface it at the top of the
+  // reference photo picker so they don't need to re-upload it.
+  const identityEntry = useMemo<UploadEntry | null>(() => {
+    if (!profileImageUrl) return null;
+    const PREFIX = "/api/storage";
+    if (!profileImageUrl.startsWith(`${PREFIX}/objects/`)) return null;
+    const objectPath = profileImageUrl.slice(PREFIX.length); // "/objects/..."
+    return { objectPath, width: 0, height: 0, fileSizeBytes: 0, createdAt: "", isLowRes: false };
+  }, [profileImageUrl]);
+
+  const displayedRefUploads = useMemo<UploadEntry[]>(() => {
+    if (!identityEntry) return refUploads;
+    const filtered = refUploads.filter(u => u.objectPath !== identityEntry.objectPath);
+    return [identityEntry, ...filtered];
+  }, [identityEntry, refUploads]);
+
+  // Default-select the identity photo the first time the reference sub-mode
+  // opens (and Add New form is shown), so the user can hit "Generate" in one
+  // click without rummaging through their gallery.
+  useEffect(() => {
+    if (aiSubMode !== "reference") return;
+    if (!showAddForm) return;
+    if (selectedRefUpload) return;
+    if (!identityEntry) return;
+    setSelectedRefUpload(identityEntry);
+  }, [aiSubMode, showAddForm, selectedRefUpload, identityEntry]);
 
   const handleRefPhotoUpload = useCallback(async (file: File) => {
     if (!file.type.startsWith("image/")) return;
@@ -826,24 +861,34 @@ export function AiBgPicker({
                   {isUploadingRefPhoto ? "Uploading…" : "Upload New"}
                 </span>
               </button>
-              {refUploads.map(entry => {
+              {displayedRefUploads.map(entry => {
                 const isSelected = selectedRefUpload?.objectPath === entry.objectPath;
+                const isIdentity = identityEntry?.objectPath === entry.objectPath;
                 return (
-                  <ImageCard
-                    key={entry.objectPath}
-                    src={`/api/storage${entry.objectPath}`}
-                    alt={`${entry.width}×${entry.height}px`}
-                    aspectRatio="aspect-video"
-                    isAuthProtected
-                    selected={isSelected}
-                    onSelect={() => setSelectedRefUpload(isSelected ? null : entry)}
-                    compact
-                    actions={["openFull"]}
-                    footer={<AdminMediaInfo fileName={getFileNameFromUrl(entry.objectPath)} fileSizeBytes={entry.fileSizeBytes} mimeType={getMimeTypeFromUrl(entry.objectPath)} width={entry.width} height={entry.height} />}
-                  />
+                  <div key={entry.objectPath} className="relative">
+                    <ImageCard
+                      src={`/api/storage${entry.objectPath}`}
+                      alt={isIdentity ? "Your profile photo" : `${entry.width}×${entry.height}px`}
+                      aspectRatio="aspect-video"
+                      isAuthProtected
+                      selected={isSelected}
+                      onSelect={() => setSelectedRefUpload(isSelected ? null : entry)}
+                      compact
+                      actions={["openFull"]}
+                      footer={isIdentity
+                        ? null
+                        : <AdminMediaInfo fileName={getFileNameFromUrl(entry.objectPath)} fileSizeBytes={entry.fileSizeBytes} mimeType={getMimeTypeFromUrl(entry.objectPath)} width={entry.width} height={entry.height} />
+                      }
+                    />
+                    {isIdentity && (
+                      <span className="pointer-events-none absolute top-1 left-1 px-1 py-0.5 rounded-sm bg-violet-500/90 text-white text-[8px] font-display uppercase tracking-wider">
+                        You
+                      </span>
+                    )}
+                  </div>
                 );
               })}
-              {refUploads.length === 0 && !isUploadingRefPhoto && (
+              {displayedRefUploads.length === 0 && !isUploadingRefPhoto && (
                 <p className="col-span-2 text-[10px] text-muted-foreground/60 py-2">
                   No uploads yet — click Upload New above.
                 </p>

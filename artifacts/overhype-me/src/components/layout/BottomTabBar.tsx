@@ -1,11 +1,12 @@
 import { useLocation } from "wouter";
-import { Home, Smile, Trophy, User } from "lucide-react";
+import { Home, Trophy, User } from "lucide-react";
 
+// Three-tab bottom bar: Feed / Hall / Me.  The duplicate "Meme" tab that
+// pointed at the same /hall-of-fame route was confusing and lost a tap target.
 const TABS = [
-  { href: "/",            label: "Feed",       Icon: Home  },
-  { href: "/hall-of-fame",label: "Meme",       Icon: Smile },
-  { href: "/hall-of-fame",label: "Hall",        Icon: Trophy },
-  { href: "/profile",     label: "Me",         Icon: User  },
+  { href: "/",             label: "Feed", Icon: Home   },
+  { href: "/hall-of-fame", label: "Hall", Icon: Trophy },
+  { href: "/profile",      label: "Me",   Icon: User   },
 ] as const;
 
 export function BottomTabBar() {
@@ -14,7 +15,6 @@ export function BottomTabBar() {
   function isActive(href: string, label: string) {
     if (label === "Feed") return location === "/";
     if (label === "Hall") return location === "/hall-of-fame";
-    if (label === "Meme") return false; // never "active" — always navigates to HOF
     if (label === "Me")   return location.startsWith("/profile");
     return location.startsWith(href);
   }
