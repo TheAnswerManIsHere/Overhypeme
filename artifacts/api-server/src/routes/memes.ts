@@ -941,6 +941,62 @@ router.get("/memes/:slug/zazzle-redirect", async (req: Request, res: Response) =
   }
 });
 
+/**
+ * GET /memes/:slug/zazzle-redirect-raw
+ *
+ * Admin-only diagnostic sibling of /zazzle-redirect that skips the
+ * regenerate-and-republish-to-meme-exports scaffolding entirely. Hands Zazzle
+ * the meme's normal public image URL (the one the site already serves to
+ * browsers) so we can compare side-by-side whether the heavyweight export
+ * step is actually necessary for Zazzle's image fetcher.
+ *
+ * Affiliate clicks from this endpoint are tagged with `source =
+ * "zazzle-raw-test"` so they don't muddy the regular flow's stats and the two
+ * variants stay distinguishable on the admin Affiliate page.
+ */
+router.get("/memes/:slug/zazzle-redirect-raw", requireAdmin, async (req: Request, res: Response) => {
+  const slug = req.params["slug"] as string;
+  if (!slug) { res.status(400).end(); return; }
+  const returnUrl = typeof req.query["returnUrl"] === "string" ? req.query["returnUrl"] : undefined;
+  const preview = req.query["preview"] === "true";
+
+  const [meme] = await db
+    .select()
+    .from(memesTable)
+    .where(eq(memesTable.permalinkSlug, slug))
+    .limit(1);
+  if (!meme) { res.status(404).end(); return; }
+  if (meme.deletedAt) { res.status(410).end(); return; }
+
+  // Don't log on ?preview=true — admin debug previews shouldn't pollute stats.
+  // Failures are swallowed so a logging hiccup never blocks the redirect.
+  if (!preview) {
+    try {
+      const userIdFromReq = (req as { user?: { id?: string } }).user?.id;
+      await db.insert(affiliateClicksTable).values({
+        userId: typeof userIdFromReq === "string" ? userIdFromReq : null,
+        sourceType: "meme",
+        sourceId: String(meme.id),
+        destination: "zazzle",
+        source: "zazzle-raw-test",
+      });
+    } catch (err) {
+      req.log.warn({ err, slug }, "Failed to log affiliate click for zazzle-redirect-raw");
+    }
+  }
+
+  try {
+    const publicImageUrl = `${getSiteBaseUrl()}/api/memes/${slug}/image`;
+    const imageName = `${slug}.jpg`;
+    const url = await buildZazzleUrl({ imageUrl: publicImageUrl, imageName, returnUrl });
+    if (preview) { res.json({ url }); } else { res.redirect(302, url); }
+  } catch (err) {
+    req.log.error({ err, slug }, "Zazzle raw redirect failed — falling back to base URL");
+    const url = await buildZazzleUrl({ returnUrl });
+    if (preview) { res.json({ url }); } else { res.redirect(302, url); }
+  }
+});
+
 // ─── AI Meme endpoints ─────────────────────────────────────────────────────────
 
 /**
