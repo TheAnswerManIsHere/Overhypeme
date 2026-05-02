@@ -406,3 +406,290 @@ describe("applyMigrations() concurrency", () => {
     }
   });
 });
+
+/**
+ * DDL "already exists" recovery tests.
+ *
+ * applyMigrations() suppresses a small allow-list of Postgres DDL error codes
+ * (duplicate_table, duplicate_column, duplicate_object, duplicate_index,
+ * invalid_table_definition) via SAVEPOINT/ROLLBACK so that re-running a
+ * migration whose object is already present (e.g. created manually or by an
+ * older code path) does not abort the run. The DML branch of the same handler
+ * MUST still propagate — see the next describe block. This block guards the
+ * intentional suppression: a synthetic CREATE TABLE migration is run after the
+ * table has been pre-created out-of-band; the runner is expected to swallow
+ * 42P07, complete the migration, and record its hash exactly once.
+ */
+const RUN_ID_DDL = crypto.randomBytes(4).toString("hex");
+const TAG_DDL = `9101_ddl_already_exists_${RUN_ID_DDL}`;
+const TABLE_DDL = `migrate_test_ddl_${RUN_ID_DDL}`;
+const SQL_DDL = `CREATE TABLE "${TABLE_DDL}" (id integer PRIMARY KEY);`;
+const HASH_DDL = crypto.createHash("sha256").update(SQL_DDL).digest("hex");
+
+let tempDirDdl: string;
+let poolDdl: pg.Pool;
+let prevMigrationsFolderDdl: string | undefined;
+
+describe("applyMigrations() DDL already-exists recovery", () => {
+  before(async () => {
+    if (!process.env.DATABASE_URL) {
+      throw new Error(
+        "DATABASE_URL must be set to run lib/db migrate tests against a real Postgres.",
+      );
+    }
+
+    tempDirDdl = fs.mkdtempSync(path.join(os.tmpdir(), "migrate-ddl-recovery-"));
+    fs.mkdirSync(path.join(tempDirDdl, "meta"));
+    fs.writeFileSync(path.join(tempDirDdl, `${TAG_DDL}.sql`), SQL_DDL);
+
+    const journal = {
+      version: "7",
+      dialect: "postgresql",
+      entries: [
+        { idx: 0, version: "7", when: 1900000100000, tag: TAG_DDL, breakpoints: true },
+      ],
+    };
+    fs.writeFileSync(
+      path.join(tempDirDdl, "meta/_journal.json"),
+      JSON.stringify(journal, null, 2),
+    );
+
+    prevMigrationsFolderDdl = process.env.DRIZZLE_MIGRATIONS_FOLDER;
+    process.env.DRIZZLE_MIGRATIONS_FOLDER = tempDirDdl;
+
+    poolDdl = new pg.Pool({ connectionString: process.env.DATABASE_URL, max: 2 });
+
+    // Pre-clean any leftovers, then pre-create the table so that the synthetic
+    // migration's CREATE TABLE will hit duplicate_table (42P07) on its first
+    // statement. The runner must recover via SAVEPOINT and continue.
+    const setup = await poolDdl.connect();
+    try {
+      await setup.query(`DROP TABLE IF EXISTS "${TABLE_DDL}"`);
+      try {
+        await setup.query(
+          `DELETE FROM drizzle.__drizzle_migrations WHERE hash = $1`,
+          [HASH_DDL],
+        );
+      } catch {
+        // drizzle.__drizzle_migrations may not exist yet on a fresh DB.
+      }
+      await setup.query(`CREATE TABLE "${TABLE_DDL}" (id integer PRIMARY KEY)`);
+    } finally {
+      setup.release();
+    }
+  });
+
+  after(async () => {
+    try {
+      const cleanup = await poolDdl.connect();
+      try {
+        await cleanup.query(`DROP TABLE IF EXISTS "${TABLE_DDL}"`);
+        await cleanup.query(
+          `DELETE FROM drizzle.__drizzle_migrations WHERE hash = $1`,
+          [HASH_DDL],
+        );
+      } finally {
+        cleanup.release();
+      }
+    } finally {
+      await poolDdl.end();
+      if (prevMigrationsFolderDdl === undefined) {
+        delete process.env.DRIZZLE_MIGRATIONS_FOLDER;
+      } else {
+        process.env.DRIZZLE_MIGRATIONS_FOLDER = prevMigrationsFolderDdl;
+      }
+      fs.rmSync(tempDirDdl, { recursive: true, force: true });
+    }
+  });
+
+  it("suppresses duplicate_table (42P07) and records the migration as applied", async () => {
+    const c = await poolDdl.connect();
+    let result: Awaited<ReturnType<typeof applyMigrations>>;
+    try {
+      // Must not throw — the runner should catch 42P07, ROLLBACK TO SAVEPOINT,
+      // and continue to record the migration.
+      result = await applyMigrations(c);
+    } finally {
+      c.release();
+    }
+
+    assert.equal(result.total, 1, "synthetic journal has 1 entry");
+    assert.equal(result.applied, 1, "the migration must be marked applied even though the table existed");
+    assert.equal(result.skipped, 0);
+
+    // The hash must be persisted exactly once so a subsequent run is a no-op.
+    const probe = await poolDdl.connect();
+    try {
+      const { rows } = await probe.query<{ count: string }>(
+        `SELECT COUNT(*)::text AS count
+         FROM drizzle.__drizzle_migrations
+         WHERE hash = $1`,
+        [HASH_DDL],
+      );
+      assert.equal(
+        Number(rows[0].count),
+        1,
+        `migration ${TAG_DDL} should be recorded exactly once after recovery`,
+      );
+    } finally {
+      probe.release();
+    }
+  });
+});
+
+/**
+ * DML error propagation tests.
+ *
+ * The complement of the DDL recovery above: any error code outside the
+ * DDL_ALREADY_EXISTS_CODES allow-list — most importantly real schema or data
+ * problems like 23505 unique_violation — MUST surface as a thrown
+ * "Failed to apply migration ..." and MUST NOT be recorded in
+ * drizzle.__drizzle_migrations. Without this guard, a regression that broadens
+ * the suppression list (or fails to re-throw after ROLLBACK TO SAVEPOINT)
+ * would silently mark broken migrations as applied in production, leaving the
+ * schema permanently out of sync.
+ */
+const RUN_ID_DML = crypto.randomBytes(4).toString("hex");
+const TAG_DML = `9201_dml_failure_${RUN_ID_DML}`;
+const TABLE_DML = `migrate_test_dml_${RUN_ID_DML}`;
+// Multi-statement migration: create a table with a unique PK, insert a row,
+// then attempt to insert a duplicate. The duplicate insert raises 23505
+// (unique_violation), which is NOT in DDL_ALREADY_EXISTS_CODES and must
+// abort the migration via the entire-transaction ROLLBACK path.
+const SQL_DML = [
+  `CREATE TABLE "${TABLE_DML}" (id integer PRIMARY KEY);`,
+  `INSERT INTO "${TABLE_DML}" (id) VALUES (1);`,
+  `INSERT INTO "${TABLE_DML}" (id) VALUES (1);`,
+].join("\n--> statement-breakpoint\n");
+const HASH_DML = crypto.createHash("sha256").update(SQL_DML).digest("hex");
+
+let tempDirDml: string;
+let poolDml: pg.Pool;
+let prevMigrationsFolderDml: string | undefined;
+
+describe("applyMigrations() DML errors propagate", () => {
+  before(async () => {
+    if (!process.env.DATABASE_URL) {
+      throw new Error(
+        "DATABASE_URL must be set to run lib/db migrate tests against a real Postgres.",
+      );
+    }
+
+    tempDirDml = fs.mkdtempSync(path.join(os.tmpdir(), "migrate-dml-failure-"));
+    fs.mkdirSync(path.join(tempDirDml, "meta"));
+    fs.writeFileSync(path.join(tempDirDml, `${TAG_DML}.sql`), SQL_DML);
+
+    const journal = {
+      version: "7",
+      dialect: "postgresql",
+      entries: [
+        { idx: 0, version: "7", when: 1900000200000, tag: TAG_DML, breakpoints: true },
+      ],
+    };
+    fs.writeFileSync(
+      path.join(tempDirDml, "meta/_journal.json"),
+      JSON.stringify(journal, null, 2),
+    );
+
+    prevMigrationsFolderDml = process.env.DRIZZLE_MIGRATIONS_FOLDER;
+    process.env.DRIZZLE_MIGRATIONS_FOLDER = tempDirDml;
+
+    poolDml = new pg.Pool({ connectionString: process.env.DATABASE_URL, max: 2 });
+
+    // Pre-clean any leftovers from a previous interrupted run.
+    const cleanup = await poolDml.connect();
+    try {
+      await cleanup.query(`DROP TABLE IF EXISTS "${TABLE_DML}"`);
+      try {
+        await cleanup.query(
+          `DELETE FROM drizzle.__drizzle_migrations WHERE hash = $1`,
+          [HASH_DML],
+        );
+      } catch {
+        // drizzle.__drizzle_migrations may not exist yet on a fresh DB.
+      }
+    } finally {
+      cleanup.release();
+    }
+  });
+
+  after(async () => {
+    try {
+      const cleanup = await poolDml.connect();
+      try {
+        // The migration's transaction should have rolled back, so the table
+        // shouldn't exist — but guard against the very regression we're
+        // testing for by dropping it if present.
+        await cleanup.query(`DROP TABLE IF EXISTS "${TABLE_DML}"`);
+        await cleanup.query(
+          `DELETE FROM drizzle.__drizzle_migrations WHERE hash = $1`,
+          [HASH_DML],
+        );
+      } finally {
+        cleanup.release();
+      }
+    } finally {
+      await poolDml.end();
+      if (prevMigrationsFolderDml === undefined) {
+        delete process.env.DRIZZLE_MIGRATIONS_FOLDER;
+      } else {
+        process.env.DRIZZLE_MIGRATIONS_FOLDER = prevMigrationsFolderDml;
+      }
+      fs.rmSync(tempDirDml, { recursive: true, force: true });
+    }
+  });
+
+  it("throws on unique_violation (23505) and does not record the migration", async () => {
+    const c = await poolDml.connect();
+    try {
+      // The runner wraps the underlying error with "Failed to apply migration <tag>: ...".
+      await assert.rejects(
+        applyMigrations(c),
+        (err: unknown) => {
+          assert.ok(err instanceof Error, "expected an Error");
+          assert.match(
+            err.message,
+            new RegExp(`Failed to apply migration ${TAG_DML}`),
+            `error message should identify the failing migration; got: ${err.message}`,
+          );
+          return true;
+        },
+        "applyMigrations must reject when a non-DDL error occurs",
+      );
+    } finally {
+      c.release();
+    }
+
+    // The migration must NOT be recorded — this is the core regression guard.
+    // If a future change accidentally added 23505 to DDL_ALREADY_EXISTS_CODES,
+    // or moved the re-throw outside the catch, the row would be present here.
+    const probe = await poolDml.connect();
+    try {
+      const { rows } = await probe.query<{ count: string }>(
+        `SELECT COUNT(*)::text AS count
+         FROM drizzle.__drizzle_migrations
+         WHERE hash = $1`,
+        [HASH_DML],
+      );
+      assert.equal(
+        Number(rows[0].count),
+        0,
+        `migration ${TAG_DML} must NOT be recorded after a DML failure (got ${rows[0].count})`,
+      );
+
+      // And the transaction must have rolled back: the table created in the
+      // first statement of the migration must not exist.
+      const { rows: tableRows } = await probe.query<{ name: string }>(
+        `SELECT tablename AS name FROM pg_tables WHERE tablename = $1`,
+        [TABLE_DML],
+      );
+      assert.equal(
+        tableRows.length,
+        0,
+        `table ${TABLE_DML} must not exist — the failed migration's transaction must have rolled back`,
+      );
+    } finally {
+      probe.release();
+    }
+  });
+});
