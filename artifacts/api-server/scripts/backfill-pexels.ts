@@ -15,7 +15,13 @@
 import { db } from "@workspace/db";
 import { factsTable } from "@workspace/db/schema";
 import { isNull, and, eq } from "drizzle-orm";
+import { installStdioGuard } from "../src/lib/stdioGuard";
 import { runFactImagePipeline } from "../src/lib/factImagePipeline";
+
+// Task #402 / #404: absorb EIO/EPIPE on stdout/stderr so a torn-down pipe
+// (e.g. workflow restart while this long-running backfill is mid-flight)
+// does not crash the process. Must run before any console.* call.
+installStdioGuard();
 
 const DELAY_MS = 1_000;
 
