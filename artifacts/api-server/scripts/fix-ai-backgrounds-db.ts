@@ -21,21 +21,15 @@
 // Install stdio guard so EIO/EPIPE on stdout/stderr (e.g. piped to `head`,
 // terminal disconnect, container log-pipe overrun) cannot crash the script.
 // CLI scripts intentionally keep using console.* for human-readable output.
-import { installStdioGuard } from "../src/lib/stdioGuard.js";
+import { installStdioGuard } from "../src/lib/stdioGuard";
 installStdioGuard();
 
 import { db } from "@workspace/db";
 import { factsTable } from "@workspace/db/schema";
 import { isNotNull, eq } from "drizzle-orm";
-import { installStdioGuard } from "../src/lib/stdioGuard";
 import { objectStorageClient } from "../src/lib/objectStorage";
 import { aiBackgroundKey } from "../src/lib/storageKeys";
 import type { AiMemeImages } from "../src/lib/aiMemePipeline";
-
-// Task #402 / #404: absorb EIO/EPIPE on stdout/stderr so a torn-down pipe
-// (e.g. workflow restart while this long-running fix-up is mid-flight)
-// does not crash the process. Must run before any console.* call.
-installStdioGuard();
 
 const AI_BG_REF_RE = /^ai_meme_(\d+)_(\w+?)_ref_(.+?)\.(\w+)$/;
 const AI_BG_STD_RE = /^ai_meme_(\d+)_(\w+?)_((?!ref_).+?)\.(\w+)$/;
