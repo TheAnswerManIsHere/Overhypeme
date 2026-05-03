@@ -77,13 +77,11 @@ export function Navbar() {
       e.preventDefault();
       void (async () => {
         try {
-          if (isAuthenticated) await logout();
           const res = await fetch("/api/auth/dev-admin-login", {
             method: "POST",
             credentials: "include",
           });
           if (res.ok) {
-            await res.json();
             window.location.href = "/";
           }
         } catch {
