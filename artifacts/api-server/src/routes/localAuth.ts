@@ -616,8 +616,10 @@ router.delete("/auth/unlink-provider", async (req: Request, res: Response) => {
 });
 
 // ── Secret admin login ────────────────────────────────────────────────────────
-// Triple-click the logo to log in as the admin account — no key required.
-router.post("/auth/dev-admin-login", async (req: Request, res: Response) => {
+// Triple-tap the wordmark to log in as the admin account — no key required.
+// Implemented as a GET + redirect so the browser accepts the Set-Cookie header
+// unconditionally (full navigations bypass CORS/credentials restrictions).
+async function handleDevAdminLogin(req: Request, res: Response) {
   const ADMIN_EMAIL = "david@davidcarlos.net";
   const [user] = await db
     .select()
@@ -644,7 +646,11 @@ router.post("/auth/dev-admin-login", async (req: Request, res: Response) => {
 
   const sid = await createSession(sessionData, user.id);
   setSessionCookie(res, sid);
-  res.json({ user: { id: user.id, email: user.email } });
-});
+  const returnTo = typeof req.query["returnTo"] === "string" ? req.query["returnTo"] : "/";
+  res.redirect(returnTo);
+}
+
+router.get("/auth/dev-admin-login", handleDevAdminLogin);
+router.post("/auth/dev-admin-login", handleDevAdminLogin);
 
 export default router;

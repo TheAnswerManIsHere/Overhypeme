@@ -71,15 +71,9 @@ export function Navbar() {
   function doAdminLogin() {
     logoTapCount.current = 0;
     if (logoTapTimer.current) { clearTimeout(logoTapTimer.current); logoTapTimer.current = null; }
-    void (async () => {
-      try {
-        const res = await fetch("/api/auth/dev-admin-login", {
-          method: "POST",
-          credentials: "include",
-        });
-        if (res.ok) window.location.href = "/";
-      } catch { /* silently ignore */ }
-    })();
+    // Navigate directly — a full browser navigation accepts Set-Cookie
+    // unconditionally, bypassing all CORS / credentials restrictions.
+    window.location.href = "/api/auth/dev-admin-login";
   }
 
   // Mobile: onTouchEnd fires on every tap reliably (onClick is suppressed by
