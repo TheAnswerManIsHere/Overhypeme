@@ -65,33 +65,42 @@ export function Navbar() {
     window.location.replace("/");
   }
 
-  const logoClickCount = useRef(0);
-  const logoClickTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const logoTapCount = useRef(0);
+  const logoTapTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  function doAdminLogin() {
+    logoTapCount.current = 0;
+    if (logoTapTimer.current) { clearTimeout(logoTapTimer.current); logoTapTimer.current = null; }
+    void (async () => {
+      try {
+        const res = await fetch("/api/auth/dev-admin-login", {
+          method: "POST",
+          credentials: "include",
+        });
+        if (res.ok) window.location.href = "/";
+      } catch { /* silently ignore */ }
+    })();
+  }
+
+  // Mobile: onTouchEnd fires on every tap reliably (onClick is suppressed by
+  // the browser on rapid taps due to double-tap zoom detection). Calling
+  // e.preventDefault() here stops the synthetic click from also firing.
+  const handleWordmarkTouchEnd = (e: React.TouchEvent) => {
+    e.preventDefault();
+    logoTapCount.current += 1;
+    if (logoTapTimer.current) clearTimeout(logoTapTimer.current);
+    if (logoTapCount.current >= 3) { doAdminLogin(); return; }
+    logoTapTimer.current = setTimeout(() => { logoTapCount.current = 0; }, 1500);
+    setLocation("/");
+  };
+
+  // Desktop: plain click handler (no touch suppression needed).
   const handleLogoClick = (e: React.MouseEvent) => {
     e.preventDefault();
-    logoClickCount.current += 1;
-    if (logoClickTimer.current) clearTimeout(logoClickTimer.current);
-
-    if (logoClickCount.current >= 3) {
-      logoClickCount.current = 0;
-      void (async () => {
-        try {
-          const res = await fetch("/api/auth/dev-admin-login", {
-            method: "POST",
-            credentials: "include",
-          });
-          if (res.ok) {
-            window.location.href = "/";
-          }
-        } catch {
-          // silently ignore
-        }
-      })();
-      return;
-    }
-
-    logoClickTimer.current = setTimeout(() => { logoClickCount.current = 0; }, 1500);
+    logoTapCount.current += 1;
+    if (logoTapTimer.current) clearTimeout(logoTapTimer.current);
+    if (logoTapCount.current >= 3) { doAdminLogin(); return; }
+    logoTapTimer.current = setTimeout(() => { logoTapCount.current = 0; }, 1500);
     setLocation("/");
   };
 
@@ -142,13 +151,19 @@ export function Navbar() {
             ) : null}
           </div>
 
-          {/* Center: wordmark */}
-          <Link href="/" onClick={handleLogoClick} className="flex-1 flex items-center justify-center gap-1.5">
+          {/* Center: wordmark — touch handler for reliable triple-tap on mobile */}
+          <button
+            type="button"
+            onTouchEnd={handleWordmarkTouchEnd}
+            onClick={handleLogoClick}
+            className="flex-1 flex items-center justify-center gap-1.5"
+            style={{ touchAction: "manipulation" }}
+          >
             <FlameMark className="text-primary" />
             <span className="font-display font-bold text-sm uppercase tracking-widest text-foreground">
               OVERHYPE<span className="text-primary">.ME</span>
             </span>
-          </Link>
+          </button>
 
           {/* Right: search icon */}
           <div className="w-10 flex items-center justify-end">
