@@ -6,6 +6,7 @@ import OpenAI from "openai";
 import { db, factsTable } from "@workspace/db";
 import { eq, isNull, sql, and } from "drizzle-orm";
 import { renderCanonical } from "./renderCanonical";
+import { logger } from "./logger";
 
 export const EMBEDDING_MODEL = "text-embedding-3-small";
 export const EMBEDDING_DIMENSIONS = 384;
@@ -45,7 +46,7 @@ export async function embedFactAsync(factId: number, text: string, canonicalText
     const embedding = await embedText(textToEmbed);
     await storeEmbedding(factId, embedding, canonicalText);
   } catch (err) {
-    console.error(`[embeddings] Failed to embed fact ${factId}:`, err);
+    logger.error({ err, factId }, "[embeddings] Failed to embed fact");
   }
 }
 
@@ -108,7 +109,7 @@ export async function backfillEmbeddings(
       await storeEmbedding(fact.id, embedding, canonical);
       processed++;
     } catch (err) {
-      console.error(`[embeddings] Backfill failed for fact ${fact.id}:`, err);
+      logger.error({ err, factId: fact.id }, "[embeddings] Backfill failed for fact");
       failed++;
     }
     onProgress?.(processed + failed, missing.length);

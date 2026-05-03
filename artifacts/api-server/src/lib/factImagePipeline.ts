@@ -24,6 +24,7 @@ import type { PexelsPhotoEntry } from "./pexelsClient";
 import { db } from "@workspace/db";
 import { factsTable } from "@workspace/db/schema";
 import { eq } from "drizzle-orm";
+import { logger } from "./logger";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -129,9 +130,9 @@ async function withRetry<T>(fn: () => Promise<T>, label: string): Promise<T> {
       lastErr = err;
       if (attempt < MAX_PIPELINE_ATTEMPTS) {
         const delay = BASE_RETRY_DELAY_MS * 2 ** (attempt - 1); // 1s, 2s, 4s
-        console.warn(
-          `[factImagePipeline] ${label} attempt ${attempt}/${MAX_PIPELINE_ATTEMPTS} failed — retrying in ${delay}ms:`,
-          err instanceof Error ? err.message : err,
+        logger.warn(
+          { label, attempt, maxAttempts: MAX_PIPELINE_ATTEMPTS, delayMs: delay, err },
+          "[factImagePipeline] attempt failed — retrying",
         );
         await new Promise<void>((resolve) => setTimeout(resolve, delay));
       }
@@ -175,13 +176,20 @@ export async function runFactImagePipeline(factId: number, factText: string): Pr
         .set({ pexelsImages })
         .where(eq(factsTable.id, factId));
 
-      console.log(
-        `[factImagePipeline] fact ${factId}: ${male.length}m/${female.length}f/${neutral.length}n photos` +
-        ` (type=${fact_type}, keywords=${JSON.stringify(keywords)})`,
+      logger.info(
+        {
+          factId,
+          factType: fact_type,
+          maleCount: male.length,
+          femaleCount: female.length,
+          neutralCount: neutral.length,
+          keywords,
+        },
+        "[factImagePipeline] photos persisted",
       );
     }, `fact ${factId}`);
   } catch (err) {
-    console.error(`[factImagePipeline] All ${MAX_PIPELINE_ATTEMPTS} attempts exhausted for fact ${factId}:`, err);
+    logger.error({ err, factId, attempts: MAX_PIPELINE_ATTEMPTS }, "[factImagePipeline] All attempts exhausted");
     Sentry.captureException(err, {
       tags: { pipeline: "factImagePipeline" },
       extra: { factId, factText: factText.slice(0, 200) },

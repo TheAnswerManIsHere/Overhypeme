@@ -8,6 +8,7 @@ import { isAdminById } from "./auth";
 import { sendEmail, buildPasswordResetEmail, buildEmailVerificationEmail, buildEmailChangeVerificationEmail } from "../lib/email";
 import { getSiteBaseUrl } from "../lib/siteUrl";
 import { checkSharedRateLimit } from "../lib/sharedRateLimiter";
+import { logger } from "../lib/logger";
 
 const router: IRouter = Router();
 
@@ -167,7 +168,7 @@ router.post("/auth/register", async (req: Request, res: Response) => {
   // Fire verification email asynchronously — don't block registration
   if (emailNormalized) {
     sendVerificationEmail(user.id, emailNormalized).catch((err) => {
-      console.error("[auth] Failed to send verification email:", err);
+      logger.error({ err }, "[auth] Failed to send verification email");
     });
   }
 
@@ -492,7 +493,7 @@ router.post("/auth/resend-verification", async (req: Request, res: Response) => 
   // If there's a pending email change, resend the change verification email
   if (user.pendingEmail) {
     sendVerificationEmail(userId, user.pendingEmail, user.pendingEmail).catch((err) => {
-      console.error("[auth] Failed to resend email change verification:", err);
+      logger.error({ err }, "[auth] Failed to resend email change verification");
     });
     res.status(200).json({ message: "Verification email sent to your new address. Please check your inbox." });
     return;
@@ -509,7 +510,7 @@ router.post("/auth/resend-verification", async (req: Request, res: Response) => 
   }
 
   sendVerificationEmail(userId, user.email).catch((err) => {
-    console.error("[auth] Failed to resend verification email:", err);
+    logger.error({ err }, "[auth] Failed to resend verification email");
   });
 
   res.status(200).json({ message: "Verification email sent. Please check your inbox." });

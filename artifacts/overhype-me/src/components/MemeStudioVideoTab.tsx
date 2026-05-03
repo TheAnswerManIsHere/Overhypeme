@@ -4,8 +4,6 @@ import {
   ChevronLeft,
   Video,
   Loader2,
-  Download,
-  Share2,
   RefreshCw,
   CheckCircle,
   Sparkles,
@@ -22,6 +20,7 @@ import { AiBgPicker, type AiBgSelection } from "@/components/AiBgPicker";
 import { Button } from "@/components/ui/Button";
 import { ImageCard } from "@/components/ui/ImageCard";
 import { AdminMediaInfo, AdminMediaInfoForUrl, getFileNameFromUrl, getMimeTypeFromUrl } from "@/components/ui/AdminMediaInfo";
+import { PostCreateShareScreen } from "@/components/PostCreateShareScreen";
 import { useAuth } from "@workspace/replit-auth-web";
 import { usePersonName } from "@/hooks/use-person-name";
 import { AccessGate } from "@/components/AccessGate";
@@ -53,6 +52,12 @@ export interface VideoTabProps {
   /** Pre-loaded meme image data URL passed from MemeBuilder's "Turn Into Video" button */
   initialImageDataUrl?: string;
   defaultPrivate?: boolean;
+  /**
+   * Studio Hub path mode — pre-selects the background source and HIDES the
+   * mode-tab strip in step 1. Used when entered via the Studio Hub "Manual
+   * Video" path so the user lands directly on the chosen source.
+   */
+  initialPathMode?: VideoImageMode;
 }
 
 // ─── Step indicator ─────────────────────────────────────────────────────────
@@ -455,7 +460,7 @@ function getModelParamSpec(model: string): ModelParamSpec {
 
 // ─── Video Tab wizard ────────────────────────────────────────────────────────
 
-function VideoTab({ factId, factText, pexelsImages, aiMemeImages, initialImageDataUrl, defaultPrivate }: VideoTabProps) {
+function VideoTab({ factId, factText, pexelsImages, aiMemeImages, initialImageDataUrl, defaultPrivate, initialPathMode }: VideoTabProps) {
   const { role, user } = useAuth();
   const isAdmin = role === "admin";
   const isLegendary = role === "legendary" || role === "admin";
@@ -476,7 +481,7 @@ function VideoTab({ factId, factText, pexelsImages, aiMemeImages, initialImageDa
   // (e.g. continuing from an existing photo meme) we honor that and start in
   // stock mode so the preselected image renders immediately.
   const [imageMode, setImageMode] = useState<VideoImageMode>(
-    initialImageDataUrl ? "stock" : "identity"
+    initialPathMode ?? (initialImageDataUrl ? "stock" : "identity")
   );
   // Track explicit tab interactions so future automatic mode promotions
   // won't override a deliberate user choice.
@@ -858,19 +863,6 @@ function VideoTab({ factId, factText, pexelsImages, aiMemeImages, initialImageDa
     a.click();
   };
 
-  const handleShare = async () => {
-    if (videoState.status !== "done") return;
-    if (navigator.share) {
-      try {
-        await navigator.share({ url: videoState.url, title: "Check out this overhyped fact!" });
-      } catch {
-        // user cancelled
-      }
-    } else {
-      void navigator.clipboard.writeText(videoState.url);
-    }
-  };
-
   // ── Upload handler ─────────────────────────────────────────────────────────
   const handleFileUpload = useCallback(async (file: File) => {
     if (!file.type.startsWith("image/")) return;
@@ -923,38 +915,40 @@ function VideoTab({ factId, factText, pexelsImages, aiMemeImages, initialImageDa
             <StepDots current={1} total={3} />
           </div>
 
-          {/* Image mode tabs */}
-          <div className="flex border-b border-border mb-4 overflow-x-auto">
-            {(["identity", "stock", "ai", "upload"] as VideoImageMode[]).map((mode) => {
-              const labels: Record<VideoImageMode, string> = { identity: "You", stock: "Stock Photo", ai: "AI Generated", upload: "Upload" };
-              // "identity" + "stock" are free; the legacy "upload" + "ai" tabs
-              // still require Legendary because of the underlying source flow.
-              const needsPremium = (mode === "ai" || mode === "upload") && !isLegendary;
-              return (
-                <button
-                  key={mode}
-                  onClick={() => {
-                    userPickedVideoModeRef.current = true;
-                    setImageMode(mode);
-                    if (mode === "identity" && profileImageUrl) {
-                      setSelectedBgUrl(profileImageUrl);
-                      setSelectedBgLabel("Your photo");
-                    }
-                  }}
-                  className={`relative flex-1 py-2 text-[11px] font-bold uppercase tracking-wider border-b-2 transition-all ${
-                    imageMode === mode
-                      ? "border-[#ff6b35] text-[#ff6b35]"
-                      : "border-transparent text-muted-foreground hover:text-foreground hover:border-border"
-                  }`}
-                >
-                  {labels[mode]}
-                  {needsPremium && (
-                    <Lock className="ml-1.5 w-3 h-3 text-amber-400 shrink-0 inline-block align-middle" />
-                  )}
-                </button>
-              );
-            })}
-          </div>
+          {/* Image mode tabs — hidden when entered via Studio Hub path */}
+          {!initialPathMode && (
+            <div className="flex border-b border-border mb-4 overflow-x-auto">
+              {(["identity", "stock", "ai", "upload"] as VideoImageMode[]).map((mode) => {
+                const labels: Record<VideoImageMode, string> = { identity: "You", stock: "Stock Photo", ai: "AI Generated", upload: "Upload" };
+                // "identity" + "stock" are free; the legacy "upload" + "ai" tabs
+                // still require Legendary because of the underlying source flow.
+                const needsPremium = (mode === "ai" || mode === "upload") && !isLegendary;
+                return (
+                  <button
+                    key={mode}
+                    onClick={() => {
+                      userPickedVideoModeRef.current = true;
+                      setImageMode(mode);
+                      if (mode === "identity" && profileImageUrl) {
+                        setSelectedBgUrl(profileImageUrl);
+                        setSelectedBgLabel("Your photo");
+                      }
+                    }}
+                    className={`relative flex-1 py-2 text-[11px] font-bold uppercase tracking-wider border-b-2 transition-all ${
+                      imageMode === mode
+                        ? "border-[#ff6b35] text-[#ff6b35]"
+                        : "border-transparent text-muted-foreground hover:text-foreground hover:border-border"
+                    }`}
+                  >
+                    {labels[mode]}
+                    {needsPremium && (
+                      <Lock className="ml-1.5 w-3 h-3 text-amber-400 shrink-0 inline-block align-middle" />
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          )}
 
           {/* Thumbnail size slider */}
           <div className="flex items-center gap-2 py-1 mb-3">
@@ -1646,7 +1640,7 @@ function VideoTab({ factId, factText, pexelsImages, aiMemeImages, initialImageDa
           )}
 
           {videoState.status === "done" && (
-            <div className="space-y-3 mb-4">
+            <div className="space-y-4 mb-4">
               <p className="text-xs font-display uppercase tracking-widest text-[#ff6b35]">Your Video</p>
               <div className="border-2 border-border overflow-hidden">
                 <video
@@ -1666,14 +1660,21 @@ function VideoTab({ factId, factText, pexelsImages, aiMemeImages, initialImageDa
                   height={videoDims?.height}
                 />
               </div>
-              <div className="grid grid-cols-2 gap-2">
-                <Button onClick={handleDownload} variant="secondary" className="gap-2">
-                  <Download className="w-4 h-4" /> Download
-                </Button>
-                <Button onClick={() => void handleShare()} variant="secondary" className="gap-2">
-                  <Share2 className="w-4 h-4" /> Share
-                </Button>
-              </div>
+
+              {/* Polished share screen — per-platform share buttons + copy
+                  link. Video tab has no permalink slug yet so the merch
+                  teaser and "View permalink" CTA hide automatically. */}
+              <PostCreateShareScreen
+                mediaUrl={videoState.url}
+                mediaKind="video"
+                factText={factText}
+                onDownload={handleDownload}
+                onMakeAnother={() => {
+                  setVideoState({ status: "idle" });
+                  setStep(2);
+                }}
+              />
+
               <div className="grid grid-cols-2 gap-2">
                 <Button
                   onClick={() => { setVideoState({ status: "idle" }); setStep(2); }}

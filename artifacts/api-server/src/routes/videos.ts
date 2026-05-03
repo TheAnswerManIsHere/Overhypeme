@@ -13,6 +13,7 @@ import { requireAdmin } from "./admin.js";
 import { hasFeature } from "../lib/tierFeatures.js";
 import { ObjectStorageService } from "../lib/objectStorage.js";
 import { completeGovernance, enforceGovernance } from "../lib/resourceGovernance.js";
+import { logger } from "../lib/logger.js";
 
 const router: IRouter = Router();
 
@@ -451,7 +452,7 @@ function buildFalInput(opts: BuildFalInputOptions): Record<string, unknown> {
   }
 
   // ── Unknown family — best-effort passthrough ───────────────────────────────
-  console.warn("[videos/generate] Unknown model family — sending minimal input", { model: opts.videoModel });
+  logger.warn({ model: opts.videoModel }, "[videos/generate] Unknown model family — sending minimal input");
   return {
     image_url: imageUrl,
     prompt: motionPrompt,
@@ -575,10 +576,10 @@ async function uploadPrivateImageToFalCdn(imageUrl: string): Promise<string | nu
     const buf = Buffer.from(await response.arrayBuffer());
     const blob = new Blob([buf], { type: contentType });
     const cdnUrl = await fal.storage.upload(blob, { lifecycle: { expiresIn: "1h" } });
-    console.log(`[videos/generate] Uploaded private image to fal CDN: ${objectsPath} → ${cdnUrl}`);
+    logger.info({ objectsPath, cdnUrl }, "[videos/generate] Uploaded private image to fal CDN");
     return cdnUrl;
   } catch (err) {
-    console.warn(`[videos/generate] Failed to upload private image to fal CDN (${objectsPath}):`, err instanceof Error ? err.message : err);
+    logger.warn({ err, objectsPath }, "[videos/generate] Failed to upload private image to fal CDN");
     return null;
   }
 }
@@ -733,11 +734,16 @@ router.post("/videos/generate", async (req, res) => {
 
   const parsed = GenerateVideoBody.safeParse(req.body);
   if (!parsed.success) {
-    console.error("[videos/generate] Validation failed. Body keys:", Object.keys(req.body ?? {}),
-      "imageUrl:", (req.body as Record<string, unknown>)?.imageUrl,
-      "hasBase64:", !!(req.body as Record<string, unknown>)?.imageBase64,
-      "factId:", (req.body as Record<string, unknown>)?.factId,
-      "errors:", JSON.stringify(parsed.error.flatten()));
+    logger.error(
+      {
+        bodyKeys: Object.keys(req.body ?? {}),
+        imageUrl: (req.body as Record<string, unknown>)?.imageUrl,
+        hasBase64: !!(req.body as Record<string, unknown>)?.imageBase64,
+        factId: (req.body as Record<string, unknown>)?.factId,
+        errors: parsed.error.flatten(),
+      },
+      "[videos/generate] Validation failed",
+    );
     res
       .status(400)
       .json({ error: "Invalid request", details: parsed.error.flatten() });
@@ -876,7 +882,7 @@ router.post("/videos/generate", async (req, res) => {
 
   // Detect model family for parameter adaptation
   const modelFamily = detectVideoModelFamily(videoModel);
-  console.log("[videos/generate] Detected model family", { videoModel, modelFamily });
+  logger.info({ videoModel, modelFamily }, "[videos/generate] Detected model family");
 
   // Append voiceover cue to the prompt sent to fal.ai (not stored in DB)
   const renderedFactText = parsed.data.renderedFactText?.trim();
@@ -920,11 +926,14 @@ router.post("/videos/generate", async (req, res) => {
     adminThinkingType: parsed.data.adminThinkingType,
   });
 
-  console.log("[videos/generate] Calling fal.subscribe", {
-    videoModel,
-    modelFamily,
-    falInput: { ...falInput, image_url: (falInput.image_url as string)?.slice(0, 120) },
-  });
+  logger.info(
+    {
+      videoModel,
+      modelFamily,
+      falInput: { ...falInput, image_url: (falInput.image_url as string)?.slice(0, 120) },
+    },
+    "[videos/generate] Calling fal.subscribe",
+  );
 
   // ── Budget gate ──────────────────────────────────────────────────────────────
   const authenticatedUserId = req.isAuthenticated()
@@ -963,7 +972,7 @@ router.post("/videos/generate", async (req, res) => {
       }
     } catch (priceErr) {
       // Price unavailable — fail open, log warning, continue without budget gate
-      console.warn("[videos/generate] Budget gate skipped (pricing unavailable):", priceErr instanceof Error ? priceErr.message : priceErr);
+      logger.warn({ err: priceErr }, "[videos/generate] Budget gate skipped (pricing unavailable)");
     }
   }
 
@@ -1075,15 +1084,18 @@ router.post("/videos/generate", async (req, res) => {
       }
     } catch { /* ignore parse errors */ }
 
-    console.error("[videos/generate] fal.subscribe failed", {
-      model: videoModel,
-      message: errDetails.message,
-      status: errDetails.status,
-      requestId: errDetails.requestId,
-      // Fully serialize nested objects so pydantic detail arrays are readable
-      body: errDetails.body !== undefined ? JSON.stringify(errDetails.body) : undefined,
-      cause: errDetails.cause !== undefined ? JSON.stringify(errDetails.cause) : undefined,
-    });
+    logger.error(
+      {
+        model: videoModel,
+        message: errDetails.message,
+        status: errDetails.status,
+        requestId: errDetails.requestId,
+        // Fully serialize nested objects so pydantic detail arrays are readable
+        body: errDetails.body !== undefined ? JSON.stringify(errDetails.body) : undefined,
+        cause: errDetails.cause !== undefined ? JSON.stringify(errDetails.cause) : undefined,
+      },
+      "[videos/generate] fal.subscribe failed",
+    );
 
     // Surface a specific, helpful message for known fal.ai error types
     let userFacingError = `Video generation failed: ${message}`;

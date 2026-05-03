@@ -10,6 +10,7 @@ import { db } from "@workspace/db";
 import { userGenerationCostsTable, usersTable } from "@workspace/db/schema";
 import { eq, sql } from "drizzle-orm";
 import { getConfigString, getConfigFloat } from "./adminConfig";
+import { logger } from "./logger";
 
 export interface BudgetStatus {
   allowed: boolean;
@@ -112,7 +113,7 @@ export async function checkBudget(
 
     return { allowed, currentSpend, limit, remainingBudget };
   } catch (err) {
-    console.warn("[budgetGate] checkBudget error — failing open:", err);
+    logger.warn({ err }, "[budgetGate] checkBudget error — failing open");
     // Fail open: don't block generation if the gate itself errors
     return { allowed: true, currentSpend: 0, limit: Infinity, remainingBudget: Infinity };
   }
@@ -136,6 +137,6 @@ export async function recordCost(params: RecordCostParams): Promise<void> {
       jobReferenceId: params.jobReferenceId ?? null,
     });
   } catch (err) {
-    console.warn("[budgetGate] recordCost failed (non-fatal):", err);
+    logger.warn({ err }, "[budgetGate] recordCost failed (non-fatal)");
   }
 }

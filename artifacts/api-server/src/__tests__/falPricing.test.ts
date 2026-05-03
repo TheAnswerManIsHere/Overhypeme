@@ -20,6 +20,32 @@ import { falPricingCacheTable } from "@workspace/db/schema";
 import { eq, like } from "drizzle-orm";
 
 import { refreshPricingCache, getCachedPrice } from "../lib/falPricing.js";
+import { logger } from "../lib/logger.js";
+
+// Helper to capture logger.warn output for a single block. Replaces the
+// proxy's `warn` slot with a recorder; restores it on teardown. We capture
+// on the structured logger (not console.warn) because falPricing routes all
+// logs through src/lib/logger.ts now (see Task #403).
+function captureLoggerWarn(): { captured: string[]; restore: () => void } {
+  const captured: string[] = [];
+  const originalWarn = logger.warn.bind(logger);
+  (logger as unknown as { warn: (...a: unknown[]) => void }).warn = (
+    ...args: unknown[]
+  ) => {
+    captured.push(
+      args
+        .map((a) => (typeof a === "string" ? a : JSON.stringify(a)))
+        .join(" "),
+    );
+  };
+  return {
+    captured,
+    restore: () => {
+      (logger as unknown as { warn: (...a: unknown[]) => void }).warn =
+        originalWarn;
+    },
+  };
+}
 
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
@@ -306,13 +332,11 @@ describe("refreshPricingCache — upsert behavior", () => {
     const ep = endpoint("price-change");
     await seedRow({ endpointId: ep, unitPrice: "0.10", unit: "image" });
     stubResponse = { kind: "json", status: 200, body: { prices: [{ endpoint_id: ep, unit_price: 0.50, unit: "image" }] } };
-    const captured: string[] = [];
-    const originalWarn = console.warn;
-    console.warn = (...args: unknown[]) => { captured.push(args.map(String).join(" ")); };
+    const { captured, restore } = captureLoggerWarn();
     try {
       await refreshPricingCache([ep]);
     } finally {
-      console.warn = originalWarn;
+      restore();
     }
     assert.ok(
       captured.some(line => line.includes("PRICE CHANGE DETECTED") && line.includes(ep)),
@@ -324,13 +348,11 @@ describe("refreshPricingCache — upsert behavior", () => {
     const ep = endpoint("no-change");
     await seedRow({ endpointId: ep, unitPrice: "0.10", unit: "image" });
     stubResponse = { kind: "json", status: 200, body: { prices: [{ endpoint_id: ep, unit_price: 0.10, unit: "image" }] } };
-    const captured: string[] = [];
-    const originalWarn = console.warn;
-    console.warn = (...args: unknown[]) => { captured.push(args.map(String).join(" ")); };
+    const { captured, restore } = captureLoggerWarn();
     try {
       await refreshPricingCache([ep]);
     } finally {
-      console.warn = originalWarn;
+      restore();
     }
     assert.equal(
       captured.filter(line => line.includes("PRICE CHANGE DETECTED")).length,

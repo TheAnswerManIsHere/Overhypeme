@@ -17,6 +17,7 @@ import { getSiteBaseUrl } from "../lib/siteUrl";
 import bcrypt from "bcryptjs";
 import { softDeleteUserLifecycle, hardDeleteUserLifecycle, exportUserData, anonymizePaymentHistoryForUser, runRetentionWindowJobs } from "../lib/dataLifecycle";
 import { getGovernanceAdminView } from "../lib/resourceGovernance";
+import { logger } from "../lib/logger";
 
 const _styleStorage = new ObjectStorageService();
 
@@ -193,18 +194,18 @@ router.delete("/admin/users/:id", requireAdmin, async (req: Request, res: Respon
 
       for (const img of aiImages) {
         try { await storage.deleteObject(img.storagePath); aiImagesDeleted++; }
-        catch (e) { console.error(`[hard-delete] AI image cleanup failed for ${img.storagePath}:`, e); storageErrors++; }
+        catch (e) { logger.error({ err: e, storagePath: img.storagePath }, "[hard-delete] AI image cleanup failed"); storageErrors++; }
       }
       for (const meme of userMemes) {
         const src = meme.imageSource as { type?: string; uploadKey?: string } | null;
         if (src === null) {
           // Pre-rendered meme image stored in object storage
           try { await storage.deleteObject(`/objects/${memeKey(meme.permalinkSlug, "jpg")}`); memeImagesDeleted++; }
-          catch (e) { console.error(`[hard-delete] Meme image cleanup failed for ${meme.permalinkSlug}:`, e); storageErrors++; }
+          catch (e) { logger.error({ err: e, slug: meme.permalinkSlug }, "[hard-delete] Meme image cleanup failed"); storageErrors++; }
         } else if (src?.type === "upload" && src.uploadKey) {
           // User-uploaded background photo
           try { await storage.deleteObject(src.uploadKey); memeImagesDeleted++; }
-          catch (e) { console.error(`[hard-delete] Upload image cleanup failed:`, e); storageErrors++; }
+          catch (e) { logger.error({ err: e }, "[hard-delete] Upload image cleanup failed"); storageErrors++; }
         }
       }
 
@@ -229,12 +230,12 @@ router.delete("/admin/users/:id", requireAdmin, async (req: Request, res: Respon
               await stripe.subscriptions.cancel(sub.stripeSubscriptionId);
               canceledCount++;
             } catch (e) {
-              console.error(`[hard-delete] Failed to cancel subscription ${sub.stripeSubscriptionId}:`, e);
+              logger.error({ err: e, subscriptionId: sub.stripeSubscriptionId }, "[hard-delete] Failed to cancel subscription");
             }
           }
           subscriptionCanceled = canceledCount > 0;
         } catch (e) {
-          console.error("[hard-delete] Stripe client initialization failed:", e);
+          logger.error({ err: e }, "[hard-delete] Stripe client initialization failed");
         }
       }
 
@@ -264,7 +265,7 @@ router.delete("/admin/users/:id", requireAdmin, async (req: Request, res: Respon
 
       res.json({ success: true, deleted: true, summary: { aiImagesDeleted, memeImagesDeleted, storageErrors, subscriptionCanceled } });
     } catch (e) {
-      console.error(`[hard-delete] Failed at stage "${currentStage}":`, e);
+      logger.error({ err: e, stage: currentStage }, "[hard-delete] Failed");
       res.status(500).json({ error: e instanceof Error ? e.message : "Deletion failed", stage: currentStage });
     }
   } else {
@@ -294,12 +295,12 @@ router.delete("/admin/users/:id", requireAdmin, async (req: Request, res: Respon
               await stripe.subscriptions.cancel(sub.stripeSubscriptionId);
               canceledCount++;
             } catch (e) {
-              console.error(`[soft-delete] Failed to cancel subscription ${sub.stripeSubscriptionId}:`, e);
+              logger.error({ err: e, subscriptionId: sub.stripeSubscriptionId }, "[soft-delete] Failed to cancel subscription");
             }
           }
           subscriptionCanceled = canceledCount > 0;
         } catch (e) {
-          console.error("[soft-delete] Stripe client initialization failed:", e);
+          logger.error({ err: e }, "[soft-delete] Stripe client initialization failed");
         }
       }
 
@@ -318,7 +319,7 @@ router.delete("/admin/users/:id", requireAdmin, async (req: Request, res: Respon
 
       res.json({ success: true, deleted: false, user: updated, summary: { subscriptionCanceled, sessionsRevoked } });
     } catch (e) {
-      console.error(`[soft-delete] Failed at stage "${currentStage}":`, e);
+      logger.error({ err: e, stage: currentStage }, "[soft-delete] Failed");
       res.status(500).json({ error: e instanceof Error ? e.message : "Soft delete failed", stage: currentStage });
     }
   }
@@ -469,7 +470,7 @@ router.get("/admin/refunds-disputes", requireAdmin, async (req: Request, res: Re
 
     res.json({ rows, total, page, limit, liveMode, eventTypes: REFUND_DISPUTE_EVENTS });
   } catch (err) {
-    console.error("[admin] refunds-disputes error:", err);
+    logger.error({ err }, "[admin] refunds-disputes error");
     const msg = err instanceof Error ? err.message : "Failed to load refunds and disputes";
     res.status(500).json({ error: msg });
   }
@@ -602,7 +603,7 @@ router.post("/admin/users", requireAdmin, async (req: Request, res: Response) =>
       }
       return;
     }
-    console.error("[admin] Create user error:", err);
+    logger.error({ err }, "[admin] Create user error");
     res.status(500).json({ error: "Failed to create user" });
   }
 });
@@ -1058,7 +1059,7 @@ router.post("/admin/facts/backfill-images", requireAdminOrApiKey, async (_req: R
     }
     res.json({ success: true, triggered });
   } catch (err) {
-    console.error("[admin] Backfill images error:", err);
+    logger.error({ err }, "[admin] Backfill images error");
     res.status(500).json({ error: "Backfill failed", details: String(err) });
   }
 });
@@ -1078,18 +1079,21 @@ router.post("/admin/backfill-pexels", requireAdmin, async (_req: Request, res: R
     res.status(202).json({ success: true, queued, message: `Backfilling Pexels images for ${queued} fact(s) in the background.` });
 
     if (queued === 0) {
-      console.log("[admin] backfill-pexels: all root facts already have images, nothing to do.");
+      logger.info("[admin] backfill-pexels: all root facts already have images, nothing to do.");
       return;
     }
 
     void (async () => {
-      console.log(`[admin] backfill-pexels: starting — ${queued} root fact(s) with NULL pexelsImages`);
+      logger.info({ queued }, "[admin] backfill-pexels: starting");
       let succeeded = 0;
       let failed = 0;
 
       for (let i = 0; i < nullFacts.length; i++) {
         const fact = nullFacts[i]!;
-        console.log(`[admin] backfill-pexels: [${i + 1}/${queued}] fact ${fact.id}: "${fact.text.slice(0, 60)}"`);
+        logger.info(
+          { index: i + 1, queued, factId: fact.id, preview: fact.text.slice(0, 60) },
+          "[admin] backfill-pexels: processing",
+        );
 
         await runFactImagePipeline(fact.id, fact.text);
 
@@ -1102,10 +1106,10 @@ router.post("/admin/backfill-pexels", requireAdmin, async (_req: Request, res: R
 
         if (updated?.pexelsImages != null) {
           succeeded++;
-          console.log(`[admin] backfill-pexels: [${i + 1}/${queued}] fact ${fact.id} — OK`);
+          logger.info({ index: i + 1, queued, factId: fact.id }, "[admin] backfill-pexels: OK");
         } else {
           failed++;
-          console.error(`[admin] backfill-pexels: [${i + 1}/${queued}] fact ${fact.id} — FAILED (pexelsImages still null)`);
+          logger.error({ index: i + 1, queued, factId: fact.id }, "[admin] backfill-pexels: FAILED (pexelsImages still null)");
         }
 
         // 1-second delay between requests to respect Pexels rate limits
@@ -1114,10 +1118,10 @@ router.post("/admin/backfill-pexels", requireAdmin, async (_req: Request, res: R
         }
       }
 
-      console.log(`[admin] backfill-pexels: done — ${succeeded} succeeded, ${failed} failed out of ${queued} total`);
+      logger.info({ succeeded, failed, queued }, "[admin] backfill-pexels: done");
     })();
   } catch (err) {
-    console.error("[admin] backfill-pexels error:", err);
+    logger.error({ err }, "[admin] backfill-pexels error");
     res.status(500).json({ error: "Backfill failed", details: String(err) });
   }
 });
@@ -1144,14 +1148,14 @@ router.post("/admin/facts/backfill-ai-memes", requireAdminOrApiKey, async (req: 
 
     // Process sequentially so we don't hammer OpenAI rate limits
     void (async () => {
-      console.log(`[admin] backfill-ai-memes: starting ${total} facts (force=${force})`);
+      logger.info({ total, force }, "[admin] backfill-ai-memes: starting");
       for (const fact of rootFacts) {
         await generateAiMemeBackgrounds(fact.id, fact.text, { suppressErrors: true });
       }
-      console.log(`[admin] backfill-ai-memes: done — processed ${total} facts`);
+      logger.info({ total }, "[admin] backfill-ai-memes: done");
     })();
   } catch (err) {
-    console.error("[admin] Backfill AI memes error:", err);
+    logger.error({ err }, "[admin] Backfill AI memes error");
     res.status(500).json({ error: "Backfill failed", details: String(err) });
   }
 });
@@ -1161,7 +1165,7 @@ router.post("/admin/facts/backfill-embeddings", requireAdminOrApiKey, async (_re
     const result = await backfillEmbeddings();
     res.json({ success: true, ...result });
   } catch (err) {
-    console.error("[admin] Backfill embeddings error:", err);
+    logger.error({ err }, "[admin] Backfill embeddings error");
     res.status(500).json({ error: "Backfill failed", details: String(err) });
   }
 });
@@ -1450,7 +1454,7 @@ router.patch("/admin/config/:key", requireAdmin, async (req: Request, res: Respo
       const sync = await getStripeSync();
       runFullSync(sync);
     } catch (err) {
-      console.error("[admin] Stripe full sync error after mode toggle", err);
+      logger.error({ err }, "[admin] Stripe full sync error after mode toggle");
     }
   }
 
@@ -1618,7 +1622,7 @@ router.get("/admin/stripe/summary", requireAdmin, async (_req: Request, res: Res
       },
     });
   } catch (err) {
-    console.error("[admin] stripe/summary error:", err);
+    logger.error({ err }, "[admin] stripe/summary error");
     res.status(500).json({ error: "Failed to load stripe summary" });
   }
 });
@@ -1653,7 +1657,7 @@ router.post("/admin/stripe/sync", requireAdmin, async (_req: Request, res: Respo
       message: "Stripe sync started — watch progress below.",
     });
   } catch (err) {
-    console.error("[admin] POST /admin/stripe/sync error", err);
+    logger.error({ err }, "[admin] POST /admin/stripe/sync error");
     res.status(500).json({ error: "Failed to start sync" });
   }
 });
@@ -1746,7 +1750,7 @@ router.post("/admin/stripe/sync/_test/simulate", requireAdmin, async (req: Reque
     }
     res.json({ success: true, failResource: failResource ?? null, delayMs });
   } catch (err) {
-    console.error("[admin] POST /admin/stripe/sync/_test/simulate error", err);
+    logger.error({ err }, "[admin] POST /admin/stripe/sync/_test/simulate error");
     res.status(500).json({ error: "Failed to simulate sync" });
   }
 });
@@ -1761,7 +1765,7 @@ router.get("/admin/stripe/sync/status", requireAdmin, async (_req: Request, res:
     const status = await readSyncStatus(accountId);
     res.json(status);
   } catch (err) {
-    console.error("[admin] GET /admin/stripe/sync/status error", err);
+    logger.error({ err }, "[admin] GET /admin/stripe/sync/status error");
     res.status(500).json({ error: "Failed to read sync status" });
   }
 });
@@ -1877,7 +1881,7 @@ router.post("/admin/stripe/test-event", requireAdmin, async (req: Request, res: 
 
     res.json({ success: true, message: `Test webhook processed — user ${userId} upgraded to legendary via checkout.session.completed domain handler` });
   } catch (err) {
-    console.error("[admin] stripe/test-event error:", err);
+    logger.error({ err }, "[admin] stripe/test-event error");
     const msg = err instanceof Error ? err.message : String(err);
     res.status(500).json({ error: "Test event failed", details: msg });
   }
@@ -2084,7 +2088,7 @@ router.get("/admin/email-queue", requireAdmin, async (req: Request, res: Respons
 
     res.json({ rows, total, page, limit, validStatuses: VALID_STATUSES });
   } catch (err) {
-    console.error("[admin] email-queue error:", err);
+    logger.error({ err }, "[admin] email-queue error");
     const msg = err instanceof Error ? err.message : "Failed to load email queue";
     res.status(500).json({ error: msg });
   }
@@ -2113,7 +2117,7 @@ router.delete("/admin/email-queue", requireAdmin, async (req: Request, res: Resp
 
     res.json({ success: true, deleted: deleted.length });
   } catch (err) {
-    console.error("[admin] email-queue delete error:", err);
+    logger.error({ err }, "[admin] email-queue delete error");
     const msg = err instanceof Error ? err.message : "Delete failed";
     res.status(500).json({ error: msg });
   }
@@ -2157,7 +2161,7 @@ router.post("/admin/email-queue/:id/retry", requireAdmin, async (req: Request, r
 
     res.json({ success: true, row: updated });
   } catch (err) {
-    console.error("[admin] email-queue retry error:", err);
+    logger.error({ err }, "[admin] email-queue retry error");
     const msg = err instanceof Error ? err.message : "Retry failed";
     res.status(500).json({ error: msg });
   }

@@ -11,6 +11,7 @@ import { embedText, findSimilarFacts } from "../lib/embeddings";
 import { validateTemplate } from "../lib/templateGrammar";
 import { renderCanonical } from "../lib/renderCanonical";
 import { completeGovernance, enforceGovernance } from "../lib/resourceGovernance";
+import { logger } from "../lib/logger";
 
 const router: IRouter = Router();
 const requireRateLimit = createRateLimiter();
@@ -70,7 +71,7 @@ export async function moderateComment(commentId: number, text: string): Promise<
       }
     }
   } catch (err) {
-    console.error("[AI] Comment moderation error:", err);
+    logger.error({ err }, "[AI] Comment moderation error");
   }
 }
 
@@ -166,7 +167,7 @@ export async function checkDuplicateInternal(text: string): Promise<DuplicateChe
         llmChecked: true,
       };
     } catch (err) {
-      console.error("[AI] LLM duplicate check failed, falling back to vector threshold:", err);
+      logger.error({ err }, "[AI] LLM duplicate check failed, falling back to vector threshold");
     }
   }
 
@@ -191,7 +192,7 @@ router.post("/ai/check-duplicate", requireAuth, requireRateLimit, async (req: Re
     const result = await checkDuplicateInternal(bodyParsed.data.text);
     res.json(result);
   } catch (err) {
-    console.error("[AI] check-duplicate error:", err);
+    logger.error({ err }, "[AI] check-duplicate error");
     res.json({ isDuplicate: false, confidence: 0 });
   }
 });
@@ -261,7 +262,7 @@ router.post("/ai/suggest-hashtags", requireAuth, requireRateLimit, async (req: R
     res.json(body);
   } catch (err) {
     completeGovernance(req, { provider: "openai", latencyMs: 0, failed: true, actualCostUsd: 0 });
-    console.error("[AI] suggest-hashtags error:", err);
+    logger.error({ err }, "[AI] suggest-hashtags error");
     res.json({ hashtags: [] });
   }
 });
@@ -348,7 +349,7 @@ router.post("/ai/tokenize-fact", requireRateLimit, async (req: Request, res: Res
 
     res.json({ template });
   } catch (err) {
-    console.error("[AI] tokenize-fact error:", err);
+    logger.error({ err }, "[AI] tokenize-fact error");
     res.status(500).json({ error: "Tokenization failed" });
   }
 });
@@ -398,7 +399,7 @@ router.post("/ai/suggest-pronouns", requireRateLimit, async (req: Request, res: 
 
     res.json({ subject, object });
   } catch (err) {
-    console.error("[AI] suggest-pronouns error:", err);
+    logger.error({ err }, "[AI] suggest-pronouns error");
     res.status(500).json({ error: "Suggestion failed" });
   }
 });

@@ -11,6 +11,7 @@
 import { db } from "@workspace/db";
 import { falPricingCacheTable } from "@workspace/db/schema";
 import { eq, sql } from "drizzle-orm";
+import { logger } from "./logger";
 
 const FAL_PRICING_API = "https://api.fal.ai/v1/models/pricing";
 const CACHE_STALE_MS = 60 * 60 * 1000; // 1 hour
@@ -29,7 +30,7 @@ interface FalPricingEntry {
 async function fetchPricingFromApi(endpointId: string): Promise<FalPricingEntry | null> {
   const apiKey = getFalApiKey();
   if (!apiKey) {
-    console.warn("[falPricing] No FAL API key found — skipping pricing fetch");
+    logger.warn("[falPricing] No FAL API key found — skipping pricing fetch");
     return null;
   }
 
@@ -43,7 +44,7 @@ async function fetchPricingFromApi(endpointId: string): Promise<FalPricingEntry 
     });
 
     if (!res.ok) {
-      console.warn(`[falPricing] Pricing API returned ${res.status} for ${endpointId}`);
+      logger.warn({ status: res.status, endpointId }, "[falPricing] Pricing API returned non-OK");
       return null;
     }
 
@@ -66,12 +67,12 @@ async function fetchPricingFromApi(endpointId: string): Promise<FalPricingEntry 
 
     const match = entries.find(e => e.endpoint_id === endpointId) ?? entries[0];
     if (!match) {
-      console.warn(`[falPricing] No pricing entry found for ${endpointId} in API response`, JSON.stringify(body).slice(0, 500));
+      logger.warn({ endpointId, body: JSON.stringify(body).slice(0, 500) }, "[falPricing] No pricing entry found in API response");
       return null;
     }
     return match;
   } catch (err) {
-    console.warn(`[falPricing] Failed to fetch pricing for ${endpointId}:`, err);
+    logger.warn({ err, endpointId }, "[falPricing] Failed to fetch pricing");
     return null;
   }
 }
@@ -100,7 +101,10 @@ export async function refreshPricingCache(endpointIds: string[]): Promise<void> 
         .limit(1);
 
       if (existing && parseFloat(existing.unitPrice) !== parseFloat(newUnitPrice)) {
-        console.warn(`[falPricing] PRICE CHANGE DETECTED for ${endpointId}: ${existing.unitPrice} → ${newUnitPrice} ${newCurrency}/${newUnit}`);
+        logger.warn(
+          { endpointId, oldPrice: existing.unitPrice, newPrice: newUnitPrice, currency: newCurrency, unit: newUnit },
+          "[falPricing] PRICE CHANGE DETECTED",
+        );
       }
 
       await db
@@ -125,9 +129,12 @@ export async function refreshPricingCache(endpointIds: string[]): Promise<void> 
           },
         });
 
-      console.log(`[falPricing] Cached pricing for ${endpointId}: ${newUnitPrice} ${newCurrency}/${newUnit}`);
+      logger.info(
+        { endpointId, unitPrice: newUnitPrice, currency: newCurrency, unit: newUnit },
+        "[falPricing] Cached pricing",
+      );
     } catch (err) {
-      console.warn(`[falPricing] Failed to upsert pricing cache for ${endpointId}:`, err);
+      logger.warn({ err, endpointId }, "[falPricing] Failed to upsert pricing cache");
     }
   }
 }

@@ -3,6 +3,7 @@ import { Router, type IRouter, type Request, type Response } from "express";
 import { sendEmail, buildShareInviteEmail } from "../lib/email";
 import { getSessionId, getSession } from "../lib/auth";
 import { verifyCaptcha } from "../lib/captcha";
+import { logger } from "../lib/logger";
 import { db, usersTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
 
@@ -57,7 +58,7 @@ function isAllowedShareUrl(value: string): boolean {
 }
 
 function audit(event: Record<string, unknown>): void {
-  console.info(JSON.stringify({ eventType: "share_invite", at: new Date().toISOString(), ...event }));
+  logger.info({ eventType: "share_invite", ...event }, "share_invite");
 }
 
 export function __resetShareInviteGuardsForTests(): void {

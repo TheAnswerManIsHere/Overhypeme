@@ -13,6 +13,7 @@ import type { AiMemeImages } from "@/types/meme";
 import { AiBgPicker, type AiBgSelection } from "@/components/AiBgPicker";
 import { ImageCard } from "@/components/ui/ImageCard";
 import { AdminMediaInfo, AdminMediaInfoForUrl, getFileNameFromUrl, getMimeTypeFromUrl } from "@/components/ui/AdminMediaInfo";
+import { PostCreateShareScreen } from "@/components/PostCreateShareScreen";
 import { usePersonName } from "@/hooks/use-person-name";
 import { useListMemeTemplates } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -39,6 +40,7 @@ import {
   Flame,
   Trash2,
   ChevronLeft,
+  Type,
 } from "lucide-react";
 
 // ─── Canvas aspect ratio definitions ──────────────────────────────────────────
@@ -351,9 +353,9 @@ function StepDots({ current, total }: { current: MemeStep; total: number }) {
           key={i}
           className={`rounded-full transition-all ${
             i + 1 === current
-              ? "w-4 h-2 bg-[#ff6b35]"
+              ? "w-4 h-2 bg-primary"
               : i + 1 < current
-              ? "w-2 h-2 bg-[#ff6b35]/60"
+              ? "w-2 h-2 bg-primary/60"
               : "w-2 h-2 bg-border"
           }`}
         />
@@ -551,6 +553,13 @@ interface MemeBuilderProps {
   embedded?: boolean;
   /** @deprecated Previously enabled two-panel full-screen layout; no longer affects layout. Kept for backward compatibility. */
   fullScreen?: boolean;
+  /**
+   * Studio Hub path mode — pre-selects the background source and HIDES the
+   * mode-tab strip in step 1. Used when entering from the Studio entry hub
+   * which routes the user to a specific source path (Photo / Stock / AI /
+   * Gradient) rather than the legacy "all-tabs" view.
+   */
+  initialPathMode?: ImageMode;
 }
 
 const ADMIN_FAL_MODELS: { group: string; models: { value: string; label: string }[] }[] = [
@@ -626,7 +635,7 @@ const ADMIN_MODEL_PARAMS: Record<string, AdminParamDef[]> = {
   ],
 };
 
-export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMemeImages, onClose, defaultPrivate, embedded, fullScreen }: MemeBuilderProps) {
+export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMemeImages, onClose, defaultPrivate, embedded, fullScreen, initialPathMode }: MemeBuilderProps) {
   const { isAuthenticated, login, role, user, refreshUser } = useAuth();
   const isLegendary = role === "legendary" || role === "admin";
   const isRegistered = isAuthenticated && role !== "unregistered";
@@ -671,8 +680,10 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
   // photo it's a one-tap "use my face" path, and for users without one the
   // IdentityPhotoSection renders an inline upload (or sign-in) prompt — so
   // landing on this tab is always the highest-intent next action.
+  // When entering via the Studio Hub (initialPathMode set), the chosen path
+  // wins over any persisted draft so the user lands on the source they picked.
   const [imageMode, setImageMode] = useState<ImageMode>(() =>
-    readDraft(factId)?.imageMode ?? "identity"
+    initialPathMode ?? readDraft(factId)?.imageMode ?? "identity"
   );
   // No post-mount mode promotion is needed anymore: identity is the default
   // regardless of whether profileImageUrl resolves before or after mount.
@@ -795,6 +806,11 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
   const [step, setStep] = useState<MemeStep>(1);
   const sliderRef = useRef<HTMLDivElement>(null);
 
+  // Bottom-sheet ("Tweak words") for caption + style controls in step 2.
+  const [isTweakOpen, setIsTweakOpen] = useState(false);
+  // Close the sheet whenever we leave step 2 to avoid stale overlay state.
+  useEffect(() => { if (step !== 2) setIsTweakOpen(false); }, [step]);
+
   // Scroll the nearest scrollable ancestor to top whenever the step changes
   useEffect(() => {
     const el = sliderRef.current;
@@ -886,6 +902,7 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
   // Generation state
   const [status, setStatus] = useState<"idle" | "generating" | "done" | "error">("idle");
   const [permalinkSlug, setPermalinkSlug] = useState<string | null>(null);
+  const [permalinkImageUrl, setPermalinkImageUrl] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   // Whether this fact has gender tokens (for determining generation scope)
@@ -1420,8 +1437,9 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
         throw new Error(body.error ?? "Generation failed");
       }
 
-      const result = await res.json() as { permalinkSlug: string };
+      const result = await res.json() as { permalinkSlug: string; imageUrl?: string };
       setPermalinkSlug(result.permalinkSlug);
+      setPermalinkImageUrl(result.imageUrl ?? `/api/memes/${result.permalinkSlug}/image`);
       setStatus("done");
       queryClient.invalidateQueries({ queryKey: ["listFactMemes", factId] });
       queryClient.invalidateQueries({ queryKey: ["profile-my-memes"] });
@@ -1526,47 +1544,49 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
             <StepDots current={1} total={2} />
           </div>
 
-          {/* Mode tabs */}
-          <div className="flex border-b border-border mb-4 overflow-x-auto">
-            <ModeTab
-              active={imageMode === "identity"}
-              onClick={() => handleSetImageMode("identity")}
-            >
-              You
-            </ModeTab>
-            <ModeTab
-              active={imageMode === "upload"}
-              onClick={() => handleSetImageMode("upload")}
-              badge={!isRegistered ? "PRO" : undefined}
-            >
-              Upload
-            </ModeTab>
-            <ModeTab
-              active={imageMode === "stock"}
-              onClick={() => {
-                handleSetImageMode("stock");
-                if (!stockGender) {
-                  setStockGender(inferredGender);
-                  fetchStockPhoto(inferredGender);
-                }
-              }}
-            >
-              Stock Photo
-            </ModeTab>
-            <ModeTab
-              active={imageMode === "gradient"}
-              onClick={() => handleSetImageMode("gradient")}
-            >
-              Gradient
-            </ModeTab>
-            <ModeTab
-              active={imageMode === "ai"}
-              onClick={() => handleSetImageMode("ai")}
-              badge={!isLegendary ? "LEGENDARY" : undefined}
-            >
-              AI Generated
-            </ModeTab>
-          </div>
+          {/* Mode tabs — hidden when entered via Studio Hub path */}
+          {!initialPathMode && (
+            <div className="flex border-b border-border mb-4 overflow-x-auto">
+              <ModeTab
+                active={imageMode === "identity"}
+                onClick={() => handleSetImageMode("identity")}
+              >
+                You
+              </ModeTab>
+              <ModeTab
+                active={imageMode === "upload"}
+                onClick={() => handleSetImageMode("upload")}
+                badge={!isRegistered ? "PRO" : undefined}
+              >
+                Upload
+              </ModeTab>
+              <ModeTab
+                active={imageMode === "stock"}
+                onClick={() => {
+                  handleSetImageMode("stock");
+                  if (!stockGender) {
+                    setStockGender(inferredGender);
+                    fetchStockPhoto(inferredGender);
+                  }
+                }}
+              >
+                Stock Photo
+              </ModeTab>
+              <ModeTab
+                active={imageMode === "gradient"}
+                onClick={() => handleSetImageMode("gradient")}
+              >
+                Gradient
+              </ModeTab>
+              <ModeTab
+                active={imageMode === "ai"}
+                onClick={() => handleSetImageMode("ai")}
+                badge={!isLegendary ? "LEGENDARY" : undefined}
+              >
+                AI Generated
+              </ModeTab>
+            </div>
+          )}
 
           {/* Thumbnail size slider */}
           <div className="flex items-center gap-2 py-1 mb-3">
@@ -1925,7 +1945,6 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
               variant="primary"
               size="lg"
               className="w-full gap-2 min-h-[52px]"
-              style={hasBackground ? { background: "#ff6b35", borderColor: "#ff6b35" } : undefined}
             >
               <Sparkles className="w-4 h-4" />
               {hasBackground ? "Continue to Customize" : "Select a background to continue"}
@@ -1934,9 +1953,9 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
         </div>
 
         {/* ── Step 2: Live Preview + Customize ────────────────────── */}
-        <div className="w-full shrink-0 box-border">
-          {/* Sticky header with back link */}
-          <div className="flex items-center justify-between px-4 md:px-5 pt-4 pb-3">
+        <div className="w-full shrink-0 box-border flex flex-col">
+          {/* Header with back link */}
+          <div className="px-4 md:px-6 pt-4 pb-3 max-w-3xl mx-auto w-full flex items-center justify-between">
             <div>
               <button
                 onClick={() => { setStatus("idle"); setErrorMsg(null); setStep(1); }}
@@ -1953,12 +1972,10 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
             <StepDots current={2} total={2} />
           </div>
 
-          {/* ── Live canvas preview (resizable, sticky) ── */}
-          <div
-            className={`sticky z-30 bg-card pb-2 shadow-[0_6px_16px_-2px_rgba(0,0,0,0.45)] ${embedded ? "top-0" : "top-16"}`}
-          >
+          {/* ── Centered canvas preview area ── */}
+          <div className="px-4 md:px-8 pb-4 max-w-3xl mx-auto w-full">
             {/* Aspect ratio selector */}
-            <div className="px-4 md:px-5 pb-2 flex items-center gap-2 pt-1">
+            <div className="pb-3 flex items-center gap-2 flex-wrap">
               <p className="text-[10px] font-display uppercase tracking-[0.18em] text-muted-foreground mr-1 shrink-0">Format</p>
               {(Object.entries(ASPECT_RATIOS) as [AspectRatio, typeof ASPECT_RATIOS[AspectRatio]][]).map(([key, def]) => (
                 <button
@@ -1988,7 +2005,7 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
             </div>
 
             {/* Canvas */}
-            <div className="relative flex justify-center px-4 md:px-5">
+            <div className="relative flex justify-center bg-secondary/30 border border-border p-3 md:p-6">
               <canvas
                 ref={canvasRef}
                 width={canvasW}
@@ -2023,7 +2040,7 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
 
             {/* Admin media info strip — below canvas, above resize handle */}
             {isAdmin && imageMode === "upload" && (uploadFile || uploadObjectPath) && (
-              <div className="px-4 md:px-5 mt-0.5">
+              <div className="mt-1">
                 <AdminMediaInfo
                   fileName={uploadFile ? uploadFile.name : getFileNameFromUrl(uploadObjectPath!)}
                   fileSizeBytes={uploadFile ? uploadFile.size : uploadFileSizeBytes}
@@ -2034,12 +2051,12 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
               </div>
             )}
             {isAdmin && imageMode === "stock" && stockPhoto && (
-              <div className="px-4 md:px-5 mt-0.5">
+              <div className="mt-1">
                 <AdminMediaInfoForUrl url={stockPhoto.photoUrl} mimeType={getMimeTypeFromUrl(stockPhoto.photoUrl)} />
               </div>
             )}
             {isAdmin && imageMode === "ai" && aiSelectedInfo && (
-              <div className="px-4 md:px-5 mt-0.5">
+              <div className="mt-1">
                 <AdminMediaInfoForUrl
                   url={aiSelectedInfo.url}
                   fileName={aiSelectedInfo.storagePath ? getFileNameFromUrl(aiSelectedInfo.storagePath) : null}
@@ -2050,7 +2067,7 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
 
             {/* Resize drag handle */}
             <div
-              className="h-6 cursor-ns-resize flex items-center justify-center group mx-4 md:mx-5 mt-1 touch-none"
+              className="h-6 cursor-ns-resize flex items-center justify-center group mt-1 touch-none"
               onMouseDown={e => {
                 e.preventDefault();
                 const canvasEl = canvasRef.current;
@@ -2096,13 +2113,133 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
             >
               <div className="w-8 h-1 rounded-full bg-border group-hover:bg-primary/50 transition-colors" />
             </div>
+
+            {/* Pexels attribution (immediately under canvas) */}
+            {imageMode === "stock" && stockPhoto && (
+              <p className="text-[10px] text-muted-foreground/50 text-center mt-2">
+                Photos provided by{" "}
+                <a
+                  href="https://www.pexels.com"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="underline hover:text-muted-foreground"
+                >
+                  Pexels
+                </a>
+              </p>
+            )}
+
+            {/* Error */}
+            {errorMsg && (
+              <p className="text-destructive text-sm font-medium bg-destructive/10 border border-destructive/30 px-4 py-2 mt-3">
+                {errorMsg}
+              </p>
+            )}
           </div>
 
-          {/* ── Controls ── */}
-          <div className="p-4 md:p-5 space-y-4">
+          {/* ── Action bar ── */}
+          <div className="border-t-2 border-border bg-card px-4 md:px-6 py-3 sticky bottom-0 z-20 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+            <div className="max-w-3xl mx-auto w-full">
+              {status === "done" && permalinkSlug ? (
+                <div className="max-h-[70vh] overflow-y-auto -mx-4 md:-mx-6 px-4 md:px-6">
+                  <PostCreateShareScreen
+                    permalinkSlug={permalinkSlug}
+                    mediaUrl={permalinkImageUrl ?? `/api/memes/${permalinkSlug}/image`}
+                    mediaKind="image"
+                    factText={factText}
+                    source={imageMode === "identity" || imageMode === "upload" ? "photo" : "other"}
+                    onDownload={handleDownload}
+                    onMakeAnother={() => {
+                      setStatus("idle");
+                      setPermalinkSlug(null);
+                      setPermalinkImageUrl(null);
+                    }}
+                  />
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {/* Visibility toggle (premium) */}
+                  {isLegendary && (
+                    <div className="flex items-center gap-3 p-2 bg-secondary border border-border">
+                      <button
+                        type="button"
+                        onClick={() => setIsPublic(true)}
+                        className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 text-xs font-display font-bold uppercase tracking-wider rounded-sm transition-colors ${isPublic ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"}`}
+                      >
+                        <Globe className="w-3.5 h-3.5" /> Public
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setIsPublic(false)}
+                        className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 text-xs font-display font-bold uppercase tracking-wider rounded-sm transition-colors ${!isPublic ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"}`}
+                      >
+                        <Lock className="w-3.5 h-3.5" /> Private
+                      </button>
+                    </div>
+                  )}
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      onClick={() => setIsTweakOpen(true)}
+                      variant="outline"
+                      size="lg"
+                      className="gap-2 shrink-0"
+                    >
+                      <Type className="w-4 h-4" />
+                      <span>Tweak words</span>
+                    </Button>
+                    <Button
+                      onClick={handleGenerate}
+                      disabled={status === "generating" || isUploadingFile}
+                      variant="primary"
+                      size="lg"
+                      className="flex-1 gap-2 min-w-[140px]"
+                    >
+                      {status === "generating" ? (
+                        <><Loader2 className="w-5 h-5 animate-spin" />Generating…</>
+                      ) : !isAuthenticated ? (
+                        <><Lock className="w-5 h-5" />Login to Generate</>
+                      ) : (
+                        <><Flame className="w-5 h-5" />Save Meme</>
+                      )}
+                    </Button>
+                    <Button variant="secondary" size="lg" className="gap-2 shrink-0" onClick={handleDownload}>
+                      <Download className="w-5 h-5" />
+                      <span className="hidden sm:inline">Download</span>
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
 
-            {/* Text section */}
-            <div>
+          {/* ── "Tweak words" bottom sheet ── */}
+          {isTweakOpen && (
+            <>
+              <div
+                className="fixed inset-0 bg-black/50 z-[60]"
+                onClick={() => setIsTweakOpen(false)}
+                aria-hidden="true"
+              />
+              <div
+                className="fixed bottom-0 left-0 right-0 lg:left-56 z-[61] bg-card border-t-2 border-border shadow-2xl flex flex-col max-h-[85vh] animate-in slide-in-from-bottom duration-200"
+                role="dialog"
+                aria-label="Tweak words"
+              >
+                <div className="flex items-center justify-between px-4 md:px-5 py-3 border-b-2 border-border shrink-0">
+                  <div className="flex items-center gap-2">
+                    <Type className="w-4 h-4 text-primary" />
+                    <h3 className="text-sm font-bold uppercase tracking-wider">Tweak words</h3>
+                  </div>
+                  <button
+                    onClick={() => setIsTweakOpen(false)}
+                    className="text-muted-foreground hover:text-foreground transition-colors p-1"
+                    aria-label="Close"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
+
+                <div className="flex-1 overflow-y-auto p-4 md:p-5 space-y-4">
               <SectionLabel>
                 <Layers className="w-3 h-3" /> Text
               </SectionLabel>
@@ -2363,109 +2500,19 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
               </div>
             </div>
 
-            {/* Error */}
-            {errorMsg && (
-              <p className="text-destructive text-sm font-medium bg-destructive/10 border border-destructive/30 px-4 py-2">
-                {errorMsg}
-              </p>
-            )}
-
-            {/* Pexels attribution */}
-            {imageMode === "stock" && stockPhoto && (
-              <p className="text-[10px] text-muted-foreground/50 text-center">
-                Photos provided by{" "}
-                <a
-                  href="https://www.pexels.com"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="underline hover:text-muted-foreground"
-                >
-                  Pexels
-                </a>
-              </p>
-            )}
-
-            {/* Success / Actions */}
-            {status === "done" && permalinkSlug ? (
-              <div className="space-y-3">
-                <div className="bg-primary/10 border-2 border-primary p-4 space-y-3">
-                  <div className="flex items-center gap-3 text-primary">
-                    <CheckCircle className="w-5 h-5 shrink-0" />
-                    <span className="font-display uppercase tracking-wide font-bold text-sm">
-                      Meme Created!
-                    </span>
-                  </div>
-                  <div className="flex flex-wrap gap-3">
-                    {/* Pass `?just_created=1&source=<photo|other>` so MemePage
-                        can show the dopamine-afterglow upgrade card only on
-                        the immediate post-success transition for photo memes
-                        (vs. relying on a fragile display-name match). */}
-                    <Link
-                      href={`/meme/${permalinkSlug}?just_created=1&source=${
-                        imageMode === "identity" || imageMode === "upload" ? "photo" : "other"
-                      }`}
-                    >
-                      <Button size="sm" variant="outline" className="gap-2">
-                        <Share2 className="w-4 h-4" /> View Permalink
-                      </Button>
-                    </Link>
-                    <Button size="sm" variant="secondary" className="gap-2" onClick={handleDownload}>
-                      <Download className="w-4 h-4" /> Download Preview
-                    </Button>
-                    <Button
-                      size="sm"
-                      onClick={() => { setStatus("idle"); setPermalinkSlug(null); }}
-                    >
-                      Make Another
-                    </Button>
-                  </div>
+                <div className="border-t-2 border-border p-3 shrink-0 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+                  <Button
+                    onClick={() => setIsTweakOpen(false)}
+                    variant="primary"
+                    size="lg"
+                    className="w-full"
+                  >
+                    Done
+                  </Button>
                 </div>
               </div>
-            ) : (
-              <div className="space-y-3">
-                {/* Visibility toggle (premium) — just above save */}
-                {isLegendary && (
-                  <div className="flex items-center gap-3 p-3 bg-secondary border border-border">
-                    <button
-                      type="button"
-                      onClick={() => setIsPublic(true)}
-                      className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 text-xs font-display font-bold uppercase tracking-wider rounded-sm transition-colors ${isPublic ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"}`}
-                    >
-                      <Globe className="w-3.5 h-3.5" /> Public
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setIsPublic(false)}
-                      className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 text-xs font-display font-bold uppercase tracking-wider rounded-sm transition-colors ${!isPublic ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"}`}
-                    >
-                      <Lock className="w-3.5 h-3.5" /> Private
-                    </button>
-                  </div>
-                )}
-                <div className="flex gap-3">
-                <Button
-                  onClick={handleGenerate}
-                  disabled={status === "generating" || isUploadingFile}
-                  variant="primary"
-                  size="lg"
-                  className="flex-1 gap-2"
-                >
-                  {status === "generating" ? (
-                    <><Loader2 className="w-5 h-5 animate-spin" />Generating…</>
-                  ) : !isAuthenticated ? (
-                    <><Lock className="w-5 h-5" />Login to Generate</>
-                  ) : (
-                    <><Flame className="w-5 h-5" />Save Meme</>
-                  )}
-                </Button>
-                <Button variant="secondary" size="lg" className="gap-2 shrink-0" onClick={handleDownload}>
-                  <Download className="w-5 h-5" />
-                  <span className="hidden sm:inline">Download</span>
-                </Button>
-                </div>
-              </div>
-            )}
-          </div>
+            </>
+          )}
         </div>
 
       </div>

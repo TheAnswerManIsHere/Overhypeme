@@ -35,6 +35,7 @@
 import { db } from "@workspace/db";
 import { sql } from "drizzle-orm";
 import * as Sentry from "@sentry/node";
+import { logger } from "./logger";
 
 export type SyncResource =
   | "products"
@@ -167,7 +168,7 @@ export async function readSyncedCounts(
       counts.set(resource, Number.isFinite(n) ? n : null);
     }
   } catch (err) {
-    console.warn("[stripeSyncRunner] readSyncedCounts failed, returning nulls", err);
+    logger.warn({ err }, "[stripeSyncRunner] readSyncedCounts failed, returning nulls");
   }
 
   return counts;
@@ -240,7 +241,7 @@ function runWithResources(
         await invokeResource(driver, resource);
       }
     } catch (err) {
-      console.error("[stripeSyncRunner] sync failed", err);
+      logger.error({ err }, "[stripeSyncRunner] sync failed");
     } finally {
       if (lock) lock.finishedAt = Date.now();
     }
@@ -353,13 +354,13 @@ export async function readSyncStatus(accountId: string): Promise<SyncStatus> {
     if (isSchemaMissingError(err)) {
       // First-install / pre-migration: legitimately degrade to all-idle and
       // stay quiet so the UI can render a clean empty state.
-      console.info(
+      logger.info(
         "[stripeSyncRunner] readSyncStatus: stripe._sync_status not present yet, returning idle",
       );
     } else {
       // Anything else is a regression. Log at error level AND report to
       // Sentry so we hear about it the first time it happens in production.
-      console.error("[stripeSyncRunner] readSyncStatus failed", err);
+      logger.error({ err }, "[stripeSyncRunner] readSyncStatus failed");
       reportError(err, {
         tags: { component: "stripeSyncRunner", op: "readSyncStatus" },
         extra: { accountId },
