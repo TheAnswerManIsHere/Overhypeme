@@ -69,12 +69,12 @@ export function Navbar() {
   const logoClickTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const handleLogoClick = (e: React.MouseEvent) => {
+    e.preventDefault();
     logoClickCount.current += 1;
     if (logoClickTimer.current) clearTimeout(logoClickTimer.current);
 
     if (logoClickCount.current >= 3) {
       logoClickCount.current = 0;
-      e.preventDefault();
       void (async () => {
         try {
           const res = await fetch("/api/auth/dev-admin-login", {
@@ -92,6 +92,7 @@ export function Navbar() {
     }
 
     logoClickTimer.current = setTimeout(() => { logoClickCount.current = 0; }, 1500);
+    setLocation("/");
   };
 
   const handleSearch = (e: React.FormEvent) => {
