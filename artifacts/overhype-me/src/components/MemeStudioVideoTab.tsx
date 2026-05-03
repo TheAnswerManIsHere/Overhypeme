@@ -4,8 +4,6 @@ import {
   ChevronLeft,
   Video,
   Loader2,
-  Download,
-  Share2,
   RefreshCw,
   CheckCircle,
   Sparkles,
@@ -22,6 +20,7 @@ import { AiBgPicker, type AiBgSelection } from "@/components/AiBgPicker";
 import { Button } from "@/components/ui/Button";
 import { ImageCard } from "@/components/ui/ImageCard";
 import { AdminMediaInfo, AdminMediaInfoForUrl, getFileNameFromUrl, getMimeTypeFromUrl } from "@/components/ui/AdminMediaInfo";
+import { PostCreateShareScreen } from "@/components/PostCreateShareScreen";
 import { useAuth } from "@workspace/replit-auth-web";
 import { usePersonName } from "@/hooks/use-person-name";
 import { AccessGate } from "@/components/AccessGate";
@@ -864,19 +863,6 @@ function VideoTab({ factId, factText, pexelsImages, aiMemeImages, initialImageDa
     a.click();
   };
 
-  const handleShare = async () => {
-    if (videoState.status !== "done") return;
-    if (navigator.share) {
-      try {
-        await navigator.share({ url: videoState.url, title: "Check out this overhyped fact!" });
-      } catch {
-        // user cancelled
-      }
-    } else {
-      void navigator.clipboard.writeText(videoState.url);
-    }
-  };
-
   // ── Upload handler ─────────────────────────────────────────────────────────
   const handleFileUpload = useCallback(async (file: File) => {
     if (!file.type.startsWith("image/")) return;
@@ -1654,7 +1640,7 @@ function VideoTab({ factId, factText, pexelsImages, aiMemeImages, initialImageDa
           )}
 
           {videoState.status === "done" && (
-            <div className="space-y-3 mb-4">
+            <div className="space-y-4 mb-4">
               <p className="text-xs font-display uppercase tracking-widest text-[#ff6b35]">Your Video</p>
               <div className="border-2 border-border overflow-hidden">
                 <video
@@ -1674,14 +1660,21 @@ function VideoTab({ factId, factText, pexelsImages, aiMemeImages, initialImageDa
                   height={videoDims?.height}
                 />
               </div>
-              <div className="grid grid-cols-2 gap-2">
-                <Button onClick={handleDownload} variant="secondary" className="gap-2">
-                  <Download className="w-4 h-4" /> Download
-                </Button>
-                <Button onClick={() => void handleShare()} variant="secondary" className="gap-2">
-                  <Share2 className="w-4 h-4" /> Share
-                </Button>
-              </div>
+
+              {/* Polished share screen — per-platform share buttons + copy
+                  link. Video tab has no permalink slug yet so the merch
+                  teaser and "View permalink" CTA hide automatically. */}
+              <PostCreateShareScreen
+                mediaUrl={videoState.url}
+                mediaKind="video"
+                factText={factText}
+                onDownload={handleDownload}
+                onMakeAnother={() => {
+                  setVideoState({ status: "idle" });
+                  setStep(2);
+                }}
+              />
+
               <div className="grid grid-cols-2 gap-2">
                 <Button
                   onClick={() => { setVideoState({ status: "idle" }); setStep(2); }}

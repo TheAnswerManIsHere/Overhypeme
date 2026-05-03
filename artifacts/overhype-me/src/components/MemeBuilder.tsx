@@ -13,6 +13,7 @@ import type { AiMemeImages } from "@/types/meme";
 import { AiBgPicker, type AiBgSelection } from "@/components/AiBgPicker";
 import { ImageCard } from "@/components/ui/ImageCard";
 import { AdminMediaInfo, AdminMediaInfoForUrl, getFileNameFromUrl, getMimeTypeFromUrl } from "@/components/ui/AdminMediaInfo";
+import { PostCreateShareScreen } from "@/components/PostCreateShareScreen";
 import { usePersonName } from "@/hooks/use-person-name";
 import { useListMemeTemplates } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -901,6 +902,7 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
   // Generation state
   const [status, setStatus] = useState<"idle" | "generating" | "done" | "error">("idle");
   const [permalinkSlug, setPermalinkSlug] = useState<string | null>(null);
+  const [permalinkImageUrl, setPermalinkImageUrl] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   // Whether this fact has gender tokens (for determining generation scope)
@@ -1435,8 +1437,9 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
         throw new Error(body.error ?? "Generation failed");
       }
 
-      const result = await res.json() as { permalinkSlug: string };
+      const result = await res.json() as { permalinkSlug: string; imageUrl?: string };
       setPermalinkSlug(result.permalinkSlug);
+      setPermalinkImageUrl(result.imageUrl ?? `/api/memes/${result.permalinkSlug}/image`);
       setStatus("done");
       queryClient.invalidateQueries({ queryKey: ["listFactMemes", factId] });
       queryClient.invalidateQueries({ queryKey: ["profile-my-memes"] });
@@ -2138,33 +2141,20 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
           <div className="border-t-2 border-border bg-card px-4 md:px-6 py-3 sticky bottom-0 z-20 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
             <div className="max-w-3xl mx-auto w-full">
               {status === "done" && permalinkSlug ? (
-                <div className="bg-primary/10 border-2 border-primary p-4 space-y-3">
-                  <div className="flex items-center gap-3 text-primary">
-                    <CheckCircle className="w-5 h-5 shrink-0" />
-                    <span className="font-display uppercase tracking-wide font-bold text-sm">
-                      Meme Created!
-                    </span>
-                  </div>
-                  <div className="flex flex-wrap gap-3">
-                    <Link
-                      href={`/meme/${permalinkSlug}?just_created=1&source=${
-                        imageMode === "identity" || imageMode === "upload" ? "photo" : "other"
-                      }`}
-                    >
-                      <Button size="sm" variant="outline" className="gap-2">
-                        <Share2 className="w-4 h-4" /> View Permalink
-                      </Button>
-                    </Link>
-                    <Button size="sm" variant="secondary" className="gap-2" onClick={handleDownload}>
-                      <Download className="w-4 h-4" /> Download Preview
-                    </Button>
-                    <Button
-                      size="sm"
-                      onClick={() => { setStatus("idle"); setPermalinkSlug(null); }}
-                    >
-                      Make Another
-                    </Button>
-                  </div>
+                <div className="max-h-[70vh] overflow-y-auto -mx-4 md:-mx-6 px-4 md:px-6">
+                  <PostCreateShareScreen
+                    permalinkSlug={permalinkSlug}
+                    mediaUrl={permalinkImageUrl ?? `/api/memes/${permalinkSlug}/image`}
+                    mediaKind="image"
+                    factText={factText}
+                    source={imageMode === "identity" || imageMode === "upload" ? "photo" : "other"}
+                    onDownload={handleDownload}
+                    onMakeAnother={() => {
+                      setStatus("idle");
+                      setPermalinkSlug(null);
+                      setPermalinkImageUrl(null);
+                    }}
+                  />
                 </div>
               ) : (
                 <div className="space-y-2">
