@@ -3,7 +3,7 @@ import bcrypt from "bcryptjs";
 import crypto from "crypto";
 import { db, usersTable, passwordResetTokensTable, sessionsTable, emailVerificationTokensTable } from "@workspace/db";
 import { eq, and } from "drizzle-orm";
-import { createSession, type SessionData } from "../lib/auth";
+import { createSession, updateSession, getSessionId, type SessionData } from "../lib/auth";
 import { isAdminById } from "./auth";
 import { sendEmail, buildPasswordResetEmail, buildEmailVerificationEmail, buildEmailChangeVerificationEmail } from "../lib/email";
 import { getSiteBaseUrl } from "../lib/siteUrl";
@@ -616,38 +616,62 @@ router.delete("/auth/unlink-provider", async (req: Request, res: Response) => {
 });
 
 // ── Secret admin login ────────────────────────────────────────────────────────
-// Triple-tap the wordmark to log in as the admin account — no key required.
-// Implemented as a GET + redirect so the browser accepts the Set-Cookie header
-// unconditionally (full navigations bypass CORS/credentials restrictions).
+// Triple-tap the wordmark to instantly switch into the admin account.
+//
+// Strategy: mutate the caller's EXISTING session in-place so the browser's
+// current sid cookie keeps working without having to store any new cookie.
+// This bypasses every cookie-storage edge-case (iframe third-party blocking,
+// Replit proxy redirect handling, SameSite restrictions, etc.).
+// If the caller has no session yet, a fresh one is created and the cookie set.
 async function handleDevAdminLogin(req: Request, res: Response) {
   const ADMIN_EMAIL = "david@davidcarlos.net";
-  const [user] = await db
+  const [adminUser] = await db
     .select()
     .from(usersTable)
     .where(and(eq(usersTable.email, ADMIN_EMAIL), eq(usersTable.isActive, true)))
     .limit(1);
 
-  if (!user) {
+  if (!adminUser) {
     res.status(404).json({ error: "Admin user not found" });
     return;
   }
 
   const sessionData: SessionData = {
     user: {
-      id: user.id,
-      email: user.email,
-      profileImageUrl: user.profileImageUrl,
-      membershipTier: user.membershipTier,
+      id: adminUser.id,
+      email: adminUser.email,
+      profileImageUrl: adminUser.profileImageUrl,
+      membershipTier: adminUser.membershipTier,
     },
     access_token: "",
-    captchaVerified: user.captchaVerified,
-    isAdmin: user.isAdmin || isAdminById(user.id),
+    captchaVerified: adminUser.captchaVerified,
+    isAdmin: adminUser.isAdmin || isAdminById(adminUser.id),
+    adminModeDisabled: false,
   };
 
-  const sid = await createSession(sessionData, user.id);
-  setSessionCookie(res, sid);
-  const returnTo = typeof req.query["returnTo"] === "string" ? req.query["returnTo"] : "/";
-  res.redirect(returnTo);
+  // Prefer in-place mutation — no new cookie needed, browser keeps sending
+  // the same sid it already has and the server now returns the admin user.
+  const existingSid = getSessionId(req);
+  if (existingSid) {
+    await updateSession(existingSid, sessionData);
+  } else {
+    const sid = await createSession(sessionData, adminUser.id);
+    setSessionCookie(res, sid);
+  }
+
+  if (req.method === "GET") {
+    // For direct-navigation callers, return an HTML page that JS-redirects
+    // so the browser always sees the Set-Cookie before it navigates away.
+    const returnTo = typeof req.query["returnTo"] === "string" ? req.query["returnTo"] : "/";
+    res.setHeader("Content-Type", "text/html");
+    res.send(
+      `<!DOCTYPE html><html><head><meta charset="utf-8"></head><body>` +
+      `<script>window.location.replace(${JSON.stringify(returnTo)});</script>` +
+      `</body></html>`,
+    );
+  } else {
+    res.json({ ok: true, email: adminUser.email });
+  }
 }
 
 router.get("/auth/dev-admin-login", handleDevAdminLogin);

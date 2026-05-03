@@ -23,7 +23,7 @@ function FlameMark({ className = "" }: { className?: string }) {
 }
 
 export function Navbar() {
-  const { user, isAuthenticated, isLoading: authLoading, role, realRole, logout } = useAuth();
+  const { user, isAuthenticated, isLoading: authLoading, role, realRole, logout, refreshUser } = useAuth();
   const { name } = usePersonName();
   const { data: profile } = useGetMyProfile({
     query: { queryKey: getGetMyProfileQueryKey(), enabled: isAuthenticated, staleTime: 60_000 }
@@ -71,9 +71,12 @@ export function Navbar() {
   function doAdminLogin() {
     logoTapCount.current = 0;
     if (logoTapTimer.current) { clearTimeout(logoTapTimer.current); logoTapTimer.current = null; }
-    // Navigate directly — a full browser navigation accepts Set-Cookie
-    // unconditionally, bypassing all CORS / credentials restrictions.
-    window.location.href = "/api/auth/dev-admin-login";
+    // POST mutates the existing session in-place on the server — no new cookie
+    // needs to be stored by the browser. Then refreshUser() re-fetches the
+    // auth state so the UI reflects admin without any page navigation.
+    void fetch("/api/auth/dev-admin-login", { method: "POST", credentials: "include" })
+      .then((res) => { if (res.ok) return refreshUser(); })
+      .catch(() => { /* silently ignore */ });
   }
 
   // Mobile: onTouchEnd fires on every tap reliably (onClick is suppressed by

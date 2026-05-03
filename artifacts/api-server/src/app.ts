@@ -124,6 +124,11 @@ app.post(
   },
 );
 
+// Dev admin login needs permissive CORS so the POST fetch works from any
+// preview context (Replit canvas iframes, direct mobile browser, etc.).
+// Registered before the global cors() so it handles preflights too.
+app.use("/api/auth/dev-admin-login", cors({ origin: true, credentials: true }));
+
 const allowedOrigins = parseAllowedOrigins();
 app.use(cors({
   credentials: true,
