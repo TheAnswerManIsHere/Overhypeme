@@ -5,7 +5,7 @@ import { Layout } from "@/components/layout/Layout";
 import { FactCard } from "@/components/facts/FactCard";
 import { Button } from "@/components/ui/Button";
 import { SubscriptionPanel } from "@/components/SubscriptionPanel";
-import { ShieldAlert, LogOut, Clock, ThumbsUp, FileText, Hash, Star, X, Pencil, Check, Mail, AlertTriangle, CheckCircle, Camera, Loader2, Images, ImageIcon, UserCircle2, Image, Eraser, ChevronLeft, ChevronRight, KeyRound, Eye, EyeOff, Bell, Crown } from "lucide-react";
+import { ShieldAlert, ShieldCheck, LogOut, Clock, ThumbsUp, FileText, Hash, Star, X, Pencil, Check, Mail, AlertTriangle, CheckCircle, Camera, Loader2, Images, ImageIcon, UserCircle2, Image, Eraser, ChevronLeft, ChevronRight, KeyRound, Eye, EyeOff, Bell, Crown } from "lucide-react";
 import { ImageCard } from "@/components/ui/ImageCard";
 import { Link, useLocation } from "wouter";
 import { useQueryClient, useQuery } from "@tanstack/react-query";
@@ -964,6 +964,11 @@ export default function Profile() {
             <Button variant="danger" onClick={logout} className="gap-2">
               <LogOut className="w-4 h-4" /> LOGOUT
             </Button>
+            {isRealAdmin && (
+              <Button variant="outline" onClick={() => setLocation("/admin")} className="gap-2 border-primary/40 text-primary hover:text-primary hover:border-primary">
+                <ShieldCheck className="w-4 h-4" /> ADMIN PANEL
+              </Button>
+            )}
             {isRealAdmin && (!forgetMeConfirm ? (
               <Button
                 variant="ghost"
