@@ -1,10 +1,13 @@
 import { describe, it, before } from "node:test";
 import assert from "node:assert/strict";
+import crypto from "node:crypto";
 import type { Request, Response } from "express";
 import { createRateLimiter, RATE_MAX, RATE_WINDOW_MS } from "../lib/rateLimit.js";
 import { purgeExpiredRateLimitCounters } from "../lib/sharedRateLimiter.js";
 import { db, rateLimitCountersTable } from "@workspace/db";
 import { like } from "drizzle-orm";
+
+const RUN_ID = crypto.randomUUID();
 
 function makeReq(opts: { ip?: string; sessionId?: string } = {}): Request {
   const headers: Record<string, string> = {};
@@ -20,8 +23,9 @@ describe("createRateLimiter", () => {
   });
 
   it("shares state across limiter instances", async () => {
-    const a = createRateLimiter("test.shared", 3, RATE_WINDOW_MS);
-    const b = createRateLimiter("test.shared", 3, RATE_WINDOW_MS);
+    const endpoint = `test.shared.${RUN_ID}`;
+    const a = createRateLimiter(endpoint, 3, RATE_WINDOW_MS);
+    const b = createRateLimiter(endpoint, 3, RATE_WINDOW_MS);
     const req = makeReq({ ip: "10.0.0.44" });
     assert.equal((await runMw(a, req)).nextCalled, true);
     assert.equal((await runMw(b, req)).nextCalled, true);
@@ -32,7 +36,7 @@ describe("createRateLimiter", () => {
   });
 
   it("returns 429 when requests exceed the limit", async () => {
-    const middleware = createRateLimiter("test.exceed", RATE_MAX, RATE_WINDOW_MS);
+    const middleware = createRateLimiter(`test.exceed.${RUN_ID}`, RATE_MAX, RATE_WINDOW_MS);
     const req = makeReq({ ip: "10.0.0.2" });
     for (let i = 0; i < RATE_MAX; i++) await runMw(middleware, req);
     const blocked = await runMw(middleware, req);
@@ -41,7 +45,7 @@ describe("createRateLimiter", () => {
   });
 
   it("uses session ID as part of the key", async () => {
-    const middleware = createRateLimiter("test.sid", RATE_MAX, RATE_WINDOW_MS);
+    const middleware = createRateLimiter(`test.sid.${RUN_ID}`, RATE_MAX, RATE_WINDOW_MS);
     const sessionReq = makeReq({ ip: "10.0.0.4", sessionId: "session-abc-123" });
     for (let i = 0; i < RATE_MAX; i++) await runMw(middleware, sessionReq);
     const blocked = await runMw(middleware, sessionReq);
