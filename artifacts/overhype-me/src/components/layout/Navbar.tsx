@@ -55,7 +55,17 @@ export function Navbar() {
 
   async function handleForgetMe() {
     try {
-      await fetch("/api/auth/logout", { method: "POST", credentials: "include" });
+      // The CSRF middleware requires x-csrf-token to match the csrf_token cookie
+      // (httpOnly: false, so readable by JS).
+      const csrfToken = document.cookie
+        .split("; ")
+        .find((c) => c.startsWith("csrf_token="))
+        ?.split("=")[1];
+      await fetch("/api/auth/logout", {
+        method: "POST",
+        credentials: "include",
+        headers: csrfToken ? { "x-csrf-token": csrfToken } : {},
+      });
     } catch {
       // Best-effort — proceed with client wipe even if the request fails
     }
