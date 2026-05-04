@@ -14,7 +14,7 @@ import { renderFact } from "@/lib/render-fact";
 import { inferPronounsFromName } from "@/lib/infer-pronouns";
 import { PRONOUN_PRESETS, isCustomPronouns, parseCustom, serializeCustom, EMPTY_CUSTOM, type CustomPronounSet } from "@/lib/pronouns";
 
-type FilterMode = "default" | "hall-of-fame" | "hashtags";
+type FilterMode = "default" | "top-facts" | "hashtags";
 
 // Placeholder fact used in the cold-visitor hero before they've typed a name.
 const COLD_TEASER_FACT = "The universe doesn't expand. {NAME} pushes it.";
@@ -782,7 +782,7 @@ export default function Home() {
   const primaryTag = selectedTags[0] ?? undefined;
 
   const { data, isLoading, error } = useListFacts(
-    filterMode === "hall-of-fame"
+    filterMode === "top-facts"
       ? { sort: "top", limit: 20 }
       : filterMode === "hashtags" && primaryTag
       ? { hashtag: primaryTag, sort: "newest", limit: 100 }
@@ -810,7 +810,7 @@ export default function Home() {
   };
 
   const isLoaded = !isLoading;
-  const showRank = filterMode === "hall-of-fame";
+  const showRank = filterMode === "top-facts";
 
   return (
     <Layout>

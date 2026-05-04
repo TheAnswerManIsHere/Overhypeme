@@ -6,13 +6,7 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export interface MemeRecord {
-  id: number;
-  factId: number;
-  templateId: string;
-  imageUrl: string;
-  permalinkSlug: string;
-  createdAt: Date;
+export interface HeartResult {
   /** @minimum 0 */
   heartCount: number;
   viewerHasHearted: boolean;
