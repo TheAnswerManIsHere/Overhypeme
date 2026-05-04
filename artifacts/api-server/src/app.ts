@@ -16,7 +16,7 @@ import { SESSION_COOKIE } from "./lib/auth";
 const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
 const CSRF_COOKIE = "csrf_token";
 const CSRF_HEADER = "x-csrf-token";
-const ORIGIN_EXEMPT_PATHS = new Set(["/api/stripe/webhook", "/api/auth/dev-admin-login", "/api/auth/logout"]);
+const ORIGIN_EXEMPT_PATHS = new Set(["/api/stripe/webhook", "/api/auth/dev-admin-login"]);
 
 function isOriginExempt(req: Request): boolean {
   return ORIGIN_EXEMPT_PATHS.has(req.path);
