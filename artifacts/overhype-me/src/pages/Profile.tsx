@@ -214,8 +214,18 @@ export default function Profile() {
   async function handleForgetMe() {
     setForgetMeLoading(true);
     try {
-      // Destroy the server-side session and clear the auth cookie
-      await fetch("/api/auth/logout", { method: "POST", credentials: "include" });
+      // Destroy the server-side session and clear the auth cookie.
+      // The CSRF middleware requires the x-csrf-token header to match the
+      // csrf_token cookie (which is httpOnly: false so JS can read it).
+      const csrfToken = document.cookie
+        .split("; ")
+        .find((c) => c.startsWith("csrf_token="))
+        ?.split("=")[1];
+      await fetch("/api/auth/logout", {
+        method: "POST",
+        credentials: "include",
+        headers: csrfToken ? { "x-csrf-token": csrfToken } : {},
+      });
     } catch {
       // Best-effort — continue with client wipe even if the request fails
     }

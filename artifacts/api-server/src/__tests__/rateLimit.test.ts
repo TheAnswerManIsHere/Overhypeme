@@ -1,12 +1,11 @@
-import { describe, it, before } from "node:test";
+import { after, before, describe, it } from "node:test";
 import assert from "node:assert/strict";
 import crypto from "node:crypto";
 import type { Request, Response } from "express";
 import { createRateLimiter, RATE_MAX, RATE_WINDOW_MS } from "../lib/rateLimit.js";
-import { purgeExpiredRateLimitCounters } from "../lib/sharedRateLimiter.js";
-import { db, rateLimitCountersTable } from "@workspace/db";
-import { like } from "drizzle-orm";
+import { purgeExpiredRateLimitCounters, purgeRateLimitCountersByPrefix } from "../lib/sharedRateLimiter.js";
 
+const TEST_KEY_PREFIX = "rl|test.";
 const RUN_ID = crypto.randomUUID();
 
 function makeReq(opts: { ip?: string; sessionId?: string } = {}): Request {
@@ -18,9 +17,8 @@ function makeRes(): Response & { statusCode: number; body: unknown } { let statu
 async function runMw(mw: ReturnType<typeof createRateLimiter>, req: Request) { const res = makeRes(); let nextCalled = false; await mw(req, res, () => { nextCalled = true; }); return { res, nextCalled }; }
 
 describe("createRateLimiter", () => {
-  before(async () => {
-    await db.delete(rateLimitCountersTable).where(like(rateLimitCountersTable.keyRaw, "rl|test.%"));
-  });
+  before(async () => { await purgeRateLimitCountersByPrefix(TEST_KEY_PREFIX); });
+  after(async () => { await purgeRateLimitCountersByPrefix(TEST_KEY_PREFIX); });
 
   it("shares state across limiter instances", async () => {
     const endpoint = `test.shared.${RUN_ID}`;
