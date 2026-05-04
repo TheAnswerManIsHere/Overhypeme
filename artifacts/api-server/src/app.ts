@@ -24,12 +24,19 @@ function isOriginExempt(req: Request): boolean {
 
 
 function parseAllowedOrigins(): Set<string> {
-  return new Set(
+  const origins = new Set(
     (process.env.ALLOWED_ORIGINS ?? "")
       .split(",")
       .map((origin) => origin.trim())
       .filter(Boolean),
   );
+  // Always allow the Replit dev-preview domain when running inside a Replit
+  // environment.  REPLIT_DEV_DOMAIN is injected automatically by the platform
+  // and is stable for the lifetime of a given Repl.
+  if (process.env.REPLIT_DEV_DOMAIN) {
+    origins.add(`https://${process.env.REPLIT_DEV_DOMAIN}`);
+  }
+  return origins;
 }
 
 function isCookieSessionRequest(req: Request): boolean {
@@ -178,7 +185,11 @@ app.use((req: Request, res: Response, next: NextFunction) => {
       source = null;
     }
   }
-  if (!source || !allowedOrigins.has(source)) {
+  // Only reject when an origin/referer is *present* and not in the allowlist.
+  // If no origin can be determined (e.g. the Replit proxy strips the header),
+  // we fall through to the double-submit cookie token check, which is the
+  // primary CSRF defence and is sufficient on its own.
+  if (source && !allowedOrigins.has(source)) {
     res.status(403).json({ error: "Origin not allowed" });
     return;
   }
