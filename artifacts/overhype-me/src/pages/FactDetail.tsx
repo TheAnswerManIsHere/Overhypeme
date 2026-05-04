@@ -13,6 +13,7 @@ import { AdSlot } from "@/components/AdSlot";
 
 import { ThumbsUp, ThumbsDown, User, AlertCircle, GitBranch, ArrowLeft, Crown, Flame, Video, Play, ExternalLink, MessageSquare, Check } from "lucide-react";
 import { ImageCard } from "@/components/ui/ImageCard";
+import { CommentHeartButton } from "@/components/comments/CommentHeartButton";
 import { cn } from "@/components/ui/Button";
 import { usePersonName } from "@/hooks/use-person-name";
 import { AccessGate } from "@/components/AccessGate";
@@ -768,6 +769,13 @@ export default function FactDetail() {
                     <span className="text-xs text-muted-foreground font-medium">{format(new Date(comment.createdAt), 'MMM dd, yyyy')}</span>
                   </div>
                   <p className="text-foreground leading-relaxed">{comment.text}</p>
+                  <div className="mt-3 flex items-center">
+                    <CommentHeartButton
+                      commentId={comment.id}
+                      initialHeartCount={comment.heartCount}
+                      initialViewerHasHearted={comment.viewerHasHearted}
+                    />
+                  </div>
                 </div>
               ))}
               {commentsData?.comments.length === 0 && (
