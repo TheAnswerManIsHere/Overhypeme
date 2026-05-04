@@ -8,6 +8,7 @@
     "dev": "bash ../../scripts/dev-supervisor.sh api-server bash -c 'fuser -k $PORT/tcp 2>/dev/null || true; export NODE_ENV=development && pnpm run build && pnpm run start'",
     "build": "node ./build.mjs",
     "start": "node --enable-source-maps ./dist/index.mjs",
+    "pretest": "pnpm --filter @workspace/api-spec run codegen && pnpm tsc -p ../../lib/api-zod/tsconfig.json",
     "test": "BCRYPT_SALT_ROUNDS=4 bash ../../scripts/with-time-limit.sh 60000 bash scripts/run-tests-sharded.sh 2",
     "pretest:coverage": "pnpm --filter @workspace/api-spec run codegen",
     "test:coverage": "TEST_DB_ALLOW_EXIT_ON_IDLE=1 c8 node --import tsx/esm --test-isolation=none --test-concurrency=1 --test 'src/__tests__/**/*.test.ts'",
