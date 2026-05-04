@@ -4,11 +4,12 @@ import { FactCard } from "@/components/facts/FactCard";
 import { Button } from "@/components/ui/Button";
 import { Hash, ArrowLeft } from "lucide-react";
 import { useLocation, useSearch } from "wouter";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
 
 export default function Hashtags() {
   const [, setLocation] = useLocation();
   const search = useSearch();
+  const prefersReducedMotion = useReducedMotion();
   const params = new URLSearchParams(search);
   const selectedHashtag = params.get("tag") || null;
 
@@ -58,9 +59,9 @@ export default function Hashtags() {
           {!selectedHashtag ? (
             <motion.div
               key="hashtag-list"
-              initial={{ opacity: 0 }}
+              initial={{ opacity: prefersReducedMotion ? 1 : 0 }}
               animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
+              exit={{ opacity: prefersReducedMotion ? 1 : 0 }}
             >
               {hashtagsLoading && (
                 <div className="flex flex-wrap gap-3">
@@ -102,9 +103,9 @@ export default function Hashtags() {
           ) : (
             <motion.div
               key={`facts-${selectedHashtag}`}
-              initial={{ opacity: 0 }}
+              initial={{ opacity: prefersReducedMotion ? 1 : 0 }}
               animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
+              exit={{ opacity: prefersReducedMotion ? 1 : 0 }}
             >
               <div className="border-b-2 border-border pb-4 mb-8 flex justify-between items-end">
                 <h2 className="text-xl font-display text-muted-foreground uppercase">

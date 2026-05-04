@@ -1,7 +1,7 @@
 import React from "react";
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
-import { motion, HTMLMotionProps } from "framer-motion";
+import { motion, HTMLMotionProps, useReducedMotion } from "framer-motion";
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -15,7 +15,8 @@ export interface ButtonProps extends HTMLMotionProps<"button"> {
 
 export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
   ({ className, variant = "primary", size = "md", isLoading, children, disabled, ...props }, ref) => {
-    
+    const prefersReducedMotion = useReducedMotion();
+
     const variants = {
       primary: "bg-primary text-primary-foreground border-2 border-primary shadow-[0_0_15px_rgba(249,115,22,0.4)] hover:shadow-[0_0_25px_rgba(249,115,22,0.6)] hover:bg-orange-600 hover:border-orange-600",
       secondary: "bg-secondary text-secondary-foreground border-2 border-transparent hover:bg-secondary/80",
@@ -34,8 +35,8 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
     return (
       <motion.button
         ref={ref}
-        whileHover={{ scale: disabled || isLoading ? 1 : 1.02 }}
-        whileTap={{ scale: disabled || isLoading ? 1 : 0.98 }}
+        whileHover={prefersReducedMotion ? undefined : { scale: disabled || isLoading ? 1 : 1.02 }}
+        whileTap={prefersReducedMotion ? undefined : { scale: disabled || isLoading ? 1 : 0.98 }}
         disabled={disabled || isLoading}
         className={cn(
           "relative inline-flex items-center justify-center rounded-sm transition-colors duration-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:opacity-50 disabled:cursor-not-allowed uppercase font-display tracking-wide",

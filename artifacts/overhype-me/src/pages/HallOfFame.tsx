@@ -7,7 +7,7 @@ import { usePersonName } from "@/hooks/use-person-name";
 import { renderFact } from "@/lib/render-fact";
 import { cn } from "@/components/ui/Button";
 import { Flame } from "lucide-react";
-import { motion } from "framer-motion";
+import { motion, useReducedMotion } from "framer-motion";
 
 type Period = "week" | "month" | "all";
 
@@ -21,6 +21,7 @@ export default function HallOfFame() {
   const [period, setPeriod] = useState<Period>("week");
   const [, setLocation] = useLocation();
   const { name, pronouns } = usePersonName();
+  const prefersReducedMotion = useReducedMotion();
 
   const { data, isLoading } = useListFacts({ sort: "top", limit: 20 });
   const facts = data?.facts ?? [];
@@ -101,7 +102,7 @@ export default function HallOfFame() {
             {/* #1 — featured hero card */}
             {topFact && (
               <motion.div
-                initial={{ opacity: 0, y: 16 }}
+                initial={prefersReducedMotion ? false : { opacity: 0, y: 16 }}
                 animate={{ opacity: 1, y: 0 }}
                 className="rounded-[20px] bg-card shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] border border-border p-5 md:p-8 mb-5"
               >
@@ -148,9 +149,9 @@ export default function HallOfFame() {
                 return (
                   <motion.div
                     key={fact.id}
-                    initial={{ opacity: 0, y: 10 }}
+                    initial={prefersReducedMotion ? false : { opacity: 0, y: 10 }}
                     animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: i * 0.05 }}
+                    transition={prefersReducedMotion ? { duration: 0 } : { delay: i * 0.05 }}
                     onClick={() => setLocation(`/facts/${fact.id}`)}
                     className="rounded-[16px] bg-card border border-border p-4 flex items-center gap-4 cursor-pointer hover:border-primary/40 transition-colors"
                   >
