@@ -10,8 +10,7 @@ import { useHeroFact } from "@/hooks/use-hero-fact";
 import { cn } from "@/components/ui/Button";
 import { renderFact } from "@/lib/render-fact";
 import { inferPronounsFromName } from "@/lib/infer-pronouns";
-import { PRONOUN_PRESETS } from "@/lib/pronouns";
-import { PronounEditor } from "@/components/ui/PronounEditor";
+import { PRONOUN_PRESETS, isCustomPronouns, parseCustom, serializeCustom, EMPTY_CUSTOM, type CustomPronounSet } from "@/lib/pronouns";
 
 type FilterMode = "default" | "hall-of-fame" | "hashtags";
 
@@ -378,13 +377,37 @@ function ColdMobileHero({ onSubmit }: { onSubmit: (name: string) => void }) {
 // Bottom-sheet that slides up after name entry to collect pronouns.
 // The AI/lookup inference pre-selects the most likely option so most
 // users just tap confirm once.
-const PRONOUN_PREVIEW_FACT = "The universe doesn't expand. {NAME} pushes it.";
+// Three facts that together exercise all major pronoun forms so the user sees
+// subject ({Subj}), possessive ({Poss}), and reflexive ({REFL}) in the preview.
+const PRONOUN_PREVIEW_FACTS = [
+  "{NAME} {does|do} not negotiate. {Subj} {dictates|dictate}.",
+  "{NAME}'s word {is|are} law. {Poss} decisions are final.",
+  "{NAME} taught {REFL} 14 languages. {Subj} called it nothing.",
+];
 
 const PRESET_LABELS: Record<string, string> = {
   "he/him":    "He / Him",
   "she/her":   "She / Her",
   "they/them": "They / Them",
 };
+
+const INPUT_CLASS =
+  "w-full bg-secondary border border-border rounded-[8px] px-3 py-1.5 text-sm text-foreground outline-none focus:border-primary transition-colors placeholder:text-muted-foreground/60";
+
+/** Highlight all occurrences of `name` in orange within a rendered sentence. */
+function HighlightName({ text, name }: { text: string; name: string }) {
+  if (!name) return <>{text}</>;
+  const parts = text.split(name);
+  return (
+    <>
+      {parts.map((p, i) =>
+        i < parts.length - 1
+          ? <span key={i}>{p}<span className="text-primary">{name}</span></span>
+          : <span key={i}>{p}</span>
+      )}
+    </>
+  );
+}
 
 function PronounsOnboardingSheet({
   name,
@@ -396,24 +419,44 @@ function PronounsOnboardingSheet({
   onSkip: () => void;
 }) {
   const inferred = inferPronounsFromName(name) ?? DEFAULT_PRONOUNS;
-  const [selected, setSelected] = useState(inferred);
+  const [selected, setSelected]   = useState(inferred);
   const [customOpen, setCustomOpen] = useState(false);
 
-  const previewRendered = renderFact(PRONOUN_PREVIEW_FACT, name, selected);
-  const nameParts = previewRendered.split(name);
+  // Custom pronoun field state — initialised from `selected` if it's already
+  // a pipe-delimited value, otherwise blank (user starts from scratch).
+  const [custom, setCustom] = useState<CustomPronounSet>(() => {
+    if (isCustomPronouns(inferred)) return parseCustom(inferred) ?? { ...EMPTY_CUSTOM };
+    return { ...EMPTY_CUSTOM };
+  });
+
+  const isCustomMode = customOpen;
 
   function handlePreset(p: string) {
     setSelected(p);
     setCustomOpen(false);
   }
 
-  function handleCustomChange(val: string) {
-    setSelected(val);
+  function openCustom() {
+    setCustomOpen(true);
+    // If switching from a preset, serialise whatever is in custom state
+    // (may be empty — that's fine, user fills it in).
+    setSelected(serializeCustom(custom));
+  }
+
+  function updateCustomField(field: keyof CustomPronounSet, val: string | boolean) {
+    const next = { ...custom, [field]: val };
+    setCustom(next);
+    setSelected(serializeCustom(next));
   }
 
   function handleConfirm() {
     onConfirm(selected);
   }
+
+  // Is the confirm button valid? Custom requires all 5 fields filled.
+  const confirmEnabled = isCustomMode
+    ? !!(custom.subj.trim() && custom.obj.trim() && custom.poss.trim() && custom.possPro.trim() && custom.refl.trim())
+    : true;
 
   return (
     <div className="fixed inset-0 z-[110] flex flex-col justify-end">
@@ -424,13 +467,14 @@ function PronounsOnboardingSheet({
         animate={{ y: 0 }}
         exit={{ y: "100%" }}
         transition={{ type: "spring", damping: 30, stiffness: 280 }}
-        className="relative z-10 bg-card rounded-t-[24px] shadow-[0_-20px_60px_rgba(0,0,0,0.6)] pb-safe"
+        className="relative z-10 bg-card rounded-t-[24px] shadow-[0_-20px_60px_rgba(0,0,0,0.6)]"
       >
         <div className="flex justify-center pt-3 mb-4">
           <div className="w-10 h-1 rounded-full bg-border" />
         </div>
 
-        <div className="px-5 pb-8">
+        {/* Scrollable body so long custom forms don't clip on small screens */}
+        <div className="px-5 pb-10 max-h-[85svh] overflow-y-auto">
           <h3 className="font-display font-bold text-[22px] uppercase tracking-tight text-foreground mb-1">
             One more thing.
           </h3>
@@ -439,18 +483,18 @@ function PronounsOnboardingSheet({
             <span className="text-foreground font-medium">{name}</span>?
           </p>
 
-          {/* ── Live preview ──────────────────────────────── */}
-          <div className="rounded-[14px] bg-background border border-border px-4 py-3 mb-5">
-            <p className="text-[11px] font-bold tracking-[0.16em] text-muted-foreground uppercase font-display mb-2">
-              Preview
-            </p>
-            <p className="font-display font-bold text-[18px] uppercase leading-tight text-foreground">
-              {nameParts.map((p, i) =>
-                i < nameParts.length - 1
-                  ? <span key={i}>{p}<span className="text-primary">{name}</span></span>
-                  : <span key={i}>{p}</span>
-              )}
-            </p>
+          {/* ── Three live previews ───────────────────────── */}
+          <div className="space-y-2 mb-5">
+            {PRONOUN_PREVIEW_FACTS.map((tpl, i) => {
+              const rendered = renderFact(tpl, name, selected);
+              return (
+                <div key={i} className="rounded-[12px] bg-background border border-border px-4 py-2.5">
+                  <p className="font-display font-bold text-[15px] uppercase leading-snug text-foreground">
+                    <HighlightName text={rendered} name={name} />
+                  </p>
+                </div>
+              );
+            })}
           </div>
 
           {/* ── Preset chips ──────────────────────────────── */}
@@ -461,7 +505,7 @@ function PronounsOnboardingSheet({
                 type="button"
                 onClick={() => handlePreset(p)}
                 className={`flex-1 py-3 rounded-[12px] border text-[13px] font-bold font-display uppercase tracking-wide transition-colors ${
-                  !customOpen && selected === p
+                  !isCustomMode && selected === p
                     ? "border-primary bg-primary/10 text-primary"
                     : "border-border text-muted-foreground hover:border-primary/50"
                 }`}
@@ -471,26 +515,69 @@ function PronounsOnboardingSheet({
             ))}
           </div>
 
-          {/* ── Custom expander ───────────────────────────── */}
+          {/* ── Custom pronouns expander ──────────────────── */}
           <button
             type="button"
-            onClick={() => { setCustomOpen(v => !v); }}
+            onClick={() => isCustomMode ? handlePreset(inferred) : openCustom()}
             className="flex items-center gap-1.5 text-[12px] text-muted-foreground hover:text-foreground transition-colors mb-3 font-medium"
           >
-            {customOpen ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
-            Custom pronouns
+            {isCustomMode ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+            {isCustomMode ? "Hide custom pronouns" : "Use custom pronouns"}
           </button>
 
           <AnimatePresence>
-            {customOpen && (
+            {isCustomMode && (
               <motion.div
                 initial={{ height: 0, opacity: 0 }}
                 animate={{ height: "auto", opacity: 1 }}
                 exit={{ height: 0, opacity: 0 }}
                 transition={{ duration: 0.2 }}
-                className="overflow-hidden mb-3"
+                className="overflow-hidden mb-4"
               >
-                <PronounEditor value={selected} onChange={handleCustomChange} />
+                <div className="p-3 border border-border rounded-[12px] bg-secondary/40 space-y-3">
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="block text-xs font-bold text-muted-foreground uppercase tracking-wider mb-1">Subject</label>
+                      <input type="text" value={custom.subj} onChange={(e) => updateCustomField("subj", e.target.value)}
+                        placeholder="xe, fae, ey…" maxLength={15} className={INPUT_CLASS} />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-muted-foreground uppercase tracking-wider mb-1">Object</label>
+                      <input type="text" value={custom.obj} onChange={(e) => updateCustomField("obj", e.target.value)}
+                        placeholder="xem, faer, em…" maxLength={15} className={INPUT_CLASS} />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-muted-foreground uppercase tracking-wider mb-1">Possessive adj.</label>
+                      <input type="text" value={custom.poss} onChange={(e) => updateCustomField("poss", e.target.value)}
+                        placeholder="xyr, faer, eir…" maxLength={15} className={INPUT_CLASS} />
+                      <p className="text-[10px] text-muted-foreground mt-0.5">"xyr book"</p>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-muted-foreground uppercase tracking-wider mb-1">Possessive pro.</label>
+                      <input type="text" value={custom.possPro} onChange={(e) => updateCustomField("possPro", e.target.value)}
+                        placeholder="xyrs, faers, eirs…" maxLength={15} className={INPUT_CLASS} />
+                      <p className="text-[10px] text-muted-foreground mt-0.5">"the book is xyrs"</p>
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-muted-foreground uppercase tracking-wider mb-1">Reflexive</label>
+                    <input type="text" value={custom.refl} onChange={(e) => updateCustomField("refl", e.target.value)}
+                      placeholder="xemself, faerself, emself…" maxLength={20} className={INPUT_CLASS} />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-muted-foreground uppercase tracking-wider mb-1">Verb form</label>
+                    <div className="flex gap-2">
+                      <button type="button" onClick={() => updateCustomField("plural", false)}
+                        className={`flex-1 py-1.5 rounded-[8px] border text-xs font-medium transition-colors ${!custom.plural ? "border-primary bg-primary/10 text-primary" : "border-border text-muted-foreground hover:border-primary/40"}`}>
+                        singular <span className="opacity-60 font-normal">(xe doesn't)</span>
+                      </button>
+                      <button type="button" onClick={() => updateCustomField("plural", true)}
+                        className={`flex-1 py-1.5 rounded-[8px] border text-xs font-medium transition-colors ${custom.plural ? "border-primary bg-primary/10 text-primary" : "border-border text-muted-foreground hover:border-primary/40"}`}>
+                        plural <span className="opacity-60 font-normal">(they don't)</span>
+                      </button>
+                    </div>
+                  </div>
+                </div>
               </motion.div>
             )}
           </AnimatePresence>
@@ -499,7 +586,8 @@ function PronounsOnboardingSheet({
           <button
             type="button"
             onClick={handleConfirm}
-            className="w-full h-[52px] bg-primary text-white rounded-[12px] font-display font-bold text-[13px] uppercase tracking-[0.12em] hover:bg-primary/90 transition-colors flex items-center justify-center gap-2 shadow-[0_0_20px_rgba(249,115,22,0.4)]"
+            disabled={!confirmEnabled}
+            className="w-full h-[52px] bg-primary text-white rounded-[12px] font-display font-bold text-[13px] uppercase tracking-[0.12em] hover:bg-primary/90 disabled:opacity-40 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2 shadow-[0_0_20px_rgba(249,115,22,0.4)]"
           >
             <Flame className="w-4 h-4" /> Looks right
           </button>
