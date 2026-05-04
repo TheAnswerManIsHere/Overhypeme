@@ -4,7 +4,7 @@ import type { Request, Response } from "express";
 import { createRateLimiter, RATE_MAX, RATE_WINDOW_MS } from "../lib/rateLimit.js";
 import { purgeExpiredRateLimitCounters } from "../lib/sharedRateLimiter.js";
 import { db, rateLimitCountersTable } from "@workspace/db";
-import { sql } from "drizzle-orm";
+import { like } from "drizzle-orm";
 
 function makeReq(opts: { ip?: string; sessionId?: string } = {}): Request {
   const headers: Record<string, string> = {};
@@ -16,7 +16,7 @@ async function runMw(mw: ReturnType<typeof createRateLimiter>, req: Request) { c
 
 describe("createRateLimiter", () => {
   before(async () => {
-    await db.delete(rateLimitCountersTable).where(sql`${rateLimitCountersTable.keyRaw} LIKE 'rl|test.%'`);
+    await db.delete(rateLimitCountersTable).where(like(rateLimitCountersTable.keyRaw, "rl|test.%"));
   });
 
   it("shares state across limiter instances", async () => {
