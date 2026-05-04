@@ -11,7 +11,7 @@ import { Textarea } from "@/components/ui/Input";
 import { useAppMutations } from "@/hooks/use-mutations";
 import { AdSlot } from "@/components/AdSlot";
 
-import { ThumbsUp, ThumbsDown, User, AlertCircle, GitBranch, ArrowLeft, Crown, Flame, Video, Play, ExternalLink, MessageSquare } from "lucide-react";
+import { ThumbsUp, ThumbsDown, User, AlertCircle, GitBranch, ArrowLeft, Crown, Flame, Video, Play, ExternalLink, MessageSquare, Check } from "lucide-react";
 import { ImageCard } from "@/components/ui/ImageCard";
 import { cn } from "@/components/ui/Button";
 import { usePersonName } from "@/hooks/use-person-name";
