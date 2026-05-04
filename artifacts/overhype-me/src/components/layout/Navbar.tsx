@@ -53,8 +53,12 @@ export function Navbar() {
   const [shareOpen, setShareOpen] = useState(false);
   const [forgetMeConfirm, setForgetMeConfirm] = useState(false);
 
-  function handleForgetMe() {
-    void fetch("/api/auth/logout", { method: "POST", credentials: "include" }).catch(() => {});
+  async function handleForgetMe() {
+    try {
+      await fetch("/api/auth/logout", { method: "POST", credentials: "include" });
+    } catch {
+      // Best-effort — proceed with client wipe even if the request fails
+    }
     localStorage.clear();
     sessionStorage.clear();
     document.cookie.split(";").forEach((c) => {
