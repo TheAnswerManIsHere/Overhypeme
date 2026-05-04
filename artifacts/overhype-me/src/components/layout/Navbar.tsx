@@ -79,7 +79,7 @@ export function Navbar() {
     // needs to be stored by the browser. Then refreshUser() re-fetches the
     // auth state so the UI reflects admin without any page navigation.
     void fetch("/api/auth/dev-admin-login", { method: "POST", credentials: "include" })
-      .then((res) => { if (res.ok) return refreshUser(); })
+      .then((res) => { if (res.ok) void refreshUser(); })
       .catch(() => { /* silently ignore */ });
   }
 

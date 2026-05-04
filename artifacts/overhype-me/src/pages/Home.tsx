@@ -515,7 +515,7 @@ function PronounsOnboardingSheet({
 }) {
   const prefersReducedMotion = useReducedMotion();
   const inferred = inferPronounsFromName(name) ?? DEFAULT_PRONOUNS;
-  const [selected, setSelected]   = useState(inferred);
+  const [selected, setSelected]   = useState<string>(inferred);
   const [customOpen, setCustomOpen] = useState(false);
 
   // Custom pronoun field state — initialised from `selected` if it's already
