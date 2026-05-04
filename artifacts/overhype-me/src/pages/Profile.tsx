@@ -202,6 +202,7 @@ export default function Profile() {
       setNewPassword("");
       setConfirmPassword("");
       setShowPasswordSection(false);
+      window.scrollTo({ top: 0, behavior: "smooth" });
       await queryClient.invalidateQueries({ queryKey: getGetMyProfileQueryKey() });
     } catch {
       setPasswordError("Network error. Please try again.");
@@ -559,6 +560,7 @@ export default function Profile() {
         setEditSuccess("Profile updated successfully.");
       }
       setEditing(false);
+      window.scrollTo({ top: 0, behavior: "smooth" });
     } catch (err: unknown) {
       const errObj = err as { response?: { data?: { error?: string } }; message?: string };
       setEditError(errObj?.response?.data?.error ?? errObj?.message ?? "Failed to update profile.");
