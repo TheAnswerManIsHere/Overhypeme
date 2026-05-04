@@ -150,7 +150,9 @@ function HeroBillboardMobile({
                 className="font-display font-bold uppercase tracking-tight leading-[0.95] text-foreground"
                 style={{ fontSize: "clamp(30px, 8.5vw, 40px)" }}
               >
-                <HeroHeadline rendered={rendered} name={name} />
+                <Link href={`/facts/${fact.id}`} className="hover:opacity-80 transition-opacity block">
+                  <HeroHeadline rendered={rendered} name={name} />
+                </Link>
               </motion.h2>
             ) : (
               <motion.div key="skeleton" className="space-y-3 pt-1" aria-hidden="true">
@@ -300,7 +302,9 @@ function DesktopHeroBillboard({
               className="font-display font-bold text-[56px] leading-[0.93] uppercase tracking-tight"
               style={{ textWrap: "pretty" } as React.CSSProperties}
             >
-              <HeroHeadline rendered={rendered} name={name} />
+              <Link href={`/facts/${fact.id}`} className="hover:opacity-80 transition-opacity block">
+                <HeroHeadline rendered={rendered} name={name} />
+              </Link>
             </motion.h2>
           ) : (
             <motion.div key="skeleton" className="space-y-4 pt-2" aria-hidden="true">
