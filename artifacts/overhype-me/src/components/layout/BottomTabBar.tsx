@@ -1,20 +1,20 @@
 import { useLocation } from "wouter";
 import { Home, Trophy, User } from "lucide-react";
 
-// Three-tab bottom bar: Facts / Hall of Fame / Me.
+// Three-tab bottom bar: Facts / Top Facts / Me.
 const TABS = [
-  { href: "/",             label: "Facts",        Icon: Home   },
-  { href: "/hall-of-fame", label: "Hall of Fame", Icon: Trophy },
-  { href: "/profile",      label: "Me",           Icon: User   },
+  { href: "/",          label: "Facts",     Icon: Home   },
+  { href: "/top-facts", label: "Top Facts", Icon: Trophy },
+  { href: "/profile",   label: "Me",        Icon: User   },
 ] as const;
 
 export function BottomTabBar() {
   const [location] = useLocation();
 
   function isActive(href: string, label: string) {
-    if (label === "Facts")        return location === "/";
-    if (label === "Hall of Fame") return location === "/hall-of-fame";
-    if (label === "Me")           return location.startsWith("/profile");
+    if (label === "Facts")     return location === "/";
+    if (label === "Top Facts") return location === "/top-facts";
+    if (label === "Me")        return location.startsWith("/profile");
     return location.startsWith(href);
   }
 

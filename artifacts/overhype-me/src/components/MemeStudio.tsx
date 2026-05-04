@@ -317,9 +317,9 @@ function DesktopRail({
         />
         <RailItem
           icon={<Trophy className="w-4 h-4" />}
-          label="Hall of Fame"
+          label="Top Facts"
           asLink
-          href="/hof"
+          href="/top-facts"
         />
       </nav>
 
