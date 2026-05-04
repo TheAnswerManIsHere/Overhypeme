@@ -51,7 +51,7 @@ export function FactCard({ fact, rank, showRank = false }: { fact: FactSummary, 
         {/* Fact text */}
         <Link href={`/facts/${fact.id}`} className="block mb-4">
           <h3 className="text-lg sm:text-xl md:text-2xl font-display font-bold text-foreground leading-tight uppercase tracking-tight">
-            "<HighlightName text={renderFact(fact.text, name, pronouns)} name={name} />"
+            {'"'}<HighlightName text={renderFact(fact.text, name, pronouns)} name={name} />{'"'}
           </h3>
         </Link>
 
