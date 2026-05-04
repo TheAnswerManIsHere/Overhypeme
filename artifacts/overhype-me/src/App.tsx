@@ -36,6 +36,8 @@ const Login = lazy(() => import("@/pages/Login"));
 const ForgotPassword = lazy(() => import("@/pages/ForgotPassword"));
 const ResetPassword = lazy(() => import("@/pages/ResetPassword"));
 const VerifyEmail = lazy(() => import("@/pages/VerifyEmail"));
+const HallOfFame = lazy(() => import("@/pages/HallOfFame"));
+const WearIt = lazy(() => import("@/pages/WearIt"));
 const NotFound = lazy(() => import("@/pages/not-found"));
 
 const queryClient = new QueryClient({
@@ -195,7 +197,9 @@ const ROUTE_IMPORT_MAP: Record<string, () => Promise<unknown>> = {
   activity: () => import("@/pages/ActivityFeed"),
   meme:     () => import("@/pages/MemePage"),
   video:    () => import("@/pages/VideoPage"),
-  pricing:  () => import("@/pages/Pricing"),
+  pricing:      () => import("@/pages/Pricing"),
+  "hall-of-fame": () => import("@/pages/HallOfFame"),
+  "wear":         () => import("@/pages/WearIt"),
 };
 
 /** Route keys used when no visit data has been recorded yet. */
@@ -275,12 +279,12 @@ function PrefetchCriticalRoutes() {
       resolvePrefetchRoutes().then((keys) => {
         if (cancelled) return;
         for (const key of keys) {
-          ROUTE_IMPORT_MAP[key]?.();
+          ROUTE_IMPORT_MAP[key]?.().catch(() => {});
         }
       }).catch(() => {
         if (cancelled) return;
         for (const key of DEFAULT_PREFETCH_ROUTES) {
-          ROUTE_IMPORT_MAP[key]?.();
+          ROUTE_IMPORT_MAP[key]?.().catch(() => {});
         }
       });
     };
@@ -364,7 +368,9 @@ function Router() {
         <Route path="/admin/features" component={AdminFeatures} />
         <Route path="/admin/email-queue" component={AdminEmailQueue} />
         <Route path="/admin" component={AdminDashboard} />
+        <Route path="/hall-of-fame" component={HallOfFame} />
         <Route path="/activity" component={ActivityFeed} />
+        <Route path="/wear/:slug?" component={WearIt} />
         <Route path="/meme/:slug" component={MemePage} />
         <Route path="/video/:id" component={VideoPage} />
         <Route path="/pricing" component={Pricing} />

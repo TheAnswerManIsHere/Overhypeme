@@ -633,7 +633,12 @@ export default function AdminFacts() {
                 <Pencil className="w-4 h-4 text-primary" />
                 Edit Fact #{selectedFact.id}
               </h2>
-              <button onClick={clearSelection} className="p-1 text-muted-foreground hover:text-foreground transition-colors" title="Close">
+              <button
+                onClick={clearSelection}
+                className="flex items-center justify-center w-11 h-11 -mr-2 text-muted-foreground hover:text-foreground transition-colors rounded-sm"
+                title="Close"
+                aria-label="Close edit panel"
+              >
                 <X className="w-5 h-5" />
               </button>
             </div>
@@ -792,8 +797,13 @@ export default function AdminFacts() {
                     Variants {loadingVariants ? "(loading…)" : `(${variants.length})`}
                   </span>
                   {!showAddVariant && (
-                    <button onClick={() => setShowAddVariant(true)} className="p-1 text-primary hover:text-primary/80 transition-colors" title="Add variant">
-                      <Plus className="w-4 h-4" />
+                    <button
+                      onClick={() => setShowAddVariant(true)}
+                      className="flex items-center justify-center min-w-[44px] min-h-[44px] -my-2 -mr-1 text-primary hover:text-primary/80 transition-colors"
+                      title="Add variant"
+                      aria-label="Add variant"
+                    >
+                      <Plus className="w-5 h-5" />
                     </button>
                   )}
                 </div>
@@ -845,10 +855,11 @@ export default function AdminFacts() {
                         </div>
                         <button
                           onClick={() => deleteVariant(v.id)}
-                          className="shrink-0 p-1 opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive transition-all"
+                          className="shrink-0 flex items-center justify-center min-w-[44px] min-h-[44px] -my-1 text-muted-foreground hover:text-destructive md:opacity-0 md:group-hover:opacity-100 transition-all"
                           title="Delete variant"
+                          aria-label="Delete variant"
                         >
-                          <Trash2 className="w-3.5 h-3.5" />
+                          <Trash2 className="w-4 h-4" />
                         </button>
                       </div>
                     ))
@@ -887,32 +898,35 @@ export default function AdminFacts() {
                       {pipelineResult.message}
                     </div>
                   )}
-                  <div className="flex gap-2">
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => void triggerImagePipeline(selectedFact.id, false)}
-                      isLoading={pipelineRunning}
-                      disabled={pipelineRunning}
-                      className="flex-1 gap-1.5 text-xs"
-                    >
-                      <RefreshCw className="w-3.5 h-3.5" />
-                      {selectedFact.hasPexelsImages ? "Re-run Pipeline" : "Run Image Pipeline"}
-                    </Button>
-                    {selectedFact.hasPexelsImages && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => void triggerImagePipeline(selectedFact.id, false)}
+                    isLoading={pipelineRunning}
+                    disabled={pipelineRunning}
+                    className="w-full gap-1.5 text-xs min-h-[44px]"
+                  >
+                    <RefreshCw className="w-3.5 h-3.5" />
+                    {selectedFact.hasPexelsImages ? "Re-run Pipeline" : "Run Image Pipeline"}
+                  </Button>
+                  {selectedFact.hasPexelsImages && (
+                    <div className="pt-2 mt-2 border-t border-dashed border-amber-500/20 space-y-1.5">
+                      <p className="text-[10px] font-bold uppercase tracking-wider text-amber-600 dark:text-amber-500 flex items-center gap-1">
+                        <AlertCircle className="w-3 h-3" /> Destructive
+                      </p>
                       <Button
                         size="sm"
                         variant="outline"
                         onClick={() => void triggerImagePipeline(selectedFact.id, true)}
                         isLoading={pipelineRunning}
                         disabled={pipelineRunning}
-                        className="gap-1.5 text-xs text-amber-500 border-amber-500/30 hover:border-amber-400 hover:bg-amber-500/10"
+                        className="w-full gap-1.5 text-xs text-amber-500 border-amber-500/30 hover:border-amber-400 hover:bg-amber-500/10 min-h-[44px]"
                         title="Force overwrite existing images"
                       >
-                        Force
+                        Force overwrite existing images
                       </Button>
-                    )}
-                  </div>
+                    </div>
+                  )}
                   <p className="text-[10px] text-muted-foreground">
                     {selectedFact.hasPexelsImages
                       ? "Re-run fetches new Pexels photos. Use Force to overwrite existing images."

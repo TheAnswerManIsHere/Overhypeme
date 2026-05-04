@@ -173,16 +173,26 @@ for (const route of ADMIN_AUTH_ROUTES) {
 }
 
 describe("requireAdminOrApiKey via x-api-key header", () => {
-  const PREVIOUS_KEY = process.env.ADMIN_API_KEY;
+  // IMPORTANT: capture the previous value inside `before`, NOT at module-load
+  // time. Under `--test-isolation=none` all test files share a process and
+  // top-level `before` hooks from every file run before any tests, in an
+  // order that is independent of the order in which files' tests execute.
+  // That means another file's top-level `before` (e.g. routes.import.test.ts
+  // setting ADMIN_API_KEY to its own test key) may have already mutated the
+  // env var by the time this nested suite runs — capturing at module load
+  // would snapshot a stale value, and the `after` below would then clobber
+  // the sibling file's setup, breaking its tests with 401s.
+  let previousKey: string | undefined;
   const TEST_KEY = "test-admin-key-do-not-use-anywhere-else";
 
   before(() => {
+    previousKey = process.env.ADMIN_API_KEY;
     process.env.ADMIN_API_KEY = TEST_KEY;
   });
 
   after(() => {
-    if (PREVIOUS_KEY === undefined) delete process.env.ADMIN_API_KEY;
-    else process.env.ADMIN_API_KEY = PREVIOUS_KEY;
+    if (previousKey === undefined) delete process.env.ADMIN_API_KEY;
+    else process.env.ADMIN_API_KEY = previousKey;
   });
 
   it("admits an unauthenticated request bearing a valid api key", async () => {

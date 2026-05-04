@@ -857,20 +857,21 @@ export default function AdminUsers() {
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
         {/* Left — user list */}
         <div className="bg-card border border-border rounded-lg overflow-hidden flex flex-col">
-          <div className="p-4 border-b border-border flex items-center gap-3">
-            <div className="relative flex-1">
+          <div className="p-3 sm:p-4 border-b border-border flex flex-wrap items-center gap-2 sm:gap-3">
+            <div className="relative flex-1 min-w-[60%]">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
               <Input
                 value={search}
                 onChange={(e) => { setSearch(e.target.value); setPage(1); }}
                 placeholder="Search name, email, or ID…"
-                className="pl-9"
+                className="pl-9 h-11"
               />
             </div>
             <button
               onClick={() => { setShowInactive((v) => !v); setPage(1); }}
               title={showInactive ? "Hide inactive users" : "Show inactive users"}
-              className={`shrink-0 p-2 rounded-sm border text-xs font-medium transition-colors ${
+              aria-label={showInactive ? "Hide inactive users" : "Show inactive users"}
+              className={`shrink-0 flex items-center justify-center min-w-[44px] min-h-[44px] rounded-sm border text-xs font-medium transition-colors ${
                 showInactive
                   ? "border-yellow-500/60 bg-yellow-500/10 text-yellow-500"
                   : "border-border text-muted-foreground hover:border-yellow-500/40 hover:text-yellow-500"
@@ -878,12 +879,18 @@ export default function AdminUsers() {
             >
               <UserX className="w-4 h-4" />
             </button>
-            <span className="text-sm text-muted-foreground whitespace-nowrap">
+            <Button
+              size="sm"
+              className="min-h-[44px]"
+              onClick={() => { setAddForm(EMPTY_ADD_FORM); setAddError(null); setShowAddModal(true); }}
+            >
+              <UserPlus className="w-4 h-4" />
+              <span className="hidden sm:inline">Add User</span>
+              <span className="sr-only sm:hidden">Add User</span>
+            </Button>
+            <span className="basis-full sm:basis-auto sm:ml-auto text-xs sm:text-sm text-muted-foreground whitespace-nowrap">
               {total} user{total !== 1 ? "s" : ""}
             </span>
-            <Button size="sm" onClick={() => { setAddForm(EMPTY_ADD_FORM); setAddError(null); setShowAddModal(true); }}>
-              <UserPlus className="w-4 h-4" /> Add User
-            </Button>
           </div>
 
           <div className="flex-1 overflow-auto divide-y divide-border">

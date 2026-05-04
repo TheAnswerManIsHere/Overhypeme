@@ -1,0 +1,20 @@
+The cost-as-gate principle is cleaner than you might be giving it credit for and I’d defend it strongly. It’s intellectually honest, builds trust (“they only charge me when I cost them money”), and pre-empts the “why am I paying for access when X is free elsewhere” objection. Users pay for capability that has real economics behind it, not for arbitrary feature partitioning.
+
+But I want to push on the strategic framing of photo-upload memes, because I think you’re underselling them. Photo memes aren’t competing with AI memes - they’re the on-ramp to AI memes.
+
+Once a user uploads their face and sees themselves in a meme, the AI value prop becomes visceral rather than abstract. “Imagine that, but in any scenario you can dream up” lands very differently after they’ve felt the spark of seeing their own face once. Free photo memes likely increase LEGEND conversion, not decrease it - they convert “AI memes” from a feature description into a craving.
+
+This surfaces an architectural insight worth being deliberate about: the photo should be a one-time identity asset, not a per-meme upload. Same as the name. The user sets up their identity once (name + photo), and every subsequent operation - photo memes, PuLID-driven AI memes, AI videos - draws from those tokens. The wins:
+
+	•	Removes per-meme friction on every creation (huge mobile UX win)
+	•	The AI meme upgrade becomes purely “unlock new generation modes,” not “also do upload work” - cleaner mental model
+	•	Creates a natural “complete your identity” moment that’s clearly value-additive, not a data-collection ask
+	•	Lets you invest once in photo quality (cropping, face detection, brightness validation) rather than per-creation
+
+The PuLID pipeline already needs a clean reference photo - might as well capture it once at identity setup and reuse.
+
+On the meme creator defaults: worth deciding deliberately what the default path is when a user opens the creator. The default gets chosen 80%+ of the time. If you default to stock photos, you’re optimizing for low-commitment exploration. If you default to “use your photo” with stock as a small “no thanks, use a generic image” link, you’re optimizing for high-value engagement and a faster path to AI conversion. Given that photo memes are now the AI on-ramp, default-to-photo is the right call - shy users can opt down rather than the reverse.
+
+On upgrade prompt timing: fire it after a successful photo meme, in the dopamine afterglow - not before creation. “Loved that? Now imagine [Name] surfing on a comet during the Big Bang. [Try AI mode →]” with a thumbnail of the meme they just made plus a teaser of what AI could do converts dramatically better than a feature-comparison paywall shown upfront.
+
+One residual tension worth naming explicitly: if photo memes are free and high-quality, the LEGEND value prop has to be category-different, not category-better. The pitch isn’t “more memes” - it’s “memes of you in places that don’t exist, doing things that aren’t physically possible, animated as shareable video.” That’s the line the gate should defend, and it’s defensible precisely because the cost story matches the capability story.

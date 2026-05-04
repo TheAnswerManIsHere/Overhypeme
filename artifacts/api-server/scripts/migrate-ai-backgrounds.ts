@@ -15,6 +15,12 @@
  * and its DB record is left unchanged.
  */
 
+// Install stdio guard so EIO/EPIPE on stdout/stderr (e.g. piped to `head`,
+// terminal disconnect, container log-pipe overrun) cannot crash the script.
+// CLI scripts intentionally keep using console.* for human-readable output.
+import { installStdioGuard } from "../src/lib/stdioGuard";
+installStdioGuard();
+
 import { db } from "@workspace/db";
 import { factsTable } from "@workspace/db/schema";
 import { isNotNull, eq } from "drizzle-orm";

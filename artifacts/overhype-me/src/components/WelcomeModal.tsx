@@ -1,10 +1,10 @@
 import { useState, useRef, useEffect, useCallback } from "react";
-import { Loader2, Zap } from "lucide-react";
+import { Loader2, ChevronDown, ChevronUp } from "lucide-react";
+import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
 import { useAuth } from "@workspace/replit-auth-web";
 import { useLocation } from "wouter";
-import { usePersonName, SHARE_LINK_ACTIVE, DEFAULT_NAME } from "@/hooks/use-person-name";
+import { usePersonName, SHARE_LINK_ACTIVE } from "@/hooks/use-person-name";
 import { PronounEditor } from "@/components/ui/PronounEditor";
-import { Button } from "@/components/ui/Button";
 import {
   PRONOUN_PRESETS,
   isCustomPronouns,
@@ -12,16 +12,12 @@ import {
 } from "@/lib/pronouns";
 import { renderFact } from "@/lib/render-fact";
 
-// Two example facts covering all five pronoun forms + verb conjugation.
-// Fact 1: NAME · OBJ · Subj · POSS · {singular|plural}
-// Fact 2: Subj · SUBJ · {singular|plural} · REFL · POSS_PRO
-const PREVIEW_FACTS = [
-  "{NAME} {doesn't|don't} chase success — it chases {OBJ}. {Subj} {knows|know} {POSS} worth.",
-  "{Subj} {doesn't|don't} need a co-sign — {SUBJ} earned it {REFL}. The credit? Entirely {POSS_PRO}.",
-] as const;
+const TEASER_FACT = "The universe doesn't expand. {NAME} pushes it.";
 
-// Pages where the modal should never interrupt the user
-const SUPPRESSED_PATHS = ["/login", "/onboard", "/forgot-password", "/reset-password", "/verify-email", "/admin"];
+// Home now has an inline name input baked into the cold-visitor hero, so the
+// auto-popping bottom-sheet would just duplicate that interaction.  We also
+// suppress on auth/admin paths where it has always been intrusive.
+const SUPPRESSED_PATHS = ["/", "/login", "/onboard", "/forgot-password", "/reset-password", "/verify-email", "/admin"];
 
 async function fetchSuggestedPronouns(name: string, signal: AbortSignal): Promise<string | null> {
   try {
@@ -55,11 +51,19 @@ function shouldShowModal(): boolean {
   try {
     if (localStorage.getItem("fact_db_name_explicit") === "1") return false;
     const storedName = localStorage.getItem("fact_db_name");
-    if (storedName && storedName !== DEFAULT_NAME) return false;
+    if (storedName) return false;
   } catch {
     return false;
   }
   return true;
+}
+
+function FlameMark() {
+  return (
+    <svg width="13" height="16" viewBox="0 0 16 20" fill="none">
+      <path d="M8 1c1 4 5 5 5 10s-2.5 8-5 8-5-3-5-8c0-4 2-5 3-7 0 2 1 3 2 3z" fill="currentColor" />
+    </svg>
+  );
 }
 
 export function WelcomeModal() {
@@ -68,20 +72,17 @@ export function WelcomeModal() {
   const [location] = useLocation();
 
   const [open, setOpen] = useState(false);
-
-  const [draftName, setDraftName] = useState(name === DEFAULT_NAME ? "" : name);
+  const [draftName, setDraftName] = useState(name || "");
   const [draftPronouns, setDraftPronouns] = useState(pronouns);
   const [aiLoading, setAiLoading] = useState(false);
+  const [pronounsExpanded, setPronounsExpanded] = useState(false);
 
   const userChosenRef      = useRef(false);
   const hasOverriddenRef   = useRef(false);
   const debounceTimerRef   = useRef<ReturnType<typeof setTimeout> | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
   const nameInputRef       = useRef<HTMLInputElement>(null);
-  // Prevent re-opening after dismiss/save within the same page session
   const hasOpenedRef       = useRef(false);
-
-  // ── Determine whether to open ─────────────────────────────────────────────
 
   useEffect(() => {
     if (authLoading) return;
@@ -89,24 +90,18 @@ export function WelcomeModal() {
     if (hasOpenedRef.current) return;
     if (SUPPRESSED_PATHS.some((p) => location.startsWith(p))) return;
     if (!shouldShowModal()) return;
-    // Don't re-open if already shown or skipped this browser session
     try {
       if (sessionStorage.getItem("welcome_modal_skipped") === "1") return;
       if (sessionStorage.getItem("welcome_modal_opened") === "1") return;
     } catch { /* ignore */ }
-    // Small delay so the page content renders first
     const t = setTimeout(() => {
       hasOpenedRef.current = true;
-      // Mark as opened immediately so re-mounts (after navigation) don't reopen
       try { sessionStorage.setItem("welcome_modal_opened", "1"); } catch { /* ignore */ }
       setOpen(true);
     }, 600);
     return () => clearTimeout(t);
-  // Only re-evaluate after auth finishes loading or the path changes
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [authLoading, isAuthenticated, location]);
-
-  // ── AI suggestion ─────────────────────────────────────────────────────────
 
   const triggerSuggestion = useCallback((nameValue: string) => {
     if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
@@ -128,21 +123,17 @@ export function WelcomeModal() {
     }, 450);
   }, []);
 
-  // Focus input and trigger suggestion when modal opens
   useEffect(() => {
     if (!open) return;
-    setTimeout(() => nameInputRef.current?.focus(), 50);
+    setTimeout(() => nameInputRef.current?.focus(), 100);
     if (!hasOverriddenRef.current && draftName.trim()) triggerSuggestion(draftName);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
-  // Cleanup on unmount
   useEffect(() => () => {
     if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
     abortControllerRef.current?.abort();
   }, []);
-
-  // ── Handlers ──────────────────────────────────────────────────────────────
 
   function handleNameChange(e: React.ChangeEvent<HTMLInputElement>) {
     const val = e.target.value;
@@ -165,7 +156,8 @@ export function WelcomeModal() {
     if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
     abortControllerRef.current?.abort();
     setAiLoading(false);
-    const finalName = draftName.trim() || DEFAULT_NAME;
+    const finalName = draftName.trim();
+    if (!finalName) return; // disabled state should prevent this, but be defensive
     setName(finalName);
     setPronouns(draftPronouns);
     setOpen(false);
@@ -176,7 +168,6 @@ export function WelcomeModal() {
     abortControllerRef.current?.abort();
     setAiLoading(false);
     setOpen(false);
-    // Mark explicit so the modal doesn't open again this session
     try { sessionStorage.setItem("welcome_modal_skipped", "1"); } catch { /* ignore */ }
   }
 
@@ -185,106 +176,164 @@ export function WelcomeModal() {
     if (e.key === "Escape") handleSkip();
   }
 
+  const prefersReducedMotion = useReducedMotion();
+
   if (!open) return null;
 
   const saveEnabled = canSave(draftPronouns) && draftName.trim().length > 0;
+  const displayName = draftName.trim() || "You";
+  const teaserRendered = renderFact(TEASER_FACT, displayName, draftPronouns);
+  const teaserParts = teaserRendered.split(displayName);
+
+  const nameForm = (
+    <>
+      <h2 className="font-display font-bold text-2xl md:text-[36px] uppercase tracking-tight leading-tight mb-1 md:mb-2">
+        What's <span className="text-primary">your</span> name?
+      </h2>
+      <p className="text-[13px] md:text-[15px] text-muted-foreground mb-5 md:mb-7 leading-relaxed">
+        Type your name and every fact in the database becomes about you.
+      </p>
+
+      <div className="relative mb-3">
+        <input
+          ref={nameInputRef}
+          type="text"
+          value={draftName}
+          onChange={handleNameChange}
+          onKeyDown={handleKeyDown}
+          placeholder="First name"
+          maxLength={100}
+          autoComplete="given-name"
+          className="w-full h-[52px] md:h-[56px] px-4 bg-secondary border border-border rounded-[14px] text-[17px] md:text-[18px] font-medium text-foreground outline-none focus:border-primary transition-colors placeholder:text-muted-foreground/50"
+        />
+        {aiLoading && (
+          <div className="absolute right-4 top-1/2 -translate-y-1/2">
+            <Loader2 className="w-4 h-4 text-muted-foreground animate-spin" />
+          </div>
+        )}
+      </div>
+
+      <button
+        type="button"
+        onClick={() => setPronounsExpanded(v => !v)}
+        className="flex items-center gap-1.5 text-[12px] text-muted-foreground hover:text-foreground transition-colors mb-3 font-medium"
+      >
+        {pronounsExpanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+        Customize pronouns
+        {aiLoading && !pronounsExpanded && <span className="text-[10px] italic ml-1">detecting…</span>}
+      </button>
+
+      <AnimatePresence>
+        {pronounsExpanded && (
+          <motion.div
+            initial={{ height: prefersReducedMotion ? "auto" : 0, opacity: prefersReducedMotion ? 1 : 0 }}
+            animate={{ height: "auto", opacity: 1 }}
+            exit={{ height: prefersReducedMotion ? "auto" : 0, opacity: prefersReducedMotion ? 1 : 0 }}
+            transition={{ duration: prefersReducedMotion ? 0 : 0.2 }}
+            className="overflow-hidden mb-3"
+          >
+            <PronounEditor value={draftPronouns} onChange={handlePronounsChange} />
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <button
+        onClick={handleSave}
+        disabled={!saveEnabled}
+        className="w-full h-[52px] md:h-[56px] bg-primary text-white rounded-[14px] font-display font-bold text-[15px] uppercase tracking-[0.12em] flex items-center justify-center gap-2 hover:bg-primary/90 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+      >
+        <FlameMark /> Hype me
+      </button>
+
+      <div className="text-center mt-3.5 text-[11px] md:text-[12px] text-muted-foreground">
+        Stored on this device · No account required ·{" "}
+        <button onClick={handleSkip} className="underline underline-offset-2 hover:text-foreground transition-colors">
+          skip
+        </button>
+      </div>
+    </>
+  );
+
+  const billboard = (
+    <>
+      <div className="flex items-center gap-2 mb-3 text-[11px] font-bold tracking-[0.18em] text-muted-foreground uppercase font-display">
+        <span className="w-5 h-px bg-muted-foreground/40" />
+        ABOUT {displayName.toUpperCase()}
+        <span className="w-5 h-px bg-muted-foreground/40" />
+      </div>
+      <h1 className="font-display font-bold text-4xl md:text-[88px] uppercase tracking-tight leading-[1.0] md:leading-[0.95] text-foreground" style={{ textWrap: "pretty" } as React.CSSProperties}>
+        {teaserParts.map((p, i) =>
+          i < teaserParts.length - 1
+            ? <span key={i}>{p}<span className="text-primary">{displayName}</span></span>
+            : <span key={i}>{p}</span>
+        )}
+      </h1>
+      <p className="mt-4 text-sm md:text-base text-muted-foreground italic flex items-center gap-3">
+        <span className="hidden md:inline-block w-9 h-px bg-border flex-shrink-0" />
+        Enough about {draftName.trim() || "them"}.
+      </p>
+    </>
+  );
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
-      {/* Backdrop */}
-      <div
-        className="absolute inset-0 bg-black/70 backdrop-blur-sm"
-        onClick={handleSkip}
-      />
+    <>
+      {/* ── Mobile: bottom sheet ───────────────────────────── */}
+      <div className="md:hidden fixed inset-0 z-[100] flex flex-col justify-end">
+        <div className="absolute inset-0 bg-black/65 backdrop-blur-sm" onClick={handleSkip} />
 
-      {/* Modal panel */}
-      <div className="relative z-10 w-full max-w-md bg-card border-2 border-primary/40 rounded-sm shadow-2xl shadow-primary/20 overflow-hidden">
-        {/* Header stripe */}
-        <div className="bg-primary/10 border-b border-primary/30 px-6 pt-6 pb-5 text-center">
-          <div className="text-4xl mb-3">🥊</div>
-          <h2 className="font-display font-bold text-xl text-foreground uppercase tracking-widest mb-1">
-            Who Are We Hyping?
-          </h2>
-          <p className="text-sm text-muted-foreground leading-relaxed">
-            Every fact on this site is written about <em>you</em>. Tell us your name and pronouns so we can personalise them properly.
-          </p>
+        <div className="relative z-10 px-6 pb-0" style={{ paddingTop: "max(env(safe-area-inset-top, 0px), 2rem)" }}>
+          {billboard}
         </div>
 
-        {/* Form body */}
-        <div className="px-6 py-5 space-y-4">
-          {/* Name */}
-          <div>
-            <label className="block text-xs font-display font-bold text-muted-foreground uppercase tracking-widest mb-1.5">
-              Your Name
-            </label>
-            <div className="flex items-center gap-2">
-              <input
-                ref={nameInputRef}
-                type="text"
-                value={draftName}
-                onChange={handleNameChange}
-                onKeyDown={handleKeyDown}
-                placeholder="e.g. Alex Johnson"
-                maxLength={100}
-                autoComplete="name"
-                className="flex-1 bg-secondary border border-border rounded-sm px-3 py-2 text-sm font-bold text-foreground outline-none focus:border-primary transition-colors placeholder:text-muted-foreground/60"
-              />
-              {aiLoading && <Loader2 className="w-4 h-4 text-muted-foreground animate-spin shrink-0" />}
+        <motion.div
+          initial={prefersReducedMotion ? false : { y: "100%" }}
+          animate={prefersReducedMotion ? {} : { y: 0 }}
+          exit={prefersReducedMotion ? {} : { y: "100%" }}
+          transition={prefersReducedMotion ? { duration: 0 } : { type: "spring", damping: 30, stiffness: 300 }}
+          className="relative z-10 w-full bg-card rounded-t-[24px] shadow-[0_-20px_40px_rgba(0,0,0,0.5)] mt-6"
+        >
+          <div className="flex justify-center pt-3">
+            <div className="w-9 h-1 rounded-full bg-border" />
+          </div>
+          <div className="px-6 pt-4">
+            <h2 className="font-display font-bold text-2xl uppercase tracking-tight leading-tight mb-1">Your turn.</h2>
+            <p className="text-[13px] text-muted-foreground mb-5">Add your name. Every fact becomes about you.</p>
+            {nameForm}
+            <div style={{ paddingBottom: "max(env(safe-area-inset-bottom, 0px), 2rem)" }} />
+          </div>
+        </motion.div>
+      </div>
+
+      {/* ── Desktop: two-column overlay ────────────────────── */}
+      <div className="hidden md:flex fixed inset-0 z-[100]">
+        <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={handleSkip} />
+
+        <div className="relative z-10 w-full m-auto max-w-[1100px] grid grid-cols-[1.4fr_1fr] shadow-[0_40px_100px_rgba(0,0,0,0.7)] rounded-[28px] overflow-hidden">
+          {/* Billboard L */}
+          <div className="bg-background px-20 py-24 flex flex-col justify-center">
+            {billboard}
+
+            {/* Stats row */}
+            <div className="flex items-center gap-8 mt-12">
+              <div>
+                <div className="font-display font-bold text-2xl">4,832</div>
+                <div className="text-[11px] text-muted-foreground uppercase tracking-[0.1em] font-display mt-1">Facts in database</div>
+              </div>
+              <div className="w-px h-9 bg-border" />
+              <div>
+                <div className="font-display font-bold text-2xl">192k</div>
+                <div className="text-[11px] text-muted-foreground uppercase tracking-[0.1em] font-display mt-1">Memes made</div>
+              </div>
             </div>
-            <p className="text-xs text-muted-foreground mt-1">
-              This is the name inserted into every personalised fact.
-            </p>
           </div>
 
-          {/* Pronouns */}
-          <div>
-            <div className="flex items-center gap-2 mb-1.5">
-              <label className="text-xs font-display font-bold text-muted-foreground uppercase tracking-widest">
-                Pronouns
-              </label>
-              {aiLoading && (
-                <span className="text-[10px] text-muted-foreground italic">suggesting…</span>
-              )}
-            </div>
-            <PronounEditor value={draftPronouns} onChange={handlePronounsChange} />
+          {/* Sign-up card R */}
+          <div className="bg-secondary border-l border-border px-16 py-24 flex flex-col justify-center">
+            <div className="text-[12px] font-bold tracking-[0.22em] text-primary uppercase font-display mb-3">Your turn</div>
+            {nameForm}
           </div>
-
-          {/* Preview */}
-          {draftName.trim() && (
-            <div className="space-y-1.5">
-              <p className="text-[10px] font-display font-bold text-muted-foreground uppercase tracking-widest">
-                Preview
-              </p>
-              {PREVIEW_FACTS.map((template, i) => (
-                <div
-                  key={i}
-                  className="bg-secondary/50 border border-border/60 rounded-sm px-3 py-2 text-xs text-foreground italic"
-                >
-                  "{renderFact(template, draftName.trim(), draftPronouns)}"
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-
-        {/* Actions */}
-        <div className="px-6 pb-6 flex flex-col gap-2">
-          <Button
-            variant="primary"
-            className="w-full gap-2 font-bold uppercase tracking-wider"
-            onClick={handleSave}
-            disabled={!saveEnabled}
-          >
-            <Zap className="w-4 h-4" /> Hype Me!
-          </Button>
-          <button
-            onClick={handleSkip}
-            className="text-xs text-muted-foreground hover:text-foreground transition-colors underline underline-offset-2 text-center py-1"
-          >
-            Skip for now — use default name
-          </button>
         </div>
       </div>
-    </div>
+    </>
   );
 }

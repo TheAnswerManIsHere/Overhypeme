@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { Navbar } from "./Navbar";
+import { BottomTabBar } from "./BottomTabBar";
 import { AdSlot } from "@/components/AdSlot";
 import { WelcomeModal } from "@/components/WelcomeModal";
 import { AccessRevocationBanner } from "@/components/AccessRevocationBanner";
@@ -86,14 +87,15 @@ export function Layout({ children }: { children: React.ReactNode }) {
       <EmailVerificationBanner />
       <AccessRevocationBanner />
       <WelcomeModal />
-      <main className="flex-1 w-full">
+      {/* Extra bottom padding on mobile to clear the fixed tab bar */}
+      <main className="flex-1 w-full pb-20 md:pb-0">
         {children}
       </main>
-      {/* Leaderboard ad above footer — hidden for premium users */}
-      <div className="w-full max-w-7xl mx-auto px-4 py-4">
+      {/* Leaderboard ad above footer — hidden on mobile (tab bar) */}
+      <div className="hidden md:block w-full max-w-7xl mx-auto px-4 py-4">
         <AdSlot slot={import.meta.env.VITE_ADSENSE_SLOT_LEADERBOARD ?? "0987654321"} format="horizontal" />
       </div>
-      <footer className="w-full bg-black border-t border-border py-12 mt-auto">
+      <footer className="hidden md:block w-full bg-black border-t border-border py-12 mt-auto">
         <div className="max-w-7xl mx-auto px-4 text-center">
           <div className="font-display text-4xl text-border mb-4 uppercase tracking-widest">Overhype.me</div>
           <p className="text-muted-foreground text-sm max-w-md mx-auto">
@@ -104,6 +106,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
           </div>
         </div>
       </footer>
+      <BottomTabBar />
     </>
   );
 }

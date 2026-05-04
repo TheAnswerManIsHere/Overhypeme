@@ -8,8 +8,8 @@ describe("renderFact — {NAME} token", () => {
     expect(renderFact("{NAME} is great", "Alice")).toBe("Alice is great");
   });
 
-  it("falls back to 'David Franklin' when name is empty string", () => {
-    expect(renderFact("{NAME} did it", "")).toBe("David Franklin did it");
+  it("falls back to '___' placeholder when name is empty string", () => {
+    expect(renderFact("{NAME} did it", "")).toBe("___ did it");
   });
 
   it("replaces all occurrences of {NAME}", () => {

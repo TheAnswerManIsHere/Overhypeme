@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { AdminLayout } from "@/components/admin/AdminLayout";
+import { ResponsiveTable, type ResponsiveColumn } from "@/components/admin/ResponsiveTable";
 import { Button } from "@/components/ui/Button";
 import { stripeDashboardUrl } from "@/lib/stripeDashboardUrl";
 import {
@@ -47,6 +48,14 @@ interface ApiResponse {
 }
 
 const PAGE_SIZE = 25;
+
+// Bind ResponsiveTable's row type via a TypeScript instantiation expression so
+// we don't need inline JSX generics (`<ResponsiveTable<RefundDisputeRow>`) at
+// the call site. Inline JSX generics break in dev because
+// @replit/vite-plugin-cartographer injects `data-component-name` attributes
+// between the component name and the type argument, producing invalid JSX
+// that babel rejects with an "Unexpected token" parser error.
+const RefundDisputeTable = ResponsiveTable<RefundDisputeRow>;
 
 const FILTER_OPTIONS: { value: "" | RefundDisputeEvent; label: string }[] = [
   { value: "", label: "All" },
@@ -244,170 +253,186 @@ export default function AdminRefundsDisputes() {
         )}
 
         {/* Table */}
-        <div className="bg-card border border-border rounded-lg overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead className="bg-muted/40">
-                <tr className="text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                  <th className="px-3 py-2.5">When</th>
-                  <th className="px-3 py-2.5">Event</th>
-                  <th className="px-3 py-2.5">User</th>
-                  <th className="px-3 py-2.5">Plan</th>
-                  <th className="px-3 py-2.5 text-right">Amount</th>
-                  <th className="px-3 py-2.5">Stripe</th>
-                </tr>
-              </thead>
-              <tbody>
-                {loading && rows.length === 0 ? (
-                  <tr>
-                    <td colSpan={6} className="px-3 py-10 text-center text-muted-foreground">
-                      <Loader2 className="w-4 h-4 animate-spin inline mr-2" />
-                      Loading…
-                    </td>
-                  </tr>
-                ) : rows.length === 0 ? (
-                  <tr>
-                    <td colSpan={6} className="px-3 py-10 text-center text-muted-foreground">
-                      <ShieldAlert className="w-5 h-5 mx-auto mb-2 opacity-60" />
-                      No refund or dispute events match the current filters.
-                    </td>
-                  </tr>
-                ) : (
-                  rows.map((row) => {
-                    const piUrl = row.stripePaymentIntentId
-                      ? stripeDashboardUrl("payments", row.stripePaymentIntentId, { liveMode })
-                      : null;
-                    const disputeUrl = row.stripeDisputeId
-                      ? stripeDashboardUrl("disputes", row.stripeDisputeId, { liveMode })
-                      : null;
-                    const subUrl = row.stripeSubscriptionId
-                      ? stripeDashboardUrl("subscriptions", row.stripeSubscriptionId, { liveMode })
-                      : null;
-
-                    return (
-                      <tr
-                        key={row.id}
-                        className="border-t border-border hover:bg-muted/20 transition-colors align-top"
-                      >
-                        <td className="px-3 py-2.5 whitespace-nowrap text-muted-foreground text-xs">
-                          {new Date(row.createdAt).toLocaleString()}
-                        </td>
-                        <td className="px-3 py-2.5 whitespace-nowrap">
-                          <span
-                            className={`inline-flex items-center gap-1 px-2 py-0.5 text-xs font-semibold rounded-full border ${eventBadgeClass(
-                              row.event,
-                            )}`}
-                          >
-                            {row.event === "refund" ? (
-                              <Undo2 className="w-3 h-3" />
-                            ) : (
-                              <ShieldAlert className="w-3 h-3" />
-                            )}
-                            {formatEvent(row.event)}
-                          </span>
-                        </td>
-                        <td className="px-3 py-2.5">
-                          <div className="flex flex-col">
-                            <span className="text-foreground font-medium truncate max-w-[220px]">
-                              {row.userDisplayName ?? <em className="text-muted-foreground">no name</em>}
-                            </span>
-                            <span className="text-xs text-muted-foreground truncate max-w-[220px]">
-                              {row.userEmail ?? "—"}
-                            </span>
-                            <span className="text-[10px] font-mono text-muted-foreground/80 truncate max-w-[220px]">
-                              {row.userId}
-                            </span>
-                          </div>
-                        </td>
-                        <td className="px-3 py-2.5 text-muted-foreground text-xs whitespace-nowrap">
-                          {row.plan ?? "—"}
-                        </td>
-                        <td className="px-3 py-2.5 text-right tabular-nums whitespace-nowrap">
-                          {formatAmount(row.amount, row.currency)}
-                        </td>
-                        <td className="px-3 py-2.5">
-                          <div className="flex flex-col gap-0.5 text-xs font-mono">
-                            {disputeUrl && (
-                              <a
-                                href={disputeUrl}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="inline-flex items-center gap-1 text-primary hover:underline"
-                                title="Open dispute in Stripe"
-                              >
-                                <ExternalLink className="w-3 h-3 shrink-0" />
-                                <span className="truncate max-w-[180px]">{row.stripeDisputeId}</span>
-                              </a>
-                            )}
-                            {piUrl && (
-                              <a
-                                href={piUrl}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="inline-flex items-center gap-1 text-primary hover:underline"
-                                title="Open payment intent in Stripe"
-                              >
-                                <ExternalLink className="w-3 h-3 shrink-0" />
-                                <span className="truncate max-w-[180px]">{row.stripePaymentIntentId}</span>
-                              </a>
-                            )}
-                            {subUrl && !piUrl && !disputeUrl && (
-                              <a
-                                href={subUrl}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="inline-flex items-center gap-1 text-primary hover:underline"
-                                title="Open subscription in Stripe"
-                              >
-                                <ExternalLink className="w-3 h-3 shrink-0" />
-                                <span className="truncate max-w-[180px]">{row.stripeSubscriptionId}</span>
-                              </a>
-                            )}
-                            {!piUrl && !disputeUrl && !subUrl && (
-                              <span className="text-muted-foreground italic">—</span>
-                            )}
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })
-                )}
-              </tbody>
-            </table>
-          </div>
-
-          {/* Pagination */}
-          {data && data.total > 0 && (
-            <div className="flex items-center justify-between px-3 py-2 border-t border-border bg-muted/20 text-xs">
-              <span className="text-muted-foreground">
-                Page {data.page} of {totalPages} · {data.total.toLocaleString()} total
-                {!liveMode && (
-                  <span className="ml-2 text-blue-400">(Stripe links open in TEST mode)</span>
-                )}
-              </span>
-              <div className="flex items-center gap-1">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="h-7 px-2"
-                  disabled={page <= 1 || loading}
-                  onClick={() => setPage((p) => Math.max(1, p - 1))}
-                >
-                  <ChevronLeft className="w-3.5 h-3.5" />
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="h-7 px-2"
-                  disabled={page >= totalPages || loading}
-                  onClick={() => setPage((p) => p + 1)}
-                >
-                  <ChevronRight className="w-3.5 h-3.5" />
-                </Button>
+        <RefundDisputeTable
+          rows={rows}
+          getKey={(row) => row.id}
+          loading={loading}
+          emptyState={
+            <div className="flex flex-col items-center gap-2">
+              <ShieldAlert className="w-5 h-5 opacity-60" />
+              <span>No refund or dispute events match the current filters.</span>
+            </div>
+          }
+          mobilePrimary={(row) => (
+            <div className="flex items-start justify-between gap-2">
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-medium text-foreground truncate">
+                  {row.userDisplayName ?? row.userEmail ?? <em className="text-muted-foreground">no name</em>}
+                </p>
+                <p className="text-xs text-muted-foreground truncate mt-0.5">
+                  {row.userEmail ?? row.userId}
+                </p>
               </div>
+              <span
+                className={`shrink-0 inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-semibold rounded-full border ${eventBadgeClass(row.event)}`}
+              >
+                {row.event === "refund" ? <Undo2 className="w-3 h-3" /> : <ShieldAlert className="w-3 h-3" />}
+                {formatEvent(row.event)}
+              </span>
             </div>
           )}
-        </div>
+          columns={[
+            {
+              key: "createdAt",
+              header: "When",
+              className: "whitespace-nowrap text-muted-foreground text-xs",
+              cell: (row) => new Date(row.createdAt).toLocaleString(),
+              mobileValue: (row) =>
+                new Date(row.createdAt).toLocaleString(undefined, {
+                  month: "short",
+                  day: "numeric",
+                  hour: "2-digit",
+                  minute: "2-digit",
+                }),
+            },
+            {
+              key: "event",
+              header: "Event",
+              hideOnMobile: true,
+              className: "whitespace-nowrap",
+              cell: (row) => (
+                <span
+                  className={`inline-flex items-center gap-1 px-2 py-0.5 text-xs font-semibold rounded-full border ${eventBadgeClass(row.event)}`}
+                >
+                  {row.event === "refund" ? <Undo2 className="w-3 h-3" /> : <ShieldAlert className="w-3 h-3" />}
+                  {formatEvent(row.event)}
+                </span>
+              ),
+            },
+            {
+              key: "user",
+              header: "User",
+              hideOnMobile: true,
+              cell: (row) => (
+                <div className="flex flex-col">
+                  <span className="text-foreground font-medium truncate max-w-[220px]">
+                    {row.userDisplayName ?? <em className="text-muted-foreground">no name</em>}
+                  </span>
+                  <span className="text-xs text-muted-foreground truncate max-w-[220px]">
+                    {row.userEmail ?? "—"}
+                  </span>
+                  <span className="text-[10px] font-mono text-muted-foreground/80 truncate max-w-[220px]">
+                    {row.userId}
+                  </span>
+                </div>
+              ),
+            },
+            {
+              key: "plan",
+              header: "Plan",
+              className: "text-muted-foreground text-xs whitespace-nowrap",
+              cell: (row) => row.plan ?? "—",
+              mobileSecondary: true,
+            },
+            {
+              key: "amount",
+              header: "Amount",
+              className: "text-right tabular-nums whitespace-nowrap",
+              cell: (row) => formatAmount(row.amount, row.currency),
+            },
+            {
+              key: "stripe",
+              header: "Stripe",
+              mobileSecondary: true,
+              cell: (row) => {
+                const piUrl = row.stripePaymentIntentId
+                  ? stripeDashboardUrl("payments", row.stripePaymentIntentId, { liveMode })
+                  : null;
+                const disputeUrl = row.stripeDisputeId
+                  ? stripeDashboardUrl("disputes", row.stripeDisputeId, { liveMode })
+                  : null;
+                const subUrl = row.stripeSubscriptionId
+                  ? stripeDashboardUrl("subscriptions", row.stripeSubscriptionId, { liveMode })
+                  : null;
+                return (
+                  <div className="flex flex-col gap-0.5 text-xs font-mono">
+                    {disputeUrl && (
+                      <a
+                        href={disputeUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1 text-primary hover:underline min-h-[32px]"
+                        title="Open dispute in Stripe"
+                      >
+                        <ExternalLink className="w-3 h-3 shrink-0" />
+                        <span className="truncate max-w-[180px]">{row.stripeDisputeId}</span>
+                      </a>
+                    )}
+                    {piUrl && (
+                      <a
+                        href={piUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1 text-primary hover:underline min-h-[32px]"
+                        title="Open payment intent in Stripe"
+                      >
+                        <ExternalLink className="w-3 h-3 shrink-0" />
+                        <span className="truncate max-w-[180px]">{row.stripePaymentIntentId}</span>
+                      </a>
+                    )}
+                    {subUrl && !piUrl && !disputeUrl && (
+                      <a
+                        href={subUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1 text-primary hover:underline min-h-[32px]"
+                        title="Open subscription in Stripe"
+                      >
+                        <ExternalLink className="w-3 h-3 shrink-0" />
+                        <span className="truncate max-w-[180px]">{row.stripeSubscriptionId}</span>
+                      </a>
+                    )}
+                    {!piUrl && !disputeUrl && !subUrl && (
+                      <span className="text-muted-foreground italic">—</span>
+                    )}
+                  </div>
+                );
+              },
+            },
+          ] satisfies ResponsiveColumn<RefundDisputeRow>[]}
+          footer={
+            data && data.total > 0 ? (
+              <div className="flex items-center justify-between gap-2 px-3 py-2 border-t border-border bg-muted/20 text-xs flex-wrap">
+                <span className="text-muted-foreground">
+                  Page {data.page} of {totalPages} · {data.total.toLocaleString()} total
+                  {!liveMode && (
+                    <span className="ml-2 text-blue-400">(Stripe links open in TEST mode)</span>
+                  )}
+                </span>
+                <div className="flex items-center gap-1">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-8 min-w-[40px] px-2"
+                    disabled={page <= 1 || loading}
+                    onClick={() => setPage((p) => Math.max(1, p - 1))}
+                  >
+                    <ChevronLeft className="w-3.5 h-3.5" />
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-8 min-w-[40px] px-2"
+                    disabled={page >= totalPages || loading}
+                    onClick={() => setPage((p) => p + 1)}
+                  >
+                    <ChevronRight className="w-3.5 h-3.5" />
+                  </Button>
+                </div>
+              </div>
+            ) : null
+          }
+        />
       </div>
     </AdminLayout>
   );

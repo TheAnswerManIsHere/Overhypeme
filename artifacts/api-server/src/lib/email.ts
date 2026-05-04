@@ -44,6 +44,43 @@ if (isEnabled()) {
   resend = new Resend(process.env.RESEND_API_KEY!);
 }
 
+/**
+ * Set to true once Resend returns an authentication error (HTTP 401 / invalid
+ * key). Subsequent calls short-circuit so we don't spam the API or trigger
+ * follow-on logger.error calls that have, in the past, killed the process via
+ * a broken pino-pretty transport. The flag lives for the lifetime of the
+ * process — restarting the server (e.g. after rotating RESEND_API_KEY) clears
+ * it. Outbox rows return ok:false and remain pending so they retry once the
+ * key is fixed.
+ *
+ * Exported for tests to reset between runs.
+ */
+let resendAuthDisabled = false;
+export function _resetResendAuthDisabledForTests(): void {
+  resendAuthDisabled = false;
+}
+
+interface MaybeResendError {
+  message?: unknown;
+  name?: unknown;
+  statusCode?: unknown;
+}
+
+function isResendAuthError(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const e = error as MaybeResendError;
+  if (e.statusCode === 401) return true;
+  const name = typeof e.name === "string" ? e.name.toLowerCase() : "";
+  if (name.includes("auth") || name.includes("api_key") || name === "restricted_api_key") {
+    return true;
+  }
+  const msg = typeof e.message === "string" ? e.message.toLowerCase() : "";
+  if (msg.includes("api key is invalid") || msg.includes("invalid api key") || msg.includes("missing api key")) {
+    return true;
+  }
+  return false;
+}
+
 export interface EmailPayload {
   to: string;
   subject: string;
@@ -58,12 +95,16 @@ export async function sendEmail(
   if (!isEnabled()) {
     const from = await getFromAddress();
     const replyTo = await getReplyToAddress();
-    console.log("[email] Resend not configured — would have sent:");
-    console.log(`  To:       ${payload.to}`);
-    console.log(`  From:     ${from}`);
-    if (replyTo) console.log(`  Reply-To: ${replyTo}`);
-    console.log(`  Subject:  ${payload.subject}`);
-    console.log(`  Body:     ${payload.text}`);
+    logger.info(
+      {
+        to: payload.to,
+        from,
+        replyTo,
+        subject: payload.subject,
+        body: payload.text,
+      },
+      "[email] Resend not configured — would have sent",
+    );
     return;
   }
   const dbInstance = dbOverride ?? defaultDb;
@@ -90,6 +131,12 @@ export const RETRY_DELAYS_MS = [0, 5 * 60_000, 30 * 60_000, 2 * 3_600_000, 8 * 3
 export async function deliverFromOutbox(
   row: Pick<EmailOutboxRow, "to" | "subject" | "text" | "html">,
 ): Promise<{ ok: boolean; error?: string }> {
+  if (resendAuthDisabled) {
+    return {
+      ok: false,
+      error: "Resend disabled this process: invalid RESEND_API_KEY (HTTP 401). Restart after rotating the key.",
+    };
+  }
   const from    = await getFromAddress();
   const replyTo = await getReplyToAddress();
   try {
@@ -101,9 +148,33 @@ export async function deliverFromOutbox(
       text:    row.text,
       html:    row.html ?? row.text,
     });
-    if (error) return { ok: false, error: String(error.message) };
+    if (error) {
+      if (isResendAuthError(error)) {
+        resendAuthDisabled = true;
+        // Use console.error rather than the pino logger here. The crash this
+        // file is guarding against was triggered when a Resend 401 caused a
+        // logger.error() write to a dead pino-pretty worker thread, so we
+        // deliberately avoid the pino path on this fatal-config error.
+        console.error(
+          "[email] Resend rejected RESEND_API_KEY (HTTP 401 / authentication error). " +
+          "Disabling email delivery for the rest of this process. " +
+          "Rotate the key in environment secrets and restart the server. " +
+          `Error: ${String(error.message)}`,
+        );
+      }
+      return { ok: false, error: String(error.message) };
+    }
     return { ok: true };
   } catch (err) {
+    if (isResendAuthError(err)) {
+      resendAuthDisabled = true;
+      console.error(
+        "[email] Resend rejected RESEND_API_KEY (HTTP 401 / authentication error). " +
+        "Disabling email delivery for the rest of this process. " +
+        "Rotate the key in environment secrets and restart the server. " +
+        `Error: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
     return { ok: false, error: err instanceof Error ? err.message : String(err) };
   }
 }

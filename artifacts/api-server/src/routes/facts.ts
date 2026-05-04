@@ -18,6 +18,7 @@ import {
 import { stripeStorage } from "../lib/stripeStorage";
 import { notifyAdmins } from "../lib/adminNotify";
 import { getSiteBaseUrl } from "../lib/siteUrl";
+import { logger } from "../lib/logger";
 import { hasFeature } from "../lib/tierFeatures";
 import { verifyCaptcha } from "../lib/captcha";
 import { eq, sql, desc, asc, ilike, and, inArray, isNull } from "drizzle-orm";
@@ -105,6 +106,101 @@ router.get("/facts", async (req: Request, res: Response) => {
   const order = sort === "newest" ? desc(factsTable.createdAt) : sort === "trending" ? desc(factsTable.commentCount) : desc(factsTable.wilsonScore);
   const rows = await db.select().from(factsTable).where(where).orderBy(order).limit(limit).offset(offset);
   res.json({ facts: await buildFactSummaries(rows, req.user?.id), total: count });
+});
+
+// GET /facts/hero — weighted-random pick from the top ~50 Wilson-ranked facts.
+//
+// This powers the home page hero billboard.  We sample probability-proportional
+// to wilsonScore (with a tiny epsilon floor) so quality stays gated while
+// variety stays high.  Callers may pass `exclude=1,2,3` to suppress recently-
+// seen facts (anonymous visitors track their own short list client-side); for
+// authenticated callers we additionally exclude anything already shown via
+// `last_seen_as_hero_at`.  After picking we record the seen-as-hero timestamp
+// for the auth user so the de-dup persists across visits.
+router.get("/facts/hero", async (req: AuthenticatedRequest, res: Response) => {
+  const POOL_SIZE = 50;
+
+  const excludeRaw = String(req.query["exclude"] ?? "");
+  const excludeIds = excludeRaw
+    .split(",")
+    .map((s) => parseInt(s.trim(), 10))
+    .filter((n) => Number.isFinite(n) && n > 0)
+    .slice(0, 100);
+
+  // For logged-in users, also exclude anything we've already shown as hero.
+  if (req.isAuthenticated()) {
+    const seenRows = await db
+      .select({ factId: userFactPreferencesTable.factId })
+      .from(userFactPreferencesTable)
+      .where(
+        and(
+          eq(userFactPreferencesTable.userId, req.user.id),
+          sql`${userFactPreferencesTable.lastSeenAsHeroAt} IS NOT NULL`,
+        ),
+      );
+    for (const r of seenRows) excludeIds.push(r.factId);
+  }
+
+  const baseConds = [eq(factsTable.isActive, true), isNull(factsTable.parentId)];
+
+  // First pass: top pool minus exclusions.
+  const conds = [...baseConds];
+  if (excludeIds.length > 0) {
+    conds.push(sql`${factsTable.id} NOT IN (${sql.join(excludeIds.map((id) => sql`${id}`), sql`, `)})`);
+  }
+
+  let pool = await db
+    .select()
+    .from(factsTable)
+    .where(and(...conds))
+    .orderBy(desc(factsTable.wilsonScore))
+    .limit(POOL_SIZE);
+
+  // If exclusions wiped the pool clean, retry without exclusions so the user
+  // always sees *something*.  This shouldn't happen unless the database is
+  // very small.
+  if (pool.length === 0) {
+    pool = await db
+      .select()
+      .from(factsTable)
+      .where(and(...baseConds))
+      .orderBy(desc(factsTable.wilsonScore))
+      .limit(POOL_SIZE);
+  }
+
+  if (pool.length === 0) {
+    res.status(404).json({ error: "No facts available" });
+    return;
+  }
+
+  // Weighted random pick: probability proportional to wilsonScore (epsilon
+  // floor so brand-new facts at score 0 are still occasionally selectable).
+  const epsilon = 0.001;
+  const weights = pool.map((f) => Math.max(f.wilsonScore, 0) + epsilon);
+  const total = weights.reduce((a, b) => a + b, 0);
+  let r = Math.random() * total;
+  let pickIdx = 0;
+  for (let i = 0; i < weights.length; i++) {
+    r -= weights[i];
+    if (r <= 0) { pickIdx = i; break; }
+  }
+  const pick = pool[pickIdx];
+
+  // Record seen-as-hero for auth users.  Best-effort: don't block the response
+  // on the write.
+  if (req.isAuthenticated()) {
+    void db
+      .insert(userFactPreferencesTable)
+      .values({ userId: req.user.id, factId: pick.id, lastSeenAsHeroAt: new Date() })
+      .onConflictDoUpdate({
+        target: [userFactPreferencesTable.userId, userFactPreferencesTable.factId],
+        set: { lastSeenAsHeroAt: new Date(), updatedAt: new Date() },
+      })
+      .catch((err: unknown) => logger.error({ err }, "Failed to record hero pick"));
+  }
+
+  const [summary] = await buildFactSummaries([pick], req.user?.id);
+  res.json({ fact: summary, poolSize: pool.length });
 });
 
 // GET /facts/:factId

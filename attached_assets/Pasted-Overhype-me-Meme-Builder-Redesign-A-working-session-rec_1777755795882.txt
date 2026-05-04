@@ -1,0 +1,73 @@
+Overhype.me — Meme Builder Redesign
+A working session reconstruction for handoff to Replit. Earlier turns of this thread were trimmed by the system; this doc reconstructs the design intent, decisions, and the full file structure on disk.
+---
+Project goal
+Redesign the meme creation flow for Overhype.me — an app that turns a "fact" about a person (e.g. "The universe doesn't expand. Riley pushes it.") into a shareable image, video, or piece of merch. The brief was to rethink the meme builder's information architecture and screens so it feels less like a generic editor and more like a focused legend-making studio.
+The output is a single interactive HTML prototype that presents many screen variants side-by-side on a Design Canvas (pan/zoom, drag-reorder, fullscreen focus per artboard). Both mobile (390×844 in iOS bezel) and desktop (1280×860 in browser-window chrome) are covered.
+---
+Decisions
+Information architecture
+The flow is a 6-step journey:
+Fact detail — full-screen presentation of the fact about the user; entry point to "Make a meme".
+Studio entry — central hub. One hero path (AI image or user photo, configurable), a prominent Magic Video secondary card, and a 4-up grid for "other ways" (Manual video, Stock photo, Color/gradient, and the alternate of the hero).
+AI gallery — own flow. Generator panel on the left (vibe picker + Generate button), library grid on the right. Generating shows a shimmer placeholder card; finished generations get a NEW badge.
+Image editor — canvas + controls. Mobile uses a bottom sheet for ratio / style / position; desktop uses a right rail. Words snap to top/bottom but are draggable for free placement.
+Video flow — Magic (one-tap, AI scene + animated subject) or Manual (pick source + animate). Both gated behind Legendary.
+Post-create — success state. Preview, download, share-to-socials grid, and a "Turn into merch" upsell (Tee/Hoodie/Sticker/Tote).
+A Paywall screen intercepts AI-image and video paths for non-Legendary users; unlocking returns them to the path they came from.
+Tweaks (in-design controls)
+Name — substituted into every fact and meme via a `<Hyped>{name}</Hyped>` mark.
+Studio leads with — `AI-first` (recommended hero is the AI image) vs `Photo-first` (recommended hero is "Use your photo"). Both keep Magic Video as the prominent secondary card.
+User is Legendary — toggles paywall vs direct path for AI/video; also affects sidebar upsell on desktop.
+Visual system
+Type: Oswald (display, condensed, all-caps for legend energy) + Inter (body).
+Color: black/near-black background, ivory foreground, primary red (`#E2393C`-ish) for the Hyped mark + recommended CTAs. A muted card surface and hairline borders for everything else.
+Hyped mark: every occurrence of the user's name in fact text gets the primary-red display treatment with a subtle italic — the consistent brand "tell".
+Aspect ratios: meme canvas supports 1:1 (default), 4:5, 9:16 (story), 16:9.
+---
+File structure on disk
+```
+Meme Builder Redesign.html      ← entry point; loads all JSX modules in order
+app.jsx                         ← root; canvas + sections + per-artboard MiniFlow state machine
+design-canvas.jsx               ← starter component: pan/zoom canvas with sections + artboards
+tweaks-panel.jsx                ← starter component: tweaks UI + persistence protocol
+ios-frame.jsx                   ← starter component: iOS device bezel
+tokens.jsx                      ← OvTokens: palette (P), fonts (F), Hyped, Wordmark, FlameMark, PortraitBG
+shell.jsx                       ← OvShell: StatusBar, HomeIndicator, Avatar, Icon set, Chip, Shell, BottomSheet, CTAs
+studio.jsx                      ← OvStudio: MemeCanvas, StudioEntry (mobile hub), RATIOS, BG_SOURCES, WORD_STYLES
+fact-detail.jsx                 ← OvFactDetail: full-screen fact presentation
+flows.jsx                       ← OvFlows: AIGallery, ImageEditor, VideoFlow, Paywall, PostCreate (mobile)
+desktop.jsx                     ← OvDesktopMeme: DStudioEntry, DEditor, DAIGallery, DPostCreate (1280×860)
+ai-flows.jsx canvas-editor.jsx post.jsx   ← earlier mobile drafts (kept for reference)
+```
+`Meme Builder Redesign.html` loads React 18 + Babel standalone, then each JSX module in dependency order: design-canvas → tweaks-panel → tokens → shell → studio → flows → fact-detail → desktop → app.
+Each module exports its components onto a `window.Ov*` namespace because Babel-standalone scripts don't share scope across `<script>` tags. Style objects are uniquely named (`terminalStyles`, not `styles`) to avoid global collisions.
+---
+How the canvas is structured
+`app.jsx` renders a `<DesignCanvas>` with two `<DCSection>`s:
+The redesigned flow — eight artboards stepping through the journey: Fact detail → Studio entry → AI gallery (Legendary) → AI gallery (Paywall) → Image editor → Magic video → Manual video → Post-create.
+Default mode comparison — two artboards showing the same Studio screen with `defaultMode='ai'` vs `defaultMode='photo'`, both with Legendary off so the lock affordances show.
+Desktop — four 1280×860 artboards: Studio, AI gallery, Editor, Post-create, each in macOS-window chrome.
+Each mobile artboard hosts a `<MiniFlow startScreen=...>` — a self-contained state machine seeded with that screen, so users can click through from any starting point and the artboard "comes alive" rather than being a static mock.
+---
+Tweaks protocol summary
+The `TWEAKS` object in `app.jsx` is wrapped in `/*EDITMODE-BEGIN*/.../*EDITMODE-END*/` markers so the host can persist edits to disk:
+```js
+const TWEAKS = /*EDITMODE-BEGIN*/{
+  "name": "Riley",
+  "defaultMode": "ai",
+  "isLegendary": false,
+  "entryPattern": "hub"
+}/*EDITMODE-END*/;
+```
+The `useTweaks()` hook (from `tweaks-panel.jsx`) reads these defaults, manages state, and posts `__edit_mode_set_keys` messages to the parent so changes survive reload.
+---
+Open questions / next steps
+More desktop screens: only Studio / AI gallery / Editor / Post-create are mocked at 1280×860. Fact detail, Video flow, and Paywall still need desktop variants.
+Real assets: AI image library uses gradient placeholders (`PortraitBG` with named vibes). Replace with real AI generations or stock for fidelity.
+Merch preview: the merch upsell shows three tiny garment swatches with stamped name. A real product preview (overlay onto a tee mockup) would land harder.
+Video flow: currently a single screen showing magic vs manual mode. The actual editor (timeline, audio picker, beat sync) is not designed.
+Onboarding / fact generation: the prototype assumes the fact already exists. Where the fact comes from is out of scope here.
+---
+Caveats
+This document is reconstructed from on-disk artifacts and the tail of the conversation that was still in context — earlier exploratory turns (initial questions, kit-discovery, first mobile drafts) were trimmed by the system and not literally transcribed. The architecture, decisions, and file structure above all match what's actually built in `Meme Builder Redesign.html` today.

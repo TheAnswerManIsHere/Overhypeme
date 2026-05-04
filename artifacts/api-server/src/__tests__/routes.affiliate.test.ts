@@ -330,4 +330,64 @@ describe("GET /affiliate/stats — admin-only", () => {
 
     assert.ok(Array.isArray(res.body.totals));
   });
+
+  it("returns a bySourceDaily series bucketed by UTC day and source", async () => {
+    await cleanup();
+    const userId = await createTestUser({ isAdmin: true });
+    const sid = await bearerForUser(userId, { sessionIsAdmin: true });
+
+    // Two clicks on the same UTC day from the same source plus a click from
+    // a different source — the bucket should collapse to a single row per
+    // (source, day) pair.
+    const sourceId = `${SOURCE_PREFIX}${randomUUID()}`;
+    const day1 = new Date("2025-01-10T05:00:00Z");
+    const day1Late = new Date("2025-01-10T22:30:00Z");
+    const day2 = new Date("2025-01-12T03:15:00Z");
+
+    await db.insert(affiliateClicksTable).values([
+      { userId: null, sourceType: "fact", sourceId, destination: "zazzle", source: "meme-page", clickedAt: day1 },
+      { userId: null, sourceType: "fact", sourceId, destination: "zazzle", source: "meme-page", clickedAt: day1Late },
+      { userId: null, sourceType: "fact", sourceId, destination: "zazzle", source: "wear-page", clickedAt: day2 },
+    ]);
+
+    const res = await request(makeApp())
+      .get("/affiliate/stats")
+      .set("authorization", `Bearer ${sid}`)
+      .query({ from: "2025-01-01", to: "2025-01-31" });
+    assert.equal(res.status, 200);
+
+    const daily = res.body.bySourceDaily as Array<{ source: string | null; day: string; total: number }>;
+    assert.ok(Array.isArray(daily), "bySourceDaily should be an array");
+
+    const memeDay1 = daily.find((p) => p.source === "meme-page" && p.day === "2025-01-10");
+    const wearDay2 = daily.find((p) => p.source === "wear-page" && p.day === "2025-01-12");
+    assert.ok(memeDay1, "expected a meme-page point for 2025-01-10");
+    assert.equal(memeDay1!.total, 2);
+    assert.ok(wearDay2, "expected a wear-page point for 2025-01-12");
+    assert.equal(wearDay2!.total, 1);
+  });
+
+  it("respects the date range filter for bySourceDaily", async () => {
+    await cleanup();
+    const userId = await createTestUser({ isAdmin: true });
+    const sid = await bearerForUser(userId, { sessionIsAdmin: true });
+
+    const sourceId = `${SOURCE_PREFIX}${randomUUID()}`;
+    await db.insert(affiliateClicksTable).values([
+      { userId: null, sourceType: "fact", sourceId, destination: "zazzle", source: "meme-page", clickedAt: new Date("2025-02-05T10:00:00Z") },
+      { userId: null, sourceType: "fact", sourceId, destination: "zazzle", source: "meme-page", clickedAt: new Date("2025-03-05T10:00:00Z") },
+    ]);
+
+    const res = await request(makeApp())
+      .get("/affiliate/stats")
+      .set("authorization", `Bearer ${sid}`)
+      .query({ from: "2025-02-01", to: "2025-02-28" });
+    assert.equal(res.status, 200);
+
+    const daily = res.body.bySourceDaily as Array<{ source: string | null; day: string; total: number }>;
+    const inRange = daily.filter((p) => p.day === "2025-02-05");
+    const outOfRange = daily.filter((p) => p.day === "2025-03-05");
+    assert.ok(inRange.length >= 1, "expected the in-range day to be present");
+    assert.equal(outOfRange.length, 0, "expected the out-of-range day to be filtered out");
+  });
 });

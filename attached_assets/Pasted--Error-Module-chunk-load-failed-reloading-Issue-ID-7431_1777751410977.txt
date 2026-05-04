@@ -1,0 +1,230 @@
+# Error: Module chunk load failed — reloading
+
+**Issue ID:** 7431369985
+**Project:** sentry_project_frontend
+**Date:** 4/30/2026, 4:34:35 PM
+
+## Root Cause
+```
+# Root Cause of the Issue
+
+Browser loads stale `index.html` referencing non-existent JavaScript chunks, causing dynamic import failures and subsequent `SyntaxError` for missing bindings.
+
+### User navigates to application, browser loads cached index.html.
+The browser, due to caching, loads an outdated `index.html` file. This file contains references to JavaScript chunk files from a previous deployment that no longer exist on the server.
+
+### React app initializes, attempts to render root component.
+The `main.tsx` entry point renders the `<App />` component, which sets up global providers and the main router.
+(See @artifacts/overhype-me/src/main.tsx)
+
+### Router component renders, triggering lazy page imports.
+The `<Router />` component in `App.tsx` contains a `<Switch>` with multiple `Route` components, each dynamically importing a page using `React.lazy()`. For example, `FactDetail` is lazy loaded:
+```typescript
+const FactDetail = lazy(() => import("@/pages/FactDetail"));
+```
+When the user navigates to a route like `/facts/:id`, this dynamic import is triggered.
+(See @artifacts/overhype-me/src/App.tsx)
+
+### Browser requests non-existent JavaScript chunk for lazy page.
+Because the `index.html` is stale, the browser requests a JavaScript chunk (e.g., `factdetail.a1b2c3d4.js`) that was part of the previous deployment but has been removed from the server in the current deployment. This results in a 404 HTTP error.
+
+### Module chunk load fails, triggering internal error handler.
+The browser's attempt to load the chunk fails. This failure is caught by an internal error handler (likely part of Vite's runtime or a custom `lazy-retry` mechanism, as indicated by the Sentry stack trace, even if the file isn't directly in the repo). This handler then throws a `Module chunk load failed` error.
+```javascript
+// Conceptual code from the 'lazy-retry.ts' mentioned in Sentry
+// This is not directly in the codebase but inferred from the stack trace.
+// It likely wraps the dynamic import to handle failures.
+factory()
+  .then(resolve)
+  .catch(() => {
+    window.location.reload();
+    reject(new Error("Module chunk load failed — reloading")); // This is the error seen
+  });
+```
+
+### Sentry ErrorBoundary catches the module load failure.
+The `Sentry.ErrorBoundary` in `App.tsx` catches the `Module chunk load failed — reloading` error. This is the primary error reported to Sentry.
+```typescript
+function App() {
+  return (
+    <Sentry.ErrorBoundary fallback={({ resetError }) => <SentryFallback resetError={resetError} />}>
+      {/* ... rest of the app ... */}
+    </Sentry.ErrorBoundary>
+  );
+}
+```
+(See @artifacts/overhype-me/src/App.tsx)
+
+### SentryFallback component triggers page reload.
+The `SentryFallback` component, when rendered, provides a 'Reload page' button that explicitly calls `window.location.reload()`. The internal error handler also triggers a reload.
+```typescript
+// In SentryFallback.tsx
+onClick={() => {
+  resetError();
+  window.location.reload();
+}}
+```
+This reload is intended to fetch a fresh `index.html` and resolve the chunk loading issue.
+(See @artifacts/overhype-me/src/components/SentryFallback.tsx)
+
+### Subsequent errors: SyntaxError due to missing bindings.
+If the initial module chunk load fails, any subsequent attempts to use exports from that module (e.g., `getGetFactQueryKey` from `@workspace/api-client-react` within `FactDetail`) will result in a `SyntaxError` because the module was never successfully loaded and parsed. This is a secondary symptom of the primary chunk load failure.
+(See @lib/api-client-react/src/generated/api.ts)
+```
+
+## Tags
+
+- **browser:** Mobile Safari UI/WKWebView
+- **browser.name:** Mobile Safari UI/WKWebView
+- **device:** Mac
+- **device.family:** Mac
+- **environment:** development
+- **handled:** yes
+- **level:** error
+- **mechanism:** generic
+- **os:** Mac OS X >=10.15.7
+- **os.name:** Mac OS X
+- **release:** dev
+- **replayId:** 79744bfdbee74d3ba5826767818b04bc
+- **transaction:** /
+- **url:** https://1f4dceef-1d85-4176-b8e7-de6afe117cc4-00-2g4ys2kfyzqjj.spock.replit.dev/
+
+## Exceptions
+
+### Exception 1
+**Type:** React ErrorBoundary Error
+**Value:** Module chunk load failed — reloading
+
+#### Stacktrace
+
+```
+ Route in ../../../../../node_modules/.pnpm/wouter@3.9.0_react@19.1.0/node_modules/wouter/src/index.js [Line 240] (Not in app)
+  });
+
+  return [searchParams, setSearchParams];
+}
+
+export const Route = ({ path, nest, match, ...renderProps }) => {  <-- SUSPECT LINE
+  const router = useRouter();
+  const [location] = useLocationFromRouter(router);
+
+  const [matches, routeParams, base] =
+    // `match` is a special prop to give up control to the parent,
+ Switch in ../../../../../node_modules/.pnpm/wouter@3.9.0_react@19.1.0/node_modules/wouter/src/index.js [Line 329] (Not in app)
+        flattenChildren(c && c.type === Fragment ? c.props.children : c)
+      )
+    : [children];
+
+export const Switch = ({ children, location }) => {
+  const router = useRouter();  <-- SUSPECT LINE
+  const [originalLocation] = useLocationFromRouter(router);
+
+  for (const element of flattenChildren(children)) {
+    let match = 0;
+
+ Router in ../../../../../node_modules/.pnpm/wouter@3.9.0_react@19.1.0/node_modules/wouter/src/index.js [Line 144] (Not in app)
+
+/*
+ * Part 2, Low Carb Router API: Router, Route, Link, Switch
+ */
+
+export const Router = ({ children, ...props }) => {  <-- SUSPECT LINE
+  // the router we will inherit from - it is the closest router in the tree,
+  // unless the custom `hook` is provided (in that case it's the default one)
+  const parent_ = useRouter();
+  const parent = props.hook ? defaultRouter : parent_;
+
+ PersonNameProvider in use-person-name.ts [Line 129] (In app)
+  }
+  return { subject: pronouns, object: pronouns };
+}
+
+export function PersonNameProvider({ children }: { children: ReactNode }) {
+  const [name,     setNameState]     = useState<string>(getInitialName);  <-- SUSPECT LINE
+  const [pronouns, setPronounsState] = useState<string>(getInitialPronouns);
+
+  const { subject, object } = splitSubjectObject(pronouns);
+
+  // Persist URL-param values to localStorage so they survive URL cleanup,
+ Provider in ../../../../../node_modules/.pnpm/@radix-ui+react-context@1.1.2_@types+react@19.2.14_react@19.1.0/node_modules/@radix-ui/react-context/src/create-context.tsx [Line 59] (Not in app)
+    defaultContexts = [...defaultContexts, defaultContext];
+
+    const Provider: React.FC<
+      ContextValueType & { scope: Scope<ContextValueType>; children: React.ReactNode }
+    > = (props) => {
+      const { scope, children, ...context } = props;  <-- SUSPECT LINE
+      const Context = scope?.[scopeName]?.[index] || BaseContext;
+      // Only re-memoize when prop values change
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+      const value = React.useMemo(() => context, Object.values(context)) as ContextValueType;
+      return <Context.Provider value={value}>{children}</Context.Provider>;
+ TooltipProvider in ../../../../../node_modules/.pnpm/@radix-ui+react-tooltip@1.2.8_@types+react-dom@19.2.3_@types+react@19.2.14__@types+reac_ab0d0da4ee6b1f28831a19c3e4e15a95/node_modules/@radix-ui/react-tooltip/src/tooltip.tsx [Line 73] (Not in app)
+    __scopeTooltip,
+    delayDuration = DEFAULT_DELAY_DURATION,
+    skipDelayDuration = 300,
+    disableHoverableContent = false,
+    children,
+  } = props;  <-- SUSPECT LINE
+  const isOpenDelayedRef = React.useRef(true);
+  const isPointerInTransitRef = React.useRef(false);
+  const skipDelayTimerRef = React.useRef(0);
+
+  React.useEffect(() => {
+ QueryClientProvider in ../../../../../node_modules/.pnpm/@tanstack+react-query@5.90.21_react@19.1.0/node_modules/@tanstack/react-query/src/QueryClientProvider.tsx [Line 30] (Not in app)
+  client: QueryClient
+  children?: React.ReactNode
+}
+
+export const QueryClientProvider = ({
+  client,  <-- SUSPECT LINE
+  children,
+}: QueryClientProviderProps): React.JSX.Element => {
+  React.useEffect(() => {
+    client.mount()
+    return () => {
+ AuthProvider in use-auth.ts [Line 50] (In app)
+  const data = (await res.json()) as { user: AuthUser | null };
+  return data.user ?? null;
+}
+
+export function AuthProvider({ children }: { children: ReactNode }) {
+  const [user, setUser] = useState<AuthUser | null>(null);  <-- SUSPECT LINE
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetchAuthUser()
+ new ErrorBoundary in ../../../../../node_modules/.pnpm/@sentry+react@10.49.0_react@19.1.0/node_modules/@sentry/react/src/errorboundary.tsx [Line 101] (Not in app)
+
+  private _lastEventId?: string;
+  private _cleanupHook?: () => void;
+
+  public constructor(props: ErrorBoundaryProps) {
+    super(props);  <-- SUSPECT LINE
+
+    this.state = INITIAL_STATE;
+    this._openFallbackReportDialog = true;
+
+    const client = getClient();
+```
+------
+### Exception 2
+**Type:** Error
+**Value:** Module chunk load failed — reloading
+
+#### Stacktrace
+
+```
+ <anonymous> in lazy-retry.ts [Line 27] (In app)
+          setTimeout(() => {
+            factory()
+              .then(resolve)
+              .catch(() => {
+                window.location.reload();
+                reject(new Error("Module chunk load failed — reloading"));  <-- SUSPECT LINE
+              });
+          }, 400);
+        }),
+    ),
+  );
+```

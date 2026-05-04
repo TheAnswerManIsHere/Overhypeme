@@ -7,8 +7,13 @@
  */
 import type { AffiliateClickRow } from "./affiliateClickRow";
 import type { AffiliateDestinationTotal } from "./affiliateDestinationTotal";
+import type { AffiliateSourceDailyPoint } from "./affiliateSourceDailyPoint";
+import type { AffiliateSourceTotal } from "./affiliateSourceTotal";
 
 export interface AffiliateStatsResponse {
   rows: AffiliateClickRow[];
   totals: AffiliateDestinationTotal[];
+  bySource: AffiliateSourceTotal[];
+  /** Daily click counts bucketed by `source`, ordered by day ascending. */
+  bySourceDaily: AffiliateSourceDailyPoint[];
 }

@@ -8,7 +8,15 @@ const STORAGE_KEY_EXPLICIT = "fact_db_name_explicit"; // set when user intention
 const LEGACY_KEY_SUBJECT   = "fact_db_pronoun_subject";
 const LEGACY_KEY_OBJECT    = "fact_db_pronoun_object";
 
-export const DEFAULT_NAME = "David Franklin";
+/**
+ * Empty default — the app no longer ships with a seeded persona.  Cold
+ * visitors see a placeholder hero ("___") + inline name input on Home, and
+ * warm visitors are anyone who has stored a non-empty name (or has a share
+ * link active).  The legacy "David Franklin" string is kept here for read-
+ * only backward compatibility migration in `getInitialName`.
+ */
+export const DEFAULT_NAME = "";
+const LEGACY_DEFAULT_NAME = "David Franklin";
 export { DEFAULT_PRONOUNS };
 
 // Derived for callers that still need individual parts
@@ -51,13 +59,22 @@ function markExplicit() {
 // ── Initial-state helpers ─────────────────────────────────────────────────────
 
 function getInitialName(): string {
-  const stored = localStorage.getItem(STORAGE_KEY_NAME);
+  let stored = localStorage.getItem(STORAGE_KEY_NAME);
+
+  // One-time migration: clear the seeded "David Franklin" placeholder so we
+  // can drop the default persona — but only if the user never explicitly
+  // chose it themselves.  This way returning visitors who genuinely typed
+  // "David Franklin" keep their choice; everyone else starts cold.
+  if (stored === LEGACY_DEFAULT_NAME && !isUserExplicit()) {
+    try { localStorage.removeItem(STORAGE_KEY_NAME); } catch { /* ignore */ }
+    stored = null;
+  }
 
   // URL param wins only when:
   //   • a share link is active
   //   • AND the user has NOT explicitly set their own name
-  //   • AND they have no stored name (or only the default placeholder)
-  if (_URL_NAME && !isUserExplicit() && (!stored || stored === DEFAULT_NAME)) {
+  //   • AND they have no stored name
+  if (_URL_NAME && !isUserExplicit() && !stored) {
     return _URL_NAME;
   }
 
@@ -141,11 +158,19 @@ export function PersonNameProvider({ children }: { children: ReactNode }) {
   }, []);
 
   function setName(value: string) {
-    const n = value.trim() || DEFAULT_NAME;
-    localStorage.setItem(STORAGE_KEY_NAME, n);
+    const n = value.trim();
+    if (n) {
+      localStorage.setItem(STORAGE_KEY_NAME, n);
+      markExplicit();
+    } else {
+      // Empty input clears identity entirely (back to cold visitor state).
+      try {
+        localStorage.removeItem(STORAGE_KEY_NAME);
+        localStorage.removeItem(STORAGE_KEY_EXPLICIT);
+      } catch { /* ignore */ }
+    }
     localStorage.removeItem("fact_db_first_name");
     localStorage.removeItem("fact_db_last_name");
-    markExplicit();
     setNameState(n);
   }
 
@@ -171,12 +196,14 @@ export function PersonNameProvider({ children }: { children: ReactNode }) {
   }
 
   function syncFromProfile(newName: string, newPronouns: string) {
-    const n = newName.trim() || DEFAULT_NAME;
+    const n = newName.trim();
     const p = newPronouns.trim() || DEFAULT_PRONOUNS;
     try {
-      localStorage.setItem(STORAGE_KEY_NAME, n);
+      if (n) {
+        localStorage.setItem(STORAGE_KEY_NAME, n);
+        markExplicit();
+      }
       localStorage.setItem(STORAGE_KEY_PRONOUNS, p);
-      markExplicit();
     } catch { /* ignore */ }
     setNameState(n);
     setPronounsState(p);

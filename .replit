@@ -24,10 +24,6 @@ author = "agent"
 
 [[workflows.workflow.tasks]]
 task = "workflow.run"
-args = "typecheck"
-
-[[workflows.workflow.tasks]]
-task = "workflow.run"
 args = "sentry-tests"
 
 [[workflows.workflow.tasks]]
@@ -38,16 +34,17 @@ args = "api-server-tests"
 task = "workflow.run"
 args = "db-tests"
 
-[[workflows.workflow]]
-name = "typecheck"
-author = "agent"
-
-[workflows.workflow.metadata]
-isValidation = true
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "git-lock-cleaner-tests"
 
 [[workflows.workflow.tasks]]
-task = "shell.exec"
-args = "pnpm --filter @workspace/api-spec run codegen && pnpm tsc -p lib/api-zod/tsconfig.json && pnpm tsc -p lib/api-client-react/tsconfig.json && pnpm --filter @workspace/redact run build && pnpm --filter @workspace/db exec tsc -p tsconfig.json && pnpm --filter @workspace/api-server run typecheck"
+task = "workflow.run"
+args = "git-lock-watcher"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "typecheck"
 
 [[workflows.workflow]]
 name = "sentry-tests"
@@ -82,6 +79,17 @@ args = "pnpm --filter @workspace/db run test"
 [workflows.workflow.metadata]
 isValidation = true
 
+[[workflows.workflow]]
+name = "git-lock-watcher"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "bash scripts/dev-supervisor.sh git-lock-watcher bash -c 'while true; do bash scripts/clean-stale-git-locks.sh; sleep \"${GIT_LOCK_WATCHER_INTERVAL:-10}\"; done'"
+
+[workflows.workflow.metadata]
+outputType = "console"
+
 [agent]
 stack = "PNPM_WORKSPACE"
 expertMode = true
@@ -110,3 +118,26 @@ STRIPE_ACCOUNT_ID_LIVE = "acct_1TGk96PUPouDdcHb"
 
 [objectStorage]
 defaultBucketID = "replit-objstore-ae743525-77de-4797-8785-8a65fa3c45c3"
+
+
+[[workflows.workflow]]
+name = "git-lock-cleaner-tests"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "bash scripts/__tests__/clean-stale-git-locks.test.sh"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "typecheck"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "bash scripts/with-time-limit.sh 180000 bash -c 'pnpm --filter @workspace/api-spec run codegen && pnpm tsc -p lib/api-zod/tsconfig.json && pnpm tsc -p lib/api-client-react/tsconfig.json && pnpm --filter @workspace/redact run build && pnpm --filter @workspace/db run typecheck && pnpm --filter @workspace/api-server run typecheck'"
+
+[workflows.workflow.metadata]
+isValidation = true

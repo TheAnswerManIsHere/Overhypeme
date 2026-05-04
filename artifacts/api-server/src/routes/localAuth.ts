@@ -3,11 +3,12 @@ import bcrypt from "bcryptjs";
 import crypto from "crypto";
 import { db, usersTable, passwordResetTokensTable, sessionsTable, emailVerificationTokensTable } from "@workspace/db";
 import { eq, and } from "drizzle-orm";
-import { createSession, type SessionData } from "../lib/auth";
+import { createSession, updateSession, getSessionId, type SessionData } from "../lib/auth";
 import { isAdminById } from "./auth";
 import { sendEmail, buildPasswordResetEmail, buildEmailVerificationEmail, buildEmailChangeVerificationEmail } from "../lib/email";
 import { getSiteBaseUrl } from "../lib/siteUrl";
 import { checkSharedRateLimit } from "../lib/sharedRateLimiter";
+import { logger } from "../lib/logger";
 
 const router: IRouter = Router();
 
@@ -167,7 +168,7 @@ router.post("/auth/register", async (req: Request, res: Response) => {
   // Fire verification email asynchronously — don't block registration
   if (emailNormalized) {
     sendVerificationEmail(user.id, emailNormalized).catch((err) => {
-      console.error("[auth] Failed to send verification email:", err);
+      logger.error({ err }, "[auth] Failed to send verification email");
     });
   }
 
@@ -492,7 +493,7 @@ router.post("/auth/resend-verification", async (req: Request, res: Response) => 
   // If there's a pending email change, resend the change verification email
   if (user.pendingEmail) {
     sendVerificationEmail(userId, user.pendingEmail, user.pendingEmail).catch((err) => {
-      console.error("[auth] Failed to resend email change verification:", err);
+      logger.error({ err }, "[auth] Failed to resend email change verification");
     });
     res.status(200).json({ message: "Verification email sent to your new address. Please check your inbox." });
     return;
@@ -509,7 +510,7 @@ router.post("/auth/resend-verification", async (req: Request, res: Response) => 
   }
 
   sendVerificationEmail(userId, user.email).catch((err) => {
-    console.error("[auth] Failed to resend verification email:", err);
+    logger.error({ err }, "[auth] Failed to resend verification email");
   });
 
   res.status(200).json({ message: "Verification email sent. Please check your inbox." });
@@ -615,35 +616,65 @@ router.delete("/auth/unlink-provider", async (req: Request, res: Response) => {
 });
 
 // ── Secret admin login ────────────────────────────────────────────────────────
-// Triple-click the logo to log in as the admin account — no key required.
-router.post("/auth/dev-admin-login", async (req: Request, res: Response) => {
+// Triple-tap the wordmark to instantly switch into the admin account.
+//
+// Strategy: mutate the caller's EXISTING session in-place so the browser's
+// current sid cookie keeps working without having to store any new cookie.
+// This bypasses every cookie-storage edge-case (iframe third-party blocking,
+// Replit proxy redirect handling, SameSite restrictions, etc.).
+// If the caller has no session yet, a fresh one is created and the cookie set.
+async function handleDevAdminLogin(req: Request, res: Response) {
   const ADMIN_EMAIL = "david@davidcarlos.net";
-  const [user] = await db
+  const [adminUser] = await db
     .select()
     .from(usersTable)
     .where(and(eq(usersTable.email, ADMIN_EMAIL), eq(usersTable.isActive, true)))
     .limit(1);
 
-  if (!user) {
+  if (!adminUser) {
     res.status(404).json({ error: "Admin user not found" });
     return;
   }
 
   const sessionData: SessionData = {
     user: {
-      id: user.id,
-      email: user.email,
-      profileImageUrl: user.profileImageUrl,
-      membershipTier: user.membershipTier,
+      id: adminUser.id,
+      email: adminUser.email,
+      profileImageUrl: adminUser.profileImageUrl,
+      membershipTier: adminUser.membershipTier,
     },
     access_token: "",
-    captchaVerified: user.captchaVerified,
-    isAdmin: user.isAdmin || isAdminById(user.id),
+    captchaVerified: adminUser.captchaVerified,
+    isAdmin: adminUser.isAdmin || isAdminById(adminUser.id),
+    adminModeDisabled: false,
   };
 
-  const sid = await createSession(sessionData, user.id);
-  setSessionCookie(res, sid);
-  res.json({ user: { id: user.id, email: user.email } });
-});
+  // Prefer in-place mutation — no new cookie needed, browser keeps sending
+  // the same sid it already has and the server now returns the admin user.
+  const existingSid = getSessionId(req);
+  if (existingSid) {
+    await updateSession(existingSid, sessionData);
+  } else {
+    const sid = await createSession(sessionData, adminUser.id);
+    setSessionCookie(res, sid);
+  }
+
+  if (req.method === "GET") {
+    // For direct-navigation callers, return an HTML page that JS-redirects
+    // so the browser always sees the Set-Cookie before it navigates away.
+    const returnTo = typeof req.query["returnTo"] === "string" ? req.query["returnTo"] : "/";
+    res.setHeader("Content-Type", "text/html");
+    res.send(
+      `<!DOCTYPE html><html><head><meta charset="utf-8"></head><body>` +
+      `<script>window.location.replace(${JSON.stringify(returnTo)});</script>` +
+      `</body></html>`,
+    );
+  } else {
+    res.json({ ok: true, email: adminUser.email });
+  }
+}
+
+router.get("/auth/dev-admin-login", handleDevAdminLogin);
+router.post("/auth/dev-admin-login", handleDevAdminLogin);
 
 export default router;
