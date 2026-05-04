@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/Button";
 import { ImageCard } from "@/components/ui/ImageCard";
 import { AdminMediaInfo, AdminMediaInfoForUrl, getFileNameFromUrl, getMimeTypeFromUrl } from "@/components/ui/AdminMediaInfo";
 import { AccessGate } from "@/components/AccessGate";
+import { MemeHeartButton } from "@/components/memes/MemeHeartButton";
 import { Link, useLocation } from "wouter";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -47,6 +48,8 @@ interface MyMemeItem {
   originalWidth: number | null;
   originalHeight: number | null;
   uploadFileSizeBytes: number | null;
+  heartCount: number;
+  viewerHasHearted: boolean;
 }
 
 export default function Library() {
@@ -429,18 +432,28 @@ export default function Library() {
                   {myMemesData.memes.map(meme => {
                     const memePermalink = `${window.location.origin}/meme/${meme.permalinkSlug}`;
                     return (
-                      <ImageCard
-                        key={meme.id}
-                        src={meme.imageUrl}
-                        alt="Meme"
-                        href={`/meme/${meme.permalinkSlug}`}
-                        aspectRatio="aspect-video"
-                        actions={["delete", "copyLink", "openFull"]}
-                        onDelete={() => deleteMeme(meme.permalinkSlug)}
-                        deleteConfirmMessage="Remove this meme? It will no longer be visible to anyone."
-                        permalink={memePermalink}
-                        footer={<AdminMediaInfo fileName={getFileNameFromUrl(meme.imageUrl)} fileSizeBytes={meme.uploadFileSizeBytes} mimeType={getMimeTypeFromUrl(meme.imageUrl)} width={meme.originalWidth} height={meme.originalHeight} />}
-                      />
+                      <div key={meme.id} className="space-y-1.5">
+                        <ImageCard
+                          src={meme.imageUrl}
+                          alt="Meme"
+                          href={`/meme/${meme.permalinkSlug}`}
+                          aspectRatio="aspect-video"
+                          actions={["delete", "copyLink", "openFull"]}
+                          onDelete={() => deleteMeme(meme.permalinkSlug)}
+                          deleteConfirmMessage="Remove this meme? It will no longer be visible to anyone."
+                          permalink={memePermalink}
+                          footer={<AdminMediaInfo fileName={getFileNameFromUrl(meme.imageUrl)} fileSizeBytes={meme.uploadFileSizeBytes} mimeType={getMimeTypeFromUrl(meme.imageUrl)} width={meme.originalWidth} height={meme.originalHeight} />}
+                        />
+                        <div className="px-1">
+                          <MemeHeartButton
+                            memeId={meme.id}
+                            initialHeartCount={meme.heartCount}
+                            initialViewerHasHearted={meme.viewerHasHearted}
+                            stopPropagation
+                            size="sm"
+                          />
+                        </div>
+                      </div>
                     );
                   })}
                 </div>

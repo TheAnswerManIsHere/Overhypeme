@@ -5,7 +5,7 @@ import {
   reactionsTable, searchHistoryTable, usersTable, emailVerificationTokensTable, memesTable,
   userGenerationCostsTable, pendingReviewsTable, commentsTable,
 } from "@workspace/db/schema";
-import { getViewerFactRatings } from "../lib/reactions";
+import { getViewerFactRatings, getViewerReactionTargetIds } from "../lib/reactions";
 import { eq, desc, inArray, and, sql, isNull } from "drizzle-orm";
 import { RecordSearchBody } from "@workspace/api-zod";
 import { getSessionId, getSession, updateSession } from "../lib/auth";
@@ -467,11 +467,19 @@ router.get("/users/me/memes", async (req: Request, res: Response) => {
       originalWidth: memesTable.originalWidth,
       originalHeight: memesTable.originalHeight,
       uploadFileSizeBytes: memesTable.uploadFileSizeBytes,
+      heartCount: memesTable.heartCount,
     })
     .from(memesTable)
     .where(and(eq(memesTable.createdById, req.user.id), isNull(memesTable.deletedAt)))
     .orderBy(desc(memesTable.createdAt))
     .limit(100);
+
+  const heartedIds = await getViewerReactionTargetIds(
+    req.user.id,
+    "meme",
+    "heart",
+    memes.map((m) => m.id),
+  );
 
   res.json({
     memes: memes.map(m => ({
@@ -480,6 +488,8 @@ router.get("/users/me/memes", async (req: Request, res: Response) => {
       originalWidth: m.originalWidth ?? null,
       originalHeight: m.originalHeight ?? null,
       uploadFileSizeBytes: m.uploadFileSizeBytes ?? null,
+      heartCount: m.heartCount ?? 0,
+      viewerHasHearted: heartedIds.has(m.id),
     })),
   });
 });
