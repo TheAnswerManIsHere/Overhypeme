@@ -37,6 +37,7 @@ const ForgotPassword = lazy(() => import("@/pages/ForgotPassword"));
 const ResetPassword = lazy(() => import("@/pages/ResetPassword"));
 const VerifyEmail = lazy(() => import("@/pages/VerifyEmail"));
 const TopFacts = lazy(() => import("@/pages/TopFacts"));
+const Library = lazy(() => import("@/pages/Library"));
 const WearIt = lazy(() => import("@/pages/WearIt"));
 const NotFound = lazy(() => import("@/pages/not-found"));
 
@@ -375,6 +376,7 @@ function Router() {
         <Route path="/admin/email-queue" component={AdminEmailQueue} />
         <Route path="/admin" component={AdminDashboard} />
         <Route path="/top-facts" component={TopFacts} />
+        <Route path="/library" component={Library} />
         <Route path="/hall-of-fame"><HallOfFameRedirect /></Route>
         <Route path="/activity" component={ActivityFeed} />
         <Route path="/wear/:slug?" component={WearIt} />
