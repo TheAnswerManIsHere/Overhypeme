@@ -5,7 +5,7 @@ import { Flame, Shuffle } from "lucide-react";
 import { useLocation } from "wouter";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { usePersonName, SHARE_LINK_ACTIVE } from "@/hooks/use-person-name";
+import { usePersonName, SHARE_LINK_ACTIVE, DEFAULT_PRONOUNS } from "@/hooks/use-person-name";
 import { useHeroFact } from "@/hooks/use-hero-fact";
 import { cn } from "@/components/ui/Button";
 import { renderFact } from "@/lib/render-fact";
@@ -13,9 +13,12 @@ import { renderFact } from "@/lib/render-fact";
 type FilterMode = "default" | "hall-of-fame" | "hashtags";
 
 // Placeholder fact used in the cold-visitor hero before they've typed a name.
-// Renders with the {NAME} → "___" fallback so the sentence still scans and
-// signals "fill me in".
 const COLD_TEASER_FACT = "The universe doesn't expand. {NAME} pushes it.";
+
+// Sample name shown in the cold-visitor hero so visitors immediately see
+// the personalisation — the name renders in orange just like their own will.
+const DEMO_NAME = "Marcus";
+const COLD_DEMO_RENDERED = renderFact(COLD_TEASER_FACT, DEMO_NAME, DEFAULT_PRONOUNS);
 
 function HashtagRail({
   hashtags,
@@ -291,9 +294,9 @@ function DesktopHeroBillboard({
   );
 }
 
-// Inline name input shown on the cold-visitor home — replaces the auto-popping
-// WelcomeModal on `/` so onboarding stays in-line with the hero.
-function InlineNameInput({ onSubmit }: { onSubmit: (name: string) => void }) {
+// Full-screen cold-visitor hero for mobile — shows the teaser fact with a
+// demo name, then a bottom-panel "YOUR TURN." name capture form.
+function ColdMobileHero({ onSubmit }: { onSubmit: (name: string) => void }) {
   const [value, setValue] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -305,9 +308,84 @@ function InlineNameInput({ onSubmit }: { onSubmit: (name: string) => void }) {
   }
 
   return (
+    <div className="flex flex-col" style={{ minHeight: "calc(100svh - 56px)" }}>
+      {/* ── Hero: teaser fact with demo name ──────────────────────── */}
+      <div className="flex-1 px-5 pt-8 pb-6 flex flex-col justify-center">
+        <div className="flex items-center gap-2 mb-5">
+          <span className="w-5 h-px bg-muted-foreground/40" />
+          <span className="text-[10px] font-bold tracking-[0.2em] text-muted-foreground uppercase font-display">
+            About {DEMO_NAME}
+          </span>
+          <span className="w-5 h-px bg-muted-foreground/40" />
+        </div>
+
+        <h2 className="font-display font-bold uppercase tracking-tight leading-[0.95] text-foreground"
+          style={{ fontSize: "clamp(36px, 10vw, 52px)" }}>
+          <HeroHeadline rendered={COLD_DEMO_RENDERED} name={DEMO_NAME} />
+        </h2>
+
+        <button
+          type="button"
+          onClick={() => inputRef.current?.focus()}
+          className="mt-8 self-start text-sm italic text-muted-foreground/50 hover:text-muted-foreground transition-colors"
+        >
+          Enough about {DEMO_NAME}.
+        </button>
+      </div>
+
+      {/* ── Bottom panel: name capture ─────────────────────────────── */}
+      <div className="bg-card border-t border-border rounded-t-[24px] px-5 pt-5 pb-24 shadow-[0_-8px_32px_rgba(0,0,0,0.4)]">
+        <div className="w-10 h-1 bg-border rounded-full mx-auto mb-5" />
+
+        <h3 className="font-display font-bold text-[22px] uppercase tracking-tight text-foreground mb-1">
+          Your turn.
+        </h3>
+        <p className="text-[13px] text-muted-foreground mb-4">
+          Add your name. Every fact becomes about you.
+        </p>
+
+        <form onSubmit={handleSubmit} className="space-y-3">
+          <input
+            ref={inputRef}
+            type="text"
+            value={value}
+            onChange={(e) => setValue(e.target.value)}
+            placeholder="First name"
+            maxLength={100}
+            autoComplete="given-name"
+            className="w-full h-[52px] px-4 bg-background border border-border rounded-[12px] text-[15px] font-medium text-foreground outline-none focus:border-primary transition-colors placeholder:text-muted-foreground/40"
+          />
+          <button
+            type="submit"
+            disabled={!value.trim()}
+            className="w-full h-[52px] bg-primary text-white rounded-[12px] font-display font-bold text-[13px] uppercase tracking-[0.12em] hover:bg-primary/90 disabled:opacity-40 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2 shadow-[0_0_20px_rgba(249,115,22,0.5)]"
+          >
+            <Flame className="w-4 h-4" /> Hype me
+          </button>
+        </form>
+
+        <p className="text-center text-[11px] text-muted-foreground/40 mt-4">
+          Stored on this device · No account
+        </p>
+      </div>
+    </div>
+  );
+}
+
+// Desktop inline name input (kept for the desktop cold card)
+function InlineNameInput({ onSubmit }: { onSubmit: (name: string) => void }) {
+  const [value, setValue] = useState("");
+
+  function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    const trimmed = value.trim();
+    if (!trimmed) return;
+    onSubmit(trimmed);
+  }
+
+  return (
     <form onSubmit={handleSubmit} className="flex gap-2">
       <input
-        ref={inputRef}
         type="text"
         value={value}
         onChange={(e) => setValue(e.target.value)}
@@ -540,32 +618,19 @@ export default function Home() {
 
       {/* ── MOBILE: Hero billboard ────────────────────────────── */}
       {filterMode === "default" && (
-        <div className="md:hidden pt-3">
+        <div className="md:hidden">
           {isCold ? (
-            <div className="px-4 pb-4">
-              <div className="rounded-[20px] bg-card shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] p-5">
-                <div className="text-[10px] font-bold tracking-[0.16em] text-muted-foreground uppercase font-display mb-3">
-                  About you
-                </div>
-                <h2 className="font-display font-bold text-2xl uppercase tracking-tight leading-[1.05] mb-5 min-h-[3.5rem]">
-                  {heroRendered.split("___").map((p, i, arr) =>
-                    i < arr.length - 1
-                      ? <span key={i}>{p}<span className="text-primary">___</span></span>
-                      : <span key={i}>{p}</span>
-                  )}
-                </h2>
-                <p className="text-[12px] text-muted-foreground mb-3">Add your name. Every fact becomes about you.</p>
-                <InlineNameInput onSubmit={setName} />
-              </div>
-            </div>
+            <ColdMobileHero onSubmit={setName} />
           ) : (
-            <HeroBillboardMobile
-              fact={heroFact}
-              rendered={heroRendered}
-              name={name}
-              onShuffle={shuffleHero}
-              isShuffling={heroLoading}
-            />
+            <div className="pt-3">
+              <HeroBillboardMobile
+                fact={heroFact}
+                rendered={heroRendered}
+                name={name}
+                onShuffle={shuffleHero}
+                isShuffling={heroLoading}
+              />
+            </div>
           )}
         </div>
       )}
