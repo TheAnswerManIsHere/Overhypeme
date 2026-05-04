@@ -1,11 +1,12 @@
 import { Link, useLocation } from "wouter";
-import { Search, Plus, User, LogIn, Star, Crown, ShieldCheck, ShieldOff, Activity, Share2, Eraser } from "lucide-react";
+import { Search, Plus, User, LogIn, Star, Crown, ShieldCheck, Share2 } from "lucide-react";
 import { useAuth } from "@workspace/replit-auth-web";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { useState, useRef } from "react";
 import { NameTag } from "@/components/NameTag";
 import { ShareModal } from "@/components/ShareModal";
+import { AccountMenu, AccountMenuAvatarTrigger } from "@/components/layout/AccountMenu";
 import { usePersonName } from "@/hooks/use-person-name";
 import { useGetMyProfile, getGetMyProfileQueryKey } from "@workspace/api-client-react";
 
@@ -23,7 +24,7 @@ function FlameMark({ className = "" }: { className?: string }) {
 }
 
 export function Navbar() {
-  const { user, isAuthenticated, isLoading: authLoading, role, realRole, logout, refreshUser } = useAuth();
+  const { user, isAuthenticated, isLoading: authLoading, role, realRole, refreshUser } = useAuth();
   const { name } = usePersonName();
   const { data: profile } = useGetMyProfile({
     query: { queryKey: getGetMyProfileQueryKey(), enabled: isAuthenticated, staleTime: 60_000 }
@@ -49,25 +50,7 @@ export function Navbar() {
   const [, setLocation] = useLocation();
   const [searchQuery, setSearchQuery] = useState("");
   const [mobileSearchOpen, setMobileSearchOpen] = useState(false);
-  const [togglingAdmin, setTogglingAdmin] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
-  const [forgetMeConfirm, setForgetMeConfirm] = useState(false);
-
-  async function handleForgetMe() {
-    try {
-      await fetch("/api/auth/logout", { method: "POST", credentials: "include" });
-    } catch {
-      // Best-effort — proceed with client wipe even if the request fails
-    }
-    localStorage.clear();
-    sessionStorage.clear();
-    document.cookie.split(";").forEach((c) => {
-      document.cookie = c
-        .replace(/^ +/, "")
-        .replace(/=.*/, `=;expires=${new Date(0).toUTCString()};path=/`);
-    });
-    window.location.replace("/");
-  }
 
   const logoTapCount = useRef(0);
   const logoTapTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -113,18 +96,10 @@ export function Navbar() {
     }
   };
 
-  const handleToggleAdminMode = async () => {
-    setTogglingAdmin(true);
-    try {
-      await fetch("/api/auth/toggle-admin-mode", { method: "POST", credentials: "include" });
-      window.location.reload();
-    } catch {
-      setTogglingAdmin(false);
-    }
-  };
-
   const isRealAdmin = realRole === "admin";
   const isAdminModeOn = role === "admin";
+
+  const accountFallbackInitial = user?.firstName?.[0]?.toUpperCase() ?? user?.email?.[0]?.toUpperCase();
 
   return (
     <>
@@ -136,15 +111,9 @@ export function Navbar() {
               owns the onboarding moment. */}
           <div className="w-10 flex items-center">
             {isAuthenticated && !authLoading ? (
-              <button onClick={() => setLocation("/profile")} className="w-8 h-8 rounded-full overflow-hidden ring-1 ring-border flex-shrink-0">
-                {navAvatarUrl ? (
-                  <img src={navAvatarUrl} alt="Profile" className="w-full h-full object-cover" />
-                ) : (
-                  <div className="w-full h-full bg-gradient-to-br from-primary to-primary/60 flex items-center justify-center text-white text-sm font-bold font-display">
-                    {user?.firstName?.[0]?.toUpperCase() ?? "?"}
-                  </div>
-                )}
-              </button>
+              <AccountMenu>
+                <AccountMenuAvatarTrigger avatarUrl={navAvatarUrl} fallbackInitial={accountFallbackInitial} />
+              </AccountMenu>
             ) : !isColdMobile ? (
               <button onClick={() => setLocation("/login")} className="w-8 h-8 rounded-full bg-secondary border border-border flex items-center justify-center text-muted-foreground">
                 <User className="w-4 h-4" />
@@ -177,6 +146,16 @@ export function Navbar() {
             </button>
           </div>
         </div>
+
+        {/* Name tag row — visible on mobile in BOTH auth states. For unauth visitors
+            this is the only entry point to set their name; for signed-in users
+            tapping it routes to /profile. The chip is centered so it reads as the
+            primary identity input on the page rather than competing with nav. */}
+        {!isColdMobile && (
+          <div className="px-4 pb-2 flex items-center justify-center">
+            <NameTag />
+          </div>
+        )}
 
         {/* Inline search expansion */}
         {mobileSearchOpen && (
@@ -254,61 +233,13 @@ export function Navbar() {
               {!authLoading && (isAuthenticated ? (
                 <div className="flex items-center gap-2">
                   {isRealAdmin && isAdminModeOn && (
-                    <>
-                      <Button variant="ghost" size="icon" onClick={() => setLocation('/admin')} title="Admin Panel">
-                        <ShieldCheck className="w-5 h-5 text-primary" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={handleToggleAdminMode}
-                        isLoading={togglingAdmin}
-                        className="gap-1 text-xs text-muted-foreground hover:text-destructive hidden lg:flex"
-                      >
-                        <ShieldOff className="w-3.5 h-3.5" /> EXIT ADMIN
-                      </Button>
-                    </>
-                  )}
-                  {isRealAdmin && !isAdminModeOn && (
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={handleToggleAdminMode}
-                      isLoading={togglingAdmin}
-                      className="gap-1 text-xs text-muted-foreground hover:text-primary hidden lg:flex"
-                    >
-                      <ShieldCheck className="w-3.5 h-3.5" /> ADMIN
+                    <Button variant="ghost" size="icon" onClick={() => setLocation('/admin')} title="Admin Panel">
+                      <ShieldCheck className="w-5 h-5 text-primary" />
                     </Button>
                   )}
-                  <Button variant="ghost" size="icon" onClick={() => setLocation('/activity')} title="Activity">
-                    <Activity className="w-5 h-5" />
-                  </Button>
-                  <Button variant="ghost" size="icon" onClick={() => setLocation('/profile')}>
-                    {navAvatarUrl ? (
-                      <img src={navAvatarUrl} alt="Profile" className="w-8 h-8 rounded-full object-cover" />
-                    ) : (
-                      <User className="w-5 h-5" />
-                    )}
-                  </Button>
-                  {isRealAdmin && (
-                    !forgetMeConfirm ? (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => setForgetMeConfirm(true)}
-                        className="gap-1.5 text-muted-foreground hover:text-destructive px-2"
-                      >
-                        <Eraser className="w-3.5 h-3.5" />
-                        <span className="hidden lg:inline text-xs">Forget me</span>
-                      </Button>
-                    ) : (
-                      <div className="flex items-center gap-1 bg-destructive/10 border border-destructive/30 rounded px-2 py-1">
-                        <span className="text-xs text-destructive font-medium whitespace-nowrap">Forget me?</span>
-                        <button onClick={handleForgetMe} className="text-xs font-bold text-destructive hover:text-white hover:bg-destructive px-1.5 py-0.5 rounded transition-colors">Yes</button>
-                        <button onClick={() => setForgetMeConfirm(false)} className="text-xs font-bold text-muted-foreground hover:text-foreground px-1.5 py-0.5 rounded transition-colors">No</button>
-                      </div>
-                    )
-                  )}
+                  <AccountMenu>
+                    <AccountMenuAvatarTrigger avatarUrl={navAvatarUrl} fallbackInitial={accountFallbackInitial} />
+                  </AccountMenu>
                 </div>
               ) : (
                 <Button variant="primary" size="sm" onClick={() => setLocation('/login')} className="gap-2 whitespace-nowrap">

@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { Navbar } from "./Navbar";
-import { BottomTabBar } from "./BottomTabBar";
+import { PrimaryNav } from "./PrimaryNav";
 import { AdSlot } from "@/components/AdSlot";
 import { WelcomeModal } from "@/components/WelcomeModal";
 import { AccessRevocationBanner } from "@/components/AccessRevocationBanner";
@@ -84,6 +84,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
   return (
     <>
       <Navbar />
+      <PrimaryNav />
       <EmailVerificationBanner />
       <AccessRevocationBanner />
       <WelcomeModal />
@@ -106,7 +107,6 @@ export function Layout({ children }: { children: React.ReactNode }) {
           </div>
         </div>
       </footer>
-      <BottomTabBar />
     </>
   );
 }

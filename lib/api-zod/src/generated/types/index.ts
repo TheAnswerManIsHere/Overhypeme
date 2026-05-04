@@ -52,6 +52,7 @@ export * from "./handleBrowserLoginCallbackParams";
 export * from "./hashtag";
 export * from "./hashtagListResponse";
 export * from "./healthStatus";
+export * from "./heartResult";
 export * from "./heroFactResponse";
 export * from "./importFactItem";
 export * from "./linkListResponse";

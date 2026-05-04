@@ -2,6 +2,7 @@ export * from "./auth";
 export * from "./facts";
 export * from "./hashtags";
 export * from "./ratings";
+export * from "./reactions";
 export * from "./comments";
 export * from "./links";
 export * from "./search-history";

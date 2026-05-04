@@ -17,7 +17,7 @@ const PERIOD_LABELS: Record<Period, string> = {
   all: "All time",
 };
 
-export default function HallOfFame() {
+export default function TopFacts() {
   const [period, setPeriod] = useState<Period>("week");
   const [, setLocation] = useLocation();
   const { name, pronouns } = usePersonName();
@@ -47,7 +47,7 @@ export default function HallOfFame() {
         <div className="mb-6 md:mb-10">
           <div className="flex items-center gap-2 mb-3">
             <Flame className="w-5 h-5 text-primary" />
-            <span className="text-xs font-bold tracking-[0.18em] text-primary uppercase font-display">Hall of Fame</span>
+            <span className="text-xs font-bold tracking-[0.18em] text-primary uppercase font-display">🔥 Top Facts</span>
           </div>
           <h1 className="font-display font-bold text-3xl md:text-6xl uppercase tracking-tight leading-none mb-3">
             The facts <span className="text-primary">everyone's</span> memeing.

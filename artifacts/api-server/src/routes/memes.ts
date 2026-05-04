@@ -6,6 +6,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 import { db } from "@workspace/db";
 import { memesTable, factsTable, usersTable, userFactPreferencesTable, affiliateClicksTable } from "@workspace/db/schema";
+import { toggleHeart, getViewerReactionTargetIds } from "../lib/reactions";
 import { eq, ne, desc, and, inArray, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 import {
@@ -448,6 +449,11 @@ router.get("/memes/:slug", async (req: Request, res: Response) => {
     createdByName = user?.displayName ?? null;
   }
 
+  const viewerId = (req as AuthenticatedRequest).isAuthenticated?.() ? (req as AuthenticatedRequest).user.id : undefined;
+  const viewerHasHearted = viewerId
+    ? (await getViewerReactionTargetIds(viewerId, "meme", "heart", [meme.id])).has(meme.id)
+    : false;
+
   res.json({
     id: meme.id,
     factId: meme.factId,
@@ -461,6 +467,8 @@ router.get("/memes/:slug", async (req: Request, res: Response) => {
     originalWidth: meme.originalWidth ?? null,
     originalHeight: meme.originalHeight ?? null,
     uploadFileSizeBytes: meme.uploadFileSizeBytes ?? null,
+    heartCount: meme.heartCount ?? 0,
+    viewerHasHearted,
   });
 });
 
@@ -525,6 +533,10 @@ router.get("/facts/:factId/memes", async (req: Request, res: Response) => {
     .orderBy(desc(memesTable.createdAt))
     .limit(maxMemes);
 
+  const heartedIds = userId
+    ? await getViewerReactionTargetIds(userId, "meme", "heart", memes.map((m) => m.id))
+    : new Set<number>();
+
   res.json({
     memes: memes.map(m => ({
       id: m.id,
@@ -539,8 +551,26 @@ router.get("/facts/:factId/memes", async (req: Request, res: Response) => {
       originalWidth: m.originalWidth ?? null,
       originalHeight: m.originalHeight ?? null,
       uploadFileSizeBytes: m.uploadFileSizeBytes ?? null,
+      heartCount: m.heartCount ?? 0,
+      viewerHasHearted: heartedIds.has(m.id),
     })),
   });
+});
+
+// POST /memes/:id/heart — toggle heart reaction on a meme
+router.post("/memes/:id/heart", async (req: AuthenticatedRequest, res: Response) => {
+  if (!req.isAuthenticated()) { res.status(401).json({ error: "Unauthorized" }); return; }
+  const memeId = parseInt(String(req.params["id"] ?? ""), 10);
+  if (isNaN(memeId)) { res.status(400).json({ error: "Invalid id" }); return; }
+
+  const [exists] = await db.select({ id: memesTable.id })
+    .from(memesTable)
+    .where(and(eq(memesTable.id, memeId), isNull(memesTable.deletedAt)))
+    .limit(1);
+  if (!exists) { res.status(404).json({ error: "Meme not found" }); return; }
+
+  const result = await toggleHeart(req.user.id, "meme", memeId);
+  res.json(result);
 });
 
 /**
