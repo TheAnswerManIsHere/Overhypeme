@@ -1,8 +1,10 @@
 import { useListFacts, useListHashtags, getListHashtagsQueryKey, type FactSummary } from "@workspace/api-client-react";
 import { FactCard } from "@/components/facts/FactCard";
 import { Layout } from "@/components/layout/Layout";
-import { ChevronDown, ChevronUp, Flame, Shuffle } from "lucide-react";
-import { useLocation } from "wouter";
+import { ChevronDown, ChevronUp, Flame, ThumbsUp, ThumbsDown, MessageSquare, Loader2 } from "lucide-react";
+import { Link, useLocation } from "wouter";
+import { useAppMutations } from "@/hooks/use-mutations";
+import { useAuth } from "@workspace/replit-auth-web";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { usePersonName, SHARE_LINK_ACTIVE, DEFAULT_PRONOUNS } from "@/hooks/use-person-name";
@@ -86,7 +88,7 @@ function HeroHeadline({ rendered, name }: { rendered: string; name: string }) {
   );
 }
 
-// Mobile billboard — single weighted-random fact with a shuffle button.
+// Mobile billboard — bold hero showcase with full interaction.
 function HeroBillboardMobile({
   fact,
   rendered,
@@ -100,84 +102,134 @@ function HeroBillboardMobile({
   onShuffle: () => void;
   isShuffling: boolean;
 }) {
+  const { rateFact } = useAppMutations();
+  const { isAuthenticated } = useAuth();
+  const [, setLocation] = useLocation();
   const swapKey = fact ? `f-${fact.id}` : "loading";
+
+  const handleRate = (type: "up" | "down") => {
+    if (!fact) return;
+    if (!isAuthenticated) { setLocation(`/login?from=/facts/${fact.id}`); return; }
+    const newRating = fact.userRating === type ? "none" : type;
+    rateFact.mutate({ factId: fact.id, data: { rating: newRating } });
+  };
+
+  const handleShare = async () => {
+    if (!fact) return;
+    const url = `${window.location.origin}/facts/${fact.id}`;
+    if (navigator.share) {
+      await navigator.share({ url }).catch(() => null);
+    } else {
+      await navigator.clipboard.writeText(url).catch(() => null);
+    }
+  };
+
   return (
     <div className="px-4 pb-4">
-      <div className="rounded-[20px] bg-card shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] p-5 relative overflow-hidden">
-        <div className="flex items-center justify-between mb-5">
-          <div className="flex items-center gap-2.5">
-            <div className="w-7 h-7 rounded-full bg-primary/15 flex items-center justify-center">
-              <Flame className="w-3.5 h-3.5 text-primary" />
-            </div>
-            <div>
-              <p className="text-[11px] font-bold tracking-[0.14em] text-primary uppercase font-display">Hall of Fame</p>
-              <p className="text-[10px] text-muted-foreground">Random hype</p>
-            </div>
-          </div>
-          <button
-            onClick={onShuffle}
-            disabled={isShuffling}
-            className="w-8 h-8 rounded-full bg-secondary border border-border flex items-center justify-center text-muted-foreground hover:text-foreground hover:border-primary/40 transition-colors disabled:opacity-50"
-            aria-label="Shuffle hero fact"
-          >
-            <Shuffle className={cn("w-3.5 h-3.5 transition-transform", isShuffling && "animate-spin")} />
-          </button>
+      <div
+        className="rounded-[24px] relative overflow-hidden border border-primary/25"
+        style={{ background: "linear-gradient(145deg, hsl(var(--card)) 0%, rgba(249,115,22,0.07) 100%)", boxShadow: "0 0 40px rgba(249,115,22,0.12), inset 0 1px 0 rgba(255,255,255,0.07)" }}
+      >
+        {/* Badge */}
+        <div className="px-5 pt-5 flex items-center gap-2">
+          <span className="flex items-center gap-1.5 text-[10px] font-bold tracking-[0.22em] text-primary uppercase font-display">
+            <Flame className="w-3 h-3" /> Random Fact
+          </span>
         </div>
 
-        <div className="min-h-[3.5rem] mb-5 relative">
+        {/* Fact text — large and punchy */}
+        <div className="px-5 pt-4 pb-4 min-h-[9rem]">
           <AnimatePresence mode="wait" initial={false}>
             {fact ? (
               <motion.h2
                 key={swapKey}
-                initial={{ opacity: 0, y: 6 }}
+                initial={{ opacity: 0, y: 8 }}
                 animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -6 }}
-                transition={{ duration: 0.18, ease: "easeOut" }}
-                className="font-display font-bold text-2xl uppercase tracking-tight leading-[1.05]"
+                exit={{ opacity: 0, y: -8 }}
+                transition={{ duration: 0.2, ease: "easeOut" }}
+                className="font-display font-bold uppercase tracking-tight leading-[0.95] text-foreground"
+                style={{ fontSize: "clamp(30px, 8.5vw, 40px)" }}
               >
                 <HeroHeadline rendered={rendered} name={name} />
               </motion.h2>
             ) : (
-              <motion.div
-                key="skeleton"
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                transition={{ duration: 0.15 }}
-                className="space-y-2 pt-1"
-                aria-hidden="true"
-              >
-                <div className="h-5 w-11/12 rounded bg-secondary animate-pulse" />
-                <div className="h-5 w-3/4 rounded bg-secondary animate-pulse" />
+              <motion.div key="skeleton" className="space-y-3 pt-1" aria-hidden="true">
+                <div className="h-7 w-full rounded-lg bg-secondary/80 animate-pulse" />
+                <div className="h-7 w-5/6 rounded-lg bg-secondary/80 animate-pulse" />
+                <div className="h-7 w-4/5 rounded-lg bg-secondary/60 animate-pulse" />
               </motion.div>
             )}
           </AnimatePresence>
         </div>
 
-        <div className="flex items-center gap-4 pt-3 border-t border-border/50 text-muted-foreground text-[12px] font-semibold min-h-[1.25rem]">
-          <AnimatePresence mode="wait" initial={false}>
-            {fact ? (
-              <motion.div
-                key={`stats-${fact.id}`}
-                initial={{ opacity: 0, y: 4 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -4 }}
-                transition={{ duration: 0.18, ease: "easeOut" }}
-                className="flex items-center gap-4"
-              >
-                <span>{(fact.upvotes / 1000).toFixed(1)}k likes</span>
-                <span className="text-border">·</span>
-                <span>{fact.commentCount} comments</span>
-              </motion.div>
-            ) : null}
-          </AnimatePresence>
+        {/* Hashtags */}
+        <AnimatePresence>
+          {fact && fact.hashtags.length > 0 && (
+            <motion.div
+              key={`tags-${fact.id}`}
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              className="px-5 pb-3 flex flex-wrap gap-1.5"
+            >
+              {fact.hashtags.map(tag => (
+                <Link
+                  key={tag}
+                  href={`/search?q=%23${tag}`}
+                  className="text-[11px] font-bold font-display tracking-wide text-primary/80 hover:text-primary bg-primary/10 px-2.5 py-1 rounded-full uppercase transition-colors"
+                >
+                  #{tag}
+                </Link>
+              ))}
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* Engagement footer */}
+        <div className="px-5 pb-5 pt-3 border-t border-primary/15 flex items-center justify-between gap-3">
+          <div className="flex items-center gap-4">
+            <button
+              onClick={() => handleRate("up")}
+              disabled={rateFact.isPending || !fact}
+              className={cn("flex items-center gap-1.5 transition-colors", fact?.userRating === "up" ? "text-primary" : "text-muted-foreground hover:text-primary")}
+            >
+              <ThumbsUp className={cn("w-5 h-5", fact?.userRating === "up" && "fill-current")} />
+              <span className="text-xs font-bold">{fact?.upvotes ?? 0}</span>
+            </button>
+            <button
+              onClick={() => handleRate("down")}
+              disabled={rateFact.isPending || !fact}
+              className={cn("flex items-center gap-1.5 transition-colors", fact?.userRating === "down" ? "text-destructive" : "text-muted-foreground hover:text-destructive")}
+            >
+              <ThumbsDown className={cn("w-5 h-5", fact?.userRating === "down" && "fill-current")} />
+              <span className="text-xs font-bold">{fact?.downvotes ?? 0}</span>
+            </button>
+            {fact && (
+              <Link href={`/facts/${fact.id}`} className="flex items-center gap-1.5 text-muted-foreground hover:text-foreground transition-colors">
+                <MessageSquare className="w-5 h-5" />
+                <span className="text-xs font-bold">{fact.commentCount}</span>
+              </Link>
+            )}
+            <button onClick={handleShare} disabled={!fact} className="text-muted-foreground hover:text-foreground transition-colors disabled:opacity-40">
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24">
+                <line x1="22" y1="2" x2="11" y2="13" /><polygon points="22 2 15 22 11 13 2 9 22 2" />
+              </svg>
+            </button>
+          </div>
+          <button
+            onClick={onShuffle}
+            disabled={isShuffling}
+            className="flex-shrink-0 flex items-center gap-1.5 px-3 py-2 bg-primary text-white rounded-full text-[11px] font-display font-bold uppercase tracking-[0.1em] hover:bg-primary/90 active:scale-95 transition-all disabled:opacity-60 shadow-[0_0_16px_rgba(249,115,22,0.45)]"
+          >
+            {isShuffling ? <Loader2 className="w-3 h-3 animate-spin" /> : <Flame className="w-3 h-3" />}
+            Next Random Fact
+          </button>
         </div>
       </div>
     </div>
   );
 }
 
-// Desktop billboard — single hero with shuffle + make-meme CTAs.
+// Desktop billboard — bold hero showcase with full interaction.
 function DesktopHeroBillboard({
   fact,
   rendered,
@@ -193,88 +245,125 @@ function DesktopHeroBillboard({
   isShuffling: boolean;
   onMakeMeme: ((factId: number) => void) | null;
 }) {
+  const { rateFact } = useAppMutations();
+  const { isAuthenticated } = useAuth();
+  const [, setLocation] = useLocation();
   const swapKey = fact ? `f-${fact.id}` : "loading";
+
+  const handleRate = (type: "up" | "down") => {
+    if (!fact) return;
+    if (!isAuthenticated) { setLocation(`/login?from=/facts/${fact.id}`); return; }
+    const newRating = fact.userRating === type ? "none" : type;
+    rateFact.mutate({ factId: fact.id, data: { rating: newRating } });
+  };
+
+  const handleShare = async () => {
+    if (!fact) return;
+    const url = `${window.location.origin}/facts/${fact.id}`;
+    if (navigator.share) {
+      await navigator.share({ url }).catch(() => null);
+    } else {
+      await navigator.clipboard.writeText(url).catch(() => null);
+    }
+  };
+
   return (
-    <div className="rounded-[32px] bg-card border border-border shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] px-10 py-9 relative overflow-hidden">
-      <div className="flex items-center justify-between mb-6">
-        <div className="flex items-center gap-2.5">
-          <div className="w-8 h-8 rounded-full bg-primary/15 flex items-center justify-center">
-            <Flame className="w-4 h-4 text-primary" />
-          </div>
-          <div>
-            <p className="text-[11px] font-bold tracking-[0.16em] text-primary uppercase font-display">Hall of Fame</p>
-            <p className="text-[10px] text-muted-foreground">Random hype</p>
-          </div>
-        </div>
+    <div
+      className="rounded-[32px] relative overflow-hidden border border-primary/20"
+      style={{ background: "linear-gradient(145deg, hsl(var(--card)) 0%, rgba(249,115,22,0.06) 100%)", boxShadow: "0 0 60px rgba(249,115,22,0.10), inset 0 1px 0 rgba(255,255,255,0.07)" }}
+    >
+      {/* Header row */}
+      <div className="px-10 pt-8 pb-0 flex items-center justify-between">
+        <span className="flex items-center gap-2 text-[11px] font-bold tracking-[0.2em] text-primary uppercase font-display">
+          <Flame className="w-3.5 h-3.5" /> Random Fact
+        </span>
         <button
           onClick={onShuffle}
           disabled={isShuffling}
-          className="h-9 px-3 rounded-full bg-secondary border border-border flex items-center gap-1.5 text-xs font-display font-bold uppercase tracking-[0.1em] text-muted-foreground hover:text-foreground hover:border-primary/40 transition-colors disabled:opacity-50"
+          className="flex items-center gap-2 px-5 py-2.5 bg-primary text-white rounded-full text-[12px] font-display font-bold uppercase tracking-[0.12em] hover:bg-primary/90 active:scale-95 transition-all disabled:opacity-60 shadow-[0_0_20px_rgba(249,115,22,0.4)]"
         >
-          <Shuffle className={cn("w-3.5 h-3.5 transition-transform", isShuffling && "animate-spin")} />
-          Shuffle
+          {isShuffling ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Flame className="w-3.5 h-3.5" />}
+          Next Random Fact
         </button>
       </div>
 
-      <div className="min-h-[6rem] mb-8 relative">
+      {/* Fact text */}
+      <div className="px-10 pt-7 pb-6 min-h-[9rem]">
         <AnimatePresence mode="wait" initial={false}>
           {fact ? (
             <motion.h2
               key={swapKey}
-              initial={{ opacity: 0, y: 8 }}
+              initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -8 }}
-              transition={{ duration: 0.2, ease: "easeOut" }}
-              className="font-display font-bold text-[52px] leading-[0.96] uppercase tracking-tight"
+              exit={{ opacity: 0, y: -10 }}
+              transition={{ duration: 0.22, ease: "easeOut" }}
+              className="font-display font-bold text-[56px] leading-[0.93] uppercase tracking-tight"
               style={{ textWrap: "pretty" } as React.CSSProperties}
             >
               <HeroHeadline rendered={rendered} name={name} />
             </motion.h2>
           ) : (
-            <motion.div
-              key="skeleton"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              transition={{ duration: 0.15 }}
-              className="space-y-3 pt-2"
-              aria-hidden="true"
-            >
-              <div className="h-10 w-11/12 rounded bg-secondary animate-pulse" />
-              <div className="h-10 w-3/4 rounded bg-secondary animate-pulse" />
+            <motion.div key="skeleton" className="space-y-4 pt-2" aria-hidden="true">
+              <div className="h-12 w-11/12 rounded-xl bg-secondary/80 animate-pulse" />
+              <div className="h-12 w-3/4 rounded-xl bg-secondary/80 animate-pulse" />
+              <div className="h-12 w-1/2 rounded-xl bg-secondary/60 animate-pulse" />
             </motion.div>
           )}
         </AnimatePresence>
       </div>
 
-      <div className="flex items-center justify-between pt-5 border-t border-border/50 min-h-[44px]">
-        <div className="flex items-center gap-4 text-muted-foreground text-[13px] font-semibold">
-          <AnimatePresence mode="wait" initial={false}>
-            {fact ? (
-              <motion.div
-                key={`stats-${fact.id}`}
-                initial={{ opacity: 0, y: 4 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -4 }}
-                transition={{ duration: 0.2, ease: "easeOut" }}
-                className="flex items-center gap-4"
+      {/* Hashtags */}
+      <AnimatePresence>
+        {fact && fact.hashtags.length > 0 && (
+          <motion.div
+            key={`tags-${fact.id}`}
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            className="px-10 pb-6 flex flex-wrap gap-2"
+          >
+            {fact.hashtags.map(tag => (
+              <Link
+                key={tag}
+                href={`/search?q=%23${tag}`}
+                className="text-[12px] font-bold font-display tracking-wide text-primary/80 hover:text-primary bg-primary/10 px-3 py-1.5 rounded-full uppercase transition-colors"
               >
-                <span>{(fact.upvotes / 1000).toFixed(1)}k likes</span>
-                <span className="text-border">·</span>
-                <span>{fact.commentCount} comments</span>
-              </motion.div>
-            ) : (
-              <motion.span
-                key="loading-stats"
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                transition={{ duration: 0.15 }}
-              >
-                Fresh hype loading…
-              </motion.span>
-            )}
-          </AnimatePresence>
+                #{tag}
+              </Link>
+            ))}
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Footer: engagement + CTAs */}
+      <div className="px-10 pb-8 pt-4 border-t border-primary/15 flex items-center justify-between min-h-[60px]">
+        <div className="flex items-center gap-5">
+          <button
+            onClick={() => handleRate("up")}
+            disabled={rateFact.isPending || !fact}
+            className={cn("flex items-center gap-2 transition-colors text-[13px] font-bold", fact?.userRating === "up" ? "text-primary" : "text-muted-foreground hover:text-primary")}
+          >
+            <ThumbsUp className={cn("w-5 h-5", fact?.userRating === "up" && "fill-current")} />
+            {fact?.upvotes ?? 0}
+          </button>
+          <button
+            onClick={() => handleRate("down")}
+            disabled={rateFact.isPending || !fact}
+            className={cn("flex items-center gap-2 transition-colors text-[13px] font-bold", fact?.userRating === "down" ? "text-destructive" : "text-muted-foreground hover:text-destructive")}
+          >
+            <ThumbsDown className={cn("w-5 h-5", fact?.userRating === "down" && "fill-current")} />
+            {fact?.downvotes ?? 0}
+          </button>
+          {fact && (
+            <Link href={`/facts/${fact.id}`} className="flex items-center gap-2 text-muted-foreground hover:text-foreground transition-colors text-[13px] font-bold">
+              <MessageSquare className="w-5 h-5" />
+              {fact.commentCount}
+            </Link>
+          )}
+          <button onClick={handleShare} disabled={!fact} className="text-muted-foreground hover:text-foreground transition-colors disabled:opacity-40">
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24">
+              <line x1="22" y1="2" x2="11" y2="13" /><polygon points="22 2 15 22 11 13 2 9 22 2" />
+            </svg>
+          </button>
         </div>
         <AnimatePresence mode="wait" initial={false}>
           {fact && onMakeMeme && (
@@ -283,9 +372,9 @@ function DesktopHeroBillboard({
               initial={{ opacity: 0, scale: 0.96 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.96 }}
-              transition={{ duration: 0.18, ease: "easeOut" }}
+              transition={{ duration: 0.18 }}
               onClick={() => onMakeMeme(fact.id)}
-              className="h-[44px] px-7 bg-primary text-white rounded-[12px] font-display font-bold text-[13px] uppercase tracking-[0.1em] hover:bg-primary/90 transition-colors"
+              className="h-[44px] px-7 bg-secondary border border-border text-foreground rounded-[12px] font-display font-bold text-[13px] uppercase tracking-[0.1em] hover:border-primary/50 hover:text-primary transition-colors"
             >
               Make a meme
             </motion.button>
@@ -669,18 +758,6 @@ export default function Home() {
     setPendingName(null);
   }
 
-  // The mobile sticky filter strip is hidden on first paint and revealed once
-  // the user has scrolled a bit (or interacted with a filter), so the very top
-  // of the home view is just the wordmark + hero billboard.
-  const [filterRailRevealed, setFilterRailRevealed] = useState(false);
-  useEffect(() => {
-    if (filterRailRevealed) return;
-    function onScroll() {
-      if (window.scrollY > 60) setFilterRailRevealed(true);
-    }
-    window.addEventListener("scroll", onScroll, { passive: true });
-    return () => window.removeEventListener("scroll", onScroll);
-  }, [filterRailRevealed]);
 
   // Cold visitor = no stored name AND no share-link override.  In that state
   // the hero shows a placeholder fact + inline name input instead of querying
@@ -719,7 +796,6 @@ export default function Home() {
 
   const toggleTag = (tagName: string) => {
     setFilterMode("hashtags");
-    setFilterRailRevealed(true);
     setSelectedTags(prev =>
       prev.includes(tagName) ? prev.filter(t => t !== tagName) : [...prev, tagName]
     );
@@ -730,88 +806,66 @@ export default function Home() {
 
   return (
     <Layout>
-      {/* ── MOBILE: Hashtag rail (toggleable, sticky, scroll-revealed) ─── */}
-      <AnimatePresence initial={false}>
-        {filterRailRevealed && (
-          <motion.div
-            key="mobile-filter-rail"
-            initial={{ height: 0, opacity: 0 }}
-            animate={{ height: "auto", opacity: 1 }}
-            exit={{ height: 0, opacity: 0 }}
-            transition={{ duration: 0.2 }}
-            className="md:hidden sticky top-14 z-30 bg-background/95 backdrop-blur border-b border-border overflow-hidden"
-          >
-            <AnimatePresence>
-              {showHashtagRail && (
-                <motion.div
-                  key="rail"
-                  initial={{ height: 0, opacity: 0 }}
-                  animate={{ height: "auto", opacity: 1 }}
-                  exit={{ height: 0, opacity: 0 }}
-                  transition={{ duration: 0.18 }}
-                  className="overflow-hidden"
-                >
-                  {hashtagsLoading ? (
-                    <div className="flex gap-2 px-4 py-3">
-                      {Array.from({ length: 6 }).map((_, i) => (
-                        <div key={i} className="h-8 w-20 rounded-full bg-card animate-pulse flex-shrink-0" />
-                      ))}
-                    </div>
-                  ) : (
-                    <HashtagRail
-                      hashtags={hashtagData?.hashtags ?? []}
-                      selectedTags={selectedTags}
-                      onToggle={toggleTag}
-                      onForYou={() => { setFilterMode("default"); setSelectedTags([]); }}
-                      isForYou={filterMode === "default"}
-                    />
-                  )}
-                </motion.div>
+      {/* ── MOBILE: Hashtag rail (always-visible, sticky) ─────────────── */}
+      <div className="md:hidden sticky top-14 z-30 bg-background/95 backdrop-blur border-b border-border">
+        <AnimatePresence>
+          {showHashtagRail && (
+            <motion.div
+              key="rail"
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: "auto", opacity: 1 }}
+              exit={{ height: 0, opacity: 0 }}
+              transition={{ duration: 0.18 }}
+              className="overflow-hidden"
+            >
+              {hashtagsLoading ? (
+                <div className="flex gap-2 px-4 py-3">
+                  {Array.from({ length: 6 }).map((_, i) => (
+                    <div key={i} className="h-8 w-20 rounded-full bg-card animate-pulse flex-shrink-0" />
+                  ))}
+                </div>
+              ) : (
+                <HashtagRail
+                  hashtags={hashtagData?.hashtags ?? []}
+                  selectedTags={selectedTags}
+                  onToggle={toggleTag}
+                  onForYou={() => { setFilterMode("default"); setSelectedTags([]); }}
+                  isForYou={filterMode === "default"}
+                />
               )}
-            </AnimatePresence>
+            </motion.div>
+          )}
+        </AnimatePresence>
 
-            <div className="flex items-center gap-2 px-4 py-2">
-              <button
-                onClick={() => { setFilterMode("hall-of-fame"); setSelectedTags([]); setShowHashtagRail(false); }}
-                className={cn(
-                  "flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold uppercase tracking-wide transition-colors",
-                  filterMode === "hall-of-fame"
-                    ? "bg-primary text-white"
-                    : "bg-card border border-border text-muted-foreground"
-                )}
-              >
-                🏆 Hall of Fame
-              </button>
-              <button
-                onClick={() => {
-                  const next = !showHashtagRail;
-                  setShowHashtagRail(next);
-                  if (!next) { setFilterMode("default"); setSelectedTags([]); }
-                  else setFilterMode("hashtags");
-                }}
-                className={cn(
-                  "flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold uppercase tracking-wide transition-colors",
-                  filterMode === "hashtags"
-                    ? "bg-primary text-white"
-                    : "bg-card border border-border text-muted-foreground"
-                )}
-              >
-                # Tags
-              </button>
-              <div className="flex-1" />
-              <button
-                onClick={() => { setFilterMode("default"); setSelectedTags([]); setShowHashtagRail(false); }}
-                className={cn(
-                  "text-xs font-bold uppercase tracking-wide transition-colors px-3 py-1.5 rounded-full",
-                  filterMode === "default" ? "text-foreground" : "text-muted-foreground"
-                )}
-              >
-                Latest
-              </button>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+        <div className="flex items-center gap-2 px-4 py-2">
+          <button
+            onClick={() => {
+              const next = !showHashtagRail;
+              setShowHashtagRail(next);
+              if (!next) { setFilterMode("default"); setSelectedTags([]); }
+              else setFilterMode("hashtags");
+            }}
+            className={cn(
+              "flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold uppercase tracking-wide transition-colors",
+              filterMode === "hashtags"
+                ? "bg-primary text-white"
+                : "bg-card border border-border text-muted-foreground"
+            )}
+          >
+            # Tags
+          </button>
+          <div className="flex-1" />
+          <button
+            onClick={() => { setFilterMode("default"); setSelectedTags([]); setShowHashtagRail(false); }}
+            className={cn(
+              "text-xs font-bold uppercase tracking-wide transition-colors px-3 py-1.5 rounded-full",
+              filterMode === "default" ? "text-foreground" : "text-muted-foreground"
+            )}
+          >
+            Latest
+          </button>
+        </div>
+      </div>
 
       {/* ── DESKTOP: Sticky hashtag rail ─────────────────────────── */}
       <div className="hidden md:block sticky top-16 z-30 bg-background/95 backdrop-blur border-b border-border">

@@ -1,21 +1,20 @@
 import { useLocation } from "wouter";
 import { Home, Trophy, User } from "lucide-react";
 
-// Three-tab bottom bar: Feed / Hall / Me.  The duplicate "Meme" tab that
-// pointed at the same /hall-of-fame route was confusing and lost a tap target.
+// Three-tab bottom bar: Facts / Hall of Fame / Me.
 const TABS = [
-  { href: "/",             label: "Feed", Icon: Home   },
-  { href: "/hall-of-fame", label: "Hall", Icon: Trophy },
-  { href: "/profile",      label: "Me",   Icon: User   },
+  { href: "/",             label: "Facts",        Icon: Home   },
+  { href: "/hall-of-fame", label: "Hall of Fame", Icon: Trophy },
+  { href: "/profile",      label: "Me",           Icon: User   },
 ] as const;
 
 export function BottomTabBar() {
   const [location] = useLocation();
 
   function isActive(href: string, label: string) {
-    if (label === "Feed") return location === "/";
-    if (label === "Hall") return location === "/hall-of-fame";
-    if (label === "Me")   return location.startsWith("/profile");
+    if (label === "Facts")        return location === "/";
+    if (label === "Hall of Fame") return location === "/hall-of-fame";
+    if (label === "Me")           return location.startsWith("/profile");
     return location.startsWith(href);
   }
 
@@ -39,7 +38,7 @@ export function BottomTabBar() {
               className={`w-6 h-6 transition-colors ${active ? "text-foreground" : "text-muted-foreground"}`}
               strokeWidth={active ? 2.2 : 1.8}
             />
-            <span className={`text-[10px] font-semibold tracking-wide transition-colors ${active ? "text-foreground" : "text-muted-foreground"}`}>
+            <span className={`text-[9px] font-semibold tracking-wide transition-colors leading-tight text-center ${active ? "text-foreground" : "text-muted-foreground"}`}>
               {label}
             </span>
             {active && (
