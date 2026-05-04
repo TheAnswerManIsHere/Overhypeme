@@ -977,6 +977,7 @@ export default function Home() {
                   fact={fact}
                   rank={idx + 1}
                   showRank={showRank}
+                  index={idx}
                 />
               ))}
             </div>

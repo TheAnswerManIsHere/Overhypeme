@@ -22,7 +22,7 @@ function HighlightName({ text, name }: { text: string; name: string }) {
   );
 }
 
-export function FactCard({ fact, rank, showRank = false }: { fact: FactSummary, rank?: number, showRank?: boolean }) {
+export function FactCard({ fact, rank, showRank = false, index = 0 }: { fact: FactSummary, rank?: number, showRank?: boolean, index?: number }) {
   const { rateFact } = useAppMutations();
   const { isAuthenticated } = useAuth();
   const [, setLocation] = useLocation();
@@ -34,10 +34,14 @@ export function FactCard({ fact, rank, showRank = false }: { fact: FactSummary, 
     rateFact.mutate({ factId: fact.id, data: { rating: newRating } });
   };
 
+  const staggerDelay = Math.min(index * 0.07, 0.35);
+
   return (
     <motion.div
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
+      initial={{ opacity: 0, y: 28 }}
+      whileInView={{ opacity: 1, y: 0 }}
+      viewport={{ once: true, margin: "-60px" }}
+      transition={{ duration: 0.4, ease: "easeOut", delay: staggerDelay }}
       whileHover={{ y: -3 }}
       className="relative group block bg-card rounded-[20px] shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] border border-border hover:border-primary/40 transition-all duration-300 overflow-hidden"
     >
