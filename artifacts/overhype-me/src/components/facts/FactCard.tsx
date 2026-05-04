@@ -1,5 +1,5 @@
 import { Link, useLocation } from "wouter";
-import { motion } from "framer-motion";
+import { motion, useReducedMotion } from "framer-motion";
 import { MessageSquare, ThumbsUp, ThumbsDown } from "lucide-react";
 import { FactSummary } from "@workspace/api-client-react";
 import { useAppMutations } from "@/hooks/use-mutations";
@@ -34,15 +34,16 @@ export function FactCard({ fact, rank, showRank = false, index = 0 }: { fact: Fa
     rateFact.mutate({ factId: fact.id, data: { rating: newRating } });
   };
 
+  const prefersReducedMotion = useReducedMotion();
   const staggerDelay = Math.min(index * 0.07, 0.35);
 
   return (
     <motion.div
-      initial={{ opacity: 0, y: 28 }}
-      whileInView={{ opacity: 1, y: 0 }}
+      initial={prefersReducedMotion ? false : { opacity: 0, y: 28 }}
+      whileInView={prefersReducedMotion ? undefined : { opacity: 1, y: 0 }}
       viewport={{ once: true, margin: "-60px" }}
-      transition={{ duration: 0.4, ease: "easeOut", delay: staggerDelay }}
-      whileHover={{ y: -3 }}
+      transition={prefersReducedMotion ? { duration: 0 } : { duration: 0.4, ease: "easeOut", delay: staggerDelay }}
+      whileHover={prefersReducedMotion ? undefined : { y: -3 }}
       className="relative group block bg-card rounded-[20px] shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] border border-border hover:border-primary/40 transition-all duration-300 overflow-hidden"
     >
       {showRank && rank && (
