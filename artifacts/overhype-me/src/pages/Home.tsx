@@ -1,7 +1,7 @@
 import { useListFacts, useListHashtags, getListHashtagsQueryKey, type FactSummary } from "@workspace/api-client-react";
 import { FactCard } from "@/components/facts/FactCard";
 import { Layout } from "@/components/layout/Layout";
-import { Flame, Shuffle } from "lucide-react";
+import { ChevronDown, ChevronUp, Flame, Shuffle } from "lucide-react";
 import { useLocation } from "wouter";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
@@ -9,6 +9,9 @@ import { usePersonName, SHARE_LINK_ACTIVE, DEFAULT_PRONOUNS } from "@/hooks/use-
 import { useHeroFact } from "@/hooks/use-hero-fact";
 import { cn } from "@/components/ui/Button";
 import { renderFact } from "@/lib/render-fact";
+import { inferPronounsFromName } from "@/lib/infer-pronouns";
+import { PRONOUN_PRESETS } from "@/lib/pronouns";
+import { PronounEditor } from "@/components/ui/PronounEditor";
 
 type FilterMode = "default" | "hall-of-fame" | "hashtags";
 
@@ -17,7 +20,7 @@ const COLD_TEASER_FACT = "The universe doesn't expand. {NAME} pushes it.";
 
 // Sample name shown in the cold-visitor hero so visitors immediately see
 // the personalisation — the name renders in orange just like their own will.
-const DEMO_NAME = "Marcus";
+const DEMO_NAME = "David Franklin";
 const COLD_DEMO_RENDERED = renderFact(COLD_TEASER_FACT, DEMO_NAME, DEFAULT_PRONOUNS);
 
 function HashtagRail({
@@ -350,7 +353,7 @@ function ColdMobileHero({ onSubmit }: { onSubmit: (name: string) => void }) {
             type="text"
             value={value}
             onChange={(e) => setValue(e.target.value)}
-            placeholder="First name"
+            placeholder="Your name"
             maxLength={100}
             autoComplete="given-name"
             className="w-full h-[52px] px-4 bg-background border border-border rounded-[12px] text-[15px] font-medium text-foreground outline-none focus:border-primary transition-colors placeholder:text-muted-foreground/40"
@@ -368,6 +371,151 @@ function ColdMobileHero({ onSubmit }: { onSubmit: (name: string) => void }) {
           Stored on this device · No account
         </p>
       </div>
+    </div>
+  );
+}
+
+// Bottom-sheet that slides up after name entry to collect pronouns.
+// The AI/lookup inference pre-selects the most likely option so most
+// users just tap confirm once.
+const PRONOUN_PREVIEW_FACT = "The universe doesn't expand. {NAME} pushes it.";
+
+const PRESET_LABELS: Record<string, string> = {
+  "he/him":    "He / Him",
+  "she/her":   "She / Her",
+  "they/them": "They / Them",
+};
+
+function PronounsOnboardingSheet({
+  name,
+  onConfirm,
+  onSkip,
+}: {
+  name: string;
+  onConfirm: (pronouns: string) => void;
+  onSkip: () => void;
+}) {
+  const inferred = inferPronounsFromName(name) ?? DEFAULT_PRONOUNS;
+  const [selected, setSelected] = useState(inferred);
+  const [customOpen, setCustomOpen] = useState(false);
+
+  const previewRendered = renderFact(PRONOUN_PREVIEW_FACT, name, selected);
+  const nameParts = previewRendered.split(name);
+
+  function handlePreset(p: string) {
+    setSelected(p);
+    setCustomOpen(false);
+  }
+
+  function handleCustomChange(val: string) {
+    setSelected(val);
+  }
+
+  function handleConfirm() {
+    onConfirm(selected);
+  }
+
+  return (
+    <div className="fixed inset-0 z-[110] flex flex-col justify-end">
+      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onSkip} />
+
+      <motion.div
+        initial={{ y: "100%" }}
+        animate={{ y: 0 }}
+        exit={{ y: "100%" }}
+        transition={{ type: "spring", damping: 30, stiffness: 280 }}
+        className="relative z-10 bg-card rounded-t-[24px] shadow-[0_-20px_60px_rgba(0,0,0,0.6)] pb-safe"
+      >
+        <div className="flex justify-center pt-3 mb-4">
+          <div className="w-10 h-1 rounded-full bg-border" />
+        </div>
+
+        <div className="px-5 pb-8">
+          <h3 className="font-display font-bold text-[22px] uppercase tracking-tight text-foreground mb-1">
+            One more thing.
+          </h3>
+          <p className="text-[13px] text-muted-foreground mb-5">
+            Which pronouns should we use for{" "}
+            <span className="text-foreground font-medium">{name}</span>?
+          </p>
+
+          {/* ── Live preview ──────────────────────────────── */}
+          <div className="rounded-[14px] bg-background border border-border px-4 py-3 mb-5">
+            <p className="text-[11px] font-bold tracking-[0.16em] text-muted-foreground uppercase font-display mb-2">
+              Preview
+            </p>
+            <p className="font-display font-bold text-[18px] uppercase leading-tight text-foreground">
+              {nameParts.map((p, i) =>
+                i < nameParts.length - 1
+                  ? <span key={i}>{p}<span className="text-primary">{name}</span></span>
+                  : <span key={i}>{p}</span>
+              )}
+            </p>
+          </div>
+
+          {/* ── Preset chips ──────────────────────────────── */}
+          <div className="flex gap-2 mb-3">
+            {PRONOUN_PRESETS.map((p) => (
+              <button
+                key={p}
+                type="button"
+                onClick={() => handlePreset(p)}
+                className={`flex-1 py-3 rounded-[12px] border text-[13px] font-bold font-display uppercase tracking-wide transition-colors ${
+                  !customOpen && selected === p
+                    ? "border-primary bg-primary/10 text-primary"
+                    : "border-border text-muted-foreground hover:border-primary/50"
+                }`}
+              >
+                {PRESET_LABELS[p]}
+              </button>
+            ))}
+          </div>
+
+          {/* ── Custom expander ───────────────────────────── */}
+          <button
+            type="button"
+            onClick={() => { setCustomOpen(v => !v); }}
+            className="flex items-center gap-1.5 text-[12px] text-muted-foreground hover:text-foreground transition-colors mb-3 font-medium"
+          >
+            {customOpen ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+            Custom pronouns
+          </button>
+
+          <AnimatePresence>
+            {customOpen && (
+              <motion.div
+                initial={{ height: 0, opacity: 0 }}
+                animate={{ height: "auto", opacity: 1 }}
+                exit={{ height: 0, opacity: 0 }}
+                transition={{ duration: 0.2 }}
+                className="overflow-hidden mb-3"
+              >
+                <PronounEditor value={selected} onChange={handleCustomChange} />
+              </motion.div>
+            )}
+          </AnimatePresence>
+
+          {/* ── Confirm / skip ───────────────────────────── */}
+          <button
+            type="button"
+            onClick={handleConfirm}
+            className="w-full h-[52px] bg-primary text-white rounded-[12px] font-display font-bold text-[13px] uppercase tracking-[0.12em] hover:bg-primary/90 transition-colors flex items-center justify-center gap-2 shadow-[0_0_20px_rgba(249,115,22,0.4)]"
+          >
+            <Flame className="w-4 h-4" /> Looks right
+          </button>
+
+          <p className="text-center text-[11px] text-muted-foreground/50 mt-3">
+            <button
+              type="button"
+              onClick={onSkip}
+              className="underline underline-offset-2 hover:text-muted-foreground transition-colors"
+            >
+              skip for now
+            </button>
+            {" · "}you can always change this later
+          </p>
+        </div>
+      </motion.div>
     </div>
   );
 }
@@ -410,7 +558,28 @@ export default function Home() {
   const [filterMode, setFilterMode] = useState<FilterMode>("default");
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [showHashtagRail, setShowHashtagRail] = useState(false);
-  const { name, pronouns, setName } = usePersonName();
+  const { name, pronouns, setName, setPronouns } = usePersonName();
+
+  // Two-step cold onboarding: capture name first, then show pronouns sheet.
+  const [pendingName, setPendingName] = useState<string | null>(null);
+
+  function handleNameSubmit(submittedName: string) {
+    setPendingName(submittedName);
+  }
+
+  function handlePronounsConfirm(chosenPronouns: string) {
+    if (!pendingName) return;
+    setName(pendingName);
+    setPronouns(chosenPronouns);
+    setPendingName(null);
+  }
+
+  function handlePronounsSkip() {
+    if (!pendingName) return;
+    setName(pendingName);
+    // leave pronouns unchanged — the inferred default or whatever was set before
+    setPendingName(null);
+  }
 
   // The mobile sticky filter strip is hidden on first paint and revealed once
   // the user has scrolled a bit (or interacted with a filter), so the very top
@@ -620,7 +789,7 @@ export default function Home() {
       {filterMode === "default" && (
         <div className="md:hidden">
           {isCold ? (
-            <ColdMobileHero onSubmit={setName} />
+            <ColdMobileHero onSubmit={handleNameSubmit} />
           ) : (
             <div className="pt-3">
               <HeroBillboardMobile
@@ -697,6 +866,17 @@ export default function Home() {
           </div>
         )}
       </section>
+
+      {/* ── Pronouns onboarding sheet (mobile cold flow) ──────── */}
+      <AnimatePresence>
+        {pendingName && (
+          <PronounsOnboardingSheet
+            name={pendingName}
+            onConfirm={handlePronounsConfirm}
+            onSkip={handlePronounsSkip}
+          />
+        )}
+      </AnimatePresence>
     </Layout>
   );
 }
