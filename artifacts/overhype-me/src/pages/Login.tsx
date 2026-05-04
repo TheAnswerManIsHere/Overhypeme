@@ -125,6 +125,7 @@ export default function Login() {
 
       if (mode === "register" && email) {
         setRegisteredEmail(email);
+        window.scrollTo({ top: 0, behavior: "smooth" });
         return;
       }
 

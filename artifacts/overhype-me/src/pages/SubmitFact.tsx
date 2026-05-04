@@ -239,6 +239,7 @@ export default function SubmitFact() {
       setTemplate(data.template);
       setShowAdvanced(false);
       setStep("preview");
+      window.scrollTo({ top: 0, behavior: "smooth" });
       void checkDuplicate(data.template);
     } catch {
       setTokenizeError("Network error — please try again.");
@@ -280,6 +281,7 @@ export default function SubmitFact() {
       if (r.ok) {
         try { localStorage.removeItem(DRAFT_STORAGE_KEY); } catch { /* ignore */ }
         setSubmitted(true);
+        window.scrollTo({ top: 0, behavior: "smooth" });
       } else {
         const d = await r.json() as { error?: string; code?: string };
         if (d.code === "ONBOARDING_REQUIRED") {
@@ -646,7 +648,7 @@ export default function SubmitFact() {
                   size="lg"
                   className="flex-1 text-lg font-bold"
                   disabled={!template.trim() || !!templateGrammarError}
-                  onClick={() => setStep("submit")}
+                  onClick={() => { setStep("submit"); window.scrollTo({ top: 0, behavior: "smooth" }); }}
                 >
                   Looks Correct <ChevronRight className="w-4 h-4 ml-1" />
                 </Button>

@@ -30,6 +30,7 @@ export default function ForgotPassword() {
     } finally {
       setLoading(false);
       setSubmitted(true);
+      window.scrollTo({ top: 0, behavior: "smooth" });
     }
   };
 
