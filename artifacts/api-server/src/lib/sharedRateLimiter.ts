@@ -1,6 +1,6 @@
 import crypto from "crypto";
 import { db, rateLimitCountersTable } from "@workspace/db";
-import { sql } from "drizzle-orm";
+import { like, sql } from "drizzle-orm";
 
 export type RateLimitScope = {
   endpoint: string;
@@ -82,4 +82,8 @@ export async function checkSharedRateLimit(scope: RateLimitScope, config: RateLi
 
 export async function purgeExpiredRateLimitCounters(): Promise<void> {
   await db.delete(rateLimitCountersTable).where(sql`${rateLimitCountersTable.expiresAt} <= now()`);
+}
+
+export async function purgeRateLimitCountersByPrefix(rawKeyPrefix: string): Promise<void> {
+  await db.delete(rateLimitCountersTable).where(like(rateLimitCountersTable.keyRaw, `${rawKeyPrefix}%`));
 }
