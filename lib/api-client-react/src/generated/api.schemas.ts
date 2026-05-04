@@ -268,6 +268,15 @@ export interface Comment {
   authorName?: string | null;
   authorImage?: string | null;
   createdAt: string;
+  /** @minimum 0 */
+  heartCount: number;
+  viewerHasHearted: boolean;
+}
+
+export interface HeartResult {
+  /** @minimum 0 */
+  heartCount: number;
+  viewerHasHearted: boolean;
 }
 
 export interface CommentListResponse {
@@ -461,6 +470,9 @@ export interface MemeRecord {
   imageUrl: string;
   permalinkSlug: string;
   createdAt: string;
+  /** @minimum 0 */
+  heartCount: number;
+  viewerHasHearted: boolean;
 }
 
 export interface MemeDetail {
@@ -472,6 +484,9 @@ export interface MemeDetail {
   factText: string;
   createdAt: string;
   createdByName?: string | null;
+  /** @minimum 0 */
+  heartCount: number;
+  viewerHasHearted: boolean;
 }
 
 export interface MemeListResponse {

@@ -42,6 +42,7 @@ import type {
   HandleBrowserLoginCallbackParams,
   HashtagListResponse,
   HealthStatus,
+  HeartResult,
   HeroFactResponse,
   LinkListResponse,
   ListCommentsParams,
@@ -1137,6 +1138,174 @@ export const useAddComment = <
   TContext
 > => {
   return useMutation(getAddCommentMutationOptions(options));
+};
+
+/**
+ * @summary Toggle a heart reaction on a comment
+ */
+export const getHeartCommentUrl = (id: number) => {
+  return `/api/comments/${id}/heart`;
+};
+
+export const heartComment = async (
+  id: number,
+  options?: RequestInit,
+): Promise<HeartResult> => {
+  return customFetch<HeartResult>(getHeartCommentUrl(id), {
+    ...options,
+    method: "POST",
+  });
+};
+
+export const getHeartCommentMutationOptions = <
+  TError = ErrorType<ErrorEnvelope>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof heartComment>>,
+    TError,
+    { id: number },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof heartComment>>,
+  TError,
+  { id: number },
+  TContext
+> => {
+  const mutationKey = ["heartComment"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof heartComment>>,
+    { id: number }
+  > = (props) => {
+    const { id } = props ?? {};
+
+    return heartComment(id, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type HeartCommentMutationResult = NonNullable<
+  Awaited<ReturnType<typeof heartComment>>
+>;
+
+export type HeartCommentMutationError = ErrorType<ErrorEnvelope>;
+
+/**
+ * @summary Toggle a heart reaction on a comment
+ */
+export const useHeartComment = <
+  TError = ErrorType<ErrorEnvelope>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof heartComment>>,
+    TError,
+    { id: number },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof heartComment>>,
+  TError,
+  { id: number },
+  TContext
+> => {
+  return useMutation(getHeartCommentMutationOptions(options));
+};
+
+/**
+ * @summary Toggle a heart reaction on a meme
+ */
+export const getHeartMemeUrl = (id: number) => {
+  return `/api/memes/${id}/heart`;
+};
+
+export const heartMeme = async (
+  id: number,
+  options?: RequestInit,
+): Promise<HeartResult> => {
+  return customFetch<HeartResult>(getHeartMemeUrl(id), {
+    ...options,
+    method: "POST",
+  });
+};
+
+export const getHeartMemeMutationOptions = <
+  TError = ErrorType<ErrorEnvelope>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof heartMeme>>,
+    TError,
+    { id: number },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof heartMeme>>,
+  TError,
+  { id: number },
+  TContext
+> => {
+  const mutationKey = ["heartMeme"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof heartMeme>>,
+    { id: number }
+  > = (props) => {
+    const { id } = props ?? {};
+
+    return heartMeme(id, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type HeartMemeMutationResult = NonNullable<
+  Awaited<ReturnType<typeof heartMeme>>
+>;
+
+export type HeartMemeMutationError = ErrorType<ErrorEnvelope>;
+
+/**
+ * @summary Toggle a heart reaction on a meme
+ */
+export const useHeartMeme = <
+  TError = ErrorType<ErrorEnvelope>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof heartMeme>>,
+    TError,
+    { id: number },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof heartMeme>>,
+  TError,
+  { id: number },
+  TContext
+> => {
+  return useMutation(getHeartMemeMutationOptions(options));
 };
 
 /**

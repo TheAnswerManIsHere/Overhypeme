@@ -14,4 +14,7 @@ export interface Comment {
   authorName?: string | null;
   authorImage?: string | null;
   createdAt: Date;
+  /** @minimum 0 */
+  heartCount: number;
+  viewerHasHearted: boolean;
 }

@@ -15,4 +15,7 @@ export interface MemeDetail {
   factText: string;
   createdAt: Date;
   createdByName?: string | null;
+  /** @minimum 0 */
+  heartCount: number;
+  viewerHasHearted: boolean;
 }

@@ -30,8 +30,11 @@ export const memesTable = pgTable("memes", {
   aspectRatio: varchar("aspect_ratio", { length: 20 }).notNull().default("landscape"),
   /** Fact text as rendered at creation time (frozen — preserves the creator's name/pronouns forever). */
   renderedFactText: text("rendered_fact_text"),
+  /** Precomputed count of heart reactions on this meme. Maintained by the reactions write path. */
+  heartCount: integer("heart_count").notNull().default(0),
 }, (table) => [
   index("IDX_memes_deleted_at").on(table.deletedAt).where(isNull(table.deletedAt)),
+  index("IDX_memes_heart_count").on(table.heartCount),
 ]);
 
 export type Meme = typeof memesTable.$inferSelect;

@@ -36,7 +36,8 @@ const Login = lazy(() => import("@/pages/Login"));
 const ForgotPassword = lazy(() => import("@/pages/ForgotPassword"));
 const ResetPassword = lazy(() => import("@/pages/ResetPassword"));
 const VerifyEmail = lazy(() => import("@/pages/VerifyEmail"));
-const HallOfFame = lazy(() => import("@/pages/HallOfFame"));
+const TopFacts = lazy(() => import("@/pages/TopFacts"));
+const Library = lazy(() => import("@/pages/Library"));
 const WearIt = lazy(() => import("@/pages/WearIt"));
 const NotFound = lazy(() => import("@/pages/not-found"));
 
@@ -52,6 +53,12 @@ const queryClient = new QueryClient({
 function HashtagsRedirect() {
   const [, setLocation] = useLocation();
   useEffect(() => { setLocation("/"); }, [setLocation]);
+  return null;
+}
+
+function HallOfFameRedirect() {
+  const [, setLocation] = useLocation();
+  useEffect(() => { setLocation("/top-facts"); }, [setLocation]);
   return null;
 }
 
@@ -198,7 +205,7 @@ const ROUTE_IMPORT_MAP: Record<string, () => Promise<unknown>> = {
   meme:     () => import("@/pages/MemePage"),
   video:    () => import("@/pages/VideoPage"),
   pricing:      () => import("@/pages/Pricing"),
-  "hall-of-fame": () => import("@/pages/HallOfFame"),
+  "top-facts": () => import("@/pages/TopFacts"),
   "wear":         () => import("@/pages/WearIt"),
 };
 
@@ -368,7 +375,9 @@ function Router() {
         <Route path="/admin/features" component={AdminFeatures} />
         <Route path="/admin/email-queue" component={AdminEmailQueue} />
         <Route path="/admin" component={AdminDashboard} />
-        <Route path="/hall-of-fame" component={HallOfFame} />
+        <Route path="/top-facts" component={TopFacts} />
+        <Route path="/library" component={Library} />
+        <Route path="/hall-of-fame"><HallOfFameRedirect /></Route>
         <Route path="/activity" component={ActivityFeed} />
         <Route path="/wear/:slug?" component={WearIt} />
         <Route path="/meme/:slug" component={MemePage} />

@@ -18,6 +18,8 @@ tags:
     description: Hashtag operations
   - name: ratings
     description: Fact rating operations
+  - name: reactions
+    description: Heart reactions on memes and comments
   - name: comments
     description: Comment operations
   - name: links
@@ -332,6 +334,68 @@ paths:
                 $ref: "#/components/schemas/Comment"
         "401":
           description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /comments/{id}/heart:
+    post:
+      operationId: heartComment
+      tags: [reactions]
+      summary: Toggle a heart reaction on a comment
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Updated heart count and viewer state
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HeartResult"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Comment not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /memes/{id}/heart:
+    post:
+      operationId: heartMeme
+      tags: [reactions]
+      summary: Toggle a heart reaction on a meme
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Updated heart count and viewer state
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HeartResult"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Meme not found
           content:
             application/json:
               schema:
@@ -1309,7 +1373,7 @@ components:
 
     Comment:
       type: object
-      required: [id, factId, text, createdAt]
+      required: [id, factId, text, createdAt, heartCount, viewerHasHearted]
       properties:
         id:
           type: integer
@@ -1329,6 +1393,21 @@ components:
         createdAt:
           type: string
           format: date-time
+        heartCount:
+          type: integer
+          minimum: 0
+        viewerHasHearted:
+          type: boolean
+
+    HeartResult:
+      type: object
+      required: [heartCount, viewerHasHearted]
+      properties:
+        heartCount:
+          type: integer
+          minimum: 0
+        viewerHasHearted:
+          type: boolean
 
     CommentListResponse:
       type: object
@@ -1648,7 +1727,7 @@ components:
 
     MemeRecord:
       type: object
-      required: [id, factId, templateId, imageUrl, permalinkSlug, createdAt]
+      required: [id, factId, templateId, imageUrl, permalinkSlug, createdAt, heartCount, viewerHasHearted]
       properties:
         id:
           type: integer
@@ -1663,10 +1742,15 @@ components:
         createdAt:
           type: string
           format: date-time
+        heartCount:
+          type: integer
+          minimum: 0
+        viewerHasHearted:
+          type: boolean
 
     MemeDetail:
       type: object
-      required: [id, factId, templateId, imageUrl, permalinkSlug, factText, createdAt]
+      required: [id, factId, templateId, imageUrl, permalinkSlug, factText, createdAt, heartCount, viewerHasHearted]
       properties:
         id:
           type: integer
@@ -1686,6 +1770,11 @@ components:
         createdByName:
           type: string
           nullable: true
+        heartCount:
+          type: integer
+          minimum: 0
+        viewerHasHearted:
+          type: boolean
 
     MemeListResponse:
       type: object

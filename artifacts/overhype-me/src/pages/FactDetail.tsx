@@ -13,6 +13,8 @@ import { AdSlot } from "@/components/AdSlot";
 
 import { ThumbsUp, ThumbsDown, User, AlertCircle, GitBranch, ArrowLeft, Crown, Flame, Video, Play, ExternalLink, MessageSquare, Check } from "lucide-react";
 import { ImageCard } from "@/components/ui/ImageCard";
+import { CommentHeartButton } from "@/components/comments/CommentHeartButton";
+import { MemeHeartButton } from "@/components/memes/MemeHeartButton";
 import { cn } from "@/components/ui/Button";
 import { usePersonName } from "@/hooks/use-person-name";
 import { AccessGate } from "@/components/AccessGate";
@@ -38,6 +40,8 @@ type MemeItem = {
   originalWidth: number | null;
   originalHeight: number | null;
   uploadFileSizeBytes: number | null;
+  heartCount: number;
+  viewerHasHearted: boolean;
 };
 
 const MEME_ASPECT_CLASS: Record<string, string> = {
@@ -639,9 +643,18 @@ export default function FactDetail() {
                         permalink={memePermalink}
                         footer={<AdminMediaInfo fileName={getFileNameFromUrl(meme.imageUrl)} fileSizeBytes={meme.uploadFileSizeBytes} mimeType={getMimeTypeFromUrl(meme.imageUrl)} width={meme.originalWidth} height={meme.originalHeight} />}
                       />
-                      <Link href={`/meme/${meme.permalinkSlug}`} className="w-full flex items-center justify-center gap-1.5 text-[10px] font-display font-bold uppercase tracking-wider text-muted-foreground hover:text-primary transition-colors py-1">
-                        <ExternalLink className="w-3 h-3" /> View Permalink
-                      </Link>
+                      <div className="w-full flex items-center justify-between gap-2 px-1 py-1">
+                        <MemeHeartButton
+                          memeId={meme.id}
+                          initialHeartCount={meme.heartCount}
+                          initialViewerHasHearted={meme.viewerHasHearted}
+                          stopPropagation
+                          size="sm"
+                        />
+                        <Link href={`/meme/${meme.permalinkSlug}`} className="flex items-center gap-1.5 text-[10px] font-display font-bold uppercase tracking-wider text-muted-foreground hover:text-primary transition-colors">
+                          <ExternalLink className="w-3 h-3" /> View Permalink
+                        </Link>
+                      </div>
                     </div>
                   );
                 })}
@@ -768,6 +781,13 @@ export default function FactDetail() {
                     <span className="text-xs text-muted-foreground font-medium">{format(new Date(comment.createdAt), 'MMM dd, yyyy')}</span>
                   </div>
                   <p className="text-foreground leading-relaxed">{comment.text}</p>
+                  <div className="mt-3 flex items-center">
+                    <CommentHeartButton
+                      commentId={comment.id}
+                      initialHeartCount={comment.heartCount}
+                      initialViewerHasHearted={comment.viewerHasHearted}
+                    />
+                  </div>
                 </div>
               ))}
               {commentsData?.comments.length === 0 && (

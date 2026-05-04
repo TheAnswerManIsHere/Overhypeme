@@ -8,6 +8,7 @@ import { AlertCircle, Ban, ArrowLeft } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Link } from "wouter";
 import { AdminMediaInfo, getFileNameFromUrl, getMimeTypeFromUrl } from "@/components/ui/AdminMediaInfo";
+import { MemeHeartButton } from "@/components/memes/MemeHeartButton";
 
 type MemeData = {
   id: number;
@@ -22,6 +23,8 @@ type MemeData = {
   originalWidth: number | null;
   originalHeight: number | null;
   uploadFileSizeBytes: number | null;
+  heartCount: number;
+  viewerHasHearted: boolean;
 };
 
 function ExtLinkIcon({ size = 16, className = "" }: { size?: number; className?: string }) {
@@ -233,8 +236,11 @@ export default function MemePage() {
         </div>
 
         {/* Meme hero */}
-        <div className="rounded-[20px] overflow-hidden mb-5 shadow-[0_12px_32px_rgba(0,0,0,0.4)]">
+        <div className="rounded-[20px] overflow-hidden mb-3 shadow-[0_12px_32px_rgba(0,0,0,0.4)]">
           <img src={meme.imageUrl} alt="Meme" className="w-full object-cover" loading="eager" />
+        </div>
+        <div className="mb-5 flex items-center">
+          <MemeHeartButton memeId={meme.id} initialHeartCount={meme.heartCount} initialViewerHasHearted={meme.viewerHasHearted} />
         </div>
 
         {/* "What's next?" header (only shown when we present co-equal answers,
@@ -392,6 +398,9 @@ export default function MemePage() {
 
           <div className="w-full max-w-[520px] rounded-[24px] overflow-hidden shadow-[0_30px_80px_rgba(0,0,0,0.5)]">
             <img src={meme.imageUrl} alt="Meme" className="w-full object-cover" />
+          </div>
+          <div className="w-full max-w-[520px] mt-3 flex items-center">
+            <MemeHeartButton memeId={meme.id} initialHeartCount={meme.heartCount} initialViewerHasHearted={meme.viewerHasHearted} />
           </div>
 
           <AdminMediaInfo
