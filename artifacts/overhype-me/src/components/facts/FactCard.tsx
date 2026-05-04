@@ -8,6 +8,20 @@ import { cn } from "@/components/ui/Button";
 import { usePersonName } from "@/hooks/use-person-name";
 import { renderFact } from "@/lib/render-fact";
 
+function HighlightName({ text, name }: { text: string; name: string }) {
+  if (!name) return <>{text}</>;
+  const parts = text.split(name);
+  return (
+    <>
+      {parts.map((p, i) =>
+        i < parts.length - 1
+          ? <span key={i}>{p}<span className="text-primary">{name}</span></span>
+          : <span key={i}>{p}</span>
+      )}
+    </>
+  );
+}
+
 export function FactCard({ fact, rank, showRank = false }: { fact: FactSummary, rank?: number, showRank?: boolean }) {
   const { rateFact } = useAppMutations();
   const { isAuthenticated } = useAuth();
@@ -37,7 +51,7 @@ export function FactCard({ fact, rank, showRank = false }: { fact: FactSummary, 
         {/* Fact text */}
         <Link href={`/facts/${fact.id}`} className="block mb-4">
           <h3 className="text-lg sm:text-xl md:text-2xl font-display font-bold text-foreground leading-tight uppercase tracking-tight">
-            "{renderFact(fact.text, name, pronouns)}"
+            "<HighlightName text={renderFact(fact.text, name, pronouns)} name={name} />"
           </h3>
         </Link>
 
