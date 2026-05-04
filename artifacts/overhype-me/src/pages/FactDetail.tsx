@@ -11,7 +11,7 @@ import { Textarea } from "@/components/ui/Input";
 import { useAppMutations } from "@/hooks/use-mutations";
 import { AdSlot } from "@/components/AdSlot";
 
-import { ThumbsUp, ThumbsDown, User, AlertCircle, ImageIcon, GitBranch, ArrowLeft, Crown, Flame, Globe, Lock, Video, Play, ExternalLink, Check, SlidersHorizontal } from "lucide-react";
+import { ThumbsUp, ThumbsDown, User, AlertCircle, GitBranch, ArrowLeft, Crown, Flame, Video, Play, ExternalLink, MessageSquare } from "lucide-react";
 import { ImageCard } from "@/components/ui/ImageCard";
 import { cn } from "@/components/ui/Button";
 import { usePersonName } from "@/hooks/use-person-name";
@@ -249,19 +249,10 @@ export default function FactDetail() {
     query: { queryKey: getGetFactQueryKey(factId), enabled: !!factId }
   });
 
-  const [showImages, setShowImages] = useState(() => localStorage.getItem("meme_show_images") !== "false");
-  const [showVideos, setShowVideos] = useState(() => localStorage.getItem("meme_show_videos") !== "false");
-  const [showCommunity, setShowCommunity] = useState(() => localStorage.getItem("meme_show_community") !== "false");
-  const [showMyPublic, setShowMyPublic] = useState(() => localStorage.getItem("meme_show_my_public") !== "false");
-  const [showMyPrivate, setShowMyPrivate] = useState(() => localStorage.getItem("meme_show_my_private") !== "false");
+  const [galleryTab, setGalleryTab] = useState<"community" | "mine">("community");
+  const [mediaFilter, setMediaFilter] = useState<"all" | "image" | "video">("all");
   const [belowFoldMounted, setBelowFoldMounted] = useState(false);
   const queryClient = useQueryClient();
-
-  useEffect(() => { localStorage.setItem("meme_show_images", String(showImages)); }, [showImages]);
-  useEffect(() => { localStorage.setItem("meme_show_videos", String(showVideos)); }, [showVideos]);
-  useEffect(() => { localStorage.setItem("meme_show_community", String(showCommunity)); }, [showCommunity]);
-  useEffect(() => { localStorage.setItem("meme_show_my_public", String(showMyPublic)); }, [showMyPublic]);
-  useEffect(() => { localStorage.setItem("meme_show_my_private", String(showMyPrivate)); }, [showMyPrivate]);
 
   const belowFoldSentinelRef = useRef<HTMLDivElement>(null);
 
@@ -465,81 +456,85 @@ export default function FactDetail() {
           </Link>
         )}
 
-        {/* Main Fact Card */}
-        <div className="bg-card border-l-8 border-primary p-8 md:p-12 shadow-2xl relative mb-12 overflow-hidden">
-          <h1 className="text-3xl md:text-5xl font-bold leading-tight text-foreground relative z-10 mb-8 mt-4">
+        {/* Main Fact Card — compact header, consistent with feed cards */}
+        <div className="bg-card rounded-2xl border border-border shadow-lg p-6 md:p-8 relative mb-4 overflow-hidden">
+          {/* Compact meta strip */}
+          <div className="flex items-center gap-2 mb-4 text-[10px] font-display font-bold tracking-widest uppercase text-muted-foreground">
+            <Flame className="w-3 h-3 text-primary" />
+            {name && <span>About {name}</span>}
+            <span className="opacity-30">·</span>
+            <span>{format(new Date(fact.createdAt), 'MMM dd, yyyy')}</span>
+            {fact.submittedBy && (
+              <><span className="opacity-30">·</span><span className="text-primary">{fact.submittedBy}</span></>
+            )}
+          </div>
+
+          <h1 className="text-2xl md:text-3xl font-display font-bold leading-tight uppercase tracking-tight text-foreground mb-5">
             "{renderedText}"
           </h1>
 
-          <div className="flex flex-wrap gap-2 mb-10 relative z-10">
-            {fact.hashtags.map(tag => (
-              <span key={tag} className="text-sm font-bold font-display tracking-wider text-muted-foreground bg-secondary border border-border px-3 py-1 rounded-sm uppercase">
-                #{tag}
-              </span>
-            ))}
-          </div>
+          {fact.hashtags.length > 0 && (
+            <div className="flex flex-wrap gap-1.5 mb-5">
+              {fact.hashtags.map(tag => (
+                <span key={tag} className="text-xs font-semibold font-display tracking-wide text-muted-foreground bg-secondary/80 px-2.5 py-1 rounded-full uppercase border border-border/50">
+                  #{tag}
+                </span>
+              ))}
+            </div>
+          )}
 
-          <div className="border-t-2 border-border pt-6 mt-6">
-            {/* Vote buttons — always side-by-side */}
-            <div className="flex items-center gap-4">
-              <Button
-                variant="secondary"
-                size="lg"
+          {/* Engagement row — pill upvote matching feed */}
+          <div className="flex items-center gap-3 pt-4 border-t border-border/50">
+            <div className={cn(
+              "inline-flex items-center rounded-full border h-9 transition-colors",
+              fact.userRating === "up"
+                ? "bg-primary/[0.14] border-primary text-primary"
+                : "bg-secondary border-border/80 text-foreground"
+            )}>
+              <button
                 onClick={() => handleRate("up")}
-                className={cn("gap-3 h-14", fact.userRating === "up" && "bg-primary/20 text-primary border-primary")}
                 disabled={rateFact.isPending}
+                className="flex items-center gap-2 pl-4 pr-2.5 h-full"
+                title="Upvote"
               >
-                <ThumbsUp className={cn("w-6 h-6", fact.userRating === "up" && "fill-current")} />
-                <span className="text-xl">{fact.upvotes}</span>
-              </Button>
-              <Button
-                variant="secondary"
-                size="lg"
+                <ThumbsUp className={cn("w-4 h-4", fact.userRating === "up" && "fill-current")} />
+                <span className="text-sm font-bold">{fact.upvotes}</span>
+              </button>
+              <span className="w-px h-4 bg-border/80 flex-shrink-0" />
+              <button
                 onClick={() => handleRate("down")}
-                className={cn("gap-3 h-14", fact.userRating === "down" && "bg-destructive/20 text-destructive border-destructive")}
                 disabled={rateFact.isPending}
+                className={cn(
+                  "flex items-center px-2.5 h-full transition-colors",
+                  fact.userRating === "down" ? "text-destructive" : "text-muted-foreground/60 hover:text-muted-foreground"
+                )}
+                title="Downvote"
               >
-                <ThumbsDown className={cn("w-6 h-6", fact.userRating === "down" && "fill-current")} />
-                <span className="text-xl">{fact.downvotes}</span>
-              </Button>
-              {/* Desktop: MAKE MEME inline with votes */}
-              <Button
-                variant="primary"
-                size="lg"
-                onClick={() => openMemeStudio("image")}
-                className="hidden sm:flex gap-2 h-14"
-              >
-                <Flame className="w-5 h-5" />
-                <span>MAKE MEME</span>
-              </Button>
-              {/* Desktop: ADDED pushed to far right */}
-              <div className="hidden sm:block ml-auto text-muted-foreground text-sm font-medium text-right">
-                <div>FACT ID {fact.id} &nbsp;·&nbsp; ADDED: {format(new Date(fact.createdAt), 'MMM dd, yyyy')}</div>
-                {fact.submittedBy && <div className="text-primary mt-1">BY {fact.submittedBy.toUpperCase()}</div>}
-              </div>
+                <ThumbsDown className={cn("w-4 h-4", fact.userRating === "down" && "fill-current")} />
+              </button>
             </div>
 
-            {/* Mobile: ADDED below votes */}
-            <div className="sm:hidden mt-3 text-muted-foreground text-sm font-medium">
-              <div>FACT ID {fact.id} &nbsp;·&nbsp; ADDED: {format(new Date(fact.createdAt), 'MMM dd, yyyy')}</div>
-              {fact.submittedBy && <div className="text-primary mt-1">BY {fact.submittedBy.toUpperCase()}</div>}
-            </div>
-
-            {/* Mobile: MAKE MEME below ADDED */}
-            <Button
-              variant="primary"
-              size="lg"
-              onClick={() => openMemeStudio("image")}
-              className="sm:hidden w-full mt-3 gap-2 h-14"
-            >
-              <Flame className="w-5 h-5" />
-              <span>MAKE MEME</span>
-            </Button>
+            <Link href="#comments" className="flex items-center gap-2 text-muted-foreground hover:text-foreground transition-colors">
+              <MessageSquare className="w-5 h-5" />
+              <span className="text-sm font-semibold">{fact.commentCount}</span>
+            </Link>
           </div>
-
         </div>
 
-        {/* Ad slot below fact card — hidden for premium users */}
+        {/* PRIMARY CTA — Make a meme, full-width, prominent */}
+        <div className="mb-4">
+          <Button
+            variant="primary"
+            size="lg"
+            onClick={() => openMemeStudio("image")}
+            className="w-full h-14 gap-3 shadow-[0_8px_20px_rgba(255,101,0,0.22)] tracking-widest"
+          >
+            <Flame className="w-5 h-5" />
+            MAKE A MEME OF THIS
+          </Button>
+        </div>
+
+        {/* Ad slot — hidden for premium users */}
         <AdSlot slot={import.meta.env.VITE_ADSENSE_SLOT_FACT_FOOTER ?? "1234567890"} format="horizontal" className="mb-8" />
 
         {/* Sentinel: IntersectionObserver watches this to trigger below-fold content */}
@@ -547,314 +542,164 @@ export default function FactDetail() {
 
         {belowFoldMounted && (<>
 
-        {/* Media Gallery — above comments */}
+        {/* Gallery — the reason you came here */}
         <div className="mb-12">
-          {/* Gallery header */}
-          <div className="border-b-2 border-border pb-4 mb-6">
-            <div className="flex items-center justify-between flex-wrap gap-y-3 gap-x-4 mb-4">
-              <h3 className="text-2xl font-display uppercase tracking-wide flex items-center gap-3">
-                <ImageIcon className="w-6 h-6 text-primary" /> Memes
-              </h3>
-            </div>
-            {/* Filter pills */}
-            <div className="mb-2">
-              <div className="flex items-center gap-1.5 mb-2.5">
-                <SlidersHorizontal className="w-3.5 h-3.5 text-muted-foreground" />
-                <span className="text-xs font-display font-bold uppercase tracking-widest text-muted-foreground">Filter</span>
-              </div>
-              <div className="flex flex-wrap gap-2">
-                {/* Media type pills */}
-                <button
-                  onClick={() => setShowImages(v => !v)}
-                  className={cn(
-                    "flex items-center gap-1.5 px-3 py-2 rounded-sm border font-display text-sm uppercase tracking-wider transition-colors select-none",
-                    showImages
-                      ? "border-primary bg-primary/10 text-primary"
-                      : "border-border bg-background text-muted-foreground hover:border-foreground hover:text-foreground"
-                  )}
-                >
-                  {showImages && <Check className="w-3.5 h-3.5 flex-shrink-0" />}
-                  <ImageIcon className="w-3.5 h-3.5 flex-shrink-0" />
-                  Images
-                </button>
-                <button
-                  onClick={() => setShowVideos(v => !v)}
-                  className={cn(
-                    "flex items-center gap-1.5 px-3 py-2 rounded-sm border font-display text-sm uppercase tracking-wider transition-colors select-none",
-                    showVideos
-                      ? "border-primary bg-primary/10 text-primary"
-                      : "border-border bg-background text-muted-foreground hover:border-foreground hover:text-foreground"
-                  )}
-                >
-                  {showVideos && <Check className="w-3.5 h-3.5 flex-shrink-0" />}
-                  <Video className="w-3.5 h-3.5 flex-shrink-0" />
-                  Videos
-                </button>
-
-                <div className="w-px bg-border self-stretch mx-0.5 hidden sm:block" />
-
-                {/* Visibility pills */}
-                <button
-                  onClick={() => setShowCommunity(v => !v)}
-                  className={cn(
-                    "flex items-center gap-1.5 px-3 py-2 rounded-sm border font-display text-sm uppercase tracking-wider transition-colors select-none",
-                    showCommunity
-                      ? "border-primary bg-primary/10 text-primary"
-                      : "border-border bg-background text-muted-foreground hover:border-foreground hover:text-foreground"
-                  )}
-                >
-                  {showCommunity && <Check className="w-3.5 h-3.5 flex-shrink-0" />}
-                  <Globe className="w-3.5 h-3.5 flex-shrink-0" />
-                  Community
-                </button>
-                {isAuthenticated && (
-                  <>
-                    <button
-                      onClick={() => setShowMyPublic(v => !v)}
-                      className={cn(
-                        "flex items-center gap-1.5 px-3 py-2 rounded-sm border font-display text-sm uppercase tracking-wider transition-colors select-none",
-                        showMyPublic
-                          ? "border-primary bg-primary/10 text-primary"
-                          : "border-border bg-background text-muted-foreground hover:border-foreground hover:text-foreground"
-                      )}
-                    >
-                      {showMyPublic && <Check className="w-3.5 h-3.5 flex-shrink-0" />}
-                      My Public
-                    </button>
-                    <button
-                      onClick={() => setShowMyPrivate(v => !v)}
-                      className={cn(
-                        "flex items-center gap-1.5 px-3 py-2 rounded-sm border font-display text-sm uppercase tracking-wider transition-colors select-none",
-                        showMyPrivate
-                          ? "border-primary bg-primary/10 text-primary"
-                          : "border-border bg-background text-muted-foreground hover:border-foreground hover:text-foreground"
-                      )}
-                    >
-                      {showMyPrivate && <Check className="w-3.5 h-3.5 flex-shrink-0" />}
-                      <Lock className="w-3.5 h-3.5 flex-shrink-0" />
-                      My Private
-                    </button>
-                  </>
-                )}
-              </div>
-            </div>
+          <div className="flex items-baseline justify-between mb-4">
+            <h3 className="text-2xl font-display uppercase tracking-wide">Memes from this fact</h3>
+            <span className="text-sm text-muted-foreground font-medium">
+              {communityMemes.length + myPublicMemes.length + myPrivateMemes.length} total
+            </span>
           </div>
 
-          {/* Images section */}
-          {showImages && (
-            <div className={cn("space-y-8", showVideos && "mb-10")}>
-              <p className="text-xs font-display uppercase tracking-widest text-muted-foreground flex items-center gap-1.5 mb-4">
-                <ImageIcon className="w-3.5 h-3.5" /> Images
-              </p>
-
-              {/* Community images */}
-              {showCommunity && (
-                <div>
-                  <p className="text-[11px] font-display uppercase tracking-widest text-muted-foreground/70 flex items-center gap-1 mb-3 pl-0.5 border-l-2 border-primary/30 pl-2">
-                    <Globe className="w-3 h-3" /> Community
-                  </p>
-                  {communityMemes.length > 0 ? (
-                    <div className="grid grid-cols-2 md:grid-cols-3 gap-4 items-start">
-                      {communityMemes.map(meme => {
-                        const isMyMeme = !!user?.id && meme.createdById === user.id;
-                        const memePermalink = `${window.location.origin}/meme/${meme.permalinkSlug}`;
-                        return (
-                          <div key={meme.id} className="space-y-1.5">
-                            <ImageCard
-                              src={meme.imageUrl}
-                              alt="Meme"
-                              href={`/meme/${meme.permalinkSlug}`}
-                              aspectRatio={MEME_ASPECT_CLASS[meme.aspectRatio ?? "landscape"] ?? "aspect-video"}
-                              actions={isMyMeme ? ["delete", "copyLink", "openFull", "makeMerch"] : ["copyLink", "openFull", "makeMerch"]}
-                              onDelete={isMyMeme ? () => handleDeleteMeme(meme.permalinkSlug) : undefined}
-                              zazzleUrl={`/api/memes/${meme.permalinkSlug}/zazzle-redirect?source=fact-detail&returnUrl=${encodeURIComponent(window.location.href)}`}
-                              deleteConfirmMessage="Remove this meme? It will no longer be visible to anyone."
-                              permalink={memePermalink}
-                              footer={<AdminMediaInfo fileName={getFileNameFromUrl(meme.imageUrl)} fileSizeBytes={meme.uploadFileSizeBytes} mimeType={getMimeTypeFromUrl(meme.imageUrl)} width={meme.originalWidth} height={meme.originalHeight} />}
-                            />
-                            <Link href={`/meme/${meme.permalinkSlug}`} className="w-full flex items-center justify-center gap-1.5 text-[10px] font-display font-bold uppercase tracking-wider text-muted-foreground hover:text-primary transition-colors py-1">
-                              <ExternalLink className="w-3 h-3" /> View Permalink
-                            </Link>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  ) : (
-                    <p className="text-sm text-muted-foreground pl-2">No community memes yet. Be the first!</p>
-                  )}
-                </div>
+          {/* COMMUNITY / MINE segmented tabs */}
+          <div className="flex gap-1 bg-secondary border border-border/60 rounded-xl p-1 mb-4">
+            <button
+              onClick={() => setGalleryTab("community")}
+              className={cn(
+                "flex-1 h-9 rounded-[10px] font-display font-bold text-xs tracking-widest uppercase transition-all flex items-center justify-center gap-2",
+                galleryTab === "community"
+                  ? "bg-card text-foreground shadow-sm border border-border/40"
+                  : "text-muted-foreground hover:text-foreground"
               )}
+            >
+              Community
+              <span className={cn("text-[10px]", galleryTab === "community" ? "text-muted-foreground" : "opacity-50")}>
+                {communityMemes.length}
+              </span>
+            </button>
+            {isAuthenticated && (
+              <button
+                onClick={() => setGalleryTab("mine")}
+                className={cn(
+                  "flex-1 h-9 rounded-[10px] font-display font-bold text-xs tracking-widest uppercase transition-all flex items-center justify-center gap-2",
+                  galleryTab === "mine"
+                    ? "bg-card text-foreground shadow-sm border border-border/40"
+                    : "text-muted-foreground hover:text-foreground"
+                )}
+              >
+                Mine
+                <span className={cn("text-[10px]", galleryTab === "mine" ? "text-muted-foreground" : "opacity-50")}>
+                  {myPublicMemes.length + myPrivateMemes.length}
+                </span>
+              </button>
+            )}
+          </div>
 
-              {/* My Public images */}
-              {isAuthenticated && showMyPublic && (
-                <div>
-                  <p className="text-[11px] font-display uppercase tracking-widest text-muted-foreground/70 flex items-center gap-1 mb-3 border-l-2 border-primary/30 pl-2">
-                    My Public
-                  </p>
-                  {myPublicMemes.length > 0 ? (
-                    <div className="grid grid-cols-2 md:grid-cols-3 gap-4 items-start">
-                      {myPublicMemes.map(meme => {
-                        const memePermalink = `${window.location.origin}/meme/${meme.permalinkSlug}`;
-                        return (
-                          <div key={meme.id} className="space-y-1.5">
-                            <ImageCard
-                              src={meme.imageUrl}
-                              alt="Meme"
-                              href={`/meme/${meme.permalinkSlug}`}
-                              aspectRatio={MEME_ASPECT_CLASS[meme.aspectRatio ?? "landscape"] ?? "aspect-video"}
-                              actions={["delete", "copyLink", "openFull", "makeMerch"]}
-                              onDelete={() => handleDeleteMeme(meme.permalinkSlug)}
-                              zazzleUrl={`/api/memes/${meme.permalinkSlug}/zazzle-redirect?source=fact-detail&returnUrl=${encodeURIComponent(window.location.href)}`}
-                              deleteConfirmMessage="Remove this meme? It will no longer be visible to anyone."
-                              permalink={memePermalink}
-                              footer={<AdminMediaInfo fileName={getFileNameFromUrl(meme.imageUrl)} fileSizeBytes={meme.uploadFileSizeBytes} mimeType={getMimeTypeFromUrl(meme.imageUrl)} width={meme.originalWidth} height={meme.originalHeight} />}
-                            />
-                            <Link href={`/meme/${meme.permalinkSlug}`} className="w-full flex items-center justify-center gap-1.5 text-[10px] font-display font-bold uppercase tracking-wider text-muted-foreground hover:text-primary transition-colors py-1">
-                              <ExternalLink className="w-3 h-3" /> View Permalink
-                            </Link>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  ) : (
-                    <div className="py-8 text-center border-2 border-dashed border-border rounded-sm">
-                      <p className="text-muted-foreground mb-4">You haven't made any public memes for this fact yet.</p>
-                      <button
-                        onClick={() => openMemeStudio("image")}
-                        className="inline-flex items-center gap-2 px-4 py-2 text-sm font-display font-bold uppercase tracking-wider bg-primary text-primary-foreground rounded-sm hover:opacity-90 transition-opacity"
-                      >
-                        Create your first public meme
-                      </button>
-                    </div>
-                  )}
-                </div>
-              )}
+          {/* Image / Video sub-toggle */}
+          <div className="flex gap-2 mb-6">
+            {(["all", "image", "video"] as const).map(v => (
+              <button
+                key={v}
+                onClick={() => setMediaFilter(v)}
+                className={cn(
+                  "px-3 py-1.5 rounded-full text-xs font-semibold border transition-colors",
+                  mediaFilter === v
+                    ? "bg-foreground text-background border-foreground"
+                    : "border-border text-muted-foreground hover:border-primary/50 hover:text-foreground"
+                )}
+              >
+                {v === "all" ? "All" : v === "image" ? "Images" : "Videos"}
+              </button>
+            ))}
+          </div>
 
-              {/* My Private images */}
-              {isAuthenticated && showMyPrivate && (
-                <div>
-                  <p className="text-[11px] font-display uppercase tracking-widest text-muted-foreground/70 flex items-center gap-1 mb-3 border-l-2 border-primary/30 pl-2">
-                    <Lock className="w-3 h-3" /> My Private
-                  </p>
-                  {myPrivateMemes.length > 0 ? (
-                    <div className="grid grid-cols-2 md:grid-cols-3 gap-4 items-start">
-                      {myPrivateMemes.map(meme => {
-                        const memePermalink = `${window.location.origin}/meme/${meme.permalinkSlug}`;
-                        return (
-                          <div key={meme.id} className="space-y-1.5">
-                            <ImageCard
-                              src={meme.imageUrl}
-                              alt="Meme"
-                              href={`/meme/${meme.permalinkSlug}`}
-                              aspectRatio={MEME_ASPECT_CLASS[meme.aspectRatio ?? "landscape"] ?? "aspect-video"}
-                              actions={["delete", "copyLink", "openFull", "makeMerch"]}
-                              onDelete={() => handleDeleteMeme(meme.permalinkSlug)}
-                              zazzleUrl={`/api/memes/${meme.permalinkSlug}/zazzle-redirect?source=fact-detail&returnUrl=${encodeURIComponent(window.location.href)}`}
-                              deleteConfirmMessage="Remove this meme? It will no longer be visible to anyone."
-                              permalink={memePermalink}
-                              footer={<AdminMediaInfo fileName={getFileNameFromUrl(meme.imageUrl)} fileSizeBytes={meme.uploadFileSizeBytes} mimeType={getMimeTypeFromUrl(meme.imageUrl)} width={meme.originalWidth} height={meme.originalHeight} />}
-                            />
-                            <Link href={`/meme/${meme.permalinkSlug}`} className="w-full flex items-center justify-center gap-1.5 text-[10px] font-display font-bold uppercase tracking-wider text-muted-foreground hover:text-primary transition-colors py-1">
-                              <ExternalLink className="w-3 h-3" /> View Permalink
-                            </Link>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  ) : (
-                    <div className="py-8 text-center border-2 border-dashed border-border rounded-sm">
-                      <p className="text-muted-foreground mb-4">You haven't made any private memes for this fact yet.</p>
-                      <button
-                        onClick={openMemeStudioPrivate}
-                        className="inline-flex items-center gap-2 px-4 py-2 text-sm font-display font-bold uppercase tracking-wider bg-primary text-primary-foreground rounded-sm hover:opacity-90 transition-opacity"
-                      >
-                        Create your first private meme
-                      </button>
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-          )}
+          {/* Meme image grid */}
+          {(mediaFilter === "all" || mediaFilter === "image") && (() => {
+            const memes = galleryTab === "community"
+              ? communityMemes
+              : [...myPublicMemes, ...myPrivateMemes];
 
-          {/* Videos section */}
-          {showVideos && (() => {
-            const allVideos = videosData?.videos ?? [];
-            const communityVideos = allVideos.filter(v => !v.isPrivate && v.userId !== user?.id);
-            const myPublicVideos = allVideos.filter(v => !v.isPrivate && v.userId === user?.id);
-            const myPrivateVideos = allVideos.filter(v => v.isPrivate && v.userId === user?.id);
-
-            const VideoGrid = ({ videos }: { videos: VideoItem[] }) => (
-              <div className="grid grid-cols-2 md:grid-cols-3 gap-4 items-start">
-                {videos.map(video => (
-                  <VideoCardItem key={video.id} video={video} />
-                ))}
+            return memes.length > 0 ? (
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-4 items-start mb-6">
+                {memes.map(meme => {
+                  const isMyMeme = galleryTab === "mine" || (!!user?.id && meme.createdById === user.id);
+                  const memePermalink = `${window.location.origin}/meme/${meme.permalinkSlug}`;
+                  return (
+                    <div key={meme.id} className="relative space-y-1.5">
+                      {/* Privacy badge — only shown in Mine tab */}
+                      {galleryTab === "mine" && (
+                        <div className={cn(
+                          "absolute top-2 right-2 z-10 px-2 py-0.5 rounded-full text-[9px] font-bold font-display uppercase tracking-wider",
+                          meme.isPublic
+                            ? "bg-primary text-white"
+                            : "bg-black/60 text-white backdrop-blur-sm"
+                        )}>
+                          {meme.isPublic ? "Public" : "Private"}
+                        </div>
+                      )}
+                      <ImageCard
+                        src={meme.imageUrl}
+                        alt="Meme"
+                        href={`/meme/${meme.permalinkSlug}`}
+                        aspectRatio={MEME_ASPECT_CLASS[meme.aspectRatio ?? "landscape"] ?? "aspect-video"}
+                        actions={isMyMeme ? ["delete", "copyLink", "openFull", "makeMerch"] : ["copyLink", "openFull", "makeMerch"]}
+                        onDelete={isMyMeme ? () => handleDeleteMeme(meme.permalinkSlug) : undefined}
+                        zazzleUrl={`/api/memes/${meme.permalinkSlug}/zazzle-redirect?source=fact-detail&returnUrl=${encodeURIComponent(window.location.href)}`}
+                        deleteConfirmMessage="Remove this meme? It will no longer be visible to anyone."
+                        permalink={memePermalink}
+                        footer={<AdminMediaInfo fileName={getFileNameFromUrl(meme.imageUrl)} fileSizeBytes={meme.uploadFileSizeBytes} mimeType={getMimeTypeFromUrl(meme.imageUrl)} width={meme.originalWidth} height={meme.originalHeight} />}
+                      />
+                      <Link href={`/meme/${meme.permalinkSlug}`} className="w-full flex items-center justify-center gap-1.5 text-[10px] font-display font-bold uppercase tracking-wider text-muted-foreground hover:text-primary transition-colors py-1">
+                        <ExternalLink className="w-3 h-3" /> View Permalink
+                      </Link>
+                    </div>
+                  );
+                })}
               </div>
-            );
-
-            return (
-              <div>
-                <p className="text-xs font-display uppercase tracking-widest text-muted-foreground flex items-center gap-1.5 mb-4">
-                  <Video className="w-3.5 h-3.5" /> Videos
+            ) : (
+              <div className="py-12 text-center border-2 border-dashed border-border rounded-2xl mb-6">
+                <p className="text-muted-foreground mb-4">
+                  {galleryTab === "community" ? "No community memes yet. Be the first!" : "You haven't made any memes for this fact yet."}
                 </p>
-                <div className="space-y-6">
-                  {showCommunity && (
-                    <div>
-                      <p className="text-[11px] font-display uppercase tracking-widest text-muted-foreground/70 flex items-center gap-1 mb-3 border-l-2 border-primary/30 pl-2">
-                        <Globe className="w-3 h-3" /> Community
-                      </p>
-                      {communityVideos.length > 0
-                        ? <VideoGrid videos={communityVideos} />
-                        : <p className="text-sm text-muted-foreground pl-2">No community videos yet.</p>
-                      }
-                    </div>
-                  )}
-                  {isAuthenticated && showMyPublic && (
-                    <div>
-                      <p className="text-[11px] font-display uppercase tracking-widest text-muted-foreground/70 flex items-center gap-1 mb-3 border-l-2 border-primary/30 pl-2">
-                        <Globe className="w-3 h-3" /> My Public
-                      </p>
-                      {myPublicVideos.length > 0
-                        ? <VideoGrid videos={myPublicVideos} />
-                        : (
-                          <div className="py-8 text-center border-2 border-dashed border-border rounded-sm">
-                            <p className="text-muted-foreground mb-4">You haven't made any public videos for this fact yet.</p>
-                            <button
-                              onClick={() => openMemeStudio("video")}
-                              className="inline-flex items-center gap-2 px-4 py-2 text-sm font-display font-bold uppercase tracking-wider bg-primary text-primary-foreground rounded-sm hover:opacity-90 transition-opacity"
-                            >
-                              Create your first public video
-                            </button>
-                          </div>
-                        )
-                      }
-                    </div>
-                  )}
-                  {isAuthenticated && showMyPrivate && (
-                    <div>
-                      <p className="text-[11px] font-display uppercase tracking-widest text-muted-foreground/70 flex items-center gap-1 mb-3 border-l-2 border-primary/30 pl-2">
-                        <Lock className="w-3 h-3" /> My Private
-                      </p>
-                      {myPrivateVideos.length > 0
-                        ? <VideoGrid videos={myPrivateVideos} />
-                        : (
-                          <div className="py-8 text-center border-2 border-dashed border-border rounded-sm">
-                            <p className="text-muted-foreground mb-4">You haven't made any private videos for this fact yet.</p>
-                            <button
-                              onClick={() => { setMemeBuilderDefaultPrivate(true); openMemeStudio("video"); }}
-                              className="inline-flex items-center gap-2 px-4 py-2 text-sm font-display font-bold uppercase tracking-wider bg-primary text-primary-foreground rounded-sm hover:opacity-90 transition-opacity"
-                            >
-                              Create your first private video
-                            </button>
-                          </div>
-                        )
-                      }
-                    </div>
-                  )}
-                </div>
+                {galleryTab === "mine" && (
+                  <button
+                    onClick={() => openMemeStudio("image")}
+                    className="inline-flex items-center gap-2 px-4 py-2 text-sm font-display font-bold uppercase tracking-wider bg-primary text-primary-foreground rounded-xl hover:opacity-90 transition-opacity"
+                  >
+                    <Flame className="w-4 h-4" /> Create your first meme
+                  </button>
+                )}
               </div>
             );
           })()}
+
+          {/* Video grid */}
+          {(mediaFilter === "all" || mediaFilter === "video") && (() => {
+            const allVideos = videosData?.videos ?? [];
+            const videos = galleryTab === "community"
+              ? allVideos.filter(v => !v.isPrivate && v.userId !== user?.id)
+              : allVideos.filter(v => v.userId === user?.id);
+
+            return videos.length > 0 ? (
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-4 items-start mb-6">
+                {videos.map(video => <VideoCardItem key={video.id} video={video} />)}
+              </div>
+            ) : mediaFilter === "video" ? (
+              <div className="py-12 text-center border-2 border-dashed border-border rounded-2xl mb-6">
+                <p className="text-muted-foreground mb-4">
+                  {galleryTab === "community" ? "No community videos yet." : "You haven't made any videos for this fact yet."}
+                </p>
+                {galleryTab === "mine" && (
+                  <button
+                    onClick={() => openMemeStudio("video")}
+                    className="inline-flex items-center gap-2 px-4 py-2 text-sm font-display font-bold uppercase tracking-wider bg-primary text-primary-foreground rounded-xl hover:opacity-90 transition-opacity"
+                  >
+                    <Video className="w-4 h-4" /> Create your first video
+                  </button>
+                )}
+              </div>
+            ) : null;
+          })()}
+
+          {/* Private-by-default hint — only shown in Mine tab when there's content */}
+          {galleryTab === "mine" && isAuthenticated && (myPublicMemes.length + myPrivateMemes.length) > 0 && (
+            <div className="flex gap-3 items-start p-4 bg-secondary rounded-2xl border border-border mt-2">
+              <span className="text-base leading-none pt-0.5">🔒</span>
+              <p className="text-xs text-muted-foreground leading-relaxed">
+                Your memes are <strong className="text-foreground">private by default</strong>. Tap a meme to publish it to the community.
+              </p>
+            </div>
+          )}
         </div>
 
         {/* Layout split for Links and Comments */}
@@ -862,7 +707,7 @@ export default function FactDetail() {
 
           {/* Comments Section */}
           <div className="lg:col-span-2 space-y-8">
-            <h3 className="text-2xl font-display uppercase tracking-wide border-b-2 border-border pb-2">Comments ({fact.commentCount})</h3>
+            <h3 id="comments" className="text-2xl font-display uppercase tracking-wide border-b-2 border-border pb-2">Comments ({fact.commentCount})</h3>
 
             {/* Comment Form */}
             {isAuthenticated ? (
