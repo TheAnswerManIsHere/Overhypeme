@@ -39,8 +39,8 @@ export function FactCard({ fact, rank, showRank = false, index = 0 }: { fact: Fa
 
   return (
     <motion.div
-      initial={prefersReducedMotion ? false : { opacity: 0, y: 28 }}
-      whileInView={prefersReducedMotion ? undefined : { opacity: 1, y: 0 }}
+      initial={prefersReducedMotion ? false : { opacity: 0 }}
+      whileInView={prefersReducedMotion ? undefined : { opacity: 1 }}
       viewport={{ once: true, margin: "-60px" }}
       transition={prefersReducedMotion ? { duration: 0 } : { duration: 0.4, ease: "easeOut", delay: staggerDelay }}
       whileHover={prefersReducedMotion ? undefined : { y: -3 }}
