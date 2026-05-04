@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { Loader2, ChevronDown, ChevronUp } from "lucide-react";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
 import { useAuth } from "@workspace/replit-auth-web";
 import { useLocation } from "wouter";
 import { usePersonName, SHARE_LINK_ACTIVE } from "@/hooks/use-person-name";
@@ -176,6 +176,8 @@ export function WelcomeModal() {
     if (e.key === "Escape") handleSkip();
   }
 
+  const prefersReducedMotion = useReducedMotion();
+
   if (!open) return null;
 
   const saveEnabled = canSave(draftPronouns) && draftName.trim().length > 0;
@@ -224,10 +226,10 @@ export function WelcomeModal() {
       <AnimatePresence>
         {pronounsExpanded && (
           <motion.div
-            initial={{ height: 0, opacity: 0 }}
+            initial={{ height: prefersReducedMotion ? "auto" : 0, opacity: prefersReducedMotion ? 1 : 0 }}
             animate={{ height: "auto", opacity: 1 }}
-            exit={{ height: 0, opacity: 0 }}
-            transition={{ duration: 0.2 }}
+            exit={{ height: prefersReducedMotion ? "auto" : 0, opacity: prefersReducedMotion ? 1 : 0 }}
+            transition={{ duration: prefersReducedMotion ? 0 : 0.2 }}
             className="overflow-hidden mb-3"
           >
             <PronounEditor value={draftPronouns} onChange={handlePronounsChange} />
@@ -284,10 +286,10 @@ export function WelcomeModal() {
         </div>
 
         <motion.div
-          initial={{ y: "100%" }}
-          animate={{ y: 0 }}
-          exit={{ y: "100%" }}
-          transition={{ type: "spring", damping: 30, stiffness: 300 }}
+          initial={prefersReducedMotion ? false : { y: "100%" }}
+          animate={prefersReducedMotion ? {} : { y: 0 }}
+          exit={prefersReducedMotion ? {} : { y: "100%" }}
+          transition={prefersReducedMotion ? { duration: 0 } : { type: "spring", damping: 30, stiffness: 300 }}
           className="relative z-10 w-full bg-card rounded-t-[24px] shadow-[0_-20px_40px_rgba(0,0,0,0.5)] mt-6"
         >
           <div className="flex justify-center pt-3">

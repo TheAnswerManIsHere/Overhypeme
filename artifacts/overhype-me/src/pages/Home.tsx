@@ -6,7 +6,7 @@ import { Link, useLocation } from "wouter";
 import { useAppMutations } from "@/hooks/use-mutations";
 import { useAuth } from "@workspace/replit-auth-web";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
 import { usePersonName, SHARE_LINK_ACTIVE, DEFAULT_PRONOUNS } from "@/hooks/use-person-name";
 import { useHeroFact } from "@/hooks/use-hero-fact";
 import { cn } from "@/components/ui/Button";
@@ -106,6 +106,7 @@ function HeroBillboardMobile({
   const { isAuthenticated } = useAuth();
   const [, setLocation] = useLocation();
   const swapKey = fact ? `f-${fact.id}` : "loading";
+  const prefersReducedMotion = useReducedMotion();
 
   const handleRate = (type: "up" | "down") => {
     if (!fact) return;
@@ -143,10 +144,10 @@ function HeroBillboardMobile({
             {fact ? (
               <motion.h2
                 key={swapKey}
-                initial={{ opacity: 0, y: 8 }}
+                initial={{ opacity: prefersReducedMotion ? 1 : 0, y: prefersReducedMotion ? 0 : 8 }}
                 animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -8 }}
-                transition={{ duration: 0.2, ease: "easeOut" }}
+                exit={{ opacity: prefersReducedMotion ? 1 : 0, y: prefersReducedMotion ? 0 : -8 }}
+                transition={prefersReducedMotion ? { duration: 0 } : { duration: 0.2, ease: "easeOut" }}
                 className="font-display font-bold uppercase tracking-tight leading-[0.95] text-foreground"
                 style={{ fontSize: "clamp(30px, 8.5vw, 40px)" }}
               >
@@ -169,7 +170,7 @@ function HeroBillboardMobile({
           {fact && fact.hashtags.length > 0 && (
             <motion.div
               key={`tags-${fact.id}`}
-              initial={{ opacity: 0 }}
+              initial={{ opacity: prefersReducedMotion ? 1 : 0 }}
               animate={{ opacity: 1 }}
               className="px-5 pb-3 flex flex-wrap gap-1.5"
             >
@@ -251,6 +252,7 @@ function DesktopHeroBillboard({
   const { isAuthenticated } = useAuth();
   const [, setLocation] = useLocation();
   const swapKey = fact ? `f-${fact.id}` : "loading";
+  const prefersReducedMotion = useReducedMotion();
 
   const handleRate = (type: "up" | "down") => {
     if (!fact) return;
@@ -295,10 +297,10 @@ function DesktopHeroBillboard({
           {fact ? (
             <motion.h2
               key={swapKey}
-              initial={{ opacity: 0, y: 10 }}
+              initial={{ opacity: prefersReducedMotion ? 1 : 0, y: prefersReducedMotion ? 0 : 10 }}
               animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -10 }}
-              transition={{ duration: 0.22, ease: "easeOut" }}
+              exit={{ opacity: prefersReducedMotion ? 1 : 0, y: prefersReducedMotion ? 0 : -10 }}
+              transition={prefersReducedMotion ? { duration: 0 } : { duration: 0.22, ease: "easeOut" }}
               className="font-display font-bold text-[56px] leading-[0.93] uppercase tracking-tight"
               style={{ textWrap: "pretty" } as React.CSSProperties}
             >
@@ -321,7 +323,7 @@ function DesktopHeroBillboard({
         {fact && fact.hashtags.length > 0 && (
           <motion.div
             key={`tags-${fact.id}`}
-            initial={{ opacity: 0 }}
+            initial={{ opacity: prefersReducedMotion ? 1 : 0 }}
             animate={{ opacity: 1 }}
             className="px-10 pb-6 flex flex-wrap gap-2"
           >
@@ -373,10 +375,10 @@ function DesktopHeroBillboard({
           {fact && onMakeMeme && (
             <motion.button
               key={`meme-${fact.id}`}
-              initial={{ opacity: 0, scale: 0.96 }}
+              initial={{ opacity: prefersReducedMotion ? 1 : 0, scale: prefersReducedMotion ? 1 : 0.96 }}
               animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.96 }}
-              transition={{ duration: 0.18 }}
+              exit={{ opacity: prefersReducedMotion ? 1 : 0, scale: prefersReducedMotion ? 1 : 0.96 }}
+              transition={prefersReducedMotion ? { duration: 0 } : { duration: 0.18 }}
               onClick={() => onMakeMeme(fact.id)}
               className="h-[44px] px-7 bg-secondary border border-border text-foreground rounded-[12px] font-display font-bold text-[13px] uppercase tracking-[0.1em] hover:border-primary/50 hover:text-primary transition-colors"
             >
@@ -511,6 +513,7 @@ function PronounsOnboardingSheet({
   onConfirm: (pronouns: string) => void;
   onSkip: () => void;
 }) {
+  const prefersReducedMotion = useReducedMotion();
   const inferred = inferPronounsFromName(name) ?? DEFAULT_PRONOUNS;
   const [selected, setSelected]   = useState(inferred);
   const [customOpen, setCustomOpen] = useState(false);
@@ -556,10 +559,10 @@ function PronounsOnboardingSheet({
       <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onSkip} />
 
       <motion.div
-        initial={{ y: "100%" }}
-        animate={{ y: 0 }}
-        exit={{ y: "100%" }}
-        transition={{ type: "spring", damping: 30, stiffness: 280 }}
+        initial={prefersReducedMotion ? false : { y: "100%" }}
+        animate={prefersReducedMotion ? {} : { y: 0 }}
+        exit={prefersReducedMotion ? {} : { y: "100%" }}
+        transition={prefersReducedMotion ? { duration: 0 } : { type: "spring", damping: 30, stiffness: 280 }}
         className="relative z-10 bg-card rounded-t-[24px] shadow-[0_-20px_60px_rgba(0,0,0,0.6)]"
       >
         <div className="flex justify-center pt-3 mb-4">
@@ -621,10 +624,10 @@ function PronounsOnboardingSheet({
           <AnimatePresence>
             {isCustomMode && (
               <motion.div
-                initial={{ height: 0, opacity: 0 }}
+                initial={{ height: prefersReducedMotion ? "auto" : 0, opacity: prefersReducedMotion ? 1 : 0 }}
                 animate={{ height: "auto", opacity: 1 }}
-                exit={{ height: 0, opacity: 0 }}
-                transition={{ duration: 0.2 }}
+                exit={{ height: prefersReducedMotion ? "auto" : 0, opacity: prefersReducedMotion ? 1 : 0 }}
+                transition={{ duration: prefersReducedMotion ? 0 : 0.2 }}
                 className="overflow-hidden mb-4"
               >
                 <div className="p-3 border border-border rounded-[12px] bg-secondary/40 space-y-3">
@@ -740,6 +743,7 @@ export default function Home() {
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [showHashtagRail, setShowHashtagRail] = useState(false);
   const { name, pronouns, setName, setPronouns } = usePersonName();
+  const prefersReducedMotion = useReducedMotion();
 
   // Two-step cold onboarding: capture name first, then show pronouns sheet.
   const [pendingName, setPendingName] = useState<string | null>(null);
@@ -816,10 +820,10 @@ export default function Home() {
           {showHashtagRail && (
             <motion.div
               key="rail"
-              initial={{ height: 0, opacity: 0 }}
+              initial={{ height: prefersReducedMotion ? "auto" : 0, opacity: prefersReducedMotion ? 1 : 0 }}
               animate={{ height: "auto", opacity: 1 }}
-              exit={{ height: 0, opacity: 0 }}
-              transition={{ duration: 0.18 }}
+              exit={{ height: prefersReducedMotion ? "auto" : 0, opacity: prefersReducedMotion ? 1 : 0 }}
+              transition={prefersReducedMotion ? { duration: 0 } : { duration: 0.18 }}
               className="overflow-hidden"
             >
               {hashtagsLoading ? (
