@@ -12,9 +12,11 @@ import { getConfigInt } from "../lib/adminConfig";
 import { db } from "@workspace/db";
 import {
   factsTable, hashtagsTable, factHashtagsTable,
-  ratingsTable, commentsTable, externalLinksTable, usersTable,
+  commentsTable, externalLinksTable, usersTable,
   pendingReviewsTable, userFactPreferencesTable,
+  reactionsTable,
 } from "@workspace/db/schema";
+import { setFactRating, getViewerFactRatings, toggleHeart, getViewerReactionTargetIds } from "../lib/reactions";
 import { stripeStorage } from "../lib/stripeStorage";
 import { notifyAdmins } from "../lib/adminNotify";
 import { getSiteBaseUrl } from "../lib/siteUrl";
@@ -31,17 +33,6 @@ import {
 
 const router: IRouter = Router();
 
-function computeWilsonScore(upvotes: number, downvotes: number): number {
-  const n = upvotes + downvotes;
-  if (n === 0) return 0;
-  const z = 1.96;
-  const pHat = upvotes / n;
-  const numerator = pHat + (z * z) / (2 * n) - z * Math.sqrt((pHat * (1 - pHat)) / n + (z * z) / (4 * n * n));
-  const denominator = 1 + (z * z) / n;
-  return numerator / denominator;
-}
-
-
 async function buildFactSummaries(facts: (typeof factsTable.$inferSelect)[], userId?: string) {
   if (!facts.length) return [];
   const ids = facts.map((f) => f.id);
@@ -52,12 +43,7 @@ async function buildFactSummaries(facts: (typeof factsTable.$inferSelect)[], use
   const hMap = new Map<number, string[]>();
   for (const r of fhRows) { if (!hMap.has(r.factId)) hMap.set(r.factId, []); hMap.get(r.factId)!.push(r.name); }
 
-  const rMap = new Map<number, string>();
-  if (userId) {
-    const rRows = await db.select({ factId: ratingsTable.factId, rating: ratingsTable.rating })
-      .from(ratingsTable).where(and(eq(ratingsTable.userId, userId), inArray(ratingsTable.factId, ids)));
-    for (const r of rRows) rMap.set(r.factId, r.rating);
-  }
+  const rMap = userId ? await getViewerFactRatings(userId, ids) : new Map<number, string>();
 
   const sIds = [...new Set(facts.filter((f) => f.submittedById).map((f) => f.submittedById!))];
   const sMap = new Map<string, { displayName: string | null; profileImageUrl: string | null }>();
@@ -327,41 +313,8 @@ router.post("/facts/:factId/rating", async (req: AuthenticatedRequest, res: Resp
   const [factExists] = await db.select({ id: factsTable.id }).from(factsTable).where(and(eq(factsTable.id, factId), eq(factsTable.isActive, true))).limit(1);
   if (!factExists) { res.status(404).json({ error: "Fact not found" }); return; }
 
-  const [existing] = await db.select().from(ratingsTable).where(and(eq(ratingsTable.factId, factId), eq(ratingsTable.userId, userId))).limit(1);
-
-  if (rating === "none") {
-    if (existing) {
-      await db.delete(ratingsTable).where(and(eq(ratingsTable.factId, factId), eq(ratingsTable.userId, userId)));
-      if (existing.rating === "up") {
-        await db.update(factsTable).set({ upvotes: sql`${factsTable.upvotes} - 1`, score: sql`${factsTable.score} - 1` }).where(eq(factsTable.id, factId));
-      } else {
-        await db.update(factsTable).set({ downvotes: sql`${factsTable.downvotes} - 1`, score: sql`${factsTable.score} + 1` }).where(eq(factsTable.id, factId));
-      }
-    }
-  } else {
-    if (!existing) {
-      await db.insert(ratingsTable).values({ factId, userId, rating });
-      if (rating === "up") {
-        await db.update(factsTable).set({ upvotes: sql`${factsTable.upvotes} + 1`, score: sql`${factsTable.score} + 1` }).where(eq(factsTable.id, factId));
-      } else {
-        await db.update(factsTable).set({ downvotes: sql`${factsTable.downvotes} + 1`, score: sql`${factsTable.score} - 1` }).where(eq(factsTable.id, factId));
-      }
-    } else if (existing.rating !== rating) {
-      await db.update(ratingsTable).set({ rating }).where(and(eq(ratingsTable.factId, factId), eq(ratingsTable.userId, userId)));
-      if (rating === "up") {
-        await db.update(factsTable).set({ upvotes: sql`${factsTable.upvotes} + 1`, downvotes: sql`${factsTable.downvotes} - 1`, score: sql`${factsTable.score} + 2` }).where(eq(factsTable.id, factId));
-      } else {
-        await db.update(factsTable).set({ downvotes: sql`${factsTable.downvotes} + 1`, upvotes: sql`${factsTable.upvotes} - 1`, score: sql`${factsTable.score} - 2` }).where(eq(factsTable.id, factId));
-      }
-    }
-  }
-
-  const [updated] = await db.select({ upvotes: factsTable.upvotes, downvotes: factsTable.downvotes }).from(factsTable).where(eq(factsTable.id, factId)).limit(1);
-  const wilsonScore = computeWilsonScore(updated.upvotes, updated.downvotes);
-  await db.update(factsTable).set({ wilsonScore }).where(eq(factsTable.id, factId));
-
-  const [newRating] = await db.select({ rating: ratingsTable.rating }).from(ratingsTable).where(and(eq(ratingsTable.factId, factId), eq(ratingsTable.userId, userId))).limit(1);
-  res.json({ upvotes: updated.upvotes, downvotes: updated.downvotes, userRating: newRating?.rating ?? null });
+  const result = await setFactRating(userId, factId, rating);
+  res.json(result);
 });
 
 // GET /facts/:factId/comments
@@ -388,12 +341,19 @@ router.get("/facts/:factId/comments", async (req: Request, res: Response) => {
     for (const u of users) aMap.set(u.id, u);
   }
 
+  const viewerId = (req as AuthenticatedRequest).isAuthenticated?.() ? (req as AuthenticatedRequest).user.id : undefined;
+  const heartedIds = viewerId
+    ? await getViewerReactionTargetIds(viewerId, "comment", "heart", rows.map((c) => c.id))
+    : new Set<number>();
+
   const comments = rows.map((c) => ({
     id: c.id, factId: c.factId, text: c.text,
     authorId: c.authorId ?? null,
     authorName: c.authorId ? (aMap.get(c.authorId)?.displayName ?? null) : null,
     authorImage: c.authorId ? (aMap.get(c.authorId)?.profileImageUrl ?? null) : null,
     createdAt: c.createdAt.toISOString(),
+    heartCount: c.heartCount ?? 0,
+    viewerHasHearted: heartedIds.has(c.id),
   }));
   res.json({ comments, total: count });
 });
@@ -445,8 +405,26 @@ router.post("/facts/:factId/comments", async (req: AuthenticatedRequest, res: Re
     authorId: req.user.id, authorName: req.user.displayName ?? null,
     authorImage: req.user.profileImageUrl ?? null,
     createdAt: comment.createdAt.toISOString(),
+    heartCount: 0,
+    viewerHasHearted: false,
     pending: true,
   });
+});
+
+// POST /comments/:id/heart — toggle heart reaction on a comment
+router.post("/comments/:id/heart", async (req: AuthenticatedRequest, res: Response) => {
+  if (!req.isAuthenticated()) { res.status(401).json({ error: "Unauthorized" }); return; }
+  const commentId = parseInt(String(req.params["id"] ?? ""), 10);
+  if (isNaN(commentId)) { res.status(400).json({ error: "Invalid id" }); return; }
+
+  const [exists] = await db.select({ id: commentsTable.id })
+    .from(commentsTable)
+    .where(and(eq(commentsTable.id, commentId), eq(commentsTable.status, "approved"), eq(commentsTable.flagged, false)))
+    .limit(1);
+  if (!exists) { res.status(404).json({ error: "Comment not found" }); return; }
+
+  const result = await toggleHeart(req.user.id, "comment", commentId);
+  res.json(result);
 });
 
 // GET /facts/:factId/links

@@ -2,9 +2,10 @@ import { Router, type IRouter, type Request, type Response } from "express";
 import { db } from "@workspace/db";
 import {
   factsTable, hashtagsTable, factHashtagsTable,
-  ratingsTable, searchHistoryTable, usersTable, emailVerificationTokensTable, memesTable,
+  reactionsTable, searchHistoryTable, usersTable, emailVerificationTokensTable, memesTable,
   userGenerationCostsTable, pendingReviewsTable, commentsTable,
 } from "@workspace/db/schema";
+import { getViewerFactRatings } from "../lib/reactions";
 import { eq, desc, inArray, and, sql, isNull } from "drizzle-orm";
 import { RecordSearchBody } from "@workspace/api-zod";
 import { getSessionId, getSession, updateSession } from "../lib/auth";
@@ -66,12 +67,7 @@ async function buildFactSummaries(facts: (typeof factsTable.$inferSelect)[], use
   const hMap = new Map<number, string[]>();
   for (const r of fhRows) { if (!hMap.has(r.factId)) hMap.set(r.factId, []); hMap.get(r.factId)!.push(r.name); }
 
-  const rMap = new Map<number, string>();
-  if (userId) {
-    const rRows = await db.select({ factId: ratingsTable.factId, rating: ratingsTable.rating })
-      .from(ratingsTable).where(and(eq(ratingsTable.userId, userId), inArray(ratingsTable.factId, ids)));
-    for (const r of rRows) rMap.set(r.factId, r.rating);
-  }
+  const rMap = userId ? await getViewerFactRatings(userId, ids) : new Map<number, string>();
 
   return facts.map((f) => ({
     id: f.id, text: f.text, upvotes: f.upvotes, downvotes: f.downvotes, score: f.score,
@@ -118,7 +114,12 @@ router.get("/users/me", async (req: Request, res: Response) => {
     createdAt: pendingReviewsTable.createdAt,
     reason: pendingReviewsTable.reason,
   }).from(pendingReviewsTable).where(eq(pendingReviewsTable.submittedById, userId)).orderBy(desc(pendingReviewsTable.createdAt)).limit(50);
-  const likedRatings = await db.select({ factId: ratingsTable.factId }).from(ratingsTable).where(and(eq(ratingsTable.userId, userId), eq(ratingsTable.rating, "up")));
+  const likedRatings = await db.select({ factId: reactionsTable.targetId }).from(reactionsTable)
+    .where(and(
+      eq(reactionsTable.userId, userId),
+      eq(reactionsTable.targetType, "fact"),
+      eq(reactionsTable.reactionType, "up"),
+    ));
   const likedIds = likedRatings.map((r) => r.factId);
   const likedFacts = likedIds.length ? await db.select().from(factsTable).where(and(inArray(factsTable.id, likedIds), eq(factsTable.isActive, true))).limit(50) : [];
 

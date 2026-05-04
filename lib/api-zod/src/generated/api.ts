@@ -266,6 +266,8 @@ export const ListCommentsQueryParams = zod.object({
   offset: zod.coerce.number().default(listCommentsQueryOffsetDefault),
 });
 
+export const listCommentsResponseCommentsItemHeartCountMin = 0;
+
 export const ListCommentsResponse = zod.object({
   comments: zod.array(
     zod.object({
@@ -276,6 +278,10 @@ export const ListCommentsResponse = zod.object({
       authorName: zod.string().nullish(),
       authorImage: zod.string().nullish(),
       createdAt: zod.coerce.date(),
+      heartCount: zod
+        .number()
+        .min(listCommentsResponseCommentsItemHeartCountMin),
+      viewerHasHearted: zod.boolean(),
     }),
   ),
   total: zod.number(),
@@ -293,6 +299,34 @@ export const addCommentBodyTextMax = 2000;
 export const AddCommentBody = zod.object({
   text: zod.string().min(1).max(addCommentBodyTextMax),
   captchaToken: zod.string(),
+});
+
+/**
+ * @summary Toggle a heart reaction on a comment
+ */
+export const HeartCommentParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+export const heartCommentResponseHeartCountMin = 0;
+
+export const HeartCommentResponse = zod.object({
+  heartCount: zod.number().min(heartCommentResponseHeartCountMin),
+  viewerHasHearted: zod.boolean(),
+});
+
+/**
+ * @summary Toggle a heart reaction on a meme
+ */
+export const HeartMemeParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+export const heartMemeResponseHeartCountMin = 0;
+
+export const HeartMemeResponse = zod.object({
+  heartCount: zod.number().min(heartMemeResponseHeartCountMin),
+  viewerHasHearted: zod.boolean(),
 });
 
 /**
@@ -655,6 +689,8 @@ export const GetMemeBySlugParams = zod.object({
   slug: zod.coerce.string(),
 });
 
+export const getMemeBySlugResponseHeartCountMin = 0;
+
 export const GetMemeBySlugResponse = zod.object({
   id: zod.number(),
   factId: zod.number(),
@@ -664,6 +700,8 @@ export const GetMemeBySlugResponse = zod.object({
   factText: zod.string(),
   createdAt: zod.coerce.date(),
   createdByName: zod.string().nullish(),
+  heartCount: zod.number().min(getMemeBySlugResponseHeartCountMin),
+  viewerHasHearted: zod.boolean(),
 });
 
 /**
@@ -672,6 +710,8 @@ export const GetMemeBySlugResponse = zod.object({
 export const ListFactMemesParams = zod.object({
   factId: zod.coerce.number(),
 });
+
+export const listFactMemesResponseMemesItemHeartCountMin = 0;
 
 export const ListFactMemesResponse = zod.object({
   memes: zod.array(
@@ -682,6 +722,8 @@ export const ListFactMemesResponse = zod.object({
       imageUrl: zod.string(),
       permalinkSlug: zod.string(),
       createdAt: zod.coerce.date(),
+      heartCount: zod.number().min(listFactMemesResponseMemesItemHeartCountMin),
+      viewerHasHearted: zod.boolean(),
     }),
   ),
 });
