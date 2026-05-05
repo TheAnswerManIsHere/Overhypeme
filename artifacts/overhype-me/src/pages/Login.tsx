@@ -26,6 +26,17 @@ function getResetSuccess(): boolean {
   return params.get("reset") === "success";
 }
 
+function getAuthError(): string | null {
+  const err = new URLSearchParams(window.location.search).get("error");
+  if (err === "session_expired") {
+    return "Your sign-in session expired before it could complete. Please try again.";
+  }
+  if (err === "auth_failed") {
+    return "Sign in failed. Please try again, or use email and password instead.";
+  }
+  return null;
+}
+
 function getFromParam(): string | null {
   return new URLSearchParams(window.location.search).get("from") || null;
 }
@@ -78,6 +89,7 @@ export default function Login() {
   const [loading, setLoading] = useState(false);
   const [registeredEmail, setRegisteredEmail] = useState("");
   const resetSuccess = getResetSuccess();
+  const authError = getAuthError();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -205,6 +217,12 @@ export default function Login() {
     <div className="min-h-[80vh] flex items-center justify-center px-4">
       <div className="w-full max-w-md">
         <div className="bg-card border border-primary/25 rounded-2xl p-8 shadow-[0_0_40px_rgba(249,115,22,0.12),inset_0_1px_0_rgba(255,255,255,0.06)]">
+          {authError && (
+            <div className="mb-6 bg-destructive/10 text-destructive border border-destructive/20 rounded-sm px-4 py-3 text-sm font-medium">
+              {authError}
+            </div>
+          )}
+
           {resetSuccess && (
             <div className="mb-6 bg-green-500/10 text-green-700 dark:text-green-400 border border-green-500/20 rounded-sm px-4 py-3 text-sm font-medium">
               Your password has been reset successfully. Please sign in with your new password.
