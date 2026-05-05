@@ -220,7 +220,7 @@ async function handleOAuthCallback(
     return;
   }
 
-  const { codeVerifier, nonce, returnTo, isPopup } = pending;
+  const { codeVerifier, nonce, returnTo, isPopup, linkUserId } = pending;
 
   const config =
     provider === "google" ? await getGoogleConfig() : await getAppleConfig();
@@ -283,27 +283,41 @@ async function handleOAuthCallback(
 
   const basePath = process.env.BASE_PATH || "";
 
-  // ── Link mode: attach provider to an already-authenticated user ─────────
+  // ── Link mode: associate the OAuth provider with an existing account ─────
   if (pending.linkUserId) {
     const linkUserId = pending.linkUserId;
-    try {
-      await db
-        .update(usersTable)
-        .set({ oauthProvider: provider })
-        .where(eq(usersTable.id, linkUserId));
-    } catch (err) {
-      Sentry.captureException(err, {
-        tags: { auth: "oauth-link" },
-        extra: { provider, stage: "linkProvider" },
-      });
-      res.redirect(`${basePath}/profile?link_error=1`);
+    const oauthEmail = ((claims.email as string) || "").toLowerCase().trim();
+    const [targetUser] = await db
+      .select()
+      .from(usersTable)
+      .where(eq(usersTable.id, linkUserId))
+      .limit(1);
+
+    if (!targetUser) {
+      res.redirect(`${basePath}${returnTo}?link_error=user_not_found`);
       return;
     }
-    res.redirect(basePath + returnTo);
+
+    if (oauthEmail && targetUser.email && oauthEmail !== targetUser.email.toLowerCase()) {
+      res.redirect(`${basePath}${returnTo}?link_error=email_mismatch`);
+      return;
+    }
+
+    if (targetUser.oauthProvider) {
+      res.redirect(`${basePath}${returnTo}?link_error=already_linked`);
+      return;
+    }
+
+    await db
+      .update(usersTable)
+      .set({ oauthProvider: provider, updatedAt: new Date() })
+      .where(eq(usersTable.id, linkUserId));
+
+    res.redirect(`${basePath}${returnTo}?linked=1`);
     return;
   }
 
-  // ── Normal login / register flow ─────────────────────────────────────────
+  // ── Normal login/signup mode ──────────────────────────────────────────────
   let dbUser: typeof usersTable.$inferSelect;
   let isNewUser: boolean;
   try {
@@ -474,12 +488,13 @@ router.get("/login/:provider", async (req: Request, res: Response) => {
   res.redirect(redirectTo.href);
 });
 
-// ── Link provider to an existing authenticated account ───────────────────────
-// Starts an OAuth flow that, on callback, updates the user's oauthProvider
-// instead of creating a session. The user must be logged in.
-router.get("/auth/link/:provider", async (req: Request, res: Response) => {
+// ── Link provider route ───────────────────────────────────────────────────────
+// Authenticated-only. Stores a pending OAuth state with the current user's ID
+// so the callback can link the provider to the existing account instead of
+// creating/logging-in a new session.
+router.get("/link/:provider", async (req: Request, res: Response) => {
   if (!req.isAuthenticated()) {
-    res.status(401).send("You must be signed in to link a provider");
+    res.status(401).send("Not authenticated");
     return;
   }
 
@@ -494,11 +509,25 @@ router.get("/auth/link/:provider", async (req: Request, res: Response) => {
     return;
   }
 
+  const [currentUser] = await db
+    .select({ oauthProvider: usersTable.oauthProvider })
+    .from(usersTable)
+    .where(eq(usersTable.id, req.user.id))
+    .limit(1);
+
+  if (currentUser?.oauthProvider) {
+    const basePath = process.env.BASE_PATH || "";
+    const returnTo = getSafeReturnTo(req.query.returnTo);
+    res.redirect(`${basePath}${returnTo}?link_error=already_linked`);
+    return;
+  }
+
+
   const config =
     provider === "google" ? await getGoogleConfig() : await getAppleConfig();
 
   const callbackUrl = `${getSiteBaseUrl()}/api/callback/${provider}`;
-  const returnTo = getSafeReturnTo(req.query.returnTo ?? "/profile?linked=1");
+  const returnTo = getSafeReturnTo(req.query.returnTo);
 
   const state = oidc.randomState();
   const nonce = oidc.randomNonce();

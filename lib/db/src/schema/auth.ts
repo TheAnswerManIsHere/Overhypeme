@@ -90,7 +90,9 @@ export const oauthPendingStatesTable = pgTable(
     nonce: text("nonce").notNull(),
     returnTo: text("return_to").notNull().default("/"),
     isPopup: boolean("is_popup").notNull().default(false),
-    linkUserId: varchar("link_user_id"),
+    // When set, the callback links the OAuth provider to this existing user
+    // instead of creating/logging-in a new session.
+    linkUserId: varchar("link_user_id").references(() => usersTable.id, { onDelete: "cascade" }),
     expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
   },
   (table) => [index("IDX_oauth_pending_states_expires_at").on(table.expiresAt)],

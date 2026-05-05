@@ -166,9 +166,9 @@ export default function Profile() {
   const [unlinkLoading, setUnlinkLoading] = useState(false);
   const [unlinkError, setUnlinkError] = useState("");
   const [unlinkSuccess, setUnlinkSuccess] = useState("");
-  const [unlinkConfirm, setUnlinkConfirm] = useState<string | false>(false);
-  const [linkedBanner, setLinkedBanner] = useState<string | null>(null);
-  const [linkErrorBanner, setLinkErrorBanner] = useState(false);
+  const [unlinkConfirm, setUnlinkConfirm] = useState(false);
+  const [linkSuccess, setLinkSuccess] = useState("");
+  const [linkError, setLinkError] = useState("");
 
   const [notifAdminAlerts, setNotifAdminAlerts] = useState<boolean>(true);
   const [notifDisputeAlerts, setNotifDisputeAlerts] = useState<boolean>(true);
@@ -187,10 +187,10 @@ export default function Profile() {
       });
       const data = await res.json() as { message?: string; error?: string };
       if (!res.ok) {
-        setUnlinkError(data.error ?? "Failed to unlink account.");
+        setUnlinkError(data.error ?? "Failed to unlink sign-in method.");
         return;
       }
-      setUnlinkSuccess(data.message ?? "Social account unlinked successfully.");
+      setUnlinkSuccess(data.message ?? "Sign-in method unlinked successfully.");
       setUnlinkConfirm(false);
       await queryClient.invalidateQueries({ queryKey: getGetMyProfileQueryKey() });
     } catch {
@@ -198,11 +198,6 @@ export default function Profile() {
     } finally {
       setUnlinkLoading(false);
     }
-  }
-
-  function handleLinkProvider(provider: string) {
-    const returnTo = encodeURIComponent("/profile?linked=" + encodeURIComponent(provider));
-    window.location.href = `${BASE_URL}api/auth/link/${provider}?returnTo=${returnTo}`;
   }
 
   async function handleSetPassword() {
@@ -381,13 +376,19 @@ export default function Profile() {
       setEmailVerifiedBanner(true);
       setLocation(currentPath, { replace: true });
     }
-    const linked = params.get("linked");
-    if (linked) {
-      setLinkedBanner(linked);
+    if (params.get("linked") === "1") {
+      setLinkSuccess("Sign-in method linked successfully.");
+      queryClient.invalidateQueries({ queryKey: getGetMyProfileQueryKey() }).catch(() => {});
       setLocation(currentPath, { replace: true });
     }
-    if (params.get("link_error") === "1") {
-      setLinkErrorBanner(true);
+    const linkErr = params.get("link_error");
+    if (linkErr) {
+      const messages: Record<string, string> = {
+        already_linked: "This account already has a linked sign-in method.",
+        email_mismatch: "The OAuth account email does not match your account email.",
+        user_not_found: "Account not found. Please try again.",
+      };
+      setLinkError(messages[linkErr] ?? "Failed to link sign-in method. Please try again.");
       setLocation(currentPath, { replace: true });
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -937,13 +938,13 @@ export default function Profile() {
               )}
             </div>
             <h1
-              className="font-display font-bold uppercase tracking-tight leading-[0.9] text-foreground mb-2"
+              className="font-display font-bold uppercase tracking-tight leading-[0.9] text-foreground mb-1"
               style={{ fontSize: "clamp(36px, 4vw, 56px)" }}
             >
               {profile.displayName ?? profile.email}
             </h1>
             {profile.email && (
-              <p className="text-muted-foreground text-sm font-medium mb-3">{profile.email}</p>
+              <p className="text-sm text-muted-foreground mb-4">{profile.email}</p>
             )}
             {myMemesData && myMemesData.memes.length > 0 && (
               <div className="flex items-center gap-8">
@@ -1343,6 +1344,8 @@ export default function Profile() {
         {(() => {
           const oauthProvider = profile?.oauthProvider ?? null;
           const hasPassword = profile?.hasPassword ?? false;
+          const canUnlink = hasPassword;
+          const canLink = !oauthProvider;
           return (
             <div className="bg-card border-2 border-border p-6 rounded-sm shadow mb-8">
               <h2 className="font-display text-xl uppercase tracking-wide text-foreground mb-4 border-b border-border pb-4 flex items-center gap-2">
@@ -1350,16 +1353,16 @@ export default function Profile() {
               </h2>
 
               {/* Link success / error banners */}
-              {linkedBanner && (
-                <div className="flex items-center gap-3 bg-green-500/20 border border-green-500/40 rounded-sm p-3 mb-1">
+              {linkSuccess && (
+                <div className="flex items-center gap-3 bg-green-500/20 border border-green-500/40 rounded-sm p-3 mb-3">
                   <CheckCircle className="w-4 h-4 text-green-500 shrink-0" />
-                  <p className="text-sm text-foreground capitalize">{linkedBanner} account linked successfully.</p>
+                  <p className="text-sm text-foreground">{linkSuccess}</p>
                 </div>
               )}
-              {linkErrorBanner && (
-                <div className="flex items-center gap-3 bg-destructive/10 border border-destructive/40 rounded-sm p-3 mb-1">
+              {linkError && (
+                <div className="flex items-center gap-3 bg-destructive/10 border border-destructive/40 rounded-sm p-3 mb-3">
                   <AlertTriangle className="w-4 h-4 text-destructive shrink-0" />
-                  <p className="text-sm text-foreground">Could not link account. Please try again.</p>
+                  <p className="text-sm text-foreground">{linkError}</p>
                 </div>
               )}
 
@@ -1376,24 +1379,24 @@ export default function Profile() {
                   {oauthProvider === "apple" && (
                     <span className="text-xs bg-gray-400/20 text-gray-300 border border-gray-400/40 px-2 py-0.5 rounded-sm font-bold">Active</span>
                   )}
-                  {oauthProvider === "apple" && hasPassword && !unlinkConfirm && (
+                  {oauthProvider === "apple" && canUnlink && !unlinkConfirm && (
                     <button
-                      onClick={() => { setUnlinkConfirm("apple"); setUnlinkError(""); setUnlinkSuccess(""); }}
+                      onClick={() => { setUnlinkConfirm(true); setUnlinkError(""); setUnlinkSuccess(""); }}
                       className="text-xs text-muted-foreground hover:text-destructive transition-colors underline shrink-0 ml-1"
                     >
                       Unlink
                     </button>
                   )}
-                  {oauthProvider === "apple" && !hasPassword && (
-                    <span className="text-xs text-amber-500/80 shrink-0 ml-1">Set a password to unlink</span>
+                  {oauthProvider === "apple" && !canUnlink && (
+                    <span className="text-xs text-amber-500/80 shrink-0 ml-1">Set a password to enable unlinking</span>
                   )}
-                  {!oauthProvider && (
-                    <button
-                      onClick={() => handleLinkProvider("apple")}
+                  {!oauthProvider && canLink && (
+                    <a
+                      href={`${BASE_URL}api/link/apple?returnTo=/profile`}
                       className="text-xs text-muted-foreground hover:text-primary transition-colors underline shrink-0 ml-1"
                     >
                       Link
-                    </button>
+                    </a>
                   )}
                 </div>
 
@@ -1412,31 +1415,31 @@ export default function Profile() {
                   {oauthProvider === "google" && (
                     <span className="text-xs bg-blue-500/20 text-blue-400 border border-blue-500/40 px-2 py-0.5 rounded-sm font-bold">Active</span>
                   )}
-                  {oauthProvider === "google" && hasPassword && !unlinkConfirm && (
+                  {oauthProvider === "google" && canUnlink && !unlinkConfirm && (
                     <button
-                      onClick={() => { setUnlinkConfirm("google"); setUnlinkError(""); setUnlinkSuccess(""); }}
+                      onClick={() => { setUnlinkConfirm(true); setUnlinkError(""); setUnlinkSuccess(""); }}
                       className="text-xs text-muted-foreground hover:text-destructive transition-colors underline shrink-0 ml-1"
                     >
                       Unlink
                     </button>
                   )}
-                  {oauthProvider === "google" && !hasPassword && (
-                    <span className="text-xs text-amber-500/80 shrink-0 ml-1">Set a password to unlink</span>
+                  {oauthProvider === "google" && !canUnlink && (
+                    <span className="text-xs text-amber-500/80 shrink-0 ml-1">Set a password to enable unlinking</span>
                   )}
-                  {!oauthProvider && (
-                    <button
-                      onClick={() => handleLinkProvider("google")}
+                  {!oauthProvider && canLink && (
+                    <a
+                      href={`${BASE_URL}api/link/google?returnTo=/profile`}
                       className="text-xs text-muted-foreground hover:text-primary transition-colors underline shrink-0 ml-1"
                     >
                       Link
-                    </button>
+                    </a>
                   )}
                 </div>
 
-                {/* Unlink confirmation dialog */}
-                {unlinkConfirm && (
+                {/* Unlink confirmation / feedback */}
+                {oauthProvider && unlinkConfirm && (
                   <div className="border border-destructive/40 bg-destructive/5 rounded-sm p-4 space-y-3">
-                    <p className="text-sm text-foreground font-medium capitalize">Remove {unlinkConfirm} sign-in from your account?</p>
+                    <p className="text-sm text-foreground font-medium">Remove {oauthProvider === "apple" ? "Apple" : "Google"} sign-in from your account?</p>
                     <p className="text-xs text-muted-foreground">You'll only be able to sign in with your email and password going forward.</p>
                     {unlinkError && <p className="text-xs text-destructive font-medium">{unlinkError}</p>}
                     <div className="flex gap-3">
@@ -1447,7 +1450,7 @@ export default function Profile() {
                         disabled={unlinkLoading}
                         className="gap-2 border-destructive/60 text-destructive hover:bg-destructive/10"
                       >
-                        {unlinkLoading ? <><Loader2 className="w-4 h-4 animate-spin" /> Unlinking…</> : `Yes, Unlink ${unlinkConfirm.charAt(0).toUpperCase() + unlinkConfirm.slice(1)}`}
+                        {unlinkLoading ? <><Loader2 className="w-4 h-4 animate-spin" /> Unlinking…</> : `Yes, Unlink ${oauthProvider === "apple" ? "Apple" : "Google"}`}
                       </Button>
                       <Button variant="outline" size="sm" onClick={() => { setUnlinkConfirm(false); setUnlinkError(""); }}>
                         Cancel
@@ -1491,11 +1494,11 @@ export default function Profile() {
                     <KeyRound className="w-4 h-4" />
                     {hasPassword ? "Change Password" : "Set a Password"}
                   </Button>
-                  {oauthProvider === "google" && !hasPassword && (
-                    <p className="text-xs text-amber-500/80">Setting a password also lets you unlink your Google account later.</p>
+                  {oauthProvider && !hasPassword && (
+                    <p className="text-xs text-amber-500/80">Setting a password also lets you unlink your social sign-in later.</p>
                   )}
-                  {oauthProvider === "google" && hasPassword && (
-                    <p className="text-xs text-amber-500/80">To remove Google sign-in from your account, use the <span className="font-semibold">Unlink</span> option in the Google row above.</p>
+                  {oauthProvider && hasPassword && (
+                    <p className="text-xs text-amber-500/80">To remove {oauthProvider === "apple" ? "Apple" : "Google"} sign-in from your account, use the <span className="font-semibold">Unlink</span> option above.</p>
                   )}
                 </div>
               ) : (
@@ -1506,14 +1509,14 @@ export default function Profile() {
                   {!hasPassword && (
                     <div className="space-y-1">
                       <p className="text-xs text-muted-foreground">Adding a password lets you sign in with your email and password in addition to any linked social accounts.</p>
-                      {oauthProvider === "google" && (
-                        <p className="text-xs text-amber-500/80">Setting a password also lets you unlink your Google account later.</p>
+                      {oauthProvider && (
+                        <p className="text-xs text-amber-500/80">Setting a password also lets you unlink your social sign-in later.</p>
                       )}
                     </div>
                   )}
 
-                  {hasPassword && oauthProvider === "google" && (
-                    <p className="text-xs text-amber-500/80">To remove Google sign-in from your account, use the <span className="font-semibold">Unlink</span> option in the Google row above.</p>
+                  {hasPassword && oauthProvider && (
+                    <p className="text-xs text-amber-500/80">To remove {oauthProvider === "apple" ? "Apple" : "Google"} sign-in from your account, use the <span className="font-semibold">Unlink</span> option above.</p>
                   )}
 
                   {hasPassword && (
