@@ -159,7 +159,7 @@ describe("POST /api/callback/apple", () => {
 
     assert.notEqual(res.status, 500, `Expected no 500, got ${res.status}`);
     assert.equal(res.status, 302);
-    assert.match(res.headers["location"] ?? "", /login\/apple/);
+    assert.match(res.headers["location"] ?? "", /\/login\?error=session_expired/);
   });
 
   it("completes sign-in: real generateAppleClientSecret runs, no 500, session cookie set", async () => {
@@ -173,7 +173,7 @@ describe("POST /api/callback/apple", () => {
     );
 
     const state = randomUUID();
-    _storePendingStateForTest(state, {
+    await _storePendingStateForTest(state, {
       codeVerifier: "test-verifier",
       nonce:        "test-nonce",
       returnTo:     "/",
@@ -212,7 +212,7 @@ describe("POST /api/callback/apple", () => {
     _setAuthCodeGrantForTest(async () => makeFakeTokens(testEmail));
 
     const state = randomUUID();
-    _storePendingStateForTest(state, {
+    await _storePendingStateForTest(state, {
       codeVerifier: "test-verifier-2",
       nonce:        "test-nonce-2",
       returnTo:     "/dashboard",
@@ -264,7 +264,7 @@ describe("POST /api/callback/apple", () => {
 
     const returnTo = "/dashboard";
     const state = randomUUID();
-    _storePendingStateForTest(state, {
+    await _storePendingStateForTest(state, {
       codeVerifier: "test-verifier-returning",
       nonce:        "test-nonce-returning",
       returnTo,
@@ -315,7 +315,7 @@ describe("POST /api/callback/apple", () => {
     _setAuthCodeGrantForTest(async () => makeFakeTokens(testEmail));
 
     const state = randomUUID();
-    _storePendingStateForTest(state, {
+    await _storePendingStateForTest(state, {
       codeVerifier: "test-verifier-popup",
       nonce:        "test-nonce-popup",
       returnTo:     "/",

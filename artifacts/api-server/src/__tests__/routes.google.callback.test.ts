@@ -152,7 +152,7 @@ describe("GET /api/callback/google", () => {
 
       assert.notEqual(res.status, 500, `Expected no 500, got ${res.status}`);
       assert.equal(res.status, 302);
-      assert.match(res.headers["location"] ?? "", /login\/google/);
+      assert.match(res.headers["location"] ?? "", /\/login\?error=session_expired/);
     } finally {
       restoreEnv();
     }
@@ -166,7 +166,7 @@ describe("GET /api/callback/google", () => {
     );
 
     const state = randomUUID();
-    _storePendingStateForTest(state, {
+    await _storePendingStateForTest(state, {
       codeVerifier: "test-verifier",
       nonce:        "test-nonce",
       returnTo:     "/",
@@ -205,7 +205,7 @@ describe("GET /api/callback/google", () => {
     _setAuthCodeGrantForTest(async () => makeFakeTokens(testEmail));
 
     const state = randomUUID();
-    _storePendingStateForTest(state, {
+    await _storePendingStateForTest(state, {
       codeVerifier: "test-verifier-2",
       nonce:        "test-nonce-2",
       returnTo:     "/dashboard",
@@ -250,7 +250,7 @@ describe("GET /api/callback/google", () => {
     try {
       // ── First sign-in (creates the user) ──
       const state1 = randomUUID();
-      _storePendingStateForTest(state1, {
+      await _storePendingStateForTest(state1, {
         codeVerifier: "test-verifier-returning-1",
         nonce:        "test-nonce-returning-1",
         returnTo:     "/",
@@ -280,7 +280,7 @@ describe("GET /api/callback/google", () => {
 
       // ── Second sign-in with same email (hits ON CONFLICT DO UPDATE branch) ──
       const state2 = randomUUID();
-      _storePendingStateForTest(state2, {
+      await _storePendingStateForTest(state2, {
         codeVerifier: "test-verifier-returning-2",
         nonce:        "test-nonce-returning-2",
         returnTo:     "/",
@@ -338,7 +338,7 @@ describe("GET /api/callback/google", () => {
     _setAuthCodeGrantForTest(async () => makeFakeTokens(testEmail));
 
     const state = randomUUID();
-    _storePendingStateForTest(state, {
+    await _storePendingStateForTest(state, {
       codeVerifier: "test-verifier-popup",
       nonce:        "test-nonce-popup",
       returnTo:     "/",

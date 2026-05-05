@@ -37,9 +37,11 @@ async function getReplyToAddress(): Promise<string | undefined> {
 
 function getResendApiKey(): string | undefined {
   const isProd = process.env.NODE_ENV === "production";
+  // Use || rather than ?? so that empty-string values (e.g. RESEND_API_KEY_DEV="")
+  // are treated as absent and the next key in the chain is tried.
   return isProd
-    ? (process.env.RESEND_API_KEY_PROD ?? process.env.RESEND_API_KEY)
-    : (process.env.RESEND_API_KEY_DEV ?? process.env.RESEND_API_KEY_PROD ?? process.env.RESEND_API_KEY);
+    ? (process.env.RESEND_API_KEY_PROD || process.env.RESEND_API_KEY || undefined)
+    : (process.env.RESEND_API_KEY_DEV || process.env.RESEND_API_KEY_PROD || process.env.RESEND_API_KEY || undefined);
 }
 
 export function isEnabled(): boolean {
@@ -296,16 +298,21 @@ export async function emailOutboxTick(
             "Email permanently abandoned after max retries",
           );
           if (row.kind !== "admin_abandoned_email_alert") {
-            // Lazy dynamic import to break the email <-> adminNotify circular
-            // dependency. See the import-block comment at top of this file.
-            void import("./adminNotify").then(({ notifyAdminsOfAbandonedEmail }) =>
-              notifyAdminsOfAbandonedEmail({
-                outboxId: row.id,
-                to: row.to,
-                subject: row.subject,
-                lastError: error ?? "unknown",
-              }),
+            const alertsEnabled = await getConfigString(
+              "email_admin_abandoned_alerts_enabled", "false"
             );
+            if (alertsEnabled === "true") {
+              // Lazy dynamic import to break the email <-> adminNotify circular
+              // dependency. See the import-block comment at top of this file.
+              void import("./adminNotify").then(({ notifyAdminsOfAbandonedEmail }) =>
+                notifyAdminsOfAbandonedEmail({
+                  outboxId: row.id,
+                  to: row.to,
+                  subject: row.subject,
+                  lastError: error ?? "unknown",
+                }),
+              );
+            }
           }
         }
       }
