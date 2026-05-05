@@ -14,11 +14,24 @@
 
 import { createCanvas, loadImage, GlobalFonts, type SKRSContext2D } from "@napi-rs/canvas";
 import path from "path";
+import fs from "fs";
 import { fileURLToPath } from "url";
 import { ObjectStorageService } from "./objectStorage";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const FONT_PATH = path.resolve(__dirname, "assets/fonts/Anton-Regular.ttf");
+// In production the build script copies src/assets → dist/assets and all
+// bundled code shares a single __dirname (dist/). When running directly from
+// source via tsx, __dirname is src/lib/, so we must walk up to src/assets/.
+const FONT_PATH = (() => {
+  const candidates = [
+    path.resolve(__dirname, "assets/fonts/Anton-Regular.ttf"),       // built layout
+    path.resolve(__dirname, "..", "assets/fonts/Anton-Regular.ttf"), // src/lib → src/assets
+  ];
+  for (const candidate of candidates) {
+    try { if (fs.statSync(candidate).isFile()) return candidate; } catch { /* try next */ }
+  }
+  return candidates[0]!;
+})();
 
 let fontRegistered = false;
 function ensureFontRegistered() {
