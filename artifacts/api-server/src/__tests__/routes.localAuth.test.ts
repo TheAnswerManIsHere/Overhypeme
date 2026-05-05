@@ -625,7 +625,7 @@ describe("DELETE /auth/unlink-provider", () => {
     assert.match(res.body.error, /must set a password/);
   });
 
-  it("happy path: clears googleLinked", async () => {
+  it("happy path: clears googleLinked and returns success message", async () => {
     const { id } = await createUserWithPassword();
     await db.update(usersTable).set({ googleLinked: true }).where(eq(usersTable.id, id));
     const sid = await bearerForUser(id);
@@ -635,6 +635,7 @@ describe("DELETE /auth/unlink-provider", () => {
       .set("content-type", "application/json")
       .send({ provider: "google" });
     assert.equal(res.status, 200);
+    assert.match(res.body.message, /Sign-in method unlinked successfully/);
     const [row] = await db.select().from(usersTable).where(eq(usersTable.id, id));
     assert.equal(row.googleLinked, false);
   });

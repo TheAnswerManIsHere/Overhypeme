@@ -38,6 +38,15 @@ export function _resetAuthCodeGrantForTest(): void {
   _oidcAuthCodeGrant = oidc.authorizationCodeGrant;
 }
 
+type BuildAuthorizationUrlFn = typeof oidc.buildAuthorizationUrl;
+let _oidcBuildAuthorizationUrl: BuildAuthorizationUrlFn = oidc.buildAuthorizationUrl;
+export function _setBuildAuthorizationUrlForTest(fn: BuildAuthorizationUrlFn): void {
+  _oidcBuildAuthorizationUrl = fn;
+}
+export function _resetBuildAuthorizationUrlForTest(): void {
+  _oidcBuildAuthorizationUrl = oidc.buildAuthorizationUrl;
+}
+
 // ── Pending OAuth state ───────────────────────────────────────────────────────
 // We store PKCE state in the database (keyed by the OAuth `state` parameter)
 // rather than in an in-memory Map. This survives server restarts, which
@@ -492,7 +501,7 @@ router.get("/login/:provider", async (req: Request, res: Response) => {
     params.response_mode = "form_post";
   }
 
-  const redirectTo = oidc.buildAuthorizationUrl(config, params);
+  const redirectTo = _oidcBuildAuthorizationUrl(config, params);
   res.redirect(redirectTo.href);
 });
 
@@ -563,7 +572,7 @@ router.get("/link/:provider", async (req: Request, res: Response) => {
     params.response_mode = "form_post";
   }
 
-  const redirectTo = oidc.buildAuthorizationUrl(config, params);
+  const redirectTo = _oidcBuildAuthorizationUrl(config, params);
   res.redirect(redirectTo.href);
 });
 
