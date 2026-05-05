@@ -1,6 +1,6 @@
 import { useState, useRef, useLayoutEffect } from "react";
 import { Link, useLocation } from "wouter";
-import { motion, AnimatePresence, useReducedMotion, useInView } from "framer-motion";
+import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
 import { MessageSquare, ThumbsUp, ThumbsDown, Flame } from "lucide-react";
 import { FactSummary, useListComments, getListCommentsQueryKey } from "@workspace/api-client-react";
 import { useAppMutations } from "@/hooks/use-mutations";
@@ -123,30 +123,56 @@ export function FactCard({
 
   const cardRef = useRef<HTMLDivElement>(null);
   const prefersReducedMotion = useReducedMotion();
-  const isInView = useInView(cardRef, { once: true, margin: "0px" });
-  const [aboveFold, setAboveFold] = useState(false);
+  // show: whether opacity should be 1
+  // instant: whether the transition to visible should be duration:0
+  const [show, setShow] = useState(false);
+  const [instant, setInstant] = useState(false);
 
   useLayoutEffect(() => {
     const el = cardRef.current;
     if (!el) return;
+
+    // Reduced motion: show immediately with no animation
+    if (prefersReducedMotion) {
+      setInstant(true);
+      setShow(true);
+      return;
+    }
+
+    // Already in the viewport at mount time — show instantly before first paint
     const { top, bottom } = el.getBoundingClientRect();
     if (top < window.innerHeight && bottom > 0) {
-      setAboveFold(true);
+      setInstant(true);
+      setShow(true);
+      return;
     }
-  }, []);
 
-  const shouldShow = prefersReducedMotion || aboveFold || isInView;
+    // Below the fold — use a raw observer that disconnects itself on first fire.
+    // Safari cannot re-trigger a disconnected observer.
+    let rafId: number;
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting) {
+          observer.disconnect();
+          setShow(true);
+        }
+      },
+      { threshold: 0.01 }
+    );
+    observer.observe(el);
+    return () => {
+      observer.disconnect();
+      cancelAnimationFrame(rafId);
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   return (
     <motion.div
       ref={cardRef}
       initial={{ opacity: 0 }}
-      animate={{ opacity: shouldShow ? 1 : 0 }}
-      transition={
-        prefersReducedMotion || aboveFold
-          ? { duration: 0 }
-          : { duration: 0.4, ease: "easeOut" }
-      }
+      animate={{ opacity: show ? 1 : 0 }}
+      transition={instant ? { duration: 0 } : { duration: 0.4, ease: "easeOut" }}
       whileHover={prefersReducedMotion ? undefined : { y: -3 }}
       className={cn(
         "relative group block bg-card rounded-[20px] shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] border transition-all duration-300 overflow-hidden",
@@ -224,16 +250,26 @@ export function FactCard({
               <MessageSquare className="w-5 h-5" />
               <span className="text-xs font-semibold">{fact.commentCount}</span>
             </button>
+
+            {/* Share — grouped with social actions */}
+            <button
+              onClick={e => e.stopPropagation()}
+              className="text-muted-foreground hover:text-foreground transition-colors"
+              title="Share"
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24">
+                <line x1="22" y1="2" x2="11" y2="13" /><polygon points="22 2 15 22 11 13 2 9 22 2" />
+              </svg>
+            </button>
           </div>
 
+          {/* Make a Meme — primary CTA */}
           <button
-            onClick={e => e.stopPropagation()}
-            className="text-muted-foreground hover:text-foreground transition-colors"
-            title="Share"
+            onClick={e => { e.stopPropagation(); setLocation(`/facts/${fact.id}/meme`); }}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-primary text-white rounded-full text-[11px] font-display font-bold uppercase tracking-[0.1em] hover:bg-primary/90 active:scale-95 transition-all shadow-[0_0_12px_rgba(249,115,22,0.35)]"
           >
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24">
-              <line x1="22" y1="2" x2="11" y2="13" /><polygon points="22 2 15 22 11 13 2 9 22 2" />
-            </svg>
+            <Flame className="w-3 h-3" />
+            Make a Meme
           </button>
         </div>
 
