@@ -204,6 +204,21 @@ async function handleOAuthCallback(
   // the redirect_uri with Apple/Google) + any query params from the request.
   const currentUrl = new URL(getSiteBaseUrl() + req.originalUrl);
 
+  // Apple Sign In uses response_mode=form_post: the authorization response
+  // params (code, state, etc.) arrive in the POST body rather than the URL
+  // query string. openid-client v6 reads params exclusively from
+  // currentUrl.searchParams, so copy any body string values that are not
+  // already present in the query string. This is a no-op for Google callbacks
+  // (which use the default query response mode) since their params are already
+  // in req.originalUrl.
+  if (req.method === "POST" && req.body && typeof req.body === "object") {
+    for (const [key, value] of Object.entries(req.body as Record<string, unknown>)) {
+      if (typeof value === "string" && !currentUrl.searchParams.has(key)) {
+        currentUrl.searchParams.set(key, value);
+      }
+    }
+  }
+
   let tokens: oidc.TokenEndpointResponse & oidc.TokenEndpointResponseHelpers;
   try {
     tokens = await _oidcAuthCodeGrant(config, currentUrl, {
