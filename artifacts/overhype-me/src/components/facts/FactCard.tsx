@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useLayoutEffect } from "react";
 import { Link, useLocation } from "wouter";
 import { motion, AnimatePresence, useReducedMotion, useInView } from "framer-motion";
 import { MessageSquare, ThumbsUp, ThumbsDown, Flame } from "lucide-react";
@@ -123,15 +123,37 @@ export function FactCard({
 
   const prefersReducedMotion = useReducedMotion();
   const staggerDelay = Math.min(index * 0.07, 0.35);
-  const ref = useRef(null);
-  const isInView = useInView(ref, { once: true, margin: "-60px" });
+  const ref = useRef<HTMLDivElement>(null);
+  const isInView = useInView(ref, { once: true, margin: "0px" });
+
+  // Synchronously detect whether this card is already inside the viewport when
+  // it first mounts.  By calling setState inside useLayoutEffect, React
+  // performs a synchronous re-render *before* the browser gets a chance to
+  // paint, so the user never sees a frame where the card is opacity-0.
+  //
+  // Without this, every above-fold card starts invisible (initial opacity:0)
+  // and only becomes visible after the IntersectionObserver fires
+  // asynchronously — producing a brief flash on initial page load / navigation.
+  const [alreadyVisible, setAlreadyVisible] = useState(false);
+  useLayoutEffect(() => {
+    if (ref.current) {
+      const { top, bottom } = ref.current.getBoundingClientRect();
+      if (top < window.innerHeight && bottom > 0) {
+        setAlreadyVisible(true);
+      }
+    }
+  }, []);
+
+  // Skip the opacity animation entirely for cards that were already on-screen
+  // when the component mounted — no fade-in, no IntersectionObserver race.
+  const skipFade = prefersReducedMotion || alreadyVisible;
 
   return (
     <motion.div
       ref={ref}
-      initial={prefersReducedMotion ? false : { opacity: 0 }}
-      animate={prefersReducedMotion ? undefined : { opacity: isInView ? 1 : 0 }}
-      transition={prefersReducedMotion ? { duration: 0 } : { duration: 0.4, ease: "easeOut", delay: staggerDelay }}
+      initial={skipFade ? false : { opacity: 0 }}
+      animate={skipFade ? undefined : { opacity: isInView ? 1 : 0 }}
+      transition={skipFade ? undefined : { duration: 0.4, ease: "easeOut", delay: staggerDelay }}
       whileHover={prefersReducedMotion ? undefined : { y: -3 }}
       className={cn(
         "relative group block bg-card rounded-[20px] shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] border transition-all duration-300 overflow-hidden",
