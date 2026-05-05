@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useState, useRef, useLayoutEffect } from "react";
 import { Link, useLocation } from "wouter";
-import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
+import { motion, AnimatePresence, useReducedMotion, useInView } from "framer-motion";
 import { MessageSquare, ThumbsUp, ThumbsDown, Flame } from "lucide-react";
 import { FactSummary, useListComments, getListCommentsQueryKey } from "@workspace/api-client-react";
 import { useAppMutations } from "@/hooks/use-mutations";
@@ -121,14 +121,32 @@ export function FactCard({
     rateFact.mutate({ factId: fact.id, data: { rating: newRating } });
   };
 
+  const cardRef = useRef<HTMLDivElement>(null);
   const prefersReducedMotion = useReducedMotion();
-  const staggerDelay = Math.min(index * 0.07, 0.35);
+  const isInView = useInView(cardRef, { once: true, margin: "0px" });
+  const [aboveFold, setAboveFold] = useState(false);
+
+  useLayoutEffect(() => {
+    const el = cardRef.current;
+    if (!el) return;
+    const { top, bottom } = el.getBoundingClientRect();
+    if (top < window.innerHeight && bottom > 0) {
+      setAboveFold(true);
+    }
+  }, []);
+
+  const shouldShow = prefersReducedMotion || aboveFold || isInView;
 
   return (
     <motion.div
-      initial={prefersReducedMotion ? false : { opacity: 0 }}
-      animate={{ opacity: 1 }}
-      transition={prefersReducedMotion ? { duration: 0 } : { duration: 0.4, ease: "easeOut", delay: staggerDelay }}
+      ref={cardRef}
+      initial={{ opacity: 0 }}
+      animate={{ opacity: shouldShow ? 1 : 0 }}
+      transition={
+        prefersReducedMotion || aboveFold
+          ? { duration: 0 }
+          : { duration: 0.4, ease: "easeOut" }
+      }
       whileHover={prefersReducedMotion ? undefined : { y: -3 }}
       className={cn(
         "relative group block bg-card rounded-[20px] shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] border transition-all duration-300 overflow-hidden",
