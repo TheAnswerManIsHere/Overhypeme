@@ -10,8 +10,10 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { useIsMobile } from "@/hooks/use-mobile";
+import { ShareModal } from "@/components/ShareModal";
+import { UserAvatar, type UserAvatarSize } from "@/components/UserAvatar";
 import {
-  Library as LibraryIcon, Crown, ShieldOff, Eraser, LogOut, User as UserIcon,
+  Pencil, Crown, ShieldCheck, ShieldOff, Eraser, LogOut, UserPlus,
 } from "lucide-react";
 
 interface AccountMenuProps {
@@ -24,6 +26,8 @@ interface MenuItemSpec {
   icon: ReactNode;
   onSelect: () => void;
   destructive?: boolean;
+  /** Items below the separator (admin tools + sign out). */
+  group?: "primary" | "footer";
 }
 
 async function handleSignOut(): Promise<void> {
@@ -67,11 +71,11 @@ async function handleToggleAdminMode(): Promise<void> {
 export function AccountMenu({ children }: AccountMenuProps) {
   const isMobile = useIsMobile();
   const [open, setOpen] = useState(false);
-  const { role, realRole } = useAuth();
+  const [shareOpen, setShareOpen] = useState(false);
+  const { realRole, role } = useAuth();
   const [, setLocation] = useLocation();
   const [forgetConfirm, setForgetConfirm] = useState(false);
 
-  const isLegendary = role === "legendary" || role === "admin";
   const isRealAdmin = realRole === "admin";
   const isAdminModeOn = role === "admin";
 
@@ -82,121 +86,151 @@ export function AccountMenu({ children }: AccountMenuProps) {
 
   const items: MenuItemSpec[] = [
     {
-      label: "Library",
-      icon: <LibraryIcon className="w-4 h-4" />,
-      onSelect: () => navigate("/library"),
+      label: "Edit Profile",
+      icon: <Pencil className="w-4 h-4" />,
+      onSelect: () => navigate("/profile"),
+      group: "primary",
     },
     {
-      label: "Profile",
-      icon: <UserIcon className="w-4 h-4" />,
-      onSelect: () => navigate("/profile"),
+      label: "Membership",
+      icon: <Crown className="w-4 h-4" />,
+      onSelect: () => navigate("/pricing"),
+      group: "primary",
+    },
+    {
+      label: "Invite friends",
+      icon: <UserPlus className="w-4 h-4" />,
+      onSelect: () => { setOpen(false); setShareOpen(true); },
+      group: "primary",
     },
   ];
-  if (!isLegendary) {
+
+  // Admin-only tools live with sign-out below the separator. Hidden entirely
+  // for normal users so the menu stays at exactly 4 items for them.
+  if (isRealAdmin) {
+    if (isAdminModeOn) {
+      items.push({
+        label: "Admin Panel",
+        icon: <ShieldCheck className="w-4 h-4 text-primary" />,
+        onSelect: () => navigate("/admin"),
+        group: "footer",
+      });
+      items.push({
+        label: "Exit Admin",
+        icon: <ShieldOff className="w-4 h-4" />,
+        onSelect: () => { setOpen(false); void handleToggleAdminMode(); },
+        group: "footer",
+      });
+    }
     items.push({
-      label: "Upgrade to Legendary",
-      icon: <Crown className="w-4 h-4 text-yellow-500" />,
-      onSelect: () => navigate("/pricing"),
+      label: forgetConfirm ? "Confirm: erase everything?" : "Forget Me",
+      icon: <Eraser className="w-4 h-4" />,
+      destructive: true,
+      group: "footer",
+      onSelect: () => {
+        if (!forgetConfirm) {
+          setForgetConfirm(true);
+          return;
+        }
+        setOpen(false);
+        void handleForgetMe();
+      },
     });
   }
-  if (isRealAdmin && isAdminModeOn) {
-    items.push({
-      label: "Exit Admin",
-      icon: <ShieldOff className="w-4 h-4" />,
-      onSelect: () => { setOpen(false); void handleToggleAdminMode(); },
-    });
-  }
-  items.push({
-    label: forgetConfirm ? "Confirm: erase everything?" : "Forget Me",
-    icon: <Eraser className="w-4 h-4" />,
-    destructive: true,
-    onSelect: () => {
-      if (!forgetConfirm) {
-        setForgetConfirm(true);
-        return;
-      }
-      setOpen(false);
-      void handleForgetMe();
-    },
-  });
+
   items.push({
     label: "Sign out",
     icon: <LogOut className="w-4 h-4" />,
     onSelect: () => { setOpen(false); void handleSignOut(); },
+    group: "footer",
   });
 
-  if (isMobile) {
-    return (
-      <Sheet open={open} onOpenChange={(v) => { setOpen(v); if (!v) setForgetConfirm(false); }}>
-        <SheetTrigger asChild>{children}</SheetTrigger>
-        <SheetContent side="bottom" className="px-0 py-2 max-h-[80vh]">
-          <div className="px-4 pb-2 pt-1 text-xs uppercase tracking-widest text-muted-foreground font-display">
-            Account
-          </div>
-          <ul className="flex flex-col">
-            {items.map((it, i) => {
-              const isSeparatorBefore = it.destructive && i > 0 && !items[i - 1]?.destructive;
-              return (
-                <li key={it.label}>
-                  {isSeparatorBefore && <div className="my-1 mx-4 border-t border-border" />}
-                  <button
-                    type="button"
-                    onClick={(e) => { e.preventDefault(); it.onSelect(); }}
-                    className={`w-full flex items-center gap-3 px-4 py-3 text-base font-medium ${
-                      it.destructive ? "text-destructive hover:bg-destructive/10" : "text-foreground hover:bg-muted"
-                    }`}
-                  >
-                    <span className="w-5 flex items-center justify-center">{it.icon}</span>
-                    {it.label}
-                  </button>
-                </li>
-              );
-            })}
-          </ul>
-        </SheetContent>
-      </Sheet>
-    );
+  // Insert a separator marker between groups for the renderer.
+  const firstFooterIndex = items.findIndex((it) => it.group === "footer");
+
+  function renderItems(variant: "sheet" | "dropdown") {
+    return items.map((it, i) => {
+      const showSeparator = i === firstFooterIndex && firstFooterIndex > 0;
+      if (variant === "sheet") {
+        return (
+          <li key={it.label}>
+            {showSeparator && <div className="my-1 mx-4 border-t border-border" />}
+            <button
+              type="button"
+              onClick={(e) => { e.preventDefault(); it.onSelect(); }}
+              className={`w-full flex items-center gap-3 px-4 py-3 text-base font-medium ${
+                it.destructive ? "text-destructive hover:bg-destructive/10" : "text-foreground hover:bg-muted"
+              }`}
+            >
+              <span className="w-5 flex items-center justify-center">{it.icon}</span>
+              {it.label}
+            </button>
+          </li>
+        );
+      }
+      return (
+        <div key={it.label}>
+          {showSeparator && <DropdownMenuSeparator />}
+          <DropdownMenuItem
+            onSelect={(e) => { e.preventDefault(); it.onSelect(); }}
+            className={it.destructive ? "text-destructive focus:text-destructive" : ""}
+          >
+            <span className="mr-2 inline-flex w-4">{it.icon}</span>
+            {it.label}
+          </DropdownMenuItem>
+        </div>
+      );
+    });
   }
 
-  return (
-    <DropdownMenu open={open} onOpenChange={(v) => { setOpen(v); if (!v) setForgetConfirm(false); }}>
-      <DropdownMenuTrigger asChild>{children}</DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-56">
-        {items.map((it, i) => {
-          const isSeparatorBefore = it.destructive && i > 0 && !items[i - 1]?.destructive;
-          return (
-            <div key={it.label}>
-              {isSeparatorBefore && <DropdownMenuSeparator />}
-              <DropdownMenuItem
-                onClick={() => it.onSelect()}
-                className={it.destructive ? "text-destructive focus:text-destructive" : ""}
-              >
-                <span className="mr-2 inline-flex w-4">{it.icon}</span>
-                {it.label}
-              </DropdownMenuItem>
+  const trigger = (
+    <>
+      {isMobile ? (
+        <Sheet open={open} onOpenChange={(v) => { setOpen(v); if (!v) setForgetConfirm(false); }}>
+          <SheetTrigger asChild>{children}</SheetTrigger>
+          <SheetContent side="bottom" className="px-0 py-2 max-h-[80vh]">
+            <div className="px-4 pb-2 pt-1 text-xs uppercase tracking-widest text-muted-foreground font-display">
+              Account
             </div>
-          );
-        })}
-      </DropdownMenuContent>
-    </DropdownMenu>
+            <ul className="flex flex-col">{renderItems("sheet")}</ul>
+          </SheetContent>
+        </Sheet>
+      ) : (
+        <DropdownMenu open={open} onOpenChange={(v) => { setOpen(v); if (!v) setForgetConfirm(false); }}>
+          <DropdownMenuTrigger asChild>{children}</DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-56">
+            {renderItems("dropdown")}
+          </DropdownMenuContent>
+        </DropdownMenu>
+      )}
+      <ShareModal open={shareOpen} onClose={() => setShareOpen(false)} />
+    </>
   );
+
+  return trigger;
 }
 
-/** Convenient default avatar trigger — renders the user's avatar URL or a generic icon. */
-export function AccountMenuAvatarTrigger({ avatarUrl, fallbackInitial }: { avatarUrl: string | null; fallbackInitial?: string }) {
+/** Convenient default avatar trigger — renders the user's avatar with the
+ *  Legendary decoration applied automatically based on auth state. */
+export function AccountMenuAvatarTrigger({
+  avatarUrl,
+  fallbackInitial,
+  size = "md",
+}: {
+  avatarUrl: string | null;
+  fallbackInitial?: string;
+  size?: UserAvatarSize;
+}) {
+  const { role } = useAuth();
+  const isLegendary = role === "legendary" || role === "admin";
   return (
-    <button
-      type="button"
-      aria-label="Open account menu"
-      className="w-8 h-8 rounded-full overflow-hidden ring-1 ring-border flex-shrink-0 inline-flex items-center justify-center bg-secondary"
-    >
-      {avatarUrl ? (
-        <img src={avatarUrl} alt="Profile" className="w-full h-full object-cover" />
-      ) : fallbackInitial ? (
-        <span className="text-sm font-bold font-display text-foreground">{fallbackInitial}</span>
-      ) : (
-        <UserIcon className="w-4 h-4 text-muted-foreground" />
-      )}
-    </button>
+    <UserAvatar
+      as="button"
+      avatarUrl={avatarUrl}
+      fallbackInitial={fallbackInitial}
+      isLegendary={isLegendary}
+      size={size}
+      ariaLabel="Open account menu"
+    />
   );
 }

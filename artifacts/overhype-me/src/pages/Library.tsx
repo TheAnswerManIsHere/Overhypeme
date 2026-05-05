@@ -12,7 +12,7 @@ import { Link, useLocation } from "wouter";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AlertTriangle, Bell, ChevronLeft, ChevronRight, CheckCircle, Clock,
-  FileText, ImageIcon, Images, ThumbsUp,
+  FileText, ImageIcon, Images, Plus, ThumbsUp,
 } from "lucide-react";
 
 const BASE_URL = import.meta.env.BASE_URL ?? "/";
@@ -168,13 +168,26 @@ export default function Library() {
   return (
     <Layout>
       <div className="max-w-6xl mx-auto px-4 py-6 md:py-10">
-        <div className="mb-6 md:mb-8">
-          <h1 className="font-display font-bold text-3xl md:text-5xl uppercase tracking-tight leading-none">
-            Your <span className="text-primary">Library</span>
-          </h1>
-          <p className="text-sm md:text-base text-muted-foreground mt-2">
-            Everything you've made, liked, and saved.
-          </p>
+        <div className="mb-6 md:mb-8 flex items-start justify-between gap-4 flex-wrap">
+          <div>
+            <h1 className="font-display font-bold text-3xl md:text-5xl uppercase tracking-tight leading-none">
+              Your <span className="text-primary">Library</span>
+            </h1>
+            <p className="text-sm md:text-base text-muted-foreground mt-2">
+              Everything you've made, liked, and saved.
+            </p>
+          </div>
+          {/* Persistent submit entry point — Submit a Fact is no longer in
+              chrome, so the Library page (the natural home for "stuff I've
+              made") owns it. Stays visible across all tabs. */}
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setLocation("/submit")}
+            className="gap-2 whitespace-nowrap shrink-0"
+          >
+            <Plus className="w-4 h-4" /> SUBMIT A FACT
+          </Button>
         </div>
 
         <div className="relative mb-8">
