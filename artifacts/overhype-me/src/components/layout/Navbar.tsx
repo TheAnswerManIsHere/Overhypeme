@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/Input";
 import { useState, useRef } from "react";
 import { NameTag } from "@/components/NameTag";
 import { ShareModal } from "@/components/ShareModal";
-import { AccountMenu, AccountMenuAvatarTrigger } from "@/components/layout/AccountMenu";
+import { AccountMenuAvatarTrigger } from "@/components/layout/AccountMenu";
 import { usePersonName } from "@/hooks/use-person-name";
 import { useGetMyProfile, getGetMyProfileQueryKey } from "@workspace/api-client-react";
 
@@ -237,9 +237,9 @@ export function Navbar() {
                       <ShieldCheck className="w-5 h-5 text-primary" />
                     </Button>
                   )}
-                  <AccountMenu>
+                  <button onClick={() => setLocation("/profile")} aria-label="Go to profile">
                     <AccountMenuAvatarTrigger avatarUrl={navAvatarUrl} fallbackInitial={accountFallbackInitial} />
-                  </AccountMenu>
+                  </button>
                 </div>
               ) : (
                 <Button variant="primary" size="sm" onClick={() => setLocation('/login')} className="gap-2 whitespace-nowrap">
