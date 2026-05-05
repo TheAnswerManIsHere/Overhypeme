@@ -168,11 +168,12 @@ export function Navbar() {
           <div className="flex justify-between items-center h-16">
 
             {/* Logo */}
-            <Link href="/" onClick={handleLogoClick} className="shrink-0 group flex items-center gap-2">
+            <Link href="/" onClick={handleLogoClick} className="shrink-0 group flex items-center gap-2 select-none">
               <img
                 src={`${import.meta.env.BASE_URL}images/logo.svg`}
                 alt="Overhype.me"
-                className="h-8 w-auto opacity-90 group-hover:opacity-100 transition-opacity"
+                draggable={false}
+                className="h-8 w-auto opacity-90 group-hover:opacity-100 transition-opacity pointer-events-none"
               />
             </Link>
 
