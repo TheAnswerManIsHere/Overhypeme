@@ -434,6 +434,42 @@ router.get("/auth/verify-email", async (req: Request, res: Response) => {
     .set({ usedAt: new Date() })
     .where(eq(emailVerificationTokensTable.id, record.id));
 
+  // Fetch the updated user so we can establish a session
+  const [verifiedUser] = await db
+    .select()
+    .from(usersTable)
+    .where(eq(usersTable.id, record.userId))
+    .limit(1);
+
+  if (verifiedUser) {
+    const sessionData: SessionData = {
+      user: {
+        id: verifiedUser.id,
+        email: verifiedUser.email,
+        profileImageUrl: verifiedUser.profileImageUrl,
+        membershipTier: verifiedUser.membershipTier,
+      },
+      access_token: "",
+      captchaVerified: verifiedUser.captchaVerified,
+      isAdmin: verifiedUser.isAdmin || isAdminById(verifiedUser.id),
+    };
+
+    if (record.pendingEmail) {
+      // Email change: user is already logged in — just update their existing session
+      const existingSid = getSessionId(req);
+      if (existingSid) {
+        await updateSession(existingSid, sessionData);
+      } else {
+        const sid = await createSession(sessionData, verifiedUser.id);
+        setSessionCookie(res, sid);
+      }
+    } else {
+      // New account: create a fresh session so the user is immediately logged in
+      const sid = await createSession(sessionData, verifiedUser.id);
+      setSessionCookie(res, sid);
+    }
+  }
+
   res.status(200).json({ success: true, message: "Email verified successfully!" });
 });
 
