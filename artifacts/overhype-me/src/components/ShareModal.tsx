@@ -310,7 +310,7 @@ export function ShareModal({ open, onClose }: ShareModalProps) {
                     onChange={handleNameChange}
                     onKeyDown={(e) => e.key === "Enter" && applyEnabled && handleNext()}
                     placeholder="e.g. Alex, Sam, Jordan…"
-                    className="flex-1 bg-secondary border border-border rounded-sm px-3 py-2 text-sm font-bold text-foreground outline-none focus:border-primary transition-colors placeholder:text-muted-foreground placeholder:font-normal"
+                    className="flex-1 bg-secondary border border-border rounded-[14px] px-3 py-2 text-sm font-bold text-foreground outline-none focus:border-primary transition-colors placeholder:text-muted-foreground placeholder:font-normal"
                   />
                   {aiLoading && (
                     <Loader2 className="w-4 h-4 text-muted-foreground animate-spin shrink-0" />
@@ -367,7 +367,7 @@ export function ShareModal({ open, onClose }: ShareModalProps) {
             <div className="space-y-5 py-1">
 
               {/* ── Copy link ─────────────────────────────────────── */}
-              <div className="rounded-sm border border-border bg-secondary p-4">
+              <div className="rounded-2xl border border-primary/15 bg-secondary p-4">
                 <p className="text-xs font-bold text-muted-foreground uppercase tracking-wider mb-3">Copy Link</p>
                 <button
                   onClick={handleCopyLink}
@@ -383,7 +383,7 @@ export function ShareModal({ open, onClose }: ShareModalProps) {
               </div>
 
               {/* ── Share on social ───────────────────────────────── */}
-              <div className="rounded-sm border border-border bg-secondary p-4">
+              <div className="rounded-2xl border border-primary/15 bg-secondary p-4">
                 <p className="text-xs font-bold text-muted-foreground uppercase tracking-wider mb-3">Share On</p>
                 <div className="grid grid-cols-2 gap-2">
                   <button
@@ -420,7 +420,7 @@ export function ShareModal({ open, onClose }: ShareModalProps) {
               </div>
 
               {/* ── Send via email ────────────────────────────────── */}
-              <div className="rounded-sm border border-border bg-secondary p-4">
+              <div className="rounded-2xl border border-primary/15 bg-secondary p-4">
                 <p className="text-xs font-bold text-muted-foreground uppercase tracking-wider mb-3 flex items-center gap-1.5">
                   <Mail className="w-3.5 h-3.5" /> Send via Email
                 </p>
@@ -445,7 +445,7 @@ export function ShareModal({ open, onClose }: ShareModalProps) {
                       onBlur={handleEmailBlur}
                       onKeyDown={(e) => e.key === "Enter" && isEmailValid && !sending && handleSendEmail()}
                       placeholder={`${recipientName.toLowerCase().split(" ")[0] ?? "friend"}@example.com`}
-                      className={`w-full bg-background border rounded-sm px-3 py-2 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground ${
+                      className={`w-full bg-background border rounded-[14px] px-3 py-2 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground ${
                         emailError ? "border-destructive focus:border-destructive" : "border-border focus:border-primary"
                       }`}
                     />

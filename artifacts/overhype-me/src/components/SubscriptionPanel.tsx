@@ -77,7 +77,7 @@ interface ConfirmDialogProps {
 function ConfirmDialog({ title, children, confirmLabel, isDestructive = false, loading, onConfirm, onCancel }: ConfirmDialogProps) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
-      <div className="bg-card border-2 border-border rounded-sm p-6 max-w-md w-full space-y-4 shadow-xl">
+      <div className="bg-card border border-primary/25 rounded-2xl p-6 max-w-md w-full space-y-4 shadow-[0_0_40px_rgba(249,115,22,0.18),inset_0_1px_0_rgba(255,255,255,0.06)]">
         <h3 className="font-display text-lg uppercase tracking-wide text-foreground">{title}</h3>
         <div className="text-sm text-muted-foreground space-y-2">{children}</div>
         <div className="flex gap-3 pt-2">

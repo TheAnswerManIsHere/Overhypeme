@@ -13,7 +13,7 @@
 import { eq } from "drizzle-orm";
 import { db } from "@workspace/db";
 import { usersTable } from "@workspace/db/schema";
-import { sendEmail, buildEmailShell, divider } from "./email.js";
+import { sendEmail, buildEmailShell, ctaButton, divider, EMAIL_COLORS } from "./email.js";
 import { logger } from "./logger.js";
 
 /** Mirrors REVOCATION_EVENTS in stripeStorage.ts and the in-app banner. */
@@ -136,13 +136,13 @@ export function buildAccessRevokedEmail(kind: AccessRevocationKind): {
   ].join("\n");
 
   const body = `
-<h1 style="margin:0 0 8px;font-family:'Oswald','Impact','Arial Narrow',sans-serif;font-size:28px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:#ffffff;line-height:1.2;mso-font-alt:'Impact';">${headline}</h1>
-<p style="margin:0 0 24px;font-size:13px;color:#FF3C00;font-weight:600;text-transform:uppercase;letter-spacing:1px;font-family:'Oswald','Impact','Arial Narrow',sans-serif;mso-font-alt:'Impact';">Membership update</p>
-<p style="margin:0 0 28px;font-size:15px;color:#aaaaaa;line-height:1.75;">${noticeHtml}</p>
-<p style="margin:0 0 24px;font-size:15px;color:#aaaaaa;line-height:1.75;">Think this happened by mistake, or want to talk through your options? We&#39;re here to&nbsp;help.</p>
-<p style="margin:0 0 32px;font-size:15px;color:#aaaaaa;line-height:1.75;"><a href="${supportMailto}" style="color:#FF3C00;text-decoration:none;font-weight:600;">${SUPPORT_EMAIL}</a></p>
+<h1 style="margin:0 0 8px;font-family:'Oswald','Impact','Arial Narrow',sans-serif;font-size:28px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:${EMAIL_COLORS.heading};line-height:1.2;mso-font-alt:'Impact';">${headline}</h1>
+<p style="margin:0 0 24px;font-size:13px;color:${EMAIL_COLORS.primary};font-weight:600;text-transform:uppercase;letter-spacing:1px;font-family:'Oswald','Impact','Arial Narrow',sans-serif;mso-font-alt:'Impact';">Membership update</p>
+<p style="margin:0 0 28px;font-size:15px;color:${EMAIL_COLORS.body};line-height:1.75;">${noticeHtml}</p>
+<p style="margin:0 0 32px;font-size:15px;color:${EMAIL_COLORS.body};line-height:1.75;">Think this happened by mistake, or want to talk through your options? We&#39;re here to&nbsp;help — reach the team at <strong style="color:${EMAIL_COLORS.heading};">${SUPPORT_EMAIL}</strong>.</p>
+${ctaButton(supportMailto, "Contact Support")}
 ${divider()}
-<p style="margin:0;font-size:12px;color:#555555;line-height:1.7;font-family:'Inter',-apple-system,sans-serif;">You can keep using your free Overhype.me account. If you ever want Legendary access back, you can upgrade again any&nbsp;time.</p>`;
+<p style="margin:0;font-size:12px;color:${EMAIL_COLORS.footer};line-height:1.7;font-family:'Inter',-apple-system,sans-serif;">You can keep using your free Overhype.me account. If you ever want Legendary access back, you can upgrade again any&nbsp;time.</p>`;
 
   const html = buildEmailShell(
     body,

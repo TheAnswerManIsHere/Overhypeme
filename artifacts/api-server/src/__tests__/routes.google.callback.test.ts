@@ -240,6 +240,96 @@ describe("GET /api/callback/google", () => {
     }
   });
 
+  it("returning user: second sign-in succeeds, no duplicate user, new session row", async () => {
+    const restoreEnv = applyFakeGoogleEnv();
+    _setClientDiscoveryForTest(makeFakeDiscovery());
+
+    const testEmail = `${USER_PREFIX}${randomUUID()}@test.local`;
+    _setAuthCodeGrantForTest(async () => makeFakeTokens(testEmail));
+
+    try {
+      // ── First sign-in (creates the user) ──
+      const state1 = randomUUID();
+      _storePendingStateForTest(state1, {
+        codeVerifier: "test-verifier-returning-1",
+        nonce:        "test-nonce-returning-1",
+        returnTo:     "/",
+        isPopup:      false,
+      });
+
+      const app = makeApp();
+      const res1 = await request(app)
+        .get("/api/callback/google")
+        .query({ code: "fake-google-code-returning-1", state: state1 });
+
+      assert.notEqual(res1.status, 500, `First sign-in: expected no 500, got ${res1.status}`);
+      assert.equal(res1.status, 302);
+
+      const usersAfterFirst = await db
+        .select()
+        .from(usersTable)
+        .where(eq(usersTable.email, testEmail));
+      assert.equal(usersAfterFirst.length, 1, "Exactly one user row after first sign-in");
+      const userId = usersAfterFirst[0]!.id;
+
+      const sessionsAfterFirst = await db
+        .select()
+        .from(sessionsTable)
+        .where(eq(sessionsTable.userId, userId));
+      assert.equal(sessionsAfterFirst.length, 1, "Exactly one session row after first sign-in");
+
+      // ── Second sign-in with same email (hits ON CONFLICT DO UPDATE branch) ──
+      const state2 = randomUUID();
+      _storePendingStateForTest(state2, {
+        codeVerifier: "test-verifier-returning-2",
+        nonce:        "test-nonce-returning-2",
+        returnTo:     "/",
+        isPopup:      false,
+      });
+
+      const res2 = await request(app)
+        .get("/api/callback/google")
+        .query({ code: "fake-google-code-returning-2", state: state2 });
+
+      assert.notEqual(
+        res2.status, 500,
+        `Second sign-in: expected no 500, got ${res2.status}: ${JSON.stringify(res2.body)}`,
+      );
+      assert.equal(res2.status, 302, `Second sign-in: expected 302, got ${res2.status}`);
+
+      const setCookie = res2.headers["set-cookie"];
+      assert.ok(
+        Array.isArray(setCookie)
+          ? setCookie.some((c: string) => c.startsWith("sid="))
+          : typeof setCookie === "string" && setCookie.startsWith("sid="),
+        "Second sign-in must still set a 'sid' session cookie",
+      );
+
+      // No duplicate user row
+      const usersAfterSecond = await db
+        .select()
+        .from(usersTable)
+        .where(eq(usersTable.email, testEmail));
+      assert.equal(
+        usersAfterSecond.length, 1,
+        "Returning user should not create a duplicate user row",
+      );
+      assert.equal(usersAfterSecond[0]!.id, userId, "User id should be stable across sign-ins");
+
+      // A second session row exists
+      const sessionsAfterSecond = await db
+        .select()
+        .from(sessionsTable)
+        .where(eq(sessionsTable.userId, userId));
+      assert.equal(
+        sessionsAfterSecond.length, 2,
+        "Second sign-in should create an additional session row",
+      );
+    } finally {
+      restoreEnv();
+    }
+  });
+
   it("renders popup HTML without a 500 when isPopup is true", async () => {
     const restoreEnv = applyFakeGoogleEnv();
     _setClientDiscoveryForTest(makeFakeDiscovery());
