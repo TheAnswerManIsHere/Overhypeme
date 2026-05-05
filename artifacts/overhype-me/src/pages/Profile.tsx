@@ -936,7 +936,7 @@ export default function Profile() {
           <div className="absolute top-0 right-0 w-32 h-32 bg-primary/10 rounded-bl-full -mr-16 -mt-16 pointer-events-none" />
 
           {/* Clickable avatar */}
-          <div className="relative group shrink-0 mx-auto">
+          <div className="relative group shrink-0 mx-auto flex flex-col items-center">
             <input
               ref={fileInputRef}
               type="file"
