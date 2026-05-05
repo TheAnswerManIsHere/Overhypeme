@@ -61,6 +61,15 @@ export type { AuthTokenGetter } from "./custom-fetch";
 EOF
 fi
 
+# Force clean tsc rebuilds by removing incremental caches first.
+# With composite:true, tsc trusts tsbuildinfo and skips recompilation even
+# when dist/ outputs are stale/empty — deleting the cache ensures a full
+# rebuild every time so dist/index.d.ts is never left empty.
+rm -f \
+  lib/api-zod/tsconfig.tsbuildinfo \
+  lib/api-client-react/tsconfig.tsbuildinfo \
+  lib/replit-auth-web/tsconfig.tsbuildinfo
+
 pnpm tsc -p lib/api-zod/tsconfig.json
 pnpm tsc -p lib/api-client-react/tsconfig.json
 pnpm tsc -p lib/replit-auth-web/tsconfig.json
