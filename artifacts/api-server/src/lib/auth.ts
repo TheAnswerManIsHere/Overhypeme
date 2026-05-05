@@ -16,12 +16,24 @@ export interface SessionData {
   adminModeDisabled?: boolean;
 }
 
+// The bootstrap admin email is always granted admin access regardless of the
+// DB's is_admin flag. This ensures there is always at least one account that
+// can log in and use the admin panel to grant access to other users.
+export const BOOTSTRAP_ADMIN_EMAIL = "overhypeme+admin@gmail.com";
+
 // Returns true when the given user id appears in the comma-separated
 // ADMIN_USER_IDS env var. Lives here (rather than in a route module) so the
 // auth middleware can import it without creating a route ↔ middleware cycle.
 export function isAdminById(userId: string): boolean {
   const ids = process.env["ADMIN_USER_IDS"]?.split(",").map((s) => s.trim()) ?? [];
   return ids.includes(userId);
+}
+
+// Returns true when the given email matches the hardcoded bootstrap admin email.
+// This is the fallback that guarantees at least one account always has admin
+// access even if the DB is_admin flag has not been set yet.
+export function isAdminByEmail(email: string | null | undefined): boolean {
+  return !!email && email.toLowerCase() === BOOTSTRAP_ADMIN_EMAIL.toLowerCase();
 }
 
 // ── Google ────────────────────────────────────────────────────────────────────

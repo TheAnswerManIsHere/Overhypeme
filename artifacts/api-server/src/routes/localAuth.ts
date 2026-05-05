@@ -660,7 +660,7 @@ router.delete("/auth/unlink-provider", async (req: Request, res: Response) => {
 // Replit proxy redirect handling, SameSite restrictions, etc.).
 // If the caller has no session yet, a fresh one is created and the cookie set.
 async function handleDevAdminLogin(req: Request, res: Response) {
-  const ADMIN_EMAIL = "david@davidcarlos.net";
+  const ADMIN_EMAIL = "overhypeme+admin@gmail.com";
   const [adminUser] = await db
     .select()
     .from(usersTable)
