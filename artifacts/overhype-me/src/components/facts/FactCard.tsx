@@ -224,16 +224,26 @@ export function FactCard({
               <MessageSquare className="w-5 h-5" />
               <span className="text-xs font-semibold">{fact.commentCount}</span>
             </button>
+
+            {/* Share — grouped with social actions */}
+            <button
+              onClick={e => e.stopPropagation()}
+              className="text-muted-foreground hover:text-foreground transition-colors"
+              title="Share"
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24">
+                <line x1="22" y1="2" x2="11" y2="13" /><polygon points="22 2 15 22 11 13 2 9 22 2" />
+              </svg>
+            </button>
           </div>
 
+          {/* Make a Meme — primary CTA */}
           <button
-            onClick={e => e.stopPropagation()}
-            className="text-muted-foreground hover:text-foreground transition-colors"
-            title="Share"
+            onClick={e => { e.stopPropagation(); setLocation(`/facts/${fact.id}/meme`); }}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-primary text-white rounded-full text-[11px] font-display font-bold uppercase tracking-[0.1em] hover:bg-primary/90 active:scale-95 transition-all shadow-[0_0_12px_rgba(249,115,22,0.35)]"
           >
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24">
-              <line x1="22" y1="2" x2="11" y2="13" /><polygon points="22 2 15 22 11 13 2 9 22 2" />
-            </svg>
+            <Flame className="w-3 h-3" />
+            Make a Meme
           </button>
         </div>
 

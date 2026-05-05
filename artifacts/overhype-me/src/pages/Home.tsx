@@ -95,12 +95,14 @@ function HeroBillboardMobile({
   name,
   onShuffle,
   isShuffling,
+  onMakeMeme,
 }: {
   fact: FactSummary | null;
   rendered: string;
   name: string;
   onShuffle: () => void;
   isShuffling: boolean;
+  onMakeMeme: ((factId: number) => void) | null;
 }) {
   const { rateFact } = useAppMutations();
   const { isAuthenticated } = useAuth();
@@ -218,14 +220,25 @@ function HeroBillboardMobile({
               </svg>
             </button>
           </div>
-          <button
-            onClick={onShuffle}
-            disabled={isShuffling}
-            className="flex-shrink-0 flex items-center gap-1.5 px-3 py-2 bg-primary text-white rounded-full text-[11px] font-display font-bold uppercase tracking-[0.1em] hover:bg-primary/90 active:scale-95 transition-all disabled:opacity-60 shadow-[0_0_16px_rgba(249,115,22,0.45)]"
-          >
-            {isShuffling ? <Loader2 className="w-3 h-3 animate-spin" /> : <Flame className="w-3 h-3" />}
-            Next Random Fact
-          </button>
+          <div className="flex items-center gap-2">
+            {fact && onMakeMeme && (
+              <button
+                onClick={() => onMakeMeme(fact.id)}
+                className="flex-shrink-0 flex items-center gap-1.5 px-3 py-2 bg-primary text-white rounded-full text-[11px] font-display font-bold uppercase tracking-[0.1em] hover:bg-primary/90 active:scale-95 transition-all shadow-[0_0_16px_rgba(249,115,22,0.45)]"
+              >
+                <Flame className="w-3 h-3" />
+                Make a Meme
+              </button>
+            )}
+            <button
+              onClick={onShuffle}
+              disabled={isShuffling}
+              className="flex-shrink-0 flex items-center gap-1.5 px-3 py-2 bg-secondary border border-border text-foreground rounded-full text-[11px] font-display font-bold uppercase tracking-[0.1em] hover:border-primary/50 hover:text-primary active:scale-95 transition-all disabled:opacity-60"
+            >
+              {isShuffling ? <Loader2 className="w-3 h-3 animate-spin" /> : <Flame className="w-3 h-3" />}
+              Next Random Fact
+            </button>
+          </div>
         </div>
       </div>
     </div>
@@ -284,7 +297,7 @@ function DesktopHeroBillboard({
         <button
           onClick={onShuffle}
           disabled={isShuffling}
-          className="flex items-center gap-2 px-5 py-2.5 bg-primary text-white rounded-full text-[12px] font-display font-bold uppercase tracking-[0.12em] hover:bg-primary/90 active:scale-95 transition-all disabled:opacity-60 shadow-[0_0_20px_rgba(249,115,22,0.4)]"
+          className="flex items-center gap-2 px-5 py-2.5 bg-secondary border border-border text-foreground rounded-full text-[12px] font-display font-bold uppercase tracking-[0.12em] hover:border-primary/50 hover:text-primary active:scale-95 transition-all disabled:opacity-60"
         >
           {isShuffling ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Flame className="w-3.5 h-3.5" />}
           Next Random Fact
@@ -380,7 +393,7 @@ function DesktopHeroBillboard({
               exit={{ opacity: prefersReducedMotion ? 1 : 0, scale: prefersReducedMotion ? 1 : 0.96 }}
               transition={prefersReducedMotion ? { duration: 0 } : { duration: 0.18 }}
               onClick={() => onMakeMeme(fact.id)}
-              className="h-[44px] px-7 bg-secondary border border-border text-foreground rounded-[12px] font-display font-bold text-[13px] uppercase tracking-[0.1em] hover:border-primary/50 hover:text-primary transition-colors"
+              className="h-[44px] px-7 bg-primary text-white rounded-[12px] font-display font-bold text-[13px] uppercase tracking-[0.1em] hover:bg-primary/90 transition-colors shadow-[0_0_20px_rgba(249,115,22,0.35)]"
             >
               Make a meme
             </motion.button>
@@ -948,6 +961,7 @@ export default function Home() {
                 name={name}
                 onShuffle={shuffleHero}
                 isShuffling={heroLoading}
+                onMakeMeme={(factId) => setLocation(`/facts/${factId}/meme`)}
               />
             </div>
           )}
