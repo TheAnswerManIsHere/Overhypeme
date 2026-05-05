@@ -3,7 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "scripts": {
-    "codegen": "orval --config ./orval.config.ts && node ./patch-generated.mjs"
+    "codegen": "orval --config ./orval.config.ts && node ./patch-generated.mjs && rm -f ../api-zod/tsconfig.tsbuildinfo ../api-client-react/tsconfig.tsbuildinfo ../replit-auth-web/tsconfig.tsbuildinfo"
   },
   "devDependencies": {
     "orval": "^8.5.2"
