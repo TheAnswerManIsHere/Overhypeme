@@ -651,22 +651,42 @@ async function handleDevAdminLogin(req: Request, res: Response) {
 
   // Prefer in-place mutation — no new cookie needed, browser keeps sending
   // the same sid it already has and the server now returns the admin user.
+  // We also need `effectiveSid` in scope for the GET branch so it can be
+  // written into localStorage (Bearer-token fallback for Chrome/iframe).
   const existingSid = getSessionId(req);
+  let effectiveSid: string;
   if (existingSid) {
     await updateSession(existingSid, sessionData);
+    effectiveSid = existingSid;
   } else {
-    const sid = await createSession(sessionData, adminUser.id);
-    setSessionCookie(res, sid);
+    effectiveSid = await createSession(sessionData, adminUser.id);
+    setSessionCookie(res, effectiveSid);
   }
 
   if (req.method === "GET") {
-    // For direct-navigation callers, return an HTML page that JS-redirects
-    // so the browser always sees the Set-Cookie before it navigates away.
+    // Return an HTML page that does two things before navigating away:
+    //
+    //   1. Writes effectiveSid into localStorage["auth_token"] so the
+    //      global fetch interceptor in main.tsx sends it as
+    //      "Authorization: Bearer <sid>" on every /api/ request.
+    //      This bypasses iframe cookie restrictions in Chrome on Windows:
+    //      CHIPS / storage partitioning silently drops Set-Cookie headers
+    //      in cross-site iframe contexts (the Replit canvas preview pane),
+    //      so cookies never land even with SameSite=None; Secure.
+    //      Bearer-token auth is unaffected by cookie policy.
+    //
+    //   2. JS-redirects to returnTo so the SPA reloads with fresh auth.
+    //
+    // The Set-Cookie above is still sent for browsers/environments where
+    // cookies work (Safari, direct URL access, etc.) — both paths stay active.
     const returnTo = typeof req.query["returnTo"] === "string" ? req.query["returnTo"] : "/";
     res.setHeader("Content-Type", "text/html");
     res.send(
       `<!DOCTYPE html><html><head><meta charset="utf-8"></head><body>` +
-      `<script>window.location.replace(${JSON.stringify(returnTo)});</script>` +
+      `<script>` +
+      `try{localStorage.setItem("auth_token",${JSON.stringify(effectiveSid)});}catch(e){}` +
+      `window.location.replace(${JSON.stringify(returnTo)});` +
+      `</script>` +
       `</body></html>`,
     );
   } else {
