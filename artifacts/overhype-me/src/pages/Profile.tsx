@@ -99,6 +99,7 @@ export default function Profile() {
   const [photoError, setPhotoError] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
   const tabsRef = useRef<HTMLDivElement>(null);
+  const editFormRef = useRef<HTMLDivElement>(null);
   const [tabScroll, setTabScroll] = useState({ left: false, right: false });
 
   const updateTabScroll = () => {
@@ -531,6 +532,9 @@ export default function Profile() {
     setEditError("");
     setEditSuccess("");
     setEditing(true);
+    setTimeout(() => {
+      editFormRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 50);
   }
 
   function cancelEditor() {
@@ -883,9 +887,11 @@ export default function Profile() {
 
           {/* Actions */}
           <div className="flex flex-col gap-2 pb-1 shrink-0">
-            <Button onClick={openEditor} variant="outline" className="gap-2">
-              <Pencil className="w-4 h-4" /> Edit Profile
-            </Button>
+            {!editing && (
+              <Button onClick={openEditor} variant="outline" className="gap-2">
+                <Pencil className="w-4 h-4" /> Edit Profile
+              </Button>
+            )}
             {!isLegendary && (
               <Button onClick={() => setLocation("/pricing")} className="gap-2">
                 <Crown className="w-4 h-4" /> Go Legendary
@@ -968,9 +974,11 @@ export default function Profile() {
           </div>
 
           <div className="flex flex-col gap-2 z-10">
-            <Button variant="outline" onClick={openEditor} className="gap-2">
-              <Pencil className="w-4 h-4" /> EDIT PROFILE
-            </Button>
+            {!editing && (
+              <Button variant="outline" onClick={openEditor} className="gap-2">
+                <Pencil className="w-4 h-4" /> EDIT PROFILE
+              </Button>
+            )}
             <Button variant="danger" onClick={logout} className="gap-2">
               <LogOut className="w-4 h-4" /> LOGOUT
             </Button>
@@ -1024,7 +1032,7 @@ export default function Profile() {
 
         {/* Edit Profile Form */}
         {editing && (
-          <div className="bg-card border-2 border-border p-6 rounded-sm shadow mb-8">
+          <div ref={editFormRef} className="bg-card border-2 border-border p-6 rounded-sm shadow mb-8">
             <h2 className="font-display text-xl uppercase tracking-wide text-foreground mb-6 border-b border-border pb-4 flex items-center gap-2">
               <Pencil className="w-5 h-5 text-primary" /> Edit Profile
             </h2>

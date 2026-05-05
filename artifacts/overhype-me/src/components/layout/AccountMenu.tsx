@@ -168,7 +168,7 @@ export function AccountMenu({ children }: AccountMenuProps) {
             <div key={it.label}>
               {isSeparatorBefore && <DropdownMenuSeparator />}
               <DropdownMenuItem
-                onSelect={(e) => { e.preventDefault(); it.onSelect(); }}
+                onClick={() => it.onSelect()}
                 className={it.destructive ? "text-destructive focus:text-destructive" : ""}
               >
                 <span className="mr-2 inline-flex w-4">{it.icon}</span>
