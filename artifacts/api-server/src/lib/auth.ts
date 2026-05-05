@@ -46,7 +46,7 @@ export async function getGoogleConfig(): Promise<client.Configuration> {
 let appleConfig: client.Configuration | null = null;
 let appleSecretExpiresAt = 0;
 
-function generateAppleClientSecret(): string {
+export function generateAppleClientSecret(): string {
   const now = Math.floor(Date.now() / 1000);
   const exp = now + 15897600; // 6 months
 
@@ -65,11 +65,12 @@ function generateAppleClientSecret(): string {
   ).toString("base64url");
 
   const signingInput = `${header}.${payload}`;
-  const privateKey = process.env.APPLE_PRIVATE_KEY!.replace(/\\n/g, "\n");
+  const rawKey = process.env.APPLE_PRIVATE_KEY!.replace(/\\n/g, "\n");
+  const privateKey = crypto.createPrivateKey({ key: rawKey, format: "pem" });
 
-  const sign = crypto.createSign("SHA256");
-  sign.update(signingInput);
-  const sig = sign.sign({ key: privateKey, format: "pem" }, "base64url");
+  const sig = crypto
+    .sign("SHA256", Buffer.from(signingInput), { key: privateKey, dsaEncoding: "ieee-p1363" })
+    .toString("base64url");
 
   appleSecretExpiresAt = exp;
   return `${signingInput}.${sig}`;
