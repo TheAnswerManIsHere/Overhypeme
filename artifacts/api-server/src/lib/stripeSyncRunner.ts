@@ -179,11 +179,16 @@ export async function readSyncedCounts(
  * can pass a stub without pulling in the real client. Each method matches
  * one entry in `SyncResource`.
  */
+/** Params accepted by the library's per-resource sync methods. */
+export interface CatalogSyncParams {
+  created?: { gte: number };
+}
+
 export interface SyncRunnerDriver {
   getAccountId(): Promise<string>;
-  syncProducts(): Promise<{ synced: number }>;
-  syncPrices(): Promise<{ synced: number }>;
-  syncPlans(): Promise<{ synced: number }>;
+  syncProducts(params?: CatalogSyncParams): Promise<{ synced: number }>;
+  syncPrices(params?: CatalogSyncParams): Promise<{ synced: number }>;
+  syncPlans(params?: CatalogSyncParams): Promise<{ synced: number }>;
   syncCustomers(): Promise<{ synced: number }>;
   syncSubscriptions(): Promise<{ synced: number }>;
   syncInvoices(): Promise<{ synced: number }>;
@@ -196,11 +201,28 @@ export interface RunScopedSyncResult {
   startedAt: number;
 }
 
+/**
+ * Catalog resources (products, prices, plans) use a Stripe-side `created`
+ * cursor that only advances forward (via GREATEST in _sync_status). If a
+ * product is created *before* the latest-seen product (e.g. a one-time
+ * "Lifetime" plan is added after monthly/annual plans were already synced),
+ * the cursor permanently skips the older products.
+ *
+ * Bypassing the cursor with `{ created: { gte: 0 } }` forces a full re-fetch
+ * from epoch for every admin-triggered catalog sync. With typical catalog
+ * sizes (< 100 items) this is negligible overhead and guarantees every active
+ * product always surfaces in the Plans block regardless of creation order.
+ *
+ * Non-catalog resources (customers, subscriptions, …) can be large and benefit
+ * from incremental cursors, so they are left unchanged.
+ */
+const CATALOG_FULL_FETCH: CatalogSyncParams = { created: { gte: 0 } };
+
 function invokeResource(driver: SyncRunnerDriver, resource: SyncResource): Promise<{ synced: number }> {
   switch (resource) {
-    case "products":        return driver.syncProducts();
-    case "prices":          return driver.syncPrices();
-    case "plans":           return driver.syncPlans();
+    case "products":        return driver.syncProducts(CATALOG_FULL_FETCH);
+    case "prices":          return driver.syncPrices(CATALOG_FULL_FETCH);
+    case "plans":           return driver.syncPlans(CATALOG_FULL_FETCH);
     case "customers":       return driver.syncCustomers();
     case "subscriptions":   return driver.syncSubscriptions();
     case "invoices":        return driver.syncInvoices();
@@ -249,6 +271,66 @@ export async function cleanStaleAccountData(currentAccountId: string): Promise<{
 }
 
 /**
+ * Resources the library does NOT self-track in stripe._sync_status.
+ *
+ * `payment_methods` is fetched per-customer inside the library's
+ * `syncPaymentMethods`: it calls `fetchAndUpsert` once per customer chunk
+ * with no `resourceName` argument, so `markSyncRunning`/`markSyncComplete`
+ * are never called and no _sync_status row is ever written. Without a row,
+ * the billing UI permanently shows "never synced — use Full sync" even after
+ * a successful full backfill. We compensate by writing the status ourselves.
+ */
+const LIBRARY_UNTRACKED: ReadonlySet<SyncResource> = new Set(["payment_methods"]);
+
+/**
+ * Upsert a stripe._sync_status row for resources the library doesn't track.
+ * Mirrors the library's own markSyncRunning / markSyncComplete / markSyncError
+ * SQL but written in our Drizzle sql`` helper. Failures are non-fatal so a
+ * status-panel glitch never blocks the actual sync.
+ */
+async function upsertResourceStatus(
+  accountId: string,
+  resource: SyncResource,
+  status: "running" | "complete" | "error",
+  errorMsg?: string,
+): Promise<void> {
+  try {
+    if (status === "running") {
+      await db.execute(sql`
+        INSERT INTO stripe._sync_status (resource, account_id, status)
+        VALUES (${resource}, ${accountId}, 'running')
+        ON CONFLICT (resource, account_id)
+        DO UPDATE SET status = 'running'
+      `);
+    } else if (status === "complete") {
+      await db.execute(sql`
+        INSERT INTO stripe._sync_status (resource, account_id, status, last_synced_at)
+        VALUES (${resource}, ${accountId}, 'complete', now())
+        ON CONFLICT (resource, account_id)
+        DO UPDATE SET
+          status         = 'complete',
+          last_synced_at = now(),
+          error_message  = NULL
+      `);
+    } else {
+      await db.execute(sql`
+        INSERT INTO stripe._sync_status (resource, account_id, status, last_synced_at, error_message)
+        VALUES (${resource}, ${accountId}, 'error', now(), ${errorMsg ?? "Unknown error"})
+        ON CONFLICT (resource, account_id)
+        DO UPDATE SET
+          status        = 'error',
+          error_message = ${errorMsg ?? "Unknown error"}
+      `);
+    }
+  } catch (err) {
+    logger.warn(
+      { err, resource },
+      "[stripeSyncRunner] upsertResourceStatus failed — status panel may be stale",
+    );
+  }
+}
+
+/**
  * Acquire the single in-process lock and run the given resources sequentially
  * on a detached promise. Returns synchronously after acquiring the lock so
  * the HTTP request can respond immediately.
@@ -274,10 +356,28 @@ function runWithResources(
       // Sequential so the library's _sync_status rows update one-at-a-time
       // and the polling UI can show meaningful progression.
       for (const resource of resources) {
-        // The library upserts rows into stripe.<resource> as part of each
-        // sync, which is what readSyncedCounts reads — so the count surfaces
-        // automatically without any extra bookkeeping here.
-        await invokeResource(driver, resource);
+        // For resources the library doesn't self-track in _sync_status, write
+        // running/complete/error ourselves so the billing status panel reflects
+        // real progress instead of permanently showing "never synced".
+        const untracked = LIBRARY_UNTRACKED.has(resource);
+        if (untracked) await upsertResourceStatus(accountId, resource, "running");
+        try {
+          // The library upserts rows into stripe.<resource> as part of each
+          // sync, which is what readSyncedCounts reads — so the count surfaces
+          // automatically without any extra bookkeeping here.
+          await invokeResource(driver, resource);
+          if (untracked) await upsertResourceStatus(accountId, resource, "complete");
+        } catch (resourceErr) {
+          if (untracked) {
+            await upsertResourceStatus(
+              accountId,
+              resource,
+              "error",
+              resourceErr instanceof Error ? resourceErr.message : "Unknown error",
+            );
+          }
+          throw resourceErr;
+        }
       }
       // After every successful sync, purge catalog rows that belong to a
       // different Stripe account (e.g. a previous test-mode account). This
