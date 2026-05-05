@@ -20,6 +20,7 @@ export const emailOutboxTable = pgTable(
   },
   (t) => [
     index("email_outbox_pending_idx").on(t.nextAttemptAt).where(sql`status = 'pending'`),
+    index("email_outbox_status_created_idx").on(t.status, t.createdAt.desc()),
   ],
 );
 
