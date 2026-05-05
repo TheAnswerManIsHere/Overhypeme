@@ -91,7 +91,6 @@ export function WelcomeModal() {
     if (SUPPRESSED_PATHS.some((p) => location.startsWith(p))) return;
     if (!shouldShowModal()) return;
     try {
-      if (sessionStorage.getItem("welcome_modal_skipped") === "1") return;
       if (sessionStorage.getItem("welcome_modal_opened") === "1") return;
     } catch { /* ignore */ }
     const t = setTimeout(() => {
@@ -163,17 +162,8 @@ export function WelcomeModal() {
     setOpen(false);
   }
 
-  function handleSkip() {
-    if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
-    abortControllerRef.current?.abort();
-    setAiLoading(false);
-    setOpen(false);
-    try { sessionStorage.setItem("welcome_modal_skipped", "1"); } catch { /* ignore */ }
-  }
-
   function handleKeyDown(e: React.KeyboardEvent) {
     if (e.key === "Enter" && canSave(draftPronouns) && draftName.trim()) handleSave();
-    if (e.key === "Escape") handleSkip();
   }
 
   const prefersReducedMotion = useReducedMotion();
@@ -245,12 +235,6 @@ export function WelcomeModal() {
         <FlameMark /> Hype me
       </button>
 
-      <div className="text-center mt-3.5 text-[11px] md:text-[12px] text-muted-foreground">
-        Stored on this device · No account required ·{" "}
-        <button onClick={handleSkip} className="underline underline-offset-2 hover:text-foreground transition-colors">
-          skip
-        </button>
-      </div>
     </>
   );
 
@@ -279,7 +263,7 @@ export function WelcomeModal() {
     <>
       {/* ── Mobile: bottom sheet ───────────────────────────── */}
       <div className="md:hidden fixed inset-0 z-[100] flex flex-col justify-end">
-        <div className="absolute inset-0 bg-black/65 backdrop-blur-sm" onClick={handleSkip} />
+        <div className="absolute inset-0 bg-black/65 backdrop-blur-sm" />
 
         <div className="relative z-10 px-6 pb-0" style={{ paddingTop: "max(env(safe-area-inset-top, 0px), 2rem)" }}>
           {billboard}
@@ -306,7 +290,7 @@ export function WelcomeModal() {
 
       {/* ── Desktop: two-column overlay ────────────────────── */}
       <div className="hidden md:flex fixed inset-0 z-[100]">
-        <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={handleSkip} />
+        <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" />
 
         <div className="relative z-10 w-full m-auto max-w-[1100px] grid grid-cols-[1.4fr_1fr] shadow-[0_40px_100px_rgba(0,0,0,0.7)] rounded-[28px] overflow-hidden">
           {/* Billboard L */}
