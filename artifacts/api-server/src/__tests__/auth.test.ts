@@ -14,7 +14,7 @@
 
 import { describe, it, before, after } from "node:test";
 import assert from "node:assert/strict";
-import { randomUUID } from "node:crypto";
+import crypto, { randomUUID } from "node:crypto";
 
 import type { Request, Response } from "express";
 import { db } from "@workspace/db";
@@ -30,6 +30,7 @@ import {
   deleteSession,
   clearSession,
   getSessionId,
+  generateAppleClientSecret,
   type SessionData,
 } from "../lib/auth.js";
 
@@ -232,6 +233,81 @@ describe("deleteSession", () => {
   it("is a no-op for an unknown sid", async () => {
     await deleteSession(`${USER_PREFIX}never-existed`);
     // No throw = success.
+  });
+});
+
+describe("generateAppleClientSecret", () => {
+  let privatePem: string;
+  let publicKey: crypto.KeyObject;
+
+  before(() => {
+    const kp = crypto.generateKeyPairSync("ec", { namedCurve: "P-256" });
+    publicKey = kp.publicKey;
+    privatePem = kp.privateKey.export({ type: "pkcs8", format: "pem" }) as string;
+  });
+
+  function withAppleEnv(fn: () => void): void {
+    const prev = {
+      APPLE_KEY_ID: process.env.APPLE_KEY_ID,
+      APPLE_TEAM_ID: process.env.APPLE_TEAM_ID,
+      APPLE_CLIENT_ID: process.env.APPLE_CLIENT_ID,
+      APPLE_PRIVATE_KEY: process.env.APPLE_PRIVATE_KEY,
+    };
+    process.env.APPLE_KEY_ID = "TEST_KID";
+    process.env.APPLE_TEAM_ID = "TEST_TEAM";
+    process.env.APPLE_CLIENT_ID = "com.test.app";
+    process.env.APPLE_PRIVATE_KEY = privatePem;
+    try {
+      fn();
+    } finally {
+      Object.assign(process.env, prev);
+    }
+  }
+
+  it("returns a three-part JWT string", () => {
+    withAppleEnv(() => {
+      const jwt = generateAppleClientSecret();
+      const parts = jwt.split(".");
+      assert.equal(parts.length, 3, "JWT must have exactly three parts");
+    });
+  });
+
+  it("header decodes to alg=ES256 with the configured kid", () => {
+    withAppleEnv(() => {
+      const jwt = generateAppleClientSecret();
+      const header = JSON.parse(Buffer.from(jwt.split(".")[0]!, "base64url").toString());
+      assert.equal(header.alg, "ES256");
+      assert.equal(header.kid, "TEST_KID");
+    });
+  });
+
+  it("payload encodes the expected Apple JWT claims", () => {
+    withAppleEnv(() => {
+      const jwt = generateAppleClientSecret();
+      const payload = JSON.parse(Buffer.from(jwt.split(".")[1]!, "base64url").toString());
+      assert.equal(payload.iss, "TEST_TEAM");
+      assert.equal(payload.aud, "https://appleid.apple.com");
+      assert.equal(payload.sub, "com.test.app");
+      assert.ok(typeof payload.iat === "number", "iat must be a number");
+      assert.ok(typeof payload.exp === "number", "exp must be a number");
+      assert.ok(payload.exp > payload.iat, "exp must be after iat");
+    });
+  });
+
+  it("signature verifies with the matching public key (IEEE P1363 / ES256)", () => {
+    withAppleEnv(() => {
+      const jwt = generateAppleClientSecret();
+      const parts = jwt.split(".");
+      const signingInput = `${parts[0]}.${parts[1]}`;
+      const sig = Buffer.from(parts[2]!, "base64url");
+      const valid = crypto.verify(
+        "SHA256",
+        Buffer.from(signingInput),
+        { key: publicKey, dsaEncoding: "ieee-p1363" },
+        sig,
+      );
+      assert.ok(valid, "signature must verify with the corresponding EC public key");
+    });
   });
 });
 

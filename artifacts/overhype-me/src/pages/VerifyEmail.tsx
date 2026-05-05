@@ -31,8 +31,8 @@ export default function VerifyEmail() {
             setStatus("already");
             setMessage("Your email is already verified.");
           } else {
-            // Redirect to profile with success indicator
-            setLocation("/profile?emailVerified=1");
+            // Hard navigation so the new session cookie is picked up by the auth cache
+            window.location.assign("/profile?emailVerified=1");
             return;
           }
         } else {
