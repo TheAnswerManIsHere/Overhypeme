@@ -53,6 +53,7 @@ interface PendingOAuthState {
   nonce: string;
   returnTo: string;
   isPopup: boolean;
+  linkUserId?: string | null;
 }
 
 async function storePendingState(state: string, data: PendingOAuthState): Promise<void> {
@@ -79,6 +80,7 @@ async function consumePendingState(state: string): Promise<PendingOAuthState | n
     nonce: row.nonce,
     returnTo: row.returnTo,
     isPopup: row.isPopup,
+    linkUserId: row.linkUserId ?? null,
   };
 }
 
@@ -279,6 +281,29 @@ async function handleOAuthCallback(
     return;
   }
 
+  const basePath = process.env.BASE_PATH || "";
+
+  // ── Link mode: attach provider to an already-authenticated user ─────────
+  if (pending.linkUserId) {
+    const linkUserId = pending.linkUserId;
+    try {
+      await db
+        .update(usersTable)
+        .set({ oauthProvider: provider })
+        .where(eq(usersTable.id, linkUserId));
+    } catch (err) {
+      Sentry.captureException(err, {
+        tags: { auth: "oauth-link" },
+        extra: { provider, stage: "linkProvider" },
+      });
+      res.redirect(`${basePath}/profile?link_error=1`);
+      return;
+    }
+    res.redirect(basePath + returnTo);
+    return;
+  }
+
+  // ── Normal login / register flow ─────────────────────────────────────────
   let dbUser: typeof usersTable.$inferSelect;
   let isNewUser: boolean;
   try {
@@ -320,8 +345,6 @@ async function handleOAuthCallback(
 
   const sid = await createSession(sessionData, dbUser.id);
   setSessionCookie(res, sid);
-
-  const basePath = process.env.BASE_PATH || "";
 
   if (isPopup) {
     const target = isNewUser
@@ -433,6 +456,61 @@ router.get("/login/:provider", async (req: Request, res: Response) => {
     nonce,
     returnTo,
     isPopup: req.query.popup === "1",
+  });
+
+  const params: Record<string, string> = {
+    redirect_uri: callbackUrl,
+    scope: provider === "apple" ? "openid name email" : "openid email profile",
+    code_challenge: codeChallenge,
+    code_challenge_method: "S256",
+    state,
+    nonce,
+  };
+  if (provider === "apple") {
+    params.response_mode = "form_post";
+  }
+
+  const redirectTo = oidc.buildAuthorizationUrl(config, params);
+  res.redirect(redirectTo.href);
+});
+
+// ── Link provider to an existing authenticated account ───────────────────────
+// Starts an OAuth flow that, on callback, updates the user's oauthProvider
+// instead of creating a session. The user must be logged in.
+router.get("/auth/link/:provider", async (req: Request, res: Response) => {
+  if (!req.isAuthenticated()) {
+    res.status(401).send("You must be signed in to link a provider");
+    return;
+  }
+
+  const provider = req.params.provider as OAuthProvider;
+  if (provider !== "google" && provider !== "apple") {
+    res.status(404).send("Unknown provider");
+    return;
+  }
+
+  if (!isProviderConfigured(provider)) {
+    res.status(503).send(`${provider} sign-in is not yet configured`);
+    return;
+  }
+
+  const config =
+    provider === "google" ? await getGoogleConfig() : await getAppleConfig();
+
+  const callbackUrl = `${getSiteBaseUrl()}/api/callback/${provider}`;
+  const returnTo = getSafeReturnTo(req.query.returnTo ?? "/profile?linked=1");
+
+  const state = oidc.randomState();
+  const nonce = oidc.randomNonce();
+  const codeVerifier = oidc.randomPKCECodeVerifier();
+  const codeChallenge = await oidc.calculatePKCECodeChallenge(codeVerifier);
+
+  await storePendingState(state, {
+    codeVerifier,
+    nonce,
+    returnTo,
+    isPopup: false,
+    linkUserId: req.user.id,
   });
 
   const params: Record<string, string> = {

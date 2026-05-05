@@ -267,6 +267,13 @@
       "when": 1778200000000,
       "tag": "0037_email_outbox_status_created_idx",
       "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "7",
+      "when": 1778300000000,
+      "tag": "0038_oauth_link_user_id",
+      "breakpoints": true
     }
   ]
 }

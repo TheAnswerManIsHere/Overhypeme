@@ -166,7 +166,9 @@ export default function Profile() {
   const [unlinkLoading, setUnlinkLoading] = useState(false);
   const [unlinkError, setUnlinkError] = useState("");
   const [unlinkSuccess, setUnlinkSuccess] = useState("");
-  const [unlinkConfirm, setUnlinkConfirm] = useState(false);
+  const [unlinkConfirm, setUnlinkConfirm] = useState<string | false>(false);
+  const [linkedBanner, setLinkedBanner] = useState<string | null>(null);
+  const [linkErrorBanner, setLinkErrorBanner] = useState(false);
 
   const [notifAdminAlerts, setNotifAdminAlerts] = useState<boolean>(true);
   const [notifDisputeAlerts, setNotifDisputeAlerts] = useState<boolean>(true);
@@ -174,7 +176,7 @@ export default function Profile() {
   const [notifError, setNotifError] = useState("");
   const [notifSuccess, setNotifSuccess] = useState("");
 
-  async function handleUnlinkGoogle() {
+  async function handleUnlinkProvider() {
     setUnlinkError("");
     setUnlinkSuccess("");
     setUnlinkLoading(true);
@@ -185,10 +187,10 @@ export default function Profile() {
       });
       const data = await res.json() as { message?: string; error?: string };
       if (!res.ok) {
-        setUnlinkError(data.error ?? "Failed to unlink Google account.");
+        setUnlinkError(data.error ?? "Failed to unlink account.");
         return;
       }
-      setUnlinkSuccess(data.message ?? "Google account unlinked successfully.");
+      setUnlinkSuccess(data.message ?? "Social account unlinked successfully.");
       setUnlinkConfirm(false);
       await queryClient.invalidateQueries({ queryKey: getGetMyProfileQueryKey() });
     } catch {
@@ -196,6 +198,11 @@ export default function Profile() {
     } finally {
       setUnlinkLoading(false);
     }
+  }
+
+  function handleLinkProvider(provider: string) {
+    const returnTo = encodeURIComponent("/profile?linked=" + encodeURIComponent(provider));
+    window.location.href = `${BASE_URL}api/auth/link/${provider}?returnTo=${returnTo}`;
   }
 
   async function handleSetPassword() {
@@ -372,6 +379,15 @@ export default function Profile() {
     }
     if (params.get("emailVerified") === "1") {
       setEmailVerifiedBanner(true);
+      setLocation(currentPath, { replace: true });
+    }
+    const linked = params.get("linked");
+    if (linked) {
+      setLinkedBanner(linked);
+      setLocation(currentPath, { replace: true });
+    }
+    if (params.get("link_error") === "1") {
+      setLinkErrorBanner(true);
       setLocation(currentPath, { replace: true });
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -921,11 +937,14 @@ export default function Profile() {
               )}
             </div>
             <h1
-              className="font-display font-bold uppercase tracking-tight leading-[0.9] text-foreground mb-4"
+              className="font-display font-bold uppercase tracking-tight leading-[0.9] text-foreground mb-2"
               style={{ fontSize: "clamp(36px, 4vw, 56px)" }}
             >
               {profile.displayName ?? profile.email}
             </h1>
+            {profile.email && (
+              <p className="text-muted-foreground text-sm font-medium mb-3">{profile.email}</p>
+            )}
             {myMemesData && myMemesData.memes.length > 0 && (
               <div className="flex items-center gap-8">
                 <div>
@@ -1330,9 +1349,23 @@ export default function Profile() {
                 <KeyRound className="w-5 h-5 text-primary" /> Sign-in Methods
               </h2>
 
+              {/* Link success / error banners */}
+              {linkedBanner && (
+                <div className="flex items-center gap-3 bg-green-500/20 border border-green-500/40 rounded-sm p-3 mb-1">
+                  <CheckCircle className="w-4 h-4 text-green-500 shrink-0" />
+                  <p className="text-sm text-foreground capitalize">{linkedBanner} account linked successfully.</p>
+                </div>
+              )}
+              {linkErrorBanner && (
+                <div className="flex items-center gap-3 bg-destructive/10 border border-destructive/40 rounded-sm p-3 mb-1">
+                  <AlertTriangle className="w-4 h-4 text-destructive shrink-0" />
+                  <p className="text-sm text-foreground">Could not link account. Please try again.</p>
+                </div>
+              )}
+
               <div className="flex flex-col gap-3 mb-5">
-                {/* Apple badge */}
-                <div className={`flex items-center gap-3 px-4 py-3 rounded-sm border ${oauthProvider === "apple" ? "border-gray-400/40 bg-gray-400/5" : "border-border bg-secondary/30 opacity-50"}`}>
+                {/* Apple row */}
+                <div className={`flex items-center gap-3 px-4 py-3 rounded-sm border ${oauthProvider === "apple" ? "border-gray-400/40 bg-gray-400/5" : "border-border bg-secondary/30"}`}>
                   <svg className="w-5 h-5 shrink-0" viewBox="0 0 24 24" aria-hidden="true" fill="currentColor">
                     <path d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.8-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M13 3.5c.73-.83 1.94-1.46 2.94-1.5.13 1.17-.34 2.35-1.04 3.19-.69.85-1.83 1.51-2.95 1.42-.15-1.15.41-2.35 1.05-3.11z"/>
                   </svg>
@@ -1343,10 +1376,29 @@ export default function Profile() {
                   {oauthProvider === "apple" && (
                     <span className="text-xs bg-gray-400/20 text-gray-300 border border-gray-400/40 px-2 py-0.5 rounded-sm font-bold">Active</span>
                   )}
+                  {oauthProvider === "apple" && hasPassword && !unlinkConfirm && (
+                    <button
+                      onClick={() => { setUnlinkConfirm("apple"); setUnlinkError(""); setUnlinkSuccess(""); }}
+                      className="text-xs text-muted-foreground hover:text-destructive transition-colors underline shrink-0 ml-1"
+                    >
+                      Unlink
+                    </button>
+                  )}
+                  {oauthProvider === "apple" && !hasPassword && (
+                    <span className="text-xs text-amber-500/80 shrink-0 ml-1">Set a password to unlink</span>
+                  )}
+                  {!oauthProvider && (
+                    <button
+                      onClick={() => handleLinkProvider("apple")}
+                      className="text-xs text-muted-foreground hover:text-primary transition-colors underline shrink-0 ml-1"
+                    >
+                      Link
+                    </button>
+                  )}
                 </div>
 
-                {/* Google badge */}
-                <div className={`flex items-center gap-3 px-4 py-3 rounded-sm border ${oauthProvider === "google" ? "border-blue-500/40 bg-blue-500/5" : "border-border bg-secondary/30 opacity-50"}`}>
+                {/* Google row */}
+                <div className={`flex items-center gap-3 px-4 py-3 rounded-sm border ${oauthProvider === "google" ? "border-blue-500/40 bg-blue-500/5" : "border-border bg-secondary/30"}`}>
                   <svg className="w-5 h-5 shrink-0" viewBox="0 0 24 24" aria-hidden="true">
                     <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
                     <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
@@ -1362,32 +1414,40 @@ export default function Profile() {
                   )}
                   {oauthProvider === "google" && hasPassword && !unlinkConfirm && (
                     <button
-                      onClick={() => { setUnlinkConfirm(true); setUnlinkError(""); setUnlinkSuccess(""); }}
+                      onClick={() => { setUnlinkConfirm("google"); setUnlinkError(""); setUnlinkSuccess(""); }}
                       className="text-xs text-muted-foreground hover:text-destructive transition-colors underline shrink-0 ml-1"
                     >
                       Unlink
                     </button>
                   )}
                   {oauthProvider === "google" && !hasPassword && (
-                    <span className="text-xs text-amber-500/80 shrink-0 ml-1">Set a password to enable unlinking</span>
+                    <span className="text-xs text-amber-500/80 shrink-0 ml-1">Set a password to unlink</span>
+                  )}
+                  {!oauthProvider && (
+                    <button
+                      onClick={() => handleLinkProvider("google")}
+                      className="text-xs text-muted-foreground hover:text-primary transition-colors underline shrink-0 ml-1"
+                    >
+                      Link
+                    </button>
                   )}
                 </div>
 
-                {/* Unlink confirmation / feedback */}
-                {oauthProvider === "google" && unlinkConfirm && (
+                {/* Unlink confirmation dialog */}
+                {unlinkConfirm && (
                   <div className="border border-destructive/40 bg-destructive/5 rounded-sm p-4 space-y-3">
-                    <p className="text-sm text-foreground font-medium">Remove Google sign-in from your account?</p>
+                    <p className="text-sm text-foreground font-medium capitalize">Remove {unlinkConfirm} sign-in from your account?</p>
                     <p className="text-xs text-muted-foreground">You'll only be able to sign in with your email and password going forward.</p>
                     {unlinkError && <p className="text-xs text-destructive font-medium">{unlinkError}</p>}
                     <div className="flex gap-3">
                       <Button
                         variant="outline"
                         size="sm"
-                        onClick={handleUnlinkGoogle}
+                        onClick={handleUnlinkProvider}
                         disabled={unlinkLoading}
                         className="gap-2 border-destructive/60 text-destructive hover:bg-destructive/10"
                       >
-                        {unlinkLoading ? <><Loader2 className="w-4 h-4 animate-spin" /> Unlinking…</> : "Yes, Unlink Google"}
+                        {unlinkLoading ? <><Loader2 className="w-4 h-4 animate-spin" /> Unlinking…</> : `Yes, Unlink ${unlinkConfirm.charAt(0).toUpperCase() + unlinkConfirm.slice(1)}`}
                       </Button>
                       <Button variant="outline" size="sm" onClick={() => { setUnlinkConfirm(false); setUnlinkError(""); }}>
                         Cancel
@@ -1595,24 +1655,6 @@ export default function Profile() {
         {/* Subscription Panel */}
         <SubscriptionPanel refetchTrigger={checkoutConfirmed || undefined} />
 
-        {/* Favorite Hashtags */}
-        {profile.favoriteHashtags && profile.favoriteHashtags.length > 0 && (
-          <div className="bg-card border-2 border-border p-6 rounded-sm shadow mb-8">
-            <div className="flex items-center gap-2 mb-4">
-              <Hash className="w-5 h-5 text-primary" />
-              <h2 className="font-display text-xl uppercase tracking-wide text-foreground">Favorite Intel Tags</h2>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              {profile.favoriteHashtags.map((tag: string) => (
-                <Link key={tag} href={`/search?q=%23${encodeURIComponent(tag)}`}>
-                  <span className="inline-block bg-primary/10 text-primary border border-primary/40 hover:bg-primary/20 hover:border-primary transition-colors px-4 py-1.5 rounded-sm font-bold font-display text-sm uppercase tracking-widest cursor-pointer">
-                    #{tag}
-                  </span>
-                </Link>
-              ))}
-            </div>
-          </div>
-        )}
 
       </div>
     </Layout>
