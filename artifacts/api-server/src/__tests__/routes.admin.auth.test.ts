@@ -88,6 +88,7 @@ const ADMIN_AUTH_ROUTES: readonly RouteEntry[] = [
   { method: "post",   path: "/admin/video-styles/:id/preview-gif" },
   { method: "delete", path: "/admin/video-styles/:id/preview-gif" },
   { method: "get",    path: "/admin/stripe/summary" },
+  { method: "post",   path: "/admin/stripe/full-sync" },
   { method: "post",   path: "/admin/stripe/sync" },
   { method: "post",   path: "/admin/stripe/sync/_test/simulate" },
   { method: "get",    path: "/admin/stripe/sync/status" },
