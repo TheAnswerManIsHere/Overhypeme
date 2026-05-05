@@ -90,6 +90,7 @@ export const oauthPendingStatesTable = pgTable(
     nonce: text("nonce").notNull(),
     returnTo: text("return_to").notNull().default("/"),
     isPopup: boolean("is_popup").notNull().default(false),
+    linkUserId: varchar("link_user_id"),
     expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
   },
   (table) => [index("IDX_oauth_pending_states_expires_at").on(table.expiresAt)],

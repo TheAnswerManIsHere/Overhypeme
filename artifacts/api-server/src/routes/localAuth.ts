@@ -648,7 +648,7 @@ router.delete("/auth/unlink-provider", async (req: Request, res: Response) => {
     .set({ oauthProvider: null })
     .where(eq(usersTable.id, req.user.id));
 
-  res.status(200).json({ message: "Google account unlinked successfully." });
+  res.status(200).json({ message: "Social account unlinked successfully." });
 });
 
 // ── Secret admin login ────────────────────────────────────────────────────────
