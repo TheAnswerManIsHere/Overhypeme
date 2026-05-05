@@ -1,19 +1,77 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import HCaptcha from "@hcaptcha/react-hcaptcha";
 import { useLocation } from "wouter";
 import { useAuth } from "@workspace/replit-auth-web";
+import { Camera, Upload, Loader2, RotateCw } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 
 const HCAPTCHA_SITE_KEY =
   import.meta.env.VITE_HCAPTCHA_SITE_KEY || "10000000-ffff-ffff-ffff-000000000001";
 
+const BASE_URL = import.meta.env.BASE_URL ?? "/";
+
+type Step = "captcha" | "photo";
+
+/**
+ * Center-crop an image to a square JPEG (max 1024px). Mirrors the helper in
+ * Profile.tsx — kept inline to avoid a refactor for a single onboarding caller.
+ */
+async function cropToSquareJpeg(file: File, maxSize = 1024): Promise<File> {
+  const dataUrl = await new Promise<string>((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve(typeof r.result === "string" ? r.result : "");
+    r.onerror = () => reject(new Error("Could not read image"));
+    r.readAsDataURL(file);
+  });
+  const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+    const i = new globalThis.Image();
+    i.onload = () => resolve(i);
+    i.onerror = () => reject(new Error("Could not decode image"));
+    i.src = dataUrl;
+  });
+  const side = Math.min(img.naturalWidth, img.naturalHeight);
+  if (side <= 0) throw new Error("Image has no pixels");
+  const sx = Math.floor((img.naturalWidth - side) / 2);
+  const sy = Math.floor((img.naturalHeight - side) / 2);
+  const out = Math.min(side, maxSize);
+  const canvas = document.createElement("canvas");
+  canvas.width = out;
+  canvas.height = out;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) throw new Error("Canvas not supported");
+  ctx.drawImage(img, sx, sy, side, side, 0, 0, out, out);
+  const blob = await new Promise<Blob | null>((resolve) =>
+    canvas.toBlob((b) => resolve(b), "image/jpeg", 0.9),
+  );
+  if (!blob) throw new Error("Could not encode image");
+  const baseName = file.name.replace(/\.[^.]+$/, "") || "photo";
+  return new File([blob], `${baseName}.jpg`, { type: "image/jpeg" });
+}
+
 export default function Onboard() {
   const [, setLocation] = useLocation();
   const { isAuthenticated, isLoading } = useAuth();
   const captchaRef = useRef<HCaptcha>(null);
+  const cameraInputRef = useRef<HTMLInputElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const [step, setStep] = useState<Step>("captcha");
   const [captchaToken, setCaptchaToken] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
+
+  const [photoFile, setPhotoFile] = useState<File | null>(null);
+  const [photoPreview, setPhotoPreview] = useState<string>("");
+  const [photoError, setPhotoError] = useState("");
+  const [photoUploading, setPhotoUploading] = useState(false);
+
+  // Revoke any outstanding object URL on unmount to avoid memory leaks if the
+  // user navigates away mid-flow.
+  useEffect(() => {
+    return () => {
+      if (photoPreview) URL.revokeObjectURL(photoPreview);
+    };
+  }, [photoPreview]);
 
   const returnTo = (() => {
     if (typeof window === "undefined") return "/";
@@ -22,6 +80,10 @@ export default function Onboard() {
     if (!r.startsWith("/") || r.startsWith("//")) return "/";
     return r;
   })();
+
+  function finish() {
+    setLocation(returnTo);
+  }
 
   async function handleVerify() {
     if (!captchaToken) {
@@ -43,7 +105,7 @@ export default function Onboard() {
         captchaRef.current?.resetCaptcha();
         setCaptchaToken("");
       } else {
-        setLocation(returnTo);
+        setStep("photo");
       }
     } catch {
       setError("Network error. Please try again.");
@@ -51,6 +113,72 @@ export default function Onboard() {
       setCaptchaToken("");
     } finally {
       setSubmitting(false);
+    }
+  }
+
+  async function handlePhotoPicked(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    setPhotoError("");
+    if (!file.type.startsWith("image/")) {
+      setPhotoError("Please choose an image file.");
+      return;
+    }
+    if (file.size > 15 * 1024 * 1024) {
+      setPhotoError("Image must be under 15 MB.");
+      return;
+    }
+    try {
+      const cropped = await cropToSquareJpeg(file, 1024);
+      setPhotoFile(cropped);
+      if (photoPreview) URL.revokeObjectURL(photoPreview);
+      setPhotoPreview(URL.createObjectURL(cropped));
+    } catch {
+      setPhotoError("Could not process that image. Try another one.");
+    }
+  }
+
+  function clearPhoto() {
+    if (photoPreview) URL.revokeObjectURL(photoPreview);
+    setPhotoFile(null);
+    setPhotoPreview("");
+    setPhotoError("");
+  }
+
+  async function handleUsePhoto() {
+    if (!photoFile) return;
+    setPhotoError("");
+    setPhotoUploading(true);
+    try {
+      const uploadRes = await fetch(`${BASE_URL}api/storage/upload-avatar`, {
+        method: "POST",
+        headers: { "Content-Type": photoFile.type },
+        credentials: "include",
+        body: photoFile,
+      });
+      if (!uploadRes.ok) {
+        const data = (await uploadRes.json().catch(() => ({}))) as { error?: string };
+        throw new Error(data.error ?? `Upload failed (${uploadRes.status})`);
+      }
+      const { objectPath } = (await uploadRes.json()) as { objectPath: string };
+      const profileImageUrl = `/api/storage${objectPath}`;
+
+      const patchRes = await fetch(`${BASE_URL}api/users/me`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ profileImageUrl, avatarSource: "photo" }),
+      });
+      if (!patchRes.ok) {
+        const data = (await patchRes.json().catch(() => ({}))) as { error?: string };
+        throw new Error(data.error ?? "Could not save your photo.");
+      }
+      finish();
+    } catch (err) {
+      setPhotoError(err instanceof Error ? err.message : "Photo upload failed.");
+    } finally {
+      setPhotoUploading(false);
     }
   }
 
@@ -65,6 +193,127 @@ export default function Onboard() {
   if (!isAuthenticated) {
     setLocation("/");
     return null;
+  }
+
+  if (step === "photo") {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center p-4">
+        <div className="w-full max-w-md bg-card border border-border rounded-xl p-8 shadow-lg space-y-6">
+          <div className="text-center space-y-2">
+            <div className="text-5xl">📸</div>
+            <h1 className="text-2xl font-bold text-foreground">
+              Add a real photo of you
+            </h1>
+            <p className="text-muted-foreground text-sm leading-relaxed">
+              The meme builder uses your face so the memes actually look like{" "}
+              <span className="text-foreground font-semibold">you</span>. One
+              photo, reused everywhere — you can change it any time on your
+              profile.
+            </p>
+          </div>
+
+          <input
+            ref={cameraInputRef}
+            type="file"
+            accept="image/*"
+            capture="user"
+            className="hidden"
+            onChange={handlePhotoPicked}
+          />
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*"
+            className="hidden"
+            onChange={handlePhotoPicked}
+          />
+
+          {photoPreview ? (
+            <div className="space-y-3">
+              <div className="relative mx-auto w-48 h-48 rounded-full overflow-hidden border-2 border-primary shadow-[0_0_24px_rgba(249,115,22,0.25)]">
+                <img
+                  src={photoPreview}
+                  alt="Selected photo"
+                  className="w-full h-full object-cover"
+                />
+              </div>
+              <p className="text-center text-xs text-muted-foreground">
+                We cropped it square — that's how memes use it.
+              </p>
+              <div className="flex gap-2 justify-center">
+                <button
+                  type="button"
+                  onClick={clearPhoto}
+                  disabled={photoUploading}
+                  className="text-xs text-muted-foreground hover:text-foreground inline-flex items-center gap-1.5 underline transition-colors disabled:opacity-50"
+                >
+                  <RotateCw className="w-3 h-3" /> Pick a different one
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="grid grid-cols-2 gap-3">
+              <button
+                type="button"
+                onClick={() => cameraInputRef.current?.click()}
+                className="flex flex-col items-center justify-center gap-2 p-5 border-2 border-dashed border-border hover:border-primary hover:bg-primary/5 rounded-lg transition-colors"
+              >
+                <Camera className="w-7 h-7 text-primary" />
+                <span className="text-sm font-bold text-foreground">Take photo</span>
+                <span className="text-[10px] text-muted-foreground uppercase tracking-wider">
+                  Use camera
+                </span>
+              </button>
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                className="flex flex-col items-center justify-center gap-2 p-5 border-2 border-dashed border-border hover:border-primary hover:bg-primary/5 rounded-lg transition-colors"
+              >
+                <Upload className="w-7 h-7 text-primary" />
+                <span className="text-sm font-bold text-foreground">Upload</span>
+                <span className="text-[10px] text-muted-foreground uppercase tracking-wider">
+                  From device
+                </span>
+              </button>
+            </div>
+          )}
+
+          {photoError && (
+            <p className="text-destructive text-sm font-medium text-center">
+              {photoError}
+            </p>
+          )}
+
+          <Button
+            onClick={handleUsePhoto}
+            disabled={!photoFile || photoUploading}
+            className="w-full gap-2"
+          >
+            {photoUploading ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin" /> Uploading…
+              </>
+            ) : (
+              <>Use this photo</>
+            )}
+          </Button>
+
+          <div className="flex items-center justify-between">
+            <button
+              type="button"
+              onClick={finish}
+              disabled={photoUploading}
+              className="text-xs text-muted-foreground hover:text-foreground underline transition-colors disabled:opacity-50"
+            >
+              Skip for now
+            </button>
+            <p className="text-[10px] text-muted-foreground/70 italic">
+              You can add it later on your profile.
+            </p>
+          </div>
+        </div>
+      </div>
+    );
   }
 
   return (
