@@ -372,34 +372,34 @@ export default function AdminBilling() {
     }, 1000);
   }
 
-  async function syncStripe() {
+  async function triggerSync(endpoint: "/api/admin/stripe/sync" | "/api/admin/stripe/full-sync", timeoutMs: number) {
     setSyncing(true);
     setSyncFinalMessage(null);
     try {
-      const resp = await fetch("/api/admin/stripe/sync", {
-        method: "POST",
-        credentials: "include",
-      });
+      const resp = await fetch(endpoint, { method: "POST", credentials: "include" });
       const data = (await resp.json()) as {
         success?: boolean; message?: string; error?: string; alreadyRunning?: boolean;
       };
-
       if (resp.status === 409 && data.alreadyRunning) {
-        // Surface the conflict but still start polling — the in-flight run
-        // will complete and we can show its result.
         setSyncFinalMessage({ ok: false, message: data.message ?? "Sync already in progress." });
       } else if (!resp.ok || data.success !== true) {
         setSyncFinalMessage({ ok: false, message: data.error ?? data.message ?? "Failed to start sync" });
         setSyncing(false);
         return;
       }
-
-      // Scoped manual sync — 3 resources, generally finishes within seconds.
-      startSyncPolling({ timeoutMs: 60_000 });
+      startSyncPolling({ timeoutMs });
     } catch {
       setSyncFinalMessage({ ok: false, message: "Network error" });
       setSyncing(false);
     }
+  }
+
+  async function syncStripe() {
+    await triggerSync("/api/admin/stripe/sync", 60_000);
+  }
+
+  async function fullSyncStripe() {
+    await triggerSync("/api/admin/stripe/full-sync", 180_000);
   }
 
   async function saveFalEndpoints() {
@@ -655,17 +655,30 @@ export default function AdminBilling() {
                 );
               })()}
             </div>
-            <Button
-              variant="outline"
-              size="sm"
-              className="min-h-[44px] sm:min-h-0 sm:h-8 px-3 text-xs gap-1.5 w-full sm:w-auto"
-              onClick={() => void syncStripe()}
-              disabled={syncing}
-              title="Pull latest products, prices, and plans from Stripe"
-            >
-              {syncing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
-              {syncing ? "Syncing…" : "Sync Stripe data"}
-            </Button>
+            <div className="flex items-center gap-2 w-full sm:w-auto">
+              <Button
+                variant="outline"
+                size="sm"
+                className="min-h-[44px] sm:min-h-0 sm:h-8 px-3 text-xs gap-1.5 flex-1 sm:flex-none"
+                onClick={() => void syncStripe()}
+                disabled={syncing}
+                title="Pull latest products, prices, and plans from Stripe"
+              >
+                {syncing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
+                {syncing ? "Syncing…" : "Sync Stripe data"}
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="min-h-[44px] sm:min-h-0 sm:h-8 px-3 text-xs gap-1.5 text-muted-foreground hover:text-foreground flex-1 sm:flex-none"
+                onClick={() => void fullSyncStripe()}
+                disabled={syncing}
+                title="Full backfill — syncs all resources including customers, subscriptions, and payment methods"
+              >
+                {syncing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
+                Full sync
+              </Button>
+            </div>
           </div>
 
           {/* Progress panel — shown while syncing or after the most recent run */}
@@ -702,7 +715,9 @@ export default function AdminBilling() {
                             ? `${row?.syncedCount ?? 0} synced · ${formatRelative(row?.lastSyncedAt ?? null)}`
                             : status === "error"
                               ? `error · ${(row?.errorMessage ?? "unknown").slice(0, 80)}`
-                              : "pending"}
+                              : row?.lastSyncedAt
+                                ? `pending · last synced ${formatRelative(row.lastSyncedAt)}`
+                                : "never synced — use Full sync"}
                       </span>
                     </div>
                   );
