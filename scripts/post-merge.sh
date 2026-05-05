@@ -46,6 +46,21 @@ if [ ! -s "$API_TS" ]; then
   fi
 fi
 
+# Guard: orval v8.5.3 sometimes emits an empty index.ts for api-client-react
+# (TS2306 "not a module" when downstream packages like lib/replit-auth-web
+# re-export it).  If the file is empty after codegen, restore the canonical
+# barrel export.
+INDEX_TS="lib/api-client-react/src/index.ts"
+if [ ! -s "$INDEX_TS" ]; then
+  echo "WARNING: $INDEX_TS is empty after codegen — restoring canonical barrel..."
+  cat > "$INDEX_TS" << 'EOF'
+export * from "./generated/api";
+export * from "./generated/api.schemas";
+export { setBaseUrl, setAuthTokenGetter } from "./custom-fetch";
+export type { AuthTokenGetter } from "./custom-fetch";
+EOF
+fi
+
 pnpm tsc -p lib/api-zod/tsconfig.json
 pnpm tsc -p lib/api-client-react/tsconfig.json
 pnpm tsc -p lib/replit-auth-web/tsconfig.json
