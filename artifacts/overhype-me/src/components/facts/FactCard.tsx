@@ -8,6 +8,7 @@ import { useAuth } from "@workspace/replit-auth-web";
 import { cn } from "@/components/ui/Button";
 import { usePersonName } from "@/hooks/use-person-name";
 import { renderFact } from "@/lib/render-fact";
+import { useToast } from "@/hooks/use-toast";
 
 function HighlightName({ text, name }: { text: string; name: string }) {
   if (!name) return <>{text}</>;
@@ -113,6 +114,20 @@ export function FactCard({
   const [, setLocation] = useLocation();
   const { name, pronouns } = usePersonName();
   const [expanded, setExpanded] = useState(false);
+  const { toast } = useToast();
+
+  const handleShare = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    const url = `${window.location.origin}/facts/${fact.id}`;
+    if (navigator.share) {
+      await navigator.share({ url }).catch(() => null);
+    } else {
+      const copied = await navigator.clipboard.writeText(url).then(() => true).catch(() => false);
+      if (copied) {
+        toast({ title: "Link copied to clipboard", duration: 2000 });
+      }
+    }
+  };
 
   const handleRate = (e: React.MouseEvent, type: "up" | "down") => {
     e.stopPropagation();
@@ -253,7 +268,7 @@ export function FactCard({
 
             {/* Share — grouped with social actions */}
             <button
-              onClick={e => e.stopPropagation()}
+              onClick={handleShare}
               className="text-muted-foreground hover:text-foreground transition-colors"
               title="Share"
             >

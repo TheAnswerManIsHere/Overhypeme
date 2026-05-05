@@ -35,13 +35,20 @@ async function getReplyToAddress(): Promise<string | undefined> {
   return v.trim() || undefined;
 }
 
+function getResendApiKey(): string | undefined {
+  const isProd = process.env.NODE_ENV === "production";
+  return isProd
+    ? (process.env.RESEND_API_KEY_PROD ?? process.env.RESEND_API_KEY)
+    : (process.env.RESEND_API_KEY_DEV ?? process.env.RESEND_API_KEY_PROD ?? process.env.RESEND_API_KEY);
+}
+
 export function isEnabled(): boolean {
-  return !!process.env.RESEND_API_KEY;
+  return !!getResendApiKey();
 }
 
 let resend: Resend | null = null;
 if (isEnabled()) {
-  resend = new Resend(process.env.RESEND_API_KEY!);
+  resend = new Resend(getResendApiKey()!);
 }
 
 /**

@@ -6,6 +6,7 @@ import { Link, useLocation } from "wouter";
 import { useAppMutations } from "@/hooks/use-mutations";
 import { useAuth } from "@workspace/replit-auth-web";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useToast } from "@/hooks/use-toast";
 import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
 import { usePersonName, SHARE_LINK_ACTIVE, DEFAULT_PRONOUNS } from "@/hooks/use-person-name";
 import { useHeroFact } from "@/hooks/use-hero-fact";
@@ -109,6 +110,7 @@ function HeroBillboardMobile({
   const [, setLocation] = useLocation();
   const swapKey = fact ? `f-${fact.id}` : "loading";
   const prefersReducedMotion = useReducedMotion();
+  const { toast } = useToast();
 
   const handleRate = (type: "up" | "down") => {
     if (!fact) return;
@@ -123,7 +125,10 @@ function HeroBillboardMobile({
     if (navigator.share) {
       await navigator.share({ url }).catch(() => null);
     } else {
-      await navigator.clipboard.writeText(url).catch(() => null);
+      const copied = await navigator.clipboard.writeText(url).then(() => true).catch(() => false);
+      if (copied) {
+        toast({ title: "Link copied to clipboard", duration: 2000 });
+      }
     }
   };
 
@@ -266,6 +271,7 @@ function DesktopHeroBillboard({
   const [, setLocation] = useLocation();
   const swapKey = fact ? `f-${fact.id}` : "loading";
   const prefersReducedMotion = useReducedMotion();
+  const { toast } = useToast();
 
   const handleRate = (type: "up" | "down") => {
     if (!fact) return;
@@ -280,7 +286,10 @@ function DesktopHeroBillboard({
     if (navigator.share) {
       await navigator.share({ url }).catch(() => null);
     } else {
-      await navigator.clipboard.writeText(url).catch(() => null);
+      const copied = await navigator.clipboard.writeText(url).then(() => true).catch(() => false);
+      if (copied) {
+        toast({ title: "Link copied to clipboard", duration: 2000 });
+      }
     }
   };
 
