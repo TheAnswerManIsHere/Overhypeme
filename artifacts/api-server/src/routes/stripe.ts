@@ -90,6 +90,21 @@ router.post("/stripe/checkout", async (req: Request, res: Response) => {
     if (!user) { res.status(404).json({ error: "User not found" }); return; }
 
     let customerId = user.stripeCustomerId ?? undefined;
+    if (customerId) {
+      // Verify the saved customer still exists in Stripe. It may have been
+      // deleted, or the Stripe account / API keys may have been rotated since
+      // the ID was stored. If it's gone, fall through to create a fresh one.
+      try {
+        const existing = await stripe.customers.retrieve(customerId);
+        if ((existing as { deleted?: boolean }).deleted) customerId = undefined;
+      } catch (e) {
+        if ((e as { code?: string }).code === "resource_missing") {
+          customerId = undefined;
+        } else {
+          throw e;
+        }
+      }
+    }
     if (!customerId) {
       const customer = await stripe.customers.create({
         email: user.email ?? undefined,
