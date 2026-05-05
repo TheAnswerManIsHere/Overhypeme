@@ -253,7 +253,15 @@ export function FactCard({
 
             {/* Share — grouped with social actions */}
             <button
-              onClick={e => e.stopPropagation()}
+              onClick={async e => {
+                e.stopPropagation();
+                const url = `${window.location.origin}/facts/${fact.id}`;
+                if (navigator.share) {
+                  await navigator.share({ url }).catch(() => null);
+                } else {
+                  await navigator.clipboard.writeText(url).catch(() => null);
+                }
+              }}
               className="text-muted-foreground hover:text-foreground transition-colors"
               title="Share"
             >
