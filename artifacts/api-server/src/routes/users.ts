@@ -95,7 +95,8 @@ router.get("/users/me", async (req: Request, res: Response) => {
       avatarSource: usersTable.avatarSource,
       emailVerifiedAt: usersTable.emailVerifiedAt,
       membershipTier: usersTable.membershipTier,
-      oauthProvider: usersTable.oauthProvider,
+      googleLinked: usersTable.googleLinked,
+      appleLinked: usersTable.appleLinked,
       passwordHash: usersTable.passwordHash,
       isAdmin: usersTable.isAdmin,
       adminNotifications: usersTable.adminNotifications,
@@ -183,7 +184,10 @@ router.get("/users/me", async (req: Request, res: Response) => {
     avatarStyle: userRow?.avatarStyle ?? "bottts",
     avatarSource: userRow?.avatarSource ?? "avatar",
     membershipTier: userRow?.membershipTier ?? "registered",
-    oauthProvider: userRow?.oauthProvider ?? null,
+    linkedProviders: [
+      ...(userRow?.googleLinked ? ["google"] : []),
+      ...(userRow?.appleLinked ? ["apple"] : []),
+    ],
     hasPassword: !!(userRow?.passwordHash),
     ...(isAdmin && {
       adminNotifications: userRow?.adminNotifications ?? true,

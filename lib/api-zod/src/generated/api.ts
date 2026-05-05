@@ -393,11 +393,11 @@ export const GetMyProfileResponse = zod.object({
   profileImageUrl: zod.string().nullish(),
   avatarStyle: zod.string().nullish(),
   avatarSource: zod.string().nullish(),
-  oauthProvider: zod
-    .string()
-    .nullish()
+  linkedProviders: zod
+    .array(zod.string())
+    .optional()
     .describe(
-      'The OAuth provider linked to this account (e.g. \"google\", \"apple\"), or null for email\/password-only accounts.',
+      'OAuth providers linked to this account (e.g. [\"google\"], [\"apple\"], [\"google\",\"apple\"]). Empty array for email\/password-only accounts.',
     ),
   hasPassword: zod
     .boolean()

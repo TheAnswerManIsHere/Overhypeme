@@ -1500,10 +1500,11 @@ components:
         avatarSource:
           type: string
           nullable: true
-        oauthProvider:
-          type: string
-          nullable: true
-          description: The OAuth provider linked to this account (e.g. "google", "apple"), or null for email/password-only accounts.
+        linkedProviders:
+          type: array
+          items:
+            type: string
+          description: OAuth providers linked to this account (e.g. ["google"], ["apple"], ["google","apple"]). Empty array for email/password-only accounts.
         hasPassword:
           type: boolean
           description: Whether the account has a local password set (true for email+password and merged accounts, false for OAuth-only).

@@ -22,8 +22,8 @@ export interface UserProfile {
   profileImageUrl?: string | null;
   avatarStyle?: string | null;
   avatarSource?: string | null;
-  /** The OAuth provider linked to this account (e.g. "google", "apple"), or null for email/password-only accounts. */
-  oauthProvider?: string | null;
+  /** OAuth providers linked to this account (e.g. ["google"], ["apple"], ["google","apple"]). Empty array for email/password-only accounts. */
+  linkedProviders?: string[];
   /** Whether the account has a local password set (true for email+password and merged accounts, false for OAuth-only). */
   hasPassword?: boolean;
   /** The user's current membership tier. Clients should derive paid/legendary access from this field rather than a separate flag. */

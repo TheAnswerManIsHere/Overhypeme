@@ -281,6 +281,13 @@
       "when": 1778300000000,
       "tag": "0039_oauth_pending_states_link_user_id",
       "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "7",
+      "when": 1778400000000,
+      "tag": "0040_oauth_multi_provider",
+      "breakpoints": true
     }
   ]
 }

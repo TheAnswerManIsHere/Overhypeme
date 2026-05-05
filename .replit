@@ -119,6 +119,18 @@ STRIPE_ACCOUNT_ID_LIVE = "acct_1TGk96PUPouDdcHb"
 [objectStorage]
 defaultBucketID = "replit-objstore-ae743525-77de-4797-8785-8a65fa3c45c3"
 
+[[ports]]
+localPort = 8080
+externalPort = 80
+
+[[ports]]
+localPort = 8081
+externalPort = 8081
+
+[[ports]]
+localPort = 26169
+externalPort = 3000
+
 
 [[workflows.workflow]]
 name = "git-lock-cleaner-tests"

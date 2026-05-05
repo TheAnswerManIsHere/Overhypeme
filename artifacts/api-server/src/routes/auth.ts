@@ -167,6 +167,7 @@ async function upsertUser(
 
   const conflictSet: Record<string, unknown> = {
     oauthProvider: existing[0]?.oauthProvider ?? provider,
+    ...(provider === "google" ? { googleLinked: true } : { appleLinked: true }),
     updatedAt: new Date(),
   };
   if (!existing[0]?.profileImageUrl && profileImageUrl) {
@@ -183,6 +184,8 @@ async function upsertUser(
       lastName: oidcLastName,
       profileImageUrl,
       oauthProvider: provider,
+      googleLinked: provider === "google",
+      appleLinked: provider === "apple",
       isActive: true,
     })
     .onConflictDoUpdate({
@@ -303,14 +306,19 @@ async function handleOAuthCallback(
       return;
     }
 
-    if (targetUser.oauthProvider) {
+    const alreadyLinked = provider === "google" ? targetUser.googleLinked : targetUser.appleLinked;
+    if (alreadyLinked) {
       res.redirect(`${basePath}${returnTo}?link_error=already_linked`);
       return;
     }
 
+    const providerUpdate = provider === "google"
+      ? { googleLinked: true }
+      : { appleLinked: true };
+
     await db
       .update(usersTable)
-      .set({ oauthProvider: provider, updatedAt: new Date() })
+      .set({ ...providerUpdate, oauthProvider: targetUser.oauthProvider ?? provider, updatedAt: new Date() })
       .where(eq(usersTable.id, linkUserId));
 
     res.redirect(`${basePath}${returnTo}?linked=1`);
@@ -510,12 +518,13 @@ router.get("/link/:provider", async (req: Request, res: Response) => {
   }
 
   const [currentUser] = await db
-    .select({ oauthProvider: usersTable.oauthProvider })
+    .select({ googleLinked: usersTable.googleLinked, appleLinked: usersTable.appleLinked })
     .from(usersTable)
     .where(eq(usersTable.id, req.user.id))
     .limit(1);
 
-  if (currentUser?.oauthProvider) {
+  const isAlreadyLinked = provider === "google" ? currentUser?.googleLinked : currentUser?.appleLinked;
+  if (isAlreadyLinked) {
     const basePath = process.env.BASE_PATH || "";
     const returnTo = getSafeReturnTo(req.query.returnTo);
     res.redirect(`${basePath}${returnTo}?link_error=already_linked`);
