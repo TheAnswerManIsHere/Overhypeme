@@ -1,7 +1,7 @@
 import { Router, type IRouter, type Request, type Response, type NextFunction } from "express";
 import * as Sentry from "@sentry/node";
 import { db, usersTable, sessionsTable } from "@workspace/db";
-import { factsTable, commentsTable, adminConfigTable, videoStylesTable, featureFlagsTable, tierFeaturePermissionsTable, userGenerationCostsTable, lifetimeEntitlementsTable, subscriptionsTable, membershipHistoryTable, activityFeedTable, memesTable, userAiImagesTable, routeStatsTable, routeStatEventsTable, emailOutboxTable, stripeWebhookAuditTable } from "@workspace/db/schema";
+import { factsTable, commentsTable, adminConfigTable, videoStylesTable, featureFlagsTable, tierFeaturePermissionsTable, userGenerationCostsTable, lifetimeEntitlementsTable, subscriptionsTable, membershipHistoryTable, activityFeedTable, memesTable, userAiImagesTable, routeStatsTable, routeStatEventsTable, emailOutboxTable, stripeWebhookAuditTable, stripeCheckoutRequestLedgerTable } from "@workspace/db/schema";
 import { eq, desc, count, ilike, sql, and, or, inArray, isNull, asc, gt, gte, sum } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import { requireRole } from "../middlewares/tierMiddleware";
@@ -241,6 +241,7 @@ router.delete("/admin/users/:id", requireAdmin, async (req: Request, res: Respon
 
       // Step 3: Delete records with NOT NULL user_id FKs and no cascade
       currentStage = "membership";
+      await db.delete(stripeCheckoutRequestLedgerTable).where(eq(stripeCheckoutRequestLedgerTable.userId, id));
       await db.delete(subscriptionsTable).where(eq(subscriptionsTable.userId, id));
       await db.delete(lifetimeEntitlementsTable).where(eq(lifetimeEntitlementsTable.userId, id));
       await db.delete(membershipHistoryTable).where(eq(membershipHistoryTable.userId, id));
