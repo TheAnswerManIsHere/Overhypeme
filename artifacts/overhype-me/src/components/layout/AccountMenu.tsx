@@ -11,7 +11,7 @@ import {
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { useIsMobile } from "@/hooks/use-mobile";
 import {
-  Library as LibraryIcon, Settings, Crown, ShieldOff, Eraser, LogOut, User as UserIcon,
+  Library as LibraryIcon, Crown, ShieldOff, Eraser, LogOut, User as UserIcon,
 } from "lucide-react";
 
 interface AccountMenuProps {
@@ -87,8 +87,8 @@ export function AccountMenu({ children }: AccountMenuProps) {
       onSelect: () => navigate("/library"),
     },
     {
-      label: "Settings",
-      icon: <Settings className="w-4 h-4" />,
+      label: "Profile",
+      icon: <UserIcon className="w-4 h-4" />,
       onSelect: () => navigate("/profile"),
     },
   ];
