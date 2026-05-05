@@ -3,7 +3,7 @@ import { Search, User, LogIn } from "lucide-react";
 import { useAuth } from "@workspace/replit-auth-web";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
-import { useState, useRef } from "react";
+import { useState } from "react";
 import { NameTag } from "@/components/NameTag";
 import { AccountMenuAvatarTrigger } from "@/components/layout/AccountMenu";
 import { usePersonName } from "@/hooks/use-person-name";
@@ -12,6 +12,15 @@ import { useGetMyProfile, getGetMyProfileQueryKey } from "@workspace/api-client-
 function dicebearUrl(style: string, seed: string) {
   return `https://api.dicebear.com/9.x/${style}/svg?seed=${encodeURIComponent(seed)}`;
 }
+
+// Module-level tap counter — intentionally outside the component so it survives
+// Navbar remounts. Each page renders its own <Layout><Navbar />, meaning a click
+// that navigates away from the current page will unmount and remount the Navbar,
+// resetting any useRef values back to 0.  A module-level variable persists for
+// the lifetime of the browser session, allowing the triple-click sequence to
+// span the navigation that happens on click #1.
+let _logoTapCount = 0;
+let _logoTapTimer: ReturnType<typeof setTimeout> | null = null;
 
 // Flame mark SVG matching the design
 function FlameMark({ className = "" }: { className?: string }) {
@@ -50,17 +59,14 @@ export function Navbar() {
   const [searchQuery, setSearchQuery] = useState("");
   const [mobileSearchOpen, setMobileSearchOpen] = useState(false);
 
-  const logoTapCount = useRef(0);
-  const logoTapTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-
   function doAdminLogin() {
-    logoTapCount.current = 0;
-    if (logoTapTimer.current) { clearTimeout(logoTapTimer.current); logoTapTimer.current = null; }
+    _logoTapCount = 0;
+    if (_logoTapTimer) { clearTimeout(_logoTapTimer); _logoTapTimer = null; }
     // POST mutates the existing session in-place on the server — no new cookie
     // needs to be stored by the browser. Then refreshUser() re-fetches the
     // auth state so the UI reflects admin without any page navigation.
     void fetch("/api/auth/dev-admin-login", { method: "POST", credentials: "include" })
-      .then((res) => { if (res.ok) void refreshUser(); })
+      .then((res) => { if (res.ok) void refreshUser().then(() => setLocation("/admin")); })
       .catch(() => { /* silently ignore */ });
   }
 
@@ -69,20 +75,20 @@ export function Navbar() {
   // e.preventDefault() here stops the synthetic click from also firing.
   const handleWordmarkTouchEnd = (e: React.TouchEvent) => {
     e.preventDefault();
-    logoTapCount.current += 1;
-    if (logoTapTimer.current) clearTimeout(logoTapTimer.current);
-    if (logoTapCount.current >= 3) { doAdminLogin(); return; }
-    logoTapTimer.current = setTimeout(() => { logoTapCount.current = 0; }, 1500);
+    _logoTapCount += 1;
+    if (_logoTapTimer) clearTimeout(_logoTapTimer);
+    if (_logoTapCount >= 3) { doAdminLogin(); return; }
+    _logoTapTimer = setTimeout(() => { _logoTapCount = 0; }, 1500);
     setLocation("/");
   };
 
   // Desktop: plain click handler (no touch suppression needed).
   const handleLogoClick = (e: React.MouseEvent) => {
     e.preventDefault();
-    logoTapCount.current += 1;
-    if (logoTapTimer.current) clearTimeout(logoTapTimer.current);
-    if (logoTapCount.current >= 3) { doAdminLogin(); return; }
-    logoTapTimer.current = setTimeout(() => { logoTapCount.current = 0; }, 1500);
+    _logoTapCount += 1;
+    if (_logoTapTimer) clearTimeout(_logoTapTimer);
+    if (_logoTapCount >= 3) { doAdminLogin(); return; }
+    _logoTapTimer = setTimeout(() => { _logoTapCount = 0; }, 1500);
     setLocation("/");
   };
 
