@@ -5,7 +5,7 @@ import { Layout } from "@/components/layout/Layout";
 import { FactCard } from "@/components/facts/FactCard";
 import { Button } from "@/components/ui/Button";
 import { SubscriptionPanel } from "@/components/SubscriptionPanel";
-import { ShieldAlert, ShieldCheck, LogOut, Clock, ThumbsUp, FileText, Hash, Star, X, Pencil, Check, Mail, AlertTriangle, CheckCircle, Camera, Loader2, Images, ImageIcon, UserCircle2, Image, Eraser, ChevronLeft, ChevronRight, KeyRound, Eye, EyeOff, Bell, Crown } from "lucide-react";
+import { ShieldAlert, ShieldCheck, ShieldOff, LogOut, Clock, ThumbsUp, FileText, Hash, Star, X, Pencil, Check, Mail, AlertTriangle, CheckCircle, Camera, Loader2, Images, ImageIcon, UserCircle2, Image, Eraser, ChevronLeft, ChevronRight, KeyRound, Eye, EyeOff, Bell, Crown } from "lucide-react";
 import { ImageCard } from "@/components/ui/ImageCard";
 import { Link, useLocation } from "wouter";
 import { useQueryClient, useQuery } from "@tanstack/react-query";
@@ -867,26 +867,14 @@ export default function Profile() {
             >
               {profile.displayName ?? profile.email}
             </h1>
-            <div className="flex items-center gap-8">
-              <div>
-                <div className="font-display font-bold text-xl">{profile.likedFacts.length}</div>
-                <div className="text-[11px] text-muted-foreground uppercase tracking-[0.1em] font-display mt-0.5">Liked</div>
+            {myMemesData && myMemesData.memes.length > 0 && (
+              <div className="flex items-center gap-8">
+                <div>
+                  <div className="font-display font-bold text-xl">{myMemesData.memes.length}</div>
+                  <div className="text-[11px] text-muted-foreground uppercase tracking-[0.1em] font-display mt-0.5">Memes</div>
+                </div>
               </div>
-              <div className="w-px h-8 bg-border" />
-              <div>
-                <div className="font-display font-bold text-xl">{profile.submittedFacts.length}</div>
-                <div className="text-[11px] text-muted-foreground uppercase tracking-[0.1em] font-display mt-0.5">Submitted</div>
-              </div>
-              {myMemesData && (
-                <>
-                  <div className="w-px h-8 bg-border" />
-                  <div>
-                    <div className="font-display font-bold text-xl">{myMemesData.memes.length}</div>
-                    <div className="text-[11px] text-muted-foreground uppercase tracking-[0.1em] font-display mt-0.5">Memes</div>
-                  </div>
-                </>
-              )}
-            </div>
+            )}
           </div>
 
           {/* Actions */}
@@ -901,6 +889,42 @@ export default function Profile() {
                 <Crown className="w-4 h-4" /> Go Legendary
               </Button>
             )}
+            {isRealAdmin && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={async () => {
+                  await fetch(`${BASE_URL}api/auth/toggle-admin-mode`, { method: "POST", credentials: "include" });
+                  window.location.reload();
+                }}
+                className="gap-2 text-muted-foreground hover:text-foreground"
+              >
+                <ShieldOff className="w-4 h-4" /> Exit Admin
+              </Button>
+            )}
+            {isRealAdmin && (!forgetMeConfirm ? (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setForgetMeConfirm(true)}
+                className="gap-2 text-muted-foreground hover:text-destructive"
+              >
+                <Eraser className="w-4 h-4" /> Forget Me
+              </Button>
+            ) : (
+              <div className="border border-destructive/40 bg-destructive/5 rounded-sm p-3 space-y-2">
+                <p className="text-xs text-destructive font-medium flex items-start gap-1.5">
+                  <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                  This logs you out and wipes ALL local data.
+                </p>
+                <div className="flex gap-2">
+                  <Button variant="danger" size="sm" onClick={handleForgetMe} disabled={forgetMeLoading} className="flex-1 gap-1.5">
+                    {forgetMeLoading ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Wiping…</> : <><Eraser className="w-3.5 h-3.5" /> Yes, forget me</>}
+                  </Button>
+                  <Button variant="outline" size="sm" onClick={() => setForgetMeConfirm(false)}>Cancel</Button>
+                </div>
+              </div>
+            ))}
             <Button variant="ghost" size="sm" onClick={logout} className="gap-2 text-muted-foreground hover:text-foreground">
               <LogOut className="w-4 h-4" /> Sign Out
             </Button>
@@ -912,7 +936,7 @@ export default function Profile() {
           <div className="absolute top-0 right-0 w-32 h-32 bg-primary/10 rounded-bl-full -mr-16 -mt-16 pointer-events-none" />
 
           {/* Clickable avatar */}
-          <div className="relative group shrink-0 self-center">
+          <div className="relative group shrink-0 mx-auto">
             <input
               ref={fileInputRef}
               type="file"
@@ -923,15 +947,15 @@ export default function Profile() {
             <button
               onClick={() => fileInputRef.current?.click()}
               disabled={photoUploading}
-              className="relative block rounded-sm focus:outline-none focus:ring-2 focus:ring-primary"
+              className="relative block rounded-full focus:outline-none focus:ring-2 focus:ring-primary"
               title="Upload profile photo"
             >
               <img
                 src={getAvatarUrl()}
                 alt={profile.displayName ?? "User"}
-                className="w-24 h-24 rounded-sm border-2 border-primary object-cover bg-secondary shadow-[0_0_15px_rgba(249,115,22,0.3)]"
+                className="w-24 h-24 rounded-full border-2 border-primary object-cover bg-secondary shadow-[0_0_15px_rgba(249,115,22,0.3)]"
               />
-              <div className="absolute inset-0 bg-black/50 rounded-sm flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+              <div className="absolute inset-0 bg-black/50 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
                 {photoUploading
                   ? <Loader2 className="w-6 h-6 text-white animate-spin" />
                   : <Camera className="w-6 h-6 text-white" />
@@ -1230,6 +1254,20 @@ export default function Profile() {
               </h2>
 
               <div className="flex flex-col gap-3 mb-5">
+                {/* Apple badge */}
+                <div className={`flex items-center gap-3 px-4 py-3 rounded-sm border ${oauthProvider === "apple" ? "border-gray-400/40 bg-gray-400/5" : "border-border bg-secondary/30 opacity-50"}`}>
+                  <svg className="w-5 h-5 shrink-0" viewBox="0 0 24 24" aria-hidden="true" fill="currentColor">
+                    <path d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.8-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M13 3.5c.73-.83 1.94-1.46 2.94-1.5.13 1.17-.34 2.35-1.04 3.19-.69.85-1.83 1.51-2.95 1.42-.15-1.15.41-2.35 1.05-3.11z"/>
+                  </svg>
+                  <div className="flex-1">
+                    <p className="font-bold text-sm text-foreground">Apple</p>
+                    <p className="text-xs text-muted-foreground">{oauthProvider === "apple" ? "Connected — use Apple to sign in" : "Not linked"}</p>
+                  </div>
+                  {oauthProvider === "apple" && (
+                    <span className="text-xs bg-gray-400/20 text-gray-300 border border-gray-400/40 px-2 py-0.5 rounded-sm font-bold">Active</span>
+                  )}
+                </div>
+
                 {/* Google badge */}
                 <div className={`flex items-center gap-3 px-4 py-3 rounded-sm border ${oauthProvider === "google" ? "border-blue-500/40 bg-blue-500/5" : "border-border bg-secondary/30 opacity-50"}`}>
                   <svg className="w-5 h-5 shrink-0" viewBox="0 0 24 24" aria-hidden="true">
