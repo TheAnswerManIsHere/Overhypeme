@@ -248,6 +248,65 @@ describe("POST /api/callback/apple", () => {
     }
   });
 
+  it("returning user: redirects to returnTo (not /onboard), no 500, session cookie set", async () => {
+    // Pre-insert the user so upsertUser finds an existing row, making
+    // isNewUser = false and taking the straight-to-returnTo branch.
+    const testEmail = `${USER_PREFIX}${randomUUID()}@test.local`;
+    await db.insert(usersTable).values({
+      email: testEmail,
+      oauthProvider: "apple",
+      isActive: true,
+    });
+
+    const restoreEnv = applyFakeAppleEnv();
+    _setClientDiscoveryForTest(makeFakeDiscovery());
+    _setAuthCodeGrantForTest(async () => makeFakeTokens(testEmail));
+
+    const returnTo = "/dashboard";
+    const state = randomUUID();
+    _storePendingStateForTest(state, {
+      codeVerifier: "test-verifier-returning",
+      nonce:        "test-nonce-returning",
+      returnTo,
+      isPopup:      false,
+    });
+
+    try {
+      const app = makeApp();
+      const res = await request(app)
+        .post("/api/callback/apple")
+        .send({ code: "fake-apple-code-returning", state });
+
+      assert.notEqual(
+        res.status, 500,
+        `Expected no 500, got ${res.status}: ${JSON.stringify(res.body)}`,
+      );
+      assert.equal(res.status, 302, `Expected 302 redirect, got ${res.status}`);
+
+      const basePath = process.env.BASE_PATH ?? "";
+      const expectedLocation = basePath + returnTo;
+      const location = res.headers["location"] ?? "";
+      assert.equal(
+        location, expectedLocation,
+        `Expected redirect to "${expectedLocation}", got: "${location}"`,
+      );
+      assert.ok(
+        !location.includes("/onboard"),
+        `Returning user must NOT be sent to /onboard, got: ${location}`,
+      );
+
+      const setCookie = res.headers["set-cookie"];
+      assert.ok(
+        Array.isArray(setCookie)
+          ? setCookie.some((c: string) => c.startsWith("sid="))
+          : typeof setCookie === "string" && setCookie.startsWith("sid="),
+        "Response must set a 'sid' session cookie",
+      );
+    } finally {
+      restoreEnv();
+    }
+  });
+
   it("renders popup HTML without a 500 when isPopup is true", async () => {
     const restoreEnv = applyFakeAppleEnv();
     _setClientDiscoveryForTest(makeFakeDiscovery());
