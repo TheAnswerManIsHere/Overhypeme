@@ -34,7 +34,7 @@ const SRC_DIR = path.join(apiServerRoot, "src");
 const ALLOWED = [
   {
     file: "src/lib/email.ts",
-    line: 158,
+    line: 165,
     reason:
       "Last-resort console.error inside the Resend 401 fallback path: the " +
       "logger pipeline itself may be the failing component, and we still " +
@@ -43,7 +43,7 @@ const ALLOWED = [
   },
   {
     file: "src/lib/email.ts",
-    line: 171,
+    line: 178,
     reason:
       "Same Resend permanent-failure path as above — duplicated to cover " +
       "the catch-all final delivery attempt.",
