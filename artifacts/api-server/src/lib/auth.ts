@@ -46,6 +46,23 @@ export async function getGoogleConfig(): Promise<client.Configuration> {
 let appleConfig: client.Configuration | null = null;
 let appleSecretExpiresAt = 0;
 
+// ── Test seam: replaceable discovery function ─────────────────────────────────
+// Allows tests to stub the OIDC discovery HTTP call while still executing the
+// real generateAppleClientSecret() / createPrivateKey() path.  Convention
+// mirrors lib/email.ts → _resetResendAuthDisabledForTests().
+type DiscoveryFn = typeof client.discovery;
+let _discoveryFn: DiscoveryFn = client.discovery;
+export function _setClientDiscoveryForTest(fn: DiscoveryFn): void {
+  _discoveryFn = fn;
+}
+export function _resetClientDiscoveryForTest(): void {
+  _discoveryFn = client.discovery;
+}
+export function _resetAppleConfigCacheForTest(): void {
+  appleConfig = null;
+  appleSecretExpiresAt = 0;
+}
+
 export function generateAppleClientSecret(): string {
   const now = Math.floor(Date.now() / 1000);
   const exp = now + 15897600; // 6 months
@@ -80,7 +97,7 @@ export async function getAppleConfig(): Promise<client.Configuration> {
   const now = Math.floor(Date.now() / 1000);
   if (!appleConfig || now >= appleSecretExpiresAt - 86400) {
     const clientSecret = generateAppleClientSecret();
-    appleConfig = await client.discovery(
+    appleConfig = await _discoveryFn(
       new URL("https://appleid.apple.com"),
       process.env.APPLE_CLIENT_ID!,
       clientSecret,

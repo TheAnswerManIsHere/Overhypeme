@@ -23,6 +23,19 @@ import {
 // route ↔ middleware import cycle.
 export { isAdminById };
 
+// ── Test seams ────────────────────────────────────────────────────────────────
+// These are only called from tests — never in production paths.
+// Convention mirrors lib/email.ts → _resetResendAuthDisabledForTests().
+
+type AuthCodeGrantFn = typeof oidc.authorizationCodeGrant;
+let _oidcAuthCodeGrant: AuthCodeGrantFn = oidc.authorizationCodeGrant;
+export function _setAuthCodeGrantForTest(fn: AuthCodeGrantFn): void {
+  _oidcAuthCodeGrant = fn;
+}
+export function _resetAuthCodeGrantForTest(): void {
+  _oidcAuthCodeGrant = oidc.authorizationCodeGrant;
+}
+
 // ── Pending OAuth state ───────────────────────────────────────────────────────
 // We store PKCE state server-side (keyed by the OAuth `state` parameter) rather
 // than in cookies. In Replit's dev environment the API and web servers run on
@@ -46,6 +59,8 @@ const pendingStates = new Map<string, PendingOAuthState>();
 function storePendingState(state: string, data: Omit<PendingOAuthState, "expiresAt">) {
   pendingStates.set(state, { ...data, expiresAt: Date.now() + PENDING_TTL });
 }
+
+export const _storePendingStateForTest = storePendingState;
 
 function consumePendingState(state: string): PendingOAuthState | null {
   const entry = pendingStates.get(state);
@@ -189,7 +204,7 @@ async function handleOAuthCallback(
 
   let tokens: oidc.TokenEndpointResponse & oidc.TokenEndpointResponseHelpers;
   try {
-    tokens = await oidc.authorizationCodeGrant(config, currentUrl, {
+    tokens = await _oidcAuthCodeGrant(config, currentUrl, {
       pkceCodeVerifier: codeVerifier,
       expectedNonce: nonce,
       expectedState: state,
