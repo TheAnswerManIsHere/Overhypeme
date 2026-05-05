@@ -1627,6 +1627,37 @@ router.get("/admin/stripe/summary", requireAdmin, async (_req: Request, res: Res
   }
 });
 
+// POST /admin/stripe/full-sync — trigger a full backfill of every tracked
+// resource (products, prices, plans, customers, subscriptions, invoices,
+// charges, payment_methods). Shares the same in-process lock as the scoped
+// sync — a concurrent scoped run returns 409 alreadyRunning.
+//
+// This is the same backfill that runs automatically after a live/test mode
+// toggle, exposed here so admins can run it on demand without toggling modes.
+router.post("/admin/stripe/full-sync", requireAdminOrApiKey, async (_req: Request, res: Response) => {
+  try {
+    const { getStripeSync } = await import("../lib/stripeClient");
+    const { runFullSync } = await import("../lib/stripeSyncRunner");
+    const sync = await getStripeSync();
+    const result = runFullSync(sync);
+    if (result.alreadyRunning) {
+      res.status(409).json({
+        success: false,
+        alreadyRunning: true,
+        message: "Sync already in progress — current run will finish shortly.",
+      });
+      return;
+    }
+    res.json({
+      success: true,
+      message: "Full sync started — all resources will be refreshed.",
+    });
+  } catch (err) {
+    logger.error({ err }, "[admin] POST /admin/stripe/full-sync error");
+    res.status(500).json({ error: "Failed to start full sync" });
+  }
+});
+
 // POST /admin/stripe/sync — trigger a scoped resync of products/prices/plans.
 //
 // Scoped intentionally: customers/subscriptions/invoices/etc. are kept fresh
@@ -1638,7 +1669,7 @@ router.get("/admin/stripe/summary", requireAdmin, async (_req: Request, res: Res
 //
 // If a sync is already running, this returns HTTP 409 + alreadyRunning:true
 // rather than starting a duplicate concurrent sync.
-router.post("/admin/stripe/sync", requireAdmin, async (_req: Request, res: Response) => {
+router.post("/admin/stripe/sync", requireAdminOrApiKey, async (_req: Request, res: Response) => {
   try {
     const { getStripeSync } = await import("../lib/stripeClient");
     const { runScopedSync } = await import("../lib/stripeSyncRunner");
