@@ -71,7 +71,7 @@ export const UserAvatar = forwardRef<HTMLElement, UserAvatarProps>(function User
       {showCrown && (
         <span
           aria-hidden
-          className="absolute -bottom-0.5 -right-0.5 inline-flex items-center justify-center rounded-full bg-gradient-to-br from-amber-300 via-yellow-400 to-amber-500 p-0.5 shadow-[0_0_6px_rgba(251,191,36,0.55)] ring-1 ring-background"
+          className="absolute -bottom-2 -right-2 inline-flex items-center justify-center rounded-full bg-gradient-to-br from-amber-300 via-yellow-400 to-amber-500 p-0.5 shadow-[0_0_6px_rgba(251,191,36,0.55)] ring-1 ring-background"
         >
           <Crown className={`${crownSizeClasses[size]} text-amber-900`} fill="currentColor" />
         </span>
