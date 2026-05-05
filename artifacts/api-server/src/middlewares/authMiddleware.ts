@@ -8,6 +8,7 @@ import {
   getSessionId,
   getSession,
   isAdminById,
+  isAdminByEmail,
 } from "../lib/auth";
 import { deriveUserRole } from "../lib/userRole";
 
@@ -93,7 +94,7 @@ export async function authMiddleware(
     return;
   }
 
-  const isRealAdmin = !!(dbUser.isAdmin || isAdminById(dbUser.id));
+  const isRealAdmin = !!(dbUser.isAdmin || isAdminById(dbUser.id) || isAdminByEmail(dbUser.email));
   // Real admins can toggle "admin mode" off to view the site as a regular
   // user. The session-scoped `adminModeDisabled` flag is purely a UI affordance
   // — backend authorization (e.g. requireAdmin) should consult `isRealAdmin`.
