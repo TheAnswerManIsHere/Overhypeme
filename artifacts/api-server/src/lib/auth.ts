@@ -66,6 +66,18 @@ export function _resetGoogleConfigCacheForTest(): void {
   googleConfig = null;
 }
 
+function normalizeApplePrivateKeyPem(input: string): string {
+  let s = input.replace(/\\n/g, "\n").replace(/\r\n?/g, "\n").trim();
+  if (s.includes("\n")) return s;
+  const m = s.match(
+    /^(-----BEGIN [A-Z0-9 ]+-----)\s+([A-Za-z0-9+/=\s]+?)\s+(-----END [A-Z0-9 ]+-----)$/,
+  );
+  if (!m) return s;
+  const body = m[2].replace(/\s+/g, "");
+  const lines = body.match(/.{1,64}/g) || [body];
+  return [m[1], ...lines, m[3]].join("\n") + "\n";
+}
+
 export function generateAppleClientSecret(): string {
   const now = Math.floor(Date.now() / 1000);
   const exp = now + 15897600; // 6 months
@@ -85,7 +97,7 @@ export function generateAppleClientSecret(): string {
   ).toString("base64url");
 
   const signingInput = `${header}.${payload}`;
-  const rawKey = process.env.APPLE_PRIVATE_KEY!.replace(/\\n/g, "\n");
+  const rawKey = normalizeApplePrivateKeyPem(process.env.APPLE_PRIVATE_KEY!);
   const privateKey = crypto.createPrivateKey({ key: rawKey, format: "pem" });
 
   const sig = crypto
