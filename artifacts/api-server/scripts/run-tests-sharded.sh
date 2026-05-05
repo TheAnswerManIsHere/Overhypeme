@@ -45,7 +45,8 @@ common_args=(
 
 pids=()
 for ((k = 1; k <= shards; k++)); do
-  TEST_DB_ALLOW_EXIT_ON_IDLE=1 node "${common_args[@]}" --test-shard="${k}/${shards}" \
+  TEST_DB_ALLOW_EXIT_ON_IDLE=1 RESEND_API_KEY_DEV="" RESEND_API_KEY_PROD="" RESEND_API_KEY="re_test_dummy" \
+    node "${common_args[@]}" --test-shard="${k}/${shards}" \
     'src/__tests__/**/*.test.ts' &
   pids+=("$!")
 done

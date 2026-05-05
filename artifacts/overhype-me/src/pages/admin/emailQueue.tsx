@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, Component, type ReactNode, type ErrorInfo } from "react";
 import { AdminLayout } from "@/components/admin/AdminLayout";
 import { ResponsiveTable, type ResponsiveColumn } from "@/components/admin/ResponsiveTable";
 import { Button } from "@/components/ui/Button";
@@ -14,6 +14,106 @@ import {
   Trash2,
   X,
 } from "lucide-react";
+
+interface ErrorBoundaryState { hasError: boolean; message: string }
+
+class EmailQueueErrorBoundary extends Component<{ children: ReactNode }, ErrorBoundaryState> {
+  constructor(props: { children: ReactNode }) {
+    super(props);
+    this.state = { hasError: false, message: "" };
+  }
+  static getDerivedStateFromError(error: unknown): ErrorBoundaryState {
+    return {
+      hasError: true,
+      message: error instanceof Error ? error.message : String(error),
+    };
+  }
+  componentDidCatch(error: unknown, info: ErrorInfo) {
+    console.error("[EmailQueue] Render error:", error, info.componentStack);
+  }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="p-6 rounded-lg bg-destructive/10 border border-destructive/30 text-destructive flex flex-col gap-3">
+          <div className="flex items-center gap-2">
+            <AlertTriangle className="w-5 h-5 shrink-0" />
+            <span className="font-semibold text-sm">Email queue failed to render</span>
+          </div>
+          <p className="text-xs text-muted-foreground">{this.state.message}</p>
+          <p className="text-xs text-muted-foreground">
+            Try clearing accumulated rows via the API:{" "}
+            <code className="font-mono bg-muted px-1 py-0.5 rounded">
+              DELETE FROM email_outbox WHERE status IN ('abandoned','pending')
+            </code>
+          </p>
+          <button
+            className="self-start text-xs underline"
+            onClick={() => this.setState({ hasError: false, message: "" })}
+          >
+            Retry
+          </button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+interface ModalErrorBoundaryProps { children: ReactNode; onClose: () => void }
+
+class ModalErrorBoundary extends Component<ModalErrorBoundaryProps, ErrorBoundaryState> {
+  constructor(props: ModalErrorBoundaryProps) {
+    super(props);
+    this.state = { hasError: false, message: "" };
+  }
+  static getDerivedStateFromError(error: unknown): ErrorBoundaryState {
+    return {
+      hasError: true,
+      message: error instanceof Error ? error.message : String(error),
+    };
+  }
+  componentDidCatch(error: unknown, info: ErrorInfo) {
+    console.error("[EmailQueue] Modal render error:", error, info.componentStack);
+  }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div
+          className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4"
+          onClick={this.props.onClose}
+        >
+          <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" />
+          <div
+            className="relative z-10 w-full max-w-2xl bg-card border border-border rounded-xl shadow-2xl p-6 flex flex-col gap-3"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2 text-destructive">
+                <AlertTriangle className="w-5 h-5 shrink-0" />
+                <span className="font-semibold text-sm">Email detail failed to render</span>
+              </div>
+              <button
+                onClick={this.props.onClose}
+                className="text-muted-foreground hover:text-foreground rounded p-0.5"
+                aria-label="Close"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <p className="text-xs text-muted-foreground">{this.state.message}</p>
+            <button
+              className="self-start text-xs underline text-muted-foreground"
+              onClick={this.props.onClose}
+            >
+              Close
+            </button>
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 type OutboxStatus = "pending" | "sending" | "delivered" | "abandoned";
 
@@ -422,6 +522,7 @@ export default function AdminEmailQueue() {
 
   return (
     <AdminLayout title="Email Queue">
+      <EmailQueueErrorBoundary>
       <div className="space-y-4">
         <div className="bg-card border border-border rounded-lg p-4 flex flex-wrap items-center gap-2">
           {STATUS_OPTIONS.map((opt) => {
@@ -698,14 +799,17 @@ export default function AdminEmailQueue() {
       </div>
 
       {selectedRow && (
-        <EmailDetailModal
-          row={selectedRow}
-          onClose={() => setSelectedRow(null)}
-          onRetry={handleRetry}
-          retrying={retrying.has(selectedRow.id)}
-          retryError={retryErrors[selectedRow.id] ?? null}
-        />
+        <ModalErrorBoundary onClose={() => setSelectedRow(null)}>
+          <EmailDetailModal
+            row={selectedRow}
+            onClose={() => setSelectedRow(null)}
+            onRetry={handleRetry}
+            retrying={retrying.has(selectedRow.id)}
+            retryError={retryErrors[selectedRow.id] ?? null}
+          />
+        </ModalErrorBoundary>
       )}
+      </EmailQueueErrorBoundary>
     </AdminLayout>
   );
 }

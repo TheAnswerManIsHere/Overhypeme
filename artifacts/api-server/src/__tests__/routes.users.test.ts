@@ -27,6 +27,7 @@ import {
   uploadImageMetadataTable,
   userAiImagesTable,
   userGenerationCostsTable,
+  emailOutboxTable,
 } from "@workspace/db/schema";
 import { eq, like } from "drizzle-orm";
 
@@ -78,6 +79,10 @@ async function deleteFactsBy(userId: string) {
   await db.delete(factsTable).where(eq(factsTable.submittedById, userId));
 }
 
+async function cleanupOutbox() {
+  await db.delete(emailOutboxTable).where(like(emailOutboxTable.to, `${USER_PREFIX}%`));
+}
+
 async function cleanupUsers() {
   // Find every test user and clear their dependent rows that don't cascade,
   // then delete the users themselves.
@@ -96,8 +101,8 @@ async function cleanupUsers() {
   await db.delete(usersTable).where(like(usersTable.id, `${USER_PREFIX}%`));
 }
 
-before(cleanupUsers);
-after(cleanupUsers);
+before(async () => { await cleanupOutbox(); await cleanupUsers(); });
+after(async () => { await cleanupOutbox(); await cleanupUsers(); });
 
 describe("GET /users/me", () => {
 

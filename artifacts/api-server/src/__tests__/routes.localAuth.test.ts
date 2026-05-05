@@ -25,6 +25,7 @@ import {
   emailVerificationTokensTable,
   sessionsTable,
   rateLimitCountersTable,
+  emailOutboxTable,
 } from "@workspace/db/schema";
 import { eq, like, sql } from "drizzle-orm";
 
@@ -84,6 +85,10 @@ async function cleanupRateLimitCounters() {
     .where(sql`${rateLimitCountersTable.keyRaw} LIKE 'rl|auth.resend-verification|%'`);
 }
 
+async function cleanupOutbox() {
+  await db.delete(emailOutboxTable).where(like(emailOutboxTable.to, `${USER_PREFIX}%`));
+}
+
 async function cleanupUsers() {
   // Clean dependent rows first, then users.
   await db
@@ -98,10 +103,12 @@ async function cleanupUsers() {
 
 before(async () => {
   await cleanupRateLimitCounters();
+  await cleanupOutbox();
   await cleanupUsers();
 });
 after(async () => {
   await cleanupRateLimitCounters();
+  await cleanupOutbox();
   await cleanupUsers();
 });
 

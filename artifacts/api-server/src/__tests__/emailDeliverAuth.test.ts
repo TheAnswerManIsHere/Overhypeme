@@ -25,6 +25,8 @@
 import { describe, it, before, beforeEach, afterEach, mock } from "node:test";
 import assert from "node:assert/strict";
 
+process.env.RESEND_API_KEY = process.env.RESEND_API_KEY ?? "re_test_dummy";
+
 import { Resend } from "resend";
 
 import {
@@ -44,11 +46,9 @@ describe("deliverFromOutbox — Resend auth-failure shut-off", () => {
   before(() => {
     // The deliverFromOutbox path requires a non-null module-private resend
     // client, which is only constructed when RESEND_API_KEY is set at the
-    // moment email.ts is first imported. Every other api-server test file
-    // sets this same dummy key, so under the sharded test runner the key is
-    // already present by the time this file loads — but assert it explicitly
-    // so a future change to the test runner surfaces a clear failure rather
-    // than a confusing TypeError when `resend!.emails.send` is called.
+    // moment email.ts is first imported. The dummy key is now self-set at the
+    // top of this file (process.env.RESEND_API_KEY ??= "re_test_dummy"), so
+    // this suite is safe to run in any shard order.
     assert.equal(
       isEnabled(),
       true,
