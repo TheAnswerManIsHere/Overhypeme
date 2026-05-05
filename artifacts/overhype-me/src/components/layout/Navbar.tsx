@@ -1,11 +1,10 @@
 import { Link, useLocation } from "wouter";
-import { Search, Plus, User, LogIn, Star, Crown, ShieldCheck, Share2 } from "lucide-react";
+import { Search, User, LogIn } from "lucide-react";
 import { useAuth } from "@workspace/replit-auth-web";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { useState, useRef } from "react";
 import { NameTag } from "@/components/NameTag";
-import { ShareModal } from "@/components/ShareModal";
 import { AccountMenu, AccountMenuAvatarTrigger } from "@/components/layout/AccountMenu";
 import { usePersonName } from "@/hooks/use-person-name";
 import { useGetMyProfile, getGetMyProfileQueryKey } from "@workspace/api-client-react";
@@ -24,13 +23,13 @@ function FlameMark({ className = "" }: { className?: string }) {
 }
 
 export function Navbar() {
-  const { user, isAuthenticated, isLoading: authLoading, role, realRole, refreshUser } = useAuth();
+  const { user, isAuthenticated, isLoading: authLoading, role, refreshUser } = useAuth();
   const { name } = usePersonName();
   const { data: profile } = useGetMyProfile({
     query: { queryKey: getGetMyProfileQueryKey(), enabled: isAuthenticated, staleTime: 60_000 }
   });
   // Cold visitor on mobile = nobody is logged in AND we don't yet have a stored
-  // name.  In that state we collapse the left avatar/login chip so the top bar
+  // name.  In that state we collapse the avatar/login chip so the top bar
   // is just the wordmark + search icon — the inline name input on Home does
   // the onboarding work instead of a competing nav button.
   const isColdMobile = !isAuthenticated && !authLoading && !name;
@@ -50,7 +49,6 @@ export function Navbar() {
   const [, setLocation] = useLocation();
   const [searchQuery, setSearchQuery] = useState("");
   const [mobileSearchOpen, setMobileSearchOpen] = useState(false);
-  const [shareOpen, setShareOpen] = useState(false);
 
   const logoTapCount = useRef(0);
   const logoTapTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -96,37 +94,19 @@ export function Navbar() {
     }
   };
 
-  const isRealAdmin = realRole === "admin";
-  const isAdminModeOn = role === "admin";
-
   const accountFallbackInitial = user?.firstName?.[0]?.toUpperCase() ?? user?.email?.[0]?.toUpperCase();
 
   return (
     <>
       {/* ── MOBILE top bar ───────────────────────────────────────────── */}
       <header className="md:hidden sticky top-0 z-50 w-full bg-background/95 backdrop-blur border-b border-border">
-        <div className="flex items-center h-14 px-4">
-          {/* Left: avatar / profile link.  Suppressed entirely for cold visitors
-              so the top bar is wordmark-first; the inline name input on Home
-              owns the onboarding moment. */}
-          <div className="w-10 flex items-center">
-            {isAuthenticated && !authLoading ? (
-              <AccountMenu>
-                <AccountMenuAvatarTrigger avatarUrl={navAvatarUrl} fallbackInitial={accountFallbackInitial} />
-              </AccountMenu>
-            ) : !isColdMobile ? (
-              <button onClick={() => setLocation("/login")} className="w-8 h-8 rounded-full bg-secondary border border-border flex items-center justify-center text-muted-foreground">
-                <User className="w-4 h-4" />
-              </button>
-            ) : null}
-          </div>
-
-          {/* Center: wordmark — touch handler for reliable triple-tap on mobile */}
+        <div className="flex items-center h-14 px-4 gap-2">
+          {/* Left: wordmark — touch handler for reliable triple-tap on mobile */}
           <button
             type="button"
             onTouchEnd={handleWordmarkTouchEnd}
             onClick={handleLogoClick}
-            className="flex-1 flex items-center justify-center gap-1.5"
+            className="flex-1 flex items-center justify-start gap-1.5"
             style={{ touchAction: "manipulation" }}
           >
             <FlameMark className="text-primary" />
@@ -135,8 +115,9 @@ export function Navbar() {
             </span>
           </button>
 
-          {/* Right: search icon */}
-          <div className="w-10 flex items-center justify-end">
+          {/* Right cluster: search icon, then avatar — mirrors desktop's
+              "avatar lives in the top-right corner" rule. */}
+          <div className="flex items-center gap-2">
             <button
               onClick={() => setMobileSearchOpen(v => !v)}
               className="w-8 h-8 rounded-full flex items-center justify-center text-muted-foreground hover:text-foreground transition-colors"
@@ -144,13 +125,20 @@ export function Navbar() {
             >
               <Search className="w-5 h-5" />
             </button>
+            {isAuthenticated && !authLoading ? (
+              <AccountMenu>
+                <AccountMenuAvatarTrigger avatarUrl={navAvatarUrl} fallbackInitial={accountFallbackInitial} />
+              </AccountMenu>
+            ) : !isColdMobile ? (
+              <button onClick={() => setLocation("/login")} className="w-8 h-8 rounded-full bg-secondary border border-border flex items-center justify-center text-muted-foreground" aria-label="Sign in">
+                <User className="w-4 h-4" />
+              </button>
+            ) : null}
           </div>
         </div>
 
-        {/* Name tag row — visible on mobile in BOTH auth states. For unauth visitors
-            this is the only entry point to set their name; for signed-in users
-            tapping it routes to /profile. The chip is centered so it reads as the
-            primary identity input on the page rather than competing with nav. */}
+        {/* Identity row — full-width, prominent. THE personalization affordance,
+            so it earns its visual weight underneath the top bar. */}
         {!isColdMobile && (
           <div className="px-4 pb-2 flex items-center justify-center">
             <NameTag />
@@ -174,7 +162,7 @@ export function Navbar() {
         )}
       </header>
 
-      {/* ── DESKTOP top bar (unchanged structure, refined look) ──────── */}
+      {/* ── DESKTOP top bar ──────────────────────────────────────────── */}
       <nav className="hidden md:block sticky top-0 z-50 w-full bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80 border-b border-border shadow-lg">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center h-16">
@@ -188,7 +176,7 @@ export function Navbar() {
               />
             </Link>
 
-            {/* Name tag */}
+            {/* Identity selector */}
             <div className="flex items-center ml-3 shrink-0">
               <NameTag />
             </div>
@@ -206,41 +194,14 @@ export function Navbar() {
               </form>
             </div>
 
-            {/* Desktop actions */}
+            {/* Avatar / login — chrome contains navigation only; SHARE / SUBMIT
+                / LEGENDARY no longer live here (Invite friends + Membership
+                are inside the avatar dropdown; Submit lives on /library). */}
             <div className="flex items-center gap-3">
-              <Button
-                variant="primary"
-                size="sm"
-                onClick={() => setShareOpen(true)}
-                className="gap-2 whitespace-nowrap font-bold uppercase tracking-wider shadow-[0_0_18px_rgba(249,115,22,0.4)] hover:shadow-[0_0_24px_rgba(249,115,22,0.7)] transition-shadow"
-              >
-                <Share2 className="w-4 h-4" /> SHARE
-              </Button>
-              <Button variant="outline" size="sm" onClick={() => setLocation('/submit')} className="hidden lg:flex gap-2 whitespace-nowrap">
-                <Plus className="w-4 h-4" /> SUBMIT
-              </Button>
-              {isLegendary ? (
-                <div className="hidden lg:flex items-center gap-1.5 px-3 py-1.5 bg-yellow-500/15 border border-yellow-500/40 rounded-full">
-                  <Crown className="w-4 h-4 text-yellow-500" />
-                  <span className="text-xs font-display font-bold uppercase tracking-wider text-yellow-500">Legendary</span>
-                </div>
-              ) : (
-                <Button variant="ghost" size="sm" onClick={() => setLocation('/pricing')} className="hidden lg:flex gap-2 whitespace-nowrap text-primary hover:text-primary">
-                  <Star className="w-4 h-4" /> LEGENDARY
-                </Button>
-              )}
-
               {!authLoading && (isAuthenticated ? (
-                <div className="flex items-center gap-2">
-                  {isRealAdmin && isAdminModeOn && (
-                    <Button variant="ghost" size="icon" onClick={() => setLocation('/admin')} title="Admin Panel">
-                      <ShieldCheck className="w-5 h-5 text-primary" />
-                    </Button>
-                  )}
-                  <AccountMenu>
-                    <AccountMenuAvatarTrigger avatarUrl={navAvatarUrl} fallbackInitial={accountFallbackInitial} />
-                  </AccountMenu>
-                </div>
+                <AccountMenu>
+                  <AccountMenuAvatarTrigger avatarUrl={navAvatarUrl} fallbackInitial={accountFallbackInitial} />
+                </AccountMenu>
               ) : (
                 <Button variant="primary" size="sm" onClick={() => setLocation('/login')} className="gap-2 whitespace-nowrap">
                   <LogIn className="w-4 h-4" /> LOGIN
@@ -250,8 +211,6 @@ export function Navbar() {
           </div>
         </div>
       </nav>
-
-      <ShareModal open={shareOpen} onClose={() => setShareOpen(false)} />
     </>
   );
 }
