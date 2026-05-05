@@ -50,7 +50,7 @@ export default function VerifyEmail() {
     <Layout>
       <div className="min-h-[80vh] flex items-center justify-center px-4">
         <div className="w-full max-w-md">
-          <div className="bg-card border-2 border-border rounded-sm p-10 shadow-lg text-center">
+          <div className="bg-card border border-primary/25 rounded-2xl p-10 text-center shadow-[0_0_40px_rgba(249,115,22,0.12),inset_0_1px_0_rgba(255,255,255,0.06)]">
             {status === "loading" && (
               <>
                 <Loader2 className="w-14 h-14 text-primary animate-spin mx-auto mb-5" />

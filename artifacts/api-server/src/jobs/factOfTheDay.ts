@@ -7,7 +7,7 @@ import { sendEmail, buildEmailShell, ctaButton, divider } from "../lib/email";
 import { getSiteBaseUrl } from "../lib/siteUrl";
 import { renderPersonalized } from "../lib/renderCanonical";
 
-function buildFactOfTheDayEmail(
+export function buildFactOfTheDayEmail(
   factText: string,
   factId: number,
   manageUrl: string,
@@ -30,20 +30,20 @@ function buildFactOfTheDayEmail(
 
   const body = `
 <h1 style="margin:0 0 6px;font-family:'Oswald','Impact','Arial Narrow',sans-serif;font-size:28px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:#ffffff;line-height:1.2;mso-font-alt:'Impact';">Today's Fact.</h1>
-<p style="margin:0 0 28px;font-size:13px;color:#555555;text-transform:uppercase;letter-spacing:2px;font-family:'Inter',-apple-system,sans-serif;">Hand-picked from the database of greatness</p>
+<p style="margin:0 0 28px;font-size:13px;color:#888888;text-transform:uppercase;letter-spacing:2px;font-family:'Inter',-apple-system,sans-serif;">Hand-picked from the database of greatness</p>
 <table cellpadding="0" cellspacing="0" border="0" width="100%" style="margin:0 0 32px;">
   <tr>
-    <td style="border-left:4px solid #FF3C00;padding:16px 20px;background:#1c1c1e;">
+    <td style="border-left:4px solid #FF6600;padding:16px 20px;background:#1f1f22;border-radius:10px;">
       <p style="margin:0;font-size:17px;color:#dddddd;line-height:1.75;font-style:italic;font-family:'Inter',-apple-system,sans-serif;">"${factText}"</p>
     </td>
   </tr>
 </table>
 ${ctaButton(factUrl, "View the Full Fact")}
 ${divider()}
-<p style="margin:0;font-size:12px;color:#555555;line-height:1.7;font-family:'Inter',-apple-system,sans-serif;">Keep&nbsp;submitting. Every legend needs&nbsp;material.</p>`;
+<p style="margin:0;font-size:12px;color:#888888;line-height:1.7;font-family:'Inter',-apple-system,sans-serif;">Keep&nbsp;submitting. Every legend needs&nbsp;material.</p>`;
 
   const footerNote = `You&#39;re receiving this because you&#39;re a Legendary member — good taste.&nbsp;
-<a href="${manageUrl}" style="color:#FF3C00;text-decoration:none;">Manage&nbsp;subscription</a>`;
+<a href="${manageUrl}" style="color:#FF6600;text-decoration:none;">Manage&nbsp;subscription</a>`;
 
   const html = buildEmailShell(body, footerNote);
 

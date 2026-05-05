@@ -8,7 +8,7 @@
  * claims pending rows, calls Resend, and retries on failure using exponential
  * backoff (5m → 30m → 2h → 8h). After maxAttempts the row is marked abandoned.
  *
- * Brand: dark bg (#0d0d0e), danger orange (#FF3C00), Oswald + Inter typography.
+ * Brand: dark bg (#0d0d0e), danger orange (#FF6600), Oswald + Inter typography.
  */
 import { Resend } from "resend";
 import { eq, and, or, lte, lt, asc, not, like, isNull } from "drizzle-orm";
@@ -365,6 +365,26 @@ export function runEmailOutboxWorker(intervalMs = 30_000): NodeJS.Timeout {
 }
 
 /**
+ * Brand palette for transactional / notification emails. Single source of
+ * truth so every template inherits the same warm amber-orange (matches the
+ * site's `--primary: hsl(24 100% 50%)`) and the same surface tones for the
+ * card, callout blocks, dividers and footer text.
+ */
+export const EMAIL_COLORS = {
+  primary: "#FF6600",
+  page: "#0d0d0e",
+  card: "#161618",
+  cardBorder: "#2a2a2a",
+  callout: "#1f1f22",
+  calloutAccentMuted: "#3a3a3a",
+  divider: "#2a2a2a",
+  body: "#aaaaaa",
+  label: "#888888",
+  footer: "#888888",
+  heading: "#ffffff",
+} as const;
+
+/**
  * Wraps email body content in the Overhype.me branded shell.
  *
  * Typography: Oswald (headers) + Inter (body) loaded via Google Fonts.
@@ -387,19 +407,19 @@ export function buildEmailShell(bodyContent: string, footerNote: string): string
   </style>
   <!--<![endif]-->
 </head>
-<body style="margin:0;padding:0;background-color:#0d0d0e;font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;">
-  <table width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="#0d0d0e">
+<body style="margin:0;padding:0;background-color:${EMAIL_COLORS.page};font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="${EMAIL_COLORS.page}">
     <tr>
       <td align="center" style="padding:48px 16px 40px;">
 
         <!-- ═══════════════════════════════════════════
-             STUB LOGO
-             Replace with a hosted <img> when ready.
+             STUB LOGO — single-color wordmark on rounded
+             orange tile. Replace with a hosted <img> when ready.
              ═══════════════════════════════════════════ -->
         <table cellpadding="0" cellspacing="0" border="0" style="margin-bottom:28px;">
           <tr>
-            <td bgcolor="#FF3C00" style="padding:8px 16px 10px;">
-              <span style="font-family:'Oswald','Impact','Arial Narrow',sans-serif;font-size:22px;font-weight:700;letter-spacing:3px;text-transform:uppercase;color:#ffffff;mso-font-alt:'Impact';">OVERHYPE</span><span style="font-family:'Oswald','Impact','Arial Narrow',sans-serif;font-size:22px;font-weight:700;letter-spacing:3px;text-transform:uppercase;color:#000000;mso-font-alt:'Impact';">.ME</span>
+            <td bgcolor="${EMAIL_COLORS.primary}" style="padding:10px 22px 12px;border-radius:10px;">
+              <span style="font-family:'Oswald','Impact','Arial Narrow',sans-serif;font-size:22px;font-weight:700;letter-spacing:3px;text-transform:uppercase;color:#ffffff;mso-font-alt:'Impact';">OVERHYPE.ME</span>
             </td>
           </tr>
         </table>
@@ -407,14 +427,14 @@ export function buildEmailShell(bodyContent: string, footerNote: string): string
         <!-- ═══════════════════════════════════════════
              CARD
              ═══════════════════════════════════════════ -->
-        <table width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:520px;" bgcolor="#161618">
+        <table width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:520px;border-radius:16px;overflow:hidden;" bgcolor="${EMAIL_COLORS.card}">
           <!-- Top accent bar -->
           <tr>
-            <td height="4" bgcolor="#FF3C00" style="font-size:0;line-height:0;mso-line-height-rule:exactly;">&nbsp;</td>
+            <td height="4" bgcolor="${EMAIL_COLORS.primary}" style="font-size:0;line-height:0;mso-line-height-rule:exactly;">&nbsp;</td>
           </tr>
           <!-- Body -->
           <tr>
-            <td style="padding:36px 40px 40px;border-left:1px solid #2a2a2a;border-right:1px solid #2a2a2a;border-bottom:1px solid #2a2a2a;">
+            <td style="padding:36px 40px 40px;border-left:1px solid ${EMAIL_COLORS.cardBorder};border-right:1px solid ${EMAIL_COLORS.cardBorder};border-bottom:1px solid ${EMAIL_COLORS.cardBorder};border-bottom-left-radius:16px;border-bottom-right-radius:16px;">
               ${bodyContent}
             </td>
           </tr>
@@ -426,7 +446,7 @@ export function buildEmailShell(bodyContent: string, footerNote: string): string
         <table width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:520px;">
           <tr>
             <td style="padding:20px 4px 0;" align="center">
-              <p style="margin:0;font-size:11px;color:#444444;line-height:1.7;font-family:'Inter',-apple-system,sans-serif;">
+              <p style="margin:0;font-size:12px;color:${EMAIL_COLORS.footer};line-height:1.7;font-family:'Inter',-apple-system,sans-serif;">
                 ${footerNote}
               </p>
             </td>
@@ -440,12 +460,25 @@ export function buildEmailShell(bodyContent: string, footerNote: string): string
 </html>`;
 }
 
-/** Renders an orange CTA button compatible with most email clients. */
+/**
+ * Renders the primary orange CTA button. Designed to mirror the homepage's
+ * primary button: rounded corners, generous padding, near-full-width inside
+ * the email card. Uses a VML rounded-rect for Outlook (which ignores CSS
+ * border-radius) and a styled anchor for every other client.
+ */
 export function ctaButton(href: string, label: string): string {
-  return `<table cellpadding="0" cellspacing="0" border="0" style="margin:0 0 28px;">
+  return `<table cellpadding="0" cellspacing="0" border="0" width="100%" style="margin:0 0 28px;">
   <tr>
-    <td align="center" bgcolor="#FF3C00">
-      <a href="${href}" target="_blank" style="display:inline-block;padding:14px 36px;font-family:'Oswald','Impact','Arial Narrow',sans-serif;font-size:15px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:#ffffff;text-decoration:none;mso-font-alt:'Impact';">${label}</a>
+    <td align="center">
+      <!--[if mso]>
+      <v:roundrect xmlns:v="urn:schemas-microsoft-com:vml" xmlns:w="urn:schemas-microsoft-com:office:word" href="${href}" style="height:52px;v-text-anchor:middle;width:440px;" arcsize="22%" stroke="f" fillcolor="${EMAIL_COLORS.primary}">
+        <w:anchorlock/>
+        <center style="color:#ffffff;font-family:Impact,'Arial Narrow',sans-serif;font-size:15px;font-weight:700;letter-spacing:2px;text-transform:uppercase;">${label}</center>
+      </v:roundrect>
+      <![endif]-->
+      <!--[if !mso]><!-- -->
+      <a href="${href}" target="_blank" style="display:block;width:100%;max-width:440px;background-color:${EMAIL_COLORS.primary};border-radius:12px;padding:16px 28px;font-family:'Oswald','Impact','Arial Narrow',sans-serif;font-size:15px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:#ffffff;text-decoration:none;text-align:center;box-sizing:border-box;mso-font-alt:'Impact';">${label}</a>
+      <!--<![endif]-->
     </td>
   </tr>
 </table>`;
@@ -453,13 +486,13 @@ export function ctaButton(href: string, label: string): string {
 
 /** Renders the small "Or copy this link" fallback block. */
 function linkFallback(url: string): string {
-  return `<p style="margin:0 0 4px;font-size:11px;color:#555555;font-family:'Inter',-apple-system,sans-serif;">Or copy this link into your browser:</p>
-<p style="margin:0 0 28px;font-size:11px;color:#555555;word-break:break-all;line-height:1.6;font-family:'Inter',-apple-system,sans-serif;">${url}</p>`;
+  return `<p style="margin:0 0 4px;font-size:11px;color:${EMAIL_COLORS.label};font-family:'Inter',-apple-system,sans-serif;">Or copy this link into your browser:</p>
+<p style="margin:0 0 28px;font-size:11px;color:${EMAIL_COLORS.label};word-break:break-all;line-height:1.6;font-family:'Inter',-apple-system,sans-serif;">${url}</p>`;
 }
 
 /** Renders a hairline divider. */
 export function divider(): string {
-  return `<table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 24px;"><tr><td height="1" bgcolor="#222222" style="font-size:0;line-height:0;mso-line-height-rule:exactly;">&nbsp;</td></tr></table>`;
+  return `<table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 24px;"><tr><td height="1" bgcolor="${EMAIL_COLORS.divider}" style="font-size:0;line-height:0;mso-line-height-rule:exactly;">&nbsp;</td></tr></table>`;
 }
 
 export function buildEmailVerificationEmail(verifyUrl: string): Pick<EmailPayload, "subject" | "text" | "html"> {
@@ -486,7 +519,7 @@ export function buildEmailVerificationEmail(verifyUrl: string): Pick<EmailPayloa
 ${ctaButton(verifyUrl, "Verify My Email")}
 ${linkFallback(verifyUrl)}
 ${divider()}
-<p style="margin:0;font-size:12px;color:#555555;line-height:1.7;font-family:'Inter',-apple-system,sans-serif;">Didn't sign up? Someone may be trying to use your email address. Just ignore this and carry&nbsp;on.</p>`;
+<p style="margin:0;font-size:12px;color:#888888;line-height:1.7;font-family:'Inter',-apple-system,sans-serif;">Didn't sign up? Someone may be trying to use your email address. Just ignore this and carry&nbsp;on.</p>`;
 
   const html = buildEmailShell(
     body,
@@ -520,7 +553,7 @@ export function buildEmailChangeVerificationEmail(pendingEmail: string, verifyUr
 ${ctaButton(verifyUrl, "Confirm New Email")}
 ${linkFallback(verifyUrl)}
 ${divider()}
-<p style="margin:0;font-size:12px;color:#555555;line-height:1.7;font-family:'Inter',-apple-system,sans-serif;">Didn't request this change? Ignore it — your current email address will remain&nbsp;unchanged.</p>`;
+<p style="margin:0;font-size:12px;color:#888888;line-height:1.7;font-family:'Inter',-apple-system,sans-serif;">Didn't request this change? Ignore it — your current email address will remain&nbsp;unchanged.</p>`;
 
   const html = buildEmailShell(
     body,
@@ -551,7 +584,7 @@ export function buildPasswordResetEmail(resetUrl: string): Pick<EmailPayload, "s
 ${ctaButton(resetUrl, "Reset My Password")}
 ${linkFallback(resetUrl)}
 ${divider()}
-<p style="margin:0;font-size:12px;color:#555555;line-height:1.7;font-family:'Inter',-apple-system,sans-serif;">Didn't request a password reset? Ignore this — your password will not&nbsp;change.</p>`;
+<p style="margin:0;font-size:12px;color:#888888;line-height:1.7;font-family:'Inter',-apple-system,sans-serif;">Didn't request a password reset? Ignore this — your password will not&nbsp;change.</p>`;
 
   const html = buildEmailShell(
     body,
@@ -584,7 +617,7 @@ export function buildReviewApprovedEmail(opts: {
   ].join("\n");
 
   const adminNoteHtml = opts.adminNote
-    ? `<p style="margin:0 0 28px;font-size:13px;color:#888888;line-height:1.7;border-left:3px solid #2a2a2a;padding-left:14px;"><strong style="color:#aaaaaa;">Note from the team:</strong> ${opts.adminNote}</p>`
+    ? `<p style="margin:0 0 28px;font-size:13px;color:#888888;line-height:1.7;border-left:3px solid #3a3a3a;padding-left:14px;"><strong style="color:#aaaaaa;">Note from the team:</strong> ${opts.adminNote}</p>`
     : "";
 
   const body = `
@@ -592,7 +625,7 @@ export function buildReviewApprovedEmail(opts: {
 <p style="margin:0 0 24px;font-size:15px;color:#aaaaaa;line-height:1.75;">Your submitted fact has been reviewed and approved. The database grows stronger.</p>
 <table cellpadding="0" cellspacing="0" border="0" width="100%" style="margin:0 0 28px;">
   <tr>
-    <td style="border-left:4px solid #FF3C00;padding:12px 16px;background:#1c1c1e;">
+    <td style="border-left:4px solid #FF6600;padding:12px 16px;background:#1f1f22;border-radius:10px;">
       <p style="margin:0;font-size:15px;color:#dddddd;line-height:1.7;font-style:italic;">${opts.submittedText}</p>
     </td>
   </tr>
@@ -600,7 +633,7 @@ export function buildReviewApprovedEmail(opts: {
 ${adminNoteHtml}
 ${ctaButton(factUrl, "View Your Fact")}
 ${divider()}
-<p style="margin:0;font-size:12px;color:#555555;line-height:1.7;font-family:'Inter',-apple-system,sans-serif;">Keep submitting. Every legend needs&nbsp;material.</p>`;
+<p style="margin:0;font-size:12px;color:#888888;line-height:1.7;font-family:'Inter',-apple-system,sans-serif;">Keep submitting. Every legend needs&nbsp;material.</p>`;
 
   const html = buildEmailShell(
     body,
@@ -645,7 +678,7 @@ export function buildReviewRejectedEmail(opts: {
     : "";
 
   const adminNoteHtml = opts.adminNote
-    ? `<p style="margin:0 0 28px;font-size:13px;color:#888888;line-height:1.7;border-left:3px solid #2a2a2a;padding-left:14px;"><strong style="color:#aaaaaa;">Note from the team:</strong> ${opts.adminNote}</p>`
+    ? `<p style="margin:0 0 28px;font-size:13px;color:#888888;line-height:1.7;border-left:3px solid #3a3a3a;padding-left:14px;"><strong style="color:#aaaaaa;">Note from the team:</strong> ${opts.adminNote}</p>`
     : "";
 
   const body = `
@@ -653,14 +686,14 @@ export function buildReviewRejectedEmail(opts: {
 <p style="margin:0 0 24px;font-size:15px;color:#aaaaaa;line-height:1.75;">Hey <strong style="color:#ffffff;">${opts.username}</strong> — after review, we weren&#39;t able to add this one to the&nbsp;database.</p>
 <table cellpadding="0" cellspacing="0" border="0" width="100%" style="margin:0 0 28px;">
   <tr>
-    <td style="border-left:4px solid #555555;padding:12px 16px;background:#1c1c1e;">
+    <td style="border-left:4px solid #3a3a3a;padding:12px 16px;background:#1f1f22;border-radius:10px;">
       <p style="margin:0;font-size:15px;color:#888888;line-height:1.7;font-style:italic;">${opts.submittedText}</p>
     </td>
   </tr>
 </table>
 ${reasonHtml}${adminNoteHtml}
 ${divider()}
-<p style="margin:0;font-size:12px;color:#555555;line-height:1.7;font-family:'Inter',-apple-system,sans-serif;">Don&#39;t sweat it. Greatness takes practice. Keep&nbsp;submitting.</p>`;
+<p style="margin:0;font-size:12px;color:#888888;line-height:1.7;font-family:'Inter',-apple-system,sans-serif;">Don&#39;t sweat it. Greatness takes practice. Keep&nbsp;submitting.</p>`;
 
   const html = buildEmailShell(
     body,
@@ -702,7 +735,7 @@ export function buildShareInviteEmail(
 ${ctaButton(shareUrl, "See My Facts")}
 ${linkFallback(shareUrl)}
 ${divider()}
-<p style="margin:0;font-size:12px;color:#555555;line-height:1.7;font-family:'Inter',-apple-system,sans-serif;">Not sure what Overhype.me is? <a href="${siteUrl}" target="_blank" style="color:#FF3C00;text-decoration:none;">Find out here.</a> If you didn&#39;t expect this, you can safely ignore&nbsp;it.</p>`;
+<p style="margin:0;font-size:12px;color:#888888;line-height:1.7;font-family:'Inter',-apple-system,sans-serif;">Not sure what Overhype.me is? <a href="${siteUrl}" target="_blank" style="color:#FF6600;text-decoration:none;">Find out here.</a> If you didn&#39;t expect this, you can safely ignore&nbsp;it.</p>`;
 
   const html = buildEmailShell(
     body,
@@ -777,7 +810,7 @@ ${amountHtml}
 ${ctaButton(opts.hostedInvoiceUrl, "Confirm Payment")}
 ${linkFallback(opts.hostedInvoiceUrl)}
 ${divider()}
-<p style="margin:0;font-size:12px;color:#555555;line-height:1.7;font-family:'Inter',-apple-system,sans-serif;">You&#39;re receiving this because your bank requested additional verification on your Overhype.me renewal.</p>`;
+<p style="margin:0;font-size:12px;color:#888888;line-height:1.7;font-family:'Inter',-apple-system,sans-serif;">You&#39;re receiving this because your bank requested additional verification on your Overhype.me renewal.</p>`;
 
   const html = buildEmailShell(
     body,
@@ -819,7 +852,7 @@ export function buildCardAutomaticallyUpdatedEmail(opts: {
 <p style="margin:0 0 16px;font-size:15px;color:#aaaaaa;line-height:1.75;">Your card network sent us refreshed details for <strong style="color:#ffffff;">${safeCard}</strong>.</p>
 <p style="margin:0 0 24px;font-size:15px;color:#aaaaaa;line-height:1.75;">No action required — your Legendary renewals will continue uninterrupted.</p>
 ${divider()}
-<p style="margin:0;font-size:12px;color:#555555;line-height:1.7;font-family:'Inter',-apple-system,sans-serif;">If you didn&#39;t expect this update, manage billing from your Overhype.me profile.</p>`;
+<p style="margin:0;font-size:12px;color:#888888;line-height:1.7;font-family:'Inter',-apple-system,sans-serif;">If you didn&#39;t expect this update, manage billing from your Overhype.me profile.</p>`;
 
   const html = buildEmailShell(
     body,
@@ -867,9 +900,9 @@ export function buildRenewalReminderEmail(opts: {
   const body = `
 <h1 style="margin:0 0 16px;font-family:'Oswald','Impact','Arial Narrow',sans-serif;font-size:28px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:#ffffff;line-height:1.2;mso-font-alt:'Impact';">Renewal<br/>Coming Up.</h1>
 <p style="margin:0 0 24px;font-size:15px;color:#aaaaaa;line-height:1.75;">Your ${planLabel}<strong style="color:#ffffff;">Legendary</strong> subscription is about to&nbsp;renew.</p>
-<table cellpadding="0" cellspacing="0" border="0" width="100%" style="margin:0 0 28px;background:#1c1c1e;">
+<table cellpadding="0" cellspacing="0" border="0" width="100%" style="margin:0 0 28px;background:#1f1f22;border-radius:10px;">
   <tr>
-    <td style="padding:14px 16px;border-left:4px solid #FF3C00;">
+    <td style="padding:14px 16px;border-left:4px solid #FF6600;">
       <p style="margin:0 0 6px;font-size:11px;color:#777777;font-family:'Inter',-apple-system,sans-serif;text-transform:uppercase;letter-spacing:1px;">Amount</p>
       <p style="margin:0 0 ${dateLabel ? "18" : "0"}px;font-size:18px;font-weight:700;color:#ffffff;font-family:'Oswald','Impact','Arial Narrow',sans-serif;mso-font-alt:'Impact';">${formattedAmount}</p>
       ${dateHtml}
@@ -878,7 +911,7 @@ export function buildRenewalReminderEmail(opts: {
 </table>
 <p style="margin:0 0 24px;font-size:15px;color:#aaaaaa;line-height:1.75;">If your card needs updating or you&#39;d like to cancel, manage billing from your Overhype.me profile before the charge runs.</p>
 ${divider()}
-<p style="margin:0;font-size:12px;color:#555555;line-height:1.7;font-family:'Inter',-apple-system,sans-serif;">You&#39;re receiving this renewal reminder because you have an active Overhype.me Legendary subscription.</p>`;
+<p style="margin:0;font-size:12px;color:#888888;line-height:1.7;font-family:'Inter',-apple-system,sans-serif;">You&#39;re receiving this renewal reminder because you have an active Overhype.me Legendary subscription.</p>`;
 
   const html = buildEmailShell(
     body,

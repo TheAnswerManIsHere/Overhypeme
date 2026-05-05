@@ -160,7 +160,7 @@ export default function Login() {
       <Layout>
         <div className="min-h-[80vh] flex items-center justify-center px-4">
           <div className="w-full max-w-md">
-            <div className="bg-card border-2 border-border rounded-sm p-10 shadow-lg text-center">
+            <div className="bg-card border border-primary/25 rounded-2xl p-10 text-center shadow-[0_0_40px_rgba(249,115,22,0.12),inset_0_1px_0_rgba(255,255,255,0.06)]">
               <Mail className="w-16 h-16 text-primary mx-auto mb-5" />
               <h1 className="font-display text-2xl font-bold text-foreground tracking-wider mb-3">
                 CHECK YOUR EMAIL
@@ -195,7 +195,7 @@ export default function Login() {
     <Layout>
     <div className="min-h-[80vh] flex items-center justify-center px-4">
       <div className="w-full max-w-md">
-        <div className="bg-card border-2 border-border rounded-sm p-8 shadow-lg">
+        <div className="bg-card border border-primary/25 rounded-2xl p-8 shadow-[0_0_40px_rgba(249,115,22,0.12),inset_0_1px_0_rgba(255,255,255,0.06)]">
           {resetSuccess && (
             <div className="mb-6 bg-green-500/10 text-green-700 dark:text-green-400 border border-green-500/20 rounded-sm px-4 py-3 text-sm font-medium">
               Your password has been reset successfully. Please sign in with your new password.
