@@ -3,6 +3,7 @@ import { type AuthenticatedRequest } from "../middlewares/authMiddleware";
 import { randomUUID } from "crypto";
 import { Readable } from "stream";
 import path from "path";
+import fs from "fs";
 import { fileURLToPath } from "url";
 import { db } from "@workspace/db";
 import { memesTable, factsTable, usersTable, userFactPreferencesTable, affiliateClicksTable } from "@workspace/db/schema";
@@ -35,7 +36,19 @@ import type { MemeAspectRatio } from "@workspace/api-zod";
 import { completeGovernance, enforceGovernance } from "../lib/resourceGovernance";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const TEMPLATES_DIR = path.resolve(__dirname, "assets/meme-templates");
+// In production the build script copies src/assets → dist/assets and all
+// bundled code shares a single __dirname (dist/). When running directly from
+// source via tsx, __dirname is src/routes/, so we must walk up to src/assets/.
+const TEMPLATES_DIR = (() => {
+  const candidates = [
+    path.resolve(__dirname, "assets/meme-templates"),        // built layout
+    path.resolve(__dirname, "..", "assets/meme-templates"),  // src/routes → src/assets
+  ];
+  for (const candidate of candidates) {
+    try { if (fs.statSync(candidate).isDirectory()) return candidate; } catch { /* try next */ }
+  }
+  return candidates[0]!;
+})();
 
 const router: IRouter = Router();
 const objectStorageService = new ObjectStorageService();
