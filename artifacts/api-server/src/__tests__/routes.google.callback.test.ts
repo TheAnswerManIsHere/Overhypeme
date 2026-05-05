@@ -227,7 +227,7 @@ describe("GET /api/callback/google", () => {
 
       const createdUser = users.find((u) => u.email === testEmail);
       assert.ok(createdUser, `User with email ${testEmail} should exist`);
-      assert.equal(createdUser.oauthProvider, "google");
+      assert.ok(createdUser.googleLinked, "googleLinked should be true");
 
       const sessions = await db
         .select()

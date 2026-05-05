@@ -121,12 +121,16 @@ function makeFakeTokens(email: string): TokenEndpointResponse & TokenEndpointRes
 }
 
 /** Insert a bare user row (no password, no provider) and return its id. */
-async function insertUser(email: string, opts: { oauthProvider?: string } = {}): Promise<string> {
+async function insertUser(
+  email: string,
+  opts: { googleLinked?: boolean; appleLinked?: boolean } = {},
+): Promise<string> {
   const id = `${USER_PREFIX}${randomUUID()}`;
   await db.insert(usersTable).values({
     id,
     email,
-    oauthProvider: opts.oauthProvider ?? null,
+    googleLinked: opts.googleLinked ?? false,
+    appleLinked: opts.appleLinked ?? false,
     isActive: true,
   });
   return id;
@@ -177,7 +181,7 @@ describe("GET /api/link/:provider", () => {
     _setClientDiscoveryForTest(makeFakeDiscovery());
     try {
       const email = `${USER_PREFIX}${randomUUID()}@test.local`;
-      const userId = await insertUser(email, { oauthProvider: "google" });
+      const userId = await insertUser(email, { googleLinked: true });
       const app = makeApp(userId);
       const res = await request(app).get("/api/link/google");
       assert.equal(res.status, 302);
@@ -195,7 +199,7 @@ describe("GET /api/link/:provider", () => {
     );
     try {
       const email = `${USER_PREFIX}${randomUUID()}@test.local`;
-      const userId = await insertUser(email); // no oauthProvider
+      const userId = await insertUser(email); // no provider linked yet
       const app = makeApp(userId);
       const res = await request(app).get("/api/link/google");
       assert.equal(res.status, 302, `Expected 302, got ${res.status}`);
@@ -216,7 +220,7 @@ describe("GET /api/link/:provider", () => {
     // can look up the exact DB row and verify its linkUserId.
     let capturedState: string | undefined;
     _setBuildAuthorizationUrlForTest((_config, params) => {
-      capturedState = params["state"] as string | undefined;
+      capturedState = (params as Record<string, string>)["state"] as string | undefined;
       return new URL(
         `https://accounts.google.com/o/oauth2/v2/auth?state=${capturedState ?? ""}`,
       );
@@ -260,7 +264,7 @@ describe("GET /api/callback/google — link mode", () => {
     const email = `${USER_PREFIX}${randomUUID()}@test.local`;
     _setAuthCodeGrantForTest(async () => makeFakeTokens(email));
 
-    const userId = await insertUser(email); // no oauthProvider
+    const userId = await insertUser(email); // no provider linked yet
     const state = randomUUID();
     await _storePendingStateForTest(state, {
       codeVerifier: "test-verifier-link-ok",
@@ -281,7 +285,7 @@ describe("GET /api/callback/google — link mode", () => {
 
       // Confirm the DB row was actually updated
       const [row] = await db.select().from(usersTable).where(eq(usersTable.id, userId));
-      assert.equal(row?.oauthProvider, "google", "oauthProvider should be set after linking");
+      assert.ok(row?.googleLinked, "googleLinked should be true after linking");
     } finally {
       restoreEnv();
     }
@@ -315,7 +319,7 @@ describe("GET /api/callback/google — link mode", () => {
 
       // Provider must NOT have been set
       const [row] = await db.select().from(usersTable).where(eq(usersTable.id, userId));
-      assert.equal(row?.oauthProvider, null, "oauthProvider should remain null after email mismatch");
+      assert.equal(row?.googleLinked, false, "googleLinked should remain false after email mismatch");
     } finally {
       restoreEnv();
     }
@@ -328,7 +332,7 @@ describe("GET /api/callback/google — link mode", () => {
     _setAuthCodeGrantForTest(async () => makeFakeTokens(email));
 
     // User already has google linked
-    const userId = await insertUser(email, { oauthProvider: "google" });
+    const userId = await insertUser(email, { googleLinked: true });
     const state = randomUUID();
     await _storePendingStateForTest(state, {
       codeVerifier: "test-verifier-already-linked",

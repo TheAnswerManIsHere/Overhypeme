@@ -53,7 +53,6 @@ function uniqueEmail() {
 async function createUserWithPassword(opts: {
   password?: string;
   email?: string;
-  oauthProvider?: string | null;
 } = {}): Promise<{ id: string; email: string; password: string }> {
   const id = `${USER_PREFIX}${randomUUID()}`;
   const password = opts.password ?? "supersecret123";
@@ -63,7 +62,6 @@ async function createUserWithPassword(opts: {
     id,
     email,
     passwordHash,
-    oauthProvider: opts.oauthProvider ?? null,
   });
   return { id, email, password };
 }
@@ -575,7 +573,7 @@ describe("POST /auth/set-password", () => {
     await db.insert(usersTable).values({
       id,
       email: `${id}@test.local`,
-      oauthProvider: "google",
+      googleLinked: true,
     });
     const sid = await bearerForUser(id);
     const res = await request(makeApp())

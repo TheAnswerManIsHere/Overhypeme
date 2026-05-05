@@ -16,7 +16,6 @@ export const usersTable = pgTable("users", {
   displayName: varchar("display_name"),
   profileImageUrl: varchar("profile_image_url"),
   passwordHash: varchar("password_hash"),
-  oauthProvider: varchar("oauth_provider", { length: 20 }),
   googleLinked: boolean("google_linked").notNull().default(false),
   appleLinked: boolean("apple_linked").notNull().default(false),
   captchaVerified: boolean("captcha_verified").notNull().default(false),

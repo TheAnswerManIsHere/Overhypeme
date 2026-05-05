@@ -175,7 +175,6 @@ async function upsertUser(
   const profileImageUrl = (claims.picture as string) || null;
 
   const conflictSet: Record<string, unknown> = {
-    oauthProvider: existing[0]?.oauthProvider ?? provider,
     ...(provider === "google" ? { googleLinked: true } : { appleLinked: true }),
     updatedAt: new Date(),
   };
@@ -192,7 +191,6 @@ async function upsertUser(
       firstName: oidcFirstName,
       lastName: oidcLastName,
       profileImageUrl,
-      oauthProvider: provider,
       googleLinked: provider === "google",
       appleLinked: provider === "apple",
       isActive: true,
@@ -327,7 +325,7 @@ async function handleOAuthCallback(
 
     await db
       .update(usersTable)
-      .set({ ...providerUpdate, oauthProvider: targetUser.oauthProvider ?? provider, updatedAt: new Date() })
+      .set({ ...providerUpdate, updatedAt: new Date() })
       .where(eq(usersTable.id, linkUserId));
 
     res.redirect(`${basePath}${returnTo}?linked=1`);
