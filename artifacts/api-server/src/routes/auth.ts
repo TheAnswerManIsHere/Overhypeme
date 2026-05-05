@@ -202,8 +202,18 @@ async function handleOAuthCallback(
   // Retrieve PKCE state from DB store — survives server restarts.
   const pending = await consumePendingState(state);
   if (!pending) {
-    // State expired or never existed — restart the login flow.
-    res.redirect(`/api/login/${provider}`);
+    // State expired or never existed.
+    // NOTE: Do NOT restart the OAuth flow here — that causes an infinite
+    // redirect loop when the state was stored on a different server instance
+    // (e.g. dev server stored state but production handles the callback).
+    // Instead, send the user back to the login page with a clear error.
+    Sentry.captureMessage("OAuth pending state not found", {
+      level: "warning",
+      tags: { auth: "oauth-callback", provider },
+      extra: { stage: "consumePendingState", state: state?.slice(0, 8) + "…" },
+    });
+    const basePath = process.env.BASE_PATH || "";
+    res.redirect(`${basePath}/login?error=session_expired`);
     return;
   }
 
@@ -246,13 +256,19 @@ async function handleOAuthCallback(
       tags: { auth: "oauth-callback" },
       extra: { provider, stage: "authorizationCodeGrant" },
     });
-    res.redirect(`/api/login/${provider}`);
+    const basePath = process.env.BASE_PATH || "";
+    res.redirect(`${basePath}/login?error=auth_failed`);
     return;
   }
 
   const claims = tokens.claims();
   if (!claims) {
-    res.redirect(`/api/login/${provider}`);
+    Sentry.captureMessage("OAuth claims missing after token exchange", {
+      level: "error",
+      tags: { auth: "oauth-callback", provider },
+    });
+    const basePath = process.env.BASE_PATH || "";
+    res.redirect(`${basePath}/login?error=auth_failed`);
     return;
   }
 
