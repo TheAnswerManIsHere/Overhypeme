@@ -79,3 +79,18 @@ export const passwordResetTokensTable = pgTable(
   },
   (table) => [index("IDX_prt_token_hash").on(table.tokenHash)],
 );
+
+// Persists OAuth PKCE state across server restarts so that a restart mid-flow
+// does not cause an infinite redirect loop back to the provider.
+export const oauthPendingStatesTable = pgTable(
+  "oauth_pending_states",
+  {
+    state: varchar("state").primaryKey(),
+    codeVerifier: text("code_verifier").notNull(),
+    nonce: text("nonce").notNull(),
+    returnTo: text("return_to").notNull().default("/"),
+    isPopup: boolean("is_popup").notNull().default(false),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  },
+  (table) => [index("IDX_oauth_pending_states_expires_at").on(table.expiresAt)],
+);

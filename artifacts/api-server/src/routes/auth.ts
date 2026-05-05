@@ -2,8 +2,8 @@ import * as oidc from "openid-client";
 import * as Sentry from "@sentry/node";
 import { Router, type IRouter, type Request, type Response } from "express";
 import { GetCurrentAuthUserResponse } from "@workspace/api-zod";
-import { db, usersTable } from "@workspace/db";
-import { eq, and } from "drizzle-orm";
+import { db, usersTable, oauthPendingStatesTable } from "@workspace/db";
+import { eq, and, lt } from "drizzle-orm";
 import {
   clearSession,
   getGoogleConfig,
@@ -38,12 +38,12 @@ export function _resetAuthCodeGrantForTest(): void {
 }
 
 // ── Pending OAuth state ───────────────────────────────────────────────────────
-// We store PKCE state server-side (keyed by the OAuth `state` parameter) rather
-// than in cookies. In Replit's dev environment the API and web servers run on
-// different internal ports behind the same proxy, and cross-port cookie
-// round-trips during OAuth redirects are unreliable. A server-side Map avoids
-// that class of problem entirely. TTL is 10 minutes — if the server restarts in
-// that window the user just clicks "Continue with Google" again.
+// We store PKCE state in the database (keyed by the OAuth `state` parameter)
+// rather than in an in-memory Map. This survives server restarts, which
+// previously caused an infinite redirect loop when the server restarted while
+// a login was in progress (the in-memory state was lost, consumePendingState
+// returned null, and the code bounced back to /api/login/:provider forever).
+// TTL is 10 minutes — expired rows are swept periodically.
 
 const PENDING_TTL = 10 * 60 * 1000; // 10 minutes
 
@@ -52,29 +52,43 @@ interface PendingOAuthState {
   nonce: string;
   returnTo: string;
   isPopup: boolean;
-  expiresAt: number;
 }
 
-const pendingStates = new Map<string, PendingOAuthState>();
-
-function storePendingState(state: string, data: Omit<PendingOAuthState, "expiresAt">) {
-  pendingStates.set(state, { ...data, expiresAt: Date.now() + PENDING_TTL });
+async function storePendingState(state: string, data: PendingOAuthState): Promise<void> {
+  const expiresAt = new Date(Date.now() + PENDING_TTL);
+  await db
+    .insert(oauthPendingStatesTable)
+    .values({ state, ...data, expiresAt })
+    .onConflictDoUpdate({
+      target: oauthPendingStatesTable.state,
+      set: { ...data, expiresAt },
+    });
 }
 
 export const _storePendingStateForTest = storePendingState;
 
-function consumePendingState(state: string): PendingOAuthState | null {
-  const entry = pendingStates.get(state);
-  pendingStates.delete(state);
-  if (!entry || entry.expiresAt < Date.now()) return null;
-  return entry;
+async function consumePendingState(state: string): Promise<PendingOAuthState | null> {
+  const [row] = await db
+    .delete(oauthPendingStatesTable)
+    .where(eq(oauthPendingStatesTable.state, state))
+    .returning();
+  if (!row || row.expiresAt < new Date()) return null;
+  return {
+    codeVerifier: row.codeVerifier,
+    nonce: row.nonce,
+    returnTo: row.returnTo,
+    isPopup: row.isPopup,
+  };
 }
 
-// Sweep expired entries every 5 minutes so the map doesn't grow unboundedly.
-setInterval(() => {
-  const now = Date.now();
-  for (const [k, v] of pendingStates) {
-    if (v.expiresAt < now) pendingStates.delete(k);
+// Sweep expired rows every 5 minutes so the table doesn't grow unboundedly.
+setInterval(async () => {
+  try {
+    await db
+      .delete(oauthPendingStatesTable)
+      .where(lt(oauthPendingStatesTable.expiresAt, new Date()));
+  } catch {
+    // Non-fatal — stale rows will be ignored by consumePendingState anyway.
   }
 }, 5 * 60 * 1000).unref();
 
@@ -185,8 +199,8 @@ async function handleOAuthCallback(
   state: string,
   appleNameOverride?: { firstName?: string; lastName?: string },
 ): Promise<void> {
-  // Retrieve PKCE state from server-side store — avoids cross-proxy cookie loss.
-  const pending = consumePendingState(state);
+  // Retrieve PKCE state from DB store — survives server restarts.
+  const pending = await consumePendingState(state);
   if (!pending) {
     // State expired or never existed — restart the login flow.
     res.redirect(`/api/login/${provider}`);
@@ -390,8 +404,8 @@ router.get("/login/:provider", async (req: Request, res: Response) => {
   const codeVerifier = oidc.randomPKCECodeVerifier();
   const codeChallenge = await oidc.calculatePKCECodeChallenge(codeVerifier);
 
-  // Store PKCE state server-side — more reliable than cookies across proxy hops.
-  storePendingState(state, {
+  // Store PKCE state in DB — survives server restarts and avoids redirect loops.
+  await storePendingState(state, {
     codeVerifier,
     nonce,
     returnTo,
