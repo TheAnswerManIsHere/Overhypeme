@@ -1484,21 +1484,6 @@ export default function Profile() {
           </div>
         )}
 
-        {/* Library link card — content tabs (Liked, Submitted, Memes, Images, History,
-            Activity) live on the dedicated /library page now. */}
-        <div className="bg-card border-2 border-border rounded-sm p-6 mb-8">
-          <div className="flex items-center justify-between gap-4 flex-wrap">
-            <div>
-              <h2 className="font-display text-xl uppercase tracking-wide text-foreground mb-1">Your Library</h2>
-              <p className="text-sm text-muted-foreground">Liked facts, your memes, your uploads, history, and activity.</p>
-            </div>
-            <Link href="/library">
-              <Button>VIEW LIBRARY →</Button>
-            </Link>
-          </div>
-        </div>
-
-
       </div>
     </Layout>
   );
