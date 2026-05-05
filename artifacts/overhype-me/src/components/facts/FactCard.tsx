@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { Link, useLocation } from "wouter";
-import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
+import { motion, AnimatePresence, useReducedMotion, useInView } from "framer-motion";
 import { MessageSquare, ThumbsUp, ThumbsDown, Flame } from "lucide-react";
 import { FactSummary, useListComments, getListCommentsQueryKey } from "@workspace/api-client-react";
 import { useAppMutations } from "@/hooks/use-mutations";
@@ -123,12 +123,14 @@ export function FactCard({
 
   const prefersReducedMotion = useReducedMotion();
   const staggerDelay = Math.min(index * 0.07, 0.35);
+  const ref = useRef(null);
+  const isInView = useInView(ref, { once: true, margin: "-60px" });
 
   return (
     <motion.div
+      ref={ref}
       initial={prefersReducedMotion ? false : { opacity: 0 }}
-      whileInView={prefersReducedMotion ? undefined : { opacity: 1 }}
-      viewport={{ once: true, margin: "-60px" }}
+      animate={prefersReducedMotion ? undefined : { opacity: isInView ? 1 : 0 }}
       transition={prefersReducedMotion ? { duration: 0 } : { duration: 0.4, ease: "easeOut", delay: staggerDelay }}
       whileHover={prefersReducedMotion ? undefined : { y: -3 }}
       className={cn(
