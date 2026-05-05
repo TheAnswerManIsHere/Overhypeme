@@ -890,6 +890,11 @@ export default function Profile() {
               </Button>
             )}
             {isRealAdmin && (
+              <Button variant="outline" onClick={() => setLocation("/admin")} className="gap-2 border-primary/40 text-primary hover:text-primary hover:border-primary">
+                <ShieldCheck className="w-4 h-4" /> Admin Panel
+              </Button>
+            )}
+            {isRealAdmin && (
               <Button
                 variant="ghost"
                 size="sm"
@@ -915,13 +920,13 @@ export default function Profile() {
               <div className="border border-destructive/40 bg-destructive/5 rounded-sm p-3 space-y-2">
                 <p className="text-xs text-destructive font-medium flex items-start gap-1.5">
                   <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
-                  This logs you out and wipes ALL local data.
+                  This logs you out and wipes ALL local data — cookies, storage, preferences — so the site treats you as a brand-new visitor.
                 </p>
                 <div className="flex gap-2">
                   <Button variant="danger" size="sm" onClick={handleForgetMe} disabled={forgetMeLoading} className="flex-1 gap-1.5">
                     {forgetMeLoading ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Wiping…</> : <><Eraser className="w-3.5 h-3.5" /> Yes, forget me</>}
                   </Button>
-                  <Button variant="outline" size="sm" onClick={() => setForgetMeConfirm(false)}>Cancel</Button>
+                  <Button variant="outline" size="sm" onClick={() => setForgetMeConfirm(false)} disabled={forgetMeLoading} className="flex-1">Cancel</Button>
                 </div>
               </div>
             ))}
@@ -1007,15 +1012,25 @@ export default function Profile() {
           <div className="flex flex-col gap-2 z-10">
             {!editing && (
               <Button variant="outline" onClick={openEditor} className="gap-2">
-                <Pencil className="w-4 h-4" /> EDIT PROFILE
+                <Pencil className="w-4 h-4" /> Edit Profile
               </Button>
             )}
-            <Button variant="danger" onClick={logout} className="gap-2">
-              <LogOut className="w-4 h-4" /> LOGOUT
-            </Button>
             {isRealAdmin && (
               <Button variant="outline" onClick={() => setLocation("/admin")} className="gap-2 border-primary/40 text-primary hover:text-primary hover:border-primary">
-                <ShieldCheck className="w-4 h-4" /> ADMIN PANEL
+                <ShieldCheck className="w-4 h-4" /> Admin Panel
+              </Button>
+            )}
+            {isRealAdmin && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={async () => {
+                  await fetch(`${BASE_URL}api/auth/toggle-admin-mode`, { method: "POST", credentials: "include" });
+                  window.location.reload();
+                }}
+                className="gap-2 text-muted-foreground hover:text-foreground"
+              >
+                <ShieldOff className="w-4 h-4" /> Exit Admin
               </Button>
             )}
             {isRealAdmin && (!forgetMeConfirm ? (
@@ -1058,6 +1073,9 @@ export default function Profile() {
                 </div>
               </div>
             ))}
+            <Button variant="ghost" size="sm" onClick={logout} className="gap-2 text-muted-foreground hover:text-foreground">
+              <LogOut className="w-4 h-4" /> Sign Out
+            </Button>
           </div>
         </div>
 
