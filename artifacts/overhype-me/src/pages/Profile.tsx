@@ -134,6 +134,24 @@ export default function Profile() {
   const [forgetMeConfirm, setForgetMeConfirm] = useState(false);
   const [forgetMeLoading, setForgetMeLoading] = useState(false);
 
+  // Photo nudge: dismissible per session for users who haven't confirmed a real
+  // photo (avatarSource !== "photo"). OAuth users with a provider photo URL
+  // still see the nudge — onboarding is what marks the photo as user-confirmed.
+  const [photoNudgeDismissed, setPhotoNudgeDismissed] = useState<boolean>(() => {
+    if (typeof window === "undefined") return false;
+    try {
+      return sessionStorage.getItem("profile_photo_nudge_dismissed") === "1";
+    } catch {
+      return false;
+    }
+  });
+  function dismissPhotoNudge() {
+    setPhotoNudgeDismissed(true);
+    try {
+      sessionStorage.setItem("profile_photo_nudge_dismissed", "1");
+    } catch { /* ignore */ }
+  }
+
   const [showPasswordSection, setShowPasswordSection] = useState(false);
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
@@ -681,10 +699,51 @@ export default function Profile() {
   const hasCustomPhoto = Boolean(profile.profileImageUrl);
   const hasDisplayName = Boolean(profile.displayName && profile.displayName.trim().length > 0);
   const identityIncomplete = !hasCustomPhoto || !hasDisplayName;
+  const photoConfirmed = (profile.avatarSource ?? "avatar") === "photo";
+  const showPhotoNudge = !photoConfirmed && !photoNudgeDismissed;
 
   return (
     <Layout>
       <div className="max-w-5xl mx-auto px-4 py-12 md:py-20">
+
+        {/* ── Real-photo nudge ────────────────────────────────────────
+            Persistent banner for users who haven't confirmed a real photo
+            (avatarSource !== "photo"). Dismissible per session. OAuth users
+            with a provider photo URL still see it — onboarding marks the
+            photo as user-confirmed, not the OAuth provider. */}
+        {showPhotoNudge && (
+          <div className="flex items-start justify-between gap-3 bg-primary/10 border-2 border-primary/40 rounded-sm p-4 mb-6">
+            <div className="flex items-start gap-3 min-w-0">
+              <Camera className="w-5 h-5 text-primary shrink-0 mt-0.5" />
+              <div className="min-w-0">
+                <p className="font-bold text-foreground leading-tight">
+                  Add a real photo of you
+                </p>
+                <p className="text-sm text-muted-foreground mt-1">
+                  Your memes look 10× better when they actually look like you.
+                  We reuse one photo for every meme and AI scene — free.
+                </p>
+                <div className="mt-3">
+                  <Button
+                    size="sm"
+                    onClick={openEditor}
+                    className="gap-2"
+                  >
+                    <Camera className="w-4 h-4" /> Add a real photo
+                  </Button>
+                </div>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={dismissPhotoNudge}
+              aria-label="Dismiss"
+              className="text-muted-foreground hover:text-foreground shrink-0"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        )}
 
         {/* ── Identity-first card ─────────────────────────────────────
             The profile photo + display name are the user's reusable
