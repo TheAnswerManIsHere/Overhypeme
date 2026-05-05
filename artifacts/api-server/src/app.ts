@@ -16,7 +16,15 @@ import { SESSION_COOKIE } from "./lib/auth";
 const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
 const CSRF_COOKIE = "csrf_token";
 const CSRF_HEADER = "x-csrf-token";
-const ORIGIN_EXEMPT_PATHS = new Set(["/api/stripe/webhook", "/api/auth/dev-admin-login"]);
+const ORIGIN_EXEMPT_PATHS = new Set([
+  "/api/stripe/webhook",
+  "/api/auth/dev-admin-login",
+  // Apple Sign In uses response_mode=form_post: Apple's servers POST the
+  // authorization code from appleid.apple.com, which is not in our allowed
+  // origins list. CSRF protection for this route is provided by Apple's own
+  // `state` parameter (PKCE), so origin-checking here is redundant and wrong.
+  "/api/callback/apple",
+]);
 
 function isOriginExempt(req: Request): boolean {
   return ORIGIN_EXEMPT_PATHS.has(req.path);
