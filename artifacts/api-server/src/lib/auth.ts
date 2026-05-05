@@ -30,7 +30,7 @@ let googleConfig: client.Configuration | null = null;
 
 export async function getGoogleConfig(): Promise<client.Configuration> {
   if (!googleConfig) {
-    googleConfig = await client.discovery(
+    googleConfig = await _discoveryFn(
       new URL("https://accounts.google.com"),
       process.env.GOOGLE_CLIENT_ID!,
       process.env.GOOGLE_CLIENT_SECRET!,
@@ -61,6 +61,9 @@ export function _resetClientDiscoveryForTest(): void {
 export function _resetAppleConfigCacheForTest(): void {
   appleConfig = null;
   appleSecretExpiresAt = 0;
+}
+export function _resetGoogleConfigCacheForTest(): void {
+  googleConfig = null;
 }
 
 export function generateAppleClientSecret(): string {
