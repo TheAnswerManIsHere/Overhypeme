@@ -17,6 +17,7 @@ import {
   SESSION_TTL,
   type SessionData,
 } from "../lib/auth";
+import { getSiteBaseUrl } from "../lib/siteUrl";
 
 // Re-exported for back-compat with other route modules that import from "./auth".
 // Canonical home is `lib/auth.ts` so the auth middleware can use it without a
@@ -199,8 +200,9 @@ async function handleOAuthCallback(
 
   // openid-client v6 validates ALL query parameters in the callback URL,
   // including the `iss` parameter that Google (RFC 9207) includes. Build the
-  // full URL from the actual incoming request so nothing is lost.
-  const currentUrl = new URL(getOrigin(req) + req.originalUrl);
+  // full URL using the canonical site base (same domain that was registered as
+  // the redirect_uri with Apple/Google) + any query params from the request.
+  const currentUrl = new URL(getSiteBaseUrl() + req.originalUrl);
 
   let tokens: oidc.TokenEndpointResponse & oidc.TokenEndpointResponseHelpers;
   try {
@@ -361,7 +363,11 @@ router.get("/login/:provider", async (req: Request, res: Response) => {
   const config =
     provider === "google" ? await getGoogleConfig() : await getAppleConfig();
 
-  const callbackUrl = `${getOrigin(req)}/api/callback/${provider}`;
+  // Use the canonical site base URL (https://overhype.me in production) rather
+  // than the incoming request origin. The redirect_uri sent to Apple/Google must
+  // exactly match the URL registered in the developer console, and that URL is
+  // always the stable custom domain — not a variable Replit forwarding header.
+  const callbackUrl = `${getSiteBaseUrl()}/api/callback/${provider}`;
   const returnTo = getSafeReturnTo(req.query.returnTo);
 
   const state = oidc.randomState();
@@ -430,7 +436,7 @@ router.post("/callback/apple", async (req: Request, res: Response) => {
 router.get("/logout", async (req: Request, res: Response) => {
   const sid = getSessionId(req);
   await clearSession(res, sid);
-  res.redirect(getOrigin(req));
+  res.redirect(getSiteBaseUrl());
 });
 
 router.post("/auth/logout", async (req: Request, res: Response) => {
