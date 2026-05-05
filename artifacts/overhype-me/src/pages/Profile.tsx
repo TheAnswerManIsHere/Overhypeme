@@ -533,7 +533,11 @@ export default function Profile() {
     setEditSuccess("");
     setEditing(true);
     setTimeout(() => {
-      editFormRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+      if (editFormRef.current) {
+        const navbarHeight = window.innerWidth < 768 ? 56 : 64;
+        const top = editFormRef.current.getBoundingClientRect().top + window.scrollY - navbarHeight - 16;
+        window.scrollTo({ top, behavior: "smooth" });
+      }
     }, 50);
   }
 
@@ -897,15 +901,18 @@ export default function Profile() {
                 <Crown className="w-4 h-4" /> Go Legendary
               </Button>
             )}
+            <Button variant="ghost" size="sm" onClick={logout} className="gap-2 text-muted-foreground hover:text-foreground">
+              <LogOut className="w-4 h-4" /> Sign Out
+            </Button>
           </div>
         </div>
 
         {/* Profile Header */}
-        <div className="md:hidden bg-card border-2 border-border p-8 rounded-sm shadow-xl flex flex-col md:flex-row items-center gap-8 relative overflow-hidden mb-8">
+        <div className="md:hidden bg-card border-2 border-border p-8 rounded-sm shadow-xl flex flex-col items-center gap-8 relative overflow-hidden mb-8">
           <div className="absolute top-0 right-0 w-32 h-32 bg-primary/10 rounded-bl-full -mr-16 -mt-16 pointer-events-none" />
 
           {/* Clickable avatar */}
-          <div className="relative group shrink-0">
+          <div className="relative group shrink-0 self-center">
             <input
               ref={fileInputRef}
               type="file"
