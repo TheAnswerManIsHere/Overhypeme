@@ -80,7 +80,7 @@ function normalizeApplePrivateKeyPem(input: string): string {
 
 export function generateAppleClientSecret(): string {
   const now = Math.floor(Date.now() / 1000);
-  const exp = now + 15897600; // 6 months
+  const exp = now + 15552000; // 180 days — Apple's max is 15,777,000 s; stay safely under
 
   const header = Buffer.from(
     JSON.stringify({ alg: "ES256", kid: process.env.APPLE_KEY_ID! }),
