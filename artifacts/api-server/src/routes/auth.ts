@@ -244,6 +244,31 @@ async function handleOAuthCallback(
     }
   }
 
+  // Temporary: intercept fetch to log the exact token request body sent to Apple
+  const _originalFetch = globalThis.fetch;
+  if (provider === "apple") {
+    globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      if (url.includes("appleid.apple.com/auth/token")) {
+        const body = init?.body?.toString() ?? "";
+        const params = new URLSearchParams(body);
+        logger.info({
+          tokenEndpointUrl: url,
+          grant_type: params.get("grant_type"),
+          client_id: params.get("client_id"),
+          redirect_uri: params.get("redirect_uri"),
+          has_code: !!params.get("code"),
+          has_code_verifier: !!params.get("code_verifier"),
+          has_client_secret: !!params.get("client_secret"),
+          client_secret_prefix: params.get("client_secret")?.slice(0, 30),
+          client_assertion_type: params.get("client_assertion_type"),
+          has_client_assertion: !!params.get("client_assertion"),
+        }, "[apple-debug] token request params");
+      }
+      return _originalFetch(input as Parameters<typeof fetch>[0], init);
+    };
+  }
+
   let tokens: oidc.TokenEndpointResponse & oidc.TokenEndpointResponseHelpers;
   try {
     tokens = await _oidcAuthCodeGrant(config, currentUrl, {
