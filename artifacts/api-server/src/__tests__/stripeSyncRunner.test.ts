@@ -23,6 +23,7 @@ import {
   runFullSync,
   isSyncRunning,
   readSyncStatus,
+  cleanStaleAccountData,
   _resetSyncRunnerForTests,
   _setErrorReporterForTests,
   SYNC_RESOURCES,
@@ -411,6 +412,123 @@ describe("stripeSyncRunner — readSyncStatus", () => {
     );
     assert.equal(productsAfter.status, "complete");
     assert.notEqual(productsAfter.lastSyncedAt, null);
+  });
+});
+
+describe("stripeSyncRunner — cleanStaleAccountData", () => {
+  const CURRENT = "acct_current_test";
+  const STALE   = "acct_stale_test";
+
+  async function ensureAccount(id: string) {
+    try {
+      await db.execute(sql.raw(
+        `INSERT INTO stripe.accounts (_raw_data) VALUES ('${JSON.stringify({ id })}'::jsonb) ON CONFLICT (id) DO NOTHING`,
+      ));
+      return true;
+    } catch { return false; }
+  }
+
+  async function countRows(table: string, accountId: string): Promise<number | null> {
+    try {
+      const r = await db.execute(sql.raw(
+        `SELECT count(*)::int AS n FROM stripe.${table} WHERE _account_id = '${accountId}'`,
+      ));
+      return (r.rows[0] as { n: number }).n;
+    } catch { return null; }
+  }
+
+  async function insertRow(table: string, accountId: string, idSuffix: string) {
+    await db.execute(sql.raw(
+      `INSERT INTO stripe.${table} (_raw_data, _account_id)
+       VALUES ('${JSON.stringify({ id: `${table}_${idSuffix}` })}'::jsonb, '${accountId}')`,
+    ));
+  }
+
+  beforeEach(async () => {
+    _resetSyncRunnerForTests();
+    for (const acct of [CURRENT, STALE]) {
+      try {
+        for (const t of ["prices", "plans", "products"]) {
+          await db.execute(sql.raw(`DELETE FROM stripe.${t} WHERE _account_id = '${acct}'`));
+        }
+        await db.execute(sql.raw(`DELETE FROM stripe.accounts WHERE id = '${acct}'`));
+      } catch { /* schema may not exist */ }
+    }
+  });
+
+  afterEach(async () => {
+    _resetSyncRunnerForTests();
+    for (const acct of [CURRENT, STALE]) {
+      try {
+        for (const t of ["prices", "plans", "products"]) {
+          await db.execute(sql.raw(`DELETE FROM stripe.${t} WHERE _account_id = '${acct}'`));
+        }
+        await db.execute(sql.raw(`DELETE FROM stripe.accounts WHERE id = '${acct}'`));
+      } catch { /* schema may not exist */ }
+    }
+  });
+
+  it("removes prices and products from a stale account while keeping the current account rows", async () => {
+    if (!(await ensureAccount(CURRENT))) return;
+    if (!(await ensureAccount(STALE))) return;
+
+    // Seed: 2 current products, 1 stale product, 3 stale prices
+    await insertRow("products", CURRENT, "c1");
+    await insertRow("products", CURRENT, "c2");
+    await insertRow("products", STALE,   "s1");
+    await insertRow("prices",   STALE,   "s1");
+    await insertRow("prices",   STALE,   "s2");
+    await insertRow("prices",   STALE,   "s3");
+
+    const result = await cleanStaleAccountData(CURRENT);
+
+    assert.equal(result.deletedPrices,   3, "should delete all 3 stale prices");
+    assert.equal(result.deletedProducts, 1, "should delete the 1 stale product");
+
+    assert.equal(await countRows("products", CURRENT), 2, "current products must remain");
+    assert.equal(await countRows("products", STALE),   0, "stale products must be gone");
+    assert.equal(await countRows("prices",   STALE),   0, "stale prices must be gone");
+  });
+
+  it("returns zero counts and is idempotent when all data belongs to the current account", async () => {
+    if (!(await ensureAccount(CURRENT))) return;
+
+    await insertRow("products", CURRENT, "c1");
+    await insertRow("prices",   CURRENT, "c1");
+
+    const result = await cleanStaleAccountData(CURRENT);
+
+    assert.equal(result.deletedPrices,   0);
+    assert.equal(result.deletedPlans,    0);
+    assert.equal(result.deletedProducts, 0);
+    assert.equal(await countRows("products", CURRENT), 1, "current product must remain");
+    assert.equal(await countRows("prices",   CURRENT), 1, "current price must remain");
+  });
+
+  it("scoped sync triggers cleanup: stale rows are gone after runScopedSync completes", async () => {
+    if (!(await ensureAccount(CURRENT))) return;
+    if (!(await ensureAccount(STALE))) return;
+
+    await insertRow("products", STALE, "old1");
+    await insertRow("prices",   STALE, "old1");
+
+    const driver: SyncRunnerDriver = {
+      async getAccountId() { return CURRENT; },
+      async syncProducts()       { return { synced: 0 }; },
+      async syncPrices()         { return { synced: 0 }; },
+      async syncPlans()          { return { synced: 0 }; },
+      async syncCustomers()      { return { synced: 0 }; },
+      async syncSubscriptions()  { return { synced: 0 }; },
+      async syncInvoices()       { return { synced: 0 }; },
+      async syncCharges()        { return { synced: 0 }; },
+      async syncPaymentMethods() { return { synced: 0 }; },
+    };
+
+    runScopedSync(driver);
+    await waitFor(() => !isSyncRunning());
+
+    assert.equal(await countRows("products", STALE), 0, "stale product must be deleted by post-sync cleanup");
+    assert.equal(await countRows("prices",   STALE), 0, "stale price must be deleted by post-sync cleanup");
   });
 });
 

@@ -210,6 +210,45 @@ function invokeResource(driver: SyncRunnerDriver, resource: SyncResource): Promi
 }
 
 /**
+ * Remove products, prices, and plans that belong to a Stripe account other
+ * than the one currently configured. Called after every successful sync so
+ * that stale catalog rows from a previous test or live account can never
+ * surface on the Pricing page or be submitted to the checkout endpoint.
+ *
+ * Only the three catalog tables are touched. Customer/subscription/invoice
+ * rows for a different account are left in place — they may reference real
+ * payment history and removing them could cause data loss.
+ *
+ * Deletion order: prices → plans → products (respects the FK from
+ * stripe.prices.product → stripe.products.id).
+ */
+export async function cleanStaleAccountData(currentAccountId: string): Promise<{
+  deletedPrices: number;
+  deletedPlans: number;
+  deletedProducts: number;
+}> {
+  const [priceResult, planResult] = await Promise.all([
+    db.execute(sql`DELETE FROM stripe.prices   WHERE _account_id != ${currentAccountId}`),
+    db.execute(sql`DELETE FROM stripe.plans    WHERE _account_id != ${currentAccountId}`),
+  ]);
+  const productResult = await db.execute(
+    sql`DELETE FROM stripe.products WHERE _account_id != ${currentAccountId}`,
+  );
+
+  const deletedPrices   = Number((priceResult   as { rowCount?: number }).rowCount ?? 0);
+  const deletedPlans    = Number((planResult    as { rowCount?: number }).rowCount ?? 0);
+  const deletedProducts = Number((productResult as { rowCount?: number }).rowCount ?? 0);
+
+  if (deletedPrices > 0 || deletedPlans > 0 || deletedProducts > 0) {
+    logger.info(
+      { currentAccountId, deletedPrices, deletedPlans, deletedProducts },
+      "[stripeSyncRunner] removed stale catalog rows from a previous Stripe account",
+    );
+  }
+  return { deletedPrices, deletedPlans, deletedProducts };
+}
+
+/**
  * Acquire the single in-process lock and run the given resources sequentially
  * on a detached promise. Returns synchronously after acquiring the lock so
  * the HTTP request can respond immediately.
@@ -229,9 +268,9 @@ function runWithResources(
 
   void (async () => {
     try {
-      // We resolve the account up-front so a future change can pre-fetch
-      // counts or status per-account if needed; not needed for the loop today.
-      await driver.getAccountId();
+      // Resolve the account ID up-front — used both for future per-account
+      // status tracking and for the stale-data cleanup after the sync loop.
+      const accountId = await driver.getAccountId();
       // Sequential so the library's _sync_status rows update one-at-a-time
       // and the polling UI can show meaningful progression.
       for (const resource of resources) {
@@ -240,6 +279,11 @@ function runWithResources(
         // automatically without any extra bookkeeping here.
         await invokeResource(driver, resource);
       }
+      // After every successful sync, purge catalog rows that belong to a
+      // different Stripe account (e.g. a previous test-mode account). This
+      // prevents stale price IDs from appearing on the Pricing page or being
+      // submitted to /stripe/checkout where Stripe would reject them.
+      await cleanStaleAccountData(accountId);
     } catch (err) {
       logger.error({ err }, "[stripeSyncRunner] sync failed");
     } finally {
