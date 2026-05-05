@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/Input";
 import { LogIn, UserPlus, ArrowLeft, Mail, Eye, EyeOff } from "lucide-react";
 import { PronounEditor } from "@/components/ui/PronounEditor";
 import { inferPronounsFromName } from "@/lib/infer-pronouns";
+import { isMobileDevice } from "@/lib/utils";
 
 const STORAGE_KEY_NAME    = "fact_db_name";
 const STORAGE_KEY_PRONOUNS = "fact_db_pronouns";
@@ -139,20 +140,28 @@ export default function Login() {
 
   const handleGoogleLogin = () => {
     const returnTo = encodeURIComponent(getFromParam() ?? "/");
-    window.open(
-      `/api/login/google?returnTo=${returnTo}&popup=1`,
-      "_blank",
-      "width=600,height=700,menubar=no,toolbar=no",
-    );
+    if (isMobileDevice()) {
+      window.location.href = `/api/login/google?returnTo=${returnTo}`;
+    } else {
+      window.open(
+        `/api/login/google?returnTo=${returnTo}&popup=1`,
+        "_blank",
+        "width=600,height=700,menubar=no,toolbar=no",
+      );
+    }
   };
 
   const handleAppleLogin = () => {
     const returnTo = encodeURIComponent(getFromParam() ?? "/");
-    window.open(
-      `/api/login/apple?returnTo=${returnTo}&popup=1`,
-      "_blank",
-      "width=600,height=700,menubar=no,toolbar=no",
-    );
+    if (isMobileDevice()) {
+      window.location.href = `/api/login/apple?returnTo=${returnTo}`;
+    } else {
+      window.open(
+        `/api/login/apple?returnTo=${returnTo}&popup=1`,
+        "_blank",
+        "width=600,height=700,menubar=no,toolbar=no",
+      );
+    }
   };
 
   if (registeredEmail) {
