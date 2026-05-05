@@ -32,7 +32,7 @@ function FlameMark({ className = "" }: { className?: string }) {
 }
 
 export function Navbar() {
-  const { user, isAuthenticated, isLoading: authLoading, role, refreshUser } = useAuth();
+  const { user, isAuthenticated, isLoading: authLoading, role } = useAuth();
   const { name } = usePersonName();
   const { data: profile } = useGetMyProfile({
     query: { queryKey: getGetMyProfileQueryKey(), enabled: isAuthenticated, staleTime: 60_000 }
@@ -62,12 +62,20 @@ export function Navbar() {
   function doAdminLogin() {
     _logoTapCount = 0;
     if (_logoTapTimer) { clearTimeout(_logoTapTimer); _logoTapTimer = null; }
-    // POST mutates the existing session in-place on the server — no new cookie
-    // needs to be stored by the browser. Then refreshUser() re-fetches the
-    // auth state so the UI reflects admin without any page navigation.
-    void fetch("/api/auth/dev-admin-login", { method: "POST", credentials: "include" })
-      .then((res) => { if (res.ok) void refreshUser().then(() => setLocation("/admin")); })
-      .catch(() => { /* silently ignore */ });
+    // Use top-level navigation to the GET endpoint instead of fetch().
+    //
+    // Why: in Chrome (esp. on Windows) when the app is viewed inside an
+    // iframe (e.g. Replit canvas preview) or when storage partitioning /
+    // tracking-protection is active, Set-Cookie responses to fetch() inside
+    // the iframe are silently dropped — the POST returns 200 but the new
+    // session sid never lands in the cookie jar, so subsequent admin
+    // requests come back 401 and the AdminLayout renders "Access Denied".
+    //
+    // Top-level navigation responses go through a different (more permissive)
+    // cookie path in every modern browser, so the sid actually persists.
+    // The GET handler returns an HTML page that JS-redirects to `returnTo`
+    // *after* the Set-Cookie has been committed, then admin requests work.
+    window.location.href = "/api/auth/dev-admin-login?returnTo=/admin";
   }
 
   // Mobile: onTouchEnd fires on every tap reliably (onClick is suppressed by
