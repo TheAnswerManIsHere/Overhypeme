@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { useState, useRef } from "react";
 import { NameTag } from "@/components/NameTag";
-import { AccountMenu, AccountMenuAvatarTrigger } from "@/components/layout/AccountMenu";
+import { AccountMenuAvatarTrigger } from "@/components/layout/AccountMenu";
 import { usePersonName } from "@/hooks/use-person-name";
 import { useGetMyProfile, getGetMyProfileQueryKey } from "@workspace/api-client-react";
 
@@ -126,9 +126,9 @@ export function Navbar() {
               <Search className="w-5 h-5" />
             </button>
             {isAuthenticated && !authLoading ? (
-              <AccountMenu>
+              <button onClick={() => setLocation("/profile")} aria-label="Go to profile">
                 <AccountMenuAvatarTrigger avatarUrl={navAvatarUrl} fallbackInitial={accountFallbackInitial} />
-              </AccountMenu>
+              </button>
             ) : !isColdMobile ? (
               <button onClick={() => setLocation("/login")} className="w-8 h-8 rounded-full bg-secondary border border-border flex items-center justify-center text-muted-foreground" aria-label="Sign in">
                 <User className="w-4 h-4" />
@@ -199,9 +199,9 @@ export function Navbar() {
                 are inside the avatar dropdown; Submit lives on /library). */}
             <div className="flex items-center gap-3">
               {!authLoading && (isAuthenticated ? (
-                <AccountMenu>
+                <button onClick={() => setLocation("/profile")} aria-label="Go to profile">
                   <AccountMenuAvatarTrigger avatarUrl={navAvatarUrl} fallbackInitial={accountFallbackInitial} />
-                </AccountMenu>
+                </button>
               ) : (
                 <Button variant="primary" size="sm" onClick={() => setLocation('/login')} className="gap-2 whitespace-nowrap">
                   <LogIn className="w-4 h-4" /> LOGIN
