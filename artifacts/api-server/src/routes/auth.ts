@@ -18,6 +18,7 @@ import {
   type SessionData,
 } from "../lib/auth";
 import { getSiteBaseUrl } from "../lib/siteUrl";
+import { logger } from "../lib/logger";
 
 // Re-exported for back-compat with other route modules that import from "./auth".
 // Canonical home is `lib/auth.ts` so the auth middleware can use it without a
@@ -252,6 +253,12 @@ async function handleOAuthCallback(
       idTokenExpected: true,
     });
   } catch (err) {
+    logger.error({
+      err,
+      provider,
+      currentUrl: currentUrl.toString(),
+      stage: "authorizationCodeGrant",
+    }, "OAuth token exchange failed");
     Sentry.captureException(err, {
       tags: { auth: "oauth-callback" },
       extra: { provider, stage: "authorizationCodeGrant" },
