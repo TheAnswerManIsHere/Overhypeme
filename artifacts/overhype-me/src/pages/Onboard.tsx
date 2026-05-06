@@ -4,6 +4,7 @@ import { useLocation } from "wouter";
 import { useAuth } from "@workspace/replit-auth-web";
 import { Camera, Upload, Loader2, RotateCw } from "lucide-react";
 import { Button } from "@/components/ui/Button";
+import { cropToSquareJpeg } from "@/lib/image-upload";
 
 const HCAPTCHA_SITE_KEY =
   import.meta.env.VITE_HCAPTCHA_SITE_KEY || "10000000-ffff-ffff-ffff-000000000001";
@@ -11,42 +12,6 @@ const HCAPTCHA_SITE_KEY =
 const BASE_URL = import.meta.env.BASE_URL ?? "/";
 
 type Step = "captcha" | "photo";
-
-/**
- * Center-crop an image to a square JPEG (max 1024px). Mirrors the helper in
- * Profile.tsx — kept inline to avoid a refactor for a single onboarding caller.
- */
-async function cropToSquareJpeg(file: File, maxSize = 1024): Promise<File> {
-  const dataUrl = await new Promise<string>((resolve, reject) => {
-    const r = new FileReader();
-    r.onload = () => resolve(typeof r.result === "string" ? r.result : "");
-    r.onerror = () => reject(new Error("Could not read image"));
-    r.readAsDataURL(file);
-  });
-  const img = await new Promise<HTMLImageElement>((resolve, reject) => {
-    const i = new globalThis.Image();
-    i.onload = () => resolve(i);
-    i.onerror = () => reject(new Error("Could not decode image"));
-    i.src = dataUrl;
-  });
-  const side = Math.min(img.naturalWidth, img.naturalHeight);
-  if (side <= 0) throw new Error("Image has no pixels");
-  const sx = Math.floor((img.naturalWidth - side) / 2);
-  const sy = Math.floor((img.naturalHeight - side) / 2);
-  const out = Math.min(side, maxSize);
-  const canvas = document.createElement("canvas");
-  canvas.width = out;
-  canvas.height = out;
-  const ctx = canvas.getContext("2d");
-  if (!ctx) throw new Error("Canvas not supported");
-  ctx.drawImage(img, sx, sy, side, side, 0, 0, out, out);
-  const blob = await new Promise<Blob | null>((resolve) =>
-    canvas.toBlob((b) => resolve(b), "image/jpeg", 0.9),
-  );
-  if (!blob) throw new Error("Could not encode image");
-  const baseName = file.name.replace(/\.[^.]+$/, "") || "photo";
-  return new File([blob], `${baseName}.jpg`, { type: "image/jpeg" });
-}
 
 export default function Onboard() {
   const [, setLocation] = useLocation();
