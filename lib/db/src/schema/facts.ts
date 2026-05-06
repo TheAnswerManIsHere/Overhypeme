@@ -29,6 +29,7 @@ export const factsTable = pgTable("facts", {
   score: integer("score").notNull().default(0),
   wilsonScore: doublePrecision("wilson_score").notNull().default(0),
   commentCount: integer("comment_count").notNull().default(0),
+  shareCount: integer("share_count").notNull().default(0),
   hasPronouns: boolean("has_pronouns").notNull().default(false),
   isActive: boolean("is_active").notNull().default(true),
   canonicalText: text("canonical_text"),
@@ -46,6 +47,6 @@ export const factsTable = pgTable("facts", {
   index("facts_parent_id_idx").on(table.parentId),
 ]);
 
-export const insertFactSchema = createInsertSchema(factsTable).omit({ id: true, upvotes: true, downvotes: true, score: true, wilsonScore: true, commentCount: true, createdAt: true, updatedAt: true });
+export const insertFactSchema = createInsertSchema(factsTable).omit({ id: true, upvotes: true, downvotes: true, score: true, wilsonScore: true, commentCount: true, shareCount: true, createdAt: true, updatedAt: true });
 export type InsertFact = z.infer<typeof insertFactSchema>;
 export type Fact = typeof factsTable.$inferSelect;

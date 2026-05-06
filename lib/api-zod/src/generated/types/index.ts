@@ -77,6 +77,7 @@ export * from "./rateFactRequest";
 export * from "./rateFactRequestRating";
 export * from "./ratingResult";
 export * from "./ratingResultUserRating";
+export * from "./recordFactShareResponse";
 export * from "./recordSearchRequest";
 export * from "./relatedFactsResponse";
 export * from "./suggestHashtags200";

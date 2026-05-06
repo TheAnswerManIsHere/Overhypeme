@@ -23,6 +23,7 @@ import { getSiteBaseUrl } from "../lib/siteUrl";
 import { logger } from "../lib/logger";
 import { hasFeature } from "../lib/tierFeatures";
 import { verifyCaptcha } from "../lib/captcha";
+import { checkSharedRateLimit } from "../lib/sharedRateLimiter";
 import { eq, sql, desc, asc, ilike, and, inArray, isNull } from "drizzle-orm";
 import {
   ListFactsQueryParams, CreateFactBody, GetFactParams,
@@ -57,7 +58,7 @@ async function buildFactSummaries(facts: (typeof factsTable.$inferSelect)[], use
 
   return facts.map((f) => ({
     id: f.id, text: f.text, upvotes: f.upvotes, downvotes: f.downvotes, score: f.score, wilsonScore: f.wilsonScore,
-    commentCount: f.commentCount, hashtags: hMap.get(f.id) ?? [],
+    commentCount: f.commentCount, shareCount: f.shareCount, hashtags: hMap.get(f.id) ?? [],
     submittedBy: f.submittedById ? (sMap.get(f.submittedById)?.displayName ?? null) : null,
     submittedByImage: f.submittedById ? (sMap.get(f.submittedById)?.profileImageUrl ?? null) : null,
     userRating: userId ? (rMap.get(f.id) ?? null) : null,
@@ -333,6 +334,46 @@ router.get("/facts/:factId/related", async (req: Request, res: Response) => {
   }
 
   res.json({ facts: await buildFactSummaries(picks, req.user?.id) });
+});
+
+// POST /facts/:factId/share — increment the fact's shareCount and return the
+// new value. Used by the client when a user opens the native share sheet
+// or copies the link from any of the share affordances. Rate-limited per IP
+// (with per-user override when authenticated) so a malicious client cannot
+// spam-bump the counter; the limit is intentionally generous because a
+// single user clicking "share" several times in a row is normal.
+router.post("/facts/:factId/share", async (req: AuthenticatedRequest, res: Response) => {
+  const factId = parseInt((req.params["factId"] ?? "") as string, 10);
+  if (!Number.isFinite(factId) || factId <= 0) {
+    res.status(400).json({ error: "Invalid factId" });
+    return;
+  }
+
+  const rateLimit = await checkSharedRateLimit(
+    {
+      endpoint: "facts.share",
+      ip: req.ip ?? null,
+      userId: req.user?.id ?? null,
+    },
+    { limit: 30, windowMs: 60_000 },
+  );
+  if (!rateLimit.allowed) {
+    res.status(429).json({ error: "Too many requests" });
+    return;
+  }
+
+  const [updated] = await db
+    .update(factsTable)
+    .set({ shareCount: sql`${factsTable.shareCount} + 1` })
+    .where(and(eq(factsTable.id, factId), eq(factsTable.isActive, true)))
+    .returning({ shareCount: factsTable.shareCount });
+
+  if (!updated) {
+    res.status(404).json({ error: "Fact not found" });
+    return;
+  }
+
+  res.json({ shareCount: updated.shareCount });
 });
 
 // POST /facts — admin-only direct insert; regular users submit via POST /facts/submit-review

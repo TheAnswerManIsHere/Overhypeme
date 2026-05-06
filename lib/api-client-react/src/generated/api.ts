@@ -56,6 +56,7 @@ import type {
   MemeTemplateListResponse,
   RateFactRequest,
   RatingResult,
+  RecordFactShareResponse,
   RecordSearchRequest,
   RelatedFactsResponse,
   SuggestHashtags200,
@@ -975,6 +976,95 @@ export function useListRelatedFacts<
 
   return { ...query, queryKey: queryOptions.queryKey };
 }
+
+/**
+ * Increments the fact's shareCount counter. Called by the client
+whenever a user opens a native share sheet, copies the link, or
+otherwise indicates they shared the fact's URL. Rate-limited per
+IP+userId.
+
+ * @summary Record a share event for a fact and return the new shareCount
+ */
+export const getRecordFactShareUrl = (factId: number) => {
+  return `/api/facts/${factId}/share`;
+};
+
+export const recordFactShare = async (
+  factId: number,
+  options?: RequestInit,
+): Promise<RecordFactShareResponse> => {
+  return customFetch<RecordFactShareResponse>(getRecordFactShareUrl(factId), {
+    ...options,
+    method: "POST",
+  });
+};
+
+export const getRecordFactShareMutationOptions = <
+  TError = ErrorType<ErrorEnvelope>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof recordFactShare>>,
+    TError,
+    { factId: number },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof recordFactShare>>,
+  TError,
+  { factId: number },
+  TContext
+> => {
+  const mutationKey = ["recordFactShare"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof recordFactShare>>,
+    { factId: number }
+  > = (props) => {
+    const { factId } = props ?? {};
+
+    return recordFactShare(factId, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type RecordFactShareMutationResult = NonNullable<
+  Awaited<ReturnType<typeof recordFactShare>>
+>;
+
+export type RecordFactShareMutationError = ErrorType<ErrorEnvelope>;
+
+/**
+ * @summary Record a share event for a fact and return the new shareCount
+ */
+export const useRecordFactShare = <
+  TError = ErrorType<ErrorEnvelope>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof recordFactShare>>,
+    TError,
+    { factId: number },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof recordFactShare>>,
+  TError,
+  { factId: number },
+  TContext
+> => {
+  return useMutation(getRecordFactShareMutationOptions(options));
+};
 
 /**
  * @summary Rate a fact (upvote or downvote)

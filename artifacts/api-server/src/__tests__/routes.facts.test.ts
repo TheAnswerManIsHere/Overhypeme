@@ -183,6 +183,35 @@ describe("GET /facts/:factId", () => {
   });
 });
 
+describe("POST /facts/:factId/share", () => {
+
+  it("returns 400 for a non-numeric factId", async () => {
+    const res = await request(makeApp()).post("/facts/not-a-number/share");
+    assert.equal(res.status, 400);
+  });
+
+  it("returns 404 for a missing factId", async () => {
+    const res = await request(makeApp()).post("/facts/999999998/share");
+    assert.equal(res.status, 404);
+  });
+
+  it("increments shareCount and returns the new value", async () => {
+    const userId = await createTestUser();
+    const factId = await insertFact("share-target", { submittedById: userId });
+
+    const r1 = await request(makeApp()).post(`/facts/${factId}/share`);
+    assert.equal(r1.status, 200);
+    assert.equal(r1.body.shareCount, 1);
+
+    const r2 = await request(makeApp()).post(`/facts/${factId}/share`);
+    assert.equal(r2.status, 200);
+    assert.equal(r2.body.shareCount, 2);
+
+    const get = await request(makeApp()).get(`/facts/${factId}`);
+    assert.equal(get.body.shareCount, 2, "shareCount surfaces on the FactSummary");
+  });
+});
+
 describe("GET /facts/:factId/related", () => {
 
   it("returns 400 for a non-numeric factId", async () => {

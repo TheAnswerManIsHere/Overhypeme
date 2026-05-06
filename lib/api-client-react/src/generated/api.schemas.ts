@@ -185,6 +185,8 @@ export interface FactSummary {
   downvotes: number;
   score?: number;
   commentCount: number;
+  /** @minimum 0 */
+  shareCount: number;
   hashtags: string[];
   submittedBy?: string | null;
   submittedByImage?: string | null;
@@ -216,6 +218,11 @@ export interface FactListResponse {
 
 export interface RelatedFactsResponse {
   facts: FactSummary[];
+}
+
+export interface RecordFactShareResponse {
+  /** @minimum 0 */
+  shareCount: number;
 }
 
 export interface HeroFactResponse {

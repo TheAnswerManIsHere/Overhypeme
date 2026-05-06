@@ -105,6 +105,8 @@ export const ListFactsQueryParams = zod.object({
     .default(listFactsQueryOffsetDefault),
 });
 
+export const listFactsResponseFactsItemShareCountMin = 0;
+
 export const ListFactsResponse = zod.object({
   facts: zod.array(
     zod.object({
@@ -114,6 +116,7 @@ export const ListFactsResponse = zod.object({
       downvotes: zod.number(),
       score: zod.number().optional(),
       commentCount: zod.number(),
+      shareCount: zod.number().min(listFactsResponseFactsItemShareCountMin),
       hashtags: zod.array(zod.string()),
       submittedBy: zod.string().nullish(),
       submittedByImage: zod.string().nullish(),
@@ -155,6 +158,8 @@ export const GetHeroFactQueryParams = zod.object({
     .describe("Comma-separated list of fact IDs to exclude from selection."),
 });
 
+export const getHeroFactResponseFactShareCountMin = 0;
+
 export const GetHeroFactResponse = zod.object({
   fact: zod.object({
     id: zod.number(),
@@ -163,6 +168,7 @@ export const GetHeroFactResponse = zod.object({
     downvotes: zod.number(),
     score: zod.number().optional(),
     commentCount: zod.number(),
+    shareCount: zod.number().min(getHeroFactResponseFactShareCountMin),
     hashtags: zod.array(zod.string()),
     submittedBy: zod.string().nullish(),
     submittedByImage: zod.string().nullish(),
@@ -182,6 +188,10 @@ export const GetFactParams = zod.object({
   factId: zod.coerce.number(),
 });
 
+export const getFactResponseOneShareCountMin = 0;
+
+export const getFactResponseTwoVariantsItemShareCountMin = 0;
+
 export const GetFactResponse = zod
   .object({
     id: zod.number(),
@@ -190,6 +200,7 @@ export const GetFactResponse = zod
     downvotes: zod.number(),
     score: zod.number().optional(),
     commentCount: zod.number(),
+    shareCount: zod.number().min(getFactResponseOneShareCountMin),
     hashtags: zod.array(zod.string()),
     submittedBy: zod.string().nullish(),
     submittedByImage: zod.string().nullish(),
@@ -222,6 +233,9 @@ export const GetFactResponse = zod
             downvotes: zod.number(),
             score: zod.number().optional(),
             commentCount: zod.number(),
+            shareCount: zod
+              .number()
+              .min(getFactResponseTwoVariantsItemShareCountMin),
             hashtags: zod.array(zod.string()),
             submittedBy: zod.string().nullish(),
             submittedByImage: zod.string().nullish(),
@@ -258,6 +272,8 @@ export const ListRelatedFactsQueryParams = zod.object({
     .default(listRelatedFactsQueryLimitDefault),
 });
 
+export const listRelatedFactsResponseFactsItemShareCountMin = 0;
+
 export const ListRelatedFactsResponse = zod.object({
   facts: zod.array(
     zod.object({
@@ -267,6 +283,9 @@ export const ListRelatedFactsResponse = zod.object({
       downvotes: zod.number(),
       score: zod.number().optional(),
       commentCount: zod.number(),
+      shareCount: zod
+        .number()
+        .min(listRelatedFactsResponseFactsItemShareCountMin),
       hashtags: zod.array(zod.string()),
       submittedBy: zod.string().nullish(),
       submittedByImage: zod.string().nullish(),
@@ -275,6 +294,24 @@ export const ListRelatedFactsResponse = zod.object({
       createdAt: zod.coerce.date(),
     }),
   ),
+});
+
+/**
+ * Increments the fact's shareCount counter. Called by the client
+whenever a user opens a native share sheet, copies the link, or
+otherwise indicates they shared the fact's URL. Rate-limited per
+IP+userId.
+
+ * @summary Record a share event for a fact and return the new shareCount
+ */
+export const RecordFactShareParams = zod.object({
+  factId: zod.coerce.number(),
+});
+
+export const recordFactShareResponseShareCountMin = 0;
+
+export const RecordFactShareResponse = zod.object({
+  shareCount: zod.number().min(recordFactShareResponseShareCountMin),
 });
 
 /**
@@ -424,6 +461,10 @@ export const ListHashtagsResponse = zod.object({
 /**
  * @summary Get the current user's profile
  */
+export const getMyProfileResponseSubmittedFactsItemShareCountMin = 0;
+
+export const getMyProfileResponseLikedFactsItemShareCountMin = 0;
+
 export const GetMyProfileResponse = zod.object({
   id: zod.string(),
   email: zod.string().nullish(),
@@ -474,6 +515,9 @@ export const GetMyProfileResponse = zod.object({
       downvotes: zod.number(),
       score: zod.number().optional(),
       commentCount: zod.number(),
+      shareCount: zod
+        .number()
+        .min(getMyProfileResponseSubmittedFactsItemShareCountMin),
       hashtags: zod.array(zod.string()),
       submittedBy: zod.string().nullish(),
       submittedByImage: zod.string().nullish(),
@@ -490,6 +534,9 @@ export const GetMyProfileResponse = zod.object({
       downvotes: zod.number(),
       score: zod.number().optional(),
       commentCount: zod.number(),
+      shareCount: zod
+        .number()
+        .min(getMyProfileResponseLikedFactsItemShareCountMin),
       hashtags: zod.array(zod.string()),
       submittedBy: zod.string().nullish(),
       submittedByImage: zod.string().nullish(),
