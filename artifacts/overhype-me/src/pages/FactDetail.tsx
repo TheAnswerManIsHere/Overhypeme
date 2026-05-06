@@ -544,10 +544,20 @@ export default function FactDetail() {
               </button>
             </div>
 
-            <Link href="#comments" className="flex items-center gap-2 text-muted-foreground hover:text-foreground transition-colors">
+            <button
+              onClick={() => {
+                setBelowFoldMounted(true);
+                requestAnimationFrame(() => {
+                  requestAnimationFrame(() => {
+                    document.getElementById("comments")?.scrollIntoView({ behavior: "smooth", block: "start" });
+                  });
+                });
+              }}
+              className="flex items-center gap-2 text-muted-foreground hover:text-foreground transition-colors"
+            >
               <MessageSquare className="w-5 h-5" />
               <span className="text-sm font-semibold">{fact.commentCount}</span>
-            </Link>
+            </button>
           </div>
         </div>
 
