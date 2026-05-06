@@ -1,14 +1,15 @@
-import { useState, useRef, useLayoutEffect } from "react";
+import { useState, useRef, useLayoutEffect, useCallback } from "react";
 import { Link, useLocation } from "wouter";
 import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
 import { MessageSquare, ThumbsUp, ThumbsDown, Flame } from "lucide-react";
-import { FactSummary, useListComments, getListCommentsQueryKey } from "@workspace/api-client-react";
+import { FactSummary } from "@workspace/api-client-react";
 import { useAppMutations } from "@/hooks/use-mutations";
 import { useAuth } from "@workspace/replit-auth-web";
 import { cn } from "@/components/ui/Button";
 import { usePersonName } from "@/hooks/use-person-name";
 import { renderFact } from "@/lib/render-fact";
 import { useToast } from "@/hooks/use-toast";
+import { FactCardComments } from "./FactCardComments";
 
 function HighlightName({ text, name }: { text: string; name: string }) {
   if (!name) return <>{text}</>;
@@ -21,80 +22,6 @@ function HighlightName({ text, name }: { text: string; name: string }) {
           : <span key={i}>{p}</span>
       )}
     </>
-  );
-}
-
-function InlineExpansion({ fact, name }: { fact: FactSummary; name: string }) {
-  const [, setLocation] = useLocation();
-
-  const { data: commentsData } = useListComments(fact.id, { limit: 3 }, {
-    query: { queryKey: getListCommentsQueryKey(fact.id, { limit: 3 }) }
-  });
-
-  const topComments = commentsData?.comments?.slice(0, 2) ?? [];
-
-  return (
-    <motion.div
-      initial={{ opacity: 0, y: -4 }}
-      animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, y: -4 }}
-      transition={{ duration: 0.24, ease: [0.2, 0.8, 0.2, 1] }}
-      className="mt-3 pt-4 border-t border-border/50"
-    >
-      {/* Top 2 comments */}
-      {topComments.length > 0 && (
-        <div className="space-y-3 mb-3">
-          {topComments.map((c) => (
-            <div key={c.id} className="flex gap-2.5">
-              <div className="w-7 h-7 rounded-full bg-primary/15 flex items-center justify-center flex-shrink-0 text-xs font-bold font-display text-primary">
-                {(c.authorName?.[0] ?? "?").toUpperCase()}
-              </div>
-              <p className="text-xs text-muted-foreground leading-relaxed pt-1.5">
-                <span className="text-foreground font-semibold">{c.authorName ?? "Anonymous"}</span>{" "}{c.text}
-              </p>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* See all */}
-      <Link
-        href={`/facts/${fact.id}#comments`}
-        className="block text-xs font-semibold text-muted-foreground hover:text-primary transition-colors mb-4"
-      >
-        See all {fact.commentCount} comments →
-      </Link>
-
-      {/* Reply teaser — tapping navigates to full page */}
-      <div className="flex gap-2.5 items-center mb-4">
-        <div className="w-7 h-7 rounded-full bg-primary/15 flex items-center justify-center flex-shrink-0 text-xs font-bold font-display text-primary">
-          {name ? name[0].toUpperCase() : "?"}
-        </div>
-        <button
-          onClick={() => setLocation(`/facts/${fact.id}#comments`)}
-          className="flex-1 h-9 px-3.5 bg-secondary border border-border rounded-full text-sm text-muted-foreground text-left hover:border-primary/40 transition-colors"
-        >
-          Add a comment…
-        </button>
-      </div>
-
-      {/* Make a meme — primary action */}
-      <button
-        onClick={() => setLocation(`/facts/${fact.id}/meme`)}
-        className="w-full h-11 bg-primary text-white rounded-xl font-display font-bold text-sm tracking-widest uppercase flex items-center justify-center gap-2 hover:opacity-90 transition-opacity shadow-[0_4px_16px_rgba(255,101,0,0.25)]"
-      >
-        <Flame className="w-4 h-4" />
-        Make a meme of this
-      </button>
-
-      {/* Open fact page — secondary */}
-      <Link
-        href={`/facts/${fact.id}`}
-        className="block w-full text-center text-xs text-muted-foreground hover:text-primary transition-colors mt-2 py-1 font-medium"
-      >
-        Open fact page
-      </Link>
-    </motion.div>
   );
 }
 
@@ -136,10 +63,14 @@ export function FactCard({
     rateFact.mutate({ factId: fact.id, data: { rating: newRating } });
   };
 
+  const handleEscape = useCallback((e: React.KeyboardEvent) => {
+    if (e.key === "Escape" && expanded) {
+      setExpanded(false);
+    }
+  }, [expanded]);
+
   const cardRef = useRef<HTMLDivElement>(null);
   const prefersReducedMotion = useReducedMotion();
-  // show: whether opacity should be 1
-  // instant: whether the transition to visible should be duration:0
   const [show, setShow] = useState(false);
   const [instant, setInstant] = useState(false);
 
@@ -147,14 +78,12 @@ export function FactCard({
     const el = cardRef.current;
     if (!el) return;
 
-    // Reduced motion: show immediately with no animation
     if (prefersReducedMotion) {
       setInstant(true);
       setShow(true);
       return;
     }
 
-    // Already in the viewport at mount time — show instantly before first paint
     const { top, bottom } = el.getBoundingClientRect();
     if (top < window.innerHeight && bottom > 0) {
       setInstant(true);
@@ -162,9 +91,7 @@ export function FactCard({
       return;
     }
 
-    // Below the fold — use a raw observer that disconnects itself on first fire.
-    // Safari cannot re-trigger a disconnected observer.
-    let rafId: number;
+    let rafId = 0;
     const observer = new IntersectionObserver(
       ([entry]) => {
         if (entry.isIntersecting) {
@@ -182,6 +109,8 @@ export function FactCard({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const commentsRegionId = `fact-${fact.id}-comments`;
+
   return (
     <motion.div
       ref={cardRef}
@@ -189,6 +118,7 @@ export function FactCard({
       animate={{ opacity: show ? 1 : 0 }}
       transition={instant ? { duration: 0 } : { duration: 0.4, ease: "easeOut" }}
       whileHover={prefersReducedMotion ? undefined : { y: -3 }}
+      onKeyDown={handleEscape}
       className={cn(
         "relative group block bg-card rounded-[20px] shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] border transition-all duration-300 overflow-hidden",
         expanded ? "border-primary/25" : "border-border hover:border-primary/40"
@@ -227,7 +157,7 @@ export function FactCard({
         {/* Engagement row */}
         <div className="flex items-center justify-between pt-3 border-t border-border/50">
           <div className="flex items-center gap-3">
-            {/* Upvote pill with nested downvote — upvote is prominent, downvote is secondary */}
+            {/* Upvote pill with nested downvote */}
             <div className={cn(
               "inline-flex items-center rounded-full border h-8 transition-colors",
               fact.userRating === "up"
@@ -257,16 +187,18 @@ export function FactCard({
               </button>
             </div>
 
-            {/* Comments — also toggles expand */}
+            {/* Comments — toggles expand, with aria attributes */}
             <button
               onClick={() => setExpanded(v => !v)}
+              aria-expanded={expanded}
+              aria-controls={commentsRegionId}
               className="flex items-center gap-1.5 text-muted-foreground hover:text-foreground transition-colors"
             >
               <MessageSquare className="w-5 h-5" />
               <span className="text-xs font-semibold">{fact.commentCount}</span>
             </button>
 
-            {/* Share — grouped with social actions */}
+            {/* Share */}
             <button
               onClick={handleShare}
               className="text-muted-foreground hover:text-foreground transition-colors"
@@ -290,7 +222,7 @@ export function FactCard({
 
         {/* Inline expansion */}
         <AnimatePresence>
-          {expanded && <InlineExpansion fact={fact} name={name} />}
+          {expanded && <FactCardComments fact={fact} name={name} />}
         </AnimatePresence>
       </div>
     </motion.div>
