@@ -69,8 +69,10 @@ async function fetchVideos(factId: number): Promise<{ videos: VideoItem[] }> {
   return res.json() as Promise<{ videos: VideoItem[] }>;
 }
 
-async function fetchMemes(factId: number, visibility: "community" | "my-public" | "my-private"): Promise<{ memes: MemeItem[] }> {
-  const res = await fetch(`/api/facts/${factId}/memes?visibility=${visibility}`, { credentials: "include" });
+type MemeSort = "top" | "new";
+
+async function fetchMemes(factId: number, visibility: "community" | "my-public" | "my-private", sort: MemeSort): Promise<{ memes: MemeItem[] }> {
+  const res = await fetch(`/api/facts/${factId}/memes?visibility=${visibility}&sort=${sort}`, { credentials: "include" });
   if (!res.ok) throw new Error("Failed to fetch memes");
   return res.json() as Promise<{ memes: MemeItem[] }>;
 }
@@ -256,6 +258,7 @@ export default function FactDetail() {
 
   const [galleryTab, setGalleryTab] = useState<"community" | "mine">("community");
   const [mediaFilter, setMediaFilter] = useState<"all" | "image" | "video">("all");
+  const [memeSort, setMemeSort] = useState<MemeSort>("top");
   const [belowFoldMounted, setBelowFoldMounted] = useState(false);
   const queryClient = useQueryClient();
 
@@ -315,20 +318,20 @@ export default function FactDetail() {
   });
 
   const { data: communityMemesData } = useQuery({
-    queryKey: ["listFactMemes", factId, "community"],
-    queryFn: () => fetchMemes(factId, "community"),
+    queryKey: ["listFactMemes", factId, "community", memeSort],
+    queryFn: () => fetchMemes(factId, "community", memeSort),
     enabled: !!factId && belowFoldMounted,
   });
 
   const { data: myPublicMemesData } = useQuery({
-    queryKey: ["listFactMemes", factId, "my-public"],
-    queryFn: () => fetchMemes(factId, "my-public"),
+    queryKey: ["listFactMemes", factId, "my-public", memeSort],
+    queryFn: () => fetchMemes(factId, "my-public", memeSort),
     enabled: !!factId && isAuthenticated && belowFoldMounted,
   });
 
   const { data: myPrivateMemesData } = useQuery({
-    queryKey: ["listFactMemes", factId, "my-private"],
-    queryFn: () => fetchMemes(factId, "my-private"),
+    queryKey: ["listFactMemes", factId, "my-private", memeSort],
+    queryFn: () => fetchMemes(factId, "my-private", memeSort),
     enabled: !!factId && isAuthenticated && belowFoldMounted,
   });
 
@@ -625,8 +628,8 @@ export default function FactDetail() {
             )}
           </div>
 
-          {/* Image / Video sub-toggle */}
-          <div className="flex gap-2 mb-6">
+          {/* Image / Video sub-toggle + Top/Newest sort */}
+          <div className="flex flex-wrap items-center gap-2 mb-6">
             {(["all", "image", "video"] as const).map(v => (
               <button
                 key={v}
@@ -641,6 +644,18 @@ export default function FactDetail() {
                 {v === "all" ? "All" : v === "image" ? "Images" : "Videos"}
               </button>
             ))}
+            <div className="ml-auto flex items-center gap-2 text-xs">
+              <span className="text-muted-foreground font-display tracking-wider uppercase">Sort</span>
+              <select
+                value={memeSort}
+                onChange={(e) => setMemeSort(e.target.value as MemeSort)}
+                className="bg-secondary border border-border/80 rounded-full px-3 py-1.5 text-xs font-semibold text-foreground hover:border-primary/50 transition-colors focus:outline-none focus:border-primary"
+                aria-label="Sort memes"
+              >
+                <option value="top">Top</option>
+                <option value="new">Newest</option>
+              </select>
+            </div>
           </div>
 
           {/* Meme image grid */}
