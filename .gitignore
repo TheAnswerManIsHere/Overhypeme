@@ -47,5 +47,7 @@ Thumbs.db
 
 # Replit
 .cache/
-.local/
+.local/*
+!.local/tasks/
+!.local/tasks/**
 attached_assets/

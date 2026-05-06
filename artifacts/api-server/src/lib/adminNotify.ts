@@ -4,6 +4,7 @@
  * Sends branded email alerts to every admin who has opted in to notifications.
  * All functions are fire-and-forget — they never throw.
  */
+import { BRAND_ORANGE } from "@workspace/api-zod";
 import { eq, and } from "drizzle-orm";
 import { db, usersTable } from "@workspace/db";
 import { sendEmail, buildEmailShell, ctaButton, divider } from "./email.js";
@@ -104,14 +105,14 @@ export function buildNotificationEmail(opts: AdminNotifyOpts) {
 <p style="margin:0 0 20px;font-size:15px;font-weight:600;color:#ffffff;">${opts.submitterName.replace(/</g, "&lt;")}</p>
 <table cellpadding="0" cellspacing="0" border="0" width="100%" style="margin:0 0 28px;">
   <tr>
-    <td style="border-left:4px solid #FF6600;padding:12px 16px;background:#1f1f22;border-radius:10px;">
+    <td style="border-left:4px solid ${BRAND_ORANGE};padding:12px 16px;background:#1f1f22;border-radius:10px;">
       <p style="margin:0;font-size:14px;color:#dddddd;line-height:1.7;font-style:italic;">"${safeText}${truncated}"</p>
     </td>
   </tr>
 </table>
 ${ctaButton(opts.reviewUrl, "Review Now")}
 ${divider()}
-<p style="margin:0;font-size:12px;color:#888888;line-height:1.7;font-family:'Inter',-apple-system,sans-serif;">You&#39;re receiving this because you have admin notifications enabled on Overhype.me. <a href="${siteUrl}/admin/users" target="_blank" style="color:#FF6600;text-decoration:none;">Manage notification settings.</a></p>`;
+<p style="margin:0;font-size:12px;color:#888888;line-height:1.7;font-family:'Inter',-apple-system,sans-serif;">You&#39;re receiving this because you have admin notifications enabled on Overhype.me. <a href="${siteUrl}/admin/users" target="_blank" style="color:${BRAND_ORANGE};text-decoration:none;">Manage notification settings.</a></p>`;
 
   const html = buildEmailShell(body, "Admin notification — Overhype.me.");
 
@@ -254,10 +255,10 @@ export function buildDisputeNotificationEmail(opts: AdminDisputeNotifyOpts) {
   const siteUrl = getSiteBaseUrl();
   const safeDisputeId = opts.disputeId.replace(/</g, "&lt;");
   const modeBadge = opts.livemode
-    ? `<span style="display:inline-block;padding:2px 8px;background:#FF6600;color:#ffffff;font-size:10px;font-weight:700;letter-spacing:1px;text-transform:uppercase;font-family:'Oswald','Impact','Arial Narrow',sans-serif;mso-font-alt:'Impact';">Live</span>`
+    ? `<span style="display:inline-block;padding:2px 8px;background:${BRAND_ORANGE};color:#ffffff;font-size:10px;font-weight:700;letter-spacing:1px;text-transform:uppercase;font-family:'Oswald','Impact','Arial Narrow',sans-serif;mso-font-alt:'Impact';">Live</span>`
     : `<span style="display:inline-block;padding:2px 8px;background:#444444;color:#ffffff;font-size:10px;font-weight:700;letter-spacing:1px;text-transform:uppercase;font-family:'Oswald','Impact','Arial Narrow',sans-serif;mso-font-alt:'Impact';">Test</span>`;
 
-  const strapColor = copy.urgent ? "#FF6600" : "#cccccc";
+  const strapColor = copy.urgent ? BRAND_ORANGE : "#cccccc";
 
   const body = `
 <h1 style="margin:0 0 8px;font-family:'Oswald','Impact','Arial Narrow',sans-serif;font-size:24px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:#ffffff;line-height:1.2;mso-font-alt:'Impact';">${copy.headline} ${modeBadge}</h1>
@@ -265,7 +266,7 @@ export function buildDisputeNotificationEmail(opts: AdminDisputeNotifyOpts) {
 <p style="margin:0 0 20px;font-size:15px;color:#aaaaaa;line-height:1.75;">${copy.leadHtml}</p>
 <table cellpadding="0" cellspacing="0" border="0" width="100%" style="margin:0 0 28px;background:#1f1f22;border-radius:10px;">
   <tr>
-    <td style="padding:14px 16px;border-left:4px solid #FF6600;">
+    <td style="padding:14px 16px;border-left:4px solid ${BRAND_ORANGE};">
       <p style="margin:0 0 6px;font-size:11px;color:#777777;font-family:'Inter',-apple-system,sans-serif;text-transform:uppercase;letter-spacing:1px;">${copy.amountLabel}</p>
       <p style="margin:0 0 14px;font-size:18px;font-weight:700;color:#ffffff;font-family:'Oswald','Impact','Arial Narrow',sans-serif;mso-font-alt:'Impact';">${formattedAmount}</p>
       <p style="margin:0 0 6px;font-size:11px;color:#777777;font-family:'Inter',-apple-system,sans-serif;text-transform:uppercase;letter-spacing:1px;">Dispute ID</p>
@@ -275,7 +276,7 @@ export function buildDisputeNotificationEmail(opts: AdminDisputeNotifyOpts) {
 </table>
 ${ctaButton(dashboardUrl, copy.cta)}
 ${divider()}
-<p style="margin:0;font-size:12px;color:#888888;line-height:1.7;font-family:'Inter',-apple-system,sans-serif;">You&#39;re receiving this because you have Stripe dispute alerts enabled on Overhype.me. <a href="${siteUrl}/admin/users" target="_blank" style="color:#FF6600;text-decoration:none;">Manage notification settings.</a></p>`;
+<p style="margin:0;font-size:12px;color:#888888;line-height:1.7;font-family:'Inter',-apple-system,sans-serif;">You&#39;re receiving this because you have Stripe dispute alerts enabled on Overhype.me. <a href="${siteUrl}/admin/users" target="_blank" style="color:${BRAND_ORANGE};text-decoration:none;">Manage notification settings.</a></p>`;
 
   const html = buildEmailShell(body, "Stripe dispute alert — Overhype.me.");
 
@@ -353,11 +354,11 @@ export function buildAbandonedEmailNotification(opts: AdminAbandonedEmailNotifyO
 
   const body = `
 <h1 style="margin:0 0 8px;font-family:'Oswald','Impact','Arial Narrow',sans-serif;font-size:24px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:#ffffff;line-height:1.2;mso-font-alt:'Impact';">Email Delivery<br/>Failed Permanently</h1>
-<p style="margin:0 0 24px;font-size:14px;color:#FF6600;line-height:1.6;font-weight:600;text-transform:uppercase;letter-spacing:1px;font-family:'Oswald','Impact','Arial Narrow',sans-serif;mso-font-alt:'Impact';">All retry attempts exhausted</p>
+<p style="margin:0 0 24px;font-size:14px;color:${BRAND_ORANGE};line-height:1.6;font-weight:600;text-transform:uppercase;letter-spacing:1px;font-family:'Oswald','Impact','Arial Narrow',sans-serif;mso-font-alt:'Impact';">All retry attempts exhausted</p>
 <p style="margin:0 0 20px;font-size:15px;color:#aaaaaa;line-height:1.75;">An outgoing email could not be delivered after all retry attempts. The recipient will <strong style="color:#ffffff;">not</strong> receive this message unless it is resent manually.</p>
 <table cellpadding="0" cellspacing="0" border="0" width="100%" style="margin:0 0 28px;background:#1f1f22;border-radius:10px;">
   <tr>
-    <td style="padding:14px 16px;border-left:4px solid #FF6600;">
+    <td style="padding:14px 16px;border-left:4px solid ${BRAND_ORANGE};">
       <p style="margin:0 0 6px;font-size:11px;color:#777777;font-family:'Inter',-apple-system,sans-serif;text-transform:uppercase;letter-spacing:1px;">Recipient</p>
       <p style="margin:0 0 14px;font-size:14px;font-weight:600;color:#dddddd;word-break:break-all;">${safeRecipient}</p>
       <p style="margin:0 0 6px;font-size:11px;color:#777777;font-family:'Inter',-apple-system,sans-serif;text-transform:uppercase;letter-spacing:1px;">Email subject</p>
@@ -371,7 +372,7 @@ export function buildAbandonedEmailNotification(opts: AdminAbandonedEmailNotifyO
 </table>
 ${ctaButton(emailQueueUrl, "View Email Queue")}
 ${divider()}
-<p style="margin:0;font-size:12px;color:#888888;line-height:1.7;font-family:'Inter',-apple-system,sans-serif;">You&#39;re receiving this because you have admin notifications enabled on Overhype.me. <a href="${siteUrl}/admin/users" target="_blank" style="color:#FF6600;text-decoration:none;">Manage notification settings.</a></p>`;
+<p style="margin:0;font-size:12px;color:#888888;line-height:1.7;font-family:'Inter',-apple-system,sans-serif;">You&#39;re receiving this because you have admin notifications enabled on Overhype.me. <a href="${siteUrl}/admin/users" target="_blank" style="color:${BRAND_ORANGE};text-decoration:none;">Manage notification settings.</a></p>`;
 
   const html = buildEmailShell(body, "Email delivery failure — Overhype.me.");
 
@@ -465,7 +466,7 @@ export function buildFraudWarningEmail(opts: AdminFraudWarningNotifyOpts) {
   const safeWarningId = opts.warningId.replace(/</g, "&lt;");
   const safeChargeId = opts.chargeId.replace(/</g, "&lt;");
   const modeBadge = opts.livemode
-    ? `<span style="display:inline-block;padding:2px 8px;background:#FF6600;color:#ffffff;font-size:10px;font-weight:700;letter-spacing:1px;text-transform:uppercase;font-family:'Oswald','Impact','Arial Narrow',sans-serif;mso-font-alt:'Impact';">Live</span>`
+    ? `<span style="display:inline-block;padding:2px 8px;background:${BRAND_ORANGE};color:#ffffff;font-size:10px;font-weight:700;letter-spacing:1px;text-transform:uppercase;font-family:'Oswald','Impact','Arial Narrow',sans-serif;mso-font-alt:'Impact';">Live</span>`
     : `<span style="display:inline-block;padding:2px 8px;background:#444444;color:#ffffff;font-size:10px;font-weight:700;letter-spacing:1px;text-transform:uppercase;font-family:'Oswald','Impact','Arial Narrow',sans-serif;mso-font-alt:'Impact';">Test</span>`;
 
   const fraudTypeHtml = opts.fraudType
@@ -474,17 +475,17 @@ export function buildFraudWarningEmail(opts: AdminFraudWarningNotifyOpts) {
     : "";
 
   const actionableHtml = actionableLine
-    ? `<p style="margin:0 0 20px;font-size:14px;color:${opts.actionable ? "#FF6600" : "#aaaaaa"};line-height:1.7;font-weight:${opts.actionable ? "600" : "400"};">${actionableLine}</p>`
+    ? `<p style="margin:0 0 20px;font-size:14px;color:${opts.actionable ? BRAND_ORANGE : "#aaaaaa"};line-height:1.7;font-weight:${opts.actionable ? "600" : "400"};">${actionableLine}</p>`
     : "";
 
   const body = `
 <h1 style="margin:0 0 8px;font-family:'Oswald','Impact','Arial Narrow',sans-serif;font-size:24px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:#ffffff;line-height:1.2;mso-font-alt:'Impact';">Early Fraud<br/>Warning ${modeBadge}</h1>
-<p style="margin:0 0 24px;font-size:14px;color:#FF6600;line-height:1.6;font-weight:600;text-transform:uppercase;letter-spacing:1px;font-family:'Oswald','Impact','Arial Narrow',sans-serif;mso-font-alt:'Impact';">Refund window: 24–72 hours</p>
+<p style="margin:0 0 24px;font-size:14px;color:${BRAND_ORANGE};line-height:1.6;font-weight:600;text-transform:uppercase;letter-spacing:1px;font-family:'Oswald','Impact','Arial Narrow',sans-serif;mso-font-alt:'Impact';">Refund window: 24–72 hours</p>
 <p style="margin:0 0 16px;font-size:15px;color:#aaaaaa;line-height:1.75;">Stripe&#39;s Radar flagged a charge as likely-fraudulent. Proactively refunding now usually prevents the cardholder from filing a formal chargeback later — and chargebacks cost more than the refund itself.</p>
 ${actionableHtml}
 <table cellpadding="0" cellspacing="0" border="0" width="100%" style="margin:0 0 28px;background:#1f1f22;border-radius:10px;">
   <tr>
-    <td style="padding:14px 16px;border-left:4px solid #FF6600;">
+    <td style="padding:14px 16px;border-left:4px solid ${BRAND_ORANGE};">
       <p style="margin:0 0 6px;font-size:11px;color:#777777;font-family:'Inter',-apple-system,sans-serif;text-transform:uppercase;letter-spacing:1px;">Amount</p>
       <p style="margin:0 0 14px;font-size:18px;font-weight:700;color:#ffffff;font-family:'Oswald','Impact','Arial Narrow',sans-serif;mso-font-alt:'Impact';">${formattedAmount}</p>
       ${fraudTypeHtml}
@@ -497,7 +498,7 @@ ${actionableHtml}
 </table>
 ${ctaButton(dashboardUrl, "Review in Stripe")}
 ${divider()}
-<p style="margin:0;font-size:12px;color:#888888;line-height:1.7;font-family:'Inter',-apple-system,sans-serif;">You&#39;re receiving this because you have Stripe dispute alerts enabled on Overhype.me. <a href="${siteUrl}/admin/users" target="_blank" style="color:#FF6600;text-decoration:none;">Manage notification settings.</a></p>`;
+<p style="margin:0;font-size:12px;color:#888888;line-height:1.7;font-family:'Inter',-apple-system,sans-serif;">You&#39;re receiving this because you have Stripe dispute alerts enabled on Overhype.me. <a href="${siteUrl}/admin/users" target="_blank" style="color:${BRAND_ORANGE};text-decoration:none;">Manage notification settings.</a></p>`;
 
   const html = buildEmailShell(body, "Stripe early fraud warning — Overhype.me.");
 

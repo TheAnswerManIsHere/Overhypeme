@@ -1,5 +1,6 @@
 import { useListFacts, useListHashtags, getListHashtagsQueryKey, type FactSummary } from "@workspace/api-client-react";
 import { FactCard } from "@/components/facts/FactCard";
+import { FactCardComments } from "@/components/facts/FactCardComments";
 import { Layout } from "@/components/layout/Layout";
 import { ChevronDown, ChevronUp, Flame, ThumbsUp, ThumbsDown, MessageSquare, Loader2 } from "lucide-react";
 import { Link, useLocation } from "wouter";
@@ -111,6 +112,11 @@ function HeroBillboardMobile({
   const swapKey = fact ? `f-${fact.id}` : "loading";
   const prefersReducedMotion = useReducedMotion();
   const { toast } = useToast();
+  const [showComments, setShowComments] = useState(false);
+
+  useEffect(() => {
+    setShowComments(false);
+  }, [fact?.id]);
 
   const handleRate = (type: "up" | "down") => {
     if (!fact) return;
@@ -226,10 +232,13 @@ function HeroBillboardMobile({
               </button>
             </div>
             {fact && (
-              <Link href={`/facts/${fact.id}`} className="flex items-center gap-1.5 text-muted-foreground hover:text-foreground transition-colors">
+              <button
+                onClick={() => setShowComments((v) => !v)}
+                className={`flex items-center gap-1.5 transition-colors ${showComments ? "text-primary" : "text-muted-foreground hover:text-foreground"}`}
+              >
                 <MessageSquare className="w-5 h-5" />
                 <span className="text-xs font-bold">{fact.commentCount}</span>
-              </Link>
+              </button>
             )}
             <button onClick={handleShare} disabled={!fact} className="text-muted-foreground hover:text-foreground transition-colors disabled:opacity-40">
               <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24">
@@ -257,6 +266,13 @@ function HeroBillboardMobile({
             </button>
           </div>
         </div>
+        <AnimatePresence>
+          {showComments && fact && (
+            <div className="px-5 pb-2">
+              <FactCardComments key={fact.id} fact={fact} name={name} />
+            </div>
+          )}
+        </AnimatePresence>
       </div>
     </div>
   );
@@ -284,6 +300,11 @@ function DesktopHeroBillboard({
   const swapKey = fact ? `f-${fact.id}` : "loading";
   const prefersReducedMotion = useReducedMotion();
   const { toast } = useToast();
+  const [showComments, setShowComments] = useState(false);
+
+  useEffect(() => {
+    setShowComments(false);
+  }, [fact?.id]);
 
   const handleRate = (type: "up" | "down") => {
     if (!fact) return;
@@ -406,10 +427,13 @@ function DesktopHeroBillboard({
             </button>
           </div>
           {fact && (
-            <Link href={`/facts/${fact.id}`} className="flex items-center gap-2 text-muted-foreground hover:text-foreground transition-colors text-[13px] font-bold">
+            <button
+              onClick={() => setShowComments((v) => !v)}
+              className={`flex items-center gap-2 text-[13px] font-bold transition-colors ${showComments ? "text-primary" : "text-muted-foreground hover:text-foreground"}`}
+            >
               <MessageSquare className="w-5 h-5" />
               {fact.commentCount}
-            </Link>
+            </button>
           )}
           <button onClick={handleShare} disabled={!fact} className="text-muted-foreground hover:text-foreground transition-colors disabled:opacity-40">
             <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24">
@@ -433,6 +457,13 @@ function DesktopHeroBillboard({
           )}
         </AnimatePresence>
       </div>
+      <AnimatePresence>
+        {showComments && fact && (
+          <div className="px-10 pb-8">
+            <FactCardComments key={fact.id} fact={fact} name={name} />
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

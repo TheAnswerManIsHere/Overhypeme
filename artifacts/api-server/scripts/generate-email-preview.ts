@@ -1,5 +1,6 @@
 import { writeFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { BRAND_ORANGE } from "@workspace/api-zod";
 import {
   buildEmailVerificationEmail,
   buildEmailChangeVerificationEmail,
@@ -149,7 +150,7 @@ const html = `<!DOCTYPE html>
       padding: 6px 12px; border: 1px solid #333; border-radius: 6px;
       transition: all .15s ease;
     }
-    .nav a:hover { background: #FF6600; color: #fff; border-color: #FF6600; }
+    .nav a:hover { background: ${BRAND_ORANGE}; color: #fff; border-color: ${BRAND_ORANGE}; }
     h1.page-title {
       font-family: 'Oswald', sans-serif; font-size: 32px;
       letter-spacing: 1px; text-transform: uppercase;
@@ -164,7 +165,7 @@ const html = `<!DOCTYPE html>
     }
     .email-label .num {
       font-family: 'Oswald', sans-serif; font-size: 14px;
-      letter-spacing: 2px; color: #FF6600; font-weight: 700;
+      letter-spacing: 2px; color: ${BRAND_ORANGE}; font-weight: 700;
     }
     .email-label .subject { font-size: 14px; color: #fff; font-weight: 600; }
     .email-label .from { font-size: 11px; color: #666; margin-left: auto; font-family: monospace; }

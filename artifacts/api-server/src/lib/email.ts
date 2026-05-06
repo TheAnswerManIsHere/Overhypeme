@@ -8,8 +8,9 @@
  * claims pending rows, calls Resend, and retries on failure using exponential
  * backoff (5m → 30m → 2h → 8h). After maxAttempts the row is marked abandoned.
  *
- * Brand: dark bg (#0d0d0e), danger orange (#FF6600), Oswald + Inter typography.
+ * Brand: dark bg (#0d0d0e), danger orange (BRAND_ORANGE), Oswald + Inter typography.
  */
+import { BRAND_ORANGE } from "@workspace/api-zod";
 import { Resend } from "resend";
 import { eq, and, or, lte, lt, asc, not, like, isNull } from "drizzle-orm";
 import { db as defaultDb } from "@workspace/db";
@@ -378,7 +379,7 @@ export function runEmailOutboxWorker(intervalMs = 30_000): NodeJS.Timeout {
  * card, callout blocks, dividers and footer text.
  */
 export const EMAIL_COLORS = {
-  primary: "#FF6600",
+  primary: BRAND_ORANGE,
   page: "#0d0d0e",
   card: "#161618",
   cardBorder: "#2a2a2a",
@@ -632,7 +633,7 @@ export function buildReviewApprovedEmail(opts: {
 <p style="margin:0 0 24px;font-size:15px;color:#aaaaaa;line-height:1.75;">Your submitted fact has been reviewed and approved. The database grows stronger.</p>
 <table cellpadding="0" cellspacing="0" border="0" width="100%" style="margin:0 0 28px;">
   <tr>
-    <td style="border-left:4px solid #FF6600;padding:12px 16px;background:#1f1f22;border-radius:10px;">
+    <td style="border-left:4px solid ${BRAND_ORANGE};padding:12px 16px;background:#1f1f22;border-radius:10px;">
       <p style="margin:0;font-size:15px;color:#dddddd;line-height:1.7;font-style:italic;">${opts.submittedText}</p>
     </td>
   </tr>
@@ -742,7 +743,7 @@ export function buildShareInviteEmail(
 ${ctaButton(shareUrl, "See My Facts")}
 ${linkFallback(shareUrl)}
 ${divider()}
-<p style="margin:0;font-size:12px;color:#888888;line-height:1.7;font-family:'Inter',-apple-system,sans-serif;">Not sure what Overhype.me is? <a href="${siteUrl}" target="_blank" style="color:#FF6600;text-decoration:none;">Find out here.</a> If you didn&#39;t expect this, you can safely ignore&nbsp;it.</p>`;
+<p style="margin:0;font-size:12px;color:#888888;line-height:1.7;font-family:'Inter',-apple-system,sans-serif;">Not sure what Overhype.me is? <a href="${siteUrl}" target="_blank" style="color:${BRAND_ORANGE};text-decoration:none;">Find out here.</a> If you didn&#39;t expect this, you can safely ignore&nbsp;it.</p>`;
 
   const html = buildEmailShell(
     body,
@@ -909,7 +910,7 @@ export function buildRenewalReminderEmail(opts: {
 <p style="margin:0 0 24px;font-size:15px;color:#aaaaaa;line-height:1.75;">Your ${planLabel}<strong style="color:#ffffff;">Legendary</strong> subscription is about to&nbsp;renew.</p>
 <table cellpadding="0" cellspacing="0" border="0" width="100%" style="margin:0 0 28px;background:#1f1f22;border-radius:10px;">
   <tr>
-    <td style="padding:14px 16px;border-left:4px solid #FF6600;">
+    <td style="padding:14px 16px;border-left:4px solid ${BRAND_ORANGE};">
       <p style="margin:0 0 6px;font-size:11px;color:#777777;font-family:'Inter',-apple-system,sans-serif;text-transform:uppercase;letter-spacing:1px;">Amount</p>
       <p style="margin:0 0 ${dateLabel ? "18" : "0"}px;font-size:18px;font-weight:700;color:#ffffff;font-family:'Oswald','Impact','Arial Narrow',sans-serif;mso-font-alt:'Impact';">${formattedAmount}</p>
       ${dateHtml}

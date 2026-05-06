@@ -7,6 +7,7 @@ import {
   type ChangeEvent,
   type DragEvent,
 } from "react";
+import { BRAND_ORANGE } from "@workspace/api-zod";
 import { Link, useLocation } from "wouter";
 import type { PexelsPhotoEntry, FactPexelsImages } from "@/types/pexels";
 import type { AiMemeImages } from "@/types/meme";
@@ -77,7 +78,7 @@ const GRADIENT_DEFS: Record<string, [string, string][]> = {
 };
 
 const ACCENT_COLORS: Record<string, string> = {
-  action:   "#ff6600",
+  action:   BRAND_ORANGE,
   fire:     "#ff6d00",
   night:    "#546e7a",
   gold:     "#ffd54f",
@@ -223,7 +224,7 @@ function drawMeme(
   }
 
   const sidebarW = 12;
-  const accent = bgImage ? "#FF3C00" : (ACCENT_COLORS[templateId] ?? "#ff6600");
+  const accent = bgImage ? BRAND_ORANGE : (ACCENT_COLORS[templateId] ?? BRAND_ORANGE);
   ctx.fillStyle = accent;
   ctx.fillRect(0, 0, sidebarW, canvasH);
 
@@ -2415,7 +2416,7 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
                       Text Color
                     </label>
                     <div className="flex gap-1.5 items-center flex-wrap">
-                      {["#ffffff", "#ffcc00", "#FF3C00", "#00ff88", "#000000"].map(c => (
+                      {["#ffffff", "#ffcc00", BRAND_ORANGE, "#00ff88", "#000000"].map(c => (
                         <button
                           key={c}
                           onClick={() => setTextColor(c)}

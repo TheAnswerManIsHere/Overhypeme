@@ -1,3 +1,4 @@
+import { BRAND_ORANGE } from "@workspace/api-zod";
 import {
   useRef,
   useEffect,
@@ -81,7 +82,7 @@ function renderFactImage(text: string): string {
   ctx.fillStyle = "rgba(0,0,0,0.35)";
   ctx.fillRect(0, 0, W, H);
 
-  ctx.fillStyle = "#ff6600";
+  ctx.fillStyle = BRAND_ORANGE;
   ctx.fillRect(0, 0, 12, H);
 
   ctx.fillStyle = "rgba(255,255,255,0.06)";

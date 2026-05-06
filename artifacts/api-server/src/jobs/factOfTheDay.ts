@@ -1,3 +1,4 @@
+import { BRAND_ORANGE } from "@workspace/api-zod";
 import { db } from "@workspace/db";
 import { factsTable } from "@workspace/db/schema";
 import { desc, eq } from "drizzle-orm";
@@ -33,7 +34,7 @@ export function buildFactOfTheDayEmail(
 <p style="margin:0 0 28px;font-size:13px;color:#888888;text-transform:uppercase;letter-spacing:2px;font-family:'Inter',-apple-system,sans-serif;">Hand-picked from the database of greatness</p>
 <table cellpadding="0" cellspacing="0" border="0" width="100%" style="margin:0 0 32px;">
   <tr>
-    <td style="border-left:4px solid #FF6600;padding:16px 20px;background:#1f1f22;border-radius:10px;">
+    <td style="border-left:4px solid ${BRAND_ORANGE};padding:16px 20px;background:#1f1f22;border-radius:10px;">
       <p style="margin:0;font-size:17px;color:#dddddd;line-height:1.75;font-style:italic;font-family:'Inter',-apple-system,sans-serif;">"${factText}"</p>
     </td>
   </tr>
@@ -43,7 +44,7 @@ ${divider()}
 <p style="margin:0;font-size:12px;color:#888888;line-height:1.7;font-family:'Inter',-apple-system,sans-serif;">Keep&nbsp;submitting. Every legend needs&nbsp;material.</p>`;
 
   const footerNote = `You&#39;re receiving this because you&#39;re a Legendary member — good taste.&nbsp;
-<a href="${manageUrl}" style="color:#FF6600;text-decoration:none;">Manage&nbsp;subscription</a>`;
+<a href="${manageUrl}" style="color:${BRAND_ORANGE};text-decoration:none;">Manage&nbsp;subscription</a>`;
 
   const html = buildEmailShell(body, footerNote);
 

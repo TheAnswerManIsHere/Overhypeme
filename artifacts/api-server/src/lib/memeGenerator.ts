@@ -3,6 +3,7 @@ import path from "path";
 import fs from "fs";
 import { fileURLToPath } from "url";
 import {
+  BRAND_ORANGE,
   MEME_ASPECT_RATIOS,
   TEMPLATE_RENDER_SCALE,
   DEFAULT_MEME_ASPECT_RATIO,
@@ -110,7 +111,7 @@ async function getTemplateImage(aspectRatio: MemeAspectRatio, assetPath: string)
 /** Accent sidebar colour per gradient template. */
 function templateAccentColor(templateId: string): string {
   const map: Record<string, string> = {
-    action:   "#ff6600",
+    action:   BRAND_ORANGE,
     fire:     "#ff6d00",
     night:    "#546e7a",
     gold:     "#ffd54f",
@@ -131,7 +132,7 @@ function templateAccentColor(templateId: string): string {
     midnight: "#1976d2",
     chrome:   "#90a4ae",
   };
-  return map[templateId] ?? "#ff6600";
+  return map[templateId] ?? BRAND_ORANGE;
 }
 
 /**
@@ -218,7 +219,7 @@ export async function generateMemeBuffer(
     // Semi-transparent dark overlay so text stays readable over any photo
     ctx.fillStyle = "rgba(0,0,0,0.48)";
     ctx.fillRect(0, 0, logicalW, logicalH);
-    accentColor = "#FF3C00";
+    accentColor = BRAND_ORANGE;
   }
 
   // ── Left accent bar ───────────────────────────────────────────────

@@ -14,46 +14,9 @@ import { usePersonName } from "@/hooks/use-person-name";
 import { AccessGate } from "@/components/AccessGate";
 import { Sentry } from "@/lib/sentry";
 import { AdminMediaInfo, AdminMediaInfoForUrl, getFileNameFromUrl, getMimeTypeFromUrl } from "@/components/ui/AdminMediaInfo";
+import { cropToSquareJpeg } from "@/lib/image-upload";
 
 const BASE_URL = import.meta.env.BASE_URL ?? "/";
-
-/**
- * Center-crop an image to a square and re-encode as JPEG, downscaled to
- * `maxSize` on the long edge. The cropped image is the user's reusable
- * identity asset — meme overlays, AI image generation, and AI video memes
- * all consume a square face crop, so we normalise on upload.
- */
-async function cropToSquareJpeg(file: File, maxSize: number): Promise<File> {
-  const dataUrl = await new Promise<string>((resolve, reject) => {
-    const r = new FileReader();
-    r.onload = () => resolve(typeof r.result === "string" ? r.result : "");
-    r.onerror = () => reject(new Error("Could not read image"));
-    r.readAsDataURL(file);
-  });
-  const img = await new Promise<HTMLImageElement>((resolve, reject) => {
-    const i = new globalThis.Image();
-    i.onload = () => resolve(i);
-    i.onerror = () => reject(new Error("Could not decode image"));
-    i.src = dataUrl;
-  });
-  const side = Math.min(img.naturalWidth, img.naturalHeight);
-  if (side <= 0) throw new Error("Image has no pixels");
-  const sx = Math.floor((img.naturalWidth - side) / 2);
-  const sy = Math.floor((img.naturalHeight - side) / 2);
-  const out = Math.min(side, maxSize);
-  const canvas = document.createElement("canvas");
-  canvas.width = out;
-  canvas.height = out;
-  const ctx = canvas.getContext("2d");
-  if (!ctx) throw new Error("Canvas not supported");
-  ctx.drawImage(img, sx, sy, side, side, 0, 0, out, out);
-  const blob = await new Promise<Blob | null>((resolve) =>
-    canvas.toBlob((b) => resolve(b), "image/jpeg", 0.9),
-  );
-  if (!blob) throw new Error("Could not encode image");
-  const baseName = file.name.replace(/\.[^.]+$/, "");
-  return new File([blob], `${baseName}.jpg`, { type: "image/jpeg" });
-}
 
 export default function Profile() {
   const [currentPath, setLocation] = useLocation();
