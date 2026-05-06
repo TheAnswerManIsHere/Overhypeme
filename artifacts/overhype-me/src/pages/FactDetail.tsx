@@ -798,7 +798,41 @@ export default function FactDetail() {
           <div className="lg:col-span-2 space-y-8">
             <h3 id="comments" className="text-2xl font-display uppercase tracking-wide border-b-2 border-border pb-2">Comments ({fact.commentCount})</h3>
 
-            {/* Comment Form */}
+            {/* Comment List — rendered first so visitors see existing
+                engagement as social proof before being invited to add their own. */}
+            <div className="space-y-4">
+              {commentsData?.comments.map(comment => (
+                <div key={comment.id} className="bg-card p-5 border-l-4 border-muted rounded-sm">
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="flex items-center gap-3">
+                      {comment.authorImage ? (
+                        <img src={comment.authorImage} alt="Avatar" className="w-8 h-8 rounded-sm" />
+                      ) : (
+                        <div className="w-8 h-8 bg-muted flex items-center justify-center rounded-sm">
+                          <User className="w-4 h-4 text-muted-foreground" />
+                        </div>
+                      )}
+                      <span className="font-bold text-primary">{comment.authorName || "ANONYMOUS"}</span>
+                    </div>
+                    <span className="text-xs text-muted-foreground font-medium">{format(new Date(comment.createdAt), 'MMM dd, yyyy')}</span>
+                  </div>
+                  <p className="text-foreground leading-relaxed">{comment.text}</p>
+                  <div className="mt-3 flex items-center">
+                    <CommentHeartButton
+                      commentId={comment.id}
+                      initialHeartCount={comment.heartCount}
+                      initialViewerHasHearted={comment.viewerHasHearted}
+                    />
+                  </div>
+                </div>
+              ))}
+              {commentsData?.comments.length === 0 && (
+                <p className="text-muted-foreground py-8 text-center border-2 border-dashed border-border rounded-sm">No intel submitted yet.</p>
+              )}
+            </div>
+
+            {/* Comment Form — composer at bottom invites contribution after
+                the visitor has seen the existing thread. */}
             {isAuthenticated ? (
               commentSubmitted ? (
                 <div className="bg-secondary p-6 rounded-sm border-2 border-border text-center space-y-3">
@@ -838,38 +872,6 @@ export default function FactDetail() {
             ) : (
               <AccessGate reason="login" size="sm" description="Authentication required to add intel." returnTo={`/facts/${factId}`} />
             )}
-
-            {/* Comment List */}
-            <div className="space-y-4">
-              {commentsData?.comments.map(comment => (
-                <div key={comment.id} className="bg-card p-5 border-l-4 border-muted rounded-sm">
-                  <div className="flex items-center justify-between mb-3">
-                    <div className="flex items-center gap-3">
-                      {comment.authorImage ? (
-                        <img src={comment.authorImage} alt="Avatar" className="w-8 h-8 rounded-sm" />
-                      ) : (
-                        <div className="w-8 h-8 bg-muted flex items-center justify-center rounded-sm">
-                          <User className="w-4 h-4 text-muted-foreground" />
-                        </div>
-                      )}
-                      <span className="font-bold text-primary">{comment.authorName || "ANONYMOUS"}</span>
-                    </div>
-                    <span className="text-xs text-muted-foreground font-medium">{format(new Date(comment.createdAt), 'MMM dd, yyyy')}</span>
-                  </div>
-                  <p className="text-foreground leading-relaxed">{comment.text}</p>
-                  <div className="mt-3 flex items-center">
-                    <CommentHeartButton
-                      commentId={comment.id}
-                      initialHeartCount={comment.heartCount}
-                      initialViewerHasHearted={comment.viewerHasHearted}
-                    />
-                  </div>
-                </div>
-              ))}
-              {commentsData?.comments.length === 0 && (
-                <p className="text-muted-foreground py-8 text-center border-2 border-dashed border-border rounded-sm">No intel submitted yet.</p>
-              )}
-            </div>
           </div>
 
         </div>
