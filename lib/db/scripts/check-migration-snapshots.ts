@@ -36,37 +36,10 @@ const JOURNAL_PATH = path.join(META_DIR, "_journal.json");
  * check is to catch accidental omissions before they reach production.
  */
 const SNAPSHOT_EXEMPT_TAGS = new Set<string>([
-  "0001_soft_delete_facts_users",
-  "0001b_add_canonical_text_to_facts",
-  "0002_add_comment_activity_types",
-  "0003_memes_image_source",
-  "0004_remove_cafepress_destination",
-  "0004b_pexels_images",
-  "0005_memes_is_public",
-  "0006_memes_image_metadata",
-  "0007_upload_image_user_id",
-  "0008_user_ai_images",
-  "0009_admin_config",
-  "0010_video_jobs",
-  "0011_video_jobs_style_id",
-  "0012_admin_config_labels",
-  "0013_feature_flags",
-  "0014_legendary_generation_limit",
-  "0017_route_stats",
-  "0022_email_outbox",
-  "0024_review_reason_enum",
-  "0025_review_reason_spam_offensive",
-  "0027_review_reason_lame",
-  "0028_upload_photo_registered",
-  "0029_permissions_cleanup",
-  "0030_stripe_webhook_audit",
-  "0030_rate_limit_counters",
-  "0032_checkout_request_ledger",
-  "0033_user_fact_pref_seen_as_hero",
-  "0034_affiliate_clicks_source",
-  "0035_reactions_polymorphic",
-  "0036_oauth_pending_states",
-  "0037_email_outbox_status_created_idx",
+  // All previously-exempt tags (0001–0037) have been backfilled with approximate
+  // snapshots derived from the next available snapshot in the chain. The exempt
+  // list is now empty; keep this set in place so new intentional omissions can
+  // be added with an explicit comment explaining why.
 ]);
 
 interface JournalEntry {
