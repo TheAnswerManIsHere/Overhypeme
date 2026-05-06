@@ -2,11 +2,12 @@ import { useState, useRef, useEffect } from "react";
 import { Link, useLocation } from "wouter";
 import { motion } from "framer-motion";
 import HCaptcha from "@hcaptcha/react-hcaptcha";
-import { Flame, Loader2 } from "lucide-react";
+import { Flame, Loader2, CheckCircle2 } from "lucide-react";
 import { FactSummary, useListComments, getListCommentsQueryKey } from "@workspace/api-client-react";
 import { useAppMutations } from "@/hooks/use-mutations";
 import { useAuth } from "@workspace/replit-auth-web";
 import { useToast } from "@/hooks/use-toast";
+import { CommentHeartButton } from "@/components/comments/CommentHeartButton";
 
 const HCAPTCHA_SITE_KEY =
   import.meta.env.VITE_HCAPTCHA_SITE_KEY || "10000000-ffff-ffff-ffff-000000000001";
@@ -42,6 +43,7 @@ export function FactCardComments({ fact, name, onCommentSubmit, onCommentError, 
   const [text, setText] = useState(draft);
   const [captchaToken, setCaptchaToken] = useState("");
   const [optimisticComments, setOptimisticComments] = useState<OptimisticComment[]>([]);
+  const [submitted, setSubmitted] = useState(false);
 
   const isLegendary = role === "legendary" || role === "admin";
   const needsCaptcha = isAuthenticated && !isLegendary;
@@ -92,6 +94,7 @@ export function FactCardComments({ fact, name, onCommentSubmit, onCommentError, 
           setOptimisticComments((prev) => prev.filter((c) => c.id !== optimisticId));
           setFormState("idle");
           onDraftChange?.("");
+          setSubmitted(true);
           captchaRef.current?.resetCaptcha();
         },
         onError: () => {
@@ -143,26 +146,38 @@ export function FactCardComments({ fact, name, onCommentSubmit, onCommentError, 
           </div>
         ) : allDisplayComments.length > 0 ? (
           <div className="space-y-3 mb-3">
-            {allDisplayComments.map((c) => (
-              <div key={c.id} className="flex gap-2.5">
-                <div className="w-7 h-7 rounded-full bg-primary/15 flex items-center justify-center flex-shrink-0 text-xs font-bold font-display text-primary">
-                  {avatarInitial(c.authorName)}
-                </div>
-                <div className="flex-1 pt-1.5">
-                  <p className="text-xs text-muted-foreground leading-relaxed">
-                    <span className="text-foreground font-semibold">
-                      {c.authorName ?? "Anonymous"}
-                    </span>{" "}
-                    {c.text}
-                  </p>
-                  {"pending" in c && c.pending && (
-                    <p className="text-[10px] text-muted-foreground/50 mt-0.5 italic">
-                      awaiting moderation
+            {allDisplayComments.map((c) => {
+              const isPending = "pending" in c && c.pending;
+              return (
+                <div key={c.id} className="flex gap-2.5">
+                  <div className="w-7 h-7 rounded-full bg-primary/15 flex items-center justify-center flex-shrink-0 text-xs font-bold font-display text-primary">
+                    {avatarInitial(c.authorName)}
+                  </div>
+                  <div className="flex-1 pt-1.5">
+                    <p className="text-xs text-muted-foreground leading-relaxed">
+                      <span className="text-foreground font-semibold">
+                        {c.authorName ?? "Anonymous"}
+                      </span>{" "}
+                      {c.text}
                     </p>
-                  )}
+                    {isPending && (
+                      <p className="text-[10px] text-muted-foreground/50 mt-0.5 italic">
+                        awaiting moderation
+                      </p>
+                    )}
+                    {!isPending && "heartCount" in c && (
+                      <div className="mt-1">
+                        <CommentHeartButton
+                          commentId={c.id}
+                          initialHeartCount={c.heartCount}
+                          initialViewerHasHearted={c.viewerHasHearted}
+                        />
+                      </div>
+                    )}
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         ) : (
           <p className="text-xs text-muted-foreground mb-3 italic">
@@ -178,8 +193,16 @@ export function FactCardComments({ fact, name, onCommentSubmit, onCommentError, 
           View all {fact.commentCount} comments →
         </Link>
 
-        {/* Reply form / login prompt */}
-        {isAuthenticated ? (
+        {/* Submission confirmation */}
+        {submitted ? (
+          <div className="mb-4 flex items-start gap-2.5 rounded-xl bg-primary/10 border border-primary/20 px-4 py-3">
+            <CheckCircle2 className="w-4 h-4 text-primary flex-shrink-0 mt-0.5" />
+            <p className="text-xs text-foreground leading-relaxed">
+              Thanks for submitting your comment. Once it has been proven worthy by our review team, it will appear here.
+            </p>
+          </div>
+        ) : isAuthenticated ? (
+          /* Reply form */
           <form onSubmit={handleSubmit} className="space-y-2 mb-4">
             <div className="flex gap-2.5">
               <div className="w-7 h-7 rounded-full bg-primary/15 flex items-center justify-center flex-shrink-0 text-xs font-bold font-display text-primary mt-1">
