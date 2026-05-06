@@ -57,6 +57,8 @@ export * from "./heroFactResponse";
 export * from "./importFactItem";
 export * from "./linkListResponse";
 export * from "./listCommentsParams";
+export * from "./listFactMemesParams";
+export * from "./listFactMemesSort";
 export * from "./listFactsParams";
 export * from "./listFactsSort";
 export * from "./listHashtagsParams";

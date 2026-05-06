@@ -46,6 +46,7 @@ import type {
   HeroFactResponse,
   LinkListResponse,
   ListCommentsParams,
+  ListFactMemesParams,
   ListFactsParams,
   ListHashtagsParams,
   MemeDetail,
@@ -2754,22 +2755,41 @@ export function useGetMemeBySlug<
 /**
  * @summary List memes generated for a specific fact
  */
-export const getListFactMemesUrl = (factId: number) => {
-  return `/api/facts/${factId}/memes`;
+export const getListFactMemesUrl = (
+  factId: number,
+  params?: ListFactMemesParams,
+) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/facts/${factId}/memes?${stringifiedParams}`
+    : `/api/facts/${factId}/memes`;
 };
 
 export const listFactMemes = async (
   factId: number,
+  params?: ListFactMemesParams,
   options?: RequestInit,
 ): Promise<MemeListResponse> => {
-  return customFetch<MemeListResponse>(getListFactMemesUrl(factId), {
+  return customFetch<MemeListResponse>(getListFactMemesUrl(factId, params), {
     ...options,
     method: "GET",
   });
 };
 
-export const getListFactMemesQueryKey = (factId: number) => {
-  return [`/api/facts/${factId}/memes`] as const;
+export const getListFactMemesQueryKey = (
+  factId: number,
+  params?: ListFactMemesParams,
+) => {
+  return [`/api/facts/${factId}/memes`, ...(params ? [params] : [])] as const;
 };
 
 export const getListFactMemesQueryOptions = <
@@ -2777,6 +2797,7 @@ export const getListFactMemesQueryOptions = <
   TError = ErrorType<unknown>,
 >(
   factId: number,
+  params?: ListFactMemesParams,
   options?: {
     query?: UseQueryOptions<
       Awaited<ReturnType<typeof listFactMemes>>,
@@ -2788,11 +2809,12 @@ export const getListFactMemesQueryOptions = <
 ) => {
   const { query: queryOptions, request: requestOptions } = options ?? {};
 
-  const queryKey = queryOptions?.queryKey ?? getListFactMemesQueryKey(factId);
+  const queryKey =
+    queryOptions?.queryKey ?? getListFactMemesQueryKey(factId, params);
 
   const queryFn: QueryFunction<Awaited<ReturnType<typeof listFactMemes>>> = ({
     signal,
-  }) => listFactMemes(factId, { signal, ...requestOptions });
+  }) => listFactMemes(factId, params, { signal, ...requestOptions });
 
   return {
     queryKey,
@@ -2820,6 +2842,7 @@ export function useListFactMemes<
   TError = ErrorType<unknown>,
 >(
   factId: number,
+  params?: ListFactMemesParams,
   options?: {
     query?: UseQueryOptions<
       Awaited<ReturnType<typeof listFactMemes>>,
@@ -2829,7 +2852,7 @@ export function useListFactMemes<
     request?: SecondParameter<typeof customFetch>;
   },
 ): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
-  const queryOptions = getListFactMemesQueryOptions(factId, options);
+  const queryOptions = getListFactMemesQueryOptions(factId, params, options);
 
   const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
     queryKey: QueryKey;

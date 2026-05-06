@@ -640,6 +640,24 @@ export type GetAdminFlaggedComments200 = {
   comments: GetAdminFlaggedComments200CommentsItem[];
 };
 
+export type ListFactMemesParams = {
+  /**
+ * Result ordering. `top` (default) ranks by heart count, then
+createdAt as tiebreak. `new` orders strictly by createdAt
+descending.
+
+ */
+  sort?: ListFactMemesSort;
+};
+
+export type ListFactMemesSort =
+  (typeof ListFactMemesSort)[keyof typeof ListFactMemesSort];
+
+export const ListFactMemesSort = {
+  top: "top",
+  new: "new",
+} as const;
+
 export type GetAffiliateStatsParams = {
   /**
    * Filter clicks from this date, inclusive (YYYY-MM-DD)

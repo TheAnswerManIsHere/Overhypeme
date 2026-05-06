@@ -711,6 +711,17 @@ export const ListFactMemesParams = zod.object({
   factId: zod.coerce.number(),
 });
 
+export const listFactMemesQuerySortDefault = `top`;
+
+export const ListFactMemesQueryParams = zod.object({
+  sort: zod
+    .enum(["top", "new"])
+    .default(listFactMemesQuerySortDefault)
+    .describe(
+      "Result ordering. `top` (default) ranks by heart count, then\ncreatedAt as tiebreak. `new` orders strictly by createdAt\ndescending.\n",
+    ),
+});
+
 export const listFactMemesResponseMemesItemHeartCountMin = 0;
 
 export const ListFactMemesResponse = zod.object({
