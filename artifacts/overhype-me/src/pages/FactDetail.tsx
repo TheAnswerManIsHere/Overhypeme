@@ -11,7 +11,8 @@ import { Textarea } from "@/components/ui/Input";
 import { useAppMutations } from "@/hooks/use-mutations";
 import { AdSlot } from "@/components/AdSlot";
 
-import { ThumbsUp, ThumbsDown, User, AlertCircle, GitBranch, ArrowLeft, Crown, Flame, Video, Play, ExternalLink, MessageSquare, Check } from "lucide-react";
+import { ThumbsUp, ThumbsDown, User, AlertCircle, GitBranch, ArrowLeft, Crown, Flame, Video, Play, ExternalLink, MessageSquare, Check, Pencil } from "lucide-react";
+import { displayPronouns } from "@/lib/pronouns";
 import { ImageCard } from "@/components/ui/ImageCard";
 import { CommentHeartButton } from "@/components/comments/CommentHeartButton";
 import { MemeHeartButton } from "@/components/memes/MemeHeartButton";
@@ -462,15 +463,32 @@ export default function FactDetail() {
 
         {/* Main Fact Card — compact header, consistent with feed cards */}
         <div className="bg-card rounded-2xl border border-border shadow-lg p-6 md:p-8 relative mb-4 overflow-hidden">
-          {/* Compact meta strip */}
-          <div className="flex items-center gap-2 mb-4 text-[10px] font-display font-bold tracking-widest uppercase text-muted-foreground">
-            <Flame className="w-3 h-3 text-primary" />
-            {name && <span>About {name}</span>}
-            <span className="opacity-30">·</span>
-            <span>{format(new Date(fact.createdAt), 'MMM dd, yyyy')}</span>
-            {fact.submittedBy && (
-              <><span className="opacity-30">·</span><span className="text-primary">{fact.submittedBy}</span></>
+          {/* Personalization context — first-class, above headline */}
+          <div className="flex items-center gap-1.5 mb-5 text-sm font-display tracking-wide flex-wrap">
+            <span className="text-muted-foreground">About</span>
+            {name ? (
+              <>
+                <strong className="text-foreground font-bold uppercase tracking-wide">{name}</strong>
+                {pronouns && (
+                  <span className="text-muted-foreground/80 text-xs">({displayPronouns(pronouns)})</span>
+                )}
+              </>
+            ) : (
+              <span className="text-muted-foreground/70 italic">someone — tap to make this about you</span>
             )}
+            <button
+              onClick={() => {
+                const trigger = document.querySelector<HTMLElement>('[data-action="edit-name"]');
+                if (trigger) {
+                  window.scrollTo({ top: 0, behavior: "smooth" });
+                  setTimeout(() => trigger.click(), name ? 0 : 350);
+                }
+              }}
+              aria-label="Edit personalization"
+              className="ml-1 inline-flex items-center justify-center w-6 h-6 rounded-full text-muted-foreground hover:text-primary hover:bg-secondary transition-colors"
+            >
+              <Pencil className="w-3 h-3" />
+            </button>
           </div>
 
           <h1 className="text-2xl md:text-3xl font-display font-bold leading-tight uppercase tracking-tight text-foreground mb-5">
@@ -478,7 +496,7 @@ export default function FactDetail() {
           </h1>
 
           {fact.hashtags.length > 0 && (
-            <div className="flex flex-wrap gap-1.5 mb-5">
+            <div className="flex flex-wrap gap-1.5 mb-4">
               {fact.hashtags.map(tag => (
                 <span key={tag} className="text-xs font-semibold font-display tracking-wide text-muted-foreground bg-secondary/80 px-2.5 py-1 rounded-full uppercase border border-border/50">
                   #{tag}
@@ -486,6 +504,14 @@ export default function FactDetail() {
               ))}
             </div>
           )}
+
+          {/* Author byline — quiet, on its own line */}
+          <p className="mb-5 text-xs text-muted-foreground">
+            {fact.submittedBy && (
+              <>Submitted by <span className="text-foreground/80 font-medium">{fact.submittedBy}</span> · </>
+            )}
+            <span>{format(new Date(fact.createdAt), 'MMM dd, yyyy')}</span>
+          </p>
 
           {/* Engagement row — pill upvote matching feed */}
           <div className="flex items-center gap-3 pt-4 border-t border-border/50">
