@@ -46,6 +46,10 @@ args = "git-lock-watcher"
 task = "workflow.run"
 args = "dev-supervisor-tests"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "check-snapshots"
+
 [[workflows.workflow]]
 name = "sentry-tests"
 author = "agent"
@@ -153,3 +157,14 @@ args = "bash scripts/__tests__/dev-supervisor.test.sh"
 
 [workflows.workflow.metadata]
 outputType = "console"
+
+[[workflows.workflow]]
+name = "check-snapshots"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "pnpm --filter @workspace/db check-snapshots"
+
+[workflows.workflow.metadata]
+isValidation = true
