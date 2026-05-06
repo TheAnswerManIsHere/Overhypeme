@@ -1,6 +1,6 @@
 {
-  "id": "973e510d-5a43-42cf-b3ea-30e831b92ba2",
-  "prevId": "00000000-0000-0000-0000-000000000000",
+  "id": "73bb7416-4543-44e1-abb1-cd621ccdf474",
+  "prevId": "66921416-0a25-4b39-99eb-602082e2c92b",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -324,7 +324,7 @@
           "type": "boolean",
           "primaryKey": false,
           "notNull": true,
-          "default": true
+          "default": false
         },
         "is_active": {
           "name": "is_active",
@@ -371,12 +371,6 @@
         "email_verified_at": {
           "name": "email_verified_at",
           "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "monthly_generation_limit_override_usd": {
-          "name": "monthly_generation_limit_override_usd",
-          "type": "numeric(10, 4)",
           "primaryKey": false,
           "notNull": false
         },

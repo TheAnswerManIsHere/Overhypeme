@@ -1,6 +1,6 @@
 {
-  "id": "7ff25e35-4cde-4220-9d08-aa239a71ffa5",
-  "prevId": "00000000-0000-0000-0000-000000000000",
+  "id": "d83e3d80-d4bc-4cbc-a1b2-633cdbb88556",
+  "prevId": "f91ce16c-855d-490d-82cb-17cdea31695c",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -2787,45 +2787,6 @@
         },
         "updated_at": {
           "name": "updated_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {},
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
-    "public.route_stat_events": {
-      "name": "route_stat_events",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "serial",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "route_key": {
-          "name": "route_key",
-          "type": "varchar(50)",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "delta": {
-          "name": "delta",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 1
-        },
-        "recorded_at": {
-          "name": "recorded_at",
           "type": "timestamp with time zone",
           "primaryKey": false,
           "notNull": true,

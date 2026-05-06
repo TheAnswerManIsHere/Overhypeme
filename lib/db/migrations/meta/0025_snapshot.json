@@ -1,6 +1,6 @@
 {
-  "id": "6f7fb9b1-e205-49dc-a3a2-aae357ed8571",
-  "prevId": "00000000-0000-0000-0000-000000000000",
+  "id": "0754ed1e-9b4c-4322-bd77-c74f9a564151",
+  "prevId": "dc5266b8-1ef3-4cc4-a1de-cc0b93fee214",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -1463,12 +1463,6 @@
           "primaryKey": false,
           "notNull": false
         },
-        "performed_by_admin_id": {
-          "name": "performed_by_admin_id",
-          "type": "varchar",
-          "primaryKey": false,
-          "notNull": false
-        },
         "created_at": {
           "name": "created_at",
           "type": "timestamp with time zone",
@@ -1501,19 +1495,6 @@
           "tableTo": "users",
           "columnsFrom": [
             "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
-        "membership_history_performed_by_admin_id_users_id_fk": {
-          "name": "membership_history_performed_by_admin_id_users_id_fk",
-          "tableFrom": "membership_history",
-          "tableTo": "users",
-          "columnsFrom": [
-            "performed_by_admin_id"
           ],
           "columnsTo": [
             "id"

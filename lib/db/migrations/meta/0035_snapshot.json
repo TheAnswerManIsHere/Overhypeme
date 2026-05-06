@@ -1,6 +1,6 @@
 {
-  "id": "c93f2ed3-a69e-47be-8ba1-931966bab87d",
-  "prevId": "00000000-0000-0000-0000-000000000000",
+  "id": "e68803d2-ad6d-479f-b4fc-99b5df6ce33f",
+  "prevId": "f420df66-1f8e-45ec-bef0-7cd2f251e3b0",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -76,93 +76,6 @@
           "tableTo": "users",
           "columnsFrom": [
             "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
-    "public.oauth_pending_states": {
-      "name": "oauth_pending_states",
-      "schema": "",
-      "columns": {
-        "state": {
-          "name": "state",
-          "type": "varchar",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "code_verifier": {
-          "name": "code_verifier",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "nonce": {
-          "name": "nonce",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "return_to": {
-          "name": "return_to",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'/'"
-        },
-        "is_popup": {
-          "name": "is_popup",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": true,
-          "default": false
-        },
-        "link_user_id": {
-          "name": "link_user_id",
-          "type": "varchar",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "expires_at": {
-          "name": "expires_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true
-        }
-      },
-      "indexes": {
-        "IDX_oauth_pending_states_expires_at": {
-          "name": "IDX_oauth_pending_states_expires_at",
-          "columns": [
-            {
-              "expression": "expires_at",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "oauth_pending_states_link_user_id_users_id_fk": {
-          "name": "oauth_pending_states_link_user_id_users_id_fk",
-          "tableFrom": "oauth_pending_states",
-          "tableTo": "users",
-          "columnsFrom": [
-            "link_user_id"
           ],
           "columnsTo": [
             "id"
@@ -3529,27 +3442,6 @@
           ],
           "isUnique": false,
           "where": "status = 'pending'",
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "email_outbox_status_created_idx": {
-          "name": "email_outbox_status_created_idx",
-          "columns": [
-            {
-              "expression": "status",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "created_at",
-              "isExpression": false,
-              "asc": false,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
           "concurrently": false,
           "method": "btree",
           "with": {}

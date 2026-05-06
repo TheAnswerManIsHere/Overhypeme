@@ -1,6 +1,6 @@
 {
-  "id": "87a93260-d76a-4129-8442-febd4a797d94",
-  "prevId": "00000000-0000-0000-0000-000000000000",
+  "id": "dc5266b8-1ef3-4cc4-a1de-cc0b93fee214",
+  "prevId": "23872e4f-cc68-4cf9-b9e1-22c36d305ce7",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -1463,12 +1463,6 @@
           "primaryKey": false,
           "notNull": false
         },
-        "performed_by_admin_id": {
-          "name": "performed_by_admin_id",
-          "type": "varchar",
-          "primaryKey": false,
-          "notNull": false
-        },
         "created_at": {
           "name": "created_at",
           "type": "timestamp with time zone",
@@ -1501,19 +1495,6 @@
           "tableTo": "users",
           "columnsFrom": [
             "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
-        "membership_history_performed_by_admin_id_users_id_fk": {
-          "name": "membership_history_performed_by_admin_id_users_id_fk",
-          "tableFrom": "membership_history",
-          "tableTo": "users",
-          "columnsFrom": [
-            "performed_by_admin_id"
           ],
           "columnsTo": [
             "id"
@@ -3097,9 +3078,7 @@
       "name": "review_reason",
       "schema": "public",
       "values": [
-        "duplicate",
-        "spam",
-        "offensive"
+        "duplicate"
       ]
     },
     "public.review_status": {

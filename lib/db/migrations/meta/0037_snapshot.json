@@ -1,6 +1,6 @@
 {
-  "id": "b02d3d3f-950d-42a6-af43-dae05c0ea659",
-  "prevId": "00000000-0000-0000-0000-000000000000",
+  "id": "a2d922da-3a53-414c-a0a8-785a560e4111",
+  "prevId": "dc1369d5-b4e7-4da1-b5a1-714df28590a8",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -126,12 +126,6 @@
           "notNull": true,
           "default": false
         },
-        "link_user_id": {
-          "name": "link_user_id",
-          "type": "varchar",
-          "primaryKey": false,
-          "notNull": false
-        },
         "expires_at": {
           "name": "expires_at",
           "type": "timestamp with time zone",
@@ -156,21 +150,7 @@
           "with": {}
         }
       },
-      "foreignKeys": {
-        "oauth_pending_states_link_user_id_users_id_fk": {
-          "name": "oauth_pending_states_link_user_id_users_id_fk",
-          "tableFrom": "oauth_pending_states",
-          "tableTo": "users",
-          "columnsFrom": [
-            "link_user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
+      "foreignKeys": {},
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "policies": {},

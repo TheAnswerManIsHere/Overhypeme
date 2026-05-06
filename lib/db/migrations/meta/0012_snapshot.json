@@ -1,6 +1,6 @@
 {
-  "id": "a04e436f-c44c-4be1-b5b9-9c8b13c5dec4",
-  "prevId": "00000000-0000-0000-0000-000000000000",
+  "id": "66921416-0a25-4b39-99eb-602082e2c92b",
+  "prevId": "59d94690-a30e-4cb8-8d60-871f5ca060a4",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -324,7 +324,7 @@
           "type": "boolean",
           "primaryKey": false,
           "notNull": true,
-          "default": true
+          "default": false
         },
         "is_active": {
           "name": "is_active",
@@ -371,12 +371,6 @@
         "email_verified_at": {
           "name": "email_verified_at",
           "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "monthly_generation_limit_override_usd": {
-          "name": "monthly_generation_limit_override_usd",
-          "type": "numeric(10, 4)",
           "primaryKey": false,
           "notNull": false
         },
@@ -2510,105 +2504,6 @@
       "indexes": {},
       "foreignKeys": {},
       "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
-    "public.feature_flags": {
-      "name": "feature_flags",
-      "schema": "",
-      "columns": {
-        "key": {
-          "name": "key",
-          "type": "varchar(100)",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "display_name": {
-          "name": "display_name",
-          "type": "varchar(200)",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "description": {
-          "name": "description",
-          "type": "varchar(500)",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {},
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
-    "public.tier_feature_permissions": {
-      "name": "tier_feature_permissions",
-      "schema": "",
-      "columns": {
-        "tier": {
-          "name": "tier",
-          "type": "varchar(50)",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "feature_key": {
-          "name": "feature_key",
-          "type": "varchar(100)",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "enabled": {
-          "name": "enabled",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": true,
-          "default": false
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {
-        "tier_feature_permissions_feature_key_feature_flags_key_fk": {
-          "name": "tier_feature_permissions_feature_key_feature_flags_key_fk",
-          "tableFrom": "tier_feature_permissions",
-          "tableTo": "feature_flags",
-          "columnsFrom": [
-            "feature_key"
-          ],
-          "columnsTo": [
-            "key"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {
-        "tier_feature_permissions_tier_feature_key_pk": {
-          "name": "tier_feature_permissions_tier_feature_key_pk",
-          "columns": [
-            "tier",
-            "feature_key"
-          ]
-        }
-      },
       "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {},
