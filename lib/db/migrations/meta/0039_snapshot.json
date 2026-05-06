@@ -1,6 +1,6 @@
 {
-  "id": "1d24a246-0c9e-4110-afad-844ddd168140",
-  "prevId": "c4d5e6f7-a8b9-4012-cdef-012345678902",
+  "id": "b3c4d5e6-f7a8-4901-bcde-f01234567891",
+  "prevId": "0adc7085-cfab-4ef9-be23-f1827ea20012",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -392,19 +392,11 @@
           "primaryKey": false,
           "notNull": false
         },
-        "google_linked": {
-          "name": "google_linked",
-          "type": "boolean",
+        "oauth_provider": {
+          "name": "oauth_provider",
+          "type": "varchar(20)",
           "primaryKey": false,
-          "notNull": true,
-          "default": false
-        },
-        "apple_linked": {
-          "name": "apple_linked",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": true,
-          "default": false
+          "notNull": false
         },
         "captcha_verified": {
           "name": "captcha_verified",

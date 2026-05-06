@@ -67,8 +67,6 @@ const SNAPSHOT_EXEMPT_TAGS = new Set<string>([
   "0035_reactions_polymorphic",
   "0036_oauth_pending_states",
   "0037_email_outbox_status_created_idx",
-  "0039_oauth_pending_states_link_user_id",
-  "0040_oauth_multi_provider",
 ]);
 
 interface JournalEntry {
