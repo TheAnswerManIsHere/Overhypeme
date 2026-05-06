@@ -3,7 +3,8 @@ import { useRoute, Link, useLocation } from "wouter";
 import { format } from "date-fns";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 
-import { useGetFact, useListComments, getGetFactQueryKey, getListCommentsQueryKey } from "@workspace/api-client-react";
+import { useGetFact, useListComments, useListRelatedFacts, getGetFactQueryKey, getListCommentsQueryKey, getListRelatedFactsQueryKey } from "@workspace/api-client-react";
+import { FactCard } from "@/components/facts/FactCard";
 import { useAuth } from "@workspace/replit-auth-web";
 import { Layout } from "@/components/layout/Layout";
 import { Button } from "@/components/ui/Button";
@@ -315,6 +316,10 @@ export default function FactDetail() {
 
   const { data: commentsData } = useListComments(factId, { limit: 50 }, {
     query: { queryKey: getListCommentsQueryKey(factId, { limit: 50 }), enabled: !!factId && belowFoldMounted }
+  });
+
+  const { data: relatedFactsData } = useListRelatedFacts(factId, { limit: 6 }, {
+    query: { queryKey: getListRelatedFactsQueryKey(factId, { limit: 6 }), enabled: !!factId && belowFoldMounted }
   });
 
   const { data: communityMemesData } = useQuery({
@@ -879,6 +884,20 @@ export default function FactDetail() {
             <div className="space-y-6">
               {fact.variants.map(v => (
                 <VariantFactCard key={v.id} id={v.id} useCase={v.useCase ?? null} />
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Related facts — convert share-arrival traffic into session traffic */}
+        {relatedFactsData?.facts && relatedFactsData.facts.length > 0 && (
+          <div className="mt-16">
+            <h3 className="text-2xl font-display uppercase tracking-wide border-b-2 border-border pb-2 mb-8">
+              More facts you'll like
+            </h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {relatedFactsData.facts.map((rf, i) => (
+                <FactCard key={rf.id} fact={rf} index={i} />
               ))}
             </div>
           </div>
