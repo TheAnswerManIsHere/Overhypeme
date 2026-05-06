@@ -197,22 +197,34 @@ function HeroBillboardMobile({
         {/* Engagement footer */}
         <div className="px-5 pb-5 pt-3 border-t border-primary/15 flex items-center justify-between gap-3">
           <div className="flex items-center gap-4">
-            <button
-              onClick={() => handleRate("up")}
-              disabled={rateFact.isPending || !fact}
-              className={cn("flex items-center gap-1.5 transition-colors", fact?.userRating === "up" ? "text-primary" : "text-muted-foreground hover:text-primary")}
-            >
-              <ThumbsUp className={cn("w-5 h-5", fact?.userRating === "up" && "fill-current")} />
-              <span className="text-xs font-bold">{fact?.upvotes ?? 0}</span>
-            </button>
-            <button
-              onClick={() => handleRate("down")}
-              disabled={rateFact.isPending || !fact}
-              className={cn("flex items-center gap-1.5 transition-colors", fact?.userRating === "down" ? "text-destructive" : "text-muted-foreground hover:text-destructive")}
-            >
-              <ThumbsDown className={cn("w-5 h-5", fact?.userRating === "down" && "fill-current")} />
-              <span className="text-xs font-bold">{fact?.downvotes ?? 0}</span>
-            </button>
+            <div className={cn(
+              "inline-flex items-center rounded-full border h-10 transition-colors",
+              fact?.userRating === "up"
+                ? "bg-primary/[0.14] border-primary text-primary"
+                : "bg-secondary border-border/80 text-foreground"
+            )}>
+              <button
+                onClick={() => handleRate("up")}
+                disabled={rateFact.isPending || !fact}
+                className="flex items-center gap-2 pl-3.5 pr-2.5 h-full"
+                title="Upvote"
+              >
+                <ThumbsUp className={cn("w-5 h-5", fact?.userRating === "up" && "fill-current")} />
+                <span className="text-sm font-bold">{fact?.upvotes ?? 0}</span>
+              </button>
+              <span className="w-px h-4 bg-border/80 flex-shrink-0" />
+              <button
+                onClick={() => handleRate("down")}
+                disabled={rateFact.isPending || !fact}
+                className={cn(
+                  "flex items-center px-3 h-full transition-colors",
+                  fact?.userRating === "down" ? "text-destructive" : "text-muted-foreground/60 hover:text-muted-foreground"
+                )}
+                title="Downvote"
+              >
+                <ThumbsDown className={cn("w-4 h-4", fact?.userRating === "down" && "fill-current")} />
+              </button>
+            </div>
             {fact && (
               <Link href={`/facts/${fact.id}`} className="flex items-center gap-1.5 text-muted-foreground hover:text-foreground transition-colors">
                 <MessageSquare className="w-5 h-5" />
@@ -365,22 +377,34 @@ function DesktopHeroBillboard({
       {/* Footer: engagement + CTAs */}
       <div className="px-10 pb-8 pt-4 border-t border-primary/15 flex items-center justify-between min-h-[60px]">
         <div className="flex items-center gap-5">
-          <button
-            onClick={() => handleRate("up")}
-            disabled={rateFact.isPending || !fact}
-            className={cn("flex items-center gap-2 transition-colors text-[13px] font-bold", fact?.userRating === "up" ? "text-primary" : "text-muted-foreground hover:text-primary")}
-          >
-            <ThumbsUp className={cn("w-5 h-5", fact?.userRating === "up" && "fill-current")} />
-            {fact?.upvotes ?? 0}
-          </button>
-          <button
-            onClick={() => handleRate("down")}
-            disabled={rateFact.isPending || !fact}
-            className={cn("flex items-center gap-2 transition-colors text-[13px] font-bold", fact?.userRating === "down" ? "text-destructive" : "text-muted-foreground hover:text-destructive")}
-          >
-            <ThumbsDown className={cn("w-5 h-5", fact?.userRating === "down" && "fill-current")} />
-            {fact?.downvotes ?? 0}
-          </button>
+          <div className={cn(
+            "inline-flex items-center rounded-full border h-10 transition-colors",
+            fact?.userRating === "up"
+              ? "bg-primary/[0.14] border-primary text-primary"
+              : "bg-secondary border-border/80 text-foreground"
+          )}>
+            <button
+              onClick={() => handleRate("up")}
+              disabled={rateFact.isPending || !fact}
+              className="flex items-center gap-2 pl-3.5 pr-2.5 h-full"
+              title="Upvote"
+            >
+              <ThumbsUp className={cn("w-5 h-5", fact?.userRating === "up" && "fill-current")} />
+              <span className="text-sm font-bold">{fact?.upvotes ?? 0}</span>
+            </button>
+            <span className="w-px h-4 bg-border/80 flex-shrink-0" />
+            <button
+              onClick={() => handleRate("down")}
+              disabled={rateFact.isPending || !fact}
+              className={cn(
+                "flex items-center px-3 h-full transition-colors",
+                fact?.userRating === "down" ? "text-destructive" : "text-muted-foreground/60 hover:text-muted-foreground"
+              )}
+              title="Downvote"
+            >
+              <ThumbsDown className={cn("w-4 h-4", fact?.userRating === "down" && "fill-current")} />
+            </button>
+          </div>
           {fact && (
             <Link href={`/facts/${fact.id}`} className="flex items-center gap-2 text-muted-foreground hover:text-foreground transition-colors text-[13px] font-bold">
               <MessageSquare className="w-5 h-5" />

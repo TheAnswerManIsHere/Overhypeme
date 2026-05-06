@@ -16,7 +16,8 @@ export const usersTable = pgTable("users", {
   displayName: varchar("display_name"),
   profileImageUrl: varchar("profile_image_url"),
   passwordHash: varchar("password_hash"),
-  oauthProvider: varchar("oauth_provider", { length: 20 }),
+  googleLinked: boolean("google_linked").notNull().default(false),
+  appleLinked: boolean("apple_linked").notNull().default(false),
   captchaVerified: boolean("captcha_verified").notNull().default(false),
   isAdmin: boolean("is_admin").notNull().default(false),
   adminNotifications: boolean("admin_notifications").notNull().default(true),
@@ -90,7 +91,9 @@ export const oauthPendingStatesTable = pgTable(
     nonce: text("nonce").notNull(),
     returnTo: text("return_to").notNull().default("/"),
     isPopup: boolean("is_popup").notNull().default(false),
-    linkUserId: varchar("link_user_id"),
+    // When set, the callback links the OAuth provider to this existing user
+    // instead of creating/logging-in a new session.
+    linkUserId: varchar("link_user_id").references(() => usersTable.id, { onDelete: "cascade" }),
     expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
   },
   (table) => [index("IDX_oauth_pending_states_expires_at").on(table.expiresAt)],

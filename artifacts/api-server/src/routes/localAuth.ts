@@ -211,11 +211,12 @@ router.post("/auth/local-login", async (req: Request, res: Response) => {
   }
 
   if (!user.passwordHash) {
-    const provider = user.oauthProvider;
-    if (provider === "google") {
-      res.status(401).json({ error: "This account uses Google sign-in. Please click \"Continue with Google\" to log in." });
-    } else if (provider === "apple") {
-      res.status(401).json({ error: "This account uses Apple sign-in. Please click \"Continue with Apple\" to log in." });
+    const linkedNames: string[] = [];
+    if (user.googleLinked) linkedNames.push("Google");
+    if (user.appleLinked) linkedNames.push("Apple");
+    if (linkedNames.length > 0) {
+      const methods = linkedNames.map((n) => `"Continue with ${n}"`).join(" or ");
+      res.status(401).json({ error: `This account uses ${linkedNames.join(" and ")} sign-in. Please click ${methods} to log in.` });
     } else {
       res.status(401).json({ error: "This account does not have a password set. Please use your social sign-in method." });
     }
@@ -615,15 +616,26 @@ router.post("/auth/set-password", async (req: Request, res: Response) => {
 });
 
 // ── Unlink OAuth provider ─────────────────────────────────────────────────────
-// Only allowed when the user has a password set (to prevent lockout).
+// Only allowed when the user has at least one remaining sign-in method
+// (password or another linked provider) to prevent account lockout.
 router.delete("/auth/unlink-provider", async (req: Request, res: Response) => {
   if (!req.isAuthenticated()) {
     res.status(401).json({ error: "Not authenticated" });
     return;
   }
 
+  const provider = (req.body as { provider?: string } | null | undefined)?.provider;
+  if (provider !== "google" && provider !== "apple") {
+    res.status(400).json({ error: "provider must be \"google\" or \"apple\"" });
+    return;
+  }
+
   const [user] = await db
-    .select({ passwordHash: usersTable.passwordHash, oauthProvider: usersTable.oauthProvider })
+    .select({
+      passwordHash: usersTable.passwordHash,
+      googleLinked: usersTable.googleLinked,
+      appleLinked: usersTable.appleLinked,
+    })
     .from(usersTable)
     .where(eq(usersTable.id, req.user.id))
     .limit(1);
@@ -633,22 +645,29 @@ router.delete("/auth/unlink-provider", async (req: Request, res: Response) => {
     return;
   }
 
-  if (!user.oauthProvider) {
+  const isLinked = provider === "google" ? user.googleLinked : user.appleLinked;
+  if (!isLinked) {
     res.status(400).json({ error: "No linked social account to remove" });
     return;
   }
 
-  if (!user.passwordHash) {
-    res.status(400).json({ error: "You must set a password before unlinking your social account, otherwise you would be locked out." });
+  // Prevent lockout: user must have another auth method remaining after unlink.
+  const otherProviderLinked = provider === "google" ? user.appleLinked : user.googleLinked;
+  if (!user.passwordHash && !otherProviderLinked) {
+    res.status(400).json({ error: "You must set a password or link another provider before unlinking your only social account." });
     return;
   }
 
+  const updates: Record<string, unknown> = provider === "google"
+    ? { googleLinked: false }
+    : { appleLinked: false };
+
   await db
     .update(usersTable)
-    .set({ oauthProvider: null })
+    .set(updates)
     .where(eq(usersTable.id, req.user.id));
 
-  res.status(200).json({ message: "Social account unlinked successfully." });
+  res.status(200).json({ message: "Sign-in method unlinked successfully." });
 });
 
 // ── Secret admin login ────────────────────────────────────────────────────────

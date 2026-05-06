@@ -53,7 +53,6 @@ function uniqueEmail() {
 async function createUserWithPassword(opts: {
   password?: string;
   email?: string;
-  oauthProvider?: string | null;
 } = {}): Promise<{ id: string; email: string; password: string }> {
   const id = `${USER_PREFIX}${randomUUID()}`;
   const password = opts.password ?? "supersecret123";
@@ -63,7 +62,6 @@ async function createUserWithPassword(opts: {
     id,
     email,
     passwordHash,
-    oauthProvider: opts.oauthProvider ?? null,
   });
   return { id, email, password };
 }
@@ -246,7 +244,7 @@ describe("POST /auth/local-login", () => {
   it("returns 401 with a Google-specific message for Google-only accounts", async () => {
     const id = `${USER_PREFIX}${randomUUID()}`;
     const email = `${id}@test.local`;
-    await db.insert(usersTable).values({ id, email, oauthProvider: "google" });
+    await db.insert(usersTable).values({ id, email, googleLinked: true });
     const res = await request(makeApp())
       .post("/auth/local-login")
       .send({ email, password: "doesnt-matter" });
@@ -257,7 +255,7 @@ describe("POST /auth/local-login", () => {
   it("returns 401 with an Apple-specific message for Apple-only accounts", async () => {
     const id = `${USER_PREFIX}${randomUUID()}`;
     const email = `${id}@test.local`;
-    await db.insert(usersTable).values({ id, email, oauthProvider: "apple" });
+    await db.insert(usersTable).values({ id, email, appleLinked: true });
     const res = await request(makeApp())
       .post("/auth/local-login")
       .send({ email, password: "doesnt-matter" });
@@ -575,7 +573,7 @@ describe("POST /auth/set-password", () => {
     await db.insert(usersTable).values({
       id,
       email: `${id}@test.local`,
-      oauthProvider: "google",
+      googleLinked: true,
     });
     const sid = await bearerForUser(id);
     const res = await request(makeApp())
@@ -601,7 +599,9 @@ describe("DELETE /auth/unlink-provider", () => {
     const sid = await bearerForUser(id);
     const res = await request(makeApp())
       .delete("/auth/unlink-provider")
-      .set("authorization", `Bearer ${sid}`);
+      .set("authorization", `Bearer ${sid}`)
+      .set("content-type", "application/json")
+      .send({ provider: "google" });
     assert.equal(res.status, 400);
     assert.match(res.body.error, /No linked social account/);
   });
@@ -611,26 +611,31 @@ describe("DELETE /auth/unlink-provider", () => {
     await db.insert(usersTable).values({
       id,
       email: `${id}@test.local`,
-      oauthProvider: "google",
+      googleLinked: true,
     });
     const sid = await bearerForUser(id);
     const res = await request(makeApp())
       .delete("/auth/unlink-provider")
-      .set("authorization", `Bearer ${sid}`);
+      .set("authorization", `Bearer ${sid}`)
+      .set("content-type", "application/json")
+      .send({ provider: "google" });
     assert.equal(res.status, 400);
     assert.match(res.body.error, /must set a password/);
   });
 
-  it("happy path: clears oauthProvider", async () => {
+  it("happy path: clears googleLinked and returns success message", async () => {
     const { id } = await createUserWithPassword();
-    await db.update(usersTable).set({ oauthProvider: "google" }).where(eq(usersTable.id, id));
+    await db.update(usersTable).set({ googleLinked: true }).where(eq(usersTable.id, id));
     const sid = await bearerForUser(id);
     const res = await request(makeApp())
       .delete("/auth/unlink-provider")
-      .set("authorization", `Bearer ${sid}`);
+      .set("authorization", `Bearer ${sid}`)
+      .set("content-type", "application/json")
+      .send({ provider: "google" });
     assert.equal(res.status, 200);
+    assert.match(res.body.message, /Sign-in method unlinked successfully/);
     const [row] = await db.select().from(usersTable).where(eq(usersTable.id, id));
-    assert.equal(row.oauthProvider, null);
+    assert.equal(row.googleLinked, false);
   });
 });
 

@@ -234,7 +234,7 @@ describe("POST /api/callback/apple", () => {
 
       const createdUser = users.find((u) => u.email === testEmail);
       assert.ok(createdUser, `User with email ${testEmail} should exist`);
-      assert.equal(createdUser.oauthProvider, "apple");
+      assert.ok(createdUser.appleLinked, "appleLinked should be true");
 
       // Sessions are keyed by a random hex sid — query by userId instead.
       const sessions = await db
@@ -254,7 +254,7 @@ describe("POST /api/callback/apple", () => {
     const testEmail = `${USER_PREFIX}${randomUUID()}@test.local`;
     await db.insert(usersTable).values({
       email: testEmail,
-      oauthProvider: "apple",
+      appleLinked: true,
       isActive: true,
     });
 
