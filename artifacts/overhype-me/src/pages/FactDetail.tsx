@@ -692,19 +692,29 @@ export default function FactDetail() {
                   );
                 })}
               </div>
+            ) : galleryTab === "mine" ? (
+              <div className="mb-6 p-8 md:p-10 text-center bg-gradient-to-br from-primary/15 via-primary/5 to-transparent border-2 border-primary/40 rounded-2xl">
+                <h4 className="text-xl md:text-2xl font-display font-bold uppercase tracking-tight text-foreground mb-2">
+                  You haven't made one yet
+                </h4>
+                <p className="text-sm text-muted-foreground mb-6 max-w-md mx-auto">
+                  Make this fact yours.
+                </p>
+                <Button
+                  variant="primary"
+                  size="lg"
+                  onClick={() => openMemeStudio("image")}
+                  className="gap-3 tracking-widest shadow-[0_8px_20px_rgba(255,101,0,0.22)]"
+                >
+                  <Flame className="w-5 h-5" />
+                  MAKE A MEME OF THIS
+                </Button>
+              </div>
             ) : (
               <div className="py-12 text-center border-2 border-dashed border-border rounded-2xl mb-6">
-                <p className="text-muted-foreground mb-4">
-                  {galleryTab === "community" ? "No community memes yet. Be the first!" : "You haven't made any memes for this fact yet."}
+                <p className="text-muted-foreground">
+                  No community memes yet. Be the first!
                 </p>
-                {galleryTab === "mine" && (
-                  <button
-                    onClick={() => openMemeStudio("image")}
-                    className="inline-flex items-center gap-2 px-4 py-2 text-sm font-display font-bold uppercase tracking-wider bg-primary text-primary-foreground rounded-xl hover:opacity-90 transition-opacity"
-                  >
-                    <Flame className="w-4 h-4" /> Create your first meme
-                  </button>
-                )}
               </div>
             );
           })()}
