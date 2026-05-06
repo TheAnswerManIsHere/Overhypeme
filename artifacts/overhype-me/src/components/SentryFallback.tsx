@@ -1,3 +1,5 @@
+import { BRAND_ORANGE } from "@workspace/api-zod";
+
 interface SentryFallbackProps {
   resetError: () => void;
 }
@@ -22,7 +24,7 @@ export default function SentryFallback({ resetError }: SentryFallbackProps) {
             fontFamily: "Oswald, Impact, sans-serif",
             fontWeight: 700,
             fontSize: "2.5rem",
-            color: "#FF6600",
+            color: BRAND_ORANGE,
             marginBottom: "1rem",
             textTransform: "uppercase",
             letterSpacing: "0.05em",
@@ -42,7 +44,7 @@ export default function SentryFallback({ resetError }: SentryFallbackProps) {
               window.location.reload();
             }}
             style={{
-              backgroundColor: "#FF6600",
+              backgroundColor: BRAND_ORANGE,
               color: "#fff",
               border: "none",
               padding: "0.75rem 1.5rem",
