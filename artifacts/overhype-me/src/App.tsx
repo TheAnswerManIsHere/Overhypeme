@@ -7,6 +7,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { trackPageView, trackRouteVisit, getTopRoutes, flushRouteStatsToServer } from "@/lib/analytics";
 import { PersonNameProvider, SHARE_LINK_ACTIVE, usePersonName } from "@/hooks/use-person-name";
+import { FactExpansionProvider } from "@/contexts/fact-expansion-context";
 import { useAuth, AuthProvider } from "@workspace/replit-auth-web";
 import SentryFallback from "@/components/SentryFallback";
 
@@ -402,10 +403,12 @@ function App() {
         <QueryClientProvider client={queryClient}>
           <TooltipProvider>
             <PersonNameProvider>
-              <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
-                <Router />
-              </WouterRouter>
-              <Toaster />
+              <FactExpansionProvider>
+                <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
+                  <Router />
+                </WouterRouter>
+                <Toaster />
+              </FactExpansionProvider>
             </PersonNameProvider>
           </TooltipProvider>
         </QueryClientProvider>

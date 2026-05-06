@@ -25,9 +25,11 @@ interface FactCardCommentsProps {
   name: string;
   onCommentSubmit?: () => void;
   onCommentError?: () => void;
+  draft?: string;
+  onDraftChange?: (text: string) => void;
 }
 
-export function FactCardComments({ fact, name, onCommentSubmit, onCommentError }: FactCardCommentsProps) {
+export function FactCardComments({ fact, name, onCommentSubmit, onCommentError, draft = "", onDraftChange }: FactCardCommentsProps) {
   const [, setLocation] = useLocation();
   const { isAuthenticated, role, user } = useAuth();
   const { addComment } = useAppMutations();
@@ -37,7 +39,7 @@ export function FactCardComments({ fact, name, onCommentSubmit, onCommentError }
   const captchaRef = useRef<HCaptcha>(null);
 
   const [formState, setFormState] = useState<FormState>("idle");
-  const [text, setText] = useState("");
+  const [text, setText] = useState(draft);
   const [captchaToken, setCaptchaToken] = useState("");
   const [optimisticComments, setOptimisticComments] = useState<OptimisticComment[]>([]);
 
@@ -79,6 +81,7 @@ export function FactCardComments({ fact, name, onCommentSubmit, onCommentError }
     setOptimisticComments((prev) => [optimisticEntry, ...prev]);
     setFormState("submitting");
     setText("");
+    onDraftChange?.("");
     setCaptchaToken("");
     onCommentSubmit?.();
 
@@ -88,6 +91,7 @@ export function FactCardComments({ fact, name, onCommentSubmit, onCommentError }
         onSuccess: () => {
           setOptimisticComments((prev) => prev.filter((c) => c.id !== optimisticId));
           setFormState("idle");
+          onDraftChange?.("");
           captchaRef.current?.resetCaptcha();
         },
         onError: () => {
@@ -184,7 +188,10 @@ export function FactCardComments({ fact, name, onCommentSubmit, onCommentError }
               <textarea
                 ref={textareaRef}
                 value={text}
-                onChange={(e) => setText(e.target.value)}
+                onChange={(e) => {
+                  setText(e.target.value);
+                  onDraftChange?.(e.target.value);
+                }}
                 disabled={formState === "submitting"}
                 placeholder="Add a comment…"
                 rows={2}

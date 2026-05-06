@@ -10,6 +10,7 @@ import { usePersonName } from "@/hooks/use-person-name";
 import { renderFact } from "@/lib/render-fact";
 import { useToast } from "@/hooks/use-toast";
 import { FactCardComments } from "./FactCardComments";
+import { useFactExpansion } from "@/contexts/fact-expansion-context";
 
 function HighlightName({ text, name }: { text: string; name: string }) {
   if (!name) return <>{text}</>;
@@ -40,7 +41,8 @@ export function FactCard({
   const { isAuthenticated } = useAuth();
   const [, setLocation] = useLocation();
   const { name, pronouns } = usePersonName();
-  const [expanded, setExpanded] = useState(false);
+  const { isExpanded, toggle, collapse, getDraft, setDraft } = useFactExpansion();
+  const expanded = isExpanded(fact.id);
   const [commentCountDelta, setCommentCountDelta] = useState(0);
   const prevCommentCountRef = useRef(fact.commentCount);
   const { toast } = useToast();
@@ -75,9 +77,9 @@ export function FactCard({
 
   const handleEscape = useCallback((e: React.KeyboardEvent) => {
     if (e.key === "Escape" && expanded) {
-      setExpanded(false);
+      collapse(fact.id);
     }
-  }, [expanded]);
+  }, [expanded, collapse, fact.id]);
 
   const cardRef = useRef<HTMLDivElement>(null);
   const prefersReducedMotion = useReducedMotion();
@@ -142,7 +144,7 @@ export function FactCard({
 
       <div className={cn("relative z-10 p-5 sm:p-6", showRank && rank && "pt-14 sm:pt-14")}>
         {/* Fact text — tap to expand */}
-        <button onClick={() => setExpanded(v => !v)} className="block w-full text-left mb-4">
+        <button onClick={() => toggle(fact.id)} className="block w-full text-left mb-4">
           <h3 className="text-lg sm:text-xl md:text-2xl font-display font-bold text-foreground leading-tight uppercase tracking-tight">
             {'"'}<HighlightName text={renderFact(fact.text, name, pronouns)} name={name} />{'"'}
           </h3>
@@ -199,7 +201,7 @@ export function FactCard({
 
             {/* Comments — toggles expand, with aria attributes */}
             <button
-              onClick={() => setExpanded(v => !v)}
+              onClick={() => toggle(fact.id)}
               aria-expanded={expanded}
               aria-controls={commentsRegionId}
               className="flex items-center gap-1.5 text-muted-foreground hover:text-foreground transition-colors"
@@ -236,6 +238,8 @@ export function FactCard({
             <FactCardComments
               fact={fact}
               name={name}
+              draft={getDraft(fact.id)}
+              onDraftChange={(text) => setDraft(fact.id, text)}
               onCommentSubmit={() => setCommentCountDelta(d => d + 1)}
               onCommentError={() => setCommentCountDelta(d => Math.max(0, d - 1))}
             />
