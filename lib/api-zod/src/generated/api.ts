@@ -235,6 +235,49 @@ export const GetFactResponse = zod
   );
 
 /**
+ * Returns facts that share hashtags with the given fact, scored by
+tag-overlap count, broken by Wilson score descending. The given
+fact and (if it is a parent) its variants are excluded. If the
+given fact has no hashtags or there are not enough overlapping
+candidates, the response is padded with top-Wilson-score facts.
+
+ * @summary List facts similar to the given fact
+ */
+export const ListRelatedFactsParams = zod.object({
+  factId: zod.coerce.number(),
+});
+
+export const listRelatedFactsQueryLimitDefault = 6;
+export const listRelatedFactsQueryLimitMax = 24;
+
+export const ListRelatedFactsQueryParams = zod.object({
+  limit: zod.coerce
+    .number()
+    .min(1)
+    .max(listRelatedFactsQueryLimitMax)
+    .default(listRelatedFactsQueryLimitDefault),
+});
+
+export const ListRelatedFactsResponse = zod.object({
+  facts: zod.array(
+    zod.object({
+      id: zod.number(),
+      text: zod.string(),
+      upvotes: zod.number(),
+      downvotes: zod.number(),
+      score: zod.number().optional(),
+      commentCount: zod.number(),
+      hashtags: zod.array(zod.string()),
+      submittedBy: zod.string().nullish(),
+      submittedByImage: zod.string().nullish(),
+      userRating: zod.enum(["up", "down"]).nullish(),
+      useCase: zod.string().nullish(),
+      createdAt: zod.coerce.date(),
+    }),
+  ),
+});
+
+/**
  * @summary Rate a fact (upvote or downvote)
  */
 export const RateFactParams = zod.object({

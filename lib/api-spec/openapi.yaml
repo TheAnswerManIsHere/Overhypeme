@@ -248,6 +248,45 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
 
+  /facts/{factId}/related:
+    get:
+      operationId: listRelatedFacts
+      tags: [facts]
+      summary: List facts similar to the given fact
+      description: |
+        Returns facts that share hashtags with the given fact, scored by
+        tag-overlap count, broken by Wilson score descending. The given
+        fact and (if it is a parent) its variants are excluded. If the
+        given fact has no hashtags or there are not enough overlapping
+        candidates, the response is padded with top-Wilson-score facts.
+      parameters:
+        - name: factId
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 24
+            default: 6
+      responses:
+        "200":
+          description: Related facts
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RelatedFactsResponse"
+        "404":
+          description: Source fact not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
   /facts/{factId}/rating:
     post:
       operationId: rateFact
@@ -1331,6 +1370,15 @@ components:
             $ref: "#/components/schemas/FactSummary"
         total:
           type: integer
+
+    RelatedFactsResponse:
+      type: object
+      required: [facts]
+      properties:
+        facts:
+          type: array
+          items:
+            $ref: "#/components/schemas/FactSummary"
 
     HeroFactResponse:
       type: object

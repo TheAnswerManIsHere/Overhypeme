@@ -214,6 +214,10 @@ export interface FactListResponse {
   total: number;
 }
 
+export interface RelatedFactsResponse {
+  facts: FactSummary[];
+}
+
 export interface HeroFactResponse {
   fact: FactSummary;
   /** Size of the candidate pool the pick was drawn from. */
@@ -584,6 +588,14 @@ export type GetHeroFactParams = {
    * Comma-separated list of fact IDs to exclude from selection.
    */
   exclude?: string;
+};
+
+export type ListRelatedFactsParams = {
+  /**
+   * @minimum 1
+   * @maximum 24
+   */
+  limit?: number;
 };
 
 export type ListCommentsParams = {

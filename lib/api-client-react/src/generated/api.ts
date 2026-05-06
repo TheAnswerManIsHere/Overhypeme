@@ -49,6 +49,7 @@ import type {
   ListFactMemesParams,
   ListFactsParams,
   ListHashtagsParams,
+  ListRelatedFactsParams,
   MemeDetail,
   MemeListResponse,
   MemeRecord,
@@ -56,6 +57,7 @@ import type {
   RateFactRequest,
   RatingResult,
   RecordSearchRequest,
+  RelatedFactsResponse,
   SuggestHashtags200,
   SuggestHashtagsBody,
   UpdateNotificationsRequest,
@@ -847,6 +849,125 @@ export function useGetFact<
   },
 ): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
   const queryOptions = getGetFactQueryOptions(factId, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * Returns facts that share hashtags with the given fact, scored by
+tag-overlap count, broken by Wilson score descending. The given
+fact and (if it is a parent) its variants are excluded. If the
+given fact has no hashtags or there are not enough overlapping
+candidates, the response is padded with top-Wilson-score facts.
+
+ * @summary List facts similar to the given fact
+ */
+export const getListRelatedFactsUrl = (
+  factId: number,
+  params?: ListRelatedFactsParams,
+) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/facts/${factId}/related?${stringifiedParams}`
+    : `/api/facts/${factId}/related`;
+};
+
+export const listRelatedFacts = async (
+  factId: number,
+  params?: ListRelatedFactsParams,
+  options?: RequestInit,
+): Promise<RelatedFactsResponse> => {
+  return customFetch<RelatedFactsResponse>(
+    getListRelatedFactsUrl(factId, params),
+    {
+      ...options,
+      method: "GET",
+    },
+  );
+};
+
+export const getListRelatedFactsQueryKey = (
+  factId: number,
+  params?: ListRelatedFactsParams,
+) => {
+  return [`/api/facts/${factId}/related`, ...(params ? [params] : [])] as const;
+};
+
+export const getListRelatedFactsQueryOptions = <
+  TData = Awaited<ReturnType<typeof listRelatedFacts>>,
+  TError = ErrorType<ErrorEnvelope>,
+>(
+  factId: number,
+  params?: ListRelatedFactsParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof listRelatedFacts>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getListRelatedFactsQueryKey(factId, params);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof listRelatedFacts>>
+  > = ({ signal }) =>
+    listRelatedFacts(factId, params, { signal, ...requestOptions });
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: !!factId,
+    ...queryOptions,
+  } as UseQueryOptions<
+    Awaited<ReturnType<typeof listRelatedFacts>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type ListRelatedFactsQueryResult = NonNullable<
+  Awaited<ReturnType<typeof listRelatedFacts>>
+>;
+export type ListRelatedFactsQueryError = ErrorType<ErrorEnvelope>;
+
+/**
+ * @summary List facts similar to the given fact
+ */
+
+export function useListRelatedFacts<
+  TData = Awaited<ReturnType<typeof listRelatedFacts>>,
+  TError = ErrorType<ErrorEnvelope>,
+>(
+  factId: number,
+  params?: ListRelatedFactsParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof listRelatedFacts>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getListRelatedFactsQueryOptions(factId, params, options);
 
   const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
     queryKey: QueryKey;
