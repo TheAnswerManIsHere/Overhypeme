@@ -758,6 +758,19 @@ export default function FactDetail() {
           )}
         </div>
 
+        {/* PRIMARY CTA — repeated after the meme grid so deep-scroll visitors keep the affordance */}
+        <div className="mb-12">
+          <Button
+            variant="primary"
+            size="lg"
+            onClick={() => openMemeStudio("image")}
+            className="w-full h-14 gap-3 shadow-[0_8px_20px_rgba(255,101,0,0.22)] tracking-widest"
+          >
+            <Flame className="w-5 h-5" />
+            MAKE A MEME OF THIS
+          </Button>
+        </div>
+
         {/* Layout split for Links and Comments */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-12">
 
