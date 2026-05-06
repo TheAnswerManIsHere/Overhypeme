@@ -5,6 +5,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { useGetFact, useListComments, useListRelatedFacts, getGetFactQueryKey, getListCommentsQueryKey, getListRelatedFactsQueryKey } from "@workspace/api-client-react";
 import { FactCard } from "@/components/facts/FactCard";
+import { FactActionCluster } from "@/components/facts/FactActionCluster";
 import { useAuth } from "@workspace/replit-auth-web";
 import { Layout } from "@/components/layout/Layout";
 import { Button } from "@/components/ui/Button";
@@ -12,7 +13,7 @@ import { Textarea } from "@/components/ui/Input";
 import { useAppMutations } from "@/hooks/use-mutations";
 import { AdSlot } from "@/components/AdSlot";
 
-import { ThumbsUp, ThumbsDown, User, AlertCircle, GitBranch, ArrowLeft, Crown, Flame, Video, Play, ExternalLink, MessageSquare, Check, Pencil } from "lucide-react";
+import { ThumbsUp, ThumbsDown, User, AlertCircle, GitBranch, ArrowLeft, Crown, Flame, Video, Play, ExternalLink, Check, Pencil } from "lucide-react";
 import { displayPronouns } from "@/lib/pronouns";
 import { ImageCard } from "@/components/ui/ImageCard";
 import { CommentHeartButton } from "@/components/comments/CommentHeartButton";
@@ -251,7 +252,7 @@ export default function FactDetail() {
   const [, setLocation] = useLocation();
   const { isAuthenticated, role, user } = useAuth();
   const isLegendary = role === "legendary" || role === "admin";
-  const { rateFact, addComment } = useAppMutations();
+  const { addComment } = useAppMutations();
 
   const { data: fact, isLoading: factLoading, error: factError } = useGetFact(factId, {
     query: { queryKey: getGetFactQueryKey(factId), enabled: !!factId }
@@ -384,12 +385,6 @@ export default function FactDetail() {
   if (factLoading) return <Layout><div className="flex h-[50vh] items-center justify-center"><div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin" /></div></Layout>;
   if (factError || !fact) return <Layout><div className="max-w-2xl mx-auto mt-20 p-8 bg-destructive/10 border-2 border-destructive text-center"><AlertCircle className="w-16 h-16 text-destructive mx-auto mb-4"/><h2 className="text-3xl font-display text-destructive uppercase">Classified Record Not Found</h2></div></Layout>;
 
-  const handleRate = (type: "up" | "down") => {
-    if (!isAuthenticated) return setLocation(`/login?from=/facts/${factId}`);
-    const newRating = fact.userRating === type ? "none" : type;
-    rateFact.mutate({ factId, data: { rating: newRating } });
-  };
-
   const handleCommentSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!isAuthenticated) return setLocation(`/login?from=/facts/${factId}`);
@@ -521,39 +516,12 @@ export default function FactDetail() {
             <span>{format(new Date(fact.createdAt), 'MMM dd, yyyy')}</span>
           </p>
 
-          {/* Engagement row — pill upvote matching feed */}
-          <div className="flex items-center gap-3 pt-4 border-t border-border/50">
-            <div className={cn(
-              "inline-flex items-center rounded-full border h-9 transition-colors",
-              fact.userRating === "up"
-                ? "bg-primary/[0.14] border-primary text-primary"
-                : "bg-secondary border-border/80 text-foreground"
-            )}>
-              <button
-                onClick={() => handleRate("up")}
-                disabled={rateFact.isPending}
-                className="flex items-center gap-2 pl-4 pr-2.5 h-full"
-                title="Upvote"
-              >
-                <ThumbsUp className={cn("w-4 h-4", fact.userRating === "up" && "fill-current")} />
-                <span className="text-sm font-bold">{fact.upvotes}</span>
-              </button>
-              <span className="w-px h-4 bg-border/80 flex-shrink-0" />
-              <button
-                onClick={() => handleRate("down")}
-                disabled={rateFact.isPending}
-                className={cn(
-                  "flex items-center px-2.5 h-full transition-colors",
-                  fact.userRating === "down" ? "text-destructive" : "text-muted-foreground/60 hover:text-muted-foreground"
-                )}
-                title="Downvote"
-              >
-                <ThumbsDown className={cn("w-4 h-4", fact.userRating === "down" && "fill-current")} />
-              </button>
-            </div>
-
-            <button
-              onClick={() => {
+          {/* Engagement row — same cluster used by feed cards */}
+          <div className="pt-4 border-t border-border/50">
+            <FactActionCluster
+              fact={fact}
+              size="md"
+              onCommentClick={() => {
                 setBelowFoldMounted(true);
                 requestAnimationFrame(() => {
                   requestAnimationFrame(() => {
@@ -561,11 +529,7 @@ export default function FactDetail() {
                   });
                 });
               }}
-              className="flex items-center gap-2 text-muted-foreground hover:text-foreground transition-colors"
-            >
-              <MessageSquare className="w-5 h-5" />
-              <span className="text-sm font-semibold">{fact.commentCount}</span>
-            </button>
+            />
           </div>
         </div>
 
