@@ -1,4 +1,4 @@
-import { useState, useRef, useLayoutEffect, useCallback } from "react";
+import { useState, useRef, useLayoutEffect, useCallback, useEffect } from "react";
 import { Link, useLocation } from "wouter";
 import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
 import { MessageSquare, ThumbsUp, ThumbsDown, Flame } from "lucide-react";
@@ -41,7 +41,17 @@ export function FactCard({
   const [, setLocation] = useLocation();
   const { name, pronouns } = usePersonName();
   const [expanded, setExpanded] = useState(false);
+  const [commentCountDelta, setCommentCountDelta] = useState(0);
+  const prevCommentCountRef = useRef(fact.commentCount);
   const { toast } = useToast();
+
+  useEffect(() => {
+    const increase = fact.commentCount - prevCommentCountRef.current;
+    if (increase > 0 && commentCountDelta > 0) {
+      setCommentCountDelta(d => Math.max(0, d - increase));
+    }
+    prevCommentCountRef.current = fact.commentCount;
+  }, [fact.commentCount]);
 
   const handleShare = async (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -195,7 +205,7 @@ export function FactCard({
               className="flex items-center gap-1.5 text-muted-foreground hover:text-foreground transition-colors"
             >
               <MessageSquare className="w-5 h-5" />
-              <span className="text-xs font-semibold">{fact.commentCount}</span>
+              <span className="text-xs font-semibold">{fact.commentCount + commentCountDelta}</span>
             </button>
 
             {/* Share */}
@@ -222,7 +232,14 @@ export function FactCard({
 
         {/* Inline expansion */}
         <AnimatePresence>
-          {expanded && <FactCardComments fact={fact} name={name} />}
+          {expanded && (
+            <FactCardComments
+              fact={fact}
+              name={name}
+              onCommentSubmit={() => setCommentCountDelta(d => d + 1)}
+              onCommentError={() => setCommentCountDelta(d => Math.max(0, d - 1))}
+            />
+          )}
         </AnimatePresence>
       </div>
     </motion.div>

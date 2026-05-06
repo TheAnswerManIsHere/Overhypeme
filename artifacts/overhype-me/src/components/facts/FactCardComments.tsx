@@ -23,9 +23,11 @@ interface OptimisticComment {
 interface FactCardCommentsProps {
   fact: FactSummary;
   name: string;
+  onCommentSubmit?: () => void;
+  onCommentError?: () => void;
 }
 
-export function FactCardComments({ fact, name }: FactCardCommentsProps) {
+export function FactCardComments({ fact, name, onCommentSubmit, onCommentError }: FactCardCommentsProps) {
   const [, setLocation] = useLocation();
   const { isAuthenticated, role, user } = useAuth();
   const { addComment } = useAppMutations();
@@ -78,6 +80,7 @@ export function FactCardComments({ fact, name }: FactCardCommentsProps) {
     setFormState("submitting");
     setText("");
     setCaptchaToken("");
+    onCommentSubmit?.();
 
     addComment.mutate(
       { factId: fact.id, data: { text: trimmedText, captchaToken } },
@@ -91,6 +94,7 @@ export function FactCardComments({ fact, name }: FactCardCommentsProps) {
           setOptimisticComments((prev) => prev.filter((c) => c.id !== optimisticId));
           setText(trimmedText);
           captchaRef.current?.resetCaptcha();
+          onCommentError?.();
           toast({
             title: "Failed to post comment",
             description: "Please try again.",
