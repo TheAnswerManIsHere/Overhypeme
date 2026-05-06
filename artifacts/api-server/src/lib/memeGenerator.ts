@@ -218,7 +218,7 @@ export async function generateMemeBuffer(
     // Semi-transparent dark overlay so text stays readable over any photo
     ctx.fillStyle = "rgba(0,0,0,0.48)";
     ctx.fillRect(0, 0, logicalW, logicalH);
-    accentColor = "#FF3C00";
+    accentColor = "#FF6600";
   }
 
   // ── Left accent bar ───────────────────────────────────────────────

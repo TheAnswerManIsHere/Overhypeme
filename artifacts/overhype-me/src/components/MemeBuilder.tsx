@@ -223,7 +223,7 @@ function drawMeme(
   }
 
   const sidebarW = 12;
-  const accent = bgImage ? "#FF3C00" : (ACCENT_COLORS[templateId] ?? "#ff6600");
+  const accent = bgImage ? "#FF6600" : (ACCENT_COLORS[templateId] ?? "#ff6600");
   ctx.fillStyle = accent;
   ctx.fillRect(0, 0, sidebarW, canvasH);
 
@@ -2415,7 +2415,7 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
                       Text Color
                     </label>
                     <div className="flex gap-1.5 items-center flex-wrap">
-                      {["#ffffff", "#ffcc00", "#FF3C00", "#00ff88", "#000000"].map(c => (
+                      {["#ffffff", "#ffcc00", "#FF6600", "#00ff88", "#000000"].map(c => (
                         <button
                           key={c}
                           onClick={() => setTextColor(c)}

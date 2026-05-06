@@ -22,7 +22,7 @@ export default function SentryFallback({ resetError }: SentryFallbackProps) {
             fontFamily: "Oswald, Impact, sans-serif",
             fontWeight: 700,
             fontSize: "2.5rem",
-            color: "#FF3C00",
+            color: "#FF6600",
             marginBottom: "1rem",
             textTransform: "uppercase",
             letterSpacing: "0.05em",
@@ -42,7 +42,7 @@ export default function SentryFallback({ resetError }: SentryFallbackProps) {
               window.location.reload();
             }}
             style={{
-              backgroundColor: "#FF3C00",
+              backgroundColor: "#FF6600",
               color: "#fff",
               border: "none",
               padding: "0.75rem 1.5rem",
