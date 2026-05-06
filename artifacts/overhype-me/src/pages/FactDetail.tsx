@@ -669,7 +669,7 @@ export default function FactDetail() {
                         permalink={memePermalink}
                         footer={<AdminMediaInfo fileName={getFileNameFromUrl(meme.imageUrl)} fileSizeBytes={meme.uploadFileSizeBytes} mimeType={getMimeTypeFromUrl(meme.imageUrl)} width={meme.originalWidth} height={meme.originalHeight} />}
                       />
-                      <div className="w-full flex items-center justify-between gap-2 px-1 py-1">
+                      <div className="w-full flex items-center px-1 py-1">
                         <MemeHeartButton
                           memeId={meme.id}
                           initialHeartCount={meme.heartCount}
@@ -677,9 +677,6 @@ export default function FactDetail() {
                           stopPropagation
                           size="sm"
                         />
-                        <Link href={`/meme/${meme.permalinkSlug}`} className="flex items-center gap-1.5 text-[10px] font-display font-bold uppercase tracking-wider text-muted-foreground hover:text-primary transition-colors">
-                          <ExternalLink className="w-3 h-3" /> View Permalink
-                        </Link>
                       </div>
                     </div>
                   );
