@@ -969,7 +969,8 @@ export default function AdminUsers() {
                           }
                           return null;
                         })()}
-                        {(user.membershipTier === "registered" || user.membershipTier === "legendary") && <Crown className="w-3 h-3 text-yellow-500 shrink-0" aria-label={user.membershipTier === "legendary" ? "Legendary" : "Registered"} />}
+                        {user.membershipTier === "legendary" && <Gem className="w-3 h-3 text-yellow-500 shrink-0" aria-label="Legendary" />}
+                        {user.membershipTier === "registered" && <Crown className="w-3 h-3 text-yellow-500 shrink-0" aria-label="Registered" />}
                         {isInactive && <span className="text-[10px] font-bold text-yellow-600 bg-yellow-500/15 px-1 py-0.5 rounded shrink-0">INACTIVE</span>}
                       </div>
                       <div className="text-xs text-muted-foreground truncate">
