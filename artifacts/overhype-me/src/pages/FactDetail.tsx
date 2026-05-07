@@ -230,7 +230,7 @@ function VideoCardItem({ video }: { video: VideoItem }) {
         />
       )}
       <Link href={`/video/${video.id}`} className="w-full flex items-center justify-center gap-1.5 text-[10px] font-display font-bold uppercase tracking-wider text-muted-foreground hover:text-primary transition-colors py-1">
-        <ExternalLink className="w-3 h-3" /> View Permalink
+        <ExternalLink className="w-3 h-3" /> Open
       </Link>
     </div>
   );

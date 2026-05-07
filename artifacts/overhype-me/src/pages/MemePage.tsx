@@ -103,6 +103,11 @@ export default function MemePage() {
     } else {
       navigator.clipboard.writeText(window.location.href).then(() => alert("Link copied!"));
     }
+    // Sharing a meme is sharing the underlying fact too — bump the fact's
+    // shareCount so the counter on FactCard / hero / detail reflects it.
+    if (factId) {
+      void fetch(`/api/facts/${factId}/share`, { method: "POST", credentials: "include" }).catch(() => null);
+    }
   };
 
   const handleDownload = () => {
