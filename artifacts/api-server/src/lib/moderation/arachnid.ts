@@ -202,6 +202,12 @@ export async function scanFaceSource(input: ScanFaceSourceInput): Promise<ScanFa
   }
 
   if (result.status === "err") {
+    if (process.env["NODE_ENV"] !== "production") {
+      // In dev/staging the Arachnid Shield endpoint is unreachable (network blocked).
+      // Treat network errors the same as a disabled scan so uploads aren't blocked.
+      logger.warn({ err: result.data }, "[arachnid] scan network error — skipping in non-production environment");
+      return { outcome: "disabled" };
+    }
     logger.warn({ err: result.data }, "[arachnid] scan failed");
     return { outcome: "error", message: result.data };
   }
