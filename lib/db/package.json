@@ -13,6 +13,7 @@
     "push": "drizzle-kit push --config ./drizzle.config.ts",
     "push-force": "drizzle-kit push --force --config ./drizzle.config.ts",
     "check-snapshots": "node --import tsx/esm scripts/check-migration-snapshots.ts",
+    "validate-snapshots": "node --import tsx/esm scripts/validate-migration-snapshots.ts",
     "rebuild-snapshots": "node --import tsx/esm scripts/rebuild-snapshots.ts",
     "test": "node --import tsx/esm --test 'src/**/*.test.ts'",
     "typecheck": "bash ../../scripts/with-time-limit.sh 15000 tsc -p tsconfig.json --noEmit"
