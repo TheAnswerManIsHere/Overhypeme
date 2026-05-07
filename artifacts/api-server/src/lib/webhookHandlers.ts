@@ -722,6 +722,10 @@ async function processDomainSwitch(stripe: Stripe, event: Stripe.Event): Promise
         stripeSubscriptionId: subscriptionId,
       });
 
+      if (!event.livemode) {
+        logger.info({ userId: user.id, invoiceId: inv.id }, "invoice.payment_action_required: skipping SCA email — test-mode event");
+        break;
+      }
       if (inv.hosted_invoice_url && user.email) {
         const { subject, text, html } = buildSCAActionRequiredEmail({
           hostedInvoiceUrl: inv.hosted_invoice_url,
@@ -780,6 +784,10 @@ async function processDomainSwitch(stripe: Stripe, event: Stripe.Event): Promise
         stripeSubscriptionId: subscriptionId,
       });
 
+      if (!event.livemode) {
+        logger.info({ userId: user.id, subscriptionId }, "invoice.upcoming: skipping renewal reminder email — test-mode event");
+        break;
+      }
       if (user.email && inv.amount_due != null && inv.currency) {
         const { subject, text, html } = buildRenewalReminderEmail({
           amountMinor: inv.amount_due,
@@ -825,6 +833,10 @@ async function processDomainSwitch(stripe: Stripe, event: Stripe.Event): Promise
         "Card on file automatically updated by network",
       );
 
+      if (!event.livemode) {
+        logger.info({ userId: user.id, paymentMethodId: pm.id }, "payment_method.automatically_updated: skipping card-updated email — test-mode event");
+        break;
+      }
       if (user.email) {
         const { subject, text, html } = buildCardAutomaticallyUpdatedEmail({
           brand: pm.card?.brand ?? null,
