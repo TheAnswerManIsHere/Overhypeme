@@ -23,7 +23,7 @@ function HighlightName({ text, name }: { text: string; name: string }) {
   );
 }
 
-type Size = "feed" | "hero";
+type Size = "feed" | "hero" | "detail" | "variant";
 
 export function FactCard({
   fact,
@@ -31,21 +31,38 @@ export function FactCard({
   showRank = false,
   size = "feed",
   headerSlot,
+  actionsSlot,
+  onCommentClick,
 }: {
   fact: FactSummary;
   rank?: number;
   showRank?: boolean;
-  /** Visual scale + chrome. `feed` is the default; `hero` adds a glow
-      gradient border, larger text, and a slot above the body for
-      a "Random Fact" badge + "Next Random Fact" button. */
+  /** Visual scale + chrome.
+      - `feed`: default card in feeds/grids.
+      - `hero`: glow gradient + larger text; used for the random-fact billboard.
+      - `detail`: the fact's own page — h1 headline, no Link wrap, larger padding.
+      - `variant`: alternate-phrasing card — left rail border, custom actions slot. */
   size?: Size;
-  /** Optional content rendered above the body — used by the hero
-      to host the badge + shuffle button. */
+  /** Optional content rendered above the body. Used by the hero for the
+      Random Fact badge + shuffle button, by TopFacts #1 for the period
+      label, and by variants for the use-case pill. */
   headerSlot?: ReactNode;
+  /** Replaces the default FactActionCluster row entirely. Used by variant
+      cards to render their bespoke MAKE MEME / MAKE VIDEO controls. */
+  actionsSlot?: ReactNode;
+  /** When provided, the comment icon in the default action cluster calls
+      this instead of toggling inline expansion. Used by the detail page
+      to scroll to its full comments section below the fold. */
+  onCommentClick?: () => void;
   index?: number;
 }) {
   const { name, pronouns } = usePersonName();
   const isHero = size === "hero";
+  const isDetail = size === "detail";
+  const isVariant = size === "variant";
+  // Detail/variant pages render their own full-fidelity comment surfaces
+  // below the card, so the inline-expand affordance is suppressed there.
+  const inlineExpansionEnabled = !isDetail && !isVariant;
 
   // Hero uses a card-local expansion state so toggling its comments
   // doesn't bleed into a feed copy of the same fact (which would otherwise
@@ -141,12 +158,13 @@ export function FactCard({
         // conflict with framer-motion's opacity animation on iOS Safari
         // and cause the load-in flash.
         "relative group block transition-colors duration-300 overflow-hidden",
-        isHero
-          ? "rounded-[24px] md:rounded-[32px] border border-primary/25"
-          : cn(
-              "bg-card rounded-[20px] shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] border",
-              expanded ? "border-primary/25" : "border-border hover:border-primary/40",
-            ),
+        isHero && "rounded-[24px] md:rounded-[32px] border border-primary/25",
+        isDetail && "bg-card rounded-2xl border border-border shadow-lg",
+        isVariant && "bg-card rounded-sm border-l-4 border-y border-r border-primary/60 shadow-lg",
+        !isHero && !isDetail && !isVariant && cn(
+          "bg-card rounded-[20px] shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] border",
+          expanded ? "border-primary/25" : "border-border hover:border-primary/40",
+        ),
       )}
       style={{
         opacity: show ? 1 : 0,
@@ -156,36 +174,58 @@ export function FactCard({
         } : {}),
       }}
     >
-      {showRank && rank && !isHero && (
-        <div className="absolute top-0 left-0 min-w-[2.5rem] h-10 px-2 bg-primary text-primary-foreground font-display font-bold text-xl flex items-center justify-center z-10 rounded-tl-[20px] rounded-br-[12px]">
+      {showRank && rank && (
+        <div
+          className={cn(
+            "absolute top-0 left-0 min-w-[2.5rem] h-10 px-2 bg-primary text-primary-foreground font-display font-bold text-xl flex items-center justify-center z-10 rounded-br-[12px]",
+            isHero ? "rounded-tl-[24px] md:rounded-tl-[32px]" : "rounded-tl-[20px]",
+          )}
+        >
           #{rank}
         </div>
       )}
 
       {headerSlot && (
-        <div className={cn("relative z-10", isHero ? "px-5 md:px-10 pt-5 md:pt-8" : "px-5 sm:px-6 pt-5")}>
+        <div className={cn(
+          "relative z-10",
+          isHero ? "px-5 md:px-10 pt-5 md:pt-8" : "px-5 sm:px-6 pt-5",
+          (isDetail || isVariant) && "px-6 md:px-8 pt-6 md:pt-8",
+          showRank && rank && "pl-14 sm:pl-16",
+        )}>
           {headerSlot}
         </div>
       )}
 
       <div className={cn(
         "relative z-10",
-        isHero ? "p-5 md:px-10 md:py-7" : "p-5 sm:p-6",
-        showRank && rank && !isHero && "pt-14 sm:pt-14",
+        isHero && "p-5 md:px-10 md:py-7",
+        (isDetail || isVariant) && "p-6 md:p-8",
+        !isHero && !isDetail && !isVariant && "p-5 sm:p-6",
+        showRank && rank && !headerSlot && "pt-14 sm:pt-14",
       )}>
-        {/* Fact text — always navigates to the fact detail page. The
-            inline-expand affordance lives on the comment icon. */}
-        <Link href={`/facts/${fact.id}`} className="block w-full text-left mb-4 hover:opacity-90 transition-opacity">
-          {isHero ? (
-            <h2 className="font-display font-bold text-foreground leading-[0.95] uppercase tracking-tight" style={{ fontSize: "clamp(28px, 6.5vw, 56px)", textWrap: "pretty" } as React.CSSProperties}>
-              {'"'}<HighlightName text={renderFact(fact.text, name, pronouns)} name={name} />{'"'}
-            </h2>
-          ) : (
-            <h3 className="text-lg sm:text-xl md:text-2xl font-display font-bold text-foreground leading-tight uppercase tracking-tight">
-              {'"'}<HighlightName text={renderFact(fact.text, name, pronouns)} name={name} />{'"'}
-            </h3>
-          )}
-        </Link>
+        {/* Fact text — feed/hero/variant link to the detail page; on the
+            detail page itself we're already there, so we render plain text. */}
+        {isDetail ? (
+          <h1 className="text-2xl md:text-3xl font-display font-bold text-foreground leading-tight uppercase tracking-tight mb-4">
+            {'"'}<HighlightName text={renderFact(fact.text, name, pronouns)} name={name} />{'"'}
+          </h1>
+        ) : (
+          <Link href={`/facts/${fact.id}`} className="block w-full text-left mb-4 hover:opacity-90 transition-opacity">
+            {isHero ? (
+              <h2 className="font-display font-bold text-foreground leading-[0.95] uppercase tracking-tight" style={{ fontSize: "clamp(28px, 6.5vw, 56px)", textWrap: "pretty" } as React.CSSProperties}>
+                {'"'}<HighlightName text={renderFact(fact.text, name, pronouns)} name={name} />{'"'}
+              </h2>
+            ) : isVariant ? (
+              <h2 className="text-2xl md:text-3xl font-display font-bold text-foreground leading-tight uppercase tracking-tight">
+                {'"'}<HighlightName text={renderFact(fact.text, name, pronouns)} name={name} />{'"'}
+              </h2>
+            ) : (
+              <h3 className="text-lg sm:text-xl md:text-2xl font-display font-bold text-foreground leading-tight uppercase tracking-tight">
+                {'"'}<HighlightName text={renderFact(fact.text, name, pronouns)} name={name} />{'"'}
+              </h3>
+            )}
+          </Link>
+        )}
 
         {/* Hashtags */}
         {fact.hashtags.length > 0 && (
@@ -213,29 +253,33 @@ export function FactCard({
           "border-t",
           isHero ? "pt-4 border-primary/15" : "pt-3 border-border/50",
         )}>
-          <FactActionCluster
-            fact={{ ...fact, commentCount: fact.commentCount + commentCountDelta }}
-            onCommentClick={toggle}
-            size={isHero ? "lg" : "sm"}
-            commentAriaExpanded={expanded}
-            commentAriaControls={commentsRegionId}
-          />
+          {actionsSlot ?? (
+            <FactActionCluster
+              fact={{ ...fact, commentCount: fact.commentCount + commentCountDelta }}
+              onCommentClick={onCommentClick ?? toggle}
+              size={isHero ? "lg" : isDetail ? "md" : "sm"}
+              commentAriaExpanded={!onCommentClick && inlineExpansionEnabled ? expanded : undefined}
+              commentAriaControls={!onCommentClick && inlineExpansionEnabled ? commentsRegionId : undefined}
+            />
+          )}
         </div>
 
         {/* Inline expansion */}
-        <AnimatePresence>
-          {expanded && (
-            <FactComments
-              fact={fact}
-              variant="feed"
-              name={name}
-              draft={getDraft()}
-              onDraftChange={setDraft}
-              onCommentSubmit={() => setCommentCountDelta(d => d + 1)}
-              onCommentError={() => setCommentCountDelta(d => Math.max(0, d - 1))}
-            />
-          )}
-        </AnimatePresence>
+        {inlineExpansionEnabled && (
+          <AnimatePresence>
+            {expanded && (
+              <FactComments
+                fact={fact}
+                variant="feed"
+                name={name}
+                draft={getDraft()}
+                onDraftChange={setDraft}
+                onCommentSubmit={() => setCommentCountDelta(d => d + 1)}
+                onCommentError={() => setCommentCountDelta(d => Math.max(0, d - 1))}
+              />
+            )}
+          </AnimatePresence>
+        )}
       </div>
     </motion.div>
   );
