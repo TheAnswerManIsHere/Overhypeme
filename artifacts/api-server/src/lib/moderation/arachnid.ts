@@ -188,8 +188,14 @@ export async function scanFaceSource(input: ScanFaceSourceInput): Promise<ScanFa
     result = await scanMediaFromBytes(input.bytes, input.mimeType, input.scannerOverrides ?? {});
   } catch (err) {
     if (err instanceof ArachnidConfigurationError) {
-      logger.error({ err }, "[arachnid] credentials missing");
-      return { outcome: "error", message: err.message };
+      if (process.env["NODE_ENV"] === "production") {
+        // In production, missing credentials is a hard failure — fail closed.
+        logger.error({ err }, "[arachnid] credentials missing — failing closed in production");
+        return { outcome: "error", message: err.message };
+      }
+      // Dev/staging: bypass the scan with a warning (same pattern as verifyCaptcha dev bypass).
+      logger.warn("[arachnid] credentials not configured — skipping scan in non-production environment");
+      return { outcome: "disabled" };
     }
     const message = err instanceof Error ? err.message : String(err);
     return { outcome: "error", message };
