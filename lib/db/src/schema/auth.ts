@@ -30,6 +30,10 @@ export const usersTable = pgTable("users", {
   pronouns: varchar("pronouns", { length: 80 }).default("he/him"),
   emailVerifiedAt: timestamp("email_verified_at", { withTimezone: true }),
   monthlyGenerationLimitOverrideUsd: numeric("monthly_generation_limit_override_usd", { precision: 10, scale: 4 }),
+  // When true, NSFW-classified uploads/outputs are accepted and tagged
+  // with `is_nsfw` instead of rejected. Plumbed for future tier-gating;
+  // downstream surfaces (feed/discovery) do not yet consume it.
+  nsfwModeEnabled: boolean("nsfw_mode_enabled").notNull().default(false),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
 });

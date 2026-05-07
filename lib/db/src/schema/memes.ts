@@ -1,4 +1,4 @@
-import { pgTable, text, serial, integer, varchar, timestamp, jsonb, boolean, index } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, integer, varchar, timestamp, jsonb, boolean, index, numeric } from "drizzle-orm/pg-core";
 import { isNull } from "drizzle-orm";
 import { factsTable } from "./facts";
 import { usersTable } from "./auth";
@@ -32,9 +32,18 @@ export const memesTable = pgTable("memes", {
   renderedFactText: text("rendered_fact_text"),
   /** Precomputed count of heart reactions on this meme. Maintained by the reactions write path. */
   heartCount: integer("heart_count").notNull().default(0),
+  /** Moderation lifecycle: `live` (visible), `quarantined` (held back by automated checks), `rejected` (creation blocked). */
+  status: varchar("status", { length: 20 }).notNull().default("live"),
+  /** Free-form reason populated when status flips to `quarantined` (audit aid only). */
+  quarantineReason: text("quarantine_reason"),
+  /** Probability (0..1) returned by the NSFW classifier on the rendered output. */
+  nsfwClassifierScore: numeric("nsfw_classifier_score", { precision: 6, scale: 4 }),
+  /** Set when classifier score >= threshold AND user has nsfw_mode_enabled=true (accept-and-tag path). */
+  isNsfw: boolean("is_nsfw").notNull().default(false),
 }, (table) => [
   index("IDX_memes_deleted_at").on(table.deletedAt).where(isNull(table.deletedAt)),
   index("IDX_memes_heart_count").on(table.heartCount),
+  index("IDX_memes_status").on(table.status),
 ]);
 
 export type Meme = typeof memesTable.$inferSelect;
@@ -48,8 +57,21 @@ export const uploadImageMetadataTable = pgTable("upload_image_metadata", {
   fileSizeBytes: integer("file_size_bytes").notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   userId: varchar("user_id").references(() => usersTable.id, { onDelete: "set null" }),
+  /** Arachnid Shield classification (e.g. `csam`, `harmful-abusive-material`, `no-known-match`). */
+  arachnidClassification: varchar("arachnid_classification", { length: 40 }),
+  /** Match precision: `exact`, `near`, or null when no match. */
+  arachnidMatchType: varchar("arachnid_match_type", { length: 10 }),
+  /** SHA-1 base32 hash of the bytes Arachnid scanned. */
+  arachnidSha1Base32: varchar("arachnid_sha1_base32", { length: 40 }),
+  /** SHA-256 hex of the bytes Arachnid scanned. Doubles as a dedupe key for re-scans. */
+  arachnidSha256Hex: varchar("arachnid_sha256_hex", { length: 64 }),
+  /** When the Arachnid scan completed. NULL on rows uploaded before moderation shipped. */
+  arachnidScannedAt: timestamp("arachnid_scanned_at", { withTimezone: true }),
+  /** True when the user opted into nsfw mode and the classifier flagged the upload. */
+  isNsfw: boolean("is_nsfw").notNull().default(false),
 }, (t) => [
   index("IDX_uim_user_id").on(t.userId),
+  index("IDX_uim_arachnid_sha256").on(t.arachnidSha256Hex),
 ]);
 
 export type UploadImageMetadata = typeof uploadImageMetadataTable.$inferSelect;

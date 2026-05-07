@@ -199,22 +199,22 @@ describe("PATCH /users/me — validation", () => {
   it("rejects an empty displayName", async () => {
     const { res } = await authedPatch({ displayName: "   " });
     assert.equal(res.status, 400);
-    assert.deepEqual(res.body, { error: "Display name cannot be empty" });
+    assert.equal(res.body.error, "Name cannot be empty");
   });
 
-  it("rejects a displayName longer than 80 characters", async () => {
-    const { res } = await authedPatch({ displayName: "x".repeat(81) });
+  it("rejects a displayName whose words exceed the per-word cap", async () => {
+    const { res } = await authedPatch({ displayName: "x".repeat(21) });
     assert.equal(res.status, 400);
-    assert.deepEqual(res.body, { error: "Display name must be 80 characters or fewer" });
+    assert.match(res.body.error, /20 characters or fewer/);
   });
 
-  it("rejects a firstName / lastName longer than 80 characters", async () => {
-    let r = await authedPatch({ firstName: "f".repeat(81) });
+  it("rejects firstName / lastName whose words exceed the per-word cap", async () => {
+    let r = await authedPatch({ firstName: "f".repeat(21) });
     assert.equal(r.res.status, 400);
-    assert.deepEqual(r.res.body, { error: "First name must be 80 characters or fewer" });
-    r = await authedPatch({ lastName: "l".repeat(81) });
+    assert.match(r.res.body.error, /20 characters or fewer/);
+    r = await authedPatch({ lastName: "l".repeat(21) });
     assert.equal(r.res.status, 400);
-    assert.deepEqual(r.res.body, { error: "Last name must be 80 characters or fewer" });
+    assert.match(r.res.body.error, /20 characters or fewer/);
   });
 
   it("rejects an unknown avatarStyle", async () => {
@@ -232,13 +232,13 @@ describe("PATCH /users/me — validation", () => {
   it("rejects empty pronouns", async () => {
     const { res } = await authedPatch({ pronouns: "  " });
     assert.equal(res.status, 400);
-    assert.deepEqual(res.body, { error: "Pronouns cannot be empty" });
+    assert.equal(res.body.error, "Pronouns cannot be empty");
   });
 
-  it("rejects pronouns longer than 80 characters", async () => {
-    const { res } = await authedPatch({ pronouns: "p".repeat(81) });
+  it("rejects pronouns exceeding the per-word cap", async () => {
+    const { res } = await authedPatch({ pronouns: "p".repeat(21) });
     assert.equal(res.status, 400);
-    assert.deepEqual(res.body, { error: "Pronouns must be 80 characters or fewer" });
+    assert.match(res.body.error, /20 characters or fewer/);
   });
 
   it("rejects an email without an @", async () => {

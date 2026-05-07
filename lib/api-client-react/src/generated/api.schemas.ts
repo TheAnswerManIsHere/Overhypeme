@@ -55,6 +55,8 @@ export interface AuthUser {
   userRole?: AuthUserUserRole;
   realUserRole?: AuthUserRealUserRole;
   captchaVerified?: boolean | null;
+  /** When true, NSFW-classified uploads are accepted and tagged on the resulting asset. */
+  nsfwModeEnabled?: boolean | null;
 }
 
 export interface AuthUserEnvelope {
@@ -387,6 +389,8 @@ export interface UpdateProfileRequest {
   avatarStyle?: string;
   avatarSource?: string;
   profileImageUrl?: string;
+  /** When true, NSFW-classified uploads are accepted and tagged with is_nsfw on the resulting asset instead of rejected. */
+  nsfwModeEnabled?: boolean;
 }
 
 export interface UpdateProfileResponse {

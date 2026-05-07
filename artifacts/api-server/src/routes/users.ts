@@ -13,6 +13,7 @@ import crypto from "crypto";
 import { sendEmail, buildEmailChangeVerificationEmail } from "../lib/email";
 import { getSiteBaseUrl } from "../lib/siteUrl";
 import { ObjectStorageService } from "../lib/objectStorage";
+import { sanitizeAndValidatePersonalName, sanitizeAndValidatePronouns } from "../lib/validators/personalName";
 import { getConfigInt } from "../lib/adminConfig";
 import { verifyCaptcha } from "../lib/captcha";
 import { logger } from "../lib/logger";
@@ -220,7 +221,7 @@ router.patch("/users/me", async (req: Request, res: Response) => {
   if (!req.isAuthenticated()) { res.status(401).json({ error: "Unauthorized" }); return; }
   const userId = req.user.id;
 
-  const { displayName, firstName, lastName, pronouns, email, profileImageUrl, avatarStyle, avatarSource } = req.body as {
+  const { displayName, firstName, lastName, pronouns, email, profileImageUrl, avatarStyle, avatarSource, nsfwModeEnabled } = req.body as {
     displayName?: string;
     firstName?: string;
     lastName?: string;
@@ -229,6 +230,7 @@ router.patch("/users/me", async (req: Request, res: Response) => {
     profileImageUrl?: string;
     avatarStyle?: string;
     avatarSource?: string;
+    nsfwModeEnabled?: boolean;
   };
 
   const ALLOWED_AVATAR_STYLES = ["bottts", "pixel-art", "adventurer", "identicon", "shapes", "thumbs"];
@@ -236,23 +238,32 @@ router.patch("/users/me", async (req: Request, res: Response) => {
   const updates: Record<string, unknown> = {};
 
   if (displayName !== undefined) {
-    const trimmed = typeof displayName === "string" ? displayName.trim() : "";
-    if (!trimmed) { res.status(400).json({ error: "Display name cannot be empty" }); return; }
-    if (trimmed.length > 80) { res.status(400).json({ error: "Display name must be 80 characters or fewer" }); return; }
-    updates.displayName = trimmed;
+    const result = await sanitizeAndValidatePersonalName(displayName);
+    if (!result.ok) { res.status(400).json({ error: result.error }); return; }
+    updates.displayName = result.value;
   }
 
-  // Billing/fulfillment name fields (used for Stripe invoices and Zazzle orders)
+  // Billing/fulfillment name fields (used for Stripe invoices and Zazzle orders).
+  // Same prompt-injection rules as displayName — these end up rendered into LLM
+  // and image generation prompts as part of the user's identity.
   if (firstName !== undefined) {
-    const trimmed = typeof firstName === "string" ? firstName.trim() : "";
-    if (trimmed.length > 80) { res.status(400).json({ error: "First name must be 80 characters or fewer" }); return; }
-    updates.firstName = trimmed || null;
+    if (typeof firstName === "string" && firstName.trim() === "") {
+      updates.firstName = null;
+    } else {
+      const result = await sanitizeAndValidatePersonalName(firstName);
+      if (!result.ok) { res.status(400).json({ error: result.error }); return; }
+      updates.firstName = result.value;
+    }
   }
 
   if (lastName !== undefined) {
-    const trimmed = typeof lastName === "string" ? lastName.trim() : "";
-    if (trimmed.length > 80) { res.status(400).json({ error: "Last name must be 80 characters or fewer" }); return; }
-    updates.lastName = trimmed || null;
+    if (typeof lastName === "string" && lastName.trim() === "") {
+      updates.lastName = null;
+    } else {
+      const result = await sanitizeAndValidatePersonalName(lastName);
+      if (!result.ok) { res.status(400).json({ error: result.error }); return; }
+      updates.lastName = result.value;
+    }
   }
 
   if (avatarStyle !== undefined) {
@@ -293,15 +304,13 @@ router.patch("/users/me", async (req: Request, res: Response) => {
   }
 
   if (pronouns !== undefined) {
-    if (typeof pronouns !== "string" || pronouns.trim().length === 0) {
-      res.status(400).json({ error: "Pronouns cannot be empty" });
-      return;
-    }
-    if (pronouns.length > 80) {
-      res.status(400).json({ error: "Pronouns must be 80 characters or fewer" });
-      return;
-    }
-    updates.pronouns = pronouns.trim();
+    const result = await sanitizeAndValidatePronouns(pronouns);
+    if (!result.ok) { res.status(400).json({ error: result.error }); return; }
+    updates.pronouns = result.value;
+  }
+
+  if (nsfwModeEnabled !== undefined) {
+    updates.nsfwModeEnabled = !!nsfwModeEnabled;
   }
 
   let emailVerificationPending = false;

@@ -81,6 +81,7 @@ export async function authMiddleware(
       membershipTier: usersTable.membershipTier,
       isAdmin: usersTable.isAdmin,
       captchaVerified: usersTable.captchaVerified,
+      nsfwModeEnabled: usersTable.nsfwModeEnabled,
     })
     .from(usersTable)
     .where(and(eq(usersTable.id, userId), eq(usersTable.isActive, true)))
@@ -113,6 +114,7 @@ export async function authMiddleware(
     isAdmin,
     isRealAdmin,
     captchaVerified,
+    nsfwModeEnabled: !!dbUser.nsfwModeEnabled,
     userRole: deriveUserRole(dbUser.membershipTier, isAdmin),
     realUserRole: deriveUserRole(dbUser.membershipTier, isRealAdmin),
   };
