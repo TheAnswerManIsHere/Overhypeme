@@ -25,4 +25,6 @@ export interface UpdateProfileRequest {
   avatarStyle?: string;
   avatarSource?: string;
   profileImageUrl?: string;
+  /** When true, NSFW-classified uploads are accepted and tagged with is_nsfw on the resulting asset instead of rejected. */
+  nsfwModeEnabled?: boolean;
 }

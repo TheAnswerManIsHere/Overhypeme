@@ -23,6 +23,9 @@ import { compositeAiMeme } from "../lib/aiMemeCompositor";
 import { generateAiMemeBackgrounds, generateAiMemeBackgroundFromReference, isUserAtImageLimit, buildFalInputPreview } from "../lib/aiMemePipeline";
 import { memeKey } from "../lib/storageKeys";
 import { BudgetExceededError } from "../lib/budgetGate";
+import { classifyAndDecide } from "../lib/moderation/nsfwClassifier";
+import { quarantineImage } from "../lib/moderation/quarantine";
+import { ModerationRejectedError, GENERIC_REJECT_MESSAGE } from "../lib/moderation/types";
 import type { AiMemeImages } from "../lib/aiMemePipeline";
 import { requireLegendary } from "../middlewares/tierMiddleware";
 import { hasFeature } from "../lib/tierFeatures";
@@ -360,12 +363,59 @@ router.post("/memes", async (req: Request, res: Response) => {
     imageSource.type === "stock"    ? "photo_stock" :
     "photo_upload";
 
-  // If the client sent a pre-rendered canvas image, store it directly so
-  // the saved meme is pixel-for-pixel identical to the preview.
+  // If the client sent a pre-rendered canvas image, run Layer 3 (NSFW
+  // classifier) before storing — and reject on a hit so we never persist
+  // the bytes into `memes/{slug}` or write the meme row.
   let storedImageSource: z.infer<typeof ImageSourceSchema> | null = imageSource;
+  let classifierScoreForMeme: number | null = null;
+  let isNsfwForMeme = false;
   if (previewImageBase64) {
+    const imgBuffer = Buffer.from(previewImageBase64, "base64");
+
+    // Upload to fal's transient storage so the classifier endpoint has a URL.
+    let classifierUrl: string | null = null;
     try {
-      const imgBuffer = Buffer.from(previewImageBase64, "base64");
+      const { fal } = await import("@fal-ai/client");
+      const blob = new Blob([new Uint8Array(imgBuffer)], { type: "image/jpeg" });
+      classifierUrl = await fal.storage.upload(blob);
+    } catch (uErr) {
+      req.log.warn({ err: uErr }, "[memes] failed to upload preview to fal storage for classification — failing closed");
+    }
+
+    if (classifierUrl) {
+      const decision = await classifyAndDecide(classifierUrl, { nsfwModeEnabled: !!req.user?.nsfwModeEnabled });
+      if (decision.outcome === "reject" || decision.outcome === "error") {
+        if (decision.outcome === "reject") {
+          try {
+            await quarantineImage({
+              source: "classifier",
+              bytes: imgBuffer,
+              mimeType: "image/jpeg",
+              userId: req.user.id,
+              evidence: {
+                source: "classifier",
+                classifierScore: decision.score,
+                classifierModel: decision.model,
+                raw: decision.raw,
+              },
+              reportToNcmec: false,
+            });
+          } catch (qErr) {
+            req.log.error({ err: qErr }, "[memes] quarantine failed for preview classifier reject");
+          }
+        }
+        res.status(422).json({ error: GENERIC_REJECT_MESSAGE });
+        return;
+      }
+      classifierScoreForMeme = decision.score;
+      isNsfwForMeme = decision.isNsfwTag;
+    } else {
+      // Could not upload to classifier — fail closed.
+      res.status(503).json({ error: "Moderation service unavailable. Please try again." });
+      return;
+    }
+
+    try {
       await objectStorageService.uploadObjectBuffer({
         subPath: memeKey(slug, "jpg"),
         buffer: imgBuffer,
@@ -400,6 +450,8 @@ router.post("/memes", async (req: Request, res: Response) => {
       createdById: req.user.id,
       aspectRatio: aspectRatioReq ?? "landscape",
       renderedFactText: renderedFactText ?? null,
+      nsfwClassifierScore: classifierScoreForMeme != null ? classifierScoreForMeme.toFixed(4) : null,
+      isNsfw: isNsfwForMeme,
     })
     .returning();
 
@@ -1449,6 +1501,8 @@ router.post("/memes/ai/:factId/generate", requireLegendary, async (req: Request,
           remainingBudget: err.budgetStatus.remainingBudget,
           upgradePath: err.upgradePath,
         });
+      } else if (err instanceof ModerationRejectedError) {
+        res.status(422).json({ error: GENERIC_REJECT_MESSAGE });
       } else if (isNoFaceError(err)) {
         res.status(422).json({ error: extractGenerationError(err), noFaceDetected: true });
       } else {

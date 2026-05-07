@@ -1193,6 +1193,10 @@ components:
         captchaVerified:
           type: boolean
           nullable: true
+        nsfwModeEnabled:
+          type: boolean
+          description: When true, NSFW-classified uploads are accepted and tagged on the resulting asset.
+          nullable: true
 
     AuthUserEnvelope:
       type: object
@@ -1725,6 +1729,9 @@ components:
           type: string
         profileImageUrl:
           type: string
+        nsfwModeEnabled:
+          type: boolean
+          description: When true, NSFW-classified uploads are accepted and tagged with is_nsfw on the resulting asset instead of rejected.
 
     UpdateProfileResponse:
       type: object

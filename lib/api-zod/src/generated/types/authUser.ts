@@ -22,4 +22,6 @@ export interface AuthUser {
   userRole?: AuthUserUserRole;
   realUserRole?: AuthUserUserRole;
   captchaVerified?: boolean | null;
+  /** When true, NSFW-classified uploads are accepted and tagged with is_nsfw on the resulting asset. */
+  nsfwModeEnabled?: boolean | null;
 }

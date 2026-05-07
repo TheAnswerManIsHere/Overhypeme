@@ -44,8 +44,13 @@ const NULL_UUID = "00000000-0000-0000-0000-000000000000";
 const SNAPSHOT_EXEMPT_TAGS = new Set<string>([
   // All previously-exempt tags (0001–0037) have been backfilled with accurate
   // snapshots reconstructed from anchor snapshots via rebuild-snapshots.ts.
-  // The exempt list is now empty; keep this set in place so new intentional
-  // omissions can be added with an explicit comment explaining why.
+  // Anything added here MUST come with a one-line comment explaining why a
+  // snapshot is intentionally absent.
+
+  // DML-only sweep that runs every existing user/profile name string
+  // through the new personal-name validator's rules. No DDL means no schema
+  // delta means no snapshot.
+  "0044_sanitize_existing_names",
 ]);
 
 interface JournalEntry {

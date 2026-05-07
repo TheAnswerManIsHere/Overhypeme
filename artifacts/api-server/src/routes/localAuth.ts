@@ -9,6 +9,7 @@ import { sendEmail, buildPasswordResetEmail, buildEmailVerificationEmail, buildE
 import { getSiteBaseUrl } from "../lib/siteUrl";
 import { checkSharedRateLimit } from "../lib/sharedRateLimiter";
 import { logger } from "../lib/logger";
+import { sanitizeAndValidatePersonalName, sanitizeAndValidatePronouns } from "../lib/validators/personalName";
 
 const router: IRouter = Router();
 
@@ -92,17 +93,12 @@ router.post("/auth/register", async (req: Request, res: Response) => {
     return;
   }
 
-  const displayNameTrimmed = typeof displayName === "string" ? displayName.trim() : "";
-
-  if (!displayNameTrimmed) {
-    res.status(400).json({ error: "Display name is required" });
+  const displayNameResult = await sanitizeAndValidatePersonalName(displayName);
+  if (!displayNameResult.ok) {
+    res.status(400).json({ error: displayNameResult.error });
     return;
   }
-
-  if (displayNameTrimmed.length > 100) {
-    res.status(400).json({ error: "Display name must be 100 characters or fewer" });
-    return;
-  }
+  const displayNameTrimmed = displayNameResult.value;
 
   const emailNormalized = (email && typeof email === "string") ? email.trim().toLowerCase() : null;
 
@@ -120,21 +116,32 @@ router.post("/auth/register", async (req: Request, res: Response) => {
 
   const passwordHash = await bcrypt.hash(password, SALT_ROUNDS);
 
-  // Sanitize pronouns: preset "he/him" style or pipe-delimited custom, max 80 chars
   let sanitizedPronouns: string | null = null;
   if (pronouns && typeof pronouns === "string" && pronouns.trim()) {
-    sanitizedPronouns = pronouns.trim().slice(0, 80);
+    const pronounsResult = await sanitizeAndValidatePronouns(pronouns);
+    if (!pronounsResult.ok) {
+      res.status(400).json({ error: pronounsResult.error });
+      return;
+    }
+    sanitizedPronouns = pronounsResult.value;
   }
 
-  const firstNameTrimmed = typeof firstName === "string" ? firstName.trim().slice(0, 100) : "";
-  const lastNameTrimmed  = typeof lastName  === "string" ? lastName.trim().slice(0, 100)  : "";
-
-  if (!firstNameTrimmed) {
+  if (typeof firstName !== "string" || firstName.trim() === "") {
     return res.status(400).json({ error: "First Name is required." });
   }
-  if (!lastNameTrimmed) {
+  if (typeof lastName !== "string" || lastName.trim() === "") {
     return res.status(400).json({ error: "Last Name is required." });
   }
+  const firstNameResult = await sanitizeAndValidatePersonalName(firstName);
+  if (!firstNameResult.ok) {
+    return res.status(400).json({ error: firstNameResult.error });
+  }
+  const lastNameResult = await sanitizeAndValidatePersonalName(lastName);
+  if (!lastNameResult.ok) {
+    return res.status(400).json({ error: lastNameResult.error });
+  }
+  const firstNameTrimmed = firstNameResult.value;
+  const lastNameTrimmed = lastNameResult.value;
 
   const [user] = await db
     .insert(usersTable)

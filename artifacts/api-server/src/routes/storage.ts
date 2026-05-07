@@ -13,6 +13,10 @@ import { ObjectPermission } from "../lib/objectAcl";
 import { db } from "@workspace/db";
 import { sql } from "drizzle-orm";
 import { CACHE, setPublicCache, setPublicCors, setNoStore } from "../lib/cacheHeaders";
+import { scanFaceSource, isArachnidFailOpen } from "../lib/moderation/arachnid";
+import { quarantineImage } from "../lib/moderation/quarantine";
+import { checkUploadRateLimit } from "../lib/moderation/uploadRateLimit";
+import { GENERIC_REJECT_MESSAGE } from "../lib/moderation/types";
 
 function parseEnvInt(name: string, defaultValue: number, min?: number, max?: number): number {
   const raw = process.env[name];
@@ -42,10 +46,31 @@ export interface UploadImageMetadata {
   fileSizeBytes: number;
 }
 
-async function saveUploadImageMetadata(objectPath: string, meta: UploadImageMetadata, userId?: string): Promise<void> {
+interface ArachnidScanColumns {
+  arachnidClassification?: string | null;
+  arachnidMatchType?: string | null;
+  arachnidSha1Base32?: string | null;
+  arachnidSha256Hex?: string | null;
+}
+
+async function saveUploadImageMetadata(
+  objectPath: string,
+  meta: UploadImageMetadata,
+  userId?: string,
+  arachnid?: ArachnidScanColumns,
+): Promise<void> {
   await db.execute(sql`
-    INSERT INTO upload_image_metadata (object_path, width, height, is_low_res, file_size_bytes, user_id)
-    VALUES (${objectPath}, ${meta.width}, ${meta.height}, ${meta.isLowRes}, ${meta.fileSizeBytes}, ${userId ?? null})
+    INSERT INTO upload_image_metadata (
+      object_path, width, height, is_low_res, file_size_bytes, user_id,
+      arachnid_classification, arachnid_match_type, arachnid_sha1_base32,
+      arachnid_sha256_hex, arachnid_scanned_at
+    )
+    VALUES (
+      ${objectPath}, ${meta.width}, ${meta.height}, ${meta.isLowRes}, ${meta.fileSizeBytes}, ${userId ?? null},
+      ${arachnid?.arachnidClassification ?? null}, ${arachnid?.arachnidMatchType ?? null},
+      ${arachnid?.arachnidSha1Base32 ?? null}, ${arachnid?.arachnidSha256Hex ?? null},
+      ${arachnid ? sql`now()` : sql`NULL`}
+    )
     ON CONFLICT (object_path) DO NOTHING
   `);
 }
@@ -69,6 +94,94 @@ export async function getUploadImageMetadata(objectPath: string): Promise<Upload
 
 const router: IRouter = Router();
 const objectStorageService = new ObjectStorageService();
+
+/**
+ * Result of running Layer 1 (rate limit + Arachnid Shield) on an upload buffer.
+ * On `proceed`, callers may continue to the storage write and pass the
+ * `arachnid` columns to `saveUploadImageMetadata`. On `reject`, the response
+ * has already been sent.
+ */
+type Layer1Result =
+  | { state: "proceed"; arachnid?: ArachnidScanColumns }
+  | { state: "rejected" };
+
+async function runUploadModeration(
+  req: Request,
+  res: Response,
+  buffer: Buffer,
+  contentType: string,
+): Promise<Layer1Result> {
+  // Rate limit (24h window, tier-aware) — runs BEFORE classifier calls.
+  const user = req.user!;
+  const rl = await checkUploadRateLimit({
+    userId: user.id,
+    membershipTier: user.membershipTier ?? null,
+    isAdmin: !!user.isRealAdmin,
+    ip: req.ip ?? null,
+  });
+  if (!rl.allowed) {
+    const retryAfter = Math.max(1, Math.ceil((rl.resetAt - Date.now()) / 1000));
+    res.setHeader("Retry-After", String(retryAfter));
+    res.status(429).json({
+      error: "Daily upload limit reached. Try again later.",
+      limit: rl.limit,
+      retryAfterSeconds: retryAfter,
+    });
+    return { state: "rejected" };
+  }
+
+  // Layer 1 — Arachnid Shield scan.
+  const scan = await scanFaceSource({ bytes: buffer, mimeType: contentType });
+  if (scan.outcome === "match") {
+    try {
+      await quarantineImage({
+        source: "arachnid",
+        bytes: buffer,
+        mimeType: contentType,
+        userId: user.id,
+        evidence: {
+          source: "arachnid",
+          classification: scan.evidence.classification,
+          matchType: scan.evidence.match_type,
+          raw: scan.evidence,
+        },
+        reportToNcmec: true,
+        ncmecMetadata: {
+          ip: req.ip ?? null,
+          userAgent: req.headers["user-agent"] ?? null,
+          route: req.originalUrl,
+        },
+      });
+    } catch (err) {
+      req.log.error({ err }, "[upload moderation] quarantine write failed for Arachnid match");
+    }
+    res.status(422).json({ error: GENERIC_REJECT_MESSAGE });
+    return { state: "rejected" };
+  }
+  if (scan.outcome === "error") {
+    const failOpen = await isArachnidFailOpen();
+    if (!failOpen) {
+      req.log.warn({ message: scan.message }, "[upload moderation] Arachnid error — failing closed");
+      res.status(503).json({ error: "Moderation service unavailable. Please try again." });
+      return { state: "rejected" };
+    }
+    req.log.warn({ message: scan.message }, "[upload moderation] Arachnid error — failing open by config");
+    return { state: "proceed" };
+  }
+  if (scan.outcome === "disabled") {
+    return { state: "proceed" };
+  }
+  // Clean.
+  return {
+    state: "proceed",
+    arachnid: {
+      arachnidClassification: scan.evidence.classification,
+      arachnidMatchType: scan.evidence.match_type,
+      arachnidSha1Base32: scan.evidence.sha1_base32,
+      arachnidSha256Hex: scan.evidence.sha256_hex,
+    },
+  };
+}
 
 /**
  * POST /storage/uploads/request-url
@@ -140,6 +253,10 @@ router.post(
       return;
     }
 
+    // Layer 1: rate limit + Arachnid Shield. On reject, response is sent.
+    const moderation = await runUploadModeration(req, res, buffer, contentType);
+    if (moderation.state === "rejected") return;
+
     try {
       const extMap: Record<string, string> = {
         "image/jpeg": "jpg",
@@ -152,6 +269,29 @@ router.post(
 
       const objectPath = await objectStorageService.uploadObjectBuffer({ subPath, buffer, contentType });
       await objectStorageService.trySetObjectEntityAclPolicy(objectPath, { owner: req.user.id, visibility: "public" });
+
+      // Avatar uploads do not previously go through saveUploadImageMetadata,
+      // but the Arachnid scan results still need to be persisted so a later
+      // PuLID consumer can verify "this byte sequence was scanned". Avatars
+      // skip width/height + size since the route never decoded them.
+      if (moderation.arachnid) {
+        await db.execute(sql`
+          INSERT INTO upload_image_metadata (
+            object_path, width, height, is_low_res, file_size_bytes, user_id,
+            arachnid_classification, arachnid_match_type, arachnid_sha1_base32,
+            arachnid_sha256_hex, arachnid_scanned_at
+          )
+          VALUES (
+            ${objectPath}, 0, 0, false, ${buffer.length}, ${req.user.id},
+            ${moderation.arachnid.arachnidClassification ?? null},
+            ${moderation.arachnid.arachnidMatchType ?? null},
+            ${moderation.arachnid.arachnidSha1Base32 ?? null},
+            ${moderation.arachnid.arachnidSha256Hex ?? null},
+            now()
+          )
+          ON CONFLICT (object_path) DO NOTHING
+        `);
+      }
 
       res.json({ objectPath });
     } catch (error) {
@@ -227,6 +367,10 @@ router.post(
       return;
     }
 
+    // Layer 1: rate limit + Arachnid Shield. On reject, response is sent.
+    const moderation = await runUploadModeration(req, res, processed.buffer, "image/jpeg");
+    if (moderation.state === "rejected") return;
+
     try {
       const subPath = uploadKey(randomUUID(), "jpg");
       const objectPath = await objectStorageService.uploadObjectBuffer({
@@ -242,7 +386,7 @@ router.post(
         height: processed.height,
         isLowRes: processed.isLowRes,
         fileSizeBytes: processed.fileSizeBytes,
-      }, req.user.id);
+      }, req.user.id, moderation.arachnid);
 
       res.json({
         objectPath,
@@ -282,6 +426,10 @@ router.get("/storage/public-objects/*filePath", async (req: Request, res: Respon
   try {
     const raw = req.params.filePath;
     const filePath = Array.isArray(raw) ? raw.join("/") : raw;
+    if (filePath.startsWith("restricted/")) {
+      res.status(404).json({ error: "File not found" });
+      return;
+    }
     const file = await objectStorageService.searchPublicObject(filePath);
     if (!file) {
       res.status(404).json({ error: "File not found" });
@@ -320,6 +468,13 @@ router.get("/storage/objects/*path", async (req: AuthenticatedRequest, res: Resp
   try {
     const raw = req.params.path;
     const wildcardPath = Array.isArray(raw) ? raw.join("/") : raw;
+    // Hard refuse anything in the moderation/quarantine prefix. The prefix
+    // is application-scoped — bytes never go through the user-facing serve
+    // path, regardless of ACL state or auth state.
+    if (wildcardPath.startsWith("restricted/")) {
+      res.status(404).json({ error: "Object not found" });
+      return;
+    }
     const objectPath = `/objects/${wildcardPath}`;
     const objectFile = await objectStorageService.getObjectEntityFile(objectPath);
 

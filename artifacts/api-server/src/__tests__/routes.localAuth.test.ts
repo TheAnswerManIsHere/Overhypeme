@@ -148,17 +148,27 @@ describe("POST /auth/register — validation", () => {
   it("rejects an empty displayName", async () => {
     const res = await request(makeApp())
       .post("/auth/register")
-      .send({ email: uniqueEmail(), password: "longenough", displayName: "  " });
+      .send({ email: uniqueEmail(), password: "longenough", displayName: "  ", firstName: "Pat", lastName: "Doe" });
     assert.equal(res.status, 400);
-    assert.deepEqual(res.body, { error: "Display name is required" });
+    assert.equal(res.body.error, "Name cannot be empty");
   });
 
-  it("rejects displayName longer than 100 characters", async () => {
+  it("rejects displayName whose words exceed the per-word cap", async () => {
+    // 21-char single word — exceeds the 20-char-per-word limit enforced
+    // by sanitizeAndValidatePersonalName.
     const res = await request(makeApp())
       .post("/auth/register")
-      .send({ email: uniqueEmail(), password: "longenough", displayName: "x".repeat(101) });
+      .send({ email: uniqueEmail(), password: "longenough", displayName: "x".repeat(21) });
     assert.equal(res.status, 400);
-    assert.deepEqual(res.body, { error: "Display name must be 100 characters or fewer" });
+    assert.match(res.body.error, /20 characters or fewer/);
+  });
+
+  it("rejects displayName with more than 3 words", async () => {
+    const res = await request(makeApp())
+      .post("/auth/register")
+      .send({ email: uniqueEmail(), password: "longenough", displayName: "one two three four", firstName: "Pat", lastName: "Doe" });
+    assert.equal(res.status, 400);
+    assert.match(res.body.error, /3 words or fewer/);
   });
 
   it("rejects an email that's already in use", async () => {
