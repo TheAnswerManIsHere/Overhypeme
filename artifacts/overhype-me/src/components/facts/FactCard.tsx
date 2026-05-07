@@ -45,8 +45,24 @@ export function FactCard({
   index?: number;
 }) {
   const { name, pronouns } = usePersonName();
-  const { isExpanded, toggle, collapse, getDraft, setDraft } = useFactExpansion();
-  const expanded = isExpanded(fact.id);
+  const isHero = size === "hero";
+
+  // Hero uses a card-local expansion state so toggling its comments
+  // doesn't bleed into a feed copy of the same fact (which would otherwise
+  // cause the feed-side card to expand below the hero — confusing UX).
+  // Feed cards use the shared context so the inline expansion survives
+  // re-renders and so reflowing the feed doesn't lose your draft.
+  const sharedExpansion = useFactExpansion();
+  const [localExpanded, setLocalExpanded] = useState(false);
+  const [localDraft, setLocalDraft] = useState("");
+  const expanded = isHero ? localExpanded : sharedExpansion.isExpanded(fact.id);
+  const toggle = isHero ? () => setLocalExpanded((v) => !v) : () => sharedExpansion.toggle(fact.id);
+  const collapse = isHero ? () => setLocalExpanded(false) : () => sharedExpansion.collapse(fact.id);
+  const getDraft = isHero ? () => localDraft : () => sharedExpansion.getDraft(fact.id);
+  const setDraft = isHero
+    ? (text: string) => setLocalDraft(text)
+    : (text: string) => sharedExpansion.setDraft(fact.id, text);
+
   const [commentCountDelta, setCommentCountDelta] = useState(0);
   const prevCommentCountRef = useRef(fact.commentCount);
 
@@ -60,9 +76,9 @@ export function FactCard({
 
   const handleEscape = useCallback((e: React.KeyboardEvent) => {
     if (e.key === "Escape" && expanded) {
-      collapse(fact.id);
+      collapse();
     }
-  }, [expanded, collapse, fact.id]);
+  }, [expanded, collapse]);
 
   const cardRef = useRef<HTMLDivElement>(null);
   const prefersReducedMotion = useReducedMotion();
@@ -105,7 +121,6 @@ export function FactCard({
   }, []);
 
   const commentsRegionId = `fact-${fact.id}-comments`;
-  const isHero = size === "hero";
 
   return (
     <motion.div
@@ -146,20 +161,19 @@ export function FactCard({
         isHero ? "p-5 md:px-10 md:py-7" : "p-5 sm:p-6",
         showRank && rank && !isHero && "pt-14 sm:pt-14",
       )}>
-        {/* Fact text — tap to expand on feed; on hero, links to detail */}
-        {isHero ? (
-          <Link href={`/facts/${fact.id}`} className="block w-full text-left mb-4 hover:opacity-90 transition-opacity">
+        {/* Fact text — always navigates to the fact detail page. The
+            inline-expand affordance lives on the comment icon. */}
+        <Link href={`/facts/${fact.id}`} className="block w-full text-left mb-4 hover:opacity-90 transition-opacity">
+          {isHero ? (
             <h2 className="font-display font-bold text-foreground leading-[0.95] uppercase tracking-tight" style={{ fontSize: "clamp(28px, 6.5vw, 56px)", textWrap: "pretty" } as React.CSSProperties}>
               {'"'}<HighlightName text={renderFact(fact.text, name, pronouns)} name={name} />{'"'}
             </h2>
-          </Link>
-        ) : (
-          <button onClick={() => toggle(fact.id)} className="block w-full text-left mb-4">
+          ) : (
             <h3 className="text-lg sm:text-xl md:text-2xl font-display font-bold text-foreground leading-tight uppercase tracking-tight">
               {'"'}<HighlightName text={renderFact(fact.text, name, pronouns)} name={name} />{'"'}
             </h3>
-          </button>
-        )}
+          )}
+        </Link>
 
         {/* Hashtags */}
         {fact.hashtags.length > 0 && (
@@ -189,7 +203,7 @@ export function FactCard({
         )}>
           <FactActionCluster
             fact={{ ...fact, commentCount: fact.commentCount + commentCountDelta }}
-            onCommentClick={() => toggle(fact.id)}
+            onCommentClick={toggle}
             size={isHero ? "lg" : "sm"}
             commentAriaExpanded={expanded}
             commentAriaControls={commentsRegionId}
@@ -203,8 +217,8 @@ export function FactCard({
               fact={fact}
               variant="feed"
               name={name}
-              draft={getDraft(fact.id)}
-              onDraftChange={(text) => setDraft(fact.id, text)}
+              draft={getDraft()}
+              onDraftChange={setDraft}
               onCommentSubmit={() => setCommentCountDelta(d => d + 1)}
               onCommentError={() => setCommentCountDelta(d => Math.max(0, d - 1))}
             />

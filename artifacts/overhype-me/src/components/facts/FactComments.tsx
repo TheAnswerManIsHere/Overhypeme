@@ -308,7 +308,7 @@ export function FactComments({
         <AccessGate
           reason="login"
           size="sm"
-          description="Authentication required to add intel."
+          description="Log in to comment."
           returnTo={`/facts/${fact.id}`}
         />
       );
@@ -316,7 +316,7 @@ export function FactComments({
     if (submitted) {
       return (
         <div className="bg-secondary p-6 rounded-sm border-2 border-border text-center space-y-3">
-          <p className="font-display font-bold text-foreground uppercase tracking-wide">Intel Received</p>
+          <p className="font-display font-bold text-foreground uppercase tracking-wide">Comment Received</p>
           <p className="text-sm text-muted-foreground">Your comment is pending review and will appear once approved.</p>
           <Button variant="outline" size="sm" onClick={() => setSubmitted(false)}>Submit Another</Button>
         </div>
@@ -327,7 +327,7 @@ export function FactComments({
         <Textarea
           value={text}
           onChange={(e) => setText(e.target.value)}
-          placeholder="Drop some knowledge..."
+          placeholder="Smack some knowledge on us..."
           className="bg-background min-h-[100px]"
           disabled={formState === "submitting"}
         />
@@ -348,7 +348,7 @@ export function FactComments({
             </div>
           )}
           <Button type="submit" isLoading={formState === "submitting"} disabled={!canSubmit} className="w-full sm:w-auto">
-            POST INTEL
+            POST COMMENT
           </Button>
         </div>
       </form>
@@ -424,7 +424,7 @@ export function FactComments({
         {comments.map(renderDetailRow)}
         {comments.length === 0 && (
           <p className="text-muted-foreground py-8 text-center border-2 border-dashed border-border rounded-sm">
-            No intel submitted yet.
+            No comments yet.
           </p>
         )}
       </div>
