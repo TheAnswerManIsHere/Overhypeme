@@ -608,7 +608,22 @@ export type ListRelatedFactsParams = {
 export type ListCommentsParams = {
   limit?: number;
   offset?: number;
+  /**
+ * Result ordering. `top` (default) ranks by heart count, then
+createdAt as tiebreak. `new` orders strictly by createdAt
+descending.
+
+ */
+  sort?: ListCommentsSort;
 };
+
+export type ListCommentsSort =
+  (typeof ListCommentsSort)[keyof typeof ListCommentsSort];
+
+export const ListCommentsSort = {
+  top: "top",
+  new: "new",
+} as const;
 
 export type ListHashtagsParams = {
   search?: string;
