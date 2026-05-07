@@ -100,6 +100,7 @@ export function FactActionCluster({ fact, onCommentClick, size = "sm", commentAr
     ? `Did you know this? "${fact.text}" — see your version on Overhype.me →`
     : undefined;
 
+
   const handleComment = (e: React.MouseEvent) => {
     e.stopPropagation();
     onCommentClick();

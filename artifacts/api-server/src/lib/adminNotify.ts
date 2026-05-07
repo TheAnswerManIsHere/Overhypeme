@@ -3,6 +3,10 @@
  *
  * Sends branded email alerts to every admin who has opted in to notifications.
  * All functions are fire-and-forget — they never throw.
+ *
+ * Stripe test-mode alerts: by default, admin alerts for Stripe test-mode events
+ * (livemode === false) are suppressed. Set the admin config key
+ * `stripe_notify_test_mode_alerts` to "true" to enable them.
  */
 import { BRAND_ORANGE } from "@workspace/api-zod";
 import { eq, and } from "drizzle-orm";
@@ -11,6 +15,18 @@ import { sendEmail, buildEmailShell, ctaButton, divider } from "./email.js";
 import { getSiteBaseUrl } from "./siteUrl.js";
 import { stripeDashboardUrl } from "./stripeDashboardUrl.js";
 import { logger } from "./logger.js";
+import { getConfigString } from "./adminConfig.js";
+
+/**
+ * Returns true when the caller should skip sending a Stripe-sourced alert
+ * because the event came from test mode and the operator has not explicitly
+ * opted in to test-mode alerts via the `stripe_notify_test_mode_alerts` config.
+ */
+async function shouldSuppressTestModeAlert(livemode: boolean): Promise<boolean> {
+  if (livemode) return false;
+  const setting = await getConfigString("stripe_notify_test_mode_alerts", "false");
+  return setting !== "true";
+}
 
 export type AdminNotifyType = "fact_review" | "comment";
 
@@ -126,6 +142,11 @@ ${divider()}
  */
 export async function notifyAdminsOfDispute(opts: AdminDisputeNotifyOpts): Promise<void> {
   try {
+    if (await shouldSuppressTestModeAlert(opts.livemode)) {
+      logger.info({ disputeId: opts.disputeId, kind: opts.kind }, "[notifyAdminsOfDispute] Suppressed — test-mode event (set stripe_notify_test_mode_alerts=true to enable)");
+      return;
+    }
+
     const admins = await db
       .select({ email: usersTable.email })
       .from(usersTable)
@@ -408,6 +429,11 @@ export interface AdminFraudWarningNotifyOpts {
  */
 export async function notifyAdminsOfFraudWarning(opts: AdminFraudWarningNotifyOpts): Promise<void> {
   try {
+    if (await shouldSuppressTestModeAlert(opts.livemode)) {
+      logger.info({ warningId: opts.warningId }, "[notifyAdminsOfFraudWarning] Suppressed — test-mode event (set stripe_notify_test_mode_alerts=true to enable)");
+      return;
+    }
+
     const admins = await db
       .select({ email: usersTable.email })
       .from(usersTable)
