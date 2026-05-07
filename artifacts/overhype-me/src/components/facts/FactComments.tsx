@@ -75,10 +75,12 @@ export function FactComments({
   const needsCaptcha = isAuthenticated && !isLegendary;
 
   const limit = variant === "feed" ? FEED_LIMIT : DETAIL_LIMIT;
+  const [commentSort, setCommentSort] = useState<"top" | "new">("top");
+  const queryParams = { limit, sort: commentSort } as const;
   const { data: commentsData, isLoading } = useListComments(
     fact.id,
-    { limit },
-    { query: { queryKey: getListCommentsQueryKey(fact.id, { limit }) } },
+    queryParams,
+    { query: { queryKey: getListCommentsQueryKey(fact.id, queryParams) } },
   );
   const comments = commentsData?.comments ?? [];
 
@@ -308,7 +310,7 @@ export function FactComments({
         <AccessGate
           reason="login"
           size="sm"
-          description="Authentication required to add intel."
+          description="Log in to comment."
           returnTo={`/facts/${fact.id}`}
         />
       );
@@ -316,7 +318,7 @@ export function FactComments({
     if (submitted) {
       return (
         <div className="bg-secondary p-6 rounded-sm border-2 border-border text-center space-y-3">
-          <p className="font-display font-bold text-foreground uppercase tracking-wide">Intel Received</p>
+          <p className="font-display font-bold text-foreground uppercase tracking-wide">Comment Received</p>
           <p className="text-sm text-muted-foreground">Your comment is pending review and will appear once approved.</p>
           <Button variant="outline" size="sm" onClick={() => setSubmitted(false)}>Submit Another</Button>
         </div>
@@ -327,7 +329,7 @@ export function FactComments({
         <Textarea
           value={text}
           onChange={(e) => setText(e.target.value)}
-          placeholder="Drop some knowledge..."
+          placeholder="Smack some knowledge on us..."
           className="bg-background min-h-[100px]"
           disabled={formState === "submitting"}
         />
@@ -348,7 +350,7 @@ export function FactComments({
             </div>
           )}
           <Button type="submit" isLoading={formState === "submitting"} disabled={!canSubmit} className="w-full sm:w-auto">
-            POST INTEL
+            POST COMMENT
           </Button>
         </div>
       </form>
@@ -416,15 +418,31 @@ export function FactComments({
   // Detail variant — full-page comments section.
   return (
     <div className="space-y-8">
-      <h3 id="comments" className="text-2xl font-display uppercase tracking-wide border-b-2 border-border pb-2">
-        Comments ({fact.commentCount})
-      </h3>
+      <div className="flex items-end justify-between gap-4 border-b-2 border-border pb-2">
+        <h3 id="comments" className="text-2xl font-display uppercase tracking-wide">
+          Comments ({fact.commentCount})
+        </h3>
+        {comments.length > 1 && (
+          <div className="flex items-center gap-2 text-xs">
+            <span className="text-muted-foreground font-display tracking-wider uppercase">Sort</span>
+            <select
+              value={commentSort}
+              onChange={(e) => setCommentSort(e.target.value as "top" | "new")}
+              className="bg-secondary border border-border/80 rounded-full px-3 py-1.5 text-xs font-semibold text-foreground hover:border-primary/50 transition-colors focus:outline-none focus:border-primary"
+              aria-label="Sort comments"
+            >
+              <option value="top">Top</option>
+              <option value="new">Newest</option>
+            </select>
+          </div>
+        )}
+      </div>
 
       <div className="space-y-4">
         {comments.map(renderDetailRow)}
         {comments.length === 0 && (
           <p className="text-muted-foreground py-8 text-center border-2 border-dashed border-border rounded-sm">
-            No intel submitted yet.
+            No comments yet.
           </p>
         )}
       </div>

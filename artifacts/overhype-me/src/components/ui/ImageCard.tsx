@@ -501,7 +501,10 @@ export function ImageCard({
       alt={alt}
       className={cn(
         "w-full h-full object-cover transition-transform duration-300",
-        isHovered && !compact && "scale-105",
+        // Only scale on devices that actually support hover. iOS Safari fires
+        // mouseenter on the first tap, which would otherwise cause a visible
+        // grow on tap-1 followed by navigation only on tap-2.
+        !isMobile && isHovered && !compact && "scale-105",
       )}
       loading="lazy"
       onError={() => setImgError(true)}
