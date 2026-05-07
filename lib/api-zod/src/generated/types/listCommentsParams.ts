@@ -5,8 +5,16 @@
  * API specification for Overhype.me
  * OpenAPI spec version: 0.1.0
  */
+import type { ListCommentsSort } from "./listCommentsSort";
 
 export type ListCommentsParams = {
   limit?: number;
   offset?: number;
+  /**
+ * Result ordering. `top` (default) ranks by heart count, then
+createdAt as tiebreak. `new` orders strictly by createdAt
+descending.
+
+ */
+  sort?: ListCommentsSort;
 };

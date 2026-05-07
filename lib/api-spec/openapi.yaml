@@ -377,6 +377,17 @@ paths:
           schema:
             type: integer
             default: 0
+        - name: sort
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [top, new]
+            default: top
+          description: |
+            Result ordering. `top` (default) ranks by heart count, then
+            createdAt as tiebreak. `new` orders strictly by createdAt
+            descending.
       responses:
         "200":
           description: List of comments

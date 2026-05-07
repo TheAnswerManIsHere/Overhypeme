@@ -340,10 +340,17 @@ export const ListCommentsParams = zod.object({
 
 export const listCommentsQueryLimitDefault = 20;
 export const listCommentsQueryOffsetDefault = 0;
+export const listCommentsQuerySortDefault = `top`;
 
 export const ListCommentsQueryParams = zod.object({
   limit: zod.coerce.number().default(listCommentsQueryLimitDefault),
   offset: zod.coerce.number().default(listCommentsQueryOffsetDefault),
+  sort: zod
+    .enum(["top", "new"])
+    .default(listCommentsQuerySortDefault)
+    .describe(
+      "Result ordering. `top` (default) ranks by heart count, then\ncreatedAt as tiebreak. `new` orders strictly by createdAt\ndescending.\n",
+    ),
 });
 
 export const listCommentsResponseCommentsItemHeartCountMin = 0;

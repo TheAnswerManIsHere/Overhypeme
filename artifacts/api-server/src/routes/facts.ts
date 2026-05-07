@@ -468,13 +468,18 @@ router.get("/facts/:factId/comments", async (req: Request, res: Response) => {
   const factId = paramsParsed.data.factId;
   const limit = queryParsed.success ? (queryParsed.data.limit ?? 20) : 20;
   const offset = queryParsed.success ? (queryParsed.data.offset ?? 0) : 0;
+  const rawSort = req.query["sort"] as string | undefined;
+  const sort: "top" | "new" = rawSort === "new" ? "new" : "top";
 
   const [{ count }] = await db.select({ count: sql<number>`count(*)::int` }).from(commentsTable)
     .where(and(eq(commentsTable.factId, factId), eq(commentsTable.status, "approved"), eq(commentsTable.flagged, false)));
 
+  const orderBy = sort === "new"
+    ? [desc(commentsTable.createdAt)]
+    : [desc(commentsTable.heartCount), desc(commentsTable.createdAt)];
   const rows = await db.select().from(commentsTable)
     .where(and(eq(commentsTable.factId, factId), eq(commentsTable.status, "approved"), eq(commentsTable.flagged, false)))
-    .orderBy(asc(commentsTable.createdAt)).limit(limit).offset(offset);
+    .orderBy(...orderBy).limit(limit).offset(offset);
 
   const authorIds = [...new Set(rows.filter((r) => r.authorId).map((r) => r.authorId!))];
   const aMap = new Map<string, { displayName: string | null; profileImageUrl: string | null }>();

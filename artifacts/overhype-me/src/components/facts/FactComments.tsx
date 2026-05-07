@@ -75,10 +75,12 @@ export function FactComments({
   const needsCaptcha = isAuthenticated && !isLegendary;
 
   const limit = variant === "feed" ? FEED_LIMIT : DETAIL_LIMIT;
+  const [commentSort, setCommentSort] = useState<"top" | "new">("top");
+  const queryParams = { limit, sort: commentSort } as const;
   const { data: commentsData, isLoading } = useListComments(
     fact.id,
-    { limit },
-    { query: { queryKey: getListCommentsQueryKey(fact.id, { limit }) } },
+    queryParams,
+    { query: { queryKey: getListCommentsQueryKey(fact.id, queryParams) } },
   );
   const comments = commentsData?.comments ?? [];
 
@@ -416,9 +418,25 @@ export function FactComments({
   // Detail variant — full-page comments section.
   return (
     <div className="space-y-8">
-      <h3 id="comments" className="text-2xl font-display uppercase tracking-wide border-b-2 border-border pb-2">
-        Comments ({fact.commentCount})
-      </h3>
+      <div className="flex items-end justify-between gap-4 border-b-2 border-border pb-2">
+        <h3 id="comments" className="text-2xl font-display uppercase tracking-wide">
+          Comments ({fact.commentCount})
+        </h3>
+        {comments.length > 1 && (
+          <div className="flex items-center gap-2 text-xs">
+            <span className="text-muted-foreground font-display tracking-wider uppercase">Sort</span>
+            <select
+              value={commentSort}
+              onChange={(e) => setCommentSort(e.target.value as "top" | "new")}
+              className="bg-secondary border border-border/80 rounded-full px-3 py-1.5 text-xs font-semibold text-foreground hover:border-primary/50 transition-colors focus:outline-none focus:border-primary"
+              aria-label="Sort comments"
+            >
+              <option value="top">Top</option>
+              <option value="new">Newest</option>
+            </select>
+          </div>
+        )}
+      </div>
 
       <div className="space-y-4">
         {comments.map(renderDetailRow)}
