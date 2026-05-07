@@ -37,39 +37,40 @@ function canApply(draftPronouns: string): boolean {
 
 // ── URL builder ─────────────────────────────────────────────────────────────
 
-function buildShareUrl(name: string, pronouns: string): string {
+function buildShareUrl(name: string, pronouns: string, path: string = "/"): string {
   const base = `${window.location.origin}${import.meta.env.BASE_URL}`.replace(/\/+$/, "");
+  const normalizedPath = path.startsWith("/") ? path : `/${path}`;
   const params = new URLSearchParams({ displayName: name, pronouns });
-  return `${base}/?${params.toString()}`;
+  return `${base}${normalizedPath}?${params.toString()}`;
 }
 
 // ── Social share helpers ─────────────────────────────────────────────────────
 
-const SHARE_TEXT = (name: string) =>
+const DEFAULT_SHARE_TEXT = (name: string) =>
   `Someone thinks ${name || "you"}'re legendary. See your personalized facts on Overhype.me →`;
 
 function openPopup(url: string) {
   window.open(url, "_blank", "width=600,height=480,noopener,noreferrer");
 }
 
-function shareTwitter(shareUrl: string, name: string) {
-  openPopup(`https://twitter.com/intent/tweet?text=${encodeURIComponent(SHARE_TEXT(name))}&url=${encodeURIComponent(shareUrl)}`);
+function shareTwitter(shareUrl: string, text: string) {
+  openPopup(`https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}&url=${encodeURIComponent(shareUrl)}`);
 }
 
 function shareFacebook(shareUrl: string) {
   openPopup(`https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(shareUrl)}`);
 }
 
-function shareWhatsApp(shareUrl: string, name: string) {
-  openPopup(`https://wa.me/?text=${encodeURIComponent(`${SHARE_TEXT(name)} ${shareUrl}`)}`);
+function shareWhatsApp(shareUrl: string, text: string) {
+  openPopup(`https://wa.me/?text=${encodeURIComponent(`${text} ${shareUrl}`)}`);
 }
 
 function shareLinkedIn(shareUrl: string) {
   openPopup(`https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(shareUrl)}`);
 }
 
-function shareTelegram(shareUrl: string, name: string) {
-  openPopup(`https://t.me/share/url?url=${encodeURIComponent(shareUrl)}&text=${encodeURIComponent(SHARE_TEXT(name))}`);
+function shareTelegram(shareUrl: string, text: string) {
+  openPopup(`https://t.me/share/url?url=${encodeURIComponent(shareUrl)}&text=${encodeURIComponent(text)}`);
 }
 
 // ── Inline SVG brand icons ────────────────────────────────────────────────────
@@ -119,11 +120,22 @@ function IconTelegram() {
 interface ShareModalProps {
   open: boolean;
   onClose: () => void;
+  /** Path on this site that the generated link should point to (e.g.
+      "/facts/123" for a fact share). Defaults to "/" for the site-wide
+      invite from the account menu. The personalization query params
+      (?displayName=...&pronouns=...) are appended automatically. */
+  path?: string;
+  /** When the share targets a specific fact, pass its id so we can
+      ping POST /api/facts/:id/share to bump the share counter. */
+  factId?: number;
+  /** Suggested copy override for the share text — falls back to a
+      generic "you're legendary" sentence if omitted. */
+  shareText?: string;
 }
 
 type Step = "identity" | "share";
 
-export function ShareModal({ open, onClose }: ShareModalProps) {
+export function ShareModal({ open, onClose, path = "/", factId, shareText }: ShareModalProps) {
   const [step, setStep] = useState<Step>("identity");
   const [recipientName, setRecipientName] = useState("");
   const [recipientPronouns, setRecipientPronouns] = useState(DEFAULT_PRONOUNS);
@@ -145,8 +157,9 @@ export function ShareModal({ open, onClose }: ShareModalProps) {
   const nameInputRef = useRef<HTMLInputElement>(null);
 
   const applyEnabled = canApply(recipientPronouns) && recipientName.trim().length > 0;
-  const shareUrl = buildShareUrl(recipientName.trim(), recipientPronouns);
+  const shareUrl = buildShareUrl(recipientName.trim(), recipientPronouns, path);
   const displayPron = displayPronouns(recipientPronouns);
+  const computedShareText = shareText ?? DEFAULT_SHARE_TEXT(recipientName);
 
   // Reset state on open
   useEffect(() => {
@@ -227,11 +240,20 @@ export function ShareModal({ open, onClose }: ShareModalProps) {
     setStep("share");
   }
 
+  // Fire-and-forget POST so the fact's shareCount ticks up whenever the
+  // user actually triggers a share from this modal. No-op when factId is
+  // unset (e.g. the site-wide invite from the account menu).
+  function recordShare() {
+    if (!factId) return;
+    void fetch(`/api/facts/${factId}/share`, { method: "POST", credentials: "include" }).catch(() => null);
+  }
+
   async function handleCopyLink() {
     try {
       await navigator.clipboard.writeText(shareUrl);
       setCopied(true);
       setTimeout(() => setCopied(false), 2500);
+      recordShare();
     } catch {
       toast({ title: "Copy failed", description: "Please copy the link manually.", variant: "destructive" });
     }
@@ -269,6 +291,7 @@ export function ShareModal({ open, onClose }: ShareModalProps) {
         setEmailSent(true);
         setRecipientEmail("");
         toast({ title: "Invite sent!", description: `Email sent to ${recipientEmail.trim()}` });
+        recordShare();
       } else {
         const err = await res.json() as { error?: string };
         toast({ title: "Failed to send", description: err.error ?? "Please try again.", variant: "destructive" });
@@ -387,31 +410,31 @@ export function ShareModal({ open, onClose }: ShareModalProps) {
                 <p className="text-xs font-bold text-muted-foreground uppercase tracking-wider mb-3">Share On</p>
                 <div className="grid grid-cols-2 gap-2">
                   <button
-                    onClick={() => shareTwitter(shareUrl, recipientName)}
+                    onClick={() => { shareTwitter(shareUrl, computedShareText); recordShare(); }}
                     className="flex items-center gap-2 px-3 py-2 rounded-sm border border-border bg-background hover:bg-[#1d9bf0]/10 hover:border-[#1d9bf0] hover:text-[#1d9bf0] text-muted-foreground text-xs font-bold transition-all"
                   >
                     <IconX /> X / Twitter
                   </button>
                   <button
-                    onClick={() => shareWhatsApp(shareUrl, recipientName)}
+                    onClick={() => { shareWhatsApp(shareUrl, computedShareText); recordShare(); }}
                     className="flex items-center gap-2 px-3 py-2 rounded-sm border border-border bg-background hover:bg-[#25d366]/10 hover:border-[#25d366] hover:text-[#25d366] text-muted-foreground text-xs font-bold transition-all"
                   >
                     <IconWhatsApp /> WhatsApp
                   </button>
                   <button
-                    onClick={() => shareFacebook(shareUrl)}
+                    onClick={() => { shareFacebook(shareUrl); recordShare(); }}
                     className="flex items-center gap-2 px-3 py-2 rounded-sm border border-border bg-background hover:bg-[#1877f2]/10 hover:border-[#1877f2] hover:text-[#1877f2] text-muted-foreground text-xs font-bold transition-all"
                   >
                     <IconFacebook /> Facebook
                   </button>
                   <button
-                    onClick={() => shareLinkedIn(shareUrl)}
+                    onClick={() => { shareLinkedIn(shareUrl); recordShare(); }}
                     className="flex items-center gap-2 px-3 py-2 rounded-sm border border-border bg-background hover:bg-[#0a66c2]/10 hover:border-[#0a66c2] hover:text-[#0a66c2] text-muted-foreground text-xs font-bold transition-all"
                   >
                     <IconLinkedIn /> LinkedIn
                   </button>
                   <button
-                    onClick={() => shareTelegram(shareUrl, recipientName)}
+                    onClick={() => { shareTelegram(shareUrl, computedShareText); recordShare(); }}
                     className="flex items-center gap-2 px-3 py-2 rounded-sm border border-border bg-background hover:bg-[#0088cc]/10 hover:border-[#0088cc] hover:text-[#0088cc] text-muted-foreground text-xs font-bold transition-all col-span-2"
                   >
                     <IconTelegram /> Telegram

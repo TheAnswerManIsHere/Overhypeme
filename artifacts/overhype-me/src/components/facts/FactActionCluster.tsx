@@ -5,7 +5,7 @@ import { FactSummary } from "@workspace/api-client-react";
 import { useAppMutations } from "@/hooks/use-mutations";
 import { useAuth } from "@workspace/replit-auth-web";
 import { cn } from "@/components/ui/Button";
-import { useToast } from "@/hooks/use-toast";
+import { ShareModal } from "@/components/ShareModal";
 
 type Size = "sm" | "md" | "lg";
 
@@ -77,13 +77,10 @@ export function FactActionCluster({ fact, onCommentClick, size = "sm", commentAr
   const { rateFact } = useAppMutations();
   const { isAuthenticated } = useAuth();
   const [, setLocation] = useLocation();
-  const { toast } = useToast();
   const s = SIZES[size];
 
-  // Local optimistic share count so the UI reflects taps even before the
-  // POST resolves. Server is the source of truth on next page load.
-  const [localShareDelta, setLocalShareDelta] = useState(0);
-  const displayedShareCount = (fact.shareCount ?? 0) + localShareDelta;
+  const [shareOpen, setShareOpen] = useState(false);
+  const displayedShareCount = fact.shareCount ?? 0;
 
   const handleRate = (e: React.MouseEvent, type: "up" | "down") => {
     e.stopPropagation();
@@ -92,20 +89,16 @@ export function FactActionCluster({ fact, onCommentClick, size = "sm", commentAr
     rateFact.mutate({ factId: fact.id, data: { rating: newRating } });
   };
 
-  const handleShare = async (e: React.MouseEvent) => {
+  const handleShare = (e: React.MouseEvent) => {
     e.stopPropagation();
-    const url = `${window.location.origin}/facts/${fact.id}`;
-    if (navigator.share) {
-      await navigator.share({ url }).catch(() => null);
-    } else {
-      const copied = await navigator.clipboard.writeText(url).then(() => true).catch(() => false);
-      if (copied) toast({ title: "Link copied to clipboard", duration: 2000 });
-    }
-    // Fire-and-forget: increment server counter. Failure is silent — the
-    // share itself already happened from the user's POV.
-    setLocalShareDelta((d) => d + 1);
-    void fetch(`/api/facts/${fact.id}/share`, { method: "POST", credentials: "include" }).catch(() => null);
+    setShareOpen(true);
   };
+
+  // Render-text used in the ShareModal social copy. Falls back to the
+  // generic message when the fact text is missing for any reason.
+  const factShareText = fact.text
+    ? `Did you know this? "${fact.text}" — see your version on Overhype.me →`
+    : undefined;
 
   const handleComment = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -191,6 +184,14 @@ export function FactActionCluster({ fact, onCommentClick, size = "sm", commentAr
         <Flame className={s.ctaIcon} />
         Make a Meme
       </button>
+
+      <ShareModal
+        open={shareOpen}
+        onClose={() => setShareOpen(false)}
+        path={`/facts/${fact.id}`}
+        factId={fact.id}
+        shareText={factShareText}
+      />
     </div>
   );
 }
