@@ -7,7 +7,7 @@ import {
   type ChangeEvent,
   type DragEvent,
 } from "react";
-import { BRAND_ORANGE } from "@workspace/api-zod";
+import { BRAND_ORANGE, TEMPLATE_ACCENT_COLORS } from "@workspace/api-zod";
 import { Link, useLocation } from "wouter";
 import type { PexelsPhotoEntry, FactPexelsImages } from "@/types/pexels";
 import type { AiMemeImages } from "@/types/meme";
@@ -77,28 +77,6 @@ const GRADIENT_DEFS: Record<string, [string, string][]> = {
   chrome:   [["#0d0d0d", "0%"], ["#37474f", "55%"], ["#546e7a", "100%"]],
 };
 
-const ACCENT_COLORS: Record<string, string> = {
-  action:   BRAND_ORANGE,
-  fire:     "#ff6d00",
-  night:    "#546e7a",
-  gold:     "#ffd54f",
-  cinema:   "#8d6e63",
-  neon:     "#e91e8c",
-  ocean:    "#0288d1",
-  crimson:  "#ef5350",
-  galaxy:   "#7c4dff",
-  storm:    "#78909c",
-  emerald:  "#43a047",
-  arctic:   "#42a5f5",
-  copper:   "#ff8f00",
-  twilight: "#ce93d8",
-  toxic:    "#69f0ae",
-  rose:     "#f06292",
-  volcano:  "#ef5350",
-  retro:    "#ff6f00",
-  midnight: "#1976d2",
-  chrome:   "#90a4ae",
-};
 
 type TextAlign = "left" | "center" | "right";
 type ImageMode = "gradient" | "stock" | "upload" | "ai" | "identity";
@@ -224,7 +202,7 @@ function drawMeme(
   }
 
   const sidebarW = 12;
-  const accent = bgImage ? BRAND_ORANGE : (ACCENT_COLORS[templateId] ?? BRAND_ORANGE);
+  const accent = bgImage ? BRAND_ORANGE : (TEMPLATE_ACCENT_COLORS[templateId] ?? BRAND_ORANGE);
   ctx.fillStyle = accent;
   ctx.fillRect(0, 0, sidebarW, canvasH);
 

@@ -51,9 +51,10 @@ export function FactCard({
   const prevCommentCountRef = useRef(fact.commentCount);
 
   useEffect(() => {
-    const increase = fact.commentCount - prevCommentCountRef.current;
-    if (increase > 0 && commentCountDelta > 0) {
-      setCommentCountDelta(d => Math.max(0, d - increase));
+    if (fact.commentCount > prevCommentCountRef.current) {
+      // Server count advanced — it now includes the comment we were tracking
+      // optimistically. Zero the delta so we don't double-count.
+      setCommentCountDelta(0);
     }
     prevCommentCountRef.current = fact.commentCount;
   }, [fact.commentCount]);
