@@ -707,7 +707,7 @@ export default function FactDetail() {
             <div className="flex gap-3 items-start p-4 bg-secondary rounded-2xl border border-border mt-2">
               <span className="text-base leading-none pt-0.5">🔒</span>
               <p className="text-xs text-muted-foreground leading-relaxed">
-                Your memes are <strong className="text-foreground">private by default</strong>. Tap a meme to publish it to the community.
+                Your memes are <strong className="text-foreground">private by default</strong>. Open one to manage its visibility.
               </p>
             </div>
           )}
