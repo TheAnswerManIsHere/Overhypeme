@@ -27,8 +27,9 @@ import {
   factsTable,
   pendingReviewsTable,
   activityFeedTable,
+  emailOutboxTable,
 } from "@workspace/db/schema";
-import { eq, like } from "drizzle-orm";
+import { and, eq, gte, like } from "drizzle-orm";
 
 import reviewsRouter from "../routes/reviews.js";
 import { authMiddleware } from "../middlewares/authMiddleware.js";
@@ -36,6 +37,10 @@ import { createSession, type SessionData } from "../lib/auth.js";
 
 
 const USER_PREFIX = "t_routes_rv_";
+
+// Capture start time so the after() hook can delete only outbox rows that
+// this test file created, without disturbing rows from other concurrent tests.
+const TEST_FILE_START = new Date();
 
 process.env.RESEND_API_KEY = process.env.RESEND_API_KEY ?? "re_test_dummy";
 
@@ -98,6 +103,20 @@ async function cleanup() {
 
 before(cleanup);
 after(cleanup);
+
+// Delete any admin-notify outbox rows queued by this test file so the email
+// worker doesn't deliver them to real inboxes. Filtered by kind and start
+// time to avoid touching rows from other concurrently-running test files.
+after(async () => {
+  await db
+    .delete(emailOutboxTable)
+    .where(
+      and(
+        gte(emailOutboxTable.createdAt, TEST_FILE_START),
+        eq(emailOutboxTable.kind, "admin_fact_notify"),
+      ),
+    );
+});
 
 describe("POST /facts/submit-review", () => {
 

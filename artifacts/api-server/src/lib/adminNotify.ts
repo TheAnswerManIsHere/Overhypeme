@@ -87,7 +87,7 @@ export async function notifyAdmins(opts: AdminNotifyOpts): Promise<void> {
     if (emails.length === 0) return;
 
     const { subject, text, html } = buildNotificationEmail(opts);
-    await Promise.all(emails.map(to => sendEmail({ to, subject, text, html })));
+    await Promise.all(emails.map(to => sendEmail({ to, subject, text, html, kind: "admin_fact_notify" })));
   } catch (err) {
     logger.error({ err }, "[notifyAdmins] Failed");
   }

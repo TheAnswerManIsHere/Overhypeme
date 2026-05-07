@@ -291,7 +291,7 @@ describe("GET /facts/:factId/related", () => {
     const userId = await createTestUser();
     const sourceId = await insertFact("untagged-source", { submittedById: userId });
     const filler = await insertFact("filler-target", { submittedById: userId });
-    await db.update(factsTable).set({ wilsonScore: 0.99 }).where(eq(factsTable.id, filler));
+    await db.update(factsTable).set({ wilsonScore: 9999.0 }).where(eq(factsTable.id, filler));
 
     const res = await request(makeApp())
       .get(`/facts/${sourceId}/related`)
