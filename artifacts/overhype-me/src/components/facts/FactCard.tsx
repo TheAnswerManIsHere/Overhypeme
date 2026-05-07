@@ -122,16 +122,24 @@ export function FactCard({
 
   const commentsRegionId = `fact-${fact.id}-comments`;
 
+  // Opacity is driven via inline style (and matched by framer-motion's
+  // animate prop) so React's first paint already carries the correct
+  // value. iOS Safari was flashing the card at opacity 1 before
+  // framer-motion's `initial` prop had a chance to apply, because the
+  // inline-style hand-off and the animation system were racing on the
+  // first frame.
   return (
     <motion.div
       ref={cardRef}
-      initial={{ opacity: 0 }}
       animate={{ opacity: show ? 1 : 0 }}
       transition={instant ? { duration: 0 } : { duration: 0.4, ease: "easeOut" }}
       whileHover={isHero || prefersReducedMotion ? undefined : { y: -3 }}
       onKeyDown={handleEscape}
       className={cn(
-        "relative group block transition-all duration-300 overflow-hidden",
+        // transition-colors only — letting transition-all win would
+        // conflict with framer-motion's opacity animation on iOS Safari
+        // and cause the load-in flash.
+        "relative group block transition-colors duration-300 overflow-hidden",
         isHero
           ? "rounded-[24px] md:rounded-[32px] border border-primary/25"
           : cn(
@@ -139,10 +147,13 @@ export function FactCard({
               expanded ? "border-primary/25" : "border-border hover:border-primary/40",
             ),
       )}
-      style={isHero ? {
-        background: "linear-gradient(145deg, hsl(var(--card)) 0%, rgba(249,115,22,0.07) 100%)",
-        boxShadow: "0 0 60px rgba(249,115,22,0.10), inset 0 1px 0 rgba(255,255,255,0.07)",
-      } : undefined}
+      style={{
+        opacity: show ? 1 : 0,
+        ...(isHero ? {
+          background: "linear-gradient(145deg, hsl(var(--card)) 0%, rgba(249,115,22,0.07) 100%)",
+          boxShadow: "0 0 60px rgba(249,115,22,0.10), inset 0 1px 0 rgba(255,255,255,0.07)",
+        } : {}),
+      }}
     >
       {showRank && rank && !isHero && (
         <div className="absolute top-0 left-0 min-w-[2.5rem] h-10 px-2 bg-primary text-primary-foreground font-display font-bold text-xl flex items-center justify-center z-10 rounded-tl-[20px] rounded-br-[12px]">
