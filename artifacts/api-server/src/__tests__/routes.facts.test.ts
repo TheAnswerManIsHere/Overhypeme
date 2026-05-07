@@ -418,7 +418,51 @@ describe("GET /facts/:factId/comments", () => {
     assert.equal(res.status, 200);
     assert.equal(res.body.total, 2);
     const texts = (res.body.comments as Array<{ text: string }>).map((c) => c.text);
-    assert.deepEqual(texts, ["approved-1", "approved-2"]);
+    // Default sort is "top" with heart_count=0 for both, so tiebreak by
+    // createdAt desc — newer comment surfaces first.
+    assert.deepEqual(texts, ["approved-2", "approved-1"]);
+  });
+
+  it("orders by heart_count desc with createdAt tiebreak when sort=top (default)", async () => {
+    const userId = await createTestUser();
+    const factId = await insertFact("comment-sort-top", { submittedById: userId });
+    const oldDate = new Date("2025-01-01T00:00:00Z");
+    const newDate = new Date("2025-06-01T00:00:00Z");
+    const [popular] = await db.insert(commentsTable).values({
+      factId, authorId: userId, text: "popular", status: "approved", flagged: false,
+      createdAt: oldDate, heartCount: 5,
+    }).returning();
+    const [unloved] = await db.insert(commentsTable).values({
+      factId, authorId: userId, text: "unloved", status: "approved", flagged: false,
+      createdAt: newDate, heartCount: 0,
+    }).returning();
+
+    const res = await request(makeApp()).get(`/facts/${factId}/comments`);
+    assert.equal(res.status, 200);
+    const ids = (res.body.comments as Array<{ id: number }>).map((c) => c.id);
+    assert.deepEqual(ids, [popular.id, unloved.id]);
+  });
+
+  it("orders by createdAt desc when sort=new is requested", async () => {
+    const userId = await createTestUser();
+    const factId = await insertFact("comment-sort-new", { submittedById: userId });
+    const t0 = new Date("2025-01-01T00:00:00Z");
+    const t1 = new Date("2025-02-01T00:00:00Z");
+    const [popularOld] = await db.insert(commentsTable).values({
+      factId, authorId: userId, text: "popular-but-old", status: "approved", flagged: false,
+      createdAt: t0, heartCount: 99,
+    }).returning();
+    const [newest] = await db.insert(commentsTable).values({
+      factId, authorId: userId, text: "newest", status: "approved", flagged: false,
+      createdAt: t1, heartCount: 0,
+    }).returning();
+
+    const res = await request(makeApp())
+      .get(`/facts/${factId}/comments`)
+      .query({ sort: "new" });
+    assert.equal(res.status, 200);
+    const ids = (res.body.comments as Array<{ id: number }>).map((c) => c.id);
+    assert.deepEqual(ids, [newest.id, popularOld.id]);
   });
 });
 
