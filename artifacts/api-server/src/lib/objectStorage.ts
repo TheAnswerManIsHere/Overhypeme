@@ -212,8 +212,18 @@ export class ObjectStorageService {
    * Silently succeeds if the object does not exist (already gone = success).
    * Throws ObjectNotFoundError only if caught from resolution errors.
    * Throws other errors as-is so callers can fail fast and abort DB mutations.
+   *
+   * Refuses to delete `restricted/...` paths unless `force: true` is passed.
+   * Quarantined evidence is preserved by `ncmec_reports.evidence_retention_until`
+   * — only a future retention worker should ever pass `force`.
    */
-  async deleteObject(objectPath: string): Promise<void> {
+  async deleteObject(objectPath: string, opts: { force?: boolean } = {}): Promise<void> {
+    if (objectPath.includes("/restricted/") && !opts.force) {
+      throw new Error(
+        `Refusing to delete restricted/quarantine evidence at "${objectPath}". ` +
+          `Pass { force: true } only from the retention worker after preservation expiry.`,
+      );
+    }
     let file: File;
     try {
       file = await this.getObjectEntityFile(objectPath);
@@ -238,6 +248,28 @@ export class ObjectStorageService {
     const fullPath = `${dir}${subPath}`;
     const { bucketName, objectName } = parseObjectPath(fullPath);
     return signObjectURL({ bucketName, objectName, method: "GET", ttlSec });
+  }
+
+  /**
+   * Upload bytes into the restricted moderation prefix. NEVER routes through
+   * the public/private object handlers — `routes/storage.ts` 404's any
+   * request that begins with `restricted/`. ACL is private with a synthetic
+   * `system:quarantine` owner so no end-user is the legal "owner" of CSAM
+   * evidence.
+   */
+  async uploadRestrictedObjectBuffer({
+    subPath,
+    buffer,
+    contentType,
+  }: {
+    subPath: string;
+    buffer: Buffer;
+    contentType: string;
+  }): Promise<string> {
+    if (!subPath.startsWith("restricted/")) {
+      throw new Error(`uploadRestrictedObjectBuffer requires a subPath beginning with "restricted/" (got "${subPath}")`);
+    }
+    return this.uploadObjectBuffer({ subPath, buffer, contentType });
   }
 
   async uploadObjectBuffer({

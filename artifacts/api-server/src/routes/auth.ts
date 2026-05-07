@@ -19,6 +19,7 @@ import {
 } from "../lib/auth";
 import { getSiteBaseUrl } from "../lib/siteUrl";
 import { logger } from "../lib/logger";
+import { sanitizeAndValidatePersonalName } from "../lib/validators/personalName";
 
 // Re-exported for back-compat with other route modules that import from "./auth".
 // Canonical home is `lib/auth.ts` so the auth middleware can use it without a
@@ -159,15 +160,27 @@ async function upsertUser(
 
   const isNewUser = existing.length === 0;
 
-  const oidcFirstName =
+  // Sanitize OIDC name claims through the same validator as user-supplied
+  // names. Provider claims are user-influenced (Apple in particular lets
+  // the user pick whatever they want at first authorize). Per soft-cap
+  // policy, falling back to null if the provider gave us something we
+  // would not accept on a profile PATCH.
+  const rawFirstName =
     provider === "apple"
       ? (appleNameOverride?.firstName ?? null)
       : ((claims.given_name as string) || null);
-
-  const oidcLastName =
+  const rawLastName =
     provider === "apple"
       ? (appleNameOverride?.lastName ?? null)
       : ((claims.family_name as string) || null);
+
+  async function safeName(input: string | null): Promise<string | null> {
+    if (!input) return null;
+    const result = await sanitizeAndValidatePersonalName(input, { skipDenylist: true });
+    return result.ok ? result.value : null;
+  }
+  const oidcFirstName = await safeName(rawFirstName);
+  const oidcLastName = await safeName(rawLastName);
 
   const existingFirstName = existing[0]?.firstName ?? null;
   const existingLastName = existing[0]?.lastName ?? null;

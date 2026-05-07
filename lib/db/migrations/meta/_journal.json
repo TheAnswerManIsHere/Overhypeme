@@ -302,6 +302,20 @@
       "when": 1778109474807,
       "tag": "0042_facts_share_count",
       "breakpoints": true
+    },
+    {
+      "idx": 43,
+      "version": "7",
+      "when": 1778188989888,
+      "tag": "0043_moderation_infrastructure",
+      "breakpoints": true
+    },
+    {
+      "idx": 44,
+      "version": "7",
+      "when": 1778188989900,
+      "tag": "0044_sanitize_existing_names",
+      "breakpoints": true
     }
   ]
 }
