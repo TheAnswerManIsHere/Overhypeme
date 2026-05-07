@@ -520,10 +520,12 @@ router.post("/facts/:factId/comments", async (req: AuthenticatedRequest, res: Re
 
   // `req.user.membershipTier` is rebuilt from the DB on every authenticated
   // request by authMiddleware, so it's always fresh. Intentional premium-tier
-  // exception: legendary members and above are granted comment_captcha_bypass
-  // via the tier features table, skipping per-comment captcha.
+  // exception: legendary members and admins always skip per-comment captcha.
+  // The direct tier/admin check is the authoritative gate; the tier features
+  // table entry is a secondary check that can extend the bypass to other tiers.
   const userDbTier = req.user.membershipTier ?? "unregistered";
-  const captchaBypass = await hasFeature(userDbTier, "comment_captcha_bypass");
+  const isLegendaryOrAdmin = userDbTier === "legendary" || !!req.user.isAdmin;
+  const captchaBypass = isLegendaryOrAdmin || await hasFeature(userDbTier, "comment_captcha_bypass");
 
   if (!captchaBypass) {
     if (!captchaToken || !(await verifyCaptcha(captchaToken))) {
