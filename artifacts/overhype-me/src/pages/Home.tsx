@@ -1,6 +1,6 @@
 import { useListFacts, useListHashtags, getListHashtagsQueryKey, type FactSummary } from "@workspace/api-client-react";
 import { FactCard } from "@/components/facts/FactCard";
-import { FactCardComments } from "@/components/facts/FactCardComments";
+import { FactComments } from "@/components/facts/FactComments";
 import { Layout } from "@/components/layout/Layout";
 import { ChevronDown, ChevronUp, Flame, ThumbsUp, ThumbsDown, MessageSquare, Loader2 } from "lucide-react";
 import { Link, useLocation } from "wouter";
@@ -269,7 +269,7 @@ function HeroBillboardMobile({
         <AnimatePresence>
           {showComments && fact && (
             <div className="px-5 pb-2">
-              <FactCardComments key={fact.id} fact={fact} name={name} />
+              <FactComments key={fact.id} fact={fact} variant="feed" name={name} />
             </div>
           )}
         </AnimatePresence>
@@ -460,7 +460,7 @@ function DesktopHeroBillboard({
       <AnimatePresence>
         {showComments && fact && (
           <div className="px-10 pb-8">
-            <FactCardComments key={fact.id} fact={fact} name={name} />
+            <FactComments key={fact.id} fact={fact} variant="feed" name={name} />
           </div>
         )}
       </AnimatePresence>

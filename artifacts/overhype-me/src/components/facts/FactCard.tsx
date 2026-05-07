@@ -5,7 +5,7 @@ import { FactSummary } from "@workspace/api-client-react";
 import { cn } from "@/components/ui/Button";
 import { usePersonName } from "@/hooks/use-person-name";
 import { renderFact } from "@/lib/render-fact";
-import { FactCardComments } from "./FactCardComments";
+import { FactComments } from "./FactComments";
 import { FactActionCluster } from "./FactActionCluster";
 import { useFactExpansion } from "@/contexts/fact-expansion-context";
 
@@ -153,8 +153,9 @@ export function FactCard({
         {/* Inline expansion */}
         <AnimatePresence>
           {expanded && (
-            <FactCardComments
+            <FactComments
               fact={fact}
+              variant="feed"
               name={name}
               draft={getDraft(fact.id)}
               onDraftChange={(text) => setDraft(fact.id, text)}

@@ -3,24 +3,22 @@ import { useRoute, Link, useLocation } from "wouter";
 import { format } from "date-fns";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 
-import { useGetFact, useListComments, useListRelatedFacts, getGetFactQueryKey, getListCommentsQueryKey, getListRelatedFactsQueryKey } from "@workspace/api-client-react";
+import { useGetFact, useListRelatedFacts, getGetFactQueryKey, getListRelatedFactsQueryKey } from "@workspace/api-client-react";
 import { FactCard } from "@/components/facts/FactCard";
 import { FactActionCluster } from "@/components/facts/FactActionCluster";
+import { FactComments } from "@/components/facts/FactComments";
 import { useAuth } from "@workspace/replit-auth-web";
 import { Layout } from "@/components/layout/Layout";
 import { Button } from "@/components/ui/Button";
-import { Textarea } from "@/components/ui/Input";
 import { useAppMutations } from "@/hooks/use-mutations";
 import { AdSlot } from "@/components/AdSlot";
 
-import { ThumbsUp, ThumbsDown, User, AlertCircle, GitBranch, ArrowLeft, Crown, Flame, Video, Play, ExternalLink, Check, Pencil } from "lucide-react";
+import { ThumbsUp, ThumbsDown, AlertCircle, GitBranch, ArrowLeft, Flame, Video, Play, ExternalLink, Check, Pencil } from "lucide-react";
 import { displayPronouns } from "@/lib/pronouns";
 import { ImageCard } from "@/components/ui/ImageCard";
-import { CommentHeartButton } from "@/components/comments/CommentHeartButton";
 import { MemeHeartButton } from "@/components/memes/MemeHeartButton";
 import { cn } from "@/components/ui/Button";
 import { usePersonName } from "@/hooks/use-person-name";
-import { AccessGate } from "@/components/AccessGate";
 import { renderFact } from "@/lib/render-fact";
 import type { FactPexelsImages } from "@/types/pexels";
 
@@ -28,7 +26,6 @@ import { lazyWithRetry } from "@/lib/lazy-retry";
 import { AdminMediaInfo, getFileNameFromUrl, getMimeTypeFromUrl } from "@/components/ui/AdminMediaInfo";
 
 const MemeStudio = lazyWithRetry(() => import("@/components/MemeStudio").then(m => ({ default: m.MemeStudio })));
-const HCaptcha = lazyWithRetry(() => import("@hcaptcha/react-hcaptcha"));
 
 type MemeItem = {
   id: number;
@@ -78,9 +75,6 @@ async function fetchMemes(factId: number, visibility: "community" | "my-public" 
   if (!res.ok) throw new Error("Failed to fetch memes");
   return res.json() as Promise<{ memes: MemeItem[] }>;
 }
-
-const HCAPTCHA_SITE_KEY =
-  import.meta.env.VITE_HCAPTCHA_SITE_KEY || "10000000-ffff-ffff-ffff-000000000001";
 
 function VariantFactCard({ id, useCase }: { id: number; useCase: string | null }) {
   const { isAuthenticated } = useAuth();
@@ -250,9 +244,7 @@ export default function FactDetail() {
   const isMemeRoute = params?.sub === "meme";
   const isVideoRoute = params?.sub === "video";
   const [, setLocation] = useLocation();
-  const { isAuthenticated, role, user } = useAuth();
-  const isLegendary = role === "legendary" || role === "admin";
-  const { addComment } = useAppMutations();
+  const { isAuthenticated, user } = useAuth();
 
   const { data: fact, isLoading: factLoading, error: factError } = useGetFact(factId, {
     query: { queryKey: getGetFactQueryKey(factId), enabled: !!factId }
@@ -315,10 +307,6 @@ export default function FactDetail() {
     }
   }, [fact, belowFoldMounted]);
 
-  const { data: commentsData } = useListComments(factId, { limit: 50 }, {
-    query: { queryKey: getListCommentsQueryKey(factId, { limit: 50 }), enabled: !!factId && belowFoldMounted }
-  });
-
   const { data: relatedFactsData } = useListRelatedFacts(factId, { limit: 6 }, {
     query: { queryKey: getListRelatedFactsQueryKey(factId, { limit: 6 }), enabled: !!factId && belowFoldMounted }
   });
@@ -352,9 +340,6 @@ export default function FactDetail() {
   });
 
   const { name, pronouns } = usePersonName();
-  const [commentText, setCommentText] = useState("");
-  const [captchaToken, setCaptchaToken] = useState("");
-  const [commentSubmitted, setCommentSubmitted] = useState(false);
 
   // Meme builder open state is derived from URL (/facts/:id/meme)
   // so that mobile browsers reloading the tab re-open the builder automatically.
@@ -384,20 +369,6 @@ export default function FactDetail() {
 
   if (factLoading) return <Layout><div className="flex h-[50vh] items-center justify-center"><div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin" /></div></Layout>;
   if (factError || !fact) return <Layout><div className="max-w-2xl mx-auto mt-20 p-8 bg-destructive/10 border-2 border-destructive text-center"><AlertCircle className="w-16 h-16 text-destructive mx-auto mb-4"/><h2 className="text-3xl font-display text-destructive uppercase">Classified Record Not Found</h2></div></Layout>;
-
-  const handleCommentSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!isAuthenticated) return setLocation(`/login?from=/facts/${factId}`);
-    if (!commentText.trim()) return;
-
-    addComment.mutate({ factId, data: { text: commentText, captchaToken } }, {
-      onSuccess: () => {
-        setCommentText("");
-        setCaptchaToken("");
-        setCommentSubmitted(true);
-      }
-    });
-  };
 
   const renderedText = renderFact(fact.text, name, pronouns);
   const isVariant = !!fact.parentId;
@@ -755,90 +726,8 @@ export default function FactDetail() {
           </Button>
         </div>
 
-        {/* Layout split for Links and Comments */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-12">
-
-          {/* Comments Section */}
-          <div className="lg:col-span-2 space-y-8">
-            <h3 id="comments" className="text-2xl font-display uppercase tracking-wide border-b-2 border-border pb-2">Comments ({fact.commentCount})</h3>
-
-            {/* Comment List — rendered first so visitors see existing
-                engagement as social proof before being invited to add their own. */}
-            <div className="space-y-4">
-              {commentsData?.comments.map(comment => (
-                <div key={comment.id} className="bg-card p-5 border-l-4 border-muted rounded-sm">
-                  <div className="flex items-center justify-between mb-3">
-                    <div className="flex items-center gap-3">
-                      {comment.authorImage ? (
-                        <img src={comment.authorImage} alt="Avatar" className="w-8 h-8 rounded-sm" />
-                      ) : (
-                        <div className="w-8 h-8 bg-muted flex items-center justify-center rounded-sm">
-                          <User className="w-4 h-4 text-muted-foreground" />
-                        </div>
-                      )}
-                      <span className="font-bold text-primary">{comment.authorName || "ANONYMOUS"}</span>
-                    </div>
-                    <span className="text-xs text-muted-foreground font-medium">{format(new Date(comment.createdAt), 'MMM dd, yyyy')}</span>
-                  </div>
-                  <p className="text-foreground leading-relaxed">{comment.text}</p>
-                  <div className="mt-3 flex items-center">
-                    <CommentHeartButton
-                      commentId={comment.id}
-                      initialHeartCount={comment.heartCount}
-                      initialViewerHasHearted={comment.viewerHasHearted}
-                    />
-                  </div>
-                </div>
-              ))}
-              {commentsData?.comments.length === 0 && (
-                <p className="text-muted-foreground py-8 text-center border-2 border-dashed border-border rounded-sm">No intel submitted yet.</p>
-              )}
-            </div>
-
-            {/* Comment Form — composer at bottom invites contribution after
-                the visitor has seen the existing thread. */}
-            {isAuthenticated ? (
-              commentSubmitted ? (
-                <div className="bg-secondary p-6 rounded-sm border-2 border-border text-center space-y-3">
-                  <p className="font-display font-bold text-foreground uppercase tracking-wide">Intel Received</p>
-                  <p className="text-sm text-muted-foreground">Your comment is pending review and will appear once approved.</p>
-                  <Button variant="outline" size="sm" onClick={() => setCommentSubmitted(false)}>Submit Another</Button>
-                </div>
-              ) : (
-                <form onSubmit={handleCommentSubmit} className="bg-secondary p-6 rounded-sm border-2 border-border space-y-4">
-                  <Textarea
-                    value={commentText}
-                    onChange={e => setCommentText(e.target.value)}
-                    placeholder="Drop some knowledge..."
-                    className="bg-background min-h-[100px]"
-                  />
-                  <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between">
-                    {isLegendary ? (
-                      <div className="flex items-center gap-2 text-yellow-500 text-sm font-display font-bold uppercase tracking-wider">
-                        <Crown className="w-4 h-4" /> Captcha skipped (Legendary)
-                      </div>
-                    ) : (
-                      <div className="overflow-hidden rounded-sm border-2 border-border">
-                        <Suspense fallback={<div className="w-[303px] h-[78px] bg-muted animate-pulse rounded-sm" />}>
-                          <HCaptcha
-                            sitekey={HCAPTCHA_SITE_KEY}
-                            onVerify={setCaptchaToken}
-                          />
-                        </Suspense>
-                      </div>
-                    )}
-                    <Button type="submit" isLoading={addComment.isPending} disabled={!commentText.trim()} className="w-full sm:w-auto">
-                      POST INTEL
-                    </Button>
-                  </div>
-                </form>
-              )
-            ) : (
-              <AccessGate reason="login" size="sm" description="Authentication required to add intel." returnTo={`/facts/${factId}`} />
-            )}
-          </div>
-
-        </div>
+        {/* Comments — list first, composer at bottom (variant="detail") */}
+        <FactComments fact={fact} variant="detail" />
 
         {/* Variants — only shown on root (parent) facts, never on variants themselves */}
         {!isVariant && fact.variants && fact.variants.length > 0 && (
