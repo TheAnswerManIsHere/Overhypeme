@@ -106,8 +106,17 @@ async function cleanup() {
   await db.delete(usersTable).where(like(usersTable.id, `${USER_PREFIX}%`));
 }
 
-before(cleanup);
-after(cleanup);
+// Wrap every describe in this file in a single outer suite so the cleanup
+// hooks scope correctly under `--test-isolation=none`. Top-level `before`/
+// `after` register on the implicit root, which means when multiple files
+// share a process all root befores fire first, then all tests, then all
+// root afters — so this file's cleanup wouldn't run until AFTER another
+// file's tests had already executed against our leftover hero facts. Hooks
+// inside a describe run scoped to that suite, between files. See
+// routes.facts.test.ts for the regression that prompted this.
+describe("routes.facts.hero", () => {
+  before(cleanup);
+  after(cleanup);
 
 describe("GET /facts/hero — ranking sanity", () => {
   it("returns a fact drawn from the top-50 wilson-ranked pool", async () => {
@@ -306,3 +315,5 @@ describe("GET /facts/hero — fallback / epsilon floor", () => {
     assert.ok(res.body.fact);
   });
 });
+
+}); // routes.facts.hero outer suite
