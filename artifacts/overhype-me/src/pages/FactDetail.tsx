@@ -1,11 +1,9 @@
 import { useState, useEffect, useRef, Suspense } from "react";
 import { useRoute, Link, useLocation } from "wouter";
-import { format } from "date-fns";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { useGetFact, useListRelatedFacts, getGetFactQueryKey, getListRelatedFactsQueryKey } from "@workspace/api-client-react";
 import { FactCard } from "@/components/facts/FactCard";
-import { FactActionCluster } from "@/components/facts/FactActionCluster";
 import { FactComments } from "@/components/facts/FactComments";
 import { useAuth } from "@workspace/replit-auth-web";
 import { Layout } from "@/components/layout/Layout";
@@ -13,8 +11,7 @@ import { Button } from "@/components/ui/Button";
 import { useAppMutations } from "@/hooks/use-mutations";
 import { AdSlot } from "@/components/AdSlot";
 
-import { ThumbsUp, ThumbsDown, AlertCircle, GitBranch, ArrowLeft, Flame, Video, Play, ExternalLink, Check, Pencil } from "lucide-react";
-import { displayPronouns } from "@/lib/pronouns";
+import { ThumbsUp, ThumbsDown, AlertCircle, GitBranch, ArrowLeft, Flame, Video, Play, ExternalLink, Check } from "lucide-react";
 import { ImageCard } from "@/components/ui/ImageCard";
 import { MemeHeartButton } from "@/components/memes/MemeHeartButton";
 import { cn } from "@/components/ui/Button";
@@ -106,7 +103,7 @@ function VariantFactCard({ id, useCase }: { id: number; useCase: string | null }
   const renderedText = renderFact(fact.text, name, pronouns);
 
   return (
-    <div className="bg-card border-l-4 border-primary/60 p-6 md:p-8 shadow-lg relative">
+    <>
       {showStudio && (
         <Suspense fallback={null}>
           <MemeStudio
@@ -120,71 +117,61 @@ function VariantFactCard({ id, useCase }: { id: number; useCase: string | null }
         </Suspense>
       )}
 
-      {useCase && (
-        <span className="inline-block mb-4 text-xs font-bold font-display tracking-widest uppercase text-primary bg-primary/10 border border-primary/30 px-2 py-0.5 rounded-sm">
-          {useCase.replace(/_/g, " ")}
-        </span>
-      )}
-
-      <h2 className="text-2xl md:text-3xl font-bold leading-tight text-foreground mb-6">
-        "{renderedText}"
-      </h2>
-
-      {fact.hashtags.length > 0 && (
-        <div className="flex flex-wrap gap-2 mb-6">
-          {fact.hashtags.map(tag => (
-            <span key={tag} className="text-xs font-bold font-display tracking-wider text-muted-foreground bg-secondary border border-border px-2 py-0.5 rounded-sm uppercase">
-              #{tag}
-            </span>
-          ))}
-        </div>
-      )}
-
-      <div className="flex items-center gap-3 flex-wrap border-t-2 border-border pt-5">
-        <Button
-          variant="secondary"
-          size="sm"
-          onClick={() => handleRate("up")}
-          className={cn("gap-2", fact.userRating === "up" && "bg-primary/20 text-primary border-primary")}
-          disabled={rateFact.isPending}
-        >
-          <ThumbsUp className={cn("w-4 h-4", fact.userRating === "up" && "fill-current")} />
-          <span>{fact.upvotes}</span>
-        </Button>
-        <Button
-          variant="secondary"
-          size="sm"
-          onClick={() => handleRate("down")}
-          className={cn("gap-2", fact.userRating === "down" && "bg-destructive/20 text-destructive border-destructive")}
-          disabled={rateFact.isPending}
-        >
-          <ThumbsDown className={cn("w-4 h-4", fact.userRating === "down" && "fill-current")} />
-          <span>{fact.downvotes}</span>
-        </Button>
-        <Button
-          variant="primary"
-          size="sm"
-          onClick={() => { setStudioDefaultTab("image"); setShowStudio(true); }}
-          className="gap-2"
-        >
-          <Flame className="w-4 h-4" />
-          MAKE MEME
-        </Button>
-        <Button
-          variant="secondary"
-          size="sm"
-          onClick={() => { setStudioDefaultTab("video"); setShowStudio(true); }}
-          className="gap-2"
-        >
-          <Video className="w-4 h-4" />
-          MAKE VIDEO
-        </Button>
-        <Link href={`/facts/${id}`} className="ml-auto text-xs text-muted-foreground hover:text-primary transition-colors font-medium underline underline-offset-4">
-          View discussion →
-        </Link>
-      </div>
-
-    </div>
+      <FactCard
+        fact={fact}
+        size="variant"
+        headerSlot={useCase ? (
+          <span className="inline-block mb-4 text-xs font-bold font-display tracking-widest uppercase text-primary bg-primary/10 border border-primary/30 px-2 py-0.5 rounded-sm">
+            {useCase.replace(/_/g, " ")}
+          </span>
+        ) : undefined}
+        actionsSlot={
+          <div className="flex items-center gap-3 flex-wrap">
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => handleRate("up")}
+              className={cn("gap-2", fact.userRating === "up" && "bg-primary/20 text-primary border-primary")}
+              disabled={rateFact.isPending}
+            >
+              <ThumbsUp className={cn("w-4 h-4", fact.userRating === "up" && "fill-current")} />
+              <span>{fact.upvotes}</span>
+            </Button>
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => handleRate("down")}
+              className={cn("gap-2", fact.userRating === "down" && "bg-destructive/20 text-destructive border-destructive")}
+              disabled={rateFact.isPending}
+            >
+              <ThumbsDown className={cn("w-4 h-4", fact.userRating === "down" && "fill-current")} />
+              <span>{fact.downvotes}</span>
+            </Button>
+            <Button
+              variant="primary"
+              size="sm"
+              onClick={() => { setStudioDefaultTab("image"); setShowStudio(true); }}
+              className="gap-2"
+            >
+              <Flame className="w-4 h-4" />
+              MAKE MEME
+            </Button>
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => { setStudioDefaultTab("video"); setShowStudio(true); }}
+              className="gap-2"
+            >
+              <Video className="w-4 h-4" />
+              MAKE VIDEO
+            </Button>
+            <Link href={`/facts/${id}`} className="ml-auto text-xs text-muted-foreground hover:text-primary transition-colors font-medium underline underline-offset-4">
+              View discussion →
+            </Link>
+          </div>
+        }
+      />
+    </>
   );
 }
 
@@ -435,73 +422,23 @@ export default function FactDetail() {
           </Link>
         )}
 
-        {/* Main Fact Card — compact header, consistent with feed cards */}
-        <div className="bg-card rounded-2xl border border-border shadow-lg p-6 md:p-8 relative mb-4 overflow-hidden">
-          {/* Personalization context — first-class, above headline */}
-          <div className="flex items-center gap-1.5 mb-5 text-sm font-display tracking-wide flex-wrap">
-            <span className="text-muted-foreground">About</span>
-            {name ? (
-              <>
-                <strong className="text-foreground font-bold uppercase tracking-wide">{name}</strong>
-                {pronouns && (
-                  <span className="text-muted-foreground/80 text-xs">({displayPronouns(pronouns)})</span>
-                )}
-              </>
-            ) : (
-              <span className="text-muted-foreground/70 italic">someone — tap to make this about you</span>
-            )}
-            <button
-              onClick={() => {
-                const trigger = document.querySelector<HTMLElement>('[data-action="edit-name"]');
-                if (trigger) {
-                  window.scrollTo({ top: 0, behavior: "smooth" });
-                  setTimeout(() => trigger.click(), name ? 0 : 350);
-                }
-              }}
-              aria-label="Edit personalization"
-              className="ml-1 inline-flex items-center justify-center w-6 h-6 rounded-full text-muted-foreground hover:text-primary hover:bg-secondary transition-colors"
-            >
-              <Pencil className="w-3 h-3" />
-            </button>
-          </div>
-
-          <h1 className="text-2xl md:text-3xl font-display font-bold leading-tight uppercase tracking-tight text-foreground mb-5">
-            "{renderedText}"
-          </h1>
-
-          {fact.hashtags.length > 0 && (
-            <div className="flex flex-wrap gap-1.5 mb-4">
-              {fact.hashtags.map(tag => (
-                <span key={tag} className="text-xs font-semibold font-display tracking-wide text-muted-foreground bg-secondary/80 px-2.5 py-1 rounded-full uppercase border border-border/50">
-                  #{tag}
-                </span>
-              ))}
-            </div>
-          )}
-
-          {/* Author byline — quiet, on its own line */}
-          <p className="mb-5 text-xs text-muted-foreground">
-            {fact.submittedBy && (
-              <>Submitted by <span className="text-foreground/80 font-medium">{fact.submittedBy}</span> · </>
-            )}
-            <span>{format(new Date(fact.createdAt), 'MMM dd, yyyy')}</span>
-          </p>
-
-          {/* Engagement row — same cluster used by feed cards */}
-          <div className="pt-4 border-t border-border/50">
-            <FactActionCluster
-              fact={fact}
-              size="md"
-              onCommentClick={() => {
-                setBelowFoldMounted(true);
+        {/* Main Fact Card — same FactCard primitive used in the feed and
+            on TopFacts, with size="detail" for h1/larger padding/no Link wrap.
+            Personalization edit + authorship byline live in the header chrome
+            and PR description respectively, not on the card. */}
+        <div className="mb-4">
+          <FactCard
+            fact={fact}
+            size="detail"
+            onCommentClick={() => {
+              setBelowFoldMounted(true);
+              requestAnimationFrame(() => {
                 requestAnimationFrame(() => {
-                  requestAnimationFrame(() => {
-                    document.getElementById("comments")?.scrollIntoView({ behavior: "smooth", block: "start" });
-                  });
+                  document.getElementById("comments")?.scrollIntoView({ behavior: "smooth", block: "start" });
                 });
-              }}
-            />
-          </div>
+              });
+            }}
+          />
         </div>
 
         {/* PRIMARY CTA — Make a meme, full-width, prominent */}
