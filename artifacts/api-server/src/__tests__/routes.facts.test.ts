@@ -183,6 +183,126 @@ describe("GET /facts/:factId", () => {
   });
 });
 
+describe("POST /facts/:factId/share", () => {
+
+  it("returns 400 for a non-numeric factId", async () => {
+    const res = await request(makeApp()).post("/facts/not-a-number/share");
+    assert.equal(res.status, 400);
+  });
+
+  it("returns 404 for a missing factId", async () => {
+    const res = await request(makeApp()).post("/facts/999999998/share");
+    assert.equal(res.status, 404);
+  });
+
+  it("increments shareCount and returns the new value", async () => {
+    const userId = await createTestUser();
+    const factId = await insertFact("share-target", { submittedById: userId });
+
+    const r1 = await request(makeApp()).post(`/facts/${factId}/share`);
+    assert.equal(r1.status, 200);
+    assert.equal(r1.body.shareCount, 1);
+
+    const r2 = await request(makeApp()).post(`/facts/${factId}/share`);
+    assert.equal(r2.status, 200);
+    assert.equal(r2.body.shareCount, 2);
+
+    const get = await request(makeApp()).get(`/facts/${factId}`);
+    assert.equal(get.body.shareCount, 2, "shareCount surfaces on the FactSummary");
+  });
+});
+
+describe("GET /facts/:factId/related", () => {
+
+  it("returns 400 for a non-numeric factId", async () => {
+    const res = await request(makeApp()).get("/facts/not-a-number/related");
+    assert.equal(res.status, 400);
+  });
+
+  it("returns 404 when the source fact does not exist", async () => {
+    const res = await request(makeApp()).get("/facts/999999999/related");
+    assert.equal(res.status, 404);
+  });
+
+  it("ranks candidates by tag overlap, then Wilson score as tiebreak", async () => {
+    const userId = await createTestUser();
+    const sourceId = await insertFact("source-fact", { submittedById: userId });
+
+    // Two tags on the source.
+    const tagA = `${HASHTAG_PREFIX}${randomUUID()}`.replace(/[^a-z0-9_]/g, "").slice(0, 70);
+    const tagB = `${HASHTAG_PREFIX}${randomUUID()}`.replace(/[^a-z0-9_]/g, "").slice(0, 70);
+    const [tA] = await db.insert(hashtagsTable).values({ name: tagA }).returning();
+    const [tB] = await db.insert(hashtagsTable).values({ name: tagB }).returning();
+    await db.insert(factHashtagsTable).values([
+      { factId: sourceId, hashtagId: tA.id },
+      { factId: sourceId, hashtagId: tB.id },
+    ]);
+
+    // Three other facts:
+    //   doubleOverlap — shares both tagA + tagB (overlap=2), low Wilson
+    //   singleOverlapHigh — shares tagA only (overlap=1), high Wilson
+    //   singleOverlapLow — shares tagA only (overlap=1), low Wilson
+    const doubleOverlap = await insertFact("double", { submittedById: userId });
+    const singleOverlapHigh = await insertFact("single-high", { submittedById: userId });
+    const singleOverlapLow = await insertFact("single-low", { submittedById: userId });
+    await db.insert(factHashtagsTable).values([
+      { factId: doubleOverlap, hashtagId: tA.id },
+      { factId: doubleOverlap, hashtagId: tB.id },
+      { factId: singleOverlapHigh, hashtagId: tA.id },
+      { factId: singleOverlapLow, hashtagId: tA.id },
+    ]);
+    await db.update(factsTable).set({ wilsonScore: 0.1 }).where(eq(factsTable.id, doubleOverlap));
+    await db.update(factsTable).set({ wilsonScore: 0.9 }).where(eq(factsTable.id, singleOverlapHigh));
+    await db.update(factsTable).set({ wilsonScore: 0.05 }).where(eq(factsTable.id, singleOverlapLow));
+
+    const res = await request(makeApp())
+      .get(`/facts/${sourceId}/related`)
+      .query({ limit: 3 });
+    assert.equal(res.status, 200);
+    const ids = (res.body.facts as Array<{ id: number }>).map((f) => f.id);
+    assert.equal(ids[0], doubleOverlap, "highest overlap wins regardless of Wilson");
+    assert.equal(ids[1], singleOverlapHigh, "Wilson breaks single-overlap tie");
+    assert.equal(ids[2], singleOverlapLow);
+  });
+
+  it("excludes the source fact and its variants from the results", async () => {
+    const userId = await createTestUser();
+    const parentId = await insertFact("parent", { submittedById: userId });
+    const [variant] = await db.insert(factsTable).values({
+      text: "variant", canonicalText: "variant", isActive: true,
+      submittedById: userId, parentId,
+    }).returning();
+
+    const tag = `${HASHTAG_PREFIX}${randomUUID()}`.replace(/[^a-z0-9_]/g, "").slice(0, 70);
+    const [t] = await db.insert(hashtagsTable).values({ name: tag }).returning();
+    await db.insert(factHashtagsTable).values([
+      { factId: parentId, hashtagId: t.id },
+      { factId: variant.id, hashtagId: t.id },
+    ]);
+
+    const res = await request(makeApp()).get(`/facts/${parentId}/related`);
+    assert.equal(res.status, 200);
+    const ids = (res.body.facts as Array<{ id: number }>).map((f) => f.id);
+    assert.ok(!ids.includes(parentId), "source must be excluded");
+    assert.ok(!ids.includes(variant.id), "variant must be excluded");
+  });
+
+  it("falls back to top-Wilson facts when the source has no hashtags", async () => {
+    const userId = await createTestUser();
+    const sourceId = await insertFact("untagged-source", { submittedById: userId });
+    const filler = await insertFact("filler-target", { submittedById: userId });
+    await db.update(factsTable).set({ wilsonScore: 0.99 }).where(eq(factsTable.id, filler));
+
+    const res = await request(makeApp())
+      .get(`/facts/${sourceId}/related`)
+      .query({ limit: 1 });
+    assert.equal(res.status, 200);
+    assert.ok(Array.isArray(res.body.facts));
+    // Top-Wilson winner must include our high-Wilson filler.
+    assert.equal(res.body.facts[0]?.id, filler);
+  });
+});
+
 describe("POST /facts/:factId/rating", () => {
 
   it("returns 401 when unauthenticated", async () => {

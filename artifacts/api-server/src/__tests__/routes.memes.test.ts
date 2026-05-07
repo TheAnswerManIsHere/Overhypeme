@@ -73,6 +73,8 @@ async function insertMeme(opts: {
   imageUrl?: string;
   isPublic?: boolean;
   deletedAt?: Date | null;
+  heartCount?: number;
+  createdAt?: Date;
 }): Promise<{ id: number; permalinkSlug: string }> {
   const [row] = await db
     .insert(memesTable)
@@ -84,6 +86,8 @@ async function insertMeme(opts: {
       createdById: opts.createdById,
       isPublic: opts.isPublic ?? true,
       deletedAt: opts.deletedAt ?? null,
+      ...(opts.heartCount !== undefined ? { heartCount: opts.heartCount } : {}),
+      ...(opts.createdAt !== undefined ? { createdAt: opts.createdAt } : {}),
     })
     .returning();
   return { id: row.id, permalinkSlug: row.permalinkSlug };
@@ -185,6 +189,41 @@ describe("GET /facts/:factId/memes", () => {
     assert.equal(res.status, 200);
     assert.ok(Array.isArray(res.body.memes));
     assert.ok(res.body.memes.length >= 1);
+  });
+
+  it("defaults to top sort: orders memes by heartCount desc, createdAt desc tiebreak", async () => {
+    const userId = await createTestUser();
+    const factId = await insertFact("seed", { submittedById: userId });
+    const oldDate = new Date("2025-01-01T00:00:00Z");
+    const newDate = new Date("2025-06-01T00:00:00Z");
+    const a = await insertMeme({ factId, heartCount: 1, createdAt: oldDate });
+    const b = await insertMeme({ factId, heartCount: 5, createdAt: oldDate });
+    const c = await insertMeme({ factId, heartCount: 5, createdAt: newDate });
+
+    const res = await request(makeApp()).get(`/facts/${factId}/memes`);
+    assert.equal(res.status, 200);
+    const ids = res.body.memes.map((m: { id: number }) => m.id);
+    // c (5 hearts, newer) → b (5 hearts, older) → a (1 heart)
+    assert.deepEqual(ids, [c.id, b.id, a.id]);
+  });
+
+  it("orders by createdAt desc when sort=new is requested", async () => {
+    const userId = await createTestUser();
+    const factId = await insertFact("seed", { submittedById: userId });
+    const t0 = new Date("2025-01-01T00:00:00Z");
+    const t1 = new Date("2025-02-01T00:00:00Z");
+    const t2 = new Date("2025-03-01T00:00:00Z");
+    // Insert popular-but-old first to prove sort=new ignores heart count.
+    const popularOld = await insertMeme({ factId, heartCount: 99, createdAt: t0 });
+    const middle = await insertMeme({ factId, heartCount: 0, createdAt: t1 });
+    const newest = await insertMeme({ factId, heartCount: 0, createdAt: t2 });
+
+    const res = await request(makeApp())
+      .get(`/facts/${factId}/memes`)
+      .query({ sort: "new" });
+    assert.equal(res.status, 200);
+    const ids = res.body.memes.map((m: { id: number }) => m.id);
+    assert.deepEqual(ids, [newest.id, middle.id, popularOld.id]);
   });
 });
 

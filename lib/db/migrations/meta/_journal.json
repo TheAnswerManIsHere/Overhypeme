@@ -295,6 +295,13 @@
       "when": 1746547200000,
       "tag": "0041_drop_oauth_provider",
       "breakpoints": true
+    },
+    {
+      "idx": 42,
+      "version": "7",
+      "when": 1778109474807,
+      "tag": "0042_facts_share_count",
+      "breakpoints": true
     }
   ]
 }

@@ -248,6 +248,81 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
 
+  /facts/{factId}/related:
+    get:
+      operationId: listRelatedFacts
+      tags: [facts]
+      summary: List facts similar to the given fact
+      description: |
+        Returns facts that share hashtags with the given fact, scored by
+        tag-overlap count, broken by Wilson score descending. The given
+        fact and (if it is a parent) its variants are excluded. If the
+        given fact has no hashtags or there are not enough overlapping
+        candidates, the response is padded with top-Wilson-score facts.
+      parameters:
+        - name: factId
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 24
+            default: 6
+      responses:
+        "200":
+          description: Related facts
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RelatedFactsResponse"
+        "404":
+          description: Source fact not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /facts/{factId}/share:
+    post:
+      operationId: recordFactShare
+      tags: [facts]
+      summary: Record a share event for a fact and return the new shareCount
+      description: |
+        Increments the fact's shareCount counter. Called by the client
+        whenever a user opens a native share sheet, copies the link, or
+        otherwise indicates they shared the fact's URL. Rate-limited per
+        IP+userId.
+      parameters:
+        - name: factId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Updated share count
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RecordFactShareResponse"
+        "404":
+          description: Fact not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "429":
+          description: Rate-limited
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
   /facts/{factId}/rating:
     post:
       operationId: rateFact
@@ -880,6 +955,17 @@ paths:
           required: true
           schema:
             type: integer
+        - name: sort
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [top, new]
+            default: top
+          description: |
+            Result ordering. `top` (default) ranks by heart count, then
+            createdAt as tiebreak. `new` orders strictly by createdAt
+            descending.
       responses:
         "200":
           description: List of memes
@@ -1258,7 +1344,7 @@ components:
 
     FactSummary:
       type: object
-      required: [id, text, upvotes, downvotes, commentCount, hashtags, createdAt]
+      required: [id, text, upvotes, downvotes, commentCount, shareCount, hashtags, createdAt]
       properties:
         id:
           type: integer
@@ -1272,6 +1358,9 @@ components:
           type: integer
         commentCount:
           type: integer
+        shareCount:
+          type: integer
+          minimum: 0
         hashtags:
           type: array
           items:
@@ -1320,6 +1409,23 @@ components:
             $ref: "#/components/schemas/FactSummary"
         total:
           type: integer
+
+    RelatedFactsResponse:
+      type: object
+      required: [facts]
+      properties:
+        facts:
+          type: array
+          items:
+            $ref: "#/components/schemas/FactSummary"
+
+    RecordFactShareResponse:
+      type: object
+      required: [shareCount]
+      properties:
+        shareCount:
+          type: integer
+          minimum: 0
 
     HeroFactResponse:
       type: object

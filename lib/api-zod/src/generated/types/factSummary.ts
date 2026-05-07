@@ -14,6 +14,8 @@ export interface FactSummary {
   downvotes: number;
   score?: number;
   commentCount: number;
+  /** @minimum 0 */
+  shareCount: number;
   hashtags: string[];
   submittedBy?: string | null;
   submittedByImage?: string | null;
