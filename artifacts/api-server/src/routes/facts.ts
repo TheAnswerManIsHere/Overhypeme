@@ -23,6 +23,7 @@ import { getSiteBaseUrl } from "../lib/siteUrl";
 import { logger } from "../lib/logger";
 import { hasFeature } from "../lib/tierFeatures";
 import { verifyCaptcha } from "../lib/captcha";
+import { checkSharedRateLimit } from "../lib/sharedRateLimiter";
 import { eq, sql, desc, asc, ilike, and, inArray, isNull } from "drizzle-orm";
 import {
   ListFactsQueryParams, CreateFactBody, GetFactParams,
@@ -57,7 +58,7 @@ async function buildFactSummaries(facts: (typeof factsTable.$inferSelect)[], use
 
   return facts.map((f) => ({
     id: f.id, text: f.text, upvotes: f.upvotes, downvotes: f.downvotes, score: f.score, wilsonScore: f.wilsonScore,
-    commentCount: f.commentCount, hashtags: hMap.get(f.id) ?? [],
+    commentCount: f.commentCount, shareCount: f.shareCount, hashtags: hMap.get(f.id) ?? [],
     submittedBy: f.submittedById ? (sMap.get(f.submittedById)?.displayName ?? null) : null,
     submittedByImage: f.submittedById ? (sMap.get(f.submittedById)?.profileImageUrl ?? null) : null,
     userRating: userId ? (rMap.get(f.id) ?? null) : null,
@@ -231,6 +232,148 @@ router.get("/facts/:factId", async (req: Request, res: Response) => {
     id: v.id, text: v.text, useCase: v.useCase ?? null, createdAt: v.createdAt.toISOString(),
   }));
   res.json({ ...summary, rank, links, variants, parentId: fact.parentId ?? null, useCase: fact.useCase ?? null });
+});
+
+// GET /facts/:factId/related?limit=N
+// Tag-overlap-based "more facts you'll like" rail. Wilson score is the
+// tiebreak. Falls back to top-Wilson facts when the source has no
+// hashtags or candidates run out (so the rail is never empty for non-
+// trivial dbs). Excludes the source fact, its variants, and (if the
+// source is a variant) its parent.
+router.get("/facts/:factId/related", async (req: Request, res: Response) => {
+  const factId = parseInt((req.params["factId"] ?? "") as string, 10);
+  if (!Number.isFinite(factId) || factId <= 0) {
+    res.status(400).json({ error: "Invalid factId" });
+    return;
+  }
+  const rawLimit = parseInt(String(req.query["limit"] ?? ""), 10);
+  const limit = Number.isFinite(rawLimit) && rawLimit > 0 ? Math.min(rawLimit, 24) : 6;
+
+  const [source] = await db
+    .select({ id: factsTable.id, parentId: factsTable.parentId })
+    .from(factsTable)
+    .where(and(eq(factsTable.id, factId), eq(factsTable.isActive, true)))
+    .limit(1);
+  if (!source) { res.status(404).json({ error: "Fact not found" }); return; }
+
+  // Exclude self, parent (if source is a variant), and any sibling variants.
+  const rootId = source.parentId ?? source.id;
+  const excludeRows = await db
+    .select({ id: factsTable.id })
+    .from(factsTable)
+    .where(and(
+      eq(factsTable.isActive, true),
+      sql`(${factsTable.id} = ${rootId} OR ${factsTable.parentId} = ${rootId})`,
+    ));
+  const excludeIds = new Set(excludeRows.map((r) => r.id));
+
+  // Source fact's hashtags via the join table.
+  const sourceTagRows = await db
+    .select({ hashtagId: factHashtagsTable.hashtagId })
+    .from(factHashtagsTable)
+    .where(eq(factHashtagsTable.factId, factId));
+  const sourceTagIds = sourceTagRows.map((r) => r.hashtagId);
+
+  type Candidate = typeof factsTable.$inferSelect;
+  const picks: Candidate[] = [];
+  const pickedIds = new Set<number>();
+
+  if (sourceTagIds.length > 0) {
+    // Score candidates by overlap count, tie-break by Wilson desc.
+    const overlapRows = await db
+      .select({
+        factId: factHashtagsTable.factId,
+        overlap: sql<number>`count(*)::int`.as("overlap"),
+      })
+      .from(factHashtagsTable)
+      .where(and(
+        inArray(factHashtagsTable.hashtagId, sourceTagIds),
+        sql`${factHashtagsTable.factId} NOT IN (${sql.join([...excludeIds].map((id) => sql`${id}`), sql`, `)})`,
+      ))
+      .groupBy(factHashtagsTable.factId);
+
+    if (overlapRows.length > 0) {
+      const overlapMap = new Map<number, number>();
+      for (const r of overlapRows) overlapMap.set(r.factId, r.overlap);
+      const candidateIds = [...overlapMap.keys()];
+
+      const candidateRows = await db
+        .select()
+        .from(factsTable)
+        .where(and(eq(factsTable.isActive, true), inArray(factsTable.id, candidateIds)));
+
+      candidateRows.sort((a, b) => {
+        const oa = overlapMap.get(a.id) ?? 0;
+        const ob = overlapMap.get(b.id) ?? 0;
+        if (ob !== oa) return ob - oa;
+        return b.wilsonScore - a.wilsonScore;
+      });
+
+      for (const c of candidateRows) {
+        if (picks.length >= limit) break;
+        picks.push(c);
+        pickedIds.add(c.id);
+      }
+    }
+  }
+
+  // Pad with top-Wilson facts if we didn't fill the limit.
+  if (picks.length < limit) {
+    const fillerExclude = new Set([...excludeIds, ...pickedIds]);
+    const fillerConds = [eq(factsTable.isActive, true), isNull(factsTable.parentId)];
+    if (fillerExclude.size > 0) {
+      fillerConds.push(sql`${factsTable.id} NOT IN (${sql.join([...fillerExclude].map((id) => sql`${id}`), sql`, `)})`);
+    }
+    const fillerRows = await db
+      .select()
+      .from(factsTable)
+      .where(and(...fillerConds))
+      .orderBy(desc(factsTable.wilsonScore))
+      .limit(limit - picks.length);
+    for (const f of fillerRows) picks.push(f);
+  }
+
+  res.json({ facts: await buildFactSummaries(picks, req.user?.id) });
+});
+
+// POST /facts/:factId/share — increment the fact's shareCount and return the
+// new value. Used by the client when a user opens the native share sheet
+// or copies the link from any of the share affordances. Rate-limited per IP
+// (with per-user override when authenticated) so a malicious client cannot
+// spam-bump the counter; the limit is intentionally generous because a
+// single user clicking "share" several times in a row is normal.
+router.post("/facts/:factId/share", async (req: AuthenticatedRequest, res: Response) => {
+  const factId = parseInt((req.params["factId"] ?? "") as string, 10);
+  if (!Number.isFinite(factId) || factId <= 0) {
+    res.status(400).json({ error: "Invalid factId" });
+    return;
+  }
+
+  const rateLimit = await checkSharedRateLimit(
+    {
+      endpoint: "facts.share",
+      ip: req.ip ?? null,
+      userId: req.user?.id ?? null,
+    },
+    { limit: 30, windowMs: 60_000 },
+  );
+  if (!rateLimit.allowed) {
+    res.status(429).json({ error: "Too many requests" });
+    return;
+  }
+
+  const [updated] = await db
+    .update(factsTable)
+    .set({ shareCount: sql`${factsTable.shareCount} + 1` })
+    .where(and(eq(factsTable.id, factId), eq(factsTable.isActive, true)))
+    .returning({ shareCount: factsTable.shareCount });
+
+  if (!updated) {
+    res.status(404).json({ error: "Fact not found" });
+    return;
+  }
+
+  res.json({ shareCount: updated.shareCount });
 });
 
 // POST /facts — admin-only direct insert; regular users submit via POST /facts/submit-review

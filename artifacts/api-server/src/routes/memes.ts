@@ -495,6 +495,9 @@ router.get("/facts/:factId/memes", async (req: Request, res: Response) => {
   const VALID: Visibility[] = ["community", "my-public", "my-private", "mine", "public"];
   const visibility: Visibility = (VALID.includes(rawVisibility as Visibility) ? rawVisibility : "community") as Visibility;
 
+  const rawSort = req.query["sort"] as string | undefined;
+  const sort: "top" | "new" = rawSort === "new" ? "new" : "top";
+
   // auth-gated visibility modes
   const requiresAuth = visibility === "mine" || visibility === "my-public" || visibility === "my-private";
   if (requiresAuth && !req.isAuthenticated()) {
@@ -539,11 +542,14 @@ router.get("/facts/:factId/memes", async (req: Request, res: Response) => {
       : and(factFilter, eq(memesTable.isPublic, true), isNull(memesTable.deletedAt));
 
   const maxMemes = await getConfigInt("max_memes_per_fact", 40);
+  const orderBy = sort === "new"
+    ? [desc(memesTable.createdAt)]
+    : [desc(memesTable.heartCount), desc(memesTable.createdAt)];
   const memes = await db
     .select()
     .from(memesTable)
     .where(visibilityFilter)
-    .orderBy(desc(memesTable.createdAt))
+    .orderBy(...orderBy)
     .limit(maxMemes);
 
   const heartedIds = userId

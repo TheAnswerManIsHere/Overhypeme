@@ -1,13 +1,11 @@
 import { useListFacts, useListHashtags, getListHashtagsQueryKey, type FactSummary } from "@workspace/api-client-react";
 import { FactCard } from "@/components/facts/FactCard";
-import { FactCardComments } from "@/components/facts/FactCardComments";
+import { FactComments } from "@/components/facts/FactComments";
 import { Layout } from "@/components/layout/Layout";
-import { ChevronDown, ChevronUp, Flame, ThumbsUp, ThumbsDown, MessageSquare, Loader2 } from "lucide-react";
+import { ChevronDown, ChevronUp, Flame, Loader2 } from "lucide-react";
 import { Link, useLocation } from "wouter";
-import { useAppMutations } from "@/hooks/use-mutations";
 import { useAuth } from "@workspace/replit-auth-web";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useToast } from "@/hooks/use-toast";
 import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
 import { usePersonName, SHARE_LINK_ACTIVE, DEFAULT_PRONOUNS } from "@/hooks/use-person-name";
 import { useHeroFact } from "@/hooks/use-hero-fact";
@@ -74,399 +72,73 @@ function HashtagRail({
   );
 }
 
-function HeroHeadline({ rendered, name }: { rendered: string; name: string }) {
-  if (!name) {
-    return <>{rendered}</>;
-  }
-  const parts = rendered.split(name);
-  return (
-    <>
-      {parts.map((p, i) =>
-        i < parts.length - 1
-          ? <span key={i}>{p}<span className="text-primary">{name}</span></span>
-          : <span key={i}>{p}</span>
-      )}
-    </>
-  );
-}
 
-// Mobile billboard — bold hero showcase with full interaction.
-function HeroBillboardMobile({
+// Hero billboard — single component for warm-visitor desktop + mobile.
+// Retains its distinctive glow chrome but is otherwise a FactCard size="hero"
+// so the action cluster, comment expansion, and share button all flow from
+// the same shared code path as the feed and detail pages.
+function Hero({
   fact,
-  rendered,
-  name,
   onShuffle,
   isShuffling,
-  onMakeMeme,
 }: {
   fact: FactSummary | null;
-  rendered: string;
-  name: string;
   onShuffle: () => void;
   isShuffling: boolean;
-  onMakeMeme: ((factId: number) => void) | null;
 }) {
-  const { rateFact } = useAppMutations();
-  const { isAuthenticated } = useAuth();
-  const [, setLocation] = useLocation();
-  const swapKey = fact ? `f-${fact.id}` : "loading";
   const prefersReducedMotion = useReducedMotion();
-  const { toast } = useToast();
-  const [showComments, setShowComments] = useState(false);
 
-  useEffect(() => {
-    setShowComments(false);
-  }, [fact?.id]);
-
-  const handleRate = (type: "up" | "down") => {
-    if (!fact) return;
-    if (!isAuthenticated) { setLocation(`/login?from=/facts/${fact.id}`); return; }
-    const newRating = fact.userRating === type ? "none" : type;
-    rateFact.mutate({ factId: fact.id, data: { rating: newRating } });
-  };
-
-  const handleShare = async () => {
-    if (!fact) return;
-    const url = `${window.location.origin}/facts/${fact.id}`;
-    if (navigator.share) {
-      await navigator.share({ url }).catch(() => null);
-    } else {
-      const copied = await navigator.clipboard.writeText(url).then(() => true).catch(() => false);
-      if (copied) {
-        toast({ title: "Link copied to clipboard", duration: 2000 });
-      }
-    }
-  };
-
-  return (
-    <div className="px-4 pb-4">
+  if (!fact) {
+    return (
       <div
-        className="rounded-[24px] relative overflow-hidden border border-primary/25"
-        style={{ background: "linear-gradient(145deg, hsl(var(--card)) 0%, rgba(249,115,22,0.07) 100%)", boxShadow: "0 0 40px rgba(249,115,22,0.12), inset 0 1px 0 rgba(255,255,255,0.07)" }}
+        className="rounded-[24px] md:rounded-[32px] relative overflow-hidden border border-primary/25"
+        style={{
+          background: "linear-gradient(145deg, hsl(var(--card)) 0%, rgba(249,115,22,0.07) 100%)",
+          boxShadow: "0 0 60px rgba(249,115,22,0.10), inset 0 1px 0 rgba(255,255,255,0.07)",
+        }}
+        aria-hidden="true"
       >
-        {/* Badge */}
-        <div className="px-5 pt-5 flex items-center gap-2">
-          <span className="flex items-center gap-1.5 text-[10px] font-bold tracking-[0.22em] text-primary uppercase font-display">
-            <Flame className="w-3 h-3" /> Random Fact
-          </span>
+        <div className="p-5 md:px-10 md:py-8 space-y-4">
+          <div className="h-3 w-24 bg-secondary/80 animate-pulse rounded-full" />
+          <div className="h-9 w-11/12 bg-secondary/80 animate-pulse rounded-xl" />
+          <div className="h-9 w-3/4 bg-secondary/80 animate-pulse rounded-xl" />
+          <div className="h-9 w-1/2 bg-secondary/60 animate-pulse rounded-xl" />
         </div>
-
-        {/* Fact text — large and punchy */}
-        <div className="px-5 pt-4 pb-4 min-h-[9rem]">
-          <AnimatePresence mode="wait" initial={false}>
-            {fact ? (
-              <motion.h2
-                key={swapKey}
-                initial={{ opacity: prefersReducedMotion ? 1 : 0, y: prefersReducedMotion ? 0 : 8 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: prefersReducedMotion ? 1 : 0, y: prefersReducedMotion ? 0 : -8 }}
-                transition={prefersReducedMotion ? { duration: 0 } : { duration: 0.2, ease: "easeOut" }}
-                className="font-display font-bold uppercase tracking-tight leading-[0.95] text-foreground"
-                style={{ fontSize: "clamp(30px, 8.5vw, 40px)" }}
-              >
-                <Link href={`/facts/${fact.id}`} className="hover:opacity-80 transition-opacity block">
-                  <HeroHeadline rendered={rendered} name={name} />
-                </Link>
-              </motion.h2>
-            ) : (
-              <motion.div key="skeleton" className="space-y-3 pt-1" aria-hidden="true">
-                <div className="h-7 w-full rounded-lg bg-secondary/80 animate-pulse" />
-                <div className="h-7 w-5/6 rounded-lg bg-secondary/80 animate-pulse" />
-                <div className="h-7 w-4/5 rounded-lg bg-secondary/60 animate-pulse" />
-              </motion.div>
-            )}
-          </AnimatePresence>
-        </div>
-
-        {/* Hashtags */}
-        <AnimatePresence>
-          {fact && fact.hashtags.length > 0 && (
-            <motion.div
-              key={`tags-${fact.id}`}
-              initial={{ opacity: prefersReducedMotion ? 1 : 0 }}
-              animate={{ opacity: 1 }}
-              className="px-5 pb-3 flex flex-wrap gap-1.5"
-            >
-              {fact.hashtags.map(tag => (
-                <Link
-                  key={tag}
-                  href={`/search?q=%23${tag}`}
-                  className="text-[11px] font-bold font-display tracking-wide text-primary/80 hover:text-primary bg-primary/10 px-2.5 py-1 rounded-full uppercase transition-colors"
-                >
-                  #{tag}
-                </Link>
-              ))}
-            </motion.div>
-          )}
-        </AnimatePresence>
-
-        {/* Engagement footer */}
-        <div className="px-5 pb-5 pt-3 border-t border-primary/15 flex items-center justify-between gap-3">
-          <div className="flex items-center gap-4">
-            <div className={cn(
-              "inline-flex items-center rounded-full border h-10 transition-colors",
-              fact?.userRating === "up"
-                ? "bg-primary/[0.14] border-primary text-primary"
-                : "bg-secondary border-border/80 text-foreground"
-            )}>
-              <button
-                onClick={() => handleRate("up")}
-                disabled={rateFact.isPending || !fact}
-                className="flex items-center gap-2 pl-3.5 pr-2.5 h-full"
-                title="Upvote"
-              >
-                <ThumbsUp className={cn("w-5 h-5", fact?.userRating === "up" && "fill-current")} />
-                <span className="text-sm font-bold">{fact?.upvotes ?? 0}</span>
-              </button>
-              <span className="w-px h-4 bg-border/80 flex-shrink-0" />
-              <button
-                onClick={() => handleRate("down")}
-                disabled={rateFact.isPending || !fact}
-                className={cn(
-                  "flex items-center px-3 h-full transition-colors",
-                  fact?.userRating === "down" ? "text-destructive" : "text-muted-foreground/60 hover:text-muted-foreground"
-                )}
-                title="Downvote"
-              >
-                <ThumbsDown className={cn("w-4 h-4", fact?.userRating === "down" && "fill-current")} />
-              </button>
-            </div>
-            {fact && (
-              <button
-                onClick={() => setShowComments((v) => !v)}
-                className={`flex items-center gap-1.5 transition-colors ${showComments ? "text-primary" : "text-muted-foreground hover:text-foreground"}`}
-              >
-                <MessageSquare className="w-5 h-5" />
-                <span className="text-xs font-bold">{fact.commentCount}</span>
-              </button>
-            )}
-            <button onClick={handleShare} disabled={!fact} className="text-muted-foreground hover:text-foreground transition-colors disabled:opacity-40">
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24">
-                <line x1="22" y1="2" x2="11" y2="13" /><polygon points="22 2 15 22 11 13 2 9 22 2" />
-              </svg>
-            </button>
-          </div>
-          <div className="flex items-center gap-2">
-            {fact && onMakeMeme && (
-              <button
-                onClick={() => onMakeMeme(fact.id)}
-                className="flex-shrink-0 flex items-center gap-1.5 px-3 py-2 bg-primary text-white rounded-full text-[11px] font-display font-bold uppercase tracking-[0.1em] hover:bg-primary/90 active:scale-95 transition-all shadow-[0_0_16px_rgba(249,115,22,0.45)]"
-              >
-                <Flame className="w-3 h-3" />
-                Make a Meme
-              </button>
-            )}
-            <button
-              onClick={onShuffle}
-              disabled={isShuffling}
-              className="flex-shrink-0 flex items-center gap-1.5 px-3 py-2 bg-secondary border border-border text-foreground rounded-full text-[11px] font-display font-bold uppercase tracking-[0.1em] hover:border-primary/50 hover:text-primary active:scale-95 transition-all disabled:opacity-60"
-            >
-              {isShuffling ? <Loader2 className="w-3 h-3 animate-spin" /> : <Flame className="w-3 h-3" />}
-              Next Random Fact
-            </button>
-          </div>
-        </div>
-        <AnimatePresence>
-          {showComments && fact && (
-            <div className="px-5 pb-2">
-              <FactCardComments key={fact.id} fact={fact} name={name} />
-            </div>
-          )}
-        </AnimatePresence>
       </div>
+    );
+  }
+
+  const headerSlot = (
+    <div className="flex items-center justify-between mb-2 md:mb-4 gap-3">
+      <span className="flex items-center gap-1.5 text-[10px] md:text-[11px] font-bold tracking-[0.2em] text-primary uppercase font-display">
+        <Flame className="w-3 h-3 md:w-3.5 md:h-3.5" /> Random Fact
+      </span>
+      <button
+        onClick={onShuffle}
+        disabled={isShuffling}
+        className="flex items-center gap-1.5 md:gap-2 px-3 md:px-5 py-1.5 md:py-2.5 bg-secondary border border-border text-foreground rounded-full text-[11px] md:text-[12px] font-display font-bold uppercase tracking-[0.1em] md:tracking-[0.12em] hover:border-primary/50 hover:text-primary active:scale-95 transition-all disabled:opacity-60"
+      >
+        {isShuffling ? <Loader2 className="w-3 h-3 md:w-3.5 md:h-3.5 animate-spin" /> : <Flame className="w-3 h-3 md:w-3.5 md:h-3.5" />}
+        Next Random Fact
+      </button>
     </div>
   );
-}
-
-// Desktop billboard — bold hero showcase with full interaction.
-function DesktopHeroBillboard({
-  fact,
-  rendered,
-  name,
-  onShuffle,
-  isShuffling,
-  onMakeMeme,
-}: {
-  fact: FactSummary | null;
-  rendered: string;
-  name: string;
-  onShuffle: () => void;
-  isShuffling: boolean;
-  onMakeMeme: ((factId: number) => void) | null;
-}) {
-  const { rateFact } = useAppMutations();
-  const { isAuthenticated } = useAuth();
-  const [, setLocation] = useLocation();
-  const swapKey = fact ? `f-${fact.id}` : "loading";
-  const prefersReducedMotion = useReducedMotion();
-  const { toast } = useToast();
-  const [showComments, setShowComments] = useState(false);
-
-  useEffect(() => {
-    setShowComments(false);
-  }, [fact?.id]);
-
-  const handleRate = (type: "up" | "down") => {
-    if (!fact) return;
-    if (!isAuthenticated) { setLocation(`/login?from=/facts/${fact.id}`); return; }
-    const newRating = fact.userRating === type ? "none" : type;
-    rateFact.mutate({ factId: fact.id, data: { rating: newRating } });
-  };
-
-  const handleShare = async () => {
-    if (!fact) return;
-    const url = `${window.location.origin}/facts/${fact.id}`;
-    if (navigator.share) {
-      await navigator.share({ url }).catch(() => null);
-    } else {
-      const copied = await navigator.clipboard.writeText(url).then(() => true).catch(() => false);
-      if (copied) {
-        toast({ title: "Link copied to clipboard", duration: 2000 });
-      }
-    }
-  };
 
   return (
-    <div
-      className="rounded-[32px] relative overflow-hidden border border-primary/20"
-      style={{ background: "linear-gradient(145deg, hsl(var(--card)) 0%, rgba(249,115,22,0.06) 100%)", boxShadow: "0 0 60px rgba(249,115,22,0.10), inset 0 1px 0 rgba(255,255,255,0.07)" }}
-    >
-      {/* Header row */}
-      <div className="px-10 pt-8 pb-0 flex items-center justify-between">
-        <span className="flex items-center gap-2 text-[11px] font-bold tracking-[0.2em] text-primary uppercase font-display">
-          <Flame className="w-3.5 h-3.5" /> Random Fact
-        </span>
-        <button
-          onClick={onShuffle}
-          disabled={isShuffling}
-          className="flex items-center gap-2 px-5 py-2.5 bg-secondary border border-border text-foreground rounded-full text-[12px] font-display font-bold uppercase tracking-[0.12em] hover:border-primary/50 hover:text-primary active:scale-95 transition-all disabled:opacity-60"
-        >
-          {isShuffling ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Flame className="w-3.5 h-3.5" />}
-          Next Random Fact
-        </button>
-      </div>
-
-      {/* Fact text */}
-      <div className="px-10 pt-7 pb-6 min-h-[9rem]">
-        <AnimatePresence mode="wait" initial={false}>
-          {fact ? (
-            <motion.h2
-              key={swapKey}
-              initial={{ opacity: prefersReducedMotion ? 1 : 0, y: prefersReducedMotion ? 0 : 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: prefersReducedMotion ? 1 : 0, y: prefersReducedMotion ? 0 : -10 }}
-              transition={prefersReducedMotion ? { duration: 0 } : { duration: 0.22, ease: "easeOut" }}
-              className="font-display font-bold text-[56px] leading-[0.93] uppercase tracking-tight"
-              style={{ textWrap: "pretty" } as React.CSSProperties}
-            >
-              <Link href={`/facts/${fact.id}`} className="hover:opacity-80 transition-opacity block">
-                <HeroHeadline rendered={rendered} name={name} />
-              </Link>
-            </motion.h2>
-          ) : (
-            <motion.div key="skeleton" className="space-y-4 pt-2" aria-hidden="true">
-              <div className="h-12 w-11/12 rounded-xl bg-secondary/80 animate-pulse" />
-              <div className="h-12 w-3/4 rounded-xl bg-secondary/80 animate-pulse" />
-              <div className="h-12 w-1/2 rounded-xl bg-secondary/60 animate-pulse" />
-            </motion.div>
-          )}
-        </AnimatePresence>
-      </div>
-
-      {/* Hashtags */}
-      <AnimatePresence>
-        {fact && fact.hashtags.length > 0 && (
-          <motion.div
-            key={`tags-${fact.id}`}
-            initial={{ opacity: prefersReducedMotion ? 1 : 0 }}
-            animate={{ opacity: 1 }}
-            className="px-10 pb-6 flex flex-wrap gap-2"
-          >
-            {fact.hashtags.map(tag => (
-              <Link
-                key={tag}
-                href={`/search?q=%23${tag}`}
-                className="text-[12px] font-bold font-display tracking-wide text-primary/80 hover:text-primary bg-primary/10 px-3 py-1.5 rounded-full uppercase transition-colors"
-              >
-                #{tag}
-              </Link>
-            ))}
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      {/* Footer: engagement + CTAs */}
-      <div className="px-10 pb-8 pt-4 border-t border-primary/15 flex items-center justify-between min-h-[60px]">
-        <div className="flex items-center gap-5">
-          <div className={cn(
-            "inline-flex items-center rounded-full border h-10 transition-colors",
-            fact?.userRating === "up"
-              ? "bg-primary/[0.14] border-primary text-primary"
-              : "bg-secondary border-border/80 text-foreground"
-          )}>
-            <button
-              onClick={() => handleRate("up")}
-              disabled={rateFact.isPending || !fact}
-              className="flex items-center gap-2 pl-3.5 pr-2.5 h-full"
-              title="Upvote"
-            >
-              <ThumbsUp className={cn("w-5 h-5", fact?.userRating === "up" && "fill-current")} />
-              <span className="text-sm font-bold">{fact?.upvotes ?? 0}</span>
-            </button>
-            <span className="w-px h-4 bg-border/80 flex-shrink-0" />
-            <button
-              onClick={() => handleRate("down")}
-              disabled={rateFact.isPending || !fact}
-              className={cn(
-                "flex items-center px-3 h-full transition-colors",
-                fact?.userRating === "down" ? "text-destructive" : "text-muted-foreground/60 hover:text-muted-foreground"
-              )}
-              title="Downvote"
-            >
-              <ThumbsDown className={cn("w-4 h-4", fact?.userRating === "down" && "fill-current")} />
-            </button>
-          </div>
-          {fact && (
-            <button
-              onClick={() => setShowComments((v) => !v)}
-              className={`flex items-center gap-2 text-[13px] font-bold transition-colors ${showComments ? "text-primary" : "text-muted-foreground hover:text-foreground"}`}
-            >
-              <MessageSquare className="w-5 h-5" />
-              {fact.commentCount}
-            </button>
-          )}
-          <button onClick={handleShare} disabled={!fact} className="text-muted-foreground hover:text-foreground transition-colors disabled:opacity-40">
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24">
-              <line x1="22" y1="2" x2="11" y2="13" /><polygon points="22 2 15 22 11 13 2 9 22 2" />
-            </svg>
-          </button>
-        </div>
-        <AnimatePresence mode="wait" initial={false}>
-          {fact && onMakeMeme && (
-            <motion.button
-              key={`meme-${fact.id}`}
-              initial={{ opacity: prefersReducedMotion ? 1 : 0, scale: prefersReducedMotion ? 1 : 0.96 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: prefersReducedMotion ? 1 : 0, scale: prefersReducedMotion ? 1 : 0.96 }}
-              transition={prefersReducedMotion ? { duration: 0 } : { duration: 0.18 }}
-              onClick={() => onMakeMeme(fact.id)}
-              className="h-[44px] px-7 bg-primary text-white rounded-[12px] font-display font-bold text-[13px] uppercase tracking-[0.1em] hover:bg-primary/90 transition-colors shadow-[0_0_20px_rgba(249,115,22,0.35)]"
-            >
-              Make a meme
-            </motion.button>
-          )}
-        </AnimatePresence>
-      </div>
-      <AnimatePresence>
-        {showComments && fact && (
-          <div className="px-10 pb-8">
-            <FactCardComments key={fact.id} fact={fact} name={name} />
-          </div>
-        )}
-      </AnimatePresence>
-    </div>
+    <AnimatePresence mode="wait" initial={false}>
+      <motion.div
+        key={fact.id}
+        initial={{ opacity: prefersReducedMotion ? 1 : 0, y: prefersReducedMotion ? 0 : 8 }}
+        animate={{ opacity: 1, y: 0 }}
+        exit={{ opacity: prefersReducedMotion ? 1 : 0, y: prefersReducedMotion ? 0 : -8 }}
+        transition={prefersReducedMotion ? { duration: 0 } : { duration: 0.22, ease: "easeOut" }}
+      >
+        <FactCard fact={fact} size="hero" headerSlot={headerSlot} />
+      </motion.div>
+    </AnimatePresence>
   );
 }
+
 
 // Full-screen cold-visitor hero for mobile — shows the teaser fact with a
 // demo name, then a bottom-panel "YOUR TURN." name capture form.
@@ -495,7 +167,11 @@ function ColdMobileHero({ onSubmit }: { onSubmit: (name: string) => void }) {
 
         <h2 className="font-display font-bold uppercase tracking-tight leading-[0.95] text-foreground"
           style={{ fontSize: "clamp(36px, 10vw, 52px)" }}>
-          <HeroHeadline rendered={COLD_DEMO_RENDERED} name={DEMO_NAME} />
+          {COLD_DEMO_RENDERED.split(DEMO_NAME).map((p, i, arr) =>
+            i < arr.length - 1
+              ? <span key={i}>{p}<span className="text-primary">{DEMO_NAME}</span></span>
+              : <span key={i}>{p}</span>
+          )}
         </h2>
 
         <button
@@ -999,13 +675,10 @@ export default function Home() {
                 </div>
               </div>
             ) : (
-              <DesktopHeroBillboard
+              <Hero
                 fact={heroFact}
-                rendered={heroRendered}
-                name={name}
                 onShuffle={shuffleHero}
                 isShuffling={heroLoading}
-                onMakeMeme={(factId) => setLocation(`/facts/${factId}`)}
               />
             )}
           </div>
@@ -1018,14 +691,11 @@ export default function Home() {
           {isCold ? (
             <ColdMobileHero onSubmit={handleNameSubmit} />
           ) : (
-            <div className="pt-3">
-              <HeroBillboardMobile
+            <div className="px-4 pb-4 pt-3">
+              <Hero
                 fact={heroFact}
-                rendered={heroRendered}
-                name={name}
                 onShuffle={shuffleHero}
                 isShuffling={heroLoading}
-                onMakeMeme={(factId) => setLocation(`/facts/${factId}/meme`)}
               />
             </div>
           )}

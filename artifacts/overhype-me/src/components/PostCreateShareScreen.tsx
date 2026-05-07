@@ -393,7 +393,7 @@ export function PostCreateShareScreen({
         {permalinkSlug && (
           <Link href={`/meme/${permalinkSlug}?just_created=1&source=${source}`} className="flex-1 min-w-[140px]">
             <Button size="sm" variant="outline" className="w-full gap-2">
-              <Share2 className="w-4 h-4" /> View permalink
+              <Share2 className="w-4 h-4" /> Open meme
             </Button>
           </Link>
         )}

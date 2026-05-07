@@ -224,6 +224,7 @@ export function NameTag() {
     return (
       <button
         onClick={() => setLocation("/profile")}
+        data-action="edit-name"
         className="group flex items-center gap-1.5 bg-secondary hover:bg-secondary/80 border border-border hover:border-primary/40 rounded-sm px-3 py-1.5 transition-all"
         title="Edit your profile"
       >
@@ -244,6 +245,7 @@ export function NameTag() {
       {/* Trigger button */}
       <button
         onClick={handleOpen}
+        data-action="edit-name"
         className="group flex items-center gap-1.5 bg-secondary hover:bg-secondary/80 border border-border hover:border-primary/40 rounded-sm px-3 py-1.5 transition-all"
         title="Change name & pronouns"
       >

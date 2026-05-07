@@ -185,6 +185,8 @@ export interface FactSummary {
   downvotes: number;
   score?: number;
   commentCount: number;
+  /** @minimum 0 */
+  shareCount: number;
   hashtags: string[];
   submittedBy?: string | null;
   submittedByImage?: string | null;
@@ -212,6 +214,15 @@ export type FactDetail = FactSummary & {
 export interface FactListResponse {
   facts: FactSummary[];
   total: number;
+}
+
+export interface RelatedFactsResponse {
+  facts: FactSummary[];
+}
+
+export interface RecordFactShareResponse {
+  /** @minimum 0 */
+  shareCount: number;
 }
 
 export interface HeroFactResponse {
@@ -586,6 +597,14 @@ export type GetHeroFactParams = {
   exclude?: string;
 };
 
+export type ListRelatedFactsParams = {
+  /**
+   * @minimum 1
+   * @maximum 24
+   */
+  limit?: number;
+};
+
 export type ListCommentsParams = {
   limit?: number;
   offset?: number;
@@ -639,6 +658,24 @@ export type GetAdminFlaggedComments200CommentsItem = {
 export type GetAdminFlaggedComments200 = {
   comments: GetAdminFlaggedComments200CommentsItem[];
 };
+
+export type ListFactMemesParams = {
+  /**
+ * Result ordering. `top` (default) ranks by heart count, then
+createdAt as tiebreak. `new` orders strictly by createdAt
+descending.
+
+ */
+  sort?: ListFactMemesSort;
+};
+
+export type ListFactMemesSort =
+  (typeof ListFactMemesSort)[keyof typeof ListFactMemesSort];
+
+export const ListFactMemesSort = {
+  top: "top",
+  new: "new",
+} as const;
 
 export type GetAffiliateStatsParams = {
   /**

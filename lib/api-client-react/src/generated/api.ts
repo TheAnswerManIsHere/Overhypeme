@@ -46,15 +46,19 @@ import type {
   HeroFactResponse,
   LinkListResponse,
   ListCommentsParams,
+  ListFactMemesParams,
   ListFactsParams,
   ListHashtagsParams,
+  ListRelatedFactsParams,
   MemeDetail,
   MemeListResponse,
   MemeRecord,
   MemeTemplateListResponse,
   RateFactRequest,
   RatingResult,
+  RecordFactShareResponse,
   RecordSearchRequest,
+  RelatedFactsResponse,
   SuggestHashtags200,
   SuggestHashtagsBody,
   UpdateNotificationsRequest,
@@ -853,6 +857,214 @@ export function useGetFact<
 
   return { ...query, queryKey: queryOptions.queryKey };
 }
+
+/**
+ * Returns facts that share hashtags with the given fact, scored by
+tag-overlap count, broken by Wilson score descending. The given
+fact and (if it is a parent) its variants are excluded. If the
+given fact has no hashtags or there are not enough overlapping
+candidates, the response is padded with top-Wilson-score facts.
+
+ * @summary List facts similar to the given fact
+ */
+export const getListRelatedFactsUrl = (
+  factId: number,
+  params?: ListRelatedFactsParams,
+) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/facts/${factId}/related?${stringifiedParams}`
+    : `/api/facts/${factId}/related`;
+};
+
+export const listRelatedFacts = async (
+  factId: number,
+  params?: ListRelatedFactsParams,
+  options?: RequestInit,
+): Promise<RelatedFactsResponse> => {
+  return customFetch<RelatedFactsResponse>(
+    getListRelatedFactsUrl(factId, params),
+    {
+      ...options,
+      method: "GET",
+    },
+  );
+};
+
+export const getListRelatedFactsQueryKey = (
+  factId: number,
+  params?: ListRelatedFactsParams,
+) => {
+  return [`/api/facts/${factId}/related`, ...(params ? [params] : [])] as const;
+};
+
+export const getListRelatedFactsQueryOptions = <
+  TData = Awaited<ReturnType<typeof listRelatedFacts>>,
+  TError = ErrorType<ErrorEnvelope>,
+>(
+  factId: number,
+  params?: ListRelatedFactsParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof listRelatedFacts>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getListRelatedFactsQueryKey(factId, params);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof listRelatedFacts>>
+  > = ({ signal }) =>
+    listRelatedFacts(factId, params, { signal, ...requestOptions });
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: !!factId,
+    ...queryOptions,
+  } as UseQueryOptions<
+    Awaited<ReturnType<typeof listRelatedFacts>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type ListRelatedFactsQueryResult = NonNullable<
+  Awaited<ReturnType<typeof listRelatedFacts>>
+>;
+export type ListRelatedFactsQueryError = ErrorType<ErrorEnvelope>;
+
+/**
+ * @summary List facts similar to the given fact
+ */
+
+export function useListRelatedFacts<
+  TData = Awaited<ReturnType<typeof listRelatedFacts>>,
+  TError = ErrorType<ErrorEnvelope>,
+>(
+  factId: number,
+  params?: ListRelatedFactsParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof listRelatedFacts>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getListRelatedFactsQueryOptions(factId, params, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * Increments the fact's shareCount counter. Called by the client
+whenever a user opens a native share sheet, copies the link, or
+otherwise indicates they shared the fact's URL. Rate-limited per
+IP+userId.
+
+ * @summary Record a share event for a fact and return the new shareCount
+ */
+export const getRecordFactShareUrl = (factId: number) => {
+  return `/api/facts/${factId}/share`;
+};
+
+export const recordFactShare = async (
+  factId: number,
+  options?: RequestInit,
+): Promise<RecordFactShareResponse> => {
+  return customFetch<RecordFactShareResponse>(getRecordFactShareUrl(factId), {
+    ...options,
+    method: "POST",
+  });
+};
+
+export const getRecordFactShareMutationOptions = <
+  TError = ErrorType<ErrorEnvelope>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof recordFactShare>>,
+    TError,
+    { factId: number },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof recordFactShare>>,
+  TError,
+  { factId: number },
+  TContext
+> => {
+  const mutationKey = ["recordFactShare"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof recordFactShare>>,
+    { factId: number }
+  > = (props) => {
+    const { factId } = props ?? {};
+
+    return recordFactShare(factId, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type RecordFactShareMutationResult = NonNullable<
+  Awaited<ReturnType<typeof recordFactShare>>
+>;
+
+export type RecordFactShareMutationError = ErrorType<ErrorEnvelope>;
+
+/**
+ * @summary Record a share event for a fact and return the new shareCount
+ */
+export const useRecordFactShare = <
+  TError = ErrorType<ErrorEnvelope>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof recordFactShare>>,
+    TError,
+    { factId: number },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof recordFactShare>>,
+  TError,
+  { factId: number },
+  TContext
+> => {
+  return useMutation(getRecordFactShareMutationOptions(options));
+};
 
 /**
  * @summary Rate a fact (upvote or downvote)
@@ -2754,22 +2966,41 @@ export function useGetMemeBySlug<
 /**
  * @summary List memes generated for a specific fact
  */
-export const getListFactMemesUrl = (factId: number) => {
-  return `/api/facts/${factId}/memes`;
+export const getListFactMemesUrl = (
+  factId: number,
+  params?: ListFactMemesParams,
+) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/facts/${factId}/memes?${stringifiedParams}`
+    : `/api/facts/${factId}/memes`;
 };
 
 export const listFactMemes = async (
   factId: number,
+  params?: ListFactMemesParams,
   options?: RequestInit,
 ): Promise<MemeListResponse> => {
-  return customFetch<MemeListResponse>(getListFactMemesUrl(factId), {
+  return customFetch<MemeListResponse>(getListFactMemesUrl(factId, params), {
     ...options,
     method: "GET",
   });
 };
 
-export const getListFactMemesQueryKey = (factId: number) => {
-  return [`/api/facts/${factId}/memes`] as const;
+export const getListFactMemesQueryKey = (
+  factId: number,
+  params?: ListFactMemesParams,
+) => {
+  return [`/api/facts/${factId}/memes`, ...(params ? [params] : [])] as const;
 };
 
 export const getListFactMemesQueryOptions = <
@@ -2777,6 +3008,7 @@ export const getListFactMemesQueryOptions = <
   TError = ErrorType<unknown>,
 >(
   factId: number,
+  params?: ListFactMemesParams,
   options?: {
     query?: UseQueryOptions<
       Awaited<ReturnType<typeof listFactMemes>>,
@@ -2788,11 +3020,12 @@ export const getListFactMemesQueryOptions = <
 ) => {
   const { query: queryOptions, request: requestOptions } = options ?? {};
 
-  const queryKey = queryOptions?.queryKey ?? getListFactMemesQueryKey(factId);
+  const queryKey =
+    queryOptions?.queryKey ?? getListFactMemesQueryKey(factId, params);
 
   const queryFn: QueryFunction<Awaited<ReturnType<typeof listFactMemes>>> = ({
     signal,
-  }) => listFactMemes(factId, { signal, ...requestOptions });
+  }) => listFactMemes(factId, params, { signal, ...requestOptions });
 
   return {
     queryKey,
@@ -2820,6 +3053,7 @@ export function useListFactMemes<
   TError = ErrorType<unknown>,
 >(
   factId: number,
+  params?: ListFactMemesParams,
   options?: {
     query?: UseQueryOptions<
       Awaited<ReturnType<typeof listFactMemes>>,
@@ -2829,7 +3063,7 @@ export function useListFactMemes<
     request?: SecondParameter<typeof customFetch>;
   },
 ): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
-  const queryOptions = getListFactMemesQueryOptions(factId, options);
+  const queryOptions = getListFactMemesQueryOptions(factId, params, options);
 
   const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
     queryKey: QueryKey;
