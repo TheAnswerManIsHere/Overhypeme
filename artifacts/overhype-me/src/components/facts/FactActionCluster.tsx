@@ -7,7 +7,7 @@ import { useAuth } from "@workspace/replit-auth-web";
 import { cn } from "@/components/ui/Button";
 import { useToast } from "@/hooks/use-toast";
 
-type Size = "sm" | "md";
+type Size = "sm" | "md" | "lg";
 
 type Props = {
   fact: FactSummary;
@@ -57,6 +57,19 @@ const SIZES: Record<Size, {
     ctaPad: "px-3.5 py-2",
     ctaText: "text-[12px]",
     ctaIcon: "w-3.5 h-3.5",
+  },
+  lg: {
+    pillH: "h-10",
+    pillUpPad: "pl-3.5 pr-2.5",
+    pillDownPad: "px-3",
+    pillIcon: "w-5 h-5",
+    countText: "text-sm font-bold",
+    divH: "h-4",
+    iconLg: "w-5 h-5",
+    iconCount: "text-[13px] font-bold",
+    ctaPad: "px-7 py-2.5",
+    ctaText: "text-[13px]",
+    ctaIcon: "w-4 h-4",
   },
 };
 

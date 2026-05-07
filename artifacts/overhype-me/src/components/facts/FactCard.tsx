@@ -1,4 +1,4 @@
-import { useState, useRef, useLayoutEffect, useCallback, useEffect } from "react";
+import { useState, useRef, useLayoutEffect, useCallback, useEffect, type ReactNode } from "react";
 import { Link } from "wouter";
 import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
 import { FactSummary } from "@workspace/api-client-react";
@@ -23,15 +23,25 @@ function HighlightName({ text, name }: { text: string; name: string }) {
   );
 }
 
+type Size = "feed" | "hero";
+
 export function FactCard({
   fact,
   rank,
   showRank = false,
-  index = 0,
+  size = "feed",
+  headerSlot,
 }: {
   fact: FactSummary;
   rank?: number;
   showRank?: boolean;
+  /** Visual scale + chrome. `feed` is the default; `hero` adds a glow
+      gradient border, larger text, and a slot above the body for
+      a "Random Fact" badge + "Next Random Fact" button. */
+  size?: Size;
+  /** Optional content rendered above the body — used by the hero
+      to host the badge + shuffle button. */
+  headerSlot?: ReactNode;
   index?: number;
 }) {
   const { name, pronouns } = usePersonName();
@@ -95,6 +105,7 @@ export function FactCard({
   }, []);
 
   const commentsRegionId = `fact-${fact.id}-comments`;
+  const isHero = size === "hero";
 
   return (
     <motion.div
@@ -102,36 +113,68 @@ export function FactCard({
       initial={{ opacity: 0 }}
       animate={{ opacity: show ? 1 : 0 }}
       transition={instant ? { duration: 0 } : { duration: 0.4, ease: "easeOut" }}
-      whileHover={prefersReducedMotion ? undefined : { y: -3 }}
+      whileHover={isHero || prefersReducedMotion ? undefined : { y: -3 }}
       onKeyDown={handleEscape}
       className={cn(
-        "relative group block bg-card rounded-[20px] shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] border transition-all duration-300 overflow-hidden",
-        expanded ? "border-primary/25" : "border-border hover:border-primary/40"
+        "relative group block transition-all duration-300 overflow-hidden",
+        isHero
+          ? "rounded-[24px] md:rounded-[32px] border border-primary/25"
+          : cn(
+              "bg-card rounded-[20px] shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] border",
+              expanded ? "border-primary/25" : "border-border hover:border-primary/40",
+            ),
       )}
+      style={isHero ? {
+        background: "linear-gradient(145deg, hsl(var(--card)) 0%, rgba(249,115,22,0.07) 100%)",
+        boxShadow: "0 0 60px rgba(249,115,22,0.10), inset 0 1px 0 rgba(255,255,255,0.07)",
+      } : undefined}
     >
-      {showRank && rank && (
+      {showRank && rank && !isHero && (
         <div className="absolute top-0 left-0 min-w-[2.5rem] h-10 px-2 bg-primary text-primary-foreground font-display font-bold text-xl flex items-center justify-center z-10 rounded-tl-[20px] rounded-br-[12px]">
           #{rank}
         </div>
       )}
 
-      <div className={cn("relative z-10 p-5 sm:p-6", showRank && rank && "pt-14 sm:pt-14")}>
-        {/* Fact text — tap to expand */}
-        <button onClick={() => toggle(fact.id)} className="block w-full text-left mb-4">
-          <h3 className="text-lg sm:text-xl md:text-2xl font-display font-bold text-foreground leading-tight uppercase tracking-tight">
-            {'"'}<HighlightName text={renderFact(fact.text, name, pronouns)} name={name} />{'"'}
-          </h3>
-        </button>
+      {headerSlot && (
+        <div className={cn("relative z-10", isHero ? "px-5 md:px-10 pt-5 md:pt-8" : "px-5 sm:px-6 pt-5")}>
+          {headerSlot}
+        </div>
+      )}
+
+      <div className={cn(
+        "relative z-10",
+        isHero ? "p-5 md:px-10 md:py-7" : "p-5 sm:p-6",
+        showRank && rank && !isHero && "pt-14 sm:pt-14",
+      )}>
+        {/* Fact text — tap to expand on feed; on hero, links to detail */}
+        {isHero ? (
+          <Link href={`/facts/${fact.id}`} className="block w-full text-left mb-4 hover:opacity-90 transition-opacity">
+            <h2 className="font-display font-bold text-foreground leading-[0.95] uppercase tracking-tight" style={{ fontSize: "clamp(28px, 6.5vw, 56px)", textWrap: "pretty" } as React.CSSProperties}>
+              {'"'}<HighlightName text={renderFact(fact.text, name, pronouns)} name={name} />{'"'}
+            </h2>
+          </Link>
+        ) : (
+          <button onClick={() => toggle(fact.id)} className="block w-full text-left mb-4">
+            <h3 className="text-lg sm:text-xl md:text-2xl font-display font-bold text-foreground leading-tight uppercase tracking-tight">
+              {'"'}<HighlightName text={renderFact(fact.text, name, pronouns)} name={name} />{'"'}
+            </h3>
+          </button>
+        )}
 
         {/* Hashtags */}
         {fact.hashtags.length > 0 && (
-          <div className="flex flex-wrap gap-1.5 mb-4">
+          <div className={cn("flex flex-wrap gap-1.5 mb-4", isHero && "gap-2 mb-5")}>
             {fact.hashtags.map(tag => (
               <Link
                 key={tag}
                 href={`/search?q=%23${tag}`}
                 onClick={e => e.stopPropagation()}
-                className="text-xs font-semibold font-display tracking-wide text-muted-foreground hover:text-primary transition-colors bg-secondary/80 px-2.5 py-1 rounded-full uppercase"
+                className={cn(
+                  "font-semibold font-display tracking-wide transition-colors uppercase",
+                  isHero
+                    ? "text-[12px] text-primary/80 hover:text-primary bg-primary/10 px-3 py-1.5 rounded-full"
+                    : "text-xs text-muted-foreground hover:text-primary bg-secondary/80 px-2.5 py-1 rounded-full",
+                )}
               >
                 #{tag}
               </Link>
@@ -140,11 +183,14 @@ export function FactCard({
         )}
 
         {/* Engagement row */}
-        <div className="pt-3 border-t border-border/50">
+        <div className={cn(
+          "border-t",
+          isHero ? "pt-4 border-primary/15" : "pt-3 border-border/50",
+        )}>
           <FactActionCluster
             fact={{ ...fact, commentCount: fact.commentCount + commentCountDelta }}
             onCommentClick={() => toggle(fact.id)}
-            size="sm"
+            size={isHero ? "lg" : "sm"}
             commentAriaExpanded={expanded}
             commentAriaControls={commentsRegionId}
           />
