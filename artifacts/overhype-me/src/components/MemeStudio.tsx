@@ -26,11 +26,23 @@ import { useAuth } from "@workspace/replit-auth-web";
 import { AccessGate } from "@/components/AccessGate";
 import { cn } from "@/lib/utils";
 import type { VideoTabProps } from "@/components/MemeStudioVideoTab";
+import type { BuilderResult } from "@/components/meme-builder/types";
+import {
+  studioPathToMode,
+  roleToTier,
+  extractObjectPath,
+  type StudioImagePath,
+} from "@/components/meme-builder/integration/studioAdapter";
 
 // ─── Lazy sub-chunks ─────────────────────────────────────────────────────────
 
+// Phase 3 → 5 transition: route every studio image path through the new
+// universal MemeBuilder. The legacy `MemeBuilder.tsx` is kept on disk for
+// reference (tests still import the new file directly) but is no longer
+// mounted in production. Phase 5 will delete the legacy file once we've
+// soaked the new flow.
 const MemeBuilder = lazyWithRetry(() =>
-  import("@/components/MemeBuilder").then((m) => ({ default: m.MemeBuilder }))
+  import("@/components/meme-builder/MemeBuilder").then((m) => ({ default: m.MemeBuilder }))
 );
 
 const VideoTab = lazyWithRetry(() => import("@/components/MemeStudioVideoTab"));
@@ -542,19 +554,14 @@ function PathView({
       );
     }
 
-    const initialPathMode = pathToImageMode(path);
     return (
       <Suspense fallback={<PathLoader />}>
-        <MemeBuilder
+        <NewBuilderAdapter
+          path={path}
           factId={factId}
           factText={factText}
           rawFactText={rawFactText}
-          pexelsImages={pexelsImages}
-          aiMemeImages={aiMemeImages}
           onClose={onClose}
-          defaultPrivate={defaultPrivate}
-          embedded
-          initialPathMode={initialPathMode}
         />
       </Suspense>
     );
@@ -609,24 +616,93 @@ function PathView({
   return null;
 }
 
-// ─── Helpers ────────────────────────────────────────────────────────────────
+// ─── New-builder adapter ────────────────────────────────────────────────────
 
-function pathToImageMode(
-  p: StudioPath
-): "identity" | "stock" | "gradient" | "ai" | "upload" | undefined {
-  switch (p) {
-    case "ai-gallery":
-      return "ai";
-    case "photo-image":
-      return "identity";
-    case "stock-image":
-      return "stock";
-    case "gradient-image":
-      return "gradient";
-    default:
-      return undefined;
-  }
+/**
+ * Bridges the studio's path-based prop surface to the new universal
+ * MemeBuilder's (mode, tier, entryFlow, viewerContext) interface. Phase 3
+ * → 5 transition: legacy builder is no longer mounted; this adapter is the
+ * only thing in the studio that knows about the new component.
+ *
+ * Path mapping:
+ *   stock-image    → mode: 'stock'
+ *   photo-image    → mode: 'self-upload'
+ *   ai-gallery     → mode: 'self-upload' (legendary stylize toggle is exposed)
+ *   gradient-image → mode: 'stock' (gradient is being deprecated; stock is
+ *                                    the closest replacement so the user
+ *                                    isn't dropped onto an empty page)
+ */
+function NewBuilderAdapter({
+  path,
+  factId,
+  factText,
+  rawFactText,
+  onClose,
+}: {
+  path: StudioImagePath;
+  factId: number;
+  factText: string;
+  rawFactText?: string;
+  onClose: () => void;
+}) {
+  const { user, role, login } = useAuth();
+
+  const mode = studioPathToMode(path);
+  const tier = roleToTier(role);
+
+  // The fact text the builder substitutes tokens against. Prefer the raw
+  // template (with {NAME}/{SUBJ}/etc) over the rendered string when the
+  // parent has it.
+  const templateText = rawFactText ?? factText;
+
+  // The user's avatar object_path, when stored in our own storage bucket.
+  // External avatars (gravatar, oauth-provided URLs) are skipped — the
+  // picker simply won't show a "Primary" tab for those users.
+  const primaryImageObjectPath = extractObjectPath(user?.profileImageUrl);
+
+  const handleComplete = (result: BuilderResult) => {
+    if (result.kind === "signup-required") {
+      // Trigger the same login flow the legacy builder used. The pending
+      // state is already in sessionStorage via the builder, so when the
+      // user lands back on the fact-detail page after auth and re-opens
+      // the studio, the builder hydrates from it.
+      login();
+      return;
+    }
+    // saved / downloaded / upgrade-required / cancelled all just close.
+    // Phase 5 will replace this with the share screen + upgrade modal.
+    onClose();
+  };
+
+  return (
+    <div className="p-4 max-w-3xl mx-auto">
+      {path === "gradient-image" && (
+        <p className="mb-3 rounded-md border border-border bg-secondary/30 p-3 text-xs text-muted-foreground">
+          Gradient backgrounds are being phased out. We've routed you to stock photos for now.
+        </p>
+      )}
+      <MemeBuilder
+        mode={mode}
+        factId={String(factId)}
+        factText={templateText}
+        viewerContext={{
+          tier,
+          userId: user?.id,
+          name: user?.displayName ?? undefined,
+          pronouns: user?.pronouns ?? undefined,
+          primaryImageObjectPath,
+          hasLibraryImages: tier !== "unregistered",
+        }}
+        entryFlow="fact-detail"
+        onComplete={handleComplete}
+        onCancel={onClose}
+      />
+    </div>
+  );
 }
+
+
+// ─── Helpers ────────────────────────────────────────────────────────────────
 
 function titleFor(p: StudioPath): string {
   switch (p) {

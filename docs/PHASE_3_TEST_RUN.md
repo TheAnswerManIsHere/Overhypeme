@@ -33,11 +33,12 @@ runs.
 | # | Layer | Command | What it proves |
 |---|---|---|---|
 | 1 | lib type build | `pnpm typecheck:libs` | Cross-package imports compile cleanly. |
-| 2 | drizzle journal | `pnpm --filter @workspace/db check-snapshots` | Migration `0048_meme_builder_lineage` is registered and the snapshot chain is intact. |
-| 3 | repo typecheck | `pnpm typecheck` | api-server, overhype-me, mockup-sandbox, scripts all type-check. No `any` regressions in new code. |
-| 4 | db migrate test | `pnpm --filter @workspace/db test` | The migration runner applies through 0048 without errors against a fresh DB. |
-| 5 | api-server tests | `cd artifacts/api-server && pnpm test` | New `phase3.lineage.integration.test.ts` exercises the migration columns + indexes + `/users/me/uploads` filters against the real test DB. Other suites must still pass. |
-| 6 | overhype-me tests | `cd artifacts/overhype-me && pnpm test` | 195+ vitest cases including the four new files: `behaviorMatrix.test.ts`, `pendingBuilderState.test.ts`, `useDebouncedValue.test.ts`, `useUploadModeration.test.ts`. |
+| 2 | studio wiring static check | `grep` over `MemeStudio.tsx` | The studio imports the **new** `meme-builder/MemeBuilder` and does **not** import the legacy `@/components/MemeBuilder`. Fails fast if someone reverts the wiring. |
+| 3 | drizzle journal | `pnpm --filter @workspace/db check-snapshots` | Migration `0048_meme_builder_lineage` is registered and the snapshot chain is intact. |
+| 4 | repo typecheck | `pnpm typecheck` | api-server, overhype-me, mockup-sandbox, scripts all type-check. No `any` regressions in new code. |
+| 5 | db migrate test | `pnpm --filter @workspace/db test` | The migration runner applies through 0048 without errors against a fresh DB. |
+| 6 | api-server tests | `cd artifacts/api-server && pnpm test` | `phase3.lineage.integration.test.ts` exercises the migration columns + indexes + `/users/me/uploads` filters against the real test DB. Other suites must still pass. |
+| 7 | overhype-me tests | `cd artifacts/overhype-me && pnpm test` | 206 vitest cases across 15 files, including the five Phase-3 specs: `behaviorMatrix.test.ts` (30 cells), `pendingBuilderState.test.ts` (sessionStorage TTL + schema-version rejection), `useDebouncedValue.test.ts` (debounce timing under fake timers), `useUploadModeration.test.ts` (4 upload error classes), and `studioAdapter.test.ts` (path → mode + role → tier + avatar URL → object_path). |
 
 ---
 
@@ -107,6 +108,23 @@ Asserts every cell of the 30-row (mode, tier, entryFlow) matrix:
 - HTTP 422 → `error: 'rejected'` (generic copy, no classifier leak).
 - HTTP 503 → `error: 'network'`.
 - HTTP 200 → `status: 'ready'`, `image.objectPath` populated.
+
+### `studioAdapter.test.ts`  *(new — frontend, covers the wiring)*
+
+The pure helpers `MemeStudio.tsx` uses to bridge from its path-based
+prop surface to the new `MemeBuilder`'s (mode, tier, viewerContext)
+interface. Extracted from `MemeStudio.tsx` so the mapping logic can be
+unit-tested without mounting React.
+
+- `studioPathToMode`: `stock-image` and `gradient-image` (deprecated
+  soft-redirect) → `'stock'`; `photo-image` and `ai-gallery` →
+  `'self-upload'`.
+- `roleToTier`: `anonymous`/`unregistered` → `unregistered`; `registered`
+  passthrough; `legendary`/`admin` → `legendary`; unknown defaults
+  defensively to `unregistered`.
+- `extractObjectPath`: returns `undefined` for null / external URLs;
+  strips `/api/storage/objects/` prefix and returns `/objects/<rest>`;
+  handles fully-qualified `https://overhype.me/api/storage/...` URLs.
 
 ---
 

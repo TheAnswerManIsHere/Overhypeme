@@ -1,320 +1,318 @@
-# Phase 3 — User acceptance testing
+# Phase 3 — User acceptance testing (in-app)
 
-You're the end user here. This document walks you through every visible
-change Phase 3 introduces so you can sign off (or send back) the work
-before Phase 4 builds on top of it.
+You're the end user here. The new universal meme builder is now wired
+into the live Studio in place of the legacy builder, so this UAT runs
+**entirely in the running app** — no `curl`, no SQL, no DevTools digging
+required. The automated test side is in
+[`PHASE_3_TEST_RUN.md`](./PHASE_3_TEST_RUN.md) and is owned by Replit AI;
+that runs in parallel and you don't need to read it.
 
-The automated test run is in
-[`PHASE_3_TEST_RUN.md`](./PHASE_3_TEST_RUN.md). That covers correctness;
-this document covers feel.
-
----
-
-## Context — what shipped vs. what didn't
-
-**Shipped this phase:**
-- A new universal meme builder component and its full data model.
-- Lineage columns on the database so future PuLID stylings are remembered
-  per (user, fact, source photo, params) and never re-billed.
-- The Pexels prefetch cap dropped from 80 → 10 images per gender, per fact.
-- A new optional filter on `GET /users/me/uploads` so the new picker can
-  separate raw uploads from AI stylings, scoped per fact.
-- A dev-only `MatrixHarness` component that lets you preview every
-  permutation of the new builder side-by-side with no code changes.
-
-**Not yet wired into production:** the new builder does NOT appear in the
-real fact detail / library / cold-permalink / remix entry points yet.
-That migration is **Phase 5**. Phase-3 sign-off here means "the new code
-behaves correctly when invoked" — production users still see the legacy
-builder until Phase 5 flips the switch.
-
-So most of this UAT is exercised through the harness, not through the
-normal app flow.
+If anything in this UAT fails, write down which section + row, what you
+saw vs. what you expected, and a screenshot if it's visual. I'll handle
+the rest.
 
 ---
 
 ## Setup
 
-1. Open Replit and start the dev environment.
-2. Confirm the API server and the frontend are both running.
-3. Migration `0048_meme_builder_lineage` should already be applied. To
-   double-check, run this in psql against your dev DB:
+1. Open the dev app in Replit and sign out so you start fresh.
+2. Pick any active fact and click **Make a meme** (or whatever the entry
+   button is called on the fact card / fact detail page). The Studio
+   modal opens.
+3. The Studio's left rail / hub still shows the four image paths
+   (Stock Photo, Photo Editor, AI Gallery, Gradient). Each one now
+   mounts the **new** universal builder behind the scenes — that's what
+   you're testing.
 
-```sql
-SELECT column_name FROM information_schema.columns
-WHERE table_name = 'upload_image_metadata'
-  AND column_name IN ('transform','source_object_path','fact_id','transform_params_hash')
-ORDER BY column_name;
-```
+What's expected to be partial in this build:
 
-You should see all four rows. If none come back, run the migration:
+- **Save**, **Share**, **Download**, and **Try AI mode** buttons emit
+  callbacks but don't yet wire to the production share / upgrade flows.
+  Verify they appear and click without crashing — Phase 5/6 finishes the
+  wire-up.
+- The "Stylize me with AI" toggle for legendary users renders and shows
+  the blocking PuLID overlay when toggled on + Save, but the underlying
+  fal.ai call is the legacy `/api/memes/ai/:factId/generate` route, so a
+  successful stylization isn't yet persisted as a library row. Phase 4
+  finishes that.
+- The **Gradient** path is being deprecated and currently routes to the
+  Stock builder with a small notice at the top. Confirm the notice
+  appears.
 
-```bash
-pnpm --filter @workspace/db migrate
-```
+Everything else (behavior matrix, picker modality, tokens, debounce,
+upload errors, signup interruption) should work today.
 
 ---
 
-## Section A — verify the data model
+## Section A — open the Studio as an unregistered (not-logged-in) user
 
-### A1. Migration applied
+You should be signed out for this section.
 
-The query above should return four rows. **Pass / Fail:** ____.
+### A1. Stock Photo path
 
-### A2. Pexels cap reduced
+1. Open the Studio → **Stock Photo**.
+2. Header reads "See this fact with YOUR name" (if you came from a
+   shareable URL with `?name=...`) or "Build your meme" (default).
+3. Name and pronouns fields appear, pre-filled empty (or with the
+   query-string value if there was one).
+4. A horizontal strip of stock thumbnails appears (touch device) or a
+   3–5 column grid (desktop with mouse).
+5. Picking a thumbnail outlines it in fire-orange.
+6. Action bar at the bottom shows **Download** and **Save and share —
+   sign up free**. **It must NOT show a Save button.**
 
-Pick any active fact in the admin and trigger an image refresh, OR
-inspect a recently-approved fact's `pexels_images` jsonb column:
+**Pass / Fail:** ____.
 
-```sql
-SELECT jsonb_array_length((pexels_images->>'male')::jsonb) AS male_count,
-       jsonb_array_length((pexels_images->>'female')::jsonb) AS female_count,
-       jsonb_array_length((pexels_images->>'neutral')::jsonb) AS neutral_count
-FROM facts
-WHERE pexels_images IS NOT NULL
-ORDER BY id DESC
-LIMIT 5;
-```
+### A2. Photo Editor path (self-upload)
 
-Expectation:
-- Recently approved facts (post-Phase-3-deploy): each gender ≤ 10.
-- Older facts: still up to 80 — they were prefetched before the cap
-  changed and aren't re-fetched automatically. **This is intentional.**
+1. Open the Studio → **Photo Editor**.
+2. Instead of a builder, you should see a **tier-locked panel** with
+   "Sign up free to upload your photo" and a Sign up button.
+3. The Sign up button kicks off the login flow.
 
-**Pass / Fail:** ____. **Note any older facts you want re-fetched
-manually:** ____.
+**Pass / Fail:** ____.
 
-### A3. The new uploads filter
+### A3. AI Gallery path
 
-Hit your dev API while logged in as any registered user. Expected
-endpoints:
-
-```bash
-# default — only raw uploads (backwards-compatible)
-curl -b cookies.txt "$DEV_URL/api/users/me/uploads"
-
-# AI stylings only (will be empty until Phase-4 stylize endpoint ships)
-curl -b cookies.txt "$DEV_URL/api/users/me/uploads?transform=ai"
-
-# scoped to one fact's PuLID stylings
-curl -b cookies.txt "$DEV_URL/api/users/me/uploads?transform=pulid&factId=42"
-
-# everything (raw + AI)
-curl -b cookies.txt "$DEV_URL/api/users/me/uploads?transform=all"
-```
-
-Each row in the response should include four new fields:
-`transform`, `sourceObjectPath`, `factId`, `transformParamsHash`.
+1. Open the Studio → **AI Gallery**.
+2. You should see the existing AccessGate "Log in to generate AI scenes
+   of you for this fact." (This pre-existing gate stays until you log
+   in — that's intentional.)
 
 **Pass / Fail:** ____.
 
 ---
 
-## Section B — visual review of the new builder
+## Section B — open the Studio as a registered (free) user
 
-The dev component `MatrixHarness` renders the new builder against any
-(mode, tier, entryFlow) combination you pick. To use it, mount it
-temporarily in dev:
+Log in to a non-legendary account before this section.
 
-```tsx
-// somewhere in your dev routing
-import { MatrixHarness } from "@/components/meme-builder/__demo__/MatrixHarness";
-// ...
-<Route path="/dev/builder-matrix" component={MatrixHarness} />
-```
+### B1. Stock Photo path
 
-Or, if you'd rather not edit routing yet, ask the engineer to do this
-once and ship it behind an `import.meta.env.DEV` guard.
+1. Open the Studio → **Stock Photo**.
+2. Same UI as A1, but the action bar now shows **Download / Save meme /
+   Share** with **no signup CTA** and **no Try AI mode** chip.
+3. Type a name; the live preview re-renders with your name substituted
+   into the fact text (verify the fact text is using your name).
+4. Change pronouns to **they/them**. Verify the verb conjugation
+   actually flips (e.g. "they push" not "they pushes").
 
-Once it's mounted, navigate to `/dev/builder-matrix` and walk through
-each row of the table below. For each row:
+**Pass / Fail per row:** B1.2: ____  B1.3: ____  B1.4: ____.
 
-- Set the three pickers at the top (mode / tier / entryFlow).
-- Confirm the cell renders as described.
-- Confirm the JSON debug box shows `invalid: false` (or `true` for
-  invalid rows).
+### B2. Photo Editor path
 
-### Behavior matrix walkthrough
-
-| Mode | Tier | EntryFlow | Expected | Pass? |
-|---|---|---|---|---|
-| stock | unregistered | cold-permalink | header reads "See this fact with YOUR name". Picker shows ≤10 stock thumbs. Action bar shows **Download** and **Save and share — sign up free**. NO save button. | |
-| stock | unregistered | fact-detail | same as above but header reads "Build your meme". | |
-| stock | unregistered | remix | header reads "Make this meme your own". | |
-| stock | registered | fact-detail | Action bar shows **Download / Save meme / Share**. NO Try AI mode. | |
-| stock | registered | cold-permalink | Same actions, header reads "See this fact with YOUR name". | |
-| stock | legendary | fact-detail | Action bar plus a **Try AI mode** ghost button on the right. | |
-| self-upload | unregistered | (any) | Tier-locked panel: "Sign up free to upload your photo" + Sign up button. NO builder beneath. | |
-| self-upload | registered | fact-detail | Picker has tabs: **Primary / My photos / Upload new** (no AI stylings tab). NO stylize toggle. | |
-| self-upload | registered | cold-permalink | Header reads "See this fact with YOUR face". | |
-| self-upload | legendary | fact-detail | Picker has four tabs including **AI stylings**. **Stylize me with AI** toggle is visible below the picker. | |
-| self-upload | legendary | cold-permalink | Header reads "See yourself as the AI subject". | |
-
-Spot-check on top of those:
-
-- Picking an image from "AI stylings" should disable the stylize toggle
-  with a helper message. **Pass / Fail:** ____.
-- Switching the entryFlow picker without changing mode/tier should not
-  reset the rest of the form (name/pronouns persist). **Pass / Fail:** ____.
-
----
-
-## Section C — input modality (mobile vs. desktop)
-
-The picker layout switches based on input modality, **not** viewport width.
-
-### C1. Desktop with mouse
-
-Open the harness on a laptop with a mouse plugged in. Pick `mode=stock`
-and any registered tier. The stock thumbnails should appear in a **grid**
-(3–5 columns).
-
-Now resize the browser window all the way down to ~400 px wide. The
-layout stays a grid because the input modality didn't change.
+1. Open the Studio → **Photo Editor**.
+2. The picker now appears with three tabs: **Primary / My photos /
+   Upload new**. (No "AI stylings" tab — that's legendary-only.)
+3. **No Stylize toggle** is visible.
+4. If you don't have an avatar yet, the Primary tab is hidden and the
+   builder lands on Upload new.
 
 **Pass / Fail:** ____.
 
-### C2. Touch device (or DevTools touch emulation)
+### B3. Gradient path
 
-Open Chrome DevTools → toggle device emulation → pick a touch device.
-Reload the harness. The thumbnails should now appear as a **horizontal
-scrollable strip** with snap-to-thumbnail behavior. Drag your finger /
-mouse horizontally — each card should snap to the start.
+1. Open the Studio → **Gradient**.
+2. A small notice at the top reads "Gradient backgrounds are being
+   phased out…"
+3. Below the notice, the Stock Photo builder is mounted (same UX as
+   B1).
 
 **Pass / Fail:** ____.
 
 ---
 
-## Section D — name / pronoun input + token substitution
+## Section C — open the Studio as a legendary user
 
-Set `mode=stock`, `tier=registered`, any entryFlow.
+Log in to a legendary account.
 
-| Type | In Name | In Pronouns | Expected preview text |
+### C1. Stock Photo path
+
+1. Open the Studio → **Stock Photo**.
+2. Same UI as B1, plus a **Try AI mode** ghost button on the right of
+   the action bar.
+3. Clicking Try AI mode emits the upgrade-required callback (the modal
+   closes for now; Phase 5 wires the upsell flow).
+
+**Pass / Fail:** ____.
+
+### C2. Photo Editor path with stylize toggle
+
+1. Open the Studio → **Photo Editor**.
+2. The picker now has a **fourth tab — AI stylings** (alongside
+   Primary / My photos / Upload new).
+3. The **Stylize me with AI** toggle is visible below the picker.
+4. Pick or upload a photo.
+5. Toggle Stylize on. Click **Save meme**.
+6. The blocking PuLID progress overlay appears with a progress bar and
+   a Cancel button. Cancel works.
+7. **Test:** pick an image from the AI stylings tab (after at least one
+   stylization has been generated for this fact). The stylize toggle
+   should auto-disable with a helper message: "This image is already
+   AI-stylized."
+
+**Pass / Fail per row:** C2.2: ____  C2.3: ____  C2.5: ____  C2.6: ____  C2.7: ____.
+
+### C3. AI Gallery path
+
+1. Open the Studio → **AI Gallery**.
+2. The new builder mounts in self-upload mode with the stylize toggle
+   visible by default.
+
+**Pass / Fail:** ____.
+
+---
+
+## Section D — input modality (mobile vs. desktop)
+
+The picker layout switches based on input modality, **not** viewport
+width.
+
+### D1. Desktop with mouse
+
+Open the Studio → Stock Photo on a laptop with a mouse plugged in.
+The stock thumbnails should appear in a **grid** (3–5 columns).
+
+Resize the browser down to ~400 px wide. The layout stays a grid because
+the input modality didn't change.
+
+**Pass / Fail:** ____.
+
+### D2. Touch device (or DevTools touch emulation)
+
+In Chrome DevTools, toggle device emulation → pick any touch device →
+reload. The thumbnails are now a **horizontal scrollable strip** with
+snap-to-thumbnail behavior. Drag your finger / mouse horizontally — each
+card snaps to the start.
+
+**Pass / Fail:** ____.
+
+---
+
+## Section E — token substitution + entry flow copy
+
+### E1. Token substitution
+
+In the Studio (Stock Photo path, registered or higher), type each row
+in the table and verify the live preview matches:
+
+| Type | Name | Pronouns | Expected preview text |
 |---|---|---|---|
-| 1 | Quinn | he/him | reads "QUINN PUSHES THE BOULDER UPHILL HIS ENTIRE LIFE." |
-| 2 | Quinn | she/her | reads "QUINN PUSHES … HER ENTIRE LIFE." |
-| 3 | Quinn | they/them | reads "QUINN **PUSH** THE BOULDER UPHILL **THEIR** ENTIRE LIFE." (note the verb conjugation) |
-| 4 | (blank) | they/them | reads with `___` placeholder where the name would be. |
-
-The harness uses a fixture template:
-`{NAME} {singular|plural} pushes the boulder uphill {POSS} entire life.`
+| 1 | Quinn | he/him | substitutes "him/his/he" naturally |
+| 2 | Quinn | she/her | substitutes "her/hers/she" naturally |
+| 3 | Quinn | they/them | substitutes "them/their/they" AND verb conjugates correctly (e.g. "they push" not "they pushes") |
+| 4 | (blank) | they/them | placeholder dashes (`___`) where the name would be |
 
 **Pass / Fail per row:** 1: ____  2: ____  3: ____  4: ____.
 
----
+### E2. Entry-flow header copy
 
-## Section E — picker scrubbing does not spam the network
-
-Open DevTools → Network tab → filter to `pexels-images`.
-
-In the harness with `mode=stock`, scrub through stock thumbnails as fast
-as you can — click a different thumbnail every ~50 ms.
-
-The Network tab should show:
-- The initial `GET /api/facts/.../pexels-images` for the fact (one
-  request).
-- Zero or one debounced render request per ~150 ms while scrubbing.
-- No request storm.
+This is harder to test from the studio because every studio mount uses
+`entryFlow='fact-detail'`. The other entry flows
+(cold-permalink / library / remix / creation) are wired by Phase 5.
+For now confirm the header on every studio open reads "Build your meme"
+(neutral creation copy).
 
 **Pass / Fail:** ____.
 
-(Phase 4 adds the actual `/api/render-preview` endpoint that gets
-debounced; today the picker is debounced but no render endpoint is hit
-yet because the canvas preview is client-side.)
+---
+
+## Section F — picker scrubbing does not spam the network
+
+1. Open the Studio → Stock Photo (any logged-in tier).
+2. Open DevTools → Network tab → filter to `pexels-images`.
+3. The initial load shows one `GET /api/facts/<id>/pexels-images?...`
+   request.
+4. Click rapidly through 8–10 different stock thumbnails (a click every
+   ~50 ms).
+5. The Network tab should show **no further requests storm**. The
+   live-preview canvas re-renders client-side, debounced at 150 ms, so
+   no extra Pexels round-trips fire while you scrub.
+
+**Pass / Fail:** ____.
 
 ---
 
-## Section F — self-upload error states
+## Section G — self-upload error states
 
-Set `mode=self-upload`, `tier=registered`, `entryFlow=fact-detail`. Pick
-the **Upload new** tab. Try each of the failure cases:
+Log in as a registered user. Open the Studio → Photo Editor → Upload
+new tab.
 
 | Test | What to do | Expected message |
 |---|---|---|
-| F1 — too large | Drag a > 15 MB image | "That file is too big. Try one under 15 MB." |
-| F2 — invalid format | Drag a `.tiff` or `.heic` file | "Use a JPEG, PNG, or WebP image." |
-| F3 — moderation rejection | Upload an image that the Phase-1 Arachnid / NSFW classifier rejects (your dev env should have an obvious test fixture for this) | "This image cannot be used. Please try a different one." (NO classifier details exposed.) |
-| F4 — network error | Kill the API server, drag a valid image | "Something went wrong. Check your connection and try again." |
+| G1 — too large | Drag a > 15 MB image | "That file is too big. Try one under 15 MB." |
+| G2 — invalid format | Drag a `.tiff`, `.heic`, or `.bmp` file | "Use a JPEG, PNG, or WebP image." |
+| G3 — moderation rejection | Upload an image the Phase-1 NSFW classifier rejects (your test fixture for this) | "This image cannot be used. Please try a different one." (NO classifier details exposed.) |
+| G4 — network error | Disconnect Wi-Fi or stop the dev API server, then drag a valid image | "Something went wrong. Check your connection and try again." |
 
-After any error you should see a **Try another** button. Clicking it
-re-opens the file picker.
+After every error a **Try another** button appears that re-opens the
+file picker without page reload.
 
-**Pass / Fail per row:** F1: ____  F2: ____  F3: ____  F4: ____.
-
----
-
-## Section G — signup interruption
-
-Set `mode=stock`, `tier=unregistered`, any entryFlow.
-
-1. Type your name. Pick pronouns. Pick a stock image.
-2. Click **Save and share — sign up free**.
-3. The harness's onComplete callback should fire with
-   `{ kind: 'signup-required', pendingState }` — open DevTools console;
-   the harness logs every onComplete call.
-4. The pendingState's name, pronouns, and stockImageId should match
-   what you entered.
-5. Open DevTools → Application → Session Storage. There should be a key
-   `pending_meme_builder_v1::42` containing the same shape.
-6. Reload the page. Re-mount the harness with `tier=registered`
-   (simulating completed signup). Without changing anything else, the
-   builder should re-appear with the same name, pronouns, and stock
-   selection. (For now you'll have to manually pass `initialPendingState`
-   — Phase 5 wires this through routing.)
-7. After the simulated signup, the sessionStorage key should clear once
-   you successfully save.
-
-**Pass / Fail per step:** 1: ____  2: ____  3: ____  4: ____  5: ____  6: ____  7: ____.
+**Pass / Fail per row:** G1: ____  G2: ____  G3: ____  G4: ____.
 
 ---
 
-## Section H — legendary stylize flow (smoke-only)
+## Section H — signup interruption (preserves your work)
 
-Set `mode=self-upload`, `tier=legendary`, any entryFlow.
+Sign out. Then:
 
-1. Pick or upload a photo.
-2. Toggle **Stylize me with AI** on.
-3. Click **Save meme**.
-4. The blocking PuLID overlay should appear with a progress bar.
+1. Open any fact → Studio → **Stock Photo**.
+2. Type your name. Pick a pronoun. Click a stock thumbnail.
+3. Click **Save and share — sign up free**.
+4. The login flow opens.
+5. Complete signup or log in.
+6. Re-open the same fact's Studio → Stock Photo.
+7. **Expected:** the name, pronouns, and selected stock thumbnail are
+   restored. You can immediately click Save without re-typing anything.
+8. After a successful Save, the preserved state is cleared (re-opening
+   the studio shows a fresh blank form, not your old draft).
 
-Note: until Phase 4 ships the dedicated stylize endpoint with dedup +
-no-face fallback, the underlying call may fail (the legacy AI generate
-route returns 422 + `noFaceDetected: true` instead of falling through).
-That's expected. What you're verifying here is:
-
-- The toggle is only visible on legendary. **Pass / Fail:** ____.
-- The toggle hides itself when you pick an existing AI styling from the
-  AI stylings tab. **Pass / Fail:** ____.
-- The progress overlay renders, blocks interaction, and has a working
-  Cancel button. **Pass / Fail:** ____.
+**Pass / Fail per step:** 3: ____  6: ____  7: ____  8: ____.
 
 ---
 
-## Section I — full-page sign-off
+## Section I — gradient deprecation notice
 
-After A–H, give a single overall sign-off:
+Open the Studio → **Gradient**. Confirm:
+
+- A notice banner reads "Gradient backgrounds are being phased out.
+  We've routed you to stock photos for now."
+- Below the notice the Stock Photo builder is mounted and works
+  identically to Section B1 / C1.
+
+**Pass / Fail:** ____.
+
+---
+
+## Section J — full-page sign-off
+
+After A–I, give a single overall sign-off:
 
 | | OK | Concerns |
 |---|---|---|
-| Data model is correct and reversible | | |
 | Behavior matrix matches what we agreed | | |
 | Picker modality detection feels right | | |
+| Token substitution works for he/she/they | | |
 | Self-upload errors don't leak classifier details | | |
 | Signup interruption preserves state | | |
 | Stylize toggle gating is correct | | |
+| Gradient deprecation notice is clear | | |
+| Studio still feels cohesive (no broken layouts) | | |
 
-**Sign-off:** ____  **Date:** ____
+**Sign-off:** ____  **Date:** ____.
 
 ---
 
 ## Reporting issues
 
-If anything in this UAT fails, please file the failure with:
+If anything fails, please file with:
 
-1. Which section / row failed.
+1. Which section / row.
 2. What you saw.
 3. What you expected.
 4. A screenshot if visual.
-5. The relevant DevTools network request / sessionStorage shape if data.
+5. Browser + tier (logged-out / registered / legendary).
 
-The Phase-3 branch is `claude/setup-overhype-project-GDzfb`.
+Phase-3-adjacent branches: `claude/setup-overhype-project-GDzfb` (this
+work) and `codex/follow-up-on-github-mention` (PR #38, framing transform
+follow-up).

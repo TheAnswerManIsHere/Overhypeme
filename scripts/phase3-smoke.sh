@@ -57,6 +57,23 @@ step() {
 step "lib type build (pnpm typecheck:libs)" \
   pnpm typecheck:libs
 
+# Phase 3 → 5 transition: confirm the studio mounts the NEW builder, not the
+# legacy file. A simple static grep — if someone reverts the wiring this
+# fails fast, before any expensive layer runs.
+step "studio mounts new MemeBuilder (static wiring check)" \
+  bash -c '
+    set -e
+    studio="artifacts/overhype-me/src/components/MemeStudio.tsx"
+    if ! grep -q "@/components/meme-builder/MemeBuilder" "$studio"; then
+      echo "FAIL: $studio is not importing the new builder (@/components/meme-builder/MemeBuilder)" >&2
+      exit 1
+    fi
+    if grep -qE "from \"@/components/MemeBuilder\"|import\(\"@/components/MemeBuilder\"\)" "$studio"; then
+      echo "FAIL: $studio still imports the legacy builder (@/components/MemeBuilder)" >&2
+      exit 1
+    fi
+  '
+
 step "drizzle journal + snapshot consistency" \
   pnpm --filter @workspace/db check-snapshots
 
