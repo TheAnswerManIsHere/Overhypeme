@@ -14,7 +14,7 @@ import { usePersonName } from "@/hooks/use-person-name";
 import { AccessGate } from "@/components/AccessGate";
 import { Sentry } from "@/lib/sentry";
 import { AdminMediaInfo, AdminMediaInfoForUrl, getFileNameFromUrl, getMimeTypeFromUrl } from "@/components/ui/AdminMediaInfo";
-import { cropToSquareJpeg } from "@/lib/image-upload";
+import { uploadUserImage } from "@/lib/image-upload";
 
 const BASE_URL = import.meta.env.BASE_URL ?? "/";
 
@@ -602,24 +602,15 @@ export default function Profile() {
     setPhotoError("");
     setPhotoUploading(true);
     try {
-      // Center-square crop + downscale on the client. The photo becomes the
-      // user's reusable identity asset (memes, AI images, AI video memes), and
-      // the downstream meme/AI flows expect a square face crop. Keep GIFs
-      // untouched so animation isn't lost.
-      const cropped = file.type === "image/gif"
-        ? file
-        : await cropToSquareJpeg(file, 1024).catch(() => file);
-      const uploadRes = await fetch(`${BASE_URL}api/storage/upload-avatar`, {
-        method: "POST",
-        headers: { "Content-Type": cropped.type },
-        credentials: "include",
-        body: cropped,
+      // The profile photo becomes the user's reusable identity asset (memes,
+      // AI images, AI video memes), and the downstream face-ref pipelines
+      // expect a square face crop — except for GIFs, which are sent verbatim
+      // so animation is preserved.
+      const { objectPath } = await uploadUserImage(file, {
+        kind: "avatar",
+        preprocess: file.type === "image/gif" ? "none" : "square",
+        squareSize: 1024,
       });
-      if (!uploadRes.ok) {
-        const errData = await uploadRes.json() as { error?: string };
-        throw new Error(errData.error ?? "Upload failed");
-      }
-      const { objectPath } = await uploadRes.json() as { objectPath: string };
 
       const profileImageUrl = `/api/storage${objectPath}`;
       await updateProfile.mutateAsync({ data: { profileImageUrl, avatarSource: "photo" } });

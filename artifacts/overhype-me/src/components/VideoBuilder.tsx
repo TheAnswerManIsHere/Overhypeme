@@ -11,6 +11,7 @@ import { Link } from "wouter";
 import { AccessGate } from "@/components/AccessGate";
 import { useAuth } from "@workspace/replit-auth-web";
 import { Button } from "@/components/ui/Button";
+import { uploadUserImage } from "@/lib/image-upload";
 import {
   X,
   Video,
@@ -23,7 +24,6 @@ import {
 // ─── Constants ─────────────────────────────────────────────────────────────────
 
 const CLIENT_MAX_DIMENSION = 3600;
-const CLIENT_JPEG_QUALITY = 0.9;
 const CLIENT_MAX_UPLOAD_MB = 15;
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
@@ -244,39 +244,6 @@ export function VideoBuilder({ factId, factText, onClose, initialImageDataUrl }:
 
   // ── Upload helpers ──────────────────────────────────────────────────────────
 
-  async function preProcessImageFile(file: File): Promise<{ blob: Blob; width: number; height: number }> {
-    return new Promise((resolve, reject) => {
-      const img = new Image();
-      const url = URL.createObjectURL(file);
-      img.onload = () => {
-        URL.revokeObjectURL(url);
-        let { naturalWidth: w, naturalHeight: h } = img;
-        const longestEdge = Math.max(w, h);
-        if (longestEdge > CLIENT_MAX_DIMENSION) {
-          const scale = CLIENT_MAX_DIMENSION / longestEdge;
-          w = Math.round(w * scale);
-          h = Math.round(h * scale);
-        }
-        const canvas = document.createElement("canvas");
-        canvas.width = w;
-        canvas.height = h;
-        const ctx = canvas.getContext("2d");
-        if (!ctx) { reject(new Error("Canvas unavailable")); return; }
-        ctx.drawImage(img, 0, 0, w, h);
-        canvas.toBlob(
-          (blob) => {
-            if (!blob) { reject(new Error("Image encoding failed")); return; }
-            resolve({ blob, width: w, height: h });
-          },
-          "image/jpeg",
-          CLIENT_JPEG_QUALITY,
-        );
-      };
-      img.onerror = () => { URL.revokeObjectURL(url); reject(new Error("Failed to load image")); };
-      img.src = url;
-    });
-  }
-
   const handleFile = useCallback(async (file: File) => {
     if (!file.type.startsWith("image/")) {
       setUploadErrorMsg("Please select an image file (JPEG, PNG, WebP, HEIC, or similar).");
@@ -297,24 +264,10 @@ export function VideoBuilder({ factId, factText, onClose, initialImageDataUrl }:
     setUploadLocalUrl(localUrl);
 
     try {
-      let uploadBlob: Blob = file;
-      try {
-        const processed = await preProcessImageFile(file);
-        uploadBlob = processed.blob;
-      } catch {
-        uploadBlob = file;
-      }
-
-      const uploadRes = await fetch("/api/storage/upload-meme", {
-        method: "POST",
-        headers: { "Content-Type": "image/jpeg" },
-        body: uploadBlob,
+      const result = await uploadUserImage(file, {
+        kind: "meme",
+        maxDimension: CLIENT_MAX_DIMENSION,
       });
-      if (!uploadRes.ok) {
-        const body = await uploadRes.json() as { error?: string };
-        throw new Error(body.error ?? "Upload failed");
-      }
-      const result = await uploadRes.json() as { objectPath: string };
       setSelectedObjectPath(result.objectPath);
 
       // Refresh gallery

@@ -105,3 +105,110 @@ export async function preProcessImageFile(
     img.src = url;
   });
 }
+
+// ─── Unified upload helper ───────────────────────────────────────────────────
+//
+// `uploadUserImage` is the single entry point for every user image upload in
+// the app. Use it for meme backgrounds, profile photos, AI reference photos,
+// and any future surface that takes an image from the user. It picks the
+// correct server endpoint, preprocesses the file (fit / square / none),
+// transmits the bytes, and surfaces the server response in a single shape —
+// keeping the CSAM/NSFW pipeline, rate limiting, ACLs, and metadata logging
+// behind one consistent client call.
+
+/**
+ * - "meme": private uploads scoped to the meme/AI flows. Always JPEG.
+ *   Endpoint: POST /api/storage/upload-meme.
+ * - "avatar": public profile photo asset (also reused as identity reference).
+ *   Endpoint: POST /api/storage/upload-avatar. Accepts JPEG, PNG, WebP, GIF.
+ */
+export type UploadUserImageKind = "meme" | "avatar";
+
+/**
+ * - "fit"    — `preProcessImageFile` (downscale to maxDimension, encode JPEG,
+ *              iteratively recompress to fit maxUploadBytes). Default.
+ * - "square" — `cropToSquareJpeg` (center-crop to a square, encode JPEG).
+ * - "none"   — send the bytes verbatim (caller already preprocessed, or wants
+ *              to preserve animation, e.g. a GIF avatar).
+ */
+export type UploadUserImagePreprocess = "fit" | "square" | "none";
+
+export interface UploadUserImageOptions {
+  kind: UploadUserImageKind;
+  preprocess?: UploadUserImagePreprocess;
+  /** Override for `fit` preprocessing. */
+  maxDimension?: number;
+  jpegQuality?: number;
+  maxUploadBytes?: number;
+  /** Override for `square` preprocessing. */
+  squareSize?: number;
+}
+
+export interface UploadUserImageResult {
+  objectPath: string;
+  width: number | null;
+  height: number | null;
+  isLowRes: boolean;
+  fileSizeBytes: number | null;
+}
+
+const ENDPOINTS: Record<UploadUserImageKind, string> = {
+  meme: "/api/storage/upload-meme",
+  avatar: "/api/storage/upload-avatar",
+};
+
+export async function uploadUserImage(
+  file: File,
+  options: UploadUserImageOptions,
+): Promise<UploadUserImageResult> {
+  const preprocess: UploadUserImagePreprocess = options.preprocess ?? "fit";
+
+  let body: Blob;
+  let contentType: string;
+  let preWidth: number | null = null;
+  let preHeight: number | null = null;
+
+  if (preprocess === "fit") {
+    const processed = await preProcessImageFile(file, {
+      maxDimension: options.maxDimension,
+      jpegQuality: options.jpegQuality,
+      maxUploadBytes: options.maxUploadBytes,
+    });
+    body = processed.blob;
+    contentType = "image/jpeg";
+    preWidth = processed.width;
+    preHeight = processed.height;
+  } else if (preprocess === "square") {
+    const cropped = await cropToSquareJpeg(file, options.squareSize ?? 1024);
+    body = cropped;
+    contentType = "image/jpeg";
+  } else {
+    body = file;
+    contentType = file.type || "application/octet-stream";
+  }
+
+  const res = await fetch(ENDPOINTS[options.kind], {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": contentType },
+    body,
+  });
+  if (!res.ok) {
+    const errBody = (await res.json().catch(() => ({}))) as { error?: string };
+    throw new Error(errBody.error ?? `Upload failed (${res.status})`);
+  }
+  const data = (await res.json()) as {
+    objectPath: string;
+    width?: number;
+    height?: number;
+    isLowRes?: boolean;
+    fileSizeBytes?: number;
+  };
+  return {
+    objectPath: data.objectPath,
+    width: data.width ?? preWidth,
+    height: data.height ?? preHeight,
+    isLowRes: data.isLowRes ?? false,
+    fileSizeBytes: data.fileSizeBytes ?? null,
+  };
+}
