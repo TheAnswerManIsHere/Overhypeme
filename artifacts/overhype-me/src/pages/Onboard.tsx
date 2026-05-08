@@ -4,7 +4,7 @@ import { useLocation } from "wouter";
 import { useAuth } from "@workspace/replit-auth-web";
 import { Camera, Upload, Loader2, RotateCw } from "lucide-react";
 import { Button } from "@/components/ui/Button";
-import { cropToSquareJpeg } from "@/lib/image-upload";
+import { cropToSquareJpeg, uploadUserImage } from "@/lib/image-upload";
 
 const HCAPTCHA_SITE_KEY =
   import.meta.env.VITE_HCAPTCHA_SITE_KEY || "10000000-ffff-ffff-ffff-000000000001";
@@ -116,17 +116,12 @@ export default function Onboard() {
     setPhotoError("");
     setPhotoUploading(true);
     try {
-      const uploadRes = await fetch(`${BASE_URL}api/storage/upload-avatar`, {
-        method: "POST",
-        headers: { "Content-Type": photoFile.type },
-        credentials: "include",
-        body: photoFile,
+      // photoFile was already center-cropped at pickFile() time so it could
+      // drive the preview — send it through the unified upload helper as-is.
+      const { objectPath } = await uploadUserImage(photoFile, {
+        kind: "avatar",
+        preprocess: "none",
       });
-      if (!uploadRes.ok) {
-        const data = (await uploadRes.json().catch(() => ({}))) as { error?: string };
-        throw new Error(data.error ?? `Upload failed (${uploadRes.status})`);
-      }
-      const { objectPath } = (await uploadRes.json()) as { objectPath: string };
       const profileImageUrl = `/api/storage${objectPath}`;
 
       const patchRes = await fetch(`${BASE_URL}api/users/me`, {
