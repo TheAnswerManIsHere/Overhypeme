@@ -373,46 +373,52 @@ router.post("/memes", async (req: Request, res: Response) => {
     const imgBuffer = Buffer.from(previewImageBase64, "base64");
 
     // Upload to fal's transient storage so the classifier endpoint has a URL.
-    let classifierUrl: string | null = null;
-    try {
-      const { fal } = await import("@fal-ai/client");
-      const blob = new Blob([new Uint8Array(imgBuffer)], { type: "image/jpeg" });
-      classifierUrl = await fal.storage.upload(blob);
-    } catch (uErr) {
-      req.log.warn({ err: uErr }, "[memes] failed to upload preview to fal storage for classification — failing closed");
-    }
+    const falKeyMemes = process.env["FAL_AI_API_KEY"] ?? process.env["FAL_KEY"];
+    if (!falKeyMemes) {
+      req.log.warn("[memes] fal.ai key not configured — skipping NSFW classifier on preview");
+    } else {
+      let classifierUrl: string | null = null;
+      try {
+        const { fal } = await import("@fal-ai/client");
+        fal.config({ credentials: falKeyMemes });
+        const blob = new Blob([new Uint8Array(imgBuffer)], { type: "image/jpeg" });
+        classifierUrl = await fal.storage.upload(blob);
+      } catch (uErr) {
+        req.log.warn({ err: uErr }, "[memes] failed to upload preview to fal storage for classification — failing closed");
+      }
 
-    if (classifierUrl) {
-      const decision = await classifyAndDecide(classifierUrl, { nsfwModeEnabled: !!req.user?.nsfwModeEnabled });
-      if (decision.outcome === "reject" || decision.outcome === "error") {
-        if (decision.outcome === "reject") {
-          try {
-            await quarantineImage({
-              source: "classifier",
-              bytes: imgBuffer,
-              mimeType: "image/jpeg",
-              userId: req.user.id,
-              evidence: {
+      if (classifierUrl) {
+        const decision = await classifyAndDecide(classifierUrl, { nsfwModeEnabled: !!req.user?.nsfwModeEnabled });
+        if (decision.outcome === "reject" || decision.outcome === "error") {
+          if (decision.outcome === "reject") {
+            try {
+              await quarantineImage({
                 source: "classifier",
-                classifierScore: decision.score,
-                classifierModel: decision.model,
-                raw: decision.raw,
-              },
-              reportToNcmec: false,
-            });
-          } catch (qErr) {
-            req.log.error({ err: qErr }, "[memes] quarantine failed for preview classifier reject");
+                bytes: imgBuffer,
+                mimeType: "image/jpeg",
+                userId: req.user.id,
+                evidence: {
+                  source: "classifier",
+                  classifierScore: decision.score,
+                  classifierModel: decision.model,
+                  raw: decision.raw,
+                },
+                reportToNcmec: false,
+              });
+            } catch (qErr) {
+              req.log.error({ err: qErr }, "[memes] quarantine failed for preview classifier reject");
+            }
           }
+          res.status(422).json({ error: GENERIC_REJECT_MESSAGE });
+          return;
         }
-        res.status(422).json({ error: GENERIC_REJECT_MESSAGE });
+        classifierScoreForMeme = decision.score;
+        isNsfwForMeme = decision.isNsfwTag;
+      } else {
+        // Could not upload to classifier — fail closed.
+        res.status(503).json({ error: "Moderation service unavailable. Please try again." });
         return;
       }
-      classifierScoreForMeme = decision.score;
-      isNsfwForMeme = decision.isNsfwTag;
-    } else {
-      // Could not upload to classifier — fail closed.
-      res.status(503).json({ error: "Moderation service unavailable. Please try again." });
-      return;
     }
 
     try {

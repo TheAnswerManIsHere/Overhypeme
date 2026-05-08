@@ -262,42 +262,48 @@ router.post(
 
     // Layer 2: NSFW classifier — runs on the raw image before storage.
     let isNsfwAvatar = false;
-    try {
-      const { fal } = await import("@fal-ai/client");
-      const blob = new Blob([new Uint8Array(buffer)], { type: contentType });
-      const classifierUrl = await fal.storage.upload(blob);
-      const nsfwDecision = await classifyAndDecide(classifierUrl, { nsfwModeEnabled: !!req.user?.nsfwModeEnabled });
-      if (nsfwDecision.outcome === "reject") {
-        try {
-          await quarantineImage({
-            source: "classifier",
-            bytes: buffer,
-            mimeType: contentType,
-            userId: req.user.id,
-            evidence: {
+    const falKeyAvatar = process.env["FAL_AI_API_KEY"] ?? process.env["FAL_KEY"];
+    if (!falKeyAvatar) {
+      req.log.warn("[upload-avatar] fal.ai key not configured — skipping NSFW classifier");
+    } else {
+      try {
+        const { fal } = await import("@fal-ai/client");
+        fal.config({ credentials: falKeyAvatar });
+        const blob = new Blob([new Uint8Array(buffer)], { type: contentType });
+        const classifierUrl = await fal.storage.upload(blob);
+        const nsfwDecision = await classifyAndDecide(classifierUrl, { nsfwModeEnabled: !!req.user?.nsfwModeEnabled });
+        if (nsfwDecision.outcome === "reject") {
+          try {
+            await quarantineImage({
               source: "classifier",
-              classifierScore: nsfwDecision.score,
-              classifierModel: nsfwDecision.model,
-              raw: nsfwDecision.raw,
-            },
-            reportToNcmec: false,
-          });
-        } catch (qErr) {
-          req.log.error({ err: qErr }, "[upload-avatar] quarantine failed for NSFW classifier reject");
+              bytes: buffer,
+              mimeType: contentType,
+              userId: req.user.id,
+              evidence: {
+                source: "classifier",
+                classifierScore: nsfwDecision.score,
+                classifierModel: nsfwDecision.model,
+                raw: nsfwDecision.raw,
+              },
+              reportToNcmec: false,
+            });
+          } catch (qErr) {
+            req.log.error({ err: qErr }, "[upload-avatar] quarantine failed for NSFW classifier reject");
+          }
+          res.status(422).json({ error: GENERIC_REJECT_MESSAGE });
+          return;
         }
-        res.status(422).json({ error: GENERIC_REJECT_MESSAGE });
-        return;
-      }
-      if (nsfwDecision.outcome === "error") {
-        req.log.warn({ message: nsfwDecision.message }, "[upload-avatar] NSFW classifier error — failing closed");
+        if (nsfwDecision.outcome === "error") {
+          req.log.warn({ message: nsfwDecision.message }, "[upload-avatar] NSFW classifier error — failing closed");
+          res.status(503).json({ error: "Moderation service unavailable. Please try again." });
+          return;
+        }
+        isNsfwAvatar = nsfwDecision.isNsfwTag;
+      } catch (nsfwErr) {
+        req.log.warn({ err: nsfwErr }, "[upload-avatar] NSFW classifier step failed — failing closed");
         res.status(503).json({ error: "Moderation service unavailable. Please try again." });
         return;
       }
-      isNsfwAvatar = nsfwDecision.isNsfwTag;
-    } catch (nsfwErr) {
-      req.log.warn({ err: nsfwErr }, "[upload-avatar] NSFW classifier step failed — failing closed");
-      res.status(503).json({ error: "Moderation service unavailable. Please try again." });
-      return;
     }
 
     try {
@@ -417,42 +423,48 @@ router.post(
     // Layer 2: NSFW classifier — runs on the raw uploaded image (before any
     // text compositing) so the classifier sees the full unobscured content.
     let isNsfwUpload = false;
-    try {
-      const { fal } = await import("@fal-ai/client");
-      const blob = new Blob([new Uint8Array(processed.buffer)], { type: "image/jpeg" });
-      const classifierUrl = await fal.storage.upload(blob);
-      const nsfwDecision = await classifyAndDecide(classifierUrl, { nsfwModeEnabled: !!req.user?.nsfwModeEnabled });
-      if (nsfwDecision.outcome === "reject") {
-        try {
-          await quarantineImage({
-            source: "classifier",
-            bytes: processed.buffer,
-            mimeType: "image/jpeg",
-            userId: req.user.id,
-            evidence: {
+    const falKeyMeme = process.env["FAL_AI_API_KEY"] ?? process.env["FAL_KEY"];
+    if (!falKeyMeme) {
+      req.log.warn("[upload-meme] fal.ai key not configured — skipping NSFW classifier");
+    } else {
+      try {
+        const { fal } = await import("@fal-ai/client");
+        fal.config({ credentials: falKeyMeme });
+        const blob = new Blob([new Uint8Array(processed.buffer)], { type: "image/jpeg" });
+        const classifierUrl = await fal.storage.upload(blob);
+        const nsfwDecision = await classifyAndDecide(classifierUrl, { nsfwModeEnabled: !!req.user?.nsfwModeEnabled });
+        if (nsfwDecision.outcome === "reject") {
+          try {
+            await quarantineImage({
               source: "classifier",
-              classifierScore: nsfwDecision.score,
-              classifierModel: nsfwDecision.model,
-              raw: nsfwDecision.raw,
-            },
-            reportToNcmec: false,
-          });
-        } catch (qErr) {
-          req.log.error({ err: qErr }, "[upload-meme] quarantine failed for NSFW classifier reject");
+              bytes: processed.buffer,
+              mimeType: "image/jpeg",
+              userId: req.user.id,
+              evidence: {
+                source: "classifier",
+                classifierScore: nsfwDecision.score,
+                classifierModel: nsfwDecision.model,
+                raw: nsfwDecision.raw,
+              },
+              reportToNcmec: false,
+            });
+          } catch (qErr) {
+            req.log.error({ err: qErr }, "[upload-meme] quarantine failed for NSFW classifier reject");
+          }
+          res.status(422).json({ error: GENERIC_REJECT_MESSAGE });
+          return;
         }
-        res.status(422).json({ error: GENERIC_REJECT_MESSAGE });
-        return;
-      }
-      if (nsfwDecision.outcome === "error") {
-        req.log.warn({ message: nsfwDecision.message }, "[upload-meme] NSFW classifier error — failing closed");
+        if (nsfwDecision.outcome === "error") {
+          req.log.warn({ message: nsfwDecision.message }, "[upload-meme] NSFW classifier error — failing closed");
+          res.status(503).json({ error: "Moderation service unavailable. Please try again." });
+          return;
+        }
+        isNsfwUpload = nsfwDecision.isNsfwTag;
+      } catch (nsfwErr) {
+        req.log.warn({ err: nsfwErr }, "[upload-meme] NSFW classifier step failed — failing closed");
         res.status(503).json({ error: "Moderation service unavailable. Please try again." });
         return;
       }
-      isNsfwUpload = nsfwDecision.isNsfwTag;
-    } catch (nsfwErr) {
-      req.log.warn({ err: nsfwErr }, "[upload-meme] NSFW classifier step failed — failing closed");
-      res.status(503).json({ error: "Moderation service unavailable. Please try again." });
-      return;
     }
 
     try {
