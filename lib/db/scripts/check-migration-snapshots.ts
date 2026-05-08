@@ -51,6 +51,19 @@ const SNAPSHOT_EXEMPT_TAGS = new Set<string>([
   // through the new personal-name validator's rules. No DDL means no schema
   // delta means no snapshot.
   "0044_sanitize_existing_names",
+
+  // Constraint rename only: renames the PostgreSQL-auto-named unique
+  // constraint on stripe_checkout_request_ledger.request_key
+  // ("..._request_key_key") to Drizzle's convention ("..._request_key_unique").
+  // The Drizzle snapshot already reflects the correct name from migration 0032
+  // onward, so no snapshot delta is produced by this fix migration.
+  "0045_checkout_request_key_constraint_rename",
+
+  // Drops the obsolete route_visit_stats table, which was superseded by
+  // route_stats + route_stat_events but never removed from the database.
+  // The table was never exported from the schema index so it never appeared
+  // in any Drizzle snapshot; no snapshot delta is produced by its removal.
+  "0046_drop_route_visit_stats",
 ]);
 
 interface JournalEntry {
