@@ -105,15 +105,23 @@ export async function scanMediaFromBytes(
   const url = overrides.baseUrl ?? ARACHNID_BASE_URL;
   const fetchImpl = overrides.fetchImpl ?? fetch;
   try {
-    const res = await fetchImpl(url, {
-      method: "POST",
-      headers: {
-        Authorization: basicAuthHeader(creds),
-        "Content-Type": mimeType,
-        "Content-Length": String(bytes.length),
-      },
-      body: bytes,
-    });
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 10_000);
+    let res: Response;
+    try {
+      res = await fetchImpl(url, {
+        method: "POST",
+        headers: {
+          Authorization: basicAuthHeader(creds),
+          "Content-Type": mimeType,
+          "Content-Length": String(bytes.length),
+        },
+        body: bytes,
+        signal: controller.signal,
+      });
+    } finally {
+      clearTimeout(timeoutId);
+    }
     if (!res.ok) {
       const text = await res.text().catch(() => "");
       return { status: "err", data: `HTTP ${res.status}: ${text.slice(0, 500)}` };
