@@ -22,7 +22,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@workspace/replit-auth-web";
 import { Button } from "@/components/ui/Button";
 import {
-  preProcessImageFile,
+  uploadUserImage,
   CLIENT_MAX_UPLOAD_MB,
 } from "@/lib/image-upload";
 import {
@@ -345,8 +345,9 @@ function StepDots({ current, total }: { current: MemeStep; total: number }) {
 
 // ─── Identity (your-photo) source ────────────────────────────────────────────
 // Free for every signed-in user. When the user already has a profile photo we
-// just preview it; otherwise we render an inline upload prompt that posts the
-// raw image to /api/storage/upload-avatar and writes back via PATCH /api/users/me.
+// just preview it; otherwise we render an inline upload prompt that runs the
+// image through the unified `uploadUserImage` helper and writes the resulting
+// objectPath back via PATCH /api/users/me.
 function IdentityPhotoSection({
   profileImageUrl,
   isAuthenticated,
@@ -370,18 +371,7 @@ function IdentityPhotoSection({
     setError(null);
     setUploading(true);
     try {
-      const { blob } = await preProcessImageFile(file);
-      const uploadRes = await fetch("/api/storage/upload-avatar", {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "image/jpeg" },
-        body: blob,
-      });
-      if (!uploadRes.ok) {
-        const j = await uploadRes.json().catch(() => ({})) as { error?: string };
-        throw new Error(j.error ?? `Upload failed (${uploadRes.status})`);
-      }
-      const { objectPath } = await uploadRes.json() as { objectPath: string };
+      const { objectPath } = await uploadUserImage(file, { kind: "avatar" });
 
       const patchRes = await fetch("/api/users/me", {
         method: "PATCH",
@@ -1175,45 +1165,22 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
     setUploadDisplayUrl(localUrl);
 
     try {
-      let uploadBlob: Blob = file;
-      let imgWidth: number | null = null;
-      let imgHeight: number | null = null;
+      const result = await uploadUserImage(file, { kind: "meme" });
 
-      try {
-        const processed = await preProcessImageFile(file);
-        uploadBlob = processed.blob;
-        imgWidth = processed.width;
-        imgHeight = processed.height;
-
-        const longestEdge = Math.max(processed.width, processed.height);
-        if (longestEdge < LOW_RES_WARNING_PX) {
-          setErrorMsg(
-            `This image is ${processed.width}×${processed.height}px, which may appear blurry on printed merchandise.`
-          );
-        }
-      } catch {
-        uploadBlob = file;
+      if (
+        result.width !== null &&
+        result.height !== null &&
+        Math.max(result.width, result.height) < LOW_RES_WARNING_PX
+      ) {
+        setErrorMsg(
+          `This image is ${result.width}×${result.height}px, which may appear blurry on printed merchandise.`
+        );
       }
 
-      const uploadRes = await fetch("/api/storage/upload-meme", {
-        method: "POST",
-        headers: { "Content-Type": "image/jpeg" },
-        body: uploadBlob,
-      });
-      if (!uploadRes.ok) {
-        const body = await uploadRes.json() as { error?: string };
-        throw new Error(body.error ?? "Upload failed");
-      }
-      const result = await uploadRes.json() as {
-        objectPath: string;
-        width?: number;
-        height?: number;
-        isLowRes?: boolean;
-      };
       setUploadObjectPath(result.objectPath);
-      setUploadIsLowRes(result.isLowRes ?? false);
-      setUploadWidth(result.width ?? imgWidth);
-      setUploadHeight(result.height ?? imgHeight);
+      setUploadIsLowRes(result.isLowRes);
+      setUploadWidth(result.width);
+      setUploadHeight(result.height);
       // Refresh gallery so the newly uploaded image appears in the grid
       fetch("/api/users/me/uploads", { credentials: "include" })
         .then(r => r.json())

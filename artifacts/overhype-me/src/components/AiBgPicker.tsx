@@ -13,7 +13,7 @@ import { AdminMediaInfo, AdminMediaInfoForUrl, getFileNameFromUrl, getMimeTypeFr
 import { Button } from "@/components/ui/Button";
 import { IMAGE_STYLES } from "@/config/imageStyles";
 import type { AiMemeImages } from "@/types/meme";
-import { preProcessImageFile } from "@/lib/image-upload";
+import { uploadUserImage } from "@/lib/image-upload";
 
 // ─── Shared admin constants (same as MemeBuilder) ────────────────────────────
 
@@ -311,27 +311,16 @@ export function AiBgPicker({
     if (!file.type.startsWith("image/")) return;
     setIsUploadingRefPhoto(true);
     try {
-      let uploadBlob: Blob = file;
-      try {
-        const processed = await preProcessImageFile(file, { maxDimension: REF_PHOTO_MAX_DIMENSION });
-        uploadBlob = processed.blob;
-      } catch { /* use original */ }
-      const uploadRes = await fetch("/api/storage/upload-meme", {
-        method: "POST",
-        headers: { "Content-Type": "image/jpeg" },
-        body: uploadBlob,
+      const result = await uploadUserImage(file, {
+        kind: "meme",
+        maxDimension: REF_PHOTO_MAX_DIMENSION,
       });
-      if (!uploadRes.ok) {
-        const errBody = await uploadRes.json() as { error?: string };
-        throw new Error(errBody.error ?? "Upload failed");
-      }
-      const result = await uploadRes.json() as { objectPath: string; width?: number; height?: number; isLowRes?: boolean };
       const newEntry: UploadEntry = {
         objectPath: result.objectPath,
         width: result.width ?? 0,
         height: result.height ?? 0,
-        isLowRes: result.isLowRes ?? false,
-        fileSizeBytes: 0,
+        isLowRes: result.isLowRes,
+        fileSizeBytes: result.fileSizeBytes ?? 0,
         createdAt: new Date().toISOString(),
       };
       setRefUploads(prev => [newEntry, ...prev]);
