@@ -93,6 +93,7 @@ router.patch("/admin/users/:id", requireAdmin, async (req: Request, res: Respons
   if (typeof body["adminNotifications"] === "boolean") updates.adminNotifications = body["adminNotifications"];
   if (typeof body["disputeNotifications"] === "boolean") updates.disputeNotifications = body["disputeNotifications"];
   if (typeof body["captchaVerified"] === "boolean") updates.captchaVerified = body["captchaVerified"];
+  if (typeof body["nsfwModeEnabled"] === "boolean") updates.nsfwModeEnabled = body["nsfwModeEnabled"];
   if (body["displayName"] !== undefined) updates.displayName = body["displayName"] ? String(body["displayName"]) : null;
   if (body["email"] !== undefined) updates.email = body["email"] ? String(body["email"]).trim().toLowerCase() : null;
   if (body["membershipTier"] !== undefined && ["unregistered", "registered", "legendary"].includes(String(body["membershipTier"])))

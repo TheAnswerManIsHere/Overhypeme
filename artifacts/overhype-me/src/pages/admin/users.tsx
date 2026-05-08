@@ -17,6 +17,7 @@ interface User {
   isAdmin: boolean;
   isActive: boolean;
   captchaVerified: boolean;
+  nsfwModeEnabled: boolean;
   membershipTier: "unregistered" | "registered" | "legendary";
   pronouns: string | null;
   stripeCustomerId: string | null;
@@ -33,7 +34,7 @@ interface UsersResponse {
   limit: number;
 }
 
-type EditDraft = Pick<User, "displayName" | "email" | "isAdmin" | "captchaVerified" | "membershipTier" | "pronouns" | "monthlyGenerationLimitOverrideUsd">;
+type EditDraft = Pick<User, "displayName" | "email" | "isAdmin" | "captchaVerified" | "nsfwModeEnabled" | "membershipTier" | "pronouns" | "monthlyGenerationLimitOverrideUsd">;
 
 interface AppSubscription {
   id: number;
@@ -244,6 +245,7 @@ export default function AdminUsers() {
       email: user.email ?? "",
       isAdmin: user.isAdmin,
       captchaVerified: user.captchaVerified,
+      nsfwModeEnabled: user.nsfwModeEnabled,
       membershipTier: user.membershipTier,
       pronouns: user.pronouns ?? "he/him",
       monthlyGenerationLimitOverrideUsd: user.monthlyGenerationLimitOverrideUsd,
@@ -337,6 +339,7 @@ export default function AdminUsers() {
           email: draft.email || null,
           isAdmin: draft.isAdmin,
           captchaVerified: draft.captchaVerified,
+          nsfwModeEnabled: draft.nsfwModeEnabled,
           membershipTier: draft.membershipTier,
           pronouns: draft.pronouns,
           monthlyGenerationLimitOverrideUsd: draft.monthlyGenerationLimitOverrideUsd
@@ -1312,6 +1315,20 @@ export default function AdminUsers() {
                 >
                   <span className={`w-2 h-2 rounded-full ${draft.captchaVerified ? "bg-green-500" : "bg-muted-foreground"}`} />
                   {draft.captchaVerified ? "Verified" : "Unverified"}
+                </button>
+              </div>
+              <div className="col-span-2">
+                <FieldLabel>NSFW Mode</FieldLabel>
+                <button
+                  onClick={() => setDraft((d) => d ? { ...d, nsfwModeEnabled: !d.nsfwModeEnabled } : d)}
+                  className={`w-full h-9 flex items-center justify-center gap-2 rounded-sm border text-sm font-medium transition-colors ${
+                    draft.nsfwModeEnabled
+                      ? "border-orange-500 bg-orange-500/10 text-orange-400"
+                      : "border-border text-muted-foreground hover:border-orange-500/40"
+                  }`}
+                >
+                  <span className={`w-2 h-2 rounded-full ${draft.nsfwModeEnabled ? "bg-orange-400" : "bg-muted-foreground"}`} />
+                  {draft.nsfwModeEnabled ? "NSFW Mode On — classifier accepts & tags flagged content" : "NSFW Mode Off — classifier rejects flagged content"}
                 </button>
               </div>
             </div>
