@@ -2,7 +2,7 @@
  * Project Arachnid Shield client (Layer 1).
  *
  * Hash-based CSAM matching service operated by the Canadian Centre for
- * Child Protection. Endpoint: https://shield.projectarachnid.ca/v1/media/
+ * Child Protection. Endpoint: https://shield.projectarachnid.com/v1/media
  * Auth: HTTP Basic with the credentials issued at projectarachnid.ca.
  *
  * The official `arachnid-shield-sdk` package is not published to npm, so
@@ -24,7 +24,7 @@
 import { logger } from "../logger";
 import { getConfigString } from "../adminConfig";
 
-export const ARACHNID_BASE_URL = "https://shield.projectarachnid.ca/v1/media/";
+export const ARACHNID_BASE_URL = "https://shield.projectarachnid.com/v1/media";
 
 /** Mirrors the `MediaClassification` enum from arachnid-shield-sdk-ts. */
 export type ArachnidClassification = "csam" | "harmful-abusive-material" | "no-known-match" | string;
