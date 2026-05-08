@@ -430,9 +430,21 @@ interface StatusRow {
 const SCHEMA_MISSING_PG_CODES = new Set(["3F000", "42P01"]);
 
 function isSchemaMissingError(err: unknown): boolean {
-  if (typeof err !== "object" || err === null) return false;
-  const code = (err as { code?: unknown }).code;
-  return typeof code === "string" && SCHEMA_MISSING_PG_CODES.has(code);
+  // drizzle wraps the underlying pg error in a `DrizzleQueryError` that does
+  // NOT copy the SQLSTATE up — the original error sits on `.cause`. Walk the
+  // chain so we catch both raw pg errors (test mocks) and drizzle-wrapped
+  // ones (the real query path).
+  let cur: unknown = err;
+  for (let depth = 0; depth < 5 && cur; depth++) {
+    if (typeof cur === "object" && cur !== null) {
+      const code = (cur as { code?: unknown }).code;
+      if (typeof code === "string" && SCHEMA_MISSING_PG_CODES.has(code)) return true;
+      cur = (cur as { cause?: unknown }).cause;
+    } else {
+      break;
+    }
+  }
+  return false;
 }
 
 /**
