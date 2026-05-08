@@ -70,6 +70,18 @@ const SNAPSHOT_EXEMPT_TAGS = new Set<string>([
   // Drizzle snapshot already reflects the correct sort order; only the live
   // database was behind, causing repeated publish-time schema drift.
   "0047_fix_desc_nulls_last_indexes",
+
+  // Manually authored DDL for Phase 3 meme builder lineage: adds nullable
+  // analytics/dedup columns + indexes + check constraints to memes and
+  // upload_image_metadata. Authored by hand to avoid running drizzle-kit
+  // generate without DB access; rebuild-snapshots.ts can backfill the
+  // 0048_snapshot.json from schema TS later.
+  "0048_meme_builder_lineage",
+
+  // Phase 3 follow-up: adds memes.framing_transform jsonb to persist canvas
+  // pan offsets so server-side renders / Zazzle exports honor creator
+  // framing. Single ADD COLUMN; rebuild-snapshots.ts can backfill if needed.
+  "0049_memes_framing_transform",
 ]);
 
 interface JournalEntry {

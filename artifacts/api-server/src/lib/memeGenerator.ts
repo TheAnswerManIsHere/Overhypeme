@@ -69,7 +69,7 @@ export const MEME_TEMPLATES: MemeTemplate[] = [
   { id: "chrome",   name: "Chrome",       description: "Polished steel grey — sleek, mechanical, unstoppable",          previewColors: ["#0d0d0d", "#37474f", "#546e7a"],   assetPath: "chrome.png"   },
 ];
 
-export interface ImageTransform {
+export interface FramingTransform {
   offsetX?: number;
   offsetY?: number;
 }
@@ -128,7 +128,7 @@ function centerCropParams(
   srcH: number,
   dstW: number,
   dstH: number,
-  transform?: ImageTransform | null,
+  transform?: FramingTransform | null,
 ): { sx: number; sy: number; sw: number; sh: number } {
   const srcAspect = srcW / srcH;
   const dstAspect = dstW / dstH;
@@ -158,7 +158,7 @@ export async function generateMemeBuffer(
   factText: string,
   options?: TextOptions,
   aspectRatio: MemeAspectRatio = DEFAULT_MEME_ASPECT_RATIO,
-  imageTransform?: ImageTransform | null,
+  framingTransform?: FramingTransform | null,
 ): Promise<Buffer> {
   const { w: logicalW, h: logicalH } = MEME_ASPECT_RATIOS[aspectRatio];
 
@@ -174,7 +174,7 @@ export async function generateMemeBuffer(
     renderH = Math.round(logicalH * TEMPLATE_RENDER_SCALE);
   } else {
     const img = await loadImage(background.imageData);
-    const crop = centerCropParams(img.width, img.height, logicalW, logicalH, imageTransform);
+    const crop = centerCropParams(img.width, img.height, logicalW, logicalH, framingTransform);
     // Render at the cropped source resolution so we keep every available pixel,
     // capped on the longest edge to bound output size.
     let rW = Math.round(crop.sw);

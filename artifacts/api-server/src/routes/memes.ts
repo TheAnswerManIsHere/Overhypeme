@@ -174,7 +174,7 @@ const ImageSourceSchema = z.discriminatedUnion("type", [
   }),
 ]);
 
-const ImageTransformSchema = z.object({
+const FramingTransformSchema = z.object({
   offsetX: z.number().finite().min(-10_000).max(10_000),
   offsetY: z.number().finite().min(-10_000).max(10_000),
 }).nullable().optional();
@@ -183,7 +183,7 @@ const CreateMemeBody = z.object({
   factId: z.number().int().positive(),
   imageSource: ImageSourceSchema,
   textOptions: TextOptionsSchema,
-  imageTransform: ImageTransformSchema,
+  framingTransform: FramingTransformSchema,
   previewImageBase64: z.string().max(700_000).optional(),
   isPublic: z.boolean().optional(),
   aspectRatio: z.enum(["landscape", "square", "portrait"]).optional(),
@@ -273,7 +273,7 @@ router.post("/memes", async (req: Request, res: Response) => {
     return;
   }
 
-  const { factId, textOptions, imageTransform, previewImageBase64, isPublic: isPublicReq, aspectRatio: aspectRatioReq } = parsed.data;
+  const { factId, textOptions, framingTransform, previewImageBase64, isPublic: isPublicReq, aspectRatio: aspectRatioReq } = parsed.data;
   // `imageSource` may be reassigned below when type === "identity" (resolved
   // server-side into an upload-shaped source backed by the user's profile photo).
   let imageSource = parsed.data.imageSource;
@@ -454,7 +454,7 @@ router.post("/memes", async (req: Request, res: Response) => {
       permalinkSlug: slug,
       textOptions: textOptions ?? null,
       imageSource: storedImageSource,
-      imageTransform: imageTransform ?? null,
+      framingTransform: framingTransform ?? null,
       isPublic,
       isLowRes: uploadMeta?.isLowRes ?? false,
       originalWidth: uploadMeta?.width ?? null,
@@ -806,7 +806,7 @@ router.get("/memes/:slug/image", async (req: Request, res: Response) => {
       throw new Error(`Unsupported stored image source type: ${(source as { type: string }).type}`);
     }
 
-    const imageBuffer = await generateMemeBuffer(background, factText, textOptions, (meme.aspectRatio as MemeAspectRatio | null) ?? "landscape", meme.imageTransform ?? undefined);
+    const imageBuffer = await generateMemeBuffer(background, factText, textOptions, (meme.aspectRatio as MemeAspectRatio | null) ?? "landscape", meme.framingTransform ?? undefined);
 
     const etag = `"meme-${slug}"`;
     if (checkConditional(req, res, etag)) return;
@@ -905,7 +905,7 @@ router.post("/memes/:slug/zazzle-export", async (req: Request, res: Response) =>
         throw new Error(`Unsupported stored image source type: ${(source as { type: string }).type}`);
       }
 
-      imageBuffer = await generateMemeBuffer(background, factText, textOptions, (meme.aspectRatio as MemeAspectRatio | null) ?? "landscape", meme.imageTransform ?? undefined);
+      imageBuffer = await generateMemeBuffer(background, factText, textOptions, (meme.aspectRatio as MemeAspectRatio | null) ?? "landscape", meme.framingTransform ?? undefined);
     }
 
     // Store in object storage with a public ACL so Zazzle can fetch it directly
@@ -1034,7 +1034,7 @@ router.get("/memes/:slug/zazzle-redirect", async (req: Request, res: Response) =
         throw new Error(`Unsupported stored image source type: ${(source as { type: string }).type}`);
       }
 
-      imageBuffer = await generateMemeBuffer(background, factText, textOptions, (meme.aspectRatio as MemeAspectRatio | null) ?? "landscape", meme.imageTransform ?? undefined);
+      imageBuffer = await generateMemeBuffer(background, factText, textOptions, (meme.aspectRatio as MemeAspectRatio | null) ?? "landscape", meme.framingTransform ?? undefined);
     }
 
     const subPath = `meme-exports/${slug}.jpg`;
