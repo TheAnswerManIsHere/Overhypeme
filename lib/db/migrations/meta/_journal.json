@@ -330,6 +330,13 @@
       "when": 1778190060000,
       "tag": "0046_drop_route_visit_stats",
       "breakpoints": true
+    },
+    {
+      "idx": 47,
+      "version": "7",
+      "when": 1778190120000,
+      "tag": "0047_fix_desc_nulls_last_indexes",
+      "breakpoints": true
     }
   ]
 }

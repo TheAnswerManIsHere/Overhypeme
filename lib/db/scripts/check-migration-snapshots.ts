@@ -64,6 +64,12 @@ const SNAPSHOT_EXEMPT_TAGS = new Set<string>([
   // The table was never exported from the schema index so it never appeared
   // in any Drizzle snapshot; no snapshot delta is produced by its removal.
   "0046_drop_route_visit_stats",
+
+  // Rebuilds three indexes that were originally created without DESC NULLS LAST
+  // even though the TypeScript schema specifies .desc().nullsLast().  The
+  // Drizzle snapshot already reflects the correct sort order; only the live
+  // database was behind, causing repeated publish-time schema drift.
+  "0047_fix_desc_nulls_last_indexes",
 ]);
 
 interface JournalEntry {
