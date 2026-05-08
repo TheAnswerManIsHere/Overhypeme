@@ -145,7 +145,9 @@ async function withRetry<T>(fn: () => Promise<T>, label: string): Promise<T> {
 
 /**
  * Runs the full LLM → Pexels pipeline for a single fact and persists the result.
- * Fetches up to 80 photos per gender variant in one request each (Pexels max).
+ * Fetches up to 10 photos per gender variant in one request each (Phase 3 cap;
+ * was 80 prior — the new builder picker only ever surfaces 10, and storing more
+ * costs space in facts.pexels_images jsonb without product benefit).
  * Only operates on root facts (parentId = null) — variants inherit parent images.
  * Safe to call fire-and-forget: catches all errors internally.
  *
@@ -159,9 +161,9 @@ export async function runFactImagePipeline(factId: number, factText: string): Pr
       // 1. Extract keywords via OpenAI
       const { fact_type, keywords } = await extractImageKeywords(factText);
 
-      // 2. Fetch photos per variant — count comes from admin config
+      // 2. Fetch photos per variant — count comes from admin config (default 10)
       const { getConfigInt } = await import("./adminConfig");
-      const pexelsCount = await getConfigInt("pexels_photos_per_gender", 80);
+      const pexelsCount = await getConfigInt("pexels_photos_per_gender", 10);
       const [male, female, neutral] = await Promise.all([
         searchPhotos(keywords.male,    pexelsCount),
         searchPhotos(keywords.female,  pexelsCount),
