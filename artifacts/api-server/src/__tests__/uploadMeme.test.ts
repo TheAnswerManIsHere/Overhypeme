@@ -98,3 +98,46 @@ test("/storage/upload-meme rejects oversized JPEG with 413", async () => {
     await close();
   }
 });
+
+/**
+ * C5. MIME-spoofed file is rejected
+ *
+ * A plain text file sent with Content-Type: image/jpeg must be rejected based
+ * on actual file content inspection (sharp metadata probe), NOT by trusting
+ * the Content-Type header alone. Trusting the header would be a security bug.
+ *
+ * Expected: 422 — rejected at the validateAndProbe stage, before any
+ * moderation classifier (Arachnid / NSFW) is reached. This is the same
+ * "no classifier called" behaviour as C4, because the sharp probe fires first
+ * and short-circuits the pipeline.
+ */
+test("C5: MIME-spoofed file (text/plain bytes sent as image/jpeg) is rejected with 422 based on content inspection", async () => {
+  const { url, close } = await startServer();
+  try {
+    // Simulate not-an-image.txt: plain ASCII text content that is nowhere near
+    // a valid JPEG bitstream, but sent with a spoofed Content-Type header.
+    const textContent = Buffer.from(
+      "This is not an image. It is a plain text file masquerading as a JPEG.",
+    );
+    const res = await postBuffer(`${url}/storage/upload-meme`, "image/jpeg", textContent);
+
+    // The server must inspect the actual bytes via sharp and reject on content,
+    // not accept because the header claims image/jpeg.
+    assert.equal(
+      res.status,
+      422,
+      `expected 422 (content inspection failure), got ${res.status} (${res.body})`,
+    );
+    const parsed = JSON.parse(res.body) as { error?: string };
+    // Must return an error about the file not being a valid JPEG — confirming
+    // rejection came from content inspection, not Content-Type acceptance.
+    assert.ok(parsed.error, "response body must contain an error field");
+    assert.match(
+      parsed.error ?? "",
+      /valid JPEG|not.*JPEG|JPEG.*image/i,
+      `error message should mention invalid JPEG content, got: "${parsed.error}"`,
+    );
+  } finally {
+    await close();
+  }
+});
