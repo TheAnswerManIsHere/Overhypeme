@@ -77,6 +77,11 @@ const SNAPSHOT_EXEMPT_TAGS = new Set<string>([
   // generate without DB access; rebuild-snapshots.ts can backfill the
   // 0048_snapshot.json from schema TS later.
   "0048_meme_builder_lineage",
+
+  // Phase 3 follow-up: adds memes.framing_transform jsonb to persist canvas
+  // pan offsets so server-side renders / Zazzle exports honor creator
+  // framing. Single ADD COLUMN; rebuild-snapshots.ts can backfill if needed.
+  "0049_memes_framing_transform",
 ]);
 
 interface JournalEntry {

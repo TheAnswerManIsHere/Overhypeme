@@ -1350,6 +1350,13 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
         ? canvasEl.toDataURL("image/jpeg", 0.82).split(",")[1] ?? null
         : null;
 
+      const framingTransform = bgImage
+        ? {
+            offsetX: Math.round(bgOffset.x * 1000) / 1000,
+            offsetY: Math.round(bgOffset.y * 1000) / 1000,
+          }
+        : null;
+
       const res = await fetch("/api/memes", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -1358,6 +1365,7 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
           factId,
           imageSource,
           previewImageBase64,
+          framingTransform,
           textOptions: {
             topText,
             bottomText,

@@ -12,6 +12,13 @@ export const memesTable = pgTable("memes", {
   textOptions: jsonb("text_options"),
   /** Populated for photo-based memes; null means gradient template background. */
   imageSource: jsonb("image_source"),
+  /**
+   * User-specified background framing/pan transform for photo-backed meme
+   * crops. Shape: `{ offsetX: number, offsetY: number }`. Persisted so
+   * server-side renders, exports, and cached previews honor the creator's
+   * chosen framing.
+   */
+  framingTransform: jsonb("framing_transform"),
   /** Whether this meme is visible in the public gallery. Non-legendary users always get true; legendary can set false. */
   isPublic: boolean("is_public").notNull().default(true),
   /** Flagged true if the uploaded image longest edge is below LOW_RES_THRESHOLD_PX (default 1500px). */
