@@ -1,0 +1,12 @@
+-- Drop the obsolete route_visit_stats table.
+--
+-- This table was superseded by route_stats + route_stat_events (migrations
+-- 0038/0039) which offer per-interval event recording rather than a single
+-- running counter per route.  The schema file (routeVisitStats.ts) was never
+-- re-exported from the schema index so Drizzle never tracked this table in any
+-- snapshot.  Its presence in the live database caused drizzle-kit to report
+-- schema drift on every Replit publish ("database changes detected") because
+-- the TypeScript schema has no matching definition.
+--
+-- The table contains only 1 row of legacy counter data; it is safe to remove.
+DROP TABLE IF EXISTS "route_visit_stats";
