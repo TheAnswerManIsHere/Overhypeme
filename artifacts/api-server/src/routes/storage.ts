@@ -260,6 +260,46 @@ router.post(
     const moderation = await runUploadModeration(req, res, buffer, contentType);
     if (moderation.state === "rejected") return;
 
+    // Layer 2: NSFW classifier — runs on the raw image before storage.
+    let isNsfwAvatar = false;
+    try {
+      const { fal } = await import("@fal-ai/client");
+      const blob = new Blob([new Uint8Array(buffer)], { type: contentType });
+      const classifierUrl = await fal.storage.upload(blob);
+      const nsfwDecision = await classifyAndDecide(classifierUrl, { nsfwModeEnabled: !!req.user?.nsfwModeEnabled });
+      if (nsfwDecision.outcome === "reject") {
+        try {
+          await quarantineImage({
+            source: "classifier",
+            bytes: buffer,
+            mimeType: contentType,
+            userId: req.user.id,
+            evidence: {
+              source: "classifier",
+              classifierScore: nsfwDecision.score,
+              classifierModel: nsfwDecision.model,
+              raw: nsfwDecision.raw,
+            },
+            reportToNcmec: false,
+          });
+        } catch (qErr) {
+          req.log.error({ err: qErr }, "[upload-avatar] quarantine failed for NSFW classifier reject");
+        }
+        res.status(422).json({ error: GENERIC_REJECT_MESSAGE });
+        return;
+      }
+      if (nsfwDecision.outcome === "error") {
+        req.log.warn({ message: nsfwDecision.message }, "[upload-avatar] NSFW classifier error — failing closed");
+        res.status(503).json({ error: "Moderation service unavailable. Please try again." });
+        return;
+      }
+      isNsfwAvatar = nsfwDecision.isNsfwTag;
+    } catch (nsfwErr) {
+      req.log.warn({ err: nsfwErr }, "[upload-avatar] NSFW classifier step failed — failing closed");
+      res.status(503).json({ error: "Moderation service unavailable. Please try again." });
+      return;
+    }
+
     try {
       const extMap: Record<string, string> = {
         "image/jpeg": "jpg",
@@ -282,7 +322,7 @@ router.post(
           INSERT INTO upload_image_metadata (
             object_path, width, height, is_low_res, file_size_bytes, user_id,
             arachnid_classification, arachnid_match_type, arachnid_sha1_base32,
-            arachnid_sha256_hex, arachnid_scanned_at
+            arachnid_sha256_hex, arachnid_scanned_at, is_nsfw
           )
           VALUES (
             ${objectPath}, 0, 0, false, ${buffer.length}, ${req.user.id},
@@ -290,7 +330,7 @@ router.post(
             ${moderation.arachnid.arachnidMatchType ?? null},
             ${moderation.arachnid.arachnidSha1Base32 ?? null},
             ${moderation.arachnid.arachnidSha256Hex ?? null},
-            now()
+            now(), ${isNsfwAvatar}
           )
           ON CONFLICT (object_path) DO NOTHING
         `);
