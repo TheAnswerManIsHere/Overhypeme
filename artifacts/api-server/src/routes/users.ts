@@ -424,11 +424,43 @@ router.get("/users/me/uploads", async (req: Request, res: Response) => {
 
   const displayLimit = await getConfigInt("bg_display_limit_upload", 20);
 
+  // Phase 3 filters: transform = 'raw' (raw uploads only — default & legacy
+  // behavior), 'pulid' / 'pulid_fallback_text' (AI stylings), or 'all' (no
+  // filter). When a transform other than 'raw' is requested the caller may
+  // also pass factId to scope to a specific fact's stylings.
+  const transformParam = typeof req.query.transform === "string" ? req.query.transform : "raw";
+  const factIdParam = typeof req.query.factId === "string" ? parseInt(req.query.factId, 10) : NaN;
+  const factIdFilter = Number.isFinite(factIdParam) ? factIdParam : null;
+
+  const transformPredicate = (() => {
+    switch (transformParam) {
+      case "raw":
+        return sql`AND transform IS NULL`;
+      case "pulid":
+        return sql`AND transform = 'pulid'`;
+      case "pulid_fallback_text":
+        return sql`AND transform = 'pulid_fallback_text'`;
+      case "ai":
+        return sql`AND transform IN ('pulid','pulid_fallback_text')`;
+      case "all":
+        return sql``;
+      default:
+        return sql`AND transform IS NULL`;
+    }
+  })();
+
+  const factPredicate = factIdFilter !== null
+    ? sql`AND fact_id = ${factIdFilter}`
+    : sql``;
+
   const [rows, countResult, maxUploads] = await Promise.all([
     db.execute(sql`
-      SELECT object_path, width, height, is_low_res, file_size_bytes, created_at
+      SELECT object_path, width, height, is_low_res, file_size_bytes, created_at,
+             transform, source_object_path, fact_id, transform_params_hash
       FROM upload_image_metadata
       WHERE user_id = ${req.user.id}
+        ${transformPredicate}
+        ${factPredicate}
       ORDER BY created_at DESC
       LIMIT ${displayLimit}
     `),
@@ -436,6 +468,8 @@ router.get("/users/me/uploads", async (req: Request, res: Response) => {
       SELECT COUNT(*)::integer AS total
       FROM upload_image_metadata
       WHERE user_id = ${req.user.id}
+        ${transformPredicate}
+        ${factPredicate}
     `),
     getConfigInt("user_max_images", 1000),
   ]);
@@ -447,6 +481,10 @@ router.get("/users/me/uploads", async (req: Request, res: Response) => {
     is_low_res: boolean;
     file_size_bytes: number;
     created_at: string;
+    transform: string | null;
+    source_object_path: string | null;
+    fact_id: number | null;
+    transform_params_hash: string | null;
   }>).map(r => ({
     objectPath: r.object_path,
     width: r.width,
@@ -454,6 +492,10 @@ router.get("/users/me/uploads", async (req: Request, res: Response) => {
     isLowRes: r.is_low_res,
     fileSizeBytes: r.file_size_bytes,
     createdAt: r.created_at,
+    transform: r.transform,
+    sourceObjectPath: r.source_object_path,
+    factId: r.fact_id,
+    transformParamsHash: r.transform_params_hash,
   }));
 
   const uploadCount = (countResult.rows[0] as { total: number } | undefined)?.total ?? 0;
