@@ -82,6 +82,15 @@ const SNAPSHOT_EXEMPT_TAGS = new Set<string>([
   // pan offsets so server-side renders / Zazzle exports honor creator
   // framing. Single ADD COLUMN; rebuild-snapshots.ts can backfill if needed.
   "0049_memes_framing_transform",
+
+  // Phase 4: audit table for /api/render-preview and /api/render-download.
+  // Manually authored; rebuild-snapshots.ts can backfill the snapshot later.
+  "0050_transient_renders",
+
+  // Phase 4: partial index on memes(created_by_id, created_at) WHERE
+  // deleted_at IS NULL — covers per-user daily-cap and idempotency queries.
+  // Index-only migration; no table shape change.
+  "0051_memes_creator_created_at_index",
 ]);
 
 interface JournalEntry {
