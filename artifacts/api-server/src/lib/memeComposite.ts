@@ -61,59 +61,83 @@ export interface ComposeMemeResult {
 const defaultObjectStorage = new ObjectStorageService();
 
 /**
- * Resolve an `ImageSource` to a `BackgroundSource` that the canvas renderer
- * understands. Three of the four shapes do real I/O:
- *   - "stock"    fetches the resolved photo URL from Pexels (the canvas loader
- *                will then fetch the actual image bytes)
- *   - "upload"   downloads the bytes from object storage as a Buffer
- *   - "identity" resolves the user's profile photo to an upload-shaped source
- * "template" is fully synchronous.
+ * Source-kind manifest. Each `imageSource.type` resolves to a
+ * `BackgroundSource` via exactly one entry below — adding a new source kind
+ * means adding (a) a new branch to the client's `sourceKinds.ts` and (b) a
+ * new entry here. The four-branch `if` chain that lived here previously made
+ * it easy for the two sides to drift; the table makes the contract explicit.
+ *
+ * The `IdentityProfileMissingError` and `StockPhotoUnresolvedError` semantics
+ * are preserved — routes catch them and translate to 400 / 502 respectively.
  */
-async function resolveBackground(
-  imageSource: ImageSource,
-  opts: ComposeMemeOptions,
-): Promise<BackgroundSource> {
-  const objectStorage = opts.objectStorage ?? defaultObjectStorage;
+type ResolverDeps = {
+  objectStorage: ObjectStorageService;
+  profileImageObjectPath?: string | null;
+};
 
-  if (imageSource.type === "template") {
-    return { type: "template", templateId: imageSource.templateId };
-  }
+type SourceResolver<T extends ImageSource["type"]> = (
+  source: Extract<ImageSource, { type: T }>,
+  deps: ResolverDeps,
+) => Promise<BackgroundSource>;
 
-  if (imageSource.type === "stock") {
+const SOURCE_RESOLVERS: { [K in ImageSource["type"]]: SourceResolver<K> } = {
+  template: async (src) => ({ type: "template", templateId: src.templateId }),
+
+  stock: async (src) => {
     // Re-resolve the photo URL via Pexels so that link rotations on their CDN
     // don't break server-side renders. The optional `photoUrl` from the client
     // is the fallback path used if the Pexels lookup fails — clients that only
     // have the pexelsPhotoId on hand (the universal builder stores just the
     // ID in its state) will surface the lookup failure as a 502 to the user.
-    let photoUrl: string | undefined = imageSource.photoUrl;
+    let photoUrl: string | undefined = src.photoUrl;
     try {
-      const photo = await getPhotoById(imageSource.pexelsPhotoId);
+      const photo = await getPhotoById(src.pexelsPhotoId);
       photoUrl = photo.photoUrl;
     } catch {
       // Use the client-supplied URL as the fallback.
     }
     if (!photoUrl) {
-      throw new StockPhotoUnresolvedError(imageSource.pexelsPhotoId);
+      throw new StockPhotoUnresolvedError(src.pexelsPhotoId);
     }
     return { type: "image", imageData: photoUrl };
-  }
+  },
 
-  if (imageSource.type === "upload") {
-    const objectFile = await objectStorage.getObjectEntityFile(imageSource.uploadKey);
-    const downloadResponse = await objectStorage.downloadObject(objectFile);
-    const buf = Buffer.from(await downloadResponse.arrayBuffer());
-    return { type: "image", imageData: buf };
-  }
+  upload: async (src, deps) => {
+    return downloadAsBackground(deps.objectStorage, src.uploadKey);
+  },
 
-  // imageSource.type === "identity"
-  const profilePath = opts.profileImageObjectPath;
-  if (!profilePath || !profilePath.startsWith("/objects/")) {
-    throw new IdentityProfileMissingError();
-  }
-  const objectFile = await objectStorage.getObjectEntityFile(profilePath);
+  identity: async (_src, deps) => {
+    const profilePath = deps.profileImageObjectPath;
+    if (!profilePath || !profilePath.startsWith("/objects/")) {
+      throw new IdentityProfileMissingError();
+    }
+    return downloadAsBackground(deps.objectStorage, profilePath);
+  },
+};
+
+async function downloadAsBackground(
+  objectStorage: ObjectStorageService,
+  objectPath: string,
+): Promise<BackgroundSource> {
+  const objectFile = await objectStorage.getObjectEntityFile(objectPath);
   const downloadResponse = await objectStorage.downloadObject(objectFile);
   const buf = Buffer.from(await downloadResponse.arrayBuffer());
   return { type: "image", imageData: buf };
+}
+
+async function resolveBackground(
+  imageSource: ImageSource,
+  opts: ComposeMemeOptions,
+): Promise<BackgroundSource> {
+  const deps: ResolverDeps = {
+    objectStorage: opts.objectStorage ?? defaultObjectStorage,
+    profileImageObjectPath: opts.profileImageObjectPath,
+  };
+  // Cast is safe: the resolver table is keyed on the discriminator, and
+  // `imageSource.type` indexes into it deterministically. TypeScript can't
+  // see the relationship between the index and the parameter type.
+  const resolver = SOURCE_RESOLVERS[imageSource.type] as SourceResolver<typeof imageSource.type>;
+  return resolver(imageSource as never, deps);
 }
 
 /**

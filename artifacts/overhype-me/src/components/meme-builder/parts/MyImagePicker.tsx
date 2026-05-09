@@ -3,6 +3,7 @@ import { Button } from "@/components/ui/Button";
 import { cn } from "@/lib/utils";
 import { useDesktopModality } from "../hooks/useDesktopModality";
 import { useMyImages } from "../hooks/useMyImages";
+import { useAutoSelectDefault } from "../hooks/useAutoSelectDefault";
 import { SelfUploadZone } from "./SelfUploadZone";
 import type { MyImageSource } from "../types";
 
@@ -25,6 +26,18 @@ export function MyImagePicker({ factId, primaryImageObjectPath, showAiStylings, 
 
   const library = useMyImages({ enabled: tab === "library", transform: "raw", reloadKey });
   const stylings = useMyImages({ enabled: tab === "ai", transform: "ai", factId, reloadKey });
+
+  // When the picker mounts in the "primary" tab and the viewer has a primary
+  // photo, dispatch the selection upward exactly once so `state.myImage`
+  // reflects the visible default and the live preview can render immediately.
+  // Without this the parent reducer never receives the implicit selection and
+  // `useBackgroundUrl` returns null — see task #495.
+  useAutoSelectDefault<MyImageSource>({
+    enabled: tab === "primary" && !!primaryImageObjectPath && selected?.kind !== "primary",
+    identityKey: primaryImageObjectPath ? `primary:${primaryImageObjectPath}` : null,
+    resolveDefault: () => ({ kind: "primary" }),
+    onSelect,
+  });
 
   const isSelectedObject = (objectPath: string) =>
     selected !== null && (selected.kind === "library" || selected.kind === "fresh" || selected.kind === "ai-styling")

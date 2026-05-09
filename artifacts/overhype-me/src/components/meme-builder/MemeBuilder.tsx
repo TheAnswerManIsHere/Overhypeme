@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useState } from "react";
-import type { ImageTransform, MemeBuilderProps, MyImageSource } from "./types";
+import type { ImageTransform, MemeBuilderProps } from "./types";
 import { resolveBehavior } from "./behaviorMatrix";
 import { useBuilderState, snapshotPendingState } from "./state/useBuilderState";
 import { capturePendingState, clearPendingState } from "./state/pendingBuilderState";
@@ -14,6 +14,12 @@ import { LivePreview } from "./parts/LivePreview";
 import { ActionBar } from "./parts/ActionBar";
 import { TierLockedState } from "./parts/TierLockedState";
 import { STYLIZE_TOGGLE_COPY } from "./copy";
+import {
+  currentSource,
+  resolveBackgroundUrl,
+  selfUploadObjectPath,
+  toServerImageSource,
+} from "./integration/sourceKinds";
 
 /**
  * Phase-3 universal meme builder.
@@ -23,7 +29,10 @@ import { STYLIZE_TOGGLE_COPY } from "./copy";
  * raw tuple here.
  *
  * Persistence is delegated to API endpoints; this component never writes to
- * GCS, the DB, or fal.ai directly.
+ * GCS, the DB, or fal.ai directly. Background-URL math and server-bound
+ * imageSource construction are delegated to `integration/sourceKinds` so a
+ * new source kind only needs to be added in one place — pickers, preview,
+ * save, and download all pick it up.
  */
 export function MemeBuilder(props: MemeBuilderProps) {
   const { mode, factId, factText, viewerContext, entryFlow, onComplete, onCancel } = props;
@@ -46,9 +55,16 @@ export function MemeBuilder(props: MemeBuilderProps) {
   const [pulidProgress, setPulidProgress] = useState(0);
   const [fallbackNotice, setFallbackNotice] = useState<string | null>(null);
 
+  const viewerCtx = useMemo(
+    () => ({ primaryImageObjectPath: viewerContext.primaryImageObjectPath }),
+    [viewerContext.primaryImageObjectPath],
+  );
+
   // Debounced background URL for the preview; raw selection state updates
-  // immediately so the picker still feels responsive.
-  const backgroundUrl = useBackgroundUrl(state, mode, viewerContext.primaryImageObjectPath);
+  // immediately so the picker still feels responsive. The resolution lives
+  // in one shared helper so each new source kind is added in one place.
+  const source = useMemo(() => currentSource(state, mode), [state, mode]);
+  const backgroundUrl = useMemo(() => resolveBackgroundUrl(source, viewerCtx), [source, viewerCtx]);
   const debouncedBg = useDebouncedValue(backgroundUrl, 150);
 
   const captureForResume = useCallback(() => {
@@ -86,19 +102,19 @@ export function MemeBuilder(props: MemeBuilderProps) {
       return;
     }
 
-    let imageSource: Record<string, unknown> | null = null;
+    let imageSource: Record<string, unknown> | null = toServerImageSource(source, viewerCtx);
     let imageTransform: ImageTransform = null;
 
-    if (mode === "stock" && state.stockImageId) {
-      imageSource = { type: "stock", pexelsPhotoId: parseInt(state.stockImageId, 10) };
-    } else if (mode === "self-upload" && state.myImage) {
-      // For 'primary' we need the avatar object_path from the viewer.
-      const objectPath = resolveSelfUploadObjectPath(state.myImage, viewerContext.primaryImageObjectPath);
+    if (mode === "self-upload" && state.myImage) {
+      // Stylize is the one self-upload branch that needs a side-effect (kicks
+      // off PuLID via the existing AI generate route) before the imageSource
+      // is finalised — so we override the projection here. Every other source
+      // kind goes through `toServerImageSource`.
+      const objectPath = selfUploadObjectPath(state.myImage, viewerCtx);
       if (!objectPath) {
         // The user clicked save without selecting a real image. Bail.
         return;
       }
-      // If stylize is on, kick off PuLID via the existing AI generate route.
       if (state.stylizeWithAi && cell.showStylizeToggle && state.myImage.kind !== "ai-styling") {
         setPulidOpen(true);
         setPulidProgress(0.1);
@@ -122,12 +138,9 @@ export function MemeBuilder(props: MemeBuilderProps) {
         } finally {
           setPulidOpen(false);
         }
-      } else {
-        imageSource = { type: "upload", uploadKey: objectPath };
-        if (state.myImage.kind === "ai-styling") {
-          // The user picked an existing styling — keep the analytics flag on the meme.
-          imageTransform = "pulid";
-        }
+      } else if (state.myImage.kind === "ai-styling") {
+        // The user picked an existing styling — keep the analytics flag on the meme.
+        imageTransform = "pulid";
       }
     }
 
@@ -162,7 +175,7 @@ export function MemeBuilder(props: MemeBuilderProps) {
     // /api/memes so saved memes and downloaded memes are byte-identical for
     // identical inputs. Anonymous callers may only download stock-mode memes;
     // self-upload and pulid require a session (the server enforces this).
-    const imageSource = buildImageSourceForRender(mode, state, viewerContext.primaryImageObjectPath);
+    const imageSource = toServerImageSource(source, viewerCtx);
     if (!imageSource) {
       onComplete({ kind: "downloaded" });
       return;
@@ -276,8 +289,8 @@ export function MemeBuilder(props: MemeBuilderProps) {
       <ActionBar
         visibleActions={cell.visibleActions}
         showTryAiUpsell={cell.showTryAiUpsell}
-        saveDisabled={!hasUsableSource(state, mode)}
-        downloadDisabled={!hasUsableSource(state, mode)}
+        saveDisabled={!source}
+        downloadDisabled={!source}
         onDownload={handleDownload}
         onSave={handleSave}
         onShare={handleShare}
@@ -292,63 +305,6 @@ export function MemeBuilder(props: MemeBuilderProps) {
       />
     </div>
   );
-}
-
-function hasUsableSource(
-  state: ReturnType<typeof useBuilderState>["state"],
-  mode: MemeBuilderProps["mode"],
-): boolean {
-  if (mode === "stock") return !!state.stockImageId;
-  return !!state.myImage;
-}
-
-function resolveSelfUploadObjectPath(image: MyImageSource, primary?: string): string | null {
-  if (image.kind === "primary") return primary ?? null;
-  return image.objectPath;
-}
-
-/**
- * Builds the `imageSource` payload for /api/render-download from the current
- * builder state. Returns null when the state has no usable source — the
- * caller should bail rather than send an invalid request.
- */
-function buildImageSourceForRender(
-  mode: MemeBuilderProps["mode"],
-  state: ReturnType<typeof useBuilderState>["state"],
-  primaryImageObjectPath?: string,
-): Record<string, unknown> | null {
-  if (mode === "stock" && state.stockImageId) {
-    return { type: "stock", pexelsPhotoId: parseInt(state.stockImageId, 10) };
-  }
-  if (mode === "self-upload" && state.myImage) {
-    const objectPath = resolveSelfUploadObjectPath(state.myImage, primaryImageObjectPath);
-    if (!objectPath) return null;
-    return { type: "upload", uploadKey: objectPath };
-  }
-  return null;
-}
-
-function useBackgroundUrl(
-  state: ReturnType<typeof useBuilderState>["state"],
-  mode: MemeBuilderProps["mode"],
-  primaryImageObjectPath?: string,
-): string | null {
-  return useMemo(() => {
-    if (mode === "stock") {
-      // The picker emits the image URL via onSelect and we store it on state
-      // so the preview can render the photo immediately, before any server
-      // round-trip. Falls back to null (dark canvas) when nothing is selected.
-      return state.stockImageUrl;
-    }
-    if (state.myImage) {
-      if (state.myImage.kind === "primary") {
-        if (!primaryImageObjectPath) return null;
-        return `/api/storage/objects${primaryImageObjectPath.replace(/^\/objects/, "")}`;
-      }
-      return `/api/storage/objects${state.myImage.objectPath.replace(/^\/objects/, "")}`;
-    }
-    return null;
-  }, [mode, state.myImage, state.stockImageUrl, primaryImageObjectPath]);
 }
 
 interface StylizeResult {
