@@ -660,13 +660,29 @@ export async function generateAiMemeBackgroundFromReference(
     try {
       const imageSize = await getConfigString("ai_image_size", DEFAULT_IMAGE_SIZE);
       const { width, height } = resolveImageSizePx(imageSize);
+
+      // source_object_path has a self-FK constraint (→ upload_image_metadata.object_path).
+      // Only include it when the source row actually exists — older uploads processed
+      // before metadata tracking was added may not have a row, and violating the FK
+      // would cause the entire insert to fail, leaving the AI image unrecorded.
+      let validatedSourcePath: string | null = null;
+      if (options.sourceObjectPath) {
+        const sourceCheck = await db.execute<{ count: string }>(sql`
+          SELECT COUNT(*)::text AS count FROM upload_image_metadata
+          WHERE object_path = ${options.sourceObjectPath}
+        `);
+        if (parseInt(sourceCheck.rows[0]?.count ?? "0", 10) > 0) {
+          validatedSourcePath = options.sourceObjectPath;
+        }
+      }
+
       await db.execute(sql`
         INSERT INTO upload_image_metadata (
           object_path, user_id, width, height, is_low_res, file_size_bytes,
           transform, source_object_path, fact_id
         ) VALUES (
           ${storedPath}, ${options.userId}, ${width}, ${height}, false, 0,
-          'pulid', ${options.sourceObjectPath ?? null}, ${factId}
+          'pulid', ${validatedSourcePath}, ${factId}
         ) ON CONFLICT (object_path) DO NOTHING
       `);
     } catch (insertErr) {
