@@ -347,7 +347,7 @@ export default function AdminAffiliate() {
               </a>
             </Link>
           ) : (
-            <Link href={`/meme/${row.sourceId}`}>
+            <Link href={`/m/${row.sourceId}`}>
               <a className="inline-flex items-center justify-center gap-1.5 min-h-[44px] w-full text-sm text-primary border border-primary/30 hover:bg-primary/10 rounded-sm px-3">
                 View source <ExternalLink className="w-3.5 h-3.5" />
               </a>
@@ -420,7 +420,7 @@ export default function AdminAffiliate() {
                   </a>
                 </Link>
               ) : (
-                <Link href={`/meme/${row.sourceId}`}>
+                <Link href={`/m/${row.sourceId}`}>
                   <a className="text-primary hover:underline text-xs inline-flex items-center gap-1 justify-end">
                     View <ExternalLink className="w-3 h-3" />
                   </a>

@@ -327,7 +327,7 @@ router.post("/memes", async (req: Request, res: Response) => {
       memeId: idemHit.memeId,
       permalinkSlug: idemHit.permalinkSlug,
       slug: idemHit.permalinkSlug,
-      permalinkUrl: `/meme/${idemHit.permalinkSlug}`,
+      permalinkUrl: `/m/${idemHit.permalinkSlug}`,
       imageUrl: `/api/memes/${idemHit.permalinkSlug}/image`,
       idempotent: true,
     });
@@ -532,7 +532,7 @@ router.post("/memes", async (req: Request, res: Response) => {
     imageUrl: meme.imageUrl,
     permalinkSlug: meme.permalinkSlug,
     slug: meme.permalinkSlug,
-    permalinkUrl: `/meme/${meme.permalinkSlug}`,
+    permalinkUrl: `/m/${meme.permalinkSlug}`,
     createdAt: meme.createdAt.toISOString(),
   });
 });
@@ -597,15 +597,20 @@ router.get("/memes/:slug", async (req: Request, res: Response) => {
     templateId: meme.templateId,
     imageUrl: meme.imageUrl,
     permalinkSlug: meme.permalinkSlug,
+    permalinkUrl: `/m/${meme.permalinkSlug}`,
     isPublic: meme.isPublic,
     factText,
     createdAt: meme.createdAt.toISOString(),
+    createdById: meme.createdById ?? null,
     createdByName,
     originalWidth: meme.originalWidth ?? null,
     originalHeight: meme.originalHeight ?? null,
     uploadFileSizeBytes: meme.uploadFileSizeBytes ?? null,
     heartCount: meme.heartCount ?? 0,
     viewerHasHearted,
+    isNsfw: meme.isNsfw ?? false,
+    imageTransform: meme.imageTransform ?? null,
+    imageSource: meme.imageSource ?? null,
   });
 });
 
@@ -1532,6 +1537,7 @@ router.post("/memes/ai/:factId/generate", requireLegendary, async (req: Request,
         )
       : undefined;
 
+  let generatedObjectPath: string | null = null;
   if (referenceImagePath) {
     // Reference-based: validate path belongs to this user's uploads BEFORE reading storage.
     // This enforces both authorization (no IDOR) and the "uploaded photos only" source requirement.
@@ -1568,7 +1574,6 @@ router.post("/memes/ai/:factId/generate", requireLegendary, async (req: Request,
       res.status(400).json({ error: "Could not read reference image from storage." });
       return;
     }
-    let generatedObjectPath: string | null = null;
     try {
       generatedObjectPath = await generateAiMemeBackgroundFromReference(fact.id, fact.text, referenceBuffer, targetGender, {
         existingPrompts,

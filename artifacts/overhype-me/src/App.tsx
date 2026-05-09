@@ -381,7 +381,7 @@ function Router() {
         <Route path="/hall-of-fame"><HallOfFameRedirect /></Route>
         <Route path="/activity" component={ActivityFeed} />
         <Route path="/wear/:slug?" component={WearIt} />
-        <Route path="/meme/:slug" component={MemePage} />
+        <Route path="/m/:slug" component={MemePage} />
         <Route path="/video/:id" component={VideoPage} />
         <Route path="/pricing" component={Pricing} />
         <Route path="/login" component={Login} />

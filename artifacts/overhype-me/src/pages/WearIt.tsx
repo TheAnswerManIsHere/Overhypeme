@@ -77,7 +77,7 @@ export default function WearIt() {
           regardless of where the user is in the picker scroll position. */}
       <div className="md:hidden px-4 pt-4 pb-[calc(96px+env(safe-area-inset-bottom))]">
         <button
-          onClick={() => slug ? setLocation(`/meme/${slug}`) : setLocation("/")}
+          onClick={() => slug ? setLocation(`/m/${slug}`) : setLocation("/")}
           className="flex items-center gap-1.5 text-muted-foreground hover:text-foreground text-sm mb-5 transition-colors min-h-[44px] -ml-1 px-1"
         >
           <ArrowLeft className="w-4 h-4" /> Back
@@ -198,7 +198,7 @@ export default function WearIt() {
         {/* Controls pane */}
         <div className="p-14 overflow-auto">
           <button
-            onClick={() => slug ? setLocation(`/meme/${slug}`) : setLocation("/")}
+            onClick={() => slug ? setLocation(`/m/${slug}`) : setLocation("/")}
             className="flex items-center gap-1.5 text-muted-foreground hover:text-foreground text-sm mb-8 transition-colors"
           >
             <ArrowLeft className="w-4 h-4" /> Back

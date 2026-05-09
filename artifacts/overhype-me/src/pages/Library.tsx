@@ -443,13 +443,13 @@ export default function Library() {
               ) : myMemesData && myMemesData.memes.length > 0 ? (
                 <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
                   {myMemesData.memes.map(meme => {
-                    const memePermalink = `${window.location.origin}/meme/${meme.permalinkSlug}`;
+                    const memePermalink = `${window.location.origin}/m/${meme.permalinkSlug}`;
                     return (
                       <div key={meme.id} className="space-y-1.5">
                         <ImageCard
                           src={meme.imageUrl}
                           alt="Meme"
-                          href={`/meme/${meme.permalinkSlug}`}
+                          href={`/m/${meme.permalinkSlug}`}
                           aspectRatio="aspect-video"
                           actions={["delete", "copyLink", "openFull"]}
                           onDelete={() => deleteMeme(meme.permalinkSlug)}
