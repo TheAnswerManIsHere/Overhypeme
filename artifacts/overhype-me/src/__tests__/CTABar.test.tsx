@@ -20,7 +20,9 @@ function renderWithRouter(ui: React.ReactElement) {
 describe("CTABarAnonOther", () => {
   it("renders the inline name+pronoun form, browse button, and tier ladder", () => {
     const onOpenBuilder = vi.fn();
-    renderWithRouter(<CTABarAnonOther onOpenBuilder={onOpenBuilder} />);
+    renderWithRouter(
+      <CTABarAnonOther onOpenBuilder={onOpenBuilder} factTemplateReady={true} />,
+    );
 
     expect(screen.getByTestId("anon-name-input")).toBeTruthy();
     expect(screen.getByTestId("anon-pronouns-input")).toBeTruthy();
@@ -35,7 +37,9 @@ describe("CTABarAnonOther", () => {
 
   it("submits form and opens builder with name + pronouns", () => {
     const onOpenBuilder = vi.fn();
-    renderWithRouter(<CTABarAnonOther onOpenBuilder={onOpenBuilder} />);
+    renderWithRouter(
+      <CTABarAnonOther onOpenBuilder={onOpenBuilder} factTemplateReady={true} />,
+    );
     fireEvent.change(screen.getByTestId("anon-name-input"), { target: { value: "Sam" } });
     fireEvent.change(screen.getByTestId("anon-pronouns-input"), { target: { value: "she/her" } });
     fireEvent.click(screen.getByTestId("anon-see-with-name"));
@@ -43,6 +47,18 @@ describe("CTABarAnonOther", () => {
       initialName: "Sam",
       initialPronouns: "she/her",
     });
+  });
+
+  it("disables the submit until the fact template is loaded", () => {
+    const onOpenBuilder = vi.fn();
+    renderWithRouter(
+      <CTABarAnonOther onOpenBuilder={onOpenBuilder} factTemplateReady={false} />,
+    );
+    const submit = screen.getByTestId("anon-see-with-name") as HTMLButtonElement;
+    expect(submit.disabled).toBe(true);
+    expect(submit.textContent).toContain("Loading");
+    fireEvent.click(submit);
+    expect(onOpenBuilder).not.toHaveBeenCalled();
   });
 });
 
@@ -91,12 +107,28 @@ describe("CTABarRegisteredOther", () => {
       <CTABarRegisteredOther
         onMakeAboutMe={onMakeAboutMe}
         legendaryUpsellSubject="Bob"
+        factTemplateReady={true}
       />,
     );
     fireEvent.click(screen.getByTestId("make-this-about-me"));
     expect(onMakeAboutMe).toHaveBeenCalledOnce();
     expect(screen.getByTestId("browse-more-facts")).toBeTruthy();
     expect(screen.getByTestId("legendary-upsell").textContent).toContain("Bob");
+  });
+
+  it("disables make-this-about-me until the fact template is loaded", () => {
+    const onMakeAboutMe = vi.fn();
+    renderWithRouter(
+      <CTABarRegisteredOther
+        onMakeAboutMe={onMakeAboutMe}
+        legendaryUpsellSubject="Bob"
+        factTemplateReady={false}
+      />,
+    );
+    const cta = screen.getByTestId("make-this-about-me") as HTMLButtonElement;
+    expect(cta.disabled).toBe(true);
+    fireEvent.click(cta);
+    expect(onMakeAboutMe).not.toHaveBeenCalled();
   });
 });
 
@@ -109,6 +141,7 @@ describe("CTABarLegendaryOwnStock", () => {
         onDownload={() => {}}
         onCustomShare={() => {}}
         wearHref="/wear/abc"
+        factTemplateReady={true}
       />,
     );
     fireEvent.click(screen.getByTestId("turn-up-to-11"));
@@ -116,6 +149,25 @@ describe("CTABarLegendaryOwnStock", () => {
     expect(screen.getByTestId("own-download")).toBeTruthy();
     expect(screen.getByTestId("own-custom-share")).toBeTruthy();
     expect(screen.getByTestId("merch-wear")).toBeTruthy();
+  });
+
+  it("disables turn-up-to-11 until the fact template is loaded", () => {
+    const onTurnUp = vi.fn();
+    renderWithRouter(
+      <CTABarLegendaryOwnStock
+        onTurnUp={onTurnUp}
+        onDownload={() => {}}
+        onCustomShare={() => {}}
+        wearHref="/wear/abc"
+        factTemplateReady={false}
+      />,
+    );
+    const cta = screen.getByTestId("turn-up-to-11") as HTMLButtonElement;
+    expect(cta.disabled).toBe(true);
+    fireEvent.click(cta);
+    expect(onTurnUp).not.toHaveBeenCalled();
+    // Download/Share remain enabled — they don't need the fact template.
+    expect((screen.getByTestId("own-download") as HTMLButtonElement).disabled).toBe(false);
   });
 });
 
@@ -138,10 +190,23 @@ describe("CTABarLegendaryOwnPulid", () => {
 describe("CTABarLegendaryOther", () => {
   it("renders make-this-about-me + browse, no tier upsell", () => {
     const onMakeAboutMe = vi.fn();
-    renderWithRouter(<CTABarLegendaryOther onMakeAboutMe={onMakeAboutMe} />);
+    renderWithRouter(
+      <CTABarLegendaryOther onMakeAboutMe={onMakeAboutMe} factTemplateReady={true} />,
+    );
     fireEvent.click(screen.getByTestId("make-this-about-me"));
     expect(onMakeAboutMe).toHaveBeenCalledOnce();
     expect(screen.getByTestId("browse-more-facts")).toBeTruthy();
     expect(screen.queryByTestId("legendary-upsell")).toBeNull();
+  });
+
+  it("disables make-this-about-me until the fact template is loaded", () => {
+    const onMakeAboutMe = vi.fn();
+    renderWithRouter(
+      <CTABarLegendaryOther onMakeAboutMe={onMakeAboutMe} factTemplateReady={false} />,
+    );
+    const cta = screen.getByTestId("make-this-about-me") as HTMLButtonElement;
+    expect(cta.disabled).toBe(true);
+    fireEvent.click(cta);
+    expect(onMakeAboutMe).not.toHaveBeenCalled();
   });
 });

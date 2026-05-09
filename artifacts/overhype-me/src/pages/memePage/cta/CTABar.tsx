@@ -29,15 +29,22 @@ function PrimaryButton({
   onClick,
   href,
   testId,
+  disabled,
+  type,
 }: {
   children: React.ReactNode;
   onClick?: () => void;
   href?: string;
   testId?: string;
+  disabled?: boolean;
+  type?: "submit" | "button";
 }) {
-  const cls =
-    "inline-flex items-center justify-center gap-2 h-[52px] px-5 rounded-[14px] bg-primary text-white font-display font-bold text-[13px] uppercase tracking-wider hover:brightness-110 transition w-full";
-  if (href) {
+  const base =
+    "inline-flex items-center justify-center gap-2 h-[52px] px-5 rounded-[14px] bg-primary text-white font-display font-bold text-[13px] uppercase tracking-wider transition w-full";
+  const cls = disabled
+    ? `${base} opacity-50 cursor-not-allowed`
+    : `${base} hover:brightness-110`;
+  if (href && !disabled) {
     return (
       <Link href={href} data-testid={testId} className={cls}>
         {children}
@@ -45,7 +52,14 @@ function PrimaryButton({
     );
   }
   return (
-    <button onClick={onClick} data-testid={testId} className={cls}>
+    <button
+      type={type ?? "button"}
+      onClick={onClick}
+      disabled={disabled}
+      aria-disabled={disabled}
+      data-testid={testId}
+      className={cls}
+    >
       {children}
     </button>
   );
@@ -56,15 +70,20 @@ function SecondaryButton({
   onClick,
   href,
   testId,
+  disabled,
 }: {
   children: React.ReactNode;
   onClick?: () => void;
   href?: string;
   testId?: string;
+  disabled?: boolean;
 }) {
-  const cls =
-    "inline-flex items-center justify-center gap-2 h-[44px] px-4 rounded-[12px] bg-card border border-border text-foreground font-display font-bold text-[12px] uppercase tracking-wider hover:border-primary/60 transition w-full";
-  if (href) {
+  const base =
+    "inline-flex items-center justify-center gap-2 h-[44px] px-4 rounded-[12px] bg-card border border-border text-foreground font-display font-bold text-[12px] uppercase tracking-wider transition w-full";
+  const cls = disabled
+    ? `${base} opacity-50 cursor-not-allowed`
+    : `${base} hover:border-primary/60`;
+  if (href && !disabled) {
     return (
       <Link href={href} data-testid={testId} className={cls}>
         {children}
@@ -72,7 +91,13 @@ function SecondaryButton({
     );
   }
   return (
-    <button onClick={onClick} data-testid={testId} className={cls}>
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      aria-disabled={disabled}
+      data-testid={testId}
+      className={cls}
+    >
       {children}
     </button>
   );
@@ -139,14 +164,23 @@ function TierLadderTeasers() {
 
 export function CTABarAnonOther({
   onOpenBuilder,
+  factTemplateReady,
 }: {
   onOpenBuilder: (a: OpenBuilderArgs) => void;
+  /**
+   * The page-level data fetch resolves the meme synchronously; the fact's
+   * tokenized template (`{NAME} fought a bear`) arrives in a follow-up
+   * fetch. The builder only works correctly with the tokenized template,
+   * so the CTA stays disabled until that's loaded — usually sub-second.
+   */
+  factTemplateReady: boolean;
 }) {
   const [name, setName] = useState("");
   const [pronouns, setPronouns] = useState<Pronouns>("they/them");
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    if (!factTemplateReady) return;
     onOpenBuilder({
       initialName: name.trim() || undefined,
       initialPronouns: pronouns,
@@ -177,8 +211,8 @@ export function CTABarAnonOther({
             <option key={p} value={p}>{p}</option>
           ))}
         </select>
-        <PrimaryButton testId="anon-see-with-name">
-          See it with your name <ArrowRight className="w-4 h-4" />
+        <PrimaryButton type="submit" testId="anon-see-with-name" disabled={!factTemplateReady}>
+          {factTemplateReady ? "See it with your name" : "Loading…"} <ArrowRight className="w-4 h-4" />
         </PrimaryButton>
       </form>
       <SecondaryButton href="/library" testId="browse-more-facts">
@@ -264,14 +298,20 @@ export function CTABarRegisteredOwn({
 export function CTABarRegisteredOther({
   onMakeAboutMe,
   legendaryUpsellSubject,
+  factTemplateReady,
 }: {
   onMakeAboutMe: () => void;
   legendaryUpsellSubject: string;
+  factTemplateReady: boolean;
 }) {
   return (
     <div className="space-y-3" data-testid="cta-registered-other">
-      <PrimaryButton onClick={onMakeAboutMe} testId="make-this-about-me">
-        Make this fact about me <ArrowRight className="w-4 h-4" />
+      <PrimaryButton
+        onClick={factTemplateReady ? onMakeAboutMe : undefined}
+        disabled={!factTemplateReady}
+        testId="make-this-about-me"
+      >
+        {factTemplateReady ? "Make this fact about me" : "Loading…"} <ArrowRight className="w-4 h-4" />
       </PrimaryButton>
       <SecondaryButton href="/library" testId="browse-more-facts">
         <Library className="w-4 h-4" /> Browse more facts
@@ -305,16 +345,22 @@ export function CTABarLegendaryOwnStock({
   onDownload,
   onCustomShare,
   wearHref,
+  factTemplateReady,
 }: {
   onTurnUp: () => void;
   onDownload: () => void;
   onCustomShare: () => void;
   wearHref: string;
+  factTemplateReady: boolean;
 }) {
   return (
     <div className="space-y-3" data-testid="cta-legendary-own-stock">
-      <PrimaryButton onClick={onTurnUp} testId="turn-up-to-11">
-        <Crown className="w-4 h-4" /> Turn this up to 11
+      <PrimaryButton
+        onClick={factTemplateReady ? onTurnUp : undefined}
+        disabled={!factTemplateReady}
+        testId="turn-up-to-11"
+      >
+        <Crown className="w-4 h-4" /> {factTemplateReady ? "Turn this up to 11" : "Loading…"}
       </PrimaryButton>
       <div className="grid grid-cols-2 gap-3">
         <SecondaryButton onClick={onDownload} testId="own-download">
@@ -363,13 +409,19 @@ export function CTABarLegendaryOwnPulid({
 
 export function CTABarLegendaryOther({
   onMakeAboutMe,
+  factTemplateReady,
 }: {
   onMakeAboutMe: () => void;
+  factTemplateReady: boolean;
 }) {
   return (
     <div className="space-y-3" data-testid="cta-legendary-other">
-      <PrimaryButton onClick={onMakeAboutMe} testId="make-this-about-me">
-        <Crown className="w-4 h-4" /> Make this fact about me
+      <PrimaryButton
+        onClick={factTemplateReady ? onMakeAboutMe : undefined}
+        disabled={!factTemplateReady}
+        testId="make-this-about-me"
+      >
+        <Crown className="w-4 h-4" /> {factTemplateReady ? "Make this fact about me" : "Loading…"}
       </PrimaryButton>
       <SecondaryButton href="/library" testId="browse-more-facts">
         <Library className="w-4 h-4" /> Browse more facts

@@ -156,7 +156,13 @@ export default function MemePage() {
     meme.imageSource?.type === "stock" && typeof meme.imageSource.pexelsPhotoId === "number"
       ? String(meme.imageSource.pexelsPhotoId)
       : undefined;
-  const factTemplate = fact?.text ?? meme.factText ?? "";
+  // The fact's tokenized template (e.g. `"{NAME} fought a bear"`) is what
+  // the builder needs in order to substitute the new viewer's name. The
+  // /api/memes/:slug payload only carries the rendered factText (creator's
+  // name baked in), so we wait for the dedicated fact fetch to complete
+  // before allowing any remix CTA to open the builder.
+  const factTemplate = fact?.text ?? "";
+  const factTemplateReady = !!fact?.text;
 
   // The Legendary upsell mentions the meme's actual creator by name to make
   // the value gap concrete — generic copy is measurably less effective.
@@ -195,6 +201,7 @@ export default function MemePage() {
   };
 
   const openMakeAboutMe = () => {
+    if (!factTemplateReady) return;
     const wantsSelfUpload = !!primaryImageObjectPath;
     setBuilder({
       mode: wantsSelfUpload ? "self-upload" : "stock",
@@ -203,6 +210,7 @@ export default function MemePage() {
   };
 
   const openTurnUp = () => {
+    if (!factTemplateReady) return;
     // Legendary-own-stock: preserve the current meme's name + pronouns and
     // open the builder in self-upload mode so the legendary stylize toggle
     // is visible (per Phase-3 behaviorMatrix). The user's preferences carry
@@ -217,6 +225,7 @@ export default function MemePage() {
   };
 
   const openAnonSeeWithName = (args: { initialName?: string; initialPronouns?: string }) => {
+    if (!factTemplateReady) return;
     setBuilder({
       mode: "stock",
       entryFlow: "cold-permalink",
@@ -233,7 +242,12 @@ export default function MemePage() {
   let ctaBar: React.ReactNode = null;
   switch (cell) {
     case "anon-other":
-      ctaBar = <CTABarAnonOther onOpenBuilder={openAnonSeeWithName} />;
+      ctaBar = (
+        <CTABarAnonOther
+          onOpenBuilder={openAnonSeeWithName}
+          factTemplateReady={factTemplateReady}
+        />
+      );
       break;
     case "anon-own-transient":
       ctaBar = <CTABarAnonOwnTransient onSignup={handleAnonSignup} onDownload={handleDownload} />;
@@ -253,6 +267,7 @@ export default function MemePage() {
         <CTABarRegisteredOther
           onMakeAboutMe={openMakeAboutMe}
           legendaryUpsellSubject={legendaryUpsellSubject}
+          factTemplateReady={factTemplateReady}
         />
       );
       break;
@@ -263,6 +278,7 @@ export default function MemePage() {
           onDownload={handleDownload}
           onCustomShare={handleCustomShare}
           wearHref={wearHref}
+          factTemplateReady={factTemplateReady}
         />
       );
       break;
@@ -276,7 +292,12 @@ export default function MemePage() {
       );
       break;
     case "legendary-other":
-      ctaBar = <CTABarLegendaryOther onMakeAboutMe={openMakeAboutMe} />;
+      ctaBar = (
+        <CTABarLegendaryOther
+          onMakeAboutMe={openMakeAboutMe}
+          factTemplateReady={factTemplateReady}
+        />
+      );
       break;
   }
 
