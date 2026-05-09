@@ -109,6 +109,20 @@ function firstLine(s: string, max = 100): string {
   return line.length > max ? line.slice(0, max - 1).trimEnd() + "…" : line;
 }
 
+/**
+ * Production memes are stored with a relative image path
+ * (`/api/memes/<slug>/image`) so the SPA can resolve them on whatever
+ * host it's running on. Social crawlers don't have a host context — they
+ * fetch `og:image` exactly as written — so we MUST emit an absolute URL
+ * here. Already-absolute URLs (e.g. R2 / Cloudinary CDN paths used by
+ * older memes) pass through unchanged.
+ */
+function absolutize(url: string, base: string): string {
+  if (/^https?:\/\//i.test(url)) return url;
+  if (url.startsWith("//")) return `https:${url}`;
+  return `${base}${url.startsWith("/") ? "" : "/"}${url}`;
+}
+
 router.get("/og/m/:slug", async (req: Request, res: Response) => {
   res.setHeader("Content-Type", "text/html; charset=utf-8");
   res.setHeader("Cache-Control", "public, max-age=3600, s-maxage=3600");
@@ -210,7 +224,7 @@ router.get("/og/m/:slug", async (req: Request, res: Response) => {
   res.status(200).send(renderOgShell({
     title,
     description,
-    imageUrl: meme.imageUrl,
+    imageUrl: absolutize(meme.imageUrl, baseUrl),
     imageWidth: dims.width,
     imageHeight: dims.height,
     imageAlt: factLine || `Meme on ${SITE_NAME}`,

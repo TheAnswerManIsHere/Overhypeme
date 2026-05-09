@@ -58,11 +58,17 @@ async function insertMeme(args: {
   isNsfw?: boolean;
   imageTransform?: string | null;
   renderedFactText?: string;
+  /**
+   * Override the default absolute imageUrl. Production memes are stored
+   * with a relative path (`/api/memes/<slug>/image`); tests use this to
+   * verify the OG endpoint absolutizes correctly for crawlers.
+   */
+  imageUrl?: string;
 }): Promise<void> {
   await db.insert(memesTable).values({
     factId: args.factId,
     templateId: "action",
-    imageUrl: `https://overhype.me/api/memes/${args.slug}/image`,
+    imageUrl: args.imageUrl ?? `https://overhype.me/api/memes/${args.slug}/image`,
     permalinkSlug: args.slug,
     createdById: args.createdById,
     deletedAt: args.deleted ? new Date() : null,
@@ -127,6 +133,54 @@ describe("GET /og/m/:slug — live meme", () => {
     assert.equal(res.status, 200);
     assert.match(res.text, /og:image:width" content="1080"/);
     assert.match(res.text, /og:image:height" content="1080"/);
+  });
+
+  it("absolutizes a relative imageUrl so social crawlers can fetch it", async () => {
+    // Production memes are stored with relative imageUrl. Crawlers don't
+    // have a host context — `og:image="/api/memes/..."` would render no
+    // preview. The endpoint must prefix the canonical site base URL.
+    const factId = await insertFact("a fact");
+    const slug = `${PREFIX}rel05`;
+    await insertMeme({
+      factId,
+      createdById: null,
+      slug,
+      imageUrl: `/api/memes/${slug}/image`,
+    });
+
+    const res = await request(makeApp()).get(`/og/m/${slug}`);
+    assert.equal(res.status, 200);
+    // The test runs without SITE_BASE_URL set, so getSiteBaseUrl() falls
+    // through to https://overhype.me. The og:image must reflect that.
+    assert.match(
+      res.text,
+      new RegExp(`og:image" content="https://overhype\\.me/api/memes/${slug}/image"`),
+    );
+    assert.match(
+      res.text,
+      new RegExp(`twitter:image" content="https://overhype\\.me/api/memes/${slug}/image"`),
+    );
+    // Belt-and-braces: there must be NO instance of og:image with a
+    // bare-relative path emitted by this endpoint.
+    assert.doesNotMatch(res.text, /og:image" content="\//);
+  });
+
+  it("passes already-absolute imageUrl through unchanged", async () => {
+    const factId = await insertFact("a fact");
+    const slug = `${PREFIX}abs06`;
+    const absolute = "https://cdn.example.com/some/asset.jpg";
+    await insertMeme({
+      factId,
+      createdById: null,
+      slug,
+      imageUrl: absolute,
+    });
+
+    const res = await request(makeApp()).get(`/og/m/${slug}`);
+    assert.equal(res.status, 200);
+    assert.match(res.text, new RegExp(`og:image" content="${absolute.replace(/\./g, "\\.")}"`));
+    // No double-prefix.
+    assert.doesNotMatch(res.text, /https:\/\/overhype\.mehttps:/);
   });
 });
 
