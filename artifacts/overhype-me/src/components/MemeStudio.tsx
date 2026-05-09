@@ -19,7 +19,7 @@ import {
   Layers,
   Library as LibraryIcon,
 } from "lucide-react";
-import { Link } from "wouter";
+import { Link, useLocation } from "wouter";
 import type { AiMemeImages } from "@/types/meme";
 import type { FactPexelsImages } from "@/types/pexels";
 import { useAuth } from "@workspace/replit-auth-web";
@@ -646,6 +646,7 @@ function NewBuilderAdapter({
   onClose: () => void;
 }) {
   const { user, role, login } = useAuth();
+  const [, setLocation] = useLocation();
 
   const mode = studioPathToMode(path);
   const tier = roleToTier(role);
@@ -675,8 +676,13 @@ function NewBuilderAdapter({
       login();
       return;
     }
-    // saved / downloaded / upgrade-required(legendary) / cancelled all just close.
-    // Phase 5 will replace this with the share screen + upgrade modal.
+    // When a meme is actually saved, navigate to its permalink so the user
+    // can see it immediately. Phase 5 will add a share screen on top of this.
+    if (result.kind === "saved" && result.permalinkUrl) {
+      setLocation(result.permalinkUrl);
+      return;
+    }
+    // downloaded / upgrade-required(legendary) / cancelled — just close.
     onClose();
   };
 
