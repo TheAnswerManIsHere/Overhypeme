@@ -1568,10 +1568,12 @@ router.post("/memes/ai/:factId/generate", requireLegendary, async (req: Request,
       res.status(400).json({ error: "Could not read reference image from storage." });
       return;
     }
+    let generatedObjectPath: string | null = null;
     try {
-      await generateAiMemeBackgroundFromReference(fact.id, fact.text, referenceBuffer, targetGender, {
+      generatedObjectPath = await generateAiMemeBackgroundFromReference(fact.id, fact.text, referenceBuffer, targetGender, {
         existingPrompts,
         userId: req.user?.id,
+        sourceObjectPath: referenceImagePath,
         styleSuffix,
         modelOverride,
         paramsOverride,
@@ -1626,7 +1628,7 @@ router.post("/memes/ai/:factId/generate", requireLegendary, async (req: Request,
     }
   }
 
-  res.json({ success: true });
+  res.json({ success: true, objectPath: generatedObjectPath });
   } catch (error) {
     governanceFailed = true;
     throw error;

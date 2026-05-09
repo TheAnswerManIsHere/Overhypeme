@@ -373,9 +373,6 @@ async function runStylize(factId: string, sourceObjectPath: string): Promise<Sty
   if (!res.ok) {
     throw new Error(`Stylize failed: HTTP ${res.status}`);
   }
-  // Phase 4 will return { objectPath, transform } directly. For now, the
-  // existing route doesn't surface the persisted derivative path; we treat
-  // that as an unimplemented contract and fall back to the source path so
-  // the meme save still proceeds. A 422 from the route will throw above.
-  return { objectPath: sourceObjectPath, transform: "pulid" };
+  const data = await res.json() as { success: boolean; objectPath?: string | null };
+  return { objectPath: data.objectPath ?? sourceObjectPath, transform: "pulid" };
 }
