@@ -197,12 +197,16 @@ describe("email outbox engine", () => {
       }
 
       const kindTag = `t248_prodmode_${Date.now()}`;
+      // Pass db explicitly as dbOverride so the insertion path is exercised
+      // even when the test runner uses a "re_test_*" dummy key (which normally
+      // suppresses outbox inserts to prevent test rows from being picked up and
+      // delivered by the running dev-server's outbox worker).
       await sendEmail({
         to:      "prod@example.com",
         subject: "Prod mode test",
         text:    "Should be inserted",
         kind:    kindTag,
-      });
+      }, db);
 
       const rows = await db
         .select()

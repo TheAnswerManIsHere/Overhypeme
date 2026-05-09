@@ -117,6 +117,19 @@ export async function sendEmail(
     );
     return;
   }
+  // If the resolved API key starts with "re_test_" this is a test run using a
+  // dummy key (the test runner sets RESEND_API_KEY="re_test_dummy" while
+  // clearing the real dev/prod vars).  Skip the outbox insert unless the
+  // caller explicitly supplies a dbOverride — without this guard the shared
+  // email_outbox would accumulate test rows that the running dev-server's
+  // outbox worker would attempt to deliver with the real API key.
+  if (!dbOverride && (getResendApiKey()?.startsWith("re_test_") ?? false)) {
+    logger.info(
+      { to: payload.to, subject: payload.subject },
+      "[email] test key detected — outbox insert suppressed (pass dbOverride to exercise insertion in tests)",
+    );
+    return;
+  }
   const dbInstance = dbOverride ?? defaultDb;
   await dbInstance.insert(emailOutboxTable).values({
     to:      payload.to,
