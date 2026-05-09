@@ -69,8 +69,17 @@ function ensureFontsRegistered() {
  */
 const MAX_PHOTO_RENDER_PX = 6000;
 
-/** Output JPEG quality used for the final encode. */
-const OUTPUT_JPEG_QUALITY = 0.9;
+/**
+ * Output JPEG quality used for the final encode.
+ *
+ * @napi-rs/canvas's `toBuffer("image/jpeg", quality)` takes a 0-100 INTEGER
+ * (see node_modules/@napi-rs/canvas/index.d.ts: "Encoding quality: 0-100 for
+ * lossy JPEG"). The previous value of 0.9 was being interpreted as quality 0
+ * or 1 — rounding to the worst possible JPEG and producing ~22 KB outputs
+ * for 1880×1058 photos with the chunky 8×8 block artifacts the user reported.
+ * 90 is the standard "high quality" JPEG setting.
+ */
+const OUTPUT_JPEG_QUALITY = 90;
 
 export interface MemeTemplate {
   id: string;

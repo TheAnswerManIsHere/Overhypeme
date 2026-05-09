@@ -103,8 +103,11 @@ const LEGENDARY_TIER_DAILY_SAVE_CAP_DEFAULT = 200;
  * v2 — 2026-05: switched stock photos to large2x source; default text
  * style (Anton/Impact, uppercase, outline, centered); reduced photo
  * overlay; high-quality canvas resampling.
+ * v3 — 2026-05: fixed JPEG encode quality bug — `OUTPUT_JPEG_QUALITY`
+ * was being passed as 0.9 to a 0-100 integer API, producing tiny ~22KB
+ * files with chunky 8×8 block artifacts on every photo meme. Now 90.
  */
-const MEME_RENDER_VERSION = 2;
+const MEME_RENDER_VERSION = 3;
 
 /**
  * Idempotency map for /api/memes POSTs. Protects against double-clicks and
