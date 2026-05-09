@@ -61,7 +61,15 @@ export interface PexelsPhoto {
   id: number;
   photographerName: string;
   photographerUrl: string;
-  /** ~940px wide — large enough for the meme canvas. */
+  /**
+   * Pexels `src.large2x` (~1880px on the longest edge). Chosen because the
+   * server-side meme renderer (`memeGenerator.ts`) sizes the output canvas
+   * to the cropped source pixel dimensions — using `src.large` (~940px)
+   * produced ~650×650 JPEGs that looked posterized after the meme detail
+   * page upscaled them in CSS. `large2x` gives ~1300×1300 square crops,
+   * which display crisp at any reasonable size while staying well under
+   * the `MAX_PHOTO_RENDER_PX` cap and Pexels-CDN payload sizes.
+   */
   photoUrl: string;
 }
 
@@ -150,7 +158,8 @@ export async function getPhotoById(photoId: number): Promise<PexelsPhoto> {
     id: photo.id,
     photographerName: photo.photographer,
     photographerUrl: photo.photographer_url,
-    photoUrl: photo.src.large,
+    // See `PexelsPhoto.photoUrl` for why this is `large2x` and not `large`.
+    photoUrl: photo.src.large2x ?? photo.src.large,
   };
 }
 
@@ -197,6 +206,7 @@ export async function getRandomStockPhoto(
     id: photo.id,
     photographerName: photo.photographer,
     photographerUrl: photo.photographer_url,
-    photoUrl: photo.src.large,
+    // See `PexelsPhoto.photoUrl` for why this is `large2x` and not `large`.
+    photoUrl: photo.src.large2x ?? photo.src.large,
   };
 }
