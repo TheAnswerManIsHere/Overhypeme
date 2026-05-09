@@ -194,6 +194,12 @@ export async function generateMemeBuffer(
 
   const canvas: Canvas = createCanvas(renderW, renderH);
   const ctx = canvas.getContext("2d");
+  // @napi-rs/canvas defaults imageSmoothingQuality to "low" (bilinear).
+  // Force "high" so any drawImage resampling (e.g. when the cropped source
+  // does not exactly equal renderW×renderH after rounding) uses a better
+  // resampler. Essentially free at our render sizes.
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = "high";
   // Render in logical coordinates; the canvas is scaled up uniformly.
   const scale = renderW / logicalW;
   ctx.scale(scale, scale);

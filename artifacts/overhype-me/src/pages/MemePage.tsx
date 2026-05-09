@@ -8,9 +8,10 @@ import { AlertCircle, Ban, ArrowLeft } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Link } from "wouter";
 import {
-  AdminMediaInfo,
+  AdminMediaInfoForUrl,
   getFileNameFromUrl,
   getMimeTypeFromUrl,
+  useImageDimensions,
 } from "@/components/ui/AdminMediaInfo";
 import { MemeHeartButton } from "@/components/memes/MemeHeartButton";
 import { resolveViewerCell } from "@/pages/memePage/useViewerCell";
@@ -65,6 +66,12 @@ interface BuilderInvocation {
   initialStockImageId?: string;
   initialName?: string;
   initialPronouns?: string;
+}
+
+function DimsFromUrl({ url }: { url: string }) {
+  const dims = useImageDimensions(url);
+  if (!dims) return <>…</>;
+  return <>{dims.width}×{dims.height}</>;
 }
 
 export default function MemePage() {
@@ -315,7 +322,7 @@ export default function MemePage() {
           <span className="text-[11px] text-muted-foreground" data-testid="dims-meta">
             {meme.originalWidth && meme.originalHeight
               ? `${meme.originalWidth}×${meme.originalHeight}`
-              : "1080×1080"}{" "}
+              : <DimsFromUrl url={meme.imageUrl} />}{" "}
             · ready
           </span>
         </div>
@@ -372,7 +379,7 @@ export default function MemePage() {
             <span className="text-[12px] text-muted-foreground" data-testid="dims-meta-desktop">
               {meme.originalWidth && meme.originalHeight
                 ? `${meme.originalWidth}×${meme.originalHeight}`
-                : "1080×1080"}{" "}
+                : <DimsFromUrl url={meme.imageUrl} />}{" "}
               · ready to download
             </span>
           </div>
@@ -388,12 +395,11 @@ export default function MemePage() {
             />
           </div>
 
-          <AdminMediaInfo
+          <AdminMediaInfoForUrl
+            url={meme.imageUrl}
             fileName={getFileNameFromUrl(meme.imageUrl)}
             fileSizeBytes={meme.uploadFileSizeBytes}
             mimeType={getMimeTypeFromUrl(meme.imageUrl)}
-            width={meme.originalWidth}
-            height={meme.originalHeight}
           />
         </div>
 
