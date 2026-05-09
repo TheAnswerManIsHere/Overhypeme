@@ -24,6 +24,9 @@ import ogRouter from "../routes/og.js";
 
 const PREFIX = "t5og";
 
+// Track fact IDs inserted during this test run so cleanup can delete them.
+const insertedFactIds: number[] = [];
+
 function makeApp(): Express {
   const app = express();
   app.use(ogRouter);
@@ -47,6 +50,7 @@ async function insertFact(text: string): Promise<number> {
     .insert(factsTable)
     .values({ text, isActive: true, canonicalText: text })
     .returning();
+  insertedFactIds.push(row.id);
   return row.id;
 }
 
@@ -90,6 +94,12 @@ async function cleanup() {
   // Memes with null createdById that we created — match via slug prefix.
   await db.delete(memesTable).where(like(memesTable.permalinkSlug, `${PREFIX}%`));
   await db.delete(usersTable).where(like(usersTable.id, `${PREFIX}%`));
+  // Delete facts inserted during this test run.
+  if (insertedFactIds.length > 0) {
+    const { inArray } = await import("drizzle-orm");
+    await db.delete(factsTable).where(inArray(factsTable.id, [...insertedFactIds]));
+    insertedFactIds.length = 0;
+  }
 }
 
 let _savedSiteBaseUrl: string | undefined;
