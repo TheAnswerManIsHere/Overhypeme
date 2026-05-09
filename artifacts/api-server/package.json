@@ -40,6 +40,7 @@
     "drizzle-orm": "catalog:",
     "express": "^5",
     "google-auth-library": "^10.6.2",
+    "nanoid": "^5.1.11",
     "openai": "^6.33.0",
     "openid-client": "^6.8.2",
     "pino": "^9",

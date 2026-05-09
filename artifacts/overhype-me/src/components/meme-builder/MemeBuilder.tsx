@@ -155,9 +155,52 @@ export function MemeBuilder(props: MemeBuilderProps) {
     });
   };
 
-  const handleDownload = () => {
-    // Phase-4 will add /api/render-download. For now, snap the canvas client-side.
-    onComplete({ kind: "downloaded" });
+  const handleDownload = async () => {
+    // Phase-4: server renders the bytes from the same composite path as
+    // /api/memes so saved memes and downloaded memes are byte-identical for
+    // identical inputs. Anonymous callers may only download stock-mode memes;
+    // self-upload and pulid require a session (the server enforces this).
+    const imageSource = buildImageSourceForRender(mode, state, viewerContext.primaryImageObjectPath);
+    if (!imageSource) {
+      onComplete({ kind: "downloaded" });
+      return;
+    }
+    try {
+      const res = await fetch("/api/render-download", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          factId: parseInt(factId, 10),
+          imageSource,
+          name: state.name,
+          pronouns: state.pronouns,
+          textOptions: state.textOptions,
+          aspectRatio: state.aspectRatio,
+        }),
+      });
+      if (!res.ok) {
+        // Server-side render failed — fall through to the previous
+        // canvas-snap fallback so the user is not left empty-handed.
+        onComplete({ kind: "downloaded" });
+        return;
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const disposition = res.headers.get("content-disposition") ?? "";
+      const match = /filename="([^"]+)"/.exec(disposition);
+      const filename = match?.[1] ?? `overhype-${factId}.jpg`;
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      onComplete({ kind: "downloaded" });
+    } catch {
+      onComplete({ kind: "downloaded" });
+    }
   };
 
   const handleShare = () => {
@@ -260,6 +303,27 @@ function hasUsableSource(
 function resolveSelfUploadObjectPath(image: MyImageSource, primary?: string): string | null {
   if (image.kind === "primary") return primary ?? null;
   return image.objectPath;
+}
+
+/**
+ * Builds the `imageSource` payload for /api/render-download from the current
+ * builder state. Returns null when the state has no usable source — the
+ * caller should bail rather than send an invalid request.
+ */
+function buildImageSourceForRender(
+  mode: MemeBuilderProps["mode"],
+  state: ReturnType<typeof useBuilderState>["state"],
+  primaryImageObjectPath?: string,
+): Record<string, unknown> | null {
+  if (mode === "stock" && state.stockImageId) {
+    return { type: "stock", pexelsPhotoId: parseInt(state.stockImageId, 10) };
+  }
+  if (mode === "self-upload" && state.myImage) {
+    const objectPath = resolveSelfUploadObjectPath(state.myImage, primaryImageObjectPath);
+    if (!objectPath) return null;
+    return { type: "upload", uploadKey: objectPath };
+  }
+  return null;
 }
 
 function useBackgroundUrl(
