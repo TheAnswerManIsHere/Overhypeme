@@ -1,3 +1,4 @@
+import { useEffect, useRef } from "react";
 import { cn } from "@/lib/utils";
 import { useDesktopModality } from "../hooks/useDesktopModality";
 import { useStockImages, type StockImage } from "../hooks/useStockImages";
@@ -13,6 +14,22 @@ interface Props {
 export function StockImagePicker({ factId, selectedId, onSelect, onZeroStock }: Props) {
   const isDesktop = useDesktopModality();
   const { images, isLoading, isError, isZeroStock } = useStockImages(factId);
+
+  // When the picker loads images and there is already a pre-selected ID (e.g.
+  // from initialStockImageId on the cold-permalink flow), fire onSelect so the
+  // parent state gets the URL too — otherwise stockImageUrl stays null and the
+  // live preview canvas shows a black background.
+  const hydratedRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (isLoading || isError || images.length === 0) return;
+    if (!selectedId) return;
+    if (hydratedRef.current === selectedId) return;
+    const match = images.find((img) => img.id === selectedId);
+    if (match) {
+      hydratedRef.current = selectedId;
+      onSelect(match);
+    }
+  }, [isLoading, isError, images, selectedId, onSelect]);
 
   if (isLoading) {
     return <div className="h-32 animate-pulse rounded-md bg-secondary/40" aria-label="Loading stock images" />;
