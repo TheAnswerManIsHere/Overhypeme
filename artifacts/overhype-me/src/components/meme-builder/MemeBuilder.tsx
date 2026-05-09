@@ -142,7 +142,9 @@ export function MemeBuilder(props: MemeBuilderProps) {
         imageSource,
         textOptions: state.textOptions,
         aspectRatio: state.aspectRatio,
-        imageTransform,
+        // Omit imageTransform when null — the server's Zod schema treats it
+        // as `.optional()` (undefined-only) and would 400 on an explicit null.
+        ...(imageTransform ? { imageTransform } : {}),
       }),
     });
     if (!res.ok) return;
@@ -232,7 +234,7 @@ export function MemeBuilder(props: MemeBuilderProps) {
         <StockImagePicker
           factId={factId}
           selectedId={state.stockImageId}
-          onSelect={(img) => dispatch({ type: "set-stock-image", stockImageId: img.id })}
+          onSelect={(img) => dispatch({ type: "set-stock-image", stockImageId: img.id, stockImageUrl: img.url })}
         />
       )}
 
@@ -333,11 +335,10 @@ function useBackgroundUrl(
 ): string | null {
   return useMemo(() => {
     if (mode === "stock") {
-      // The picker emits the image URL via onSelect; we don't currently store
-      // the full URL on state — only the id. The preview will fall back to
-      // the dark canvas when the URL isn't yet known. (Phase 4 will replace
-      // this with a server-rendered preview.)
-      return null;
+      // The picker emits the image URL via onSelect and we store it on state
+      // so the preview can render the photo immediately, before any server
+      // round-trip. Falls back to null (dark canvas) when nothing is selected.
+      return state.stockImageUrl;
     }
     if (state.myImage) {
       if (state.myImage.kind === "primary") {
@@ -347,7 +348,7 @@ function useBackgroundUrl(
       return `/api/storage/objects${state.myImage.objectPath.replace(/^\/objects/, "")}`;
     }
     return null;
-  }, [mode, state.myImage, primaryImageObjectPath]);
+  }, [mode, state.myImage, state.stockImageUrl, primaryImageObjectPath]);
 }
 
 interface StylizeResult {
