@@ -343,6 +343,7 @@ export default function FactDetail() {
     setMemeBuilderDefaultPrivate(false);
     setLocation(`/facts/${factId}`);
     void queryClient.invalidateQueries({ queryKey: ["listFactVideos", factId] });
+    void queryClient.invalidateQueries({ queryKey: ["listFactMemes", factId] });
   };
 
   async function handleDeleteMeme(slug: string) {
