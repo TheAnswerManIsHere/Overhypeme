@@ -34,19 +34,12 @@ const SRC_DIR = path.join(apiServerRoot, "src");
 const ALLOWED = [
   {
     file: "src/lib/email.ts",
-    line: 168,
-    reason:
-      "Last-resort console.error inside the Resend 401 fallback path: the " +
-      "logger pipeline itself may be the failing component, and we still " +
-      "want a record of an unauthorized email-provider response surfacing " +
-      "in workflow logs.",
-  },
-  {
-    file: "src/lib/email.ts",
     line: 181,
     reason:
-      "Same Resend permanent-failure path as above — duplicated to cover " +
-      "the catch-all final delivery attempt.",
+      "Last-resort console.error inside the Resend 401 error-object path: the " +
+      "crash this file guards against was triggered when a Resend 401 caused a " +
+      "logger.error() write to a dead pino-pretty worker thread, so we " +
+      "deliberately avoid the pino path on this fatal-config error.",
   },
   {
     file: "src/instrument.ts",
