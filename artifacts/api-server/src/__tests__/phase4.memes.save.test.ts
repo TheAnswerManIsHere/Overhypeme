@@ -137,7 +137,7 @@ describe("POST /api/memes — slug shape", () => {
 
     assert.match(res.body.permalinkSlug, /^[A-Za-z0-9]{10}$/);
     assert.equal(res.body.permalinkSlug, res.body.slug);
-    assert.equal(res.body.permalinkUrl, `/meme/${res.body.permalinkSlug}`);
+    assert.equal(res.body.permalinkUrl, `/m/${res.body.permalinkSlug}`);
   });
 });
 

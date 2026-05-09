@@ -151,7 +151,7 @@ export function MemeBuilder(props: MemeBuilderProps) {
     onComplete({
       kind: "saved",
       memeId: String(data.id),
-      permalinkUrl: `/meme/${data.permalinkSlug}`,
+      permalinkUrl: `/m/${data.permalinkSlug}`,
     });
   };
 

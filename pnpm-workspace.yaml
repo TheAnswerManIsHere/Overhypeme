@@ -1,5 +1,6 @@
 packages:
   - artifacts/*
+  - cloudflare/*
   - lib/*
   - lib/integrations/*
   - scripts

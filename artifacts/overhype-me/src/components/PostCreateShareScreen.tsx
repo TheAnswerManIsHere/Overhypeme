@@ -112,8 +112,8 @@ export function PostCreateShareScreen({
   // (video tab, no save flow yet) we share the raw media URL.
   const publicShareUrl = useMemo(() => {
     if (permalinkSlug) {
-      if (typeof window === "undefined") return `/meme/${permalinkSlug}`;
-      return `${window.location.origin}/meme/${permalinkSlug}`;
+      if (typeof window === "undefined") return `/m/${permalinkSlug}`;
+      return `${window.location.origin}/m/${permalinkSlug}`;
     }
     return mediaUrl;
   }, [permalinkSlug, mediaUrl]);
@@ -391,7 +391,7 @@ export function PostCreateShareScreen({
       {/* ── Footer actions ─────────────────────────────────────────── */}
       <div className="flex flex-wrap gap-2">
         {permalinkSlug && (
-          <Link href={`/meme/${permalinkSlug}?just_created=1&source=${source}`} className="flex-1 min-w-[140px]">
+          <Link href={`/m/${permalinkSlug}?just_created=1&source=${source}`} className="flex-1 min-w-[140px]">
             <Button size="sm" variant="outline" className="w-full gap-2">
               <Share2 className="w-4 h-4" /> Open meme
             </Button>
