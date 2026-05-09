@@ -10,13 +10,14 @@
  *  - the outbox ID and last error are present in both bodies
  */
 
-import { describe, it, before, after } from "node:test";
+import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 
 import {
   buildAbandonedEmailNotification,
   type AdminAbandonedEmailNotifyOpts,
 } from "../lib/adminNotify.js";
+import { getSiteBaseUrl } from "../lib/siteUrl.js";
 
 const BASE_OPTS: AdminAbandonedEmailNotifyOpts = {
   outboxId: 4242,
@@ -24,22 +25,6 @@ const BASE_OPTS: AdminAbandonedEmailNotifyOpts = {
   subject: "Your weekly digest",
   lastError: "550 5.1.1 Recipient address rejected: User unknown",
 };
-
-const SITE_BASE_URL = "https://overhype.test";
-let originalSiteBaseUrl: string | undefined;
-
-before(() => {
-  originalSiteBaseUrl = process.env.SITE_BASE_URL;
-  process.env.SITE_BASE_URL = SITE_BASE_URL;
-});
-
-after(() => {
-  if (originalSiteBaseUrl === undefined) {
-    delete process.env.SITE_BASE_URL;
-  } else {
-    process.env.SITE_BASE_URL = originalSiteBaseUrl;
-  }
-});
 
 describe("buildAbandonedEmailNotification – subject", () => {
   it("includes the recipient address", () => {
@@ -64,10 +49,9 @@ describe("buildAbandonedEmailNotification – subject", () => {
 });
 
 describe("buildAbandonedEmailNotification – email queue CTA URL", () => {
-  const expectedUrl = `${SITE_BASE_URL}/admin/email-queue`;
-
   it("appears in the plain-text body", () => {
     const { text } = buildAbandonedEmailNotification(BASE_OPTS);
+    const expectedUrl = `${getSiteBaseUrl()}/admin/email-queue`;
     assert.ok(
       text.includes(expectedUrl),
       `text should contain the email queue URL (${expectedUrl}):\n${text}`,
@@ -76,6 +60,7 @@ describe("buildAbandonedEmailNotification – email queue CTA URL", () => {
 
   it("appears in the HTML body", () => {
     const { html } = buildAbandonedEmailNotification(BASE_OPTS);
+    const expectedUrl = `${getSiteBaseUrl()}/admin/email-queue`;
     assert.ok(
       html.includes(expectedUrl),
       `html should contain the email queue URL (${expectedUrl})`,

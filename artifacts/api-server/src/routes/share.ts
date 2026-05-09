@@ -184,7 +184,7 @@ router.post("/share/invite", async (req: Request, res: Response) => {
     await sendEmail({
       to: recipientNormalized,
       ...payload,
-    });
+    }, db);
   } catch {
     audit({ outcome: "provider_error", ip, sid: !!sid });
     res.status(502).json({ error: "Unable to process invite at this time" });
