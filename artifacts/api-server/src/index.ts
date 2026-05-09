@@ -187,6 +187,33 @@ async function initPricingCache(): Promise<void> {
   }
 }
 
+// Hourly: purge transient_renders rows older than the configured TTL.
+// The job sleeps until the next top-of-hour, runs the purger, then reschedules
+// itself. Failures are logged but never crash the server — the audit table
+// growing slightly larger for one hour is preferable to a deploy bouncing on
+// a transient DB hiccup.
+function scheduleTransientRenderPurger() {
+  const schedule = () => {
+    const now = new Date();
+    const nextHour = new Date(now.getTime());
+    nextHour.setUTCMinutes(0, 0, 0);
+    nextHour.setUTCHours(nextHour.getUTCHours() + 1);
+    const msUntilNext = nextHour.getTime() - now.getTime();
+    logger.info({ nextRunAt: nextHour.toISOString(), msUntilNext }, "transient_renders purger scheduled");
+    setTimeout(async () => {
+      try {
+        const { runTransientRenderPurger } = await import("./jobs/transientRenderPurger");
+        const result = await runTransientRenderPurger();
+        if (result.deleted > 0) logger.info(result, "transient_renders purger run");
+      } catch (err) {
+        logger.error({ err }, "transient_renders purger failed");
+      }
+      schedule();
+    }, msUntilNext).unref();
+  };
+  schedule();
+}
+
 // Daily cron: send Fact of the Day at 9:00 UTC
 function scheduleDailyFactJob() {
   const schedule = () => {
@@ -336,5 +363,6 @@ backfillEmbeddings()
   })
   .catch((err: unknown) => logger.warn({ err }, "Embedding backfill skipped (no OpenAI key?)"));
 scheduleDailyFactJob();
+scheduleTransientRenderPurger();
 initPricingCache().catch((err: unknown) => logger.warn({ err }, "Pricing cache init error"));
 runEmailOutboxWorker();

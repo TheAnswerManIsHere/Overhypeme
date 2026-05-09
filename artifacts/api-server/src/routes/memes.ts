@@ -1,14 +1,19 @@
 import { Router, type IRouter, type Request, type Response } from "express";
 import { type AuthenticatedRequest } from "../middlewares/authMiddleware";
-import { randomUUID } from "crypto";
+import { createHash } from "crypto";
 import { Readable } from "stream";
 import path from "path";
 import fs from "fs";
 import { fileURLToPath } from "url";
+import { customAlphabet } from "nanoid";
 import { db } from "@workspace/db";
 import { memesTable, factsTable, usersTable, userFactPreferencesTable, affiliateClicksTable } from "@workspace/db/schema";
 import { toggleHeart, getViewerReactionTargetIds } from "../lib/reactions";
-import { eq, ne, desc, and, inArray, isNull, sql } from "drizzle-orm";
+import { eq, ne, desc, and, inArray, isNull, gt, count, sql } from "drizzle-orm";
+import {
+  SaveMemeBody,
+  deriveRenderMode,
+} from "../lib/validators/memeBuilder";
 import { z } from "zod";
 import {
   generateMemeBuffer,
@@ -80,29 +85,51 @@ function isNoFaceError(err: unknown): boolean {
   return msg.includes("no face detected") || msg.includes("facexlib") || msg.includes("face detect");
 }
 
-// ─── Rate limiting ─────────────────────────────────────────────────────────────
-// Simple in-memory limiter — sufficient for a single Replit instance.
-// If the app ever scales horizontally, swap this for a Redis-backed solution.
+// ─── Rate limiting & idempotency ──────────────────────────────────────────────
+// The Phase-4 daily save cap is enforced by counting recent live memes for the
+// authenticated user (timestamps-over-aggregates principle — no denormalised
+// counter to drift). Caps come from admin_config so they can be tuned without
+// a deploy.
+const FREE_TIER_DAILY_SAVE_CAP_DEFAULT = 30;
+const LEGENDARY_TIER_DAILY_SAVE_CAP_DEFAULT = 200;
 
-const REGISTERED_LIMIT_PER_HOUR = 10;
-const LEGENDARY_LIMIT_PER_HOUR = 100;
+/**
+ * Idempotency map for /api/memes POSTs. Protects against double-clicks and
+ * client-side network retries: a second POST from the same user with the
+ * same canonicalised input within `IDEM_WINDOW_MS` returns the meme created
+ * by the first POST instead of inserting a duplicate row. The map is in-
+ * process only — survives a single server instance, which is sufficient
+ * because the user-perceived race is between two requests on the same TCP
+ * socket pair.
+ */
+const IDEM_WINDOW_MS = 60_000;
+const idempotencyMap = new Map<string, { memeId: number; permalinkSlug: string; expiresAt: number }>();
 
-const rateLimitMap = new Map<string, { count: number; resetAt: number }>();
-
-function checkRateLimit(userId: string, isLegendary: boolean): { allowed: boolean; resetAt: number } {
-  const limit = isLegendary ? LEGENDARY_LIMIT_PER_HOUR : REGISTERED_LIMIT_PER_HOUR;
-  const now = Date.now();
-  const entry = rateLimitMap.get(userId);
-
-  if (!entry || entry.resetAt <= now) {
-    rateLimitMap.set(userId, { count: 1, resetAt: now + 3_600_000 });
-    return { allowed: true, resetAt: now + 3_600_000 };
+function pruneIdempotencyMap(now: number): void {
+  for (const [key, entry] of idempotencyMap.entries()) {
+    if (entry.expiresAt <= now) idempotencyMap.delete(key);
   }
-  if (entry.count >= limit) {
-    return { allowed: false, resetAt: entry.resetAt };
+}
+
+/**
+ * Recursively serialise a value with object keys sorted alphabetically at
+ * every depth. JSON.stringify's array-of-strings replacer is the wrong tool
+ * here — it filters keys at every depth, including nested ones we want to
+ * keep — so we walk the structure ourselves.
+ */
+function canonicalize(value: unknown): string {
+  if (value === null || typeof value !== "object") return JSON.stringify(value);
+  if (Array.isArray(value)) {
+    return `[${value.map(canonicalize).join(",")}]`;
   }
-  entry.count++;
-  return { allowed: true, resetAt: entry.resetAt };
+  const obj = value as Record<string, unknown>;
+  const keys = Object.keys(obj).sort();
+  const parts = keys.map((k) => `${JSON.stringify(k)}:${canonicalize(obj[k])}`);
+  return `{${parts.join(",")}}`;
+}
+
+function computeIdemKey(userId: string, parsed: Record<string, unknown>): string {
+  return createHash("sha256").update(`${userId}|${canonicalize(parsed)}`).digest("hex");
 }
 
 // ─── Pexels photo URL cache ────────────────────────────────────────────────────
@@ -115,7 +142,7 @@ const photoUrlCache = new Map<number, { url: string; fetchedAt: number }>();
 
 async function resolveStockPhotoUrl(
   pexelsPhotoId: number,
-  fallbackUrl: string,
+  fallbackUrl: string | undefined,
 ): Promise<string> {
   const cached = photoUrlCache.get(pexelsPhotoId);
   if (cached && Date.now() - cached.fetchedAt < PHOTO_URL_CACHE_TTL) {
@@ -126,75 +153,34 @@ async function resolveStockPhotoUrl(
     photoUrlCache.set(pexelsPhotoId, { url: photo.photoUrl, fetchedAt: Date.now() });
     return photo.photoUrl;
   } catch {
-    // Fall back to the URL stored at generation time
-    return fallbackUrl;
+    // Fall back to the URL stored at generation time. The Phase-4 stock
+    // schema makes photoUrl optional (the universal builder stores only the
+    // pexelsPhotoId), so when both Pexels lookup and fallback are absent the
+    // caller gets an empty string and the canvas loader will throw — that's
+    // surfaced as a 502 to the user.
+    return fallbackUrl ?? "";
   }
 }
 
 // ─── Validation ────────────────────────────────────────────────────────────────
+// The full request schemas live in lib/validators/memeBuilder.ts so the three
+// Phase-4 endpoints (preview/download/save) share one source of truth. The
+// stored-shape narrowing on the meme row's jsonb column reuses the same union.
 
-const TextOptionsSchema = z.object({
-  fontSize: z.number().int().min(14).max(100).optional(),
-  color: z.string().regex(/^#[0-9a-fA-F]{3,8}$/).optional(),
-  align: z.enum(["left", "center", "right"]).optional(),
-  verticalPosition: z.enum(["top", "middle", "bottom"]).optional(),
-  topText: z.string().max(500).optional(),
-  bottomText: z.string().max(500).optional(),
-  fontFamily: z.string().max(50).optional(),
-  outlineColor: z.string().regex(/^#[0-9a-fA-F]{3,8}$/).optional(),
-  textEffect: z.enum(["shadow", "outline", "none"]).optional(),
-  outlineWidth: z.number().min(0).max(20).optional(),
-  allCaps: z.boolean().optional(),
-  bold: z.boolean().optional(),
-  italic: z.boolean().optional(),
-  opacity: z.number().min(0).max(1).optional(),
-}).optional();
+import { ImageSourceSchema as StoredImageSourceSchema } from "../lib/validators/memeBuilder";
+type StoredImageSource = z.infer<typeof StoredImageSourceSchema>;
 
-const ImageSourceSchema = z.discriminatedUnion("type", [
-  z.object({
-    type: z.literal("template"),
-    templateId: z.string().min(1).max(50),
-  }),
-  z.object({
-    type: z.literal("stock"),
-    photoUrl: z.string().url().max(2000),
-    pexelsPhotoId: z.number().int().positive(),
-    photographerName: z.string().max(200),
-  }),
-  z.object({
-    type: z.literal("upload"),
-    uploadKey: z.string().regex(/^\/objects\//).max(500),
-  }),
-  // "identity" — a free identity-photo meme. The server resolves the upload
-  // key from the authenticated user's profileImageUrl. Available to every
-  // registered user (no Legendary gate) because the profile photo is a free
-  // identity asset reused as the face/likeness reference across the app.
-  z.object({
-    type: z.literal("identity"),
-  }),
-]);
-
-const FramingTransformSchema = z.object({
-  offsetX: z.number().finite().min(-10_000).max(10_000),
-  offsetY: z.number().finite().min(-10_000).max(10_000),
-}).nullable().optional();
-
-const CreateMemeBody = z.object({
-  factId: z.number().int().positive(),
-  imageSource: ImageSourceSchema,
-  textOptions: TextOptionsSchema,
-  framingTransform: FramingTransformSchema,
-  previewImageBase64: z.string().max(700_000).optional(),
-  isPublic: z.boolean().optional(),
-  aspectRatio: z.enum(["landscape", "square", "portrait"]).optional(),
-});
-
-// Stored imageSource shape from the DB (jsonb — we cast and validate manually)
-type StoredImageSource = z.infer<typeof ImageSourceSchema>;
-
-function generateSlug(): string {
-  return randomUUID().replace(/-/g, "").slice(0, 12);
-}
+/**
+ * Permalink slug generator. nanoid with the standard URL-safe alphabet
+ * (`A-Za-z0-9_-`) at length 10 — collision probability for 1M memes is
+ * roughly 1 in 2.3M (alphabet=64, length=10 → ~1.15e18 combos, birthday-paradox
+ * approximation `n^2 / (2 * 64^10) ≈ 4e-7`). The unique constraint on
+ * `permalink_slug` plus a 3-attempt retry loop is more than enough to absorb
+ * the rare collision. Slugs are immutable once minted; soft-deleted memes
+ * keep their slug forever (the row stays, the unique constraint blocks
+ * reissue).
+ */
+const generateSlug = customAlphabet("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789", 10);
 
 // ─── Routes ────────────────────────────────────────────────────────────────────
 
@@ -267,13 +253,13 @@ router.post("/memes", async (req: Request, res: Response) => {
     return;
   }
 
-  const parsed = CreateMemeBody.safeParse(req.body);
+  const parsed = SaveMemeBody.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: "Invalid input", details: parsed.error.flatten() });
     return;
   }
 
-  const { factId, textOptions, framingTransform, previewImageBase64, isPublic: isPublicReq, aspectRatio: aspectRatioReq } = parsed.data;
+  const { factId, textOptions, framingTransform, previewImageBase64, isPublic: isPublicReq, aspectRatio: aspectRatioReq, imageTransform: imageTransformReq } = parsed.data;
   // `imageSource` may be reassigned below when type === "identity" (resolved
   // server-side into an upload-shaped source backed by the user's profile photo).
   let imageSource = parsed.data.imageSource;
@@ -282,22 +268,68 @@ router.post("/memes", async (req: Request, res: Response) => {
   // Profile fields on `req.user` (membershipTier, displayName, pronouns) are
   // rebuilt fresh from the DB on every authenticated request by authMiddleware.
   const dbTier = req.user.membershipTier ?? "unregistered";
-  const [canPrivate, canUpload, highRateLimit] = await Promise.all([
+  const [canPrivate, canUpload, highRateLimit, canPulid] = await Promise.all([
     hasFeature(dbTier, "meme_private_visibility"),
     hasFeature(dbTier, "meme_upload_photo"),
     hasFeature(dbTier, "meme_rate_limit_high"),
+    hasFeature(dbTier, "meme_ai_background"),
   ]);
 
   // Only tiers with private visibility can choose privacy; others always public
   const isPublic = canPrivate ? (isPublicReq ?? true) : true;
 
-  // ── Rate limit ───────────────────────────────────────────────────
-  const rl = checkRateLimit(req.user.id, highRateLimit);
-  if (!rl.allowed) {
-    const retrySec = Math.ceil((rl.resetAt - Date.now()) / 1000);
-    res.setHeader("Retry-After", String(retrySec));
+  // ── Tier gate (Phase 4): PuLID-stylised memes are legendary-only ──
+  const renderMode = deriveRenderMode(imageSource, imageTransformReq ?? null);
+  if (renderMode === "pulid" && !canPulid) {
+    res.status(403).json({ error: "tier_mismatch" });
+    return;
+  }
+
+  // ── Daily save cap (timestamps-over-aggregates) ──────────────────
+  const dailyCapDefault = highRateLimit ? LEGENDARY_TIER_DAILY_SAVE_CAP_DEFAULT : FREE_TIER_DAILY_SAVE_CAP_DEFAULT;
+  const dailyCapKey = highRateLimit ? "memes.legendary_tier_daily_save_cap" : "memes.free_tier_daily_save_cap";
+  const dailyCap = await getConfigInt(dailyCapKey, dailyCapDefault);
+  const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+  const [{ count: recentCount }] = await db
+    .select({ count: count() })
+    .from(memesTable)
+    .where(and(
+      eq(memesTable.createdById, req.user.id),
+      gt(memesTable.createdAt, oneDayAgo),
+      isNull(memesTable.deletedAt),
+    ));
+  if (Number(recentCount) >= dailyCap) {
+    res.setHeader("Retry-After", String(60 * 60)); // generic 1h hint
     res.status(429).json({
-      error: `Meme generation limit reached. Try again in ${Math.ceil(retrySec / 60)} min.`,
+      error: "daily_cap_reached",
+      cap: dailyCap,
+      message: `Daily save cap of ${dailyCap} memes reached. Try again in 24 hours.`,
+    });
+    return;
+  }
+
+  // ── Idempotency (60s window, in-process) ────────────────────────
+  const now = Date.now();
+  pruneIdempotencyMap(now);
+  const idemKey = computeIdemKey(req.user.id, {
+    factId,
+    imageSource,
+    textOptions: textOptions ?? null,
+    framingTransform: framingTransform ?? null,
+    aspectRatio: aspectRatioReq ?? "landscape",
+    isPublic,
+    imageTransform: imageTransformReq ?? null,
+  });
+  const idemHit = idempotencyMap.get(idemKey);
+  if (idemHit && idemHit.expiresAt > now) {
+    res.status(200).json({
+      id: idemHit.memeId,
+      memeId: idemHit.memeId,
+      permalinkSlug: idemHit.permalinkSlug,
+      slug: idemHit.permalinkSlug,
+      permalinkUrl: `/meme/${idemHit.permalinkSlug}`,
+      imageUrl: `/api/memes/${idemHit.permalinkSlug}/image`,
+      idempotent: true,
     });
     return;
   }
@@ -346,14 +378,22 @@ router.post("/memes", async (req: Request, res: Response) => {
   }
 
   // ── Freeze the rendered fact text at creation time ───────────────
+  // Phase 4: name/pronouns may come from the request body (the universal
+  // builder collects them in a form field) — fall back to the user's
+  // profile fields when omitted to preserve backwards-compatibility.
+  const effectiveName = parsed.data.name ?? req.user.displayName ?? null;
+  const effectivePronouns = parsed.data.pronouns ?? req.user.pronouns ?? null;
   const rawTemplate = fact.text ?? fact.canonicalText ?? "";
-  const renderedFactText = req.user.displayName && rawTemplate
-    ? renderPersonalized(rawTemplate, req.user.displayName, req.user.pronouns ?? null)
+  const renderedFactText = effectiveName && rawTemplate
+    ? renderPersonalized(rawTemplate, effectiveName, effectivePronouns)
     : (fact.canonicalText ?? fact.text ?? null);
 
   // ── Unique slug ──────────────────────────────────────────────────
+  // Phase 4: nanoid(10) — see `generateSlug` definition for collision math.
+  // Three retries is enough; the unique constraint on `permalink_slug`
+  // ensures we never persist a duplicate even under racey inserts.
   let slug = generateSlug();
-  for (let i = 0; i < 5; i++) {
+  for (let i = 0; i < 3; i++) {
     const [existing] = await db
       .select({ id: memesTable.id })
       .from(memesTable)
@@ -361,6 +401,11 @@ router.post("/memes", async (req: Request, res: Response) => {
       .limit(1);
     if (!existing) break;
     slug = generateSlug();
+    if (i === 2) {
+      req.log.error("Slug allocation failed after 3 attempts");
+      res.status(500).json({ error: "slug_alloc_failed" });
+      return;
+    }
   }
 
   // ── Persist ──────────────────────────────────────────────────────
@@ -372,7 +417,7 @@ router.post("/memes", async (req: Request, res: Response) => {
   // If the client sent a pre-rendered canvas image, run Layer 3 (NSFW
   // classifier) before storing — and reject on a hit so we never persist
   // the bytes into `memes/{slug}` or write the meme row.
-  let storedImageSource: z.infer<typeof ImageSourceSchema> | null = imageSource;
+  let storedImageSource: StoredImageSource | null = imageSource;
   let classifierScoreForMeme: number | null = null;
   let isNsfwForMeme = false;
   if (previewImageBase64) {
@@ -465,15 +510,29 @@ router.post("/memes", async (req: Request, res: Response) => {
       renderedFactText: renderedFactText ?? null,
       nsfwClassifierScore: classifierScoreForMeme != null ? classifierScoreForMeme.toFixed(4) : null,
       isNsfw: isNsfwForMeme,
+      imageTransform: imageTransformReq ?? null,
     })
     .returning();
 
+  // Cache the freshly-created meme keyed by the canonicalised inputs so a
+  // duplicate POST within the next 60 s returns the same row instead of
+  // inserting a second one. The map is also cleaned of expired entries on
+  // every save above.
+  idempotencyMap.set(idemKey, {
+    memeId: meme.id,
+    permalinkSlug: meme.permalinkSlug,
+    expiresAt: Date.now() + IDEM_WINDOW_MS,
+  });
+
   res.status(201).json({
     id: meme.id,
+    memeId: meme.id,
     factId: meme.factId,
     templateId: meme.templateId,
     imageUrl: meme.imageUrl,
     permalinkSlug: meme.permalinkSlug,
+    slug: meme.permalinkSlug,
+    permalinkUrl: `/meme/${meme.permalinkSlug}`,
     createdAt: meme.createdAt.toISOString(),
   });
 });
