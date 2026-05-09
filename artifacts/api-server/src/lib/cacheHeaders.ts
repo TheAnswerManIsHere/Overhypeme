@@ -3,7 +3,7 @@ import type { Request, Response, NextFunction } from "express";
 export const CACHE = {
   NO_STORE: "no-store",
   STATIC_IMMUTABLE: "public, max-age=31536000, immutable",
-  MEME_IMAGE: "public, max-age=86400, s-maxage=604800, stale-while-revalidate=86400",
+  MEME_IMAGE: "public, max-age=0, must-revalidate, s-maxage=60",
   MEME_TEMPLATE: "public, max-age=86400, s-maxage=604800",
   PUBLIC_OBJECT: "public, max-age=3600, s-maxage=86400",
   PRIVATE_OBJECT: "private, max-age=3600",

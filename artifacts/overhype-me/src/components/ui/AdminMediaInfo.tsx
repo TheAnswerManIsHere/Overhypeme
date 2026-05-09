@@ -1,5 +1,4 @@
 import { useState, useEffect } from "react";
-import { useAuth } from "@workspace/replit-auth-web";
 
 export function formatFileSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
@@ -46,9 +45,6 @@ export interface AdminMediaInfoProps {
 }
 
 export function AdminMediaInfo({ fileName, fileSizeBytes, mimeType, width, height }: AdminMediaInfoProps) {
-  const { role } = useAuth();
-  if (role !== "admin") return null;
-
   const parts: [string, string][] = [];
   if (fileName) parts.push(["file", fileName]);
   if (fileSizeBytes != null && fileSizeBytes > 0) parts.push(["size", formatFileSize(fileSizeBytes)]);
@@ -70,10 +66,9 @@ export function AdminMediaInfo({ fileName, fileSizeBytes, mimeType, width, heigh
 }
 
 export function useImageDimensions(url: string | null | undefined): { width: number; height: number } | null {
-  const { role } = useAuth();
   const [dims, setDims] = useState<{ width: number; height: number } | null>(null);
   useEffect(() => {
-    if (role !== "admin" || !url) {
+    if (!url) {
       setDims(null);
       return;
     }
@@ -83,7 +78,7 @@ export function useImageDimensions(url: string | null | undefined): { width: num
     img.onerror = () => { if (!cancelled) setDims(null); };
     img.src = url;
     return () => { cancelled = true; };
-  }, [url, role]);
+  }, [url]);
   return dims;
 }
 
@@ -98,9 +93,7 @@ export function AdminMediaInfoForUrl({
   fileSizeBytes?: number | null;
   mimeType?: string | null;
 }) {
-  const { role } = useAuth();
-  const dims = useImageDimensions(role === "admin" ? url : null);
-  if (role !== "admin") return null;
+  const dims = useImageDimensions(url);
   return (
     <AdminMediaInfo
       fileName={fileName ?? getFileNameFromUrl(url)}
