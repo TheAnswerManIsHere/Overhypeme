@@ -1,4 +1,4 @@
-import { createCanvas, loadImage, type Canvas } from "@napi-rs/canvas";
+import { createCanvas, loadImage, GlobalFonts, type Canvas } from "@napi-rs/canvas";
 import path from "path";
 import fs from "fs";
 import { fileURLToPath } from "url";
@@ -26,6 +26,41 @@ const TEMPLATES_DIR = (() => {
   }
   return candidates[0]!;
 })();
+
+/**
+ * Resolve and lazily register the bundled Anton font as both "Anton" and
+ * "Impact" so that meme captions render with a chunky condensed display
+ * face matching the client-side LivePreview (which asks for Impact).
+ * Linux containers do not ship with Impact; without this the previous
+ * default fell back to a generic sans-serif and produced a render that
+ * did not match the studio preview at all.
+ */
+const ANTON_FONT_PATH = (() => {
+  const candidates = [
+    path.resolve(__dirname, "assets/fonts/Anton-Regular.ttf"),       // built layout
+    path.resolve(__dirname, "..", "assets/fonts/Anton-Regular.ttf"), // src/lib → src/assets
+  ];
+  for (const candidate of candidates) {
+    try { if (fs.statSync(candidate).isFile()) return candidate; } catch { /* try next */ }
+  }
+  return candidates[0]!;
+})();
+
+let fontsRegistered = false;
+function ensureFontsRegistered() {
+  if (fontsRegistered) return;
+  try {
+    GlobalFonts.registerFromPath(ANTON_FONT_PATH, "Anton");
+    // Alias Anton as Impact so callers that ask for "Impact" (matching the
+    // client-side LivePreview's font stack) get a visually equivalent face.
+    GlobalFonts.registerFromPath(ANTON_FONT_PATH, "Impact");
+  } catch {
+    // Non-fatal: registration may fail in some test/dist layouts. The
+    // canvas will fall back to a system sans-serif, which is the
+    // pre-existing behaviour.
+  }
+  fontsRegistered = true;
+}
 
 /**
  * Maximum longest-edge resolution for photo-backed meme renders.
@@ -160,6 +195,7 @@ export async function generateMemeBuffer(
   aspectRatio: MemeAspectRatio = DEFAULT_MEME_ASPECT_RATIO,
   framingTransform?: FramingTransform | null,
 ): Promise<Buffer> {
+  ensureFontsRegistered();
   const { w: logicalW, h: logicalH } = MEME_ASPECT_RATIOS[aspectRatio];
 
   // Decide actual render dimensions:
@@ -218,8 +254,12 @@ export async function generateMemeBuffer(
     const { img, sx, sy, sw, sh } = photoData!;
     ctx.drawImage(img, sx, sy, sw, sh, 0, 0, logicalW, logicalH);
 
-    // Semi-transparent dark overlay so text stays readable over any photo
-    ctx.fillStyle = "rgba(0,0,0,0.48)";
+    // Light vignette only — preserves the photo's colour. The client-side
+    // LivePreview draws the photo with no overlay, and the bold outlined
+    // caption (default) provides text readability without needing a heavy
+    // wash. A previous 48% black overlay was making saved photos look
+    // desaturated/posterised compared to the preview.
+    ctx.fillStyle = "rgba(0,0,0,0.18)";
     ctx.fillRect(0, 0, logicalW, logicalH);
     accentColor = BRAND_ORANGE;
   }
@@ -237,16 +277,22 @@ export async function generateMemeBuffer(
 
   // ── Text ──────────────────────────────────────────────────────────
   const hasNewFormat = !!(options?.topText !== undefined || options?.bottomText !== undefined);
+  // Defaults below mirror the client-side LivePreview so the saved/downloaded
+  // render is visually consistent with what the user saw in the studio. Prior
+  // to this change, when callers omitted textOptions (the studio sends
+  // `textOptions: {}` for stock-photo memes), the server fell into a legacy
+  // sans-serif / lowercase / shadow / left-aligned path that did not match
+  // the client preview at all.
   const autoLegacySize = factText.length > 120 ? 22 : factText.length > 70 ? 26 : 32;
   const defaultSize = hasNewFormat ? 30 : autoLegacySize;
   const fontSize = Math.min(Math.max(options?.fontSize ?? defaultSize, 14), 100);
   const textColor = options?.color ?? "#ffffff";
-  const textAlign = options?.align ?? (hasNewFormat ? "center" : "left");
-  const fontFamily = options?.fontFamily ?? (hasNewFormat ? "Impact" : "sans-serif");
-  const textEffect = options?.textEffect ?? (hasNewFormat ? "outline" : "shadow");
+  const textAlign = options?.align ?? "center";
+  const fontFamily = options?.fontFamily ?? "Impact";
+  const textEffect = options?.textEffect ?? "outline";
   const outlineColor = options?.outlineColor ?? "#000000";
   const outlineWidthVal = options?.outlineWidth ?? 5;
-  const allCaps = options?.allCaps ?? hasNewFormat;
+  const allCaps = options?.allCaps ?? true;
   const isBold = options?.bold ?? true;
   const isItalic = options?.italic ?? false;
   const textOpacity = options?.opacity ?? 1;
