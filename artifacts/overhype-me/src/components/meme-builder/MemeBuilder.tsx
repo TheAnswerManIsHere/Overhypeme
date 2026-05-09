@@ -48,7 +48,7 @@ export function MemeBuilder(props: MemeBuilderProps) {
 
   // Debounced background URL for the preview; raw selection state updates
   // immediately so the picker still feels responsive.
-  const backgroundUrl = useBackgroundUrl(state, mode);
+  const backgroundUrl = useBackgroundUrl(state, mode, viewerContext.primaryImageObjectPath);
   const debouncedBg = useDebouncedValue(backgroundUrl, 150);
 
   const captureForResume = useCallback(() => {
@@ -146,12 +146,12 @@ export function MemeBuilder(props: MemeBuilderProps) {
       }),
     });
     if (!res.ok) return;
-    const data = (await res.json()) as { id: number; slug: string };
+    const data = (await res.json()) as { id: number; permalinkSlug: string };
     clearPendingState(factId);
     onComplete({
       kind: "saved",
       memeId: String(data.id),
-      permalinkUrl: `/meme/${data.slug}`,
+      permalinkUrl: `/meme/${data.permalinkSlug}`,
     });
   };
 
@@ -329,6 +329,7 @@ function buildImageSourceForRender(
 function useBackgroundUrl(
   state: ReturnType<typeof useBuilderState>["state"],
   mode: MemeBuilderProps["mode"],
+  primaryImageObjectPath?: string,
 ): string | null {
   return useMemo(() => {
     if (mode === "stock") {
@@ -339,11 +340,14 @@ function useBackgroundUrl(
       return null;
     }
     if (state.myImage) {
-      if (state.myImage.kind === "primary") return null;
+      if (state.myImage.kind === "primary") {
+        if (!primaryImageObjectPath) return null;
+        return `/api/storage/objects${primaryImageObjectPath.replace(/^\/objects/, "")}`;
+      }
       return `/api/storage/objects${state.myImage.objectPath.replace(/^\/objects/, "")}`;
     }
     return null;
-  }, [mode, state.myImage]);
+  }, [mode, state.myImage, primaryImageObjectPath]);
 }
 
 interface StylizeResult {
