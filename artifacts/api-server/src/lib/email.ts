@@ -191,11 +191,11 @@ export async function deliverFromOutbox(
   } catch (err) {
     if (isResendAuthError(err)) {
       resendAuthDisabled = true;
-      console.error(
+      logger.error(
+        { err },
         "[email] Resend rejected RESEND_API_KEY (HTTP 401 / authentication error). " +
         "Disabling email delivery for the rest of this process. " +
-        "Rotate the key in environment secrets and restart the server. " +
-        `Error: ${err instanceof Error ? err.message : String(err)}`,
+        "Rotate the key in environment secrets and restart the server.",
       );
     }
     return { ok: false, error: err instanceof Error ? err.message : String(err) };

@@ -92,8 +92,24 @@ async function cleanup() {
   await db.delete(usersTable).where(like(usersTable.id, `${PREFIX}%`));
 }
 
-before(cleanup);
-after(cleanup);
+let _savedSiteBaseUrl: string | undefined;
+
+before(async () => {
+  // Pin SITE_BASE_URL so getSiteBaseUrl() returns https://overhype.me
+  // regardless of whether REPLIT_DEV_DOMAIN is set in the environment.
+  _savedSiteBaseUrl = process.env.SITE_BASE_URL;
+  process.env.SITE_BASE_URL = "https://overhype.me";
+  await cleanup();
+});
+
+after(async () => {
+  await cleanup();
+  if (_savedSiteBaseUrl === undefined) {
+    delete process.env.SITE_BASE_URL;
+  } else {
+    process.env.SITE_BASE_URL = _savedSiteBaseUrl;
+  }
+});
 
 describe("GET /og/m/:slug — live meme", () => {
   it("returns 200 with full og:* tags and 1h cache", async () => {
