@@ -34,6 +34,7 @@ import { ModerationRejectedError, GENERIC_REJECT_MESSAGE } from "../lib/moderati
 import type { AiMemeImages } from "../lib/aiMemePipeline";
 import { requireLegendary } from "../middlewares/tierMiddleware";
 import { hasFeature } from "../lib/tierFeatures";
+import { isAtLeastLegendary, deriveUserRole } from "../lib/userRole";
 import { requireAdmin } from "./admin";
 import { getUploadImageMetadata } from "./storage";
 import { CACHE, setPublicCache, setPublicCors, checkConditional, setNoStore } from "../lib/cacheHeaders";
@@ -284,12 +285,19 @@ router.post("/memes", async (req: Request, res: Response) => {
   // Profile fields on `req.user` (membershipTier, displayName, pronouns) are
   // rebuilt fresh from the DB on every authenticated request by authMiddleware.
   const dbTier = req.user.membershipTier ?? "unregistered";
-  const [canPrivate, canUpload, highRateLimit, canPulid] = await Promise.all([
+  // `canPulid` uses the same role-based check as the `requireLegendary`
+  // middleware on the generate route rather than a DB feature flag.
+  // The `tier_feature_permissions` table has no rows for `meme_ai_background`,
+  // so `hasFeature(dbTier, "meme_ai_background")` always returned false and
+  // caused a 403 on every save with imageTransform="pulid" — even for
+  // legendary users who had just successfully called the generate route.
+  const userRoleForPulid = req.user.realUserRole ?? deriveUserRole(dbTier, !!req.user.isRealAdmin);
+  const [canPrivate, canUpload, highRateLimit] = await Promise.all([
     hasFeature(dbTier, "meme_private_visibility"),
     hasFeature(dbTier, "meme_upload_photo"),
     hasFeature(dbTier, "meme_rate_limit_high"),
-    hasFeature(dbTier, "meme_ai_background"),
   ]);
+  const canPulid = isAtLeastLegendary(userRoleForPulid);
 
   // Only tiers with private visibility can choose privacy; others always public
   const isPublic = canPrivate ? (isPublicReq ?? true) : true;
