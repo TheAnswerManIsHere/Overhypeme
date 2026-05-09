@@ -546,7 +546,7 @@ export default function FactDetail() {
               <div className="grid grid-cols-2 md:grid-cols-3 gap-4 items-start mb-6">
                 {memes.map(meme => {
                   const isMyMeme = galleryTab === "mine" || (!!user?.id && meme.createdById === user.id);
-                  const memePermalink = `${window.location.origin}/meme/${meme.permalinkSlug}`;
+                  const memePermalink = `${window.location.origin}/m/${meme.permalinkSlug}`;
                   return (
                     <div key={meme.id} className="relative space-y-1.5">
                       {/* Privacy badge — only shown in Mine tab */}
@@ -563,7 +563,7 @@ export default function FactDetail() {
                       <ImageCard
                         src={meme.imageUrl}
                         alt="Meme"
-                        href={`/meme/${meme.permalinkSlug}`}
+                        href={`/m/${meme.permalinkSlug}`}
                         aspectRatio={MEME_ASPECT_CLASS[meme.aspectRatio ?? "landscape"] ?? "aspect-video"}
                         actions={isMyMeme ? ["delete", "copyLink", "openFull", "makeMerch"] : ["copyLink", "openFull", "makeMerch"]}
                         onDelete={isMyMeme ? () => handleDeleteMeme(meme.permalinkSlug) : undefined}

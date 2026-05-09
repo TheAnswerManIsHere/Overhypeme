@@ -1,0 +1,32 @@
+# Cloudflare Worker — overhype.me OG router.
+#
+# Intercepts GET /m/:slug. When the request comes from a known crawler UA,
+# the worker fetches /api/og/m/:slug from the same origin and returns the
+# crawler-targeted HTML shell. Human visitors are passed through to the
+# default origin (the static SPA artifact) unchanged.
+#
+# Deploy:
+#   pnpm worker:deploy
+# (which runs `wrangler deploy` against this config)
+#
+# Required env (set as Cloudflare Workers secret or in this repo's .env
+# loaded by the deploy script):
+#   CLOUDFLARE_API_TOKEN  Token with "Edit Cloudflare Workers" scope.
+
+name = "overhype-og-router"
+main = "src/index.ts"
+compatibility_date = "2025-01-15"
+account_id = "975a348dc75f2f3849507caefab3862e"
+
+# Bind the worker to /m/* on overhype.me. The zone must be on the same
+# Cloudflare account and the matching DNS records must be proxied
+# (orange-cloud) for the route to fire.
+routes = [
+  { pattern = "overhype.me/m/*", zone_id = "759edc0f6744c981b16d648f1a9ffa12" },
+]
+
+# Smaller bundle, faster cold starts.
+minify = true
+
+[observability]
+enabled = true

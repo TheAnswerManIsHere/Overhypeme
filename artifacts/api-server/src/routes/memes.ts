@@ -327,7 +327,7 @@ router.post("/memes", async (req: Request, res: Response) => {
       memeId: idemHit.memeId,
       permalinkSlug: idemHit.permalinkSlug,
       slug: idemHit.permalinkSlug,
-      permalinkUrl: `/meme/${idemHit.permalinkSlug}`,
+      permalinkUrl: `/m/${idemHit.permalinkSlug}`,
       imageUrl: `/api/memes/${idemHit.permalinkSlug}/image`,
       idempotent: true,
     });
@@ -532,7 +532,7 @@ router.post("/memes", async (req: Request, res: Response) => {
     imageUrl: meme.imageUrl,
     permalinkSlug: meme.permalinkSlug,
     slug: meme.permalinkSlug,
-    permalinkUrl: `/meme/${meme.permalinkSlug}`,
+    permalinkUrl: `/m/${meme.permalinkSlug}`,
     createdAt: meme.createdAt.toISOString(),
   });
 });
@@ -597,15 +597,20 @@ router.get("/memes/:slug", async (req: Request, res: Response) => {
     templateId: meme.templateId,
     imageUrl: meme.imageUrl,
     permalinkSlug: meme.permalinkSlug,
+    permalinkUrl: `/m/${meme.permalinkSlug}`,
     isPublic: meme.isPublic,
     factText,
     createdAt: meme.createdAt.toISOString(),
+    createdById: meme.createdById ?? null,
     createdByName,
     originalWidth: meme.originalWidth ?? null,
     originalHeight: meme.originalHeight ?? null,
     uploadFileSizeBytes: meme.uploadFileSizeBytes ?? null,
     heartCount: meme.heartCount ?? 0,
     viewerHasHearted,
+    isNsfw: meme.isNsfw ?? false,
+    imageTransform: meme.imageTransform ?? null,
+    imageSource: meme.imageSource ?? null,
   });
 });
 
