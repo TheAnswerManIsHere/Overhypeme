@@ -1537,6 +1537,7 @@ router.post("/memes/ai/:factId/generate", requireLegendary, async (req: Request,
         )
       : undefined;
 
+  let generatedObjectPath: string | null = null;
   if (referenceImagePath) {
     // Reference-based: validate path belongs to this user's uploads BEFORE reading storage.
     // This enforces both authorization (no IDOR) and the "uploaded photos only" source requirement.
@@ -1573,7 +1574,6 @@ router.post("/memes/ai/:factId/generate", requireLegendary, async (req: Request,
       res.status(400).json({ error: "Could not read reference image from storage." });
       return;
     }
-    let generatedObjectPath: string | null = null;
     try {
       generatedObjectPath = await generateAiMemeBackgroundFromReference(fact.id, fact.text, referenceBuffer, targetGender, {
         existingPrompts,
