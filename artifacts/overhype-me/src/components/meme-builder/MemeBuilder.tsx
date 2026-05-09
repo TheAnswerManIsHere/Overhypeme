@@ -110,9 +110,15 @@ export function MemeBuilder(props: MemeBuilderProps) {
           if (result.transform === "pulid_fallback_text") {
             setFallbackNotice(STYLIZE_TOGGLE_COPY.fallbackNotice);
           }
-        } catch {
-          setPulidOpen(false);
-          return;
+        } catch (stylizeErr) {
+          const isPermissionErr =
+            stylizeErr instanceof Error && stylizeErr.message.includes("403");
+          setFallbackNotice(
+            isPermissionErr
+              ? "AI styling isn't available for your account right now. Your meme was saved without the AI effect."
+              : "AI styling failed. Your meme was saved without the AI effect.",
+          );
+          imageSource = { type: "upload", uploadKey: objectPath };
         } finally {
           setPulidOpen(false);
         }
