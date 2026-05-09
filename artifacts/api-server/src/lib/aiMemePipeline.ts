@@ -610,6 +610,8 @@ export async function generateAiMemeBackgroundFromReference(
   options?: {
     existingPrompts?: AiScenePrompts;
     userId?: string;
+    /** Object path of the source reference image — written as source_object_path in upload_image_metadata for picker lineage. */
+    sourceObjectPath?: string;
     styleSuffix?: string;
     /** Override the fal.ai model for this request (admin-only) */
     modelOverride?: string;
@@ -618,11 +620,11 @@ export async function generateAiMemeBackgroundFromReference(
     /** When true, errors are caught internally and logged; when false (default), errors propagate to caller */
     suppressErrors?: boolean;
   },
-): Promise<void> {
+): Promise<string | null> {
   try {
     if (!options?.userId) {
       logger.warn({ factId }, "[aiMemePipeline] Reference generation called without userId — skipping");
-      return;
+      return null;
     }
 
     let prompts: AiScenePrompts;
@@ -653,13 +655,33 @@ export async function generateAiMemeBackgroundFromReference(
       logger.warn({ err: trackErr, userId: options.userId }, "[aiMemePipeline] Failed to track reference image");
     }
 
+    // Also write to upload_image_metadata so the AI Stylings picker (GET /users/me/uploads?transform=ai)
+    // can surface this image when the user creates a second meme for the same fact.
+    try {
+      const imageSize = await getConfigString("ai_image_size", DEFAULT_IMAGE_SIZE);
+      const { width, height } = resolveImageSizePx(imageSize);
+      await db.execute(sql`
+        INSERT INTO upload_image_metadata (
+          object_path, user_id, width, height, is_low_res, file_size_bytes,
+          transform, source_object_path, fact_id
+        ) VALUES (
+          ${storedPath}, ${options.userId}, ${width}, ${height}, false, 0,
+          'pulid', ${options.sourceObjectPath ?? null}, ${factId}
+        ) ON CONFLICT (object_path) DO NOTHING
+      `);
+    } catch (insertErr) {
+      logger.warn({ err: insertErr, userId: options.userId }, "[aiMemePipeline] Failed to write pulid row to upload_image_metadata");
+    }
+
     logger.info(
       { factId, userId: options.userId, gender: targetGender },
       "[aiMemePipeline] reference-based AI image stored",
     );
+    return storedPath;
   } catch (err) {
     logger.error({ err, factId }, "[aiMemePipeline] Reference generation failed");
     if (!options?.suppressErrors) throw err;
+    return null;
   }
 }
 
