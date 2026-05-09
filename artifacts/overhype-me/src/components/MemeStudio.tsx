@@ -669,7 +669,13 @@ function NewBuilderAdapter({
       login();
       return;
     }
-    // saved / downloaded / upgrade-required / cancelled all just close.
+    if (result.kind === "upgrade-required" && result.targetTier === "registered") {
+      // The tier-locked panel's "Sign Up" button emits upgrade-required with
+      // targetTier="registered" — treat it identically to signup-required.
+      login();
+      return;
+    }
+    // saved / downloaded / upgrade-required(legendary) / cancelled all just close.
     // Phase 5 will replace this with the share screen + upgrade modal.
     onClose();
   };
