@@ -18,7 +18,7 @@ import request from "supertest";
 
 import { db } from "@workspace/db";
 import { usersTable, factsTable, memesTable } from "@workspace/db/schema";
-import { eq, like, and } from "drizzle-orm";
+import { eq, like, and, inArray } from "drizzle-orm";
 
 import memesRouter from "../routes/memes.js";
 
@@ -86,11 +86,14 @@ function makeAnonApp(): Express {
   return app;
 }
 
+const insertedFactIds: number[] = [];
+
 async function insertFact(text: string, opts: { submittedById?: string } = {}): Promise<number> {
   const [row] = await db
     .insert(factsTable)
     .values({ text, submittedById: opts.submittedById, isActive: true, canonicalText: text })
     .returning();
+  insertedFactIds.push(row.id);
   return row.id;
 }
 
@@ -102,6 +105,11 @@ async function cleanup() {
   for (const u of users) {
     await db.delete(memesTable).where(eq(memesTable.createdById, u.id));
     await db.delete(factsTable).where(eq(factsTable.submittedById, u.id));
+  }
+  if (insertedFactIds.length > 0) {
+    await db.delete(memesTable).where(inArray(memesTable.factId, [...insertedFactIds]));
+    await db.delete(factsTable).where(inArray(factsTable.id, [...insertedFactIds]));
+    insertedFactIds.length = 0;
   }
   await db.delete(usersTable).where(like(usersTable.id, `${USER_PREFIX}%`));
 }

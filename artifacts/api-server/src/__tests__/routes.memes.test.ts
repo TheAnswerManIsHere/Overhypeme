@@ -24,7 +24,7 @@ import {
   memesTable,
   userFactPreferencesTable,
 } from "@workspace/db/schema";
-import { eq, like } from "drizzle-orm";
+import { eq, like, inArray } from "drizzle-orm";
 
 import memesRouter from "../routes/memes.js";
 import { authMiddleware } from "../middlewares/authMiddleware.js";
@@ -55,11 +55,14 @@ async function bearerForUser(userId: string): Promise<string> {
   return createSession(sessionData, userId);
 }
 
+const insertedFactIds: number[] = [];
+
 async function insertFact(text: string, opts: { submittedById?: string } = {}): Promise<number> {
   const [row] = await db
     .insert(factsTable)
     .values({ text, submittedById: opts.submittedById, isActive: true, canonicalText: text })
     .returning();
+  insertedFactIds.push(row.id);
   return row.id;
 }
 
@@ -102,6 +105,11 @@ async function cleanup() {
     // user_fact_preferences cascades on user delete; memes don't (created_by_id has no cascade).
     await db.delete(memesTable).where(eq(memesTable.createdById, u.id));
     await db.delete(factsTable).where(eq(factsTable.submittedById, u.id));
+  }
+  if (insertedFactIds.length > 0) {
+    await db.delete(memesTable).where(inArray(memesTable.factId, [...insertedFactIds]));
+    await db.delete(factsTable).where(inArray(factsTable.id, [...insertedFactIds]));
+    insertedFactIds.length = 0;
   }
   await db.delete(usersTable).where(like(usersTable.id, `${USER_PREFIX}%`));
 }

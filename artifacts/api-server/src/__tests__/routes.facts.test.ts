@@ -26,7 +26,7 @@ import {
   commentsTable,
   externalLinksTable,
 } from "@workspace/db/schema";
-import { eq, like } from "drizzle-orm";
+import { eq, like, inArray } from "drizzle-orm";
 
 import factsRouter from "../routes/facts.js";
 import { authMiddleware } from "../middlewares/authMiddleware.js";
@@ -61,6 +61,8 @@ async function bearerForUser(userId: string): Promise<string> {
   return createSession(sessionData, userId);
 }
 
+const insertedFactIds: number[] = [];
+
 async function insertFact(text: string, opts: { submittedById?: string } = {}): Promise<number> {
   const [row] = await db.insert(factsTable).values({
     text,
@@ -68,6 +70,7 @@ async function insertFact(text: string, opts: { submittedById?: string } = {}): 
     isActive: true,
     canonicalText: text,
   }).returning();
+  insertedFactIds.push(row.id);
   return row.id;
 }
 
@@ -82,6 +85,10 @@ async function cleanup() {
     .where(like(usersTable.id, `${USER_PREFIX}%`));
   for (const u of users) {
     await db.delete(factsTable).where(eq(factsTable.submittedById, u.id));
+  }
+  if (insertedFactIds.length > 0) {
+    await db.delete(factsTable).where(inArray(factsTable.id, [...insertedFactIds]));
+    insertedFactIds.length = 0;
   }
   await db.delete(usersTable).where(like(usersTable.id, `${USER_PREFIX}%`));
   // Hashtags created by tests also get cleaned up by prefix.

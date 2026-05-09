@@ -35,7 +35,7 @@ import {
   factsTable,
   userFactPreferencesTable,
 } from "@workspace/db/schema";
-import { and, desc, eq, isNull, like, sql } from "drizzle-orm";
+import { and, desc, eq, isNull, like, sql, inArray } from "drizzle-orm";
 
 import factsRouter from "../routes/facts.js";
 import { buildTestApp } from "./helpers/buildTestApp.js";
@@ -47,6 +47,8 @@ async function createTestUser(): Promise<string> {
   await db.insert(usersTable).values({ id, email: `${id}@test.local` });
   return id;
 }
+
+const insertedFactIds: number[] = [];
 
 async function insertHeroFact(opts: {
   text: string;
@@ -63,6 +65,7 @@ async function insertHeroFact(opts: {
       wilsonScore: opts.wilsonScore ?? 0,
     })
     .returning();
+  insertedFactIds.push(row.id);
   return row.id;
 }
 
@@ -102,6 +105,10 @@ async function cleanup() {
     // user_fact_preferences cascades on user delete; deleting our facts also
     // cascades to any preference rows other users wrote against them.
     await db.delete(factsTable).where(eq(factsTable.submittedById, u.id));
+  }
+  if (insertedFactIds.length > 0) {
+    await db.delete(factsTable).where(inArray(factsTable.id, [...insertedFactIds]));
+    insertedFactIds.length = 0;
   }
   await db.delete(usersTable).where(like(usersTable.id, `${USER_PREFIX}%`));
 }

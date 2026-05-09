@@ -15,7 +15,7 @@ import request from "supertest";
 
 import { db } from "@workspace/db";
 import { usersTable, factsTable, transientRendersTable } from "@workspace/db/schema";
-import { eq, like, and, gt } from "drizzle-orm";
+import { eq, like, and, gt, inArray } from "drizzle-orm";
 
 import renderRouter from "../routes/render.js";
 import memesRouter from "../routes/memes.js";
@@ -39,6 +39,8 @@ async function createTestUser(): Promise<string> {
   return id;
 }
 
+const insertedFactIds: number[] = [];
+
 async function insertFact(text: string, opts: { submittedById?: string } = {}): Promise<number> {
   const [row] = await db
     .insert(factsTable)
@@ -49,6 +51,7 @@ async function insertFact(text: string, opts: { submittedById?: string } = {}): 
       canonicalText: text,
     })
     .returning();
+  insertedFactIds.push(row.id);
   return row.id;
 }
 
@@ -60,6 +63,11 @@ async function cleanup() {
   for (const u of users) {
     await db.delete(transientRendersTable).where(eq(transientRendersTable.userId, u.id));
     await db.delete(factsTable).where(eq(factsTable.submittedById, u.id));
+  }
+  if (insertedFactIds.length > 0) {
+    await db.delete(transientRendersTable).where(inArray(transientRendersTable.factId, [...insertedFactIds]));
+    await db.delete(factsTable).where(inArray(factsTable.id, [...insertedFactIds]));
+    insertedFactIds.length = 0;
   }
   await db.delete(usersTable).where(like(usersTable.id, `${USER_PREFIX}%`));
 }
