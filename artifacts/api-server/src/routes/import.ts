@@ -11,10 +11,6 @@ type DbTx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
 const router: IRouter = Router();
 
-// Apply API key auth to all routes in this router.
-// Automated callers (LLM agents, scripts) must supply X-API-Key: <ADMIN_API_KEY>.
-router.use(requireApiKey);
-
 const ImportFactItemSchema = z.object({
   text: z
     .string()
@@ -75,7 +71,7 @@ async function upsertHashtagInTx(tx: DbTx, name: string): Promise<number> {
 // POST /admin/import/facts
 // Accepts a JSON array of ImportFactItem objects (or { facts: [...] }) and bulk-inserts them.
 // Supports ?dryRun=true to validate without writing.
-router.post("/admin/import/facts", async (req: Request, res: Response) => {
+router.post("/admin/import/facts", requireApiKey, async (req: Request, res: Response) => {
   const dryRun = req.query["dryRun"] === "true" || req.query["dryRun"] === "1";
 
   const body = req.body as unknown;
