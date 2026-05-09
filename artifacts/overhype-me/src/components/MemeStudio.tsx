@@ -679,6 +679,7 @@ function NewBuilderAdapter({
     // When a meme is actually saved, navigate to its permalink so the user
     // can see it immediately. Phase 5 will add a share screen on top of this.
     if (result.kind === "saved" && result.permalinkUrl) {
+      onClose();
       setLocation(result.permalinkUrl);
       return;
     }

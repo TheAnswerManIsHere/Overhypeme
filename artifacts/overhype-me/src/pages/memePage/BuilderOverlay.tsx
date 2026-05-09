@@ -64,6 +64,7 @@ export function BuilderOverlay({
 
   const handleComplete = (result: BuilderResult) => {
     if (result.kind === "saved" && result.permalinkUrl) {
+      onClose();
       setLocation(result.permalinkUrl);
       return;
     }
