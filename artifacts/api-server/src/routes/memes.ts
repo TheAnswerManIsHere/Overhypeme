@@ -94,6 +94,19 @@ const FREE_TIER_DAILY_SAVE_CAP_DEFAULT = 30;
 const LEGENDARY_TIER_DAILY_SAVE_CAP_DEFAULT = 200;
 
 /**
+ * Bump this whenever the meme rendering pipeline (memeGenerator.ts,
+ * font registration, photo source resolution, default text styling,
+ * etc.) changes its output for the same inputs. The value is folded
+ * into the served-image ETag so previously-cached browser/CDN entries
+ * cannot be perpetuated via 304 after a render-pipeline change.
+ *
+ * v2 — 2026-05: switched stock photos to large2x source; default text
+ * style (Anton/Impact, uppercase, outline, centered); reduced photo
+ * overlay; high-quality canvas resampling.
+ */
+const MEME_RENDER_VERSION = 2;
+
+/**
  * Idempotency map for /api/memes POSTs. Protects against double-clicks and
  * client-side network retries: a second POST from the same user with the
  * same canonicalised input within `IDEM_WINDOW_MS` returns the meme created
@@ -872,7 +885,15 @@ router.get("/memes/:slug/image", async (req: Request, res: Response) => {
 
     const imageBuffer = await generateMemeBuffer(background, factText, textOptions, (meme.aspectRatio as MemeAspectRatio | null) ?? "landscape", meme.framingTransform ?? undefined);
 
-    const etag = `"meme-${slug}"`;
+    // Content-aware ETag: includes a render-pipeline version (bump
+    // MEME_RENDER_VERSION whenever the generator output changes for the
+    // same inputs), the meme's updatedAt, and a SHA-256 of the rendered
+    // bytes. This guarantees previously-cached low-res or stale renders
+    // cannot be perpetuated via 304 — when any pipeline change ships,
+    // every client revalidation reads fresh bytes.
+    const bytesHash = createHash("sha256").update(imageBuffer).digest("hex").slice(0, 16);
+    const updatedAtMs = meme.updatedAt instanceof Date ? meme.updatedAt.getTime() : Date.now();
+    const etag = `"meme-v${MEME_RENDER_VERSION}-${slug}-${updatedAtMs}-${bytesHash}"`;
     if (checkConditional(req, res, etag)) return;
 
     setPublicCors(res);
