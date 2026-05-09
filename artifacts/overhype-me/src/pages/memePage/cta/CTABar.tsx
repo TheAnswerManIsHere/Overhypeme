@@ -215,7 +215,7 @@ export function CTABarAnonOther({
           {factTemplateReady ? "See it with your name" : "Loading…"} <ArrowRight className="w-4 h-4" />
         </PrimaryButton>
       </form>
-      <SecondaryButton href="/library" testId="browse-more-facts">
+      <SecondaryButton href="/" testId="browse-more-facts">
         <Library className="w-4 h-4" /> Browse more facts
       </SecondaryButton>
       <TierLadderTeasers />
@@ -313,7 +313,7 @@ export function CTABarRegisteredOther({
       >
         {factTemplateReady ? "Make this fact about me" : "Loading…"} <ArrowRight className="w-4 h-4" />
       </PrimaryButton>
-      <SecondaryButton href="/library" testId="browse-more-facts">
+      <SecondaryButton href="/" testId="browse-more-facts">
         <Library className="w-4 h-4" /> Browse more facts
       </SecondaryButton>
       <Link
