@@ -465,6 +465,15 @@ function isProviderConfigured(provider: OAuthProvider): boolean {
   );
 }
 
+// Bare /login — redirect to the default provider (Google) so that the
+// frontend can call login() without knowing which provider to use.
+router.get("/login", (req: Request, res: Response) => {
+  const returnTo = req.query.returnTo
+    ? `?returnTo=${encodeURIComponent(String(req.query.returnTo))}`
+    : "";
+  res.redirect(`/api/login/google${returnTo}`);
+});
+
 router.get("/login/:provider", async (req: Request, res: Response) => {
   const provider = req.params.provider as OAuthProvider;
   if (provider !== "google" && provider !== "apple") {
