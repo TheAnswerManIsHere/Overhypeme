@@ -1,5 +1,5 @@
 import { pgTable, text, serial, integer, varchar, timestamp, jsonb, boolean, index, numeric } from "drizzle-orm/pg-core";
-import { isNull } from "drizzle-orm";
+import { isNull, sql } from "drizzle-orm";
 import { factsTable } from "./facts";
 import { usersTable } from "./auth";
 
@@ -12,6 +12,13 @@ export const memesTable = pgTable("memes", {
   textOptions: jsonb("text_options"),
   /** Populated for photo-based memes; null means gradient template background. */
   imageSource: jsonb("image_source"),
+  /**
+   * User-specified background framing/pan transform for photo-backed meme
+   * crops. Shape: `{ offsetX: number, offsetY: number }`. Persisted so
+   * server-side renders, exports, and cached previews honor the creator's
+   * chosen framing.
+   */
+  framingTransform: jsonb("framing_transform"),
   /** Whether this meme is visible in the public gallery. Non-legendary users always get true; legendary can set false. */
   isPublic: boolean("is_public").notNull().default(true),
   /** Flagged true if the uploaded image longest edge is below LOW_RES_THRESHOLD_PX (default 1500px). */
@@ -40,6 +47,13 @@ export const memesTable = pgTable("memes", {
   nsfwClassifierScore: numeric("nsfw_classifier_score", { precision: 6, scale: 4 }),
   /** Set when classifier score >= threshold AND user has nsfw_mode_enabled=true (accept-and-tag path). */
   isNsfw: boolean("is_nsfw").notNull().default(false),
+  /**
+   * Phase-3 analytics discriminant. Null = raw photo or stock or template.
+   * 'pulid' = built from a PuLID-stylized image (face matched).
+   * 'pulid_fallback_text' = PuLID was requested but no face was detected and the
+   * builder fell through to the standard text-to-image generator.
+   */
+  imageTransform: varchar("image_transform", { length: 24 }),
 }, (table) => [
   index("IDX_memes_deleted_at").on(table.deletedAt).where(isNull(table.deletedAt)),
   index("IDX_memes_heart_count").on(table.heartCount),
@@ -69,9 +83,28 @@ export const uploadImageMetadataTable = pgTable("upload_image_metadata", {
   arachnidScannedAt: timestamp("arachnid_scanned_at", { withTimezone: true }),
   /** True when the user opted into nsfw mode and the classifier flagged the upload. */
   isNsfw: boolean("is_nsfw").notNull().default(false),
+  /**
+   * Phase-3 lineage: 'pulid' for PuLID-stylized derivatives, 'pulid_fallback_text'
+   * for derivatives produced when PuLID detected no face and fell through to the
+   * standard text-to-image generator. NULL for raw user uploads.
+   */
+  transform: varchar("transform", { length: 24 }),
+  /** For derivatives: the upload row this was generated from. NULL for raw uploads. */
+  sourceObjectPath: text("source_object_path"),
+  /** For derivatives: the fact this styling was tuned for. NULL for raw uploads. */
+  factId: integer("fact_id"),
+  /** For derivatives: stable hash of (model, params, prompt). Used as dedup key. */
+  transformParamsHash: varchar("transform_params_hash", { length: 64 }),
 }, (t) => [
   index("IDX_uim_user_id").on(t.userId),
   index("IDX_uim_arachnid_sha256").on(t.arachnidSha256Hex),
+  index("IDX_uim_user_transform_fact").on(t.userId, t.transform, t.factId),
+  index("IDX_uim_pulid_dedup")
+    .on(t.userId, t.factId, t.sourceObjectPath, t.transformParamsHash)
+    .where(sql`${t.transform} = 'pulid'`),
+  // Self-FK source_object_path → object_path and fact_id → facts.id are
+  // declared in the migration SQL only (drizzle's TS-side self-FK helper is
+  // brittle and is not required for runtime queries).
 ]);
 
 export type UploadImageMetadata = typeof uploadImageMetadataTable.$inferSelect;
