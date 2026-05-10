@@ -58,10 +58,10 @@ export function AccessGate({
       reason === "login" ? "Restricted Area" : "Legendary Required";
     const defaultDesc =
       reason === "login"
-        ? "You must be logged in to access this page."
+        ? "You must be signed in to access this page."
         : "This page requires a Legendary membership.";
     const actionLabel =
-      reason === "login" ? "Login to Continue" : "Go Legendary";
+      reason === "login" ? "Sign In to Continue" : "Go Legendary";
     const actionHref =
       reason === "login" ? loginHref(returnTo) : "/pricing";
 
@@ -99,12 +99,12 @@ export function AccessGate({
   const iconSize = isLg ? "w-8 h-8" : "w-6 h-6";
   const padding = isLg ? "p-8 space-y-3" : "p-5 space-y-2";
 
-  const title = reason === "login" ? "Login Required" : "Legendary Feature";
+  const title = reason === "login" ? "Sign In Required" : "Legendary Feature";
   const defaultDesc =
     reason === "login"
-      ? "Log in to access this feature."
+      ? "Sign in to access this feature."
       : "This feature is exclusive to Legendary members.";
-  const actionLabel = reason === "login" ? "Login" : "Go Legendary";
+  const actionLabel = reason === "login" ? "Sign In" : "Go Legendary";
   const actionHref = reason === "login" ? loginHref(returnTo) : "/pricing";
 
   const innerBox = (

@@ -538,7 +538,7 @@ function PathView({
         <div className="p-5 max-w-2xl mx-auto">
           <AccessGate
             reason="login"
-            description="Log in to generate AI scenes of you for this fact."
+            description="Sign in to generate AI scenes of you for this fact."
           />
         </div>
       );
@@ -589,7 +589,7 @@ function PathView({
         <div className="p-5 max-w-2xl mx-auto">
           <AccessGate
             reason="login"
-            description="Log in to bring your face to life with AI video."
+            description="Sign in to bring your face to life with AI video."
           />
         </div>
       );

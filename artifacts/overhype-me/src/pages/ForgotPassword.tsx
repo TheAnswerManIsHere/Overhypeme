@@ -62,7 +62,7 @@ export default function ForgotPassword() {
                   className="w-full gap-2"
                   onClick={() => setLocation("/login")}
                 >
-                  <ArrowLeft className="w-4 h-4" /> BACK TO LOGIN
+                  <ArrowLeft className="w-4 h-4" /> BACK TO SIGN IN
                 </Button>
               </div>
             ) : (
@@ -99,7 +99,7 @@ export default function ForgotPassword() {
                     className="text-sm text-muted-foreground hover:text-primary"
                   >
                     <ArrowLeft className="w-3 h-3 inline mr-1" />
-                    Back to login
+                    Back to sign in
                   </button>
                 </div>
               </>

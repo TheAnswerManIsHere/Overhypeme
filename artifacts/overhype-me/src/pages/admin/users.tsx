@@ -481,7 +481,7 @@ export default function AdminUsers() {
       const updated = data.user!;
       setUsers((prev) => prev.map((u) => u.id === updated.id ? updated : u));
       setSelectedUser(updated);
-      setSaveResult({ type: "success", message: "User reactivated. They can log in again." });
+      setSaveResult({ type: "success", message: "User reactivated. They can sign in again." });
     } catch (err) {
       setSaveResult({ type: "error", message: err instanceof Error ? err.message : "Reactivation failed" });
     } finally {

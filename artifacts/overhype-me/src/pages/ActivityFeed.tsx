@@ -175,9 +175,9 @@ export default function ActivityFeed() {
       <Layout>
         <div className="max-w-2xl mx-auto px-4 py-24 text-center">
           <ShieldAlert className="w-16 h-16 text-primary mx-auto mb-6 opacity-80" />
-          <h1 className="text-3xl font-display uppercase mb-4">Login Required</h1>
-          <p className="text-muted-foreground mb-6">Your activity feed is only visible when you're logged in.</p>
-          <Button onClick={() => setLocation("/login")}>Log In</Button>
+          <h1 className="text-3xl font-display uppercase mb-4">Sign In Required</h1>
+          <p className="text-muted-foreground mb-6">Your activity feed is only visible when you're signed in.</p>
+          <Button onClick={() => setLocation("/login")}>Sign In</Button>
         </div>
       </Layout>
     );

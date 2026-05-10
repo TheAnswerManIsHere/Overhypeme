@@ -215,7 +215,7 @@ export function MemeMagicVideo({
         <BackBar onBack={onBack} />
         <AccessGate
           reason="login"
-          description="Log in to bring your face to life with AI video."
+          description="Sign in to bring your face to life with AI video."
         />
       </div>
     );

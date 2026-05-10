@@ -219,7 +219,7 @@ export function Navbar() {
                 </button>
               ) : (
                 <Button variant="primary" size="sm" onClick={() => setLocation('/login')} className="gap-2 whitespace-nowrap">
-                  <LogIn className="w-4 h-4" /> LOGIN
+                  <LogIn className="w-4 h-4" /> SIGN IN
                 </Button>
               ))}
             </div>

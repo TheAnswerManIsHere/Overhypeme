@@ -451,7 +451,7 @@ export function VideoBuilder({ factId, factText, onClose, initialImageDataUrl }:
 
         {/* ── Legendary paywall ── */}
         {!isAuthenticated ? (
-          <AccessGate reason="login" description="Log in to access Video Generation." />
+          <AccessGate reason="login" description="Sign in to access Video Generation." />
         ) : !isLegendary ? (
           <AccessGate reason="legendary" description="Video generation is exclusive to Legendary members. Upgrade to unlock AI-powered video creation." />
         ) : null}
@@ -504,7 +504,7 @@ export function VideoBuilder({ factId, factText, onClose, initialImageDataUrl }:
             {sourceMode === "upload" && (
               <>
                 {!isAuthenticated ? (
-                  <AccessGate reason="login" size="sm" description="Log in to upload your own images for video generation." />
+                  <AccessGate reason="login" size="sm" description="Sign in to upload your own images for video generation." />
                 ) : !isLegendary ? (
                   <AccessGate reason="legendary" size="sm" description="Upload your own photos with a Legendary membership." />
                 ) : (

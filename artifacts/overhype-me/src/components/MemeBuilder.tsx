@@ -2151,7 +2151,7 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
                       {status === "generating" ? (
                         <><Loader2 className="w-5 h-5 animate-spin" />Generating…</>
                       ) : !isAuthenticated ? (
-                        <><Lock className="w-5 h-5" />Login to Generate</>
+                        <><Lock className="w-5 h-5" />Sign In to Generate</>
                       ) : (
                         <><Flame className="w-5 h-5" />Save Meme</>
                       )}
