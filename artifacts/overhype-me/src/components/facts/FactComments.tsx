@@ -256,7 +256,7 @@ export function FactComments({
       return (
         <div className="mb-4 text-center py-2">
           <Link href={`/login?from=/facts/${fact.id}`} className="text-xs font-semibold text-primary hover:underline">
-            Log in to comment
+            Sign in to comment
           </Link>
         </div>
       );
@@ -310,7 +310,7 @@ export function FactComments({
         <AccessGate
           reason="login"
           size="sm"
-          description="Log in to comment."
+          description="Sign in to comment."
           returnTo={`/facts/${fact.id}`}
         />
       );

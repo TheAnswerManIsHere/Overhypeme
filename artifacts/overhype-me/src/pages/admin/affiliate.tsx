@@ -113,7 +113,7 @@ export default function AdminAffiliate() {
     if (to) params.set("to", to);
     fetch(`/api/affiliate/stats?${params}`, { credentials: "include" })
       .then(async (r) => {
-        if (r.status === 401) { setError("Admin access required. Please log in as an admin user."); setData(null); return; }
+        if (r.status === 401) { setError("Admin access required. Please sign in as an admin user."); setData(null); return; }
         if (!r.ok) { setError(`Error loading stats: ${r.statusText}`); setData(null); return; }
         const d = (await r.json()) as StatsResponse;
         setData(d);

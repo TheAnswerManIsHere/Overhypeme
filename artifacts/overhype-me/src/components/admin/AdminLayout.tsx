@@ -261,7 +261,7 @@ export function AdminLayout({ children, title }: AdminLayoutProps) {
               className="flex items-center gap-1.5 px-2 sm:px-3 py-1.5 text-sm text-muted-foreground hover:text-destructive hover:bg-muted rounded-sm cursor-pointer transition-colors"
             >
               <LogOut className="w-4 h-4" />
-              <span className="hidden sm:inline">Log Out</span>
+              <span className="hidden sm:inline">Sign Out</span>
             </button>
           </div>
         </header>

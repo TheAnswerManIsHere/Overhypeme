@@ -231,7 +231,7 @@ export default function Login() {
 
           <div className="text-center mb-8">
             <h1 className="font-display text-3xl font-bold text-foreground tracking-wider">
-              {mode === "login" ? "LOGIN" : "CREATE ACCOUNT"}
+              {mode === "login" ? "SIGN IN" : "CREATE ACCOUNT"}
             </h1>
             <p className="text-muted-foreground mt-2">
               {mode === "login"

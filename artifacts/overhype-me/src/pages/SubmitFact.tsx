@@ -332,7 +332,7 @@ export default function SubmitFact() {
   if (!isAuthenticated) {
     return (
       <Layout>
-        <AccessGate variant="page" reason="login" returnTo="/submit" description="You must be logged in to submit facts." />
+        <AccessGate variant="page" reason="login" returnTo="/submit" description="You must be signed in to submit facts." />
       </Layout>
     );
   }
