@@ -193,9 +193,14 @@ describe("POST /api/render-preview", () => {
       })
       .expect(400);
 
-    // Allow the fire-and-forget inserts to flush.
-    await new Promise((r) => setTimeout(r, 100));
-    const endCount = await countTransientRenders();
+    // Fire-and-forget inserts are async; poll until both rows land or
+    // the deadline passes.  100 ms is too tight on a loaded machine.
+    const deadline = Date.now() + 5_000;
+    let endCount = startCount;
+    while (endCount - startCount < 2 && Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 50));
+      endCount = await countTransientRenders();
+    }
     assert.ok(endCount - startCount >= 2, `expected at least 2 new rows, got ${endCount - startCount}`);
   });
 
