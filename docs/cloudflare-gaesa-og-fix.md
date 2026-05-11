@@ -25,72 +25,88 @@ Twitter/X's card crawler refuses to render a large image card for any
 `og:image` URL that responds with `Set-Cookie` or `Cache-Control: private`.
 The result: every share shows a small link card instead of the large meme image.
 
-## Fix option A — Cloudflare Transform Rule (recommended)
+---
 
-This strips the GAESA cookie from the meme-image and OG-shell responses
-*before* Cloudflare decides whether to cache them, so CF sees a clean
-`Cache-Control: public` and caches normally.  Subsequent requests — including
-Twitter's bot — get CF-edge-cached responses with no `Set-Cookie` at all.
+## ⚠️ Why a Transform Rule does NOT work
+
+Cloudflare's "Modify Response Header" Transform Rules explicitly **disallow**
+modifying `Set-Cookie` (along with `Server`, `Date`, and a few other
+security-sensitive headers).  If you try, the dashboard rejects the rule with:
+
+> 'remove' is not a valid value for operation because it cannot be used on
+> header 'Set-Cookie'
+
+So the cookie has to be either tolerated (Cache Rule) or stripped at the
+edge by code we control (Worker).
+
+---
+
+## Fix option A — Cloudflare Cache Rule (recommended, no code)
+
+This tells Cloudflare to cache the meme-image response *despite* the Set-Cookie
+header.  Cache **misses** still expose GAESA to the requester (acceptable for
+Twitter — its first scrape primes the cache, and on its next refresh the cache
+is hot), but every cache **hit** is served straight from the CF edge with no
+cookies, no `private` downgrade, and a clean `Cache-Control: public`.
 
 ### Steps in the Cloudflare dashboard
 
 1. Log in → select the **overhype.me** zone.
-2. **Rules → Transform Rules → Modify Response Header → Create rule.**
-3. Name it: `Strip GAESA from OG image paths`.
-4. Under **When incoming requests match…** choose **Custom filter expression**
-   and enter:
+2. **Caching → Cache Rules → Create rule.**
+3. Name it: `Cache meme images and OG shells at edge`.
+4. Under **When incoming requests match…** choose **Custom filter expression**:
 
    ```
    (http.request.uri.path matches "^/api/memes/[^/]+/image$") or
    (http.request.uri.path matches "^/api/og/")
    ```
 
-5. Under **Then… → Response header modifications** add:
-
-   | Action | Header name | Value |
-   |--------|-------------|-------|
-   | Remove | `Set-Cookie` | *(leave blank)* |
-
+5. Under **Then…** set:
+   - **Cache eligibility** → **Eligible for cache** (overrides the
+     Set-Cookie bypass — this is the key setting)
+   - **Edge TTL** → **Override origin** → **1 day**
+   - **Browser TTL** → **Respect origin TTL**
 6. Click **Deploy**.
 
-After the rule is live, purge the Cloudflare cache for the affected paths
-(Rules → Cache Rules → Purge Everything, or use the API), then re-scrape the
-affected tweet using the [Twitter Card Validator](https://cards-dev.twitter.com/validator).
+### Prime the cache and verify
+
+Cloudflare's edge cache is per-PoP, so you need to hit each PoP at least once
+before Twitter's bot does (or just trigger it from Twitter directly):
+
+```bash
+# Force a cache miss + populate (run twice — second one should be HIT)
+curl -sI "https://overhype.me/api/memes/087dJrsjRO/image" | grep -E "cf-cache|cache-control|set-cookie"
+curl -sI "https://overhype.me/api/memes/087dJrsjRO/image" | grep -E "cf-cache|cache-control|set-cookie"
+```
+
+Expected on the second request:
+```
+cache-control: public, max-age=3600, s-maxage=86400
+cf-cache-status: HIT
+```
+(no `set-cookie` line)
+
+Then re-scrape the affected tweet using the
+[Twitter Card Validator](https://cards-dev.twitter.com/validator).
 
 ---
 
-## Fix option B — Cloudflare Cache Rule (alternative)
+## Fix option B — Cloudflare Worker (most robust, requires code edit)
 
-If you prefer to keep GAESA in the response but force Cloudflare to cache the
-image anyway (so *hits* are served without `Set-Cookie`), use a Cache Rule
-with "Cache Everything" for the image path.  Note: cache *misses* still
-expose GAESA to the requester, which is usually fine for Twitter bots because
-the first hit primes the cache and subsequent bot re-fetches are hits.
-
-1. **Rules → Cache Rules → Create rule.**
-2. Name: `Cache meme images at edge`.
-3. **When**: `http.request.uri.path matches "^/api/memes/[^/]+/image$"`
-4. **Then**:
-   - Cache eligibility: **Eligible for cache**
-   - Edge Cache TTL: **1 day** (override origin)
-   - Browser Cache TTL: **1 hour** (respect origin)
-5. Click **Deploy**.
-
----
-
-## Fix option C — Cloudflare Worker snippet (most robust)
-
-Add the following snippet to the existing CF Worker that handles bot routing
-for `overhype.me`.  It intercepts meme-image requests and strips `Set-Cookie`
-from the proxied origin response before forwarding it to Twitter:
+Add this snippet to the existing Worker that already handles bot UA rewriting
+for `overhype.me`.  It rebuilds the `Response` object from scratch when the
+path matches, which means the GAESA cookie from the origin response is never
+forwarded to the client at all — not even on the first hit.
 
 ```js
-// In the existing Worker fetch handler, add before the default passthrough:
+// Inside the Worker's fetch handler, before the existing bot/SPA passthrough:
 const url = new URL(request.url);
-const IMAGE_RE = /^\/api\/memes\/[^/]+\/image$/;
+const STRIP_COOKIE_RE = /^\/api\/(memes\/[^/]+\/image|og\/)/;
 
-if (IMAGE_RE.test(url.pathname)) {
+if (STRIP_COOKIE_RE.test(url.pathname)) {
   const originResponse = await fetch(request);
+  // Cloning into a new Response drops cookies the platform injected at
+  // the network layer (e.g. Google App Engine's GAESA).
   const cleaned = new Response(originResponse.body, originResponse);
   cleaned.headers.delete("Set-Cookie");
   cleaned.headers.set("Cache-Control", "public, max-age=86400, s-maxage=86400");
@@ -98,32 +114,29 @@ if (IMAGE_RE.test(url.pathname)) {
 }
 ```
 
-This is the most robust option because the Worker rebuilds the `Response`
-object from scratch — cookies in the origin response are never forwarded to
-the client at all, regardless of what Google's infrastructure adds.
+This is more reliable than Option A because it does not depend on cache state:
+the very first request (including Twitter's first-ever scrape of a brand-new
+meme URL) is already cookie-free.
 
 ---
 
-## Verification
-
-After any of the above changes:
+## Verification (either option)
 
 ```bash
-# Should show cf-cache-status: HIT and no set-cookie header:
-curl -sI "https://overhype.me/api/memes/087dJrsjRO/image" | grep -E "set-cookie|cache-control|cf-cache"
-
-# Re-scrape the OG card:
-# https://cards-dev.twitter.com/validator
-# Paste: https://overhype.me/m/087dJrsjRO
+curl -sI "https://overhype.me/api/memes/087dJrsjRO/image" | \
+  grep -E "set-cookie|cache-control|cf-cache"
 ```
 
-Expected result after fix:
-
+Should show:
 ```
 cache-control: public, max-age=3600, s-maxage=86400
 cf-cache-status: HIT
 ```
-(No `set-cookie` line.)
+**No `set-cookie` line.**
+
+Then validate the card:
+- Twitter: <https://cards-dev.twitter.com/validator>
+- Facebook: <https://developers.facebook.com/tools/debug/>
 
 ---
 
@@ -134,4 +147,5 @@ cf-cache-status: HIT
 | `res.clearCookie("GAESA")` / `res.removeHeader("Set-Cookie")` | GAESA is injected by GCP's load balancer *after* Express sends its response bytes.  Express cannot see or modify headers added at the network layer. |
 | Express middleware to strip cookies for public routes | Same reason — the middleware runs before the response leaves Express, but GCP adds GAESA after. |
 | `Cache-Control: no-transform` | Tells intermediaries not to modify body encoding, not headers.  Does not prevent CF from honouring Set-Cookie. |
-| Serve image from a different Express route | Every route on `overhype.me` goes through the same GCP infrastructure — all responses get GAESA. |
+| Serving the image from a different Express route | Every route on `overhype.me` goes through the same GCP infrastructure — all responses get GAESA. |
+| Cloudflare Transform Rule "Remove Set-Cookie" | **Blocked by Cloudflare** — `Set-Cookie` is on the disallowed-headers list for Modify Response Header rules. |
