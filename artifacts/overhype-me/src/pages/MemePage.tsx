@@ -25,6 +25,7 @@ import {
   CTABarRegisteredOwn,
 } from "@/pages/memePage/cta/CTABar";
 import { BuilderOverlay } from "@/pages/memePage/BuilderOverlay";
+import { MemeShareModal } from "@/components/share/MemeShareModal";
 import type { EntryFlow, Mode } from "@/components/meme-builder/types";
 import { extractObjectPath } from "@/components/meme-builder/integration/studioAdapter";
 
@@ -106,6 +107,7 @@ export default function MemePage() {
   });
 
   const [builder, setBuilder] = useState<BuilderInvocation | null>(null);
+  const [shareOpen, setShareOpen] = useState(false);
 
   if (isLoading) {
     return (
@@ -192,19 +194,7 @@ export default function MemePage() {
   };
 
   const handleCustomShare = () => {
-    // Phase 6 will own this: a custom social-share flow. Until that ships,
-    // we fall back to navigator.share / clipboard so the button still works
-    // and we get telemetry on intent.
-    const shareUrl = `${window.location.origin}/m/${slug}`;
-    if (typeof navigator.share === "function") {
-      navigator.share({
-        title: meme.createdByName ? `${meme.createdByName} on overhype.me` : "overhype.me",
-        text: meme.factText,
-        url: shareUrl,
-      }).catch(() => null);
-      return;
-    }
-    void navigator.clipboard.writeText(shareUrl).then(() => alert("Link copied!"));
+    setShareOpen(true);
   };
 
   const openMakeAboutMe = () => {
@@ -441,6 +431,13 @@ export default function MemePage() {
         initialStockImageId={builder?.initialStockImageId}
         initialName={builder?.initialName}
         initialPronouns={builder?.initialPronouns}
+      />
+
+      <MemeShareModal
+        open={shareOpen}
+        onClose={() => setShareOpen(false)}
+        slug={slug}
+        fallbackPermalink={`${typeof window !== "undefined" ? window.location.origin : ""}/m/${slug}`}
       />
     </Layout>
   );
