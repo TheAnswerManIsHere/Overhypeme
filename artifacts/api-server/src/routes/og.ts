@@ -50,6 +50,8 @@ interface OgShellInput {
   imageAlt: string;
   canonicalUrl: string;
   redirectTo: string;
+  /** When true, omits the meta-refresh so the page can be inspected in a browser. */
+  noRedirect?: boolean;
 }
 
 function renderOgShell(input: OgShellInput): string {
@@ -62,6 +64,7 @@ function renderOgShell(input: OgShellInput): string {
     imageAlt,
     canonicalUrl,
     redirectTo,
+    noRedirect,
   } = input;
   return `<!doctype html>
 <html lang="en">
@@ -83,7 +86,7 @@ function renderOgShell(input: OgShellInput): string {
 <meta name="twitter:title" content="${esc(title)}" />
 <meta name="twitter:description" content="${esc(description)}" />
 <meta name="twitter:image" content="${esc(imageUrl)}" />
-<meta http-equiv="refresh" content="0;url=${esc(redirectTo)}" />
+${noRedirect ? "" : `<meta http-equiv="refresh" content="0;url=${esc(redirectTo)}" />`}
 </head>
 <body>
 <h1>${esc(title)}</h1>
@@ -129,6 +132,7 @@ router.get("/og/m/:slug", async (req: Request, res: Response) => {
 
   const slugParam = req.params["slug"];
   const slug = (typeof slugParam === "string" ? slugParam : "").trim();
+  const noRedirect = req.query["noredirect"] === "1";
   const baseUrl = getSiteBaseUrl();
   const canonicalUrl = `${baseUrl}/m/${slug}`;
 
@@ -142,6 +146,7 @@ router.get("/og/m/:slug", async (req: Request, res: Response) => {
       imageAlt: SITE_NAME,
       canonicalUrl: baseUrl,
       redirectTo: "/",
+      noRedirect,
     }));
     return;
   }
@@ -162,6 +167,7 @@ router.get("/og/m/:slug", async (req: Request, res: Response) => {
       imageAlt: SITE_NAME,
       canonicalUrl,
       redirectTo: "/",
+      noRedirect,
     }));
     return;
   }
@@ -178,6 +184,7 @@ router.get("/og/m/:slug", async (req: Request, res: Response) => {
       imageAlt: SITE_NAME,
       canonicalUrl,
       redirectTo: "/",
+      noRedirect,
     }));
     return;
   }
@@ -230,6 +237,7 @@ router.get("/og/m/:slug", async (req: Request, res: Response) => {
     imageAlt: factLine || `Meme on ${SITE_NAME}`,
     canonicalUrl,
     redirectTo: `/m/${slug}`,
+    noRedirect,
   }));
 });
 
