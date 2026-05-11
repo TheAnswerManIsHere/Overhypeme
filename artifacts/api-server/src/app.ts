@@ -166,7 +166,32 @@ app.use((req: Request, res: Response, next: NextFunction) => {
   res.status(403).json({ error: "Origin not allowed" });
 });
 
+// Public asset endpoints that social crawlers (Twitter/X, Facebook,
+// Discord, Slack, iMessage) fetch when unfurling links. These responses
+// MUST NOT carry a Set-Cookie header — Twitter/X explicitly treats any
+// response with Set-Cookie as user-specific content and refuses to use it
+// as an OG image (you get the small "no preview" card instead of the
+// summary_large_image card). The csrf_token cookie is only needed by the
+// SPA for double-submit CSRF protection on mutations; crawlers never
+// mutate, so issuing it on these paths is pure breakage.
+//
+// Also: when a Set-Cookie header is present, Cloudflare downgrades
+// `Cache-Control: public` to `private`, which makes the image
+// uncacheable at the edge — a second-order disaster for OG performance.
+const PUBLIC_ASSET_PATH_PATTERNS: RegExp[] = [
+  /^\/api\/og\//,                  // OG shell endpoint (consumed by crawlers)
+  /^\/api\/memes\/[^/]+\/image$/,  // meme image endpoint (the actual og:image)
+  /^\/api\/memes\/templates\//,    // template image endpoint (also publicly cached)
+];
+
+function isPublicAssetRequest(req: Request): boolean {
+  if (!SAFE_METHODS.has(req.method)) return false;
+  return PUBLIC_ASSET_PATH_PATTERNS.some((re) => re.test(req.path));
+}
+
 app.use((req: Request, res: Response, next: NextFunction) => {
+  // Skip csrf_token cookie issuance on public asset GETs — see comment above.
+  if (isPublicAssetRequest(req)) return next();
   const token = req.cookies?.[CSRF_COOKIE];
   if (!token) {
     res.cookie(CSRF_COOKIE, crypto.randomUUID(), {

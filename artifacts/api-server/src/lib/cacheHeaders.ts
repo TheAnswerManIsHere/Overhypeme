@@ -3,7 +3,16 @@ import type { Request, Response, NextFunction } from "express";
 export const CACHE = {
   NO_STORE: "no-store",
   STATIC_IMMUTABLE: "public, max-age=31536000, immutable",
-  MEME_IMAGE: "public, max-age=0, must-revalidate, s-maxage=60",
+  // Long TTLs are safe because the meme image endpoint emits a content-aware
+  // ETag (render-pipeline version + meme.updatedAt + SHA of rendered bytes),
+  // so any change to a meme produces a different ETag and clients/CDN edges
+  // pull fresh bytes. Short TTLs were causing social crawlers (Twitter/X,
+  // Facebook, Slack, Discord) to re-fetch the image on every unfurl AND, in
+  // some cases, refuse to cache it as an OG image at all because the
+  // `must-revalidate` directive makes it look user-specific.
+  //   max-age=3600  → browser cache 1h
+  //   s-maxage=86400 → Cloudflare/CDN cache 24h
+  MEME_IMAGE: "public, max-age=3600, s-maxage=86400",
   MEME_TEMPLATE: "public, max-age=86400, s-maxage=604800",
   PUBLIC_OBJECT: "public, max-age=3600, s-maxage=86400",
   PRIVATE_OBJECT: "private, max-age=3600",
