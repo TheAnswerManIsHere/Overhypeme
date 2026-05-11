@@ -6,6 +6,8 @@ Overhype.me is a community-driven, personalized facts database where facts are s
 
 I prefer clear and concise communication. For coding, I prefer functional programming paradigms where applicable. I favor iterative development and would like to be consulted before any major architectural changes or feature implementations. Please ensure that all changes are thoroughly tested.
 
+The Cloudflare Worker for this project lives at `cloudflare/og-router/` and can be edited and deployed programmatically. Deploy with `pnpm worker:deploy` (requires `CLOUDFLARE_API_TOKEN`). Always edit the Worker directly in code rather than asking the user to make dashboard changes.
+
 # System Architecture
 
 The project utilizes a pnpm monorepo structure, segmenting the API server, frontend, database layer, and generated API clients.
