@@ -36,91 +36,60 @@ security-sensitive headers).  If you try, the dashboard rejects the rule with:
 > 'remove' is not a valid value for operation because it cannot be used on
 > header 'Set-Cookie'
 
-So the cookie has to be either tolerated (Cache Rule) or stripped at the
-edge by code we control (Worker).
+The cookie therefore has to be stripped at the edge by code we control —
+the existing CF Worker for this site.
 
 ---
 
-## Fix option A — Cloudflare Cache Rule (recommended, no code)
+## Fix — Cloudflare Worker (already implemented)
 
-This tells Cloudflare to cache the meme-image response *despite* the Set-Cookie
-header.  Cache **misses** still expose GAESA to the requester (acceptable for
-Twitter — its first scrape primes the cache, and on its next refresh the cache
-is hot), but every cache **hit** is served straight from the CF edge with no
-cookies, no `private` downgrade, and a clean `Cache-Control: public`.
+The existing Worker at [`cloudflare/og-router/`](../cloudflare/og-router) was
+extended to also intercept `/api/memes/*/image` and `/api/og/*`.  It fetches
+the origin response and rebuilds the `Response` object with `Set-Cookie`
+removed and a clean `Cache-Control: public, max-age=3600, s-maxage=86400`,
+which lets Cloudflare edge-cache the response normally.
 
-### Steps in the Cloudflare dashboard
+The relevant bits in `cloudflare/og-router/src/index.ts`:
 
-1. Log in → select the **overhype.me** zone.
-2. **Caching → Cache Rules → Create rule.**
-3. Name it: `Cache meme images and OG shells at edge`.
-4. Under **When incoming requests match…** choose **Custom filter expression**:
+```ts
+const STRIP_COOKIE_RE = /^\/api\/(memes\/[^/]+\/image|og(\/|$))/;
 
-   ```
-   (http.request.uri.path matches "^/api/memes/[^/]+/image$") or
-   (http.request.uri.path matches "^/api/og/")
-   ```
-
-5. Under **Then…** set:
-   - **Cache eligibility** → **Eligible for cache** (overrides the
-     Set-Cookie bypass — this is the key setting)
-   - **Edge TTL** → **Override origin** → **1 day**
-   - **Browser TTL** → **Respect origin TTL**
-6. Click **Deploy**.
-
-### Prime the cache and verify
-
-Cloudflare's edge cache is per-PoP, so you need to hit each PoP at least once
-before Twitter's bot does (or just trigger it from Twitter directly):
-
-```bash
-# Force a cache miss + populate (run twice — second one should be HIT)
-curl -sI "https://overhype.me/api/memes/087dJrsjRO/image" | grep -E "cf-cache|cache-control|set-cookie"
-curl -sI "https://overhype.me/api/memes/087dJrsjRO/image" | grep -E "cf-cache|cache-control|set-cookie"
-```
-
-Expected on the second request:
-```
-cache-control: public, max-age=3600, s-maxage=86400
-cf-cache-status: HIT
-```
-(no `set-cookie` line)
-
-Then re-scrape the affected tweet using the
-[Twitter Card Validator](https://cards-dev.twitter.com/validator).
-
----
-
-## Fix option B — Cloudflare Worker (most robust, requires code edit)
-
-Add this snippet to the existing Worker that already handles bot UA rewriting
-for `overhype.me`.  It rebuilds the `Response` object from scratch when the
-path matches, which means the GAESA cookie from the origin response is never
-forwarded to the client at all — not even on the first hit.
-
-```js
-// Inside the Worker's fetch handler, before the existing bot/SPA passthrough:
-const url = new URL(request.url);
-const STRIP_COOKIE_RE = /^\/api\/(memes\/[^/]+\/image|og\/)/;
-
-if (STRIP_COOKIE_RE.test(url.pathname)) {
+async function fetchAndStripCookies(request: Request): Promise<Response> {
   const originResponse = await fetch(request);
-  // Cloning into a new Response drops cookies the platform injected at
-  // the network layer (e.g. Google App Engine's GAESA).
   const cleaned = new Response(originResponse.body, originResponse);
   cleaned.headers.delete("Set-Cookie");
-  cleaned.headers.set("Cache-Control", "public, max-age=86400, s-maxage=86400");
+  cleaned.headers.set("Cache-Control", "public, max-age=3600, s-maxage=86400");
   return cleaned;
+}
+
+// inside fetch():
+if (STRIP_COOKIE_RE.test(url.pathname)) {
+  return fetchAndStripCookies(request);
 }
 ```
 
-This is more reliable than Option A because it does not depend on cache state:
-the very first request (including Twitter's first-ever scrape of a brand-new
-meme URL) is already cookie-free.
+And the new route patterns in `wrangler.toml`:
+
+```toml
+routes = [
+  { pattern = "overhype.me/m/*",         zone_id = "..." },
+  { pattern = "overhype.me/api/memes/*", zone_id = "..." },
+  { pattern = "overhype.me/api/og/*",    zone_id = "..." },
+]
+```
+
+### Deploy
+
+```bash
+pnpm worker:deploy
+```
+
+(Requires `CLOUDFLARE_API_TOKEN` with the "Edit Cloudflare Workers" scope —
+the same token the existing deploy flow uses.)
 
 ---
 
-## Verification (either option)
+## Verification
 
 ```bash
 curl -sI "https://overhype.me/api/memes/087dJrsjRO/image" | \

@@ -18,11 +18,19 @@ main = "src/index.ts"
 compatibility_date = "2025-01-15"
 account_id = "975a348dc75f2f3849507caefab3862e"
 
-# Bind the worker to /m/* on overhype.me. The zone must be on the same
-# Cloudflare account and the matching DNS records must be proxied
-# (orange-cloud) for the route to fire.
+# Bind the worker to:
+#   /m/*               → bot-vs-human OG shell routing
+#   /api/memes/*/image → strip GAESA Set-Cookie injected by GCP so Twitter
+#                        can large-card the image (CF would otherwise mark
+#                        the response private and refuse to cache it)
+#   /api/og/*          → same cookie strip for the OG shell endpoint, so
+#                        the shell itself is edge-cacheable
+# The zone must be on the same Cloudflare account and the matching DNS
+# records must be proxied (orange-cloud) for the routes to fire.
 routes = [
-  { pattern = "overhype.me/m/*", zone_id = "759edc0f6744c981b16d648f1a9ffa12" },
+  { pattern = "overhype.me/m/*",          zone_id = "759edc0f6744c981b16d648f1a9ffa12" },
+  { pattern = "overhype.me/api/memes/*",  zone_id = "759edc0f6744c981b16d648f1a9ffa12" },
+  { pattern = "overhype.me/api/og/*",     zone_id = "759edc0f6744c981b16d648f1a9ffa12" },
 ]
 
 # Smaller bundle, faster cold starts.
