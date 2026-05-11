@@ -898,13 +898,14 @@ router.get("/memes/:slug/image", async (req: Request, res: Response) => {
 
     // Content-aware ETag: includes a render-pipeline version (bump
     // MEME_RENDER_VERSION whenever the generator output changes for the
-    // same inputs), the meme's updatedAt, and a SHA-256 of the rendered
+    // same inputs), the meme's createdAt (memes are immutable post-save —
+    // no updatedAt column on the schema), and a SHA-256 of the rendered
     // bytes. This guarantees previously-cached low-res or stale renders
     // cannot be perpetuated via 304 — when any pipeline change ships,
     // every client revalidation reads fresh bytes.
     const bytesHash = createHash("sha256").update(imageBuffer).digest("hex").slice(0, 16);
-    const updatedAtMs = meme.updatedAt instanceof Date ? meme.updatedAt.getTime() : Date.now();
-    const etag = `"meme-v${MEME_RENDER_VERSION}-${slug}-${updatedAtMs}-${bytesHash}"`;
+    const createdAtMs = meme.createdAt instanceof Date ? meme.createdAt.getTime() : Date.now();
+    const etag = `"meme-v${MEME_RENDER_VERSION}-${slug}-${createdAtMs}-${bytesHash}"`;
     if (checkConditional(req, res, etag)) return;
 
     setPublicCors(res);
