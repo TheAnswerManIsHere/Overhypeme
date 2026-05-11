@@ -49,7 +49,7 @@ describe("CACHE constants", () => {
     assert.equal(CACHE.STATIC_IMMUTABLE, "public, max-age=31536000, immutable");
     assert.equal(
       CACHE.MEME_IMAGE,
-      "public, max-age=0, must-revalidate, s-maxage=60",
+      "public, max-age=3600, s-maxage=86400",
     );
     assert.equal(CACHE.MEME_TEMPLATE, "public, max-age=86400, s-maxage=604800");
     assert.equal(CACHE.PUBLIC_OBJECT, "public, max-age=3600, s-maxage=86400");
