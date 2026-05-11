@@ -32,10 +32,13 @@ run_in_temp_repo() {
 
   (
     cd "${temp_root}"
-    GIT_CONFIG_NOSYSTEM=1 \
-      GIT_AUTHOR_NAME="Test" GIT_AUTHOR_EMAIL="test@test.invalid" \
-      GIT_COMMITTER_NAME="Test" GIT_COMMITTER_EMAIL="test@test.invalid" \
-      git -c user.name="Test" -c user.email="test@test.invalid" init -q
+    # Build a minimal .git skeleton without invoking `git init`.
+    # The Replit sandbox intercepts the `git` binary in workflow processes,
+    # making `git init` unreliable in CI.  The cleaner script only inspects
+    # .git/{index,HEAD,...}.lock and .git/refs/**/*.lock — it never runs any
+    # git command itself — so a hand-crafted skeleton is sufficient.
+    mkdir -p .git/refs/heads .git/refs/tags .git/refs/remotes
+    printf 'ref: refs/heads/main\n' > .git/HEAD
     "$@"
   )
 
