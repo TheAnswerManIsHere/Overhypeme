@@ -24,3 +24,4 @@ export * from "./emailOutbox";
 export * from "./rateLimit";
 export * from "./moderation";
 export * from "./transientRenders";
+export * from "./shareIntents";
