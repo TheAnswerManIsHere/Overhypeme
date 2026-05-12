@@ -4,8 +4,10 @@ export const CACHE = {
   NO_STORE: "no-store",
   STATIC_IMMUTABLE: "public, max-age=31536000, immutable",
   // Long TTLs are safe because the meme image endpoint emits a content-aware
-  // ETag (render-pipeline version + meme.updatedAt + SHA of rendered bytes),
-  // so any change to a meme produces a different ETag and clients/CDN edges
+  // ETag (render-pipeline version + meme.createdAt + SHA of rendered bytes).
+  // Memes are immutable after save, so createdAt is the stable schema field
+  // used to distinguish saved rows while the bytes hash catches renderer
+  // changes; clients/CDN edges
   // pull fresh bytes. Short TTLs were causing social crawlers (Twitter/X,
   // Facebook, Slack, Discord) to re-fetch the image on every unfurl AND, in
   // some cases, refuse to cache it as an OG image at all because the
