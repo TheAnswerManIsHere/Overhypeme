@@ -21,8 +21,16 @@ import type { FactPexelsImages } from "@/types/pexels";
 
 import { lazyWithRetry } from "@/lib/lazy-retry";
 import { AdminMediaInfo, getFileNameFromUrl, getMimeTypeFromUrl } from "@/components/ui/AdminMediaInfo";
+import { roleToTier } from "@/components/meme-builder/integration/studioAdapter";
 
 const MemeStudio = lazyWithRetry(() => import("@/components/MemeStudio").then(m => ({ default: m.MemeStudio })));
+
+// MBFO wizard mount: behind an env flag while the Phase-3 builder is still on
+// the production path. Flip VITE_MBFO_WIZARD=1 in .env.local to swap in.
+const MBFO_WIZARD_ENABLED = import.meta.env.VITE_MBFO_WIZARD === "1";
+const MemeBuilderWizard = lazyWithRetry(() =>
+  import("@/components/meme-builder/wizard").then(m => ({ default: m.MemeBuilderWizard })),
+);
 
 type MemeItem = {
   id: number;
@@ -74,7 +82,7 @@ async function fetchMemes(factId: number, visibility: "community" | "my-public" 
 }
 
 function VariantFactCard({ id, useCase }: { id: number; useCase: string | null }) {
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, user, role } = useAuth();
   const [, setLocation] = useLocation();
   const { rateFact } = useAppMutations();
   const { name, pronouns } = usePersonName();
@@ -106,14 +114,33 @@ function VariantFactCard({ id, useCase }: { id: number; useCase: string | null }
     <>
       {showStudio && (
         <Suspense fallback={null}>
-          <MemeStudio
-            factId={id}
-            factText={renderedText}
-            rawFactText={fact.text}
-            aiMemeImages={(fact as unknown as { aiMemeImages?: import("@/types/meme").AiMemeImages | null })?.aiMemeImages ?? null}
-            onClose={() => setShowStudio(false)}
-            defaultTab={studioDefaultTab}
-          />
+          {MBFO_WIZARD_ENABLED ? (
+            <MemeBuilderWizard
+              factId={String(id)}
+              factText={fact.text}
+              viewerContext={{
+                tier: roleToTier(role),
+                userId: user?.id,
+                name: user?.displayName ?? undefined,
+                pronouns: (user as { pronouns?: string } | undefined)?.pronouns ?? pronouns ?? undefined,
+                hasLibraryImages: role !== "anonymous" && role !== "unregistered",
+              }}
+              entryFlow="fact-detail"
+              initialName={name ?? undefined}
+              initialPronouns={pronouns ?? undefined}
+              onComplete={() => setShowStudio(false)}
+              onCancel={() => setShowStudio(false)}
+            />
+          ) : (
+            <MemeStudio
+              factId={id}
+              factText={renderedText}
+              rawFactText={fact.text}
+              aiMemeImages={(fact as unknown as { aiMemeImages?: import("@/types/meme").AiMemeImages | null })?.aiMemeImages ?? null}
+              onClose={() => setShowStudio(false)}
+              defaultTab={studioDefaultTab}
+            />
+          )}
         </Suspense>
       )}
 
