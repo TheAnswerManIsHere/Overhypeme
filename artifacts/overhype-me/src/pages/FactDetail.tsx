@@ -258,7 +258,7 @@ export default function FactDetail() {
   const isMemeRoute = params?.sub === "meme";
   const isVideoRoute = params?.sub === "video";
   const [, setLocation] = useLocation();
-  const { isAuthenticated, user } = useAuth();
+  const { isAuthenticated, user, role } = useAuth();
 
   const { data: fact, isLoading: factLoading, error: factError } = useGetFact(factId, {
     query: { queryKey: getGetFactQueryKey(factId), enabled: !!factId }
@@ -418,16 +418,35 @@ export default function FactDetail() {
 
       {showMemeStudio && (
         <Suspense fallback={null}>
-          <MemeStudio
-            factId={factId}
-            factText={renderedText}
-            rawFactText={fact.text}
-            pexelsImages={pexelsImages}
-            aiMemeImages={aiMemeImages}
-            onClose={closeMemeStudio}
-            defaultPrivate={memeBuilderDefaultPrivate}
-            defaultTab={isVideoRoute ? "video" : studioDefaultTab}
-          />
+          {MBFO_WIZARD_ENABLED ? (
+            <MemeBuilderWizard
+              factId={String(factId)}
+              factText={fact.text}
+              viewerContext={{
+                tier: roleToTier(role),
+                userId: user?.id,
+                name: user?.displayName ?? undefined,
+                pronouns: (user as { pronouns?: string } | undefined)?.pronouns ?? pronouns ?? undefined,
+                hasLibraryImages: role !== "anonymous" && role !== "unregistered",
+              }}
+              entryFlow="fact-detail"
+              initialName={name ?? undefined}
+              initialPronouns={pronouns ?? undefined}
+              onComplete={closeMemeStudio}
+              onCancel={closeMemeStudio}
+            />
+          ) : (
+            <MemeStudio
+              factId={factId}
+              factText={renderedText}
+              rawFactText={fact.text}
+              pexelsImages={pexelsImages}
+              aiMemeImages={aiMemeImages}
+              onClose={closeMemeStudio}
+              defaultPrivate={memeBuilderDefaultPrivate}
+              defaultTab={isVideoRoute ? "video" : studioDefaultTab}
+            />
+          )}
         </Suspense>
       )}
       <div className="max-w-4xl mx-auto px-4 py-12 md:py-20">
