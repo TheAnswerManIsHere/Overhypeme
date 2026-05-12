@@ -33,6 +33,12 @@ export const factsTable = pgTable("facts", {
   hasPronouns: boolean("has_pronouns").notNull().default(false),
   isActive: boolean("is_active").notNull().default(true),
   canonicalText: text("canonical_text"),
+  /**
+   * Token-boundary index where the rendered fact splits into top/bottom captions.
+   * Nullable until a separate session adds the gpt-4o-mini population step at fact creation;
+   * renderer falls back to the legacy midpoint heuristic when null.
+   */
+  splitTokenIndex: integer("split_token_index"),
   /** LLM-extracted Pexels image IDs per gender variant. Populated by factImagePipeline. */
   pexelsImages: jsonb("pexels_images"),
   /** LLM-generated scene prompts for AI meme backgrounds (3 gender variants). */
