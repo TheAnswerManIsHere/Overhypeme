@@ -40,7 +40,6 @@ export function MemeBuilderWizard(props: MemeBuilderWizardProps) {
     onCancel,
   } = props;
   void factText; // consumed by Step 2 internals in subsequent MBFO sessions
-  void viewerContext;
 
   const { state, dispatch, clearDraft } = useWizardState({
     factId,
@@ -112,6 +111,7 @@ export function MemeBuilderWizard(props: MemeBuilderWizardProps) {
             <Step1ArtifactType
               selected={state.artifactType}
               onSelect={handleSelectArtifactType}
+              tier={viewerContext.tier}
             />
           ) : (
             <Step2BackgroundAndText artifactType={state.artifactType} />
