@@ -19,6 +19,7 @@ import reviewsRouter from "./reviews";
 import shareRouter from "./share";
 import shareCopyRouter from "./shareCopy";
 import shareIntentsRouter from "./shareIntents";
+import heroExamplesRouter from "./heroExamples";
 import videosRouter from "./videos";
 import routeStatsRouter from "./routeStats";
 
@@ -43,6 +44,7 @@ router.use(reviewsRouter);
 router.use(shareRouter);
 router.use(shareCopyRouter);
 router.use(shareIntentsRouter);
+router.use(heroExamplesRouter);
 router.use(videosRouter);
 router.use(routeStatsRouter);
 router.use(importRouter);

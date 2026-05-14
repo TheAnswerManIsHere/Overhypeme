@@ -43,7 +43,7 @@ describe("MemeBuilderWizard", () => {
 
   it("renders Step 1 by default with both artifact-type cards", () => {
     renderWizard();
-    expect(screen.getByRole("heading", { name: /what are we making/i })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: /what kind of meme/i })).toBeTruthy();
     expect(screen.getByRole("button", { name: /^image$/i })).toBeTruthy();
     expect(screen.getByRole("button", { name: /^video$/i })).toBeTruthy();
   });
@@ -64,12 +64,14 @@ describe("MemeBuilderWizard", () => {
   });
 
   it("back arrow returns to Step 1 from Step 2 with state preserved", async () => {
-    renderWizard();
+    // Legendary viewer so the video card is tappable (free/anon would open
+    // the upgrade modal instead of advancing).
+    renderWizard({ viewerContext: { ...VIEWER, tier: "legendary" } });
     fireEvent.click(screen.getByRole("button", { name: /^video$/i }));
     expect(await screen.findByRole("heading", { name: /build your meme/i })).toBeTruthy();
 
     fireEvent.click(screen.getByLabelText("Back"));
-    expect(await screen.findByRole("heading", { name: /what are we making/i })).toBeTruthy();
+    expect(await screen.findByRole("heading", { name: /what kind of meme/i })).toBeTruthy();
 
     const videoCard = screen.getByRole("button", { name: /^video$/i });
     expect(videoCard.getAttribute("aria-pressed")).toBe("true");
@@ -100,7 +102,7 @@ describe("MemeBuilderWizard", () => {
 
     renderWizard();
     expect(await screen.findByRole("heading", { name: /build your meme/i })).toBeTruthy();
-    expect(screen.queryByRole("heading", { name: /what are we making/i })).toBeNull();
+    expect(screen.queryByRole("heading", { name: /what kind of meme/i })).toBeNull();
   });
 
   it("does not hydrate from a different factId's draft", async () => {
@@ -110,7 +112,7 @@ describe("MemeBuilderWizard", () => {
     first.unmount();
 
     renderWizard({ factId: "fact-B" });
-    expect(screen.getByRole("heading", { name: /what are we making/i })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: /what kind of meme/i })).toBeTruthy();
   });
 
   it("ignores expired drafts in sessionStorage", () => {
@@ -127,6 +129,6 @@ describe("MemeBuilderWizard", () => {
       JSON.stringify(expired),
     );
     renderWizard();
-    expect(screen.getByRole("heading", { name: /what are we making/i })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: /what kind of meme/i })).toBeTruthy();
   });
 });
