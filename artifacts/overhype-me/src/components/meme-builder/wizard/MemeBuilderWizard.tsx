@@ -1,25 +1,30 @@
 /**
  * MBFO wizard shell. Full-screen takeover with a top progress bar, two
- * sliding step containers, and (on Step 2) a sticky-bottom primary action.
+ * sliding step containers, and (on Step 2) the image-flow surface from
+ * `step2-image/Step2Image.tsx` (image) or a placeholder for video pending
+ * MBFO-4.
  *
- * Subsequent MBFO sessions fill in the step internals; this file owns
- * navigation, sessionStorage hydration via useWizardState, and the
- * onComplete/onCancel contract to the parent.
+ * The wizard owns navigation, sessionStorage hydration via useWizardState,
+ * and the onComplete/onCancel contract to the parent. Step 2 internals own
+ * their own primary action (the save flow branches for PuLID vs. direct
+ * save), so the wizard no longer renders a global "Make my meme" button.
  */
 
 import { useCallback, useRef, useState } from "react";
-import type { BuilderResult, EntryFlow, ViewerContext } from "../types";
+import type { BuilderResult, EntryFlow, ViewerContext, PendingBuilderState } from "../types";
 import { WizardTopBar } from "./WizardTopBar";
 import { WizardStepContainer } from "./WizardStepContainer";
-import { WizardPrimaryAction } from "./WizardPrimaryAction";
 import { Step1ArtifactType } from "./steps/Step1ArtifactType";
 import { Step2BackgroundAndText } from "./steps/Step2BackgroundAndText";
 import { useWizardState } from "./state/useWizardState";
+import type { PendingWizardState } from "./state/wizardStorage";
 
 export interface MemeBuilderWizardProps {
   factId: string;
   /** Token-laden fact text — passed through to Step 2 internals in MBFO-3/4. */
   factText: string;
+  /** Server-supplied default split for the text-position slider; falls back to client `intelligentSplit`. */
+  factSplitTokenIndex?: number | null;
   viewerContext: ViewerContext;
   entryFlow: EntryFlow;
   initialName?: string;
@@ -32,6 +37,7 @@ export function MemeBuilderWizard(props: MemeBuilderWizardProps) {
   const {
     factId,
     factText,
+    factSplitTokenIndex,
     viewerContext,
     entryFlow,
     initialName,
@@ -39,7 +45,6 @@ export function MemeBuilderWizard(props: MemeBuilderWizardProps) {
     onComplete,
     onCancel,
   } = props;
-  void factText; // consumed by Step 2 internals in subsequent MBFO sessions
 
   const { state, dispatch, clearDraft } = useWizardState({
     factId,
@@ -48,14 +53,9 @@ export function MemeBuilderWizard(props: MemeBuilderWizardProps) {
     initialPronouns,
   });
 
-  // Direction tracks whether the most recent transition was forward or back,
-  // which feeds the slide animation. Updated by callers, not derived from
-  // step number alone (so a "back" from step 2 → 1 animates correctly).
   const [direction, setDirection] = useState<"forward" | "back">("forward");
   const lastStepRef = useRef(state.currentStep);
   if (lastStepRef.current !== state.currentStep) {
-    // Catch hydrate-from-storage transitions: if storage restored step 2 on
-    // mount, treat as a "forward" entry (no animation flicker either way).
     lastStepRef.current = state.currentStep;
   }
 
@@ -73,23 +73,50 @@ export function MemeBuilderWizard(props: MemeBuilderWizardProps) {
       dispatch({ type: "back" });
       return;
     }
-    // On Step 1, back arrow is hidden — but if invoked, treat as cancel.
     onCancel();
   }, [state.currentStep, dispatch, onCancel]);
 
   const handleClose = useCallback(() => {
-    // MBFO-1 does not prompt-to-discard; the next session adds a
-    // confirm-discard toast/dialog when there's unsaved input.
     onCancel();
   }, [onCancel]);
 
-  const handleMakeMyMeme = useCallback(() => {
-    // Placeholder: the actual save/generate flow is wired in MBFO-3 (image)
-    // and MBFO-4 (video). For now we just hand control back to the parent so
-    // the wizard can be smoke-tested end-to-end.
-    void clearDraft;
-    void onComplete;
-  }, [clearDraft, onComplete]);
+  const handleSaved = useCallback(
+    (result: { memeId: string; permalinkUrl: string }) => {
+      clearDraft();
+      onComplete({
+        kind: "saved",
+        memeId: result.memeId,
+        permalinkUrl: result.permalinkUrl,
+      });
+    },
+    [clearDraft, onComplete],
+  );
+
+  const handleRequestSignup = useCallback(
+    (pending: Partial<PendingWizardState>) => {
+      // Translate the schema-v2 wizard snapshot into the v1 PendingBuilderState
+      // the existing signup wall in App.tsx understands. The v1 shape is a
+      // strict subset; we drop schemaVersion-2-only fields the wall doesn't
+      // need to round-trip through auth.
+      const { schemaVersion: _v2, capturedAt: _ca, factId: _fid, ...pendingFields } = pending;
+      void _v2; void _ca; void _fid;
+      const v1: PendingBuilderState = {
+        schemaVersion: 1,
+        capturedAt: Date.now(),
+        factId,
+        entryFlow,
+        mode: state.mode ?? "stock",
+        name: state.name,
+        pronouns: state.pronouns,
+        source: state.source,
+        textOptions: state.textOptions,
+        aspectRatio: state.aspectRatio,
+        ...pendingFields,
+      };
+      onComplete({ kind: "signup-required", pendingState: v1 });
+    },
+    [factId, entryFlow, state, onComplete],
+  );
 
   return (
     <div
@@ -114,18 +141,20 @@ export function MemeBuilderWizard(props: MemeBuilderWizardProps) {
               tier={viewerContext.tier}
             />
           ) : (
-            <Step2BackgroundAndText artifactType={state.artifactType} />
+            <Step2BackgroundAndText
+              artifactType={state.artifactType}
+              factId={factId}
+              factText={factText}
+              factSplitTokenIndex={factSplitTokenIndex}
+              viewerContext={viewerContext}
+              state={state}
+              dispatch={dispatch}
+              onSaved={handleSaved}
+              onRequestSignup={handleRequestSignup}
+            />
           )}
         </WizardStepContainer>
       </div>
-
-      {state.currentStep === 2 && (
-        <WizardPrimaryAction
-          label="Make my meme"
-          onClick={handleMakeMyMeme}
-          loading={state.generation.status === "generating"}
-        />
-      )}
     </div>
   );
 }

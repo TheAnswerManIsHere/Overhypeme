@@ -401,6 +401,14 @@ async function trackUserAiImage(
  * The reference photo is uploaded to fal.ai storage, then used as a face_image_url
  * to place the person into a cinematic meme background matching the scene prompt.
  */
+export type PulidProgressPhase = "queued" | "in_progress" | "completed";
+export interface PulidProgressEvent {
+  phase: PulidProgressPhase;
+  /** fal queue position when phase==="queued"; undefined otherwise. */
+  queuePosition?: number;
+}
+export type PulidProgressCallback = (event: PulidProgressEvent) => void;
+
 async function generateAndStoreImageFromReference(
   factId: number,
   gender: "male" | "female" | "neutral",
@@ -410,6 +418,7 @@ async function generateAndStoreImageFromReference(
   modelOverride?: string,
   paramsOverride?: Record<string, string>,
   userId?: string,
+  onProgress?: PulidProgressCallback,
 ): Promise<string> {
   configureFal();
 
@@ -499,6 +508,17 @@ async function generateAndStoreImageFromReference(
   const result = await fal.subscribe(model, {
     input,
     logs: false,
+    onQueueUpdate: onProgress
+      ? (status) => {
+          if (status.status === "IN_QUEUE") {
+            onProgress({ phase: "queued", queuePosition: status.queue_position });
+          } else if (status.status === "IN_PROGRESS") {
+            onProgress({ phase: "in_progress" });
+          } else if (status.status === "COMPLETED") {
+            onProgress({ phase: "completed" });
+          }
+        }
+      : undefined,
   }) as { data: { images: Array<{ url: string }> } };
 
   // Layer 2 (response side).
@@ -619,6 +639,8 @@ export async function generateAiMemeBackgroundFromReference(
     paramsOverride?: Record<string, string>;
     /** When true, errors are caught internally and logged; when false (default), errors propagate to caller */
     suppressErrors?: boolean;
+    /** Optional progress callback — invoked when fal queue status changes. */
+    onProgress?: PulidProgressCallback;
   },
 ): Promise<string | null> {
   try {
@@ -646,7 +668,7 @@ export async function generateAiMemeBackgroundFromReference(
       { factId, gender: targetGender, modelOverride: options?.modelOverride },
       "[aiMemePipeline] Generating reference-based image",
     );
-    const storedPath = await generateAndStoreImageFromReference(factId, targetGender, uniqueKey, prompt, referenceBuffer, options?.modelOverride, options?.paramsOverride, options?.userId);
+    const storedPath = await generateAndStoreImageFromReference(factId, targetGender, uniqueKey, prompt, referenceBuffer, options?.modelOverride, options?.paramsOverride, options?.userId, options?.onProgress);
 
     // Track only in user_ai_images (type='reference') — NOT in the shared aiMemeImages on the fact
     try {
