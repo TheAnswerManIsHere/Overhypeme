@@ -10,6 +10,10 @@ interface Props {
   backgroundUrl: string | null;
   textOptions: MemeTextOptions;
   aspectRatio: AspectRatio;
+  /** Pan offset in canvas pixels. Positive x shifts image right, positive y down. */
+  framingOffset?: { x: number; y: number };
+  /** Optional ref to the canvas element — used by the wizard's drag-to-reposition gesture. */
+  canvasRef?: React.RefObject<HTMLCanvasElement | null>;
 }
 
 const ASPECT_DIMS: Record<AspectRatio, { w: number; h: number }> = {
@@ -27,8 +31,9 @@ const ASPECT_DIMS: Record<AspectRatio, { w: number; h: number }> = {
  * re-render path. Keeping the renderer client-side here is intentional — it
  * avoids hammering the server while the user scrubs through stock thumbnails.
  */
-export function LivePreview({ factText, name, pronouns, backgroundUrl, textOptions, aspectRatio }: Props) {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
+export function LivePreview({ factText, name, pronouns, backgroundUrl, textOptions, aspectRatio, framingOffset, canvasRef: externalCanvasRef }: Props) {
+  const internalCanvasRef = useRef<HTMLCanvasElement>(null);
+  const canvasRef = externalCanvasRef ?? internalCanvasRef;
   const dims = ASPECT_DIMS[aspectRatio];
 
   useEffect(() => {
@@ -78,12 +83,21 @@ export function LivePreview({ factText, name, pronouns, backgroundUrl, textOptio
       const ratio = Math.max(dims.w / img.width, dims.h / img.height);
       const w = img.width * ratio;
       const h = img.height * ratio;
-      ctx.drawImage(img, (dims.w - w) / 2, (dims.h - h) / 2, w, h);
+      // Clamp pan so the image never reveals empty canvas.
+      const maxOffsetX = Math.max(0, (w - dims.w) / 2);
+      const maxOffsetY = Math.max(0, (h - dims.h) / 2);
+      const ox = framingOffset
+        ? Math.min(maxOffsetX, Math.max(-maxOffsetX, framingOffset.x))
+        : 0;
+      const oy = framingOffset
+        ? Math.min(maxOffsetY, Math.max(-maxOffsetY, framingOffset.y))
+        : 0;
+      ctx.drawImage(img, (dims.w - w) / 2 + ox, (dims.h - h) / 2 + oy, w, h);
       drawText();
     };
     img.onerror = () => drawText();
     img.src = backgroundUrl;
-  }, [factText, name, pronouns, backgroundUrl, textOptions, dims.w, dims.h]);
+  }, [factText, name, pronouns, backgroundUrl, textOptions, dims.w, dims.h, framingOffset?.x, framingOffset?.y]);
 
   return (
     <div className="overflow-hidden rounded-md border border-border bg-black">
