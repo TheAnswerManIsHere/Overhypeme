@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import type { AspectRatio, MemeTextOptions, MyImageSource, ViewerContext } from "../../types";
 import type { StockImage } from "../../hooks/useStockImages";
@@ -92,12 +92,23 @@ export function Step2Image({
     state.source?.kind === "stock" ? state.source.stockImageId : null,
   );
   const [stockSelectedUrl, setStockSelectedUrl] = useState<string | null>(null);
-  const [myImage, setMyImage] = useState<MyImageSource | null>(
-    state.source?.kind === "self-upload" ? state.source.image : null,
+  // Per-tab selection memory. The wizard reducer only stores ONE source at a
+  // time (whatever tab is currently active), so we keep separate component
+  // state for each tab. When the user switches tabs the previous selection
+  // stays put and the dispatch-on-tab effect re-publishes whichever one
+  // belongs to the new active tab.
+  const [selfUploadImage, setSelfUploadImage] = useState<MyImageSource | null>(
+    state.source?.kind === "self-upload" && !state.source.stylizeWithAi ? state.source.image : null,
   );
+  const [aiStylingImage, setAiStylingImage] = useState<MyImageSource | null>(
+    state.source?.kind === "self-upload" && state.source.stylizeWithAi ? state.source.image : null,
+  );
+  const myImage: MyImageSource | null =
+    tab === "ai-you" ? aiStylingImage : tab === "self-upload" ? selfUploadImage : null;
   const [pulidJobId, setPulidJobId] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [creatingAi, setCreatingAi] = useState(false);
   // "AI you" sub-tab state. Generation lifecycle lives here in the parent so
   // the loading takeover can be rendered alongside (and unmount the sub-tab
   // UI). After a Create completes we flip to "existing" and bump the reload
@@ -136,14 +147,20 @@ export function Step2Image({
         type: "set-source",
         source: { kind: "stock", stockImageId: stockSelectedId },
       });
-    } else if ((tab === "self-upload" || tab === "ai-you") && myImage) {
+    } else if (tab === "self-upload" && selfUploadImage) {
       dispatch({ type: "set-mode", mode: "self-upload" });
       dispatch({
         type: "set-source",
-        source: { kind: "self-upload", image: myImage, stylizeWithAi: tab === "ai-you" },
+        source: { kind: "self-upload", image: selfUploadImage, stylizeWithAi: false },
+      });
+    } else if (tab === "ai-you" && aiStylingImage) {
+      dispatch({ type: "set-mode", mode: "self-upload" });
+      dispatch({
+        type: "set-source",
+        source: { kind: "self-upload", image: aiStylingImage, stylizeWithAi: true },
       });
     }
-  }, [tab, stockSelectedId, myImage, dispatch]);
+  }, [tab, stockSelectedId, selfUploadImage, aiStylingImage, dispatch]);
 
   // Background URL for the live preview.
   const backgroundUrl = useMemo(() => {
@@ -172,11 +189,13 @@ export function Step2Image({
 
   // For AI you, only an "ai-styling" selection counts — a reference photo
   // picked inside the Create sub-flow is not a meme-ready selection until
-  // the user clicks Create and the PuLID job finishes.
+  // the user clicks Create and the PuLID job finishes. Also gate against an
+  // in-flight Create/PuLID job: while creating we don't want "Make my meme"
+  // to consume a stale previous selection.
   const sourceSelected =
     (tab === "stock" && !!stockSelectedId) ||
-    (tab === "self-upload" && !!myImage) ||
-    (tab === "ai-you" && myImage?.kind === "ai-styling");
+    (tab === "self-upload" && !!selfUploadImage) ||
+    (tab === "ai-you" && aiStylingImage?.kind === "ai-styling" && !creatingAi && !pulidJobId);
 
   const handleSourceTab = (next: SourceTab) => {
     setTab(next);
@@ -187,11 +206,14 @@ export function Step2Image({
     setStockSelectedUrl(image.url);
   };
 
-  const handleMyImageSelect = (next: MyImageSource) => {
-    setMyImage(next);
+  const handleSelfUploadImageSelect = (next: MyImageSource) => {
+    setSelfUploadImage(next);
   };
 
-  const [creatingAi, setCreatingAi] = useState(false);
+  const handleAiStylingSelect = (next: MyImageSource) => {
+    setAiStylingImage(next);
+  };
+
   const handleAiCreate = async ({
     referenceImagePath,
     aiStyleId,
@@ -233,15 +255,29 @@ export function Step2Image({
     }
   };
 
+  const wizardPrimaryActionRef = useRef<HTMLDivElement | null>(null);
+
   const handlePulidJobComplete = (generatedObjectPath: string) => {
     setPulidJobId(null);
     // The new PuLID derivative now exists at generatedObjectPath. Swap it
-    // into the preview as the selected meme background, flip the AI sub-tab
-    // to "Use existing AI image" so it appears highlighted in the grid, and
-    // bump the reload key so the grid refetches and includes the new row.
-    setMyImage({ kind: "ai-styling", objectPath: generatedObjectPath });
+    // into the AI tab's selection, flip the AI sub-tab to "Use existing AI
+    // image" so it appears highlighted in the grid, and bump the reload key
+    // so the grid refetches and includes the new row.
+    setAiStylingImage({ kind: "ai-styling", objectPath: generatedObjectPath });
     setAiSubTab("existing");
     setAiReloadKey((k) => k + 1);
+    // Ensure the "Make my meme" CTA — now active — is visible to the user.
+    // The footer is fixed at the bottom of the viewport but mobile browsers
+    // and tall content can still hide it under address bars or scroll state.
+    // Defer until after React commits so the disabled→enabled transition is
+    // already applied and screen readers announce the focus change correctly.
+    requestAnimationFrame(() => {
+      const node = wizardPrimaryActionRef.current;
+      if (!node) return;
+      node.scrollIntoView({ behavior: "smooth", block: "end" });
+      const btn = node.querySelector("button");
+      if (btn) (btn as HTMLButtonElement).focus({ preventScroll: true });
+    });
   };
 
   const handlePulidJobError = (errorCode: string, message?: string) => {
@@ -318,8 +354,8 @@ export function Step2Image({
     // AI you tab: the AI image has already been forged by the Create button,
     // so there's no second PuLID job. Pass the styling's objectPath as the
     // pulidGeneratedUploadKey so the meme is persisted with imageTransform="pulid".
-    if (tab === "ai-you" && myImage?.kind === "ai-styling") {
-      await save(myImage.objectPath);
+    if (tab === "ai-you" && aiStylingImage?.kind === "ai-styling") {
+      await save(aiStylingImage.objectPath);
       return;
     }
 
@@ -379,8 +415,8 @@ export function Step2Image({
             <SelfUploadSourcePanel
               factId={factId}
               primaryImageObjectPath={viewerContext.primaryImageObjectPath}
-              selected={myImage}
-              onSelect={handleMyImageSelect}
+              selected={selfUploadImage}
+              onSelect={handleSelfUploadImageSelect}
             />
           )}
 
@@ -388,8 +424,8 @@ export function Step2Image({
             <AiSourcePanel
               factId={factId}
               primaryImageObjectPath={viewerContext.primaryImageObjectPath}
-              selected={myImage}
-              onSelect={handleMyImageSelect}
+              selected={aiStylingImage}
+              onSelect={handleAiStylingSelect}
               subTab={aiSubTab}
               onSubTabChange={setAiSubTab}
               onCreate={handleAiCreate}
@@ -420,12 +456,14 @@ export function Step2Image({
         </div>
       </div>
 
-      <WizardPrimaryAction
-        label="Make my meme"
-        onClick={handleMakeMyMeme}
-        disabled={!sourceSelected}
-        loading={saving}
-      />
+      <div ref={wizardPrimaryActionRef}>
+        <WizardPrimaryAction
+          label="Make my meme"
+          onClick={handleMakeMyMeme}
+          disabled={!sourceSelected}
+          loading={saving}
+        />
+      </div>
 
       <UnifiedUpgradeModal
         open={upgradeOpen}

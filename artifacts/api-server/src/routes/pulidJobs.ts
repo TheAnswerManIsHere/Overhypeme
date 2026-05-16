@@ -22,6 +22,7 @@ import { and, eq, sql } from "drizzle-orm";
 import { requireLegendary } from "../middlewares/tierMiddleware";
 import {
   generateAiMemeBackgroundFromReference,
+  generateAiMemeBackgroundStandalone,
   isUserAtImageLimit,
   type PulidProgressCallback,
   type AiScenePrompts,
@@ -104,17 +105,22 @@ function extractMessage(err: unknown): string {
 function computeProgress(state: JobState): number {
   if (state.phase === "completed") return 1;
   if (state.phase === "failed") {
-    return state.queuePosition !== undefined ? 0.3 : 0.95;
+    return state.queuePosition !== undefined ? 0.1 : 0.95;
   }
   if (state.phase === "queued") {
+    // Earlier this returned 0.30 for pos=1, which made the bar leap to ~30%
+    // before any real work had started. Keep queued progress visibly small
+    // (2-6%) so the bar starts near empty and only climbs once we move into
+    // in_progress, where elapsed time can actually justify the motion.
     const pos = Math.max(1, state.queuePosition ?? 1);
-    return Math.max(0.05, 0.3 - (pos - 1) * 0.05);
+    return Math.max(0.02, 0.06 - (pos - 1) * 0.01);
   }
-  // in_progress
+  // in_progress — start near where queued left off (~0.08) and asymptote
+  // toward 0.95 over `expectedRunMs`.
   const startedAt = state.startedRunAt ?? state.createdAt;
   const elapsed = Date.now() - startedAt;
   const tau = Math.max(1, state.expectedRunMs);
-  const asymptotic = 0.3 + 0.65 * (1 - Math.exp(-elapsed / tau));
+  const asymptotic = 0.08 + 0.87 * (1 - Math.exp(-elapsed / tau));
   return Math.min(0.95, asymptotic);
 }
 
@@ -280,19 +286,52 @@ router.post("/memes/pulid-jobs", requireLegendary, async (req: Request, res: Res
         }
       };
 
-      const generatedObjectPath = await generateAiMemeBackgroundFromReference(
-        factId,
-        factText,
-        referenceBuffer,
-        targetGender,
-        {
-          existingPrompts,
-          userId,
-          sourceObjectPath: referenceImagePath,
-          styleSuffix,
-          onProgress,
-        },
-      );
+      let generatedObjectPath: string | null = null;
+      try {
+        generatedObjectPath = await generateAiMemeBackgroundFromReference(
+          factId,
+          factText,
+          referenceBuffer,
+          targetGender,
+          {
+            existingPrompts,
+            userId,
+            sourceObjectPath: referenceImagePath,
+            styleSuffix,
+            onProgress,
+          },
+        );
+      } catch (refErr) {
+        // No face detected → silently fall back to a non-face image-to-image
+        // generator so the user still gets an image instead of an error.
+        if (isNoFaceError(refErr)) {
+          logger.warn(
+            { err: refErr, jobId, factId, userId },
+            "[pulidJobs] no face detected — falling back to standalone (no-face) generation",
+          );
+          // Move the bar into in_progress (best-effort) so the UI doesn't sit
+          // at queued progress while the fallback runs.
+          const cur = jobs.get(jobId);
+          if (cur && cur.phase !== "in_progress") {
+            cur.phase = "in_progress";
+            cur.startedRunAt = Date.now();
+            cur.queuePosition = undefined;
+          }
+          generatedObjectPath = await generateAiMemeBackgroundStandalone(
+            factId,
+            factText,
+            targetGender,
+            {
+              existingPrompts,
+              userId,
+              sourceObjectPath: referenceImagePath,
+              styleSuffix,
+            },
+          );
+        } else {
+          throw refErr;
+        }
+      }
 
       const cur = jobs.get(jobId);
       if (!cur) return;
@@ -315,6 +354,10 @@ router.post("/memes/pulid-jobs", requireLegendary, async (req: Request, res: Res
         cur.errorCode = "moderation";
         cur.errorMessage = GENERIC_REJECT_MESSAGE;
       } else if (isNoFaceError(err)) {
+        // Both the face attempt AND the no-face fallback failed (or the
+        // fallback itself raised a no_face-shaped error from a downstream
+        // moderation check). Surface the original error code so the UI can
+        // distinguish from a generic service failure.
         cur.errorCode = "no_face";
         cur.errorMessage = extractMessage(err);
       } else {

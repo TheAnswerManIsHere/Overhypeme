@@ -81,12 +81,12 @@ describe("GET /memes/pulid-jobs/:jobId", () => {
     assert.equal(res.status, 404);
   });
 
-  it("returns a progress reading between 0.3 and 0.95 for in-progress phase", async () => {
+  it("returns a progress reading between 0.08 and 0.95 for in-progress phase", async () => {
     const app = makeApp(userId);
     const res = await request(app).get(`/memes/pulid-jobs/${jobId}`);
     assert.equal(res.status, 200);
     assert.equal(res.body.phase, "in_progress");
-    assert.ok(res.body.progress >= 0.3 && res.body.progress < 1);
+    assert.ok(res.body.progress >= 0.08 && res.body.progress < 1);
   });
 });
 
@@ -136,7 +136,7 @@ describe("POST /memes/pulid-jobs", () => {
 describe("computeProgress (pure math)", () => {
   const { computeProgress } = __testHooks;
 
-  it("queued with low queue position → modest progress", () => {
+  it("queued with low queue position → very small progress (bar starts near empty)", () => {
     const p = computeProgress({
       jobId: "j",
       userId: "u",
@@ -147,8 +147,8 @@ describe("computeProgress (pure math)", () => {
       phase: "queued",
       queuePosition: 1,
     });
-    assert.ok(p >= 0.05);
-    assert.ok(p <= 0.30);
+    assert.ok(p >= 0.02, `expected p >= 0.02, got ${p}`);
+    assert.ok(p <= 0.10, `expected p <= 0.10, got ${p}`);
   });
 
   it("completed → 1.0", () => {
