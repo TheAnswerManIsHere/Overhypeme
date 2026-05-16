@@ -10,8 +10,11 @@
  *   - score >= threshold && !user.nsfwModeEnabled       → reject + quarantine
  *   - score >= threshold &&  user.nsfwModeEnabled       → accept and tag is_nsfw
  *
- * On classifier error we fail closed at the call site (unless the operator
- * sets `nsfw_classifier_fail_open` someday — not yet wired).
+ * On classifier error the call site checks `isNsfwClassifierFailOpen()`:
+ *   - false (default) → 503 fail-closed
+ *   - true            → log warn + allow through (upload proceeds without NSFW tag)
+ *
+ * Set `admin_config` key `nsfw_classifier_fail_open = "true"` to enable.
  */
 
 import { fal } from "@fal-ai/client";
@@ -83,6 +86,15 @@ export async function classifyNsfwByUrl(
     clearTimeout(timer);
     if (!ac.signal.aborted) ac.abort();
   }
+}
+
+/**
+ * When true, classifier timeouts / errors let the upload through instead of
+ * returning 503. Mirrors the `isArachnidFailOpen()` pattern in arachnid.ts.
+ * Controlled via `admin_config` key `nsfw_classifier_fail_open`.
+ */
+export async function isNsfwClassifierFailOpen(): Promise<boolean> {
+  return (await getConfigString("nsfw_classifier_fail_open", "false")).toLowerCase() === "true";
 }
 
 export async function getNsfwThreshold(): Promise<number> {

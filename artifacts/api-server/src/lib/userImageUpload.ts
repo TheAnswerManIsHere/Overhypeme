@@ -10,7 +10,7 @@ import { ObjectStorageService } from "./objectStorage";
 import { isArachnidFailOpen, scanFaceSource } from "./moderation/arachnid";
 import { quarantineImage } from "./moderation/quarantine";
 import { checkUploadRateLimit } from "./moderation/uploadRateLimit";
-import { classifyAndDecide } from "./moderation/nsfwClassifier";
+import { classifyAndDecide, isNsfwClassifierFailOpen } from "./moderation/nsfwClassifier";
 import { GENERIC_REJECT_MESSAGE } from "./moderation/types";
 
 /**
@@ -256,6 +256,14 @@ async function runNsfwClassifier(
       return { state: "rejected" };
     }
     if (decision.outcome === "error") {
+      const failOpen = await isNsfwClassifierFailOpen();
+      if (failOpen) {
+        req.log.warn(
+          { message: decision.message },
+          "[user-upload] NSFW classifier error — failing open by config",
+        );
+        return { state: "proceed", isNsfw: false };
+      }
       req.log.warn(
         { message: decision.message },
         "[user-upload] NSFW classifier error — failing closed",
@@ -265,6 +273,11 @@ async function runNsfwClassifier(
     }
     return { state: "proceed", isNsfw: decision.isNsfwTag };
   } catch (err) {
+    const failOpen = await isNsfwClassifierFailOpen();
+    if (failOpen) {
+      req.log.warn({ err }, "[user-upload] NSFW classifier step failed — failing open by config");
+      return { state: "proceed", isNsfw: false };
+    }
     req.log.warn({ err }, "[user-upload] NSFW classifier step failed — failing closed");
     res.status(503).json({ error: "Moderation service unavailable. Please try again." });
     return { state: "rejected" };
