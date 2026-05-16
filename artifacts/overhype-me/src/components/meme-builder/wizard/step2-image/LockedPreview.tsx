@@ -165,21 +165,22 @@ export function LockedPreview({
         onTouchCancel={end}
         data-testid="locked-preview"
       >
-        <div
-          className="overflow-hidden rounded-md border border-border bg-black"
-          style={{ maxHeight: canvasMaxHeightStyle }}
-        >
-          <LivePreview
-            factText={factText}
-            name={name}
-            pronouns={pronouns}
-            backgroundUrl={backgroundUrl}
-            textOptions={textOptions}
-            aspectRatio={aspectRatio}
-            framingOffset={framingOffset}
-            canvasRef={canvasRef}
-          />
-        </div>
+        <LivePreview
+          factText={factText}
+          name={name}
+          pronouns={pronouns}
+          backgroundUrl={backgroundUrl}
+          textOptions={textOptions}
+          aspectRatio={aspectRatio}
+          framingOffset={framingOffset}
+          canvasRef={canvasRef}
+          canvasStyle={{
+            maxWidth: "100%",
+            maxHeight: canvasMaxHeightStyle,
+            width: "auto",
+            height: "auto",
+          }}
+        />
         {backgroundUrl && (
           <p className="pointer-events-none absolute bottom-1 right-2 select-none rounded-sm bg-black/40 px-1.5 py-0.5 text-[9px] text-white/60">
             Drag to reposition

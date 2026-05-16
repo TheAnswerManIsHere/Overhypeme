@@ -31,7 +31,7 @@ export function AdvancedOptionsSheet({ value, onChange }: Props) {
   const effect = value.textEffect ?? "outline";
 
   return (
-    <Drawer>
+    <Drawer modal={false}>
       <DrawerTrigger asChild>
         <button
           type="button"
@@ -42,7 +42,7 @@ export function AdvancedOptionsSheet({ value, onChange }: Props) {
           <span aria-hidden className="text-muted-foreground">▾</span>
         </button>
       </DrawerTrigger>
-      <DrawerContent className="max-h-[60vh]">
+      <DrawerContent hideOverlay className="max-h-[60vh]">
         <div className="space-y-5 overflow-y-auto px-4 pb-6 pt-2">
           <DrawerTitle className="font-display text-lg uppercase">Advanced</DrawerTitle>
 

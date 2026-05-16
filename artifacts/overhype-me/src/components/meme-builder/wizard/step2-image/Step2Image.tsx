@@ -4,7 +4,6 @@ import type { AspectRatio, MemeTextOptions, MyImageSource, ViewerContext } from 
 import { useDebouncedValue } from "../../hooks/useDebouncedValue";
 import type { StockImage } from "../../hooks/useStockImages";
 import { UnifiedUpgradeModal } from "../../../upgrade/UnifiedUpgradeModal";
-import { NameAndPronounFields } from "../../parts/NameAndPronounFields";
 import { WizardPrimaryAction } from "../WizardPrimaryAction";
 import type { PendingWizardState } from "../state/wizardStorage";
 import type { WizardAction, WizardRuntimeState } from "../state/useWizardState";
@@ -384,13 +383,6 @@ export function Step2Image({
             />
           )}
 
-          <NameAndPronounFields
-            name={name}
-            pronouns={pronouns}
-            onNameChange={setName}
-            onPronounsChange={setPronouns}
-          />
-
           <AdjustTextSheet
             factText={factText}
             defaultSplitIndex={defaultSplitIndex}
@@ -398,6 +390,7 @@ export function Step2Image({
             onSplitChange={setSplitIndex}
             textOptions={textOptions}
             onTextOptionsChange={setTextOptions}
+            name={name}
           />
 
           <AdvancedOptionsSheet value={textOptions} onChange={setTextOptions} />
