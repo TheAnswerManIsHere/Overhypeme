@@ -173,6 +173,13 @@ router.post("/memes/pulid-jobs", requireLegendary, async (req: Request, res: Res
       : await pronounsToGender(req.user.id);
 
   const rawStyleId = typeof body["styleId"] === "string" ? (body["styleId"] as string) : undefined;
+  if (rawStyleId !== undefined) {
+    const { IMAGE_STYLE_MAP } = await import("../config/imageStyles.js");
+    if (!IMAGE_STYLE_MAP.has(rawStyleId)) {
+      res.status(400).json({ error: `Unknown styleId: ${rawStyleId}` });
+      return;
+    }
+  }
 
   // Storage limit gate — matches /memes/ai/:factId/generate
   if (await isUserAtImageLimit(req.user.id)) {

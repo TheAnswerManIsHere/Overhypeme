@@ -99,6 +99,16 @@ describe("AiSourcePanel", () => {
     });
   });
 
+  it("'Create' is disabled while a job is in flight (prevents duplicate PuLID jobs)", async () => {
+    globalThis.fetch = mockFetchUploads([]) as typeof globalThis.fetch;
+    const { onCreate } = renderPanel({ subTab: "create", creating: true });
+    const createBtn = screen.getByTestId("ai-create-button") as HTMLButtonElement;
+    await waitFor(() => expect(createBtn.disabled).toBe(true));
+    expect(createBtn.textContent).toMatch(/creating/i);
+    fireEvent.click(createBtn);
+    expect(onCreate).not.toHaveBeenCalled();
+  });
+
   it("'Create' is disabled when no reference is available (no primary photo + no library/upload)", () => {
     globalThis.fetch = mockFetchUploads([]) as typeof globalThis.fetch;
     renderPanel({ subTab: "create", primaryImageObjectPath: undefined });
