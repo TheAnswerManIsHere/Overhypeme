@@ -73,6 +73,13 @@ function restoreWindowLocation() {
 describe("Login.tsx — OAuth button redirect vs popup", () => {
   let openSpy: ReturnType<typeof vi.fn>;
 
+  // Pre-warm the Login module so the cold-import cost is paid once here
+  // rather than inside the first test, which risks hitting the 5 s timeout
+  // on a loaded CI runner.
+  beforeAll(async () => {
+    await import("@/pages/Login");
+  }, 20000);
+
   beforeEach(() => {
     openSpy = vi.fn();
     vi.stubGlobal("open", openSpy);
