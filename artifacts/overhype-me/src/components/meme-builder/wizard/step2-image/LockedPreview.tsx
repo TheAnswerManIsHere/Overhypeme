@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { LivePreview } from "../../parts/LivePreview";
 import type { AspectRatio, MemeTextOptions } from "../../types";
 
@@ -13,12 +13,29 @@ interface Props {
   onFramingChange: (next: { x: number; y: number }) => void;
 }
 
+const CANVAS_HEIGHT_KEY = "mbfo_locked_preview_max_h";
+const DEFAULT_MAX_VH = 45;
+const MIN_PX = 160;
+const MAX_PX = 1200;
+
+function readSavedMaxH(): number | null {
+  if (typeof window === "undefined") return null;
+  const saved = window.localStorage.getItem(CANVAS_HEIGHT_KEY);
+  const parsed = saved ? parseInt(saved, 10) : NaN;
+  return Number.isFinite(parsed) ? Math.max(MIN_PX, Math.min(MAX_PX, parsed)) : null;
+}
+
 /**
- * The locked top section of Step 2. Hosts the LivePreview canvas and owns the
- * drag-to-reposition gesture — mouse + touch handlers derived from
- * `MemeBuilder.tsx:943-980`. `touch-action: none` on the wrapper suppresses
- * native scroll inside the preview rect so vertical drags reposition the
- * image rather than scroll the page.
+ * The locked top section of Step 2. Hosts the LivePreview canvas and owns:
+ *   - drag-to-reposition gesture (mouse + touch), lifted from `MemeBuilder.tsx`;
+ *   - a user-controlled resize handle below the canvas so the preview can be
+ *     shrunk when the controls need more room. Height persists to
+ *     localStorage under `mbfo_locked_preview_max_h` (clamped 160-1200px).
+ *
+ * `touch-action: none` on the preview wrapper suppresses native scroll inside
+ * the preview rect so vertical drags reposition rather than scroll the page.
+ * The resize handle is its own region with `touch-action: none` only during
+ * the drag so it doesn't conflict.
  */
 export function LockedPreview({
   factText,
@@ -38,6 +55,37 @@ export function LockedPreview({
     startOY: number;
   } | null>(null);
   const [grabbing, setGrabbing] = useState(false);
+
+  const [maxH, setMaxH] = useState<number | null>(() => readSavedMaxH());
+  const resizeDragRef = useRef<{ startY: number; startH: number } | null>(null);
+
+  const applyMaxH = useCallback((h: number) => {
+    const clamped = Math.max(MIN_PX, Math.min(MAX_PX, h));
+    setMaxH(clamped);
+    try {
+      window.localStorage.setItem(CANVAS_HEIGHT_KEY, String(clamped));
+    } catch {
+      /* localStorage may be disabled — non-fatal */
+    }
+  }, []);
+
+  // If the user double-taps the resize handle, restore the default.
+  const lastTapRef = useRef(0);
+  const handleResizeDoubleTap = useCallback(() => {
+    setMaxH(null);
+    try {
+      window.localStorage.removeItem(CANVAS_HEIGHT_KEY);
+    } catch {
+      /* non-fatal */
+    }
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      dragStateRef.current = null;
+      resizeDragRef.current = null;
+    };
+  }, []);
 
   const scaleFromEvent = useCallback((): { sx: number; sy: number } => {
     const c = canvasRef.current;
@@ -80,8 +128,10 @@ export function LockedPreview({
     setGrabbing(false);
   }, []);
 
+  const canvasMaxHeightStyle = maxH != null ? `${maxH}px` : `${DEFAULT_MAX_VH}vh`;
+
   return (
-    <div className="sticky top-12 z-10 bg-[#111] px-4 pb-3 pt-2">
+    <div className="sticky top-12 z-10 bg-[#111] px-4 pb-1 pt-2">
       <div
         className="relative mx-auto max-w-md select-none"
         style={{ touchAction: "none", cursor: backgroundUrl ? (grabbing ? "grabbing" : "grab") : "default" }}
@@ -107,21 +157,90 @@ export function LockedPreview({
         onTouchCancel={end}
         data-testid="locked-preview"
       >
-        <LivePreview
-          factText={factText}
-          name={name}
-          pronouns={pronouns}
-          backgroundUrl={backgroundUrl}
-          textOptions={textOptions}
-          aspectRatio={aspectRatio}
-          framingOffset={framingOffset}
-          canvasRef={canvasRef}
-        />
+        <div
+          className="overflow-hidden rounded-md border border-border bg-black"
+          style={{ maxHeight: canvasMaxHeightStyle }}
+        >
+          <LivePreview
+            factText={factText}
+            name={name}
+            pronouns={pronouns}
+            backgroundUrl={backgroundUrl}
+            textOptions={textOptions}
+            aspectRatio={aspectRatio}
+            framingOffset={framingOffset}
+            canvasRef={canvasRef}
+          />
+        </div>
         {backgroundUrl && (
           <p className="pointer-events-none absolute bottom-1 right-2 select-none rounded-sm bg-black/40 px-1.5 py-0.5 text-[9px] text-white/60">
             Drag to reposition
           </p>
         )}
+      </div>
+
+      {/* Resize handle — drag the bar to shrink/grow the preview. Double-tap restores the default. */}
+      <div
+        role="separator"
+        aria-orientation="horizontal"
+        aria-label="Resize preview"
+        className="mx-auto mt-1 flex h-6 max-w-md cursor-ns-resize touch-none items-center justify-center group"
+        data-testid="locked-preview-resize-handle"
+        onMouseDown={(e) => {
+          e.preventDefault();
+          const el = canvasRef.current;
+          if (!el) return;
+          const startH = el.getBoundingClientRect().height;
+          resizeDragRef.current = { startY: e.clientY, startH };
+          document.body.style.userSelect = "none";
+          const onMove = (mv: MouseEvent) => {
+            const drag = resizeDragRef.current;
+            if (!drag) return;
+            applyMaxH(drag.startH + (mv.clientY - drag.startY));
+          };
+          const onUp = () => {
+            resizeDragRef.current = null;
+            document.body.style.userSelect = "";
+            window.removeEventListener("mousemove", onMove);
+            window.removeEventListener("mouseup", onUp);
+          };
+          window.addEventListener("mousemove", onMove);
+          window.addEventListener("mouseup", onUp);
+        }}
+        onDoubleClick={handleResizeDoubleTap}
+        onTouchStart={(e) => {
+          e.preventDefault();
+          const el = canvasRef.current;
+          const t = e.touches[0];
+          if (!el || !t) return;
+          // Double-tap to reset.
+          const now = Date.now();
+          if (now - lastTapRef.current < 300) {
+            handleResizeDoubleTap();
+            lastTapRef.current = 0;
+            return;
+          }
+          lastTapRef.current = now;
+          const startH = el.getBoundingClientRect().height;
+          resizeDragRef.current = { startY: t.clientY, startH };
+          const onMove = (mv: TouchEvent) => {
+            const drag = resizeDragRef.current;
+            const tt = mv.touches[0];
+            if (!drag || !tt) return;
+            applyMaxH(drag.startH + (tt.clientY - drag.startY));
+          };
+          const onEnd = () => {
+            resizeDragRef.current = null;
+            window.removeEventListener("touchmove", onMove);
+            window.removeEventListener("touchend", onEnd);
+            window.removeEventListener("touchcancel", onEnd);
+          };
+          window.addEventListener("touchmove", onMove, { passive: false });
+          window.addEventListener("touchend", onEnd);
+          window.addEventListener("touchcancel", onEnd);
+        }}
+      >
+        <div className="h-1 w-12 rounded-full bg-white/20 transition-colors group-hover:bg-[#ff6b35]/70" />
       </div>
     </div>
   );

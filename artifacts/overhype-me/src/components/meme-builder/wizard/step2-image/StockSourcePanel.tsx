@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { cn } from "@/lib/utils";
 import { useDesktopModality } from "../../hooks/useDesktopModality";
+import { useAutoSelectDefault } from "../../hooks/useAutoSelectDefault";
 import { useStockImagesGrouped } from "./useStockImagesGrouped";
 import type { StockImage } from "../../hooks/useStockImages";
 import { pronounsToStockGender, type StockGender } from "../util/pronounsToStockGender";
@@ -30,6 +31,24 @@ export function StockSourcePanel({ factId, pronouns, selectedId, onSelect }: Pro
   // Silent widening: when the gender-filtered pool is empty, retry with "all".
   // The toggle reflects this so the user can see what's happening.
   const effectiveShowAll = showAll || (isZeroStock && !showAll);
+
+  // Auto-select the first photo so the live preview is never black.
+  // Two mutually-exclusive arms:
+  //   (a) draft restore — selectedId is set, we just need to re-emit the full
+  //       StockImage so the parent gets the URL too;
+  //   (b) fresh entry — nothing is selected, default to images[0].
+  useAutoSelectDefault<StockImage>({
+    enabled: !isLoading && !isError && !!selectedId && images.length > 0,
+    identityKey: selectedId,
+    resolveDefault: () => images.find((img) => img.id === selectedId) ?? null,
+    onSelect,
+  });
+  useAutoSelectDefault<StockImage>({
+    enabled: !isLoading && !isError && !selectedId && images.length > 0,
+    identityKey: images[0]?.id ? `first:${scope}:${images[0].id}` : null,
+    resolveDefault: () => images[0] ?? null,
+    onSelect,
+  });
 
   if (isLoading) {
     return <div className="h-32 animate-pulse rounded-md bg-secondary/40" aria-label="Loading stock images" />;

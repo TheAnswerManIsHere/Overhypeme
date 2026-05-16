@@ -390,8 +390,10 @@ export default function FactDetail() {
 
   return (
     <Layout>
-      {/* Desktop Meme Creator stepper — fixed bar below the nav */}
-      {showMemeStudio && (
+      {/* Desktop Meme Creator stepper — fixed bar below the nav.
+          The wizard owns its own progress chrome, so this is hidden when
+          VITE_MBFO_WIZARD=1 to free up viewport real estate for Step 2. */}
+      {showMemeStudio && !MBFO_WIZARD_ENABLED && (
         <div className="hidden md:flex fixed top-16 left-0 right-0 z-[200] bg-background/95 backdrop-blur border-b border-border items-center justify-center h-10 gap-0">
           <div className="flex items-center gap-1.5 px-5">
             <div className="w-4 h-4 rounded-full bg-green-500 flex items-center justify-center flex-shrink-0">
