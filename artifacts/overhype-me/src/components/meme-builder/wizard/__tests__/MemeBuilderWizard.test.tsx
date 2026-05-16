@@ -3,6 +3,11 @@ import { render, screen, fireEvent } from "@testing-library/react";
 import { MemeBuilderWizard } from "../MemeBuilderWizard";
 import type { ViewerContext } from "../../types";
 
+// Under CI load the wizard's enter-animation can delay Step 2 rendering past
+// testing-library's 1 s default. 5 s gives plenty of headroom without being
+// a real blocker if something is genuinely broken.
+const S2 = { timeout: 5000 };
+
 const VIEWER: ViewerContext = {
   tier: "registered",
   userId: "user-1",
@@ -58,7 +63,7 @@ describe("MemeBuilderWizard", () => {
     renderWizard();
     fireEvent.click(screen.getByRole("button", { name: /^image$/i }));
 
-    expect(await screen.findByRole("heading", { name: /build your meme/i })).toBeTruthy();
+    expect(await screen.findByRole("heading", { name: /build your meme/i }, S2)).toBeTruthy();
     expect(screen.getByTestId("wizard-primary-action")).toBeTruthy();
     expect(directionAttr()).toBe("forward");
   });
@@ -68,10 +73,10 @@ describe("MemeBuilderWizard", () => {
     // the upgrade modal instead of advancing).
     renderWizard({ viewerContext: { ...VIEWER, tier: "legendary" } });
     fireEvent.click(screen.getByRole("button", { name: /^video$/i }));
-    expect(await screen.findByRole("heading", { name: /build your meme/i })).toBeTruthy();
+    expect(await screen.findByRole("heading", { name: /build your meme/i }, S2)).toBeTruthy();
 
     fireEvent.click(screen.getByLabelText("Back"));
-    expect(await screen.findByRole("heading", { name: /what kind of meme/i })).toBeTruthy();
+    expect(await screen.findByRole("heading", { name: /what kind of meme/i }, S2)).toBeTruthy();
 
     const videoCard = screen.getByRole("button", { name: /^video$/i });
     expect(videoCard.getAttribute("aria-pressed")).toBe("true");
@@ -90,25 +95,25 @@ describe("MemeBuilderWizard", () => {
     expect(progressbar.getAttribute("aria-valuenow")).toBe("1");
 
     fireEvent.click(screen.getByRole("button", { name: /^image$/i }));
-    await screen.findByRole("heading", { name: /build your meme/i });
+    await screen.findByRole("heading", { name: /build your meme/i }, S2);
     expect(progressbar.getAttribute("aria-valuenow")).toBe("2");
   });
 
   it("persists state across an unmount+remount cycle via sessionStorage", async () => {
     const { unmount } = renderWizard();
     fireEvent.click(screen.getByRole("button", { name: /^image$/i }));
-    await screen.findByRole("heading", { name: /build your meme/i });
+    await screen.findByRole("heading", { name: /build your meme/i }, S2);
     unmount();
 
     renderWizard();
-    expect(await screen.findByRole("heading", { name: /build your meme/i })).toBeTruthy();
+    expect(await screen.findByRole("heading", { name: /build your meme/i }, S2)).toBeTruthy();
     expect(screen.queryByRole("heading", { name: /what kind of meme/i })).toBeNull();
   });
 
   it("does not hydrate from a different factId's draft", async () => {
     const first = renderWizard({ factId: "fact-A" });
     fireEvent.click(screen.getByRole("button", { name: /^image$/i }));
-    await screen.findByRole("heading", { name: /build your meme/i });
+    await screen.findByRole("heading", { name: /build your meme/i }, S2);
     first.unmount();
 
     renderWizard({ factId: "fact-B" });
