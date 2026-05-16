@@ -5,8 +5,9 @@
  * file is just the (id, label) pairs the picker UI needs.
  *
  * Keep this list in sync with the server config when adding or removing
- * styles. Sending an unknown id is non-fatal server-side (the prompt suffix
- * is dropped), but a stale picker would offer styles that silently no-op.
+ * styles. The server rejects unknown styleIds with a 400 (see
+ * `artifacts/api-server/src/routes/pulidJobs.ts`), so a stale picker will
+ * surface a clear error rather than silently producing a styleless image.
  */
 export interface AiStylePreset {
   id: string;

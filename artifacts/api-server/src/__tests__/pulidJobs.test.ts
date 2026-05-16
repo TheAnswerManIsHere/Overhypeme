@@ -118,6 +118,19 @@ describe("POST /memes/pulid-jobs", () => {
       .send({ factId: 1, referenceImagePath: "https://example.com/foo.jpg" });
     assert.equal(res.status, 400);
   });
+
+  it("rejects unknown styleId with 400", async () => {
+    const app = makeApp("user-F");
+    const res = await request(app)
+      .post("/memes/pulid-jobs")
+      .send({
+        factId: 1,
+        referenceImagePath: "/objects/foo.jpg",
+        styleId: "not-a-real-style",
+      });
+    assert.equal(res.status, 400);
+    assert.match(res.body.error, /styleId/i);
+  });
 });
 
 describe("computeProgress (pure math)", () => {
