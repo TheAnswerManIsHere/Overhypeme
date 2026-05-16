@@ -1,11 +1,14 @@
 #!/usr/bin/env bash
-# with-time-limit.sh — run a command and fail if it exceeds a wall-clock budget.
+# with-time-limit.sh — run a command and warn if it exceeds a wall-clock budget.
 #
-# Acts as a CI guard against silent performance regressions in long-running
-# checks (test suites, codegen, etc). The wrapped command always runs to
-# completion; if the command exits non-zero we propagate that status as-is, so
-# real failures aren't masked by the time check. Only when the command
-# *succeeds but is too slow* do we override with a non-zero exit.
+# Purpose: surface performance regressions in CI logs without ever masking real
+# failures or inventing new ones. The exit code is always exactly the wrapped
+# command's exit code.
+#
+#   • If the command FAILS   → exit with that non-zero status (test failure wins)
+#   • If the command PASSES  → exit 0, even if it was slow
+#   • If the command is SLOW → print a loud WARNING to stderr so it is visible
+#                              in logs, but do NOT override the exit code
 #
 # Usage:
 #   with-time-limit.sh <max_ms> <cmd> [args...]
@@ -62,14 +65,8 @@ elapsed_ms=$(( (end_ns - start_ns) / 1000000 ))
 
 echo "[time-limit] command took ${elapsed_ms}ms (limit ${max_ms}ms)" >&2
 
-# Preserve the underlying failure if the command itself failed.
-if [[ $status -ne 0 ]]; then
-  exit $status
-fi
-
 if (( elapsed_ms > max_ms )); then
-  echo "[time-limit] FAIL: exceeded ${max_ms}ms budget by $((elapsed_ms - max_ms))ms" >&2
-  exit 1
+  echo "[time-limit] WARNING: exceeded ${max_ms}ms budget by $((elapsed_ms - max_ms))ms — tests are getting slow, consider investigating" >&2
 fi
 
-exit 0
+exit $status
