@@ -21,7 +21,8 @@ interface TabSpec {
 }
 
 /**
- * Three pills: Stock | Your photo | AI you. Tier rules:
+ * Three pills: AI you | Your photo | Stock. AI leads because it's the hero
+ * experience for legendary subscribers. Tier rules:
  *
  *   unregistered: stock unlocked; self-upload locked (signup); ai-you locked (upgrade)
  *   registered:   stock + self-upload unlocked; ai-you locked (upgrade)
@@ -39,14 +40,6 @@ export function SourceSegmentedControl({
   onRequestUpgrade,
 }: Props) {
   const tabs: TabSpec[] = [
-    { id: "stock", label: "Stock" },
-    {
-      id: "self-upload",
-      label: "Your photo",
-      ...(tier === "unregistered"
-        ? { lock: { badge: "SIGN UP" as const, onClick: onRequestSignup } }
-        : {}),
-    },
     {
       id: "ai-you",
       label: "AI you",
@@ -54,6 +47,14 @@ export function SourceSegmentedControl({
         ? {}
         : { lock: { badge: "LEGEND" as const, onClick: onRequestUpgrade } }),
     },
+    {
+      id: "self-upload",
+      label: "Your photo",
+      ...(tier === "unregistered"
+        ? { lock: { badge: "SIGN UP" as const, onClick: onRequestSignup } }
+        : {}),
+    },
+    { id: "stock", label: "Stock" },
   ];
 
   return (
