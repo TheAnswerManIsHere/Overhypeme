@@ -14,15 +14,22 @@ interface Props {
 }
 
 const CANVAS_HEIGHT_KEY = "mbfo_locked_preview_max_h";
-const DEFAULT_MAX_VH = 45;
+const DEFAULT_MAX_VH = 38;
 const MIN_PX = 160;
 const MAX_PX = 1200;
+/** Never let the saved height exceed this fraction of the visible viewport,
+ *  so the controls below are always partially reachable on first scroll. */
+const MAX_SAVED_VIEWPORT_FRACTION = 0.52;
 
 function readSavedMaxH(): number | null {
   if (typeof window === "undefined") return null;
   const saved = window.localStorage.getItem(CANVAS_HEIGHT_KEY);
   const parsed = saved ? parseInt(saved, 10) : NaN;
-  return Number.isFinite(parsed) ? Math.max(MIN_PX, Math.min(MAX_PX, parsed)) : null;
+  if (!Number.isFinite(parsed)) return null;
+  // Clamp against the actual visible height so a previously-saved large value
+  // doesn't hide all the controls on a small screen / mobile browser.
+  const viewportCap = Math.floor(window.innerHeight * MAX_SAVED_VIEWPORT_FRACTION);
+  return Math.max(MIN_PX, Math.min(MAX_PX, parsed, viewportCap));
 }
 
 /**
@@ -60,7 +67,8 @@ export function LockedPreview({
   const resizeDragRef = useRef<{ startY: number; startH: number } | null>(null);
 
   const applyMaxH = useCallback((h: number) => {
-    const clamped = Math.max(MIN_PX, Math.min(MAX_PX, h));
+    const viewportCap = Math.floor(window.innerHeight * MAX_SAVED_VIEWPORT_FRACTION);
+    const clamped = Math.max(MIN_PX, Math.min(MAX_PX, h, viewportCap));
     setMaxH(clamped);
     try {
       window.localStorage.setItem(CANVAS_HEIGHT_KEY, String(clamped));
@@ -184,7 +192,7 @@ export function LockedPreview({
         role="separator"
         aria-orientation="horizontal"
         aria-label="Resize preview"
-        className="mx-auto mt-1 flex h-6 max-w-md cursor-ns-resize touch-none items-center justify-center group"
+        className="mx-auto mt-1 flex h-7 max-w-md cursor-ns-resize touch-none items-center justify-center gap-2 group"
         data-testid="locked-preview-resize-handle"
         onMouseDown={(e) => {
           e.preventDefault();
@@ -240,7 +248,8 @@ export function LockedPreview({
           window.addEventListener("touchcancel", onEnd);
         }}
       >
-        <div className="h-1 w-12 rounded-full bg-white/20 transition-colors group-hover:bg-[#ff6b35]/70" />
+        <span className="text-[10px] text-white/30 transition-colors group-hover:text-[#ff6b35]/70 select-none">drag to resize</span>
+        <div className="h-1 w-8 rounded-full bg-white/20 transition-colors group-hover:bg-[#ff6b35]/70" />
       </div>
     </div>
   );
