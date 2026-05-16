@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useLocation } from "wouter";
 import type { AspectRatio, MemeTextOptions, MyImageSource, ViewerContext } from "../../types";
-import { useDebouncedValue } from "../../hooks/useDebouncedValue";
 import type { StockImage } from "../../hooks/useStockImages";
 import { UnifiedUpgradeModal } from "../../../upgrade/UnifiedUpgradeModal";
 import { WizardPrimaryAction } from "../WizardPrimaryAction";
@@ -55,8 +54,9 @@ interface SaveMemeResponse {
  *   - bottom-sheet drawers (adjust text, advanced)
  *   - "Make my meme" save flow (stock/upload direct; AI via PuLID job + poll)
  *
- * Live re-renders are driven by `useDebouncedValue` so dragging a slider
- * doesn't thrash the canvas paint.
+ * Live re-renders flow directly into `LockedPreview` — `LivePreview` coalesces
+ * rapid prop changes via `requestAnimationFrame` so the canvas stays at 60fps
+ * without us needing a state-level debounce.
  */
 export function Step2Image({
   factId,
@@ -152,23 +152,16 @@ export function Step2Image({
     return null;
   }, [tab, stockSelectedUrl, myImage, viewerContext.primaryImageObjectPath]);
 
-  // Composite live-preview inputs through one 150ms debounce so the canvas
-  // doesn't repaint on every keystroke / slider drag tick.
-  const debouncedRender = useDebouncedValue(
-    { name, pronouns, textOptions, framingOffset, aspectRatio, backgroundUrl, factText },
-    150,
-  );
-
   // Map split index into top/bottom text via the existing fact-text words.
   const memeTextOptions: MemeTextOptions = useMemo(() => {
     const words = factText.split(/\s+/).filter((w) => w);
     const safeSplit = Math.min(Math.max(splitIndex, 0), words.length);
     return {
-      ...debouncedRender.textOptions,
+      ...textOptions,
       topText: words.slice(0, safeSplit).join(" "),
       bottomText: words.slice(safeSplit).join(" "),
     };
-  }, [debouncedRender.textOptions, factText, splitIndex]);
+  }, [textOptions, factText, splitIndex]);
 
   const sourceSelected =
     (tab === "stock" && !!stockSelectedId) ||
@@ -335,13 +328,13 @@ export function Step2Image({
       <h1 className="sr-only">Build your meme</h1>
       <div className="flex-1 overflow-y-auto pb-32">
         <LockedPreview
-          factText={debouncedRender.factText}
-          name={debouncedRender.name}
-          pronouns={debouncedRender.pronouns}
-          backgroundUrl={debouncedRender.backgroundUrl}
+          factText={factText}
+          name={name}
+          pronouns={pronouns}
+          backgroundUrl={backgroundUrl}
           textOptions={memeTextOptions}
-          aspectRatio={debouncedRender.aspectRatio}
-          framingOffset={debouncedRender.framingOffset}
+          aspectRatio={aspectRatio}
+          framingOffset={framingOffset}
           onFramingChange={setFramingOffset}
         />
 
@@ -390,7 +383,6 @@ export function Step2Image({
             onSplitChange={setSplitIndex}
             textOptions={textOptions}
             onTextOptionsChange={setTextOptions}
-            name={name}
           />
 
           <AdvancedOptionsSheet value={textOptions} onChange={setTextOptions} />

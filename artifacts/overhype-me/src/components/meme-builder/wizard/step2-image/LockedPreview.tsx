@@ -139,7 +139,7 @@ export function LockedPreview({
   const canvasMaxHeightStyle = maxH != null ? `${maxH}px` : `${DEFAULT_MAX_VH}vh`;
 
   return (
-    <div className="sticky top-12 z-10 bg-[#111] px-4 pb-1 pt-2">
+    <div className="bg-[#111] px-4 pb-1">
       <div
         className="relative mx-auto max-w-md select-none"
         style={{ touchAction: "none", cursor: backgroundUrl ? (grabbing ? "grabbing" : "grab") : "default" }}
