@@ -84,8 +84,8 @@ export function Step2Image({
   const [framingOffset, setFramingOffset] = useState<{ x: number; y: number }>(
     state.framingOffset ?? { x: 0, y: 0 },
   );
-  const [name, setName] = useState(state.name ?? viewerContext.name ?? "");
-  const [pronouns, setPronouns] = useState(state.pronouns ?? viewerContext.pronouns ?? "he/him");
+  const [name, setName] = useState(viewerContext.name ?? "");
+  const [pronouns, setPronouns] = useState(viewerContext.pronouns ?? "he/him");
   const [textOptions, setTextOptions] = useState<MemeTextOptions>(state.textOptions ?? {});
   const [stockSelectedId, setStockSelectedId] = useState<string | null>(
     state.source?.kind === "stock" ? state.source.stockImageId : null,
