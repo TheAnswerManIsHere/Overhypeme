@@ -35,7 +35,7 @@ export function WizardStepContainer({ currentStep, direction, children }: Props)
             duration: prefersReducedMotion ? 0 : SLIDE_DURATION_SEC,
             ease: [0.2, 0.8, 0.2, 1],
           }}
-          className="absolute inset-0 overflow-y-auto"
+          className="absolute inset-0 overflow-y-auto overscroll-y-none"
         >
           {children}
         </motion.div>

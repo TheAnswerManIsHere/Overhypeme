@@ -340,7 +340,7 @@ export function Step2Image({
       />
 
       {/* Controls scroll under the preview; flex-1 fills whatever height remains. */}
-      <div className="flex-1 overflow-y-auto">
+      <div className="flex-1 overflow-y-auto overscroll-y-none">
         <div className="mx-auto max-w-md space-y-4 px-4 pt-4 pb-24">
           <SourceSegmentedControl
             active={tab}
