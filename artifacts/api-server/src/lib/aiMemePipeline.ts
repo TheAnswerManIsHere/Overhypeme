@@ -723,6 +723,101 @@ export async function generateAiMemeBackgroundFromReference(
   }
 }
 
+/**
+ * Standalone single-image generator used when face-based generation fails
+ * (e.g. PuLID returns "no face detected"). Bypasses the face-reference model
+ * and uses the standard text-to-image model, then persists the result in the
+ * same places `generateAiMemeBackgroundFromReference` does so the wizard's
+ * existing "AI stylings" picker surfaces it identically.
+ *
+ * Safe to call when the upstream PuLID call has already paid the budget for
+ * the failed attempt — this is a second charge, intentional.
+ */
+export async function generateAiMemeBackgroundStandalone(
+  factId: number,
+  factText: string,
+  targetGender: "male" | "female" | "neutral",
+  options: {
+    existingPrompts?: AiScenePrompts;
+    userId: string;
+    /** Object path of the reference upload the user picked — written as source_object_path for picker lineage. */
+    sourceObjectPath?: string;
+    styleSuffix?: string;
+    /** Override the fal.ai standard model for this request (admin-only) */
+    modelOverride?: string;
+    /** Per-request param overrides for fal.ai (admin-only) */
+    paramsOverride?: Record<string, string>;
+  },
+): Promise<string> {
+  let prompts: AiScenePrompts;
+  if (options.existingPrompts) {
+    prompts = options.existingPrompts;
+  } else {
+    prompts = await generateScenePrompts(factText);
+    await db
+      .update(factsTable)
+      .set({ aiScenePrompts: prompts })
+      .where(eq(factsTable.id, factId));
+  }
+
+  const uniqueKey = `${Date.now()}_nf`;
+  const basePrompt = prompts[targetGender];
+  const prompt = options.styleSuffix ? `${basePrompt.trim()} ${options.styleSuffix}` : basePrompt;
+  logger.info(
+    { factId, gender: targetGender, userId: options.userId },
+    "[aiMemePipeline] Generating standalone (non-face) fallback image",
+  );
+
+  const storedPath = await generateAndStoreImage(
+    factId,
+    targetGender,
+    uniqueKey,
+    prompt,
+    options.modelOverride,
+    options.paramsOverride,
+    options.userId,
+  );
+
+  // Track in user_ai_images so storage limits include it.
+  try {
+    await trackUserAiImage(options.userId, factId, targetGender, storedPath, "reference");
+  } catch (trackErr) {
+    logger.warn({ err: trackErr, userId: options.userId }, "[aiMemePipeline] Failed to track standalone image");
+  }
+
+  // Mirror the metadata write done by the reference path so the AI Stylings
+  // picker (GET /users/me/uploads?transform=ai) surfaces it.
+  try {
+    const imageSize = await getConfigString("ai_image_size", DEFAULT_IMAGE_SIZE);
+    const { width, height } = resolveImageSizePx(imageSize);
+
+    let validatedSourcePath: string | null = null;
+    if (options.sourceObjectPath) {
+      const sourceCheck = await db.execute<{ count: string }>(sql`
+        SELECT COUNT(*)::text AS count FROM upload_image_metadata
+        WHERE object_path = ${options.sourceObjectPath}
+      `);
+      if (parseInt(sourceCheck.rows[0]?.count ?? "0", 10) > 0) {
+        validatedSourcePath = options.sourceObjectPath;
+      }
+    }
+
+    await db.execute(sql`
+      INSERT INTO upload_image_metadata (
+        object_path, user_id, width, height, is_low_res, file_size_bytes,
+        transform, source_object_path, fact_id
+      ) VALUES (
+        ${storedPath}, ${options.userId}, ${width}, ${height}, false, 0,
+        'pulid', ${validatedSourcePath}, ${factId}
+      ) ON CONFLICT (object_path) DO NOTHING
+    `);
+  } catch (insertErr) {
+    logger.warn({ err: insertErr, userId: options.userId }, "[aiMemePipeline] Failed to write standalone fallback to upload_image_metadata");
+  }
+
+  return storedPath;
+}
+
 // ─── Pipeline orchestration ───────────────────────────────────────────────────
 
 /**
