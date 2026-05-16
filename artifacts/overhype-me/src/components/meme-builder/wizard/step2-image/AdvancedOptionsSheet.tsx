@@ -1,9 +1,4 @@
-import {
-  Drawer,
-  DrawerContent,
-  DrawerTitle,
-  DrawerTrigger,
-} from "@/components/ui/drawer";
+import { useState } from "react";
 import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
 import type { MemeTextOptions } from "../../types";
@@ -33,28 +28,39 @@ const TEXT_COLORS = [
 ];
 const OUTLINE_COLORS = ["#000000", "#111111", "#ff6b35", "#ffffff", "#3b82f6", "#facc15"];
 
+/**
+ * Inline collapsible for advanced text styling options.
+ * Previously a bottom-drawer; now lives inside the scrollable controls
+ * panel so it can never obscure the locked preview above.
+ */
 export function AdvancedOptionsSheet({ value, onChange }: Props) {
+  const [isOpen, setIsOpen] = useState(false);
+
   const set = <K extends keyof MemeTextOptions>(key: K, v: MemeTextOptions[K]) =>
     onChange({ ...value, [key]: v });
 
   const effect = value.textEffect ?? "outline";
 
   return (
-    <Drawer modal={false}>
-      <DrawerTrigger asChild>
-        <button
-          type="button"
-          className="flex w-full items-center justify-between rounded-md border border-border bg-white/5 px-4 py-3 text-left text-sm hover:bg-white/10"
-          data-testid="advanced-options-trigger"
+    <div className="rounded-md border border-border">
+      <button
+        type="button"
+        className="flex w-full items-center justify-between bg-white/5 px-4 py-3 text-left text-sm hover:bg-white/10 rounded-md"
+        onClick={() => setIsOpen((v) => !v)}
+        data-testid="advanced-options-trigger"
+        aria-expanded={isOpen}
+      >
+        <span className="uppercase tracking-wider">Advanced options</span>
+        <span
+          aria-hidden
+          className={`text-muted-foreground transition-transform duration-200 ${isOpen ? "rotate-180" : ""}`}
         >
-          <span className="uppercase tracking-wider">Advanced options</span>
-          <span aria-hidden className="text-muted-foreground">▾</span>
-        </button>
-      </DrawerTrigger>
-      <DrawerContent hideOverlay className="max-h-[60vh]">
-        <div className="space-y-5 overflow-y-auto px-4 pb-6 pt-2">
-          <DrawerTitle className="font-display text-lg uppercase">Advanced</DrawerTitle>
+          ▾
+        </span>
+      </button>
 
+      {isOpen && (
+        <div className="space-y-5 border-t border-border px-4 pb-6 pt-4">
           <label className="block space-y-2">
             <span className="text-xs uppercase tracking-wider text-muted-foreground">Font</span>
             <select
@@ -143,7 +149,7 @@ export function AdvancedOptionsSheet({ value, onChange }: Props) {
             />
           </label>
         </div>
-      </DrawerContent>
-    </Drawer>
+      )}
+    </div>
   );
 }

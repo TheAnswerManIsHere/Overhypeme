@@ -1,10 +1,4 @@
-import { useMemo } from "react";
-import {
-  Drawer,
-  DrawerContent,
-  DrawerTitle,
-  DrawerTrigger,
-} from "@/components/ui/drawer";
+import { useMemo, useState } from "react";
 import type { MemeTextOptions } from "../../types";
 import { SplitSlider } from "./sliders/SplitSlider";
 import { VerticalPositionSlider } from "./sliders/VerticalPositionSlider";
@@ -16,9 +10,7 @@ import {
 
 interface Props {
   factText: string;
-  /** Token-boundary default from `facts.split_token_index`; falls back to `intelligentSplit`. */
   defaultSplitIndex: number | null;
-  /** Current split index, persisted on textOptions via the bottom/top text composition. */
   splitIndex: number;
   onSplitChange: (next: number) => void;
   textOptions: MemeTextOptions;
@@ -26,9 +18,9 @@ interface Props {
 }
 
 /**
- * Bottom-drawer for the three text-positioning sliders. The split slider
- * picks where the fact text breaks; the top/bottom vertical sliders move each
- * half along the canvas Y axis with collision clamping.
+ * Inline collapsible for the three text-positioning sliders.
+ * Previously a bottom-drawer; now lives inside the scrollable controls
+ * panel so it can never obscure the locked preview above.
  */
 export function AdjustTextSheet({
   factText,
@@ -38,10 +30,10 @@ export function AdjustTextSheet({
   textOptions,
   onTextOptionsChange,
 }: Props) {
+  const [isOpen, setIsOpen] = useState(false);
+
   const words = useMemo(() => getWords(factText), [factText]);
   const fallbackSplit = useMemo(() => intelligentSplit(factText), [factText]);
-  // Use nullish coalescing so a deliberate split of 0 (or any falsy-but-valid
-  // value) is preserved rather than silently replaced by the default.
   const effectiveSplit = splitIndex ?? defaultSplitIndex ?? fallbackSplit;
 
   const topLines = Math.max(1, Math.ceil(effectiveSplit / 8));
@@ -58,21 +50,25 @@ export function AdjustTextSheet({
   });
 
   return (
-    <Drawer modal={false}>
-      <DrawerTrigger asChild>
-        <button
-          type="button"
-          className="flex w-full items-center justify-between rounded-md border border-border bg-white/5 px-4 py-3 text-left text-sm hover:bg-white/10"
-          data-testid="adjust-text-trigger"
+    <div className="rounded-md border border-border">
+      <button
+        type="button"
+        className="flex w-full items-center justify-between bg-white/5 px-4 py-3 text-left text-sm hover:bg-white/10 rounded-md"
+        onClick={() => setIsOpen((v) => !v)}
+        data-testid="adjust-text-trigger"
+        aria-expanded={isOpen}
+      >
+        <span className="uppercase tracking-wider">Adjust the text</span>
+        <span
+          aria-hidden
+          className={`text-muted-foreground transition-transform duration-200 ${isOpen ? "rotate-180" : ""}`}
         >
-          <span className="uppercase tracking-wider">Adjust the text</span>
-          <span aria-hidden className="text-muted-foreground">▾</span>
-        </button>
-      </DrawerTrigger>
-      <DrawerContent hideOverlay className="max-h-[60vh]">
-        <div className="space-y-5 overflow-y-auto px-4 pb-6 pt-2">
-          <DrawerTitle className="font-display text-lg uppercase">Adjust the text</DrawerTitle>
+          ▾
+        </span>
+      </button>
 
+      {isOpen && (
+        <div className="space-y-5 border-t border-border px-4 pb-6 pt-4">
           <SplitSlider
             factText={factText}
             value={Math.min(Math.max(effectiveSplit, 1), Math.max(1, words.length - 1))}
@@ -95,7 +91,7 @@ export function AdjustTextSheet({
             onChange={(v) => onTextOptionsChange({ ...textOptions, bottomY: v })}
           />
         </div>
-      </DrawerContent>
-    </Drawer>
+      )}
+    </div>
   );
 }
