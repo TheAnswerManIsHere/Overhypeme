@@ -16,6 +16,7 @@ import { AspectRatioToggle } from "./AspectRatioToggle";
 import { StockSourcePanel } from "./StockSourcePanel";
 import { SelfUploadSourcePanel } from "./SelfUploadSourcePanel";
 import { AiSourcePanel } from "./AiSourcePanel";
+import type { AiSubTab } from "./AiSourcePanel";
 import { AdjustTextSheet } from "./AdjustTextSheet";
 import { AdvancedOptionsSheet } from "./AdvancedOptionsSheet";
 import { PulidLoadingTakeover } from "./PulidLoadingTakeover";
@@ -97,6 +98,12 @@ export function Step2Image({
   const [pulidJobId, setPulidJobId] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  // "AI you" sub-tab state. Generation lifecycle lives here in the parent so
+  // the loading takeover can be rendered alongside (and unmount the sub-tab
+  // UI). After a Create completes we flip to "existing" and bump the reload
+  // key so the newly-forged image appears in the grid.
+  const [aiSubTab, setAiSubTab] = useState<AiSubTab>("existing");
+  const [aiReloadKey, setAiReloadKey] = useState(0);
 
   const defaultSplitIndex = useMemo(
     () => factSplitTokenIndex ?? intelligentSplit(factText),
@@ -163,9 +170,13 @@ export function Step2Image({
     };
   }, [textOptions, factText, splitIndex]);
 
+  // For AI you, only an "ai-styling" selection counts — a reference photo
+  // picked inside the Create sub-flow is not a meme-ready selection until
+  // the user clicks Create and the PuLID job finishes.
   const sourceSelected =
     (tab === "stock" && !!stockSelectedId) ||
-    ((tab === "self-upload" || tab === "ai-you") && !!myImage);
+    (tab === "self-upload" && !!myImage) ||
+    (tab === "ai-you" && myImage?.kind === "ai-styling");
 
   const handleSourceTab = (next: SourceTab) => {
     setTab(next);
@@ -180,11 +191,57 @@ export function Step2Image({
     setMyImage(next);
   };
 
-  const handlePulidJobComplete = async (generatedObjectPath: string) => {
+  const [creatingAi, setCreatingAi] = useState(false);
+  const handleAiCreate = async ({
+    referenceImagePath,
+    aiStyleId,
+  }: {
+    referenceImagePath: string;
+    aiStyleId: string;
+  }) => {
+    // Guard against duplicate taps and re-entry while a job is already
+    // running. Without this, repeated clicks would start parallel PuLID
+    // jobs and the last response would silently win.
+    if (creatingAi || pulidJobId) return;
+    setCreatingAi(true);
+    setSaveError(null);
+    try {
+      const res = await fetch("/api/memes/pulid-jobs", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          factId: Number(factId),
+          referenceImagePath,
+          styleId: aiStyleId,
+        }),
+      });
+      if (!res.ok) {
+        const errBody = await res.json().catch(() => ({}));
+        throw new Error(errBody.error ?? `HTTP ${res.status}`);
+      }
+      const { jobId } = (await res.json()) as PulidJobStartResponse;
+      setPulidJobId(jobId);
+    } catch (err) {
+      setSaveError(
+        err instanceof Error
+          ? err.message
+          : "Our servers couldn't handle that much legend at once. Try again shortly.",
+      );
+    } finally {
+      setCreatingAi(false);
+    }
+  };
+
+  const handlePulidJobComplete = (generatedObjectPath: string) => {
     setPulidJobId(null);
-    // The PuLID derivative now sits at generatedObjectPath. Persist the meme
-    // recipe with imageTransform="pulid" and an upload-shaped source.
-    await save(generatedObjectPath);
+    // The new PuLID derivative now exists at generatedObjectPath. Swap it
+    // into the preview as the selected meme background, flip the AI sub-tab
+    // to "Use existing AI image" so it appears highlighted in the grid, and
+    // bump the reload key so the grid refetches and includes the new row.
+    setMyImage({ kind: "ai-styling", objectPath: generatedObjectPath });
+    setAiSubTab("existing");
+    setAiReloadKey((k) => k + 1);
   };
 
   const handlePulidJobError = (errorCode: string, message?: string) => {
@@ -258,58 +315,15 @@ export function Step2Image({
   const handleMakeMyMeme = async () => {
     if (!sourceSelected || saving) return;
 
-    // PuLID path: kick off the job, then this component renders the loading
-    // takeover until the job completes.
-    if (tab === "ai-you" && myImage) {
-      setSaveError(null);
-      try {
-        // Resolve the reference path: identity = user's profile photo, else
-        // the chosen image's object_path.
-        let referenceImagePath: string | null = null;
-        if (myImage.kind === "primary") {
-          referenceImagePath = viewerContext.primaryImageObjectPath ?? null;
-        } else if (
-          myImage.kind === "library" ||
-          myImage.kind === "fresh" ||
-          myImage.kind === "ai-styling"
-        ) {
-          referenceImagePath = myImage.objectPath;
-        }
-        if (!referenceImagePath) {
-          setSaveError("Pick a photo first.");
-          return;
-        }
-        // If the user picked an existing AI styling, no job is needed — just save.
-        if (myImage.kind === "ai-styling") {
-          await save(myImage.objectPath);
-          return;
-        }
-        const res = await fetch("/api/memes/pulid-jobs", {
-          method: "POST",
-          credentials: "include",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            factId: Number(factId),
-            referenceImagePath,
-          }),
-        });
-        if (!res.ok) {
-          const errBody = await res.json().catch(() => ({}));
-          throw new Error(errBody.error ?? `HTTP ${res.status}`);
-        }
-        const { jobId } = (await res.json()) as PulidJobStartResponse;
-        setPulidJobId(jobId);
-      } catch (err) {
-        setSaveError(
-          err instanceof Error
-            ? err.message
-            : "Our servers couldn't handle that much legend at once. Try again shortly.",
-        );
-      }
+    // AI you tab: the AI image has already been forged by the Create button,
+    // so there's no second PuLID job. Pass the styling's objectPath as the
+    // pulidGeneratedUploadKey so the meme is persisted with imageTransform="pulid".
+    if (tab === "ai-you" && myImage?.kind === "ai-styling") {
+      await save(myImage.objectPath);
       return;
     }
 
-    // Direct save (stock / non-stylized upload).
+    // Direct save (stock / self-upload).
     await save();
   };
 
@@ -376,6 +390,11 @@ export function Step2Image({
               primaryImageObjectPath={viewerContext.primaryImageObjectPath}
               selected={myImage}
               onSelect={handleMyImageSelect}
+              subTab={aiSubTab}
+              onSubTabChange={setAiSubTab}
+              onCreate={handleAiCreate}
+              creating={creatingAi}
+              aiReloadKey={aiReloadKey}
             />
           )}
 
