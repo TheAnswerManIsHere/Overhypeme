@@ -23,8 +23,6 @@ interface Props {
   onSplitChange: (next: number) => void;
   textOptions: MemeTextOptions;
   onTextOptionsChange: (next: MemeTextOptions) => void;
-  /** User's display name — passed to SplitSlider so `{NAME}` is shown in orange. */
-  name?: string;
 }
 
 /**
@@ -39,11 +37,12 @@ export function AdjustTextSheet({
   onSplitChange,
   textOptions,
   onTextOptionsChange,
-  name,
 }: Props) {
   const words = useMemo(() => getWords(factText), [factText]);
   const fallbackSplit = useMemo(() => intelligentSplit(factText), [factText]);
-  const effectiveSplit = splitIndex || defaultSplitIndex || fallbackSplit;
+  // Use nullish coalescing so a deliberate split of 0 (or any falsy-but-valid
+  // value) is preserved rather than silently replaced by the default.
+  const effectiveSplit = splitIndex ?? defaultSplitIndex ?? fallbackSplit;
 
   const topLines = Math.max(1, Math.ceil(effectiveSplit / 8));
   const fontSize = textOptions.fontSize ?? 64;
@@ -78,7 +77,6 @@ export function AdjustTextSheet({
             factText={factText}
             value={Math.min(Math.max(effectiveSplit, 1), Math.max(1, words.length - 1))}
             onChange={onSplitChange}
-            name={name}
           />
 
           <VerticalPositionSlider

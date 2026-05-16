@@ -21,8 +21,17 @@ const FONT_OPTIONS: { id: string; label: string; family: string }[] = [
   { id: "impact", label: "Impact",    family: "Impact, sans-serif" },
 ];
 
-const TEXT_COLORS = ["#ffffff", "#ff6b35", "#f5f5f5", "#facc15", "#111111"];
-const OUTLINE_COLORS = ["#000000", "#111111", "#ff6b35", "#ffffff"];
+const TEXT_COLORS = [
+  // Neutrals
+  "#ffffff", "#e5e5e5", "#9ca3af", "#4b5563", "#111111",
+  // Brand + warm
+  "#ff6b35", "#ef4444", "#f97316", "#facc15", "#fde047",
+  // Cool
+  "#22c55e", "#10b981", "#06b6d4", "#3b82f6", "#6366f1",
+  // Vivid + accent
+  "#a855f7", "#d946ef", "#ec4899", "#f43f5e", "#84cc16",
+];
+const OUTLINE_COLORS = ["#000000", "#111111", "#ff6b35", "#ffffff", "#3b82f6", "#facc15"];
 
 export function AdvancedOptionsSheet({ value, onChange }: Props) {
   const set = <K extends keyof MemeTextOptions>(key: K, v: MemeTextOptions[K]) =>
@@ -78,14 +87,14 @@ export function AdvancedOptionsSheet({ value, onChange }: Props) {
 
           <div className="space-y-2">
             <span className="text-xs uppercase tracking-wider text-muted-foreground">Text color</span>
-            <div className="flex gap-2">
+            <div className="grid grid-cols-10 gap-2">
               {TEXT_COLORS.map((c) => (
                 <button
                   key={c}
                   type="button"
                   aria-label={`Text color ${c}`}
                   onClick={() => set("textColor", c)}
-                  className={`h-7 w-7 rounded-full border-2 ${value.textColor === c ? "border-[#ff6b35]" : "border-white/20"}`}
+                  className={`aspect-square w-full rounded-full border-2 ${value.textColor === c ? "border-[#ff6b35] ring-2 ring-[#ff6b35]/40" : "border-white/20"}`}
                   style={{ backgroundColor: c }}
                 />
               ))}
@@ -94,14 +103,14 @@ export function AdvancedOptionsSheet({ value, onChange }: Props) {
 
           <div className="space-y-2">
             <span className="text-xs uppercase tracking-wider text-muted-foreground">Outline color</span>
-            <div className="flex gap-2">
+            <div className="grid grid-cols-10 gap-2">
               {OUTLINE_COLORS.map((c) => (
                 <button
                   key={c}
                   type="button"
                   aria-label={`Outline color ${c}`}
                   onClick={() => set("outlineColor", c)}
-                  className={`h-7 w-7 rounded-full border-2 ${value.outlineColor === c ? "border-[#ff6b35]" : "border-white/20"}`}
+                  className={`aspect-square w-full rounded-full border-2 ${value.outlineColor === c ? "border-[#ff6b35] ring-2 ring-[#ff6b35]/40" : "border-white/20"}`}
                   style={{ backgroundColor: c }}
                 />
               ))}

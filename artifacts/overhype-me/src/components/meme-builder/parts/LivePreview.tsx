@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { renderFactSegments } from "@/lib/render-fact";
 import type { AspectRatio, MemeTextOptions } from "../types";
 
@@ -36,6 +36,13 @@ const ASPECT_DIMS: Record<AspectRatio, { w: number; h: number }> = {
  * Client-side canvas preview. Renders the background image (object-cover)
  * with the token-substituted fact text overlaid.
  *
+ * Performance:
+ *   - The background image is loaded once per URL and cached in a ref so
+ *     drag/slider updates don't trigger a new `Image()` per render.
+ *   - Canvas redraws are coalesced through `requestAnimationFrame` so rapid
+ *     prop changes (drag-to-reposition, slider scrubbing) paint at most one
+ *     frame per tick.
+ *
  * Text rendering rules:
  *   - When `textOptions.topText` and `textOptions.bottomText` are set (Step 2
  *     split-slider mode), each half is drawn at its respective `topY`/`bottomY`
@@ -43,6 +50,8 @@ const ASPECT_DIMS: Record<AspectRatio, { w: number; h: number }> = {
  *   - Otherwise (legacy / single-block mode) the full `factText` is centred.
  *   - In both modes the name token (`{NAME}`) is always drawn in brand orange
  *     (`#ff6b35`); every other token uses `textOptions.textColor`.
+ *   - `textEffect`: "outline" strokes the glyphs, "shadow" draws a real drop
+ *     shadow via `shadowColor`/`shadowBlur`/`shadowOffset*`, "none" does neither.
  */
 export function LivePreview({
   factText,
@@ -59,18 +68,56 @@ export function LivePreview({
   const canvasRef = externalCanvasRef ?? internalCanvasRef;
   const dims = ASPECT_DIMS[aspectRatio];
 
+  // Cache the background image by URL so we don't recreate an `Image` on
+  // every redraw (which would also re-fire `onload` and flicker).
+  const [bgImage, setBgImage] = useState<HTMLImageElement | null>(null);
+  useEffect(() => {
+    if (!backgroundUrl) {
+      setBgImage(null);
+      return;
+    }
+    let cancelled = false;
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.onload = () => {
+      if (!cancelled) setBgImage(img);
+    };
+    img.onerror = () => {
+      if (!cancelled) setBgImage(null);
+    };
+    img.src = backgroundUrl;
+    return () => {
+      cancelled = true;
+    };
+  }, [backgroundUrl]);
+
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
 
-    canvas.width = dims.w;
-    canvas.height = dims.h;
-    ctx.fillStyle = "#111";
-    ctx.fillRect(0, 0, dims.w, dims.h);
+    const rafId = requestAnimationFrame(() => {
+      canvas.width = dims.w;
+      canvas.height = dims.h;
+      ctx.fillStyle = "#111";
+      ctx.fillRect(0, 0, dims.w, dims.h);
 
-    const drawText = () => {
+      if (bgImage) {
+        const ratio = Math.max(dims.w / bgImage.width, dims.h / bgImage.height);
+        const w = bgImage.width * ratio;
+        const h = bgImage.height * ratio;
+        const maxOffsetX = Math.max(0, (w - dims.w) / 2);
+        const maxOffsetY = Math.max(0, (h - dims.h) / 2);
+        const ox = framingOffset
+          ? Math.min(maxOffsetX, Math.max(-maxOffsetX, framingOffset.x))
+          : 0;
+        const oy = framingOffset
+          ? Math.min(maxOffsetY, Math.max(-maxOffsetY, framingOffset.y))
+          : 0;
+        ctx.drawImage(bgImage, (dims.w - w) / 2 + ox, (dims.h - h) / 2 + oy, w, h);
+      }
+
       ctx.save();
 
       const fontFamily = textOptions.fontFamily ?? "Impact, system-ui, sans-serif";
@@ -83,6 +130,21 @@ export function LivePreview({
 
       const allCaps = textOptions.allCaps !== false;
       const effectiveTextColor = textOptions.textColor ?? "#ffffff";
+      const effect = textOptions.textEffect ?? "outline";
+
+      // Apply the drop-shadow once per draw call so it covers both stroke and
+      // fill. "outline" leaves shadow disabled; "none" leaves both disabled.
+      if (effect === "shadow") {
+        ctx.shadowColor = "rgba(0,0,0,0.85)";
+        ctx.shadowBlur = Math.max(8, Math.round(fontSize * 0.18));
+        ctx.shadowOffsetX = Math.max(3, Math.round(fontSize * 0.06));
+        ctx.shadowOffsetY = Math.max(3, Math.round(fontSize * 0.06));
+      } else {
+        ctx.shadowColor = "transparent";
+        ctx.shadowBlur = 0;
+        ctx.shadowOffsetX = 0;
+        ctx.shadowOffsetY = 0;
+      }
 
       type Token = { word: string; isName: boolean };
 
@@ -151,7 +213,9 @@ export function LivePreview({
             const { word, isName } = line[ti]!;
             const wordWithSpace = ti < line.length - 1 ? word + " " : word;
             ctx.fillStyle = isName ? NAME_COLOR : effectiveTextColor;
-            if (textOptions.textEffect !== "none") ctx.strokeText(wordWithSpace, x, y);
+            if (effect === "outline") {
+              ctx.strokeText(wordWithSpace, x, y);
+            }
             ctx.fillText(wordWithSpace, x, y);
             x += ctx.measureText(wordWithSpace).width;
           }
@@ -171,36 +235,14 @@ export function LivePreview({
       }
 
       ctx.restore();
-    };
-
-    if (!backgroundUrl) {
-      drawText();
-      return;
-    }
-    const img = new Image();
-    img.crossOrigin = "anonymous";
-    img.onload = () => {
-      const ratio = Math.max(dims.w / img.width, dims.h / img.height);
-      const w = img.width * ratio;
-      const h = img.height * ratio;
-      const maxOffsetX = Math.max(0, (w - dims.w) / 2);
-      const maxOffsetY = Math.max(0, (h - dims.h) / 2);
-      const ox = framingOffset
-        ? Math.min(maxOffsetX, Math.max(-maxOffsetX, framingOffset.x))
-        : 0;
-      const oy = framingOffset
-        ? Math.min(maxOffsetY, Math.max(-maxOffsetY, framingOffset.y))
-        : 0;
-      ctx.drawImage(img, (dims.w - w) / 2 + ox, (dims.h - h) / 2 + oy, w, h);
-      drawText();
-    };
-    img.onerror = () => drawText();
-    img.src = backgroundUrl;
+    });
+    return () => cancelAnimationFrame(rafId);
   }, [
+    canvasRef,
+    bgImage,
     factText,
     name,
     pronouns,
-    backgroundUrl,
     textOptions,
     dims.w,
     dims.h,
