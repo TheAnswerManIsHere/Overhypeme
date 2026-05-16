@@ -326,19 +326,22 @@ export function Step2Image({
   return (
     <div className="flex h-full flex-col">
       <h1 className="sr-only">Build your meme</h1>
-      <div className="flex-1 overflow-y-auto pb-32">
-        <LockedPreview
-          factText={factText}
-          name={name}
-          pronouns={pronouns}
-          backgroundUrl={backgroundUrl}
-          textOptions={memeTextOptions}
-          aspectRatio={aspectRatio}
-          framingOffset={framingOffset}
-          onFramingChange={setFramingOffset}
-        />
 
-        <div className="mx-auto max-w-md space-y-4 px-4 pt-4">
+      {/* Preview is locked outside the scroll container — it never scrolls. */}
+      <LockedPreview
+        factText={factText}
+        name={name}
+        pronouns={pronouns}
+        backgroundUrl={backgroundUrl}
+        textOptions={memeTextOptions}
+        aspectRatio={aspectRatio}
+        framingOffset={framingOffset}
+        onFramingChange={setFramingOffset}
+      />
+
+      {/* Controls scroll under the preview; flex-1 fills whatever height remains. */}
+      <div className="flex-1 overflow-y-auto">
+        <div className="mx-auto max-w-md space-y-4 px-4 pt-4 pb-24">
           <SourceSegmentedControl
             active={tab}
             tier={tier}
