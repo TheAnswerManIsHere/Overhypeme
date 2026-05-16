@@ -15,12 +15,27 @@ interface Props {
   showAiStylings: boolean;
   selected: MyImageSource | null;
   onSelect: (next: MyImageSource) => void;
+  /** Tabs to hide entirely. Useful when a parent wants to restrict available choices. */
+  hideTabs?: Tab[];
 }
 
 type Tab = "primary" | "library" | "ai" | "upload";
 
-export function MyImagePicker({ factId, primaryImageObjectPath, showAiStylings, selected, onSelect }: Props) {
-  const [tab, setTab] = useState<Tab>(primaryImageObjectPath ? "primary" : "upload");
+export function MyImagePicker({ factId, primaryImageObjectPath, showAiStylings, selected, onSelect, hideTabs }: Props) {
+  const [tab, setTab] = useState<Tab>(() => {
+    const preferred: Tab = primaryImageObjectPath ? "primary" : "library";
+    if (!hideTabs?.includes(preferred)) return preferred;
+    // Preferred tab is hidden — fall back to first visible non-hidden tab.
+    const candidates: Tab[] = ["primary", "library", "ai", "upload"];
+    return (
+      candidates.find((t) => {
+        if (hideTabs?.includes(t)) return false;
+        if (t === "primary") return !!primaryImageObjectPath;
+        if (t === "ai") return showAiStylings;
+        return true;
+      }) ?? "upload"
+    );
+  });
   const [reloadKey, setReloadKey] = useState(0);
   const isDesktop = useDesktopModality();
 
@@ -44,10 +59,10 @@ export function MyImagePicker({ factId, primaryImageObjectPath, showAiStylings, 
       && selected.objectPath === objectPath;
 
   const tabs: { value: Tab; label: string; visible: boolean }[] = [
-    { value: "primary", label: "Primary", visible: !!primaryImageObjectPath },
-    { value: "library", label: "My photos", visible: true },
-    { value: "ai",      label: "AI stylings", visible: showAiStylings },
-    { value: "upload",  label: "Upload new", visible: true },
+    { value: "primary", label: "Primary",     visible: !!primaryImageObjectPath && !hideTabs?.includes("primary") },
+    { value: "library", label: "My photos",   visible: !hideTabs?.includes("library") },
+    { value: "ai",      label: "AI stylings", visible: showAiStylings && !hideTabs?.includes("ai") },
+    { value: "upload",  label: "Upload new",  visible: !hideTabs?.includes("upload") },
   ];
 
   return (

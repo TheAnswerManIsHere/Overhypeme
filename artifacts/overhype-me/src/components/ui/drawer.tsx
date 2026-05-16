@@ -34,10 +34,13 @@ DrawerOverlay.displayName = DrawerPrimitive.Overlay.displayName
 
 const DrawerContent = React.forwardRef<
   React.ElementRef<typeof DrawerPrimitive.Content>,
-  React.ComponentPropsWithoutRef<typeof DrawerPrimitive.Content>
->(({ className, children, ...props }, ref) => (
+  React.ComponentPropsWithoutRef<typeof DrawerPrimitive.Content> & {
+    /** When true, suppresses the darkening overlay so the live preview above stays visible. */
+    hideOverlay?: boolean;
+  }
+>(({ className, children, hideOverlay, ...props }, ref) => (
   <DrawerPortal>
-    <DrawerOverlay />
+    {!hideOverlay && <DrawerOverlay />}
     <DrawerPrimitive.Content
       ref={ref}
       className={cn(

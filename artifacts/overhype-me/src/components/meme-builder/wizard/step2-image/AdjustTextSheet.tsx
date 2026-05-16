@@ -23,6 +23,8 @@ interface Props {
   onSplitChange: (next: number) => void;
   textOptions: MemeTextOptions;
   onTextOptionsChange: (next: MemeTextOptions) => void;
+  /** User's display name — passed to SplitSlider so `{NAME}` is shown in orange. */
+  name?: string;
 }
 
 /**
@@ -37,6 +39,7 @@ export function AdjustTextSheet({
   onSplitChange,
   textOptions,
   onTextOptionsChange,
+  name,
 }: Props) {
   const words = useMemo(() => getWords(factText), [factText]);
   const fallbackSplit = useMemo(() => intelligentSplit(factText), [factText]);
@@ -56,7 +59,7 @@ export function AdjustTextSheet({
   });
 
   return (
-    <Drawer>
+    <Drawer modal={false}>
       <DrawerTrigger asChild>
         <button
           type="button"
@@ -67,14 +70,15 @@ export function AdjustTextSheet({
           <span aria-hidden className="text-muted-foreground">▾</span>
         </button>
       </DrawerTrigger>
-      <DrawerContent className="max-h-[60vh]">
-        <div className="space-y-5 px-4 pb-6 pt-2">
+      <DrawerContent hideOverlay className="max-h-[60vh]">
+        <div className="space-y-5 overflow-y-auto px-4 pb-6 pt-2">
           <DrawerTitle className="font-display text-lg uppercase">Adjust the text</DrawerTitle>
 
           <SplitSlider
             factText={factText}
             value={Math.min(Math.max(effectiveSplit, 1), Math.max(1, words.length - 1))}
             onChange={onSplitChange}
+            name={name}
           />
 
           <VerticalPositionSlider

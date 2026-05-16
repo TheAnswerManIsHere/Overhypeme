@@ -196,3 +196,61 @@ export function tokenizeFact(text: string): string {
 export function hasPronouns(template: string): boolean {
   return /\{(SUBJ|OBJ|POSS|POSS_PRO|REFL|Subj|Obj|Poss|Poss_Pro|Refl|he|him|his|himself|He|Him|His|Himself|he's|He's|[^|{}]+\|[^|{}]+)\}/.test(template);
 }
+
+/**
+ * Like `renderFact`, but returns a list of text segments where the name
+ * substitution is annotated with `isName: true`. Use this when the caller
+ * needs to render the name in a different colour (e.g. canvas or a React span)
+ * while rendering all other tokens normally.
+ *
+ * @example
+ *   renderFactSegments("{NAME} once punched a shark", "Sam", "she/her")
+ *   // → [{ text: "Sam", isName: true }, { text: " once punched a shark", isName: false }]
+ */
+export function renderFactSegments(
+  text: string,
+  name: string,
+  pronouns: string = "he/him",
+): { text: string; isName: boolean }[] {
+  const p = resolveMap(pronouns);
+  const isSingular = p.plurality === "singular";
+  const resolvedName = name || "___";
+
+  // NUL+SOH placeholder — survives the pronoun substitution passes intact,
+  // then we split on it to identify which text segments are the name.
+  const PLACEHOLDER = "\u0000\u0001\u0000";
+
+  const processed = text
+    .replace(/\{NAME\}/g, PLACEHOLDER)
+    .replace(/\{([^|{}]+)\|([^|{}]+)\}/g, (_, singular, plural) =>
+      isSingular ? singular : plural
+    )
+    .replace(/\{Subj\}/g,     cap(p.subj))
+    .replace(/\{SUBJ\}/g,     p.subj)
+    .replace(/\{Obj\}/g,      cap(p.obj))
+    .replace(/\{OBJ\}/g,      p.obj)
+    .replace(/\{Poss\}/g,     cap(p.poss))
+    .replace(/\{POSS\}/g,     p.poss)
+    .replace(/\{Poss_Pro\}/g, cap(p.possPro))
+    .replace(/\{POSS_PRO\}/g, p.possPro)
+    .replace(/\{Refl\}/g,     cap(p.refl))
+    .replace(/\{REFL\}/g,     p.refl)
+    .replace(/\{Himself\}/g,  cap(p.refl))
+    .replace(/\{himself\}/g,  p.refl)
+    .replace(/\{He's\}/g,     cap(p.subj) + "'s")
+    .replace(/\{he's\}/g,     p.subj + "'s")
+    .replace(/\{Him\}/g,      cap(p.obj))
+    .replace(/\{him\}/g,      p.obj)
+    .replace(/\{His\}/g,      cap(p.poss))
+    .replace(/\{his\}/g,      p.poss)
+    .replace(/\{He\}/g,       cap(p.subj))
+    .replace(/\{he\}/g,       p.subj);
+
+  const parts = processed.split(PLACEHOLDER);
+  const out: { text: string; isName: boolean }[] = [];
+  for (let i = 0; i < parts.length; i++) {
+    if (parts[i]) out.push({ text: parts[i]!, isName: false });
+    if (i < parts.length - 1) out.push({ text: resolvedName, isName: true });
+  }
+  return out;
+}

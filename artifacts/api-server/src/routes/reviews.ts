@@ -18,6 +18,7 @@ import { runFactImagePipeline } from "../lib/factImagePipeline";
 import { generateAiMemeBackgrounds } from "../lib/aiMemePipeline";
 import { createRateLimiter } from "../lib/rateLimit";
 import { validateTemplate } from "../lib/templateGrammar";
+import { computeSplitTokenIndex } from "../lib/splitTokenIndex";
 
 const requireRateLimit = createRateLimiter();
 
@@ -235,6 +236,7 @@ router.post("/admin/reviews/:id/approve-variant", requireAdmin, async (req: Auth
     canonicalText,
     isActive: true,
     parentId: parentFactId,
+    splitTokenIndex: computeSplitTokenIndex(review.submittedText),
   }).returning();
 
   // Attach hashtags
@@ -305,6 +307,7 @@ router.post("/admin/reviews/:id/approve", requireAdmin, async (req: Authenticate
     hasPronouns: hasPronounsFlag,
     canonicalText,
     isActive: true,
+    splitTokenIndex: computeSplitTokenIndex(review.submittedText),
   }).returning();
 
   // Attach hashtags

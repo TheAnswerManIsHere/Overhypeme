@@ -12,9 +12,28 @@ interface Props {
    */
   min?: number;
   max?: number;
+  /** When provided, `{NAME}` tokens in the preview are rendered in brand orange. */
+  name?: string;
 }
 
-export function SplitSlider({ factText, value, onChange, min, max }: Props) {
+/** Replace `{NAME}` occurrences in `text` with an orange-coloured span. */
+function highlightName(text: string, name: string | undefined): React.ReactNode {
+  if (!name || !text.includes("{NAME}")) return text;
+  const parts = text.split("{NAME}");
+  return parts.flatMap((part, i) => {
+    const nodes: React.ReactNode[] = [];
+    if (part) nodes.push(part);
+    if (i < parts.length - 1)
+      nodes.push(
+        <span key={i} className="text-[#ff6b35]">
+          {name}
+        </span>,
+      );
+    return nodes;
+  });
+}
+
+export function SplitSlider({ factText, value, onChange, min, max, name }: Props) {
   const words = useMemo(() => getWords(factText), [factText]);
   const lo = min ?? 1;
   const hi = max ?? Math.max(lo, words.length - 1);
@@ -37,7 +56,7 @@ export function SplitSlider({ factText, value, onChange, min, max }: Props) {
           {value} / {words.length}
         </span>
       </div>
-      <div className="relative pt-1">
+      <div className="relative pt-1" style={{ touchAction: "none" }}>
         <Slider
           value={[value]}
           min={lo}
@@ -61,11 +80,15 @@ export function SplitSlider({ factText, value, onChange, min, max }: Props) {
       <div className="grid gap-1 rounded-md border border-border/60 bg-muted/30 px-3 py-2 text-xs">
         <div>
           <span className="mr-2 uppercase tracking-wider text-muted-foreground">Top</span>
-          <span className="font-medium">{topHalf || <em className="text-muted-foreground">empty</em>}</span>
+          <span className="font-medium">
+            {topHalf ? highlightName(topHalf, name) : <em className="text-muted-foreground">empty</em>}
+          </span>
         </div>
         <div>
           <span className="mr-2 uppercase tracking-wider text-muted-foreground">Bottom</span>
-          <span className="font-medium">{bottomHalf || <em className="text-muted-foreground">empty</em>}</span>
+          <span className="font-medium">
+            {bottomHalf ? highlightName(bottomHalf, name) : <em className="text-muted-foreground">empty</em>}
+          </span>
         </div>
       </div>
     </div>

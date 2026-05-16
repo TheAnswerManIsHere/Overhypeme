@@ -29,6 +29,7 @@ export function AiSourcePanel({
       factId={factId}
       primaryImageObjectPath={primaryImageObjectPath}
       showAiStylings
+      hideTabs={["library"]}
       selected={selected}
       onSelect={onSelect}
     />
