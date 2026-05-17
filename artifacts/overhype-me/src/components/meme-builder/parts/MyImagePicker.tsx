@@ -54,6 +54,18 @@ export function MyImagePicker({ factId, primaryImageObjectPath, showAiStylings, 
     onSelect,
   });
 
+  // When there is no primary photo (e.g. the user's Clerk avatar is an
+  // external URL that extractObjectPath can't resolve), fall back to
+  // auto-selecting the most-recently-uploaded library photo.  Only fires
+  // once per loaded result set and never overrides an existing selection.
+  const firstLibraryPath = !library.isLoading && library.rows.length > 0 ? library.rows[0].objectPath : null;
+  useAutoSelectDefault<MyImageSource>({
+    enabled: tab === "library" && !selected && !!firstLibraryPath,
+    identityKey: firstLibraryPath,
+    resolveDefault: () => firstLibraryPath ? { kind: "library", objectPath: firstLibraryPath } : null,
+    onSelect,
+  });
+
   const isSelectedObject = (objectPath: string) =>
     selected !== null && (selected.kind === "library" || selected.kind === "fresh" || selected.kind === "ai-styling")
       && selected.objectPath === objectPath;
