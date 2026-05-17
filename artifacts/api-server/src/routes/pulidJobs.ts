@@ -64,6 +64,8 @@ interface JobState {
   generatedObjectPath?: string;
   errorCode?: ErrorCode;
   errorMessage?: string;
+  /** True once the no-face fallback (standalone generation) has taken over. */
+  isFallback?: boolean;
 }
 
 const jobs = new Map<string, JobState>();
@@ -309,13 +311,14 @@ router.post("/memes/pulid-jobs", requireLegendary, async (req: Request, res: Res
             { err: refErr, jobId, factId, userId },
             "[pulidJobs] no face detected — falling back to standalone (no-face) generation",
           );
-          // Move the bar into in_progress (best-effort) so the UI doesn't sit
-          // at queued progress while the fallback runs.
+          // Move the bar into in_progress and mark the fallback so the UI can
+          // show the user that face matching failed and an alternative is running.
           const cur = jobs.get(jobId);
-          if (cur && cur.phase !== "in_progress") {
+          if (cur) {
             cur.phase = "in_progress";
             cur.startedRunAt = Date.now();
             cur.queuePosition = undefined;
+            cur.isFallback = true;
           }
           generatedObjectPath = await generateAiMemeBackgroundStandalone(
             factId,
@@ -402,6 +405,7 @@ router.get("/memes/pulid-jobs/:jobId", async (req: Request, res: Response) => {
     generatedObjectPath: state.generatedObjectPath,
     errorCode: state.errorCode,
     errorMessage: state.errorMessage,
+    isFallback: state.isFallback ?? false,
   });
 });
 
