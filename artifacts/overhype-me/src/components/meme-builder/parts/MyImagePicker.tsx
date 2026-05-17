@@ -59,7 +59,7 @@ export function MyImagePicker({ factId, primaryImageObjectPath, showAiStylings, 
       && selected.objectPath === objectPath;
 
   const tabs: { value: Tab; label: string; visible: boolean }[] = [
-    { value: "primary", label: "Primary",     visible: !!primaryImageObjectPath && !hideTabs?.includes("primary") },
+    { value: "primary", label: "Profile photo", visible: !!primaryImageObjectPath && !hideTabs?.includes("primary") },
     { value: "library", label: "My photos",   visible: !hideTabs?.includes("library") },
     { value: "ai",      label: "AI stylings", visible: showAiStylings && !hideTabs?.includes("ai") },
     { value: "upload",  label: "Upload new",  visible: !hideTabs?.includes("upload") },
@@ -84,20 +84,23 @@ export function MyImagePicker({ factId, primaryImageObjectPath, showAiStylings, 
       </div>
 
       {tab === "primary" && primaryImageObjectPath && (
-        <button
-          type="button"
-          onClick={() => onSelect({ kind: "primary" })}
-          className={cn(
-            "block overflow-hidden rounded-md border-2 transition",
-            selected?.kind === "primary" ? "border-primary" : "border-transparent hover:border-secondary",
-          )}
-        >
-          <img
-            src={`/api/storage/objects${primaryImageObjectPath.replace(/^\/objects/, "")}`}
-            alt=""
-            className="h-40 w-full object-cover"
-          />
-        </button>
+        <div className="space-y-1.5">
+          <button
+            type="button"
+            onClick={() => onSelect({ kind: "primary" })}
+            className={cn(
+              "block w-full overflow-hidden rounded-md border-2 transition",
+              selected?.kind === "primary" ? "border-primary" : "border-transparent hover:border-secondary",
+            )}
+          >
+            <img
+              src={`/api/storage/objects${primaryImageObjectPath.replace(/^\/objects/, "")}`}
+              alt="Your profile photo"
+              className="h-40 w-full object-cover"
+            />
+          </button>
+          <p className="text-center text-xs text-muted-foreground">Your profile photo</p>
+        </div>
       )}
 
       {tab === "library" && (

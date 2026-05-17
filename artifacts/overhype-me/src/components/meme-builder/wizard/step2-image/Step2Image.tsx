@@ -139,6 +139,19 @@ export function Step2Image({
     dispatch({ type: "set-text-options", textOptions });
   }, [textOptions, dispatch]);
 
+  // When the self-upload tab activates and nothing has been chosen yet this
+  // session, auto-pick the primary profile photo so the preview lights up
+  // immediately and "Make my meme" becomes active without an extra tap.
+  // selfUploadImage is deliberately NOT in the deps: we only want to fire
+  // when the tab switches or when the photo path first becomes available —
+  // once the user picks something else we must not clobber their choice.
+  useEffect(() => {
+    if (tab === "self-upload" && !selfUploadImage && viewerContext.primaryImageObjectPath) {
+      setSelfUploadImage({ kind: "primary" });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab, viewerContext.primaryImageObjectPath]);
+
   // Persist the source selection.
   useEffect(() => {
     if (tab === "stock" && stockSelectedId) {
@@ -195,7 +208,9 @@ export function Step2Image({
   const sourceSelected =
     (tab === "stock" && !!stockSelectedId) ||
     (tab === "self-upload" && !!selfUploadImage) ||
-    (tab === "ai-you" && aiStylingImage?.kind === "ai-styling" && !creatingAi && !pulidJobId);
+    // "Create new AI image" sub-tab = user is building, not selecting — CTA
+    // stays disabled until they finish and flip back to "existing".
+    (tab === "ai-you" && aiStylingImage?.kind === "ai-styling" && !creatingAi && !pulidJobId && aiSubTab !== "create");
 
   const handleSourceTab = (next: SourceTab) => {
     setTab(next);
