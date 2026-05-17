@@ -7,6 +7,8 @@ interface JobStatus {
   errorCode?: string;
   errorMessage?: string;
   etaSeconds?: number;
+  /** True when the server fell back to standard generation because no face was detected. */
+  isFallback?: boolean;
 }
 
 interface Props {
@@ -35,6 +37,7 @@ const FALLBACK_TAU_MS = 18_000;
  */
 export function PulidLoadingTakeover({ jobId, onComplete, onError }: Props) {
   const [displayProgress, setDisplayProgress] = useState(0.05);
+  const [isFallback, setIsFallback] = useState(false);
   const startedAtRef = useRef(Date.now());
   const lastServerUpdateAtRef = useRef(Date.now());
   const lastServerProgressRef = useRef(0.05);
@@ -56,6 +59,7 @@ export function PulidLoadingTakeover({ jobId, onComplete, onError }: Props) {
         consecutiveErrors = 0;
         lastServerUpdateAtRef.current = Date.now();
         lastServerProgressRef.current = status.progress;
+        if (status.isFallback) setIsFallback(true);
 
         if (status.phase === "completed" && status.generatedObjectPath) {
           terminatedRef.current = true;
@@ -114,19 +118,24 @@ export function PulidLoadingTakeover({ jobId, onComplete, onError }: Props) {
     };
   }, []);
 
+  const heading = isFallback ? "Crafting your scene." : "Forging your likeness.";
+  const subtext = isFallback
+    ? "No face detected in your photo — generating an AI background instead."
+    : "Standard mortals take days. This takes seconds.";
+
   return (
     <div
       role="dialog"
       aria-modal="true"
-      aria-label="Forging your likeness"
+      aria-label={heading}
       className="fixed inset-0 z-[60] flex flex-col items-center justify-center bg-[#111] px-6 text-center"
       data-testid="pulid-loading-takeover"
     >
       <h1 className="font-display text-3xl uppercase tracking-wide text-white">
-        Forging your likeness.
+        {heading}
       </h1>
       <p className="mt-3 max-w-sm text-sm text-white/70">
-        Standard mortals take days. This takes seconds.
+        {subtext}
       </p>
       <div className="mt-8 w-full max-w-sm" aria-hidden>
         <div className="h-1.5 w-full overflow-hidden rounded-full bg-white/10">
