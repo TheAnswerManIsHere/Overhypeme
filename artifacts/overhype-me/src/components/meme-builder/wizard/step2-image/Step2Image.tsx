@@ -91,8 +91,12 @@ export function Step2Image({
   const [framingOffset, setFramingOffset] = useState<{ x: number; y: number }>(
     state.framingOffset ?? { x: 0, y: 0 },
   );
-  const [name, setName] = useState(viewerContext.name ?? "");
-  const [pronouns, setPronouns] = useState(viewerContext.pronouns ?? "he/him");
+  // Prefer the wizard state's name/pronouns over viewerContext: the wizard
+  // state is seeded from `initialName`/`initialPronouns` (which callers wire
+  // up from `usePersonName` for guest users), while `viewerContext.name` is
+  // only populated for logged-in users via the auth profile.
+  const [name, setName] = useState(state.name ?? viewerContext.name ?? "");
+  const [pronouns, setPronouns] = useState(state.pronouns ?? viewerContext.pronouns ?? "he/him");
   const [textOptions, setTextOptions] = useState<MemeTextOptions>(state.textOptions ?? {});
   const [stockSelectedId, setStockSelectedId] = useState<string | null>(
     state.source?.kind === "stock" ? state.source.stockImageId : null,
