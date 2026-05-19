@@ -433,7 +433,6 @@ export function Step2Image({
 
           {tab === "self-upload" && tier === "unregistered" && (
             <GuestPhotoSignupPanel
-              onSignup={() => onRequestSignup({})}
               onUseStock={() => setTab("stock")}
             />
           )}
