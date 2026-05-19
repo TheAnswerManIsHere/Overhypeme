@@ -6,7 +6,6 @@ interface Props {
   active: SourceTab;
   tier: Tier;
   onSelect: (tab: SourceTab) => void;
-  onRequestSignup: () => void;
   onRequestUpgrade: () => void;
 }
 
@@ -36,7 +35,6 @@ export function SourceSegmentedControl({
   active,
   tier,
   onSelect,
-  onRequestSignup,
   onRequestUpgrade,
 }: Props) {
   const tabs: TabSpec[] = [
@@ -50,9 +48,6 @@ export function SourceSegmentedControl({
     {
       id: "self-upload",
       label: "Your photo",
-      ...(tier === "unregistered"
-        ? { lock: { badge: "SIGN UP" as const, onClick: onRequestSignup } }
-        : {}),
     },
     { id: "stock", label: "Stock" },
   ];
@@ -104,7 +99,7 @@ export function SourceSegmentedControl({
 
 /**
  * Picks the source tab to show on entry per the tier × photo-on-file matrix.
- *   unregistered                  → stock
+ *   unregistered                  → self-upload (shows signup CTA in the panel)
  *   registered + primary photo    → self-upload
  *   registered without photo      → stock
  *   legendary + primary photo     → ai-you
@@ -116,5 +111,5 @@ export function pickDefaultSourceTab(
 ): SourceTab {
   if (tier === "legendary") return hasPrimaryPhoto ? "ai-you" : "stock";
   if (tier === "registered") return hasPrimaryPhoto ? "self-upload" : "stock";
-  return "stock";
+  return "self-upload";
 }

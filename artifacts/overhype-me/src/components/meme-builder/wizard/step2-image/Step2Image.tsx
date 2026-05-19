@@ -15,6 +15,7 @@ import {
 import { AspectRatioToggle } from "./AspectRatioToggle";
 import { StockSourcePanel } from "./StockSourcePanel";
 import { SelfUploadSourcePanel } from "./SelfUploadSourcePanel";
+import { GuestPhotoSignupPanel } from "./GuestPhotoSignupPanel";
 import { AiSourcePanel } from "./AiSourcePanel";
 import type { AiSubTab } from "./AiSourcePanel";
 import { AdjustTextSheet } from "./AdjustTextSheet";
@@ -74,9 +75,14 @@ export function Step2Image({
   const hasPrimaryPhoto = !!viewerContext.primaryImageObjectPath;
 
   const [tab, setTab] = useState<SourceTab>(() => {
-    if (state.source?.kind === "stock") return "stock";
-    if (state.source?.kind === "self-upload") {
-      return state.source.stylizeWithAi ? "ai-you" : "self-upload";
+    // For unregistered users, never inherit a cached AI or self-upload source
+    // from a previous (possibly different) logged-in session. Always pick the
+    // default for their tier so they land on "Your photo" with the signup CTA.
+    if (tier !== "unregistered") {
+      if (state.source?.kind === "stock") return "stock";
+      if (state.source?.kind === "self-upload") {
+        return state.source.stylizeWithAi ? "ai-you" : "self-upload";
+      }
     }
     return pickDefaultSourceTab(tier, hasPrimaryPhoto);
   });
@@ -411,7 +417,6 @@ export function Step2Image({
             active={tab}
             tier={tier}
             onSelect={handleSourceTab}
-            onRequestSignup={() => onRequestSignup({})}
             onRequestUpgrade={() => setUpgradeOpen(true)}
           />
 
@@ -426,7 +431,14 @@ export function Step2Image({
             />
           )}
 
-          {tab === "self-upload" && (
+          {tab === "self-upload" && tier === "unregistered" && (
+            <GuestPhotoSignupPanel
+              onSignup={() => onRequestSignup({})}
+              onUseStock={() => setTab("stock")}
+            />
+          )}
+
+          {tab === "self-upload" && tier !== "unregistered" && (
             <SelfUploadSourcePanel
               factId={factId}
               primaryImageObjectPath={viewerContext.primaryImageObjectPath}

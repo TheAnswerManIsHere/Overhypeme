@@ -9,19 +9,17 @@ function renderControl(
   overrides: Partial<React.ComponentProps<typeof SourceSegmentedControl>> = {},
 ) {
   const onSelect = vi.fn();
-  const onRequestSignup = vi.fn();
   const onRequestUpgrade = vi.fn();
   render(
     <SourceSegmentedControl
       active="stock"
       tier="registered"
       onSelect={onSelect}
-      onRequestSignup={onRequestSignup}
       onRequestUpgrade={onRequestUpgrade}
       {...overrides}
     />,
   );
-  return { onSelect, onRequestSignup, onRequestUpgrade };
+  return { onSelect, onRequestUpgrade };
 }
 
 describe("SourceSegmentedControl", () => {
@@ -32,11 +30,10 @@ describe("SourceSegmentedControl", () => {
     expect(screen.getByTestId("source-tab-ai-you")).toBeTruthy();
   });
 
-  it("anonymous users see Your photo as locked → triggers signup", () => {
-    const { onRequestSignup, onSelect } = renderControl({ tier: "unregistered" });
+  it("anonymous users can click Your photo tab — signup CTA is shown in the panel, not here", () => {
+    const { onSelect } = renderControl({ tier: "unregistered" });
     fireEvent.click(screen.getByTestId("source-tab-self-upload"));
-    expect(onRequestSignup).toHaveBeenCalledOnce();
-    expect(onSelect).not.toHaveBeenCalled();
+    expect(onSelect).toHaveBeenCalledWith("self-upload");
   });
 
   it("free users see AI as locked → triggers upgrade", () => {
@@ -47,13 +44,12 @@ describe("SourceSegmentedControl", () => {
   });
 
   it("legendary users see all three tabs unlocked", () => {
-    const { onSelect, onRequestUpgrade, onRequestSignup } = renderControl({
+    const { onSelect, onRequestUpgrade } = renderControl({
       tier: "legendary",
     });
     fireEvent.click(screen.getByTestId("source-tab-ai-you"));
     expect(onSelect).toHaveBeenCalledWith("ai-you");
     expect(onRequestUpgrade).not.toHaveBeenCalled();
-    expect(onRequestSignup).not.toHaveBeenCalled();
   });
 
   it("renders LEGEND badge on locked AI tab for non-legendary", () => {
@@ -62,17 +58,17 @@ describe("SourceSegmentedControl", () => {
     expect(ai.textContent).toMatch(/LEGEND/);
   });
 
-  it("renders SIGN UP badge on locked Your photo tab for anonymous", () => {
+  it("Your photo tab has no SIGN UP badge for anonymous — signup CTA lives in the panel", () => {
     renderControl({ tier: "unregistered" });
     const photo = screen.getByTestId("source-tab-self-upload");
-    expect(photo.textContent).toMatch(/SIGN UP/);
+    expect(photo.textContent).not.toMatch(/SIGN UP/);
   });
 });
 
 describe("pickDefaultSourceTab", () => {
   const cases: [Parameters<typeof pickDefaultSourceTab>[0], boolean, ReturnType<typeof pickDefaultSourceTab>][] = [
-    ["unregistered", false, "stock"],
-    ["unregistered", true, "stock"],
+    ["unregistered", false, "self-upload"],
+    ["unregistered", true, "self-upload"],
     ["registered", false, "stock"],
     ["registered", true, "self-upload"],
     ["legendary", false, "stock"],
