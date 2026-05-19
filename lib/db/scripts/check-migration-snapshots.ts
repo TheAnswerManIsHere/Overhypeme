@@ -91,6 +91,14 @@ const SNAPSHOT_EXEMPT_TAGS = new Set<string>([
   // deleted_at IS NULL — covers per-user daily-cap and idempotency queries.
   // Index-only migration; no table shape change.
   "0051_memes_creator_created_at_index",
+
+  // Task #507: manually authored DDL. Adds `is_profile boolean NOT NULL DEFAULT
+  // false` to upload_image_metadata, a partial unique index
+  // UQ_uim_user_is_profile, and a backfill that tags existing
+  // first-party profile-photo uploads. Written by hand to avoid running
+  // drizzle-kit without DB access; rebuild-snapshots.ts can backfill the
+  // 0055_snapshot.json from schema TS if needed.
+  "0055_upload_image_metadata_is_profile",
 ]);
 
 interface JournalEntry {
