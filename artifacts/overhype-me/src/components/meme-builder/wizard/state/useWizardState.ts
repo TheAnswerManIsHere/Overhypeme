@@ -103,12 +103,21 @@ function reducer(state: WizardRuntimeState, action: WizardAction): WizardRuntime
     case "set-generation":
       return { ...state, generation: action.generation };
     case "hydrate": {
-      const { schemaVersion, capturedAt, factId, entryFlow, ...rest } = action.pending;
+      const { schemaVersion, capturedAt, factId, entryFlow, name, pronouns, ...rest } = action.pending;
       void schemaVersion;
       void capturedAt;
       void factId;
       void entryFlow;
-      return { ...state, ...rest };
+      return {
+        ...state,
+        ...rest,
+        // Only overwrite name/pronouns from the stored draft if the stored
+        // value is non-empty. This preserves the initialName/initialPronouns
+        // passed by the caller (e.g. from usePersonName for guest users) when
+        // the draft was saved without identity data.
+        ...(name ? { name } : {}),
+        ...(pronouns ? { pronouns } : {}),
+      };
     }
     case "reset":
       return initialState();

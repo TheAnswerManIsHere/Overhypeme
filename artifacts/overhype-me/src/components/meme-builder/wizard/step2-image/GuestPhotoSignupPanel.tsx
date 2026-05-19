@@ -1,5 +1,4 @@
 interface Props {
-  onSignup: () => void;
   onUseStock: () => void;
 }
 
@@ -8,7 +7,11 @@ interface Props {
  * Prompts them to sign up to use their own photo, with a graceful
  * escape hatch to the Stock tab.
  */
-export function GuestPhotoSignupPanel({ onSignup, onUseStock }: Props) {
+export function GuestPhotoSignupPanel({ onUseStock }: Props) {
+  const handleSignup = () => {
+    window.location.href = `/login?returnTo=${encodeURIComponent(window.location.pathname + window.location.search)}`;
+  };
+
   return (
     <div className="flex flex-col items-center gap-4 rounded-xl border border-white/10 bg-white/5 px-6 py-8 text-center">
       <p className="text-base font-semibold text-white leading-snug">
@@ -19,7 +22,7 @@ export function GuestPhotoSignupPanel({ onSignup, onUseStock }: Props) {
       </p>
       <button
         type="button"
-        onClick={onSignup}
+        onClick={handleSignup}
         className="w-full rounded-full bg-[#ff6b35] px-6 py-3 text-sm font-bold uppercase tracking-widest text-white transition-opacity hover:opacity-90 active:opacity-80"
       >
         Sign up
