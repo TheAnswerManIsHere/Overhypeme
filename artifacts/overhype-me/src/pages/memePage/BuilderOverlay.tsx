@@ -11,6 +11,7 @@ import type {
   EntryFlow,
   Mode,
 } from "@/components/meme-builder/types";
+import { usePersonName } from "@/hooks/use-person-name";
 import { X } from "lucide-react";
 
 const MemeBuilder = lazyWithRetry(() =>
@@ -45,6 +46,7 @@ export function BuilderOverlay({
   const { user, role } = useAuth();
   const tier = roleToTier(role);
   const primaryImageObjectPath = extractObjectPath(user?.profileImageUrl);
+  const { name: guestName, pronouns: guestPronouns } = usePersonName();
   const [showUploadNudge, setShowUploadNudge] = useState(false);
 
   // The "free user with no photo" case opens the builder in stock mode but
@@ -112,15 +114,15 @@ export function BuilderOverlay({
               viewerContext={{
                 tier,
                 userId: user?.id,
-                name: user?.displayName ?? undefined,
-                pronouns: user?.pronouns ?? undefined,
+                name: user?.displayName ?? (tier === "unregistered" ? guestName : undefined),
+                pronouns: user?.pronouns ?? (tier === "unregistered" ? guestPronouns : undefined),
                 primaryImageObjectPath,
                 hasLibraryImages: tier !== "unregistered",
               }}
               entryFlow={entryFlow}
               initialStockImageId={initialStockImageId}
-              initialName={initialName}
-              initialPronouns={initialPronouns}
+              initialName={initialName ?? (tier === "unregistered" ? guestName : undefined)}
+              initialPronouns={initialPronouns ?? (tier === "unregistered" ? guestPronouns : undefined)}
               onComplete={handleComplete}
               onCancel={onClose}
             />
