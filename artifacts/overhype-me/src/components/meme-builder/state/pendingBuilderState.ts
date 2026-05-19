@@ -65,6 +65,18 @@ export function restorePendingState(factId: string): PendingBuilderState | null 
     return null;
   }
 
+  // Task #507: the `kind:"primary"` source-state branch was removed when the
+  // profile photo became a tagged library entry. Strip any stale draft that
+  // references it so the rest of the builder doesn't see an impossible
+  // discriminant. The user simply lands on the library grid which now
+  // auto-selects the profile photo (sorted first) on tab activation.
+  if (
+    parsed.source?.kind === "self-upload" &&
+    (parsed.source.image as { kind: string }).kind === "primary"
+  ) {
+    parsed = { ...parsed, source: undefined };
+  }
+
   return parsed;
 }
 

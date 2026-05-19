@@ -122,16 +122,19 @@ export default function Onboard() {
         kind: "avatar",
         preprocess: "none",
       });
-      const profileImageUrl = `/api/storage${objectPath}`;
 
-      const patchRes = await fetch(`${BASE_URL}api/users/me`, {
-        method: "PATCH",
+      // Task #507: re-tag the new upload as the profile photo. The endpoint
+      // clears any prior is_profile tag, sets the new one, updates
+      // users.profileImageUrl + avatarSource=photo, and re-asserts the
+      // public ACL — all in one transaction.
+      const setRes = await fetch(`${BASE_URL}api/users/me/profile-image`, {
+        method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ profileImageUrl, avatarSource: "photo" }),
+        body: JSON.stringify({ objectPath }),
       });
-      if (!patchRes.ok) {
-        const data = (await patchRes.json().catch(() => ({}))) as { error?: string };
+      if (!setRes.ok) {
+        const data = (await setRes.json().catch(() => ({}))) as { error?: string };
         throw new Error(data.error ?? "Could not save your photo.");
       }
       finish();

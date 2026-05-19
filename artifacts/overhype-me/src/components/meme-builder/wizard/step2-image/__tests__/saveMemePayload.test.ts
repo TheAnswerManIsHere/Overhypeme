@@ -32,16 +32,6 @@ describe("buildSaveMemePayload", () => {
     expect(payload!.imageTransform).toBeUndefined();
   });
 
-  it("emits an identity imageSource when source is primary photo without stylize", () => {
-    const state: WizardRuntimeState = {
-      ...baseState(),
-      mode: "self-upload",
-      source: { kind: "self-upload", image: { kind: "primary" }, stylizeWithAi: false },
-    };
-    const payload = buildSaveMemePayload({ state, factId: 42 });
-    expect(payload!.imageSource).toEqual({ type: "identity" });
-  });
-
   it("emits an upload imageSource for a library photo without stylize", () => {
     const state: WizardRuntimeState = {
       ...baseState(),
@@ -63,7 +53,7 @@ describe("buildSaveMemePayload", () => {
       mode: "self-upload",
       source: {
         kind: "self-upload",
-        image: { kind: "primary" },
+        image: { kind: "library", objectPath: "/objects/profile.jpg" },
         stylizeWithAi: true,
       },
     };

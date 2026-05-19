@@ -103,10 +103,7 @@ export function SourceSegmentedControl({
  *   registered   → self-upload  (Photo tab — encourage uploading their face)
  *   unregistered → self-upload  (shows signup CTA in the panel)
  */
-export function pickDefaultSourceTab(
-  tier: Tier,
-  _hasPrimaryPhoto: boolean,
-): SourceTab {
+export function pickDefaultSourceTab(tier: Tier): SourceTab {
   if (tier === "legendary") return "ai-you";
   return "self-upload";
 }

@@ -2,24 +2,36 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { AiSourcePanel } from "../AiSourcePanel";
 
-function mockFetchUploads(rows: { object_path: string }[] = []) {
+interface MockRow {
+  object_path: string;
+  /** Marks the row as the user's current profile photo (task #507). */
+  isProfile?: boolean;
+  /** "raw" (library) or "pulid"/"pulid_fallback_text" (AI stylings). */
+  transform?: "pulid" | "pulid_fallback_text" | null;
+}
+
+function mockFetchUploads(rows: MockRow[] = []) {
   return vi.fn().mockImplementation((url: string) => {
     if (url.startsWith("/api/users/me/uploads")) {
+      // The new endpoint sorts is_profile=true first, so the picker's
+      // auto-select picks the profile photo when present.
+      const sorted = [...rows].sort((a, b) => Number(!!b.isProfile) - Number(!!a.isProfile));
       return Promise.resolve({
         ok: true,
         json: () =>
           Promise.resolve({
-            uploads: rows.map((r) => ({
+            uploads: sorted.map((r) => ({
               objectPath: r.object_path,
               width: 1024,
               height: 1024,
               isLowRes: false,
               fileSizeBytes: 100,
               createdAt: new Date().toISOString(),
-              transform: "pulid",
+              transform: r.transform ?? "pulid",
               sourceObjectPath: "/objects/ref.jpg",
               factId: 42,
               transformParamsHash: null,
+              isProfile: !!r.isProfile,
             })),
             uploadCount: rows.length,
             maxUploads: 20,
@@ -38,7 +50,6 @@ function renderPanel(overrides: Partial<React.ComponentProps<typeof AiSourcePane
   const utils = render(
     <AiSourcePanel
       factId="42"
-      primaryImageObjectPath="/objects/profile.jpg"
       selected={null}
       onSelect={onSelect}
       subTab="existing"
@@ -79,11 +90,14 @@ describe("AiSourcePanel", () => {
   });
 
   it("'Create new AI image' fires onCreate with the chosen reference + style", async () => {
-    globalThis.fetch = mockFetchUploads([]) as typeof globalThis.fetch;
+    // Task #507: the profile photo now lives in the library grid (tagged
+    // is_profile=true, sorted first). MyImagePicker auto-selects the first
+    // library row so Create becomes enabled without an extra tap.
+    globalThis.fetch = mockFetchUploads([
+      { object_path: "/objects/profile.jpg", isProfile: true, transform: null },
+    ]) as typeof globalThis.fetch;
     const { onCreate } = renderPanel({ subTab: "create" });
 
-    // The reference picker auto-selects the primary photo on mount (per
-    // MyImagePicker's useAutoSelectDefault), so Create is immediately enabled.
     const createBtn = screen.getByTestId("ai-create-button") as HTMLButtonElement;
     await waitFor(() => expect(createBtn.disabled).toBe(false));
 
@@ -109,11 +123,11 @@ describe("AiSourcePanel", () => {
     expect(onCreate).not.toHaveBeenCalled();
   });
 
-  it("'Create' is disabled when no reference is available (no primary photo + no library/upload)", () => {
+  it("'Create' is disabled when no reference is available (empty library)", async () => {
     globalThis.fetch = mockFetchUploads([]) as typeof globalThis.fetch;
-    renderPanel({ subTab: "create", primaryImageObjectPath: undefined });
+    renderPanel({ subTab: "create" });
     const createBtn = screen.getByTestId("ai-create-button") as HTMLButtonElement;
-    expect(createBtn.disabled).toBe(true);
+    await waitFor(() => expect(createBtn.disabled).toBe(true));
   });
 
   it("clicking a sub-tab calls onSubTabChange", () => {

@@ -386,6 +386,13 @@
       "when": 1778720442873,
       "tag": "0054_hero_examples",
       "breakpoints": true
+    },
+    {
+      "idx": 55,
+      "version": "7",
+      "when": 1779148800000,
+      "tag": "0055_upload_image_metadata_is_profile",
+      "breakpoints": true
     }
   ]
 }

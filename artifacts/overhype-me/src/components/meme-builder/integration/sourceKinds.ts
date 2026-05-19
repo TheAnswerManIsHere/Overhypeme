@@ -23,10 +23,13 @@ export type BuilderImageSource =
   | { kind: "stock"; stockImageId: string; stockImageUrl: string | null }
   | MyImageSource;
 
-export interface BuilderViewerCtx {
-  /** Storage object_path of the viewer's avatar (`/objects/...`). */
-  primaryImageObjectPath?: string;
-}
+/**
+ * Reserved for future viewer-context plumbing. The `primaryImageObjectPath`
+ * field was removed in task #507 — the profile photo is now just a library
+ * entry tagged `is_profile=true` and is selected via the standard library
+ * grid instead of a separate "primary" source kind.
+ */
+export interface BuilderViewerCtx {}
 
 /**
  * Project the builder's reducer state onto the canonical source union. Returns
@@ -55,14 +58,12 @@ export function currentSource(
  */
 export function resolveBackgroundUrl(
   source: BuilderImageSource | null,
-  viewer: BuilderViewerCtx,
+  _viewer: BuilderViewerCtx,
 ): string | null {
   if (!source) return null;
   switch (source.kind) {
     case "stock":
       return source.stockImageUrl;
-    case "primary":
-      return viewer.primaryImageObjectPath ? toStorageUrl(viewer.primaryImageObjectPath) : null;
     case "library":
     case "fresh":
     case "ai-styling":
@@ -84,16 +85,12 @@ export type ServerImageSource =
  */
 export function toServerImageSource(
   source: BuilderImageSource | null,
-  viewer: BuilderViewerCtx,
+  _viewer: BuilderViewerCtx,
 ): ServerImageSource | null {
   if (!source) return null;
   switch (source.kind) {
     case "stock":
       return { type: "stock", pexelsPhotoId: parseInt(source.stockImageId, 10) };
-    case "primary":
-      return viewer.primaryImageObjectPath
-        ? { type: "upload", uploadKey: viewer.primaryImageObjectPath }
-        : null;
     case "library":
     case "fresh":
     case "ai-styling":
@@ -108,9 +105,8 @@ export function toServerImageSource(
  */
 export function selfUploadObjectPath(
   source: MyImageSource,
-  viewer: BuilderViewerCtx,
+  _viewer: BuilderViewerCtx,
 ): string | null {
-  if (source.kind === "primary") return viewer.primaryImageObjectPath ?? null;
   return source.objectPath;
 }
 

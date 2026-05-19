@@ -20,11 +20,12 @@ export type EntryFlow =
 export type AspectRatio = "landscape" | "square" | "portrait";
 
 /**
- * Self-upload sources. `identity` is collapsed into `self-upload` mode by
- * surfacing the user's avatar as the default selection (`primary`).
+ * Self-upload sources. The user's profile photo is now just a library entry
+ * tagged `is_profile=true` — no separate `primary` discriminant. Old session
+ * drafts that reference `kind:"primary"` are sanitized away by
+ * `restorePendingState` before they reach the reducer.
  */
 export type MyImageSource =
-  | { kind: "primary" }
   | { kind: "library";    objectPath: string }
   | { kind: "fresh";      objectPath: string }
   | { kind: "ai-styling"; objectPath: string };
@@ -64,8 +65,6 @@ export interface ViewerContext {
   userId?: string;
   name?: string;
   pronouns?: string;
-  /** GCS object_path of the user's avatar — the "primary image" default. */
-  primaryImageObjectPath?: string;
   /** Hint to show or hide the "My library" tab without making it call the API just to know. */
   hasLibraryImages?: boolean;
 }

@@ -8,7 +8,6 @@
  *   mode="stock"                                      → { type:"stock", … }        undefined
  *   mode="self-upload", source.stylizeWithAi=false    → { type:"upload", … }       undefined
  *   mode="self-upload", source.stylizeWithAi=true     → { type:"upload", … }       "pulid"
- *   AI tab + source.image.kind="primary"              → { type:"identity" }        "pulid"
  *
  * The PuLID flow (last two rows) does NOT POST directly to /api/memes — it
  * first kicks off a job via /api/memes/pulid-jobs and uses the returned
@@ -76,11 +75,6 @@ export function buildSaveMemePayload(args: BuildPayloadArgs): SaveMemePayload | 
       };
     }
 
-    // Identity (user's primary photo) collapses to `type:"identity"` when not
-    // stylized — the server resolves the avatar.
-    if (image.kind === "primary") {
-      return { ...base, imageSource: { type: "identity" } };
-    }
     if (image.kind === "library" || image.kind === "fresh" || image.kind === "ai-styling") {
       return {
         ...base,

@@ -18,6 +18,79 @@ import { uploadUserImage } from "@/lib/image-upload";
 
 const BASE_URL = import.meta.env.BASE_URL ?? "/";
 
+/**
+ * Task #507 — thumbnail picker.
+ * Lists the user's raw library uploads (transform=raw) and lets them re-tag
+ * any of them as their profile photo. Hidden when the user has fewer than
+ * 2 uploads — there's nothing to switch to.
+ */
+function ProfilePhotoThumbnailPicker({
+  currentProfileImageUrl,
+  busy,
+  onPick,
+}: {
+  currentProfileImageUrl: string | null;
+  busy: boolean;
+  onPick: (objectPath: string) => void | Promise<void>;
+}) {
+  interface UploadRow {
+    objectPath: string;
+    isProfile: boolean;
+  }
+  interface UploadsResponse {
+    uploads: UploadRow[];
+    uploadCount: number;
+  }
+  const { data } = useQuery<UploadsResponse>({
+    queryKey: ["my-uploads-for-profile-picker"],
+    queryFn: async () => {
+      const res = await fetch(`${BASE_URL}api/users/me/uploads?transform=raw`, {
+        credentials: "include",
+      });
+      if (!res.ok) throw new Error("Failed to load uploads");
+      return res.json();
+    },
+  });
+  const uploads = data?.uploads ?? [];
+  if (uploads.length < 2) return null;
+  return (
+    <div className="mt-4">
+      <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider mb-2">
+        Pick from your uploads
+      </p>
+      <div className="flex gap-2 overflow-x-auto pb-1">
+        {uploads.map((u) => {
+          const url = `${BASE_URL}api/storage/objects${u.objectPath.replace(/^\/objects/, "")}`;
+          const isCurrent =
+            u.isProfile ||
+            (currentProfileImageUrl !== null && currentProfileImageUrl.endsWith(u.objectPath));
+          return (
+            <button
+              key={u.objectPath}
+              type="button"
+              disabled={busy || isCurrent}
+              onClick={() => onPick(u.objectPath)}
+              className={`relative shrink-0 h-16 w-16 overflow-hidden rounded-sm border-2 transition ${
+                isCurrent
+                  ? "border-primary ring-1 ring-primary/40"
+                  : "border-border hover:border-primary/70"
+              } ${busy ? "opacity-60" : ""}`}
+              title={isCurrent ? "Current profile photo" : "Use as profile photo"}
+            >
+              <img src={url} alt="" loading="lazy" className="h-full w-full object-cover" />
+              {isCurrent && (
+                <span className="absolute inset-x-0 bottom-0 bg-primary/90 py-0.5 text-center text-[8px] font-bold uppercase tracking-wider text-primary-foreground">
+                  Profile
+                </span>
+              )}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 export default function Profile() {
   const [currentPath, setLocation] = useLocation();
   const { isAuthenticated, isLoading: authLoading, login, logout, role, refreshUser } = useAuth();
@@ -612,14 +685,37 @@ export default function Profile() {
         squareSize: 1024,
       });
 
-      const profileImageUrl = `/api/storage${objectPath}`;
-      await updateProfile.mutateAsync({ data: { profileImageUrl, avatarSource: "photo" } });
+      // Task #507: the photo is now a library upload tagged with
+      // `is_profile=true`. The dedicated endpoint clears the prior tag,
+      // sets the new one, updates users.profileImageUrl atomically, and
+      // re-asserts the public ACL — all in one transaction.
+      await setProfileImageFromUpload(objectPath);
       await queryClient.invalidateQueries({ queryKey: getGetMyProfileQueryKey() });
+      await queryClient.invalidateQueries({ queryKey: ["my-uploads-for-profile-picker"] });
     } catch (err: unknown) {
       const errObj = err as { message?: string };
       setPhotoError(errObj?.message ?? "Photo upload failed.");
     } finally {
       setPhotoUploading(false);
+    }
+  }
+
+  /**
+   * Task #507: re-tag an existing library upload as the user's profile photo.
+   * Wraps POST /api/users/me/profile-image so both the upload-and-set flow
+   * (handlePhotoChange) and the thumbnail picker in Edit Profile use the
+   * same call.
+   */
+  async function setProfileImageFromUpload(objectPath: string): Promise<void> {
+    const res = await fetch(`${BASE_URL}api/users/me/profile-image`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({ objectPath }),
+    });
+    if (!res.ok) {
+      const data = (await res.json().catch(() => ({}))) as { error?: string };
+      throw new Error(data.error ?? "Could not save your photo.");
     }
   }
 
@@ -1244,6 +1340,30 @@ export default function Profile() {
                     ? "Toggle between your avatar style and your custom photo, or upload a new photo. We reuse this photo as your face for memes and AI generation."
                     : "Upload a photo of your face. We reuse it for memes, AI images, and AI video memes of you. JPEG, PNG, WebP or GIF, max 5 MB."}
                 </p>
+
+                {/* Task #507 — thumbnail picker.
+                    Once the user has 2+ raw uploads on file, surface them as a
+                    horizontal strip so they can re-tag any previously uploaded
+                    photo as their profile photo without re-uploading. */}
+                <ProfilePhotoThumbnailPicker
+                  currentProfileImageUrl={profile.profileImageUrl ?? null}
+                  busy={photoUploading}
+                  onPick={async (objectPath) => {
+                    if (photoUploading) return;
+                    setPhotoError("");
+                    setPhotoUploading(true);
+                    try {
+                      await setProfileImageFromUpload(objectPath);
+                      await queryClient.invalidateQueries({ queryKey: getGetMyProfileQueryKey() });
+                      await queryClient.invalidateQueries({ queryKey: ["my-uploads-for-profile-picker"] });
+                    } catch (err: unknown) {
+                      const errObj = err as { message?: string };
+                      setPhotoError(errObj?.message ?? "Could not change your photo.");
+                    } finally {
+                      setPhotoUploading(false);
+                    }
+                  }}
+                />
               </div>
 
               <div>

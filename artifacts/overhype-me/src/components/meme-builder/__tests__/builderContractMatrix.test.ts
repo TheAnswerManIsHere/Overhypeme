@@ -27,8 +27,9 @@ import type { Mode } from "../types";
  * wiring it through `sourceKinds.ts`, this test fails before the bug ships.
  */
 
-const PRIMARY = "/objects/uploads/avatar-abc.jpg";
-const VIEWER_WITH_PRIMARY: BuilderViewerCtx = { primaryImageObjectPath: PRIMARY };
+// Task #507 dropped the `primaryImageObjectPath` plumbing — the profile photo
+// now travels through the standard library source kind tagged is_profile.
+const VIEWER: BuilderViewerCtx = {};
 
 interface SourceCase {
   name: string;
@@ -46,12 +47,7 @@ const SOURCE_CASES: SourceCase[] = [
     sourceArea: "stock",
   },
   {
-    name: "primary (viewer has avatar)",
-    source: { kind: "primary" },
-    sourceArea: "my-image",
-  },
-  {
-    name: "library",
+    name: "library (profile photo or any other library entry)",
     source: { kind: "library", objectPath: "/objects/uploads/lib.jpg" },
     sourceArea: "my-image",
   },
@@ -105,7 +101,7 @@ describe("builder contract: every (entryFlow × tier × source-kind) cell hydrat
   it.each(MATRIX)(
     "[$mode/$tier/$entryFlow] $source.name → preview URL is non-null",
     ({ source }) => {
-      const url = resolveBackgroundUrl(source.source, VIEWER_WITH_PRIMARY);
+      const url = resolveBackgroundUrl(source.source, VIEWER);
       expect(url).not.toBeNull();
       expect(typeof url).toBe("string");
       expect(url!.length).toBeGreaterThan(0);
@@ -115,7 +111,7 @@ describe("builder contract: every (entryFlow × tier × source-kind) cell hydrat
   it.each(MATRIX)(
     "[$mode/$tier/$entryFlow] $source.name → server payload is composeMeme-compatible",
     ({ source }) => {
-      const server = toServerImageSource(source.source, VIEWER_WITH_PRIMARY);
+      const server = toServerImageSource(source.source, VIEWER);
       expect(server).not.toBeNull();
       if (server!.type === "stock") {
         expect(typeof server!.pexelsPhotoId).toBe("number");
