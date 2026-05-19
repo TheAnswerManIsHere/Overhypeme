@@ -120,6 +120,27 @@ export function clearWizardState(factId: string): void {
   }
 }
 
+/**
+ * Clear every persisted wizard draft, regardless of factId.
+ * Call this on auth transitions (login/logout) so an in-progress draft
+ * created by one viewer can never leak into another viewer's session.
+ */
+export function clearAllWizardStates(): void {
+  if (!isStorageAvailable()) return;
+  try {
+    const keysToRemove: string[] = [];
+    for (let i = 0; i < window.sessionStorage.length; i += 1) {
+      const k = window.sessionStorage.key(i);
+      if (k && k.startsWith(KEY_PREFIX)) keysToRemove.push(k);
+    }
+    for (const k of keysToRemove) {
+      window.sessionStorage.removeItem(k);
+    }
+  } catch {
+    // Ignore.
+  }
+}
+
 function isPendingWizardState(v: unknown): v is PendingWizardState {
   if (!v || typeof v !== "object") return false;
   const o = v as Record<string, unknown>;

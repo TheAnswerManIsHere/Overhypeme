@@ -103,20 +103,21 @@ function reducer(state: WizardRuntimeState, action: WizardAction): WizardRuntime
     case "set-generation":
       return { ...state, generation: action.generation };
     case "hydrate": {
+      // Identity (name / pronouns) is NEVER hydrated from the persisted draft.
+      // The viewer's identity is owned exclusively by `usePersonName` (and is
+      // kept in lock-step with auth by AuthProfileSync). The wizard receives
+      // the fresh value via `initialName` / `initialPronouns` and must not
+      // let a stale cached identity from a previous session leak through.
       const { schemaVersion, capturedAt, factId, entryFlow, name, pronouns, ...rest } = action.pending;
       void schemaVersion;
       void capturedAt;
       void factId;
       void entryFlow;
+      void name;
+      void pronouns;
       return {
         ...state,
         ...rest,
-        // Only overwrite name/pronouns from the stored draft if the stored
-        // value is non-empty. This preserves the initialName/initialPronouns
-        // passed by the caller (e.g. from usePersonName for guest users) when
-        // the draft was saved without identity data.
-        ...(name ? { name } : {}),
-        ...(pronouns ? { pronouns } : {}),
       };
     }
     case "reset":
@@ -157,7 +158,9 @@ export function useWizardState(args: UseWizardStateArgs): UseWizardStateReturn {
   }, [factId]);
 
   // Persist every state change. Generation status is excluded from the
-  // serialized shape.
+  // serialized shape. Identity (name / pronouns) is intentionally NOT
+  // persisted — it belongs to `usePersonName` (kept in sync with auth) and
+  // flows in through `initialName` / `initialPronouns` on every wizard mount.
   useEffect(() => {
     if (!hydratedRef.current) return;
     const snapshot: PendingWizardState = {
@@ -171,8 +174,6 @@ export function useWizardState(args: UseWizardStateArgs): UseWizardStateReturn {
       source: state.source,
       aspectRatio: state.aspectRatio,
       framingOffset: state.framingOffset,
-      name: state.name,
-      pronouns: state.pronouns,
       textOptions: state.textOptions,
       advancedOptions: state.advancedOptions,
     };
@@ -186,8 +187,6 @@ export function useWizardState(args: UseWizardStateArgs): UseWizardStateReturn {
     state.source,
     state.aspectRatio,
     state.framingOffset,
-    state.name,
-    state.pronouns,
     state.textOptions,
     state.advancedOptions,
   ]);

@@ -7,6 +7,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { trackPageView, trackRouteVisit, getTopRoutes, flushRouteStatsToServer } from "@/lib/analytics";
 import { PersonNameProvider, SHARE_LINK_ACTIVE, usePersonName } from "@/hooks/use-person-name";
+import { clearAllWizardStates } from "@/components/meme-builder/wizard/state/wizardStorage";
 import { FactExpansionProvider } from "@/contexts/fact-expansion-context";
 import { useAuth, AuthProvider } from "@workspace/replit-auth-web";
 import SentryFallback from "@/components/SentryFallback";
@@ -132,11 +133,18 @@ function AuthProfileSync() {
     // Transition: logged in → logged out
     if (prev === true && !isAuthenticated) {
       reset();
+      // Drop every in-flight meme-builder draft so a draft started by the
+      // previous viewer can't leak into the next session.
+      clearAllWizardStates();
       return;
     }
 
     // Transition: unauthenticated → authenticated (or first load as authenticated)
     if (isAuthenticated && prev !== true) {
+      // Same reasoning as logout — wipe any draft from the prior (guest or
+      // other-user) session so the freshly-authenticated viewer always starts
+      // the wizard with their own identity from `usePersonName`.
+      clearAllWizardStates();
       let cancelled = false;
       fetch("/api/users/me", { credentials: "include" })
         .then((r) => r.ok ? r.json() : null)
