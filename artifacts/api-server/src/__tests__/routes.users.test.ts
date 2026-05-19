@@ -539,6 +539,132 @@ describe("GET /users/me/uploads", () => {
     assert.equal(res.body.uploads.length, 2);
     assert.match(res.body.uploads[0].objectPath, /new\.png$/);
     assert.equal(res.body.uploadCount, 2);
+    // Task #507: every row now carries an `isProfile` flag.
+    assert.equal(typeof res.body.uploads[0].isProfile, "boolean");
+  });
+
+  // Task #507: the profile photo is sorted first regardless of createdAt.
+  it("sorts is_profile=true rows ahead of older raw uploads", async () => {
+    const userId = await createTestUser();
+    const sid = await bearerForUser(userId);
+    const profilePath = `/objects/uploads/${randomUUID()}-profile.jpg`;
+    const newerPath = `/objects/uploads/${randomUUID()}-newer.jpg`;
+    await db.insert(uploadImageMetadataTable).values([
+      { objectPath: profilePath, width: 100, height: 100, fileSizeBytes: 1, userId, isProfile: true,  createdAt: new Date(Date.now() - 10000) },
+      { objectPath: newerPath,   width: 100, height: 100, fileSizeBytes: 1, userId, isProfile: false, createdAt: new Date() },
+    ]);
+    const res = await request(makeApp())
+      .get("/users/me/uploads")
+      .set("authorization", `Bearer ${sid}`);
+    assert.equal(res.status, 200);
+    assert.equal(res.body.uploads[0].objectPath, profilePath);
+    assert.equal(res.body.uploads[0].isProfile, true);
+    assert.equal(res.body.uploads[1].isProfile, false);
+  });
+});
+
+describe("POST /users/me/profile-image — task #507", () => {
+
+  it("returns 401 when unauthenticated", async () => {
+    const res = await request(makeApp())
+      .post("/users/me/profile-image")
+      .send({ objectPath: "/objects/uploads/x.jpg" });
+    assert.equal(res.status, 401);
+  });
+
+  it("rejects a missing or malformed objectPath", async () => {
+    const userId = await createTestUser();
+    const sid = await bearerForUser(userId);
+    const res1 = await request(makeApp())
+      .post("/users/me/profile-image")
+      .set("authorization", `Bearer ${sid}`)
+      .send({});
+    assert.equal(res1.status, 400);
+    const res2 = await request(makeApp())
+      .post("/users/me/profile-image")
+      .set("authorization", `Bearer ${sid}`)
+      .send({ objectPath: "https://example.com/x.png" });
+    assert.equal(res2.status, 400);
+  });
+
+  it("returns 404 when the upload row does not exist", async () => {
+    const userId = await createTestUser();
+    const sid = await bearerForUser(userId);
+    const res = await request(makeApp())
+      .post("/users/me/profile-image")
+      .set("authorization", `Bearer ${sid}`)
+      .send({ objectPath: `/objects/uploads/${randomUUID()}-missing.jpg` });
+    assert.equal(res.status, 404);
+  });
+
+  it("returns 403 when the upload belongs to a different user", async () => {
+    const ownerId = await createTestUser();
+    const otherId = await createTestUser();
+    const sid = await bearerForUser(otherId);
+    const path = `/objects/uploads/${randomUUID()}-foreign.jpg`;
+    await db.insert(uploadImageMetadataTable).values({
+      objectPath: path, width: 100, height: 100, fileSizeBytes: 1, userId: ownerId,
+    });
+    const res = await request(makeApp())
+      .post("/users/me/profile-image")
+      .set("authorization", `Bearer ${sid}`)
+      .send({ objectPath: path });
+    assert.equal(res.status, 403);
+  });
+
+  it("tags the row is_profile=true, clears any prior tag, and updates users.profileImageUrl + avatarSource", async () => {
+    const userId = await createTestUser();
+    const sid = await bearerForUser(userId);
+
+    const oldPath = `/objects/uploads/${randomUUID()}-old.jpg`;
+    const newPath = `/objects/uploads/${randomUUID()}-new.jpg`;
+    await db.insert(uploadImageMetadataTable).values([
+      { objectPath: oldPath, width: 100, height: 100, fileSizeBytes: 1, userId, isProfile: true },
+      { objectPath: newPath, width: 100, height: 100, fileSizeBytes: 1, userId, isProfile: false },
+    ]);
+
+    const res = await request(makeApp())
+      .post("/users/me/profile-image")
+      .set("authorization", `Bearer ${sid}`)
+      .send({ objectPath: newPath });
+    assert.equal(res.status, 200);
+    assert.equal(res.body.success, true);
+    assert.equal(res.body.profileImageUrl, `/api/storage${newPath}`);
+
+    const rows = await db
+      .select({ objectPath: uploadImageMetadataTable.objectPath, isProfile: uploadImageMetadataTable.isProfile })
+      .from(uploadImageMetadataTable)
+      .where(eq(uploadImageMetadataTable.userId, userId));
+    const oldRow = rows.find((r) => r.objectPath === oldPath);
+    const newRow = rows.find((r) => r.objectPath === newPath);
+    assert.equal(oldRow?.isProfile, false);
+    assert.equal(newRow?.isProfile, true);
+
+    const [user] = await db
+      .select({ profileImageUrl: usersTable.profileImageUrl, avatarSource: usersTable.avatarSource })
+      .from(usersTable)
+      .where(eq(usersTable.id, userId));
+    assert.equal(user.profileImageUrl, `/api/storage${newPath}`);
+    assert.equal(user.avatarSource, "photo");
+  });
+
+  it("is idempotent — re-posting the same path keeps the row tagged", async () => {
+    const userId = await createTestUser();
+    const sid = await bearerForUser(userId);
+    const path = `/objects/uploads/${randomUUID()}-only.jpg`;
+    await db.insert(uploadImageMetadataTable).values({
+      objectPath: path, width: 100, height: 100, fileSizeBytes: 1, userId, isProfile: true,
+    });
+    const res = await request(makeApp())
+      .post("/users/me/profile-image")
+      .set("authorization", `Bearer ${sid}`)
+      .send({ objectPath: path });
+    assert.equal(res.status, 200);
+    const [row] = await db
+      .select({ isProfile: uploadImageMetadataTable.isProfile })
+      .from(uploadImageMetadataTable)
+      .where(eq(uploadImageMetadataTable.objectPath, path));
+    assert.equal(row.isProfile, true);
   });
 });
 

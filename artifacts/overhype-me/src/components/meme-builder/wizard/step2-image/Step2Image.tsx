@@ -72,7 +72,6 @@ export function Step2Image({
 }: Props) {
   const [, navigate] = useLocation();
   const tier = viewerContext.tier;
-  const hasPrimaryPhoto = !!viewerContext.primaryImageObjectPath;
 
   const [tab, setTab] = useState<SourceTab>(() => {
     // For unregistered users, never inherit a cached AI or self-upload source
@@ -84,7 +83,7 @@ export function Step2Image({
         return state.source.stylizeWithAi ? "ai-you" : "self-upload";
       }
     }
-    return pickDefaultSourceTab(tier, hasPrimaryPhoto);
+    return pickDefaultSourceTab(tier);
   });
   const [upgradeOpen, setUpgradeOpen] = useState(false);
   const [aspectRatio, setAspectRatio] = useState<AspectRatio>(state.aspectRatio ?? "landscape");
@@ -149,18 +148,11 @@ export function Step2Image({
     dispatch({ type: "set-text-options", textOptions });
   }, [textOptions, dispatch]);
 
-  // When the self-upload tab activates and nothing has been chosen yet this
-  // session, auto-pick the primary profile photo so the preview lights up
-  // immediately and "Make my meme" becomes active without an extra tap.
-  // selfUploadImage is deliberately NOT in the deps: we only want to fire
-  // when the tab switches or when the photo path first becomes available —
-  // once the user picks something else we must not clobber their choice.
-  useEffect(() => {
-    if (tab === "self-upload" && !selfUploadImage && viewerContext.primaryImageObjectPath) {
-      setSelfUploadImage({ kind: "primary" });
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tab, viewerContext.primaryImageObjectPath]);
+  // Task #507: previously this auto-picked `kind:"primary"` as the implicit
+  // default. The profile photo is now just a tagged library entry, so the
+  // MyImagePicker library tab auto-selects the first row (server sorts
+  // is_profile DESC, created_at DESC) the moment it mounts — the parent
+  // doesn't need to seed anything.
 
   // Persist the source selection.
   useEffect(() => {
@@ -189,15 +181,12 @@ export function Step2Image({
   const backgroundUrl = useMemo(() => {
     if (tab === "stock" && stockSelectedUrl) return stockSelectedUrl;
     if (tab === "self-upload" || tab === "ai-you") {
-      if (myImage?.kind === "primary" && viewerContext.primaryImageObjectPath) {
-        return `/api/storage/objects${viewerContext.primaryImageObjectPath.replace(/^\/objects/, "")}`;
-      }
       if (myImage && (myImage.kind === "library" || myImage.kind === "fresh" || myImage.kind === "ai-styling")) {
         return `/api/storage/objects${myImage.objectPath.replace(/^\/objects/, "")}`;
       }
     }
     return null;
-  }, [tab, stockSelectedUrl, myImage, viewerContext.primaryImageObjectPath]);
+  }, [tab, stockSelectedUrl, myImage]);
 
   // Map split index into top/bottom text via the existing fact-text words.
   const memeTextOptions: MemeTextOptions = useMemo(() => {
@@ -444,7 +433,6 @@ export function Step2Image({
           {tab === "self-upload" && tier !== "unregistered" && (
             <SelfUploadSourcePanel
               factId={factId}
-              primaryImageObjectPath={viewerContext.primaryImageObjectPath}
               selected={selfUploadImage}
               onSelect={handleSelfUploadImageSelect}
             />
@@ -453,7 +441,6 @@ export function Step2Image({
           {tab === "ai-you" && (
             <AiSourcePanel
               factId={factId}
-              primaryImageObjectPath={viewerContext.primaryImageObjectPath}
               selected={aiStylingImage}
               onSelect={handleAiStylingSelect}
               subTab={aiSubTab}

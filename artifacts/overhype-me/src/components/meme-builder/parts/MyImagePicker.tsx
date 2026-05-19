@@ -2,15 +2,13 @@ import { useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { cn } from "@/lib/utils";
 import { useDesktopModality } from "../hooks/useDesktopModality";
-import { useMyImages } from "../hooks/useMyImages";
+import { useMyImages, type MyImageRow } from "../hooks/useMyImages";
 import { useAutoSelectDefault } from "../hooks/useAutoSelectDefault";
 import { SelfUploadZone } from "./SelfUploadZone";
 import type { MyImageSource } from "../types";
 
 interface Props {
   factId: string;
-  /** From the auth viewer; the user's avatar object_path. */
-  primaryImageObjectPath?: string;
   /** Show the AI stylings tab. */
   showAiStylings: boolean;
   selected: MyImageSource | null;
@@ -19,18 +17,23 @@ interface Props {
   hideTabs?: Tab[];
 }
 
-type Tab = "primary" | "library" | "ai" | "upload";
+type Tab = "library" | "ai" | "upload";
 
-export function MyImagePicker({ factId, primaryImageObjectPath, showAiStylings, selected, onSelect, hideTabs }: Props) {
+/**
+ * Task #507 — the "Profile photo" tab is gone. The user's profile photo now
+ * appears as the first tile in the "My photos" grid with a small "PROFILE"
+ * badge (the server tags it via `upload_image_metadata.is_profile=true` and
+ * sorts it first). The library tab auto-selects whichever image is first
+ * (so the profile photo is the implicit default on tab activation).
+ */
+export function MyImagePicker({ factId, showAiStylings, selected, onSelect, hideTabs }: Props) {
   const [tab, setTab] = useState<Tab>(() => {
-    const preferred: Tab = primaryImageObjectPath ? "primary" : "library";
+    const preferred: Tab = "library";
     if (!hideTabs?.includes(preferred)) return preferred;
-    // Preferred tab is hidden — fall back to first visible non-hidden tab.
-    const candidates: Tab[] = ["primary", "library", "ai", "upload"];
+    const candidates: Tab[] = ["library", "ai", "upload"];
     return (
       candidates.find((t) => {
         if (hideTabs?.includes(t)) return false;
-        if (t === "primary") return !!primaryImageObjectPath;
         if (t === "ai") return showAiStylings;
         return true;
       }) ?? "upload"
@@ -42,22 +45,10 @@ export function MyImagePicker({ factId, primaryImageObjectPath, showAiStylings, 
   const library = useMyImages({ enabled: tab === "library", transform: "raw", reloadKey });
   const stylings = useMyImages({ enabled: tab === "ai", transform: "ai", factId, reloadKey });
 
-  // When the picker mounts in the "primary" tab and the viewer has a primary
-  // photo, dispatch the selection upward exactly once so `state.myImage`
-  // reflects the visible default and the live preview can render immediately.
-  // Without this the parent reducer never receives the implicit selection and
-  // `useBackgroundUrl` returns null — see task #495.
-  useAutoSelectDefault<MyImageSource>({
-    enabled: tab === "primary" && !!primaryImageObjectPath && selected?.kind !== "primary",
-    identityKey: primaryImageObjectPath ? `primary:${primaryImageObjectPath}` : null,
-    resolveDefault: () => ({ kind: "primary" }),
-    onSelect,
-  });
-
-  // When there is no primary photo (e.g. the user's Clerk avatar is an
-  // external URL that extractObjectPath can't resolve), fall back to
-  // auto-selecting the most-recently-uploaded library photo.  Only fires
-  // once per loaded result set and never overrides an existing selection.
+  // Auto-pick the first library image on tab activation so the preview lights
+  // up immediately without an extra tap. The server already sorts the profile
+  // photo first (is_profile DESC, created_at DESC), so this is also how the
+  // old "primary" default is preserved.
   const firstLibraryPath = !library.isLoading && library.rows.length > 0 ? library.rows[0].objectPath : null;
   useAutoSelectDefault<MyImageSource>({
     enabled: tab === "library" && !selected && !!firstLibraryPath,
@@ -71,7 +62,6 @@ export function MyImagePicker({ factId, primaryImageObjectPath, showAiStylings, 
       && selected.objectPath === objectPath;
 
   const tabs: { value: Tab; label: string; visible: boolean }[] = [
-    { value: "primary", label: "Profile photo", visible: !!primaryImageObjectPath && !hideTabs?.includes("primary") },
     { value: "library", label: "My photos",   visible: !hideTabs?.includes("library") },
     { value: "ai",      label: "AI stylings", visible: showAiStylings && !hideTabs?.includes("ai") },
     { value: "upload",  label: "Upload new",  visible: !hideTabs?.includes("upload") },
@@ -95,32 +85,12 @@ export function MyImagePicker({ factId, primaryImageObjectPath, showAiStylings, 
         ))}
       </div>
 
-      {tab === "primary" && primaryImageObjectPath && (
-        <div className="space-y-1.5">
-          <button
-            type="button"
-            onClick={() => onSelect({ kind: "primary" })}
-            className={cn(
-              "block w-full overflow-hidden rounded-md border-2 transition",
-              selected?.kind === "primary" ? "border-primary" : "border-transparent hover:border-secondary",
-            )}
-          >
-            <img
-              src={`/api/storage/objects${primaryImageObjectPath.replace(/^\/objects/, "")}`}
-              alt="Your profile photo"
-              className="h-40 w-full object-cover"
-            />
-          </button>
-          <p className="text-center text-xs text-muted-foreground">Your profile photo</p>
-        </div>
-      )}
-
       {tab === "library" && (
         <ImageGrid
           isDesktop={isDesktop}
           isLoading={library.isLoading}
           isError={library.isError}
-          rows={library.rows.map((r) => ({ objectPath: r.objectPath, url: storageUrlFor(r.objectPath) }))}
+          rows={library.rows.map((r) => ({ objectPath: r.objectPath, url: storageUrlFor(r.objectPath), isProfile: r.isProfile }))}
           isSelected={isSelectedObject}
           onSelect={(objectPath) => onSelect({ kind: "library", objectPath })}
           emptyText="You haven't uploaded any photos yet."
@@ -132,7 +102,7 @@ export function MyImagePicker({ factId, primaryImageObjectPath, showAiStylings, 
           isDesktop={isDesktop}
           isLoading={stylings.isLoading}
           isError={stylings.isError}
-          rows={stylings.rows.map((r) => ({ objectPath: r.objectPath, url: storageUrlFor(r.objectPath) }))}
+          rows={stylings.rows.map((r) => ({ objectPath: r.objectPath, url: storageUrlFor(r.objectPath), isProfile: false }))}
           isSelected={isSelectedObject}
           onSelect={(objectPath) => onSelect({ kind: "ai-styling", objectPath })}
           emptyText="No AI stylings for this fact yet."
@@ -163,11 +133,17 @@ function storageUrlFor(objectPath: string): string {
   return `/api/storage/objects${objectPath.replace(/^\/objects/, "")}`;
 }
 
+interface ImageGridRow {
+  objectPath: string;
+  url: string;
+  isProfile: boolean;
+}
+
 interface ImageGridProps {
   isDesktop: boolean;
   isLoading: boolean;
   isError: boolean;
-  rows: { objectPath: string; url: string }[];
+  rows: ImageGridRow[];
   isSelected: (objectPath: string) => boolean;
   onSelect: (objectPath: string) => void;
   emptyText: string;
@@ -197,8 +173,19 @@ function ImageGrid({ isDesktop, isLoading, isError, rows, isSelected, onSelect, 
           )}
         >
           <img src={r.url} alt="" loading="lazy" className="h-full w-full object-cover" />
+          {r.isProfile && (
+            <span
+              aria-label="Profile photo"
+              data-testid="my-image-profile-badge"
+              className="absolute left-1 top-1 rounded-sm bg-primary/90 px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-wider text-primary-foreground"
+            >
+              Profile
+            </span>
+          )}
         </button>
       ))}
     </div>
   );
 }
+
+export type { MyImageRow };

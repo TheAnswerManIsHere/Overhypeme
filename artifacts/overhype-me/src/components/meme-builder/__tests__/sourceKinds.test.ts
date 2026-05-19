@@ -7,9 +7,11 @@ import {
 } from "../integration/sourceKinds";
 import type { BuilderInternalState } from "../state/useBuilderState";
 
-const PRIMARY = "/objects/uploads/avatar-abc.jpg";
-const VIEWER = { primaryImageObjectPath: PRIMARY };
-const VIEWER_NO_PRIMARY = {};
+// Task #507: `viewer` is now empty — the profile photo travels through the
+// standard `kind:"library"` source kind. The empty object is kept as the
+// argument to preserve the helper signatures (in case future plumbing needs
+// to re-introduce viewer-derived state).
+const VIEWER = {};
 
 function state(overrides: Partial<BuilderInternalState> = {}): BuilderInternalState {
   return {
@@ -72,16 +74,6 @@ describe("resolveBackgroundUrl", () => {
     ).toBeNull();
   });
 
-  it("resolves primary against the viewer's avatar", () => {
-    expect(resolveBackgroundUrl({ kind: "primary" }, VIEWER)).toBe(
-      `/api/storage/objects/uploads/avatar-abc.jpg`,
-    );
-  });
-
-  it("returns null for primary when the viewer has no avatar", () => {
-    expect(resolveBackgroundUrl({ kind: "primary" }, VIEWER_NO_PRIMARY)).toBeNull();
-  });
-
   it.each(["library", "fresh", "ai-styling"] as const)(
     "resolves %s through the storage delivery route",
     (kind) => {
@@ -106,17 +98,6 @@ describe("toServerImageSource", () => {
     ).toEqual({ type: "stock", pexelsPhotoId: 12345 });
   });
 
-  it("maps primary to an upload payload using the viewer's avatar", () => {
-    expect(toServerImageSource({ kind: "primary" }, VIEWER)).toEqual({
-      type: "upload",
-      uploadKey: PRIMARY,
-    });
-  });
-
-  it("returns null for primary when the viewer has no avatar (cannot save)", () => {
-    expect(toServerImageSource({ kind: "primary" }, VIEWER_NO_PRIMARY)).toBeNull();
-  });
-
   it.each(["library", "fresh", "ai-styling"] as const)(
     "maps %s to an upload payload",
     (kind) => {
@@ -128,12 +109,6 @@ describe("toServerImageSource", () => {
 });
 
 describe("selfUploadObjectPath", () => {
-  it("returns the viewer's avatar for primary", () => {
-    expect(selfUploadObjectPath({ kind: "primary" }, VIEWER)).toBe(PRIMARY);
-  });
-  it("returns null for primary without a viewer avatar", () => {
-    expect(selfUploadObjectPath({ kind: "primary" }, VIEWER_NO_PRIMARY)).toBeNull();
-  });
   it.each(["library", "fresh", "ai-styling"] as const)(
     "returns the carried objectPath for %s",
     (kind) => {
@@ -147,23 +122,22 @@ describe("selfUploadObjectPath", () => {
 describe("regression: every source kind has a non-null preview AND a valid server payload", () => {
   // The contract task #495 locks in: whenever a picker has a default
   // selection, the live-preview hook returns a non-null URL, and on save the
-  // resulting imageSource is one composeMeme can resolve. Walking the full
-  // matrix here ensures adding a new source kind without wiring both helpers
-  // breaks this test loudly rather than shipping a black-canvas bug.
+  // resulting imageSource is one composeMeme can resolve. Task #507 dropped
+  // the `primary` kind — the profile photo now appears as a tagged library
+  // entry and rides the standard `library` branch.
   const cases = [
-    { name: "stock", source: { kind: "stock" as const, stockImageId: "10", stockImageUrl: "https://x" }, viewer: VIEWER },
-    { name: "primary (with avatar)", source: { kind: "primary" as const }, viewer: VIEWER },
-    { name: "library", source: { kind: "library" as const, objectPath: "/objects/a.jpg" }, viewer: VIEWER },
-    { name: "fresh", source: { kind: "fresh" as const, objectPath: "/objects/b.jpg" }, viewer: VIEWER },
-    { name: "ai-styling", source: { kind: "ai-styling" as const, objectPath: "/objects/c.jpg" }, viewer: VIEWER },
+    { name: "stock", source: { kind: "stock" as const, stockImageId: "10", stockImageUrl: "https://x" } },
+    { name: "library", source: { kind: "library" as const, objectPath: "/objects/a.jpg" } },
+    { name: "fresh", source: { kind: "fresh" as const, objectPath: "/objects/b.jpg" } },
+    { name: "ai-styling", source: { kind: "ai-styling" as const, objectPath: "/objects/c.jpg" } },
   ];
 
-  it.each(cases)("$name produces a non-null preview URL", ({ source, viewer }) => {
-    expect(resolveBackgroundUrl(source, viewer)).not.toBeNull();
+  it.each(cases)("$name produces a non-null preview URL", ({ source }) => {
+    expect(resolveBackgroundUrl(source, VIEWER)).not.toBeNull();
   });
 
-  it.each(cases)("$name produces a server-bound imageSource", ({ source, viewer }) => {
-    const server = toServerImageSource(source, viewer);
+  it.each(cases)("$name produces a server-bound imageSource", ({ source }) => {
+    const server = toServerImageSource(source, VIEWER);
     expect(server).not.toBeNull();
     if (server!.type === "upload") {
       expect(server!.uploadKey).toMatch(/^\/objects\//);

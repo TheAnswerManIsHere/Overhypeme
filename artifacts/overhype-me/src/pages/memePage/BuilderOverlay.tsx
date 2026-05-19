@@ -2,10 +2,7 @@ import { Suspense, useEffect, useState } from "react";
 import { useLocation } from "wouter";
 import { lazyWithRetry } from "@/lib/lazy-retry";
 import { useAuth } from "@workspace/replit-auth-web";
-import {
-  roleToTier,
-  extractObjectPath,
-} from "@/components/meme-builder/integration/studioAdapter";
+import { roleToTier } from "@/components/meme-builder/integration/studioAdapter";
 import type {
   BuilderResult,
   EntryFlow,
@@ -45,7 +42,11 @@ export function BuilderOverlay({
   const [, setLocation] = useLocation();
   const { user, role } = useAuth();
   const tier = roleToTier(role);
-  const primaryImageObjectPath = extractObjectPath(user?.profileImageUrl);
+  // Task #507: "has a profile photo" is now a simple presence check on
+  // `users.profileImageUrl` — first-party uploads and external Clerk/OAuth
+  // photo URLs both count, since the meme builder's library tab will only
+  // surface the ones we host anyway.
+  const hasProfileImage = !!user?.profileImageUrl;
   const { name: guestName, pronouns: guestPronouns } = usePersonName();
   const [showUploadNudge, setShowUploadNudge] = useState(false);
 
@@ -57,10 +58,10 @@ export function BuilderOverlay({
     setShowUploadNudge(
       mode === "stock"
       && tier !== "unregistered"
-      && !primaryImageObjectPath
+      && !hasProfileImage
       && entryFlow === "remix",
     );
-  }, [open, mode, tier, primaryImageObjectPath, entryFlow]);
+  }, [open, mode, tier, hasProfileImage, entryFlow]);
 
   if (!open) return null;
 
@@ -116,7 +117,6 @@ export function BuilderOverlay({
                 userId: user?.id,
                 name: user?.displayName ?? (tier === "unregistered" ? guestName : undefined),
                 pronouns: user?.pronouns ?? (tier === "unregistered" ? guestPronouns : undefined),
-                primaryImageObjectPath,
                 hasLibraryImages: tier !== "unregistered",
               }}
               entryFlow={entryFlow}

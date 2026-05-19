@@ -27,7 +27,6 @@ import {
 import { BuilderOverlay } from "@/pages/memePage/BuilderOverlay";
 import { MemeShareModal } from "@/components/share/MemeShareModal";
 import type { EntryFlow, Mode } from "@/components/meme-builder/types";
-import { extractObjectPath } from "@/components/meme-builder/integration/studioAdapter";
 
 interface StoredImageSource {
   type?: string;
@@ -79,7 +78,11 @@ export default function MemePage() {
   const [, params] = useRoute("/m/:slug");
   const { user, role } = useAuth();
   const slug = params?.slug ?? "";
-  const primaryImageObjectPath = extractObjectPath(user?.profileImageUrl);
+  // Task #507: open the builder in self-upload mode whenever the viewer has
+  // ANY profile photo on file (first-party upload or external Clerk/OAuth
+  // URL). The picker will surface library uploads only, so the first-party
+  // case still gets a tappable thumbnail.
+  const hasProfileImage = !!user?.profileImageUrl;
 
   const searchParams = new URLSearchParams(
     typeof window !== "undefined" ? window.location.search : "",
@@ -199,7 +202,7 @@ export default function MemePage() {
 
   const openMakeAboutMe = () => {
     if (!factTemplateReady) return;
-    const wantsSelfUpload = !!primaryImageObjectPath;
+    const wantsSelfUpload = hasProfileImage;
     setBuilder({
       mode: wantsSelfUpload ? "self-upload" : "stock",
       entryFlow: "remix",

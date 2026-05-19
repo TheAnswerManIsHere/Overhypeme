@@ -456,12 +456,12 @@ router.get("/users/me/uploads", async (req: Request, res: Response) => {
   const [rows, countResult, maxUploads] = await Promise.all([
     db.execute(sql`
       SELECT object_path, width, height, is_low_res, file_size_bytes, created_at,
-             transform, source_object_path, fact_id, transform_params_hash
+             transform, source_object_path, fact_id, transform_params_hash, is_profile
       FROM upload_image_metadata
       WHERE user_id = ${req.user.id}
         ${transformPredicate}
         ${factPredicate}
-      ORDER BY created_at DESC
+      ORDER BY is_profile DESC, created_at DESC
       LIMIT ${displayLimit}
     `),
     db.execute(sql`
@@ -485,6 +485,7 @@ router.get("/users/me/uploads", async (req: Request, res: Response) => {
     source_object_path: string | null;
     fact_id: number | null;
     transform_params_hash: string | null;
+    is_profile: boolean;
   }>).map(r => ({
     objectPath: r.object_path,
     width: r.width,
@@ -496,11 +497,78 @@ router.get("/users/me/uploads", async (req: Request, res: Response) => {
     sourceObjectPath: r.source_object_path,
     factId: r.fact_id,
     transformParamsHash: r.transform_params_hash,
+    isProfile: r.is_profile,
   }));
 
   const uploadCount = (countResult.rows[0] as { total: number } | undefined)?.total ?? 0;
 
   res.json({ uploads, uploadCount, maxUploads, displayLimit });
+});
+
+/**
+ * POST /users/me/profile-image
+ *
+ * Task #507: re-tag an existing library upload as the user's profile photo.
+ * In one transaction, clears `is_profile` on any prior row for this user,
+ * sets `is_profile=true` on the target row (which must belong to this user),
+ * updates `users.profileImageUrl` to the public storage URL, and re-asserts a
+ * public ACL on the object. Idempotent — submitting the same objectPath again
+ * is a no-op.
+ */
+router.post("/users/me/profile-image", async (req: Request, res: Response) => {
+  if (!req.isAuthenticated()) { res.status(401).json({ error: "Unauthorized" }); return; }
+  const userId = req.user.id;
+
+  const body = req.body as { objectPath?: unknown };
+  const objectPath = typeof body?.objectPath === "string" ? body.objectPath.trim() : "";
+  if (!objectPath || !objectPath.startsWith("/objects/")) {
+    res.status(400).json({ error: "objectPath is required and must start with /objects/" });
+    return;
+  }
+
+  // Verify the upload row exists and belongs to this user.
+  const owner = await db.execute(sql`
+    SELECT user_id FROM upload_image_metadata WHERE object_path = ${objectPath} LIMIT 1
+  `);
+  const ownerRow = owner.rows[0] as { user_id: string | null } | undefined;
+  if (!ownerRow) {
+    res.status(404).json({ error: "Upload not found" });
+    return;
+  }
+  if (ownerRow.user_id && ownerRow.user_id !== userId) {
+    res.status(403).json({ error: "Forbidden" });
+    return;
+  }
+
+  const newProfileImageUrl = `/api/storage${objectPath}`;
+
+  await db.transaction(async (tx) => {
+    await tx.execute(sql`
+      UPDATE upload_image_metadata
+      SET is_profile = false
+      WHERE user_id = ${userId} AND is_profile = true AND object_path <> ${objectPath}
+    `);
+    await tx.execute(sql`
+      UPDATE upload_image_metadata
+      SET is_profile = true, user_id = COALESCE(user_id, ${userId})
+      WHERE object_path = ${objectPath}
+    `);
+    await tx.update(usersTable)
+      .set({ profileImageUrl: newProfileImageUrl, avatarSource: "photo" })
+      .where(eq(usersTable.id, userId));
+  });
+
+  try {
+    const objectStorageService = new ObjectStorageService();
+    await objectStorageService.trySetObjectEntityAclPolicy(objectPath, {
+      owner: userId,
+      visibility: "public",
+    });
+  } catch (err) {
+    logger.error({ err }, "[users] Failed to set ACL on profile image (POST /users/me/profile-image)");
+  }
+
+  res.json({ success: true, profileImageUrl: newProfileImageUrl, objectPath });
 });
 
 // GET /users/me/memes — list all non-deleted memes created by the current user

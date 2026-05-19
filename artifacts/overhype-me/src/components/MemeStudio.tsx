@@ -30,7 +30,6 @@ import type { BuilderResult } from "@/components/meme-builder/types";
 import {
   studioPathToMode,
   roleToTier,
-  extractObjectPath,
   type StudioImagePath,
 } from "@/components/meme-builder/integration/studioAdapter";
 
@@ -656,11 +655,6 @@ function NewBuilderAdapter({
   // parent has it.
   const templateText = rawFactText ?? factText;
 
-  // The user's avatar object_path, when stored in our own storage bucket.
-  // External avatars (gravatar, oauth-provided URLs) are skipped — the
-  // picker simply won't show a "Primary" tab for those users.
-  const primaryImageObjectPath = extractObjectPath(user?.profileImageUrl);
-
   const handleComplete = (result: BuilderResult) => {
     if (result.kind === "signup-required") {
       // Trigger the same login flow the legacy builder used. The pending
@@ -703,7 +697,6 @@ function NewBuilderAdapter({
           userId: user?.id,
           name: user?.displayName ?? undefined,
           pronouns: user?.pronouns ?? undefined,
-          primaryImageObjectPath,
           hasLibraryImages: tier !== "unregistered",
         }}
         entryFlow="fact-detail"

@@ -84,6 +84,12 @@ export const uploadImageMetadataTable = pgTable("upload_image_metadata", {
   /** True when the user opted into nsfw mode and the classifier flagged the upload. */
   isNsfw: boolean("is_nsfw").notNull().default(false),
   /**
+   * Task #507: when true, this upload is the user's current profile photo.
+   * Enforced one-per-user via a partial unique index on (user_id) WHERE is_profile.
+   * Set by POST /users/me/profile-image (which also updates users.profileImageUrl).
+   */
+  isProfile: boolean("is_profile").notNull().default(false),
+  /**
    * Phase-3 lineage: 'pulid' for PuLID-stylized derivatives, 'pulid_fallback_text'
    * for derivatives produced when PuLID detected no face and fell through to the
    * standard text-to-image generator. NULL for raw user uploads.

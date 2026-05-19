@@ -55,10 +55,10 @@ export function MemeBuilder(props: MemeBuilderProps) {
   const [pulidProgress, setPulidProgress] = useState(0);
   const [fallbackNotice, setFallbackNotice] = useState<string | null>(null);
 
-  const viewerCtx = useMemo(
-    () => ({ primaryImageObjectPath: viewerContext.primaryImageObjectPath }),
-    [viewerContext.primaryImageObjectPath],
-  );
+  // Task #507: viewerCtx is now empty — the profile photo lives in the library
+  // and is selected via the standard `kind:"library"` source. Kept as a stable
+  // reference so memoization downstream still has a single object identity.
+  const viewerCtx = useMemo(() => ({}), []);
 
   // Debounced background URL for the preview; raw selection state updates
   // immediately so the picker still feels responsive. The resolution lives
@@ -255,7 +255,6 @@ export function MemeBuilder(props: MemeBuilderProps) {
         <>
           <MyImagePicker
             factId={factId}
-            primaryImageObjectPath={viewerContext.primaryImageObjectPath}
             showAiStylings={cell.showStylizeToggle}
             selected={state.myImage}
             onSelect={(next) => dispatch({ type: "set-my-image", myImage: next })}

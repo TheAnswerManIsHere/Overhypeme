@@ -11,6 +11,8 @@ export interface MyImageRow {
   sourceObjectPath: string | null;
   factId: number | null;
   transformParamsHash: string | null;
+  /** True when this upload is the user's current profile photo. Task #507. */
+  isProfile: boolean;
 }
 
 interface UploadsResponse {

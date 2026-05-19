@@ -62,7 +62,6 @@ export function MatrixHarness() {
             userId: tier === "unregistered" ? undefined : "demo-user",
             name: "Casey",
             pronouns: "they/them",
-            primaryImageObjectPath: tier !== "unregistered" ? "/objects/uploads/demo-avatar.jpg" : undefined,
             hasLibraryImages: true,
           }}
           entryFlow={entryFlow}

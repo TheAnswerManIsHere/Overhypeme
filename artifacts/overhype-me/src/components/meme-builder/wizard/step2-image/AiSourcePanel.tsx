@@ -11,7 +11,6 @@ export type AiSubTab = "existing" | "create";
 
 interface Props {
   factId: string;
-  primaryImageObjectPath?: string;
   /** Active selection on the wizard — only "ai-styling" kinds are valid here. */
   selected: MyImageSource | null;
   /** Called when the user picks an existing AI styling tile. */
@@ -41,7 +40,6 @@ interface Props {
  */
 export function AiSourcePanel({
   factId,
-  primaryImageObjectPath,
   selected,
   onSelect,
   subTab,
@@ -75,7 +73,6 @@ export function AiSourcePanel({
             </p>
             <MyImagePicker
               factId={factId}
-              primaryImageObjectPath={primaryImageObjectPath}
               showAiStylings={false}
               hideTabs={["ai"]}
               selected={createReference}
@@ -93,13 +90,10 @@ export function AiSourcePanel({
           <Button
             type="button"
             data-testid="ai-create-button"
-            disabled={creating || !canCreate(createReference, primaryImageObjectPath)}
+            disabled={creating || !canCreate(createReference)}
             onClick={() => {
               if (creating) return;
-              const referenceImagePath = resolveReferencePath(
-                createReference,
-                primaryImageObjectPath,
-              );
+              const referenceImagePath = resolveReferencePath(createReference);
               if (!referenceImagePath) return;
               onCreate({ referenceImagePath, aiStyleId });
             }}
@@ -113,19 +107,12 @@ export function AiSourcePanel({
   );
 }
 
-function canCreate(
-  ref: MyImageSource | null,
-  primaryImageObjectPath: string | undefined,
-): boolean {
-  return !!resolveReferencePath(ref, primaryImageObjectPath);
+function canCreate(ref: MyImageSource | null): boolean {
+  return !!resolveReferencePath(ref);
 }
 
-function resolveReferencePath(
-  ref: MyImageSource | null,
-  primaryImageObjectPath: string | undefined,
-): string | null {
+function resolveReferencePath(ref: MyImageSource | null): string | null {
   if (!ref) return null;
-  if (ref.kind === "primary") return primaryImageObjectPath ?? null;
   if (ref.kind === "library" || ref.kind === "fresh" || ref.kind === "ai-styling") {
     return ref.objectPath;
   }
