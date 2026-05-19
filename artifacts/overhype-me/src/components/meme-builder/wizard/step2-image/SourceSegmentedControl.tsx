@@ -98,18 +98,15 @@ export function SourceSegmentedControl({
 }
 
 /**
- * Picks the source tab to show on entry per the tier × photo-on-file matrix.
- *   unregistered                  → self-upload (shows signup CTA in the panel)
- *   registered + primary photo    → self-upload
- *   registered without photo      → stock
- *   legendary + primary photo     → ai-you
- *   legendary without photo       → stock
+ * Picks the source tab to show on entry per tier.
+ *   legendary    → ai-you   (AI stylised photo is the headline feature)
+ *   registered   → self-upload  (Photo tab — encourage uploading their face)
+ *   unregistered → self-upload  (shows signup CTA in the panel)
  */
 export function pickDefaultSourceTab(
   tier: Tier,
-  hasPrimaryPhoto: boolean,
+  _hasPrimaryPhoto: boolean,
 ): SourceTab {
-  if (tier === "legendary") return hasPrimaryPhoto ? "ai-you" : "stock";
-  if (tier === "registered") return hasPrimaryPhoto ? "self-upload" : "stock";
+  if (tier === "legendary") return "ai-you";
   return "self-upload";
 }

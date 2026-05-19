@@ -69,9 +69,9 @@ describe("pickDefaultSourceTab", () => {
   const cases: [Parameters<typeof pickDefaultSourceTab>[0], boolean, ReturnType<typeof pickDefaultSourceTab>][] = [
     ["unregistered", false, "self-upload"],
     ["unregistered", true, "self-upload"],
-    ["registered", false, "stock"],
+    ["registered", false, "self-upload"],
     ["registered", true, "self-upload"],
-    ["legendary", false, "stock"],
+    ["legendary", false, "ai-you"],
     ["legendary", true, "ai-you"],
   ];
 
