@@ -3,6 +3,7 @@ import { Button } from "@/components/ui/Button";
 import { cn } from "@/lib/utils";
 import { useDesktopModality } from "../../hooks/useDesktopModality";
 import { useMyImages } from "../../hooks/useMyImages";
+import { useAutoSelectDefault } from "../../hooks/useAutoSelectDefault";
 import { MyImagePicker } from "../../parts/MyImagePicker";
 import type { MyImageSource } from "../../types";
 import { AI_STYLE_PRESETS, DEFAULT_AI_STYLE_ID } from "./aiStylePresets";
@@ -172,6 +173,20 @@ function ExistingAiImagesGrid({
 }: ExistingAiImagesGridProps) {
   const isDesktop = useDesktopModality();
   const stylings = useMyImages({ enabled: true, transform: "ai", factId, reloadKey });
+
+  // Auto-select the first AI styling when the grid loads and nothing is
+  // selected yet, so the meme preview lights up without an extra tap.
+  const firstAiPath =
+    !stylings.isLoading && stylings.rows.length > 0
+      ? stylings.rows[0].objectPath
+      : null;
+  useAutoSelectDefault<MyImageSource>({
+    enabled: !selected && !!firstAiPath,
+    identityKey: firstAiPath,
+    resolveDefault: () =>
+      firstAiPath ? { kind: "ai-styling", objectPath: firstAiPath } : null,
+    onSelect,
+  });
 
   if (stylings.isLoading) {
     return <div className="h-32 animate-pulse rounded-md bg-secondary/40" />;
