@@ -60,8 +60,25 @@ export type WizardAction =
   | { type: "set-text-options"; textOptions: MemeTextOptions }
   | { type: "set-advanced-options"; advancedOptions: WizardAdvancedOptions }
   | { type: "set-generation"; generation: GenerationStatus }
+  | { type: "set-video-source-mode"; videoSourceMode: NonNullable<WizardAdvancedOptions["videoSourceMode"]> }
+  | { type: "set-video-look-style-id"; videoLookStyleId: string }
+  | { type: "set-video-motion-preset-id"; videoMotionPresetId: string | null }
+  | { type: "set-video-engine-id"; videoEngineId: string }
+  | { type: "set-video-engine-mode"; videoEngineMode: string }
+  | { type: "set-video-custom-mode-prompt"; videoCustomModePrompt: string }
+  | { type: "set-video-override-look"; videoOverrideLookForSource: boolean }
   | { type: "hydrate"; pending: PendingWizardState }
   | { type: "reset" };
+
+function mergeAdvanced(
+  state: WizardRuntimeState,
+  patch: Partial<WizardAdvancedOptions>,
+): WizardRuntimeState {
+  return {
+    ...state,
+    advancedOptions: { ...(state.advancedOptions ?? {}), ...patch },
+  };
+}
 
 function initialState(): WizardRuntimeState {
   return {
@@ -102,23 +119,27 @@ function reducer(state: WizardRuntimeState, action: WizardAction): WizardRuntime
       return { ...state, advancedOptions: action.advancedOptions };
     case "set-generation":
       return { ...state, generation: action.generation };
+    case "set-video-source-mode":
+      return mergeAdvanced(state, { videoSourceMode: action.videoSourceMode });
+    case "set-video-look-style-id":
+      return mergeAdvanced(state, { videoLookStyleId: action.videoLookStyleId });
+    case "set-video-motion-preset-id":
+      return mergeAdvanced(state, { videoMotionPresetId: action.videoMotionPresetId });
+    case "set-video-engine-id":
+      return mergeAdvanced(state, { videoEngineId: action.videoEngineId });
+    case "set-video-engine-mode":
+      return mergeAdvanced(state, { videoEngineMode: action.videoEngineMode });
+    case "set-video-custom-mode-prompt":
+      return mergeAdvanced(state, { videoCustomModePrompt: action.videoCustomModePrompt });
+    case "set-video-override-look":
+      return mergeAdvanced(state, { videoOverrideLookForSource: action.videoOverrideLookForSource });
     case "hydrate": {
-      // Identity (name / pronouns) is NEVER hydrated from the persisted draft.
-      // The viewer's identity is owned exclusively by `usePersonName` (and is
-      // kept in lock-step with auth by AuthProfileSync). The wizard receives
-      // the fresh value via `initialName` / `initialPronouns` and must not
-      // let a stale cached identity from a previous session leak through.
-      const { schemaVersion, capturedAt, factId, entryFlow, name, pronouns, ...rest } = action.pending;
+      const { schemaVersion, capturedAt, factId, entryFlow, ...rest } = action.pending;
       void schemaVersion;
       void capturedAt;
       void factId;
       void entryFlow;
-      void name;
-      void pronouns;
-      return {
-        ...state,
-        ...rest,
-      };
+      return { ...state, ...rest };
     }
     case "reset":
       return initialState();
@@ -158,9 +179,7 @@ export function useWizardState(args: UseWizardStateArgs): UseWizardStateReturn {
   }, [factId]);
 
   // Persist every state change. Generation status is excluded from the
-  // serialized shape. Identity (name / pronouns) is intentionally NOT
-  // persisted — it belongs to `usePersonName` (kept in sync with auth) and
-  // flows in through `initialName` / `initialPronouns` on every wizard mount.
+  // serialized shape.
   useEffect(() => {
     if (!hydratedRef.current) return;
     const snapshot: PendingWizardState = {
@@ -174,6 +193,8 @@ export function useWizardState(args: UseWizardStateArgs): UseWizardStateReturn {
       source: state.source,
       aspectRatio: state.aspectRatio,
       framingOffset: state.framingOffset,
+      name: state.name,
+      pronouns: state.pronouns,
       textOptions: state.textOptions,
       advancedOptions: state.advancedOptions,
     };
@@ -187,6 +208,8 @@ export function useWizardState(args: UseWizardStateArgs): UseWizardStateReturn {
     state.source,
     state.aspectRatio,
     state.framingOffset,
+    state.name,
+    state.pronouns,
     state.textOptions,
     state.advancedOptions,
   ]);

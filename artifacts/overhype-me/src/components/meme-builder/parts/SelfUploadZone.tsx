@@ -60,8 +60,8 @@ export function SelfUploadZone({ onUploaded, allowReplace = true }: Props) {
 
       {status === "idle" && !image && (
         <div className="space-y-3">
-          <p className="font-display text-lg uppercase">Drop a photo here</p>
-          <p className="text-sm text-muted-foreground">JPEG, PNG, or WebP. Up to 15 MB.</p>
+          <p className="font-display text-lg uppercase">Drop a photo of yourself</p>
+          <p className="text-sm text-muted-foreground">We need to see a face. JPEG, PNG, or WebP. Up to 15 MB.</p>
           <Button type="button" onClick={() => inputRef.current?.click()}>Choose file</Button>
         </div>
       )}

@@ -1,7 +1,7 @@
 import { Router, type IRouter, type Request, type Response, type NextFunction } from "express";
 import * as Sentry from "@sentry/node";
 import { db, usersTable, sessionsTable } from "@workspace/db";
-import { factsTable, commentsTable, adminConfigTable, videoStylesTable, featureFlagsTable, tierFeaturePermissionsTable, userGenerationCostsTable, lifetimeEntitlementsTable, subscriptionsTable, membershipHistoryTable, activityFeedTable, memesTable, userAiImagesTable, routeStatsTable, routeStatEventsTable, emailOutboxTable, stripeWebhookAuditTable, stripeCheckoutRequestLedgerTable } from "@workspace/db/schema";
+import { factsTable, commentsTable, adminConfigTable, motionPresetsTable, featureFlagsTable, tierFeaturePermissionsTable, userGenerationCostsTable, lifetimeEntitlementsTable, subscriptionsTable, membershipHistoryTable, activityFeedTable, memesTable, userAiImagesTable, routeStatsTable, routeStatEventsTable, emailOutboxTable, stripeWebhookAuditTable, stripeCheckoutRequestLedgerTable } from "@workspace/db/schema";
 import { eq, desc, count, ilike, sql, and, or, inArray, isNull, asc, gt, gte, sum } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import { requireRole } from "../middlewares/tierMiddleware";
@@ -1468,8 +1468,8 @@ router.patch("/admin/config/:key", requireAdmin, async (req: Request, res: Respo
 router.get("/admin/video-styles", requireAdmin, async (_req: Request, res: Response) => {
   const styles = await db
     .select()
-    .from(videoStylesTable)
-    .orderBy(asc(videoStylesTable.sortOrder), asc(videoStylesTable.id));
+    .from(motionPresetsTable)
+    .orderBy(asc(motionPresetsTable.sortOrder), asc(motionPresetsTable.id));
   res.json(styles);
 });
 
@@ -1481,7 +1481,7 @@ router.post("/admin/video-styles", requireAdmin, async (req: Request, res: Respo
   if (!label) { res.status(400).json({ error: "label is required" }); return; }
 
   const [created] = await db
-    .insert(videoStylesTable)
+    .insert(motionPresetsTable)
     .values({
       id,
       label,
@@ -1510,9 +1510,9 @@ router.patch("/admin/video-styles/:id", requireAdmin, async (req: Request, res: 
   if (body.isActive !== undefined)     updates.isActive     = Boolean(body.isActive);
 
   const [updated] = await db
-    .update(videoStylesTable)
+    .update(motionPresetsTable)
     .set(updates)
-    .where(eq(videoStylesTable.id, id))
+    .where(eq(motionPresetsTable.id, id))
     .returning();
 
   if (!updated) { res.status(404).json({ error: "Style not found" }); return; }
@@ -1538,9 +1538,9 @@ router.post("/admin/video-styles/:id/preview-gif", requireAdmin, async (req: Req
   } catch { /* non-fatal */ }
 
   const [updated] = await db
-    .update(videoStylesTable)
+    .update(motionPresetsTable)
     .set({ previewGifPath: storedPath, updatedAt: new Date() })
-    .where(eq(videoStylesTable.id, id))
+    .where(eq(motionPresetsTable.id, id))
     .returning();
 
   if (!updated) { res.status(404).json({ error: "Style not found" }); return; }
@@ -1551,9 +1551,9 @@ router.delete("/admin/video-styles/:id/preview-gif", requireAdmin, async (req: R
   const id = String(req.params["id"]);
 
   const [style] = await db
-    .select({ previewGifPath: videoStylesTable.previewGifPath })
-    .from(videoStylesTable)
-    .where(eq(videoStylesTable.id, id))
+    .select({ previewGifPath: motionPresetsTable.previewGifPath })
+    .from(motionPresetsTable)
+    .where(eq(motionPresetsTable.id, id))
     .limit(1);
 
   if (!style) { res.status(404).json({ error: "Style not found" }); return; }
@@ -1564,9 +1564,9 @@ router.delete("/admin/video-styles/:id/preview-gif", requireAdmin, async (req: R
   }
 
   const [updated] = await db
-    .update(videoStylesTable)
+    .update(motionPresetsTable)
     .set({ previewGifPath: null, updatedAt: new Date() })
-    .where(eq(videoStylesTable.id, id))
+    .where(eq(motionPresetsTable.id, id))
     .returning();
 
   res.json(updated);

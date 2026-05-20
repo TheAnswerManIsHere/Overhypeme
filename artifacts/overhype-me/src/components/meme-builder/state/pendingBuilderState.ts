@@ -60,7 +60,9 @@ export function restorePendingState(factId: string): PendingBuilderState | null 
     return null;
   }
 
-  if (Date.now() - parsed.capturedAt > TTL_MS) {
+  let state: PendingBuilderState = parsed;
+
+  if (Date.now() - state.capturedAt > TTL_MS) {
     clearPendingState(factId);
     return null;
   }
@@ -71,13 +73,13 @@ export function restorePendingState(factId: string): PendingBuilderState | null 
   // discriminant. The user simply lands on the library grid which now
   // auto-selects the profile photo (sorted first) on tab activation.
   if (
-    parsed.source?.kind === "self-upload" &&
-    (parsed.source.image as { kind: string }).kind === "primary"
+    state.source?.kind === "self-upload" &&
+    (state.source.image as { kind: string }).kind === "primary"
   ) {
-    parsed = { ...parsed, source: undefined };
+    state = { ...state, source: undefined };
   }
 
-  return parsed;
+  return state;
 }
 
 export function clearPendingState(factId: string): void {

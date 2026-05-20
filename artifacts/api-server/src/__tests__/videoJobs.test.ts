@@ -1,0 +1,457 @@
+/**
+ * Integration tests for the async video pipeline (/api/memes/video-jobs).
+ *
+ * Talks to the real dev database via the same `t-vj-` prefix-and-cleanup
+ * convention as the other route tests. The fal.ai calls (PuLID, video gen,
+ * subtitle, R2 upload) are stubbed via __setPipelineTestHooks so no network
+ * traffic leaves the box.
+ */
+
+import { describe, it, before, after, beforeEach, afterEach } from "node:test";
+import assert from "node:assert/strict";
+import { randomUUID } from "node:crypto";
+
+import request from "supertest";
+import { db } from "@workspace/db";
+import {
+  usersTable,
+  factsTable,
+  videoJobsTable,
+  memesTable,
+  uploadImageMetadataTable,
+  userGenerationCostsTable,
+} from "@workspace/db/schema";
+import { eq, like, inArray } from "drizzle-orm";
+
+import videoJobsRouter from "../routes/videoJobs.js";
+import { buildTestApp } from "./helpers/buildTestApp.js";
+import {
+  __setPipelineTestHooks,
+  __resetPipelineState,
+  type JobState,
+} from "../lib/videoPipelineRunner.js";
+
+const USER_PREFIX = "t-vj-";
+
+function uid(): string {
+  return `${USER_PREFIX}${randomUUID()}`;
+}
+
+const insertedFactIds: number[] = [];
+const insertedUserIds: string[] = [];
+
+async function createTestUser(opts: { tier?: "registered" | "legendary" | "unregistered"; isAdmin?: boolean } = {}): Promise<string> {
+  const id = uid();
+  await db.insert(usersTable).values({
+    id,
+    email: `${id}@test.local`,
+    membershipTier: opts.tier ?? "legendary",
+    isAdmin: opts.isAdmin ?? false,
+  });
+  insertedUserIds.push(id);
+  return id;
+}
+
+async function insertFact(): Promise<number> {
+  const [row] = await db
+    .insert(factsTable)
+    .values({ text: "Test fact {NAME}", isActive: true, canonicalText: "Test fact" })
+    .returning();
+  insertedFactIds.push(row.id);
+  return row.id;
+}
+
+async function cleanup(): Promise<void> {
+  if (insertedUserIds.length > 0) {
+    await db
+      .delete(userGenerationCostsTable)
+      .where(inArray(userGenerationCostsTable.userId, insertedUserIds));
+    await db
+      .delete(memesTable)
+      .where(inArray(memesTable.createdById, insertedUserIds));
+    await db
+      .delete(videoJobsTable)
+      .where(inArray(videoJobsTable.userId, insertedUserIds));
+    await db
+      .delete(uploadImageMetadataTable)
+      .where(inArray(uploadImageMetadataTable.userId, insertedUserIds));
+  }
+  if (insertedFactIds.length > 0) {
+    await db.delete(memesTable).where(inArray(memesTable.factId, insertedFactIds));
+    await db.delete(videoJobsTable).where(inArray(videoJobsTable.factId, insertedFactIds));
+    await db.delete(factsTable).where(inArray(factsTable.id, insertedFactIds));
+    insertedFactIds.length = 0;
+  }
+  // ledger rows tagged with the test prefix
+  await db
+    .delete(userGenerationCostsTable)
+    .where(like(userGenerationCostsTable.userId, `${USER_PREFIX}%`));
+  await db.delete(usersTable).where(like(usersTable.id, `${USER_PREFIX}%`));
+  insertedUserIds.length = 0;
+}
+
+async function waitForPhase(
+  poll: () => Promise<{ phase?: string } | null>,
+  phases: string[],
+  timeoutMs = 2000,
+): Promise<{ phase?: string } | null> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const state = await poll();
+    if (state && state.phase && phases.includes(state.phase)) return state;
+    await new Promise(r => setTimeout(r, 20));
+  }
+  return null;
+}
+
+before(cleanup);
+after(cleanup);
+beforeEach(() => __resetPipelineState());
+afterEach(() => {
+  __resetPipelineState();
+  __setPipelineTestHooks({});
+});
+
+describe("POST /api/memes/video-jobs", () => {
+  it("rejects unauthenticated callers with 401", async () => {
+    const app = buildTestApp({ kind: "unauthenticated" }, videoJobsRouter);
+    const res = await request(app).post("/api/memes/video-jobs").send({
+      factId: 1,
+      sourceMode: "stylize-then-video",
+      sourceImagePath: "/objects/test.jpg",
+      lookStyleId: "cinematic",
+      lengthSeconds: 4,
+      resolution: "720p",
+      aspectRatio: "landscape",
+    });
+    assert.equal(res.status, 401);
+  });
+
+  it("returns 403 VIDEO_GENERATION_LOCKED for a non-legendary user", async () => {
+    const userId = await createTestUser({ tier: "registered" });
+    const factId = await insertFact();
+    const app = buildTestApp({ kind: "authenticated", userId }, videoJobsRouter);
+    const res = await request(app).post("/api/memes/video-jobs").send({
+      factId,
+      sourceMode: "stylize-then-video",
+      sourceImagePath: "/objects/test.jpg",
+      lookStyleId: "cinematic",
+      lengthSeconds: 4,
+      resolution: "720p",
+      aspectRatio: "landscape",
+    });
+    assert.equal(res.status, 403);
+    assert.equal(res.body.error, "VIDEO_GENERATION_LOCKED");
+  });
+
+  it("happy path: returns 200 {jobId} and transitions through stage1 → stage1_review", async () => {
+    const userId = await createTestUser({ tier: "legendary", isAdmin: true });
+    const factId = await insertFact();
+    const app = buildTestApp({ kind: "authenticated", userId }, videoJobsRouter);
+
+    __setPipelineTestHooks({
+      runStage1: async () => ({ stillObjectPath: "/objects/styled.jpg" }),
+      classifyStill: async () => "accept",
+    });
+
+    const startRes = await request(app).post("/api/memes/video-jobs").send({
+      factId,
+      sourceMode: "stylize-then-video",
+      sourceImagePath: "/objects/source.jpg",
+      lookStyleId: "cinematic",
+      lengthSeconds: 4,
+      resolution: "720p",
+      aspectRatio: "landscape",
+    });
+    assert.equal(startRes.status, 200);
+    assert.ok(typeof startRes.body.jobId === "string");
+
+    const jobId = startRes.body.jobId;
+    const state = await waitForPhase(
+      async () => {
+        const r = await request(app).get(`/api/memes/video-jobs/${jobId}`);
+        return r.body;
+      },
+      ["stage1_review", "failed"],
+    );
+    assert.ok(state, "expected a phase update within timeout");
+    assert.equal(state!.phase, "stage1_review");
+  });
+
+  it("source mode 'use-photo-as-is' skips stage1_pulid entirely", async () => {
+    const userId = await createTestUser({ tier: "legendary", isAdmin: true });
+    const factId = await insertFact();
+    const app = buildTestApp({ kind: "authenticated", userId }, videoJobsRouter);
+
+    let stage1Called = false;
+    __setPipelineTestHooks({
+      runStage1: async () => {
+        stage1Called = true;
+        return { stillObjectPath: "/objects/styled.jpg" };
+      },
+      classifyStill: async () => "accept",
+    });
+
+    const startRes = await request(app).post("/api/memes/video-jobs").send({
+      factId,
+      sourceMode: "use-photo-as-is",
+      sourceImagePath: "/objects/source.jpg",
+      lengthSeconds: 4,
+      resolution: "720p",
+      aspectRatio: "landscape",
+    });
+    assert.equal(startRes.status, 200);
+
+    const jobId = startRes.body.jobId;
+    const state = await waitForPhase(
+      async () => {
+        const r = await request(app).get(`/api/memes/video-jobs/${jobId}`);
+        return r.body;
+      },
+      ["stage1_review"],
+    );
+    assert.equal(state!.phase, "stage1_review");
+    assert.equal(stage1Called, false, "stage 1 must be skipped for use-photo-as-is");
+  });
+
+  it("no-face during stage 1 routes to stage1_no_face_review (not failed)", async () => {
+    const userId = await createTestUser({ tier: "legendary", isAdmin: true });
+    const factId = await insertFact();
+    const app = buildTestApp({ kind: "authenticated", userId }, videoJobsRouter);
+
+    __setPipelineTestHooks({
+      runStage1: async () => ({ stillObjectPath: null }),
+      classifyStill: async () => "accept",
+    });
+
+    const startRes = await request(app).post("/api/memes/video-jobs").send({
+      factId,
+      sourceMode: "stylize-then-video",
+      sourceImagePath: "/objects/source.jpg",
+      lookStyleId: "cinematic",
+      lengthSeconds: 4,
+      resolution: "720p",
+      aspectRatio: "landscape",
+    });
+    assert.equal(startRes.status, 200);
+    const jobId = startRes.body.jobId;
+
+    const state = await waitForPhase(
+      async () => {
+        const r = await request(app).get(`/api/memes/video-jobs/${jobId}`);
+        return r.body;
+      },
+      ["stage1_no_face_review", "failed"],
+    );
+    assert.equal(state!.phase, "stage1_no_face_review");
+  });
+
+  it("NSFW classifier hit on stylized still → failed with errorCode=moderation", async () => {
+    const userId = await createTestUser({ tier: "legendary", isAdmin: true });
+    const factId = await insertFact();
+    const app = buildTestApp({ kind: "authenticated", userId }, videoJobsRouter);
+
+    __setPipelineTestHooks({
+      runStage1: async () => ({ stillObjectPath: "/objects/styled.jpg" }),
+      classifyStill: async () => "reject",
+    });
+
+    const startRes = await request(app).post("/api/memes/video-jobs").send({
+      factId,
+      sourceMode: "stylize-then-video",
+      sourceImagePath: "/objects/source.jpg",
+      lookStyleId: "cinematic",
+      lengthSeconds: 4,
+      resolution: "720p",
+      aspectRatio: "landscape",
+    });
+    const jobId = startRes.body.jobId;
+
+    const state = await waitForPhase(
+      async () => {
+        const r = await request(app).get(`/api/memes/video-jobs/${jobId}`);
+        return r.body;
+      },
+      ["failed", "stage1_review"],
+    );
+    assert.equal(state!.phase, "failed");
+    assert.equal((state as { errorCode?: string }).errorCode, "moderation");
+  });
+
+  it("rejects invalid engine duration with 400", async () => {
+    const userId = await createTestUser({ tier: "legendary", isAdmin: true });
+    const factId = await insertFact();
+    const app = buildTestApp({ kind: "authenticated", userId }, videoJobsRouter);
+    const res = await request(app).post("/api/memes/video-jobs").send({
+      factId,
+      sourceMode: "use-photo-as-is",
+      sourceImagePath: "/objects/source.jpg",
+      lengthSeconds: 30, // valid zod range but not in any engine's allowedDurationsSec
+      resolution: "720p",
+      aspectRatio: "landscape",
+    });
+    assert.equal(res.status, 400);
+    assert.equal(res.body.error, "invalid_engine_params");
+  });
+});
+
+describe("GET /api/memes/video-jobs/:jobId", () => {
+  it("returns 404 for a non-owner", async () => {
+    const ownerId = await createTestUser({ tier: "legendary", isAdmin: true });
+    const otherId = await createTestUser({ tier: "legendary", isAdmin: true });
+    const factId = await insertFact();
+
+    __setPipelineTestHooks({
+      runStage1: async () => ({ stillObjectPath: "/objects/styled.jpg" }),
+      classifyStill: async () => "accept",
+    });
+
+    const ownerApp = buildTestApp({ kind: "authenticated", userId: ownerId }, videoJobsRouter);
+    const startRes = await request(ownerApp).post("/api/memes/video-jobs").send({
+      factId,
+      sourceMode: "use-photo-as-is",
+      sourceImagePath: "/objects/source.jpg",
+      lengthSeconds: 4,
+      resolution: "720p",
+      aspectRatio: "landscape",
+    });
+    assert.equal(startRes.status, 200);
+    const jobId = startRes.body.jobId;
+
+    const otherApp = buildTestApp({ kind: "authenticated", userId: otherId }, videoJobsRouter);
+    const peekRes = await request(otherApp).get(`/api/memes/video-jobs/${jobId}`);
+    assert.equal(peekRes.status, 404);
+  });
+});
+
+describe("POST /api/memes/video-jobs/:jobId/proceed", () => {
+  it("advances stage1_review → stage2_video", async () => {
+    const userId = await createTestUser({ tier: "legendary", isAdmin: true });
+    const factId = await insertFact();
+    const app = buildTestApp({ kind: "authenticated", userId }, videoJobsRouter);
+
+    let stage2Reached = false;
+    __setPipelineTestHooks({
+      runStage1: async () => ({ stillObjectPath: "/objects/styled.jpg" }),
+      classifyStill: async () => "accept",
+      runStage2: async () => {
+        stage2Reached = true;
+        // Throw to keep the pipeline from advancing past stage2_video so the
+        // assertion below can observe the phase transition itself.
+        throw new Error("stage 2 stub aborts");
+      },
+    });
+
+    const startRes = await request(app).post("/api/memes/video-jobs").send({
+      factId,
+      sourceMode: "stylize-then-video",
+      sourceImagePath: "/objects/source.jpg",
+      lookStyleId: "cinematic",
+      lengthSeconds: 4,
+      resolution: "720p",
+      aspectRatio: "landscape",
+    });
+    const jobId = startRes.body.jobId;
+    await waitForPhase(
+      async () => (await request(app).get(`/api/memes/video-jobs/${jobId}`)).body,
+      ["stage1_review"],
+    );
+
+    const proceedRes = await request(app)
+      .post(`/api/memes/video-jobs/${jobId}/proceed`)
+      .send({});
+    assert.equal(proceedRes.status, 200);
+    assert.equal(proceedRes.body.ok, true);
+
+    // After proceed, the runner enters stage2_video synchronously (then fails
+    // because the stub throws). Either we observe stage2_video or the
+    // subsequent failure — both prove the proceed advanced past the checkpoint.
+    const state = await waitForPhase(
+      async () => (await request(app).get(`/api/memes/video-jobs/${jobId}`)).body,
+      ["stage2_video", "failed"],
+    );
+    assert.ok(state, "expected stage2 phase or failure after proceed");
+    assert.equal(stage2Reached, true);
+  });
+});
+
+describe("POST /api/memes/video-jobs/:jobId/regenerate", () => {
+  it("re-runs stage 1 with a new lookStyleId", async () => {
+    const userId = await createTestUser({ tier: "legendary", isAdmin: true });
+    const factId = await insertFact();
+    const app = buildTestApp({ kind: "authenticated", userId }, videoJobsRouter);
+
+    let lookStyleSeenInLastCall: string | null = null;
+    __setPipelineTestHooks({
+      runStage1: async (job: JobState) => {
+        lookStyleSeenInLastCall = job.lookStyleId;
+        return { stillObjectPath: "/objects/styled.jpg" };
+      },
+      classifyStill: async () => "accept",
+    });
+
+    const startRes = await request(app).post("/api/memes/video-jobs").send({
+      factId,
+      sourceMode: "stylize-then-video",
+      sourceImagePath: "/objects/source.jpg",
+      lookStyleId: "cinematic",
+      lengthSeconds: 4,
+      resolution: "720p",
+      aspectRatio: "landscape",
+    });
+    const jobId = startRes.body.jobId;
+    await waitForPhase(
+      async () => (await request(app).get(`/api/memes/video-jobs/${jobId}`)).body,
+      ["stage1_review"],
+    );
+    assert.equal(lookStyleSeenInLastCall, "cinematic");
+
+    const regenRes = await request(app)
+      .post(`/api/memes/video-jobs/${jobId}/regenerate`)
+      .send({ lookStyleId: "anime" });
+    assert.equal(regenRes.status, 200);
+
+    await waitForPhase(
+      async () => (await request(app).get(`/api/memes/video-jobs/${jobId}`)).body,
+      ["stage1_review"],
+    );
+    assert.equal(lookStyleSeenInLastCall, "anime");
+  });
+});
+
+describe("DELETE /api/memes/video-jobs/:jobId", () => {
+  it("marks the job canceled and reports promoted still path", async () => {
+    const userId = await createTestUser({ tier: "legendary", isAdmin: true });
+    const factId = await insertFact();
+    const app = buildTestApp({ kind: "authenticated", userId }, videoJobsRouter);
+
+    __setPipelineTestHooks({
+      runStage1: async () => ({ stillObjectPath: "/objects/styled.jpg" }),
+      classifyStill: async () => "accept",
+    });
+
+    const startRes = await request(app).post("/api/memes/video-jobs").send({
+      factId,
+      sourceMode: "stylize-then-video",
+      sourceImagePath: "/objects/source.jpg",
+      lookStyleId: "cinematic",
+      lengthSeconds: 4,
+      resolution: "720p",
+      aspectRatio: "landscape",
+    });
+    const jobId = startRes.body.jobId;
+    await waitForPhase(
+      async () => (await request(app).get(`/api/memes/video-jobs/${jobId}`)).body,
+      ["stage1_review"],
+    );
+
+    const cancelRes = await request(app).delete(`/api/memes/video-jobs/${jobId}`);
+    assert.equal(cancelRes.status, 200);
+    assert.equal(cancelRes.body.ok, true);
+    assert.equal(cancelRes.body.promotedStillObjectPath, "/objects/styled.jpg");
+
+    const peekRes = await request(app).get(`/api/memes/video-jobs/${jobId}`);
+    assert.equal(peekRes.status, 200);
+    assert.equal(peekRes.body.phase, "canceled");
+  });
+});
