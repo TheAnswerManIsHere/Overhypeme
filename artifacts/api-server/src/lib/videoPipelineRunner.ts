@@ -963,17 +963,27 @@ async function resumeFromStage2(jobId: string): Promise<void> {
     await recordStage2Cost(job);
   } catch (err) {
     logger.error({ err, jobId }, "[videoPipeline] stage 2 failed");
-    // fal.ai returns 422 Unprocessable Entity (type: no_media_generated) when
-    // the model can't process the input image — content, prompt, or a transient
-    // model hiccup. The raw .message "Unprocessable Entity" is not user-friendly,
-    // so we replace it with an actionable description. The generic FailedScreen
-    // renders this text alongside a "Try again" button.
+    // fal.ai returns 422 with type "no_media_generated" when the video model
+    // refuses to process the input — usually due to content safety, an image
+    // incompatible with the selected media type, or a transient model rejection.
+    // Route this to the dedicated "moderation" error screen (which shows "Pick a
+    // different photo or style and try again" + Go back button) rather than the
+    // generic retry screen, since retrying the same image won't help.
     const falErr = err as Record<string, unknown>;
     const isFal422 = typeof falErr["status"] === "number" && falErr["status"] === 422;
-    job.errorCode = "stage2_failed";
-    job.errorMessage = isFal422
-      ? "The video model couldn't process your image — try a different photo or style, or try again in a moment."
-      : (err instanceof Error ? err.message : "Video generation failed");
+    const falBody = falErr["body"] as Record<string, unknown> | undefined;
+    const detail = falBody?.["detail"] as Array<Record<string, unknown>> | undefined;
+    const isNoMediaGenerated = detail?.[0]?.["type"] === "no_media_generated";
+    if (isFal422 && isNoMediaGenerated) {
+      job.errorCode = "moderation";
+      job.errorMessage = undefined;
+    } else if (isFal422) {
+      job.errorCode = "stage2_failed";
+      job.errorMessage = "The video model couldn't process your image — try a different photo or style, or try again in a moment.";
+    } else {
+      job.errorCode = "stage2_failed";
+      job.errorMessage = err instanceof Error ? err.message : "Video generation failed";
+    }
     setPhase(job, "failed", 0);
     await markFailed(job);
     return;
