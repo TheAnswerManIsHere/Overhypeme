@@ -13,13 +13,15 @@
 import { fal } from "@fal-ai/client";
 import { logger } from "./logger";
 
+// fal-ai/workflow-utilities/auto-subtitle only accepts named colors, not hex.
+// Allowed: white, black, red, green, blue, yellow, orange, purple, pink, brown, gray, cyan, magenta.
 export const LOCKED_CAPTION_STYLE = {
   font: "Anton",
   font_size: 70,
-  font_color: "#ffffff",
-  highlight_color: "#ff6b35",
+  font_color: "white",
+  highlight_color: "orange",
   stroke_width: 3,
-  stroke_color: "#000000",
+  stroke_color: "black",
   position: "bottom",
   y_offset: 75,
   words_per_subtitle: 1,
