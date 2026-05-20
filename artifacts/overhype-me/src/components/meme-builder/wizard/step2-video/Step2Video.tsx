@@ -319,19 +319,8 @@ export function Step2Video(props: Step2VideoProps) {
   }
 
   return (
-    <div
-      className="flex flex-col gap-4 px-5 pt-4 pb-32 max-w-md mx-auto"
-      data-testid="step2-video"
-    >
-      <header className="text-center">
-        <h1 className="text-white text-3xl font-[Bebas_Neue,sans-serif] tracking-wide uppercase">
-          Build your meme
-        </h1>
-        <p className="text-white/60 text-sm mt-1">
-          Pick a photo, add your name. The motion runs on render.
-        </p>
-      </header>
-
+    <div className="flex h-full flex-col" data-testid="step2-video">
+      {/* Preview is locked outside the scroll container — it never scrolls. */}
       <LockedVideoPreview
         sourceUrl={previewUrl}
         aspectRatio={aspectRatio}
@@ -343,40 +332,54 @@ export function Step2Video(props: Step2VideoProps) {
         }}
       />
 
-      <VideoSourcePanel
-        factId={factId}
-        sourceMode={sourceMode}
-        selected={
-          state.source?.kind === "self-upload" ? state.source.image : null
-        }
-        onSelect={handleSourceSelect}
-      />
+      {/* Controls scroll under the preview; flex-1 fills whatever height remains. */}
+      <div className="flex-1 overflow-y-auto overscroll-y-none">
+        <div className="mx-auto max-w-md space-y-4 px-5 pt-4 pb-32">
+          <header className="text-center">
+            <p className="font-mono text-[11px] uppercase tracking-widest text-white/50">
+              Step 1 of 2:
+            </p>
+            <h1 className="text-white text-2xl font-[Bebas_Neue,sans-serif] tracking-wide uppercase mt-0.5">
+              Pick a photo, choose your options.
+            </h1>
+          </header>
 
-      <div className="flex flex-col gap-2 pt-2">
-        <Button
-          type="button"
-          variant="secondary"
-          onClick={() => setAdvancedOpen(true)}
-          data-testid="step2-video-open-advanced"
-        >
-          Advanced options
-        </Button>
+          <VideoSourcePanel
+            factId={factId}
+            sourceMode={sourceMode}
+            selected={
+              state.source?.kind === "self-upload" ? state.source.image : null
+            }
+            onSelect={handleSourceSelect}
+          />
 
-        <Button
-          type="button"
-          onClick={() => void handleSubmit()}
-          disabled={!sourceReady || submitting}
-          isLoading={submitting}
-          data-testid="step2-video-make-meme"
-        >
-          Make my meme
-        </Button>
+          <div className="flex flex-col gap-2 pt-2">
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={() => setAdvancedOpen(true)}
+              data-testid="step2-video-open-advanced"
+            >
+              Advanced options
+            </Button>
 
-        {submitError && !budgetError && (
-          <p className="text-center text-xs text-destructive" data-testid="step2-video-error">
-            {submitError}
-          </p>
-        )}
+            <Button
+              type="button"
+              onClick={() => void handleSubmit()}
+              disabled={!sourceReady || submitting}
+              isLoading={submitting}
+              data-testid="step2-video-make-meme"
+            >
+              Make my meme
+            </Button>
+
+            {submitError && !budgetError && (
+              <p className="text-center text-xs text-destructive" data-testid="step2-video-error">
+                {submitError}
+              </p>
+            )}
+          </div>
+        </div>
       </div>
 
       <VideoAdvancedOptionsSheet

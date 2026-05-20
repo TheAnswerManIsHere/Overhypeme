@@ -751,6 +751,18 @@ router.get("/engines", async (req, res) => {
     : (_flag: string) => false;
 
   const engines = await loadActiveEngines(kind, { userHasFlag });
+
+  // The DB stores aspect ratios in fal.ai format ("16:9", "9:16", "1:1") for
+  // server-side validation (validateEngineParams converts wizard→fal before
+  // comparing). The client DTO contract speaks wizard format
+  // ("landscape", "portrait", "square"), so we convert at the boundary.
+  const FAL_TO_WIZARD: Record<string, string> = {
+    "16:9": "landscape",
+    "9:16": "portrait",
+    "1:1": "square",
+  };
+  const toWizard = (v: string) => FAL_TO_WIZARD[v] ?? v;
+
   res.json(
     engines.map((e) => ({
       id: e.id,
@@ -760,8 +772,10 @@ router.get("/engines", async (req, res) => {
       defaultDurationSec: e.defaultDurationSec ?? null,
       allowedResolutions: e.allowedResolutions ?? null,
       defaultResolution: e.defaultResolution ?? null,
-      allowedAspectRatios: e.allowedAspectRatios ?? null,
-      defaultAspectRatio: e.defaultAspectRatio ?? null,
+      allowedAspectRatios: Array.isArray(e.allowedAspectRatios)
+        ? e.allowedAspectRatios.map((r) => toWizard(String(r)))
+        : null,
+      defaultAspectRatio: e.defaultAspectRatio ? toWizard(e.defaultAspectRatio) : null,
       supportedModes: e.supportedModes ?? null,
       defaultMode: e.defaultMode ?? null,
       audioHandling: e.audioHandling,
