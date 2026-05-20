@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { LoadingHero } from "@/components/ui/LoadingHero";
 
 interface JobStatus {
   phase: "queued" | "in_progress" | "no_face_review" | "completed" | "failed";
@@ -139,24 +140,14 @@ export function PulidLoadingTakeover({ jobId, onComplete, onError, onNoFaceRevie
       role="dialog"
       aria-modal="true"
       aria-label={heading}
-      className="fixed inset-0 z-[60] flex flex-col items-center justify-center bg-[#111] px-6 text-center"
+      className="fixed inset-0 z-[60] bg-[#111]"
       data-testid="pulid-loading-takeover"
     >
-      <h1 className="font-display text-3xl uppercase tracking-wide text-white">
-        {heading}
-      </h1>
-      <p className="mt-3 max-w-sm text-sm text-white/70">
-        {subtext}
-      </p>
-      <div className="mt-8 w-full max-w-sm" aria-hidden>
-        <div className="h-1.5 w-full overflow-hidden rounded-full bg-white/10">
-          <div
-            className="h-full bg-[#ff6b35] transition-[width] duration-150 ease-out"
-            style={{ width: `${Math.round(Math.min(1, Math.max(0, displayProgress)) * 100)}%` }}
-            data-testid="pulid-progress-fill"
-          />
-        </div>
-      </div>
+      <LoadingHero
+        heading={heading}
+        subhead={subtext}
+        progress={displayProgress}
+      />
     </div>
   );
 }
