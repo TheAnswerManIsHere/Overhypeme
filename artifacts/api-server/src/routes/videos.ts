@@ -3,7 +3,7 @@ import { z } from "zod";
 import { fal } from "@fal-ai/client";
 import { db, videoJobsTable, usersTable, memesTable, factsTable } from "@workspace/db";
 import { renderPersonalized } from "../lib/renderCanonical.js";
-import { videoStylesTable } from "@workspace/db/schema";
+import { motionPresetsTable } from "@workspace/db/schema";
 import { eq, and, gte, desc, or, asc } from "drizzle-orm";
 import { getConfigString } from "../lib/adminConfig.js";
 import { getCachedPrice } from "../lib/falPricing.js";
@@ -24,7 +24,7 @@ const DEFAULT_STYLE_ID = "cinematic";
 const DEFAULT_VIDEO_MODEL = "xai/grok-imagine-video/image-to-video";
 
 async function getVideoStyleById(id: string) {
-  const [style] = await db.select().from(videoStylesTable).where(eq(videoStylesTable.id, id)).limit(1);
+  const [style] = await db.select().from(motionPresetsTable).where(eq(motionPresetsTable.id, id)).limit(1);
   return style ?? null;
 }
 
@@ -1132,18 +1132,18 @@ router.post("/videos/generate", async (req, res) => {
 router.get("/video-styles", async (_req, res) => {
   const styles = await db
     .select()
-    .from(videoStylesTable)
-    .where(eq(videoStylesTable.isActive, true))
-    .orderBy(asc(videoStylesTable.sortOrder), asc(videoStylesTable.id));
+    .from(motionPresetsTable)
+    .where(eq(motionPresetsTable.isActive, true))
+    .orderBy(asc(motionPresetsTable.sortOrder), asc(motionPresetsTable.id));
   res.json(styles);
 });
 
 router.get("/video-styles/:id/preview-gif", async (req, res) => {
   const { id } = req.params;
   const [style] = await db
-    .select({ previewGifPath: videoStylesTable.previewGifPath })
-    .from(videoStylesTable)
-    .where(eq(videoStylesTable.id, id))
+    .select({ previewGifPath: motionPresetsTable.previewGifPath })
+    .from(motionPresetsTable)
+    .where(eq(motionPresetsTable.id, id))
     .limit(1);
 
   if (!style?.previewGifPath) { res.status(404).end(); return; }

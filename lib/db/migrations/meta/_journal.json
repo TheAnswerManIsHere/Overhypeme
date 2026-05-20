@@ -393,6 +393,20 @@
       "when": 1779148800000,
       "tag": "0055_upload_image_metadata_is_profile",
       "breakpoints": true
+    },
+    {
+      "idx": 56,
+      "version": "7",
+      "when": 1779236534396,
+      "tag": "0056_steady_mongoose",
+      "breakpoints": true
+    },
+    {
+      "idx": 57,
+      "version": "7",
+      "when": 1779236534500,
+      "tag": "0057_mbfo4_seed_engines_and_look_styles",
+      "breakpoints": true
     }
   ]
 }
