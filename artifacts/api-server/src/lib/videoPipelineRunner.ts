@@ -905,7 +905,12 @@ async function classifyStill(stillObjectPath: string): Promise<"accept" | "rejec
     return testHooks.classifyStill(stillObjectPath);
   }
   try {
-    const decision = await classifyAndDecide(stillObjectPath, { nsfwModeEnabled: false });
+    // fal.ai cannot reach internal /objects/... paths — convert to a
+    // short-lived signed GCS URL that fal.ai's servers can download.
+    const objectStorage = new ObjectStorageService();
+    const entitySubPath = stillObjectPath.replace(/^\/objects\//, "");
+    const signedUrl = await objectStorage.getObjectEntityDownloadURL(entitySubPath, 300);
+    const decision = await classifyAndDecide(signedUrl, { nsfwModeEnabled: false });
     if (decision.outcome === "reject") return "reject";
     return "accept";
   } catch (err) {
