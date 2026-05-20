@@ -54,6 +54,8 @@ interface MemeData {
   isNsfw: boolean;
   imageTransform: string | null;
   imageSource: StoredImageSource | null;
+  artifactType: "image" | "video";
+  videoUrl: string | null;
 }
 
 type MemeResult =
@@ -181,13 +183,16 @@ export default function MemePage() {
   const legendaryUpsellSubject = meme.createdByName ?? "the creator";
 
   const handleDownload = () => {
-    if (!meme.imageUrl) return;
-    fetch(meme.imageUrl)
+    const isVideo = meme.artifactType === "video" && meme.videoUrl;
+    const url = isVideo ? meme.videoUrl! : meme.imageUrl;
+    const filename = isVideo ? `overhype-${slug}.mp4` : `overhype-${slug}.jpg`;
+    if (!url) return;
+    fetch(url)
       .then((r) => r.blob())
       .then((blob) => {
         const a = document.createElement("a");
         a.href = URL.createObjectURL(blob);
-        a.download = `overhype-${slug}.jpg`;
+        a.download = filename;
         a.click();
       })
       .catch(() => {
@@ -321,7 +326,19 @@ export default function MemePage() {
         </div>
 
         <div className="rounded-[20px] overflow-hidden mb-3 shadow-[0_12px_32px_rgba(0,0,0,0.4)]">
-          <img src={meme.imageUrl} alt="Meme" className="w-full object-cover" loading="eager" />
+          {meme.artifactType === "video" && meme.videoUrl ? (
+            <video
+              src={meme.videoUrl}
+              autoPlay
+              loop
+              muted
+              playsInline
+              controls
+              className="w-full object-cover"
+            />
+          ) : (
+            <img src={meme.imageUrl} alt="Meme" className="w-full object-cover" loading="eager" />
+          )}
         </div>
         <div className="mb-5 flex items-center">
           <MemeHeartButton
@@ -378,7 +395,19 @@ export default function MemePage() {
           </div>
 
           <div className="w-full max-w-[520px] rounded-[24px] overflow-hidden shadow-[0_30px_80px_rgba(0,0,0,0.5)]">
-            <img src={meme.imageUrl} alt="Meme" className="w-full object-cover" />
+            {meme.artifactType === "video" && meme.videoUrl ? (
+              <video
+                src={meme.videoUrl}
+                autoPlay
+                loop
+                muted
+                playsInline
+                controls
+                className="w-full object-cover"
+              />
+            ) : (
+              <img src={meme.imageUrl} alt="Meme" className="w-full object-cover" />
+            )}
           </div>
           <div className="w-full max-w-[520px] mt-3 flex items-center">
             <MemeHeartButton
