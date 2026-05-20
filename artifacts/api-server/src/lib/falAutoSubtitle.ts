@@ -30,9 +30,18 @@ export const LOCKED_CAPTION_STYLE = {
 
 export type CaptionStyle = typeof LOCKED_CAPTION_STYLE;
 
+/** Phase signals emitted by fal's queue tracker, normalized for callers. */
+export type CaptionsProgressPhase = "queued" | "in_progress" | "completed";
+export type CaptionsProgressCallback = (event: { phase: CaptionsProgressPhase; queuePosition?: number }) => void;
+
 export interface AddCaptionsInput {
   videoUrl: string;
   captionStyleOverrides?: Partial<CaptionStyle>;
+  /**
+   * Optional callback fed fal's `onQueueUpdate` events so the wizard's
+   * progress bar can reflect upstream signals while auto-subtitle runs.
+   */
+  onProgress?: CaptionsProgressCallback;
 }
 
 export interface AddCaptionsResult {
@@ -72,9 +81,21 @@ export async function addCaptionsToVideo(
     "[falAutoSubtitle] calling fal-ai/workflow-utilities/auto-subtitle",
   );
 
+  const onProgress = input.onProgress;
   const result = await fal.subscribe(AUTO_SUBTITLE_ENDPOINT, {
     input: falInput as never,
     logs: false,
+    onQueueUpdate: onProgress
+      ? (status: { status: string; queue_position?: number }) => {
+          if (status.status === "IN_QUEUE") {
+            onProgress({ phase: "queued", queuePosition: status.queue_position });
+          } else if (status.status === "IN_PROGRESS") {
+            onProgress({ phase: "in_progress" });
+          } else if (status.status === "COMPLETED") {
+            onProgress({ phase: "completed" });
+          }
+        }
+      : undefined,
   }) as { data?: { video?: { url?: string } }; requestId?: string };
 
   const captionedVideoUrl = result?.data?.video?.url;

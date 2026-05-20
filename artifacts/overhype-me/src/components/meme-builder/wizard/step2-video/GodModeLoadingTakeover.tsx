@@ -22,6 +22,7 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { X, ArrowLeft } from "lucide-react";
 import { Button } from "@/components/ui/Button";
+import { LoadingHero } from "@/components/ui/LoadingHero";
 import type { AspectRatio } from "../../types";
 import type { LookStyleDTO } from "./data/videoCatalogue";
 import { VideoCheckpointScreen } from "./VideoCheckpointScreen";
@@ -212,6 +213,28 @@ export function GodModeLoadingTakeover(props: Props) {
     ? storageUrlFor(status.stylizedStillObjectPath)
     : null;
 
+  // Layout policy (Option B from the MBFO-4 progress-UX review):
+  //
+  //   Working phases  (queued / stage1_pulid / stage2_video / stage2_subtitle
+  //                    / uploading / completed) → centered LoadingHero, no
+  //                    TopBar. Matches the image flow's PulidLoadingTakeover
+  //                    1:1 so the two flows share their "we're working" UI.
+  //                    Cancel is intentionally omitted — fal's cancel
+  //                    semantics during in-progress jobs are best-effort and
+  //                    a button that may or may not actually stop the spend
+  //                    would damage trust. The checkpoint is the real cancel
+  //                    point for the video flow.
+  //
+  //   Decision phases (stage1_review / stage1_no_face_review / failed) →
+  //                    TopBar with back/X + thin top progress bar (kept for
+  //                    "you've come this far" context) + phase-specific
+  //                    full-bleed content underneath. These are the screens
+  //                    where the user owns the next action.
+  const isDecisionPhase =
+    phase === "stage1_review" ||
+    phase === "stage1_no_face_review" ||
+    phase === "failed";
+
   return (
     <div
       className="fixed inset-0 z-[60] flex flex-col bg-[#0a0a0a] text-white"
@@ -221,19 +244,23 @@ export function GodModeLoadingTakeover(props: Props) {
       data-testid="god-mode-loading"
       data-phase={phase}
     >
-      <TopBar
-        isStage1={isStage1}
-        isStage2={isStage2}
-        onCancel={handleTopCancel}
-      />
-
-      <ProgressBar value={displayProgress} />
+      {isDecisionPhase && (
+        <>
+          <TopBar
+            isStage1={isStage1}
+            isStage2={isStage2}
+            onCancel={handleTopCancel}
+          />
+          <ProgressBar value={displayProgress} />
+        </>
+      )}
 
       <div className="flex-1 overflow-y-auto overscroll-y-none">
         {phase === "queued" || phase === "stage1_pulid" ? (
-          <CenteredCopy
+          <LoadingHero
             heading="Forging your likeness."
-            body="Standard mortals take days. This takes seconds."
+            subhead="Standard mortals take days. This takes seconds."
+            progress={displayProgress}
           />
         ) : phase === "stage1_review" ? (
           <VideoCheckpointScreen
@@ -267,9 +294,10 @@ export function GodModeLoadingTakeover(props: Props) {
             onUseAbstract={handleNoFaceFallback}
           />
         ) : isStage2 ? (
-          <CenteredCopy
+          <LoadingHero
             heading="Setting you in motion."
-            body="Welcome to legend."
+            subhead="Welcome to legend."
+            progress={displayProgress}
           />
         ) : phase === "failed" ? (
           <FailedScreen
@@ -280,9 +308,14 @@ export function GodModeLoadingTakeover(props: Props) {
             onGoBack={onGoBack}
           />
         ) : phase === "completed" ? (
-          <CenteredCopy heading="Done." body="Loading…" />
+          <LoadingHero
+            heading="Done."
+            subhead="Loading…"
+            progress={1}
+            hideRing
+          />
         ) : (
-          <CenteredCopy heading="Working…" body="" />
+          <LoadingHero heading="Working…" progress={displayProgress} />
         )}
       </div>
 
@@ -343,7 +376,7 @@ function ProgressBar({ value }: { value: number }) {
   const pct = Math.max(0, Math.min(100, Math.round(value * 100)));
   return (
     <div
-      className="h-[3px] bg-white/10"
+      className="h-2 bg-white/10"
       role="progressbar"
       aria-valuenow={pct}
       aria-valuemin={0}
@@ -359,14 +392,9 @@ function ProgressBar({ value }: { value: number }) {
   );
 }
 
-function CenteredCopy({ heading, body }: { heading: string; body: string }) {
-  return (
-    <div className="flex h-full w-full flex-col items-center justify-center px-6 text-center">
-      <h2 className="font-display text-3xl uppercase tracking-wide">{heading}</h2>
-      {body && <p className="mt-2 text-white/70">{body}</p>}
-    </div>
-  );
-}
+// CenteredCopy was replaced by LoadingHero (ui/LoadingHero.tsx) so the image
+// and video flows share their working-phase layout exactly. The local helper
+// has been retired.
 
 interface NoFaceFallbackProps {
   stillUrl: string | null;

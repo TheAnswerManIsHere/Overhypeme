@@ -28,6 +28,7 @@ import { buildTestApp } from "./helpers/buildTestApp.js";
 import {
   __setPipelineTestHooks,
   __resetPipelineState,
+  __computeProgressForTests,
   type JobState,
 } from "../lib/videoPipelineRunner.js";
 
@@ -416,6 +417,116 @@ describe("POST /api/memes/video-jobs/:jobId/regenerate", () => {
       ["stage1_review"],
     );
     assert.equal(lookStyleSeenInLastCall, "anime");
+  });
+});
+
+describe("computeProgress — _falProgressFloor behavior (Part 2)", () => {
+  // Fixture builder for a JobState with sensible defaults — phase + floor are
+  // the axes under test; everything else is filler the function ignores.
+  function fixture(overrides: Partial<JobState>): JobState {
+    return {
+      jobId: "j-test",
+      userId: "u-test",
+      factId: 0,
+      createdAt: Date.now(),
+      expiresAt: Date.now() + 60_000,
+      sourceMode: "stylize-then-video",
+      sourceImagePath: "/objects/src.jpg",
+      lookStyleId: "cinematic",
+      motionPresetId: null,
+      videoEngineId: "veo-3.1-lite",
+      engineMode: null,
+      customModePrompt: null,
+      durationSec: 6,
+      resolution: "720p",
+      aspectRatio: "landscape",
+      name: null,
+      pronouns: null,
+      stage1Attempts: 0,
+      renderedFactText: null,
+      phase: "queued",
+      progress: 0,
+      etaSeconds: undefined,
+      _phaseStartedAt: Date.now(),
+      _falProgressFloor: undefined,
+      videoJobRowId: null,
+      ...overrides,
+    } as unknown as JobState;
+  }
+
+  it("during stage1_pulid: returns floor when above the elapsed-time curve", () => {
+    const job = fixture({
+      phase: "stage1_pulid",
+      _phaseStartedAt: Date.now(),       // elapsed ≈ 0 → curve ≈ 0.013
+      _falProgressFloor: 0.18,
+    });
+    const progress = __computeProgressForTests(job);
+    assert.ok(progress >= 0.18, `expected ≥0.18, got ${progress}`);
+    assert.ok(progress <= 0.25, `should stay inside the stage-1 slice, got ${progress}`);
+  });
+
+  it("during stage2_video (stylize-then-video): returns floor inside the 0.25..0.85 slice", () => {
+    const job = fixture({
+      phase: "stage2_video",
+      _phaseStartedAt: Date.now(),
+      _falProgressFloor: 0.55,
+    });
+    const progress = __computeProgressForTests(job);
+    assert.ok(progress >= 0.55, `expected ≥0.55, got ${progress}`);
+  });
+
+  it("during stage2_video (bypass): floor occupies 0..0.85 because stage 1 was skipped", () => {
+    const job = fixture({
+      phase: "stage2_video",
+      sourceMode: "use-photo-as-is",
+      _phaseStartedAt: Date.now(),
+      _falProgressFloor: 0.40,
+    });
+    const progress = __computeProgressForTests(job);
+    assert.ok(progress >= 0.40, `expected ≥0.40, got ${progress}`);
+  });
+
+  it("during stage2_subtitle: floor inside the 0.85..0.95 slice", () => {
+    const job = fixture({
+      phase: "stage2_subtitle",
+      _phaseStartedAt: Date.now(),
+      _falProgressFloor: 0.92,
+    });
+    const progress = __computeProgressForTests(job);
+    assert.ok(progress >= 0.92, `expected ≥0.92, got ${progress}`);
+    assert.ok(progress < 1, `should stay below 1.0, got ${progress}`);
+  });
+
+  it("ignores _falProgressFloor on checkpoint pause (stage1_review)", () => {
+    // The checkpoint is an intentional pause; the bar deliberately freezes at
+    // 0.25 so the user can review the still. A leftover floor must NOT bypass
+    // it. The runner clears the floor on setPhase regardless; this is the
+    // belt-and-suspenders check.
+    const job = fixture({
+      phase: "stage1_review",
+      _falProgressFloor: 0.80,
+    });
+    assert.equal(__computeProgressForTests(job), 0.25);
+  });
+
+  it("ignores _falProgressFloor on terminal states", () => {
+    const completed = fixture({ phase: "completed", _falProgressFloor: 0.50 });
+    assert.equal(__computeProgressForTests(completed), 1);
+
+    const failed = fixture({ phase: "failed", progress: 0.30, _falProgressFloor: 0.90 });
+    assert.equal(__computeProgressForTests(failed), 0.30);
+  });
+
+  it("uses the elapsed-time curve when no floor is set", () => {
+    // Sanity check that we didn't regress the existing behavior.
+    const job = fixture({
+      phase: "stage1_pulid",
+      _phaseStartedAt: Date.now() - 9_000,    // ~half of stage1Ema (18000)
+      _falProgressFloor: undefined,
+    });
+    const progress = __computeProgressForTests(job);
+    assert.ok(progress > 0.03, `curve should have advanced, got ${progress}`);
+    assert.ok(progress < 0.25, `curve should be inside stage-1 slice, got ${progress}`);
   });
 });
 
