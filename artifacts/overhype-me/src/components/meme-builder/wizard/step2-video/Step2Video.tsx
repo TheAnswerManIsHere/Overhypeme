@@ -135,9 +135,9 @@ export function Step2Video(props: Step2VideoProps) {
     return path ? storageUrlFor(path) : null;
   }, [state.source]);
 
-  const sourceIsAiStyling =
-    state.source?.kind === "self-upload" &&
-    state.source.image.kind === "ai-styling";
+  const sourceKind =
+    state.source?.kind === "self-upload" ? state.source.image.kind : null;
+  const sourceIsAiStyling = sourceKind === "ai-styling";
 
   const styleLabel = lookStyles.find((s) => s.id === lookStyleId)?.label;
   const motionLabel = motionPresets.find((p) => p.id === motionPresetId)?.label
@@ -150,6 +150,14 @@ export function Step2Video(props: Step2VideoProps) {
         type: "set-source",
         source: { kind: "self-upload", image: img, stylizeWithAi: sourceMode === "stylize-then-video" },
       });
+      // Auto-sync sourceMode to the kind of image the user just picked.
+      // AI styling images implicitly use the "use-existing-ai-image" path;
+      // switching away from an AI styling reverts to "stylize-then-video".
+      if (img.kind === "ai-styling" && sourceMode !== "use-existing-ai-image") {
+        dispatch({ type: "set-video-source-mode", videoSourceMode: "use-existing-ai-image" });
+      } else if (img.kind !== "ai-styling" && sourceMode === "use-existing-ai-image") {
+        dispatch({ type: "set-video-source-mode", videoSourceMode: "stylize-then-video" });
+      }
     },
     [dispatch, sourceMode],
   );
@@ -400,7 +408,7 @@ export function Step2Video(props: Step2VideoProps) {
         lookStyles={lookStyles}
         motionPresets={motionPresets}
         engines={engines}
-        sourceIsAiStyling={sourceIsAiStyling}
+        sourceKind={sourceKind}
       />
     </div>
   );

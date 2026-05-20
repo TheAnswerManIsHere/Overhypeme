@@ -2,7 +2,7 @@
  * Video-flow advanced options drawer (Vaul).
  *
  * Sections, in order:
- *   1. Source mode (3 radios)
+ *   1. Source mode (context-sensitive radios — hidden for AI styling sources)
  *   2. Look style (catalogue picker, with Apply gate)
  *   3. Motion preset (catalogue picker, no Apply gate)
  *   4. Length (engine-aware radios)
@@ -14,6 +14,13 @@
  * orchestrator's local + persisted state. The "Apply" gate on look style
  * exists so the picker can later trigger a regenerate when a job is
  * in-flight; at Step 2 (pre-job) it just commits to wizard storage.
+ *
+ * Source mode visibility rules (driven by which picker tab the user chose):
+ *   "ai-styling" source → hide Source Mode entirely (it's implicitly
+ *                          "use-existing-ai-image")
+ *   "library" / "fresh"  → show "Stylize, then video" and "Use photo as-is"
+ *                          only (never "Use existing AI image" — that choice
+ *                          is made in the picker, not here)
  */
 
 import { useState, useEffect } from "react";
@@ -53,8 +60,13 @@ interface Props {
   lookStyles: LookStyleDTO[];
   motionPresets: MotionPresetDTO[];
   engines: VideoEngineDTO[];
-  /** When the picked source is already a pre-stylized AI image. */
-  sourceIsAiStyling: boolean;
+  /**
+   * The kind of image currently selected in the source picker.
+   * - "ai-styling" → hide Source Mode section entirely (already implied)
+   * - "library" | "fresh" → show only "Stylize, then video" / "Use photo as-is"
+   * - null → no source selected yet; show reduced options
+   */
+  sourceKind: "library" | "fresh" | "ai-styling" | null;
 }
 
 export function VideoAdvancedOptionsSheet({
@@ -65,7 +77,7 @@ export function VideoAdvancedOptionsSheet({
   lookStyles,
   motionPresets,
   engines,
-  sourceIsAiStyling,
+  sourceKind,
 }: Props) {
   const engine = engines.find((e) => e.id === value.engineId) ?? engines[0];
   const hasEngineModes = !!(engine?.supportedModes && engine.supportedModes.length > 0);
@@ -78,12 +90,14 @@ export function VideoAdvancedOptionsSheet({
   }, [value.lookStyleId, open]);
   const lookHasChanges = pendingLookStyleId !== value.lookStyleId;
 
-  // For pre-stylized AI sources, the style is read-only unless the user
-  // explicitly opts into a different style for the video.
-  const lookEditable =
-    value.sourceMode !== "use-existing-ai-image" ||
-    !sourceIsAiStyling ||
-    !!value.overrideLookForSource;
+  // For pre-stylized AI sources, the look style is read-only unless the user
+  // explicitly opts into overriding it for the video.
+  const lookEditable = sourceKind !== "ai-styling" || !!value.overrideLookForSource;
+
+  // Source Mode section is only shown for non-AI-styling sources.
+  // AI styling sources implicitly use "use-existing-ai-image" (chosen in the
+  // picker) so there's nothing to choose here.
+  const showSourceMode = sourceKind !== "ai-styling";
 
   return (
     <Drawer open={open} onOpenChange={onOpenChange}>
@@ -93,31 +107,35 @@ export function VideoAdvancedOptionsSheet({
             Advanced options
           </DrawerTitle>
           <DrawerDescription>
-            Source mode, look, motion, length, quality, and engine.
+            {showSourceMode ? "Source mode, look, motion, length, quality, and engine." : "Look, motion, length, quality, and engine."}
           </DrawerDescription>
         </DrawerHeader>
 
         <div className="space-y-6 overflow-y-auto px-4 pb-8">
-          {/* 1. Source mode */}
-          <section data-testid="advanced-source-mode">
-            <SectionLabel>Source mode</SectionLabel>
-            <RadioRow
-              name="source-mode"
-              value={value.sourceMode}
-              onChange={(v) => onChange({ sourceMode: v as VideoSourceMode })}
-              options={[
-                { value: "stylize-then-video", label: "Stylize then video" },
-                { value: "use-photo-as-is", label: "Use photo as-is" },
-                { value: "use-existing-ai-image", label: "Use existing AI image" },
-              ]}
-            />
-          </section>
+          {/* 1. Source mode — hidden for AI styling sources (the picker already
+               chose "use-existing-ai-image" implicitly); for library/fresh
+               sources only "Stylize, then video" and "Use photo as-is" are
+               relevant — the user never picks "Use existing AI image" here. */}
+          {showSourceMode && (
+            <section data-testid="advanced-source-mode">
+              <SectionLabel>Source mode</SectionLabel>
+              <RadioRow
+                name="source-mode"
+                value={value.sourceMode}
+                onChange={(v) => onChange({ sourceMode: v as VideoSourceMode })}
+                options={[
+                  { value: "stylize-then-video", label: "Stylize, then video" },
+                  { value: "use-photo-as-is", label: "Use photo as-is" },
+                ]}
+              />
+            </section>
+          )}
 
           {/* 2. Look style */}
           <section data-testid="advanced-look-style">
             <div className="flex items-baseline justify-between">
               <SectionLabel>Look style</SectionLabel>
-              {value.sourceMode === "use-existing-ai-image" && sourceIsAiStyling && (
+              {sourceKind === "ai-styling" && (
                 <label className="flex items-center gap-2 text-xs text-white/70">
                   <input
                     type="checkbox"

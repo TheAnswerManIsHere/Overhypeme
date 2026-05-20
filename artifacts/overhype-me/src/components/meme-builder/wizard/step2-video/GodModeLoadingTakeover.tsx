@@ -592,20 +592,12 @@ function deriveTargetProgress(
   if (!status) return bypassedStage1 ? 0.02 : 0;
   const { phase, progress } = status;
   const clamped = Math.max(0, Math.min(1, progress));
-  if (phase === "queued" || phase === "stage1_pulid") {
-    // Map server 0..1 to 0..0.25.
-    return clamped * 0.25;
-  }
-  if (phase === "stage1_review" || phase === "stage1_no_face_review") {
-    return 0.25;
-  }
-  if (phase === "stage2_video" || phase === "stage2_subtitle" || phase === "uploading") {
-    // When stage 1 was bypassed, use the full 0..1; otherwise 0.25..1.
-    if (bypassedStage1) return clamped;
-    return 0.25 + clamped * 0.75;
-  }
+  // The server's computeProgress already maps every phase to the correct
+  // slice of the 0..1 bar (e.g. stage1_pulid → 0..0.25, stage2_video →
+  // 0.25..0.85, etc.).  Just pass through; no client-side re-scaling needed.
   if (phase === "completed") return 1;
-  return 0;
+  if (phase === "failed") return 0;
+  return clamped;
 }
 
 /**
