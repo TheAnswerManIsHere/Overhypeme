@@ -99,6 +99,10 @@ const SNAPSHOT_EXEMPT_TAGS = new Set<string>([
   // drizzle-kit without DB access; rebuild-snapshots.ts can backfill the
   // 0055_snapshot.json from schema TS if needed.
   "0055_upload_image_metadata_is_profile",
+
+  // MBFO-4 seed migration: inserts engines + look_styles + a feature_flags
+  // row. Pure DML — no schema delta from the 0056 snapshot.
+  "0057_mbfo4_seed_engines_and_look_styles",
 ]);
 
 interface JournalEntry {

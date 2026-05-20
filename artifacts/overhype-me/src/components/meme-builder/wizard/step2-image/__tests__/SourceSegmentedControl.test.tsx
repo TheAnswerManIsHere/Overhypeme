@@ -66,18 +66,18 @@ describe("SourceSegmentedControl", () => {
 });
 
 describe("pickDefaultSourceTab", () => {
-  const cases: [Parameters<typeof pickDefaultSourceTab>[0], boolean, ReturnType<typeof pickDefaultSourceTab>][] = [
-    ["unregistered", false, "self-upload"],
-    ["unregistered", true, "self-upload"],
-    ["registered", false, "self-upload"],
-    ["registered", true, "self-upload"],
-    ["legendary", false, "ai-you"],
-    ["legendary", true, "ai-you"],
+  // Task #507 dropped the legacy `hasPrimary` axis — the profile photo is now
+  // just a tagged library entry, so the default tab is purely a function of
+  // tier. The previous two-axis matrix collapses to one.
+  const cases: [Parameters<typeof pickDefaultSourceTab>[0], ReturnType<typeof pickDefaultSourceTab>][] = [
+    ["unregistered", "self-upload"],
+    ["registered", "self-upload"],
+    ["legendary", "ai-you"],
   ];
 
-  for (const [tier, hasPrimary, expected] of cases) {
-    it(`${tier} + hasPrimary=${hasPrimary} → ${expected}`, () => {
-      expect(pickDefaultSourceTab(tier, hasPrimary)).toBe(expected);
+  for (const [tier, expected] of cases) {
+    it(`${tier} → ${expected}`, () => {
+      expect(pickDefaultSourceTab(tier)).toBe(expected);
     });
   }
 });

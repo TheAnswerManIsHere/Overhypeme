@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 
 interface JobStatus {
-  phase: "queued" | "in_progress" | "completed" | "failed";
+  phase: "queued" | "in_progress" | "no_face_review" | "completed" | "failed";
   progress: number;
   generatedObjectPath?: string;
   errorCode?: string;
@@ -15,6 +15,12 @@ interface Props {
   jobId: string;
   onComplete: (generatedObjectPath: string) => void;
   onError: (errorCode: string, message?: string) => void;
+  /**
+   * Called when the server parks the job at no_face_review. The parent (Step2Image)
+   * responds by unmounting the takeover and surfacing the no-face choice modal so
+   * the user can pick: try a different photo, or render an abstract image.
+   */
+  onNoFaceReview?: () => void;
 }
 
 const POLL_INTERVAL_MS = 500;
@@ -35,7 +41,7 @@ const FALLBACK_TAU_MS = 18_000;
  *   "Forging your likeness."
  *   "Standard mortals take days. This takes seconds."
  */
-export function PulidLoadingTakeover({ jobId, onComplete, onError }: Props) {
+export function PulidLoadingTakeover({ jobId, onComplete, onError, onNoFaceReview }: Props) {
   const [displayProgress, setDisplayProgress] = useState(0.05);
   const [isFallback, setIsFallback] = useState(false);
   const startedAtRef = useRef(Date.now());
@@ -72,6 +78,11 @@ export function PulidLoadingTakeover({ jobId, onComplete, onError }: Props) {
           onError(status.errorCode ?? "internal", status.errorMessage);
           return;
         }
+        if (status.phase === "no_face_review") {
+          terminatedRef.current = true;
+          onNoFaceReview?.();
+          return;
+        }
       } catch {
         consecutiveErrors += 1;
         // After 2 consecutive failures the fallback estimator takes over
@@ -86,7 +97,7 @@ export function PulidLoadingTakeover({ jobId, onComplete, onError }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [jobId, onComplete, onError]);
+  }, [jobId, onComplete, onError, onNoFaceReview]);
 
   // Smooth animation loop — tween display toward server value, or fall back to
   // a time-based curve when polls are stale.

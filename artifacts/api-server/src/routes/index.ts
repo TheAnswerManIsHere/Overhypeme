@@ -22,6 +22,7 @@ import shareCopyRouter from "./shareCopy";
 import shareIntentsRouter from "./shareIntents";
 import heroExamplesRouter from "./heroExamples";
 import videosRouter from "./videos";
+import videoJobsRouter from "./videoJobs";
 import routeStatsRouter from "./routeStats";
 
 const router: IRouter = Router();
@@ -48,6 +49,7 @@ router.use(shareCopyRouter);
 router.use(shareIntentsRouter);
 router.use(heroExamplesRouter);
 router.use(videosRouter);
+router.use(videoJobsRouter);
 router.use(routeStatsRouter);
 router.use(importRouter);
 

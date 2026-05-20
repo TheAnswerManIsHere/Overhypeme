@@ -21,6 +21,7 @@ import type { AiSubTab } from "./AiSourcePanel";
 import { AdjustTextSheet } from "./AdjustTextSheet";
 import { AdvancedOptionsSheet } from "./AdvancedOptionsSheet";
 import { PulidLoadingTakeover } from "./PulidLoadingTakeover";
+import { NoFaceFallbackModal } from "./NoFaceFallbackModal";
 import { intelligentSplit } from "./sliders/splitLogic";
 import { buildSaveMemePayload } from "../util/saveMemePayload";
 
@@ -115,6 +116,10 @@ export function Step2Image({
   const myImage: MyImageSource | null =
     tab === "ai-you" ? aiStylingImage : tab === "self-upload" ? selfUploadImage : null;
   const [pulidJobId, setPulidJobId] = useState<string | null>(null);
+  // When the server parks the PuLID job at no_face_review, the loading takeover
+  // unmounts and this flag drives the no-face modal. The jobId is preserved
+  // separately so the modal's actions can target it.
+  const [noFaceJobId, setNoFaceJobId] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [creatingAi, setCreatingAi] = useState(false);
@@ -301,11 +306,60 @@ export function Step2Image({
     } else if (errorCode === "moderation") {
       setSaveError("That image can't be used. It violates our content policy.");
     } else if (errorCode === "no_face") {
-      setSaveError("No face detected — we'll skip face-matching and use a text fallback.");
-      // The server returns an upload-shaped source for the no-face fallback via
-      // imageTransform="pulid_fallback_text". TODO MBFO-4: wire that path.
+      // Belt-and-suspenders fallback: the server's new no_face_review phase
+      // routes through handlePulidNoFaceReview before this fires, but if both
+      // the face attempt AND the abstract fallback fail downstream we still
+      // surface a generic message.
+      setSaveError("We couldn't generate that image. Try a different photo.");
     } else {
       setSaveError(message ?? "Our servers couldn't handle that much legend at once. Try again shortly.");
+    }
+  };
+
+  // Called when the PuLID job parks at no_face_review. The takeover unmounts
+  // and we surface the choice modal.
+  const handlePulidNoFaceReview = () => {
+    const jobId = pulidJobId;
+    setPulidJobId(null);
+    setNoFaceJobId(jobId);
+  };
+
+  const handleNoFaceTryDifferentPhoto = async () => {
+    const jobId = noFaceJobId;
+    setNoFaceJobId(null);
+    // Reset the AI selection so the user is back on the picker.
+    setAiStylingImage(null);
+    setAiSubTab("create");
+    if (!jobId) return;
+    try {
+      await fetch(`/api/memes/pulid-jobs/${encodeURIComponent(jobId)}`, {
+        method: "DELETE",
+        credentials: "include",
+      });
+    } catch {
+      // Best-effort cleanup — server-side TTL will GC the job state regardless.
+    }
+  };
+
+  const handleNoFaceUseAbstract = async () => {
+    const jobId = noFaceJobId;
+    if (!jobId) return;
+    try {
+      const res = await fetch(
+        `/api/memes/pulid-jobs/${encodeURIComponent(jobId)}/proceed-with-no-face-fallback`,
+        { method: "POST", credentials: "include" },
+      );
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      // Re-mount the loading takeover; it'll poll the same jobId until completion.
+      setNoFaceJobId(null);
+      setPulidJobId(jobId);
+    } catch (err) {
+      setNoFaceJobId(null);
+      setSaveError(
+        err instanceof Error
+          ? err.message
+          : "We couldn't switch to the abstract image. Try a different photo.",
+      );
     }
   };
 
@@ -383,6 +437,7 @@ export function Step2Image({
         jobId={pulidJobId}
         onComplete={handlePulidJobComplete}
         onError={handlePulidJobError}
+        onNoFaceReview={handlePulidNoFaceReview}
       />
     );
   }
@@ -486,6 +541,13 @@ export function Step2Image({
         open={upgradeOpen}
         onClose={() => setUpgradeOpen(false)}
         context="ai-tab"
+      />
+
+      <NoFaceFallbackModal
+        open={noFaceJobId !== null}
+        onPickDifferentPhoto={handleNoFaceTryDifferentPhoto}
+        onUseAbstract={handleNoFaceUseAbstract}
+        onDismiss={handleNoFaceTryDifferentPhoto}
       />
     </div>
   );

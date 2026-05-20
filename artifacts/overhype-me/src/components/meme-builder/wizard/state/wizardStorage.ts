@@ -26,6 +26,11 @@ export interface FramingOffset {
   y: number;
 }
 
+export type VideoSourceMode =
+  | "stylize-then-video"
+  | "use-photo-as-is"
+  | "use-existing-ai-image";
+
 export interface WizardAdvancedOptions {
   /** Image engine id (e.g. "fal-ai/flux-pulid"). Populated in later phases. */
   imageEngineId?: string;
@@ -35,6 +40,18 @@ export interface WizardAdvancedOptions {
   videoLengthSeconds?: number;
   /** Video resolution label (e.g. "480p", "720p"). */
   videoResolution?: string;
+  /** How the source still is produced (defaults to "stylize-then-video"). */
+  videoSourceMode?: VideoSourceMode;
+  /** Look style id (server-driven catalogue, defaults to "cinematic"). */
+  videoLookStyleId?: string;
+  /** Motion preset id (server-driven catalogue, null = generic baseline). */
+  videoMotionPresetId?: string | null;
+  /** Engine mode (e.g. "normal", "fun", "custom"); shown when engine supports modes. */
+  videoEngineMode?: string;
+  /** Custom motion-prompt direction; only used when engineMode === "custom". */
+  videoCustomModePrompt?: string;
+  /** Override toggle: when source is pre-stylized AI, use a different style for the video. */
+  videoOverrideLookForSource?: boolean;
 }
 
 export interface PendingWizardState {
@@ -121,9 +138,9 @@ export function clearWizardState(factId: string): void {
 }
 
 /**
- * Clear every persisted wizard draft, regardless of factId.
- * Call this on auth transitions (login/logout) so an in-progress draft
- * created by one viewer can never leak into another viewer's session.
+ * Clear every persisted wizard draft, regardless of factId. Call this on
+ * auth transitions (login/logout) so an in-progress draft created by one
+ * viewer can never leak into another viewer's session.
  */
 export function clearAllWizardStates(): void {
   if (!isStorageAvailable()) return;

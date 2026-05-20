@@ -54,10 +54,26 @@ export const memesTable = pgTable("memes", {
    * builder fell through to the standard text-to-image generator.
    */
   imageTransform: varchar("image_transform", { length: 24 }),
+  /**
+   * Discriminator for the meme's primary artifact. "image" for the original
+   * static-image meme; "video" for MBFO-4 video memes. The engine that
+   * generated the video lives in `video_jobs` (joined via video_job_id) —
+   * never referenced by name on the meme row, so engine swaps are pure config.
+   */
+  artifactType: varchar("artifact_type", { length: 10 }).notNull().default("image"),
+  /** R2 / object-storage path to the final captioned MP4. Null for image memes. */
+  videoObjectPath: text("video_object_path"),
+  /** FK to the video job that produced this meme. Null for image memes. */
+  videoJobId: integer("video_job_id"),
+  /** Look style applied to the source still (image-mode AI styling or video Stage 1 PuLID). Null when the meme used a raw photo or stock. */
+  lookStyleId: varchar("look_style_id", { length: 64 }),
+  /** Motion preset selected for video memes. Null for image memes. */
+  motionPresetId: varchar("motion_preset_id", { length: 64 }),
 }, (table) => [
   index("IDX_memes_deleted_at").on(table.deletedAt).where(isNull(table.deletedAt)),
   index("IDX_memes_heart_count").on(table.heartCount),
   index("IDX_memes_status").on(table.status),
+  index("IDX_memes_artifact_type").on(table.artifactType),
 ]);
 
 export type Meme = typeof memesTable.$inferSelect;

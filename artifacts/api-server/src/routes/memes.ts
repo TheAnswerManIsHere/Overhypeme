@@ -12,8 +12,8 @@ import { toggleHeart, getViewerReactionTargetIds } from "../lib/reactions";
 import { eq, ne, desc, and, inArray, isNull, gt, count, sql } from "drizzle-orm";
 import {
   SaveMemeBody,
-  deriveRenderMode,
 } from "../lib/validators/memeBuilder";
+import { createMemeRecord, CreateMemeError } from "../lib/createMemeRecord";
 import { z } from "zod";
 import {
   generateMemeBuffer,
@@ -276,93 +276,14 @@ router.post("/memes", async (req: Request, res: Response) => {
     return;
   }
 
-  const { factId, textOptions, framingTransform, previewImageBase64, isPublic: isPublicReq, aspectRatio: aspectRatioReq, imageTransform: imageTransformReq } = parsed.data;
-  // `imageSource` may be reassigned below when type === "identity" (resolved
-  // server-side into an upload-shaped source backed by the user's profile photo).
-  let imageSource = parsed.data.imageSource;
-
-  // ── Membership check ────────────────────────────────────────────
-  // Profile fields on `req.user` (membershipTier, displayName, pronouns) are
-  // rebuilt fresh from the DB on every authenticated request by authMiddleware.
-  const dbTier = req.user.membershipTier ?? "unregistered";
-  // `canPulid` uses the same role-based check as the `requireLegendary`
-  // middleware on the generate route rather than a DB feature flag.
-  // The `tier_feature_permissions` table has no rows for `meme_ai_background`,
-  // so `hasFeature(dbTier, "meme_ai_background")` always returned false and
-  // caused a 403 on every save with imageTransform="pulid" — even for
-  // legendary users who had just successfully called the generate route.
-  const userRoleForPulid = req.user.realUserRole ?? deriveUserRole(dbTier, !!req.user.isRealAdmin);
-  const [canPrivate, canUpload, highRateLimit] = await Promise.all([
-    hasFeature(dbTier, "meme_private_visibility"),
-    hasFeature(dbTier, "meme_upload_photo"),
-    hasFeature(dbTier, "meme_rate_limit_high"),
-  ]);
-  const canPulid = isAtLeastLegendary(userRoleForPulid);
-
-  // Only tiers with private visibility can choose privacy; others always public
-  const isPublic = canPrivate ? (isPublicReq ?? true) : true;
-
-  // ── Tier gate (Phase 4): PuLID-stylised memes are legendary-only ──
-  const renderMode = deriveRenderMode(imageSource, imageTransformReq ?? null);
-  if (renderMode === "pulid" && !canPulid) {
-    res.status(403).json({ error: "tier_mismatch" });
-    return;
-  }
-
-  // ── Daily save cap (timestamps-over-aggregates) ──────────────────
-  const dailyCapDefault = highRateLimit ? LEGENDARY_TIER_DAILY_SAVE_CAP_DEFAULT : FREE_TIER_DAILY_SAVE_CAP_DEFAULT;
-  const dailyCapKey = highRateLimit ? "memes.legendary_tier_daily_save_cap" : "memes.free_tier_daily_save_cap";
-  const dailyCap = await getConfigInt(dailyCapKey, dailyCapDefault);
-  const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
-  const [{ count: recentCount }] = await db
-    .select({ count: count() })
-    .from(memesTable)
-    .where(and(
-      eq(memesTable.createdById, req.user.id),
-      gt(memesTable.createdAt, oneDayAgo),
-      isNull(memesTable.deletedAt),
-    ));
-  if (Number(recentCount) >= dailyCap) {
-    res.setHeader("Retry-After", String(60 * 60)); // generic 1h hint
-    res.status(429).json({
-      error: "daily_cap_reached",
-      cap: dailyCap,
-      message: `Daily save cap of ${dailyCap} memes reached. Try again in 24 hours.`,
-    });
-    return;
-  }
-
-  // ── Idempotency (60s window, in-process) ────────────────────────
-  const now = Date.now();
-  pruneIdempotencyMap(now);
-  const idemKey = computeIdemKey(req.user.id, {
-    factId,
-    imageSource,
-    textOptions: textOptions ?? null,
-    framingTransform: framingTransform ?? null,
-    aspectRatio: aspectRatioReq ?? "landscape",
-    isPublic,
-    imageTransform: imageTransformReq ?? null,
-  });
-  const idemHit = idempotencyMap.get(idemKey);
-  if (idemHit && idemHit.expiresAt > now) {
-    res.status(200).json({
-      id: idemHit.memeId,
-      memeId: idemHit.memeId,
-      permalinkSlug: idemHit.permalinkSlug,
-      slug: idemHit.permalinkSlug,
-      permalinkUrl: `/m/${idemHit.permalinkSlug}`,
-      imageUrl: `/api/memes/${idemHit.permalinkSlug}/image`,
-      idempotent: true,
-    });
-    return;
-  }
-
-  // ── Source-specific validation ───────────────────────────────────
-  if (imageSource.type === "template") {
-    // Capture into a const so the discriminated-union narrow survives the
-    // closure inside `find` (imageSource above is `let`, so TS otherwise widens).
-    const templateSrc = imageSource;
+  // Source-specific validation: catch unknown template IDs before the shared
+  // creator does anything expensive. The remainder of validation, idempotency,
+  // daily-cap enforcement, NSFW classification, slug allocation, and the row
+  // insert all live inside createMemeRecord — keeping this route a thin
+  // delegate ensures the async video pipeline (which calls createMemeRecord
+  // directly) goes through the exact same path 1:1.
+  if (parsed.data.imageSource.type === "template") {
+    const templateSrc = parsed.data.imageSource;
     const valid = MEME_TEMPLATES.find(t => t.id === templateSrc.templateId);
     if (!valid) {
       res.status(400).json({ error: "Invalid template ID" });
@@ -370,195 +291,64 @@ router.post("/memes", async (req: Request, res: Response) => {
     }
   }
 
-  // Resolve "identity" → an upload-shaped source backed by the user's profile
-  // photo. This MUST happen before the canUpload gate because identity memes
-  // are free for every registered user.
-  if (imageSource.type === "identity") {
-    const profileUrl = req.user.profileImageUrl;
-    const PROFILE_PREFIX = "/api/storage";
-    if (!profileUrl || typeof profileUrl !== "string" || !profileUrl.startsWith(`${PROFILE_PREFIX}/objects/`)) {
-      res.status(400).json({ error: "Add a profile photo to create an identity meme." });
-      return;
-    }
-    const uploadKey = profileUrl.slice(PROFILE_PREFIX.length); // "/objects/..."
-    imageSource = { type: "upload", uploadKey };
-  }
+  const dbTier = req.user.membershipTier ?? "unregistered";
+  const userRoleForPulid = req.user.realUserRole ?? deriveUserRole(dbTier, !!req.user.isRealAdmin);
 
-  // Photo upload memes are free for every registered user (Task #382 —
-  // identity-first meme creation). The legacy canUpload gate has been removed
-  // for the meme creation route; AI-image and AI-video sources retain their
-  // Legendary gating through their own dedicated routes.
-  void canUpload;
+  try {
+    const result = await createMemeRecord({
+      userId: req.user.id,
+      factId: parsed.data.factId,
+      imageSource: parsed.data.imageSource,
+      textOptions: parsed.data.textOptions ?? null,
+      framingTransform: parsed.data.framingTransform ?? null,
+      aspectRatio: parsed.data.aspectRatio,
+      isPublic: parsed.data.isPublic,
+      imageTransform: parsed.data.imageTransform,
+      name: parsed.data.name,
+      pronouns: parsed.data.pronouns,
+      previewImageBase64: parsed.data.previewImageBase64,
+      resolvedRole: userRoleForPulid,
+      resolvedTier: dbTier,
+    });
 
-  // ── Look up fact ─────────────────────────────────────────────────
-  const [fact] = await db
-    .select({ id: factsTable.id, text: factsTable.text, canonicalText: factsTable.canonicalText })
-    .from(factsTable)
-    .where(and(eq(factsTable.id, factId), eq(factsTable.isActive, true)))
-    .limit(1);
-  if (!fact) {
-    res.status(404).json({ error: "Fact not found" });
-    return;
-  }
-
-  // ── Freeze the rendered fact text at creation time ───────────────
-  // Phase 4: name/pronouns may come from the request body (the universal
-  // builder collects them in a form field) — fall back to the user's
-  // profile fields when omitted to preserve backwards-compatibility.
-  const effectiveName = parsed.data.name ?? req.user.displayName ?? null;
-  const effectivePronouns = parsed.data.pronouns ?? req.user.pronouns ?? null;
-  const rawTemplate = fact.text ?? fact.canonicalText ?? "";
-  const renderedFactText = effectiveName && rawTemplate
-    ? renderPersonalized(rawTemplate, effectiveName, effectivePronouns)
-    : (fact.canonicalText ?? fact.text ?? null);
-
-  // ── Unique slug ──────────────────────────────────────────────────
-  // Phase 4: nanoid(10) — see `generateSlug` definition for collision math.
-  // Three retries is enough; the unique constraint on `permalink_slug`
-  // ensures we never persist a duplicate even under racey inserts.
-  let slug = generateSlug();
-  for (let i = 0; i < 3; i++) {
-    const [existing] = await db
-      .select({ id: memesTable.id })
-      .from(memesTable)
-      .where(eq(memesTable.permalinkSlug, slug))
-      .limit(1);
-    if (!existing) break;
-    slug = generateSlug();
-    if (i === 2) {
-      req.log.error("Slug allocation failed after 3 attempts");
-      res.status(500).json({ error: "slug_alloc_failed" });
-      return;
-    }
-  }
-
-  // ── Persist ──────────────────────────────────────────────────────
-  const templateIdForDb =
-    imageSource.type === "template" ? imageSource.templateId :
-    imageSource.type === "stock"    ? "photo_stock" :
-    "photo_upload";
-
-  // If the client sent a pre-rendered canvas image, run Layer 3 (NSFW
-  // classifier) before storing — and reject on a hit so we never persist
-  // the bytes into `memes/{slug}` or write the meme row.
-  let storedImageSource: StoredImageSource | null = imageSource;
-  let classifierScoreForMeme: number | null = null;
-  let isNsfwForMeme = false;
-  if (previewImageBase64) {
-    const imgBuffer = Buffer.from(previewImageBase64, "base64");
-
-    // Upload to fal's transient storage so the classifier endpoint has a URL.
-    const falKeyMemes = process.env["FAL_AI_API_KEY"] ?? process.env["FAL_KEY"];
-    if (!falKeyMemes) {
-      req.log.warn("[memes] fal.ai key not configured — skipping NSFW classifier on preview");
-    } else {
-      let classifierUrl: string | null = null;
-      try {
-        const { fal } = await import("@fal-ai/client");
-        fal.config({ credentials: falKeyMemes });
-        const blob = new Blob([new Uint8Array(imgBuffer)], { type: "image/jpeg" });
-        classifierUrl = await fal.storage.upload(blob);
-      } catch (uErr) {
-        req.log.warn({ err: uErr }, "[memes] failed to upload preview to fal storage for classification — failing closed");
-      }
-
-      if (classifierUrl) {
-        const decision = await classifyAndDecide(classifierUrl, { nsfwModeEnabled: !!req.user?.nsfwModeEnabled });
-        if (decision.outcome === "reject" || decision.outcome === "error") {
-          if (decision.outcome === "reject") {
-            try {
-              await quarantineImage({
-                source: "classifier",
-                bytes: imgBuffer,
-                mimeType: "image/jpeg",
-                userId: req.user.id,
-                evidence: {
-                  source: "classifier",
-                  classifierScore: decision.score,
-                  classifierModel: decision.model,
-                  raw: decision.raw,
-                },
-                reportToNcmec: false,
-              });
-            } catch (qErr) {
-              req.log.error({ err: qErr }, "[memes] quarantine failed for preview classifier reject");
-            }
-          }
-          res.status(422).json({ error: GENERIC_REJECT_MESSAGE });
-          return;
-        }
-        classifierScoreForMeme = decision.score;
-        isNsfwForMeme = decision.isNsfwTag;
-      } else {
-        // Could not upload to classifier — fail closed.
-        res.status(503).json({ error: "Moderation service unavailable. Please try again." });
-        return;
-      }
-    }
-
-    try {
-      await objectStorageService.uploadObjectBuffer({
-        subPath: memeKey(slug, "jpg"),
-        buffer: imgBuffer,
-        contentType: "image/jpeg",
+    if (result.idempotent) {
+      res.status(200).json({
+        id: result.memeId,
+        memeId: result.memeId,
+        permalinkSlug: result.permalinkSlug,
+        slug: result.permalinkSlug,
+        permalinkUrl: result.permalinkUrl,
+        imageUrl: result.imageUrl,
+        idempotent: true,
       });
-      // Setting imageSource to null triggers the legacy serving path which
-      // reads the pre-rendered file from object storage.
-      storedImageSource = null;
-    } catch (uploadErr) {
-      req.log.warn({ uploadErr }, "Preview image upload failed — falling back to server-side render");
+      return;
     }
+
+    res.status(201).json({
+      id: result.memeId,
+      memeId: result.memeId,
+      factId: result.factId,
+      templateId: result.templateId,
+      imageUrl: result.imageUrl,
+      permalinkSlug: result.permalinkSlug,
+      slug: result.permalinkSlug,
+      permalinkUrl: result.permalinkUrl,
+      createdAt: result.createdAt,
+    });
+  } catch (err) {
+    if (err instanceof CreateMemeError) {
+      if (err.status === 429 && typeof err.body["retryAfterSeconds"] === "number") {
+        res.setHeader("Retry-After", String(err.body["retryAfterSeconds"]));
+      }
+      // Strip the auxiliary retryAfterSeconds field from the JSON body — keep
+      // wire shape identical to the legacy inline handler.
+      const body: Record<string, unknown> = { ...err.body };
+      delete body["retryAfterSeconds"];
+      res.status(err.status).json(body);
+      return;
+    }
+    throw err;
   }
-
-  const uploadMeta = imageSource.type === "upload"
-    ? await getUploadImageMetadata(imageSource.uploadKey)
-    : null;
-
-  const [meme] = await db
-    .insert(memesTable)
-    .values({
-      factId,
-      templateId: templateIdForDb,
-      imageUrl: `/api/memes/${slug}/image`,
-      permalinkSlug: slug,
-      textOptions: textOptions ?? null,
-      imageSource: storedImageSource,
-      framingTransform: framingTransform ?? null,
-      isPublic,
-      isLowRes: uploadMeta?.isLowRes ?? false,
-      originalWidth: uploadMeta?.width ?? null,
-      originalHeight: uploadMeta?.height ?? null,
-      uploadFileSizeBytes: uploadMeta?.fileSizeBytes ?? null,
-      createdById: req.user.id,
-      aspectRatio: aspectRatioReq ?? "landscape",
-      renderedFactText: renderedFactText ?? null,
-      nsfwClassifierScore: classifierScoreForMeme != null ? classifierScoreForMeme.toFixed(4) : null,
-      isNsfw: isNsfwForMeme,
-      imageTransform: imageTransformReq ?? null,
-    })
-    .returning();
-
-  // Cache the freshly-created meme keyed by the canonicalised inputs so a
-  // duplicate POST within the next 60 s returns the same row instead of
-  // inserting a second one. The map is also cleaned of expired entries on
-  // every save above.
-  idempotencyMap.set(idemKey, {
-    memeId: meme.id,
-    permalinkSlug: meme.permalinkSlug,
-    expiresAt: Date.now() + IDEM_WINDOW_MS,
-  });
-
-  res.status(201).json({
-    id: meme.id,
-    memeId: meme.id,
-    factId: meme.factId,
-    templateId: meme.templateId,
-    imageUrl: meme.imageUrl,
-    permalinkSlug: meme.permalinkSlug,
-    slug: meme.permalinkSlug,
-    permalinkUrl: `/m/${meme.permalinkSlug}`,
-    createdAt: meme.createdAt.toISOString(),
-  });
 });
 
 // GET /memes/:slug

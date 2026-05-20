@@ -96,6 +96,21 @@ export const ImageSourceSchema = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("identity"),
   }),
+  // Video meme — produced by the wizard's async video pipeline. The video
+  // bytes already live in object storage (videoObjectPath) and have already
+  // been moderated by the pipeline; the still frame is preserved as
+  // stillObjectPath for thumbnails/OG. The wizard pipeline writes this row
+  // directly (POST /api/memes is not in the video flow), so previewImageBase64
+  // is never set and the createMemeRecord helper short-circuits the still-
+  // image classifier when this discriminant is present.
+  z.object({
+    type: z.literal("video"),
+    videoJobId: z.number().int().nonnegative(),
+    videoObjectPath: z.string().regex(/^\/objects\//).max(500),
+    stillObjectPath: z.string().regex(/^\/objects\//).max(500),
+    lookStyleId: z.string().max(64).optional(),
+    motionPresetId: z.string().max(64).optional(),
+  }),
 ]);
 
 export type ImageSource = z.infer<typeof ImageSourceSchema>;

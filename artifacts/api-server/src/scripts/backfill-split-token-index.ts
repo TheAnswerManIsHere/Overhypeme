@@ -11,11 +11,12 @@ import { eq, isNull } from "drizzle-orm";
 import { db } from "@workspace/db";
 import { factsTable } from "@workspace/db/schema";
 import { computeSplitTokenIndex } from "../lib/splitTokenIndex";
+import { logger } from "../lib/logger";
 
 const BATCH_SIZE = 100;
 
 async function run() {
-  console.log("Starting splitTokenIndex backfill…");
+  logger.info("Starting splitTokenIndex backfill…");
   let totalProcessed = 0;
 
   while (true) {
@@ -36,10 +37,10 @@ async function run() {
     }
 
     totalProcessed += batch.length;
-    console.log(`  processed ${totalProcessed} rows so far…`);
+    logger.info({ totalProcessed }, "  processed rows so far…");
   }
 
-  console.log(`Done — updated ${totalProcessed} facts.`);
+  logger.info({ totalProcessed }, "Done — updated facts.");
 
   // Verification: confirm no NULLs remain.
   const remaining = await db
@@ -49,14 +50,14 @@ async function run() {
     .limit(1);
 
   if (remaining.length === 0) {
-    console.log("✓ Verified: 0 facts with null split_token_index.");
+    logger.info("Verified: 0 facts with null split_token_index.");
   } else {
-    console.warn("⚠ Some facts still have null split_token_index — check for errors above.");
+    logger.warn("Some facts still have null split_token_index — check for errors above.");
     process.exit(1);
   }
 }
 
 run().catch((err) => {
-  console.error("Backfill failed:", err);
+  logger.error({ err }, "Backfill failed");
   process.exit(1);
 });
