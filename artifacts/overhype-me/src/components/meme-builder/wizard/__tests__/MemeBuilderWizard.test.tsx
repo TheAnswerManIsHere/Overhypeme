@@ -73,7 +73,7 @@ describe("MemeBuilderWizard", () => {
     // the upgrade modal instead of advancing).
     renderWizard({ viewerContext: { ...VIEWER, tier: "legendary" } });
     fireEvent.click(screen.getByRole("button", { name: /^video$/i }));
-    expect(await screen.findByRole("heading", { name: /build your meme/i }, S2)).toBeTruthy();
+    expect(await screen.findByRole("heading", { name: /pick a photo, choose your options/i }, S2)).toBeTruthy();
 
     fireEvent.click(screen.getByLabelText("Back"));
     expect(await screen.findByRole("heading", { name: /what kind of meme/i }, S2)).toBeTruthy();

@@ -141,7 +141,7 @@ describe("Step2Video", () => {
     expect(btn.disabled).toBe(false);
   });
 
-  it("renders the heading 'Build your meme' for the wizard header", async () => {
+  it("renders the heading 'Pick a photo, choose your options.' for the wizard header", async () => {
     const dispatch = vi.fn();
     render(
       <Step2Video
@@ -156,7 +156,7 @@ describe("Step2Video", () => {
       />,
     );
     expect(
-      await screen.findByRole("heading", { name: /build your meme/i }),
+      await screen.findByRole("heading", { name: /pick a photo, choose your options/i }),
     ).toBeTruthy();
   });
 
