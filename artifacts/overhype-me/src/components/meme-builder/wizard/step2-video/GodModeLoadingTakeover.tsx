@@ -123,11 +123,14 @@ export function GodModeLoadingTakeover(props: Props) {
   useEffect(() => {
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout> | null = null;
+    let consecutiveErrors = 0;
+    const MAX_CONSECUTIVE_ERRORS = 5;
 
     const tick = async () => {
       try {
         const next = await api.poll(jobId);
         if (cancelled) return;
+        consecutiveErrors = 0;
         setStatus(next);
         if (next.phase === "completed" && !completedRef.current) {
           completedRef.current = true;
@@ -137,8 +140,27 @@ export function GodModeLoadingTakeover(props: Props) {
         if (next.phase === "failed" || next.phase === "canceled") {
           return;
         }
-      } catch {
-        // Swallow transient poll errors and try again.
+      } catch (err) {
+        if (cancelled) return;
+        consecutiveErrors += 1;
+        if (consecutiveErrors >= MAX_CONSECUTIVE_ERRORS) {
+          // Too many consecutive failures — the server likely restarted and
+          // lost the in-memory job state. Surface a failure instead of
+          // spinning forever.
+          const msg = err instanceof Error ? err.message : "";
+          const isNotFound = msg.includes("404");
+          setStatus({
+            jobId,
+            phase: "failed",
+            progress: 0,
+            errorCode: "service_unavailable",
+            errorMessage: isNotFound
+              ? "Your video generation was interrupted by a server restart. Please try again."
+              : "Couldn't reach the server. Please check your connection and try again.",
+          });
+          return;
+        }
+        // Transient error — keep retrying.
       }
       if (!cancelled) {
         timer = setTimeout(tick, pollIntervalMs);
