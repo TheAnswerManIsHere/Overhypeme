@@ -42,7 +42,15 @@ const newJobId = customAlphabet("0123456789abcdefghijklmnopqrstuvwxyz", 14);
 
 const JOB_TTL_MS = 10 * 60 * 1000;
 
-type Phase = "queued" | "in_progress" | "completed" | "failed";
+/**
+ * "no_face_review" is the explicit user-choice gate added in MBFO-4. When
+ * PuLID's face detector misses, the job parks in this phase instead of
+ * silently falling through to standalone generation, so the wizard can
+ * surface a "Try a different photo / Use an abstract image" modal. The
+ * client resolves the gate by either DELETE-ing the job or POSTing to
+ * /memes/pulid-jobs/:jobId/proceed-with-no-face-fallback.
+ */
+type Phase = "queued" | "in_progress" | "no_face_review" | "completed" | "failed";
 type ErrorCode =
   | "service_unavailable"
   | "budget_exceeded"
@@ -66,6 +74,13 @@ interface JobState {
   errorMessage?: string;
   /** True once the no-face fallback (standalone generation) has taken over. */
   isFallback?: boolean;
+  /** Inputs preserved so the standalone fallback can be triggered later. */
+  factText?: string;
+  targetGender?: "male" | "female" | "neutral";
+  styleSuffix?: string;
+  styleId?: string;
+  referenceImagePath?: string;
+  existingPrompts?: AiScenePrompts;
 }
 
 const jobs = new Map<string, JobState>();
@@ -258,6 +273,14 @@ router.post("/memes/pulid-jobs", requireLegendary, async (req: Request, res: Res
     expiresAt: now + JOB_TTL_MS,
     phase: "queued",
     expectedRunMs,
+    // Preserve the inputs so the no_face_review proceed handler can fire the
+    // standalone generator later without re-validating everything.
+    factText: fact.text ?? undefined,
+    targetGender,
+    styleSuffix,
+    styleId: rawStyleId,
+    referenceImagePath,
+    existingPrompts: fact.aiScenePrompts as AiScenePrompts | undefined,
   };
   jobs.set(jobId, state);
 
@@ -304,33 +327,23 @@ router.post("/memes/pulid-jobs", requireLegendary, async (req: Request, res: Res
           },
         );
       } catch (refErr) {
-        // No face detected → silently fall back to a non-face image-to-image
-        // generator so the user still gets an image instead of an error.
+        // No face detected → park the job in no_face_review and surface a
+        // choice to the user. The platform expects a face on every upload, so
+        // a silent fallback would have hidden that signal. The client modal
+        // gives the user two paths: pick a different photo (DELETE the job)
+        // or render an abstract image from the fact instead (POST .../proceed
+        // -with-no-face-fallback).
         if (isNoFaceError(refErr)) {
           logger.warn(
             { err: refErr, jobId, factId, userId },
-            "[pulidJobs] no face detected — falling back to standalone (no-face) generation",
+            "[pulidJobs] no face detected — parking in no_face_review for user decision",
           );
-          // Move the bar into in_progress and mark the fallback so the UI can
-          // show the user that face matching failed and an alternative is running.
           const cur = jobs.get(jobId);
           if (cur) {
-            cur.phase = "in_progress";
-            cur.startedRunAt = Date.now();
+            cur.phase = "no_face_review";
             cur.queuePosition = undefined;
-            cur.isFallback = true;
           }
-          generatedObjectPath = await generateAiMemeBackgroundStandalone(
-            factId,
-            factText,
-            targetGender,
-            {
-              existingPrompts,
-              userId,
-              sourceObjectPath: referenceImagePath,
-              styleSuffix,
-            },
-          );
+          return; // Wait for client to invoke proceed/delete endpoint.
         } else {
           throw refErr;
         }
@@ -407,6 +420,118 @@ router.get("/memes/pulid-jobs/:jobId", async (req: Request, res: Response) => {
     errorMessage: state.errorMessage,
     isFallback: state.isFallback ?? false,
   });
+});
+
+// ─── POST /memes/pulid-jobs/:jobId/proceed-with-no-face-fallback ────────────
+//
+// Called by the wizard's no-face modal when the user chooses "Use an abstract
+// image based on the fact." Fires the standalone (no-reference) generator
+// using the same fact + style + gender we captured at job-start time. The
+// result is persisted with imageTransform = "pulid_fallback_text" by the
+// pipeline helper. Valid only while phase = "no_face_review".
+router.post(
+  "/memes/pulid-jobs/:jobId/proceed-with-no-face-fallback",
+  async (req: Request, res: Response) => {
+    gc();
+    if (!req.user) {
+      res.status(401).json({ error: "auth_required" });
+      return;
+    }
+    const jobId = String(req.params["jobId"] ?? "");
+    const state = jobs.get(jobId);
+    if (!state) {
+      res.status(404).json({ error: "job_not_found" });
+      return;
+    }
+    if (state.userId !== req.user.id) {
+      res.status(403).json({ error: "forbidden" });
+      return;
+    }
+    if (state.phase !== "no_face_review") {
+      res.status(409).json({ error: "invalid_phase", phase: state.phase });
+      return;
+    }
+    if (!state.factText || !state.targetGender || !state.referenceImagePath) {
+      // Belt-and-suspenders: these are populated on job creation; missing them
+      // means a server restart cleared the map and the client should retry from scratch.
+      res.status(409).json({ error: "job_state_lost" });
+      return;
+    }
+
+    state.phase = "in_progress";
+    state.startedRunAt = Date.now();
+    state.queuePosition = undefined;
+    state.isFallback = true;
+
+    const localState = state;
+    void (async () => {
+      try {
+        const generatedObjectPath = await generateAiMemeBackgroundStandalone(
+          localState.factId,
+          localState.factText!,
+          localState.targetGender!,
+          {
+            existingPrompts: localState.existingPrompts,
+            userId: localState.userId,
+            sourceObjectPath: localState.referenceImagePath!,
+            styleSuffix: localState.styleSuffix,
+          },
+        );
+        const cur = jobs.get(jobId);
+        if (!cur) return;
+        cur.phase = "completed";
+        cur.completedAt = Date.now();
+        cur.generatedObjectPath = generatedObjectPath ?? undefined;
+      } catch (err) {
+        const cur = jobs.get(jobId);
+        if (!cur) return;
+        cur.phase = "failed";
+        cur.completedAt = Date.now();
+        if (err instanceof BudgetExceededError) {
+          cur.errorCode = "budget_exceeded";
+          cur.errorMessage = "BUDGET_EXCEEDED";
+        } else if (err instanceof ModerationRejectedError) {
+          cur.errorCode = "moderation";
+          cur.errorMessage = GENERIC_REJECT_MESSAGE;
+        } else {
+          cur.errorCode = "service_unavailable";
+          cur.errorMessage = extractMessage(err);
+          logger.error({ err, jobId }, "[pulidJobs] no-face-fallback generation failed");
+        }
+      }
+    })();
+
+    res.json({ ok: true });
+  },
+);
+
+// ─── DELETE /memes/pulid-jobs/:jobId ────────────────────────────────────────
+//
+// Cancels a job that is parked in no_face_review (or any other non-terminal
+// phase). Used by the wizard's "Try a different photo" path. The cancel is
+// best-effort — any in-flight fal call cannot actually be stopped, but the
+// job state is marked so subsequent polls return failed/canceled.
+router.delete("/memes/pulid-jobs/:jobId", async (req: Request, res: Response) => {
+  gc();
+  if (!req.user) {
+    res.status(401).json({ error: "auth_required" });
+    return;
+  }
+  const jobId = String(req.params["jobId"] ?? "");
+  const state = jobs.get(jobId);
+  if (!state) {
+    res.status(404).json({ error: "job_not_found" });
+    return;
+  }
+  if (state.userId !== req.user.id) {
+    res.status(403).json({ error: "forbidden" });
+    return;
+  }
+  state.phase = "failed";
+  state.completedAt = Date.now();
+  state.errorCode = "internal";
+  state.errorMessage = "canceled_by_user";
+  res.json({ ok: true });
 });
 
 // ── Test-only hooks ──────────────────────────────────────────────────────────
