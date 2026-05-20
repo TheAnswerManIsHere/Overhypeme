@@ -3,17 +3,24 @@ import { z } from "zod";
 import { fal } from "@fal-ai/client";
 import { db, videoJobsTable, usersTable, memesTable, factsTable } from "@workspace/db";
 import { renderPersonalized } from "../lib/renderCanonical.js";
-import { motionPresetsTable } from "@workspace/db/schema";
+import { motionPresetsTable, lookStylesTable, enginesTable, type Engine } from "@workspace/db/schema";
 import { eq, and, gte, desc, or, asc } from "drizzle-orm";
-import { getConfigString } from "../lib/adminConfig.js";
 import { getCachedPrice } from "../lib/falPricing.js";
 import { computeVideoCost, resolveVideoDimensions } from "../lib/costComputation.js";
 import { checkBudget, recordCost } from "../lib/budgetGate.js";
-import { requireAdmin } from "./admin.js";
 import { hasFeature } from "../lib/tierFeatures.js";
 import { ObjectStorageService } from "../lib/objectStorage.js";
 import { completeGovernance, enforceGovernance } from "../lib/resourceGovernance.js";
 import { logger } from "../lib/logger.js";
+import { requireAdmin } from "./admin.js";
+import {
+  loadEngine,
+  loadDefaultEngine,
+  loadActiveEngines,
+  buildEngineInput,
+  MissingRequiredParamError,
+} from "../lib/engineInterpreter.js";
+import { applyAudioHandling } from "../lib/engineAudio.js";
 
 const router: IRouter = Router();
 
@@ -21,442 +28,28 @@ const RATE_LIMIT_MAX = 3;
 const RATE_LIMIT_WINDOW_MS = 24 * 60 * 60 * 1000;
 const FALLBACK_PROMPT = "Subtle cinematic motion, dramatic lighting, slow camera push-in, epic atmosphere";
 const DEFAULT_STYLE_ID = "cinematic";
-const DEFAULT_VIDEO_MODEL = "xai/grok-imagine-video/image-to-video";
 
 async function getVideoStyleById(id: string) {
   const [style] = await db.select().from(motionPresetsTable).where(eq(motionPresetsTable.id, id)).limit(1);
   return style ?? null;
 }
 
-
-type VideoModelFamily = "kling" | "veo" | "seedance" | "sora" | "runway" | "luma" | "hailuo" | "minimax" | "pixverse" | "wan" | "ltx" | "cogvideox" | "stablevideo" | "hunyuan" | "grok" | "unknown";
-
-function detectVideoModelFamily(model: string): VideoModelFamily {
-  if (model.includes("kling-video")) return "kling";
-  if (model.includes("/veo")) return "veo";
-  if (model.includes("seedance")) return "seedance";
-  if (model.includes("sora-2")) return "sora";
-  if (model.includes("/runway")) return "runway";
-  if (model.includes("luma-dream-machine")) return "luma";
-  if (model.includes("/hailuo")) return "hailuo";
-  if (model.includes("/minimax/video")) return "minimax";
-  if (model.includes("/pixverse")) return "pixverse";
-  if (model.startsWith("fal-ai/wan") || model.includes("/wan/") || model === "fal-ai/wan-i2v") return "wan";
-  if (model.includes("/ltx")) return "ltx";
-  if (model.includes("cogvideox")) return "cogvideox";
-  if (model.includes("stable-video")) return "stablevideo";
-  if (model.includes("hunyuan-video")) return "hunyuan";
-  if (model.includes("grok-imagine-video")) return "grok";
-  return "unknown";
-}
-
-interface BuildFalInputOptions {
-  modelFamily: VideoModelFamily;
-  videoModel: string;
-  imageUrl: string;
-  motionPrompt: string;
-  videoDuration: string;
-  videoAspectRatio: string;
-  videoResolution: string;
-  isAdmin: boolean;
-  // Existing admin params
-  adminCfgScale?: number;
-  adminNegativePrompt?: string;
-  adminSeed?: number;
-  adminResolution?: string;
-  adminLoop?: boolean;
-  // New admin params
-  adminGenerateAudio?: boolean;
-  adminAutoFix?: boolean;
-  adminSafetyTolerance?: string;
-  adminPromptOptimizer?: boolean;
-  adminStyle?: string;
-  adminEnableSafetyChecker?: boolean;
-  adminCameraFixed?: boolean;
-  adminMotionBucketId?: number;
-  adminCondAug?: number;
-  adminFps?: number;
-  adminNumFrames?: number;
-  adminGuidanceScale?: number;
-  adminNumInferenceSteps?: number;
-  adminGenerateAudioSwitch?: boolean;
-  adminGenerateMultiClipSwitch?: boolean;
-  adminThinkingType?: string;
-  // Context fields (used by specific models)
-  endUserId?: string | null;
-}
-
-function normalizeDurationSuffix(raw: string): string {
-  const t = raw.trim();
-  return /^\d+$/.test(t) ? `${t}s` : t;
-}
-
-function parseDurationNum(raw: string): number {
-  const t = raw.trim();
-  const m = t.match(/^(\d+)/);
-  return m ? parseInt(m[1]!, 10) : NaN;
-}
-
-function snapToValid(n: number, valid: number[]): number {
-  if (isNaN(n)) return valid[valid.length - 1]!;
-  return valid.reduce((a, b) => Math.abs(b - n) < Math.abs(a - n) ? b : a);
-}
-
-function buildFalInput(opts: BuildFalInputOptions): Record<string, unknown> {
-  const {
-    modelFamily, imageUrl, motionPrompt, videoDuration, videoAspectRatio, videoResolution,
-    isAdmin,
-    adminCfgScale, adminNegativePrompt, adminSeed, adminResolution, adminLoop,
-    adminGenerateAudio, adminAutoFix, adminSafetyTolerance, adminPromptOptimizer,
-    adminStyle, adminEnableSafetyChecker, adminCameraFixed,
-    adminMotionBucketId, adminCondAug, adminFps, adminNumFrames,
-    adminGuidanceScale, adminNumInferenceSteps,
-    adminGenerateAudioSwitch, adminGenerateMultiClipSwitch, adminThinkingType,
-  } = opts;
-
-  // ── Veo family ─────────────────────────────────────────────────────────────
-  if (modelFamily === "veo") {
-    const model = opts.videoModel;
-    const rawDurNum = parseDurationNum(videoDuration);
-
-    let veoDuration: string;
-    if (model.includes("veo2")) {
-      // Veo 2: only 5s–8s
-      const valid = [5, 6, 7, 8];
-      veoDuration = `${snapToValid(rawDurNum, valid)}s`;
-    } else if (model.includes("/lite/") || model.includes("/fast/")) {
-      // Veo 3.1 Lite / Fast: 4s, 6s, 8s
-      veoDuration = `${snapToValid(rawDurNum, [4, 6, 8])}s`;
-    } else {
-      // Veo 3 / Veo 3.1 full: 4s–8s
-      veoDuration = `${snapToValid(rawDurNum, [4, 6, 8])}s`;
-    }
-
-    const veoSupportedRatios = new Set(["16:9", "9:16", "auto"]);
-    const veoAspectRatio = veoSupportedRatios.has(videoAspectRatio) ? videoAspectRatio : "auto";
-
-    const falInput: Record<string, unknown> = {
-      image_url: imageUrl,
-      prompt: motionPrompt,
-      duration: veoDuration,
-      aspect_ratio: veoAspectRatio,
-    };
-
-    if (isAdmin) {
-      if (adminNegativePrompt?.trim()) falInput.negative_prompt = adminNegativePrompt.trim();
-      if (adminResolution?.trim()) falInput.resolution = adminResolution.trim();
-      if (adminSeed !== undefined) falInput.seed = adminSeed;
-      if (adminGenerateAudio !== undefined) falInput.generate_audio = adminGenerateAudio;
-      if (adminAutoFix !== undefined) falInput.auto_fix = adminAutoFix;
-      if (adminSafetyTolerance?.trim()) falInput.safety_tolerance = adminSafetyTolerance.trim();
-    }
-
-    return falInput;
-  }
-
-  // ── Kling family ───────────────────────────────────────────────────────────
-  if (modelFamily === "kling") {
-    const falInput: Record<string, unknown> = {
-      image_url: imageUrl,
-      prompt: motionPrompt,
-      duration: videoDuration,
-    };
-
-    if (isAdmin) {
-      if (adminCfgScale !== undefined) falInput.cfg_scale = adminCfgScale;
-      if (adminNegativePrompt?.trim()) falInput.negative_prompt = adminNegativePrompt.trim();
-      if (adminSeed !== undefined) falInput.seed = adminSeed;
-    }
-
-    return falInput;
-  }
-
-  // ── Seedance 2.0 (Pro + Fast) ──────────────────────────────────────────────
-  // API schema: duration string enum ["auto","4"–"15"], aspect_ratio enum
-  // ["auto","21:9","16:9","4:3","1:1","3:4","9:16"], resolution ["480p","720p"],
-  // generate_audio boolean (default true), seed nullable int.
-  // Config-driven params apply for ALL users; admin per-request overrides win.
-  if (modelFamily === "seedance" && (opts.videoModel.includes("seedance-2.0") || opts.videoModel.includes("seedance/v2"))) {
-    const falInput: Record<string, unknown> = {
-      image_url: imageUrl,
-      prompt: motionPrompt,
-    };
-
-    // Duration — valid string enum; "auto" means let the model decide (omit it
-    // so the API uses its default, which is "auto").
-    const s2ValidDurations = new Set(["auto","4","5","6","7","8","9","10","11","12","13","14","15"]);
-    const s2Dur = videoDuration?.trim() ?? "";
-    if (s2Dur && s2Dur !== "auto" && s2ValidDurations.has(s2Dur)) falInput.duration = s2Dur;
-
-    // Aspect ratio
-    const s2ValidRatios = new Set(["auto","21:9","16:9","4:3","1:1","3:4","9:16"]);
-    const s2AR = videoAspectRatio?.trim() ?? "";
-    if (s2AR && s2AR !== "auto" && s2ValidRatios.has(s2AR)) falInput.aspect_ratio = s2AR;
-
-    // Resolution — config default for all; admin per-request override wins
-    const s2Res = (isAdmin && adminResolution?.trim()) || videoResolution;
-    if (s2Res === "480p" || s2Res === "720p") falInput.resolution = s2Res;
-
-    // ByteDance ToS requires end_user_id in every Seedance 2.0 payload for B2B verification.
-    // Pass the authenticated user's ID, or null for unauthenticated requests.
-    falInput.end_user_id = opts.endUserId ?? null;
-
-    // Admin per-request overrides
-    if (isAdmin) {
-      if (adminSeed !== undefined) falInput.seed = adminSeed;
-      if (adminGenerateAudio !== undefined) falInput.generate_audio = adminGenerateAudio;
-    }
-
-    return falInput;
-  }
-
-  // ── Seedance 1.5 ───────────────────────────────────────────────────────────
-  if (modelFamily === "seedance") {
-    const falInput: Record<string, unknown> = {
-      image_url: imageUrl,
-      prompt: motionPrompt,
-    };
-
-    if (isAdmin) {
-      if (videoDuration?.trim()) falInput.duration = videoDuration.trim();
-      if (videoAspectRatio?.trim()) falInput.aspect_ratio = videoAspectRatio.trim();
-      if (adminResolution?.trim()) falInput.resolution = adminResolution.trim();
-      if (adminSeed !== undefined) falInput.seed = adminSeed;
-      if (adminGenerateAudio !== undefined) falInput.generate_audio = adminGenerateAudio;
-      if (adminEnableSafetyChecker !== undefined) falInput.enable_safety_checker = adminEnableSafetyChecker;
-      if (adminCameraFixed !== undefined) falInput.camera_fixed = adminCameraFixed;
-    }
-
-    return falInput;
-  }
-
-  // ── Sora 2 ─────────────────────────────────────────────────────────────────
-  if (modelFamily === "sora") {
-    const falInput: Record<string, unknown> = {
-      image_url: imageUrl,
-      prompt: motionPrompt,
-    };
-
-    if (isAdmin) {
-      // Sora 2 duration is an integer (4, 8, 12, 16, 20)
-      const durNum = parseDurationNum(videoDuration);
-      if (!isNaN(durNum)) falInput.duration = snapToValid(durNum, [4, 8, 12, 16, 20]);
-      const soraRatios = new Set(["auto", "9:16", "16:9"]);
-      if (soraRatios.has(videoAspectRatio)) falInput.aspect_ratio = videoAspectRatio;
-      if (adminResolution?.trim()) falInput.resolution = adminResolution.trim();
-    }
-
-    return falInput;
-  }
-
-  // ── Runway family ──────────────────────────────────────────────────────────
-  if (modelFamily === "runway") {
-    const falInput: Record<string, unknown> = {
-      image_url: imageUrl,
-      prompt: motionPrompt,
-    };
-
-    if (isAdmin) {
-      if (videoDuration?.trim()) falInput.duration = videoDuration.trim();
-      if (adminSeed !== undefined) falInput.seed = adminSeed;
-    }
-
-    return falInput;
-  }
-
-  // ── Luma Dream Machine family ──────────────────────────────────────────────
-  if (modelFamily === "luma") {
-    const lumaRatios = new Set(["16:9", "9:16", "4:3", "3:4", "21:9", "9:21"]);
-    const falInput: Record<string, unknown> = {
-      image_url: imageUrl,
-      prompt: motionPrompt,
-    };
-
-    if (isAdmin) {
-      // Luma duration uses "Xs" format
-      if (videoDuration?.trim()) falInput.duration = normalizeDurationSuffix(videoDuration);
-      if (lumaRatios.has(videoAspectRatio)) falInput.aspect_ratio = videoAspectRatio;
-      if (adminResolution?.trim()) falInput.resolution = adminResolution.trim();
-      if (adminLoop !== undefined) falInput.loop = adminLoop;
-    }
-
-    return falInput;
-  }
-
-  // ── Hailuo (MiniMax) family ────────────────────────────────────────────────
-  if (modelFamily === "hailuo") {
-    const falInput: Record<string, unknown> = {
-      image_url: imageUrl,
-      prompt: motionPrompt,
-    };
-
-    if (isAdmin) {
-      // Hailuo 02 uses plain number strings ("6", "10"), not "6s"
-      if (videoDuration?.trim()) falInput.duration = videoDuration.replace(/s$/, "").trim();
-      if (adminResolution?.trim()) falInput.resolution = adminResolution.trim();
-      if (adminPromptOptimizer !== undefined) falInput.prompt_optimizer = adminPromptOptimizer;
-    }
-
-    return falInput;
-  }
-
-  // ── MiniMax Video-01 family ────────────────────────────────────────────────
-  if (modelFamily === "minimax") {
-    const falInput: Record<string, unknown> = {
-      image_url: imageUrl,
-      prompt: motionPrompt,
-    };
-
-    if (isAdmin) {
-      if (adminPromptOptimizer !== undefined) falInput.prompt_optimizer = adminPromptOptimizer;
-    }
-
-    return falInput;
-  }
-
-  // ── PixVerse family ─────────────────────────────────────────────────────────
-  if (modelFamily === "pixverse") {
-    const isV6 = opts.videoModel.includes("/v6/");
-    const falInput: Record<string, unknown> = {
-      image_url: imageUrl,
-      prompt: motionPrompt,
-    };
-
-    if (isAdmin) {
-      if (adminResolution?.trim()) falInput.resolution = adminResolution.trim();
-      if (adminNegativePrompt?.trim()) falInput.negative_prompt = adminNegativePrompt.trim();
-      if (adminStyle?.trim()) falInput.style = adminStyle.trim();
-      if (adminSeed !== undefined) falInput.seed = adminSeed;
-      if (isV6) {
-        // v6: duration is an integer (1–15)
-        const durNum = parseDurationNum(videoDuration);
-        if (!isNaN(durNum)) falInput.duration = Math.min(15, Math.max(1, durNum));
-        if (adminGenerateAudioSwitch !== undefined) falInput.generate_audio_switch = adminGenerateAudioSwitch;
-        if (adminGenerateMultiClipSwitch !== undefined) falInput.generate_multi_clip_switch = adminGenerateMultiClipSwitch;
-        if (adminThinkingType?.trim()) falInput.thinking_type = adminThinkingType.trim();
-      } else {
-        // v4.5, v5, v5.5: duration is "5" or "8" (plain string)
-        if (videoDuration?.trim()) falInput.duration = videoDuration.replace(/s$/, "").trim();
-      }
-    }
-
-    return falInput;
-  }
-
-  // ── WAN family ─────────────────────────────────────────────────────────────
-  if (modelFamily === "wan") {
-    const isWanPro = opts.videoModel.includes("wan-pro");
-    const isWanI2v = opts.videoModel === "fal-ai/wan-i2v";
-    const falInput: Record<string, unknown> = {
-      image_url: imageUrl,
-      prompt: motionPrompt,
-    };
-
-    if (isAdmin) {
-      if (adminNegativePrompt?.trim()) falInput.negative_prompt = adminNegativePrompt.trim();
-      if (adminSeed !== undefined) falInput.seed = adminSeed;
-      if (!isWanPro && !isWanI2v) {
-        // WAN 2.7 and other versions: duration is plain integer string
-        if (videoDuration?.trim()) falInput.duration = videoDuration.replace(/s$/, "").trim();
-        if (adminResolution?.trim()) falInput.resolution = adminResolution.trim();
-      }
-      if (adminEnableSafetyChecker !== undefined) falInput.enable_safety_checker = adminEnableSafetyChecker;
-    }
-
-    return falInput;
-  }
-
-  // ── LTX family ─────────────────────────────────────────────────────────────
-  if (modelFamily === "ltx") {
-    const isLtx2 = opts.videoModel.includes("ltx-2-19b");
-    const falInput: Record<string, unknown> = {
-      image_url: imageUrl,
-      prompt: motionPrompt,
-    };
-
-    if (isAdmin) {
-      if (adminNegativePrompt?.trim() && !isLtx2) falInput.negative_prompt = adminNegativePrompt.trim();
-      if (adminResolution?.trim() && !isLtx2) falInput.resolution = adminResolution.trim();
-      if (adminSeed !== undefined && !isLtx2) falInput.seed = adminSeed;
-      if (adminNumFrames !== undefined) falInput.num_frames = adminNumFrames;
-      if (adminGuidanceScale !== undefined && isLtx2) falInput.guidance_scale = adminGuidanceScale;
-      if (adminGenerateAudio !== undefined && isLtx2) falInput.generate_audio = adminGenerateAudio;
-      if (adminFps !== undefined && isLtx2) falInput.fps = adminFps;
-    }
-
-    return falInput;
-  }
-
-  // ── CogVideoX family ────────────────────────────────────────────────────────
-  if (modelFamily === "cogvideox") {
-    const falInput: Record<string, unknown> = {
-      image_url: imageUrl,
-      prompt: motionPrompt,
-    };
-
-    if (isAdmin) {
-      if (adminNegativePrompt?.trim()) falInput.negative_prompt = adminNegativePrompt.trim();
-      if (adminSeed !== undefined) falInput.seed = adminSeed;
-      if (adminGuidanceScale !== undefined) falInput.guidance_scale = adminGuidanceScale;
-      if (adminNumInferenceSteps !== undefined) falInput.num_inference_steps = adminNumInferenceSteps;
-    }
-
-    return falInput;
-  }
-
-  // ── Stable Video Diffusion ──────────────────────────────────────────────────
-  if (modelFamily === "stablevideo") {
-    const falInput: Record<string, unknown> = {
-      image_url: imageUrl,
-    };
-    // SVD does not support text prompt as a parameter — omit it
-
-    if (isAdmin) {
-      if (adminSeed !== undefined) falInput.seed = adminSeed;
-      if (adminMotionBucketId !== undefined) falInput.motion_bucket_id = adminMotionBucketId;
-      if (adminCondAug !== undefined) falInput.cond_aug = adminCondAug;
-      if (adminFps !== undefined) falInput.fps = adminFps;
-    }
-
-    return falInput;
-  }
-
-  // ── HunyuanVideo ────────────────────────────────────────────────────────────
-  if (modelFamily === "hunyuan") {
-    return {
-      image_url: imageUrl,
-      prompt: motionPrompt,
-    };
-  }
-
-  // ── Grok Imagine Video (xAI) ────────────────────────────────────────────────
-  if (modelFamily === "grok") {
-    const falInput: Record<string, unknown> = {
-      image_url: imageUrl,
-      prompt: motionPrompt,
-    };
-
-    // Duration: integer 1–15 (API default 6). Apply for all users via admin config.
-    const durNum = parseDurationNum(videoDuration);
-    if (!isNaN(durNum)) falInput.duration = Math.min(15, Math.max(1, durNum));
-
-    // Aspect ratio: "auto" | "16:9" | "4:3" | "3:2" | "1:1" | "2:3" | "3:4" | "9:16"
-    const grokRatios = new Set(["auto", "16:9", "4:3", "3:2", "1:1", "2:3", "3:4", "9:16"]);
-    if (grokRatios.has(videoAspectRatio)) falInput.aspect_ratio = videoAspectRatio;
-
-    // Resolution: "720p" | "480p" — config default, admin per-request override wins
-    const grokRes = (isAdmin && adminResolution?.trim()) || videoResolution;
-    if (grokRes === "480p" || grokRes === "720p") falInput.resolution = grokRes;
-
-    return falInput;
-  }
-
-  // ── Unknown family — best-effort passthrough ───────────────────────────────
-  logger.warn({ model: opts.videoModel }, "[videos/generate] Unknown model family — sending minimal input");
-  return {
-    image_url: imageUrl,
-    prompt: motionPrompt,
-  };
+/**
+ * Resolve the admin override `videoModel` field to a concrete engine row.
+ * Accepts either an engine id ("veo-3.1-lite") or a raw fal endpoint
+ * ("fal-ai/veo3.1/lite/image-to-video"). Returns null when no match.
+ */
+async function resolveEngineFromOverride(raw: string): Promise<Engine | null> {
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+  const direct = await loadEngine(trimmed);
+  if (direct) return direct;
+  const [byEndpoint] = await db
+    .select()
+    .from(enginesTable)
+    .where(eq(enginesTable.endpointId, trimmed))
+    .limit(1);
+  return byEndpoint ?? null;
 }
 
 function getClientIp(req: Request): string {
@@ -478,32 +71,18 @@ const GenerateVideoBody = z
     factId: z.number().int().positive(),
     motionPrompt: z.string().max(500).optional(),
     styleId: z.string().optional(),
+    /** Engine id or fal endpoint. Admin-only override; non-admins get the default engine. */
     videoModel: z.string().max(200).optional(),
-    // Admin-only per-request overrides (core)
+    // Admin-only per-request overrides (only a subset survives the migration
+    // to the data-driven interpreter — anything not on the engine's
+    // paramSchema is silently dropped by buildEngineInput).
     adminDuration: z.string().max(20).optional(),
     adminAspectRatio: z.string().max(50).optional(),
-    adminCfgScale: z.number().min(0).max(1).optional(),
+    adminResolution: z.string().max(50).optional(),
+    adminGenerateAudio: z.boolean().optional(),
     adminNegativePrompt: z.string().max(1000).optional(),
     adminSeed: z.number().int().nonnegative().optional(),
-    adminResolution: z.string().max(50).optional(),
-    adminLoop: z.boolean().optional(),
-    // Admin-only extended params
-    adminGenerateAudio: z.boolean().optional(),
-    adminAutoFix: z.boolean().optional(),
-    adminSafetyTolerance: z.string().max(5).optional(),
-    adminPromptOptimizer: z.boolean().optional(),
-    adminStyle: z.string().max(50).optional(),
-    adminEnableSafetyChecker: z.boolean().optional(),
-    adminCameraFixed: z.boolean().optional(),
-    adminMotionBucketId: z.number().int().min(1).max(255).optional(),
-    adminCondAug: z.number().min(0).max(10).optional(),
-    adminFps: z.number().int().min(1).max(100).optional(),
-    adminNumFrames: z.number().int().min(9).optional(),
-    adminGuidanceScale: z.number().min(0).max(30).optional(),
-    adminNumInferenceSteps: z.number().int().min(1).max(100).optional(),
-    adminGenerateAudioSwitch: z.boolean().optional(),
-    adminGenerateMultiClipSwitch: z.boolean().optional(),
-    adminThinkingType: z.string().max(20).optional(),
+    adminMode: z.string().max(32).optional(),
     // Rendered fact text (with name/pronouns already substituted) for voiceover cue
     renderedFactText: z.string().max(1000).optional(),
     isPrivate: z.boolean().optional(),
@@ -605,7 +184,7 @@ router.get("/video/:videoId", async (req, res) => {
       imageUrl: videoJobsTable.imageUrl,
       videoUrl: videoJobsTable.videoUrl,
       motionPrompt: videoJobsTable.motionPrompt,
-      styleId: videoJobsTable.styleId,
+      styleId: videoJobsTable.lookStyleId,
       status: videoJobsTable.status,
       isPrivate: videoJobsTable.isPrivate,
       createdAt: videoJobsTable.createdAt,
@@ -684,7 +263,7 @@ router.get("/videos/:factId", async (req, res) => {
       imageUrl: videoJobsTable.imageUrl,
       videoUrl: videoJobsTable.videoUrl,
       motionPrompt: videoJobsTable.motionPrompt,
-      styleId: videoJobsTable.styleId,
+      styleId: videoJobsTable.lookStyleId,
       falRequestId: videoJobsTable.falRequestId,
       status: videoJobsTable.status,
       isPrivate: videoJobsTable.isPrivate,
@@ -711,7 +290,7 @@ router.post("/videos/generate", async (req, res) => {
   const governanceGate = enforceGovernance(req, res, {
     path: "video",
     provider: "fal",
-    model: String((req.body as Record<string, unknown>)?.videoModel ?? DEFAULT_VIDEO_MODEL),
+    model: String((req.body as Record<string, unknown>)?.videoModel ?? ""),
     estimatedCostUsd: 0.12,
     maxDurationSec: Number((req.body as Record<string, unknown>)?.adminDuration ?? 5),
     payloadBytes: Buffer.byteLength(JSON.stringify(req.body ?? {}), "utf8"),
@@ -853,13 +432,39 @@ router.post("/videos/generate", async (req, res) => {
     motionPrompt = effectiveStyle?.motionPrompt ?? FALLBACK_PROMPT;
   }
 
+  // ── Resolve engine ────────────────────────────────────────────────────────
+  // Admin override (id or fal endpoint) wins; otherwise fall back to the
+  // default video engine from the engines table.
+  let engine: Engine | null = null;
+  const requestedModel = parsed.data.videoModel?.trim();
+  if (requestedModel && isAdmin) {
+    engine = await resolveEngineFromOverride(requestedModel);
+    if (!engine) {
+      res.status(400).json({
+        error: `Unknown engine "${requestedModel}". Expected an engines.id or engines.endpoint_id.`,
+      });
+      return;
+    }
+  }
+  if (!engine) {
+    try {
+      engine = await loadDefaultEngine("video");
+    } catch (err) {
+      logger.error({ err }, "[videos/generate] No default video engine configured");
+      res.status(503).json({ error: "Video engine is not configured." });
+      return;
+    }
+  }
+  const endpointId = engine.endpointId;
+
   const [job] = await db
     .insert(videoJobsTable)
     .values({
       factId: parsed.data.factId,
       imageUrl: imageUrl!,
       motionPrompt,
-      styleId,
+      lookStyleId: styleId,
+      videoEngineId: engine.id,
       status: "pending",
       ipAddress: clientIp,
       userId: req.isAuthenticated() ? req.user.id : null,
@@ -872,64 +477,60 @@ router.post("/videos/generate", async (req, res) => {
     return;
   }
 
-  const requestedModel = parsed.data.videoModel?.trim();
-  const videoModel = requestedModel || await getConfigString("video_model", DEFAULT_VIDEO_MODEL) || DEFAULT_VIDEO_MODEL;
+  // ── Resolve pipeline params (engine row provides defaults) ─────────────────
+  // Admin per-request overrides win, then engine defaults from the table.
+  const durationStr =
+    (isAdmin && parsed.data.adminDuration) || String(engine.defaultDurationSec ?? 6);
+  const durationSec = parseInt(durationStr, 10) || (engine.defaultDurationSec ?? 6);
+  const aspectRatio =
+    (isAdmin && parsed.data.adminAspectRatio) || engine.defaultAspectRatio || "16:9";
+  const resolution =
+    (isAdmin && parsed.data.adminResolution) || engine.defaultResolution || "720p";
+  const mode = (isAdmin && parsed.data.adminMode) || engine.defaultMode || undefined;
 
-  // Duration, aspect ratio, resolution: admin per-request values take priority, else DB config, else defaults
-  const videoDuration = (isAdmin && parsed.data.adminDuration) || await getConfigString("video_duration", "5") || "5";
-  const videoAspectRatio = (isAdmin && parsed.data.adminAspectRatio) || await getConfigString("video_aspect_ratio", "16:9") || "16:9";
-  const videoResolution = await getConfigString("video_resolution", "720p") || "720p";
-
-  // Detect model family for parameter adaptation
-  const modelFamily = detectVideoModelFamily(videoModel);
-  logger.info({ videoModel, modelFamily }, "[videos/generate] Detected model family");
-
-  // Append voiceover cue to the prompt sent to fal.ai (not stored in DB)
-  const renderedFactText = parsed.data.renderedFactText?.trim();
-  const falMotionPrompt = renderedFactText
-    ? `${motionPrompt}\nVoiceover should say, "${renderedFactText}"`
-    : motionPrompt;
-
-  // Build fal.ai input adapted for the detected model family
-  const falInput = buildFalInput({
-    modelFamily,
-    videoModel,
+  // ── Build pipeline params for the interpreter ─────────────────────────────
+  // Pipeline-level keys are camelCase and engine-agnostic; the engine's
+  // paramSchema maps them to the fal endpoint's actual input shape.
+  const pipelineParams: Record<string, unknown> = {
     imageUrl: imageUrl!,
-    motionPrompt: falMotionPrompt,
-    videoDuration,
-    videoAspectRatio,
-    videoResolution,
-    isAdmin,
+    motionPrompt,
+    durationSec,
+    aspectRatio,
+    resolution,
+    generateAudio:
+      parsed.data.adminGenerateAudio !== undefined
+        ? parsed.data.adminGenerateAudio
+        : true,
     endUserId: req.isAuthenticated() ? (req.user as { id?: string })?.id ?? null : null,
-    // Core params
-    adminCfgScale: parsed.data.adminCfgScale,
-    adminNegativePrompt: parsed.data.adminNegativePrompt,
-    adminSeed: parsed.data.adminSeed,
-    adminResolution: parsed.data.adminResolution,
-    adminLoop: parsed.data.adminLoop,
-    // Extended params
-    adminGenerateAudio: parsed.data.adminGenerateAudio,
-    adminAutoFix: parsed.data.adminAutoFix,
-    adminSafetyTolerance: parsed.data.adminSafetyTolerance,
-    adminPromptOptimizer: parsed.data.adminPromptOptimizer,
-    adminStyle: parsed.data.adminStyle,
-    adminEnableSafetyChecker: parsed.data.adminEnableSafetyChecker,
-    adminCameraFixed: parsed.data.adminCameraFixed,
-    adminMotionBucketId: parsed.data.adminMotionBucketId,
-    adminCondAug: parsed.data.adminCondAug,
-    adminFps: parsed.data.adminFps,
-    adminNumFrames: parsed.data.adminNumFrames,
-    adminGuidanceScale: parsed.data.adminGuidanceScale,
-    adminNumInferenceSteps: parsed.data.adminNumInferenceSteps,
-    adminGenerateAudioSwitch: parsed.data.adminGenerateAudioSwitch,
-    adminGenerateMultiClipSwitch: parsed.data.adminGenerateMultiClipSwitch,
-    adminThinkingType: parsed.data.adminThinkingType,
-  });
+    negativePrompt: parsed.data.adminNegativePrompt,
+    mode,
+  };
+
+  // ── Audio handling: route renderedFactText into the right per-engine slot ─
+  const renderedFactText = parsed.data.renderedFactText?.trim() ?? null;
+  const augmented = applyAudioHandling(engine, pipelineParams, renderedFactText);
+
+  // ── Build the fal.subscribe input ─────────────────────────────────────────
+  let falInput: Record<string, unknown>;
+  try {
+    falInput = buildEngineInput(engine, augmented);
+  } catch (err) {
+    if (err instanceof MissingRequiredParamError) {
+      await db.update(videoJobsTable).set({ status: "failed" }).where(eq(videoJobsTable.id, job.id));
+      logger.error(
+        { engineId: engine.id, paramName: err.paramName, from: err.fromKey },
+        "[videos/generate] Engine paramSchema missing required value",
+      );
+      res.status(400).json({ error: err.message });
+      return;
+    }
+    throw err;
+  }
 
   logger.info(
     {
-      videoModel,
-      modelFamily,
+      engineId: engine.id,
+      endpointId,
       falInput: { ...falInput, image_url: (falInput.image_url as string)?.slice(0, 120) },
     },
     "[videos/generate] Calling fal.subscribe",
@@ -944,13 +545,10 @@ router.post("/videos/generate", async (req, res) => {
 
   if (authenticatedUserId) {
     try {
-      const price = await getCachedPrice(videoModel);
+      const price = await getCachedPrice(endpointId);
       cachedPriceForRecording = price;
 
-      const durationSec = videoDuration === "auto" || !videoDuration.trim()
-        ? 5
-        : parseInt(videoDuration, 10) || 5;
-      const dims = resolveVideoDimensions(videoAspectRatio, videoResolution);
+      const dims = resolveVideoDimensions(aspectRatio, resolution);
       const DEFAULT_FPS = 24;
       const { costUsd } = computeVideoCost(
         { width: dims.width, height: dims.height, fps: DEFAULT_FPS, durationSeconds: durationSec },
@@ -978,7 +576,7 @@ router.post("/videos/generate", async (req, res) => {
 
   try {
     const result = await fal.subscribe(
-      videoModel,
+      endpointId,
       {
         input: falInput,
         logs: false,
@@ -1017,7 +615,7 @@ router.post("/videos/generate", async (req, res) => {
         imageUrl: videoJobsTable.imageUrl,
         videoUrl: videoJobsTable.videoUrl,
         motionPrompt: videoJobsTable.motionPrompt,
-        styleId: videoJobsTable.styleId,
+        styleId: videoJobsTable.lookStyleId,
         falRequestId: videoJobsTable.falRequestId,
         status: videoJobsTable.status,
         createdAt: videoJobsTable.createdAt,
@@ -1025,10 +623,7 @@ router.post("/videos/generate", async (req, res) => {
 
     // Record cost AFTER successful job completion (spec: not before, to avoid phantom costs)
     if (authenticatedUserId && cachedPriceForRecording && estimatedCostUsd > 0) {
-      const durationSec = videoDuration === "auto" || !videoDuration.trim()
-        ? 5
-        : parseInt(videoDuration, 10) || 5;
-      const dims = resolveVideoDimensions(videoAspectRatio, videoResolution);
+      const dims = resolveVideoDimensions(aspectRatio, resolution);
       const { billingUnits } = computeVideoCost(
         { width: dims.width, height: dims.height, fps: 24, durationSeconds: durationSec },
         cachedPriceForRecording,
@@ -1036,7 +631,7 @@ router.post("/videos/generate", async (req, res) => {
       await recordCost({
         userId: authenticatedUserId,
         jobType: "video",
-        endpointId: videoModel,
+        endpointId,
         unitPriceAtCreation: cachedPriceForRecording.unitPrice,
         billingUnits,
         computedCostUsd: estimatedCostUsd,
@@ -1086,7 +681,8 @@ router.post("/videos/generate", async (req, res) => {
 
     logger.error(
       {
-        model: videoModel,
+        engineId: engine.id,
+        endpointId,
         message: errDetails.message,
         status: errDetails.status,
         requestId: errDetails.requestId,
@@ -1127,7 +723,96 @@ router.post("/videos/generate", async (req, res) => {
   }
 });
 
-// ─── Public: Video Styles ──────────────────────────────────────────────────────
+// ─── Wizard catalog routes ────────────────────────────────────────────────────
+
+/**
+ * Engine catalog for the wizard. Filters by feature-flag visibility so casual
+ * LEGEND users see only the default engine; admins and `engine_experiments`
+ * flag holders see the full list.
+ *
+ * paramSchema is stripped — clients don't need the parameter mapping.
+ */
+router.get("/engines", async (req, res) => {
+  const rawKind = String(req.query.kind ?? "video");
+  if (rawKind !== "image" && rawKind !== "video" && rawKind !== "utility") {
+    res.status(400).json({ error: "Invalid kind. Expected image | video | utility." });
+    return;
+  }
+  const kind = rawKind;
+
+  // Per-user feature-flag predicate. Until a per-user flag table exists we
+  // grant `engine_experiments` to admins only; the rest of LEGEND tier sees
+  // just the default. The predicate is intentionally local to the route so
+  // future per-user flag wiring can drop in here without touching the
+  // interpreter.
+  const isAdmin = req.isAuthenticated() && req.user.realUserRole === "admin";
+  const userHasFlag = isAdmin
+    ? (_flag: string) => true
+    : (_flag: string) => false;
+
+  const engines = await loadActiveEngines(kind, { userHasFlag });
+  res.json(
+    engines.map((e) => ({
+      id: e.id,
+      label: e.label,
+      description: e.description,
+      allowedDurationsSec: e.allowedDurationsSec ?? null,
+      defaultDurationSec: e.defaultDurationSec ?? null,
+      allowedResolutions: e.allowedResolutions ?? null,
+      defaultResolution: e.defaultResolution ?? null,
+      allowedAspectRatios: e.allowedAspectRatios ?? null,
+      defaultAspectRatio: e.defaultAspectRatio ?? null,
+      supportedModes: e.supportedModes ?? null,
+      defaultMode: e.defaultMode ?? null,
+      audioHandling: e.audioHandling,
+      isDefault: e.isDefault,
+      sortOrder: e.sortOrder,
+    })),
+  );
+});
+
+/**
+ * Public look-styles catalog. Strips the prompt suffixes which are server-only.
+ */
+router.get("/look-styles", async (_req, res) => {
+  const styles = await db
+    .select({
+      id: lookStylesTable.id,
+      label: lookStylesTable.label,
+      description: lookStylesTable.description,
+      previewImagePath: lookStylesTable.previewImagePath,
+      sortOrder: lookStylesTable.sortOrder,
+    })
+    .from(lookStylesTable)
+    .where(eq(lookStylesTable.isActive, true))
+    .orderBy(asc(lookStylesTable.sortOrder), asc(lookStylesTable.id));
+  res.json(styles);
+});
+
+/**
+ * Public motion-presets catalog. Strips motionPrompt (server-only — clients
+ * select by id and the server resolves the prompt at generate time).
+ */
+router.get("/motion-presets", async (_req, res) => {
+  const presets = await db
+    .select({
+      id: motionPresetsTable.id,
+      label: motionPresetsTable.label,
+      description: motionPresetsTable.description,
+      cameraMotion: motionPresetsTable.cameraMotion,
+      motionIntensity: motionPresetsTable.motionIntensity,
+      previewGifPath: motionPresetsTable.previewGifPath,
+      sortOrder: motionPresetsTable.sortOrder,
+      gradientFrom: motionPresetsTable.gradientFrom,
+      gradientTo: motionPresetsTable.gradientTo,
+    })
+    .from(motionPresetsTable)
+    .where(eq(motionPresetsTable.isActive, true))
+    .orderBy(asc(motionPresetsTable.sortOrder), asc(motionPresetsTable.id));
+  res.json(presets);
+});
+
+// ─── Legacy: Video Styles (admin tooling still points here) ──────────────────
 
 router.get("/video-styles", async (_req, res) => {
   const styles = await db
