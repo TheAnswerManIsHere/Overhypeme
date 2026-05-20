@@ -113,6 +113,17 @@ const SOURCE_RESOLVERS: { [K in ImageSource["type"]]: SourceResolver<K> } = {
     }
     return downloadAsBackground(deps.objectStorage, profilePath);
   },
+
+  /**
+   * Video memes are stored as MP4s and served directly — they never go
+   * through the still-image compositor. If we land here it's because a caller
+   * tried to render a video meme as a PNG (OG card, share thumbnail, fallback
+   * still). Resolve to the captured still frame so the composite has something
+   * to draw on; the proper short-circuit to MP4 lives in routes/memes.ts.
+   */
+  video: async (src, deps) => {
+    return downloadAsBackground(deps.objectStorage, src.stillObjectPath);
+  },
 };
 
 async function downloadAsBackground(
