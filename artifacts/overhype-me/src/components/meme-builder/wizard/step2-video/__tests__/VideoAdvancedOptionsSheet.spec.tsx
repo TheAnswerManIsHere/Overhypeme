@@ -71,7 +71,7 @@ function renderSheet(
       lookStyles={LOOKS}
       motionPresets={MOTIONS}
       engines={[ENGINE_DEFAULT]}
-      sourceIsAiStyling={false}
+      sourceKind={null}
       {...overrides}
     />,
   );
@@ -79,15 +79,32 @@ function renderSheet(
 }
 
 describe("VideoAdvancedOptionsSheet", () => {
-  it("renders the three source-mode radios", () => {
-    renderSheet();
+  it("renders only the two relevant source-mode radios for a library source", () => {
+    renderSheet({ sourceKind: "library" });
     expect(screen.getByTestId("source-mode-option-stylize-then-video")).toBeTruthy();
     expect(screen.getByTestId("source-mode-option-use-photo-as-is")).toBeTruthy();
-    expect(screen.getByTestId("source-mode-option-use-existing-ai-image")).toBeTruthy();
+    expect(screen.queryByTestId("source-mode-option-use-existing-ai-image")).toBeNull();
+  });
+
+  it("renders only the two relevant source-mode radios for a fresh (upload) source", () => {
+    renderSheet({ sourceKind: "fresh" });
+    expect(screen.getByTestId("source-mode-option-stylize-then-video")).toBeTruthy();
+    expect(screen.getByTestId("source-mode-option-use-photo-as-is")).toBeTruthy();
+    expect(screen.queryByTestId("source-mode-option-use-existing-ai-image")).toBeNull();
+  });
+
+  it("hides Source Mode section entirely for an ai-styling source", () => {
+    renderSheet({ sourceKind: "ai-styling" });
+    expect(screen.queryByTestId("advanced-source-mode")).toBeNull();
+  });
+
+  it("shows Source Mode section when sourceKind is null (no selection yet)", () => {
+    renderSheet({ sourceKind: null });
+    expect(screen.getByTestId("advanced-source-mode")).toBeTruthy();
   });
 
   it("fires onChange with sourceMode when a source-mode radio is clicked", () => {
-    const { onChange } = renderSheet();
+    const { onChange } = renderSheet({ sourceKind: "library" });
     fireEvent.click(screen.getByTestId("source-mode-option-use-photo-as-is"));
     expect(onChange).toHaveBeenCalledWith({ sourceMode: "use-photo-as-is" });
   });
@@ -152,10 +169,10 @@ describe("VideoAdvancedOptionsSheet", () => {
     expect(select.options.length).toBe(2);
   });
 
-  it("for use-existing-ai-image + AI source, the override toggle gates editability", () => {
+  it("for ai-styling source, the override toggle gates look-style editability", () => {
     const { rerender, onChange } = renderSheet({
       value: { ...BASE_VALUE, sourceMode: "use-existing-ai-image" },
-      sourceIsAiStyling: true,
+      sourceKind: "ai-styling",
     });
     // Style buttons should be disabled by default.
     const animeBtn = screen.getByTestId("look-style-anime") as HTMLButtonElement;
@@ -177,7 +194,7 @@ describe("VideoAdvancedOptionsSheet", () => {
         lookStyles={LOOKS}
         motionPresets={MOTIONS}
         engines={[ENGINE_DEFAULT]}
-        sourceIsAiStyling={true}
+        sourceKind="ai-styling"
       />,
     );
     expect((screen.getByTestId("look-style-anime") as HTMLButtonElement).disabled).toBe(false);
