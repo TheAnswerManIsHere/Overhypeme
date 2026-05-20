@@ -292,6 +292,13 @@ export function __setPipelineTestHooks(hooks: PipelineTestHooks): void {
 }
 
 /** Test-only: reset in-memory state (jobs + EMAs). */
+/**
+ * Test-only export of the internal `computeProgress` function so unit tests
+ * can drive its inputs directly. Production callers should always go through
+ * `serializeJobState` instead.
+ */
+export const __computeProgressForTests = computeProgress;
+
 export function __resetPipelineState(): void {
   jobs.clear();
   stage2EmaByEngine.clear();
@@ -657,7 +664,25 @@ function setPhase(job: JobState, phase: Phase, progress?: number): void {
   job.phase = phase;
   job._phaseStartedAt = Date.now();
   if (progress !== undefined) job.progress = progress;
+  // Each phase owns its own slice of the global bar (see computeProgress).
+  // Clear the fal floor so a leftover value from the previous stage's
+  // onQueueUpdate doesn't bleed forward and lock the bar above the new
+  // phase's elapsed-time curve.
+  job._falProgressFloor = undefined;
   recomputeEta(job);
+}
+
+/**
+ * Push the in-memory `_falProgressFloor` up — never down. The floor is read
+ * by `computeProgress` as `Math.max(elapsedTimeCurve, _falProgressFloor)` so
+ * it can only accelerate the bar, never freeze it. Callers translate per-
+ * phase signals into global-bar units (0..1) before calling this.
+ */
+function bumpFalFloor(job: JobState, floor: number): void {
+  const current = job._falProgressFloor ?? 0;
+  if (floor > current) {
+    job._falProgressFloor = Math.min(0.99, floor);
+  }
 }
 
 function recomputeEta(job: JobState): void {
@@ -825,6 +850,22 @@ async function runStage1(job: JobState): Promise<{ stillObjectPath: string | nul
         sourceObjectPath: job.sourceImagePath,
         styleSuffix,
         suppressErrors: false,
+        // Part 2: fal queue/progress events feed _falProgressFloor so the bar
+        // reflects actual upstream signals when fal volunteers them. The
+        // elapsed-time curve in computeProgress is the floor — fal events
+        // only push it higher.
+        //
+        // Stage 1 budget on the global bar is 0..0.25:
+        //   IN_QUEUE      → floor 0.02 (just past the queued baseline)
+        //   IN_PROGRESS   → floor 0.13 (~halfway into stage 1's slice)
+        //   COMPLETED     → floor 0.22 (the Part 3 milestone bump; the
+        //                   stage1_review setPhase that follows then bumps
+        //                   us to 0.25 cleanly)
+        onProgress: (event) => {
+          if (event.phase === "queued") bumpFalFloor(job, 0.02);
+          else if (event.phase === "in_progress") bumpFalFloor(job, 0.13);
+          else if (event.phase === "completed") bumpFalFloor(job, 0.22);
+        },
       },
     );
     return { stillObjectPath: path };
@@ -929,7 +970,7 @@ async function resumeFromStage2(jobId: string): Promise<void> {
   const stage3StartedAt = Date.now();
   let captionedVideoUrl: string;
   try {
-    const out = await runStage3(rawVideoUrl);
+    const out = await runStage3(job, rawVideoUrl);
     captionedVideoUrl = out.captionedVideoUrl;
     recordPhaseEma(stage3StartedAt, "stage3");
     await recordStage3Cost(job);
@@ -1064,9 +1105,27 @@ async function runStage2(job: JobState, stillObjectPath: string): Promise<{ vide
     throw err;
   }
 
+  // Part 2: feed fal queue/progress signals into the bar floor. Stage 2's
+  // global-bar slice depends on whether stage 1 ran. Stylize-then-video
+  // occupies 0.25..0.85; the bypass paths get 0..0.85.
+  //   IN_QUEUE      → 5% into the slice
+  //   IN_PROGRESS   → ~halfway into the slice
+  //   COMPLETED     → 0.80 (Part 3 milestone bump — just below the
+  //                   stage2_subtitle setPhase that follows at 0.85)
+  const stage2Base = job.sourceMode === "stylize-then-video" ? 0.25 : 0;
+  const stage2Range = job.sourceMode === "stylize-then-video" ? 0.60 : 0.85;
   const result = await fal.subscribe(engine.endpointId, {
     input: falInput,
     logs: false,
+    onQueueUpdate: (status: { status: string; queue_position?: number }) => {
+      if (status.status === "IN_QUEUE") {
+        bumpFalFloor(job, stage2Base + stage2Range * 0.05);
+      } else if (status.status === "IN_PROGRESS") {
+        bumpFalFloor(job, stage2Base + stage2Range * 0.50);
+      } else if (status.status === "COMPLETED") {
+        bumpFalFloor(job, 0.80);
+      }
+    },
   }) as { data?: { video?: { url?: string } }; requestId?: string };
 
   const videoUrl = result?.data?.video?.url;
@@ -1087,11 +1146,23 @@ async function runStage2(job: JobState, stillObjectPath: string): Promise<{ vide
   return { videoUrl };
 }
 
-async function runStage3(videoUrl: string): Promise<{ captionedVideoUrl: string }> {
+async function runStage3(job: JobState, videoUrl: string): Promise<{ captionedVideoUrl: string }> {
   if (testHooks.runStage3) {
     return testHooks.runStage3(videoUrl);
   }
-  return addCaptionsToVideo({ videoUrl });
+  // Part 2: Stage 3's slice of the global bar is 0.85..0.95.
+  //   IN_QUEUE      → 0.86
+  //   IN_PROGRESS   → 0.91 (~halfway into the slice)
+  //   COMPLETED     → 0.94 (Part 3 milestone bump — the uploading
+  //                   setPhase that follows then lifts us to 0.97)
+  return addCaptionsToVideo({
+    videoUrl,
+    onProgress: (event) => {
+      if (event.phase === "queued") bumpFalFloor(job, 0.86);
+      else if (event.phase === "in_progress") bumpFalFloor(job, 0.91);
+      else if (event.phase === "completed") bumpFalFloor(job, 0.94);
+    },
+  });
 }
 
 async function uploadFinal(captionedUrl: string, jobId: string): Promise<string> {
