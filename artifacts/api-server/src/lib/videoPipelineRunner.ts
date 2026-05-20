@@ -151,6 +151,8 @@ export interface JobState {
 
   /** Internal scheduling state — kept off the wire by sanitization. */
   _phaseStartedAt: number;
+  /** Optional floor boosted by fal queue/progress callbacks (Part 3). */
+  _falProgressFloor?: number;
 }
 
 export interface StartJobInput {
@@ -195,6 +197,58 @@ let stage1Ema = PULID_DEFAULT_EXPECTED_MS;
 const EMA_ALPHA = 0.3;
 function updateEma(prev: number, sample: number): number {
   return Math.round(prev * (1 - EMA_ALPHA) + sample * EMA_ALPHA);
+}
+
+/**
+ * Server-computed progress that advances continuously within each phase using
+ * an exponential asymptote toward the phase ceiling. This replaces the
+ * static per-phase floor stored in `job.progress`, giving the client bar
+ * smooth monotonic motion at every poll interval.
+ *
+ * Budget allocation:
+ *   queued                  → 0.02
+ *   stage1_pulid            → 0.00 .. 0.25
+ *   stage1_review / no_face → 0.25  (checkpoint pause — intentional)
+ *   stage2_video            → 0.25 .. 0.85  (stylize-then-video)
+ *                           → 0.00 .. 0.85  (use-photo-as-is / use-existing-ai-image)
+ *   stage2_subtitle         → 0.85 .. 0.95
+ *   uploading               → 0.97
+ *   completed               → 1.00
+ *   failed / canceled       → last recorded floor (job.progress)
+ */
+function computeProgress(job: JobState): number {
+  if (job.phase === "completed") return 1;
+  if (job.phase === "failed" || job.phase === "canceled") {
+    return job.progress;
+  }
+  if (job.phase === "queued") return 0.02;
+  if (job.phase === "stage1_review" || job.phase === "stage1_no_face_review") return 0.25;
+  if (job.phase === "uploading") return 0.97;
+
+  const elapsed = Date.now() - job._phaseStartedAt;
+  const falFloor = job._falProgressFloor ?? 0;
+
+  let curve: number;
+
+  if (job.phase === "stage1_pulid") {
+    const tau = Math.max(1, stage1Ema);
+    const inner = 0.05 + 0.90 * (1 - Math.exp(-elapsed / tau));
+    curve = inner * 0.25;
+  } else if (job.phase === "stage2_video") {
+    const tau = Math.max(1, stage2EmaByEngine.get(job.videoEngineId) ?? 30_000);
+    const inner = 0.10 + 0.80 * (1 - Math.exp(-elapsed / tau));
+    curve = job.sourceMode !== "stylize-then-video"
+      ? inner * 0.85
+      : 0.25 + inner * 0.60;
+  } else if (job.phase === "stage2_subtitle") {
+    const tau = Math.max(1, stage3Ema);
+    const inner = 0.10 + 0.85 * (1 - Math.exp(-elapsed / tau));
+    curve = 0.85 + inner * 0.10;
+  } else {
+    return job.progress;
+  }
+
+  return Math.max(curve, falFloor);
 }
 
 // ─── In-memory job store with TTL ─────────────────────────────────────────────
@@ -483,7 +537,7 @@ export function serializeJobState(job: JobState): Record<string, unknown> {
     jobId: job.jobId,
     factId: job.factId,
     phase: job.phase,
-    progress: job.progress,
+    progress: computeProgress(job),
     etaSeconds: job.etaSeconds,
     sourceMode: job.sourceMode,
     lookStyleId: job.lookStyleId,
