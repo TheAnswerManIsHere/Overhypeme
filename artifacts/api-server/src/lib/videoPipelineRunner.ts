@@ -776,7 +776,29 @@ async function runStage1(job: JobState): Promise<{ stillObjectPath: string | nul
     return { stillObjectPath: path };
   } catch (err) {
     const msg = err instanceof Error ? err.message.toLowerCase() : "";
-    if (msg.includes("no face detected") || msg.includes("facexlib") || msg.includes("face detect")) {
+    // Also inspect the fal.ai error body — PuLID returns HTTP 400 "Bad Request"
+    // when no face is detected; the detail lives in err.body, not err.message.
+    const bodyStr = (() => {
+      try {
+        const body = (err as { body?: unknown }).body;
+        return body != null ? JSON.stringify(body).toLowerCase() : "";
+      } catch {
+        return "";
+      }
+    })();
+    const isFaceError =
+      msg.includes("no face detected") ||
+      msg.includes("facexlib") ||
+      msg.includes("face detect") ||
+      bodyStr.includes("no face") ||
+      bodyStr.includes("face detect") ||
+      bodyStr.includes("facexlib") ||
+      // PuLID returns HTTP 400 "Bad Request" specifically when it cannot
+      // detect a face in the reference image — treat any 400 from this
+      // call as a face-detection failure.
+      (msg.includes("bad request") && (err as { status?: number }).status === 400);
+    if (isFaceError) {
+      logger.info({ jobId: job.jobId }, "[videoPipeline] stage 1 no face detected — routing to stage1_no_face_review");
       return { stillObjectPath: null };
     }
     throw err;
