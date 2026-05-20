@@ -292,7 +292,7 @@ export function Step2Video(props: Step2VideoProps) {
     return (
       <div className="fixed inset-0 z-[60] flex flex-col bg-[#0a0a0a] text-white" data-testid="step2-video-budget-locked">
         {/* Use the same screen the takeover uses for symmetry. */}
-        <div className="flex-1 overflow-y-auto">
+        <div className="flex-1 overflow-y-auto overscroll-y-none">
           <BudgetLockedFallback resetDate={budgetError.resetDate} onGoBack={() => { setSubmitError(null); }} />
         </div>
       </div>

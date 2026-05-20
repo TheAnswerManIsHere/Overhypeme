@@ -229,7 +229,7 @@ export function GodModeLoadingTakeover(props: Props) {
 
       <ProgressBar value={displayProgress} />
 
-      <div className="flex-1 overflow-y-auto">
+      <div className="flex-1 overflow-y-auto overscroll-y-none">
         {phase === "queued" || phase === "stage1_pulid" ? (
           <CenteredCopy
             heading="Forging your likeness."
