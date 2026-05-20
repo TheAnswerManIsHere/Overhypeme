@@ -11,7 +11,6 @@ import { useCallback, useRef, useState } from "react";
 import type { BuilderResult, EntryFlow, ViewerContext } from "../types";
 import { WizardTopBar } from "./WizardTopBar";
 import { WizardStepContainer } from "./WizardStepContainer";
-import { WizardPrimaryAction } from "./WizardPrimaryAction";
 import { Step1ArtifactType } from "./steps/Step1ArtifactType";
 import { Step2BackgroundAndText } from "./steps/Step2BackgroundAndText";
 import { useWizardState } from "./state/useWizardState";
@@ -39,8 +38,6 @@ export function MemeBuilderWizard(props: MemeBuilderWizardProps) {
     onComplete,
     onCancel,
   } = props;
-  void factText; // consumed by Step 2 internals in subsequent MBFO sessions
-
   const { state, dispatch, clearDraft } = useWizardState({
     factId,
     entryFlow,
@@ -82,14 +79,6 @@ export function MemeBuilderWizard(props: MemeBuilderWizardProps) {
     // confirm-discard toast/dialog when there's unsaved input.
     onCancel();
   }, [onCancel]);
-
-  const handleMakeMyMeme = useCallback(() => {
-    // Placeholder: the actual save/generate flow is wired in MBFO-3 (image)
-    // and MBFO-4 (video). For now we just hand control back to the parent so
-    // the wizard can be smoke-tested end-to-end.
-    void clearDraft;
-    void onComplete;
-  }, [clearDraft, onComplete]);
 
   return (
     <div
@@ -137,13 +126,6 @@ export function MemeBuilderWizard(props: MemeBuilderWizardProps) {
         </WizardStepContainer>
       </div>
 
-      {state.currentStep === 2 && state.artifactType !== "video" && (
-        <WizardPrimaryAction
-          label="Make my meme"
-          onClick={handleMakeMyMeme}
-          loading={state.generation.status === "generating"}
-        />
-      )}
     </div>
   );
 }
