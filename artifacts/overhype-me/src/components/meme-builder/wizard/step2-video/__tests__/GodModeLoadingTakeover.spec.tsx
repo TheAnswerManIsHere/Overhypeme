@@ -103,41 +103,48 @@ describe("GodModeLoadingTakeover", () => {
     await waitFor(() => expect(screen.getByText(/Setting you in motion/i)).toBeTruthy());
   });
 
-  it("clicking back during stage 1 shows the soft cancel confirm", async () => {
-    const { api, counters } = makeApi([
+  // Option B (MBFO-4 progress-UX review): working phases share the image
+  // flow's centered-hero layout — no TopBar. The checkpoint screen owns the
+  // cancel affordance for the video flow because that's the only state where
+  // cancel meaningfully saves money. Mid-stage cancel was dropped in
+  // exchange for visual consistency with the image flow.
+  it("does NOT render the TopBar during stage 1 (working phase)", async () => {
+    const { api } = makeApi([
       { jobId: "job-1", phase: "stage1_pulid", progress: 0.2 },
     ]);
     render(<GodModeLoadingTakeover {...BASE_PROPS} api={api} />);
     await waitFor(() => expect(screen.getByText(/Forging/i)).toBeTruthy());
-    fireEvent.click(screen.getByTestId("god-mode-back"));
-    expect(screen.getByTestId("god-mode-cancel-confirm")).toBeTruthy();
+    expect(screen.queryByTestId("god-mode-back")).toBeNull();
+    expect(screen.queryByTestId("god-mode-close")).toBeNull();
   });
 
-  it("disables back/close during stage 2", async () => {
-    const { api, counters } = makeApi([
+  it("does NOT render the TopBar during stage 2 (working phase)", async () => {
+    const { api } = makeApi([
       { jobId: "job-1", phase: "stage2_video", progress: 0.5 },
     ]);
     render(<GodModeLoadingTakeover {...BASE_PROPS} api={api} />);
     await waitFor(() => expect(screen.getByText(/Setting you in motion/i)).toBeTruthy());
-    const back = screen.getByTestId("god-mode-back") as HTMLButtonElement;
-    const close = screen.getByTestId("god-mode-close") as HTMLButtonElement;
-    expect(back.disabled).toBe(true);
-    expect(close.disabled).toBe(true);
+    expect(screen.queryByTestId("god-mode-back")).toBeNull();
+    expect(screen.queryByTestId("god-mode-close")).toBeNull();
   });
 
-  it("confirming the soft cancel calls api.cancel and onCancel", async () => {
-    const onCancel = vi.fn();
-    const { api, counters } = makeApi([
-      { jobId: "job-1", phase: "stage1_pulid", progress: 0.1 },
+  it("renders the TopBar during the stage1_review decision phase", async () => {
+    const { api } = makeApi([
+      { jobId: "job-1", phase: "stage1_review", progress: 0.25, stylizedStillObjectPath: "/objects/styled.jpg" },
     ]);
-    render(<GodModeLoadingTakeover {...BASE_PROPS} api={api} onCancel={onCancel} />);
-    await waitFor(() => expect(screen.getByText(/Forging/i)).toBeTruthy());
-    fireEvent.click(screen.getByTestId("god-mode-back"));
-    await act(async () => {
-      fireEvent.click(screen.getByTestId("god-mode-cancel-confirm-yes"));
-    });
-    expect(counters.cancelCalls).toBe(1);
-    expect(onCancel).toHaveBeenCalledTimes(1);
+    render(<GodModeLoadingTakeover {...BASE_PROPS} api={api} />);
+    await waitFor(() => expect(screen.queryByTestId("god-mode-back")).not.toBeNull());
+    expect(screen.queryByTestId("god-mode-close")).not.toBeNull();
+  });
+
+  it("renders the LoadingHero during stage 1 with the activity ring + bar", async () => {
+    const { api } = makeApi([
+      { jobId: "job-1", phase: "stage1_pulid", progress: 0.15 },
+    ]);
+    render(<GodModeLoadingTakeover {...BASE_PROPS} api={api} />);
+    await waitFor(() => expect(screen.getByTestId("loading-hero")).toBeTruthy());
+    expect(screen.getByTestId("activity-ring")).toBeTruthy();
+    expect(screen.getByTestId("loading-hero-progress-fill")).toBeTruthy();
   });
 
   it("renders the budget-exceeded terminal on failed + errorCode budget_exceeded", async () => {
