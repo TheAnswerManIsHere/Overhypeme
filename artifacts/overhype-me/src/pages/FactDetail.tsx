@@ -434,7 +434,16 @@ export default function FactDetail() {
               entryFlow="fact-detail"
               initialName={name ?? undefined}
               initialPronouns={pronouns ?? undefined}
-              onComplete={closeMemeStudio}
+              onComplete={(result) => {
+                if (result.kind === "saved" && result.permalinkUrl) {
+                  setMemeBuilderDefaultPrivate(false);
+                  void queryClient.invalidateQueries({ queryKey: ["listFactVideos", factId] });
+                  void queryClient.invalidateQueries({ queryKey: ["listFactMemes", factId] });
+                  setLocation(result.permalinkUrl);
+                } else {
+                  closeMemeStudio();
+                }
+              }}
               onCancel={closeMemeStudio}
             />
           ) : (

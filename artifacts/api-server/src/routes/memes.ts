@@ -425,6 +425,8 @@ router.get("/memes/:slug", async (req: Request, res: Response) => {
     isNsfw: meme.isNsfw ?? false,
     imageTransform: meme.imageTransform ?? null,
     imageSource: meme.imageSource ?? null,
+    artifactType: meme.artifactType ?? "image",
+    videoUrl: meme.videoObjectPath ? `/api/storage${meme.videoObjectPath}` : null,
   });
 });
 
