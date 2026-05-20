@@ -22,6 +22,7 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { X, ArrowLeft } from "lucide-react";
 import { Button } from "@/components/ui/Button";
+import { ActivityRing } from "@/components/ui/ActivityRing";
 import type { AspectRatio } from "../../types";
 import type { LookStyleDTO } from "./data/videoCatalogue";
 import { VideoCheckpointScreen } from "./VideoCheckpointScreen";
@@ -280,7 +281,7 @@ export function GodModeLoadingTakeover(props: Props) {
             onGoBack={onGoBack}
           />
         ) : phase === "completed" ? (
-          <CenteredCopy heading="Done." body="Loading…" />
+          <CenteredCopy heading="Done." body="Loading…" showActivityRing={false} />
         ) : (
           <CenteredCopy heading="Working…" body="" />
         )}
@@ -343,7 +344,7 @@ function ProgressBar({ value }: { value: number }) {
   const pct = Math.max(0, Math.min(100, Math.round(value * 100)));
   return (
     <div
-      className="h-[3px] bg-white/10"
+      className="h-2 bg-white/10"
       role="progressbar"
       aria-valuenow={pct}
       aria-valuemin={0}
@@ -359,9 +360,19 @@ function ProgressBar({ value }: { value: number }) {
   );
 }
 
-function CenteredCopy({ heading, body }: { heading: string; body: string }) {
+function CenteredCopy({
+  heading,
+  body,
+  showActivityRing = true,
+}: {
+  heading: string;
+  body: string;
+  /** When false, hides the activity ring — used for terminal "Done." screens. */
+  showActivityRing?: boolean;
+}) {
   return (
     <div className="flex h-full w-full flex-col items-center justify-center px-6 text-center">
+      {showActivityRing && <ActivityRing size={72} className="mb-6" />}
       <h2 className="font-display text-3xl uppercase tracking-wide">{heading}</h2>
       {body && <p className="mt-2 text-white/70">{body}</p>}
     </div>

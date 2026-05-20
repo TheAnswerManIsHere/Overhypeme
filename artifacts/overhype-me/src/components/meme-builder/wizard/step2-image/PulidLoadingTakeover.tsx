@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { ActivityRing } from "@/components/ui/ActivityRing";
 
 interface JobStatus {
   phase: "queued" | "in_progress" | "no_face_review" | "completed" | "failed";
@@ -142,6 +143,7 @@ export function PulidLoadingTakeover({ jobId, onComplete, onError, onNoFaceRevie
       className="fixed inset-0 z-[60] flex flex-col items-center justify-center bg-[#111] px-6 text-center"
       data-testid="pulid-loading-takeover"
     >
+      <ActivityRing size={72} className="mb-6" />
       <h1 className="font-display text-3xl uppercase tracking-wide text-white">
         {heading}
       </h1>
@@ -149,7 +151,7 @@ export function PulidLoadingTakeover({ jobId, onComplete, onError, onNoFaceRevie
         {subtext}
       </p>
       <div className="mt-8 w-full max-w-sm" aria-hidden>
-        <div className="h-1.5 w-full overflow-hidden rounded-full bg-white/10">
+        <div className="h-2 w-full overflow-hidden rounded-full bg-white/10">
           <div
             className="h-full bg-[#ff6b35] transition-[width] duration-150 ease-out"
             style={{ width: `${Math.round(Math.min(1, Math.max(0, displayProgress)) * 100)}%` }}
