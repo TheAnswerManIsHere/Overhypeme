@@ -39,20 +39,6 @@ export default defineConfig({
     react(),
     tailwindcss(),
     runtimeErrorOverlay(),
-    ...(process.env.NODE_ENV !== "production" &&
-    process.env.REPL_ID !== undefined &&
-    process.env.REPLIT_DEV_PLUGINS !== "0"
-      ? [
-          await import("@replit/vite-plugin-cartographer").then((m) =>
-            m.cartographer({
-              root: path.resolve(import.meta.dirname, ".."),
-            }),
-          ),
-          await import("@replit/vite-plugin-dev-banner").then((m) =>
-            m.devBanner(),
-          ),
-        ]
-      : []),
     // Upload source maps to Sentry on production builds. Skipped automatically
     // when SENTRY_AUTH_TOKEN is missing (e.g. local dev or contributor builds).
     // Must be the LAST plugin so it runs after the build has emitted assets.
@@ -128,6 +114,15 @@ export default defineConfig({
         },
       },
     },
+  },
+  optimizeDeps: {
+    // Disable automatic dependency scanning in the dev server.
+    // The full esbuild dep scan spawns thousands of goroutines which exhausts
+    // the container's OS thread limit (~1024 total) and panics. With noDiscovery
+    // and an empty include list, Vite skips the pre-bundling phase entirely and
+    // transforms deps on-demand instead.
+    noDiscovery: true,
+    include: [],
   },
   server: {
     port,
