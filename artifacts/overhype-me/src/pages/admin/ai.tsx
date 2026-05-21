@@ -1,104 +1,21 @@
 import { useState } from "react";
 import { AdminLayout } from "@/components/admin/AdminLayout";
 import { CollapsibleSection } from "@/components/CollapsibleSection";
-import { Settings, Loader2, Palette, Bug, Bot, Film, Sliders } from "lucide-react";
+import { Settings, Loader2, Palette, Bug, Sliders, Zap } from "lucide-react";
 import {
   ConfigPageContext,
   ConfigPageCtx,
   ModelParamRow,
   ConfigInput,
   STYLE_OPTIONS,
-  useConfigCtx,
   useConfigPageState,
 } from "./_configShared";
 
-// ── Per-model parameter definitions ──────────────────────────────────────────
-
-interface ParamDef { key: string }
-const MODEL_PARAMS: Record<string, ParamDef[]> = {
-  "fal-ai/flux-pro/v1.1": [
-    { key: "ai_std_num_inference_steps" },
-    { key: "ai_std_guidance_scale" },
-    { key: "ai_std_safety_tolerance" },
-    { key: "ai_std_output_format" },
-    { key: "ai_std_seed" },
-  ],
-  "fal-ai/flux-pro": [
-    { key: "ai_std_num_inference_steps" },
-    { key: "ai_std_guidance_scale" },
-    { key: "ai_std_safety_tolerance" },
-    { key: "ai_std_output_format" },
-    { key: "ai_std_seed" },
-  ],
-  "fal-ai/flux/dev": [
-    { key: "ai_std_num_inference_steps" },
-    { key: "ai_std_guidance_scale" },
-    { key: "ai_std_output_format" },
-    { key: "ai_std_seed" },
-  ],
-  "fal-ai/flux/schnell": [
-    { key: "ai_std_num_inference_steps" },
-    { key: "ai_std_output_format" },
-    { key: "ai_std_seed" },
-  ],
-  "fal-ai/flux-pro/v1.1-ultra": [
-    { key: "ai_std_aspect_ratio" },
-    { key: "ai_std_ultra_raw" },
-    { key: "ai_std_safety_tolerance" },
-    { key: "ai_std_output_format" },
-    { key: "ai_std_seed" },
-  ],
-  "fal-ai/flux-2-pro": [
-    { key: "ai_std_aspect_ratio" },
-    { key: "ai_std_output_format" },
-  ],
-  "fal-ai/flux-2-max": [
-    { key: "ai_std_aspect_ratio" },
-    { key: "ai_std_output_format" },
-  ],
-  "fal-ai/flux-pulid": [
-    { key: "ai_ref_pulid_id_scale" },
-    { key: "ai_ref_pulid_guidance_scale" },
-    { key: "ai_ref_pulid_num_inference_steps" },
-    { key: "ai_ref_pulid_true_cfg_scale" },
-    { key: "ai_ref_pulid_start_step" },
-    { key: "ai_pulid_composition_suffix" },
-  ],
-  "fal-ai/ip-adapter-face-id-plus": [
-    { key: "ai_std_num_inference_steps" },
-    { key: "ai_std_guidance_scale" },
-    { key: "ai_std_output_format" },
-    { key: "ai_std_seed" },
-  ],
-};
-
-// ── ModelConfigSection (AI page only) ────────────────────────────────────────
-
-function ModelConfigSection({ title, subtitle, modelKey }: {
-  title: string; subtitle: string;
-  modelKey: "ai_image_model_standard" | "ai_image_model_reference";
-}) {
-  const { stdEdits, rows } = useConfigCtx();
-  const selectedModel = stdEdits[modelKey]?.value ?? rows.find((r) => r.key === modelKey)?.value ?? "";
-  const params = MODEL_PARAMS[selectedModel] ?? [];
-  return (
-    <div className="space-y-3">
-      <div>
-        <p className="text-sm font-semibold text-foreground">{title}</p>
-        <p className="text-xs text-muted-foreground">{subtitle}</p>
-      </div>
-      <ModelParamRow paramKey={modelKey} />
-      {params.length > 0 && (
-        <div className="border-l-2 border-muted/60 pl-4 space-y-4">
-          <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
-            Parameters — <span className="font-mono normal-case">{selectedModel}</span>
-          </p>
-          {params.map((p) => <ModelParamRow key={p.key} paramKey={p.key} />)}
-        </div>
-      )}
-    </div>
-  );
-}
+// Phase 6: the legacy per-model parameter UI (MODEL_PARAMS + ModelConfigSection),
+// the AI Image Generation, AI Scene Prompt, and Video Generation sections were
+// all removed when the ad-hoc ai_*/video_* admin_config keys were retired.
+// AI engine configuration now lives in the engines table and is edited via
+// /admin/engines.
 
 // ── Main page component ───────────────────────────────────────────────────────
 
@@ -179,57 +96,24 @@ export default function AdminAI() {
           ) : (
             <div className="space-y-3">
 
-              {/* ── AI Image Generation ──────────────────────────────────────── */}
-              <CollapsibleSection
-                title="AI Image Generation"
-                icon={<Bot className="w-4 h-4 text-muted-foreground" />}
-                description="fal.ai model selection and per-model tuning parameters."
-                storageKey="admin_section_config_ai_image"
-              >
-                <p className="text-sm text-muted-foreground -mt-3">
-                  fal.ai model selection and per-model tuning parameters. Select a model from the dropdown to reveal its configurable parameters below.
-                </p>
-
-                <div className="space-y-3">
-                  <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Shared Settings</p>
-                  <ModelParamRow paramKey="ai_image_size" />
+              {/* AI Engine configuration callout */}
+              <div className="rounded-lg border border-border bg-muted/40 p-4 flex items-start gap-3">
+                <Zap className="w-5 h-5 text-primary shrink-0 mt-0.5" />
+                <div className="space-y-1">
+                  <p className="text-sm font-semibold text-foreground">
+                    AI engine configuration has moved
+                  </p>
+                  <p className="text-sm text-muted-foreground">
+                    Per-engine settings (model id, allowed durations, resolutions, aspect
+                    ratios, audio handling, parameter schemas) now live in the{" "}
+                    <a href="/admin/engines" className="text-primary underline hover:text-primary/80">
+                      /admin/engines
+                    </a>{" "}
+                    panel. The legacy ad-hoc admin_config keys for image, scene-prompt,
+                    and video generation were retired in Phase 6.
+                  </p>
                 </div>
-
-                <div className="border-t border-border" />
-
-                <ModelConfigSection
-                  title="Standard Model"
-                  subtitle="Text-to-image generation without a reference photo"
-                  modelKey="ai_image_model_standard"
-                />
-
-                <div className="border-t border-border" />
-
-                <ModelConfigSection
-                  title="Reference Photo Model"
-                  subtitle="Face-preserving generation from an uploaded reference photo"
-                  modelKey="ai_image_model_reference"
-                />
-              </CollapsibleSection>
-
-              {/* ── AI Scene Prompt ───────────────────────────────────────────── */}
-              <CollapsibleSection
-                title="AI Scene Prompt"
-                icon={<Bot className="w-4 h-4 text-muted-foreground" />}
-                description="OpenAI model and sampling parameters for cinematic scene descriptions."
-                storageKey="admin_section_config_ai_scene"
-              >
-                <p className="text-sm text-muted-foreground -mt-3">
-                  OpenAI model and sampling parameters used when generating cinematic scene descriptions for meme backgrounds.
-                </p>
-
-                <div className="space-y-4">
-                  <ModelParamRow paramKey="ai_scene_prompt_model" />
-                  <ModelParamRow paramKey="ai_scene_prompt_max_tokens" />
-                  <ModelParamRow paramKey="ai_scene_prompt_temperature" />
-                  <ModelParamRow paramKey="ai_scene_prompt_system" />
-                </div>
-              </CollapsibleSection>
+              </div>
 
               {/* ── AI Generation Limits ──────────────────────────────────────── */}
               <CollapsibleSection
@@ -317,26 +201,6 @@ export default function AdminAI() {
                     </div>
                   </div>
                 )}
-              </CollapsibleSection>
-
-              {/* ── Video Generation ─────────────────────────────────────────── */}
-              <CollapsibleSection
-                title="Video Generation"
-                icon={<Film className="w-4 h-4 text-muted-foreground" />}
-                description="fal.ai / xAI model and generation parameters for video creation."
-                storageKey="admin_section_config_video"
-              >
-                <p className="text-sm text-muted-foreground -mt-3">
-                  Defaults for all video generation requests. Grok Imagine: duration 1–15 s, 8 aspect ratios, 480p/720p. Seedance 2.0: duration auto/4–15 s, 7 aspect ratios (incl. 21:9 ultrawide), 480p/720p, native audio. Other models may clamp or ignore values they don't support.
-                </p>
-
-                <div className="space-y-4">
-                  <ModelParamRow paramKey="video_model" />
-                  <ModelParamRow paramKey="video_duration" />
-                  <ModelParamRow paramKey="video_aspect_ratio" />
-                  <ModelParamRow paramKey="video_resolution" />
-                  <ModelParamRow paramKey="video_prompt_system_prompt" />
-                </div>
               </CollapsibleSection>
 
             </div>

@@ -287,30 +287,9 @@ export async function ensureSchema(): Promise<void> {
         ('style_suffix_ref_neon-noir', 'Reimagine this scene in neon noir style with a rain-drenched nighttime setting, deep black shadows pierced only by harsh neon signage reflections, film grain, and a moody detective-thriller atmosphere.', 'text', 'Neon Noir — Reference Suffix', 'Style suffix appended to the scene prompt when generating from a reference photo.', false)
       ON CONFLICT (key) DO NOTHING`,
     },
-    {
-      label: "admin_config seed ai_scene_prompt_model",
-      ddl: `INSERT INTO admin_config (key, value, data_type, label, description, is_public)
-        VALUES ('ai_scene_prompt_model', 'gpt-4o-mini', 'text', 'AI Scene Prompt Model',
-          'OpenAI chat completion model used when generating cinematic scene descriptions for AI meme backgrounds.',
-          false)
-        ON CONFLICT (key) DO NOTHING`,
-    },
-    {
-      label: "admin_config seed ai_scene_prompt_max_tokens",
-      ddl: `INSERT INTO admin_config (key, value, data_type, label, description, is_public)
-        VALUES ('ai_scene_prompt_max_tokens', '400', 'integer', 'AI Scene Prompt Max Tokens',
-          'Maximum number of tokens the scene prompt model may generate per request.',
-          false)
-        ON CONFLICT (key) DO NOTHING`,
-    },
-    {
-      label: "admin_config seed ai_scene_prompt_temperature",
-      ddl: `INSERT INTO admin_config (key, value, data_type, label, description, is_public)
-        VALUES ('ai_scene_prompt_temperature', '0.7', 'text', 'AI Scene Prompt Temperature',
-          'Sampling temperature for the scene prompt model (0.0–2.0). Higher values produce more varied results.',
-          false)
-        ON CONFLICT (key) DO NOTHING`,
-    },
+    // Retired in migration 0059_retire_legacy_model_config_keys:
+    //   ai_scene_prompt_model, ai_scene_prompt_max_tokens, ai_scene_prompt_temperature
+    // (consumers now use baked-in defaults; engines table is authoritative).
     {
       label: "admin_config seed stripe_live_mode",
       ddl: `INSERT INTO admin_config (key, value, data_type, label, description, is_public)
@@ -326,48 +305,10 @@ export async function ensureSchema(): Promise<void> {
       EXCEPTION WHEN duplicate_object THEN NULL;
       END $$`,
     },
-    {
-      label: "admin_config seed ai_scene_prompt_system",
-      ddl: `INSERT INTO admin_config (key, value, data_type, label, description, is_public)
-        VALUES ('ai_scene_prompt_system',
-          $$You generate cinematic scene prompts for AI image generation for meme backgrounds.
-
-Given a personalized fact template (using tokens like {NAME}, {SUBJ}, {OBJ}, {POSS}), produce three scene prompts for cinematic AI image generation.
-
-Rules:
-1. Classify the fact:
-   - "action" = a person doing something physical, social, or occupational
-   - "abstract" = cosmic, metaphysical, or impossible to photograph
-2. For "action" facts: produce 3 different prompts (male, female, neutral subject).
-   For "abstract" facts: all 3 prompts can be identical dramatic cinematic scenes.
-3. Each prompt must:
-   - Describe a SQUARE cinematic scene
-   - Have dramatic lighting, high contrast, cinematic quality
-   - NOT contain any text or letters
-   - Be 20-40 words
-   - Start with "Cinematic " or "Epic " or "Dramatic "
-
-Return ONLY valid JSON:
-{"fact_type":"action","male":"Cinematic shot of a muscular man...","female":"Cinematic shot of a strong woman...","neutral":"Dramatic scene of a person..."}$$,
-          'text', 'AI Scene Prompt (System)',
-          'The system prompt sent to gpt-4o-mini when generating cinematic scene descriptions for AI meme backgrounds. Must instruct the model to return JSON with fact_type, male, female, and neutral keys.',
-          false)
-      ON CONFLICT (key) DO NOTHING`,
-    },
-    {
-      label: "admin_config seed fal_ai_image_models",
-      ddl: `INSERT INTO admin_config (key, value, data_type, label, description, is_public) VALUES
-        ('ai_image_model_standard', 'fal-ai/flux-pro/v1.1', 'text', 'AI Image Model (Standard)',
-         'fal.ai model ID used for standard text-to-image generation (no reference photo). Change to swap the generation model without a code deploy.',
-         true),
-        ('ai_image_model_reference', 'fal-ai/flux-pulid', 'text', 'AI Image Model (Reference Photo)',
-         'fal.ai model ID used when generating from a reference photo. Should be a face-preserving model such as flux-pulid (PuLID for FLUX).',
-         true),
-        ('ai_image_size', 'square_hd', 'text', 'AI Image Size',
-         'Image size token passed to fal.ai models (e.g. square_hd, landscape_4_3, portrait_4_3). Must be a size supported by the chosen model.',
-         false)
-      ON CONFLICT (key) DO NOTHING`,
-    },
+    // Retired in migration 0059_retire_legacy_model_config_keys:
+    //   ai_scene_prompt_system, ai_image_model_standard, ai_image_model_reference,
+    //   ai_image_size (consumers now use baked-in defaults; PuLID/face-reference
+    //   path now reads from the engines table via loadDefaultEngine("image")).
     {
       label: "admin_config.debug_value column",
       ddl: `ALTER TABLE admin_config ADD COLUMN IF NOT EXISTS debug_value text`,
@@ -380,73 +321,11 @@ Return ONLY valid JSON:
           false)
       ON CONFLICT (key) DO NOTHING`,
     },
-    {
-      label: "admin_config seed model params",
-      ddl: `INSERT INTO admin_config (key, value, data_type, label, description, min_value, max_value, is_public) VALUES
-        ('ai_std_num_inference_steps', '28', 'integer', 'Standard Model: Inference Steps',
-         'Number of denoising steps. Higher = better quality but slower. Default 28 for FLUX Pro/Dev; use 4 for Schnell.',
-         1, 100, false),
-        ('ai_std_guidance_scale', '3.5', 'text', 'Standard Model: Guidance Scale',
-         'CFG scale controlling how closely the model follows the prompt. FLUX default is 3.5.',
-         NULL, NULL, false),
-        ('ai_std_safety_tolerance', '2', 'text', 'Standard Model: Safety Tolerance',
-         'Safety filter level for FLUX Pro models (1 = most strict, 6 = most permissive). Ignored by Dev/Schnell models.',
-         NULL, NULL, false),
-        ('ai_std_seed', '', 'text', 'Standard Model: Seed',
-         'Fixed seed for reproducible output. Leave empty for a random seed on each generation.',
-         NULL, NULL, false),
-        ('ai_std_output_format', 'jpeg', 'text', 'Standard Model: Output Format',
-         'Output image format: jpeg (smaller, faster) or png (lossless, larger).',
-         NULL, NULL, false),
-        ('ai_std_aspect_ratio', '1:1', 'text', 'Ultra/FLUX2 Model: Aspect Ratio',
-         'Aspect ratio for FLUX Pro Ultra and FLUX 2 models (which use aspect_ratio instead of image_size). Common values: 1:1, 16:9, 9:16, 4:3, 3:4.',
-         NULL, NULL, false),
-        ('ai_std_ultra_raw', 'false', 'text', 'Ultra Model: Raw Mode',
-         'When true, FLUX Pro Ultra generates less processed, more natural-looking images.',
-         NULL, NULL, false),
-        ('ai_ref_pulid_id_scale', '0.70', 'text', 'PuLID: ID Scale',
-         'Face fidelity strength for FLUX PuLID. Range 0.0–1.0. Lower = more scene detail, higher = stronger face likeness.',
-         NULL, NULL, false),
-        ('ai_ref_pulid_guidance_scale', '5.5', 'text', 'PuLID: Guidance Scale',
-         'CFG scale for PuLID generation. Higher gives the text prompt more influence over composition without sacrificing face accuracy.',
-         NULL, NULL, false),
-        ('ai_ref_pulid_num_inference_steps', '30', 'integer', 'PuLID: Inference Steps',
-         'Denoising steps for PuLID generation. More steps = higher quality, slower.',
-         1, 100, false),
-        ('ai_ref_pulid_true_cfg_scale', '', 'text', 'PuLID: True CFG Scale',
-         'PuLID-specific true CFG scale parameter. Leave empty to use the model default.',
-         NULL, NULL, false),
-        ('ai_ref_pulid_start_step', '', 'text', 'PuLID: Start Step',
-         'PuLID identity injection start step. Leave empty to use the model default.',
-         NULL, NULL, false),
-        ('ai_pulid_composition_suffix', 'Full body wide angle shot. Person shown in action within the scene environment. Show the full setting and context. NOT a portrait or close-up.', 'text', 'PuLID: Composition Suffix',
-         'Text appended to scene prompts during PuLID reference generation to prevent the model defaulting to a portrait close-up.',
-         NULL, NULL, false)
-      ON CONFLICT (key) DO NOTHING`,
-    },
-    {
-      label: "admin_config seed video_prompt_system_prompt",
-      ddl: `INSERT INTO admin_config (key, value, data_type, label, description, is_public)
-        VALUES ('video_prompt_system_prompt',
-          'You are a video director. Given an image, write a short cinematic motion prompt (1-2 sentences, max 50 words) describing how to animate the scene for a short video clip. Focus on dramatic, visual motion: camera movement, lighting changes, atmosphere. Describe only the visual action and movement. Respond with only the prompt text, nothing else.',
-          'text', 'Video Prompt System (OpenAI)',
-          'The system prompt sent to OpenAI when analyzing a background image to auto-generate a video motion prompt. Should instruct the model to act as a video director and return a short cinematic motion description.',
-          false)
-      ON CONFLICT (key) DO NOTHING`,
-    },
-    {
-      label: "admin_config seed video model params",
-      ddl: `INSERT INTO admin_config (key, value, data_type, label, description, is_public) VALUES
-        ('video_model', 'xai/grok-imagine-video/image-to-video', 'text', 'Video Model',
-         'AI model used for video generation (fal.ai or xAI Grok Imagine).', false),
-        ('video_duration', '5', 'text', 'Video Duration (seconds)',
-         'Duration of generated videos in seconds. Grok Imagine supports 1–15 (default 6). Other models may snap to their own valid values.', false),
-        ('video_aspect_ratio', '16:9', 'text', 'Video Aspect Ratio',
-         'Aspect ratio for generated videos. Grok supports auto/16:9/4:3/3:2/1:1/2:3/3:4/9:16. Other models may restrict to a subset.', false),
-        ('video_resolution', '720p', 'text', 'Video Resolution',
-         'Output resolution for Grok Imagine videos. Supported values: 720p (default), 480p. Ignored by most other models.', false)
-      ON CONFLICT (key) DO NOTHING`,
-    },
+    // Retired in migration 0059_retire_legacy_model_config_keys:
+    //   ai_std_*, ai_ref_pulid_*, ai_pulid_composition_suffix,
+    //   video_prompt_system_prompt, video_model, video_duration,
+    //   video_aspect_ratio, video_resolution. Image pipeline now uses
+    //   baked-in defaults; video flow uses the engines table.
     {
       label: "video_jobs.add_is_private",
       ddl: `ALTER TABLE video_jobs ADD COLUMN IF NOT EXISTS is_private boolean NOT NULL DEFAULT false`,

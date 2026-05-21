@@ -421,6 +421,13 @@
       "when": 1779383205101,
       "tag": "0059_superb_lady_bullseye",
       "breakpoints": true
+    },
+    {
+      "idx": 60,
+      "version": "7",
+      "when": 1779400000000,
+      "tag": "0060_retire_legacy_model_config_keys",
+      "breakpoints": true
     }
   ]
 }

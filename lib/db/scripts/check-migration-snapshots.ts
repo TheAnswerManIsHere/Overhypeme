@@ -109,6 +109,12 @@ const SNAPSHOT_EXEMPT_TAGS = new Set<string>([
   // does not accept this Seedance-specific field; its presence caused 422
   // errors from fal.ai. No schema delta.
   "0058_fix_veo_engine_generate_audio",
+
+  // Phase 6 retirement: DELETE FROM admin_config WHERE key IN (...) for
+  // ~26 legacy ad-hoc per-model knobs (ai_std_*, ai_ref_pulid_*,
+  // ai_image_model_*, ai_scene_prompt_*, video_*) that were superseded
+  // by the engines table. Pure DML — no schema delta.
+  "0060_retire_legacy_model_config_keys",
 ]);
 
 interface JournalEntry {

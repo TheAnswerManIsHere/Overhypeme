@@ -174,9 +174,13 @@ export function AiBgPicker({
 }: AiBgPickerProps) {
 
   // ── Config from server ──────────────────────────────────────────────────────
+  // Phase 6: ai_image_model_standard / ai_image_model_reference admin_config
+  // keys retired; the AI meme pipeline now uses baked-in defaults
+  // (DEFAULT_IMAGE_MODEL_STANDARD / DEFAULT_IMAGE_MODEL_REFERENCE in
+  // aiMemePipeline.ts) and the PuLID engine in the engines table.
   const [aiGalleryDisplayLimit, setAiGalleryDisplayLimit] = useState(100);
-  const [aiModelStandard, setAiModelStandard] = useState("fal-ai/flux-pro/v1.1");
-  const [aiModelReference, setAiModelReference] = useState("fal-ai/flux-pulid");
+  const aiModelStandard = "fal-ai/flux-pro/v1.1";
+  const aiModelReference = "fal-ai/flux-pulid";
 
   useEffect(() => {
     fetch("/api/config")
@@ -184,10 +188,6 @@ export function AiBgPicker({
       .then((cfg: Record<string, number | string | boolean>) => {
         const limit = cfg["ai_gallery_display_limit"];
         if (typeof limit === "number" && limit > 0) setAiGalleryDisplayLimit(limit);
-        const std = cfg["ai_image_model_standard"];
-        if (typeof std === "string" && std) setAiModelStandard(std);
-        const ref = cfg["ai_image_model_reference"];
-        if (typeof ref === "string" && ref) setAiModelReference(ref);
       })
       .catch(() => {});
   }, []);
