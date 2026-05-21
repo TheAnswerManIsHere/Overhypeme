@@ -7,7 +7,7 @@ import fs from "fs";
 import { fileURLToPath } from "url";
 import { customAlphabet } from "nanoid";
 import { db } from "@workspace/db";
-import { memesTable, factsTable, usersTable, userFactPreferencesTable, affiliateClicksTable } from "@workspace/db/schema";
+import { memesTable, factsTable, usersTable, userFactPreferencesTable, affiliateClicksTable, lookStylesTable } from "@workspace/db/schema";
 import { toggleHeart, getViewerReactionTargetIds } from "../lib/reactions";
 import { eq, ne, desc, and, inArray, isNull, gt, count, sql } from "drizzle-orm";
 import {
@@ -21,7 +21,7 @@ import {
   type BackgroundSource,
 } from "../lib/memeGenerator";
 import { ObjectStorageService, ObjectNotFoundError } from "../lib/objectStorage";
-import { getConfigInt, getConfigString } from "../lib/adminConfig";
+import { getConfigInt } from "../lib/adminConfig";
 import { getRandomStockPhoto, getPhotoById } from "../lib/pexelsClient";
 import { renderPersonalized } from "../lib/renderCanonical";
 import { compositeAiMeme } from "../lib/aiMemeCompositor";
@@ -1172,18 +1172,24 @@ router.get("/memes/ai/:factId/prompts", requireAdmin, async (req: Request, res: 
     .limit(1);
   if (!fact) { res.status(404).json({ error: "Fact not found" }); return; }
 
-  // Resolve style suffix from admin config — same getConfigString used by generation, cache is
-  // busted immediately on admin save, so this always reflects the current saved value.
+  // Resolve style suffix from the `look_styles` DB table. The legacy
+  // `style_suffix_*` admin_config keys were retired in the admin-panel
+  // cleanup; look_styles is now the single source of truth for visual
+  // prompt content. videoPipelineRunner reads from the same table.
   const rawStyleId = String(req.query["styleId"] ?? "");
   const isRef = req.query["isRef"] === "1";
   let styleSuffix: string | null = null;
   if (rawStyleId && rawStyleId !== "none") {
-    const { IMAGE_STYLE_MAP } = await import("../config/imageStyles.js");
-    const styleDef = IMAGE_STYLE_MAP.get(rawStyleId);
-    if (styleDef) {
-      const defaultSuffix = isRef ? styleDef.promptSuffixReference : styleDef.promptSuffix;
-      const configKey = isRef ? `style_suffix_ref_${rawStyleId}` : `style_suffix_${rawStyleId}`;
-      styleSuffix = (await getConfigString(configKey, defaultSuffix)) || null;
+    const [row] = await db
+      .select({
+        promptSuffix: lookStylesTable.promptSuffix,
+        promptSuffixReference: lookStylesTable.promptSuffixReference,
+      })
+      .from(lookStylesTable)
+      .where(eq(lookStylesTable.id, rawStyleId))
+      .limit(1);
+    if (row) {
+      styleSuffix = (isRef ? row.promptSuffixReference : row.promptSuffix) || null;
     }
   }
 
@@ -1327,16 +1333,22 @@ router.post("/memes/ai/:factId/generate", requireLegendary, async (req: Request,
     else userGender = "neutral";
   }
 
-  // Resolve optional style suffix from styleId
+  // Resolve optional style suffix from the look_styles table (replaces
+  // the retired style_suffix_* admin_config keys).
   const rawStyleId = body["styleId"];
   let styleSuffix: string | undefined;
   if (typeof rawStyleId === "string" && rawStyleId !== "none") {
-    const { IMAGE_STYLE_MAP } = await import("../config/imageStyles.js");
-    const styleDef = IMAGE_STYLE_MAP.get(rawStyleId);
-    if (styleDef) {
-      const defaultSuffix = referenceImagePath ? styleDef.promptSuffixReference : styleDef.promptSuffix;
-      const configKey = referenceImagePath ? `style_suffix_ref_${rawStyleId}` : `style_suffix_${rawStyleId}`;
-      styleSuffix = (await getConfigString(configKey, defaultSuffix)) || undefined;
+    const [row] = await db
+      .select({
+        promptSuffix: lookStylesTable.promptSuffix,
+        promptSuffixReference: lookStylesTable.promptSuffixReference,
+      })
+      .from(lookStylesTable)
+      .where(eq(lookStylesTable.id, rawStyleId))
+      .limit(1);
+    if (row) {
+      const resolved = referenceImagePath ? row.promptSuffixReference : row.promptSuffix;
+      styleSuffix = resolved || undefined;
     }
   }
 

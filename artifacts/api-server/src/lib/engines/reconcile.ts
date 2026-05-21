@@ -28,7 +28,7 @@ import { enginesTable, type InsertEngine } from "@workspace/db/schema";
 import { eq } from "drizzle-orm";
 import { logger } from "../logger";
 import { clearEngineCaches } from "../engineInterpreter";
-import { ALL_ENGINES } from "./index";
+import { ALL_ENGINES } from "./catalogue";
 import { ADMIN_EDITABLE_FIELDS, type EngineDefinition } from "./types";
 
 interface ReconcileResult {

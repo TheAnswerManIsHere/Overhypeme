@@ -1,4 +1,3 @@
-import { useState } from "react";
 import { AdminLayout } from "@/components/admin/AdminLayout";
 import { CollapsibleSection } from "@/components/CollapsibleSection";
 import { Settings, Loader2, Palette, Bug, Bot, Sliders, DollarSign, Shield, Mail, ShoppingBag, Clock, Zap } from "lucide-react";
@@ -7,9 +6,7 @@ import {
   ConfigPageCtx,
   ConfigCard,
   ModelParamRow,
-  ConfigInput,
   MODEL_CONFIG_KEYS,
-  STYLE_OPTIONS,
   RETRY_DELAY_MS_KEYS,
   useConfigCtx,
   useConfigPageState,
@@ -161,18 +158,15 @@ function RetryTimelinePanel() {
 
 // ── AI Settings group (nested inside Configuration) ───────────────────────────
 //
-// Phase 6: the AI image / scene prompt / video sections previously rendered
-// here have been retired (their backing admin_config keys were deleted).
-// Engine configuration now lives at /admin/engines; only the AI gallery
-// display limit and the style suffix per-style editor remain here.
+// Phase 6 + admin-panel cleanup: the AI image / scene-prompt / video sections
+// previously rendered here have been retired (their backing admin_config keys
+// were deleted). The Image Style Suffixes section was also dropped — style
+// prompt content now lives on the `look_styles` DB table, not admin_config.
+// Engine configuration lives at /admin/engines; the look-styles editor is a
+// follow-up. Only the AI gallery display limit and a couple of generation
+// caps survive on this page.
 
 function AISettingsGroup() {
-  const [selectedStyleId, setSelectedStyleId] = useState<string>(STYLE_OPTIONS[0]?.id ?? "");
-  const standardKey = `style_suffix_${selectedStyleId}`;
-  const referenceKey = `style_suffix_ref_${selectedStyleId}`;
-  const selectedStyleDef = STYLE_OPTIONS.find((s) => s.id === selectedStyleId);
-  const { debugActive } = useConfigCtx();
-
   return (
     <div className="space-y-3">
 
@@ -195,7 +189,25 @@ function AISettingsGroup() {
             <code className="text-xs bg-muted px-1 py-0.5 rounded ml-1">ai_image_model_*</code>,
             <code className="text-xs bg-muted px-1 py-0.5 rounded ml-1">ai_scene_prompt_*</code>,
             <code className="text-xs bg-muted px-1 py-0.5 rounded ml-1">video_model</code>, …)
-            were retired.
+            were retired in Phase 6.
+          </p>
+        </div>
+      </div>
+
+      {/* Look style suffixes — moved to look_styles DB table */}
+      <div className="rounded-lg border border-border bg-muted/40 p-4 flex items-start gap-3">
+        <Palette className="w-5 h-5 text-primary shrink-0 mt-0.5" />
+        <div className="space-y-1">
+          <p className="text-sm font-semibold text-foreground">
+            Image style suffixes moved to look_styles
+          </p>
+          <p className="text-sm text-muted-foreground">
+            Style prompt content (the text appended to the scene prompt for
+            each visual style) now lives on the{" "}
+            <code className="text-xs bg-muted px-1 py-0.5 rounded">look_styles</code>{" "}
+            DB table. A dedicated <code className="text-xs bg-muted px-1 py-0.5 rounded">/admin/look-styles</code>{" "}
+            editor is a follow-up; in the meantime, prompt content lives in
+            migration 0057 and the typed engine catalogue.
           </p>
         </div>
       </div>
@@ -211,84 +223,10 @@ function AISettingsGroup() {
           <ModelParamRow paramKey="ai_gallery_display_limit" />
         </div>
       </CollapsibleSection>
-
-      {/* Image Style Suffixes */}
-      <CollapsibleSection
-        title="Image Style Suffixes"
-        icon={<Palette className="w-4 h-4 text-muted-foreground" />}
-        description="Text appended to the scene prompt when a style is selected."
-        storageKey="admin_section_config_image_styles"
-      >
-        <p className="text-sm text-muted-foreground -mt-3">
-          Text appended to the scene prompt when a style is selected. Each style has a Standard and a Debug value pair.
-        </p>
-
-        <div>
-          <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide block mb-1.5">Style</label>
-          <select
-            value={selectedStyleId}
-            onChange={(e) => setSelectedStyleId(e.target.value)}
-            className="w-full bg-background border border-border rounded px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
-          >
-            {STYLE_OPTIONS.map((s) => (
-              <option key={s.id} value={s.id}>{s.label}</option>
-            ))}
-          </select>
-        </div>
-
-        {selectedStyleDef && (
-          <div className="space-y-4">
-            <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Standard suffix</label>
-                <code className="text-xs text-muted-foreground bg-muted px-2 py-0.5 rounded">{standardKey}</code>
-              </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                <div className={`rounded-lg border p-3 space-y-2 ${!debugActive ? "border-primary/40 bg-primary/5" : "border-border"}`}>
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Standard</span>
-                    {!debugActive && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-primary/15 text-primary font-medium">Active</span>}
-                  </div>
-                  <ConfigInput configKey={standardKey} kind="std" rows={3} />
-                </div>
-                <div className={`rounded-lg border p-3 space-y-2 ${debugActive ? "border-amber-500/50 bg-amber-500/5" : "border-border"}`}>
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1"><Bug className="w-3 h-3" /> Debug</span>
-                    {debugActive && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-amber-500/20 text-amber-400 font-medium">Active</span>}
-                  </div>
-                  <ConfigInput configKey={standardKey} kind="dbg" rows={3} />
-                </div>
-              </div>
-            </div>
-
-            <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Reference photo suffix</label>
-                <code className="text-xs text-muted-foreground bg-muted px-2 py-0.5 rounded">{referenceKey}</code>
-              </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                <div className={`rounded-lg border p-3 space-y-2 ${!debugActive ? "border-primary/40 bg-primary/5" : "border-border"}`}>
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Standard</span>
-                    {!debugActive && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-primary/15 text-primary font-medium">Active</span>}
-                  </div>
-                  <ConfigInput configKey={referenceKey} kind="std" rows={3} />
-                </div>
-                <div className={`rounded-lg border p-3 space-y-2 ${debugActive ? "border-amber-500/50 bg-amber-500/5" : "border-border"}`}>
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1"><Bug className="w-3 h-3" /> Debug</span>
-                    {debugActive && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-amber-500/20 text-amber-400 font-medium">Active</span>}
-                  </div>
-                  <ConfigInput configKey={referenceKey} kind="dbg" rows={3} />
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-      </CollapsibleSection>
     </div>
   );
 }
+
 
 // ── Main page component ───────────────────────────────────────────────────────
 

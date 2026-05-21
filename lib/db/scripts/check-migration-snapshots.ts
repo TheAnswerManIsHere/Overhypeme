@@ -115,6 +115,11 @@ const SNAPSHOT_EXEMPT_TAGS = new Set<string>([
   // ai_image_model_*, ai_scene_prompt_*, video_*) that were superseded
   // by the engines table. Pure DML — no schema delta.
   "0060_retire_legacy_model_config_keys",
+
+  // Admin-panel cleanup follow-up: drops the `style_suffix_*` admin_config
+  // rows. Visual style prompt content now lives on the look_styles DB
+  // table (seeded by 0057). Pure DML.
+  "0061_retire_style_suffix_admin_config_keys",
 ]);
 
 interface JournalEntry {
