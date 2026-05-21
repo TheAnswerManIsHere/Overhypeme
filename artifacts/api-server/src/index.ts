@@ -14,6 +14,7 @@ import { refreshPricingCache } from "./lib/falPricing";
 import { getConfigString, getConfigInt } from "./lib/adminConfig";
 import { attachShutdownHandlers } from "./shutdown";
 import { runEmailOutboxWorker } from "./lib/email.js";
+import { reconcileEngines, ALL_ENGINES } from "./lib/engines";
 
 const rawPort = process.env["PORT"];
 
@@ -150,19 +151,37 @@ async function reconcileMembershipTiers() {
 }
 
 // ── fal.ai Pricing Cache ────────────────────────────────────────────────────
+//
+// The pricing cache covers every fal endpoint the platform calls. We seed it
+// from three sources, deduped:
+//   1. The `fal_active_endpoints` admin_config string (legacy override list).
+//   2. The engines table — every active engine's endpoint is automatically
+//      included so admins don't have to keep two lists in sync.
+//   3. A hardcoded baseline so the cache works even on a fresh DB.
+//
+// Runtime callers (videoPipelineRunner, etc.) read from this cache via
+// getCachedPrice(). fal is the source of truth for pricing — code-side
+// `estimatedCostUsdPerSecond` on EngineDefinition is only a fallback for
+// when the cache hasn't been populated yet (boot race, new engine just added).
+async function resolveActiveEndpoints(): Promise<string[]> {
+  const overrideJson = await getConfigString("fal_active_endpoints", "[]");
+  let overrideIds: string[] = [];
+  try {
+    overrideIds = JSON.parse(overrideJson);
+    if (!Array.isArray(overrideIds)) overrideIds = [];
+  } catch {
+    logger.warn({ overrideJson }, "fal_active_endpoints config is not valid JSON — ignoring override list");
+    overrideIds = [];
+  }
+  const engineIds = ALL_ENGINES.map((e) => e.endpointId);
+  const baseline = ["fal-ai/flux-pro/v1.1"];
+  // Dedupe preserving insertion order.
+  return Array.from(new Set([...overrideIds, ...engineIds, ...baseline]));
+}
+
 async function initPricingCache(): Promise<void> {
   try {
-    const endpointsJson = await getConfigString(
-      "fal_active_endpoints",
-      '["fal-ai/flux-pro/v1.1","xai/grok-imagine-video/image-to-video"]',
-    );
-    let endpointIds: string[] = [];
-    try {
-      endpointIds = JSON.parse(endpointsJson);
-    } catch {
-      logger.warn({ endpointsJson }, "fal_active_endpoints config is not valid JSON — using defaults");
-      endpointIds = ["fal-ai/flux-pro/v1.1", "xai/grok-imagine-video/image-to-video"];
-    }
+    const endpointIds = await resolveActiveEndpoints();
     logger.info({ count: endpointIds.length }, "Refreshing fal.ai pricing cache");
     await refreshPricingCache(endpointIds);
     logger.info("fal.ai pricing cache warmed");
@@ -171,11 +190,7 @@ async function initPricingCache(): Promise<void> {
     const intervalMs = await getConfigInt("pricing_refresh_interval_ms", 3_600_000);
     setInterval(async () => {
       try {
-        const idsJson = await getConfigString(
-          "fal_active_endpoints",
-          JSON.stringify(endpointIds),
-        );
-        const ids: string[] = JSON.parse(idsJson);
+        const ids = await resolveActiveEndpoints();
         await refreshPricingCache(ids);
         logger.info({ count: ids.length }, "fal.ai pricing cache refreshed");
       } catch (err) {
@@ -364,5 +379,16 @@ backfillEmbeddings()
   .catch((err: unknown) => logger.warn({ err }, "Embedding backfill skipped (no OpenAI key?)"));
 scheduleDailyFactJob();
 scheduleTransientRenderPurger();
-initPricingCache().catch((err: unknown) => logger.warn({ err }, "Pricing cache init error"));
+// Engines: reconcile the typed code catalogue into the DB before pricing
+// cache so the active engines drive the cache refresh.
+reconcileEngines()
+  .then((result) =>
+    logger.info(result, "Engine reconciliation complete"),
+  )
+  .catch((err: unknown) => logger.error({ err }, "Engine reconciliation failed"))
+  .finally(() => {
+    initPricingCache().catch((err: unknown) =>
+      logger.warn({ err }, "Pricing cache init error"),
+    );
+  });
 runEmailOutboxWorker();

@@ -18,11 +18,19 @@ import { logger } from "./logger.js";
  *   - "boolean"    — Boolean(value)
  *   - "float"      — Number(value)
  *
- * Plus a `map` substitution table (any type) which translates a pipeline
- * value to an engine-specific value before type coercion (e.g. landscape→16:9).
+ * Per-entry validation and conditional inclusion:
+ *   - `enum`         — declared values array; rejects unknown values with
+ *                       InvalidEngineParamError before reaching fal
+ *   - `range`        — {min, max} for numerics; "clamp" (default) silently
+ *                       constrains, "throw" raises InvalidEngineParamError
+ *   - `includeWhen`  — predicate object on other pipeline-level fields;
+ *                       when false the param is dropped (key not emitted)
+ *   - `map`          — substitution table (any type) applied before
+ *                       enum/range/coerce (e.g. wizard "landscape" → fal "16:9")
  *
- * Unknown types throw — adding a new engine that needs a new primitive
- * surfaces immediately rather than silently passing the raw value through.
+ * Unknown types throw UnknownParamTypeError so adding a new engine that
+ * needs a new primitive surfaces immediately rather than silently passing
+ * the raw value through.
  */
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -31,6 +39,29 @@ import { logger } from "./logger.js";
 
 export type ParamPrimitive = "string" | "int" | "stringInt" | "boolean" | "float";
 
+/**
+ * Tiny predicate language used by `includeWhen`. Evaluates against the
+ * raw pipeline params object. Two shapes:
+ *   - `{ field: "engineMode", equals: "custom" }`
+ *   - `{ field: "videoLengthSeconds", greaterThan: 5 }`
+ *   - `{ field: "renderedFactText", present: true }`
+ *
+ * Multiple conditions in the same object are AND-ed. Use a top-level `any`
+ * key with an array of predicates for OR semantics.
+ */
+export interface ParamPredicate {
+  field?: string;
+  equals?: unknown;
+  notEquals?: unknown;
+  oneOf?: unknown[];
+  greaterThan?: number;
+  lessThan?: number;
+  /** True when the field is defined AND non-empty. */
+  present?: boolean;
+  /** OR-of any sub-predicate. */
+  any?: ParamPredicate[];
+}
+
 export interface ParamSchemaEntry {
   /** Output key on the final fal input object. */
   name: string;
@@ -38,8 +69,26 @@ export interface ParamSchemaEntry {
   from: string;
   /** Coercion primitive. */
   type: ParamPrimitive;
-  /** Optional substitution table applied before coercion. */
+  /** Optional substitution table applied before validation/coercion. */
   map?: Record<string, unknown>;
+  /**
+   * Declared accepted values for this param. After map substitution, the
+   * resolved value must be `===` one of these; otherwise we throw
+   * InvalidEngineParamError before calling fal. Use to catch the "Veo
+   * doesn't accept generate_audio" class of bug.
+   */
+  enum?: unknown[];
+  /**
+   * Numeric range. `policy: "clamp"` (default) silently constrains; "throw"
+   * raises InvalidEngineParamError. No effect for non-numeric types.
+   */
+  range?: { min?: number; max?: number; policy?: "clamp" | "throw" };
+  /**
+   * When set, the param is only emitted if the predicate evaluates true
+   * against the full pipeline params object. Use for conditional fields
+   * like "only send voice_text when Kling voice control is enabled."
+   */
+  includeWhen?: ParamPredicate;
   /** Fallback value when the pipeline value is undefined/null/empty. */
   default?: unknown;
   /** When true and no value resolves, throws MissingRequiredParamError. */
@@ -84,6 +133,23 @@ export class UnknownParamTypeError extends Error {
     this.engineId = engineId;
     this.paramName = paramName;
     this.type = type;
+  }
+}
+
+export class InvalidEngineParamError extends Error {
+  readonly engineId: string;
+  readonly paramName: string;
+  readonly reason: string;
+  readonly value: unknown;
+  constructor(engineId: string, paramName: string, reason: string, value: unknown) {
+    super(
+      `Engine "${engineId}" parameter "${paramName}" failed validation: ${reason} (value=${JSON.stringify(value)})`,
+    );
+    this.name = "InvalidEngineParamError";
+    this.engineId = engineId;
+    this.paramName = paramName;
+    this.reason = reason;
+    this.value = value;
   }
 }
 
@@ -242,6 +308,86 @@ function coerce(
   }
 }
 
+/** Evaluates a predicate against the pipeline params object. */
+function evalPredicate(
+  predicate: ParamPredicate,
+  params: Record<string, unknown>,
+): boolean {
+  if (predicate.any && predicate.any.length > 0) {
+    return predicate.any.some((p) => evalPredicate(p, params));
+  }
+  if (!predicate.field) return true;
+  const value = params[predicate.field];
+  if (predicate.present !== undefined) {
+    const isPresent = !isEmpty(value);
+    if (isPresent !== predicate.present) return false;
+  }
+  if (predicate.equals !== undefined && value !== predicate.equals) return false;
+  if (predicate.notEquals !== undefined && value === predicate.notEquals) return false;
+  if (predicate.oneOf !== undefined && !predicate.oneOf.includes(value)) return false;
+  if (predicate.greaterThan !== undefined) {
+    const n = Number(value);
+    if (!Number.isFinite(n) || n <= predicate.greaterThan) return false;
+  }
+  if (predicate.lessThan !== undefined) {
+    const n = Number(value);
+    if (!Number.isFinite(n) || n >= predicate.lessThan) return false;
+  }
+  return true;
+}
+
+/**
+ * Validates a resolved (post-map, post-coerce) value against the entry's
+ * `enum` and `range` declarations. Throws InvalidEngineParamError on a
+ * miss. Range with `policy: "clamp"` mutates the value to fit; returns the
+ * possibly-clamped value.
+ */
+function validateAndConstrain(
+  engineId: string,
+  entry: ParamSchemaEntry,
+  coerced: unknown,
+): unknown {
+  // enum check — must match strictly after coercion.
+  if (entry.enum && entry.enum.length > 0) {
+    const match = entry.enum.some((allowed) => allowed === coerced);
+    if (!match) {
+      throw new InvalidEngineParamError(
+        engineId,
+        entry.name,
+        `value not in declared enum [${entry.enum.map((v) => JSON.stringify(v)).join(", ")}]`,
+        coerced,
+      );
+    }
+  }
+  // range check — only meaningful for numerics.
+  if (entry.range && typeof coerced === "number" && Number.isFinite(coerced)) {
+    const { min, max, policy = "clamp" } = entry.range;
+    if (min !== undefined && coerced < min) {
+      if (policy === "throw") {
+        throw new InvalidEngineParamError(
+          engineId,
+          entry.name,
+          `value ${coerced} below min ${min}`,
+          coerced,
+        );
+      }
+      return min;
+    }
+    if (max !== undefined && coerced > max) {
+      if (policy === "throw") {
+        throw new InvalidEngineParamError(
+          engineId,
+          entry.name,
+          `value ${coerced} above max ${max}`,
+          coerced,
+        );
+      }
+      return max;
+    }
+  }
+  return coerced;
+}
+
 /**
  * Walks engine.paramSchema and builds the fal.subscribe input object from
  * pipeline-level params.
@@ -279,6 +425,12 @@ export function buildEngineInput(
       continue;
     }
 
+    // Step 0: conditional inclusion. If the predicate fails, drop the
+    // entry entirely — the key is not emitted regardless of defaults.
+    if (entry.includeWhen && !evalPredicate(entry.includeWhen, pipelineParams)) {
+      continue;
+    }
+
     const raw = pipelineParams[entry.from];
 
     // Step 2: optional map substitution. The map may translate to a falsy
@@ -305,8 +457,9 @@ export function buildEngineInput(
       continue;
     }
 
-    // Step 5: coerce + emit.
-    out[entry.name] = coerce(entry.type, resolved, engine.id, entry.name);
+    // Step 5: coerce + validate + emit.
+    const coerced = coerce(entry.type, resolved, engine.id, entry.name);
+    out[entry.name] = validateAndConstrain(engine.id, entry, coerced);
   }
 
   // Merge static params last so they always win against accidental overrides.

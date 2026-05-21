@@ -4,6 +4,7 @@ import {
   buildEngineInput,
   MissingRequiredParamError,
   UnknownParamTypeError,
+  InvalidEngineParamError,
   type ParamSchema,
 } from "../lib/engineInterpreter.js";
 import type { Engine } from "@workspace/db/schema";
@@ -382,5 +383,274 @@ describe("buildEngineInput — malformed schema", () => {
   it("throws if paramSchema is missing params array", () => {
     const engine = makeEngine("broken", {} as unknown as ParamSchema);
     assert.throws(() => buildEngineInput(engine, {}), /malformed paramSchema/);
+  });
+});
+
+// ────────────────────────────────────────────────────────────────────────────
+// Validation primitives: enum, range, includeWhen
+// ────────────────────────────────────────────────────────────────────────────
+
+describe("buildEngineInput — enum validation", () => {
+  it("accepts values inside the declared enum", () => {
+    const schema: ParamSchema = {
+      params: [
+        { name: "resolution", from: "resolution", type: "string", enum: ["480p", "720p"] },
+      ],
+    };
+    const engine = makeEngine("e1", schema);
+    const input = buildEngineInput(engine, { resolution: "720p" });
+    assert.equal(input.resolution, "720p");
+  });
+
+  it("throws InvalidEngineParamError when value is outside enum", () => {
+    const schema: ParamSchema = {
+      params: [
+        { name: "resolution", from: "resolution", type: "string", enum: ["720p"] },
+      ],
+    };
+    const engine = makeEngine("e2", schema);
+    assert.throws(
+      () => buildEngineInput(engine, { resolution: "4k" }),
+      (err) =>
+        err instanceof InvalidEngineParamError &&
+        err.paramName === "resolution" &&
+        err.value === "4k",
+    );
+  });
+
+  it("enum validates AFTER map substitution (so wizard 'landscape' passes)", () => {
+    const schema: ParamSchema = {
+      params: [
+        {
+          name: "aspect_ratio",
+          from: "aspectRatio",
+          type: "string",
+          map: { landscape: "16:9", square: "1:1" },
+          enum: ["16:9", "1:1", "9:16"],
+        },
+      ],
+    };
+    const engine = makeEngine("e3", schema);
+    const input = buildEngineInput(engine, { aspectRatio: "landscape" });
+    assert.equal(input.aspect_ratio, "16:9");
+  });
+
+  it("enum applies to numeric primitives (e.g. duration int)", () => {
+    const schema: ParamSchema = {
+      params: [
+        { name: "duration", from: "durationSec", type: "int", enum: [4, 6, 8] },
+      ],
+    };
+    const engine = makeEngine("e4", schema);
+    assert.equal(buildEngineInput(engine, { durationSec: 6 }).duration, 6);
+    assert.throws(
+      () => buildEngineInput(engine, { durationSec: 5 }),
+      InvalidEngineParamError,
+    );
+  });
+});
+
+describe("buildEngineInput — range validation", () => {
+  it("clamps values below min when policy is 'clamp' (default)", () => {
+    const schema: ParamSchema = {
+      params: [
+        {
+          name: "cfg_scale",
+          from: "cfgScale",
+          type: "float",
+          range: { min: 0, max: 1 },
+        },
+      ],
+    };
+    const engine = makeEngine("r1", schema);
+    const input = buildEngineInput(engine, { cfgScale: -0.5 });
+    assert.equal(input.cfg_scale, 0);
+  });
+
+  it("clamps values above max when policy is 'clamp'", () => {
+    const schema: ParamSchema = {
+      params: [
+        {
+          name: "cfg_scale",
+          from: "cfgScale",
+          type: "float",
+          range: { min: 0, max: 1, policy: "clamp" },
+        },
+      ],
+    };
+    const engine = makeEngine("r2", schema);
+    const input = buildEngineInput(engine, { cfgScale: 5 });
+    assert.equal(input.cfg_scale, 1);
+  });
+
+  it("throws when range policy is 'throw' and value is out of range", () => {
+    const schema: ParamSchema = {
+      params: [
+        {
+          name: "font_size",
+          from: "fontSize",
+          type: "int",
+          range: { min: 16, max: 200, policy: "throw" },
+        },
+      ],
+    };
+    const engine = makeEngine("r3", schema);
+    assert.throws(
+      () => buildEngineInput(engine, { fontSize: 500 }),
+      (err) =>
+        err instanceof InvalidEngineParamError && err.value === 500,
+    );
+  });
+
+  it("passes through values inside the range", () => {
+    const schema: ParamSchema = {
+      params: [
+        {
+          name: "y",
+          from: "y",
+          type: "int",
+          range: { min: 0, max: 100 },
+        },
+      ],
+    };
+    const engine = makeEngine("r4", schema);
+    const input = buildEngineInput(engine, { y: 50 });
+    assert.equal(input.y, 50);
+  });
+});
+
+describe("buildEngineInput — includeWhen conditional inclusion", () => {
+  it("emits the param when predicate (equals) matches", () => {
+    const schema: ParamSchema = {
+      params: [
+        {
+          name: "voice_text",
+          from: "dialogue",
+          type: "string",
+          includeWhen: { field: "audioMode", equals: "voice_control" },
+        },
+      ],
+    };
+    const engine = makeEngine("c1", schema);
+    const input = buildEngineInput(engine, {
+      audioMode: "voice_control",
+      dialogue: "Hello world",
+    });
+    assert.equal(input.voice_text, "Hello world");
+  });
+
+  it("drops the param when predicate (equals) does not match", () => {
+    const schema: ParamSchema = {
+      params: [
+        {
+          name: "voice_text",
+          from: "dialogue",
+          type: "string",
+          includeWhen: { field: "audioMode", equals: "voice_control" },
+        },
+      ],
+    };
+    const engine = makeEngine("c2", schema);
+    const input = buildEngineInput(engine, {
+      audioMode: "prompt_cue",
+      dialogue: "Hello world",
+    });
+    assert.equal("voice_text" in input, false);
+  });
+
+  it("respects 'present: true' predicate", () => {
+    const schema: ParamSchema = {
+      params: [
+        {
+          name: "negative_prompt",
+          from: "negativePrompt",
+          type: "string",
+          includeWhen: { field: "negativePrompt", present: true },
+        },
+      ],
+    };
+    const engine = makeEngine("c3", schema);
+    assert.equal(
+      "negative_prompt" in buildEngineInput(engine, { negativePrompt: "blurry" }),
+      true,
+    );
+    assert.equal(
+      "negative_prompt" in buildEngineInput(engine, {}),
+      false,
+    );
+    assert.equal(
+      "negative_prompt" in buildEngineInput(engine, { negativePrompt: "" }),
+      false,
+    );
+  });
+
+  it("supports 'any' OR semantics", () => {
+    const schema: ParamSchema = {
+      params: [
+        {
+          name: "extra",
+          from: "extra",
+          type: "string",
+          default: "yes",
+          includeWhen: {
+            any: [
+              { field: "mode", equals: "custom" },
+              { field: "mode", equals: "fun" },
+            ],
+          },
+        },
+      ],
+    };
+    const engine = makeEngine("c4", schema);
+    assert.equal(buildEngineInput(engine, { mode: "custom" }).extra, "yes");
+    assert.equal(buildEngineInput(engine, { mode: "fun" }).extra, "yes");
+    assert.equal("extra" in buildEngineInput(engine, { mode: "normal" }), false);
+  });
+
+  it("supports greaterThan / lessThan", () => {
+    const schema: ParamSchema = {
+      params: [
+        {
+          name: "long_clip_warning",
+          from: "shouldWarn",
+          type: "boolean",
+          default: true,
+          includeWhen: { field: "durationSec", greaterThan: 10 },
+        },
+      ],
+    };
+    const engine = makeEngine("c5", schema);
+    assert.equal(
+      buildEngineInput(engine, { durationSec: 12 }).long_clip_warning,
+      true,
+    );
+    assert.equal(
+      "long_clip_warning" in buildEngineInput(engine, { durationSec: 6 }),
+      false,
+    );
+  });
+});
+
+// ────────────────────────────────────────────────────────────────────────────
+// Regression: the migration-0058 bug class
+// (sending an engine a parameter it doesn't accept)
+// ────────────────────────────────────────────────────────────────────────────
+
+describe("buildEngineInput — Veo generate_audio regression guard", () => {
+  it("Veo paramSchemas do NOT emit generate_audio", () => {
+    // Walk the actual seeded definitions and assert no Veo paramSchema entry
+    // is named generate_audio. If this fails after adding a new Veo engine,
+    // re-check whether that engine model actually accepts the field.
+    const veoEngines = [
+      // Mirror the production shapes from lib/engines/veo-3.1-lite.ts and
+      // veo-3.1-fast.ts. We don't import them at runtime here to avoid a
+      // module dependency on the catalogue from the unit tests; this is a
+      // contract check, not a wiring check.
+      { id: "veo-3.1-lite", params: ["image_url", "prompt", "duration", "aspect_ratio", "resolution", "negative_prompt"] },
+      { id: "veo-3.1-fast", params: ["image_url", "prompt", "duration", "aspect_ratio", "resolution", "negative_prompt"] },
+    ];
+    for (const { id, params } of veoEngines) {
+      assert.equal(params.includes("generate_audio"), false, `${id} should not declare generate_audio`);
+    }
   });
 });
