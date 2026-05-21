@@ -145,6 +145,10 @@ function codeOwnedFields(def: EngineDefinition): Partial<InsertEngine> {
   for (const field of ADMIN_EDITABLE_FIELDS) {
     delete allFields[field];
   }
+  // `deletedAt` is also admin-owned (soft-delete via the dedicated DELETE
+  // endpoint) but lives outside ADMIN_EDITABLE_FIELDS because it's not
+  // PATCH-editable. Reconciliation must never reset a tombstone.
+  delete allFields.deletedAt;
   // Always refresh updated_at so we can see when reconciliation last touched
   // a row.
   allFields.updatedAt = new Date();

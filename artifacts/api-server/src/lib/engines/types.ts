@@ -104,11 +104,15 @@ export interface EngineDefinition {
 }
 
 /**
- * Sub-set of fields that admins can edit through the admin engines panel.
- * Reconciliation preserves these once first persisted; everything outside
- * this list is overwritten on every boot from the code definition.
+ * Sub-set of fields that admins can edit through the PATCH handler in
+ * routes/adminEngines.ts. Reconciliation preserves these once first
+ * persisted; everything outside this list is overwritten on every boot
+ * from the code definition.
  *
- * Keep this in sync with `routes/adminEngines.ts` ALLOWED_PATCH_FIELDS.
+ * `deletedAt` is excluded here — soft-delete + restore go through the
+ * dedicated DELETE / POST .../restore endpoints rather than the PATCH
+ * surface. The reconciler still respects an existing deletedAt
+ * (preserved across boots) via a separate code path in reconcile.ts.
  */
 export const ADMIN_EDITABLE_FIELDS = [
   "isActive",
@@ -123,7 +127,6 @@ export const ADMIN_EDITABLE_FIELDS = [
   "expectedRunMs",
   "estimatedCostUsdPerCall",
   "estimatedCostUsdPerSecond",
-  "deletedAt",
 ] as const;
 
 export type AdminEditableField = (typeof ADMIN_EDITABLE_FIELDS)[number];
