@@ -376,6 +376,96 @@ describe("POST /api/memes/video-jobs/:jobId/proceed", () => {
   });
 });
 
+describe("stage 2 fal.ai 422 error handling", () => {
+  // Builds a fal.ai-shaped error: the client throws an Error-like object with
+  // a numeric `status` and a `body.detail[]` array (see fal.ai docs).
+  function makeFal422(detailType: string, msg = "model rejected"): Error {
+    const err = new Error("Unprocessable Entity") as Error & {
+      status: number;
+      body: { detail: Array<{ type: string; msg: string; loc: string[] }> };
+    };
+    err.status = 422;
+    err.body = { detail: [{ type: detailType, msg, loc: ["body"] }] };
+    return err;
+  }
+
+  async function startAndAdvanceToStage2(userId: string, factId: number, runStage2: () => Promise<never>): Promise<{ jobId: string; app: ReturnType<typeof buildTestApp> }> {
+    const app = buildTestApp({ kind: "authenticated", userId }, videoJobsRouter);
+    __setPipelineTestHooks({
+      runStage1: async () => ({ stillObjectPath: "/objects/styled.jpg" }),
+      classifyStill: async () => "accept",
+      runStage2,
+    });
+    // Both source modes pause at stage1_review awaiting an explicit /proceed
+    // call (same pattern as the existing "advances stage1_review → stage2_video"
+    // test). After /proceed the runner enters stage2 and our stub throws.
+    const startRes = await request(app).post("/api/memes/video-jobs").send({
+      factId,
+      sourceMode: "stylize-then-video",
+      sourceImagePath: "/objects/source.jpg",
+      lookStyleId: "cinematic",
+      lengthSeconds: 4,
+      resolution: "720p",
+      aspectRatio: "landscape",
+    });
+    assert.equal(startRes.status, 200);
+    const jobId = startRes.body.jobId;
+    await waitForPhase(
+      async () => (await request(app).get(`/api/memes/video-jobs/${jobId}`)).body,
+      ["stage1_review"],
+    );
+    const proceedRes = await request(app).post(`/api/memes/video-jobs/${jobId}/proceed`).send({});
+    assert.equal(proceedRes.status, 200);
+    return { jobId, app };
+  }
+
+  it("fal.ai 422 no_media_generated → errorCode=moderation (matches dedicated 'pick a different photo' screen)", async () => {
+    const userId = await createTestUser({ tier: "legendary", isAdmin: true });
+    const factId = await insertFact();
+    const { jobId, app } = await startAndAdvanceToStage2(userId, factId, async () => {
+      throw makeFal422("no_media_generated", "The model did not generate the expected output for this prompt.");
+    });
+    const state = await waitForPhase(
+      async () => (await request(app).get(`/api/memes/video-jobs/${jobId}`)).body,
+      ["failed"],
+    );
+    assert.equal(state!.phase, "failed");
+    assert.equal((state as { errorCode?: string }).errorCode, "moderation");
+  });
+
+  it("fal.ai 422 with other detail type → errorCode=stage2_failed + friendly message", async () => {
+    const userId = await createTestUser({ tier: "legendary", isAdmin: true });
+    const factId = await insertFact();
+    const { jobId, app } = await startAndAdvanceToStage2(userId, factId, async () => {
+      throw makeFal422("file_download_error", "couldn't fetch image");
+    });
+    const state = await waitForPhase(
+      async () => (await request(app).get(`/api/memes/video-jobs/${jobId}`)).body,
+      ["failed"],
+    );
+    assert.equal(state!.phase, "failed");
+    assert.equal((state as { errorCode?: string }).errorCode, "stage2_failed");
+    // friendly message — not the raw "Unprocessable Entity"
+    const msg = (state as { errorMessage?: string }).errorMessage ?? "";
+    assert.ok(msg.includes("try a different photo"), `expected friendly message, got: ${msg}`);
+  });
+
+  it("non-422 error → errorCode=stage2_failed + raw error message preserved", async () => {
+    const userId = await createTestUser({ tier: "legendary", isAdmin: true });
+    const factId = await insertFact();
+    const { jobId, app } = await startAndAdvanceToStage2(userId, factId, async () => {
+      throw new Error("ECONNRESET");
+    });
+    const state = await waitForPhase(
+      async () => (await request(app).get(`/api/memes/video-jobs/${jobId}`)).body,
+      ["failed"],
+    );
+    assert.equal(state!.phase, "failed");
+    assert.equal((state as { errorCode?: string }).errorCode, "stage2_failed");
+    assert.equal((state as { errorMessage?: string }).errorMessage, "ECONNRESET");
+  });
+});
+
 describe("POST /api/memes/video-jobs/:jobId/regenerate", () => {
   it("re-runs stage 1 with a new lookStyleId", async () => {
     const userId = await createTestUser({ tier: "legendary", isAdmin: true });
