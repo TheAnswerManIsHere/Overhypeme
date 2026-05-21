@@ -103,6 +103,12 @@ const SNAPSHOT_EXEMPT_TAGS = new Set<string>([
   // MBFO-4 seed migration: inserts engines + look_styles + a feature_flags
   // row. Pure DML — no schema delta from the 0056 snapshot.
   "0057_mbfo4_seed_engines_and_look_styles",
+
+  // DML-only fix: removes the `generate_audio` param entry from the Veo 3.1
+  // Lite and Veo 3.1 Fast engine paramSchemas. Veo uses native_lipsync and
+  // does not accept this Seedance-specific field; its presence caused 422
+  // errors from fal.ai. No schema delta.
+  "0058_fix_veo_engine_generate_audio",
 ]);
 
 interface JournalEntry {

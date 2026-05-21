@@ -407,6 +407,13 @@
       "when": 1779236534500,
       "tag": "0057_mbfo4_seed_engines_and_look_styles",
       "breakpoints": true
+    },
+    {
+      "idx": 58,
+      "version": "7",
+      "when": 1779378600000,
+      "tag": "0058_fix_veo_engine_generate_audio",
+      "breakpoints": true
     }
   ]
 }
