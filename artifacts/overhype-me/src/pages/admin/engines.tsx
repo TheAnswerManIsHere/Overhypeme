@@ -110,6 +110,10 @@ function EngineTestPanel({ engine }: { engine: EngineRow }) {
     falResult?: unknown;
     error?: { message?: string; body?: unknown; status?: unknown };
     durationMs?: number;
+    testFixtures?: {
+      motionPrompt?: string;
+      dialogueText?: string | null;
+    };
   } | null>(null);
   const [httpError, setHttpError] = useState<string | null>(null);
 
@@ -178,6 +182,29 @@ function EngineTestPanel({ engine }: { engine: EngineRow }) {
             </span>
             {result.durationMs !== undefined && <span className="text-muted-foreground">{msToHuman(result.durationMs)}</span>}
           </div>
+
+          {result.testFixtures && (
+            <div className="space-y-2 rounded-sm border border-amber-500/30 bg-amber-500/5 p-2">
+              <p className="text-[10px] font-semibold text-amber-500 uppercase tracking-wider">Spot-check against these</p>
+              <div className="space-y-1.5 text-[11px]">
+                <div>
+                  <span className="text-muted-foreground">Expected motion: </span>
+                  <span className="text-foreground">{result.testFixtures.motionPrompt}</span>
+                </div>
+                {result.testFixtures.dialogueText && (
+                  <div>
+                    <span className="text-muted-foreground">Expected audio (should say): </span>
+                    <span className="text-foreground italic">&ldquo;{result.testFixtures.dialogueText}&rdquo;</span>
+                  </div>
+                )}
+                {result.testFixtures.dialogueText === null && (
+                  <div className="text-muted-foreground italic">
+                    Utility engine — no audio path; output video has no spoken content.
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
 
           <div>
             <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide mb-1">fal input (sent)</p>
