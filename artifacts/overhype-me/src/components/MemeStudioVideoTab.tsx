@@ -546,29 +546,12 @@ function VideoTab({ factId, factText, pexelsImages, aiMemeImages, initialImageDa
   // ── Admin controls ─────────────────────────────────────────────────────────
   const [selectedModel, setSelectedModel] = useState(FAL_VIDEO_MODELS_ADMIN[0]!.value);
 
-  // Initialise selectedModel + global defaults from admin config so MemeStudio
-  // reflects whatever the admin config panel has set as the global defaults.
-  useEffect(() => {
-    if (!isAdmin) return;
-    fetch("/api/admin/config", { credentials: "include" })
-      .then(r => r.ok ? r.json() : null)
-      .then((rows: Array<{ key: string; value: string }> | null) => {
-        if (!rows) return;
-        const get = (k: string) => rows.find(r => r.key === k)?.value ?? "";
-        const cfgModel    = get("video_model");
-        const cfgDuration = get("video_duration");
-        const cfgAR       = get("video_aspect_ratio");
-        const cfgRes      = get("video_resolution");
-        if (cfgModel && FAL_VIDEO_MODELS_ADMIN.some(m => m.value === cfgModel)) {
-          setSelectedModel(cfgModel);
-        }
-        if (cfgDuration) setAdminConfigDuration(cfgDuration);
-        if (cfgAR)       setAdminConfigAspectRatio(cfgAR);
-        if (cfgRes)      setAdminConfigResolution(cfgRes);
-      })
-      .catch(() => {});
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isAdmin]);
+  // Phase 6: the video_model / video_duration / video_aspect_ratio /
+  // video_resolution admin_config keys were retired alongside the move to
+  // the engines table (see lib/engines/*). Initial values now come from
+  // the local FAL_VIDEO_MODELS_ADMIN list + hardcoded defaults below;
+  // the wizard video flow has its own engine selector wired to the
+  // engines table.
 
   const [motionPrompt, setMotionPrompt] = useState("");
   const [isVideoPrivate, setIsVideoPrivate] = useState(defaultPrivate ?? false);

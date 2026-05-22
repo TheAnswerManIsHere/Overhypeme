@@ -106,6 +106,15 @@ export const enginesTable = pgTable("engines", {
   featureFlagRequired: varchar("feature_flag_required", { length: 64 }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  /**
+   * Soft-delete tombstone. NULL = live; non-NULL = archived. The admin UI
+   * keeps archived engines visible under a separate "Archived" tab so we
+   * preserve `video_jobs.video_engine_id` FK lineage without losing the
+   * row entirely. Code-side reconciliation respects the tombstone — an
+   * engine you've archived stays archived even if its definition still
+   * exists in code.
+   */
+  deletedAt: timestamp("deleted_at", { withTimezone: true }),
 }, (table) => [
   index("IDX_engines_kind_active").on(table.kind, table.isActive),
   index("IDX_engines_kind_default").on(table.kind, table.isDefault),

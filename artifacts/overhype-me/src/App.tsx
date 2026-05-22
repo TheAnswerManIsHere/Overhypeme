@@ -28,6 +28,7 @@ const AdminAffiliate = lazy(() => import("@/pages/admin/affiliate"));
 const AdminModeration = lazy(() => import("@/pages/admin/moderation"));
 const AdminVideoStyles = lazy(() => import("@/pages/admin/videoStyles"));
 const AdminConfig = lazy(() => import("@/pages/admin/config"));
+const AdminEngines = lazy(() => import("@/pages/admin/engines"));
 const AdminFeatures = lazy(() => import("@/pages/admin/features"));
 const AdminEmailQueue = lazy(() => import("@/pages/admin/emailQueue"));
 const ActivityFeed = lazy(() => import("@/pages/ActivityFeed"));
@@ -380,6 +381,7 @@ function Router() {
         <Route path="/admin/affiliate" component={AdminAffiliate} />
         <Route path="/admin/video-styles" component={AdminVideoStyles} />
         <Route path="/admin/config" component={AdminConfig} />
+        <Route path="/admin/engines" component={AdminEngines} />
         <Route path="/admin/ai"><AdminAIRedirect /></Route>
         <Route path="/admin/features" component={AdminFeatures} />
         <Route path="/admin/email-queue" component={AdminEmailQueue} />

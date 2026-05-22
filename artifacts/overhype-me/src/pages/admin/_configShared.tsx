@@ -171,168 +171,14 @@ export const STYLE_OPTIONS = IMAGE_STYLES.filter((s) => s.id !== "none");
 
 // ── Model / select option lists ───────────────────────────────────────────────
 
-export const FAL_IMAGE_SIZES: { value: string; label: string }[] = [
-  { value: "square_hd",     label: "Square HD (1024×1024)" },
-  { value: "square",        label: "Square (512×512)" },
-  { value: "portrait_4_3",  label: "Portrait 4:3 (768×1024)" },
-  { value: "portrait_16_9", label: "Portrait 16:9 (576×1024)" },
-  { value: "landscape_4_3", label: "Landscape 4:3 (1024×768)" },
-  { value: "landscape_16_9",label: "Landscape 16:9 (1024×576)" },
-];
+// Phase 6: the FAL_IMAGE_*, FAL_SAFETY_TOLERANCE, FAL_OUTPUT_FORMAT,
+// FAL_ASPECT_RATIO, FAL_RAW_MODE, OPENAI_CHAT_MODELS, FAL_VIDEO_*
+// dropdown option lists were retired alongside their backing admin_config
+// keys. The wizard video flow now reads engine metadata from the engines
+// table (see lib/engines/* + /admin/engines), and the AI meme pipeline
+// uses baked-in defaults.
 
-export const FAL_IMAGE_MODELS_STANDARD: { value: string; label: string }[] = [
-  { value: "fal-ai/flux-pro/v1.1",       label: "FLUX Pro 1.1" },
-  { value: "fal-ai/flux-pro/v1.1-ultra", label: "FLUX Pro 1.1 Ultra" },
-  { value: "fal-ai/flux-pro",            label: "FLUX Pro" },
-  { value: "fal-ai/flux/dev",            label: "FLUX Dev" },
-  { value: "fal-ai/flux/schnell",        label: "FLUX Schnell (fast)" },
-  { value: "fal-ai/flux-2-pro",          label: "FLUX 2 Pro" },
-  { value: "fal-ai/flux-2-max",          label: "FLUX 2 Max" },
-];
-
-export const FAL_IMAGE_MODELS_REFERENCE: { value: string; label: string }[] = [
-  { value: "fal-ai/flux-pulid",              label: "FLUX PuLID (face-preserving)" },
-  { value: "fal-ai/ip-adapter-face-id-plus", label: "IP-Adapter FaceID+" },
-];
-
-export const FAL_SAFETY_TOLERANCE: { value: string; label: string }[] = [
-  { value: "1", label: "1 — Most strict" },
-  { value: "2", label: "2 — Strict (default)" },
-  { value: "3", label: "3 — Moderate" },
-  { value: "4", label: "4 — Permissive" },
-  { value: "5", label: "5 — Very permissive" },
-  { value: "6", label: "6 — Most permissive" },
-];
-
-export const FAL_OUTPUT_FORMAT: { value: string; label: string }[] = [
-  { value: "jpeg", label: "jpeg — smaller, faster (default)" },
-  { value: "png",  label: "png — lossless, larger" },
-];
-
-export const FAL_ASPECT_RATIO: { value: string; label: string }[] = [
-  { value: "1:1",  label: "1:1 — Square" },
-  { value: "4:3",  label: "4:3 — Landscape standard" },
-  { value: "3:4",  label: "3:4 — Portrait standard" },
-  { value: "16:9", label: "16:9 — Wide" },
-  { value: "9:16", label: "9:16 — Tall" },
-  { value: "21:9", label: "21:9 — Ultrawide" },
-  { value: "9:21", label: "9:21 — Ultra tall" },
-  { value: "3:2",  label: "3:2 — Landscape photo" },
-  { value: "2:3",  label: "2:3 — Portrait photo" },
-];
-
-export const FAL_RAW_MODE: { value: string; label: string }[] = [
-  { value: "false", label: "false — processed output (default)" },
-  { value: "true",  label: "true — natural, less processed" },
-];
-
-export const OPENAI_CHAT_MODELS: { value: string; label: string }[] = [
-  { value: "gpt-4o",              label: "GPT-4o" },
-  { value: "gpt-4o-mini",        label: "GPT-4o mini (default)" },
-  { value: "gpt-4.1",            label: "GPT-4.1" },
-  { value: "gpt-4.1-mini",       label: "GPT-4.1 mini" },
-  { value: "gpt-4.1-nano",       label: "GPT-4.1 nano" },
-  { value: "gpt-4-turbo",        label: "GPT-4 Turbo" },
-  { value: "gpt-3.5-turbo",      label: "GPT-3.5 Turbo" },
-  { value: "o4-mini",            label: "o4-mini" },
-  { value: "o3-mini",            label: "o3-mini" },
-];
-
-export const FAL_VIDEO_MODELS: { value: string; label: string }[] = [
-  // ── xAI Grok ─────────────────────────────────────────────────────────────
-  { value: "xai/grok-imagine-video/image-to-video",              label: "Grok Imagine Video (xAI)" },
-  // ── Kling (Kuaishou) ──────────────────────────────────────────────────────
-  { value: "fal-ai/kling-video/v3/pro/image-to-video",           label: "Kling v3 Pro — 1080p, audio" },
-  { value: "fal-ai/kling-video/v2.6/pro/image-to-video",         label: "Kling v2.6 Pro" },
-  { value: "fal-ai/kling-video/v2.5-turbo/pro/image-to-video",   label: "Kling v2.5 Turbo Pro" },
-  { value: "fal-ai/kling-video/v2.1/master/image-to-video",      label: "Kling v2.1 Master — 1080p" },
-  { value: "fal-ai/kling-video/v2.1/pro/image-to-video",         label: "Kling v2.1 Pro — 1080p" },
-  { value: "fal-ai/kling-video/v2.1/standard/image-to-video",    label: "Kling v2.1 Standard — default" },
-  { value: "fal-ai/kling-video/v1.6/pro/image-to-video",         label: "Kling v1.6 Pro — 1080p" },
-  { value: "fal-ai/kling-video/v1.6/standard/image-to-video",    label: "Kling v1.6 Standard — 720p" },
-  // ── Seedance (ByteDance) ──────────────────────────────────────────────────
-  { value: "bytedance/seedance-2.0/image-to-video",              label: "Seedance 2.0 (ByteDance) — native audio" },
-  { value: "bytedance/seedance-2.0/fast/image-to-video",         label: "Seedance 2.0 Fast (ByteDance)" },
-  { value: "fal-ai/bytedance/seedance/v1.5/pro/image-to-video",  label: "Seedance 1.5 Pro (ByteDance)" },
-  // ── Google Veo ────────────────────────────────────────────────────────────
-  { value: "fal-ai/veo3.1/image-to-video",                       label: "Veo 3.1 (Google) — top quality" },
-  { value: "fal-ai/veo3.1/fast/image-to-video",                  label: "Veo 3.1 Fast (Google)" },
-  { value: "fal-ai/veo3.1/lite/image-to-video",                  label: "Veo 3.1 Lite (Google)" },
-  { value: "fal-ai/veo3/image-to-video",                         label: "Veo 3 (Google)" },
-  { value: "fal-ai/veo2/image-to-video",                         label: "Veo 2 (Google) — 720p" },
-  // ── OpenAI Sora ───────────────────────────────────────────────────────────
-  { value: "fal-ai/sora-2/image-to-video",                       label: "Sora 2 (OpenAI)" },
-  // ── Runway ────────────────────────────────────────────────────────────────
-  { value: "fal-ai/runway/gen4-turbo/image-to-video",            label: "Runway Gen-4 Turbo — 1080p" },
-  { value: "fal-ai/runway-gen3/turbo/image-to-video",            label: "Runway Gen-3 Alpha Turbo — 720p" },
-  // ── Luma ──────────────────────────────────────────────────────────────────
-  { value: "fal-ai/luma-dream-machine/ray-2/image-to-video",     label: "Luma Ray 2 (Dream Machine) — 720p" },
-  { value: "fal-ai/luma-dream-machine/ray-flash-2/image-to-video", label: "Luma Ray Flash 2 — fast" },
-  // ── MiniMax / Hailuo ──────────────────────────────────────────────────────
-  { value: "fal-ai/minimax/hailuo-2.3-pro/image-to-video",       label: "Hailuo 2.3 Pro (MiniMax) — 1080p" },
-  { value: "fal-ai/minimax/hailuo-2.3/image-to-video",           label: "Hailuo 2.3 Standard (MiniMax) — 768p" },
-  { value: "fal-ai/minimax/hailuo-02/standard/image-to-video",   label: "Hailuo 02 Standard (MiniMax)" },
-  { value: "fal-ai/minimax/video-01-live/image-to-video",        label: "MiniMax Video-01 Live" },
-  { value: "fal-ai/minimax/video-01/image-to-video",             label: "MiniMax Video-01" },
-  // ── PixVerse ──────────────────────────────────────────────────────────────
-  { value: "fal-ai/pixverse/v6/image-to-video",                  label: "PixVerse v6 — 1080p" },
-  { value: "fal-ai/pixverse/v5.5/image-to-video",                label: "PixVerse v5.5" },
-  { value: "fal-ai/pixverse/v5/image-to-video",                  label: "PixVerse v5" },
-  { value: "fal-ai/pixverse/v4.5/image-to-video",                label: "PixVerse v4.5 — 720p" },
-  // ── WAN ───────────────────────────────────────────────────────────────────
-  { value: "fal-ai/wan/v2.7/image-to-video",                     label: "WAN 2.7 — latest" },
-  { value: "fal-ai/wan/v2.2-a14b/image-to-video",                label: "WAN 2.2 (A14B)" },
-  { value: "fal-ai/wan/v2.2/image-to-video",                     label: "WAN 2.2" },
-  { value: "fal-ai/wan-pro/image-to-video",                      label: "WAN 2.1 Pro — 1080p" },
-  { value: "fal-ai/wan-i2v",                                     label: "WAN 2.1" },
-  // ── LTX ───────────────────────────────────────────────────────────────────
-  { value: "fal-ai/ltx-2-19b/image-to-video",                    label: "LTX-2 19B" },
-  { value: "fal-ai/ltx-video-13b-distilled/image-to-video",      label: "LTX-Video 13B Distilled" },
-  // ── Open source / other ───────────────────────────────────────────────────
-  { value: "fal-ai/hunyuan-video/image-to-video",                label: "HunyuanVideo (Tencent)" },
-  { value: "fal-ai/cogvideox-5b/image-to-video",                 label: "CogVideoX-5B (Zhipu) — open source" },
-  { value: "fal-ai/stable-video",                                label: "Stable Video Diffusion — lightweight" },
-];
-
-export const FAL_VIDEO_DURATION: { value: string; label: string }[] = [
-  { value: "auto", label: "auto — model decides (Seedance 2.0 default)" },
-  { value: "1",  label: "1 second" },
-  { value: "2",  label: "2 seconds" },
-  { value: "3",  label: "3 seconds" },
-  { value: "4",  label: "4 seconds" },
-  { value: "5",  label: "5 seconds" },
-  { value: "6",  label: "6 seconds (Grok default)" },
-  { value: "7",  label: "7 seconds" },
-  { value: "8",  label: "8 seconds" },
-  { value: "9",  label: "9 seconds" },
-  { value: "10", label: "10 seconds" },
-  { value: "11", label: "11 seconds" },
-  { value: "12", label: "12 seconds" },
-  { value: "13", label: "13 seconds" },
-  { value: "14", label: "14 seconds" },
-  { value: "15", label: "15 seconds (Grok max)" },
-];
-
-export const FAL_VIDEO_ASPECT_RATIO: { value: string; label: string }[] = [
-  { value: "auto", label: "auto — model decides (Grok & Seedance 2.0 default)" },
-  { value: "16:9", label: "16:9 — Widescreen" },
-  { value: "9:16", label: "9:16 — Vertical / Portrait" },
-  { value: "4:3",  label: "4:3 — Landscape standard" },
-  { value: "3:4",  label: "3:4 — Portrait standard" },
-  { value: "3:2",  label: "3:2 — Landscape photo (Grok only)" },
-  { value: "2:3",  label: "2:3 — Portrait photo (Grok only)" },
-  { value: "21:9", label: "21:9 — Ultrawide cinematic (Seedance 2.0 only)" },
-  { value: "1:1",  label: "1:1 — Square" },
-];
-
-export const FAL_VIDEO_RESOLUTION: { value: string; label: string }[] = [
-  { value: "720p",  label: "720p — HD (Grok default)" },
-  { value: "480p",  label: "480p — SD, faster" },
-];
-
-export const FLOAT_TEXT_CONFIGS = new Set([
-  "ai_scene_prompt_temperature",
-]);
+export const FLOAT_TEXT_CONFIGS = new Set<string>([]);
 
 export const RETRY_DELAY_MS_KEYS = [
   "email_retry_delay_1_ms",
@@ -359,31 +205,15 @@ export function msToHuman(ms: number): string {
   return `≈ ${rounded} hour${rounded === 1 ? "" : "s"}`;
 }
 
-export const SELECT_CONFIGS: Record<string, { value: string; label: string }[]> = {
-  ai_image_size:             FAL_IMAGE_SIZES,
-  ai_image_model_standard:   FAL_IMAGE_MODELS_STANDARD,
-  ai_image_model_reference:  FAL_IMAGE_MODELS_REFERENCE,
-  ai_std_safety_tolerance:   FAL_SAFETY_TOLERANCE,
-  ai_std_output_format:      FAL_OUTPUT_FORMAT,
-  ai_std_aspect_ratio:       FAL_ASPECT_RATIO,
-  ai_std_ultra_raw:          FAL_RAW_MODE,
-  ai_scene_prompt_model:     OPENAI_CHAT_MODELS,
-  video_model:               FAL_VIDEO_MODELS,
-  video_duration:            FAL_VIDEO_DURATION,
-  video_aspect_ratio:        FAL_VIDEO_ASPECT_RATIO,
-  video_resolution:          FAL_VIDEO_RESOLUTION,
-};
+export const SELECT_CONFIGS: Record<string, { value: string; label: string }[]> = {};
 
-export const MODEL_CONFIG_KEYS = new Set([
-  "ai_image_model_standard", "ai_image_model_reference", "ai_image_size",
-  "ai_std_num_inference_steps", "ai_std_guidance_scale", "ai_std_safety_tolerance",
-  "ai_std_seed", "ai_std_output_format", "ai_std_aspect_ratio", "ai_std_ultra_raw",
-  "ai_ref_pulid_id_scale", "ai_ref_pulid_guidance_scale", "ai_ref_pulid_num_inference_steps",
-  "ai_ref_pulid_true_cfg_scale", "ai_ref_pulid_start_step", "ai_pulid_composition_suffix",
-  "ai_pulid_id_scale_pct",
-  "ai_scene_prompt_model", "ai_scene_prompt_max_tokens", "ai_scene_prompt_temperature", "ai_scene_prompt_system",
+// Keys that are surfaced through dedicated sections elsewhere on the
+// admin config page (so they don't appear in the catch-all generic list).
+// Phase 6: previously included the now-retired ai_*/video_* per-model
+// tuning keys; today this is just `ai_gallery_display_limit`, which is
+// rendered in the AI Settings group below.
+export const MODEL_CONFIG_KEYS = new Set<string>([
   "ai_gallery_display_limit",
-  "video_model", "video_duration", "video_aspect_ratio", "video_resolution", "video_prompt_system_prompt",
 ]);
 
 // ── Shared context ────────────────────────────────────────────────────────────
