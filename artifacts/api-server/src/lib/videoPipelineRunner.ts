@@ -1097,10 +1097,8 @@ async function runStage2(job: JobState, stillObjectPath: string): Promise<{ vide
   const file = await objectStorage.getObjectEntityFile(normalized);
   const response = await objectStorage.downloadObject(file, 60);
   const bytes = Buffer.from(await response.arrayBuffer());
-  const { fal } = await import("@fal-ai/client");
-  const apiKey = process.env["FAL_AI_API_KEY"] ?? process.env["FAL_KEY"];
-  if (!apiKey) throw new Error("FAL_AI_API_KEY not configured");
-  fal.config({ credentials: apiKey });
+  const { fal, ensureFalConfigured } = await import("./falClient");
+  ensureFalConfigured();
   const cdnUrl = await fal.storage.upload(
     new Blob([new Uint8Array(bytes)], { type: "image/jpeg" }),
     { lifecycle: { expiresIn: "1h" } },

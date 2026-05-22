@@ -1,6 +1,6 @@
 import { Router, type IRouter, type Request } from "express";
 import { z } from "zod";
-import { fal } from "@fal-ai/client";
+import { fal, ensureFalConfigured, getFalApiKey } from "../lib/falClient.js";
 import { db, videoJobsTable, usersTable, memesTable, factsTable } from "@workspace/db";
 import { renderPersonalized } from "../lib/renderCanonical.js";
 import { motionPresetsTable, lookStylesTable, enginesTable, type Engine } from "@workspace/db/schema";
@@ -300,8 +300,7 @@ router.post("/videos/generate", async (req, res) => {
   let governanceActualCostUsd = 0;
   let governanceFailed = false;
   try {
-  const apiKey = process.env.FAL_AI_API_KEY;
-  if (!apiKey) {
+  if (!getFalApiKey()) {
     res
       .status(503)
       .json({
@@ -382,7 +381,7 @@ router.post("/videos/generate", async (req, res) => {
     }
   }
 
-  fal.config({ credentials: apiKey });
+  ensureFalConfigured();
 
   let imageUrl = resolveImageUrl(parsed.data.imageUrl, req);
 
