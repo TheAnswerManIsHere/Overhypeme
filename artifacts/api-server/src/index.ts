@@ -15,6 +15,7 @@ import { getConfigString, getConfigInt } from "./lib/adminConfig";
 import { attachShutdownHandlers } from "./shutdown";
 import { runEmailOutboxWorker } from "./lib/email.js";
 import { reconcileEngines, ALL_ENGINES } from "./lib/engines";
+import { ensureFalConfigured, getFalApiKey } from "./lib/falClient";
 
 const rawPort = process.env["PORT"];
 
@@ -261,6 +262,21 @@ await runMigrations();
 
 // Idempotent schema & config seed (ADD COLUMN IF NOT EXISTS, INSERT … ON CONFLICT DO NOTHING)
 await ensureSchema();
+
+// Configure the fal.ai client once at boot. Every fal-calling code path
+// (videoPipelineRunner, falAutoSubtitle, aiMemePipeline, userImageUpload,
+// adminEngines, /videos/generate, …) imports from lib/falClient.ts and
+// relies on this module-level config rather than calling fal.config()
+// individually. Boot fails loudly when the key is missing so we don't
+// surface a misleading "Unauthorized" from fal at the first request.
+if (getFalApiKey()) {
+  ensureFalConfigured();
+} else {
+  logger.warn(
+    "[falClient] FAL_AI_API_KEY not set — fal.ai integration disabled. " +
+      "Image/video generation routes will return 503 until the key is provided.",
+  );
+}
 
 // Bind the port now — deployment health checks can pass immediately.
 const server = app.listen(port, (err) => {

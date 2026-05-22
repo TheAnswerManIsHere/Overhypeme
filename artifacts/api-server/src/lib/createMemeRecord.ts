@@ -301,14 +301,13 @@ export async function createMemeRecord(
 
   if (previewImageBase64 && imageSource.type !== "video") {
     const imgBuffer = Buffer.from(previewImageBase64, "base64");
-    const falKey = process.env["FAL_AI_API_KEY"] ?? process.env["FAL_KEY"];
-    if (!falKey) {
+    const { getFalApiKey, ensureFalConfigured, fal } = await import("./falClient");
+    if (!getFalApiKey()) {
       logger.warn("[createMemeRecord] fal.ai key not configured — skipping NSFW classifier on preview");
     } else {
       let classifierUrl: string | null = null;
       try {
-        const { fal } = await import("@fal-ai/client");
-        fal.config({ credentials: falKey });
+        ensureFalConfigured();
         const blob = new Blob([new Uint8Array(imgBuffer)], { type: "image/jpeg" });
         classifierUrl = await fal.storage.upload(blob);
       } catch (uErr) {

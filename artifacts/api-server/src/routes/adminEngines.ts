@@ -23,7 +23,7 @@ import { Router, type IRouter, type Request, type Response } from "express";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { fal } from "@fal-ai/client";
+import { fal, ensureFalConfigured } from "../lib/falClient.js";
 
 import { db } from "@workspace/db";
 import { enginesTable, type Engine } from "@workspace/db/schema";
@@ -337,6 +337,19 @@ router.post("/admin/engines/:id/test", requireAdmin, async (req: Request, res: R
   const engine = await fetchEngineById(id);
   if (!engine) {
     res.status(404).json({ error: "Engine not found" });
+    return;
+  }
+
+  // Belt-and-suspenders — boot already calls ensureFalConfigured(), but
+  // surfacing a clean 503 here means a missing key never leaks through as
+  // a confusing 401 "Authorization header is required" from the fal SDK.
+  try {
+    ensureFalConfigured();
+  } catch (err) {
+    res.status(503).json({
+      error: "fal_not_configured",
+      message: err instanceof Error ? err.message : "fal.ai client is not configured",
+    });
     return;
   }
 

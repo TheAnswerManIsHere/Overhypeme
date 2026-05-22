@@ -10,7 +10,7 @@
  * we ship use the same brand-locked caption look.
  */
 
-import { fal } from "@fal-ai/client";
+import { fal, ensureFalConfigured } from "./falClient";
 import { logger } from "./logger";
 
 // fal-ai/workflow-utilities/auto-subtitle only accepts named colors, not hex.
@@ -51,14 +51,6 @@ export interface AddCaptionsResult {
 
 const AUTO_SUBTITLE_ENDPOINT = "fal-ai/workflow-utilities/auto-subtitle";
 
-function configureFal(): void {
-  const apiKey = process.env["FAL_AI_API_KEY"] ?? process.env["FAL_KEY"];
-  if (!apiKey) {
-    throw new Error("FAL_AI_API_KEY environment variable is not set — auto-subtitle unavailable");
-  }
-  fal.config({ credentials: apiKey });
-}
-
 /**
  * Burns word-by-word animated captions into the video. Returns the fal CDN URL
  * of the captioned MP4 — caller is responsible for downloading and persisting
@@ -67,7 +59,7 @@ function configureFal(): void {
 export async function addCaptionsToVideo(
   input: AddCaptionsInput,
 ): Promise<AddCaptionsResult> {
-  configureFal();
+  ensureFalConfigured();
 
   const style = { ...LOCKED_CAPTION_STYLE, ...(input.captionStyleOverrides ?? {}) };
 

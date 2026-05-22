@@ -221,14 +221,13 @@ async function runNsfwClassifier(
   buffer: Buffer,
   contentType: string,
 ): Promise<{ state: "proceed"; isNsfw: boolean } | { state: "rejected" }> {
-  const falKey = process.env["FAL_AI_API_KEY"] ?? process.env["FAL_KEY"];
-  if (!falKey) {
+  const { getFalApiKey, ensureFalConfigured, fal } = await import("./falClient");
+  if (!getFalApiKey()) {
     req.log.warn("[user-upload] fal.ai key not configured — skipping NSFW classifier");
     return { state: "proceed", isNsfw: false };
   }
   try {
-    const { fal } = await import("@fal-ai/client");
-    fal.config({ credentials: falKey });
+    ensureFalConfigured();
     const blob = new Blob([new Uint8Array(buffer)], { type: contentType });
     const classifierUrl = await fal.storage.upload(blob);
     const decision = await classifyAndDecide(classifierUrl, {

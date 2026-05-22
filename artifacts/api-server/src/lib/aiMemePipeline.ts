@@ -11,7 +11,7 @@
  * Should never throw — catches all errors internally.
  */
 
-import { fal } from "@fal-ai/client";
+import { fal, ensureFalConfigured } from "./falClient";
 import { getOpenAIClient } from "@workspace/integrations-openai-ai-server";
 import { ObjectStorageService } from "./objectStorage";
 import { aiBackgroundKey } from "./storageKeys";
@@ -80,20 +80,9 @@ export interface AiMemeImages {
   neutral: string[];
 }
 
-// ─── fal.ai client initialisation ────────────────────────────────────────────
-
-function getFalApiKey(): string {
-  const key = process.env.FAL_AI_API_KEY;
-  if (!key) {
-    logger.error("[aiMemePipeline] FAL_AI_API_KEY environment variable is not set — image generation unavailable");
-    throw new Error("FAL_AI_API_KEY environment variable is not set — image generation unavailable");
-  }
-  return key;
-}
-
-function configureFal(): void {
-  fal.config({ credentials: getFalApiKey() });
-}
+// fal.ai client initialisation moved to lib/falClient.ts (single source of
+// truth for FAL_AI_API_KEY/FAL_KEY lookup + fal.config). Call sites in this
+// module invoke `ensureFalConfigured()` defensively before fal.subscribe.
 
 /**
  * Detects the image content type and extension from HTTP response headers.
@@ -199,7 +188,7 @@ async function generateAndStoreImage(
   paramsOverride?: Record<string, string>,
   userId?: string,
 ): Promise<string> {
-  configureFal();
+  ensureFalConfigured();
 
   // Phase 6: the retired ai_image_model_standard / ai_image_size / ai_std_*
   // admin_config keys are now baked-in defaults. Admin per-request overrides
@@ -424,7 +413,7 @@ async function generateAndStoreImageFromReference(
   userId?: string,
   onProgress?: PulidProgressCallback,
 ): Promise<string> {
-  configureFal();
+  ensureFalConfigured();
 
   // Phase 6: ai_image_model_reference and ai_image_size are retired keys.
   // The PuLID engine row (kind="image", isDefault=true) is the canonical
