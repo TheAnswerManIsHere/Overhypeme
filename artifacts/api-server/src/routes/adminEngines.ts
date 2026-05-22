@@ -356,6 +356,12 @@ router.post("/admin/engines/:id/test", requireAdmin, async (req: Request, res: R
   const body = (req.body && typeof req.body === "object" ? req.body : {}) as TestBody;
   const provided = typeof body.sampleImageUrl === "string" ? body.sampleImageUrl.trim() : "";
 
+  // ── Configure fal client with API key ────────────────────────────────────
+  const falApiKey = process.env["FAL_AI_API_KEY"] ?? process.env["FAL_KEY"];
+  if (falApiKey) {
+    fal.config({ credentials: falApiKey });
+  }
+
   // ── Resolve the test image URL ────────────────────────────────────────────
   let sampleImageUrl = provided;
   if (!sampleImageUrl) {
