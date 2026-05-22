@@ -132,11 +132,14 @@ Return ONLY valid JSON:
 
 export async function generateScenePrompts(factText: string): Promise<AiScenePrompts> {
   const openai = getOpenAIClient();
-  const systemPrompt   = await getConfigString("ai_scene_prompt_system", SCENE_PROMPT_SYSTEM);
-  const model          = await getConfigString("ai_scene_prompt_model", "gpt-4o-mini");
-  const max_tokens     = await getConfigInt("ai_scene_prompt_max_tokens", 400);
-  const tempParsed     = parseFloat(await getConfigString("ai_scene_prompt_temperature", "0.7"));
-  const temperature    = Number.isFinite(tempParsed) ? tempParsed : 0.7;
+  // Phase 6: the retired ai_scene_prompt_* admin_config keys used to live here.
+  // The engines table doesn't model OpenAI scene-prompt LLMs, and these
+  // settings had drifted into pure no-op land in production — bake the values
+  // in as constants so the call shape is stable and observable in code review.
+  const systemPrompt   = SCENE_PROMPT_SYSTEM;
+  const model          = "gpt-4o-mini";
+  const max_tokens     = 400;
+  const temperature    = 0.7;
   const response = await openai.chat.completions.create({
     model,
     max_tokens,
@@ -198,15 +201,17 @@ async function generateAndStoreImage(
 ): Promise<string> {
   configureFal();
 
-  const model             = modelOverride || await getConfigString("ai_image_model_standard", DEFAULT_IMAGE_MODEL_STANDARD);
-  const imageSize         = await getConfigString("ai_image_size", DEFAULT_IMAGE_SIZE);
-  const numInferenceSteps = await getConfigInt("ai_std_num_inference_steps", 28);
-  const guidanceScale     = parseFloat(await getConfigString("ai_std_guidance_scale", "3.5"));
-  const safetyTolerance   = await getConfigString("ai_std_safety_tolerance", "2");
-  const seedStr           = await getConfigString("ai_std_seed", "");
-  const outputFormat      = await getConfigString("ai_std_output_format", "jpeg");
-  const aspectRatio       = await getConfigString("ai_std_aspect_ratio", "1:1");
-  const ultraRaw          = await getConfigString("ai_std_ultra_raw", "false");
+  // Phase 6: the retired ai_image_model_standard / ai_image_size / ai_std_*
+  // admin_config keys are now baked-in defaults. Admin per-request overrides
+  // via `paramsOverride` still apply at the bottom of this function.
+  const model             = modelOverride || DEFAULT_IMAGE_MODEL_STANDARD;
+  const imageSize         = DEFAULT_IMAGE_SIZE;
+  const numInferenceSteps = 28;
+  const guidanceScale     = 3.5;
+  const safetyTolerance   = "2";
+  const outputFormat      = "jpeg";
+  const aspectRatio       = "1:1";
+  const ultraRaw          = false;
 
   const input: Record<string, unknown> = { prompt, num_images: 1 };
 
@@ -217,7 +222,7 @@ async function generateAndStoreImage(
   } else if (model === "fal-ai/flux-pro/v1.1-ultra") {
     input["aspect_ratio"]      = aspectRatio;
     input["safety_tolerance"]  = safetyTolerance;
-    input["raw"]               = ultraRaw === "true";
+    input["raw"]               = ultraRaw;
     input["output_format"]     = outputFormat;
   } else if (model === "fal-ai/flux-2-pro" || model === "fal-ai/flux-2-max") {
     input["aspect_ratio"]  = aspectRatio;
@@ -226,15 +231,14 @@ async function generateAndStoreImage(
     // FLUX 1 models: dev, schnell, flux-pro, flux-pro/v1.1
     input["image_size"]            = imageSize;
     input["num_inference_steps"]   = numInferenceSteps;
-    input["guidance_scale"]        = isNaN(guidanceScale) ? 3.5 : guidanceScale;
+    input["guidance_scale"]        = guidanceScale;
     input["output_format"]         = outputFormat;
     if (model === "fal-ai/flux-pro" || model === "fal-ai/flux-pro/v1.1") {
       input["safety_tolerance"] = safetyTolerance;
     }
   }
 
-  const seedNum = seedStr.trim() ? parseInt(seedStr.trim(), 10) : NaN;
-  if (!isNaN(seedNum)) input["seed"] = seedNum;
+  // Phase 6: ai_std_seed retired; admin overrides still flow via paramsOverride.
 
   // Apply admin per-request overrides last — they win over all config values
   applyParamOverrides(input, paramsOverride);
@@ -422,8 +426,14 @@ async function generateAndStoreImageFromReference(
 ): Promise<string> {
   configureFal();
 
-  const model     = modelOverride || await getConfigString("ai_image_model_reference", DEFAULT_IMAGE_MODEL_REFERENCE);
-  const imageSize = await getConfigString("ai_image_size", DEFAULT_IMAGE_SIZE);
+  // Phase 6: ai_image_model_reference and ai_image_size are retired keys.
+  // The PuLID engine row (kind="image", isDefault=true) is the canonical
+  // source of truth for the reference model id today, but the legacy
+  // codepath also supports IP-Adapter as an override target — so we
+  // continue to honour modelOverride here. The default is the same value
+  // that the engines table seeds for the PuLID engine's endpoint_id.
+  const model     = modelOverride || DEFAULT_IMAGE_MODEL_REFERENCE;
+  const imageSize = DEFAULT_IMAGE_SIZE;
 
   // If the selected model is not reference-capable (e.g. FLUX Pro 1.1 chosen via admin override),
   // fall through to standard generation — don't upload the reference photo or pass a face param.
@@ -447,10 +457,10 @@ async function generateAndStoreImageFromReference(
   const faceParamName = REFERENCE_MODEL_INPUT_PARAM[model]!;
 
   // Append composition suffix so PuLID shows a full scene rather than a portrait close-up.
-  const DEFAULT_COMPOSITION_SUFFIX =
+  // Phase 6: ai_pulid_composition_suffix retired; baked in here.
+  const compositionSuffix =
     "Full body wide angle shot. Person shown in action within the scene environment. " +
     "Show the full setting and context. NOT a portrait or close-up.";
-  const compositionSuffix = await getConfigString("ai_pulid_composition_suffix", DEFAULT_COMPOSITION_SUFFIX);
   const finalPrompt = compositionSuffix ? `${prompt.trim()} ${compositionSuffix}` : prompt;
 
   const input: Record<string, unknown> = {
@@ -460,25 +470,15 @@ async function generateAndStoreImageFromReference(
     num_images: 1,
   };
 
-  // PuLID-specific parameters — all read from admin_config
+  // PuLID-specific parameters.
+  // Phase 6: ai_ref_pulid_* admin_config keys retired. Defaults baked in;
+  // admin per-request overrides via `paramsOverride` still apply below.
   if (model === "fal-ai/flux-pulid") {
-    const idScale        = parseFloat(await getConfigString("ai_ref_pulid_id_scale", "0.70"));
-    const guidanceScale  = parseFloat(await getConfigString("ai_ref_pulid_guidance_scale", "5.5"));
-    const numSteps       = await getConfigInt("ai_ref_pulid_num_inference_steps", 30);
-    const trueCfgStr     = await getConfigString("ai_ref_pulid_true_cfg_scale", "");
-    const startStepStr   = await getConfigString("ai_ref_pulid_start_step", "");
-
-    input["id_scale"]            = isNaN(idScale) ? 0.70 : idScale;
-    input["guidance_scale"]      = isNaN(guidanceScale) ? 5.5 : guidanceScale;
-    input["num_inference_steps"] = numSteps;
-    if (trueCfgStr.trim()) {
-      const trueCfg = parseFloat(trueCfgStr.trim());
-      if (!isNaN(trueCfg)) input["true_cfg_scale"] = trueCfg;
-    }
-    if (startStepStr.trim()) {
-      const startStep = parseInt(startStepStr.trim(), 10);
-      if (!isNaN(startStep)) input["start_step"] = startStep;
-    }
+    input["id_scale"]            = 0.70;
+    input["guidance_scale"]      = 5.5;
+    input["num_inference_steps"] = 30;
+    // true_cfg_scale and start_step intentionally omitted — defaults are
+    // model-provided when not present.
     // Note: FLUX-based models (including PuLID) do NOT support negative_prompt.
   }
 
@@ -680,7 +680,8 @@ export async function generateAiMemeBackgroundFromReference(
     // Also write to upload_image_metadata so the AI Stylings picker (GET /users/me/uploads?transform=ai)
     // can surface this image when the user creates a second meme for the same fact.
     try {
-      const imageSize = await getConfigString("ai_image_size", DEFAULT_IMAGE_SIZE);
+      // Phase 6: ai_image_size retired; use the bundled default.
+      const imageSize = DEFAULT_IMAGE_SIZE;
       const { width, height } = resolveImageSizePx(imageSize);
 
       // source_object_path has a self-FK constraint (→ upload_image_metadata.object_path).
@@ -788,7 +789,8 @@ export async function generateAiMemeBackgroundStandalone(
   // Mirror the metadata write done by the reference path so the AI Stylings
   // picker (GET /users/me/uploads?transform=ai) surfaces it.
   try {
-    const imageSize = await getConfigString("ai_image_size", DEFAULT_IMAGE_SIZE);
+    // Phase 6: ai_image_size retired; use the bundled default.
+    const imageSize = DEFAULT_IMAGE_SIZE;
     const { width, height } = resolveImageSizePx(imageSize);
 
     let validatedSourcePath: string | null = null;
@@ -971,26 +973,19 @@ export async function buildFalInputPreview(
     paramsOverride?: Record<string, string>;
   },
 ): Promise<{ model: string; input: Record<string, unknown> }> {
+  // Phase 6: legacy ai_image_model_*, ai_image_size, ai_std_*, ai_ref_pulid_*,
+  // ai_pulid_composition_suffix keys retired. Defaults baked in.
   const isRef = options?.isReference ?? false;
   const model = options?.modelOverride ||
-    await getConfigString(
-      isRef ? "ai_image_model_reference" : "ai_image_model_standard",
-      isRef ? DEFAULT_IMAGE_MODEL_REFERENCE : DEFAULT_IMAGE_MODEL_STANDARD,
-    );
+    (isRef ? DEFAULT_IMAGE_MODEL_REFERENCE : DEFAULT_IMAGE_MODEL_STANDARD);
 
-  const imageSize         = await getConfigString("ai_image_size", DEFAULT_IMAGE_SIZE);
+  const imageSize         = DEFAULT_IMAGE_SIZE;
 
   if (isRef && isReferenceCapableModel(model)) {
     // Reference path (PuLID / IP-Adapter)
-    const idScale       = parseFloat(await getConfigString("ai_ref_pulid_id_scale", "0.70"));
-    const guidanceScale = parseFloat(await getConfigString("ai_ref_pulid_guidance_scale", "5.5"));
-    const numSteps      = await getConfigInt("ai_ref_pulid_num_inference_steps", 30);
-    const trueCfgStr    = await getConfigString("ai_ref_pulid_true_cfg_scale", "");
-    const startStepStr  = await getConfigString("ai_ref_pulid_start_step", "");
-    const DEFAULT_COMPOSITION_SUFFIX =
+    const compositionSuffix =
       "Full body wide angle shot. Person shown in action within the scene environment. " +
       "Show the full setting and context. NOT a portrait or close-up.";
-    const compositionSuffix = await getConfigString("ai_pulid_composition_suffix", DEFAULT_COMPOSITION_SUFFIX);
     const finalPrompt = compositionSuffix ? `${prompt.trim()} ${compositionSuffix}` : prompt;
     const faceParamName = REFERENCE_MODEL_INPUT_PARAM[model]!;
     const input: Record<string, unknown> = {
@@ -1000,24 +995,21 @@ export async function buildFalInputPreview(
       num_images: 1,
     };
     if (model === "fal-ai/flux-pulid") {
-      input["id_scale"]            = isNaN(idScale) ? 0.70 : idScale;
-      input["guidance_scale"]      = isNaN(guidanceScale) ? 5.5 : guidanceScale;
-      input["num_inference_steps"] = numSteps;
-      if (trueCfgStr.trim()) { const v = parseFloat(trueCfgStr.trim()); if (!isNaN(v)) input["true_cfg_scale"] = v; }
-      if (startStepStr.trim()) { const v = parseInt(startStepStr.trim(), 10); if (!isNaN(v)) input["start_step"] = v; }
+      input["id_scale"]            = 0.70;
+      input["guidance_scale"]      = 5.5;
+      input["num_inference_steps"] = 30;
     }
     applyParamOverrides(input, options?.paramsOverride);
     return { model, input };
   }
 
-  // Standard path
-  const numInferenceSteps = await getConfigInt("ai_std_num_inference_steps", 28);
-  const guidanceScale     = parseFloat(await getConfigString("ai_std_guidance_scale", "3.5"));
-  const safetyTolerance   = await getConfigString("ai_std_safety_tolerance", "2");
-  const seedStr           = await getConfigString("ai_std_seed", "");
-  const outputFormat      = await getConfigString("ai_std_output_format", "jpeg");
-  const aspectRatio       = await getConfigString("ai_std_aspect_ratio", "1:1");
-  const ultraRaw          = await getConfigString("ai_std_ultra_raw", "false");
+  // Standard path — defaults baked in.
+  const numInferenceSteps = 28;
+  const guidanceScale     = 3.5;
+  const safetyTolerance   = "2";
+  const outputFormat      = "jpeg";
+  const aspectRatio       = "1:1";
+  const ultraRaw          = false;
 
   const input: Record<string, unknown> = { prompt, num_images: 1 };
 
@@ -1028,7 +1020,7 @@ export async function buildFalInputPreview(
   } else if (model === "fal-ai/flux-pro/v1.1-ultra") {
     input["aspect_ratio"]     = aspectRatio;
     input["safety_tolerance"] = safetyTolerance;
-    input["raw"]              = ultraRaw === "true";
+    input["raw"]              = ultraRaw;
     input["output_format"]    = outputFormat;
   } else if (model === "fal-ai/flux-2-pro" || model === "fal-ai/flux-2-max") {
     input["aspect_ratio"]  = aspectRatio;
@@ -1036,14 +1028,12 @@ export async function buildFalInputPreview(
   } else {
     input["image_size"]          = imageSize;
     input["num_inference_steps"] = numInferenceSteps;
-    input["guidance_scale"]      = isNaN(guidanceScale) ? 3.5 : guidanceScale;
+    input["guidance_scale"]      = guidanceScale;
     input["output_format"]       = outputFormat;
     if (model === "fal-ai/flux-pro" || model === "fal-ai/flux-pro/v1.1") {
       input["safety_tolerance"] = safetyTolerance;
     }
   }
-  const seedNum = seedStr.trim() ? parseInt(seedStr.trim(), 10) : NaN;
-  if (!isNaN(seedNum)) input["seed"] = seedNum;
   applyParamOverrides(input, options?.paramsOverride);
   return { model, input };
 }
