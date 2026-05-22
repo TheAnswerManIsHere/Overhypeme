@@ -131,6 +131,14 @@ async function cleanup(): Promise<void> {
 let adminUserId: string;
 let plainUserId: string;
 
+// Ensure the falClient boot gate doesn't reject the synthetic POST /test
+// path: ensureFalConfigured() (added to centralize fal credential lookup)
+// throws when neither env var is set. We override fal.subscribe and
+// fal.storage.upload via test hooks anyway, so the credential value is
+// irrelevant — but a non-empty value is required to clear the gate.
+const FAL_KEY_RESTORE = process.env["FAL_AI_API_KEY"];
+process.env["FAL_AI_API_KEY"] = process.env["FAL_AI_API_KEY"] ?? "test-fal-key";
+
 before(async () => {
   await cleanup();
   adminUserId = await createTestUser({ isAdmin: true });
@@ -138,6 +146,11 @@ before(async () => {
 });
 
 after(async () => {
+  if (FAL_KEY_RESTORE === undefined) {
+    delete process.env["FAL_AI_API_KEY"];
+  } else {
+    process.env["FAL_AI_API_KEY"] = FAL_KEY_RESTORE;
+  }
   await cleanup();
 });
 

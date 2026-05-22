@@ -16,8 +16,12 @@ import { logger } from "./logger";
 const FAL_PRICING_API = "https://api.fal.ai/v1/models/pricing";
 const CACHE_STALE_MS = 60 * 60 * 1000; // 1 hour
 
+// Pulls from the central falClient module so the env-var lookup matches
+// every other fal-calling code path.
+import { getFalApiKey as getFalApiKeyFromClient } from "./falClient";
+
 function getFalApiKey(): string | undefined {
-  return process.env["FAL_AI_API_KEY"] ?? process.env["FAL_KEY"];
+  return getFalApiKeyFromClient() ?? undefined;
 }
 
 interface FalPricingEntry {
