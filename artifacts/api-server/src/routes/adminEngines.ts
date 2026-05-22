@@ -332,6 +332,29 @@ interface TestBody {
  *   200 { ok: false, falInput, error, durationMs }   (engine returned error)
  *   400 / 404 on validation problems
  */
+/**
+ * Synthetic test fixtures. These are deliberately specific (not generic
+ * prose) so admins can judge from the output video whether the engine
+ * honored what we sent:
+ *
+ *   - Motion: observable beats with direction + timing. If the subject
+ *     isn't doing what's described, the engine is ignoring motion prompts.
+ *   - Dialogue: a recognizable phrase with phonetically diverse syllables.
+ *     If the audio garbles it, the engine's voice synthesis is the issue.
+ *     If the lips don't match for `native_lipsync` engines, lipsync is.
+ *
+ * Both flow through the same code paths as the wizard's real generation
+ * (applyAudioHandling + buildEngineInput), so the synthetic test exercises
+ * the engine's actual contract, not just "does fal accept the JSON."
+ */
+const TEST_MOTION_PROMPT =
+  "Subject slowly turns their head 45 degrees to the left over 2 seconds, " +
+  "then returns to center while making eye contact with the camera. " +
+  "Slow dolly push-in throughout. Soft window light from the left.";
+
+const TEST_DIALOGUE_TEXT =
+  "This is a synthetic engine test. The quick brown fox jumps over the lazy dog.";
+
 router.post("/admin/engines/:id/test", requireAdmin, async (req: Request, res: Response) => {
   const id = String(req.params["id"] ?? "");
   const engine = await fetchEngineById(id);
@@ -401,22 +424,31 @@ router.post("/admin/engines/:id/test", requireAdmin, async (req: Request, res: R
     imageUrl: sampleImageUrl,
     referenceImageUrl: sampleImageUrl,
     videoUrl: sampleImageUrl,
-    motionPrompt: "Synthetic admin test: subtle camera push-in, gentle motion.",
+    motionPrompt: TEST_MOTION_PROMPT,
     imagePrompt: "Synthetic admin test portrait, neutral background, soft lighting.",
     durationSec: engine.defaultDurationSec ?? 6,
     aspectRatio: aspectRatioWizard,
     resolution: engine.defaultResolution ?? undefined,
     mode: engine.defaultMode ?? undefined,
-    generateAudio: false,
+    // Audio engines (Veo native_lipsync, Kling voice_control, Seedance
+    // native_audio_boolean) should generate audio. The flag is silently
+    // dropped by engines that don't declare a generate_audio param.
+    generateAudio: engine.audioHandling !== "none",
     endUserId: `admin-test-${Date.now()}`,
-    dialogueText: null,
+    // dialogueText is routed by applyAudioHandling — see below.
     negativePrompt: undefined,
   };
 
   // ── Pipe through audio handling + interpreter ─────────────────────────────
+  // Engines with an audio path (native_lipsync, prompt_cue, voice_control,
+  // native_audio_boolean) get the test dialogue routed into the right slot
+  // so the synthetic test exercises the audio surface, not just the param
+  // shape. Utility engines (audioHandling === "none") get null so the
+  // router short-circuits.
+  const dialogueForTest = engine.audioHandling === "none" ? null : TEST_DIALOGUE_TEXT;
   let falInput: Record<string, unknown>;
   try {
-    const augmented = applyAudioHandling(engine, pipelineParams, null);
+    const augmented = applyAudioHandling(engine, pipelineParams, dialogueForTest);
     falInput = buildEngineInput(engine, augmented);
   } catch (err) {
     res.status(400).json({
@@ -443,6 +475,14 @@ router.post("/admin/engines/:id/test", requireAdmin, async (req: Request, res: R
       falInput,
       falResult: result,
       durationMs,
+      // Surface the test fixtures so the admin can spot-check the output
+      // against what we asked for. The dialogue is what audio engines
+      // should speak; the motion prompt is what should be visible in the
+      // clip. Utility engines get null for dialogue.
+      testFixtures: {
+        motionPrompt: TEST_MOTION_PROMPT,
+        dialogueText: dialogueForTest,
+      },
     });
   } catch (err) {
     const durationMs = Date.now() - startedAt;
