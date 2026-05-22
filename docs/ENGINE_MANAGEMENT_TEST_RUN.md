@@ -406,7 +406,7 @@ the existing routes:
 | F2 | `GET /api/engines?kind=video`          | Returns the active default engine even if reconciliation hasn't run  |
 | F3 | `/api/memes` save endpoint             | Video variant validates and persists with engine ids                 |
 | F4 | Legacy `/api/videos/generate`          | Uses the engines table (no admin_config reads); still works          |
-| F5 | Static `FAL_VIDEO_MODELS` list is gone | `grep -r FAL_VIDEO_MODELS artifacts/overhype-me/src/` returns nothing |
+| F5 | Static `FAL_VIDEO_MODELS*` lists are gone | `grep -r 'FAL_VIDEO_MODELS' artifacts/overhype-me/src/` returns nothing (the legacy MemeStudio admin override block was deleted in the cleanup) |
 | F6 | `style_suffix_*` keys are gone         | `SELECT count(*) FROM admin_config WHERE key LIKE 'style_suffix_%'` = 0 |
 
 ---
