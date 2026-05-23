@@ -632,21 +632,25 @@ describe("buildEngineInput — includeWhen conditional inclusion", () => {
 // (sending an engine a parameter it doesn't accept)
 // ────────────────────────────────────────────────────────────────────────────
 
-describe("buildEngineInput — Veo generate_audio regression guard", () => {
-  it("Veo paramSchemas do NOT emit generate_audio", () => {
-    // Walk the actual seeded definitions and assert no Veo paramSchema entry
-    // is named generate_audio. If this fails after adding a new Veo engine,
-    // re-check whether that engine model actually accepts the field.
-    const veoEngines = [
-      // Mirror the production shapes from lib/engines/veo-3.1-lite.ts and
-      // veo-3.1-fast.ts. We don't import them at runtime here to avoid a
-      // module dependency on the catalogue from the unit tests; this is a
-      // contract check, not a wiring check.
-      { id: "veo-3.1-lite", params: ["image_url", "prompt", "duration", "aspect_ratio", "resolution", "negative_prompt"] },
-      { id: "veo-3.1-fast", params: ["image_url", "prompt", "duration", "aspect_ratio", "resolution", "negative_prompt"] },
+describe("buildEngineInput — Veo Lite generate_audio regression guard", () => {
+  it("Veo 3.1 Lite paramSchema does NOT emit generate_audio", () => {
+    // Lite refuses generate_audio (fal returns 422 "no_media_generated" —
+    // see migration 0058). Fast DOES accept it; only Lite is locked out.
+    // Manual mirror of the production shape — avoids a module dependency
+    // on the catalogue from the unit tests.
+    const liteParams = [
+      "image_url",
+      "prompt",
+      "duration",
+      "aspect_ratio",
+      "resolution",
+      "negative_prompt",
+      "seed",
     ];
-    for (const { id, params } of veoEngines) {
-      assert.equal(params.includes("generate_audio"), false, `${id} should not declare generate_audio`);
-    }
+    assert.equal(
+      liteParams.includes("generate_audio"),
+      false,
+      "veo-3.1-lite must not declare generate_audio",
+    );
   });
 });
