@@ -348,12 +348,14 @@ If the panel shows `ok: false`:
     Production fix, not a UAT issue.
 - **error.body** — fal's structured error response.
 
-If the **Run test** button stays on "In queue…" / "Running…" for
-several minutes (longer than the expected runtime, which is also
-shown in the engine card header), the workbench is in the known
-"poll loop never terminates on `FAILED`/`CANCELED`" state — close the
-panel and re-open it to reset. Flag it; the workbench currently only
-handles the `COMPLETED` terminal status.
+The workbench bounds the poll loop at 4× the engine's
+`expectedRunMs` (clamped to 60 s minimum, 5 min maximum). If fal
+never returns a terminal status, the panel renders an explicit
+timeout error in the result panel rather than spinning forever. If
+fal returns `FAILED` or `CANCELED`, the same result panel shows the
+fal-reported status under `error.status`. Three consecutive HTTP
+errors from the poll endpoint are tolerated before the workbench
+gives up.
 
 ---
 

@@ -118,6 +118,7 @@ type FalPollResult = {
   error?: { message: string; body?: unknown; status?: unknown };
   phase?: string;
   queuePosition?: number;
+  durationMs?: number;
 };
 type FalPoll = (endpoint: string, requestId: string) => Promise<FalPollResult>;
 let falPollOverride: FalPoll | null = null;
@@ -125,6 +126,34 @@ let falPollOverride: FalPoll | null = null;
 /** Test helper: replace fal.queue.status/result used by GET /:id/test/poll/:requestId. */
 export function __setFalPollForTest(impl: FalPoll | null): void {
   falPollOverride = impl;
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// Submit-timestamp map (durationMs source of truth)
+//
+// `fal.queue.submit` returns a requestId synchronously but doesn't expose
+// when the job actually started running. To report the real submit→done
+// runtime back to the workbench we stash the submit timestamp keyed by
+// requestId; the poll handler reads it on the terminal transition and
+// deletes the entry. A 30-minute TTL guards against admins closing the
+// workbench mid-poll and orphaning entries forever (longest fal video
+// engine SLA is ~5 min; 30 min is a generous ceiling).
+// ────────────────────────────────────────────────────────────────────────────
+
+const SUBMIT_TIMESTAMP_TTL_MS = 30 * 60 * 1000;
+const submitTimestamps = new Map<string, number>();
+
+function pruneSubmitTimestamps(now: number = Date.now()): void {
+  for (const [requestId, submittedAt] of submitTimestamps) {
+    if (now - submittedAt > SUBMIT_TIMESTAMP_TTL_MS) {
+      submitTimestamps.delete(requestId);
+    }
+  }
+}
+
+/** Test helper: reset the submit-timestamp map between cases. */
+export function __resetSubmitTimestampsForTest(): void {
+  submitTimestamps.clear();
 }
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -557,6 +586,13 @@ router.post("/admin/engines/:id/test", requireAdmin, async (req: Request, res: R
 
     const submitted = await submit(engine.endpointId, { input: falInput });
 
+    // Stash submit timestamp so the poll endpoint can compute the real
+    // job runtime (submit → done) rather than just the result-fetch
+    // window. Pruned opportunistically on each new submit to keep the
+    // map from growing unbounded if admins close the workbench mid-poll.
+    pruneSubmitTimestamps();
+    submitTimestamps.set(submitted.request_id, Date.now());
+
     res.status(202).json({
       status: "submitted",
       requestId: submitted.request_id,
@@ -577,7 +613,10 @@ router.post("/admin/engines/:id/test", requireAdmin, async (req: Request, res: R
       ? (err as { status?: unknown }).status
       : undefined;
     logger.warn({ err, engineId: engine.id }, "[adminEngines/test] fal.queue.submit failed");
-    res.json({
+    // Bad Gateway — the failure originated downstream at fal, not in
+    // this server. Makes the success/failure split observable for any
+    // non-browser consumer (curl, monitoring) without parsing the body.
+    res.status(502).json({
       ok: false,
       engineId: engine.id,
       endpointId: engine.endpointId,
@@ -594,9 +633,14 @@ router.post("/admin/engines/:id/test", requireAdmin, async (req: Request, res: R
 //   { done: false, phase, queuePosition? }       — still in flight
 //   { done: true, ok: true, falResult, durationMs } — completed successfully
 //   { done: true, ok: false, error }               — fal returned an error
+//                                                    OR fal reported a
+//                                                    FAILED/CANCELED status
 //
 // The frontend polls this every 3 s after POST /:id/test returns 202.
 // ────────────────────────────────────────────────────────────────────────────
+
+/** Statuses where we expect the job to still be in flight. */
+const FAL_NON_TERMINAL = new Set(["IN_QUEUE", "IN_PROGRESS"]);
 
 router.get(
   "/admin/engines/:id/test/poll/:requestId",
@@ -611,15 +655,36 @@ router.get(
       return;
     }
 
+    // Resolve durationMs from the submit timestamp recorded at POST /:id/test.
+    // The map entry is the source of truth for "when did this job actually
+    // start"; the result-fetch window is not.
+    const computeDurationMs = (): number | undefined => {
+      const submittedAt = submitTimestamps.get(requestId);
+      return submittedAt !== undefined ? Date.now() - submittedAt : undefined;
+    };
+
     const falApiKey = process.env["FAL_AI_API_KEY"] ?? process.env["FAL_KEY"];
     if (falApiKey) fal.config({ credentials: falApiKey });
 
     if (falPollOverride) {
       try {
         const result = await falPollOverride(engine.endpointId, requestId);
-        res.json(result);
+        if (result.done) {
+          // Test overrides may already carry a durationMs (the override
+          // owns the whole shape). When they don't, fill it in from the
+          // submit-timestamp map. Either way, clean up on terminal state.
+          const enriched =
+            result.durationMs === undefined
+              ? { ...result, durationMs: computeDurationMs() }
+              : result;
+          submitTimestamps.delete(requestId);
+          res.json(enriched);
+        } else {
+          res.json(result);
+        }
       } catch (err) {
         const message = err instanceof Error ? err.message : "Unknown error";
+        submitTimestamps.delete(requestId);
         res.json({ done: true, ok: false, error: { message } });
       }
       return;
@@ -635,25 +700,46 @@ router.get(
       });
 
       if (status.status === "COMPLETED") {
-        const startedAt = Date.now();
         const result = await (fal.queue.result as (
           endpoint: string,
           opts: { requestId: string },
         ) => Promise<unknown>)(engine.endpointId, { requestId });
+        const durationMs = computeDurationMs();
+        submitTimestamps.delete(requestId);
         res.json({
           done: true,
           ok: true,
           falResult: result,
-          durationMs: Date.now() - startedAt,
+          durationMs,
           requestId,
         });
-      } else {
-        res.json({
-          done: false,
-          phase: status.status,
-          queuePosition: status.queue_position,
-        });
+        return;
       }
+
+      // FAILED / CANCELED (and any unknown non-terminal-success status fal
+      // might add in the future) are terminal failures — without this branch
+      // the workbench polls forever.
+      if (!FAL_NON_TERMINAL.has(status.status)) {
+        logger.warn(
+          { engineId: engine.id, requestId, falStatus: status.status },
+          "[adminEngines/poll] fal reported terminal-failure status",
+        );
+        const durationMs = computeDurationMs();
+        submitTimestamps.delete(requestId);
+        res.json({
+          done: true,
+          ok: false,
+          error: { message: `fal job ${status.status.toLowerCase()}`, status: status.status },
+          durationMs,
+        });
+        return;
+      }
+
+      res.json({
+        done: false,
+        phase: status.status,
+        queuePosition: status.queue_position,
+      });
     } catch (err) {
       const message = err instanceof Error ? err.message : "Unknown error";
       const errBody = err && typeof err === "object" && "body" in err
@@ -663,6 +749,7 @@ router.get(
         ? (err as { status?: unknown }).status
         : undefined;
       logger.warn({ err, engineId: engine.id, requestId }, "[adminEngines/poll] fal.queue poll failed");
+      submitTimestamps.delete(requestId);
       res.json({ done: true, ok: false, error: { message, body: errBody, status: errStatus } });
     }
   },

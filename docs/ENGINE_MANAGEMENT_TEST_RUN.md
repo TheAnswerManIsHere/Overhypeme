@@ -61,8 +61,8 @@ pnpm run typecheck
 
 # 4. Server tests for the engine management surface
 # (engineInterpreter 38 + engineAudio 10 + engineReconcile 7 +
-#  adminEngines 31 + legacyKeyRetirement 5 + videoJobs +
-#  routes.memes ≈ 135 tests).
+#  adminEngines 35 + legacyKeyRetirement 5 + videoJobs +
+#  routes.memes = 139 tests).
 cd artifacts/api-server && \
   DATABASE_URL="postgres://overhype:overhype@localhost:5432/overhype_test" \
   TEST_DB_ALLOW_EXIT_ON_IDLE=1 BCRYPT_SALT_ROUNDS=4 \
@@ -226,7 +226,7 @@ Per-engine `audioHandling` routing:
   lands on an up-to-date row).
 - Idempotent — running twice changes nothing.
 
-### B4. adminEngines (31 tests)
+### B4. adminEngines (35 tests)
 
 Auth + write surface:
 - 401 unauthenticated.
@@ -241,26 +241,41 @@ Auth + write surface:
   - Happy path with mocked `fal.queue.submit`: returns **202** with
     `{ status: "submitted", requestId, falInput, testFixtures }`.
     Captures the falInput so we can assert the param shape matches
-    the engine's `paramSchema`.
-  - Failure path: when `fal.queue.submit` throws, body captures
-    `error.{message,body,status}` and returns `{ ok: false }`.
+    the engine's `paramSchema`. Stashes the submit timestamp keyed
+    by `requestId` so the poll endpoint can return an accurate
+    `durationMs`.
+  - Failure path: when `fal.queue.submit` throws, returns **502** with
+    `{ ok: false, falInput, error: { message, body, status } }`. The
+    502 makes the failure observable to non-browser consumers without
+    parsing the body.
   - Utility engines (auto-subtitle) refuse the synthetic test
     (`test_not_supported`) because they expect a video URL, not the
     bundled face placeholder. Admin can supply `sampleImageUrl` to test
     explicitly.
   - Custom `sampleImageUrl` passes through unchanged (no upload call).
   - 404 on non-existent engine id.
-- GET `/test/poll/:requestId` (new poll half):
+- GET `/test/poll/:requestId` (poll half):
   - `done: true, ok: true, falResult, durationMs` when the poll
-    override signals COMPLETED.
+    override signals COMPLETED. `durationMs` is computed from the
+    submit timestamp stashed at POST time, NOT from the result-fetch
+    window. An explicit `durationMs` from the override is preserved
+    as-is.
   - `done: false, phase` when the poll override signals IN_QUEUE /
     IN_PROGRESS.
   - `done: true, ok: false` with error body when the poll override
-    throws.
+    throws OR signals a terminal failure (FAILED / CANCELED, or any
+    status that isn't IN_QUEUE / IN_PROGRESS / COMPLETED). Before
+    this branch existed the workbench would poll forever on a failed
+    job.
+  - Submit timestamps are evicted on the first terminal poll for a
+    given requestId. Subsequent polls on the same requestId return
+    `durationMs: undefined`.
   - 404 on non-existent engine id.
 
-Test helpers: `__setFalSubmitForTest` and `__setFalPollForTest` (in
-`routes/adminEngines.ts`) replace the old `__setFalSubscribeForTest`.
+Test helpers: `__setFalSubmitForTest`, `__setFalPollForTest`, and
+`__resetSubmitTimestampsForTest` (in `routes/adminEngines.ts`)
+replace the old `__setFalSubscribeForTest`.
+
 
 ### B5. legacyKeyRetirement (5 tests)
 
@@ -355,9 +370,11 @@ testFixtures }`. `falInput` is the exact JSON sent to fal — confirm:
   a one-element array; the API accepts up to 14.
 
 If `fal.queue.submit` itself throws (e.g. malformed payload), the
-endpoint returns 200 with `{ ok: false, error: { message, body,
-status } }` — note that's a 200 status code even on failure, which
-is a known asymmetry with the 202 happy path.
+endpoint returns **502** with `{ ok: false, falInput, error: {
+message, body, status } }`. The body still carries `falInput` so the
+workbench can render the failed payload like any other `ok: false`
+outcome; the 502 status makes the failure observable to non-browser
+consumers without parsing the body.
 
 ### C2b. Poll the submitted request (every 3 s until done)
 
@@ -376,15 +393,19 @@ Pass criteria:
 - On fal error:
   `{ done: true, ok: false, error: { message, body, status } }`.
 
-**Known caveat**: `durationMs` measures the time spent fetching the
-result blob from fal storage, not the actual job runtime. The
-`submit` timestamp isn't persisted server-side. If you need real
-runtime, compute it client-side from the submit→done round-trip.
+`durationMs` reflects the real submit→done runtime: the server
+stashes the submit timestamp in an in-memory map keyed by
+`requestId` at POST `/test` time and reads it on the terminal poll.
+The map has a 30-minute TTL and is pruned on every new submit, so
+orphaned entries (admin closed the workbench mid-poll) age out on
+their own. If the entry has been evicted by the time the workbench
+polls a result, the workbench falls back to a client-side
+`Date.now() - submittedAt` measurement.
 
-The workbench currently polls only the `COMPLETED` terminal state. If
-fal returns `FAILED` or `CANCELED` the loop never terminates; a fix
-is tracked separately. For curl, terminate manually after a few
-minutes if `done` never goes true.
+The poll endpoint terminates on `COMPLETED`, `FAILED`, `CANCELED`,
+or any other non-`IN_QUEUE`/`IN_PROGRESS` status — anything that
+isn't an explicit in-flight phase counts as a terminal failure and
+returns `{ done: true, ok: false, error: { message, status } }`.
 
 #### C2a. Audio-experiment shapes (A / B / C)
 
@@ -658,13 +679,6 @@ These are deferred — flag them as expected gaps, not failures:
   affects the workbench and `/api/engines?kind=image` consumers. A
   follow-up needs to route Stage 1 through `loadDefaultEngine("image")`
   + `buildEngineInput` to honor the catalogue default in production.
-- **Async test endpoint polish.** The workbench polls only the
-  `COMPLETED` terminal state — `FAILED` / `CANCELED` from
-  `fal.queue.status` leave the loop spinning. A maximum poll bound
-  (~3 min for video, ~30 s for image) and explicit handling for the
-  failed-terminal states is a follow-up. `durationMs` from the poll
-  endpoint also currently measures only the result-fetch step, not
-  the submit→done window.
 
 ---
 
