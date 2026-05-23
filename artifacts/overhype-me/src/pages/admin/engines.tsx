@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { AdminLayout } from "@/components/admin/AdminLayout";
 import {
   Boxes,
@@ -207,6 +207,13 @@ function EngineTestPanel({ engine }: { engine: EngineRow }) {
 
   const [running, setRunning] = useState(false);
   const [pollPhase, setPollPhase] = useState<"queued" | "in_progress" | null>(null);
+  // AbortController + cleanup-on-unmount keep the poll loop from leaking
+  // setState calls on an unmounted component when the admin closes the
+  // panel mid-run. The ref is updated on every Run press; the effect's
+  // cleanup aborts whichever controller is current when the component
+  // unmounts.
+  const abortRef = useRef<AbortController | null>(null);
+  useEffect(() => () => abortRef.current?.abort(), []);
   const [result, setResult] = useState<{
     ok?: boolean;
     falInput?: unknown;
@@ -257,6 +264,12 @@ function EngineTestPanel({ engine }: { engine: EngineRow }) {
   }
 
   const handleRun = async () => {
+    // Abort any in-flight poll loop from a previous Run before starting a new one.
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+    const signal = controller.signal;
+
     setRunning(true);
     setHttpError(null);
     setResult(null);
@@ -291,19 +304,26 @@ function EngineTestPanel({ engine }: { engine: EngineRow }) {
         if (Object.keys(extras).length > 0) body.extraParams = extras;
       }
 
+      const submittedAt = Date.now();
       const r = await fetch(`/api/admin/engines/${engine.id}/test`, {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
+        signal,
       });
       const json = await r.json().catch(() => null);
-      if (!r.ok) {
+      // 502 is the deliberate "fal.queue.submit threw" status — the body
+      // still carries falInput + structured error. Don't surface it as a
+      // generic httpError; let the result panel render it like any other
+      // ok:false outcome.
+      if (!r.ok && r.status !== 502) {
         setHttpError(json?.message || json?.error || `HTTP ${r.status}`);
         return;
       }
 
-      // Submit failed synchronously (e.g. invalid input before fal call)
+      // Submit failed synchronously (e.g. invalid input before fal call,
+      // or fal.queue.submit threw → 502 with ok:false body).
       if (json?.ok === false) {
         setResult(json);
         return;
@@ -320,45 +340,94 @@ function EngineTestPanel({ engine }: { engine: EngineRow }) {
         setResult({ falInput, testFixtures });
         setPollPhase("queued");
 
-        // Poll until fal reports done
-        while (true) {
-          await new Promise<void>((resolve) => setTimeout(resolve, 3000));
+        // Bound the poll loop so a stuck fal queue can't spin forever:
+        // 4× the engine's expected runtime, clamped to [60 s, 5 min].
+        // We tolerate up to 3 consecutive transient poll-fetch errors
+        // (HTTP 5xx, dropped requests) before terminating with httpError.
+        const MAX_POLL_MS = Math.min(
+          Math.max(engine.expectedRunMs * 4, 60_000),
+          5 * 60_000,
+        );
+        const POLL_INTERVAL_MS = 3000;
+        const MAX_TRANSIENT_ERRORS = 3;
+        let transientErrors = 0;
+        const deadline = Date.now() + MAX_POLL_MS;
+
+        while (Date.now() < deadline) {
+          await new Promise<void>((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
+          if (signal.aborted) return;
+
           let pr: Response;
           try {
             pr = await fetch(`/api/admin/engines/${engine.id}/test/poll/${requestId}`, {
               credentials: "include",
+              signal,
             });
           } catch (fetchErr) {
-            setHttpError(`Poll fetch failed: ${String(fetchErr)}`);
-            return;
+            if (signal.aborted) return;
+            transientErrors += 1;
+            if (transientErrors > MAX_TRANSIENT_ERRORS) {
+              setHttpError(`Poll fetch failed after ${MAX_TRANSIENT_ERRORS} retries: ${String(fetchErr)}`);
+              return;
+            }
+            continue;
           }
           const pjson = await pr.json().catch(() => null);
           if (!pr.ok || !pjson) {
-            setHttpError(`Poll failed: HTTP ${pr.status}`);
-            return;
+            transientErrors += 1;
+            if (transientErrors > MAX_TRANSIENT_ERRORS) {
+              setHttpError(`Poll failed after ${MAX_TRANSIENT_ERRORS} retries: HTTP ${pr.status}`);
+              return;
+            }
+            continue;
           }
+          transientErrors = 0;
+
           if (pjson.done) {
+            // Fall back to a client-side computed runtime if the server
+            // didn't return one (e.g. the submit-timestamp map was
+            // evicted by the TTL during a very long-lived run).
+            const durationMs =
+              typeof pjson.durationMs === "number"
+                ? pjson.durationMs
+                : Date.now() - submittedAt;
             setResult({
               ok: pjson.ok,
               falInput,
               falResult: pjson.falResult,
               error: pjson.error,
-              durationMs: pjson.durationMs,
+              durationMs,
               testFixtures,
             });
             return;
           }
           setPollPhase(pjson.phase === "IN_QUEUE" ? "queued" : "in_progress");
         }
+
+        // Hit the deadline without seeing done:true. Surface the timeout
+        // as an explicit error rather than leaving the run state hanging.
+        setResult({
+          ok: false,
+          falInput,
+          testFixtures,
+          error: {
+            message: `Workbench poll timed out after ${Math.round(MAX_POLL_MS / 1000)}s without a terminal status from fal`,
+          },
+          durationMs: Date.now() - submittedAt,
+        });
+        return;
       }
 
       // Fallback: synchronous-looking result (shouldn't normally happen)
       setResult(json);
     } catch (e) {
+      if (signal.aborted) return;
       setHttpError(String(e));
     } finally {
-      setRunning(false);
-      setPollPhase(null);
+      if (!signal.aborted) {
+        setRunning(false);
+        setPollPhase(null);
+      }
     }
   };
 

@@ -24,16 +24,44 @@ template at the bottom.
 
 ## Setup
 
-1. Pull the latest from PR #51's branch (`claude/start-mbfo-4-z87MQ`).
+1. Pull the latest from PR #59's branch (`claude/start-mbfo-4-z87MQ`).
+   This rolls up PR #51 (engine catalogue), #54–#56 (test workbench),
+   #57–#58 (fal-docs param audit), and #59 (workbench polish + Nano
+   Banana Pro).
 2. Boot the dev app. The session-start hook brings up the test DB.
-   Three new migrations apply (0059 deletedAt, 0060 retire legacy
-   keys, 0061 retire style_suffix keys) — no manual SQL.
+   Three migrations apply (0059 deletedAt, 0060 retire legacy keys,
+   0061 retire style_suffix keys) — no manual SQL.
 3. You need:
    - An **admin** login (the engine management UI is admin-gated).
    - A **Legendary** test user to run the wizard end-to-end.
    - A selfie under 15 MB (JPEG/PNG/WebP).
 4. You'll burn ~$0.45 of fal credits per successful wizard run, plus
-   ~$0.05-$0.15 per /test button click (depends on engine).
+   ~$0.05–$0.30 per /test button click (depends on engine — Nano
+   Banana Pro at 1K is ~$0.14, 4K is ~$0.28).
+
+**What's new since the last UAT pass:**
+
+- A new image engine, **Nano Banana Pro** (`fal-ai/nano-banana-pro/edit`)
+  — Google Gemini 3 Pro Image. It's the default image engine in the
+  catalogue now (★ badge moved off PuLID). **However**, the production
+  video pipeline's Stage 1 still hardcodes PuLID — see F3 below for
+  what to expect in the `video_jobs` row.
+- Every existing engine gained the params it had been missing per
+  fal's live docs: `auto_fix`, `safety_tolerance`, `enhance_prompt`,
+  `negative_prompt`, `seed` on the Veo engines; `end_image_url` and
+  `seed` on Kling and Seedance; `video_preset` enum (plus a new
+  `spicy` mode) and `seed` on Grok; `id_weight`, `true_cfg`,
+  `num_images`, `enable_safety_checker` on PuLID.
+- Veo Lite/Fast now send `generate_audio: true` by default (fal's
+  docs caught up to the previously-banned param).
+- Workbench polish: humanized labels ("Auto fix" not `autoFix`), type
+  + default chips next to every engine-specific input, a `{N} params`
+  badge on each engine card, a `stringArray` text input for Nano
+  Banana Pro's `image_urls`.
+- The Test button is async now: it polls fal every 3 s, so the button
+  cycles **Submitting…** → **In queue…** → **Running…** before the
+  result panel mounts. This fixes the workbench failing on long
+  video jobs that exceeded the previous blocking-call timeout.
 
 ---
 
@@ -112,9 +140,14 @@ Open `/admin/engines` as admin.
 - Live tab groups engines by kind:
   - **Video engines** — Veo 3.1 Lite (★ default), Veo 3.1 Fast,
     Kling v3 Standard, Seedance 2.0 Fast, Grok Imagine.
-  - **Image engines** — PuLID (FLUX) (★ default).
+  - **Image engines** — Nano Banana Pro (edit) (★ default), PuLID
+    (FLUX).
   - **Utility engines** — Auto-subtitle (★ default).
 - Archived tab is empty.
+- Every engine card row shows a `{N} params` badge next to the id
+  chip so you can see at a glance how many knobs each engine
+  exposes (Nano Banana Pro: 7, Veo Lite/Fast: 9, Kling: 8, Seedance:
+  7, Grok: 6, PuLID: 10, auto-subtitle: 13).
 
 ### C2. Per-engine row header
 
@@ -191,12 +224,22 @@ full form:
 - **Universal dropdowns** — Duration, Resolution, Aspect ratio, Mode
   (sourced from the engine's allowed sets)
 - **`generate_audio`** checkbox (visible only for audio engines)
-- **Engine-specific params panel** — for Veo Lite this surfaces
-  optional fields like `negativePrompt`. For Kling it surfaces
-  `cfgScale`, `negativePrompt`, etc. Rendered dynamically from the
-  engine's `paramSchema`.
+- **Engine-specific params panel** — auto-rendered from the engine's
+  `paramSchema`. Each field has:
+  - A **humanized label** (`autoFix` → "Auto fix", `safetyTolerance`
+    → "Safety tolerance").
+  - A monospace **type chip** (`boolean`, `int`, `string`, `float`,
+    `stringArray`).
+  - A **`default: <value>` chip** when the engine defines one.
+  - For enums: a select dropdown with `(default: <value>)` in the
+    placeholder option.
+  - For `stringArray` (Nano Banana Pro's `image_urls`): a text input
+    that accepts comma- or newline-separated URLs and converts them
+    into an array at submit time.
+  - A `{N} knobs` badge in the panel header.
 - **Reset to defaults** link top-right
-- **Run test** button
+- **Run test** button — its label cycles "Submitting…" → "In queue…"
+  → "Running…" while the workbench polls fal every 3 s.
 
 Editing any field flips the experiment radio to `custom` so you know
 your last A/B/C choice no longer represents what's being sent.
@@ -204,7 +247,11 @@ your last A/B/C choice no longer represents what's being sent.
 ### D2. Experiment A — Baseline (does the engine speak the cue?)
 
 Click radio **A · Baseline (full dialogue)**, leave everything else
-at defaults, click **Run test**. Wait ~15-30 seconds for the engine.
+at defaults, click **Run test**. The button shows "Submitting…", then
+"In queue…", then "Running…" as it polls fal every 3 s; the **falInput**
+panel renders immediately (so you can inspect what was sent without
+waiting), and the **falResult** panel mounts when the job finishes
+(~15–60 s depending on engine).
 
 Expected pass state in the panel:
 
@@ -216,11 +263,16 @@ Expected pass state in the panel:
   - `prompt` contains the long motion prompt **AND** the audio cue
     routed via `applyAudioHandling` (for Veo: `\nVoiceover should say,
     "This is a synthetic engine test…"`).
-  - `duration` is `6` (engine's `defaultDurationSec`).
-  - `aspect_ratio` is `"16:9"`.
+  - `duration` is `"6s"` (Veo uses a stringified seconds-suffix
+    duration, e.g. `"6s"`).
+  - `aspect_ratio` is `"auto"` (Veo's default) — change it via the
+    dropdown to verify other values map correctly.
   - `resolution` is `"720p"`.
-  - **No `generate_audio` field** — the migration-0058 regression
-    guard (Veo doesn't accept it).
+  - `generate_audio: true` ✓ — the fal docs caught up to this param;
+    the previous "must not declare" regression guard was flipped.
+  - `auto_fix`, `safety_tolerance: "4"`, `enhance_prompt: true` show
+    with their defaults unless you override them in the engine-
+    specific panel.
   - **No `mode` field** — Veo has no modes.
 - **falResult** — `data.video.url` with a real video URL. Paste it
   into a new tab; verify:
@@ -296,6 +348,15 @@ If the panel shows `ok: false`:
     Production fix, not a UAT issue.
 - **error.body** — fal's structured error response.
 
+The workbench bounds the poll loop at 4× the engine's
+`expectedRunMs` (clamped to 60 s minimum, 5 min maximum). If fal
+never returns a terminal status, the panel renders an explicit
+timeout error in the result panel rather than spinning forever. If
+fal returns `FAILED` or `CANCELED`, the same result panel shows the
+fal-reported status under `error.status`. Three consecutive HTTP
+errors from the poll endpoint are tolerated before the workbench
+gives up.
+
 ---
 
 ## Section E — Walk the rest of the engines
@@ -308,69 +369,121 @@ engine-specific params panel exposes everything else that's tunable.
 
 ### E1. Veo 3.1 Fast
 
-Baseline falInput: same as Veo Lite. Try `resolution: "1080p"` via
-the dropdown to verify the engine accepts it. Engine-specific params
-panel: `negativePrompt` only.
+Baseline falInput: same shape as Veo Lite, including
+`generate_audio: true`, `auto_fix`, `safety_tolerance: "4"`,
+`enhance_prompt: true`. Try `resolution: "1080p"` via the dropdown to
+verify the engine accepts it. Engine-specific params panel exposes:
+`autoFix` (boolean, default false on Lite / true on Fast),
+`safetyTolerance` ("1"–"6" string enum), `enhancePrompt` (boolean),
+`negativePrompt` (text), `seed` (int, omitted when blank).
 
 ### E2. Kling v3 Standard
 
 Baseline falInput:
-- `image_url`, `prompt`, `aspect_ratio`
+- `start_image_url`, `prompt`, `aspect_ratio`
 - `duration` is a **string** ("5", not 5) — Kling's quirk; the
   `stringInt` interpreter type handles this.
 - `negative_prompt` defaults to `"blur, distort, low quality"`
 - `cfg_scale` defaults to `0.5`
+- `generate_audio: true` (Kling now accepts this per fal's May 2026
+  docs).
 - `voice_text` is omitted (the `includeWhen` predicate drops it when
   no `dialogueText` is supplied). For experiment A/B the dialogue
   routes via Kling's `voice_control` audioHandling → fills the
   `voice_text` field.
+- `end_image_url` and `seed` are omitted unless you set them in the
+  engine-specific panel (both gated on `includeWhen: present`).
 
 Engine-specific params panel: `cfgScale` (number, range 0–1),
-`negativePrompt` (text). Use these to tune narration semantics —
+`negativePrompt` (text), `endImageUrl` (text — image-to-image
+endpoint), `seed` (int). Use cfgScale to tune narration semantics —
 lower cfgScale tends to give the model more latitude.
 
 ### E3. Seedance 2.0 Fast
 
 Baseline falInput:
-- `image_url`, `prompt`, `duration` (6), `aspect_ratio`, `resolution` (720p)
-- `generate_audio: true` (Seedance accepts this — Veo doesn't)
+- `image_url`, `prompt`, `duration` ("6"), `aspect_ratio`, `resolution` (720p)
+- `generate_audio: true`
 - `end_user_id` ✓ (ByteDance ToS — a generated test id like
   `"admin-test-1234567890"`)
+- `seed` and `end_image_url` omitted unless set via the engine-
+  specific panel.
 
 If `end_user_id` is missing, the engine's `paramSchema` is wrong
 (`required: true` should be set on the entry). Fal will reject.
 
-Engine-specific params panel: `negativePrompt` (text). The dialogue
-routes through Seedance's `native_audio_boolean` handling — the
-voiceover cue is appended to the motion prompt.
+Engine-specific params panel: `seed` (int), `endImageUrl` (text). The
+dialogue routes through Seedance's `native_audio_boolean` handling —
+the voiceover cue is appended to the motion prompt.
 
 ### E4. Grok Imagine
 
 Baseline falInput:
 - `image_url`, `prompt`, `duration` (6), `aspect_ratio`, `resolution` (480p)
-- `mode: "normal"` ✓ (Grok-specific)
+- `video_preset: "normal"` ✓ — note this is `video_preset` in the
+  payload (xAI-side name), sourced from the wizard's `mode` field.
+- `seed` omitted unless set.
 
-Mode dropdown lets you pick between Normal / Fun / Custom. Try each
-to verify Grok honors the param.
+The Mode dropdown lets you pick between Normal / Fun / Custom /
+**Spicy** (new — added in PR #57). Try each to verify Grok honors
+the param.
 
 **Note**: Grok is the engine that famously invents extra lip-synced
 dialogue to fill clip silence (see Experiment B). Worth running B
 explicitly to confirm the quirk still exists.
 
-### E5. PuLID (image utility)
+### E5. Nano Banana Pro (edit) (image, default)
 
-Image engine, not video. The workbench sends the same face image
-and confirms the paramSchema works:
+Image engine (Google Gemini 3 Pro Image). The workbench sends the
+same face image; Stage 1's job is face-preserving stylization.
 
 Baseline falInput:
-- `reference_image_url` (string)
-- `prompt` (string)
+- `prompt` (string — the meme image prompt)
+- `image_urls` is an **array** (e.g. `["https://…/face.jpg"]`), not a
+  string — the new `stringArray` primitive wraps the single
+  `referenceImageUrl` we pass in. The fal endpoint accepts up to 14
+  reference images; the workbench's `imageUrls` text input accepts
+  comma- or newline-separated URLs and converts them to an array.
+- `aspect_ratio` mapped from `portrait` → `"9:16"` (default).
+- `resolution: "1K"` (not `720p`/`1080p` — Nano Banana Pro uses
+  `1K`/`2K`/`4K`).
+- `safety_tolerance: "5"` (string enum "1"–"6"; raised from the fal
+  default of "4" because meme prompts on real selfies tend to trip
+  the filter at "4". Bump to "6" if `IMAGE_SAFETY` rejections still
+  show up.)
+- `num_images: 1`, `output_format: "png"`, `enable_web_search: false`.
 
-Result data shape: `{ data: { images: [{ url }] } }` rather than
-`{ data: { video } }`. Don't expect a video URL or audio. Experiments
-B/C don't apply (no audio path).
+Result data shape: `{ data: { images: [{ url }] } }`. No video, no
+audio. Experiments B/C don't apply (no audio path).
 
-### E6. Auto-subtitle (utility)
+**Pricing surprise**: 1K and 2K both cost $0.139/image, but 4K is
+$0.279. Bumping `enable_web_search` adds $0.015/call. Don't randomly
+crank these dials during UAT or your fal bill will reflect it.
+
+**Important**: Nano Banana Pro is the catalogue default for kind=
+image, but **the production video pipeline still calls PuLID**. The
+catalogue flip only changes what `/api/engines?kind=image` reports
+and what the workbench's image-engines section defaults to. See F3
+for what to expect in `video_jobs`.
+
+### E6. PuLID (FLUX)
+
+No longer the catalogue default — Nano Banana Pro took the ★. PuLID
+is still in the catalogue, marked `is_default: false`. The
+production video pipeline's Stage 1 still uses PuLID directly, so it
+remains the engine that actually runs when you generate a meme.
+
+Baseline falInput:
+- `reference_image_url` (string), `prompt` (string)
+- `image_size: "portrait_16_9"`, `num_inference_steps: 28`,
+  `guidance_scale: 4`, `id_weight: 1`, `true_cfg: 1`,
+  `enable_safety_checker: true`, `num_images: 1`.
+
+Engine-specific params panel exposes all of the above (each with its
+`default:` chip), plus `negativePrompt`. Result data shape:
+`{ data: { images: [{ url }] } }`. Experiments B/C don't apply.
+
+### E7. Auto-subtitle (utility)
 
 Tapping **Test** without supplying a `sampleImageUrl` returns
 `error: "test_not_supported"` because utility engines expect a video
