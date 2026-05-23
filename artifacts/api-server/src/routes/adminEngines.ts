@@ -316,6 +316,33 @@ router.post("/admin/engines/:id/set-default", requireAdmin, async (req: Request,
 
 interface TestBody {
   sampleImageUrl?: string;
+  /** Override the engine's default motion prompt. Falls back to TEST_MOTION_PROMPT. */
+  motionPrompt?: string;
+  /**
+   * Override the dialogue text routed through applyAudioHandling.
+   *   `string`     — use as-is (overrides TEST_DIALOGUE_TEXT)
+   *   `null`       — explicit silence (no voiceover cue at all)
+   *   `undefined`  — fall back to engine-appropriate default (TEST_DIALOGUE_TEXT
+   *                  for audio engines, null for utility engines)
+   */
+  dialogueText?: string | null;
+  /** Override the default duration (seconds). Must be in engine.allowedDurationsSec when set. */
+  durationSec?: number;
+  /** Override the default aspect ratio. Accepts wizard format ("landscape"/"square"/"portrait") OR fal format ("16:9"/"1:1"/"9:16"/etc.). */
+  aspectRatio?: string;
+  /** Override the default resolution. Must be in engine.allowedResolutions when set. */
+  resolution?: string;
+  /** Override the default mode. Must be in engine.supportedModes when set. */
+  mode?: string;
+  /** Override the generateAudio default. */
+  generateAudio?: boolean;
+  /**
+   * Engine-specific param overrides — merged into pipelineParams before
+   * applyAudioHandling. Keys are the schema's `from` keys (e.g. "cfgScale",
+   * "negativePrompt"). Used to surface engine-specific knobs in the admin
+   * Test panel without hard-coding them server-side.
+   */
+  extraParams?: Record<string, unknown>;
 }
 
 /**
@@ -411,41 +438,68 @@ router.post("/admin/engines/:id/test", requireAdmin, async (req: Request, res: R
     }
   }
 
-  // ── Build a minimal valid pipeline-params object using engine defaults ───
-  const aspectRatio = engine.defaultAspectRatio ?? "16:9";
-  // Reverse-map fal → wizard if the schema's aspect_ratio entry uses the
-  // landscape/portrait/square map. The interpreter will translate back.
-  const aspectRatioWizard = aspectRatio === "16:9" ? "landscape"
-    : aspectRatio === "9:16" ? "portrait"
-    : aspectRatio === "1:1" ? "square"
-    : aspectRatio;
+  // ── Build the pipeline-params object — defaults from engine, overridden by body ───
+  // Aspect ratio: admin may pass wizard format ("landscape"/"square"/"portrait")
+  // or fal format ("16:9" etc.). We always feed the interpreter wizard format
+  // (its paramSchema map handles the translation).
+  const aspectRatioRaw = body.aspectRatio ?? engine.defaultAspectRatio ?? "16:9";
+  const aspectRatioWizard = aspectRatioRaw === "16:9" ? "landscape"
+    : aspectRatioRaw === "9:16" ? "portrait"
+    : aspectRatioRaw === "1:1" ? "square"
+    : aspectRatioRaw; // already wizard format ("landscape" etc.) or engine-specific
+
+  const motionPrompt = typeof body.motionPrompt === "string" && body.motionPrompt.trim()
+    ? body.motionPrompt
+    : TEST_MOTION_PROMPT;
 
   const pipelineParams: Record<string, unknown> = {
     imageUrl: sampleImageUrl,
     referenceImageUrl: sampleImageUrl,
     videoUrl: sampleImageUrl,
-    motionPrompt: TEST_MOTION_PROMPT,
+    motionPrompt,
     imagePrompt: "Synthetic admin test portrait, neutral background, soft lighting.",
-    durationSec: engine.defaultDurationSec ?? 6,
+    durationSec: typeof body.durationSec === "number" && body.durationSec > 0
+      ? body.durationSec
+      : engine.defaultDurationSec ?? 6,
     aspectRatio: aspectRatioWizard,
-    resolution: engine.defaultResolution ?? undefined,
-    mode: engine.defaultMode ?? undefined,
+    resolution: body.resolution ?? engine.defaultResolution ?? undefined,
+    mode: body.mode ?? engine.defaultMode ?? undefined,
     // Audio engines (Veo native_lipsync, Kling voice_control, Seedance
-    // native_audio_boolean) should generate audio. The flag is silently
-    // dropped by engines that don't declare a generate_audio param.
-    generateAudio: engine.audioHandling !== "none",
+    // native_audio_boolean) should generate audio by default. The flag is
+    // silently dropped by engines that don't declare a generate_audio param.
+    generateAudio: typeof body.generateAudio === "boolean"
+      ? body.generateAudio
+      : engine.audioHandling !== "none",
     endUserId: `admin-test-${Date.now()}`,
     // dialogueText is routed by applyAudioHandling — see below.
     negativePrompt: undefined,
   };
 
+  // Engine-specific params from the admin override. Merged AFTER the
+  // universal field set so explicit per-engine knobs (cfg_scale,
+  // negative_prompt, etc.) win.
+  if (body.extraParams && typeof body.extraParams === "object") {
+    for (const [key, value] of Object.entries(body.extraParams)) {
+      if (value !== undefined && value !== null && value !== "") {
+        pipelineParams[key] = value;
+      }
+    }
+  }
+
   // ── Pipe through audio handling + interpreter ─────────────────────────────
-  // Engines with an audio path (native_lipsync, prompt_cue, voice_control,
-  // native_audio_boolean) get the test dialogue routed into the right slot
-  // so the synthetic test exercises the audio surface, not just the param
-  // shape. Utility engines (audioHandling === "none") get null so the
-  // router short-circuits.
-  const dialogueForTest = engine.audioHandling === "none" ? null : TEST_DIALOGUE_TEXT;
+  // Resolve the dialogue cue:
+  //   - body.dialogueText === undefined → engine-appropriate default
+  //   - body.dialogueText === null      → explicit silence (no cue routed)
+  //   - body.dialogueText === ""        → explicit silence
+  //   - otherwise                       → use as-is
+  let dialogueForTest: string | null;
+  if (body.dialogueText === undefined) {
+    dialogueForTest = engine.audioHandling === "none" ? null : TEST_DIALOGUE_TEXT;
+  } else if (body.dialogueText === null || body.dialogueText === "") {
+    dialogueForTest = null;
+  } else {
+    dialogueForTest = body.dialogueText;
+  }
   let falInput: Record<string, unknown>;
   try {
     const augmented = applyAudioHandling(engine, pipelineParams, dialogueForTest);
