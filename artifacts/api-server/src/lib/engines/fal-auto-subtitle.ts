@@ -2,12 +2,18 @@ import type { EngineDefinition } from "./types";
 
 /**
  * fal-ai/workflow-utilities/auto-subtitle — burns brand-styled captions into
- * a generated MP4. Stage 3 of the video pipeline. Caption styling fields are
- * declared here so they can be tuned per-deployment without code changes.
+ * a generated MP4. Stage 3 of the video pipeline.
  *
- * Note: fal's auto-subtitle accepts NAMED colors only (white/black/orange…),
- * not hex strings. The wizard spec speaks hex (#ffffff, #ff6b35); we keep
- * the named-color values here to match what fal accepts.
+ * Schema verified against fal's live docs (May 2026):
+ *   - Font field is `font_name` (NOT `font`).
+ *   - Animation toggle is `enable_animation` (NOT `animation`).
+ *   - Color fields accept BOTH named CSS colors and #RRGGBB hex strings
+ *     (previous comment claiming "named only" was wrong).
+ *   - `font_size` range is [20, 150]. `words_per_subtitle` range is [1, 12].
+ *   - Optional: `language` (ISO-639-1, "" or omit = auto-detect),
+ *     `font_weight` (Google Fonts weight name), `background_color`.
+ *
+ * Pricing: $0.03 per minute of input video.
  */
 export const FAL_AUTO_SUBTITLE: EngineDefinition = {
   id: "fal-auto-subtitle",
@@ -36,13 +42,26 @@ export const FAL_AUTO_SUBTITLE: EngineDefinition = {
   paramSchema: {
     params: [
       { name: "video_url", from: "videoUrl", type: "string", required: true },
-      { name: "font", from: "captionFont", type: "string", default: "Anton" },
+      // Language: empty/omitted → auto-detect.
+      {
+        name: "language",
+        from: "language",
+        type: "string",
+        includeWhen: { field: "language", present: true },
+      },
+      { name: "font_name", from: "captionFont", type: "string", default: "Anton" },
       {
         name: "font_size",
         from: "captionFontSize",
         type: "int",
         default: 70,
-        range: { min: 16, max: 200, policy: "clamp" },
+        range: { min: 20, max: 150, policy: "clamp" },
+      },
+      {
+        name: "font_weight",
+        from: "fontWeight",
+        type: "string",
+        default: "bold",
       },
       { name: "font_color", from: "captionColor", type: "string", default: "white" },
       {
@@ -59,6 +78,12 @@ export const FAL_AUTO_SUBTITLE: EngineDefinition = {
         range: { min: 0, max: 12, policy: "clamp" },
       },
       { name: "stroke_color", from: "strokeColor", type: "string", default: "black" },
+      {
+        name: "background_color",
+        from: "backgroundColor",
+        type: "string",
+        default: "none",
+      },
       {
         name: "position",
         from: "position",
@@ -77,9 +102,9 @@ export const FAL_AUTO_SUBTITLE: EngineDefinition = {
         from: "wordsPerSubtitle",
         type: "int",
         default: 1,
-        range: { min: 1, max: 6, policy: "clamp" },
+        range: { min: 1, max: 12, policy: "clamp" },
       },
-      { name: "animation", from: "animation", type: "boolean", default: true },
+      { name: "enable_animation", from: "animation", type: "boolean", default: true },
     ],
   },
 

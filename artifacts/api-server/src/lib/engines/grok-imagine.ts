@@ -1,9 +1,26 @@
 import type { EngineDefinition } from "./types";
 
 /**
- * Grok Imagine — xAI. Three engine modes (Normal/Fun/Custom). Voiceover via
- * prompt cue ("Voiceover should say, 'X'") because the model doesn't have a
- * dedicated dialogue slot. $0.05/s at 480p.
+ * Grok Imagine — xAI, image-to-video.
+ * Schema verified against fal's live docs for
+ * `xai/grok-imagine-video/image-to-video` (May 2026).
+ *
+ * Notable contracts:
+ *   - Endpoint ID has the `xai/` namespace, no `fal-ai/` prefix.
+ *   - The "engine mode" field is named `video_preset` (NOT `mode`). On the
+ *     image-to-video route only `normal` and `fun` are supported. (`custom`
+ *     and `spicy` exist on text-to-video / other routes.)
+ *   - `aspect_ratio` enum is "auto", "16:9", "4:3", "3:2", "1:1", "2:3",
+ *     "3:4", "9:16". Default "auto" (inherits from input image).
+ *   - `resolution` enum is exactly ["480p", "720p"]. 24 FPS native.
+ *   - Native synchronized audio is generated automatically — there is no
+ *     audio toggle or voice slot. Dialogue is prompt-driven; the
+ *     engineAudio `prompt_cue` handler appends `Voiceover should say, "..."`
+ *     to the motion prompt.
+ *   - Negative prompts are silently ignored by the model — describe what
+ *     you want, not what you don't.
+ *
+ * Pricing: $0.05/s @ 480p, $0.07/s @ 720p (with native audio always on).
  */
 export const GROK_IMAGINE: EngineDefinition = {
   id: "grok-imagine",
@@ -11,7 +28,7 @@ export const GROK_IMAGINE: EngineDefinition = {
   endpointId: "xai/grok-imagine-video/image-to-video",
   label: "Grok Imagine",
   description:
-    "xAI. Normal / Fun / Custom modes. Voiceover injected via prompt cue.",
+    "xAI. Normal / Fun presets at 480p or 720p. Native audio + lipsync.",
   kind: "video",
   tierRequirement: "legendary",
   isDefault: false,
@@ -23,9 +40,10 @@ export const GROK_IMAGINE: EngineDefinition = {
   defaultDurationSec: 6,
   allowedResolutions: ["480p", "720p"],
   defaultResolution: "480p",
-  allowedAspectRatios: ["16:9", "1:1", "9:16"],
-  defaultAspectRatio: "16:9",
-  supportedModes: ["normal", "fun", "custom"],
+  allowedAspectRatios: ["auto", "16:9", "4:3", "3:2", "1:1", "2:3", "3:4", "9:16"],
+  defaultAspectRatio: "auto",
+  // Only normal and fun are valid on image-to-video.
+  supportedModes: ["normal", "fun"],
   defaultMode: "normal",
 
   audioHandling: "prompt_cue",
@@ -45,8 +63,8 @@ export const GROK_IMAGINE: EngineDefinition = {
         from: "aspectRatio",
         type: "string",
         map: { landscape: "16:9", square: "1:1", portrait: "9:16" },
-        enum: ["16:9", "1:1", "9:16"],
-        default: "16:9",
+        enum: ["auto", "16:9", "4:3", "3:2", "1:1", "2:3", "3:4", "9:16"],
+        default: "auto",
       },
       {
         name: "resolution",
@@ -55,11 +73,13 @@ export const GROK_IMAGINE: EngineDefinition = {
         enum: ["480p", "720p"],
         default: "480p",
       },
+      // The xAI-side field name is `video_preset`. We read from the wizard's
+      // generic `mode` pipeline param so the admin UI surface stays consistent.
       {
-        name: "mode",
+        name: "video_preset",
         from: "mode",
         type: "string",
-        enum: ["normal", "fun", "custom"],
+        enum: ["normal", "fun"],
         default: "normal",
       },
     ],
