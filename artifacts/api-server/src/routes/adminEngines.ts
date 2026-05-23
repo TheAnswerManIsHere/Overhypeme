@@ -98,6 +98,35 @@ export function __setFalUploadForTest(impl: FalUpload | null): void {
   falUploadOverride = impl;
 }
 
+/** Shape returned by the submit override — mirrors the fal SDK's InQueueQueueStatus.request_id. */
+type FalSubmit = (
+  endpoint: string,
+  opts: { input: Record<string, unknown> },
+) => Promise<{ request_id: string }>;
+let falSubmitOverride: FalSubmit | null = null;
+
+/** Test helper: replace fal.queue.submit used by POST /:id/test. */
+export function __setFalSubmitForTest(impl: FalSubmit | null): void {
+  falSubmitOverride = impl;
+}
+
+/** Shape returned by the poll override — one call per GET /:id/test/poll/:requestId. */
+type FalPollResult = {
+  done: boolean;
+  ok?: boolean;
+  falResult?: unknown;
+  error?: { message: string; body?: unknown; status?: unknown };
+  phase?: string;
+  queuePosition?: number;
+};
+type FalPoll = (endpoint: string, requestId: string) => Promise<FalPollResult>;
+let falPollOverride: FalPoll | null = null;
+
+/** Test helper: replace fal.queue.status/result used by GET /:id/test/poll/:requestId. */
+export function __setFalPollForTest(impl: FalPoll | null): void {
+  falPollOverride = impl;
+}
+
 // ────────────────────────────────────────────────────────────────────────────
 // Helpers
 // ────────────────────────────────────────────────────────────────────────────
@@ -515,31 +544,31 @@ router.post("/admin/engines/:id/test", requireAdmin, async (req: Request, res: R
     return;
   }
 
-  // ── Call fal (or the test override) ───────────────────────────────────────
-  const startedAt = Date.now();
+  // ── Submit to fal queue (returns requestId immediately — no blocking wait) ──
   try {
-    const subscribe = falSubscribeOverride ?? ((endpoint: string, opts: { input: Record<string, unknown>; logs?: boolean }) =>
-      fal.subscribe(endpoint, opts) as Promise<{ requestId?: string | null; data?: unknown }>);
-    const result = await subscribe(engine.endpointId, { input: falInput, logs: true });
-    const durationMs = Date.now() - startedAt;
-    res.json({
-      ok: true,
+    const submit = falSubmitOverride
+      ?? (async (endpoint: string, opts: { input: Record<string, unknown> }) => {
+        const result = await (fal.queue.submit as (
+          endpoint: string,
+          opts: { input: Record<string, unknown> },
+        ) => Promise<{ request_id: string }>)(endpoint, opts);
+        return { request_id: result.request_id };
+      });
+
+    const submitted = await submit(engine.endpointId, { input: falInput });
+
+    res.status(202).json({
+      status: "submitted",
+      requestId: submitted.request_id,
       engineId: engine.id,
       endpointId: engine.endpointId,
       falInput,
-      falResult: result,
-      durationMs,
-      // Surface the test fixtures so the admin can spot-check the output
-      // against what we asked for. The dialogue is what audio engines
-      // should speak; the motion prompt is what should be visible in the
-      // clip. Utility engines get null for dialogue.
       testFixtures: {
         motionPrompt: TEST_MOTION_PROMPT,
         dialogueText: dialogueForTest,
       },
     });
   } catch (err) {
-    const durationMs = Date.now() - startedAt;
     const message = err instanceof Error ? err.message : "Unknown error";
     const errBody = err && typeof err === "object" && "body" in err
       ? (err as { body?: unknown }).body
@@ -547,20 +576,96 @@ router.post("/admin/engines/:id/test", requireAdmin, async (req: Request, res: R
     const errStatus = err && typeof err === "object" && "status" in err
       ? (err as { status?: unknown }).status
       : undefined;
-    logger.warn({ err, engineId: engine.id }, "[adminEngines/test] fal.subscribe failed");
+    logger.warn({ err, engineId: engine.id }, "[adminEngines/test] fal.queue.submit failed");
     res.json({
       ok: false,
       engineId: engine.id,
       endpointId: engine.endpointId,
       falInput,
-      durationMs,
-      error: {
-        message,
-        body: errBody,
-        status: errStatus,
-      },
+      error: { message, body: errBody, status: errStatus },
     });
   }
 });
+
+// ────────────────────────────────────────────────────────────────────────────
+// 6b. GET /api/admin/engines/:id/test/poll/:requestId
+//
+// Checks the fal queue for a previously-submitted test job. Returns:
+//   { done: false, phase, queuePosition? }       — still in flight
+//   { done: true, ok: true, falResult, durationMs } — completed successfully
+//   { done: true, ok: false, error }               — fal returned an error
+//
+// The frontend polls this every 3 s after POST /:id/test returns 202.
+// ────────────────────────────────────────────────────────────────────────────
+
+router.get(
+  "/admin/engines/:id/test/poll/:requestId",
+  requireAdmin,
+  async (req: Request, res: Response) => {
+    const id = String(req.params["id"] ?? "");
+    const requestId = String(req.params["requestId"] ?? "");
+
+    const engine = await fetchEngineById(id);
+    if (!engine) {
+      res.status(404).json({ error: "Engine not found" });
+      return;
+    }
+
+    const falApiKey = process.env["FAL_AI_API_KEY"] ?? process.env["FAL_KEY"];
+    if (falApiKey) fal.config({ credentials: falApiKey });
+
+    if (falPollOverride) {
+      try {
+        const result = await falPollOverride(engine.endpointId, requestId);
+        res.json(result);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "Unknown error";
+        res.json({ done: true, ok: false, error: { message } });
+      }
+      return;
+    }
+
+    try {
+      const status = await (fal.queue.status as (
+        endpoint: string,
+        opts: { requestId: string; logs?: boolean },
+      ) => Promise<{ status: string; queue_position?: number }>)(engine.endpointId, {
+        requestId,
+        logs: false,
+      });
+
+      if (status.status === "COMPLETED") {
+        const startedAt = Date.now();
+        const result = await (fal.queue.result as (
+          endpoint: string,
+          opts: { requestId: string },
+        ) => Promise<unknown>)(engine.endpointId, { requestId });
+        res.json({
+          done: true,
+          ok: true,
+          falResult: result,
+          durationMs: Date.now() - startedAt,
+          requestId,
+        });
+      } else {
+        res.json({
+          done: false,
+          phase: status.status,
+          queuePosition: status.queue_position,
+        });
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Unknown error";
+      const errBody = err && typeof err === "object" && "body" in err
+        ? (err as { body?: unknown }).body
+        : undefined;
+      const errStatus = err && typeof err === "object" && "status" in err
+        ? (err as { status?: unknown }).status
+        : undefined;
+      logger.warn({ err, engineId: engine.id, requestId }, "[adminEngines/poll] fal.queue poll failed");
+      res.json({ done: true, ok: false, error: { message, body: errBody, status: errStatus } });
+    }
+  },
+);
 
 export default router;

@@ -24,8 +24,9 @@ import { usersTable, enginesTable } from "@workspace/db/schema";
 import { eq, like, inArray } from "drizzle-orm";
 
 import adminEnginesRouter, {
-  __setFalSubscribeForTest,
   __setFalUploadForTest,
+  __setFalSubmitForTest,
+  __setFalPollForTest,
 } from "../routes/adminEngines.js";
 import { buildTestApp } from "./helpers/buildTestApp.js";
 import { clearEngineCaches } from "../lib/engineInterpreter.js";
@@ -159,8 +160,9 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  __setFalSubscribeForTest(null);
   __setFalUploadForTest(null);
+  __setFalSubmitForTest(null);
+  __setFalPollForTest(null);
 });
 
 // ─── Auth gate matrix ─────────────────────────────────────────────────────────
@@ -390,40 +392,40 @@ describe("POST /admin/engines/:id/set-default", () => {
 // ─── POST /:id/test (synthetic generation) ────────────────────────────────────
 
 describe("POST /admin/engines/:id/test", () => {
-  it("happy path: builds a fal input matching the engine paramSchema and returns the (mocked) result", async () => {
+  it("happy path: builds a fal input matching the engine paramSchema and returns 202 with requestId", async () => {
     const id = await seedEngine();
     let capturedEndpoint = "";
     let capturedInput: Record<string, unknown> | null = null;
 
     __setFalUploadForTest(async () => "https://fal.cdn.test/test-face.jpg");
-    __setFalSubscribeForTest(async (endpoint, opts) => {
+    __setFalSubmitForTest(async (endpoint, opts) => {
       capturedEndpoint = endpoint;
       capturedInput = opts.input;
-      return { requestId: "test-req-1", data: { video: { url: "https://fal.cdn.test/out.mp4" } } };
+      return { request_id: "test-req-1" };
     });
 
     const app = buildTestApp({ kind: "authenticated", userId: adminUserId }, adminEnginesRouter);
     const res = await request(app).post(`/api/admin/engines/${id}/test`).send({});
-    assert.equal(res.status, 200);
-    assert.equal(res.body.ok, true);
+    assert.equal(res.status, 202);
+    assert.equal(res.body.status, "submitted");
+    assert.equal(res.body.requestId, "test-req-1");
     assert.equal(capturedEndpoint, `fal-ai/test/${id}`);
-    assert.ok(capturedInput, "fal.subscribe input should have been captured");
+    assert.ok(capturedInput, "fal.queue.submit input should have been captured");
     assert.equal((capturedInput as Record<string, unknown>).image_url, "https://fal.cdn.test/test-face.jpg");
     assert.ok((capturedInput as Record<string, unknown>).prompt);
     assert.equal((capturedInput as Record<string, unknown>).duration, 6);
 
-    // Response shape exposes both the input and the result so admins can debug.
+    // Response exposes falInput immediately so the admin can verify the payload shape.
     assert.deepEqual(res.body.falInput, capturedInput);
-    assert.ok(res.body.falResult);
-    assert.equal(typeof res.body.durationMs, "number");
+    assert.ok(res.body.testFixtures);
   });
 
-  it("captures error body cleanly when fal throws", async () => {
+  it("captures error body cleanly when fal.queue.submit throws", async () => {
     const id = await seedEngine();
     __setFalUploadForTest(async () => "https://fal.cdn.test/test-face.jpg");
-    __setFalSubscribeForTest(async () => {
-      const err = new Error("fal.subscribe blew up") as Error & { body?: unknown; status?: number };
-      err.body = { detail: [{ msg: "invalid duration" }] };
+    __setFalSubmitForTest(async () => {
+      const err = new Error("fal.queue.submit blew up") as Error & { body?: unknown; status?: number };
+      err.body = { detail: [{ msg: "invalid input" }] };
       err.status = 422;
       throw err;
     });
@@ -432,10 +434,10 @@ describe("POST /admin/engines/:id/test", () => {
     const res = await request(app).post(`/api/admin/engines/${id}/test`).send({});
     assert.equal(res.status, 200);
     assert.equal(res.body.ok, false);
-    assert.ok(res.body.falInput, "falInput should still be returned on failure");
+    assert.ok(res.body.falInput, "falInput should still be returned on submit failure");
     assert.match(String(res.body.error.message), /blew up/);
     assert.equal(res.body.error.status, 422);
-    assert.deepEqual(res.body.error.body, { detail: [{ msg: "invalid duration" }] });
+    assert.deepEqual(res.body.error.body, { detail: [{ msg: "invalid input" }] });
   });
 
   it("rejects utility engines without a sampleImageUrl with a clear message", async () => {
@@ -456,16 +458,16 @@ describe("POST /admin/engines/:id/test", () => {
     let uploadCalled = false;
     let capturedInput: Record<string, unknown> | null = null;
     __setFalUploadForTest(async () => { uploadCalled = true; return "should-not-be-used"; });
-    __setFalSubscribeForTest(async (_endpoint, opts) => {
+    __setFalSubmitForTest(async (_endpoint, opts) => {
       capturedInput = opts.input;
-      return { requestId: "x", data: {} };
+      return { request_id: "x" };
     });
 
     const app = buildTestApp({ kind: "authenticated", userId: adminUserId }, adminEnginesRouter);
     const res = await request(app)
       .post(`/api/admin/engines/${id}/test`)
       .send({ sampleImageUrl: "https://example.com/admin-supplied.jpg" });
-    assert.equal(res.status, 200);
+    assert.equal(res.status, 202);
     assert.equal(uploadCalled, false, "upload should be skipped when sampleImageUrl is supplied");
     const ci = capturedInput as unknown as Record<string, unknown> | null;
     assert.equal(ci?.image_url, "https://example.com/admin-supplied.jpg");
@@ -474,6 +476,63 @@ describe("POST /admin/engines/:id/test", () => {
   it("404s for an unknown engine", async () => {
     const app = buildTestApp({ kind: "authenticated", userId: adminUserId }, adminEnginesRouter);
     const res = await request(app).post(`/api/admin/engines/${ENGINE_PREFIX}nope/test`).send({});
+    assert.equal(res.status, 404);
+  });
+});
+
+// ─── GET /:id/test/poll/:requestId ────────────────────────────────────────────
+
+describe("GET /admin/engines/:id/test/poll/:requestId", () => {
+  it("returns done:true ok:true with falResult when poll override signals completion", async () => {
+    const id = await seedEngine();
+    __setFalPollForTest(async (_endpoint, requestId) => ({
+      done: true,
+      ok: true,
+      falResult: { data: { video: { url: "https://fal.cdn.test/out.mp4" } }, requestId },
+      durationMs: 12345,
+    }));
+
+    const app = buildTestApp({ kind: "authenticated", userId: adminUserId }, adminEnginesRouter);
+    const res = await request(app).get(`/api/admin/engines/${id}/test/poll/test-req-1`);
+    assert.equal(res.status, 200);
+    assert.equal(res.body.done, true);
+    assert.equal(res.body.ok, true);
+    assert.ok(res.body.falResult);
+  });
+
+  it("returns done:false with phase when poll override signals in-queue", async () => {
+    const id = await seedEngine();
+    __setFalPollForTest(async () => ({
+      done: false,
+      phase: "IN_QUEUE",
+      queuePosition: 3,
+    }));
+
+    const app = buildTestApp({ kind: "authenticated", userId: adminUserId }, adminEnginesRouter);
+    const res = await request(app).get(`/api/admin/engines/${id}/test/poll/test-req-2`);
+    assert.equal(res.status, 200);
+    assert.equal(res.body.done, false);
+    assert.equal(res.body.phase, "IN_QUEUE");
+    assert.equal(res.body.queuePosition, 3);
+  });
+
+  it("returns done:true ok:false when poll override throws", async () => {
+    const id = await seedEngine();
+    __setFalPollForTest(async () => {
+      throw new Error("poll network error");
+    });
+
+    const app = buildTestApp({ kind: "authenticated", userId: adminUserId }, adminEnginesRouter);
+    const res = await request(app).get(`/api/admin/engines/${id}/test/poll/test-req-3`);
+    assert.equal(res.status, 200);
+    assert.equal(res.body.done, true);
+    assert.equal(res.body.ok, false);
+    assert.match(String(res.body.error.message), /poll network error/);
+  });
+
+  it("404s for an unknown engine", async () => {
+    const app = buildTestApp({ kind: "authenticated", userId: adminUserId }, adminEnginesRouter);
+    const res = await request(app).get(`/api/admin/engines/${ENGINE_PREFIX}nope/test/poll/any-req-id`);
     assert.equal(res.status, 404);
   });
 });

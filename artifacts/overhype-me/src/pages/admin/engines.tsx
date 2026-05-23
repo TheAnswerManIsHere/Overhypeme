@@ -206,6 +206,7 @@ function EngineTestPanel({ engine }: { engine: EngineRow }) {
   };
 
   const [running, setRunning] = useState(false);
+  const [pollPhase, setPollPhase] = useState<"queued" | "in_progress" | null>(null);
   const [result, setResult] = useState<{
     ok?: boolean;
     falInput?: unknown;
@@ -241,6 +242,7 @@ function EngineTestPanel({ engine }: { engine: EngineRow }) {
     setRunning(true);
     setHttpError(null);
     setResult(null);
+    setPollPhase(null);
     try {
       const body: Record<string, unknown> = {};
       if (sampleUrl.trim()) body.sampleImageUrl = sampleUrl.trim();
@@ -282,11 +284,63 @@ function EngineTestPanel({ engine }: { engine: EngineRow }) {
         setHttpError(json?.message || json?.error || `HTTP ${r.status}`);
         return;
       }
+
+      // Submit failed synchronously (e.g. invalid input before fal call)
+      if (json?.ok === false) {
+        setResult(json);
+        return;
+      }
+
+      // 202 — fal job submitted; poll for result
+      if (json?.status === "submitted" && json?.requestId) {
+        const { requestId, falInput, testFixtures } = json as {
+          requestId: string;
+          falInput: unknown;
+          testFixtures: { motionPrompt?: string; dialogueText?: string | null };
+        };
+        // Show the fal input immediately so the admin can inspect the payload shape
+        setResult({ falInput, testFixtures });
+        setPollPhase("queued");
+
+        // Poll until fal reports done
+        while (true) {
+          await new Promise<void>((resolve) => setTimeout(resolve, 3000));
+          let pr: Response;
+          try {
+            pr = await fetch(`/api/admin/engines/${engine.id}/test/poll/${requestId}`, {
+              credentials: "include",
+            });
+          } catch (fetchErr) {
+            setHttpError(`Poll fetch failed: ${String(fetchErr)}`);
+            return;
+          }
+          const pjson = await pr.json().catch(() => null);
+          if (!pr.ok || !pjson) {
+            setHttpError(`Poll failed: HTTP ${pr.status}`);
+            return;
+          }
+          if (pjson.done) {
+            setResult({
+              ok: pjson.ok,
+              falInput,
+              falResult: pjson.falResult,
+              error: pjson.error,
+              durationMs: pjson.durationMs,
+              testFixtures,
+            });
+            return;
+          }
+          setPollPhase(pjson.phase === "IN_QUEUE" ? "queued" : "in_progress");
+        }
+      }
+
+      // Fallback: synchronous-looking result (shouldn't normally happen)
       setResult(json);
     } catch (e) {
       setHttpError(String(e));
     } finally {
       setRunning(false);
+      setPollPhase(null);
     }
   };
 
@@ -551,8 +605,18 @@ function EngineTestPanel({ engine }: { engine: EngineRow }) {
         className="flex items-center gap-1.5 min-h-[40px] px-3 py-1.5 text-xs font-bold uppercase tracking-wide bg-primary text-primary-foreground rounded-sm hover:bg-primary/90 disabled:opacity-50 transition-colors"
       >
         {running ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Beaker className="w-3.5 h-3.5" />}
-        {running ? "Running…" : "Run test"}
+        {running
+          ? pollPhase === "queued" ? "In queue…"
+          : pollPhase === "in_progress" ? "Running…"
+          : "Submitting…"
+          : "Run test"}
       </button>
+
+      {running && pollPhase && (
+        <p className="text-[11px] text-muted-foreground">
+          {pollPhase === "queued" ? "Job is queued — polling every 3s…" : "Job is running — polling every 3s…"}
+        </p>
+      )}
 
       {httpError && <p className="text-xs text-destructive">{httpError}</p>}
 
