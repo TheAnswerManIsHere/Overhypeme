@@ -12,11 +12,13 @@ import { logger } from "./logger.js";
  * aspectRatio, etc.) map onto the model's actual fal.ai input shape.
  *
  * Supported parameter primitives:
- *   - "string"     — String(value)
- *   - "int"        — Math.round(Number(value))
- *   - "stringInt"  — String(Math.round(Number(value)))  (Kling wants "5" not 5)
- *   - "boolean"    — Boolean(value)
- *   - "float"      — Number(value)
+ *   - "string"      — String(value)
+ *   - "int"         — Math.round(Number(value))
+ *   - "stringInt"   — String(Math.round(Number(value)))  (Kling wants "5" not 5)
+ *   - "boolean"     — Boolean(value)
+ *   - "float"       — Number(value)
+ *   - "stringArray" — wraps a scalar into [scalar]; passes arrays through
+ *                     (Nano Banana Pro wants `image_urls: [url]`)
  *
  * Per-entry validation and conditional inclusion:
  *   - `enum`         — declared values array; rejects unknown values with
@@ -37,7 +39,18 @@ import { logger } from "./logger.js";
 // ParamSchema shape (matches lib/db/src/schema/engines.ts JSONDB comment)
 // ────────────────────────────────────────────────────────────────────────────
 
-export type ParamPrimitive = "string" | "int" | "stringInt" | "boolean" | "float";
+export type ParamPrimitive =
+  | "string"
+  | "int"
+  | "stringInt"
+  | "boolean"
+  | "float"
+  /**
+   * Wraps a scalar string into a single-element array, or passes an array
+   * through unchanged. Needed for engines like Nano Banana Pro whose
+   * `image_urls` input is an array even when only one reference is sent.
+   */
+  | "stringArray";
 
 /**
  * Tiny predicate language used by `includeWhen`. Evaluates against the
@@ -127,7 +140,7 @@ export class UnknownParamTypeError extends Error {
   constructor(engineId: string, paramName: string, type: string) {
     super(
       `Engine "${engineId}" parameter "${paramName}" uses unknown type "${type}". ` +
-        `Supported: string, int, stringInt, boolean, float.`,
+        `Supported: string, int, stringInt, boolean, float, stringArray.`,
     );
     this.name = "UnknownParamTypeError";
     this.engineId = engineId;
@@ -301,6 +314,8 @@ function coerce(
       return Boolean(value);
     case "float":
       return Number(value);
+    case "stringArray":
+      return Array.isArray(value) ? value.map(String) : [String(value)];
     default: {
       // Exhaustive check — anything else throws.
       throw new UnknownParamTypeError(engineId, paramName, String(type));

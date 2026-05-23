@@ -41,7 +41,7 @@ export const VEO_3_1_FAST: EngineDefinition = {
   defaultDurationSec: 6,
   allowedResolutions: ["720p", "1080p", "4k"],
   defaultResolution: "720p",
-  allowedAspectRatios: ["auto", "16:9", "9:16"],
+  allowedAspectRatios: ["auto", "16:9", "9:16", "1:1"],
   defaultAspectRatio: "auto",
   supportedModes: [],
   defaultMode: null,
@@ -59,12 +59,14 @@ export const VEO_3_1_FAST: EngineDefinition = {
         enum: ["4s", "6s", "8s"],
         default: "6s",
       },
+      // `1:1` IS in fal's schema enum for Fast — delivered via crop, not
+      // native — but accepted at the API layer. Lite doesn't include it.
       {
         name: "aspect_ratio",
         from: "aspectRatio",
         type: "string",
-        map: { landscape: "16:9", portrait: "9:16" },
-        enum: ["auto", "16:9", "9:16"],
+        map: { landscape: "16:9", square: "1:1", portrait: "9:16" },
+        enum: ["auto", "16:9", "9:16", "1:1"],
         default: "auto",
       },
       {
@@ -93,6 +95,12 @@ export const VEO_3_1_FAST: EngineDefinition = {
         type: "string",
         enum: ["1", "2", "3", "4", "5", "6"],
         default: "4",
+      },
+      {
+        name: "enhance_prompt",
+        from: "enhancePrompt",
+        type: "boolean",
+        default: true,
       },
       {
         name: "negative_prompt",

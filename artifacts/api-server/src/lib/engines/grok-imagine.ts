@@ -7,18 +7,20 @@ import type { EngineDefinition } from "./types";
  *
  * Notable contracts:
  *   - Endpoint ID has the `xai/` namespace, no `fal-ai/` prefix.
- *   - The "engine mode" field is named `video_preset` (NOT `mode`). On the
- *     image-to-video route only `normal` and `fun` are supported. (`custom`
- *     and `spicy` exist on text-to-video / other routes.)
+ *   - The "engine mode" field is named `video_preset` (NOT `mode`).
+ *     Image-to-video supports the FULL enum: normal, fun, custom, spicy.
+ *     A prior fix mistakenly narrowed it to [normal, fun]; spicy and
+ *     custom ARE valid on this endpoint per fal's docs.
  *   - `aspect_ratio` enum is "auto", "16:9", "4:3", "3:2", "1:1", "2:3",
  *     "3:4", "9:16". Default "auto" (inherits from input image).
+ *   - `duration` is an integer 1-10 (NOT a strict [4,6,8,10] enum).
+ *     Default 6.
  *   - `resolution` enum is exactly ["480p", "720p"]. 24 FPS native.
  *   - Native synchronized audio is generated automatically — there is no
  *     audio toggle or voice slot. Dialogue is prompt-driven; the
  *     engineAudio `prompt_cue` handler appends `Voiceover should say, "..."`
  *     to the motion prompt.
- *   - Negative prompts are silently ignored by the model — describe what
- *     you want, not what you don't.
+ *   - `negative_prompt` is not exposed by this endpoint.
  *
  * Pricing: $0.05/s @ 480p, $0.07/s @ 720p (with native audio always on).
  */
@@ -36,14 +38,15 @@ export const GROK_IMAGINE: EngineDefinition = {
   sortOrder: 50,
   featureFlagRequired: "engine_experiments",
 
+  // Wizard exposes a sensible subset of duration choices; the engine API
+  // itself accepts every integer 1-10 (enforced via paramSchema range).
   allowedDurationsSec: [4, 6, 8, 10],
   defaultDurationSec: 6,
   allowedResolutions: ["480p", "720p"],
   defaultResolution: "480p",
   allowedAspectRatios: ["auto", "16:9", "4:3", "3:2", "1:1", "2:3", "3:4", "9:16"],
   defaultAspectRatio: "auto",
-  // Only normal and fun are valid on image-to-video.
-  supportedModes: ["normal", "fun"],
+  supportedModes: ["normal", "fun", "custom", "spicy"],
   defaultMode: "normal",
 
   audioHandling: "prompt_cue",
@@ -51,12 +54,13 @@ export const GROK_IMAGINE: EngineDefinition = {
     params: [
       { name: "image_url", from: "imageUrl", type: "string", required: true },
       { name: "prompt", from: "motionPrompt", type: "string", required: true },
+      // Integer 1-10. Clamp out-of-range silently rather than rejecting.
       {
         name: "duration",
         from: "durationSec",
         type: "int",
         default: 6,
-        enum: [4, 6, 8, 10],
+        range: { min: 1, max: 10, policy: "clamp" },
       },
       {
         name: "aspect_ratio",
@@ -73,14 +77,20 @@ export const GROK_IMAGINE: EngineDefinition = {
         enum: ["480p", "720p"],
         default: "480p",
       },
-      // The xAI-side field name is `video_preset`. We read from the wizard's
-      // generic `mode` pipeline param so the admin UI surface stays consistent.
+      // xAI-side field is `video_preset`. We read from the wizard's
+      // generic `mode` pipeline param. Full enum on image-to-video.
       {
         name: "video_preset",
         from: "mode",
         type: "string",
-        enum: ["normal", "fun"],
+        enum: ["normal", "fun", "custom", "spicy"],
         default: "normal",
+      },
+      {
+        name: "seed",
+        from: "seed",
+        type: "int",
+        includeWhen: { field: "seed", present: true },
       },
     ],
   },
