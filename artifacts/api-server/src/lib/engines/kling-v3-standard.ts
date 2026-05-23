@@ -1,8 +1,16 @@
 import type { EngineDefinition } from "./types";
 
 /**
- * Kling v3 Standard — Kuaishou, image-to-video with optional voice control
- * for deterministic dialogue. $0.084-0.154/s depending on audio mode.
+ * Kling v3 Standard — Kuaishou, image-to-video.
+ *
+ * Audio: `generate_audio` boolean toggles native audio (default true on
+ * fal's side). The model picks dialogue out of the prompt itself — quoted
+ * speech in the motion prompt is what produces voiceover. There is NO
+ * dedicated `voice_text` param on this endpoint (despite older docs); fal
+ * silently accepts the key and Kling ignores it. We therefore route
+ * dialogue via `prompt_cue` semantics, same as Grok.
+ *
+ * Pricing: $0.084/s (audio off) or $0.126/s (audio on).
  */
 export const KLING_V3_STANDARD: EngineDefinition = {
   id: "kling-v3-standard",
@@ -27,7 +35,7 @@ export const KLING_V3_STANDARD: EngineDefinition = {
   supportedModes: [],
   defaultMode: null,
 
-  audioHandling: "voice_control",
+  audioHandling: "prompt_cue",
   paramSchema: {
     params: [
       { name: "image_url", from: "imageUrl", type: "string", required: true },
@@ -63,14 +71,11 @@ export const KLING_V3_STANDARD: EngineDefinition = {
         default: 0.5,
         range: { min: 0, max: 1, policy: "clamp" },
       },
-      // voice_text — only emitted when the pipeline supplies dialogueText
-      // (the video runner's applyAudioHandling routes renderedFactText here
-      // for voice_control engines).
       {
-        name: "voice_text",
-        from: "dialogueText",
-        type: "string",
-        includeWhen: { field: "dialogueText", present: true },
+        name: "generate_audio",
+        from: "generateAudio",
+        type: "boolean",
+        default: true,
       },
     ],
   },
