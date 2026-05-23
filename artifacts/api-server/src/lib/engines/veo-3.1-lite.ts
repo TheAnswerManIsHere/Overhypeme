@@ -14,6 +14,9 @@ import type { EngineDefinition } from "./types";
  *     if the caller violates it).
  *   - `generate_audio` is REJECTED on this endpoint (audio is always on).
  *     Sending it produces 422 "no_media_generated" (migration 0058).
+ *   - `auto_fix` (bool, default true) auto-rewrites prompts that trip
+ *     content policy. `safety_tolerance` is a STRING "1"-"6" (default "4";
+ *     1 = strictest, 6 = most permissive). Same shape as Fast.
  *   - `negative_prompt`, `seed`, `enhance_prompt` are accepted optionals.
  */
 export const VEO_3_1_LITE: EngineDefinition = {
@@ -68,6 +71,20 @@ export const VEO_3_1_LITE: EngineDefinition = {
         type: "string",
         enum: ["720p", "1080p"],
         default: "720p",
+      },
+      {
+        name: "auto_fix",
+        from: "autoFix",
+        type: "boolean",
+        default: true,
+      },
+      // String "1"-"6". 1=strictest, 6=most permissive. Same shape as Fast.
+      {
+        name: "safety_tolerance",
+        from: "safetyTolerance",
+        type: "string",
+        enum: ["1", "2", "3", "4", "5", "6"],
+        default: "4",
       },
       {
         name: "negative_prompt",
