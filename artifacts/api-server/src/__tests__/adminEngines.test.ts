@@ -27,6 +27,7 @@ import adminEnginesRouter, {
   __setFalUploadForTest,
   __setFalSubmitForTest,
   __setFalPollForTest,
+  __resetSubmitTimestampsForTest,
 } from "../routes/adminEngines.js";
 import { buildTestApp } from "./helpers/buildTestApp.js";
 import { clearEngineCaches } from "../lib/engineInterpreter.js";
@@ -157,12 +158,14 @@ after(async () => {
 
 beforeEach(() => {
   clearEngineCaches();
+  __resetSubmitTimestampsForTest();
 });
 
 afterEach(() => {
   __setFalUploadForTest(null);
   __setFalSubmitForTest(null);
   __setFalPollForTest(null);
+  __resetSubmitTimestampsForTest();
 });
 
 // ─── Auth gate matrix ─────────────────────────────────────────────────────────
@@ -420,7 +423,7 @@ describe("POST /admin/engines/:id/test", () => {
     assert.ok(res.body.testFixtures);
   });
 
-  it("captures error body cleanly when fal.queue.submit throws", async () => {
+  it("captures error body cleanly when fal.queue.submit throws (502 Bad Gateway)", async () => {
     const id = await seedEngine();
     __setFalUploadForTest(async () => "https://fal.cdn.test/test-face.jpg");
     __setFalSubmitForTest(async () => {
@@ -432,7 +435,10 @@ describe("POST /admin/engines/:id/test", () => {
 
     const app = buildTestApp({ kind: "authenticated", userId: adminUserId }, adminEnginesRouter);
     const res = await request(app).post(`/api/admin/engines/${id}/test`).send({});
-    assert.equal(res.status, 200);
+    // 502 — the failure originated at fal; the body still carries falInput
+    // and a structured error so the workbench can render it like any other
+    // ok:false outcome.
+    assert.equal(res.status, 502);
     assert.equal(res.body.ok, false);
     assert.ok(res.body.falInput, "falInput should still be returned on submit failure");
     assert.match(String(res.body.error.message), /blew up/);
@@ -534,5 +540,92 @@ describe("GET /admin/engines/:id/test/poll/:requestId", () => {
     const app = buildTestApp({ kind: "authenticated", userId: adminUserId }, adminEnginesRouter);
     const res = await request(app).get(`/api/admin/engines/${ENGINE_PREFIX}nope/test/poll/any-req-id`);
     assert.equal(res.status, 404);
+  });
+
+  it("computes durationMs from the submit timestamp when the override omits it", async () => {
+    const id = await seedEngine();
+
+    // Submit first so the timestamp lands in the map under a real requestId.
+    __setFalUploadForTest(async () => "https://fal.cdn.test/test-face.jpg");
+    __setFalSubmitForTest(async () => ({ request_id: "req-with-duration" }));
+    const app = buildTestApp({ kind: "authenticated", userId: adminUserId }, adminEnginesRouter);
+    const submitRes = await request(app).post(`/api/admin/engines/${id}/test`).send({});
+    assert.equal(submitRes.status, 202);
+
+    // Sleep a tick so the elapsed window is > 0.
+    await new Promise((r) => setTimeout(r, 20));
+
+    __setFalPollForTest(async () => ({
+      done: true,
+      ok: true,
+      falResult: { data: { video: { url: "https://fal.cdn.test/out.mp4" } } },
+      // No durationMs here — the route should fill it in from the map.
+    }));
+    const pollRes = await request(app).get(`/api/admin/engines/${id}/test/poll/req-with-duration`);
+    assert.equal(pollRes.status, 200);
+    assert.equal(pollRes.body.done, true);
+    assert.equal(pollRes.body.ok, true);
+    assert.ok(
+      typeof pollRes.body.durationMs === "number" && pollRes.body.durationMs >= 15,
+      `durationMs should reflect submit→done window, got ${pollRes.body.durationMs}`,
+    );
+  });
+
+  it("preserves an explicit durationMs from the poll override", async () => {
+    const id = await seedEngine();
+    __setFalPollForTest(async () => ({
+      done: true,
+      ok: true,
+      falResult: { data: {} },
+      durationMs: 99999,
+    }));
+    const app = buildTestApp({ kind: "authenticated", userId: adminUserId }, adminEnginesRouter);
+    const res = await request(app).get(`/api/admin/engines/${id}/test/poll/req-explicit`);
+    assert.equal(res.body.durationMs, 99999);
+  });
+
+  it("treats a done override as terminal and evicts the submit timestamp", async () => {
+    const id = await seedEngine();
+
+    __setFalUploadForTest(async () => "https://fal.cdn.test/test-face.jpg");
+    __setFalSubmitForTest(async () => ({ request_id: "req-evict" }));
+    const app = buildTestApp({ kind: "authenticated", userId: adminUserId }, adminEnginesRouter);
+    await request(app).post(`/api/admin/engines/${id}/test`).send({});
+
+    // First poll completes successfully → submit timestamp is deleted.
+    __setFalPollForTest(async () => ({ done: true, ok: true, falResult: {} }));
+    const first = await request(app).get(`/api/admin/engines/${id}/test/poll/req-evict`);
+    assert.equal(first.body.ok, true);
+    assert.ok(
+      typeof first.body.durationMs === "number",
+      "first terminal poll should still have durationMs from the map",
+    );
+
+    // Second poll on the same requestId should no longer have a stashed
+    // timestamp — durationMs comes back undefined.
+    __setFalPollForTest(async () => ({ done: true, ok: true, falResult: {} }));
+    const second = await request(app).get(`/api/admin/engines/${id}/test/poll/req-evict`);
+    assert.equal(second.body.durationMs, undefined);
+  });
+
+  // ── New: fal terminal-failure handling (FAILED / CANCELED) ──────────────
+  //
+  // Before this branch existed, the workbench polled forever on a failed
+  // job. The real fal client returns status === "FAILED" or "CANCELED";
+  // we exercise the override surface here since the real client is
+  // bypassed by falPollOverride.
+
+  it("treats override-reported FAILED as terminal", async () => {
+    const id = await seedEngine();
+    __setFalPollForTest(async () => ({
+      done: true,
+      ok: false,
+      error: { message: "fal job failed", status: "FAILED" },
+    }));
+    const app = buildTestApp({ kind: "authenticated", userId: adminUserId }, adminEnginesRouter);
+    const res = await request(app).get(`/api/admin/engines/${id}/test/poll/req-failed`);
+    assert.equal(res.body.done, true);
+    assert.equal(res.body.ok, false);
+    assert.equal(res.body.error.status, "FAILED");
   });
 });
