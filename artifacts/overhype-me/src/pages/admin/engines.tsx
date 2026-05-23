@@ -233,9 +233,27 @@ function EngineTestPanel({ engine }: { engine: EngineRow }) {
         return String(Math.round(Number(raw)));
       case "float":
         return Number(raw);
+      case "stringArray":
+        // Comma- or newline-separated → array of trimmed non-empty strings.
+        // Single value stays a one-element array, which is what
+        // engines like Nano Banana Pro expect for image_urls.
+        return raw
+          .split(/[\n,]/)
+          .map((s) => s.trim())
+          .filter((s) => s.length > 0);
       default:
         return raw;
     }
+  }
+
+  // Convert a camelCase from-key into a readable label.
+  //   autoFix          → "Auto fix"
+  //   safetyTolerance  → "Safety tolerance"
+  //   numInferenceSteps → "Num inference steps"
+  // Acronyms like "cfg" stay as the original camelCase boundary.
+  function humanizeKey(key: string): string {
+    const spaced = key.replace(/([A-Z])/g, " $1").trim().toLowerCase();
+    return spaced.charAt(0).toUpperCase() + spaced.slice(1);
   }
 
   const handleRun = async () => {
@@ -538,12 +556,17 @@ function EngineTestPanel({ engine }: { engine: EngineRow }) {
         )}
       </div>
 
-      {/* ── Engine-specific params ───────────────────────────────────── */}
+      {/* ── Engine-specific params (auto-rendered from paramSchema) ────── */}
       {engineParams.length > 0 && (
         <div className="space-y-2 rounded-sm border border-amber-500/30 bg-amber-500/5 p-2">
-          <p className="text-[10px] font-semibold text-amber-500 uppercase tracking-wider">
-            {engine.label} — engine-specific params
-          </p>
+          <div className="flex items-center justify-between">
+            <p className="text-[10px] font-semibold text-amber-500 uppercase tracking-wider">
+              {engine.label} — engine-specific params
+            </p>
+            <span className="text-[10px] font-mono text-amber-500/70">
+              {engineParams.length} knob{engineParams.length === 1 ? "" : "s"}
+            </span>
+          </div>
           <div className="grid grid-cols-2 gap-2">
             {engineParams.map((p) => {
               const key = p.from!;
@@ -552,6 +575,21 @@ function EngineTestPanel({ engine }: { engine: EngineRow }) {
                 setExtraParams((prev) => ({ ...prev, [key]: v }));
                 setExperiment("custom");
               };
+              const label = humanizeKey(key);
+              const defaultBadge = p.default !== undefined && p.default !== null
+                ? <span className="ml-1 text-[10px] text-muted-foreground/60 font-mono normal-case">default: {String(p.default)}</span>
+                : null;
+              const typeBadge = (
+                <span className="ml-1 text-[9px] text-amber-500/60 font-mono normal-case">{p.type}</span>
+              );
+              const fieldName = (
+                <>
+                  <span>{label}</span>
+                  {typeBadge}
+                  {defaultBadge}
+                </>
+              );
+
               if (p.type === "boolean") {
                 return (
                   <label key={key} className="flex items-center gap-1.5 text-xs cursor-pointer pt-4">
@@ -561,16 +599,16 @@ function EngineTestPanel({ engine }: { engine: EngineRow }) {
                       onChange={(e) => setValue(e.target.checked ? "true" : "false")}
                       className="accent-primary"
                     />
-                    <span className="font-mono">{key}</span>
+                    <span>{fieldName}</span>
                   </label>
                 );
               }
               if (p.enum && p.enum.length > 0) {
                 return (
                   <div key={key}>
-                    <label className={labelCls}>{key}</label>
+                    <label className={labelCls}>{fieldName}</label>
                     <select value={value} onChange={(e) => setValue(e.target.value)} className={selectCls}>
-                      <option value="">(default)</option>
+                      <option value="">(default{p.default !== undefined ? `: ${String(p.default)}` : ""})</option>
                       {p.enum.map((v) => (
                         <option key={String(v)} value={String(v)}>{String(v)}</option>
                       ))}
@@ -578,10 +616,24 @@ function EngineTestPanel({ engine }: { engine: EngineRow }) {
                   </div>
                 );
               }
+              if (p.type === "stringArray") {
+                return (
+                  <div key={key} className="col-span-2">
+                    <label className={labelCls}>{fieldName}</label>
+                    <input
+                      value={value}
+                      onChange={(e) => setValue(e.target.value)}
+                      type="text"
+                      placeholder={p.default !== undefined ? String(p.default) : "comma-separated URLs"}
+                      className={inputCls}
+                    />
+                  </div>
+                );
+              }
               const isNumber = p.type === "int" || p.type === "stringInt" || p.type === "float";
               return (
                 <div key={key} className={isNumber ? "" : "col-span-2"}>
-                  <label className={labelCls}>{key}</label>
+                  <label className={labelCls}>{fieldName}</label>
                   <input
                     value={value}
                     onChange={(e) => setValue(e.target.value)}
@@ -622,12 +674,14 @@ function EngineTestPanel({ engine }: { engine: EngineRow }) {
 
       {result && (
         <div className="space-y-3">
-          <div className="flex items-center gap-2 text-xs">
-            <span className={`px-1.5 py-0.5 rounded font-bold ${result.ok ? "bg-green-500/10 text-green-400" : "bg-destructive/10 text-destructive"}`}>
-              {result.ok ? "OK" : "FAIL"}
-            </span>
-            {result.durationMs !== undefined && <span className="text-muted-foreground">{msToHuman(result.durationMs)}</span>}
-          </div>
+          {typeof result.ok === "boolean" && (
+            <div className="flex items-center gap-2 text-xs">
+              <span className={`px-1.5 py-0.5 rounded font-bold ${result.ok ? "bg-green-500/10 text-green-400" : "bg-destructive/10 text-destructive"}`}>
+                {result.ok ? "OK" : "FAIL"}
+              </span>
+              {result.durationMs !== undefined && <span className="text-muted-foreground">{msToHuman(result.durationMs)}</span>}
+            </div>
+          )}
 
           {result.testFixtures && (
             <div className="space-y-2 rounded-sm border border-amber-500/30 bg-amber-500/5 p-2">
@@ -659,7 +713,7 @@ function EngineTestPanel({ engine }: { engine: EngineRow }) {
             </pre>
           </div>
 
-          {result.ok ? (
+          {typeof result.ok === "boolean" && (result.ok ? (
             <div>
               <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide mb-1">fal result</p>
               <pre className="text-[11px] font-mono bg-muted/30 border border-border rounded-sm p-2 overflow-x-auto whitespace-pre-wrap break-all">
@@ -673,7 +727,7 @@ function EngineTestPanel({ engine }: { engine: EngineRow }) {
                 {safeJson(result.error)}
               </pre>
             </div>
-          )}
+          ))}
         </div>
       )}
     </div>
@@ -982,6 +1036,15 @@ function EngineCard({
                   <Star className="w-2.5 h-2.5" /> default
                 </span>
               )}
+              {(() => {
+                const params = (engine.paramSchema as { params?: unknown[] } | null)?.params;
+                const count = Array.isArray(params) ? params.length : 0;
+                return count > 0 ? (
+                  <span className="text-[10px] font-mono text-amber-300/80 bg-amber-500/10 px-1.5 py-0.5 rounded">
+                    {count} params
+                  </span>
+                ) : null;
+              })()}
               {engine.featureFlagRequired && (
                 <span className="text-[10px] font-mono text-purple-300 bg-purple-500/10 px-1.5 py-0.5 rounded">flag:{engine.featureFlagRequired}</span>
               )}

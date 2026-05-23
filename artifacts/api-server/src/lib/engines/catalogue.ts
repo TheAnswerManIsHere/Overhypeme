@@ -11,6 +11,7 @@ import { VEO_3_1_FAST } from "./veo-3.1-fast";
 import { KLING_V3_STANDARD } from "./kling-v3-standard";
 import { SEEDANCE_2_0_FAST } from "./seedance-2.0-fast";
 import { GROK_IMAGINE } from "./grok-imagine";
+import { NANO_BANANA_PRO } from "./nano-banana-pro";
 import { PULID_FLUX } from "./pulid-flux";
 import { FAL_AUTO_SUBTITLE } from "./fal-auto-subtitle";
 
@@ -26,6 +27,7 @@ export const ALL_ENGINES: EngineDefinition[] = [
   KLING_V3_STANDARD,
   SEEDANCE_2_0_FAST,
   GROK_IMAGINE,
+  NANO_BANANA_PRO,
   PULID_FLUX,
   FAL_AUTO_SUBTITLE,
 ];

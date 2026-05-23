@@ -114,7 +114,9 @@ describe("reconcileEngines", () => {
     const names = schema.params.map((p) => p.name);
     assert.ok(names.includes("image_url"), "code paramSchema overwrote drifted DB version");
     assert.ok(!names.includes("garbage"), "drifted entry was removed");
-    assert.ok(!names.includes("generate_audio"), "Veo Lite paramSchema must NOT include generate_audio");
+    // Lite now DOES emit generate_audio per current fal docs (May 2026).
+    // See note in engineInterpreter.test.ts — flip back if 422s return.
+    assert.ok(names.includes("generate_audio"), "Veo Lite paramSchema must include generate_audio per fal docs");
   });
 
   it("preserves the deletedAt tombstone across reconciliations", async () => {
@@ -156,7 +158,9 @@ describe("reconcileEngines", () => {
       .where(eq(enginesTable.id, "kling-v3-standard"));
     const schema = row?.paramSchema as { params?: Array<{ name: string }> } | null;
     const names = schema?.params?.map((p) => p.name) ?? [];
-    assert.ok(names.includes("image_url"), "schema was refreshed on tombstoned row");
+    // Kling v3 uses start_image_url (not image_url) — the rename is the
+    // canary that the production schema was actually re-applied.
+    assert.ok(names.includes("start_image_url"), "schema was refreshed on tombstoned row");
     assert.ok(row?.deletedAt != null, "tombstone preserved");
   });
 
