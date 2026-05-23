@@ -98,6 +98,35 @@ export function __setFalUploadForTest(impl: FalUpload | null): void {
   falUploadOverride = impl;
 }
 
+/** Shape returned by the submit override — mirrors the fal SDK's InQueueQueueStatus.request_id. */
+type FalSubmit = (
+  endpoint: string,
+  opts: { input: Record<string, unknown> },
+) => Promise<{ request_id: string }>;
+let falSubmitOverride: FalSubmit | null = null;
+
+/** Test helper: replace fal.queue.submit used by POST /:id/test. */
+export function __setFalSubmitForTest(impl: FalSubmit | null): void {
+  falSubmitOverride = impl;
+}
+
+/** Shape returned by the poll override — one call per GET /:id/test/poll/:requestId. */
+type FalPollResult = {
+  done: boolean;
+  ok?: boolean;
+  falResult?: unknown;
+  error?: { message: string; body?: unknown; status?: unknown };
+  phase?: string;
+  queuePosition?: number;
+};
+type FalPoll = (endpoint: string, requestId: string) => Promise<FalPollResult>;
+let falPollOverride: FalPoll | null = null;
+
+/** Test helper: replace fal.queue.status/result used by GET /:id/test/poll/:requestId. */
+export function __setFalPollForTest(impl: FalPoll | null): void {
+  falPollOverride = impl;
+}
+
 // ────────────────────────────────────────────────────────────────────────────
 // Helpers
 // ────────────────────────────────────────────────────────────────────────────
@@ -316,6 +345,33 @@ router.post("/admin/engines/:id/set-default", requireAdmin, async (req: Request,
 
 interface TestBody {
   sampleImageUrl?: string;
+  /** Override the engine's default motion prompt. Falls back to TEST_MOTION_PROMPT. */
+  motionPrompt?: string;
+  /**
+   * Override the dialogue text routed through applyAudioHandling.
+   *   `string`     — use as-is (overrides TEST_DIALOGUE_TEXT)
+   *   `null`       — explicit silence (no voiceover cue at all)
+   *   `undefined`  — fall back to engine-appropriate default (TEST_DIALOGUE_TEXT
+   *                  for audio engines, null for utility engines)
+   */
+  dialogueText?: string | null;
+  /** Override the default duration (seconds). Must be in engine.allowedDurationsSec when set. */
+  durationSec?: number;
+  /** Override the default aspect ratio. Accepts wizard format ("landscape"/"square"/"portrait") OR fal format ("16:9"/"1:1"/"9:16"/etc.). */
+  aspectRatio?: string;
+  /** Override the default resolution. Must be in engine.allowedResolutions when set. */
+  resolution?: string;
+  /** Override the default mode. Must be in engine.supportedModes when set. */
+  mode?: string;
+  /** Override the generateAudio default. */
+  generateAudio?: boolean;
+  /**
+   * Engine-specific param overrides — merged into pipelineParams before
+   * applyAudioHandling. Keys are the schema's `from` keys (e.g. "cfgScale",
+   * "negativePrompt"). Used to surface engine-specific knobs in the admin
+   * Test panel without hard-coding them server-side.
+   */
+  extraParams?: Record<string, unknown>;
 }
 
 /**
@@ -332,6 +388,29 @@ interface TestBody {
  *   200 { ok: false, falInput, error, durationMs }   (engine returned error)
  *   400 / 404 on validation problems
  */
+/**
+ * Synthetic test fixtures. These are deliberately specific (not generic
+ * prose) so admins can judge from the output video whether the engine
+ * honored what we sent:
+ *
+ *   - Motion: observable beats with direction + timing. If the subject
+ *     isn't doing what's described, the engine is ignoring motion prompts.
+ *   - Dialogue: a recognizable phrase with phonetically diverse syllables.
+ *     If the audio garbles it, the engine's voice synthesis is the issue.
+ *     If the lips don't match for `native_lipsync` engines, lipsync is.
+ *
+ * Both flow through the same code paths as the wizard's real generation
+ * (applyAudioHandling + buildEngineInput), so the synthetic test exercises
+ * the engine's actual contract, not just "does fal accept the JSON."
+ */
+const TEST_MOTION_PROMPT =
+  "Subject slowly turns their head 45 degrees to the left over 2 seconds, " +
+  "then returns to center while making eye contact with the camera. " +
+  "Slow dolly push-in throughout. Soft window light from the left.";
+
+const TEST_DIALOGUE_TEXT =
+  "This is a synthetic engine test. The quick brown fox jumps over the lazy dog.";
+
 router.post("/admin/engines/:id/test", requireAdmin, async (req: Request, res: Response) => {
   const id = String(req.params["id"] ?? "");
   const engine = await fetchEngineById(id);
@@ -388,35 +467,71 @@ router.post("/admin/engines/:id/test", requireAdmin, async (req: Request, res: R
     }
   }
 
-  // ── Build a minimal valid pipeline-params object using engine defaults ───
-  const aspectRatio = engine.defaultAspectRatio ?? "16:9";
-  // Reverse-map fal → wizard if the schema's aspect_ratio entry uses the
-  // landscape/portrait/square map. The interpreter will translate back.
-  const aspectRatioWizard = aspectRatio === "16:9" ? "landscape"
-    : aspectRatio === "9:16" ? "portrait"
-    : aspectRatio === "1:1" ? "square"
-    : aspectRatio;
+  // ── Build the pipeline-params object — defaults from engine, overridden by body ───
+  // Aspect ratio: admin may pass wizard format ("landscape"/"square"/"portrait")
+  // or fal format ("16:9" etc.). We always feed the interpreter wizard format
+  // (its paramSchema map handles the translation).
+  const aspectRatioRaw = body.aspectRatio ?? engine.defaultAspectRatio ?? "16:9";
+  const aspectRatioWizard = aspectRatioRaw === "16:9" ? "landscape"
+    : aspectRatioRaw === "9:16" ? "portrait"
+    : aspectRatioRaw === "1:1" ? "square"
+    : aspectRatioRaw; // already wizard format ("landscape" etc.) or engine-specific
+
+  const motionPrompt = typeof body.motionPrompt === "string" && body.motionPrompt.trim()
+    ? body.motionPrompt
+    : TEST_MOTION_PROMPT;
 
   const pipelineParams: Record<string, unknown> = {
     imageUrl: sampleImageUrl,
     referenceImageUrl: sampleImageUrl,
     videoUrl: sampleImageUrl,
-    motionPrompt: "Synthetic admin test: subtle camera push-in, gentle motion.",
+    motionPrompt,
     imagePrompt: "Synthetic admin test portrait, neutral background, soft lighting.",
-    durationSec: engine.defaultDurationSec ?? 6,
+    durationSec: typeof body.durationSec === "number" && body.durationSec > 0
+      ? body.durationSec
+      : engine.defaultDurationSec ?? 6,
     aspectRatio: aspectRatioWizard,
-    resolution: engine.defaultResolution ?? undefined,
-    mode: engine.defaultMode ?? undefined,
-    generateAudio: false,
+    resolution: body.resolution ?? engine.defaultResolution ?? undefined,
+    mode: body.mode ?? engine.defaultMode ?? undefined,
+    // Audio engines (Veo native_lipsync, Kling voice_control, Seedance
+    // native_audio_boolean) should generate audio by default. The flag is
+    // silently dropped by engines that don't declare a generate_audio param.
+    generateAudio: typeof body.generateAudio === "boolean"
+      ? body.generateAudio
+      : engine.audioHandling !== "none",
     endUserId: `admin-test-${Date.now()}`,
-    dialogueText: null,
+    // dialogueText is routed by applyAudioHandling — see below.
     negativePrompt: undefined,
   };
 
+  // Engine-specific params from the admin override. Merged AFTER the
+  // universal field set so explicit per-engine knobs (cfg_scale,
+  // negative_prompt, etc.) win.
+  if (body.extraParams && typeof body.extraParams === "object") {
+    for (const [key, value] of Object.entries(body.extraParams)) {
+      if (value !== undefined && value !== null && value !== "") {
+        pipelineParams[key] = value;
+      }
+    }
+  }
+
   // ── Pipe through audio handling + interpreter ─────────────────────────────
+  // Resolve the dialogue cue:
+  //   - body.dialogueText === undefined → engine-appropriate default
+  //   - body.dialogueText === null      → explicit silence (no cue routed)
+  //   - body.dialogueText === ""        → explicit silence
+  //   - otherwise                       → use as-is
+  let dialogueForTest: string | null;
+  if (body.dialogueText === undefined) {
+    dialogueForTest = engine.audioHandling === "none" ? null : TEST_DIALOGUE_TEXT;
+  } else if (body.dialogueText === null || body.dialogueText === "") {
+    dialogueForTest = null;
+  } else {
+    dialogueForTest = body.dialogueText;
+  }
   let falInput: Record<string, unknown>;
   try {
-    const augmented = applyAudioHandling(engine, pipelineParams, null);
+    const augmented = applyAudioHandling(engine, pipelineParams, dialogueForTest);
     falInput = buildEngineInput(engine, augmented);
   } catch (err) {
     res.status(400).json({
@@ -429,23 +544,31 @@ router.post("/admin/engines/:id/test", requireAdmin, async (req: Request, res: R
     return;
   }
 
-  // ── Call fal (or the test override) ───────────────────────────────────────
-  const startedAt = Date.now();
+  // ── Submit to fal queue (returns requestId immediately — no blocking wait) ──
   try {
-    const subscribe = falSubscribeOverride ?? ((endpoint: string, opts: { input: Record<string, unknown>; logs?: boolean }) =>
-      fal.subscribe(endpoint, opts) as Promise<{ requestId?: string | null; data?: unknown }>);
-    const result = await subscribe(engine.endpointId, { input: falInput, logs: true });
-    const durationMs = Date.now() - startedAt;
-    res.json({
-      ok: true,
+    const submit = falSubmitOverride
+      ?? (async (endpoint: string, opts: { input: Record<string, unknown> }) => {
+        const result = await (fal.queue.submit as (
+          endpoint: string,
+          opts: { input: Record<string, unknown> },
+        ) => Promise<{ request_id: string }>)(endpoint, opts);
+        return { request_id: result.request_id };
+      });
+
+    const submitted = await submit(engine.endpointId, { input: falInput });
+
+    res.status(202).json({
+      status: "submitted",
+      requestId: submitted.request_id,
       engineId: engine.id,
       endpointId: engine.endpointId,
       falInput,
-      falResult: result,
-      durationMs,
+      testFixtures: {
+        motionPrompt: TEST_MOTION_PROMPT,
+        dialogueText: dialogueForTest,
+      },
     });
   } catch (err) {
-    const durationMs = Date.now() - startedAt;
     const message = err instanceof Error ? err.message : "Unknown error";
     const errBody = err && typeof err === "object" && "body" in err
       ? (err as { body?: unknown }).body
@@ -453,20 +576,96 @@ router.post("/admin/engines/:id/test", requireAdmin, async (req: Request, res: R
     const errStatus = err && typeof err === "object" && "status" in err
       ? (err as { status?: unknown }).status
       : undefined;
-    logger.warn({ err, engineId: engine.id }, "[adminEngines/test] fal.subscribe failed");
+    logger.warn({ err, engineId: engine.id }, "[adminEngines/test] fal.queue.submit failed");
     res.json({
       ok: false,
       engineId: engine.id,
       endpointId: engine.endpointId,
       falInput,
-      durationMs,
-      error: {
-        message,
-        body: errBody,
-        status: errStatus,
-      },
+      error: { message, body: errBody, status: errStatus },
     });
   }
 });
+
+// ────────────────────────────────────────────────────────────────────────────
+// 6b. GET /api/admin/engines/:id/test/poll/:requestId
+//
+// Checks the fal queue for a previously-submitted test job. Returns:
+//   { done: false, phase, queuePosition? }       — still in flight
+//   { done: true, ok: true, falResult, durationMs } — completed successfully
+//   { done: true, ok: false, error }               — fal returned an error
+//
+// The frontend polls this every 3 s after POST /:id/test returns 202.
+// ────────────────────────────────────────────────────────────────────────────
+
+router.get(
+  "/admin/engines/:id/test/poll/:requestId",
+  requireAdmin,
+  async (req: Request, res: Response) => {
+    const id = String(req.params["id"] ?? "");
+    const requestId = String(req.params["requestId"] ?? "");
+
+    const engine = await fetchEngineById(id);
+    if (!engine) {
+      res.status(404).json({ error: "Engine not found" });
+      return;
+    }
+
+    const falApiKey = process.env["FAL_AI_API_KEY"] ?? process.env["FAL_KEY"];
+    if (falApiKey) fal.config({ credentials: falApiKey });
+
+    if (falPollOverride) {
+      try {
+        const result = await falPollOverride(engine.endpointId, requestId);
+        res.json(result);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "Unknown error";
+        res.json({ done: true, ok: false, error: { message } });
+      }
+      return;
+    }
+
+    try {
+      const status = await (fal.queue.status as (
+        endpoint: string,
+        opts: { requestId: string; logs?: boolean },
+      ) => Promise<{ status: string; queue_position?: number }>)(engine.endpointId, {
+        requestId,
+        logs: false,
+      });
+
+      if (status.status === "COMPLETED") {
+        const startedAt = Date.now();
+        const result = await (fal.queue.result as (
+          endpoint: string,
+          opts: { requestId: string },
+        ) => Promise<unknown>)(engine.endpointId, { requestId });
+        res.json({
+          done: true,
+          ok: true,
+          falResult: result,
+          durationMs: Date.now() - startedAt,
+          requestId,
+        });
+      } else {
+        res.json({
+          done: false,
+          phase: status.status,
+          queuePosition: status.queue_position,
+        });
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Unknown error";
+      const errBody = err && typeof err === "object" && "body" in err
+        ? (err as { body?: unknown }).body
+        : undefined;
+      const errStatus = err && typeof err === "object" && "status" in err
+        ? (err as { status?: unknown }).status
+        : undefined;
+      logger.warn({ err, engineId: engine.id, requestId }, "[adminEngines/poll] fal.queue poll failed");
+      res.json({ done: true, ok: false, error: { message, body: errBody, status: errStatus } });
+    }
+  },
+);
 
 export default router;

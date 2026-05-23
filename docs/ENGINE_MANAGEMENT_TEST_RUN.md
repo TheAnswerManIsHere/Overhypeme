@@ -148,7 +148,7 @@ node --import tsx/esm --test \
 
 Pass criterion: **132 tests / 35 suites pass, 0 fail**.
 
-### B1. engineInterpreter (49 tests)
+### B1. engineInterpreter (39 tests)
 
 Validates the param-mapping interpreter:
 - 5 primitives (`string`, `int`, `stringInt`, `boolean`, `float`)
@@ -202,7 +202,7 @@ Auth + write surface:
     explicitly.
   - 404 on non-existent engine id.
 
-### B5. legacyKeyRetirement (4 tests)
+### B5. legacyKeyRetirement (5 tests)
 
 Pins the migration shape so the cleanup can't silently drift back:
 - Migration 0060 file exists at the expected path.
@@ -237,30 +237,87 @@ Pass criterion: returns 7 rows; each row has `paramSchema`,
 
 This is the most important diagnostic — it bypasses the meme builder
 entirely and proves that the engine's `paramSchema` produces a valid
-fal call. Default test image is bundled (~50 byte face JPEG); for
-utility engines you must supply `sampleImageUrl`.
+fal call. Default test image is bundled; for utility engines you must
+supply `sampleImageUrl`.
+
+The endpoint accepts a full tuning body — every field is optional and
+falls back to the engine's defaults when omitted. Empty body = the
+synthetic baseline (full motion + dialogue + engine defaults).
 
 ```bash
-# Veo 3.1 Lite — the default video engine.
+# Baseline — engine defaults
 curl -s -X POST -H "Cookie: <admin-session>" \
   http://localhost:<api-port>/api/admin/engines/veo-3.1-lite/test \
   -H "Content-Type: application/json" -d '{}' | jq
+
+# Full tuning surface — every field optional
+curl -s -X POST -H "Cookie: <admin-session>" \
+  http://localhost:<api-port>/api/admin/engines/veo-3.1-lite/test \
+  -H "Content-Type: application/json" -d '{
+    "sampleImageUrl": "https://…/face.jpg",
+    "motionPrompt":   "Subject turns head slowly to the left, then back.",
+    "dialogueText":   "This is a synthetic engine test.",
+    "durationSec":    8,
+    "aspectRatio":    "16:9",
+    "resolution":     "720p",
+    "mode":           "normal",
+    "generateAudio":  true,
+    "extraParams":    { "cfgScale": 0.5, "negativePrompt": "blurry, distorted" }
+  }' | jq
 ```
 
 Pass criterion: the response is `{ ok: true, engineId, endpointId,
-falInput, falResult, durationMs }`. `falInput` is the JSON sent to
-fal.ai — confirm:
+falInput, falResult, durationMs, testFixtures }`. `falInput` is the
+exact JSON sent to fal — confirm:
 
 - `image_url` is present and is a fal-CDN URL.
-- `prompt` is a string.
-- `duration` is `6` (the engine's `defaultDurationSec`).
-- `aspect_ratio` is `"16:9"` (mapped from `"landscape"`).
-- `resolution` is `"720p"`.
-- **NO `generate_audio` field** — the migration-0058 regression guard.
+- `prompt` matches the motion prompt + the audio cue routed via
+  `applyAudioHandling` (e.g. for Veo, `\nVoiceover should say, "…"`).
+- `duration` matches what you sent (defaults to engine's
+  `defaultDurationSec`).
+- `aspect_ratio` matches the engine's fal format (the interpreter maps
+  the wizard format `landscape` → `16:9` etc.).
+- `resolution` matches.
+- **NO `generate_audio` field for Veo engines** — the migration-0058
+  regression guard.
 - `falResult.data.video.url` exists (a real generated video URL).
 
 If `ok: false`, the response includes `error.message` + `error.body`
 (fal's structured error). Use those to diagnose param-shape problems.
+
+#### C2a. Audio-experiment shapes (A / B / C)
+
+The test workbench supports three named experiment shapes for
+validating each engine's audio behavior. The UI's experiment radio
+auto-fills the `dialogueText` field; the same shapes can be exercised
+directly via curl by varying `dialogueText`:
+
+- **A · Baseline** — full dialogue matched to clip duration:
+  ```json
+  { "dialogueText": "This is a synthetic engine test. The quick brown fox jumps over the lazy dog." }
+  ```
+  Pass criterion: audio plays the cue cleanly start to finish; subject
+  does not mouth the words (we want voiceover, not lipsync).
+
+- **B · Padding test** — short dialogue, ~half the clip duration:
+  ```json
+  { "dialogueText": "This is a synthetic engine test." }
+  ```
+  Pass criterion: audio plays the short phrase; remaining clip time is
+  silent (or ambient). **Fail signal**: engine invents extra
+  lipsync-synced dialogue to fill the silence (the documented Grok
+  Imagine quirk).
+
+- **C · Silence** — no dialogue at all:
+  ```json
+  { "dialogueText": null }
+  ```
+  Pass criterion: video has no spoken content. **Fail signal**: engine
+  produces uninvited speech.
+
+Run all three against each engine when validating its audio
+contract. Outcomes feed back into the engine's `audioHandling`
+classification (see `lib/engines/<id>.ts`).
 
 ### C3. PATCH an engine
 

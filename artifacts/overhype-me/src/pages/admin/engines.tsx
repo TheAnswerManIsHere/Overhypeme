@@ -101,25 +101,178 @@ function ReadOnlyField({ label, value }: { label: string; value: string | number
   );
 }
 
+// ─── Test workbench ──────────────────────────────────────────────────────────
+//
+// Built as a tuning sandbox, not just a "did fal accept this" smoke check.
+// Admins can edit every meaningful param (prompt, dialogue, duration, aspect,
+// resolution, mode, engine-specific knobs) and re-run until the output matches
+// the desired behavior. Once the right settings are found, they can be locked
+// into the engine's row defaults via the EngineEditor below.
+
+// Default prompts used when no override is supplied. Kept in sync with the
+// server's TEST_MOTION_PROMPT / TEST_DIALOGUE_TEXT — these are the fallbacks
+// the admin starts from when opening the panel for a fresh engine.
+const DEFAULT_TEST_MOTION_PROMPT =
+  "Subject slowly turns their head 45 degrees to the left over 2 seconds, " +
+  "then returns to center while making eye contact with the camera. " +
+  "Slow dolly push-in throughout. Soft window light from the left.";
+
+const DEFAULT_TEST_DIALOGUE_FULL =
+  "This is a synthetic engine test. The quick brown fox jumps over the lazy dog.";
+
+// Short dialogue used by Experiment B (padding detector). About half the
+// length of the full phrase so audio engines that invent extra dialogue
+// to fill clip silence (Grok quirk) reveal themselves.
+const DEFAULT_TEST_DIALOGUE_SHORT = "This is a synthetic engine test.";
+
+// Universal pipeline keys handled by named form fields below. Anything in the
+// engine's paramSchema with a `from` key NOT in this set gets surfaced as an
+// engine-specific input.
+const UNIVERSAL_FROM_KEYS = new Set([
+  "imageUrl",
+  "referenceImageUrl",
+  "videoUrl",
+  "motionPrompt",
+  "imagePrompt",
+  "durationSec",
+  "aspectRatio",
+  "resolution",
+  "mode",
+  "generateAudio",
+  "endUserId",
+  "dialogueText",
+]);
+
+interface ParamSchemaEntryLike {
+  name?: string;
+  from?: string;
+  type?: string;
+  default?: unknown;
+  enum?: unknown[];
+  range?: { min?: number; max?: number };
+}
+
+type ExperimentMode = "A" | "B" | "C" | "custom";
+
 function EngineTestPanel({ engine }: { engine: EngineRow }) {
-  const [running, setRunning] = useState(false);
+  // ── Form state ────────────────────────────────────────────────────────────
+  const [experiment, setExperiment] = useState<ExperimentMode>("A");
   const [sampleUrl, setSampleUrl] = useState("");
+  const [motionPrompt, setMotionPrompt] = useState(DEFAULT_TEST_MOTION_PROMPT);
+  const [dialogueEnabled, setDialogueEnabled] = useState(engine.audioHandling !== "none");
+  const [dialogueText, setDialogueText] = useState(DEFAULT_TEST_DIALOGUE_FULL);
+  const [durationSec, setDurationSec] = useState<string>(
+    engine.defaultDurationSec !== null ? String(engine.defaultDurationSec) : "",
+  );
+  const [aspectRatio, setAspectRatio] = useState<string>(engine.defaultAspectRatio ?? "");
+  const [resolution, setResolution] = useState<string>(engine.defaultResolution ?? "");
+  const [mode, setMode] = useState<string>(engine.defaultMode ?? "");
+  const [generateAudio, setGenerateAudio] = useState(engine.audioHandling !== "none");
+
+  // Engine-specific params discovered from paramSchema.
+  const engineParams = useMemo(() => {
+    const schema = engine.paramSchema as { params?: ParamSchemaEntryLike[] } | null;
+    const params = schema?.params ?? [];
+    return params.filter(
+      (p) => typeof p.from === "string" && !UNIVERSAL_FROM_KEYS.has(p.from),
+    );
+  }, [engine.paramSchema]);
+
+  // Map of from-key → current value (string for inputs; coerced at send time).
+  const [extraParams, setExtraParams] = useState<Record<string, string>>(() => {
+    const init: Record<string, string> = {};
+    for (const p of engineParams) {
+      if (p.from && p.default !== undefined && p.default !== null) {
+        init[p.from] = String(p.default);
+      }
+    }
+    return init;
+  });
+
+  // ── Experiment radio → auto-fill dialogue ───────────────────────────────
+  const applyExperiment = (next: ExperimentMode) => {
+    setExperiment(next);
+    if (next === "A") {
+      setDialogueEnabled(engine.audioHandling !== "none");
+      setDialogueText(DEFAULT_TEST_DIALOGUE_FULL);
+    } else if (next === "B") {
+      setDialogueEnabled(engine.audioHandling !== "none");
+      setDialogueText(DEFAULT_TEST_DIALOGUE_SHORT);
+    } else if (next === "C") {
+      setDialogueEnabled(false);
+      setDialogueText("");
+    }
+    // "custom" leaves the form alone — set when admin edits something manually.
+  };
+
+  const [running, setRunning] = useState(false);
+  const [pollPhase, setPollPhase] = useState<"queued" | "in_progress" | null>(null);
   const [result, setResult] = useState<{
     ok?: boolean;
     falInput?: unknown;
     falResult?: unknown;
     error?: { message?: string; body?: unknown; status?: unknown };
     durationMs?: number;
+    testFixtures?: {
+      motionPrompt?: string;
+      dialogueText?: string | null;
+    };
   } | null>(null);
   const [httpError, setHttpError] = useState<string | null>(null);
+
+  // Coerce engine-param string inputs back to the type the schema declared
+  // so the server sees proper types (boolean true vs "true", number 0.5 vs "0.5").
+  function coerceExtraValue(entry: ParamSchemaEntryLike, raw: string): unknown {
+    if (raw === "") return undefined;
+    switch (entry.type) {
+      case "boolean":
+        return raw === "true" || raw === "1";
+      case "int":
+        return Math.round(Number(raw));
+      case "stringInt":
+        return String(Math.round(Number(raw)));
+      case "float":
+        return Number(raw);
+      default:
+        return raw;
+    }
+  }
 
   const handleRun = async () => {
     setRunning(true);
     setHttpError(null);
     setResult(null);
+    setPollPhase(null);
     try {
       const body: Record<string, unknown> = {};
       if (sampleUrl.trim()) body.sampleImageUrl = sampleUrl.trim();
+      if (motionPrompt.trim() && motionPrompt !== DEFAULT_TEST_MOTION_PROMPT) {
+        body.motionPrompt = motionPrompt;
+      }
+      // dialogueText: null = explicit silence, string = override, undefined = default
+      if (!dialogueEnabled) {
+        body.dialogueText = null;
+      } else if (dialogueText.trim() && dialogueText !== DEFAULT_TEST_DIALOGUE_FULL) {
+        body.dialogueText = dialogueText;
+      }
+      if (durationSec && Number(durationSec) > 0) body.durationSec = Number(durationSec);
+      if (aspectRatio) body.aspectRatio = aspectRatio;
+      if (resolution) body.resolution = resolution;
+      if (mode) body.mode = mode;
+      if (generateAudio !== (engine.audioHandling !== "none")) {
+        body.generateAudio = generateAudio;
+      }
+      if (engineParams.length > 0) {
+        const extras: Record<string, unknown> = {};
+        for (const p of engineParams) {
+          if (!p.from) continue;
+          const raw = extraParams[p.from] ?? "";
+          const coerced = coerceExtraValue(p, raw);
+          if (coerced !== undefined) extras[p.from] = coerced;
+        }
+        if (Object.keys(extras).length > 0) body.extraParams = extras;
+      }
+
       const r = await fetch(`/api/admin/engines/${engine.id}/test`, {
         method: "POST",
         credentials: "include",
@@ -131,42 +284,339 @@ function EngineTestPanel({ engine }: { engine: EngineRow }) {
         setHttpError(json?.message || json?.error || `HTTP ${r.status}`);
         return;
       }
+
+      // Submit failed synchronously (e.g. invalid input before fal call)
+      if (json?.ok === false) {
+        setResult(json);
+        return;
+      }
+
+      // 202 — fal job submitted; poll for result
+      if (json?.status === "submitted" && json?.requestId) {
+        const { requestId, falInput, testFixtures } = json as {
+          requestId: string;
+          falInput: unknown;
+          testFixtures: { motionPrompt?: string; dialogueText?: string | null };
+        };
+        // Show the fal input immediately so the admin can inspect the payload shape
+        setResult({ falInput, testFixtures });
+        setPollPhase("queued");
+
+        // Poll until fal reports done
+        while (true) {
+          await new Promise<void>((resolve) => setTimeout(resolve, 3000));
+          let pr: Response;
+          try {
+            pr = await fetch(`/api/admin/engines/${engine.id}/test/poll/${requestId}`, {
+              credentials: "include",
+            });
+          } catch (fetchErr) {
+            setHttpError(`Poll fetch failed: ${String(fetchErr)}`);
+            return;
+          }
+          const pjson = await pr.json().catch(() => null);
+          if (!pr.ok || !pjson) {
+            setHttpError(`Poll failed: HTTP ${pr.status}`);
+            return;
+          }
+          if (pjson.done) {
+            setResult({
+              ok: pjson.ok,
+              falInput,
+              falResult: pjson.falResult,
+              error: pjson.error,
+              durationMs: pjson.durationMs,
+              testFixtures,
+            });
+            return;
+          }
+          setPollPhase(pjson.phase === "IN_QUEUE" ? "queued" : "in_progress");
+        }
+      }
+
+      // Fallback: synchronous-looking result (shouldn't normally happen)
       setResult(json);
     } catch (e) {
       setHttpError(String(e));
     } finally {
       setRunning(false);
+      setPollPhase(null);
     }
   };
 
+  const resetToDefaults = () => {
+    setSampleUrl("");
+    setMotionPrompt(DEFAULT_TEST_MOTION_PROMPT);
+    setDialogueEnabled(engine.audioHandling !== "none");
+    setDialogueText(DEFAULT_TEST_DIALOGUE_FULL);
+    setDurationSec(engine.defaultDurationSec !== null ? String(engine.defaultDurationSec) : "");
+    setAspectRatio(engine.defaultAspectRatio ?? "");
+    setResolution(engine.defaultResolution ?? "");
+    setMode(engine.defaultMode ?? "");
+    setGenerateAudio(engine.audioHandling !== "none");
+    const reset: Record<string, string> = {};
+    for (const p of engineParams) {
+      if (p.from && p.default !== undefined && p.default !== null) {
+        reset[p.from] = String(p.default);
+      }
+    }
+    setExtraParams(reset);
+    setExperiment("A");
+  };
+
+  const inputCls =
+    "w-full px-2 py-1.5 text-xs font-mono bg-muted/30 border border-border rounded-sm focus:outline-none focus:border-primary";
+  const selectCls =
+    "w-full px-2 py-1.5 text-xs bg-muted/30 border border-border rounded-sm focus:outline-none focus:border-primary";
+  const labelCls = "block text-[10px] font-semibold text-muted-foreground mb-1 uppercase tracking-wide";
+
   return (
-    <div className="mt-4 border-t border-border pt-4 space-y-3">
-      <div className="flex items-center gap-2">
-        <Beaker className="w-4 h-4 text-primary" />
-        <h4 className="text-xs font-bold text-foreground uppercase tracking-wide">Synthetic test</h4>
+    <div className="mt-4 border-t border-border pt-4 space-y-4">
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <Beaker className="w-4 h-4 text-primary" />
+          <h4 className="text-xs font-bold text-foreground uppercase tracking-wide">Synthetic test workbench</h4>
+        </div>
+        <button
+          type="button"
+          onClick={resetToDefaults}
+          className="text-[10px] text-muted-foreground hover:text-foreground underline"
+        >
+          Reset to defaults
+        </button>
       </div>
-      <p className="text-xs text-muted-foreground">
-        Runs a synthetic generation against fal using the engine&apos;s defaults + a 1×1 test image (unless you provide a URL below). Use this to verify the param shape.
-      </p>
+
+      {/* ── Experiment selector ─────────────────────────────────────── */}
       <div>
-        <label className="block text-[10px] font-semibold text-muted-foreground mb-1 uppercase tracking-wide">
-          Sample image URL (optional — defaults to bundled test face)
+        <label className={labelCls}>Experiment shape</label>
+        <div className="flex gap-2 flex-wrap">
+          {([
+            { value: "A", label: "A · Baseline (full dialogue)" },
+            { value: "B", label: "B · Short dialogue (padding test)" },
+            { value: "C", label: "C · No dialogue (silence test)" },
+          ] as const).map((opt) => (
+            <label key={opt.value} className="flex items-center gap-1.5 text-xs cursor-pointer">
+              <input
+                type="radio"
+                name={`exp-${engine.id}`}
+                value={opt.value}
+                checked={experiment === opt.value}
+                onChange={() => applyExperiment(opt.value)}
+                className="accent-primary"
+              />
+              <span>{opt.label}</span>
+            </label>
+          ))}
+        </div>
+        <p className="text-[10px] text-muted-foreground mt-1">
+          A baseline = does the engine cleanly speak/narrate the dialogue?
+          B = does it invent extra dialogue when there&apos;s clip time left after the cue?
+          C = does it produce uninvited speech when given none?
+        </p>
+      </div>
+
+      {/* ── Sample image ─────────────────────────────────────────────── */}
+      <div>
+        <label className={labelCls}>
+          Sample image URL (optional — defaults to bundled face)
         </label>
         <input
           value={sampleUrl}
           onChange={(e) => setSampleUrl(e.target.value)}
           placeholder="https://…/face.jpg"
-          className="w-full px-3 py-1.5 text-xs font-mono bg-muted/30 border border-border rounded-sm focus:outline-none focus:border-primary"
+          className={inputCls}
         />
       </div>
+
+      {/* ── Motion prompt ────────────────────────────────────────────── */}
+      <div>
+        <label className={labelCls}>Motion prompt</label>
+        <textarea
+          value={motionPrompt}
+          onChange={(e) => { setMotionPrompt(e.target.value); setExperiment("custom"); }}
+          rows={4}
+          className={`${inputCls} font-sans`}
+        />
+      </div>
+
+      {/* ── Dialogue ─────────────────────────────────────────────────── */}
+      <div className="space-y-1.5">
+        <div className="flex items-center justify-between">
+          <label className={labelCls + " mb-0"}>Dialogue cue</label>
+          <label className="flex items-center gap-1 text-[10px] text-muted-foreground cursor-pointer">
+            <input
+              type="checkbox"
+              checked={dialogueEnabled}
+              onChange={(e) => { setDialogueEnabled(e.target.checked); setExperiment("custom"); }}
+              className="accent-primary"
+            />
+            <span>Send dialogue</span>
+          </label>
+        </div>
+        <textarea
+          value={dialogueText}
+          onChange={(e) => { setDialogueText(e.target.value); setExperiment("custom"); }}
+          rows={2}
+          disabled={!dialogueEnabled}
+          placeholder={dialogueEnabled ? DEFAULT_TEST_DIALOGUE_FULL : "(silence)"}
+          className={`${inputCls} font-sans ${!dialogueEnabled ? "opacity-50" : ""}`}
+        />
+      </div>
+
+      {/* ── Universal option grid ────────────────────────────────────── */}
+      <div className="grid grid-cols-2 gap-3">
+        {engine.allowedDurationsSec && engine.allowedDurationsSec.length > 0 ? (
+          <div>
+            <label className={labelCls}>Duration (sec)</label>
+            <select
+              value={durationSec}
+              onChange={(e) => { setDurationSec(e.target.value); setExperiment("custom"); }}
+              className={selectCls}
+            >
+              {engine.allowedDurationsSec.map((d) => (
+                <option key={d} value={d}>{d}s</option>
+              ))}
+            </select>
+          </div>
+        ) : null}
+
+        {engine.allowedResolutions && engine.allowedResolutions.length > 0 ? (
+          <div>
+            <label className={labelCls}>Resolution</label>
+            <select
+              value={resolution}
+              onChange={(e) => { setResolution(e.target.value); setExperiment("custom"); }}
+              className={selectCls}
+            >
+              {engine.allowedResolutions.map((r) => (
+                <option key={r} value={r}>{r}</option>
+              ))}
+            </select>
+          </div>
+        ) : null}
+
+        {engine.allowedAspectRatios && engine.allowedAspectRatios.length > 0 ? (
+          <div>
+            <label className={labelCls}>Aspect ratio</label>
+            <select
+              value={aspectRatio}
+              onChange={(e) => { setAspectRatio(e.target.value); setExperiment("custom"); }}
+              className={selectCls}
+            >
+              {engine.allowedAspectRatios.map((r) => (
+                <option key={r} value={r}>{r}</option>
+              ))}
+            </select>
+          </div>
+        ) : null}
+
+        {engine.supportedModes && engine.supportedModes.length > 0 ? (
+          <div>
+            <label className={labelCls}>Mode</label>
+            <select
+              value={mode}
+              onChange={(e) => { setMode(e.target.value); setExperiment("custom"); }}
+              className={selectCls}
+            >
+              {engine.supportedModes.map((m) => (
+                <option key={m} value={m}>{m}</option>
+              ))}
+            </select>
+          </div>
+        ) : null}
+
+        {engine.audioHandling !== "none" && (
+          <label className="flex items-center gap-1.5 text-xs cursor-pointer pt-5">
+            <input
+              type="checkbox"
+              checked={generateAudio}
+              onChange={(e) => { setGenerateAudio(e.target.checked); setExperiment("custom"); }}
+              className="accent-primary"
+            />
+            <span>generate_audio</span>
+          </label>
+        )}
+      </div>
+
+      {/* ── Engine-specific params ───────────────────────────────────── */}
+      {engineParams.length > 0 && (
+        <div className="space-y-2 rounded-sm border border-amber-500/30 bg-amber-500/5 p-2">
+          <p className="text-[10px] font-semibold text-amber-500 uppercase tracking-wider">
+            {engine.label} — engine-specific params
+          </p>
+          <div className="grid grid-cols-2 gap-2">
+            {engineParams.map((p) => {
+              const key = p.from!;
+              const value = extraParams[key] ?? "";
+              const setValue = (v: string) => {
+                setExtraParams((prev) => ({ ...prev, [key]: v }));
+                setExperiment("custom");
+              };
+              if (p.type === "boolean") {
+                return (
+                  <label key={key} className="flex items-center gap-1.5 text-xs cursor-pointer pt-4">
+                    <input
+                      type="checkbox"
+                      checked={value === "true" || value === "1"}
+                      onChange={(e) => setValue(e.target.checked ? "true" : "false")}
+                      className="accent-primary"
+                    />
+                    <span className="font-mono">{key}</span>
+                  </label>
+                );
+              }
+              if (p.enum && p.enum.length > 0) {
+                return (
+                  <div key={key}>
+                    <label className={labelCls}>{key}</label>
+                    <select value={value} onChange={(e) => setValue(e.target.value)} className={selectCls}>
+                      <option value="">(default)</option>
+                      {p.enum.map((v) => (
+                        <option key={String(v)} value={String(v)}>{String(v)}</option>
+                      ))}
+                    </select>
+                  </div>
+                );
+              }
+              const isNumber = p.type === "int" || p.type === "stringInt" || p.type === "float";
+              return (
+                <div key={key} className={isNumber ? "" : "col-span-2"}>
+                  <label className={labelCls}>{key}</label>
+                  <input
+                    value={value}
+                    onChange={(e) => setValue(e.target.value)}
+                    type={isNumber ? "number" : "text"}
+                    step={p.type === "float" ? "0.01" : "1"}
+                    min={p.range?.min}
+                    max={p.range?.max}
+                    placeholder={p.default !== undefined ? String(p.default) : ""}
+                    className={inputCls}
+                  />
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       <button
         onClick={handleRun}
         disabled={running}
         className="flex items-center gap-1.5 min-h-[40px] px-3 py-1.5 text-xs font-bold uppercase tracking-wide bg-primary text-primary-foreground rounded-sm hover:bg-primary/90 disabled:opacity-50 transition-colors"
       >
         {running ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Beaker className="w-3.5 h-3.5" />}
-        {running ? "Running…" : "Run test"}
+        {running
+          ? pollPhase === "queued" ? "In queue…"
+          : pollPhase === "in_progress" ? "Running…"
+          : "Submitting…"
+          : "Run test"}
       </button>
+
+      {running && pollPhase && (
+        <p className="text-[11px] text-muted-foreground">
+          {pollPhase === "queued" ? "Job is queued — polling every 3s…" : "Job is running — polling every 3s…"}
+        </p>
+      )}
 
       {httpError && <p className="text-xs text-destructive">{httpError}</p>}
 
@@ -178,6 +628,29 @@ function EngineTestPanel({ engine }: { engine: EngineRow }) {
             </span>
             {result.durationMs !== undefined && <span className="text-muted-foreground">{msToHuman(result.durationMs)}</span>}
           </div>
+
+          {result.testFixtures && (
+            <div className="space-y-2 rounded-sm border border-amber-500/30 bg-amber-500/5 p-2">
+              <p className="text-[10px] font-semibold text-amber-500 uppercase tracking-wider">Spot-check against these</p>
+              <div className="space-y-1.5 text-[11px]">
+                <div>
+                  <span className="text-muted-foreground">Expected motion: </span>
+                  <span className="text-foreground">{result.testFixtures.motionPrompt}</span>
+                </div>
+                {result.testFixtures.dialogueText && (
+                  <div>
+                    <span className="text-muted-foreground">Expected audio (should say): </span>
+                    <span className="text-foreground italic">&ldquo;{result.testFixtures.dialogueText}&rdquo;</span>
+                  </div>
+                )}
+                {result.testFixtures.dialogueText === null && (
+                  <div className="text-muted-foreground italic">
+                    Utility engine — no audio path; output video has no spoken content.
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
 
           <div>
             <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide mb-1">fal input (sent)</p>

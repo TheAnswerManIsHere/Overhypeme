@@ -164,133 +164,235 @@ If any editable field is on the right side (read-only), that's a bug.
 
 ---
 
-# PART THREE — Synthetic engine tests (the headline feature)
+# PART THREE — Synthetic engine test workbench
 
-This is the most important section. The **Test** button runs an engine
-with a synthetic test face image and shows you exactly what was sent
-to fal + what fal returned. **It bypasses the entire meme builder.**
+This is the most important section. The **Test** button opens a full
+tuning workbench where you can edit every meaningful input (motion
+prompt, dialogue, duration, aspect ratio, resolution, mode, engine-
+specific params) and iterate until the output matches the desired
+behavior. **It bypasses the entire meme builder.**
 
-The goal: confirm each engine's `paramSchema` is correct before we
-debug anything in the meme builder flow.
+The goal: dial in the right settings per engine, then encode those
+into the engine's TypeScript definition so the wizard's production
+flow inherits them.
 
-## Section D — Veo 3.1 Lite test
+## Section D — Workbench tour (using Veo 3.1 Lite)
 
-### D1. Run the test
+### D1. Open the workbench
 
-Tap **Test** on the Veo 3.1 Lite row. An inline panel opens.
+Tap **Test** on the Veo 3.1 Lite row. An inline panel opens with the
+full form:
 
-Click **Run test**. Wait ~15-30 seconds.
+- **Experiment shape** radio row (A / B / C / custom)
+- **Sample image URL** — defaults to the bundled face JPEG
+- **Motion prompt** — editable textarea, pre-filled with the default
+  observable choreography
+- **Dialogue cue** — editable textarea + "Send dialogue" toggle
+- **Universal dropdowns** — Duration, Resolution, Aspect ratio, Mode
+  (sourced from the engine's allowed sets)
+- **`generate_audio`** checkbox (visible only for audio engines)
+- **Engine-specific params panel** — for Veo Lite this surfaces
+  optional fields like `negativePrompt`. For Kling it surfaces
+  `cfgScale`, `negativePrompt`, etc. Rendered dynamically from the
+  engine's `paramSchema`.
+- **Reset to defaults** link top-right
+- **Run test** button
 
-### D2. Expected pass state
+Editing any field flips the experiment radio to `custom` so you know
+your last A/B/C choice no longer represents what's being sent.
 
-The panel should display:
+### D2. Experiment A — Baseline (does the engine speak the cue?)
 
+Click radio **A · Baseline (full dialogue)**, leave everything else
+at defaults, click **Run test**. Wait ~15-30 seconds for the engine.
+
+Expected pass state in the panel:
+
+- **Spot-check callout** (amber border) — shows the expected motion
+  + expected audio so you can compare against the output video.
 - **falInput** (pretty-printed JSON) — exactly what was sent to fal.
   Confirm:
-  - `image_url` is a URL starting with `https://fal.media` or similar
-    (the synthetic test face uploaded to fal's CDN).
-  - `prompt` is "Synthetic admin test: subtle camera push-in, gentle
-    motion." (or similar).
-  - `duration` is `6` (the engine's `defaultDurationSec`).
+  - `image_url` is a fal-CDN URL.
+  - `prompt` contains the long motion prompt **AND** the audio cue
+    routed via `applyAudioHandling` (for Veo: `\nVoiceover should say,
+    "This is a synthetic engine test…"`).
+  - `duration` is `6` (engine's `defaultDurationSec`).
   - `aspect_ratio` is `"16:9"`.
   - `resolution` is `"720p"`.
-  - **No `generate_audio` field.** (The migration-0058 bug class —
-    Veo doesn't accept this.)
-  - **No `mode` field.** (Veo has no modes.)
-- **falResult** — fal's response. For a successful run, this includes
-  `data.video.url` with a real generated video URL. You can paste
-  that URL into a new tab to see a ~6 second video.
-- **durationMs** — wall-clock duration (typically 15000-30000 ms).
+  - **No `generate_audio` field** — the migration-0058 regression
+    guard (Veo doesn't accept it).
+  - **No `mode` field** — Veo has no modes.
+- **falResult** — `data.video.url` with a real video URL. Paste it
+  into a new tab; verify:
+  - Subject performs the motion described (head turn + dolly push-in).
+  - Audio plays the test phrase clearly.
+  - **The platform expects voiceover-style audio — the subject should
+    NOT be mouthing the words.** If they are, the engine is producing
+    on-screen dialogue instead of narration; flag the engine's
+    `audioHandling` classification for review.
 
-### D3. Expected fail states
+### D3. Experiment B — Padding test (does the engine invent dialogue?)
 
-If the panel shows `ok: false` instead:
+Click radio **B · Short dialogue (padding test)**. The dialogue field
+auto-fills with a shorter phrase (~half the clip duration). Click
+**Run test**.
 
-- **error.message** — human-readable reason from the engine interpreter
-  or fal. Common reasons:
-  - "Engine X parameter Y failed validation" — the paramSchema declares
-    a value that didn't make it through (probably an `enum` mismatch).
-    Look at the engine's TypeScript definition.
-  - "fal: ApiError" with a body — fal rejected the call. The body
-    usually says which param is wrong. If a key is wrong, file a bug —
-    the paramSchema in `lib/engines/veo-3.1-lite.ts` needs to be updated.
-- **error.body** — fal's structured error response, if any.
+Pass criterion:
 
-### D4. Outcome
+- Audio plays the short phrase, then goes silent (or ambient sound
+  only) for the remainder of the clip.
 
-If D2 passes, Veo Lite is wired correctly. Move on to D5.
+Fail signal:
 
-If D2 fails, **stop**. The wizard isn't going to do better than the
-direct test. Capture the failure details and we fix the paramSchema
-before trying anything else.
+- Engine invents extra spoken content to fill the remaining clip time.
+  Watch for the subject mouthing words that weren't in the cue, or
+  for the audio rambling on after the cue should have ended. This is
+  the documented Grok Imagine quirk — if it shows up on Veo, that's
+  a real signal to investigate.
+
+### D4. Experiment C — Silence (does the engine respect a quiet clip?)
+
+Click radio **C · No dialogue (silence test)**. The dialogue toggle
+turns off, and the textarea greys out. Click **Run test**.
+
+Pass criterion:
+
+- Video has no spoken content (ambient SFX / room tone is fine).
+
+Fail signal:
+
+- Engine produces uninvited speech. The subject says something we
+  never asked for. Flag the engine.
+
+### D5. Tuning loop (when something doesn't pass)
+
+If any of A/B/C produces unwanted behavior:
+
+1. Edit the **motion prompt** or **dialogue cue** in the textareas to
+   try a different phrasing. Re-run.
+2. Adjust **engine-specific params** in the amber panel — for
+   example, Kling's `cfgScale` controls how strictly the model
+   follows the prompt; lower it if the engine is producing wild
+   outputs.
+3. Adjust **duration** / **resolution** / **mode** dropdowns to see
+   if the failure is shape-specific.
+4. Once you find a combination that produces clean output, note the
+   exact settings (the **Spot-check callout** + falInput JSON are
+   your source of truth) and report them back. The settings get
+   encoded into `lib/engines/<id>.ts` so the wizard's production
+   flow inherits them.
+
+### D6. Expected fail states (engine-level failures, not behavior)
+
+If the panel shows `ok: false`:
+
+- **error.message** — human-readable reason. Common ones:
+  - `Engine X parameter Y failed validation` — the paramSchema's
+    `enum` rejected a value. Look at the engine's TS definition.
+  - `fal: ApiError` with a body — fal rejected the request. The
+    body usually says which param is wrong. If a key is rejected,
+    the paramSchema in `lib/engines/<id>.ts` needs updating.
+  - `503 fal_not_configured` — `FAL_AI_API_KEY` env var isn't set.
+    Production fix, not a UAT issue.
+- **error.body** — fal's structured error response.
 
 ---
 
 ## Section E — Walk the rest of the engines
 
-For each remaining engine, repeat the Section D test pattern.
+For each remaining engine, repeat the full D1-D5 sequence (open
+workbench, run experiments A/B/C, tune if needed). The expected
+`falInput` shape per engine is below as a reference for the baseline
+(Experiment A) — these mirror the engine's `paramSchema`. The
+engine-specific params panel exposes everything else that's tunable.
 
 ### E1. Veo 3.1 Fast
 
-Expected falInput fields: same as Veo Lite, but `resolution` is
-`"720p"` (default) and could be set to `"1080p"`. Test with default.
+Baseline falInput: same as Veo Lite. Try `resolution: "1080p"` via
+the dropdown to verify the engine accepts it. Engine-specific params
+panel: `negativePrompt` only.
 
 ### E2. Kling v3 Standard
 
-Expected falInput fields:
-- `image_url` (string)
-- `prompt` (string)
-- `duration` is a **string** ("5", not 5) — Kling's quirk.
-- `aspect_ratio`
-- `negative_prompt` ("blur, distort, low quality" default)
-- `cfg_scale` ~0.5 (or whatever the engine's default is set to)
-- **No `voice_text`** field (omitted because no `dialogueText` was
-  supplied; the `includeWhen` predicate dropped it).
+Baseline falInput:
+- `image_url`, `prompt`, `aspect_ratio`
+- `duration` is a **string** ("5", not 5) — Kling's quirk; the
+  `stringInt` interpreter type handles this.
+- `negative_prompt` defaults to `"blur, distort, low quality"`
+- `cfg_scale` defaults to `0.5`
+- `voice_text` is omitted (the `includeWhen` predicate drops it when
+  no `dialogueText` is supplied). For experiment A/B the dialogue
+  routes via Kling's `voice_control` audioHandling → fills the
+  `voice_text` field.
+
+Engine-specific params panel: `cfgScale` (number, range 0–1),
+`negativePrompt` (text). Use these to tune narration semantics —
+lower cfgScale tends to give the model more latitude.
 
 ### E3. Seedance 2.0 Fast
 
-Expected falInput fields:
-- `image_url`, `prompt`, `duration` (6 default), `aspect_ratio`,
-  `resolution` ("720p")
-- `generate_audio: true` (Seedance accepts this — it's Veo that doesn't)
-- `end_user_id` ✓ (ByteDance ToS requirement — should be a generated
-  test id like `"admin-test-1234567890"`)
+Baseline falInput:
+- `image_url`, `prompt`, `duration` (6), `aspect_ratio`, `resolution` (720p)
+- `generate_audio: true` (Seedance accepts this — Veo doesn't)
+- `end_user_id` ✓ (ByteDance ToS — a generated test id like
+  `"admin-test-1234567890"`)
 
 If `end_user_id` is missing, the engine's `paramSchema` is wrong
-(`required: true` should be set). Fal will reject.
+(`required: true` should be set on the entry). Fal will reject.
+
+Engine-specific params panel: `negativePrompt` (text). The dialogue
+routes through Seedance's `native_audio_boolean` handling — the
+voiceover cue is appended to the motion prompt.
 
 ### E4. Grok Imagine
 
-Expected falInput fields:
-- `image_url`, `prompt`, `duration` (6 default), `aspect_ratio`,
-  `resolution` ("480p" default)
+Baseline falInput:
+- `image_url`, `prompt`, `duration` (6), `aspect_ratio`, `resolution` (480p)
 - `mode: "normal"` ✓ (Grok-specific)
+
+Mode dropdown lets you pick between Normal / Fun / Custom. Try each
+to verify Grok honors the param.
+
+**Note**: Grok is the engine that famously invents extra lip-synced
+dialogue to fill clip silence (see Experiment B). Worth running B
+explicitly to confirm the quirk still exists.
 
 ### E5. PuLID (image utility)
 
-This is an image engine, not video. The synthetic test sends the same
-face image and confirms the paramSchema works:
+Image engine, not video. The workbench sends the same face image
+and confirms the paramSchema works:
 
-Expected falInput:
+Baseline falInput:
 - `reference_image_url` (string)
 - `prompt` (string)
 
 Result data shape: `{ data: { images: [{ url }] } }` rather than
-`{ data: { video } }`. Don't expect a video URL.
+`{ data: { video } }`. Don't expect a video URL or audio. Experiments
+B/C don't apply (no audio path).
 
 ### E6. Auto-subtitle (utility)
 
-Tapping **Test** on auto-subtitle without supplying a `sampleImageUrl`
-should return `error: "test_not_supported"` with copy explaining that
-utility engines need an explicit video URL.
+Tapping **Test** without supplying a `sampleImageUrl` returns
+`error: "test_not_supported"` because utility engines expect a video
+URL, not the bundled face placeholder.
 
-To actually test auto-subtitle: enter a real video URL (e.g. a fal
-CDN URL from a successful Veo test in D2) in the **Sample image URL**
-input (which auto-subtitle treats as a video URL), then Run test.
+To test auto-subtitle:
+1. Run Experiment A against Veo or another video engine and copy
+   the `falResult.data.video.url`.
+2. Paste that URL into the auto-subtitle row's **Sample image URL**
+   field (which the route treats as `videoUrl` for utility engines).
+3. Click **Run test**.
+
 Expected falInput:
 - `video_url` (the URL you supplied)
-- Caption styling fields: `font: "Anton"`, `font_size: 70`,
-  `font_color: "white"`, `highlight_color: "orange"`, etc.
+- Caption styling: `font: "Anton"`, `font_size: 70`, `font_color: "white"`,
+  `highlight_color: "orange"`, `stroke_width: 3`, `stroke_color: "black"`,
+  `position: "bottom"`, `y_offset: 75`, `words_per_subtitle: 1`,
+  `animation: true`.
+
+Result: a captioned MP4 URL. Verify the burned-in captions match
+the brand spec (white text, orange highlight on current word, 3px
+black stroke, bottom-aligned).
 
 ---
 
@@ -364,13 +466,21 @@ Engine: <e.g. kling-v3-standard>
 Endpoint hit: <e.g. POST /api/admin/engines/kling-v3-standard/test>
 Viewer: <admin / legendary>
 
+Workbench state (only for PART THREE bugs):
+  Experiment shape: <A / B / C / custom>
+  Motion prompt: <verbatim or "default">
+  Dialogue cue: <verbatim, or "off" for Experiment C>
+  Duration / resolution / aspect / mode: <values from the dropdowns>
+  generate_audio: <true / false / n/a>
+  Engine-specific params changed: <list any non-default values>
+
 Expected:
   <what the section says should happen>
 
 Actual:
   <what happened>
 
-falInput (paste the JSON from the Test panel):
+falInput (paste the JSON from the workbench result panel):
   {...}
 
 falResult / error.body (paste the JSON):
@@ -378,7 +488,11 @@ falResult / error.body (paste the JSON):
 
 durationMs: <number>
 
-Screenshots / video:
+testFixtures (paste from the workbench result panel — confirms which
+fixtures the route assembled, useful when motion/dialogue look wrong):
+  {...}
+
+Screenshots / video (paste the falResult.data.video.url too):
   <link or attachment>
 
 Network panel:
