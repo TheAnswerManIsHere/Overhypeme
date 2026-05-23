@@ -674,12 +674,14 @@ function EngineTestPanel({ engine }: { engine: EngineRow }) {
 
       {result && (
         <div className="space-y-3">
-          <div className="flex items-center gap-2 text-xs">
-            <span className={`px-1.5 py-0.5 rounded font-bold ${result.ok ? "bg-green-500/10 text-green-400" : "bg-destructive/10 text-destructive"}`}>
-              {result.ok ? "OK" : "FAIL"}
-            </span>
-            {result.durationMs !== undefined && <span className="text-muted-foreground">{msToHuman(result.durationMs)}</span>}
-          </div>
+          {typeof result.ok === "boolean" && (
+            <div className="flex items-center gap-2 text-xs">
+              <span className={`px-1.5 py-0.5 rounded font-bold ${result.ok ? "bg-green-500/10 text-green-400" : "bg-destructive/10 text-destructive"}`}>
+                {result.ok ? "OK" : "FAIL"}
+              </span>
+              {result.durationMs !== undefined && <span className="text-muted-foreground">{msToHuman(result.durationMs)}</span>}
+            </div>
+          )}
 
           {result.testFixtures && (
             <div className="space-y-2 rounded-sm border border-amber-500/30 bg-amber-500/5 p-2">
@@ -711,7 +713,7 @@ function EngineTestPanel({ engine }: { engine: EngineRow }) {
             </pre>
           </div>
 
-          {result.ok ? (
+          {typeof result.ok === "boolean" && (result.ok ? (
             <div>
               <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide mb-1">fal result</p>
               <pre className="text-[11px] font-mono bg-muted/30 border border-border rounded-sm p-2 overflow-x-auto whitespace-pre-wrap break-all">
@@ -725,7 +727,7 @@ function EngineTestPanel({ engine }: { engine: EngineRow }) {
                 {safeJson(result.error)}
               </pre>
             </div>
-          )}
+          ))}
         </div>
       )}
     </div>
