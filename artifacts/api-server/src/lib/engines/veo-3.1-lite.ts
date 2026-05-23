@@ -12,8 +12,15 @@ import type { EngineDefinition } from "./types";
  *   - `resolution` supports BOTH 720p and 1080p — but 1080p is gated to
  *     duration="8s" (cross-field constraint enforced by fal; surfaced as 422
  *     if the caller violates it).
- *   - `generate_audio` is REJECTED on this endpoint (audio is always on).
- *     Sending it produces 422 "no_media_generated" (migration 0058).
+ *   - `generate_audio` (bool, default true) IS accepted per current fal docs.
+ *     Migration 0058 documented a 422 from this field months ago; fal may
+ *     have added support since. The engineInterpreter regression test now
+ *     asserts Lite SHOULD emit `generate_audio` — if a workbench run 422s,
+ *     the test gives a clean rollback signal. Toggling false drops the
+ *     per-second rate from $0.05 (with audio) to $0.03 (without).
+ *   - `auto_fix` (bool, default FALSE per docs) auto-rewrites prompts that
+ *     trip content policy. `safety_tolerance` is a STRING "1"-"6" (default
+ *     "4"; 1 = strictest, 6 = most permissive). Same shape as Fast.
  *   - `negative_prompt`, `seed`, `enhance_prompt` are accepted optionals.
  */
 export const VEO_3_1_LITE: EngineDefinition = {
@@ -68,6 +75,32 @@ export const VEO_3_1_LITE: EngineDefinition = {
         type: "string",
         enum: ["720p", "1080p"],
         default: "720p",
+      },
+      {
+        name: "generate_audio",
+        from: "generateAudio",
+        type: "boolean",
+        default: true,
+      },
+      {
+        name: "auto_fix",
+        from: "autoFix",
+        type: "boolean",
+        default: false,
+      },
+      // String "1"-"6". 1=strictest, 6=most permissive. Same shape as Fast.
+      {
+        name: "safety_tolerance",
+        from: "safetyTolerance",
+        type: "string",
+        enum: ["1", "2", "3", "4", "5", "6"],
+        default: "4",
+      },
+      {
+        name: "enhance_prompt",
+        from: "enhancePrompt",
+        type: "boolean",
+        default: true,
       },
       {
         name: "negative_prompt",

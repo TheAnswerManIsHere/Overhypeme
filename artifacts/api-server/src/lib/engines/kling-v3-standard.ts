@@ -88,6 +88,18 @@ export const KLING_V3_STANDARD: EngineDefinition = {
         type: "boolean",
         default: true,
       },
+      {
+        name: "end_image_url",
+        from: "endImageUrl",
+        type: "string",
+        includeWhen: { field: "endImageUrl", present: true },
+      },
+      {
+        name: "seed",
+        from: "seed",
+        type: "int",
+        includeWhen: { field: "seed", present: true },
+      },
     ],
   },
 

@@ -34,7 +34,12 @@ export const PULID_FLUX: EngineDefinition = {
     "Face-matched stylization. Internal utility, not user-selectable.",
   kind: "image",
   tierRequirement: "legendary",
-  isDefault: true,
+  // Demoted to fallback as of May 2026. Nano Banana Pro is the new default
+  // image-kind engine in the catalogue (see nano-banana-pro.ts). PuLID
+  // stays active so the workbench can A/B test the two, and so the
+  // hardcoded Stage-1 helper (aiMemePipeline.generateAiMemeBackgroundFromReference)
+  // continues to work until the runtime Stage-1 refactor lands.
+  isDefault: false,
   isActive: true,
   sortOrder: 100,
   featureFlagRequired: null,

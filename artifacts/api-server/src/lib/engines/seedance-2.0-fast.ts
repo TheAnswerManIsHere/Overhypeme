@@ -78,13 +78,15 @@ export const SEEDANCE_2_0_FAST: EngineDefinition = {
         type: "boolean",
         default: true,
       },
-      // ByteDance ToS requirement — kept required so the runner can never
-      // accidentally ship without it.
+      // ByteDance ToS recommends sending this for per-user attribution;
+      // fal's schema marks it OPTIONAL (no 422 if omitted). Runner-side
+      // code always supplies the user id, so production traffic still
+      // carries it — but we don't fail-fast at the schema layer.
       {
         name: "end_user_id",
         from: "endUserId",
         type: "string",
-        required: true,
+        includeWhen: { field: "endUserId", present: true },
       },
       {
         name: "seed",
