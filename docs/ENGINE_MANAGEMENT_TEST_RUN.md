@@ -3,9 +3,40 @@
 This is the engineering-side checklist for the engine management system
 landed in PR #51 + the admin-panel cleanup follow-up. It exercises the
 typed engine catalogue, the boot reconciliation, the `/admin/engines`
-write endpoints, the synthetic-fal "Test" harness, and the legacy
-admin_config retirement. Hand it to Replit (or run locally) to confirm
-everything came across correctly.
+write endpoints, the synthetic-fal "Test" harness (now an async
+submit + poll pair), and the legacy admin_config retirement. Hand it to
+Replit (or run locally) to confirm everything came across correctly.
+
+**What's changed since the last revision of this doc:**
+
+- New engine **Nano Banana Pro** (`nano-banana-pro`, Google Gemini 3
+  Pro Image, kind=`image`). It is now the catalogue's default image
+  engine in place of PuLID. **Caveat**: the production video pipeline
+  Stage 1 still hardcodes PuLID; the catalogue default only affects
+  the workbench until Stage 1 is refactored. Engine count: **8**, not
+  7.
+- The fal audit (PRs #57/#58) added new params on every existing
+  engine (`auto_fix`, `safety_tolerance`, `enhance_prompt`,
+  `negative_prompt`, `seed` on the Veo engines; `end_image_url`,
+  `seed`, `generate_audio` on Kling; `seed`, `end_image_url` on
+  Seedance; `video_preset` enum + `seed` on Grok; expanded PuLID knobs
+  `id_weight`, `true_cfg`, `enable_safety_checker`, `num_images`).
+- **The interpreter regression guard for Veo + `generate_audio` was
+  FLIPPED**: the May 2026 fal docs list `generate_audio` as accepted
+  on both Veo 3.1 endpoints. `engineInterpreter.test.ts` now asserts
+  the param IS emitted; if a workbench run starts 422-ing on
+  `no_media_generated` again, flip the guard back.
+- `POST /api/admin/engines/:id/test` is **asynchronous**. It now
+  returns `202` with `{ status: "submitted", requestId, falInput,
+  testFixtures }` immediately. A new `GET
+  /api/admin/engines/:id/test/poll/:requestId` endpoint exposes the
+  fal queue status; the workbench polls it every 3 s. This replaces
+  the previous `fal.subscribe` blocking call, which timed out behind
+  the production reverse proxy on long video jobs.
+- Workbench UI surfaces every param: humanized labels (`autoFix` →
+  "Auto fix"), `{type}` + `default: {value}` chips per input, a
+  `{N} params` badge on each engine card, and a `stringArray` field
+  type for Nano Banana Pro's `image_urls`.
 
 The User Acceptance Test is in [`ENGINE_MANAGEMENT_UAT.md`](./ENGINE_MANAGEMENT_UAT.md)
 — that one is for the product owner to walk through in a browser.
@@ -28,7 +59,10 @@ pnpm --filter @workspace/db run check-snapshots
 # 3. Repo-wide typecheck — covers cycles + no-console linting too.
 pnpm run typecheck
 
-# 4. Server tests for the engine management surface (132 tests).
+# 4. Server tests for the engine management surface
+# (engineInterpreter 38 + engineAudio 10 + engineReconcile 7 +
+#  adminEngines 31 + legacyKeyRetirement 5 + videoJobs +
+#  routes.memes ≈ 135 tests).
 cd artifacts/api-server && \
   DATABASE_URL="postgres://overhype:overhype@localhost:5432/overhype_test" \
   TEST_DB_ALLOW_EXIT_ON_IDLE=1 BCRYPT_SALT_ROUNDS=4 \
@@ -100,7 +134,7 @@ Pass criterion:
 ### A4. Engine rows present after boot
 
 The first time the API server boots, `reconcileEngines()` runs and
-upserts the 7 code-defined engines into the table.
+upserts the 8 code-defined engines into the table.
 
 ```bash
 PGPASSWORD=overhype psql -h localhost -U overhype -d overhype_test -c \
@@ -109,9 +143,11 @@ PGPASSWORD=overhype psql -h localhost -U overhype -d overhype_test -c \
 ```
 
 Pass criteria:
-- 7 rows present: `veo-3.1-lite` (kind=video, is_default=t, is_active=t),
+- 8 rows present: `veo-3.1-lite` (kind=video, is_default=t, is_active=t),
   `veo-3.1-fast`, `kling-v3-standard`, `seedance-2.0-fast`,
-  `grok-imagine`, `pulid-flux` (kind=image, is_default=t),
+  `grok-imagine`, `nano-banana-pro` (kind=image, is_default=t),
+  `pulid-flux` (kind=image, is_default=f — superseded by Nano Banana
+  Pro at the catalogue level),
   `fal-auto-subtitle` (kind=utility, is_default=t).
 - All have `deleted_at = NULL`.
 
@@ -146,20 +182,29 @@ node --import tsx/esm --test \
   src/__tests__/routes.memes.test.ts
 ```
 
-Pass criterion: **132 tests / 35 suites pass, 0 fail**.
+Pass criterion: **all suites pass, 0 fail** (~135 tests across the
+7 files; counts per file in B1–B5 below).
 
-### B1. engineInterpreter (39 tests)
+### B1. engineInterpreter (38 tests)
 
 Validates the param-mapping interpreter:
-- 5 primitives (`string`, `int`, `stringInt`, `boolean`, `float`)
+- 5 primitives (`string`, `int`, `stringInt`, `boolean`, `float`),
+  plus the new `stringArray` primitive (wraps a single string into
+  `[string]`, passes arrays through unchanged — used by Nano Banana
+  Pro's `image_urls`).
 - `map` substitution (wizard "landscape" → fal "16:9")
 - `enum` validation (rejects values not in the declared set)
 - `range` (clamp or throw policy)
 - `includeWhen` predicates (equals, oneOf, present, greaterThan,
   lessThan, `any` for OR)
 - Required params + defaults
-- Regression guard: Veo paramSchemas never emit `generate_audio` (the
-  migration-0058 bug class)
+- **Regression guard FLIPPED**: Veo 3.1 Lite paramSchema **DOES** emit
+  `generate_audio` per the May 2026 fal docs. (Previously this guard
+  required the param to be absent, after the migration-0058 422 bug;
+  fal subsequently published `generate_audio` as a supported toggle
+  controlling the $0.05/s vs $0.03/s pricing tier.) If a workbench
+  run starts returning 422 `no_media_generated` again, flip the guard
+  back — that's the cleanest rollback signal.
 
 ### B2. engineAudio (10 tests)
 
@@ -181,7 +226,7 @@ Per-engine `audioHandling` routing:
   lands on an up-to-date row).
 - Idempotent — running twice changes nothing.
 
-### B4. adminEngines (27 tests)
+### B4. adminEngines (31 tests)
 
 Auth + write surface:
 - 401 unauthenticated.
@@ -192,15 +237,30 @@ Auth + write surface:
 - DELETE sets `deletedAt`; row still queryable.
 - POST `/restore` clears `deletedAt`.
 - POST `/set-default` flips `isDefault` atomically across same-kind.
-- POST `/test`:
-  - Happy path with mocked fal: captures the falInput so we can assert
-    the param shape matches the engine's `paramSchema`.
-  - Failure path: fal error body captured, returned with status info.
+- POST `/test` (async submit half):
+  - Happy path with mocked `fal.queue.submit`: returns **202** with
+    `{ status: "submitted", requestId, falInput, testFixtures }`.
+    Captures the falInput so we can assert the param shape matches
+    the engine's `paramSchema`.
+  - Failure path: when `fal.queue.submit` throws, body captures
+    `error.{message,body,status}` and returns `{ ok: false }`.
   - Utility engines (auto-subtitle) refuse the synthetic test
     (`test_not_supported`) because they expect a video URL, not the
     bundled face placeholder. Admin can supply `sampleImageUrl` to test
     explicitly.
+  - Custom `sampleImageUrl` passes through unchanged (no upload call).
   - 404 on non-existent engine id.
+- GET `/test/poll/:requestId` (new poll half):
+  - `done: true, ok: true, falResult, durationMs` when the poll
+    override signals COMPLETED.
+  - `done: false, phase` when the poll override signals IN_QUEUE /
+    IN_PROGRESS.
+  - `done: true, ok: false` with error body when the poll override
+    throws.
+  - 404 on non-existent engine id.
+
+Test helpers: `__setFalSubmitForTest` and `__setFalPollForTest` (in
+`routes/adminEngines.ts`) replace the old `__setFalSubscribeForTest`.
 
 ### B5. legacyKeyRetirement (5 tests)
 
@@ -230,10 +290,12 @@ curl -s -H "Cookie: <admin-session>" \
   http://localhost:<api-port>/api/admin/engines | jq '.[] | { id, kind, isDefault, deletedAt }'
 ```
 
-Pass criterion: returns 7 rows; each row has `paramSchema`,
-`allowedDurationsSec`, etc.
+Pass criterion: returns 8 rows; each row has `paramSchema`,
+`allowedDurationsSec`, etc. The default image engine is
+`nano-banana-pro`; `pulid-flux` is still present but no longer
+`isDefault`.
 
-### C2. Test a single engine end-to-end (the headline)
+### C2. Submit a synthetic test (async — submit returns 202)
 
 This is the most important diagnostic — it bypasses the meme builder
 entirely and proves that the engine's `paramSchema` produces a valid
@@ -244,14 +306,20 @@ The endpoint accepts a full tuning body — every field is optional and
 falls back to the engine's defaults when omitted. Empty body = the
 synthetic baseline (full motion + dialogue + engine defaults).
 
+**The endpoint is now async**: submit returns immediately with a
+`requestId`, then you poll C2b until done. The previous blocking
+`fal.subscribe` call was timing out behind the production reverse
+proxy on long video jobs (Veo / Kling can run 30–60 s, longer than the
+default 30 s idle window).
+
 ```bash
-# Baseline — engine defaults
-curl -s -X POST -H "Cookie: <admin-session>" \
+# Baseline — engine defaults (returns 202 with requestId)
+curl -i -s -X POST -H "Cookie: <admin-session>" \
   http://localhost:<api-port>/api/admin/engines/veo-3.1-lite/test \
-  -H "Content-Type: application/json" -d '{}' | jq
+  -H "Content-Type: application/json" -d '{}'
 
 # Full tuning surface — every field optional
-curl -s -X POST -H "Cookie: <admin-session>" \
+curl -i -s -X POST -H "Cookie: <admin-session>" \
   http://localhost:<api-port>/api/admin/engines/veo-3.1-lite/test \
   -H "Content-Type: application/json" -d '{
     "sampleImageUrl": "https://…/face.jpg",
@@ -262,13 +330,13 @@ curl -s -X POST -H "Cookie: <admin-session>" \
     "resolution":     "720p",
     "mode":           "normal",
     "generateAudio":  true,
-    "extraParams":    { "cfgScale": 0.5, "negativePrompt": "blurry, distorted" }
-  }' | jq
+    "extraParams":    { "autoFix": false, "safetyTolerance": "5", "negativePrompt": "blurry, distorted" }
+  }'
 ```
 
-Pass criterion: the response is `{ ok: true, engineId, endpointId,
-falInput, falResult, durationMs, testFixtures }`. `falInput` is the
-exact JSON sent to fal — confirm:
+Pass criterion: the submit response is **HTTP 202** with body
+`{ status: "submitted", requestId, engineId, endpointId, falInput,
+testFixtures }`. `falInput` is the exact JSON sent to fal — confirm:
 
 - `image_url` is present and is a fal-CDN URL.
 - `prompt` matches the motion prompt + the audio cue routed via
@@ -278,12 +346,45 @@ exact JSON sent to fal — confirm:
 - `aspect_ratio` matches the engine's fal format (the interpreter maps
   the wizard format `landscape` → `16:9` etc.).
 - `resolution` matches.
-- **NO `generate_audio` field for Veo engines** — the migration-0058
-  regression guard.
-- `falResult.data.video.url` exists (a real generated video URL).
+- For **Veo Lite / Veo Fast**, expect `generate_audio: true` in
+  `falInput` (the May 2026 fal docs accept the param; the previous
+  migration-0058 regression guard was flipped — see B1).
+- For **Nano Banana Pro**, expect `image_urls` to be an **array**
+  (e.g. `["https://…/face.jpg"]`), not a string — the new
+  `stringArray` interpreter type wraps a single referenceImageUrl into
+  a one-element array; the API accepts up to 14.
 
-If `ok: false`, the response includes `error.message` + `error.body`
-(fal's structured error). Use those to diagnose param-shape problems.
+If `fal.queue.submit` itself throws (e.g. malformed payload), the
+endpoint returns 200 with `{ ok: false, error: { message, body,
+status } }` — note that's a 200 status code even on failure, which
+is a known asymmetry with the 202 happy path.
+
+### C2b. Poll the submitted request (every 3 s until done)
+
+```bash
+curl -s -H "Cookie: <admin-session>" \
+  http://localhost:<api-port>/api/admin/engines/veo-3.1-lite/test/poll/<requestId> | jq
+```
+
+Pass criteria:
+
+- While the job is queued or running:
+  `{ done: false, phase: "IN_QUEUE" | "IN_PROGRESS", queuePosition? }`.
+- On success:
+  `{ done: true, ok: true, falResult, durationMs, requestId }` where
+  `falResult.data.video.url` is a real generated video URL.
+- On fal error:
+  `{ done: true, ok: false, error: { message, body, status } }`.
+
+**Known caveat**: `durationMs` measures the time spent fetching the
+result blob from fal storage, not the actual job runtime. The
+`submit` timestamp isn't persisted server-side. If you need real
+runtime, compute it client-side from the submit→done round-trip.
+
+The workbench currently polls only the `COMPLETED` terminal state. If
+fal returns `FAILED` or `CANCELED` the loop never terminates; a fix
+is tracked separately. For curl, terminate manually after a few
+minutes if `done` never goes true.
 
 #### C2a. Audio-experiment shapes (A / B / C)
 
@@ -408,9 +509,15 @@ PGPASSWORD=overhype psql -h localhost -U overhype -d overhype_test -c \
 ```
 
 Pass criterion: `video_engine_id = 'veo-3.1-lite'`,
-`image_engine_id = 'pulid-flux'`, `subtitle_engine_id =
-'fal-auto-subtitle'`. The video_jobs row preserves the engine that
-actually ran (not just the default at meme-detail-load time).
+`image_engine_id = 'pulid-flux'` **(still PuLID even though Nano
+Banana Pro is the catalogue default — Stage 1 in `videoPipelineRunner`
+hardcodes `aiMemePipeline.generateAiMemeBackgroundFromReference`,
+which calls PuLID directly. Until Stage 1 is refactored to route
+through `loadDefaultEngine("image")`, the production pipeline ignores
+the catalogue default for image kind.)**,
+`subtitle_engine_id = 'fal-auto-subtitle'`. The video_jobs row
+preserves the engine that actually ran (not just the default at
+meme-detail-load time).
 
 ### D4. Cost ledger has 3 rows (1 per stage)
 
@@ -509,11 +616,18 @@ After the cleanup, the admin pages should look like:
 - **No** Image Style Suffixes section
 
 ### `/admin/engines`
-- Live tab: 7 engines visible (Veo Lite, Veo Fast, Kling v3,
-  Seedance 2.0 Fast, Grok, PuLID, auto-subtitle).
+- Live tab: 8 engines visible (Veo Lite, Veo Fast, Kling v3,
+  Seedance 2.0 Fast, Grok, Nano Banana Pro [image, ★ default], PuLID
+  [image], auto-subtitle [utility]).
+- Each engine card row shows a `{N} params` badge next to the id chip
+  so the param-schema breadth is visible at a glance (Nano Banana
+  Pro: 7, Veo engines: 9, Kling: 8, Seedance: 7, Grok: 6, PuLID: 10,
+  auto-subtitle: 13).
 - Archived tab: empty unless you've archived something.
-- Each engine row has a "Test" button that runs the synthetic fal
-  call without going through the meme builder.
+- Each engine row has a "Test" button that opens the workbench, which
+  submits the synthetic fal call asynchronously (202 → poll). The
+  button cycles "Submitting…" → "In queue…" → "Running…" while
+  polling fal every 3 s, then shows the final result.
 
 ---
 
@@ -534,8 +648,23 @@ These are deferred — flag them as expected gaps, not failures:
   we have real UX needs.
 - **Non-PuLID FLUX image generators in the engines table** — the
   standard FLUX models (Pro / Schnell / Dev / Ultra) still use
-  baked-in defaults in `aiMemePipeline.ts`. Only PuLID has a row in
-  the engines table for image-kind today.
+  baked-in defaults in `aiMemePipeline.ts`. PuLID and Nano Banana
+  Pro are the only image-kind rows in the engines table today.
+- **Nano Banana Pro is catalogue-default but not pipeline-default
+  for image kind.** Stage 1 of the video pipeline
+  (`videoPipelineRunner.runStage1`) calls
+  `generateAiMemeBackgroundFromReference` from `aiMemePipeline.ts`,
+  which hardcodes PuLID. The catalogue default flip currently only
+  affects the workbench and `/api/engines?kind=image` consumers. A
+  follow-up needs to route Stage 1 through `loadDefaultEngine("image")`
+  + `buildEngineInput` to honor the catalogue default in production.
+- **Async test endpoint polish.** The workbench polls only the
+  `COMPLETED` terminal state — `FAILED` / `CANCELED` from
+  `fal.queue.status` leave the loop spinning. A maximum poll bound
+  (~3 min for video, ~30 s for image) and explicit handling for the
+  failed-terminal states is a follow-up. `durationMs` from the poll
+  endpoint also currently measures only the result-fetch step, not
+  the submit→done window.
 
 ---
 
