@@ -20,6 +20,7 @@ import type { WizardRuntimeState } from "../state/useWizardState";
 import { useVideoCatalogue } from "./data/useVideoCatalogue";
 import type { VideoCatalogueOverrides } from "./data/useVideoCatalogue";
 import { LockedVideoPreview } from "./LockedVideoPreview";
+import { AspectRatioToggle } from "./AspectRatioToggle";
 import { VideoSourcePanel } from "./VideoSourcePanel";
 import { VideoAdvancedOptionsSheet, type VideoAdvancedOptionsValue } from "./VideoAdvancedOptionsSheet";
 import { GodModeLoadingTakeover, type VideoJobApi, type VideoJobStatus } from "./GodModeLoadingTakeover";
@@ -108,8 +109,15 @@ export function Step2Video(props: Step2VideoProps) {
         advancedOptions: { ...advanced, ...patch },
       });
     }
+    // Seed aspect ratio with the engine's default IF it's one of the three
+    // wizard values. Veo's default is "auto" (not a wizard value), so we fall
+    // back to portrait — vertical is the meme-native default and is in every
+    // video engine's allowed set.
     if (!state.aspectRatio) {
-      dispatch({ type: "set-aspect-ratio", aspectRatio: defaultEngine.defaultAspectRatio });
+      const seed = isWizardAspect(defaultEngine.defaultAspectRatio)
+        ? defaultEngine.defaultAspectRatio
+        : "portrait";
+      dispatch({ type: "set-aspect-ratio", aspectRatio: seed });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [catalogueLoading, engines.length]);
@@ -124,6 +132,44 @@ export function Step2Video(props: Step2VideoProps) {
   const lengthSeconds = advanced.videoLengthSeconds ?? engines[0]?.defaultDurationSec ?? 6;
   const resolution = advanced.videoResolution ?? engines[0]?.defaultResolution ?? "480p";
   const aspectRatio: AspectRatio = state.aspectRatio ?? "portrait";
+
+  // Aspect choices the selected engine actually accepts (the DTO speaks wizard
+  // values; non-wizard entries like "auto"/"4:3" are filtered out). Veo Lite,
+  // for example, allows only landscape + portrait — no square.
+  const selectedEngine = engines.find((e) => e.id === engineId);
+  const allowedAspects = useMemo<AspectRatio[]>(() => {
+    const raw = selectedEngine?.allowedAspectRatios ?? [];
+    const filtered = raw.filter(isWizardAspect);
+    return filtered.length > 0 ? filtered : ["landscape", "square", "portrait"];
+  }, [selectedEngine]);
+
+  // If the engine changes and no longer allows the current aspect, coerce to a
+  // supported one so we never submit an aspect the engine will reject.
+  useEffect(() => {
+    if (state.aspectRatio && !allowedAspects.includes(state.aspectRatio)) {
+      dispatch({ type: "set-aspect-ratio", aspectRatio: allowedAspects[0] });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [allowedAspects, state.aspectRatio]);
+
+  // Normalized crop focus for drag-to-reposition. Local to this screen (the
+  // takeover mounts immediately after submit), and reset to centre whenever the
+  // source image or target aspect changes — a new crop window invalidates the
+  // old focus.
+  const [framingFocus, setFramingFocus] = useState<{ x: number; y: number }>({ x: 0.5, y: 0.5 });
+  const sourcePathForReset = state.source?.kind === "self-upload"
+    ? resolveSourceImagePath(state.source.image)
+    : null;
+  useEffect(() => {
+    setFramingFocus({ x: 0.5, y: 0.5 });
+  }, [sourcePathForReset, aspectRatio]);
+
+  const handleAspectChange = useCallback(
+    (next: AspectRatio) => {
+      dispatch({ type: "set-aspect-ratio", aspectRatio: next });
+    },
+    [dispatch],
+  );
 
   const [advancedOpen, setAdvancedOpen] = useState(false);
 
@@ -236,6 +282,7 @@ export function Step2Video(props: Step2VideoProps) {
         lengthSeconds,
         resolution,
         aspectRatio,
+        framingFocus,
         name: state.name ?? viewerContext.name,
         pronouns: state.pronouns ?? viewerContext.pronouns,
       });
@@ -270,6 +317,7 @@ export function Step2Video(props: Step2VideoProps) {
     }
   }, [
     aspectRatio,
+    framingFocus,
     customModePrompt,
     engineId,
     engineMode,
@@ -332,6 +380,8 @@ export function Step2Video(props: Step2VideoProps) {
       <LockedVideoPreview
         sourceUrl={previewUrl}
         aspectRatio={aspectRatio}
+        framingFocus={framingFocus}
+        onFramingChange={setFramingFocus}
         summary={{
           styleLabel,
           motionLabel,
@@ -360,6 +410,21 @@ export function Step2Video(props: Step2VideoProps) {
             }
             onSelect={handleSourceSelect}
           />
+
+          <div className="space-y-2">
+            <p className="font-mono text-[11px] uppercase tracking-widest text-white/50">
+              Output shape
+            </p>
+            <AspectRatioToggle
+              value={aspectRatio}
+              onChange={handleAspectChange}
+              allowed={allowedAspects}
+            />
+            <p className="text-[11px] leading-snug text-white/40">
+              Your photo is stylized at this shape, and the video inherits it.
+              Drag the preview above to reposition.
+            </p>
+          </div>
 
           <div className="flex flex-col gap-2 pt-2">
             <Button
@@ -412,6 +477,13 @@ export function Step2Video(props: Step2VideoProps) {
       />
     </div>
   );
+}
+
+const WIZARD_ASPECTS: readonly AspectRatio[] = ["landscape", "square", "portrait"];
+
+/** True when a value is one of the three wizard aspect ratios (filters "auto" etc.). */
+function isWizardAspect(value: unknown): value is AspectRatio {
+  return typeof value === "string" && WIZARD_ASPECTS.includes(value as AspectRatio);
 }
 
 function BudgetLockedFallback({ resetDate, onGoBack }: { resetDate: string; onGoBack: () => void }) {
