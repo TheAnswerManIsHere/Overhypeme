@@ -41,6 +41,23 @@ template at the bottom.
 
 **What's new since the last UAT pass:**
 
+- **Per-kind test benches.** The workbench used to show one
+  video-shaped form (motion prompt, dialogue, duration, audio) for
+  *every* engine. It now renders the controls each engine kind
+  actually needs — text-to-image gets a prompt only, image-to-image
+  gets a source image + transform prompt, utility gets a video URL +
+  caption knobs, video is unchanged. A bench-type banner at the top of
+  the panel tells you which one you're looking at. See Section D/E.
+- **Two new text-to-image engines** in the catalogue: **FLUX Pro v1.1**
+  (`fal-ai/flux-pro/v1.1`, production parity — this is the model the
+  legacy pipeline already calls for prompt-only generation) and
+  **FLUX.2 Pro** (`fal-ai/flux-2-pro`, an upgrade candidate).
+  Registered side by side so you can A/B them in the bench; both are
+  non-default. (Engine count is now 10: 5 video, 4 image, 1 utility.)
+- **No-face fallback now generates an image.** When you upload a photo
+  with no detectable face in a *video* and choose "generate an abstract
+  image based on the fact," Stage 1 now produces a faceless scene still
+  via text-to-image instead of animating your raw upload. See F4.
 - A new image engine, **Nano Banana Pro** (`fal-ai/nano-banana-pro/edit`)
   — Google Gemini 3 Pro Image. It's the default image engine in the
   catalogue now (★ badge moved off PuLID). **However**, the production
@@ -137,17 +154,24 @@ Open `/admin/engines` as admin.
 ### C1. Tabs and grouping
 
 - Two tabs at top: **Live engines** (default) and **Archived**.
-- Live tab groups engines by kind:
+- Live tab groups engines by kind (note: the catalogue `kind` for both
+  image-to-image and text-to-image engines is `image` — they're told
+  apart by whether their schema needs a source image, which is what
+  drives the bench type, not a separate kind):
   - **Video engines** — Veo 3.1 Lite (★ default), Veo 3.1 Fast,
     Kling v3 Standard, Seedance 2.0 Fast, Grok Imagine.
   - **Image engines** — Nano Banana Pro (edit) (★ default), PuLID
-    (FLUX).
+    (FLUX) — both image-to-image — plus **FLUX Pro v1.1** and
+    **FLUX.2 Pro**, which are text-to-image (no source image). All
+    four sit in the `image` group; the workbench tells image-to-image
+    from text-to-image by the bench it renders.
   - **Utility engines** — Auto-subtitle (★ default).
 - Archived tab is empty.
 - Every engine card row shows a `{N} params` badge next to the id
   chip so you can see at a glance how many knobs each engine
   exposes (Nano Banana Pro: 7, Veo Lite/Fast: 9, Kling: 8, Seedance:
-  7, Grok: 6, PuLID: 10, auto-subtitle: 13).
+  7, Grok: 6, PuLID: 10, FLUX Pro v1.1: 7, FLUX.2 Pro: 6,
+  auto-subtitle: 13).
 
 ### C2. Per-engine row header
 
@@ -199,11 +223,23 @@ If any editable field is on the right side (read-only), that's a bug.
 
 # PART THREE — Synthetic engine test workbench
 
-This is the most important section. The **Test** button opens a full
-tuning workbench where you can edit every meaningful input (motion
-prompt, dialogue, duration, aspect ratio, resolution, mode, engine-
-specific params) and iterate until the output matches the desired
-behavior. **It bypasses the entire meme builder.**
+This is the most important section. The **Test** button opens a
+tuning workbench where you iterate until the output matches the
+desired behavior. **It bypasses the entire meme builder.**
+
+The workbench is **bench-aware**: a banner at the top of the panel
+names the bench (`video bench`, `image-to-image bench`,
+`text-to-image bench`, `utility bench`) and only the controls that
+bench needs are rendered:
+
+- **video** — sample image, motion prompt, dialogue, duration,
+  aspect/resolution/mode, `generate_audio`. (Section D below.)
+- **image-to-image** (PuLID, Nano Banana Pro) — sample image +
+  **transform prompt** + aspect/resolution. No motion/dialogue. (E5–E6.)
+- **text-to-image** (FLUX Pro v1.1, FLUX.2 Pro) — **image prompt** +
+  aspect only. No source image, no motion/dialogue. (E6a–E6b.)
+- **utility** (auto-subtitle) — a **video URL** + caption knobs.
+  No prompt/motion/dialogue. (E7.)
 
 The goal: dial in the right settings per engine, then encode those
 into the engine's TypeScript definition so the wizard's production
@@ -213,8 +249,10 @@ flow inherits them.
 
 ### D1. Open the workbench
 
-Tap **Test** on the Veo 3.1 Lite row. An inline panel opens with the
-full form:
+Tap **Test** on the Veo 3.1 Lite row. An inline panel opens. The
+bench-type banner reads **`video bench`**, and the full video form
+appears (the image/utility benches in Section E render a deliberately
+smaller subset):
 
 - **Experiment shape** radio row (A / B / C / custom)
 - **Sample image URL** — defaults to the bundled face JPEG
@@ -432,10 +470,13 @@ the param.
 dialogue to fill clip silence (see Experiment B). Worth running B
 explicitly to confirm the quirk still exists.
 
-### E5. Nano Banana Pro (edit) (image, default)
+### E5. Nano Banana Pro (edit) (image-to-image, default)
 
-Image engine (Google Gemini 3 Pro Image). The workbench sends the
-same face image; Stage 1's job is face-preserving stylization.
+**Bench: image-to-image.** The panel shows a sample-image field + a
+**transform prompt** ("how to restyle the source image") + aspect.
+No motion, dialogue, or duration. Edit the transform prompt to steer
+the restyle; leave the sample blank to use the bundled face. Stage 1's
+job is face-preserving stylization.
 
 Baseline falInput:
 - `prompt` (string — the meme image prompt)
@@ -466,15 +507,18 @@ catalogue flip only changes what `/api/engines?kind=image` reports
 and what the workbench's image-engines section defaults to. See F3
 for what to expect in `video_jobs`.
 
-### E6. PuLID (FLUX)
+### E6. PuLID (FLUX) (image-to-image)
 
-No longer the catalogue default — Nano Banana Pro took the ★. PuLID
-is still in the catalogue, marked `is_default: false`. The
-production video pipeline's Stage 1 still uses PuLID directly, so it
-remains the engine that actually runs when you generate a meme.
+**Bench: image-to-image** (same as Nano Banana — sample image +
+transform prompt + aspect). No longer the catalogue default — Nano
+Banana Pro took the ★. PuLID is still in the catalogue, marked
+`is_default: false`. The production video pipeline's Stage 1 still
+uses PuLID directly, so it remains the engine that actually runs when
+you generate a meme.
 
 Baseline falInput:
-- `reference_image_url` (string), `prompt` (string)
+- `reference_image_url` (string), `prompt` (string — the transform
+  prompt from the bench)
 - `image_size: "portrait_16_9"`, `num_inference_steps: 28`,
   `guidance_scale: 4`, `id_weight: 1`, `true_cfg: 1`,
   `enable_safety_checker: true`, `num_images: 1`.
@@ -483,17 +527,59 @@ Engine-specific params panel exposes all of the above (each with its
 `default:` chip), plus `negativePrompt`. Result data shape:
 `{ data: { images: [{ url }] } }`. Experiments B/C don't apply.
 
+### E6a. FLUX Pro v1.1 (text-to-image)
+
+**Bench: text-to-image.** No sample-image field — just an **image
+prompt** ("scene to generate") + aspect ratio. This is the model the
+legacy pipeline already calls for prompt-only generation (fact scene
+backgrounds + the no-face fallback), now exposed in the catalogue.
+
+Baseline falInput (verified against fal's `fal-ai/flux-pro/v1.1` docs):
+- `prompt` (string — the image prompt from the bench)
+- `image_size` mapped from the aspect (`square` → `"square_hd"`,
+  `landscape` → `"landscape_16_9"`, `portrait` → `"portrait_16_9"`)
+- `safety_tolerance: "2"` (enum "1"–"6"), `enhance_prompt: false`,
+  `output_format: "jpeg"`, `num_images: 1`. `seed` is omitted unless set.
+
+Note: the base v1.1 endpoint does **not** take `num_inference_steps`
+or `guidance_scale` (those are `/redux`-only); don't expect them in
+`falInput`. Result data shape: `{ data: { images: [{ url }] } }`. There
+is no source image in `falInput` — that's the tell that it's
+text-to-image, not image-to-image. Experiments A/B/C don't apply.
+
+### E6b. FLUX.2 Pro (text-to-image)
+
+**Bench: text-to-image** (same form as E6a). Registered alongside v1.1
+as an upgrade candidate — run the same image prompt through both and
+compare output quality before we pick a production default.
+
+Baseline falInput (verified against fal's `fal-ai/flux-2-pro` docs):
+- `prompt` (string)
+- `image_size` mapped from the aspect (`landscape` → `"landscape_16_9"`,
+  `square` → `"square_hd"`, `portrait` → `"portrait_16_9"`) — FLUX.2 Pro
+  uses the same named-size `image_size` enum as v1.1, **not** an
+  `aspect_ratio` string.
+- `safety_tolerance: "2"` (enum "1"–**"5"**, narrower than v1.1's "6"),
+  `enable_safety_checker: true`, `output_format: "jpeg"`. `seed` omitted
+  unless set. No `num_images` on this endpoint.
+
+(There is also a `fal-ai/flux-2-pro/edit` endpoint that takes
+`image_urls` for image-to-image — not catalogued yet; it'd be a
+separate entry that would classify as an image-to-image bench.)
+
 ### E7. Auto-subtitle (utility)
 
-Tapping **Test** without supplying a `sampleImageUrl` returns
-`error: "test_not_supported"` because utility engines expect a video
-URL, not the bundled face placeholder.
+**Bench: utility.** The panel shows a **video URL** field (labeled as
+such — not "image") + the caption-styling knobs; no prompt, motion,
+or dialogue. Tapping **Test** without supplying the video URL returns
+`error: "test_not_supported"` because utility engines expect a video,
+not the bundled face placeholder.
 
 To test auto-subtitle:
 1. Run Experiment A against Veo or another video engine and copy
    the `falResult.data.video.url`.
-2. Paste that URL into the auto-subtitle row's **Sample image URL**
-   field (which the route treats as `videoUrl` for utility engines).
+2. Paste that URL into the auto-subtitle row's **Sample video URL**
+   field (the route routes it to `videoUrl` for utility engines).
 3. Click **Run test**.
 
 Expected falInput:
@@ -548,6 +634,32 @@ Pass criteria:
 - `subtitle_engine_id = 'fal-auto-subtitle'`
 
 If any are NULL or wrong, the engine selection didn't propagate.
+
+### F4. No-face fallback now generates a scene still
+
+Validate the changed no-face behavior:
+
+1. As your Legendary user, open the wizard → `video`.
+2. Upload an image **with no detectable face** (a landscape, an
+   object, a pet — anything PuLID will reject).
+3. Tap "Make my meme." Stage 1 runs PuLID, fails to find a face, and
+   the God Mode takeover parks on the no-face screen ("We couldn't
+   find a face in your photo.").
+4. Tap **"Use an abstract image based on the fact."**
+
+Pass criteria:
+- The pipeline generates a faceless scene still from the fact's scene
+  prompt (text-to-image) and animates **that** — NOT your raw upload.
+  The finished video should show a generated scene, not your
+  faceless photo panning around.
+- If text-to-image generation itself fails (budget/moderation), the
+  pipeline falls back to promoting the source photo so the job still
+  completes rather than erroring — acceptable, but note it if you see
+  your raw upload in the output.
+
+(Before this change the fallback always promoted the raw upload, even
+though the screen already promised "an abstract image based on the
+fact." The copy and the behavior now agree.)
 
 ---
 

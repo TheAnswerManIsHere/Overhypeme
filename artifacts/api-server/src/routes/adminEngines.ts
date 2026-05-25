@@ -374,6 +374,12 @@ router.post("/admin/engines/:id/set-default", requireAdmin, async (req: Request,
 
 interface TestBody {
   sampleImageUrl?: string;
+  /**
+   * Transform/scene prompt for image engines (image-to-image + text-to-image).
+   * For image-to-image this describes how to transform the source; for
+   * text-to-image it is the whole generation prompt. Ignored by video/utility.
+   */
+  imagePrompt?: string;
   /** Override the engine's default motion prompt. Falls back to TEST_MOTION_PROMPT. */
   motionPrompt?: string;
   /**
@@ -440,6 +446,38 @@ const TEST_MOTION_PROMPT =
 const TEST_DIALOGUE_TEXT =
   "This is a synthetic engine test. The quick brown fox jumps over the lazy dog.";
 
+/**
+ * Default prompt for the image benches. Specific enough that an admin can tell
+ * from the output whether the engine honored the prompt — for image-to-image
+ * it should transform the supplied face; for text-to-image it should render
+ * the scene from scratch.
+ */
+const TEST_IMAGE_PROMPT =
+  "A cinematic portrait of the subject as a 1920s film noir detective in a " +
+  "rain-soaked alley, dramatic chiaroscuro lighting, volumetric fog.";
+
+/**
+ * Which bench a given engine drives. Video and utility map straight from
+ * `kind`; image engines split on whether the param schema declares a source
+ * image (`referenceImageUrl`/`imageUrl`) — if it does it's image-to-image,
+ * otherwise text-to-image (prompt only).
+ */
+export type EngineBenchType = "text-to-image" | "image-to-image" | "video" | "utility";
+
+export function engineBenchType(engine: {
+  kind: string;
+  paramSchema?: unknown;
+}): EngineBenchType {
+  if (engine.kind === "video") return "video";
+  if (engine.kind === "utility") return "utility";
+  const params =
+    (engine.paramSchema as { params?: Array<{ from?: string }> } | null | undefined)?.params ?? [];
+  const needsSourceImage = params.some(
+    (p) => p.from === "referenceImageUrl" || p.from === "imageUrl",
+  );
+  return needsSourceImage ? "image-to-image" : "text-to-image";
+}
+
 router.post("/admin/engines/:id/test", requireAdmin, async (req: Request, res: Response) => {
   const id = String(req.params["id"] ?? "");
   const engine = await fetchEngineById(id);
@@ -470,16 +508,22 @@ router.post("/admin/engines/:id/test", requireAdmin, async (req: Request, res: R
     fal.config({ credentials: falApiKey });
   }
 
-  // ── Resolve the test image URL ────────────────────────────────────────────
+  const benchType = engineBenchType(engine);
+
+  // ── Resolve the source asset (only the benches that consume one) ──────────
+  //   text-to-image → no source asset at all (prompt only)
+  //   image-to-image / video → a source image (uploaded test face if none given)
+  //   utility → an explicit video URL (the face placeholder is meaningless)
   let sampleImageUrl = provided;
-  if (!sampleImageUrl) {
-    if (engine.kind === "utility") {
-      res.status(400).json({
-        error: "test_not_supported",
-        message: `Test not supported for utility engine "${engine.id}" without an explicit sampleImageUrl. Utility engines like auto-subtitle expect a video URL, not the bundled face placeholder.`,
-      });
-      return;
-    }
+  if (benchType === "utility" && !sampleImageUrl) {
+    res.status(400).json({
+      error: "test_not_supported",
+      message: `Test not supported for utility engine "${engine.id}" without an explicit sampleImageUrl. Utility engines like auto-subtitle expect a video URL, not the bundled face placeholder.`,
+    });
+    return;
+  }
+  const needsSourceImage = benchType === "image-to-image" || benchType === "video";
+  if (needsSourceImage && !sampleImageUrl) {
     try {
       const buf = await fs.readFile(TEST_FACE_ASSET);
       const blob = new Blob([new Uint8Array(buf)], { type: "image/jpeg" });
@@ -496,7 +540,7 @@ router.post("/admin/engines/:id/test", requireAdmin, async (req: Request, res: R
     }
   }
 
-  // ── Build the pipeline-params object — defaults from engine, overridden by body ───
+  // ── Build the pipeline-params object — bespoke per bench ──────────────────
   // Aspect ratio: admin may pass wizard format ("landscape"/"square"/"portrait")
   // or fal format ("16:9" etc.). We always feed the interpreter wizard format
   // (its paramSchema map handles the translation).
@@ -506,32 +550,64 @@ router.post("/admin/engines/:id/test", requireAdmin, async (req: Request, res: R
     : aspectRatioRaw === "1:1" ? "square"
     : aspectRatioRaw; // already wizard format ("landscape" etc.) or engine-specific
 
-  const motionPrompt = typeof body.motionPrompt === "string" && body.motionPrompt.trim()
-    ? body.motionPrompt
-    : TEST_MOTION_PROMPT;
+  const imagePrompt = typeof body.imagePrompt === "string" && body.imagePrompt.trim()
+    ? body.imagePrompt.trim()
+    : TEST_IMAGE_PROMPT;
 
-  const pipelineParams: Record<string, unknown> = {
-    imageUrl: sampleImageUrl,
-    referenceImageUrl: sampleImageUrl,
-    videoUrl: sampleImageUrl,
-    motionPrompt,
-    imagePrompt: "Synthetic admin test portrait, neutral background, soft lighting.",
-    durationSec: typeof body.durationSec === "number" && body.durationSec > 0
-      ? body.durationSec
-      : engine.defaultDurationSec ?? 6,
-    aspectRatio: aspectRatioWizard,
-    resolution: body.resolution ?? engine.defaultResolution ?? undefined,
-    mode: body.mode ?? engine.defaultMode ?? undefined,
-    // Audio engines (Veo native_lipsync, Kling voice_control, Seedance
-    // native_audio_boolean) should generate audio by default. The flag is
-    // silently dropped by engines that don't declare a generate_audio param.
-    generateAudio: typeof body.generateAudio === "boolean"
-      ? body.generateAudio
-      : engine.audioHandling !== "none",
-    endUserId: `admin-test-${Date.now()}`,
-    // dialogueText is routed by applyAudioHandling — see below.
-    negativePrompt: undefined,
-  };
+  const endUserId = `admin-test-${Date.now()}`;
+  let pipelineParams: Record<string, unknown>;
+
+  if (benchType === "text-to-image") {
+    // Prompt only — no source image, no motion/dialogue/duration.
+    pipelineParams = {
+      imagePrompt,
+      aspectRatio: aspectRatioWizard,
+      resolution: body.resolution ?? engine.defaultResolution ?? undefined,
+      endUserId,
+    };
+  } else if (benchType === "image-to-image") {
+    // Source image + transform prompt. No motion, dialogue, or duration.
+    pipelineParams = {
+      imagePrompt,
+      referenceImageUrl: sampleImageUrl,
+      imageUrl: sampleImageUrl,
+      aspectRatio: aspectRatioWizard,
+      resolution: body.resolution ?? engine.defaultResolution ?? undefined,
+      endUserId,
+    };
+  } else if (benchType === "utility") {
+    // The "sample" is a video URL; caption styling rides in via extraParams.
+    pipelineParams = {
+      videoUrl: sampleImageUrl,
+      endUserId,
+    };
+  } else {
+    // Video — motion + (optional) dialogue + duration + audio.
+    const motionPrompt = typeof body.motionPrompt === "string" && body.motionPrompt.trim()
+      ? body.motionPrompt
+      : TEST_MOTION_PROMPT;
+    pipelineParams = {
+      imageUrl: sampleImageUrl,
+      referenceImageUrl: sampleImageUrl,
+      videoUrl: sampleImageUrl,
+      motionPrompt,
+      durationSec: typeof body.durationSec === "number" && body.durationSec > 0
+        ? body.durationSec
+        : engine.defaultDurationSec ?? 6,
+      aspectRatio: aspectRatioWizard,
+      resolution: body.resolution ?? engine.defaultResolution ?? undefined,
+      mode: body.mode ?? engine.defaultMode ?? undefined,
+      // Audio engines (Veo native_lipsync, Kling voice_control, Seedance
+      // native_audio_boolean) should generate audio by default. The flag is
+      // silently dropped by engines that don't declare a generate_audio param.
+      generateAudio: typeof body.generateAudio === "boolean"
+        ? body.generateAudio
+        : engine.audioHandling !== "none",
+      endUserId,
+      // dialogueText is routed by applyAudioHandling — see below.
+      negativePrompt: undefined,
+    };
+  }
 
   // Engine-specific params from the admin override. Merged AFTER the
   // universal field set so explicit per-engine knobs (cfg_scale,
@@ -599,9 +675,13 @@ router.post("/admin/engines/:id/test", requireAdmin, async (req: Request, res: R
       engineId: engine.id,
       endpointId: engine.endpointId,
       falInput,
+      benchType,
       testFixtures: {
         motionPrompt: TEST_MOTION_PROMPT,
         dialogueText: dialogueForTest,
+        imagePrompt: benchType === "image-to-image" || benchType === "text-to-image"
+          ? imagePrompt
+          : undefined,
       },
     });
   } catch (err) {

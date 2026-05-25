@@ -28,6 +28,7 @@ import adminEnginesRouter, {
   __setFalSubmitForTest,
   __setFalPollForTest,
   __resetSubmitTimestampsForTest,
+  engineBenchType,
 } from "../routes/adminEngines.js";
 import { buildTestApp } from "./helpers/buildTestApp.js";
 import { clearEngineCaches } from "../lib/engineInterpreter.js";
@@ -483,6 +484,89 @@ describe("POST /admin/engines/:id/test", () => {
     const app = buildTestApp({ kind: "authenticated", userId: adminUserId }, adminEnginesRouter);
     const res = await request(app).post(`/api/admin/engines/${ENGINE_PREFIX}nope/test`).send({});
     assert.equal(res.status, 404);
+  });
+
+  // ─── Per-kind benches ───────────────────────────────────────────────────
+  const T2I_SCHEMA = {
+    params: [
+      { name: "prompt", from: "imagePrompt", type: "string", required: true },
+      {
+        name: "image_size",
+        from: "aspectRatio",
+        type: "string",
+        map: { landscape: "landscape_16_9", square: "square_hd", portrait: "portrait_16_9" },
+        default: "square_hd",
+      },
+    ],
+  };
+  const I2I_SCHEMA = {
+    params: [
+      { name: "prompt", from: "imagePrompt", type: "string", required: true },
+      { name: "image_urls", from: "referenceImageUrl", type: "stringArray", required: true },
+    ],
+  };
+
+  it("text-to-image bench: no source upload, sends the prompt, no image input", async () => {
+    const id = await seedEngine({ kind: "image", paramSchema: T2I_SCHEMA });
+    let uploadCalled = false;
+    let capturedInput: Record<string, unknown> | null = null;
+    __setFalUploadForTest(async () => { uploadCalled = true; return "nope"; });
+    __setFalSubmitForTest(async (_e, opts) => { capturedInput = opts.input; return { request_id: "t2i" }; });
+
+    const app = buildTestApp({ kind: "authenticated", userId: adminUserId }, adminEnginesRouter);
+    const res = await request(app)
+      .post(`/api/admin/engines/${id}/test`)
+      .send({ imagePrompt: "a neon cyberpunk skyline at dusk" });
+
+    assert.equal(res.status, 202);
+    assert.equal(res.body.benchType, "text-to-image");
+    assert.equal(uploadCalled, false, "text-to-image must not upload a source image");
+    const ci = capturedInput as unknown as Record<string, unknown> | null;
+    assert.equal(ci?.prompt, "a neon cyberpunk skyline at dusk");
+    assert.equal(ci?.image_url, undefined, "no source image input for text-to-image");
+    assert.equal(ci?.image_urls, undefined);
+  });
+
+  it("image-to-image bench: uploads a source and sends prompt + reference", async () => {
+    const id = await seedEngine({ kind: "image", paramSchema: I2I_SCHEMA });
+    let uploadCalled = false;
+    let capturedInput: Record<string, unknown> | null = null;
+    __setFalUploadForTest(async () => { uploadCalled = true; return "https://fal.cdn.test/face.jpg"; });
+    __setFalSubmitForTest(async (_e, opts) => { capturedInput = opts.input; return { request_id: "i2i" }; });
+
+    const app = buildTestApp({ kind: "authenticated", userId: adminUserId }, adminEnginesRouter);
+    const res = await request(app)
+      .post(`/api/admin/engines/${id}/test`)
+      .send({ imagePrompt: "turn them into a renaissance oil painting" });
+
+    assert.equal(res.status, 202);
+    assert.equal(res.body.benchType, "image-to-image");
+    assert.equal(uploadCalled, true, "image-to-image uploads the test face when no sample given");
+    const ci = capturedInput as unknown as Record<string, unknown> | null;
+    assert.equal(ci?.prompt, "turn them into a renaissance oil painting");
+    assert.deepEqual(ci?.image_urls, ["https://fal.cdn.test/face.jpg"]);
+  });
+});
+
+describe("engineBenchType", () => {
+  const base = { kind: "image" as const };
+  it("classifies video and utility by kind", () => {
+    assert.equal(engineBenchType({ kind: "video" }), "video");
+    assert.equal(engineBenchType({ kind: "utility" }), "utility");
+  });
+  it("classifies image engines by whether they declare a source image", () => {
+    assert.equal(
+      engineBenchType({ ...base, paramSchema: { params: [{ name: "image_urls", from: "referenceImageUrl" }] } }),
+      "image-to-image",
+    );
+    assert.equal(
+      engineBenchType({ ...base, paramSchema: { params: [{ name: "image_url", from: "imageUrl" }] } }),
+      "image-to-image",
+    );
+    assert.equal(
+      engineBenchType({ ...base, paramSchema: { params: [{ name: "prompt", from: "imagePrompt" }] } }),
+      "text-to-image",
+    );
   });
 });
 
