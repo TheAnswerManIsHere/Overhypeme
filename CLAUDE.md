@@ -97,15 +97,36 @@ David works exclusively from the Claude Code on the Web UI. Pushing to
 a feature branch is necessary but not sufficient — he only sees
 merge-able work via GitHub pull requests.
 
+**David ALWAYS squash-merges.** Every merged PR collapses my branch's
+commits into one new commit on `main` that shares no history with my
+branch — so git can't tell the old commits are already merged, and any
+follow-up work on the same branch looks like it conflicts / re-includes
+the merged changes. The fix is mine to apply *proactively*, not after
+David reports a conflict:
+
+**Before pushing follow-up work or opening any new PR, ALWAYS:**
+
+1. `git fetch origin main`.
+2. Rebase the branch onto `origin/main`, keeping ONLY the not-yet-merged
+   commits: `git rebase --onto origin/main <last-merged-commit>`. (When in
+   doubt, `git diff origin/main HEAD --stat` shows the true delta — that,
+   and nothing else, is what the new PR should contain.)
+3. Re-run typecheck + the touched tests on the rebased state.
+4. Force-push with lease (`git push --force-with-lease`) — the rebase
+   rewrote history, so the feature branch needs it. This is expected and
+   pre-authorized for MY feature branch (never `main`).
+
 **Whenever I finish a unit of work, before ending my turn:**
 
-1. Verify the branch has commits ahead of `origin/main`.
-2. Check `mcp__github__list_pull_requests` (head:
+1. Do the fetch + rebase-onto-`origin/main` above so the branch sits
+   exactly on top of current `main`.
+2. Verify the branch has commits ahead of `origin/main`.
+3. Check `mcp__github__list_pull_requests` (head:
    `theanswermanishere:<branch>`, state: `open`) — is there already an
    open PR?
-3. If yes, the existing PR picks up the new push. Mention the PR URL
+4. If yes, the existing PR picks up the new push. Mention the PR URL
    in the closing message and stop.
-4. If no, open a new PR with `mcp__github__create_pull_request` (base:
+5. If no, open a new PR with `mcp__github__create_pull_request` (base:
    `main`, head: the branch). Title + body describe the change. Return
    the PR URL.
 
@@ -113,7 +134,3 @@ This applies even when David didn't explicitly ask for a PR. The
 default is "ship for review." The only exceptions: pure exploration
 with no commits, or David has explicitly said "don't open a PR for
 this."
-
-If the branch is ahead of `main` by commits already merged into `main`
-via a squash (i.e., the original feature commit + a follow-up), rebase
-onto `origin/main` before opening so the PR diff is the follow-up alone.
