@@ -96,4 +96,29 @@ describe("buildVideoJobPayload", () => {
     });
     expect(noMotion.motionPresetId).toBeUndefined();
   });
+
+  it("includes framingFocus only when moved off centre", () => {
+    const centred = buildVideoJobPayload({
+      ...BASE,
+      sourceMode: "stylize-then-video",
+      framingFocus: { x: 0.5, y: 0.5 },
+    });
+    expect(centred.framingFocus).toBeUndefined();
+
+    const moved = buildVideoJobPayload({
+      ...BASE,
+      sourceMode: "stylize-then-video",
+      framingFocus: { x: 0.2, y: 0.8 },
+    });
+    expect(moved.framingFocus).toEqual({ x: 0.2, y: 0.8 });
+  });
+
+  it("omits framingFocus when null/undefined", () => {
+    const out = buildVideoJobPayload({
+      ...BASE,
+      sourceMode: "stylize-then-video",
+      framingFocus: null,
+    });
+    expect(out.framingFocus).toBeUndefined();
+  });
 });

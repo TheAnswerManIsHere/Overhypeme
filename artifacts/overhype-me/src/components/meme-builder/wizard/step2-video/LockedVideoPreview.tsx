@@ -23,6 +23,10 @@ interface Props {
     lengthSec?: number;
     resolution?: string;
   };
+  /** Normalized crop focus {x,y} in [0,1]; 0.5/0.5 = centre. */
+  framingFocus?: { x: number; y: number };
+  /** Called as the user drags to reposition the source within the aspect frame. */
+  onFramingChange?: (next: { x: number; y: number }) => void;
 }
 
 const CANVAS_HEIGHT_KEY = "mbfo_video_preview_max_h";
@@ -46,13 +50,93 @@ function readSavedMaxH(): number | null {
   return Math.max(MIN_PX, Math.min(MAX_PX, parsed, viewportCap));
 }
 
-export function LockedVideoPreview({ sourceUrl, aspectRatio, summary }: Props) {
+export function LockedVideoPreview({
+  sourceUrl,
+  aspectRatio,
+  summary,
+  framingFocus,
+  onFramingChange,
+}: Props) {
   const summaryLine = formatSummary(summary);
 
   const imgContainerRef = useRef<HTMLDivElement>(null);
+  const imgRef = useRef<HTMLImageElement>(null);
   const [maxH, setMaxH] = useState<number | null>(() => readSavedMaxH());
   const resizeDragRef = useRef<{ startY: number; startH: number } | null>(null);
   const lastTapRef = useRef(0);
+
+  const focus = framingFocus ?? { x: 0.5, y: 0.5 };
+  const repositionable = !!sourceUrl && !!onFramingChange;
+  const [grabbing, setGrabbing] = useState(false);
+  // Drag origin: client coords + focus + the per-axis overflow (displayed px
+  // beyond the frame). Converting a client-px delta to a focus delta uses the
+  // overflow so the same {x,y} drives both this object-position preview and the
+  // server-side sharp crop (imageFraming.computeCropRect).
+  const repositionDragRef = useRef<{
+    startX: number;
+    startY: number;
+    startFX: number;
+    startFY: number;
+    overflowX: number;
+    overflowY: number;
+  } | null>(null);
+
+  const measureOverflow = useCallback((): { overflowX: number; overflowY: number } => {
+    const frame = imgContainerRef.current;
+    const img = imgRef.current;
+    if (!frame || !img || !img.naturalWidth || !img.naturalHeight) {
+      return { overflowX: 0, overflowY: 0 };
+    }
+    const fw = frame.clientWidth;
+    const fh = frame.clientHeight;
+    // object-cover scale: the larger ratio wins so the image covers the frame.
+    const scale = Math.max(fw / img.naturalWidth, fh / img.naturalHeight);
+    const dw = img.naturalWidth * scale;
+    const dh = img.naturalHeight * scale;
+    return {
+      overflowX: Math.max(0, dw - fw),
+      overflowY: Math.max(0, dh - fh),
+    };
+  }, []);
+
+  const beginReposition = useCallback(
+    (clientX: number, clientY: number) => {
+      if (!repositionable) return;
+      const { overflowX, overflowY } = measureOverflow();
+      repositionDragRef.current = {
+        startX: clientX,
+        startY: clientY,
+        startFX: focus.x,
+        startFY: focus.y,
+        overflowX,
+        overflowY,
+      };
+      setGrabbing(true);
+    },
+    [repositionable, measureOverflow, focus.x, focus.y],
+  );
+
+  const moveReposition = useCallback(
+    (clientX: number, clientY: number) => {
+      const drag = repositionDragRef.current;
+      if (!drag || !onFramingChange) return;
+      // Dragging the image right (positive dx) reveals its left side → focus
+      // decreases. Δfocus = -Δclient / overflow.
+      const nextX = drag.overflowX > 0
+        ? clamp01(drag.startFX - (clientX - drag.startX) / drag.overflowX)
+        : drag.startFX;
+      const nextY = drag.overflowY > 0
+        ? clamp01(drag.startFY - (clientY - drag.startY) / drag.overflowY)
+        : drag.startFY;
+      onFramingChange({ x: nextX, y: nextY });
+    },
+    [onFramingChange],
+  );
+
+  const endReposition = useCallback(() => {
+    repositionDragRef.current = null;
+    setGrabbing(false);
+  }, []);
 
   const applyMaxH = useCallback((h: number) => {
     const viewportCap = Math.floor(window.innerHeight * MAX_SAVED_VIEWPORT_FRACTION);
@@ -84,17 +168,45 @@ export function LockedVideoPreview({ sourceUrl, aspectRatio, summary }: Props) {
       <div
         ref={imgContainerRef}
         className={cn(
-          "mx-auto w-full max-w-sm overflow-hidden rounded-xl border border-white/10 bg-black",
+          "relative mx-auto w-full max-w-sm select-none overflow-hidden rounded-xl border border-white/10 bg-black",
           ASPECT_CLASS[aspectRatio],
         )}
-        style={{ maxHeight: maxHeightStyle }}
+        style={{
+          maxHeight: maxHeightStyle,
+          touchAction: repositionable ? "none" : undefined,
+          cursor: repositionable ? (grabbing ? "grabbing" : "grab") : "default",
+        }}
+        onMouseDown={(e) => beginReposition(e.clientX, e.clientY)}
+        onMouseMove={(e) => moveReposition(e.clientX, e.clientY)}
+        onMouseUp={endReposition}
+        onMouseLeave={endReposition}
+        onTouchStart={(e) => {
+          const t = e.touches[0];
+          if (t) beginReposition(t.clientX, t.clientY);
+        }}
+        onTouchMove={(e) => {
+          const t = e.touches[0];
+          if (t) moveReposition(t.clientX, t.clientY);
+        }}
+        onTouchEnd={endReposition}
+        onTouchCancel={endReposition}
       >
         {sourceUrl ? (
-          <img
-            src={sourceUrl}
-            alt=""
-            className="h-full w-full object-cover"
-          />
+          <>
+            <img
+              ref={imgRef}
+              src={sourceUrl}
+              alt=""
+              draggable={false}
+              className="h-full w-full object-cover"
+              style={{ objectPosition: `${focus.x * 100}% ${focus.y * 100}%` }}
+            />
+            {repositionable && (
+              <p className="pointer-events-none absolute bottom-1 right-2 select-none rounded-sm bg-black/40 px-1.5 py-0.5 text-[9px] text-white/60">
+                Drag to reposition
+              </p>
+            )}
+          </>
         ) : (
           <div className="flex h-full w-full flex-col items-center justify-center gap-2 text-white/30">
             <ImageIcon className="h-8 w-8" />
@@ -179,6 +291,11 @@ export function LockedVideoPreview({ sourceUrl, aspectRatio, summary }: Props) {
       </div>
     </div>
   );
+}
+
+function clamp01(n: number): number {
+  if (!Number.isFinite(n)) return 0.5;
+  return Math.max(0, Math.min(1, n));
 }
 
 function formatSummary(s: Props["summary"]): string {

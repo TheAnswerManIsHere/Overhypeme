@@ -52,6 +52,16 @@ const DEFAULT_IMAGE_MODEL_REFERENCE = "fal-ai/flux-pulid";
 const DEFAULT_IMAGE_SIZE            = "square_hd";
 
 /**
+ * Composition suffix appended to reference (image-to-image) prompts so the
+ * model renders a full scene rather than a portrait close-up. Exported so the
+ * admin workbench can assemble the exact same prompt production sends.
+ * Phase 6: ai_pulid_composition_suffix retired; baked in here.
+ */
+export const PULID_COMPOSITION_SUFFIX =
+  "Full body wide angle shot. Person shown in action within the scene environment. " +
+  "Show the full setting and context. NOT a portrait or close-up.";
+
+/**
  * Models that accept a face-reference image input.
  * Each uses a different parameter name for the reference URL.
  */
@@ -412,6 +422,7 @@ async function generateAndStoreImageFromReference(
   paramsOverride?: Record<string, string>,
   userId?: string,
   onProgress?: PulidProgressCallback,
+  imageSizeOverride?: string,
 ): Promise<string> {
   ensureFalConfigured();
 
@@ -422,7 +433,10 @@ async function generateAndStoreImageFromReference(
   // continue to honour modelOverride here. The default is the same value
   // that the engines table seeds for the PuLID engine's endpoint_id.
   const model     = modelOverride || DEFAULT_IMAGE_MODEL_REFERENCE;
-  const imageSize = DEFAULT_IMAGE_SIZE;
+  // The video pipeline supplies the target aspect's image_size so the still
+  // matches the user's chosen output orientation; everything else defaults
+  // to the bundled square.
+  const imageSize = imageSizeOverride ?? DEFAULT_IMAGE_SIZE;
 
   // If the selected model is not reference-capable (e.g. FLUX Pro 1.1 chosen via admin override),
   // fall through to standard generation — don't upload the reference photo or pass a face param.
@@ -446,10 +460,7 @@ async function generateAndStoreImageFromReference(
   const faceParamName = REFERENCE_MODEL_INPUT_PARAM[model]!;
 
   // Append composition suffix so PuLID shows a full scene rather than a portrait close-up.
-  // Phase 6: ai_pulid_composition_suffix retired; baked in here.
-  const compositionSuffix =
-    "Full body wide angle shot. Person shown in action within the scene environment. " +
-    "Show the full setting and context. NOT a portrait or close-up.";
+  const compositionSuffix = PULID_COMPOSITION_SUFFIX;
   const finalPrompt = compositionSuffix ? `${prompt.trim()} ${compositionSuffix}` : prompt;
 
   const input: Record<string, unknown> = {
@@ -630,6 +641,13 @@ export async function generateAiMemeBackgroundFromReference(
     suppressErrors?: boolean;
     /** Optional progress callback — invoked when fal queue status changes. */
     onProgress?: PulidProgressCallback;
+    /**
+     * fal.ai `image_size` for the generated still (e.g. "square_hd",
+     * "portrait_16_9", "landscape_16_9"). Defaults to the square bundled
+     * default when omitted. The video pipeline passes this so the stylized
+     * still matches the user's chosen output aspect ratio.
+     */
+    imageSize?: string;
   },
 ): Promise<string | null> {
   try {
@@ -657,7 +675,7 @@ export async function generateAiMemeBackgroundFromReference(
       { factId, gender: targetGender, modelOverride: options?.modelOverride },
       "[aiMemePipeline] Generating reference-based image",
     );
-    const storedPath = await generateAndStoreImageFromReference(factId, targetGender, uniqueKey, prompt, referenceBuffer, options?.modelOverride, options?.paramsOverride, options?.userId, options?.onProgress);
+    const storedPath = await generateAndStoreImageFromReference(factId, targetGender, uniqueKey, prompt, referenceBuffer, options?.modelOverride, options?.paramsOverride, options?.userId, options?.onProgress, options?.imageSize);
 
     // Track only in user_ai_images (type='reference') — NOT in the shared aiMemeImages on the fact
     try {
@@ -669,8 +687,9 @@ export async function generateAiMemeBackgroundFromReference(
     // Also write to upload_image_metadata so the AI Stylings picker (GET /users/me/uploads?transform=ai)
     // can surface this image when the user creates a second meme for the same fact.
     try {
-      // Phase 6: ai_image_size retired; use the bundled default.
-      const imageSize = DEFAULT_IMAGE_SIZE;
+      // Phase 6: ai_image_size retired; default to the bundled square unless
+      // the caller (video pipeline) supplies a target aspect's image_size.
+      const imageSize = options?.imageSize ?? DEFAULT_IMAGE_SIZE;
       const { width, height } = resolveImageSizePx(imageSize);
 
       // source_object_path has a self-FK constraint (→ upload_image_metadata.object_path).
@@ -972,9 +991,7 @@ export async function buildFalInputPreview(
 
   if (isRef && isReferenceCapableModel(model)) {
     // Reference path (PuLID / IP-Adapter)
-    const compositionSuffix =
-      "Full body wide angle shot. Person shown in action within the scene environment. " +
-      "Show the full setting and context. NOT a portrait or close-up.";
+    const compositionSuffix = PULID_COMPOSITION_SUFFIX;
     const finalPrompt = compositionSuffix ? `${prompt.trim()} ${compositionSuffix}` : prompt;
     const faceParamName = REFERENCE_MODEL_INPUT_PARAM[model]!;
     const input: Record<string, unknown> = {

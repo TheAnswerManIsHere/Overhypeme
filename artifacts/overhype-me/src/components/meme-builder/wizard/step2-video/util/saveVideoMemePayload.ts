@@ -26,6 +26,8 @@ export interface BuildVideoJobPayloadArgs {
   lengthSeconds: number;
   resolution: string;
   aspectRatio: AspectRatio;
+  /** Normalized crop focus {x,y} in [0,1]; omitted/centre when not repositioned. */
+  framingFocus?: { x: number; y: number } | null;
   name?: string;
   pronouns?: string;
 }
@@ -42,6 +44,7 @@ export interface VideoJobPayload {
   lengthSeconds: number;
   resolution: string;
   aspectRatio: AspectRatio;
+  framingFocus?: { x: number; y: number };
   name?: string;
   pronouns?: string;
 }
@@ -61,6 +64,7 @@ export function buildVideoJobPayload(
     lengthSeconds,
     resolution,
     aspectRatio,
+    framingFocus,
     name,
     pronouns,
   } = args;
@@ -73,6 +77,15 @@ export function buildVideoJobPayload(
     resolution,
     aspectRatio,
   };
+
+  // Only send a focus point when the user actually moved it off centre — keeps
+  // the payload clean and lets the server default to a centre crop.
+  if (
+    framingFocus &&
+    (Math.abs(framingFocus.x - 0.5) > 1e-3 || Math.abs(framingFocus.y - 0.5) > 1e-3)
+  ) {
+    payload.framingFocus = { x: framingFocus.x, y: framingFocus.y };
+  }
 
   // Look style is only meaningful for the stylize path. For
   // `use-photo-as-is` we never stylize, so the field is omitted entirely.

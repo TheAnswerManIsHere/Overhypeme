@@ -179,6 +179,63 @@ describe("POST /api/memes/video-jobs", () => {
     assert.equal(state!.phase, "stage1_review");
   });
 
+  it("threads aspectRatio + framingFocus into the Stage-1 job state", async () => {
+    const userId = await createTestUser({ tier: "legendary", isAdmin: true });
+    const factId = await insertFact();
+    const app = buildTestApp({ kind: "authenticated", userId }, videoJobsRouter);
+
+    let capturedAspect: string | undefined;
+    let capturedFocus: unknown;
+    let stage1Ran = false;
+    __setPipelineTestHooks({
+      runStage1: async (job) => {
+        capturedAspect = job.aspectRatio;
+        capturedFocus = job.framingFocus;
+        stage1Ran = true;
+        return { stillObjectPath: "/objects/styled.jpg" };
+      },
+      classifyStill: async () => "accept",
+    });
+
+    const startRes = await request(app).post("/api/memes/video-jobs").send({
+      factId,
+      sourceMode: "stylize-then-video",
+      sourceImagePath: "/objects/source.jpg",
+      lookStyleId: "cinematic",
+      lengthSeconds: 4,
+      resolution: "720p",
+      aspectRatio: "portrait",
+      framingFocus: { x: 0.25, y: 0.75 },
+    });
+    assert.equal(startRes.status, 200);
+
+    const jobId = startRes.body.jobId;
+    await waitForPhase(
+      async () => (await request(app).get(`/api/memes/video-jobs/${jobId}`)).body,
+      ["stage1_review", "failed"],
+    );
+    assert.ok(stage1Ran, "runStage1 should have been called");
+    assert.equal(capturedAspect, "portrait");
+    assert.deepEqual(capturedFocus, { x: 0.25, y: 0.75 });
+  });
+
+  it("rejects an out-of-range framingFocus with 400", async () => {
+    const userId = await createTestUser({ tier: "legendary", isAdmin: true });
+    const factId = await insertFact();
+    const app = buildTestApp({ kind: "authenticated", userId }, videoJobsRouter);
+    const res = await request(app).post("/api/memes/video-jobs").send({
+      factId,
+      sourceMode: "stylize-then-video",
+      sourceImagePath: "/objects/source.jpg",
+      lookStyleId: "cinematic",
+      lengthSeconds: 4,
+      resolution: "720p",
+      aspectRatio: "portrait",
+      framingFocus: { x: 1.5, y: 0.5 },
+    });
+    assert.equal(res.status, 400);
+  });
+
   it("source mode 'use-photo-as-is' skips stage1_pulid entirely", async () => {
     const userId = await createTestUser({ tier: "legendary", isAdmin: true });
     const factId = await insertFact();
@@ -245,6 +302,52 @@ describe("POST /api/memes/video-jobs", () => {
       ["stage1_no_face_review", "failed"],
     );
     assert.equal(state!.phase, "stage1_no_face_review");
+  });
+
+  it("no-face fallback generates a text-to-image still and feeds it to stage 2", async () => {
+    const userId = await createTestUser({ tier: "legendary", isAdmin: true });
+    const factId = await insertFact();
+    const app = buildTestApp({ kind: "authenticated", userId }, videoJobsRouter);
+
+    let stage2Still: string | undefined;
+    __setPipelineTestHooks({
+      runStage1: async () => ({ stillObjectPath: null }),
+      runStage1Fallback: async () => ({ stillObjectPath: "/objects/abstract-scene.jpg" }),
+      classifyStill: async () => "accept",
+      runStage2: async (_job, still) => {
+        stage2Still = still;
+        // Abort here so the pipeline halts at stage2_video for the assertion.
+        throw new Error("stage 2 stub aborts");
+      },
+    });
+
+    const startRes = await request(app).post("/api/memes/video-jobs").send({
+      factId,
+      sourceMode: "stylize-then-video",
+      sourceImagePath: "/objects/source.jpg",
+      lookStyleId: "cinematic",
+      lengthSeconds: 4,
+      resolution: "720p",
+      aspectRatio: "landscape",
+    });
+    const jobId = startRes.body.jobId;
+    await waitForPhase(
+      async () => (await request(app).get(`/api/memes/video-jobs/${jobId}`)).body,
+      ["stage1_no_face_review", "failed"],
+    );
+
+    const fbRes = await request(app)
+      .post(`/api/memes/video-jobs/${jobId}/proceed-with-no-face-fallback`)
+      .send({});
+    assert.equal(fbRes.status, 200);
+
+    await waitForPhase(
+      async () => (await request(app).get(`/api/memes/video-jobs/${jobId}`)).body,
+      ["stage2_video", "failed"],
+    );
+    // The generated faceless still — NOT the raw uploaded photo — is what
+    // Stage 2 animates.
+    assert.equal(stage2Still, "/objects/abstract-scene.jpg");
   });
 
   it("NSFW classifier hit on stylized still → failed with errorCode=moderation", async () => {

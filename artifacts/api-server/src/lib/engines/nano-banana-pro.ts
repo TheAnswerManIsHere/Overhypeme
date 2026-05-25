@@ -30,10 +30,10 @@ import type { EngineDefinition } from "./types";
  *     `enable_safety_checker` boolean. String "1" (strict) – "6" (loose).
  *     Default "4". For meme content with real likenesses, raising to
  *     "5" or "6" reduces `IMAGE_SAFETY` rejections.
- *   - NO `seed`, `negative_prompt`, `guidance_scale` exposed.
- *   - Output: `images[].url` (no `has_nsfw_concepts`, no seed echo —
- *     safety violations fail the call rather than returning a flagged
- *     image).
+ *   - NO `negative_prompt` / `guidance_scale` (Gemini doesn't expose them);
+ *     `seed` and `limit_generations` ARE accepted and are declared below.
+ *   - Output: `images[].url` plus a `description`; safety violations fail the
+ *     call rather than returning a flagged image.
  *
  * Pricing (per output image):
  *   - 1K: $0.139
@@ -120,7 +120,7 @@ export const NANO_BANANA_PRO: EngineDefinition = {
         name: "output_format",
         from: "outputFormat",
         type: "string",
-        enum: ["png", "jpeg"],
+        enum: ["jpeg", "png", "webp"],
         default: "png",
       },
       // String "1" (strictest) - "6" (most permissive). Meme prompts on
@@ -134,11 +134,19 @@ export const NANO_BANANA_PRO: EngineDefinition = {
         default: "5",
       },
       {
+        name: "limit_generations",
+        from: "limitGenerations",
+        type: "boolean",
+        default: false,
+      },
+      {
         name: "enable_web_search",
         from: "enableWebSearch",
         type: "boolean",
         default: false,
       },
+      // Omitted when blank — fal generates a random seed.
+      { name: "seed", from: "seed", type: "int" },
     ],
   },
 

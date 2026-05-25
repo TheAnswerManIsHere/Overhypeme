@@ -56,6 +56,10 @@ const StartBody = z.object({
   lengthSeconds: z.number().int().min(1).max(60),
   resolution: z.string().max(16),
   aspectRatio: z.enum(["landscape", "square", "portrait"]),
+  /** Normalized focus point in [0,1] for the Stage-1 source crop (drag-to-reposition). */
+  framingFocus: z
+    .object({ x: z.number().min(0).max(1), y: z.number().min(0).max(1) })
+    .optional(),
   name: z.string().max(50).optional(),
   pronouns: z.string().max(20).optional(),
   renderedFactText: z.string().max(1000).optional(),
@@ -127,6 +131,7 @@ router.post("/memes/video-jobs", async (req: Request, res: Response) => {
       durationSec: parsed.data.lengthSeconds,
       resolution: parsed.data.resolution,
       aspectRatio: parsed.data.aspectRatio as AspectRatio,
+      framingFocus: parsed.data.framingFocus ?? null,
       name: parsed.data.name ?? null,
       pronouns: parsed.data.pronouns ?? null,
       renderedFactText: parsed.data.renderedFactText ?? null,

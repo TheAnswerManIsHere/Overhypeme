@@ -10,9 +10,16 @@ import type { EngineDefinition } from "./types";
  *     endpoints use `image_url`; v3-family uses `start_image_url`. Easy footgun.
  *   - `duration` is stringified int; full enum is every integer 3-15 as
  *     strings. Default "5".
- *   - `aspect_ratio` is accepted but SILENTLY IGNORED when an image is
- *     provided (the image governs the aspect). We still send it because the
- *     wizard surfaces the choice; treat as decorative on this endpoint.
+ *   - `aspect_ratio` is accepted but the START IMAGE governs the output
+ *     orientation on this endpoint — Kling derives the video aspect from the
+ *     source still, not from this param (unlike Veo, which honours the param
+ *     directly). That's fine for the product: the video pipeline crops the
+ *     Stage-1 still to the user's chosen aspect first (see
+ *     videoPipelineRunner.runStage1 → cropBufferToAspect), so the still Kling
+ *     receives already matches intent. We still send the matching value here
+ *     for consistency. NOTE: the admin workbench /test sends a raw selfie
+ *     (no Stage-1 crop), so a portrait test image will still yield a portrait
+ *     clip there regardless of this value — expected, not a bug.
  *   - `cfg_scale` float 0-1, default 0.5.
  *   - `generate_audio` boolean, default true. Pricing tier: $0.084/s (off),
  *     $0.126/s (on), $0.154/s (on + voice_ids).
