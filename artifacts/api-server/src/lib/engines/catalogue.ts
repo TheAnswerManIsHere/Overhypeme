@@ -18,6 +18,8 @@ import { NANO_BANANA_2_EDIT } from "./nano-banana-2-edit";
 import { PULID_FLUX } from "./pulid-flux";
 import { FLUX_PRO_V1_1 } from "./flux-pro-v1-1";
 import { FLUX_2_PRO } from "./flux-2-pro";
+import { GPT_IMAGE_2 } from "./gpt-image-2";
+import { GPT_IMAGE_2_EDIT } from "./gpt-image-2-edit";
 import { FAL_AUTO_SUBTITLE } from "./fal-auto-subtitle";
 
 /**
@@ -39,5 +41,7 @@ export const ALL_ENGINES: EngineDefinition[] = [
   PULID_FLUX,
   FLUX_PRO_V1_1,
   FLUX_2_PRO,
+  GPT_IMAGE_2,
+  GPT_IMAGE_2_EDIT,
   FAL_AUTO_SUBTITLE,
 ];
