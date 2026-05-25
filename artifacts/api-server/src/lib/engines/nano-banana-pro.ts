@@ -120,7 +120,7 @@ export const NANO_BANANA_PRO: EngineDefinition = {
         name: "output_format",
         from: "outputFormat",
         type: "string",
-        enum: ["png", "jpeg"],
+        enum: ["jpeg", "png", "webp"],
         default: "png",
       },
       // String "1" (strictest) - "6" (most permissive). Meme prompts on
@@ -134,11 +134,19 @@ export const NANO_BANANA_PRO: EngineDefinition = {
         default: "5",
       },
       {
+        name: "limit_generations",
+        from: "limitGenerations",
+        type: "boolean",
+        default: false,
+      },
+      {
         name: "enable_web_search",
         from: "enableWebSearch",
         type: "boolean",
         default: false,
       },
+      // Omitted when blank — fal generates a random seed.
+      { name: "seed", from: "seed", type: "int" },
     ],
   },
 
