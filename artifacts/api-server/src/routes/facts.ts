@@ -25,7 +25,7 @@ import { logger } from "../lib/logger";
 import { hasFeature } from "../lib/tierFeatures";
 import { verifyCaptcha } from "../lib/captcha";
 import { checkSharedRateLimit } from "../lib/sharedRateLimiter";
-import { eq, sql, desc, asc, ilike, and, inArray, isNull } from "drizzle-orm";
+import { eq, sql, desc, asc, ilike, and, inArray, isNull, isNotNull } from "drizzle-orm";
 import {
   ListFactsQueryParams, CreateFactBody, GetFactParams,
   RateFactParams, RateFactBody,
@@ -79,6 +79,13 @@ router.get("/facts", async (req: Request, res: Response) => {
 
   conds.push(eq(factsTable.isActive, true));
   if (search) conds.push(ilike(factsTable.text, `%${search}%`));
+
+  // Opt-in: only user-submitted facts (excludes seed/test entries with no
+  // submitter — e.g. the admin engine workbench's fact picker). Read straight
+  // from the query so we don't have to widen the shared zod schema.
+  if (req.query["submittedOnly"] === "true") {
+    conds.push(isNotNull(factsTable.submittedById));
+  }
 
   if (hashtag) {
     const [ht] = await db.select({ id: hashtagsTable.id }).from(hashtagsTable).where(eq(hashtagsTable.name, hashtag)).limit(1);

@@ -132,6 +132,27 @@ const DEFAULT_TEST_IMAGE_PROMPT =
   "rain-soaked alley, dramatic chiaroscuro lighting, volumetric fog.";
 
 /**
+ * Renders a fact template down to the hardcoded workbench test identity
+ * (David Franklin, he/him) for display — mirrors the server's
+ * `renderPersonalized` so the picker shows readable text instead of raw
+ * {NAME}/{SUBJ} tokens. Display-only; the server re-renders authoritatively
+ * when assembling the actual prompt.
+ */
+const FACT_TOKEN_MAP: Record<string, string> = {
+  NAME: "David Franklin",
+  SUBJ: "he", Subj: "He", OBJ: "him", Obj: "Him",
+  POSS: "his", Poss: "His", POSS_PRO: "his", Poss_Pro: "His",
+  REFL: "himself", Refl: "Himself",
+};
+function renderFactText(template: string): string {
+  return template.replace(/\{([^{}]+)\}/g, (m, inner: string) => {
+    if (inner in FACT_TOKEN_MAP) return FACT_TOKEN_MAP[inner]!;
+    if (inner.includes("|")) return inner.split("|")[0] ?? m; // singular form (he/him)
+    return m;
+  });
+}
+
+/**
  * Which bench a given engine drives. Mirrors the server's `engineBenchType`
  * (adminEngines.ts): video/utility map from kind; image engines split on
  * whether the schema declares a source image (referenceImageUrl/imageUrl).
@@ -258,7 +279,8 @@ function EngineTestPanel({ engine }: { engine: EngineRow }) {
     const q = factQuery.trim();
     if (q.length < 2) { setFactResults([]); return; }
     const t = setTimeout(() => {
-      fetch(`/api/facts?search=${encodeURIComponent(q)}&limit=15`, { credentials: "include" })
+      // submittedOnly=true → user-facing facts only (excludes seed/test entries).
+      fetch(`/api/facts?search=${encodeURIComponent(q)}&limit=15&submittedOnly=true`, { credentials: "include" })
         .then((r) => (r.ok ? r.json() : { facts: [] }))
         .then((data) => setFactResults(Array.isArray(data?.facts) ? data.facts : []))
         .catch(() => setFactResults([]));
@@ -618,7 +640,7 @@ function EngineTestPanel({ engine }: { engine: EngineRow }) {
             <label className={labelCls}>Fact</label>
             {selectedFact ? (
               <div className="flex items-start gap-2 rounded-sm border border-border bg-muted/30 px-2 py-1.5">
-                <span className="flex-1 text-xs">{selectedFact.text}</span>
+                <span className="flex-1 text-xs">{renderFactText(selectedFact.text)}</span>
                 <button
                   type="button"
                   onClick={() => { setSelectedFact(null); setFactQuery(""); }}
@@ -645,7 +667,7 @@ function EngineTestPanel({ engine }: { engine: EngineRow }) {
                         onClick={() => { setSelectedFact({ id: f.id, text: f.text }); setFactResults([]); }}
                         className="block w-full px-2 py-1.5 text-left text-xs hover:bg-muted/50 border-b border-border last:border-0"
                       >
-                        {f.text}
+                        {renderFactText(f.text)}
                       </button>
                     ))}
                   </div>

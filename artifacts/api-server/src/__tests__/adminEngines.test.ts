@@ -803,6 +803,27 @@ describe("POST /admin/engines/:id/assemble-prompt", () => {
     assert.match(res.body.dialogueText, /assemble fact/);
   });
 
+  it("video: renders fact tokens down to David Franklin / he-him in the dialogue", async () => {
+    const engineId = await seedEngine({ kind: "video" });
+    const [row] = await db
+      .insert(factsTable)
+      .values({
+        text: "{NAME} pushes the Earth down when {SUBJ} does a {pushup|pushups}.",
+        isActive: true,
+        aiScenePrompts: SCENE as never,
+      })
+      .returning({ id: factsTable.id });
+    factIds.push(row!.id);
+    const motionPresetId = await seedMotionPreset();
+
+    const app = buildTestApp({ kind: "authenticated", userId: adminUserId }, adminEnginesRouter);
+    const res = await request(app)
+      .post(`/api/admin/engines/${engineId}/assemble-prompt`)
+      .send({ factId: row!.id, motionPresetId });
+
+    assert.equal(res.body.dialogueText, "David Franklin pushes the Earth down when he does a pushup.");
+  });
+
   it("generates + caches scene prompts when the fact has none (via test hook)", async () => {
     const engineId = await seedEngine({ kind: "image", paramSchema: { params: [
       { name: "prompt", from: "imagePrompt", type: "string", required: true },
