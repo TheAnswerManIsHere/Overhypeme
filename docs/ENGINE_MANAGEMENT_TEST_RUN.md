@@ -9,12 +9,33 @@ Replit (or run locally) to confirm everything came across correctly.
 
 **What's changed since the last revision of this doc:**
 
+- **Per-kind test benches.** `POST /:id/test` no longer builds one
+  video-shaped param blob for every engine. It classifies the engine
+  (`engineBenchType`: video / image-to-image / text-to-image / utility,
+  from `kind` + whether the schema declares a `referenceImageUrl` /
+  `imageUrl` source param) and builds bespoke `pipelineParams`:
+  text-to-image sends a prompt only (no source upload), image-to-image
+  sends source + an editable `imagePrompt`, utility sends a `videoUrl`,
+  video is unchanged. The response now also carries `benchType`. The
+  workbench UI renders only the controls each bench needs.
+- **Two new text-to-image engines**: `flux-pro-v1-1`
+  (`fal-ai/flux-pro/v1.1`, production parity for prompt-only
+  generation) and `flux-2-pro` (`fal-ai/flux-2-pro`, upgrade candidate),
+  both `kind=image`, `is_default=false`. They have no source-image
+  param, which is what classifies them as text-to-image. **Engine
+  count: 10** (5 video, 4 image, 1 utility).
+- **No-face fallback wired to text-to-image.** In the video pipeline,
+  when Stage 1 (PuLID) detects no face and the user proceeds,
+  `runStage1FallbackAndContinue` now calls
+  `generateAiMemeBackgroundStandalone` (text-to-image) to produce a
+  faceless scene still instead of promoting the raw upload; it falls
+  back to the source photo only if generation fails. `videoJobs.test.ts`
+  asserts the generated still (not the raw photo) reaches Stage 2.
 - New engine **Nano Banana Pro** (`nano-banana-pro`, Google Gemini 3
   Pro Image, kind=`image`). It is now the catalogue's default image
   engine in place of PuLID. **Caveat**: the production video pipeline
   Stage 1 still hardcodes PuLID; the catalogue default only affects
-  the workbench until Stage 1 is refactored. Engine count: **8**, not
-  7.
+  the workbench until Stage 1 is refactored.
 - The fal audit (PRs #57/#58) added new params on every existing
   engine (`auto_fix`, `safety_tolerance`, `enhance_prompt`,
   `negative_prompt`, `seed` on the Veo engines; `end_image_url`,
@@ -61,8 +82,8 @@ pnpm run typecheck
 
 # 4. Server tests for the engine management surface
 # (engineInterpreter 38 + engineAudio 10 + engineReconcile 7 +
-#  adminEngines 35 + legacyKeyRetirement 5 + videoJobs +
-#  routes.memes = 139 tests).
+#  adminEngines 39 + legacyKeyRetirement 5 + videoJobs 24 +
+#  routes.memes = 144 tests).
 cd artifacts/api-server && \
   DATABASE_URL="postgres://overhype:overhype@localhost:5432/overhype_test" \
   TEST_DB_ALLOW_EXIT_ON_IDLE=1 BCRYPT_SALT_ROUNDS=4 \
@@ -75,7 +96,7 @@ cd artifacts/api-server && \
     src/__tests__/videoJobs.test.ts \
     src/__tests__/routes.memes.test.ts
 
-# 5. Frontend tests (492 — admin/engines page + the rest of the wizard).
+# 5. Frontend tests (494 — admin/engines page + the rest of the wizard).
 cd ../overhype-me && pnpm exec vitest run
 
 # 6. Production build still emits cleanly.
@@ -134,7 +155,7 @@ Pass criterion:
 ### A4. Engine rows present after boot
 
 The first time the API server boots, `reconcileEngines()` runs and
-upserts the 8 code-defined engines into the table.
+upserts the 10 code-defined engines into the table.
 
 ```bash
 PGPASSWORD=overhype psql -h localhost -U overhype -d overhype_test -c \
@@ -143,13 +164,19 @@ PGPASSWORD=overhype psql -h localhost -U overhype -d overhype_test -c \
 ```
 
 Pass criteria:
-- 8 rows present: `veo-3.1-lite` (kind=video, is_default=t, is_active=t),
+- 10 rows present: `veo-3.1-lite` (kind=video, is_default=t, is_active=t),
   `veo-3.1-fast`, `kling-v3-standard`, `seedance-2.0-fast`,
   `grok-imagine`, `nano-banana-pro` (kind=image, is_default=t),
   `pulid-flux` (kind=image, is_default=f — superseded by Nano Banana
   Pro at the catalogue level),
+  `flux-pro-v1-1` (kind=image, is_default=f — text-to-image),
+  `flux-2-pro` (kind=image, is_default=f — text-to-image),
   `fal-auto-subtitle` (kind=utility, is_default=t).
 - All have `deleted_at = NULL`.
+- Exactly one `is_default=t` per kind: `veo-3.1-lite` (video),
+  `nano-banana-pro` (image), `fal-auto-subtitle` (utility). The two
+  text-to-image engines and PuLID are all `is_default=f` under
+  kind=image, so the single image default is unambiguous.
 
 ### A5. Legacy keys gone
 
@@ -226,7 +253,7 @@ Per-engine `audioHandling` routing:
   lands on an up-to-date row).
 - Idempotent — running twice changes nothing.
 
-### B4. adminEngines (35 tests)
+### B4. adminEngines (39 tests)
 
 Auth + write surface:
 - 401 unauthenticated.
@@ -253,7 +280,15 @@ Auth + write surface:
     bundled face placeholder. Admin can supply `sampleImageUrl` to test
     explicitly.
   - Custom `sampleImageUrl` passes through unchanged (no upload call).
+  - **Per-kind benches**: a text-to-image engine does NOT upload a
+    source image and its `falInput` carries the `imagePrompt` but no
+    `image_url`/`image_urls`; an image-to-image engine DOES upload the
+    test face and sends both the prompt and the reference. The response
+    carries `benchType`.
   - 404 on non-existent engine id.
+- `engineBenchType` unit: video/utility classify by `kind`; image
+  engines classify as image-to-image when the schema declares a
+  `referenceImageUrl`/`imageUrl` source param, else text-to-image.
 - GET `/test/poll/:requestId` (poll half):
   - `done: true, ok: true, falResult, durationMs` when the poll
     override signals COMPLETED. `durationMs` is computed from the
@@ -285,11 +320,17 @@ Pins the migration shape so the cleanup can't silently drift back:
 - The journal lists it and `check-snapshots` marks it exempt.
 - Against a live DB, zero admin_config rows for the retired keys.
 
-### B6. videoJobs + routes.memes (rest)
+### B6. videoJobs (24) + routes.memes (rest)
 
 Regression checks — the video pipeline + meme save endpoint both run
 through the engine catalogue now. If anything in the cleanup broke
 those paths it'll show up here.
+
+New: the **no-face fallback** test. With a `runStage1` hook returning
+`{ stillObjectPath: null }` (no face) and a `runStage1Fallback` hook
+returning a generated still, the job routes to `stage1_no_face_review`;
+after `POST /:jobId/proceed-with-no-face-fallback`, the generated
+still — not the raw uploaded photo — is what reaches `runStage2`.
 
 ---
 
@@ -305,10 +346,10 @@ curl -s -H "Cookie: <admin-session>" \
   http://localhost:<api-port>/api/admin/engines | jq '.[] | { id, kind, isDefault, deletedAt }'
 ```
 
-Pass criterion: returns 8 rows; each row has `paramSchema`,
+Pass criterion: returns 10 rows; each row has `paramSchema`,
 `allowedDurationsSec`, etc. The default image engine is
-`nano-banana-pro`; `pulid-flux` is still present but no longer
-`isDefault`.
+`nano-banana-pro`; `pulid-flux`, `flux-pro-v1-1`, and `flux-2-pro`
+are all present under `kind=image` and non-default.
 
 ### C2. Submit a synthetic test (async — submit returns 202)
 
@@ -320,6 +361,25 @@ supply `sampleImageUrl`.
 The endpoint accepts a full tuning body — every field is optional and
 falls back to the engine's defaults when omitted. Empty body = the
 synthetic baseline (full motion + dialogue + engine defaults).
+
+**The body shape depends on the engine's bench** (the route ignores
+fields that don't apply): the video example below is for video
+engines. For **image-to-image** (PuLID, Nano Banana Pro) send
+`imagePrompt` (the transform) + optional `sampleImageUrl`; for
+**text-to-image** (FLUX Pro v1.1, FLUX.2 Pro) send `imagePrompt` only
+(no `sampleImageUrl` — none is uploaded); for **utility** send
+`sampleImageUrl` as the video URL. The 202 response echoes `benchType`
+so you can confirm which form the server applied.
+
+```bash
+# Image bench (text-to-image or image-to-image): prompt-driven
+curl -i -s -X POST -H "Cookie: <admin-session>" \
+  http://localhost:<api-port>/api/admin/engines/flux-pro-v1-1/test \
+  -H "Content-Type: application/json" -d '{
+    "imagePrompt": "a neon cyberpunk skyline at dusk, cinematic",
+    "aspectRatio": "portrait"
+  }'
+```
 
 **The endpoint is now async**: submit returns immediately with a
 `requestId`, then you poll C2b until done. The previous blocking
@@ -637,13 +697,17 @@ After the cleanup, the admin pages should look like:
 - **No** Image Style Suffixes section
 
 ### `/admin/engines`
-- Live tab: 8 engines visible (Veo Lite, Veo Fast, Kling v3,
+- Live tab: 10 engines visible (Veo Lite, Veo Fast, Kling v3,
   Seedance 2.0 Fast, Grok, Nano Banana Pro [image, ★ default], PuLID
-  [image], auto-subtitle [utility]).
+  [image], FLUX Pro v1.1 [image, text-to-image], FLUX.2 Pro [image,
+  text-to-image], auto-subtitle [utility]).
 - Each engine card row shows a `{N} params` badge next to the id chip
   so the param-schema breadth is visible at a glance (Nano Banana
   Pro: 7, Veo engines: 9, Kling: 8, Seedance: 7, Grok: 6, PuLID: 10,
-  auto-subtitle: 13).
+  FLUX Pro v1.1: 7, FLUX.2 Pro: 4, auto-subtitle: 13).
+- The workbench renders a **bench-type** form per engine: video
+  (motion/dialogue/duration), image-to-image (source + transform
+  prompt), text-to-image (prompt only), utility (video URL + captions).
 - Archived tab: empty unless you've archived something.
 - Each engine row has a "Test" button that opens the workbench, which
   submits the synthetic fal call asynchronously (202 → poll). The
