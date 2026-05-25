@@ -52,6 +52,16 @@ const DEFAULT_IMAGE_MODEL_REFERENCE = "fal-ai/flux-pulid";
 const DEFAULT_IMAGE_SIZE            = "square_hd";
 
 /**
+ * Composition suffix appended to reference (image-to-image) prompts so the
+ * model renders a full scene rather than a portrait close-up. Exported so the
+ * admin workbench can assemble the exact same prompt production sends.
+ * Phase 6: ai_pulid_composition_suffix retired; baked in here.
+ */
+export const PULID_COMPOSITION_SUFFIX =
+  "Full body wide angle shot. Person shown in action within the scene environment. " +
+  "Show the full setting and context. NOT a portrait or close-up.";
+
+/**
  * Models that accept a face-reference image input.
  * Each uses a different parameter name for the reference URL.
  */
@@ -450,10 +460,7 @@ async function generateAndStoreImageFromReference(
   const faceParamName = REFERENCE_MODEL_INPUT_PARAM[model]!;
 
   // Append composition suffix so PuLID shows a full scene rather than a portrait close-up.
-  // Phase 6: ai_pulid_composition_suffix retired; baked in here.
-  const compositionSuffix =
-    "Full body wide angle shot. Person shown in action within the scene environment. " +
-    "Show the full setting and context. NOT a portrait or close-up.";
+  const compositionSuffix = PULID_COMPOSITION_SUFFIX;
   const finalPrompt = compositionSuffix ? `${prompt.trim()} ${compositionSuffix}` : prompt;
 
   const input: Record<string, unknown> = {
@@ -984,9 +991,7 @@ export async function buildFalInputPreview(
 
   if (isRef && isReferenceCapableModel(model)) {
     // Reference path (PuLID / IP-Adapter)
-    const compositionSuffix =
-      "Full body wide angle shot. Person shown in action within the scene environment. " +
-      "Show the full setting and context. NOT a portrait or close-up.";
+    const compositionSuffix = PULID_COMPOSITION_SUFFIX;
     const finalPrompt = compositionSuffix ? `${prompt.trim()} ${compositionSuffix}` : prompt;
     const faceParamName = REFERENCE_MODEL_INPUT_PARAM[model]!;
     const input: Record<string, unknown> = {

@@ -20,7 +20,13 @@ import { randomUUID } from "node:crypto";
 import request from "supertest";
 
 import { db } from "@workspace/db";
-import { usersTable, enginesTable } from "@workspace/db/schema";
+import {
+  usersTable,
+  enginesTable,
+  factsTable,
+  lookStylesTable,
+  motionPresetsTable,
+} from "@workspace/db/schema";
 import { eq, like, inArray } from "drizzle-orm";
 
 import adminEnginesRouter, {
@@ -28,6 +34,7 @@ import adminEnginesRouter, {
   __setFalSubmitForTest,
   __setFalPollForTest,
   __resetSubmitTimestampsForTest,
+  __setScenePromptGeneratorForTest,
   engineBenchType,
 } from "../routes/adminEngines.js";
 import { buildTestApp } from "./helpers/buildTestApp.js";
@@ -711,5 +718,115 @@ describe("GET /admin/engines/:id/test/poll/:requestId", () => {
     assert.equal(res.body.done, true);
     assert.equal(res.body.ok, false);
     assert.equal(res.body.error.status, "FAILED");
+  });
+});
+
+// ─── POST /:id/assemble-prompt (production-accurate test prompts) ──────────────
+describe("POST /admin/engines/:id/assemble-prompt", () => {
+  const SCENE = { fact_type: "action" as const, male: "Cinematic man scene", female: "Cinematic woman scene", neutral: "Cinematic neutral scene" };
+
+  async function seedFact(scenePrompts: unknown | null): Promise<number> {
+    const [row] = await db
+      .insert(factsTable)
+      .values({ text: `t-ae assemble fact ${randomUUID().slice(0, 8)}`, isActive: true, aiScenePrompts: scenePrompts as never })
+      .returning({ id: factsTable.id });
+    return row!.id;
+  }
+  async function seedLookStyle(): Promise<string> {
+    const id = `t-ae-ls-${randomUUID().slice(0, 8)}`;
+    await db.insert(lookStylesTable).values({
+      id, label: "Test look", promptSuffix: "in cyberpunk style", promptSuffixReference: "reimagined as cyberpunk",
+    });
+    return id;
+  }
+  async function seedMotionPreset(): Promise<string> {
+    const id = `t-ae-mp-${randomUUID().slice(0, 8)}`;
+    await db.insert(motionPresetsTable).values({ id, label: "Test motion", motionPrompt: "slow dolly push-in" });
+    return id;
+  }
+
+  const factIds: number[] = [];
+  after(async () => {
+    if (factIds.length) await db.delete(factsTable).where(inArray(factsTable.id, factIds));
+    await db.delete(lookStylesTable).where(like(lookStylesTable.id, "t-ae-ls-%"));
+    await db.delete(motionPresetsTable).where(like(motionPresetsTable.id, "t-ae-mp-%"));
+  });
+
+  it("image-to-image: scene[gender] + reference suffix + composition suffix (cached prompts, no LLM)", async () => {
+    const engineId = await seedEngine({ kind: "image", paramSchema: { params: [
+      { name: "prompt", from: "imagePrompt", type: "string", required: true },
+      { name: "image_urls", from: "referenceImageUrl", type: "stringArray", required: true },
+    ] } });
+    const factId = await seedFact(SCENE); factIds.push(factId);
+    const lookStyleId = await seedLookStyle();
+
+    const app = buildTestApp({ kind: "authenticated", userId: adminUserId }, adminEnginesRouter);
+    const res = await request(app)
+      .post(`/api/admin/engines/${engineId}/assemble-prompt`)
+      .send({ factId, gender: "female", lookStyleId });
+
+    assert.equal(res.status, 200);
+    assert.equal(res.body.benchType, "image-to-image");
+    assert.match(res.body.imagePrompt, /^Cinematic woman scene reimagined as cyberpunk /);
+    assert.match(res.body.imagePrompt, /Full body wide angle shot/);
+  });
+
+  it("text-to-image: scene[gender] + plain suffix, no composition", async () => {
+    const engineId = await seedEngine({ kind: "image", paramSchema: { params: [
+      { name: "prompt", from: "imagePrompt", type: "string", required: true },
+    ] } });
+    const factId = await seedFact(SCENE); factIds.push(factId);
+    const lookStyleId = await seedLookStyle();
+
+    const app = buildTestApp({ kind: "authenticated", userId: adminUserId }, adminEnginesRouter);
+    const res = await request(app)
+      .post(`/api/admin/engines/${engineId}/assemble-prompt`)
+      .send({ factId, gender: "male", lookStyleId });
+
+    assert.equal(res.body.benchType, "text-to-image");
+    assert.equal(res.body.imagePrompt, "Cinematic man scene in cyberpunk style");
+    assert.doesNotMatch(res.body.imagePrompt, /Full body wide angle/);
+  });
+
+  it("video: returns the motion preset's prompt + the fact text as dialogue", async () => {
+    const engineId = await seedEngine({ kind: "video" });
+    const factId = await seedFact(SCENE); factIds.push(factId);
+    const motionPresetId = await seedMotionPreset();
+
+    const app = buildTestApp({ kind: "authenticated", userId: adminUserId }, adminEnginesRouter);
+    const res = await request(app)
+      .post(`/api/admin/engines/${engineId}/assemble-prompt`)
+      .send({ factId, motionPresetId });
+
+    assert.equal(res.body.benchType, "video");
+    assert.equal(res.body.motionPrompt, "slow dolly push-in");
+    assert.match(res.body.dialogueText, /assemble fact/);
+  });
+
+  it("generates + caches scene prompts when the fact has none (via test hook)", async () => {
+    const engineId = await seedEngine({ kind: "image", paramSchema: { params: [
+      { name: "prompt", from: "imagePrompt", type: "string", required: true },
+    ] } });
+    const factId = await seedFact(null); factIds.push(factId);
+    let generatorCalls = 0;
+    __setScenePromptGeneratorForTest(async () => { generatorCalls += 1; return SCENE; });
+    try {
+      const app = buildTestApp({ kind: "authenticated", userId: adminUserId }, adminEnginesRouter);
+      const res = await request(app).post(`/api/admin/engines/${engineId}/assemble-prompt`).send({ factId, gender: "neutral" });
+      assert.equal(res.body.imagePrompt, "Cinematic neutral scene");
+      assert.equal(generatorCalls, 1);
+      // Cached on the fact now.
+      const [row] = await db.select({ p: factsTable.aiScenePrompts }).from(factsTable).where(eq(factsTable.id, factId));
+      assert.ok(row?.p, "scene prompts should be cached on the fact");
+    } finally {
+      __setScenePromptGeneratorForTest(null);
+    }
+  });
+
+  it("400s when factId is missing", async () => {
+    const engineId = await seedEngine({ kind: "image" });
+    const app = buildTestApp({ kind: "authenticated", userId: adminUserId }, adminEnginesRouter);
+    const res = await request(app).post(`/api/admin/engines/${engineId}/assemble-prompt`).send({});
+    assert.equal(res.status, 400);
   });
 });
