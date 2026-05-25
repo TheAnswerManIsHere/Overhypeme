@@ -43,6 +43,13 @@ import {
   PULID_COMPOSITION_SUFFIX,
   type AiScenePrompts,
 } from "../lib/aiMemePipeline.js";
+import { renderPersonalized } from "../lib/renderCanonical.js";
+
+// Hardcoded test identity for workbench prompt assembly — renders fact
+// templates ({NAME}/{SUBJ}/…) down to a concrete person so the prompt reads
+// like a real meme-generator request.
+const WORKBENCH_TEST_NAME = "David Franklin";
+const WORKBENCH_TEST_PRONOUNS = "he/him";
 import { ADMIN_EDITABLE_FIELDS } from "../lib/engines/types.js";
 import { logger } from "../lib/logger.js";
 
@@ -561,7 +568,10 @@ router.post(
           .limit(1);
         motionPrompt = mp?.motionPrompt ?? "";
       }
-      res.json({ benchType, motionPrompt, dialogueText: fact.text });
+      // Render the fact template down to a concrete name + pronoun, exactly
+      // like the production voice/dialogue cue.
+      const dialogueText = renderPersonalized(fact.text, WORKBENCH_TEST_NAME, WORKBENCH_TEST_PRONOUNS);
+      res.json({ benchType, motionPrompt, dialogueText });
       return;
     }
 
