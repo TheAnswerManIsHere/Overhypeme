@@ -11,9 +11,11 @@ import type { EngineDefinition } from "./types";
  * off that to render the text-to-image bench (prompt only) rather than the
  * image-to-image bench (source image + transform prompt).
  *
- * Param shape mirrors what `generateAndStoreImage` sends for the FLUX-1 family
- * (`else` branch): image_size, num_inference_steps, guidance_scale,
- * output_format, plus safety_tolerance (flux-pro / flux-pro/v1.1 only).
+ * Param shape verified against fal's docs for `fal-ai/flux-pro/v1.1`
+ * (text-to-image). NOTE: the base v1.1 endpoint does NOT accept
+ * `num_inference_steps` / `guidance_scale` — those belong to the `/redux`
+ * sub-endpoint. The legacy pipeline's generic FLUX-1 branch sent them anyway;
+ * fal ignores them here. The real knobs are below.
  */
 export const FLUX_PRO_V1_1: EngineDefinition = {
   id: "flux-pro-v1-1",
@@ -51,21 +53,15 @@ export const FLUX_PRO_V1_1: EngineDefinition = {
           square: "square_hd",
           portrait: "portrait_16_9",
         },
+        enum: [
+          "square_hd",
+          "square",
+          "portrait_4_3",
+          "portrait_16_9",
+          "landscape_4_3",
+          "landscape_16_9",
+        ],
         default: "square_hd",
-      },
-      {
-        name: "num_inference_steps",
-        from: "numInferenceSteps",
-        type: "int",
-        default: 28,
-        range: { min: 1, max: 50, policy: "clamp" },
-      },
-      {
-        name: "guidance_scale",
-        from: "guidanceScale",
-        type: "float",
-        default: 3.5,
-        range: { min: 1, max: 20, policy: "clamp" },
       },
       {
         name: "safety_tolerance",
@@ -73,6 +69,12 @@ export const FLUX_PRO_V1_1: EngineDefinition = {
         type: "string",
         enum: ["1", "2", "3", "4", "5", "6"],
         default: "2",
+      },
+      {
+        name: "enhance_prompt",
+        from: "enhancePrompt",
+        type: "boolean",
+        default: false,
       },
       {
         name: "output_format",
@@ -88,6 +90,8 @@ export const FLUX_PRO_V1_1: EngineDefinition = {
         default: 1,
         range: { min: 1, max: 4, policy: "clamp" },
       },
+      // Omitted when blank — fal generates a random seed.
+      { name: "seed", from: "seed", type: "int" },
     ],
   },
 

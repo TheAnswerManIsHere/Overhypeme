@@ -170,7 +170,7 @@ Open `/admin/engines` as admin.
 - Every engine card row shows a `{N} params` badge next to the id
   chip so you can see at a glance how many knobs each engine
   exposes (Nano Banana Pro: 7, Veo Lite/Fast: 9, Kling: 8, Seedance:
-  7, Grok: 6, PuLID: 10, FLUX Pro v1.1: 7, FLUX.2 Pro: 4,
+  7, Grok: 6, PuLID: 10, FLUX Pro v1.1: 7, FLUX.2 Pro: 6,
   auto-subtitle: 13).
 
 ### C2. Per-engine row header
@@ -534,17 +534,18 @@ prompt** ("scene to generate") + aspect ratio. This is the model the
 legacy pipeline already calls for prompt-only generation (fact scene
 backgrounds + the no-face fallback), now exposed in the catalogue.
 
-Baseline falInput:
+Baseline falInput (verified against fal's `fal-ai/flux-pro/v1.1` docs):
 - `prompt` (string — the image prompt from the bench)
 - `image_size` mapped from the aspect (`square` → `"square_hd"`,
   `landscape` → `"landscape_16_9"`, `portrait` → `"portrait_16_9"`)
-- `num_inference_steps: 28`, `guidance_scale: 3.5`,
-  `safety_tolerance: "2"`, `output_format: "jpeg"`, `num_images: 1`.
+- `safety_tolerance: "2"` (enum "1"–"6"), `enhance_prompt: false`,
+  `output_format: "jpeg"`, `num_images: 1`. `seed` is omitted unless set.
 
-Result data shape: `{ data: { images: [{ url }] } }`. There is no
-source image in `falInput` — that's the tell that it's text-to-image,
-not image-to-image. Experiments A/B/C don't apply (no audio, no
-motion).
+Note: the base v1.1 endpoint does **not** take `num_inference_steps`
+or `guidance_scale` (those are `/redux`-only); don't expect them in
+`falInput`. Result data shape: `{ data: { images: [{ url }] } }`. There
+is no source image in `falInput` — that's the tell that it's
+text-to-image, not image-to-image. Experiments A/B/C don't apply.
 
 ### E6b. FLUX.2 Pro (text-to-image)
 
@@ -552,12 +553,19 @@ motion).
 as an upgrade candidate — run the same image prompt through both and
 compare output quality before we pick a production default.
 
-Baseline falInput:
+Baseline falInput (verified against fal's `fal-ai/flux-2-pro` docs):
 - `prompt` (string)
-- `aspect_ratio` mapped from the aspect (`landscape` → `"16:9"`,
-  `square` → `"1:1"`, `portrait` → `"9:16"`) — note FLUX.2 uses
-  `aspect_ratio`, not the `image_size` named sizes v1.1 uses.
-- `output_format: "jpeg"`, `num_images: 1`.
+- `image_size` mapped from the aspect (`landscape` → `"landscape_16_9"`,
+  `square` → `"square_hd"`, `portrait` → `"portrait_16_9"`) — FLUX.2 Pro
+  uses the same named-size `image_size` enum as v1.1, **not** an
+  `aspect_ratio` string.
+- `safety_tolerance: "2"` (enum "1"–**"5"**, narrower than v1.1's "6"),
+  `enable_safety_checker: true`, `output_format: "jpeg"`. `seed` omitted
+  unless set. No `num_images` on this endpoint.
+
+(There is also a `fal-ai/flux-2-pro/edit` endpoint that takes
+`image_urls` for image-to-image — not catalogued yet; it'd be a
+separate entry that would classify as an image-to-image bench.)
 
 ### E7. Auto-subtitle (utility)
 

@@ -3,9 +3,14 @@ import type { EngineDefinition } from "./types";
 /**
  * FLUX.2 Pro — text-to-image. Newer generation than FLUX Pro v1.1; registered
  * alongside it so the workbench can A/B the two before we pick a production
- * default. The legacy pipeline already has a branch for `fal-ai/flux-2-pro`
- * (aiMemePipeline.generateAndStoreImage), which sends aspect_ratio +
- * output_format rather than the FLUX-1 image_size knobs — mirrored here.
+ * default.
+ *
+ * Param shape verified against fal's docs for `fal-ai/flux-2-pro`
+ * (text-to-image). IMPORTANT: this endpoint uses `image_size` (the named-size
+ * enum, same vocabulary as flux-pro/v1.1) — NOT an `aspect_ratio` string. It
+ * has no `num_images`, and `safety_tolerance` only goes to "5" (not "6").
+ * A separate `fal-ai/flux-2-pro/edit` endpoint takes `image_urls` for
+ * image-to-image; if we want that, it's its own catalogue entry.
  *
  * Distinguishing trait: NO reference/source image param → text-to-image bench.
  */
@@ -37,16 +42,36 @@ export const FLUX_2_PRO: EngineDefinition = {
     params: [
       { name: "prompt", from: "imagePrompt", type: "string", required: true },
       {
-        name: "aspect_ratio",
+        name: "image_size",
         from: "aspectRatio",
         type: "string",
         map: {
-          landscape: "16:9",
-          square: "1:1",
-          portrait: "9:16",
+          landscape: "landscape_16_9",
+          square: "square_hd",
+          portrait: "portrait_16_9",
         },
-        enum: ["21:9", "16:9", "4:3", "3:2", "1:1", "2:3", "3:4", "9:16", "9:21"],
-        default: "1:1",
+        enum: [
+          "square_hd",
+          "square",
+          "portrait_4_3",
+          "portrait_16_9",
+          "landscape_4_3",
+          "landscape_16_9",
+        ],
+        default: "square_hd",
+      },
+      {
+        name: "safety_tolerance",
+        from: "safetyTolerance",
+        type: "string",
+        enum: ["1", "2", "3", "4", "5"],
+        default: "2",
+      },
+      {
+        name: "enable_safety_checker",
+        from: "enableSafetyChecker",
+        type: "boolean",
+        default: true,
       },
       {
         name: "output_format",
@@ -55,13 +80,8 @@ export const FLUX_2_PRO: EngineDefinition = {
         enum: ["jpeg", "png"],
         default: "jpeg",
       },
-      {
-        name: "num_images",
-        from: "numImages",
-        type: "int",
-        default: 1,
-        range: { min: 1, max: 4, policy: "clamp" },
-      },
+      // Omitted when blank — fal generates a random seed.
+      { name: "seed", from: "seed", type: "int" },
     ],
   },
 

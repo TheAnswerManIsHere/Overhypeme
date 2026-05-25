@@ -704,7 +704,7 @@ After the cleanup, the admin pages should look like:
 - Each engine card row shows a `{N} params` badge next to the id chip
   so the param-schema breadth is visible at a glance (Nano Banana
   Pro: 7, Veo engines: 9, Kling: 8, Seedance: 7, Grok: 6, PuLID: 10,
-  FLUX Pro v1.1: 7, FLUX.2 Pro: 4, auto-subtitle: 13).
+  FLUX Pro v1.1: 7, FLUX.2 Pro: 6, auto-subtitle: 13).
 - The workbench renders a **bench-type** form per engine: video
   (motion/dialogue/duration), image-to-image (source + transform
   prompt), text-to-image (prompt only), utility (video URL + captions).
