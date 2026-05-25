@@ -222,6 +222,92 @@ function EngineTestPanel({ engine }: { engine: EngineRow }) {
     return init;
   });
 
+  // ── Production test inputs (fact / gender / look style / motion preset) ──
+  // The workbench tests against real meme-generator prompts: pick a fact and
+  // (for image) a gender + look style, or (for video) a motion preset, and the
+  // server assembles the exact production prompt into the editable boxes below.
+  const [factQuery, setFactQuery] = useState("");
+  const [factResults, setFactResults] = useState<{ id: number; text: string }[]>([]);
+  const [selectedFact, setSelectedFact] = useState<{ id: number; text: string } | null>(null);
+  const [gender, setGender] = useState<"male" | "female" | "neutral">("neutral");
+  const [lookStyles, setLookStyles] = useState<{ id: string; label: string }[]>([]);
+  const [lookStyleId, setLookStyleId] = useState("");
+  const [motionPresets, setMotionPresets] = useState<{ id: string; label: string }[]>([]);
+  const [motionPresetId, setMotionPresetId] = useState("");
+  const [assembling, setAssembling] = useState(false);
+  const [assembleError, setAssembleError] = useState<string | null>(null);
+
+  // Fetch the look-style + motion-preset catalogues once (only what the bench needs).
+  useEffect(() => {
+    if (isImagePromptBench) {
+      fetch("/api/look-styles", { credentials: "include" })
+        .then((r) => (r.ok ? r.json() : []))
+        .then((rows) => setLookStyles(Array.isArray(rows) ? rows : []))
+        .catch(() => setLookStyles([]));
+    }
+    if (isVideoBench) {
+      fetch("/api/motion-presets", { credentials: "include" })
+        .then((r) => (r.ok ? r.json() : []))
+        .then((rows) => setMotionPresets(Array.isArray(rows) ? rows : []))
+        .catch(() => setMotionPresets([]));
+    }
+  }, [isImagePromptBench, isVideoBench]);
+
+  // Debounced fact search.
+  useEffect(() => {
+    const q = factQuery.trim();
+    if (q.length < 2) { setFactResults([]); return; }
+    const t = setTimeout(() => {
+      fetch(`/api/facts?search=${encodeURIComponent(q)}&limit=15`, { credentials: "include" })
+        .then((r) => (r.ok ? r.json() : { facts: [] }))
+        .then((data) => setFactResults(Array.isArray(data?.facts) ? data.facts : []))
+        .catch(() => setFactResults([]));
+    }, 300);
+    return () => clearTimeout(t);
+  }, [factQuery]);
+
+  // Assemble the production prompt whenever the selection changes. Fills the
+  // editable prompt boxes; the admin can still tweak before running.
+  useEffect(() => {
+    if (!selectedFact) return;
+    if (benchType === "utility") return;
+    let cancelled = false;
+    setAssembling(true);
+    setAssembleError(null);
+    fetch(`/api/admin/engines/${engine.id}/assemble-prompt`, {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        factId: selectedFact.id,
+        gender,
+        lookStyleId: lookStyleId || undefined,
+        motionPresetId: motionPresetId || undefined,
+      }),
+    })
+      .then(async (r) => {
+        const json = await r.json().catch(() => null);
+        if (!r.ok) throw new Error(json?.error ?? `HTTP ${r.status}`);
+        return json as { imagePrompt?: string; motionPrompt?: string; dialogueText?: string };
+      })
+      .then((data) => {
+        if (cancelled) return;
+        if (typeof data.imagePrompt === "string") setImagePrompt(data.imagePrompt);
+        if (typeof data.motionPrompt === "string") {
+          setMotionPrompt(data.motionPrompt);
+          setExperiment("custom");
+        }
+        if (typeof data.dialogueText === "string") {
+          setDialogueText(data.dialogueText);
+          setDialogueEnabled(true);
+        }
+      })
+      .catch((e) => { if (!cancelled) setAssembleError(String(e instanceof Error ? e.message : e)); })
+      .finally(() => { if (!cancelled) setAssembling(false); });
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedFact?.id, gender, lookStyleId, motionPresetId]);
+
   // ── Experiment radio → auto-fill dialogue ───────────────────────────────
   const applyExperiment = (next: ExperimentMode) => {
     setExperiment(next);
@@ -519,6 +605,119 @@ function EngineTestPanel({ engine }: { engine: EngineRow }) {
       <p className="text-[10px] font-mono uppercase tracking-wider text-primary/80" data-testid="engine-bench-type">
         {benchType.replace(/-/g, " ")} bench
       </p>
+
+      {/* ── Production test inputs: pick a real fact (+ style/motion) ──── */}
+      {benchType !== "utility" && (
+        <div className="space-y-3 rounded-sm border border-primary/30 bg-primary/5 p-2">
+          <p className="text-[10px] font-semibold text-primary uppercase tracking-wider">
+            Test against a real fact
+          </p>
+
+          {/* Fact picker */}
+          <div className="relative">
+            <label className={labelCls}>Fact</label>
+            {selectedFact ? (
+              <div className="flex items-start gap-2 rounded-sm border border-border bg-muted/30 px-2 py-1.5">
+                <span className="flex-1 text-xs">{selectedFact.text}</span>
+                <button
+                  type="button"
+                  onClick={() => { setSelectedFact(null); setFactQuery(""); }}
+                  className="text-[10px] text-muted-foreground hover:text-foreground underline shrink-0"
+                >
+                  change
+                </button>
+              </div>
+            ) : (
+              <>
+                <input
+                  value={factQuery}
+                  onChange={(e) => setFactQuery(e.target.value)}
+                  placeholder="Search facts by text…"
+                  className={inputCls}
+                  data-testid="engine-test-fact-search"
+                />
+                {factResults.length > 0 && (
+                  <div className="mt-1 max-h-44 overflow-y-auto rounded-sm border border-border bg-card">
+                    {factResults.map((f) => (
+                      <button
+                        key={f.id}
+                        type="button"
+                        onClick={() => { setSelectedFact({ id: f.id, text: f.text }); setFactResults([]); }}
+                        className="block w-full px-2 py-1.5 text-left text-xs hover:bg-muted/50 border-b border-border last:border-0"
+                      >
+                        {f.text}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+
+          {/* Gender (image benches — scene prompts are per-gender) */}
+          {isImagePromptBench && (
+            <div>
+              <label className={labelCls}>Subject gender (scene prompt)</label>
+              <select
+                value={gender}
+                onChange={(e) => setGender(e.target.value as "male" | "female" | "neutral")}
+                className={selectCls}
+                data-testid="engine-test-gender"
+              >
+                <option value="neutral">neutral</option>
+                <option value="male">male</option>
+                <option value="female">female</option>
+              </select>
+            </div>
+          )}
+
+          {/* Look style (image benches) */}
+          {isImagePromptBench && (
+            <div>
+              <label className={labelCls}>Look style</label>
+              <select
+                value={lookStyleId}
+                onChange={(e) => setLookStyleId(e.target.value)}
+                className={selectCls}
+                data-testid="engine-test-look-style"
+              >
+                <option value="">(no style suffix)</option>
+                {lookStyles.map((s) => (
+                  <option key={s.id} value={s.id}>{s.label}</option>
+                ))}
+              </select>
+            </div>
+          )}
+
+          {/* Motion preset (video bench) */}
+          {isVideoBench && (
+            <div>
+              <label className={labelCls}>Motion preset</label>
+              <select
+                value={motionPresetId}
+                onChange={(e) => setMotionPresetId(e.target.value)}
+                className={selectCls}
+                data-testid="engine-test-motion-preset"
+              >
+                <option value="">(no motion preset)</option>
+                {motionPresets.map((m) => (
+                  <option key={m.id} value={m.id}>{m.label}</option>
+                ))}
+              </select>
+            </div>
+          )}
+
+          <p className="text-[10px] text-muted-foreground">
+            {assembling
+              ? "Assembling the production prompt…"
+              : assembleError
+                ? `Assemble failed: ${assembleError}`
+                : selectedFact
+                  ? "Prompt below is auto-filled from this fact — edit freely before running."
+                  : "Pick a fact to auto-fill the prompt the meme generator would send."}
+          </p>
+        </div>
+      )}
 
       {/* ── Experiment selector (video only — dialogue behavior) ──────── */}
       {isVideoBench && (

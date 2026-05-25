@@ -26,16 +26,36 @@ import { fileURLToPath } from "node:url";
 import { fal, ensureFalConfigured } from "../lib/falClient.js";
 
 import { db } from "@workspace/db";
-import { enginesTable, type Engine } from "@workspace/db/schema";
+import {
+  enginesTable,
+  factsTable,
+  lookStylesTable,
+  motionPresetsTable,
+  type Engine,
+} from "@workspace/db/schema";
 import { eq, ne, and } from "drizzle-orm";
 
 import { requireAdmin } from "./admin.js";
 import { clearEngineCaches, buildEngineInput } from "../lib/engineInterpreter.js";
 import { applyAudioHandling } from "../lib/engineAudio.js";
+import {
+  generateScenePrompts,
+  PULID_COMPOSITION_SUFFIX,
+  type AiScenePrompts,
+} from "../lib/aiMemePipeline.js";
 import { ADMIN_EDITABLE_FIELDS } from "../lib/engines/types.js";
 import { logger } from "../lib/logger.js";
 
 const router: IRouter = Router();
+
+// Test seam: override the scene-prompt generator so the assemble-prompt
+// endpoint can be tested without a real OpenAI call.
+let scenePromptGenerator: (factText: string) => Promise<AiScenePrompts> = generateScenePrompts;
+export function __setScenePromptGeneratorForTest(
+  fn: ((factText: string) => Promise<AiScenePrompts>) | null,
+): void {
+  scenePromptGenerator = fn ?? generateScenePrompts;
+}
 
 // ────────────────────────────────────────────────────────────────────────────
 // Admin-editable field allowlist
@@ -477,6 +497,120 @@ export function engineBenchType(engine: {
   );
   return needsSourceImage ? "image-to-image" : "text-to-image";
 }
+
+// ────────────────────────────────────────────────────────────────────────────
+// 5b. POST /api/admin/engines/:id/assemble-prompt
+//
+// Assembles the EXACT production prompt for a chosen fact (+ gender + look
+// style for image engines, or motion preset for video), so the workbench can
+// test each engine against real meme-generator inputs instead of synthetic
+// placeholders. The secret prompt strings (style suffixes, composition suffix,
+// motion prompt) stay server-side; the client only sends ids.
+//
+// Returns, depending on the engine's bench:
+//   image  → { imagePrompt }        (scene prompt[gender] + style suffix [+ composition])
+//   video  → { motionPrompt, dialogueText }
+//   utility→ {}                      (captions a video; no prompt assembly)
+// ────────────────────────────────────────────────────────────────────────────
+
+interface AssemblePromptBody {
+  factId?: number;
+  gender?: "male" | "female" | "neutral";
+  lookStyleId?: string;
+  motionPresetId?: string;
+}
+
+router.post(
+  "/admin/engines/:id/assemble-prompt",
+  requireAdmin,
+  async (req: Request, res: Response) => {
+    const id = String(req.params["id"] ?? "");
+    const engine = await fetchEngineById(id);
+    if (!engine) {
+      res.status(404).json({ error: "Engine not found" });
+      return;
+    }
+
+    const body = (req.body && typeof req.body === "object" ? req.body : {}) as AssemblePromptBody;
+    const factId = typeof body.factId === "number" ? body.factId : NaN;
+    if (!Number.isFinite(factId)) {
+      res.status(400).json({ error: "factId is required" });
+      return;
+    }
+
+    const [fact] = await db
+      .select({ text: factsTable.text, aiScenePrompts: factsTable.aiScenePrompts })
+      .from(factsTable)
+      .where(eq(factsTable.id, factId))
+      .limit(1);
+    if (!fact) {
+      res.status(400).json({ error: "unknown_fact", factId });
+      return;
+    }
+
+    const benchType = engineBenchType(engine);
+
+    // Video: motion preset drives motion; the fact text is the voice/dialogue cue.
+    if (benchType === "video") {
+      let motionPrompt = "";
+      if (body.motionPresetId) {
+        const [mp] = await db
+          .select({ motionPrompt: motionPresetsTable.motionPrompt })
+          .from(motionPresetsTable)
+          .where(eq(motionPresetsTable.id, body.motionPresetId))
+          .limit(1);
+        motionPrompt = mp?.motionPrompt ?? "";
+      }
+      res.json({ benchType, motionPrompt, dialogueText: fact.text });
+      return;
+    }
+
+    // Utility engines caption a video — no prompt to assemble.
+    if (benchType === "utility") {
+      res.json({ benchType });
+      return;
+    }
+
+    // Image (text-to-image or image-to-image): scene prompt (per gender) +
+    // look-style suffix [+ composition suffix for image-to-image].
+    let prompts = fact.aiScenePrompts as AiScenePrompts | null;
+    if (!prompts) {
+      try {
+        prompts = await scenePromptGenerator(fact.text);
+        // Cache on the fact so repeated picks (and production) reuse them.
+        await db.update(factsTable).set({ aiScenePrompts: prompts }).where(eq(factsTable.id, factId));
+      } catch (err) {
+        logger.warn({ err, factId }, "[adminEngines/assemble-prompt] scene-prompt generation failed");
+        res.status(502).json({ error: "scene_prompt_generation_failed" });
+        return;
+      }
+    }
+
+    const gender = body.gender ?? "neutral";
+    const scene = (prompts[gender] ?? prompts.neutral ?? fact.text).trim();
+
+    let styleSuffix = "";
+    if (body.lookStyleId) {
+      const [ls] = await db
+        .select({
+          promptSuffix: lookStylesTable.promptSuffix,
+          promptSuffixReference: lookStylesTable.promptSuffixReference,
+        })
+        .from(lookStylesTable)
+        .where(eq(lookStylesTable.id, body.lookStyleId))
+        .limit(1);
+      if (ls) {
+        styleSuffix = benchType === "image-to-image" ? ls.promptSuffixReference : ls.promptSuffix;
+      }
+    }
+
+    let imagePrompt = scene;
+    if (styleSuffix.trim()) imagePrompt += ` ${styleSuffix.trim()}`;
+    if (benchType === "image-to-image") imagePrompt += ` ${PULID_COMPOSITION_SUFFIX}`;
+
+    res.json({ benchType, imagePrompt });
+  },
+);
 
 router.post("/admin/engines/:id/test", requireAdmin, async (req: Request, res: Response) => {
   const id = String(req.params["id"] ?? "");

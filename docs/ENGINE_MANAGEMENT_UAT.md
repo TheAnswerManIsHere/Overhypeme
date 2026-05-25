@@ -48,20 +48,31 @@ template at the bottom.
   gets a source image + transform prompt, utility gets a video URL +
   caption knobs, video is unchanged. A bench-type banner at the top of
   the panel tells you which one you're looking at. See Section D/E.
-- **Two new text-to-image engines** in the catalogue: **FLUX Pro v1.1**
-  (`fal-ai/flux-pro/v1.1`, production parity — this is the model the
-  legacy pipeline already calls for prompt-only generation) and
-  **FLUX.2 Pro** (`fal-ai/flux-2-pro`, an upgrade candidate).
-  Registered side by side so you can A/B them in the bench; both are
-  non-default. (Engine count is now 10: 5 video, 4 image, 1 utility.)
+- **Production-accurate test prompts.** The workbench no longer uses
+  synthetic placeholder prompts. Each image/video bench has a **fact
+  picker** (search the real fact DB) plus a **gender + look-style**
+  picker (image) or a **motion-preset** picker (video). The server
+  assembles the *exact* prompt the meme generator would send and
+  auto-fills the (still editable) prompt box. See Section D1a.
+- **Seven new image engines** in the catalogue (all schema-verified
+  against fal's live docs), bringing the count to **15** (5 video, 9
+  image, 1 utility):
+  - text-to-image: **FLUX Pro v1.1** (`fal-ai/flux-pro/v1.1`),
+    **FLUX.2 Pro** (`fal-ai/flux-2-pro`), **Nano Banana 2**
+    (`fal-ai/nano-banana-2`), **Nano Banana Pro t2i**
+    (`fal-ai/nano-banana-pro`), **GPT Image 2** (`openai/gpt-image-2`)
+  - image-to-image: **Nano Banana 2 edit** (`fal-ai/nano-banana-2/edit`),
+    **GPT Image 2 edit** (`openai/gpt-image-2/edit`)
+  - All `isActive` + **non-default** (production-default choice deferred
+    until you've A/B'd them in the bench). GPT Image 2 rides fal's queue
+    (`provider: openai`); its BYOK key is intentionally not wired.
 - **No-face fallback now generates an image.** When you upload a photo
   with no detectable face in a *video* and choose "generate an abstract
   image based on the fact," Stage 1 now produces a faceless scene still
   via text-to-image instead of animating your raw upload. See F4.
-- A new image engine, **Nano Banana Pro** (`fal-ai/nano-banana-pro/edit`)
-  — Google Gemini 3 Pro Image. It's the default image engine in the
-  catalogue now (★ badge moved off PuLID). **However**, the production
-  video pipeline's Stage 1 still hardcodes PuLID — see F3 below for
+- The default image engine is **Nano Banana Pro** (`fal-ai/nano-banana-pro/edit`)
+  — Google Gemini 3 Pro Image (★ badge moved off PuLID). **However**, the
+  production video pipeline's Stage 1 still hardcodes PuLID — see F3 below for
   what to expect in the `video_jobs` row.
 - Every existing engine gained the params it had been missing per
   fal's live docs: `auto_fix`, `safety_tolerance`, `enhance_prompt`,
@@ -160,18 +171,21 @@ Open `/admin/engines` as admin.
   drives the bench type, not a separate kind):
   - **Video engines** — Veo 3.1 Lite (★ default), Veo 3.1 Fast,
     Kling v3 Standard, Seedance 2.0 Fast, Grok Imagine.
-  - **Image engines** — Nano Banana Pro (edit) (★ default), PuLID
-    (FLUX) — both image-to-image — plus **FLUX Pro v1.1** and
-    **FLUX.2 Pro**, which are text-to-image (no source image). All
-    four sit in the `image` group; the workbench tells image-to-image
-    from text-to-image by the bench it renders.
+  - **Image engines** (9 — all `kind: image`; the workbench tells
+    image-to-image from text-to-image by whether the schema needs a
+    source image):
+    - *image-to-image:* Nano Banana Pro (edit) (★ default), Nano Banana 2
+      (edit), GPT Image 2 (edit), PuLID (FLUX)
+    - *text-to-image:* Nano Banana 2, Nano Banana Pro (t2i), FLUX Pro v1.1,
+      FLUX.2 Pro, GPT Image 2
   - **Utility engines** — Auto-subtitle (★ default).
 - Archived tab is empty.
 - Every engine card row shows a `{N} params` badge next to the id
   chip so you can see at a glance how many knobs each engine
-  exposes (Nano Banana Pro: 7, Veo Lite/Fast: 9, Kling: 8, Seedance:
-  7, Grok: 6, PuLID: 10, FLUX Pro v1.1: 7, FLUX.2 Pro: 6,
-  auto-subtitle: 13).
+  exposes (Veo Lite/Fast: 9, Kling: 8, Seedance: 7, Grok: 6,
+  Nano Banana Pro edit: 9, Nano Banana 2: 10, Nano Banana 2 edit: 11,
+  Nano Banana Pro t2i: 9, PuLID: 10, FLUX Pro v1.1: 7, FLUX.2 Pro: 6,
+  GPT Image 2: 5, GPT Image 2 edit: 7, auto-subtitle: 13).
 
 ### C2. Per-engine row header
 
@@ -281,6 +295,38 @@ smaller subset):
 
 Editing any field flips the experiment radio to `custom` so you know
 your last A/B/C choice no longer represents what's being sent.
+
+### D1a. Test against a real fact (production-accurate prompts)
+
+At the top of every image and video bench is a **"Test against a real
+fact"** panel. This is how you judge true model quality — it feeds each
+engine the *exact* prompt the meme generator would send, not a synthetic
+placeholder.
+
+- **Fact** — type to search the live fact database; pick one. (Searches
+  `GET /facts`.)
+- **Subject gender** (image benches only) — male / female / neutral. The
+  scene prompts the meme generator uses are per-gender, so this changes
+  the assembled prompt.
+- **Look style** (image benches) — the same look styles the wizard
+  offers. Adds the style's suffix to the prompt.
+- **Motion preset** (video bench) — the same motion presets the wizard
+  offers. Fills the motion prompt.
+
+On each change the server **assembles the production prompt** and
+auto-fills the prompt box below:
+
+- **text-to-image:** scene prompt[gender] + look-style `promptSuffix`
+- **image-to-image:** scene prompt[gender] + look-style
+  `promptSuffixReference` + the composition suffix
+- **video:** the motion preset's prompt → motion box; the fact text →
+  dialogue box
+
+The boxes stay **editable**, so you can tweak before running. The actual
+prompt strings are assembled server-side (`POST /:id/assemble-prompt`) —
+the picker only sends ids, so the secret suffixes never reach the
+browser. Scene prompts are cached on the fact after first use (a fact
+with none triggers a one-time generation).
 
 ### D2. Experiment A — Baseline (does the engine speak the cue?)
 
@@ -492,7 +538,10 @@ Baseline falInput:
   default of "4" because meme prompts on real selfies tend to trip
   the filter at "4". Bump to "6" if `IMAGE_SAFETY` rejections still
   show up.)
-- `num_images: 1`, `output_format: "png"`, `enable_web_search: false`.
+- `num_images: 1`, `output_format: "png"` (enum jpeg/png/**webp**),
+  `limit_generations: false`, `enable_web_search: false`. `seed` omitted
+  unless set. (9 params — `seed` + `limit_generations` added when the
+  schema was reconciled against fal's docs.)
 
 Result data shape: `{ data: { images: [{ url }] } }`. No video, no
 audio. Experiments B/C don't apply (no audio path).
@@ -592,6 +641,57 @@ Expected falInput:
 Result: a captioned MP4 URL. Verify the burned-in captions match
 the brand spec (white text, orange highlight on current word, 3px
 black stroke, bottom-aligned).
+
+### E8. Nano Banana 2 (text-to-image)
+
+**Bench: text-to-image** (prompt only). `fal-ai/nano-banana-2`, Google
+Gemini 3.1 Flash Image — the recommended new default for prompt-only
+generation. Fast (~3–5 s) and cheap-ish ($0.08/image at 1K).
+
+Baseline falInput:
+- `prompt`, `aspect_ratio` mapped from the aspect (`portrait` → `"9:16"`),
+  `resolution: "1K"` (enum `0.5K`/`1K`/`2K`/`4K`),
+  `output_format: "png"` (jpeg/png/webp), `safety_tolerance: "5"` (1–6),
+  `limit_generations: true`, `enable_web_search: false`.
+- `thinking_level` and `seed` omitted unless set (10 params total).
+
+### E9. Nano Banana 2 (edit / image-to-image)
+
+**Bench: image-to-image.** `fal-ai/nano-banana-2/edit` — the recommended
+PuLID replacement for selfie stylization (native multimodal identity, so
+no descriptor-stripping workaround). Same params as E8 plus `image_urls`
+(stringArray, from the source image), 11 params total.
+
+### E10. Nano Banana Pro (text-to-image)
+
+**Bench: text-to-image.** `fal-ai/nano-banana-pro` — the text-to-image
+sibling of the E5 edit engine; quality-first ($0.15/image), the
+LEGEND-tier hero option. Differs from Nano Banana 2: no extreme aspect
+ratios, no `0.5K`, no `thinking_level`, `limit_generations` defaults
+false (9 params).
+
+### E11. GPT Image 2 (text-to-image)
+
+**Bench: text-to-image.** `openai/gpt-image-2` (OpenAI, alpha), served
+via fal's queue — strongest in-image text rendering. **Slow: ~100 s/image**
+(reasoning model). Its `expectedRunMs` is set to 110 s so the workbench
+poll loop doesn't time out before the job returns (a too-low value caused
+false FAILs on successful jobs).
+
+Baseline falInput:
+- `prompt`, `image_size` mapped from the aspect (named enum, **not**
+  `aspect_ratio`), `quality: "high"` (auto/low/medium/high — a
+  GPT-specific knob in the engine-params panel), `output_format: "png"`
+  (jpeg/png/webp), `num_images: 1` (5 params).
+- No `resolution` param (size comes from `image_size`). BYOK
+  `openai_api_key` is intentionally not sent — fal bills it.
+
+### E12. GPT Image 2 (edit / image-to-image)
+
+**Bench: image-to-image.** `openai/gpt-image-2/edit` — same as E11 plus
+`image_urls` (source) and an optional `mask_url` for inpainting (7
+params). Identity preservation is less benchmarked than Nano Banana —
+worth eyeballing on a selfie before relying on it. Same ~100 s runtime.
 
 ---
 

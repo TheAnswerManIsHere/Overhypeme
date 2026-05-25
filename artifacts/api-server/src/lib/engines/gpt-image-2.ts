@@ -82,8 +82,12 @@ export const GPT_IMAGE_2: EngineDefinition = {
     ],
   },
 
-  expectedRunMs: 20000,
-  // Tiered: ~$0.01 (low) to ~$0.40 (4K high). Mid estimate for high quality.
-  estimatedCostUsdPerCall: 0.17,
+  // GPT Image 2 reasons before rendering — runs ~100s in practice (observed
+  // 103s), far longer than other image engines. expectedRunMs drives the
+  // workbench poll timeout (4x, capped at 5min); too low a value makes a
+  // successful job report a false FAIL when polling gives up early.
+  expectedRunMs: 110000,
+  // Tiered: ~$0.01 (low) to ~$0.40 (4K high). Observed ~$0.10 at high/1K.
+  estimatedCostUsdPerCall: 0.11,
   estimatedCostUsdPerSecond: null,
 };

@@ -89,7 +89,10 @@ export const GPT_IMAGE_2_EDIT: EngineDefinition = {
     ],
   },
 
-  expectedRunMs: 20000,
-  estimatedCostUsdPerCall: 0.17,
+  // Reasoning model — ~100s runs (see gpt-image-2.ts). Keep expectedRunMs
+  // high so the workbench poll loop (4x, capped 5min) doesn't time out before
+  // a successful job returns.
+  expectedRunMs: 110000,
+  estimatedCostUsdPerCall: 0.11,
   estimatedCostUsdPerSecond: null,
 };
