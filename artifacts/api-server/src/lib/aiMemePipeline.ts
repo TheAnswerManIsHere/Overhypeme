@@ -412,6 +412,7 @@ async function generateAndStoreImageFromReference(
   paramsOverride?: Record<string, string>,
   userId?: string,
   onProgress?: PulidProgressCallback,
+  imageSizeOverride?: string,
 ): Promise<string> {
   ensureFalConfigured();
 
@@ -422,7 +423,10 @@ async function generateAndStoreImageFromReference(
   // continue to honour modelOverride here. The default is the same value
   // that the engines table seeds for the PuLID engine's endpoint_id.
   const model     = modelOverride || DEFAULT_IMAGE_MODEL_REFERENCE;
-  const imageSize = DEFAULT_IMAGE_SIZE;
+  // The video pipeline supplies the target aspect's image_size so the still
+  // matches the user's chosen output orientation; everything else defaults
+  // to the bundled square.
+  const imageSize = imageSizeOverride ?? DEFAULT_IMAGE_SIZE;
 
   // If the selected model is not reference-capable (e.g. FLUX Pro 1.1 chosen via admin override),
   // fall through to standard generation — don't upload the reference photo or pass a face param.
@@ -630,6 +634,13 @@ export async function generateAiMemeBackgroundFromReference(
     suppressErrors?: boolean;
     /** Optional progress callback — invoked when fal queue status changes. */
     onProgress?: PulidProgressCallback;
+    /**
+     * fal.ai `image_size` for the generated still (e.g. "square_hd",
+     * "portrait_16_9", "landscape_16_9"). Defaults to the square bundled
+     * default when omitted. The video pipeline passes this so the stylized
+     * still matches the user's chosen output aspect ratio.
+     */
+    imageSize?: string;
   },
 ): Promise<string | null> {
   try {
@@ -657,7 +668,7 @@ export async function generateAiMemeBackgroundFromReference(
       { factId, gender: targetGender, modelOverride: options?.modelOverride },
       "[aiMemePipeline] Generating reference-based image",
     );
-    const storedPath = await generateAndStoreImageFromReference(factId, targetGender, uniqueKey, prompt, referenceBuffer, options?.modelOverride, options?.paramsOverride, options?.userId, options?.onProgress);
+    const storedPath = await generateAndStoreImageFromReference(factId, targetGender, uniqueKey, prompt, referenceBuffer, options?.modelOverride, options?.paramsOverride, options?.userId, options?.onProgress, options?.imageSize);
 
     // Track only in user_ai_images (type='reference') — NOT in the shared aiMemeImages on the fact
     try {
@@ -669,8 +680,9 @@ export async function generateAiMemeBackgroundFromReference(
     // Also write to upload_image_metadata so the AI Stylings picker (GET /users/me/uploads?transform=ai)
     // can surface this image when the user creates a second meme for the same fact.
     try {
-      // Phase 6: ai_image_size retired; use the bundled default.
-      const imageSize = DEFAULT_IMAGE_SIZE;
+      // Phase 6: ai_image_size retired; default to the bundled square unless
+      // the caller (video pipeline) supplies a target aspect's image_size.
+      const imageSize = options?.imageSize ?? DEFAULT_IMAGE_SIZE;
       const { width, height } = resolveImageSizePx(imageSize);
 
       // source_object_path has a self-FK constraint (→ upload_image_metadata.object_path).

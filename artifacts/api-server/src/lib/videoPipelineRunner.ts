@@ -70,6 +70,7 @@ import {
   MissingRequiredParamError,
 } from "./engineInterpreter";
 import { applyAudioHandling } from "./engineAudio";
+import { cropBufferToAspect, aspectRatioToPulidImageSize } from "./imageFraming";
 import { generateAiMemeBackgroundFromReference } from "./aiMemePipeline";
 import { addCaptionsToVideo } from "./falAutoSubtitle";
 import { classifyAndDecide } from "./moderation/nsfwClassifier";
@@ -127,6 +128,11 @@ export interface JobState {
   durationSec: number;
   resolution: string;
   aspectRatio: AspectRatio;
+  /**
+   * Normalized focus point {x,y} in [0,1] for cropping the source image to the
+   * chosen aspect ratio in Stage 1 (drag-to-reposition). null = centre crop.
+   */
+  framingFocus: { x: number; y: number } | null;
   name: string | null;
   pronouns: string | null;
   renderedFactText: string | null;
@@ -169,6 +175,8 @@ export interface StartJobInput {
   durationSec: number;
   resolution: string;
   aspectRatio: AspectRatio;
+  /** Normalized focus point {x,y} in [0,1] for the Stage-1 source crop. */
+  framingFocus?: { x: number; y: number } | null;
   name?: string | null;
   pronouns?: string | null;
   /** Rendered fact text (name/pronouns substituted) — drives the engine's voice slot. */
@@ -481,6 +489,7 @@ export async function startVideoJob(input: StartJobInput): Promise<{ jobId: stri
           lengthSeconds: input.durationSec,
           resolution: input.resolution,
           aspectRatio: input.aspectRatio,
+          framingFocus: input.framingFocus ?? null,
         },
         status: "pending",
         ipAddress: "pipeline",
@@ -514,6 +523,7 @@ export async function startVideoJob(input: StartJobInput): Promise<{ jobId: stri
     durationSec: input.durationSec,
     resolution: input.resolution,
     aspectRatio: input.aspectRatio,
+    framingFocus: input.framingFocus ?? null,
     name: input.name ?? null,
     pronouns: input.pronouns ?? null,
     renderedFactText: input.renderedFactText ?? null,
@@ -743,10 +753,50 @@ async function runPipeline(jobId: string): Promise<void> {
     await runStage1AndContinue(jobId);
     return;
   }
-  // Skip stage 1: the supplied image is the still.
-  job.stylizedStillObjectPath = job.sourceImagePath;
+  // Skip stage 1: the supplied image is the still. Still crop it to the
+  // chosen aspect + framing so the video matches intent on engines that
+  // derive orientation from the source (e.g. Kling). Veo would honour the
+  // aspect_ratio param regardless, but cropping keeps every engine consistent.
+  job.stylizedStillObjectPath = await cropBypassStillToAspect(job);
   setPhase(job, "stage1_review", 0.30);
   await markCheckpoint(job);
+}
+
+/**
+ * For the bypass source modes (use-photo-as-is / use-existing-ai-image),
+ * crops the supplied still to the job's aspect ratio + framing focus and
+ * uploads the result. Returns the original path unchanged when the crop is a
+ * no-op (still already at the target ratio with a centred focus) or when any
+ * step fails — the pipeline should never hard-fail on framing.
+ */
+async function cropBypassStillToAspect(job: JobState): Promise<string> {
+  try {
+    const objectStorage = new ObjectStorageService();
+    const normalized = objectStorage.normalizeObjectEntityPath(job.sourceImagePath);
+    const file = await objectStorage.getObjectEntityFile(normalized);
+    const response = await objectStorage.downloadObject(file, 60);
+    const original = Buffer.from(await response.arrayBuffer());
+
+    const cropped = await cropBufferToAspect(
+      original,
+      job.aspectRatio,
+      job.framingFocus ?? { x: 0.5, y: 0.5 },
+    );
+    // cropBufferToAspect returns the same reference when nothing changed.
+    if (cropped === original) return job.sourceImagePath;
+
+    return await objectStorage.uploadObjectBuffer({
+      subPath: `video-stills/${job.jobId}-framed.jpg`,
+      buffer: cropped,
+      contentType: "image/jpeg",
+    });
+  } catch (err) {
+    logger.warn(
+      { err, jobId: job.jobId, aspectRatio: job.aspectRatio },
+      "[videoPipeline] bypass still crop failed — using uncropped source",
+    );
+    return job.sourceImagePath;
+  }
 }
 
 async function markCheckpoint(job: JobState): Promise<void> {
@@ -839,6 +889,24 @@ async function runStage1(job: JobState): Promise<{ stillObjectPath: string | nul
     throw new Error(`Failed to load source image for PuLID: ${err instanceof Error ? err.message : String(err)}`);
   }
 
+  // Honour the user's chosen aspect ratio + framing: crop the source to the
+  // target aspect (drag-to-reposition focus) before stylization, and tell
+  // PuLID to generate the still at the matching image_size. The video stage
+  // then inherits the still's orientation.
+  try {
+    referenceBuffer = await cropBufferToAspect(
+      referenceBuffer,
+      job.aspectRatio,
+      job.framingFocus ?? { x: 0.5, y: 0.5 },
+    );
+  } catch (err) {
+    logger.warn(
+      { err, jobId: job.jobId, aspectRatio: job.aspectRatio },
+      "[videoPipeline] source crop to aspect failed — using uncropped source",
+    );
+  }
+  const imageSize = aspectRatioToPulidImageSize(job.aspectRatio);
+
   try {
     const path = await generateAiMemeBackgroundFromReference(
       job.factId,
@@ -850,6 +918,7 @@ async function runStage1(job: JobState): Promise<{ stillObjectPath: string | nul
         sourceObjectPath: job.sourceImagePath,
         styleSuffix,
         suppressErrors: false,
+        imageSize,
         // Part 2: fal queue/progress events feed _falProgressFloor so the bar
         // reflects actual upstream signals when fal volunteers them. The
         // elapsed-time curve in computeProgress is the floor — fal events
