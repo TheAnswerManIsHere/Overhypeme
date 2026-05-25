@@ -125,6 +125,32 @@ const DEFAULT_TEST_DIALOGUE_FULL =
 // to fill clip silence (Grok quirk) reveal themselves.
 const DEFAULT_TEST_DIALOGUE_SHORT = "This is a synthetic engine test.";
 
+// Default transform/scene prompt for the image benches. Image-to-image should
+// transform the supplied face; text-to-image renders the scene from scratch.
+const DEFAULT_TEST_IMAGE_PROMPT =
+  "A cinematic portrait of the subject as a 1920s film noir detective in a " +
+  "rain-soaked alley, dramatic chiaroscuro lighting, volumetric fog.";
+
+/**
+ * Which bench a given engine drives. Mirrors the server's `engineBenchType`
+ * (adminEngines.ts): video/utility map from kind; image engines split on
+ * whether the schema declares a source image (referenceImageUrl/imageUrl).
+ */
+type BenchType = "text-to-image" | "image-to-image" | "video" | "utility";
+function engineBenchType(engine: {
+  kind: string;
+  paramSchema?: unknown;
+}): BenchType {
+  if (engine.kind === "video") return "video";
+  if (engine.kind === "utility") return "utility";
+  const params =
+    (engine.paramSchema as { params?: Array<{ from?: string }> } | null | undefined)?.params ?? [];
+  const needsSourceImage = params.some(
+    (p) => p.from === "referenceImageUrl" || p.from === "imageUrl",
+  );
+  return needsSourceImage ? "image-to-image" : "text-to-image";
+}
+
 // Universal pipeline keys handled by named form fields below. Anything in the
 // engine's paramSchema with a `from` key NOT in this set gets surfaced as an
 // engine-specific input.
@@ -155,9 +181,16 @@ interface ParamSchemaEntryLike {
 type ExperimentMode = "A" | "B" | "C" | "custom";
 
 function EngineTestPanel({ engine }: { engine: EngineRow }) {
+  const benchType = useMemo(() => engineBenchType(engine), [engine]);
+  const isVideoBench = benchType === "video";
+  const isImagePromptBench = benchType === "text-to-image" || benchType === "image-to-image";
+  const needsSourceAsset = benchType !== "text-to-image";
+  const sampleIsVideo = benchType === "utility";
+
   // ── Form state ────────────────────────────────────────────────────────────
   const [experiment, setExperiment] = useState<ExperimentMode>("A");
   const [sampleUrl, setSampleUrl] = useState("");
+  const [imagePrompt, setImagePrompt] = useState(DEFAULT_TEST_IMAGE_PROMPT);
   const [motionPrompt, setMotionPrompt] = useState(DEFAULT_TEST_MOTION_PROMPT);
   const [dialogueEnabled, setDialogueEnabled] = useState(engine.audioHandling !== "none");
   const [dialogueText, setDialogueText] = useState(DEFAULT_TEST_DIALOGUE_FULL);
@@ -222,6 +255,7 @@ function EngineTestPanel({ engine }: { engine: EngineRow }) {
     durationMs?: number;
     testFixtures?: {
       motionPrompt?: string;
+      imagePrompt?: string;
       dialogueText?: string | null;
     };
   } | null>(null);
@@ -277,22 +311,29 @@ function EngineTestPanel({ engine }: { engine: EngineRow }) {
     try {
       const body: Record<string, unknown> = {};
       if (sampleUrl.trim()) body.sampleImageUrl = sampleUrl.trim();
-      if (motionPrompt.trim() && motionPrompt !== DEFAULT_TEST_MOTION_PROMPT) {
-        body.motionPrompt = motionPrompt;
+      // Transform/scene prompt — image benches only.
+      if (isImagePromptBench && imagePrompt.trim()) {
+        body.imagePrompt = imagePrompt.trim();
       }
-      // dialogueText: null = explicit silence, string = override, undefined = default
-      if (!dialogueEnabled) {
-        body.dialogueText = null;
-      } else if (dialogueText.trim() && dialogueText !== DEFAULT_TEST_DIALOGUE_FULL) {
-        body.dialogueText = dialogueText;
+      // Motion + dialogue + duration + audio are video-only concepts.
+      if (isVideoBench) {
+        if (motionPrompt.trim() && motionPrompt !== DEFAULT_TEST_MOTION_PROMPT) {
+          body.motionPrompt = motionPrompt;
+        }
+        // dialogueText: null = explicit silence, string = override, undefined = default
+        if (!dialogueEnabled) {
+          body.dialogueText = null;
+        } else if (dialogueText.trim() && dialogueText !== DEFAULT_TEST_DIALOGUE_FULL) {
+          body.dialogueText = dialogueText;
+        }
+        if (durationSec && Number(durationSec) > 0) body.durationSec = Number(durationSec);
+        if (generateAudio !== (engine.audioHandling !== "none")) {
+          body.generateAudio = generateAudio;
+        }
+        if (mode) body.mode = mode;
       }
-      if (durationSec && Number(durationSec) > 0) body.durationSec = Number(durationSec);
-      if (aspectRatio) body.aspectRatio = aspectRatio;
+      if (aspectRatio && benchType !== "utility") body.aspectRatio = aspectRatio;
       if (resolution) body.resolution = resolution;
-      if (mode) body.mode = mode;
-      if (generateAudio !== (engine.audioHandling !== "none")) {
-        body.generateAudio = generateAudio;
-      }
       if (engineParams.length > 0) {
         const extras: Record<string, unknown> = {};
         for (const p of engineParams) {
@@ -334,7 +375,7 @@ function EngineTestPanel({ engine }: { engine: EngineRow }) {
         const { requestId, falInput, testFixtures } = json as {
           requestId: string;
           falInput: unknown;
-          testFixtures: { motionPrompt?: string; dialogueText?: string | null };
+          testFixtures: { motionPrompt?: string; imagePrompt?: string; dialogueText?: string | null };
         };
         // Show the fal input immediately so the admin can inspect the payload shape
         setResult({ falInput, testFixtures });
@@ -433,6 +474,7 @@ function EngineTestPanel({ engine }: { engine: EngineRow }) {
 
   const resetToDefaults = () => {
     setSampleUrl("");
+    setImagePrompt(DEFAULT_TEST_IMAGE_PROMPT);
     setMotionPrompt(DEFAULT_TEST_MOTION_PROMPT);
     setDialogueEnabled(engine.audioHandling !== "none");
     setDialogueText(DEFAULT_TEST_DIALOGUE_FULL);
@@ -473,82 +515,115 @@ function EngineTestPanel({ engine }: { engine: EngineRow }) {
         </button>
       </div>
 
-      {/* ── Experiment selector ─────────────────────────────────────── */}
-      <div>
-        <label className={labelCls}>Experiment shape</label>
-        <div className="flex gap-2 flex-wrap">
-          {([
-            { value: "A", label: "A · Baseline (full dialogue)" },
-            { value: "B", label: "B · Short dialogue (padding test)" },
-            { value: "C", label: "C · No dialogue (silence test)" },
-          ] as const).map((opt) => (
-            <label key={opt.value} className="flex items-center gap-1.5 text-xs cursor-pointer">
+      {/* Bench-type banner so the admin knows which use-case this engine serves. */}
+      <p className="text-[10px] font-mono uppercase tracking-wider text-primary/80" data-testid="engine-bench-type">
+        {benchType.replace(/-/g, " ")} bench
+      </p>
+
+      {/* ── Experiment selector (video only — dialogue behavior) ──────── */}
+      {isVideoBench && (
+        <div>
+          <label className={labelCls}>Experiment shape</label>
+          <div className="flex gap-2 flex-wrap">
+            {([
+              { value: "A", label: "A · Baseline (full dialogue)" },
+              { value: "B", label: "B · Short dialogue (padding test)" },
+              { value: "C", label: "C · No dialogue (silence test)" },
+            ] as const).map((opt) => (
+              <label key={opt.value} className="flex items-center gap-1.5 text-xs cursor-pointer">
+                <input
+                  type="radio"
+                  name={`exp-${engine.id}`}
+                  value={opt.value}
+                  checked={experiment === opt.value}
+                  onChange={() => applyExperiment(opt.value)}
+                  className="accent-primary"
+                />
+                <span>{opt.label}</span>
+              </label>
+            ))}
+          </div>
+          <p className="text-[10px] text-muted-foreground mt-1">
+            A baseline = does the engine cleanly speak/narrate the dialogue?
+            B = does it invent extra dialogue when there&apos;s clip time left after the cue?
+            C = does it produce uninvited speech when given none?
+          </p>
+        </div>
+      )}
+
+      {/* ── Source asset (image for video/image-to-image; video URL for utility) ── */}
+      {needsSourceAsset && (
+        <div>
+          <label className={labelCls}>
+            {sampleIsVideo
+              ? "Sample video URL (required — utility engines caption a video)"
+              : "Sample image URL (optional — defaults to bundled face)"}
+          </label>
+          <input
+            value={sampleUrl}
+            onChange={(e) => setSampleUrl(e.target.value)}
+            placeholder={sampleIsVideo ? "https://…/clip.mp4" : "https://…/face.jpg"}
+            className={inputCls}
+          />
+        </div>
+      )}
+
+      {/* ── Transform / scene prompt (image benches) ──────────────────── */}
+      {isImagePromptBench && (
+        <div>
+          <label className={labelCls}>
+            {benchType === "image-to-image"
+              ? "Transform prompt (how to restyle the source image)"
+              : "Image prompt (scene to generate)"}
+          </label>
+          <textarea
+            value={imagePrompt}
+            onChange={(e) => setImagePrompt(e.target.value)}
+            rows={4}
+            className={`${inputCls} font-sans`}
+            data-testid="engine-test-image-prompt"
+          />
+        </div>
+      )}
+
+      {/* ── Motion prompt (video only) ───────────────────────────────── */}
+      {isVideoBench && (
+        <div>
+          <label className={labelCls}>Motion prompt</label>
+          <textarea
+            value={motionPrompt}
+            onChange={(e) => { setMotionPrompt(e.target.value); setExperiment("custom"); }}
+            rows={4}
+            className={`${inputCls} font-sans`}
+          />
+        </div>
+      )}
+
+      {/* ── Dialogue (video only) ────────────────────────────────────── */}
+      {isVideoBench && (
+        <div className="space-y-1.5">
+          <div className="flex items-center justify-between">
+            <label className={labelCls + " mb-0"}>Dialogue cue</label>
+            <label className="flex items-center gap-1 text-[10px] text-muted-foreground cursor-pointer">
               <input
-                type="radio"
-                name={`exp-${engine.id}`}
-                value={opt.value}
-                checked={experiment === opt.value}
-                onChange={() => applyExperiment(opt.value)}
+                type="checkbox"
+                checked={dialogueEnabled}
+                onChange={(e) => { setDialogueEnabled(e.target.checked); setExperiment("custom"); }}
                 className="accent-primary"
               />
-              <span>{opt.label}</span>
+              <span>Send dialogue</span>
             </label>
-          ))}
+          </div>
+          <textarea
+            value={dialogueText}
+            onChange={(e) => { setDialogueText(e.target.value); setExperiment("custom"); }}
+            rows={2}
+            disabled={!dialogueEnabled}
+            placeholder={dialogueEnabled ? DEFAULT_TEST_DIALOGUE_FULL : "(silence)"}
+            className={`${inputCls} font-sans ${!dialogueEnabled ? "opacity-50" : ""}`}
+          />
         </div>
-        <p className="text-[10px] text-muted-foreground mt-1">
-          A baseline = does the engine cleanly speak/narrate the dialogue?
-          B = does it invent extra dialogue when there&apos;s clip time left after the cue?
-          C = does it produce uninvited speech when given none?
-        </p>
-      </div>
-
-      {/* ── Sample image ─────────────────────────────────────────────── */}
-      <div>
-        <label className={labelCls}>
-          Sample image URL (optional — defaults to bundled face)
-        </label>
-        <input
-          value={sampleUrl}
-          onChange={(e) => setSampleUrl(e.target.value)}
-          placeholder="https://…/face.jpg"
-          className={inputCls}
-        />
-      </div>
-
-      {/* ── Motion prompt ────────────────────────────────────────────── */}
-      <div>
-        <label className={labelCls}>Motion prompt</label>
-        <textarea
-          value={motionPrompt}
-          onChange={(e) => { setMotionPrompt(e.target.value); setExperiment("custom"); }}
-          rows={4}
-          className={`${inputCls} font-sans`}
-        />
-      </div>
-
-      {/* ── Dialogue ─────────────────────────────────────────────────── */}
-      <div className="space-y-1.5">
-        <div className="flex items-center justify-between">
-          <label className={labelCls + " mb-0"}>Dialogue cue</label>
-          <label className="flex items-center gap-1 text-[10px] text-muted-foreground cursor-pointer">
-            <input
-              type="checkbox"
-              checked={dialogueEnabled}
-              onChange={(e) => { setDialogueEnabled(e.target.checked); setExperiment("custom"); }}
-              className="accent-primary"
-            />
-            <span>Send dialogue</span>
-          </label>
-        </div>
-        <textarea
-          value={dialogueText}
-          onChange={(e) => { setDialogueText(e.target.value); setExperiment("custom"); }}
-          rows={2}
-          disabled={!dialogueEnabled}
-          placeholder={dialogueEnabled ? DEFAULT_TEST_DIALOGUE_FULL : "(silence)"}
-          className={`${inputCls} font-sans ${!dialogueEnabled ? "opacity-50" : ""}`}
-        />
-      </div>
+      )}
 
       {/* ── Universal option grid ────────────────────────────────────── */}
       <div className="grid grid-cols-2 gap-3">
@@ -756,19 +831,29 @@ function EngineTestPanel({ engine }: { engine: EngineRow }) {
             <div className="space-y-2 rounded-sm border border-amber-500/30 bg-amber-500/5 p-2">
               <p className="text-[10px] font-semibold text-amber-500 uppercase tracking-wider">Spot-check against these</p>
               <div className="space-y-1.5 text-[11px]">
-                <div>
-                  <span className="text-muted-foreground">Expected motion: </span>
-                  <span className="text-foreground">{result.testFixtures.motionPrompt}</span>
-                </div>
-                {result.testFixtures.dialogueText && (
+                {isImagePromptBench && result.testFixtures.imagePrompt && (
+                  <div>
+                    <span className="text-muted-foreground">
+                      {benchType === "image-to-image" ? "Expected transform: " : "Expected scene: "}
+                    </span>
+                    <span className="text-foreground">{result.testFixtures.imagePrompt}</span>
+                  </div>
+                )}
+                {isVideoBench && (
+                  <div>
+                    <span className="text-muted-foreground">Expected motion: </span>
+                    <span className="text-foreground">{result.testFixtures.motionPrompt}</span>
+                  </div>
+                )}
+                {isVideoBench && result.testFixtures.dialogueText && (
                   <div>
                     <span className="text-muted-foreground">Expected audio (should say): </span>
                     <span className="text-foreground italic">&ldquo;{result.testFixtures.dialogueText}&rdquo;</span>
                   </div>
                 )}
-                {result.testFixtures.dialogueText === null && (
+                {benchType === "utility" && (
                   <div className="text-muted-foreground italic">
-                    Utility engine — no audio path; output video has no spoken content.
+                    Utility engine — captions the supplied video; no generated audio.
                   </div>
                 )}
               </div>

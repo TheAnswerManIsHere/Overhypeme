@@ -304,6 +304,52 @@ describe("POST /api/memes/video-jobs", () => {
     assert.equal(state!.phase, "stage1_no_face_review");
   });
 
+  it("no-face fallback generates a text-to-image still and feeds it to stage 2", async () => {
+    const userId = await createTestUser({ tier: "legendary", isAdmin: true });
+    const factId = await insertFact();
+    const app = buildTestApp({ kind: "authenticated", userId }, videoJobsRouter);
+
+    let stage2Still: string | undefined;
+    __setPipelineTestHooks({
+      runStage1: async () => ({ stillObjectPath: null }),
+      runStage1Fallback: async () => ({ stillObjectPath: "/objects/abstract-scene.jpg" }),
+      classifyStill: async () => "accept",
+      runStage2: async (_job, still) => {
+        stage2Still = still;
+        // Abort here so the pipeline halts at stage2_video for the assertion.
+        throw new Error("stage 2 stub aborts");
+      },
+    });
+
+    const startRes = await request(app).post("/api/memes/video-jobs").send({
+      factId,
+      sourceMode: "stylize-then-video",
+      sourceImagePath: "/objects/source.jpg",
+      lookStyleId: "cinematic",
+      lengthSeconds: 4,
+      resolution: "720p",
+      aspectRatio: "landscape",
+    });
+    const jobId = startRes.body.jobId;
+    await waitForPhase(
+      async () => (await request(app).get(`/api/memes/video-jobs/${jobId}`)).body,
+      ["stage1_no_face_review", "failed"],
+    );
+
+    const fbRes = await request(app)
+      .post(`/api/memes/video-jobs/${jobId}/proceed-with-no-face-fallback`)
+      .send({});
+    assert.equal(fbRes.status, 200);
+
+    await waitForPhase(
+      async () => (await request(app).get(`/api/memes/video-jobs/${jobId}`)).body,
+      ["stage2_video", "failed"],
+    );
+    // The generated faceless still — NOT the raw uploaded photo — is what
+    // Stage 2 animates.
+    assert.equal(stage2Still, "/objects/abstract-scene.jpg");
+  });
+
   it("NSFW classifier hit on stylized still → failed with errorCode=moderation", async () => {
     const userId = await createTestUser({ tier: "legendary", isAdmin: true });
     const factId = await insertFact();

@@ -58,6 +58,7 @@ import {
   uploadImageMetadataTable,
   lookStylesTable,
   motionPresetsTable,
+  factsTable,
   type Engine,
 } from "@workspace/db/schema";
 import { eq, and } from "drizzle-orm";
@@ -71,7 +72,7 @@ import {
 } from "./engineInterpreter";
 import { applyAudioHandling } from "./engineAudio";
 import { cropBufferToAspect, aspectRatioToPulidImageSize } from "./imageFraming";
-import { generateAiMemeBackgroundFromReference } from "./aiMemePipeline";
+import { generateAiMemeBackgroundFromReference, generateAiMemeBackgroundStandalone } from "./aiMemePipeline";
 import { addCaptionsToVideo } from "./falAutoSubtitle";
 import { classifyAndDecide } from "./moderation/nsfwClassifier";
 import { checkBudget, recordCost } from "./budgetGate";
@@ -279,6 +280,11 @@ export interface PipelineTestHooks {
    * no face was detected (triggers stage1_no_face_review).
    */
   runStage1?: (job: JobState) => Promise<{ stillObjectPath: string | null }>;
+  /**
+   * No-face fallback still generation (text-to-image). Returns the still
+   * object path, or null to fall back to promoting the source photo.
+   */
+  runStage1Fallback?: (job: JobState) => Promise<{ stillObjectPath: string | null }>;
   /**
    * NSFW classifier outcome for the stylized still. Default uses the real
    * fal classifier. Tests can return "accept" / "reject" deterministically.
@@ -991,13 +997,23 @@ async function classifyStill(stillObjectPath: string): Promise<"accept" | "rejec
 async function runStage1FallbackAndContinue(jobId: string): Promise<void> {
   const job = jobs.get(jobId);
   if (!job) return;
-  try {
-    // No-face fallback path: promote the source image so Stage 2 has
-    // something to consume. A future revision can call the text-to-image
-    // standalone generator here; for now the explicit user choice was "use
-    // the photo I uploaded as the still anyway."
-    job.stylizedStillObjectPath = job.sourceImagePath;
+  if (testHooks.runStage1Fallback) {
+    const { stillObjectPath } = await testHooks.runStage1Fallback(job);
+    job.stylizedStillObjectPath = stillObjectPath ?? job.sourceImagePath;
     job.noFaceFallbackUsed = true;
+    setPhase(job, "stage2_video", 0.40);
+    await resumeFromStage2(jobId);
+    return;
+  }
+  try {
+    job.noFaceFallbackUsed = true;
+    // No-face fallback: the uploaded photo has no detectable face, so PuLID
+    // can't stylize it. Generate a faceless scene still from the fact's scene
+    // prompt (text-to-image) so Stage 2 animates a usable image rather than
+    // the raw upload. If text-to-image fails (budget/moderation), fall back to
+    // promoting the source photo so the job still completes.
+    const still = await generateNoFaceStill(job);
+    job.stylizedStillObjectPath = still ?? job.sourceImagePath;
     setPhase(job, "stage2_video", 0.40);
     await resumeFromStage2(jobId);
   } catch (err) {
@@ -1006,6 +1022,47 @@ async function runStage1FallbackAndContinue(jobId: string): Promise<void> {
     job.errorMessage = err instanceof Error ? err.message : "Fallback failed";
     setPhase(job, "failed", 0);
     await markFailed(job);
+  }
+}
+
+/**
+ * Generates a faceless scene still via the text-to-image standalone generator
+ * for the no-face fallback. Returns null (caller promotes the source photo)
+ * if generation fails for any reason — the fallback must never hard-fail.
+ */
+async function generateNoFaceStill(job: JobState): Promise<string | null> {
+  try {
+    let factText = job.renderedFactText ?? "";
+    if (!factText) {
+      const [row] = await db
+        .select({ text: factsTable.text })
+        .from(factsTable)
+        .where(eq(factsTable.id, job.factId))
+        .limit(1);
+      factText = row?.text ?? "";
+    }
+
+    let styleSuffix: string | undefined;
+    if (job.lookStyleId) {
+      const [row] = await db
+        .select({ promptSuffixReference: lookStylesTable.promptSuffixReference })
+        .from(lookStylesTable)
+        .where(eq(lookStylesTable.id, job.lookStyleId))
+        .limit(1);
+      styleSuffix = row?.promptSuffixReference || undefined;
+    }
+
+    return await generateAiMemeBackgroundStandalone(job.factId, factText, "neutral", {
+      userId: job.userId,
+      sourceObjectPath: job.sourceImagePath,
+      styleSuffix,
+    });
+  } catch (err) {
+    logger.warn(
+      { err, jobId: job.jobId },
+      "[videoPipeline] no-face text-to-image still failed — promoting source photo",
+    );
+    return null;
   }
 }
 

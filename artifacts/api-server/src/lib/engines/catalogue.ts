@@ -13,6 +13,8 @@ import { SEEDANCE_2_0_FAST } from "./seedance-2.0-fast";
 import { GROK_IMAGINE } from "./grok-imagine";
 import { NANO_BANANA_PRO } from "./nano-banana-pro";
 import { PULID_FLUX } from "./pulid-flux";
+import { FLUX_PRO_V1_1 } from "./flux-pro-v1-1";
+import { FLUX_2_PRO } from "./flux-2-pro";
 import { FAL_AUTO_SUBTITLE } from "./fal-auto-subtitle";
 
 /**
@@ -29,5 +31,7 @@ export const ALL_ENGINES: EngineDefinition[] = [
   GROK_IMAGINE,
   NANO_BANANA_PRO,
   PULID_FLUX,
+  FLUX_PRO_V1_1,
+  FLUX_2_PRO,
   FAL_AUTO_SUBTITLE,
 ];
