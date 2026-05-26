@@ -225,7 +225,6 @@ export const SELECT_CONFIGS: Record<string, { value: string; label: string }[]> 
 // Scene-prompt generation levers — grouped together on the AI Settings page.
 export const SCENE_PROMPT_KEYS = new Set<string>([
   "scene_prompt_system",
-  "scene_prompt_composition_suffix",
   "scene_prompt_model",
   "scene_prompt_temperature",
   "scene_prompt_max_tokens",

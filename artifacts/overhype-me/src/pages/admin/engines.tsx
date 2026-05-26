@@ -1533,7 +1533,6 @@ interface ScenePromptConfigRow {
 
 const SCENE_PROMPT_FIELDS: { key: string; multiline: boolean; rows?: number }[] = [
   { key: "scene_prompt_system", multiline: true, rows: 14 },
-  { key: "scene_prompt_composition_suffix", multiline: true, rows: 3 },
   { key: "scene_prompt_model", multiline: false },
   { key: "scene_prompt_temperature", multiline: false },
   { key: "scene_prompt_max_tokens", multiline: false },
