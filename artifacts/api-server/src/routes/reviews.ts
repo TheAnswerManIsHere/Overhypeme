@@ -15,7 +15,6 @@ import { sendEmail, buildReviewApprovedEmail, buildReviewRejectedEmail } from ".
 import { getSiteBaseUrl } from "../lib/siteUrl";
 import { notifyAdmins } from "../lib/adminNotify";
 import { runFactImagePipeline } from "../lib/factImagePipeline";
-import { generateAiMemeBackgrounds } from "../lib/aiMemePipeline";
 import { createRateLimiter } from "../lib/rateLimit";
 import { validateTemplate } from "../lib/templateGrammar";
 import { computeSplitTokenIndex } from "../lib/splitTokenIndex";
@@ -337,9 +336,12 @@ router.post("/admin/reviews/:id/approve", requireAdmin, async (req: Authenticate
   // Embed the new fact in the background using canonical text for cleaner duplicate matching
   void embedFactAsync(fact.id, fact.text, canonicalText);
 
-  // Seed both Pexels and AI meme images now that the fact is approved
+  // Seed Pexels stock photos now that the fact is approved (the stock picker is
+  // live for every user tier). AI meme backgrounds are NOT pre-generated here:
+  // they're only reachable by Legendary users in the video surfaces and are
+  // generated on demand by POST /memes/ai/:factId/generate. Admins can still
+  // bulk-seed them via POST /admin/facts/backfill-ai-memes.
   void runFactImagePipeline(fact.id, fact.text);
-  void generateAiMemeBackgrounds(fact.id, fact.text, { suppressErrors: true });
 
   // Notify submitter
   if (review.submittedById) {

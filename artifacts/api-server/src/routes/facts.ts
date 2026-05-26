@@ -7,7 +7,7 @@ import { renderCanonical } from "../lib/renderCanonical";
 import { logActivity } from "../lib/activity";
 import { validateTemplate } from "../lib/templateGrammar";
 import { computeSplitTokenIndex } from "../lib/splitTokenIndex";
-import { type FactPexelsImages } from "../lib/factImagePipeline";
+import { runFactImagePipeline, type FactPexelsImages } from "../lib/factImagePipeline";
 import { trimPexelsImages, trimAiMemeImages } from "../lib/trimFactImages";
 import { getConfigInt } from "../lib/adminConfig";
 import { db } from "@workspace/db";
@@ -425,6 +425,11 @@ router.post("/facts", requireAdmin, async (req: AuthenticatedRequest, res: Respo
   // Generate and persist the pgvector embedding in the background (non-blocking)
   // Embed from canonicalText so duplicate checks work against plain-English queries
   void embedFactAsync(fact.id, fact.text, canonicalText);
+
+  // Seed Pexels stock photos in the background, same as the standalone
+  // review-approval path. Admins insert root facts directly (no parentId), so
+  // they otherwise never got stock photos and depended on a manual backfill.
+  void runFactImagePipeline(fact.id, fact.text);
 
   // Log to activity feed
   void logActivity({
