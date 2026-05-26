@@ -33,6 +33,7 @@ import {
 } from "../lib/videoPipelineRunner.js";
 
 const USER_PREFIX = "t-vj-";
+const FACT_TEXT_PREFIX = "t-vj-fact ";
 
 function uid(): string {
   return `${USER_PREFIX}${randomUUID()}`;
@@ -56,7 +57,7 @@ async function createTestUser(opts: { tier?: "registered" | "legendary" | "unreg
 async function insertFact(): Promise<number> {
   const [row] = await db
     .insert(factsTable)
-    .values({ text: "Test fact {NAME}", isActive: true, canonicalText: "Test fact" })
+    .values({ text: `${FACT_TEXT_PREFIX}{NAME}`, isActive: true, canonicalText: FACT_TEXT_PREFIX })
     .returning();
   insertedFactIds.push(row.id);
   return row.id;
@@ -77,12 +78,18 @@ async function cleanup(): Promise<void> {
       .delete(uploadImageMetadataTable)
       .where(inArray(uploadImageMetadataTable.userId, insertedUserIds));
   }
-  if (insertedFactIds.length > 0) {
-    await db.delete(memesTable).where(inArray(memesTable.factId, insertedFactIds));
-    await db.delete(videoJobsTable).where(inArray(videoJobsTable.factId, insertedFactIds));
-    await db.delete(factsTable).where(inArray(factsTable.id, insertedFactIds));
-    insertedFactIds.length = 0;
+  // Prefix-based cleanup catches both in-flight facts and orphans from a crashed run.
+  const orphanFactIds = (await db
+    .select({ id: factsTable.id })
+    .from(factsTable)
+    .where(like(factsTable.text, `${FACT_TEXT_PREFIX}%`)))
+    .map((r) => r.id);
+  if (orphanFactIds.length > 0) {
+    await db.delete(memesTable).where(inArray(memesTable.factId, orphanFactIds));
+    await db.delete(videoJobsTable).where(inArray(videoJobsTable.factId, orphanFactIds));
+    await db.delete(factsTable).where(inArray(factsTable.id, orphanFactIds));
   }
+  insertedFactIds.length = 0;
   // ledger rows tagged with the test prefix
   await db
     .delete(userGenerationCostsTable)
