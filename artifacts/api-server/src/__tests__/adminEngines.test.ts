@@ -431,6 +431,26 @@ describe("POST /admin/engines/:id/test", () => {
     assert.ok(res.body.testFixtures);
   });
 
+  it("dryRun: returns the built falInput without uploading or submitting", async () => {
+    const id = await seedEngine();
+    let uploadCalled = false;
+    let submitCalled = false;
+    __setFalUploadForTest(async () => { uploadCalled = true; return "should-not-upload"; });
+    __setFalSubmitForTest(async () => { submitCalled = true; return { request_id: "should-not-submit" }; });
+
+    const app = buildTestApp({ kind: "authenticated", userId: adminUserId }, adminEnginesRouter);
+    const res = await request(app).post(`/api/admin/engines/${id}/test`).send({ dryRun: true });
+
+    assert.equal(res.status, 200);
+    assert.equal(res.body.ok, true);
+    assert.equal(res.body.dryRun, true);
+    assert.equal(res.body.endpointId, `fal-ai/test/${id}`);
+    assert.ok(res.body.falInput, "falInput should be returned for a dry run");
+    assert.ok((res.body.falInput as Record<string, unknown>).prompt);
+    assert.equal(uploadCalled, false, "dry run must not upload to fal.storage");
+    assert.equal(submitCalled, false, "dry run must not submit to the fal queue");
+  });
+
   it("captures error body cleanly when fal.queue.submit throws (502 Bad Gateway)", async () => {
     const id = await seedEngine();
     __setFalUploadForTest(async () => "https://fal.cdn.test/test-face.jpg");
@@ -752,7 +772,7 @@ describe("POST /admin/engines/:id/assemble-prompt", () => {
     await db.delete(motionPresetsTable).where(like(motionPresetsTable.id, "t-ae-mp-%"));
   });
 
-  it("image-to-image: scene[gender] + reference suffix + composition suffix (cached prompts, no LLM)", async () => {
+  it("image-to-image: scene[gender] + reference suffix (cached prompts, no LLM)", async () => {
     const engineId = await seedEngine({ kind: "image", paramSchema: { params: [
       { name: "prompt", from: "imagePrompt", type: "string", required: true },
       { name: "image_urls", from: "referenceImageUrl", type: "stringArray", required: true },
@@ -767,8 +787,9 @@ describe("POST /admin/engines/:id/assemble-prompt", () => {
 
     assert.equal(res.status, 200);
     assert.equal(res.body.benchType, "image-to-image");
-    assert.match(res.body.imagePrompt, /^Cinematic woman scene reimagined as cyberpunk /);
-    assert.match(res.body.imagePrompt, /Full body wide angle shot/);
+    assert.equal(res.body.imagePrompt, "Cinematic woman scene reimagined as cyberpunk");
+    // Composition suffix was retired — no longer appended to reference prompts.
+    assert.doesNotMatch(res.body.imagePrompt, /Full body wide angle/);
   });
 
   it("text-to-image: scene[gender] + plain suffix, no composition", async () => {
