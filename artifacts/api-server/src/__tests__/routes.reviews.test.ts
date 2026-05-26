@@ -11,7 +11,7 @@
  * - GET /activity-feed + /mark-read (user auth)
  *
  * The full /approve success path is left out — it kicks off the
- * Pexels + AI meme image pipelines, which need external API access.
+ * Pexels image pipeline, which needs external API access.
  */
 
 import { describe, it, before, after } from "node:test";

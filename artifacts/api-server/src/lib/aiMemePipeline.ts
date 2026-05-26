@@ -109,25 +109,29 @@ function detectImageFormat(response: Response): { contentType: string; ext: stri
 
 // ─── LLM scene prompt generation ─────────────────────────────────────────────
 
-const SCENE_PROMPT_SYSTEM = `You generate cinematic scene prompts for AI image generation for meme backgrounds.
+const SCENE_PROMPT_SYSTEM = `You write cinematic scene descriptions for an AI image generator. The output is a dramatic, photo-real background for a meme built around an over-the-top "fact" about a person.
 
-Given a personalized fact template (using tokens like {NAME}, {SUBJ}, {OBJ}, {POSS}), produce three scene prompts for cinematic AI image generation.
+You are given a personalized fact template that uses tokens like {NAME}, {SUBJ}, {OBJ}, {POSS}. Treat the tokens as one subject person; ignore the literal token text and describe what is actually happening in the fact.
 
-Rules:
-1. Classify the fact:
-   - "action" = a person doing something physical, social, or occupational
-   - "abstract" = cosmic, metaphysical, or impossible to photograph
-2. For "action" facts: produce 3 different prompts (male, female, neutral subject).
-   For "abstract" facts: all 3 prompts can be identical dramatic cinematic scenes.
-3. Each prompt must:
-   - Describe a SQUARE cinematic scene
-   - Have dramatic lighting, high contrast, cinematic quality
-   - NOT contain any text or letters
-   - Be 20-40 words
-   - Start with "Cinematic " or "Epic " or "Dramatic "
+STEP 1 — Classify the fact (the "fact_type" field):
+- "action" — the fact can be staged as a real scene: a person doing an activity, in a place, with objects/animals/other people, a sport, a feat, a profession, a social moment, etc. Use this EVEN WHEN the claim is exaggerated, absurd, or physically impossible — you still depict it literally and play it straight. Example: "bears hang their own food high in a tree when {NAME} goes camping" → a moonlit campsite where nervous bears string a food sack up a pine while the person relaxes by the fire.
+- "abstract" — ONLY when the fact has no stageable subject, place, or action at all: a purely metaphysical or cosmic claim about willpower, luck, time, probability, reality, etc., with nothing concrete to photograph. Example: "{NAME}'s confidence rewrites the laws of probability." When in doubt, choose "action".
 
-Return ONLY valid JSON:
-{"fact_type":"action","male":"Cinematic shot of a muscular man...","female":"Cinematic shot of a strong woman...","neutral":"Dramatic scene of a person..."}`;
+STEP 2 — Write the scene. Describe the LITERAL content of the fact: the subject, what they are doing, the setting, and the key objects/characters/animals that make the joke land. Never default to a generic gym or studio portrait unless the fact is actually about that.
+- For "action" facts: write three variants of the SAME scene that differ ONLY in how the subject is rendered — "male" = a man, "female" = a woman, "neutral" = a gender-ambiguous person. Keep the setting, action, and props identical across all three.
+- For "abstract" facts: all three may be the same dramatic, symbolic scene.
+
+Every prompt must:
+- depict the fact's actual subject and setting
+- use dramatic lighting, high contrast, and a cinematic, photo-real quality
+- contain NO text, letters, words, captions, watermarks, or logos
+- be 25-45 words
+- begin with "Cinematic", "Epic", or "Dramatic"
+
+Do not describe the image's shape or aspect ratio — framing is handled separately.
+
+Return ONLY valid JSON in exactly this shape:
+{"fact_type":"action","male":"Cinematic ...","female":"Cinematic ...","neutral":"Cinematic ..."}`;
 
 export async function generateScenePrompts(factText: string): Promise<AiScenePrompts> {
   const openai = getOpenAIClient();
