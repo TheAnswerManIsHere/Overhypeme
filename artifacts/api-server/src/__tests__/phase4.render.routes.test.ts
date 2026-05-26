@@ -22,6 +22,7 @@ import memesRouter from "../routes/memes.js";
 import { authMiddleware } from "../middlewares/authMiddleware.js";
 
 const USER_PREFIX = "t_phase4_render_";
+const FACT_TEXT_PREFIX = "t_p4r_fact_";
 
 function makeApp(): Express {
   const app = express();
@@ -42,13 +43,14 @@ async function createTestUser(): Promise<string> {
 const insertedFactIds: number[] = [];
 
 async function insertFact(text: string, opts: { submittedById?: string } = {}): Promise<number> {
+  const prefixedText = `${FACT_TEXT_PREFIX}${text}`;
   const [row] = await db
     .insert(factsTable)
     .values({
-      text,
+      text: prefixedText,
       submittedById: opts.submittedById,
       isActive: true,
-      canonicalText: text,
+      canonicalText: prefixedText,
     })
     .returning();
   insertedFactIds.push(row.id);
@@ -64,11 +66,17 @@ async function cleanup() {
     await db.delete(transientRendersTable).where(eq(transientRendersTable.userId, u.id));
     await db.delete(factsTable).where(eq(factsTable.submittedById, u.id));
   }
-  if (insertedFactIds.length > 0) {
-    await db.delete(transientRendersTable).where(inArray(transientRendersTable.factId, [...insertedFactIds]));
-    await db.delete(factsTable).where(inArray(factsTable.id, [...insertedFactIds]));
-    insertedFactIds.length = 0;
+  // Prefix-based cleanup catches both in-flight facts and orphans from a crashed run.
+  const orphanFactIds = (await db
+    .select({ id: factsTable.id })
+    .from(factsTable)
+    .where(like(factsTable.text, `${FACT_TEXT_PREFIX}%`)))
+    .map((r) => r.id);
+  if (orphanFactIds.length > 0) {
+    await db.delete(transientRendersTable).where(inArray(transientRendersTable.factId, orphanFactIds));
+    await db.delete(factsTable).where(inArray(factsTable.id, orphanFactIds));
   }
+  insertedFactIds.length = 0;
   await db.delete(usersTable).where(like(usersTable.id, `${USER_PREFIX}%`));
 }
 
