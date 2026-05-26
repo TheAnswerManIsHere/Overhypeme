@@ -18,11 +18,12 @@ import request from "supertest";
 
 import { db } from "@workspace/db";
 import { usersTable, factsTable, memesTable } from "@workspace/db/schema";
-import { eq, like } from "drizzle-orm";
+import { eq, like, inArray } from "drizzle-orm";
 
 import ogRouter from "../routes/og.js";
 
 const PREFIX = "t5og";
+const FACT_TEXT_PREFIX = "t5og-fact-";
 
 // Track fact IDs inserted during this test run so cleanup can delete them.
 const insertedFactIds: number[] = [];
@@ -46,9 +47,10 @@ async function createUser(displayName: string): Promise<string> {
 }
 
 async function insertFact(text: string): Promise<number> {
+  const prefixedText = `${FACT_TEXT_PREFIX}${text}`;
   const [row] = await db
     .insert(factsTable)
-    .values({ text, isActive: true, canonicalText: text })
+    .values({ text: prefixedText, isActive: true, canonicalText: prefixedText })
     .returning();
   insertedFactIds.push(row.id);
   return row.id;
@@ -94,12 +96,17 @@ async function cleanup() {
   // Memes with null createdById that we created — match via slug prefix.
   await db.delete(memesTable).where(like(memesTable.permalinkSlug, `${PREFIX}%`));
   await db.delete(usersTable).where(like(usersTable.id, `${PREFIX}%`));
-  // Delete facts inserted during this test run.
-  if (insertedFactIds.length > 0) {
-    const { inArray } = await import("drizzle-orm");
-    await db.delete(factsTable).where(inArray(factsTable.id, [...insertedFactIds]));
-    insertedFactIds.length = 0;
+  // Prefix-based cleanup catches both in-flight facts and orphans from a crashed run.
+  const orphanFactIds = (await db
+    .select({ id: factsTable.id })
+    .from(factsTable)
+    .where(like(factsTable.text, `${FACT_TEXT_PREFIX}%`)))
+    .map((r) => r.id);
+  if (orphanFactIds.length > 0) {
+    await db.delete(memesTable).where(inArray(memesTable.factId, orphanFactIds));
+    await db.delete(factsTable).where(inArray(factsTable.id, orphanFactIds));
   }
+  insertedFactIds.length = 0;
 }
 
 let _savedSiteBaseUrl: string | undefined;

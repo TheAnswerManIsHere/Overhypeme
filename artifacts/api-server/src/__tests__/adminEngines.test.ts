@@ -844,6 +844,33 @@ describe("POST /admin/engines/:id/assemble-prompt", () => {
     }
   });
 
+  it("forceRegenerate re-runs generation and overwrites a cached prompt", async () => {
+    const engineId = await seedEngine({ kind: "image", paramSchema: { params: [
+      { name: "prompt", from: "imagePrompt", type: "string", required: true },
+    ] } });
+    // Seed WITH a (stale) cached prompt — forceRegenerate must ignore + overwrite it.
+    const factId = await seedFact({ ...SCENE, neutral: "Stale cosmic scene" }); factIds.push(factId);
+    let generatorCalls = 0;
+    __setScenePromptGeneratorForTest(async () => { generatorCalls += 1; return { ...SCENE, neutral: "Fresh bear scene" }; });
+    try {
+      const app = buildTestApp({ kind: "authenticated", userId: adminUserId }, adminEnginesRouter);
+
+      // Without forceRegenerate → serves the stale cache, no generation.
+      const cached = await request(app).post(`/api/admin/engines/${engineId}/assemble-prompt`).send({ factId, gender: "neutral" });
+      assert.equal(cached.body.imagePrompt, "Stale cosmic scene");
+      assert.equal(generatorCalls, 0);
+
+      // With forceRegenerate → regenerates + overwrites the cache.
+      const fresh = await request(app).post(`/api/admin/engines/${engineId}/assemble-prompt`).send({ factId, gender: "neutral", forceRegenerate: true });
+      assert.equal(fresh.body.imagePrompt, "Fresh bear scene");
+      assert.equal(generatorCalls, 1);
+      const [row] = await db.select({ p: factsTable.aiScenePrompts }).from(factsTable).where(eq(factsTable.id, factId));
+      assert.equal((row?.p as { neutral?: string } | null)?.neutral, "Fresh bear scene");
+    } finally {
+      __setScenePromptGeneratorForTest(null);
+    }
+  });
+
   it("400s when factId is missing", async () => {
     const engineId = await seedEngine({ kind: "image" });
     const app = buildTestApp({ kind: "authenticated", userId: adminUserId }, adminEnginesRouter);
