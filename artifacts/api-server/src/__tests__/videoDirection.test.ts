@@ -1,11 +1,12 @@
 /**
- * Tests for lib/videoDirection.ts — the admin-configurable video-direction
- * levers (system prompt, model, temperature, max tokens) that produce the
- * motion/action direction layered onto the motion preset for image-to-video.
+ * Tests for lib/videoDirection.ts — the admin-configurable AI Video Style
+ * Prompt levers (system prompt, model, temperature, max tokens) that produce
+ * the cinematic scene/style prompt merged with the motion preset for video.
  *
  * Touches the real test DB. Verifies idempotent seeding, that the getter
- * returns the seeded production defaults, and that the debug overlay promotes a
- * key's debug_value when debug mode is active.
+ * returns the seeded production defaults, that the debug overlay promotes a
+ * key's debug_value when debug mode is active, and the one-time migration that
+ * upgrades an unmodified legacy (motion-only) system prompt to the new default.
  *
  * The debug-mode flip only attaches a debug_value to `video_direction_model`
  * (which no other suite reads) and is reset in a finally + after hook, so it
@@ -24,6 +25,8 @@ import {
   VIDEO_DIRECTION_MODEL_DEFAULT,
   VIDEO_DIRECTION_TEMPERATURE_DEFAULT,
   VIDEO_DIRECTION_MAX_TOKENS_DEFAULT,
+  VIDEO_DIRECTION_SYSTEM_DEFAULT,
+  VIDEO_DIRECTION_SYSTEM_LEGACY_DEFAULT,
 } from "../lib/videoDirection";
 import { bustConfigCache } from "../lib/adminConfig";
 
@@ -71,6 +74,32 @@ describe("videoDirection", () => {
     assert.equal(cfg.model, "gpt-4o");
     await db.execute(sql`UPDATE admin_config SET value = ${VIDEO_DIRECTION_MODEL_DEFAULT} WHERE key = 'video_direction_model'`);
     bustConfigCache();
+  });
+
+  it("migrates an unmodified legacy (motion-only) system prompt to the new default", async () => {
+    try {
+      await db.execute(sql`UPDATE admin_config SET value = ${VIDEO_DIRECTION_SYSTEM_LEGACY_DEFAULT} WHERE key = 'video_direction_system'`);
+      bustConfigCache();
+      await seedVideoDirectionConfig();
+      bustConfigCache();
+      assert.equal((await getVideoDirectionGenerationConfig()).systemPrompt, VIDEO_DIRECTION_SYSTEM_DEFAULT);
+    } finally {
+      await db.execute(sql`UPDATE admin_config SET value = ${VIDEO_DIRECTION_SYSTEM_DEFAULT} WHERE key = 'video_direction_system'`);
+      bustConfigCache();
+    }
+  });
+
+  it("preserves an admin-customized system prompt across re-seed", async () => {
+    try {
+      await db.execute(sql`UPDATE admin_config SET value = 'CUSTOM ADMIN PROMPT' WHERE key = 'video_direction_system'`);
+      bustConfigCache();
+      await seedVideoDirectionConfig(); // legacy migration must NOT touch a customized value
+      bustConfigCache();
+      assert.equal((await getVideoDirectionGenerationConfig()).systemPrompt, "CUSTOM ADMIN PROMPT");
+    } finally {
+      await db.execute(sql`UPDATE admin_config SET value = ${VIDEO_DIRECTION_SYSTEM_DEFAULT} WHERE key = 'video_direction_system'`);
+      bustConfigCache();
+    }
   });
 
   it("debug overlay: debug_value wins only when debug mode is active", async () => {

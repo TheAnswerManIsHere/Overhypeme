@@ -1,6 +1,6 @@
 import { AdminLayout } from "@/components/admin/AdminLayout";
 import { CollapsibleSection } from "@/components/CollapsibleSection";
-import { Settings, Loader2, Bug, Bot, Sliders, DollarSign, Shield, Mail, ShoppingBag, Clock, Wand2, Clapperboard } from "lucide-react";
+import { Settings, Loader2, Bug, Bot, Sliders, DollarSign, Shield, Mail, ShoppingBag, Clock, Wand2 } from "lucide-react";
 import {
   ConfigPageContext,
   ConfigPageCtx,
@@ -160,61 +160,62 @@ function RetryTimelinePanel() {
 
 // ── AI Settings group (nested inside Configuration) ───────────────────────────
 //
-// Hosts the OpenAI prompt-generation levers — scene prompt (image) and video
-// direction (image-to-video), each with system prompt / model / temperature /
-// max tokens — plus the AI gallery display limit. Image-engine / video config
-// lives at /admin/engines; look-style prompt text lives on `look_styles`.
+// Hosts the OpenAI prompt-generation levers — the AI Image Style Prompt and the
+// AI Video Style Prompt, each with system prompt / model / temperature / max
+// tokens — plus the AI gallery display limit. Both style prompts work the same
+// way (generate a cinematic prompt, then merge a second layer: the look-style
+// suffix for images, the motion preset for video), so they share one panel.
+// Image-engine / video config lives at /admin/engines; look-style prompt text
+// lives on `look_styles`.
 
 function AISettingsGroup() {
   const { rows } = useConfigCtx();
 
-  const scenePromptRows = [...SCENE_PROMPT_KEYS]
+  const imageStyleRows = [...SCENE_PROMPT_KEYS]
     .map((key) => rows.find((r) => r.key === key))
     .filter((r): r is NonNullable<typeof r> => r !== undefined);
 
-  const videoDirectionRows = [...VIDEO_DIRECTION_KEYS]
+  const videoStyleRows = [...VIDEO_DIRECTION_KEYS]
     .map((key) => rows.find((r) => r.key === key))
     .filter((r): r is NonNullable<typeof r> => r !== undefined);
 
   return (
     <div className="space-y-3">
 
-      {/* Scene Prompt — OpenAI scene-prompt generation levers (image) */}
-      {scenePromptRows.length > 0 && (
+      {/* AI Style Prompt Configuration — image + video, one unified panel */}
+      {(imageStyleRows.length > 0 || videoStyleRows.length > 0) && (
         <CollapsibleSection
-          title="Scene Prompt"
+          title="AI Style Prompt Configuration"
           icon={<Wand2 className="w-4 h-4 text-muted-foreground" />}
-          description="How OpenAI turns a fact template into the scene prompts used for AI image generation: the system prompt and the model / sampling knobs."
-          storageKey="admin_section_config_scene_prompt"
+          description="How OpenAI turns a fact into the style prompt sent to fal.ai. The image and video style prompts work the same way; each is then merged with a second layer (look-style suffix for images, motion preset for video)."
+          storageKey="admin_section_config_ai_style_prompts"
         >
-          <div className="space-y-3">
-            {scenePromptRows.map((row) => (
-              <ConfigCard
-                key={row.key}
-                row={row}
-                textareaRows={row.key === "scene_prompt_system" ? 16 : 4}
-              />
-            ))}
-          </div>
-        </CollapsibleSection>
-      )}
+          <div className="space-y-5">
+            {imageStyleRows.length > 0 && (
+              <div className="space-y-3">
+                <h4 className="text-xs font-bold uppercase tracking-wide text-muted-foreground">AI Image Style Prompt</h4>
+                {imageStyleRows.map((row) => (
+                  <ConfigCard
+                    key={row.key}
+                    row={row}
+                    textareaRows={row.key === "scene_prompt_system" ? 16 : 4}
+                  />
+                ))}
+              </div>
+            )}
 
-      {/* Video Prompt — OpenAI motion-direction generation levers (video) */}
-      {videoDirectionRows.length > 0 && (
-        <CollapsibleSection
-          title="Video Prompt"
-          icon={<Clapperboard className="w-4 h-4 text-muted-foreground" />}
-          description="How OpenAI generates the motion/action direction for image-to-video. This is layered on top of the chosen motion preset (camera/movement); a user's custom motion prompt bypasses it."
-          storageKey="admin_section_config_video_direction"
-        >
-          <div className="space-y-3">
-            {videoDirectionRows.map((row) => (
-              <ConfigCard
-                key={row.key}
-                row={row}
-                textareaRows={row.key === "video_direction_system" ? 16 : 4}
-              />
-            ))}
+            {videoStyleRows.length > 0 && (
+              <div className="space-y-3">
+                <h4 className="text-xs font-bold uppercase tracking-wide text-muted-foreground">AI Video Style Prompt</h4>
+                {videoStyleRows.map((row) => (
+                  <ConfigCard
+                    key={row.key}
+                    row={row}
+                    textareaRows={row.key === "video_direction_system" ? 16 : 4}
+                  />
+                ))}
+              </div>
+            )}
           </div>
         </CollapsibleSection>
       )}

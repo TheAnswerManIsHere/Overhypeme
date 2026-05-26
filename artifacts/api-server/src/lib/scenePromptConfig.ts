@@ -95,29 +95,29 @@ export const SCENE_PROMPT_CONFIG_DEFS: ScenePromptConfigDef[] = [
     value: SCENE_PROMPT_SYSTEM_DEFAULT,
     // "text" renders as a multi-line textarea in the workbench (vs a single-line input).
     dataType: "text",
-    label: "Scene Prompt — System Prompt",
-    description: "OpenAI system prompt that turns a fact template into scene prompts. Must still return JSON with fact_type/male/female/neutral.",
+    label: "AI Image Style Prompt — System Prompt",
+    description: "OpenAI system prompt that turns a fact template into the scene prompts used for AI image generation. Must still return JSON with fact_type/male/female/neutral.",
   },
   {
     key: SCENE_PROMPT_CONFIG_KEYS.model,
     value: SCENE_PROMPT_MODEL_DEFAULT,
     dataType: "string",
-    label: "Scene Prompt — OpenAI Model",
-    description: "OpenAI chat model used to generate scene prompts (e.g. gpt-4o-mini, gpt-4o).",
+    label: "AI Image Style Prompt — OpenAI Model",
+    description: "OpenAI chat model used to generate the image scene prompts (e.g. gpt-4o-mini, gpt-4o).",
   },
   {
     key: SCENE_PROMPT_CONFIG_KEYS.temperature,
     value: String(SCENE_PROMPT_TEMPERATURE_DEFAULT),
     dataType: "string",
-    label: "Scene Prompt — Temperature",
-    description: "Sampling temperature for scene-prompt generation (0–2). Higher = more varied.",
+    label: "AI Image Style Prompt — Temperature",
+    description: "Sampling temperature for image scene-prompt generation (0–2). Higher = more varied.",
   },
   {
     key: SCENE_PROMPT_CONFIG_KEYS.maxTokens,
     value: String(SCENE_PROMPT_MAX_TOKENS_DEFAULT),
     dataType: "integer",
-    label: "Scene Prompt — Max Tokens",
-    description: "Maximum tokens for the generated scene-prompt JSON response.",
+    label: "AI Image Style Prompt — Max Tokens",
+    description: "Maximum tokens for the generated image scene-prompt JSON response.",
   },
 ];
 
@@ -143,6 +143,14 @@ export async function seedScenePromptConfig(): Promise<void> {
           WHERE key = ${def.key} AND data_type <> 'text'
         `);
       }
+      // Labels/descriptions are code-owned (not admin-editable), so force them
+      // to the current copy. Brings rows seeded under the old "Scene Prompt"
+      // naming up to the "AI Image Style Prompt" naming (idempotent).
+      await db.execute(sql`
+        UPDATE admin_config SET label = ${def.label}, description = ${def.description}
+        WHERE key = ${def.key}
+          AND (label IS DISTINCT FROM ${def.label} OR description IS DISTINCT FROM ${def.description})
+      `);
     } catch (err) {
       logger.warn({ err, key: def.key }, "[scenePromptConfig] seed failed for key");
     }

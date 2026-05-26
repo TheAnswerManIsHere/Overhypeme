@@ -1,19 +1,20 @@
 /**
- * Video-direction generation configuration + generator.
+ * AI Video Style Prompt generation configuration + generator.
  *
- * Stage 2 of the video pipeline is image-to-video: the still already encodes
- * the scene, subject, composition, and style. The video engine therefore needs
- * a prompt describing what should MOVE and HAPPEN — not a re-description of the
- * static scene. Today it only receives the motion preset (camera/movement),
- * which is scene-blind.
+ * This is the video counterpart to the AI Image Style Prompt
+ * (lib/scenePromptConfig.ts) and works the same way: an OpenAI call turns the
+ * fact into a cinematic scene/style prompt, which is then merged with a second,
+ * separate layer before being sent to fal.ai. For images that second layer is
+ * the look-style suffix; for video it is the motion preset (camera/movement)
+ * the user selects, appended in videoPipelineRunner.runStage2.
  *
- * This module adds an admin-configurable "video direction" generator: an OpenAI
- * call that turns the fact into a short motion/action description. That
- * direction is then layered on top of the motion preset (see
- * videoPipelineRunner.runStage2) — the preset stays a separate, retained knob.
+ * The levers (system prompt, model, temperature, max tokens) live in
+ * admin_config, resolve through the standard debug overlay, and are tuned from
+ * the AI Style Prompt Configuration panel on the admin config page.
  *
- * Mirrors lib/scenePromptConfig.ts: the levers live in admin_config, resolve
- * through the standard debug overlay, and are tunable from the workbench.
+ * NOTE: the config keys keep their original `video_direction_*` names so the
+ * already-seeded production rows (and any admin edits) carry over — only the
+ * human-facing labels and the generated content changed.
  */
 
 import { db } from "@workspace/db";
@@ -33,7 +34,29 @@ export const VIDEO_DIRECTION_CONFIG_KEYS = {
 
 // ─── Production defaults ─────────────────────────────────────────────────────
 
-export const VIDEO_DIRECTION_SYSTEM_DEFAULT = `You write a short motion direction for an AI image-to-video generator. The output animates an over-the-top "fact" about a person.
+export const VIDEO_DIRECTION_SYSTEM_DEFAULT = `You write a cinematic scene description for an AI video generator. The output is a dramatic, photo-real scene for a short video built around an over-the-top "fact" about a person.
+
+You are given a personalized fact that may contain a name and pronouns. Treat it as one subject person and describe what is actually happening in the fact — play even absurd, exaggerated, or physically impossible claims completely straight and depict them literally.
+
+Describe the LITERAL content of the fact: the subject, what they are doing, the setting, and the key objects/characters/animals that make the joke land. Never default to a generic gym or studio portrait unless the fact is actually about that.
+
+Your description must:
+- depict the fact's actual subject and setting
+- use dramatic lighting, high contrast, and a cinematic, photo-real quality
+- contain NO text, letters, words, captions, watermarks, or logos
+- be 25-45 words
+- begin with "Cinematic", "Epic", or "Dramatic"
+
+Do NOT include camera directions, shot types, lens, motion, or aspect-ratio notes — movement is added separately from the chosen motion preset.
+
+Output the plain scene description only: no quotes, labels, or JSON.`;
+
+/**
+ * The original motion-only default this generator shipped with. Retained ONLY
+ * so seeding can migrate an unmodified production row to the new scene/style
+ * default above without clobbering an admin's customized prompt.
+ */
+export const VIDEO_DIRECTION_SYSTEM_LEGACY_DEFAULT = `You write a short motion direction for an AI image-to-video generator. The output animates an over-the-top "fact" about a person.
 
 A still image of the scene ALREADY EXISTS, so do NOT re-describe the setting, the subject's appearance, or the visual style — that is already locked in by the image. Treat any tokens like {NAME}, {SUBJ}, {OBJ}, {POSS} as one subject person and ignore the literal token text.
 
@@ -109,36 +132,37 @@ export const VIDEO_DIRECTION_CONFIG_DEFS: VideoDirectionConfigDef[] = [
     value: VIDEO_DIRECTION_SYSTEM_DEFAULT,
     // "text" renders as a multi-line textarea in the workbench (vs a single-line input).
     dataType: "text",
-    label: "Video Prompt — System Prompt",
-    description: "OpenAI system prompt that generates the motion/action direction for image-to-video. Describes what moves; the motion preset (camera) is layered on separately.",
+    label: "AI Video Style Prompt — System Prompt",
+    description: "OpenAI system prompt that turns a fact into the scene/style prompt used for AI video generation. The motion preset the user selects is appended for movement.",
   },
   {
     key: VIDEO_DIRECTION_CONFIG_KEYS.model,
     value: VIDEO_DIRECTION_MODEL_DEFAULT,
     dataType: "string",
-    label: "Video Prompt — OpenAI Model",
-    description: "OpenAI chat model used to generate the video motion direction (e.g. gpt-4o-mini, gpt-4o).",
+    label: "AI Video Style Prompt — OpenAI Model",
+    description: "OpenAI chat model used to generate the video style prompt (e.g. gpt-4o-mini, gpt-4o).",
   },
   {
     key: VIDEO_DIRECTION_CONFIG_KEYS.temperature,
     value: String(VIDEO_DIRECTION_TEMPERATURE_DEFAULT),
     dataType: "string",
-    label: "Video Prompt — Temperature",
-    description: "Sampling temperature for video-direction generation (0–2). Higher = more varied.",
+    label: "AI Video Style Prompt — Temperature",
+    description: "Sampling temperature for video style-prompt generation (0–2). Higher = more varied.",
   },
   {
     key: VIDEO_DIRECTION_CONFIG_KEYS.maxTokens,
     value: String(VIDEO_DIRECTION_MAX_TOKENS_DEFAULT),
     dataType: "integer",
-    label: "Video Prompt — Max Tokens",
-    description: "Maximum tokens for the generated video-direction text.",
+    label: "AI Video Style Prompt — Max Tokens",
+    description: "Maximum tokens for the generated video style-prompt text.",
   },
 ];
 
 /**
- * Idempotently seed the video-direction config rows with their production
- * defaults. Safe to call on every boot — existing rows (including admin edits)
- * are left untouched via ON CONFLICT DO NOTHING.
+ * Idempotently seed the video style-prompt config rows with their production
+ * defaults. Safe to call on every boot — admin-customized values are left
+ * untouched via ON CONFLICT DO NOTHING (and the legacy-default migration below
+ * only fires on a row that still holds the original motion-only prompt).
  */
 export async function seedVideoDirectionConfig(): Promise<void> {
   for (const def of VIDEO_DIRECTION_CONFIG_DEFS) {
@@ -156,8 +180,30 @@ export async function seedVideoDirectionConfig(): Promise<void> {
           WHERE key = ${def.key} AND data_type <> 'text'
         `);
       }
+      // Labels/descriptions are code-owned (not admin-editable), so force them
+      // to the current copy. Brings rows seeded under the old "Video Prompt"
+      // naming up to the "AI Video Style Prompt" naming (idempotent).
+      await db.execute(sql`
+        UPDATE admin_config SET label = ${def.label}, description = ${def.description}
+        WHERE key = ${def.key}
+          AND (label IS DISTINCT FROM ${def.label} OR description IS DISTINCT FROM ${def.description})
+      `);
     } catch (err) {
       logger.warn({ err, key: def.key }, "[videoDirection] seed failed for key");
     }
+  }
+
+  // One-time content migration: this generator originally produced a motion-only
+  // direction. It now produces a full scene/style prompt (mirroring the image
+  // style prompt). Promote a row that still holds the unmodified legacy default
+  // to the new default; rows an admin has edited are left as-is.
+  try {
+    await db.execute(sql`
+      UPDATE admin_config SET value = ${VIDEO_DIRECTION_SYSTEM_DEFAULT}
+      WHERE key = ${VIDEO_DIRECTION_CONFIG_KEYS.system}
+        AND value = ${VIDEO_DIRECTION_SYSTEM_LEGACY_DEFAULT}
+    `);
+  } catch (err) {
+    logger.warn({ err }, "[videoDirection] legacy system-prompt migration failed");
   }
 }
