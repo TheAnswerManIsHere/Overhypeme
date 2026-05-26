@@ -25,7 +25,7 @@ import { logger } from "../lib/logger";
 import { hasFeature } from "../lib/tierFeatures";
 import { verifyCaptcha } from "../lib/captcha";
 import { checkSharedRateLimit } from "../lib/sharedRateLimiter";
-import { eq, sql, desc, asc, ilike, and, inArray, isNull, isNotNull } from "drizzle-orm";
+import { eq, sql, desc, asc, ilike, and, inArray, isNull } from "drizzle-orm";
 import {
   ListFactsQueryParams, CreateFactBody, GetFactParams,
   RateFactParams, RateFactBody,
@@ -80,11 +80,14 @@ router.get("/facts", async (req: Request, res: Response) => {
   conds.push(eq(factsTable.isActive, true));
   if (search) conds.push(ilike(factsTable.text, `%${search}%`));
 
-  // Opt-in: only user-submitted facts (excludes seed/test entries with no
-  // submitter — e.g. the admin engine workbench's fact picker). Read straight
-  // from the query so we don't have to widen the shared zod schema.
-  if (req.query["submittedOnly"] === "true") {
-    conds.push(isNotNull(factsTable.submittedById));
+  // Opt-in: only templated facts (text contains {NAME}/{OBJ}/… tokens). Real
+  // facts — whether user-submitted OR Replit-generated — are tokenized
+  // templates, so this keeps both while excluding hand-typed test stubs like
+  // "Alex pushes the limit" (literal name, no tokens). Used by the admin
+  // engine workbench's fact picker. Read straight from the query so we don't
+  // widen the shared zod schema.
+  if (req.query["templatedOnly"] === "true") {
+    conds.push(ilike(factsTable.text, "%{%"));
   }
 
   if (hashtag) {

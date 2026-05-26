@@ -525,6 +525,12 @@ interface AssemblePromptBody {
   gender?: "male" | "female" | "neutral";
   lookStyleId?: string;
   motionPresetId?: string;
+  /**
+   * Force fresh scene-prompt generation (image benches), overwriting the
+   * fact's cached aiScenePrompts. Use to refresh stale/misclassified caches —
+   * e.g. older facts whose cached prompts predate the current SCENE_PROMPT_SYSTEM.
+   */
+  forceRegenerate?: boolean;
 }
 
 router.post(
@@ -584,10 +590,12 @@ router.post(
     // Image (text-to-image or image-to-image): scene prompt (per gender) +
     // look-style suffix [+ composition suffix for image-to-image].
     let prompts = fact.aiScenePrompts as AiScenePrompts | null;
-    if (!prompts) {
+    if (!prompts || body.forceRegenerate) {
       try {
         prompts = await scenePromptGenerator(fact.text);
         // Cache on the fact so repeated picks (and production) reuse them.
+        // forceRegenerate overwrites a stale/misclassified cache — this also
+        // fixes the fact for production, which reads the same cache.
         await db.update(factsTable).set({ aiScenePrompts: prompts }).where(eq(factsTable.id, factId));
       } catch (err) {
         logger.warn({ err, factId }, "[adminEngines/assemble-prompt] scene-prompt generation failed");

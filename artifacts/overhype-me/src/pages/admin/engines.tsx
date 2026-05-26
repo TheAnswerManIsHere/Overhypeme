@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AdminLayout } from "@/components/admin/AdminLayout";
 import {
   Boxes,
@@ -279,8 +279,9 @@ function EngineTestPanel({ engine }: { engine: EngineRow }) {
     const q = factQuery.trim();
     if (q.length < 2) { setFactResults([]); return; }
     const t = setTimeout(() => {
-      // submittedOnly=true → user-facing facts only (excludes seed/test entries).
-      fetch(`/api/facts?search=${encodeURIComponent(q)}&limit=15&submittedOnly=true`, { credentials: "include" })
+      // templatedOnly=true → real templated facts only (user- or Replit-generated);
+      // excludes hand-typed test stubs like "Alex pushes the limit".
+      fetch(`/api/facts?search=${encodeURIComponent(q)}&limit=15&templatedOnly=true`, { credentials: "include" })
         .then((r) => (r.ok ? r.json() : { facts: [] }))
         .then((data) => setFactResults(Array.isArray(data?.facts) ? data.facts : []))
         .catch(() => setFactResults([]));
@@ -288,47 +289,43 @@ function EngineTestPanel({ engine }: { engine: EngineRow }) {
     return () => clearTimeout(t);
   }, [factQuery]);
 
-  // Assemble the production prompt whenever the selection changes. Fills the
-  // editable prompt boxes; the admin can still tweak before running.
-  useEffect(() => {
-    if (!selectedFact) return;
-    if (benchType === "utility") return;
-    let cancelled = false;
+  // Assemble the production prompt from the current selection and fill the
+  // editable prompt boxes. `forceRegenerate` re-runs scene-prompt generation
+  // server-side (overwriting a stale/misclassified cache) — used by the
+  // "Regenerate scene prompts" button.
+  const runAssemble = useCallback(async (forceRegenerate: boolean) => {
+    if (!selectedFact || benchType === "utility") return;
     setAssembling(true);
     setAssembleError(null);
-    fetch(`/api/admin/engines/${engine.id}/assemble-prompt`, {
-      method: "POST",
-      credentials: "include",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        factId: selectedFact.id,
-        gender,
-        lookStyleId: lookStyleId || undefined,
-        motionPresetId: motionPresetId || undefined,
-      }),
-    })
-      .then(async (r) => {
-        const json = await r.json().catch(() => null);
-        if (!r.ok) throw new Error(json?.error ?? `HTTP ${r.status}`);
-        return json as { imagePrompt?: string; motionPrompt?: string; dialogueText?: string };
-      })
-      .then((data) => {
-        if (cancelled) return;
-        if (typeof data.imagePrompt === "string") setImagePrompt(data.imagePrompt);
-        if (typeof data.motionPrompt === "string") {
-          setMotionPrompt(data.motionPrompt);
-          setExperiment("custom");
-        }
-        if (typeof data.dialogueText === "string") {
-          setDialogueText(data.dialogueText);
-          setDialogueEnabled(true);
-        }
-      })
-      .catch((e) => { if (!cancelled) setAssembleError(String(e instanceof Error ? e.message : e)); })
-      .finally(() => { if (!cancelled) setAssembling(false); });
-    return () => { cancelled = true; };
+    try {
+      const r = await fetch(`/api/admin/engines/${engine.id}/assemble-prompt`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          factId: selectedFact.id,
+          gender,
+          lookStyleId: lookStyleId || undefined,
+          motionPresetId: motionPresetId || undefined,
+          forceRegenerate,
+        }),
+      });
+      const json = await r.json().catch(() => null);
+      if (!r.ok) throw new Error(json?.error ?? `HTTP ${r.status}`);
+      const data = json as { imagePrompt?: string; motionPrompt?: string; dialogueText?: string };
+      if (typeof data.imagePrompt === "string") setImagePrompt(data.imagePrompt);
+      if (typeof data.motionPrompt === "string") { setMotionPrompt(data.motionPrompt); setExperiment("custom"); }
+      if (typeof data.dialogueText === "string") { setDialogueText(data.dialogueText); setDialogueEnabled(true); }
+    } catch (e) {
+      setAssembleError(String(e instanceof Error ? e.message : e));
+    } finally {
+      setAssembling(false);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedFact?.id, gender, lookStyleId, motionPresetId]);
+  }, [selectedFact?.id, gender, lookStyleId, motionPresetId, benchType, engine.id]);
+
+  // Auto-assemble (cached prompts) whenever the selection changes.
+  useEffect(() => { void runAssemble(false); }, [runAssemble]);
 
   // ── Experiment radio → auto-fill dialogue ───────────────────────────────
   const applyExperiment = (next: ExperimentMode) => {
@@ -738,6 +735,20 @@ function EngineTestPanel({ engine }: { engine: EngineRow }) {
                   ? "Prompt below is auto-filled from this fact — edit freely before running."
                   : "Pick a fact to auto-fill the prompt the meme generator would send."}
           </p>
+
+          {/* Regenerate: force fresh scene-prompt generation (image benches),
+              overwriting a stale/misclassified cache on the fact. */}
+          {isImagePromptBench && selectedFact && (
+            <button
+              type="button"
+              disabled={assembling}
+              onClick={() => void runAssemble(true)}
+              className="text-[10px] text-primary hover:underline disabled:opacity-50"
+              data-testid="engine-test-regenerate-prompt"
+            >
+              ↻ Regenerate scene prompts (overwrites this fact's cache)
+            </button>
+          )}
         </div>
       )}
 
