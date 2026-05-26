@@ -8,6 +8,7 @@ import { eq, sql, gt } from "drizzle-orm";
 import { SEED_FACTS } from "../data/seed-facts";
 import { embedFactAsync } from "./embeddings";
 import { seedScenePromptConfig } from "./scenePromptConfig";
+import { seedVideoDirectionConfig } from "./videoDirection";
 import { logger } from "./logger";
 
 /**
@@ -571,10 +572,14 @@ export async function ensureSchema(): Promise<void> {
     }
   }
 
-  // Seed the admin-configurable scene-prompt levers (system prompt, composition
-  // suffix, OpenAI model, temperature, max tokens) with their production
-  // defaults. Idempotent — existing rows / admin edits are preserved.
+  // Seed the admin-configurable scene-prompt levers (system prompt, OpenAI
+  // model, temperature, max tokens) with their production defaults. Idempotent
+  // — existing rows / admin edits are preserved.
   await seedScenePromptConfig();
+
+  // Seed the admin-configurable video-direction levers (the motion/action
+  // direction layered on top of the motion preset for image-to-video).
+  await seedVideoDirectionConfig();
 }
 
 function computeWilsonScore(upvotes: number, downvotes: number): number {
