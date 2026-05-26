@@ -42,6 +42,7 @@ import {
   generateScenePrompts,
   type AiScenePrompts,
 } from "../lib/aiMemePipeline.js";
+import { generateVideoDirection } from "../lib/videoDirection.js";
 import { renderPersonalized } from "../lib/renderCanonical.js";
 
 // Hardcoded test identity for workbench prompt assembly — renders fact
@@ -61,6 +62,14 @@ export function __setScenePromptGeneratorForTest(
   fn: ((factText: string) => Promise<AiScenePrompts>) | null,
 ): void {
   scenePromptGenerator = fn ?? generateScenePrompts;
+}
+
+// Test seam: override the AI Video Style Prompt generator likewise.
+let videoStylePromptGenerator: (factText: string) => Promise<string> = generateVideoDirection;
+export function __setVideoStylePromptGeneratorForTest(
+  fn: ((factText: string) => Promise<string>) | null,
+): void {
+  videoStylePromptGenerator = fn ?? generateVideoDirection;
 }
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -534,9 +543,16 @@ interface AssemblePromptBody {
   lookStyleId?: string;
   motionPresetId?: string;
   /**
-   * Force fresh scene-prompt generation (image benches), overwriting the
-   * fact's cached aiScenePrompts. Use to refresh stale/misclassified caches —
-   * e.g. older facts whose cached prompts predate the current SCENE_PROMPT_SYSTEM.
+   * The video style prompt already shown in the bench. Video benches have no
+   * persistent cache (production regenerates per render), so the client passes
+   * the current value back: it's reused when only the motion preset changes and
+   * regenerated when absent or when forceRegenerate is set.
+   */
+  videoDirection?: string;
+  /**
+   * Force fresh generation: for image benches, regenerate the scene prompts and
+   * overwrite the fact's cached aiScenePrompts; for video benches, regenerate
+   * the AI Video Style Prompt instead of reusing the passed-in value.
    */
   forceRegenerate?: boolean;
 }
@@ -571,21 +587,42 @@ router.post(
 
     const benchType = engineBenchType(engine);
 
-    // Video: motion preset drives motion; the fact text is the voice/dialogue cue.
+    // Video: the AI Video Style Prompt (generated) + the motion preset
+    // (camera/movement) are merged exactly like videoPipelineRunner.runStage2;
+    // the fact text is also the voice/dialogue cue.
     if (benchType === "video") {
-      let motionPrompt = "";
+      // Motion preset — the second, separate layer.
+      let presetPrompt = "";
       if (body.motionPresetId) {
         const [mp] = await db
           .select({ motionPrompt: motionPresetsTable.motionPrompt })
           .from(motionPresetsTable)
           .where(eq(motionPresetsTable.id, body.motionPresetId))
           .limit(1);
-        motionPrompt = mp?.motionPrompt ?? "";
+        presetPrompt = mp?.motionPrompt ?? "";
       }
-      // Render the fact template down to a concrete name + pronoun, exactly
-      // like the production voice/dialogue cue.
+      // Render the fact template down to a concrete name + pronoun — both the
+      // dialogue cue and the text fed to the style-prompt generator (matching
+      // production, which generates from the rendered fact text).
       const dialogueText = renderPersonalized(fact.text, WORKBENCH_TEST_NAME, WORKBENCH_TEST_PRONOUNS);
-      res.json({ benchType, motionPrompt, dialogueText });
+
+      // AI Video Style Prompt — the generated first layer. Reuse the value the
+      // bench already holds unless it's absent or a regenerate was requested, so
+      // swapping the motion preset doesn't re-roll the (non-deterministic) prompt.
+      let videoStyle = typeof body.videoDirection === "string" ? body.videoDirection.trim() : "";
+      if (!videoStyle || body.forceRegenerate) {
+        try {
+          videoStyle = (await videoStylePromptGenerator(dialogueText)).trim();
+        } catch (err) {
+          logger.warn({ err, factId }, "[adminEngines/assemble-prompt] video style-prompt generation failed");
+          videoStyle = "";
+        }
+      }
+
+      const motionPrompt = videoStyle
+        ? (presetPrompt ? `${videoStyle} ${presetPrompt}` : videoStyle)
+        : presetPrompt;
+      res.json({ benchType, motionPrompt, dialogueText, videoDirection: videoStyle });
       return;
     }
 
