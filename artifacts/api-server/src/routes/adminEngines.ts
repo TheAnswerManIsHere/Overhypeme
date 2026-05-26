@@ -40,9 +40,9 @@ import { clearEngineCaches, buildEngineInput } from "../lib/engineInterpreter.js
 import { applyAudioHandling } from "../lib/engineAudio.js";
 import {
   generateScenePrompts,
-  PULID_COMPOSITION_SUFFIX,
   type AiScenePrompts,
 } from "../lib/aiMemePipeline.js";
+import { getScenePromptCompositionSuffix } from "../lib/scenePromptConfig.js";
 import { renderPersonalized } from "../lib/renderCanonical.js";
 
 // Hardcoded test identity for workbench prompt assembly — renders fact
@@ -624,7 +624,7 @@ router.post(
 
     let imagePrompt = scene;
     if (styleSuffix.trim()) imagePrompt += ` ${styleSuffix.trim()}`;
-    if (benchType === "image-to-image") imagePrompt += ` ${PULID_COMPOSITION_SUFFIX}`;
+    if (benchType === "image-to-image") imagePrompt += ` ${await getScenePromptCompositionSuffix()}`;
 
     res.json({ benchType, imagePrompt });
   },

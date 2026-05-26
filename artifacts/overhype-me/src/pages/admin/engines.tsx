@@ -12,6 +12,8 @@ import {
   ChevronUp,
   Beaker,
   Loader2,
+  Rocket,
+  AlertTriangle,
 } from "lucide-react";
 
 interface EngineRow {
@@ -1513,6 +1515,226 @@ function EngineCard({
 
 type Tab = "live" | "archived";
 
+// ─── Scene-prompt config panel ───────────────────────────────────────────────
+// Surfaces the admin-configurable levers that control how OpenAI generates the
+// text-to-image / image-to-image scene prompts. Edits go to each key's DEBUG
+// value (an experiment sandbox); turning on global Debug Mode makes generation
+// (incl. the "Regenerate scene prompts" button on the image benches below) use
+// those debug values. "Promote" copies the experiment into the production value.
+
+interface ScenePromptConfigRow {
+  key: string;
+  value: string;
+  debugValue: string | null;
+  dataType: string;
+  label: string;
+  description: string | null;
+}
+
+const SCENE_PROMPT_FIELDS: { key: string; multiline: boolean; rows?: number }[] = [
+  { key: "scene_prompt_system", multiline: true, rows: 14 },
+  { key: "scene_prompt_composition_suffix", multiline: true, rows: 3 },
+  { key: "scene_prompt_model", multiline: false },
+  { key: "scene_prompt_temperature", multiline: false },
+  { key: "scene_prompt_max_tokens", multiline: false },
+];
+
+function ScenePromptConfigPanel() {
+  const [open, setOpen] = useState(false);
+  const [rows, setRows] = useState<Record<string, ScenePromptConfigRow> | null>(null);
+  const [debugActive, setDebugActive] = useState(false);
+  const [drafts, setDrafts] = useState<Record<string, string>>({});
+  const [busyKey, setBusyKey] = useState<string | null>(null);
+  const [loadErr, setLoadErr] = useState<string | null>(null);
+  const [msg, setMsg] = useState<{ type: "ok" | "err"; text: string } | null>(null);
+
+  const load = useCallback(async () => {
+    setLoadErr(null);
+    try {
+      const r = await fetch("/api/admin/config", { credentials: "include" });
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      const all = (await r.json()) as ScenePromptConfigRow[];
+      const byKey: Record<string, ScenePromptConfigRow> = {};
+      for (const c of all) byKey[c.key] = c;
+      setRows(byKey);
+      setDebugActive(byKey["debug_mode_active"]?.value === "true");
+      setDrafts((prev) => {
+        const next = { ...prev };
+        for (const f of SCENE_PROMPT_FIELDS) {
+          const row = byKey[f.key];
+          // Seed the editor from the experiment value if present, else production.
+          if (next[f.key] === undefined && row) next[f.key] = row.debugValue ?? row.value;
+        }
+        return next;
+      });
+    } catch (e) {
+      setLoadErr(String(e instanceof Error ? e.message : e));
+    }
+  }, []);
+
+  useEffect(() => { if (open && rows === null) void load(); }, [open, rows, load]);
+
+  const patch = useCallback(async (key: string, body: Record<string, unknown>, ok: string) => {
+    setBusyKey(key);
+    setMsg(null);
+    try {
+      const r = await fetch(`/api/admin/config/${key}`, {
+        method: "PATCH",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!r.ok) {
+        const e = await r.json().catch(() => null);
+        throw new Error(e?.error ?? `HTTP ${r.status}`);
+      }
+      setMsg({ type: "ok", text: ok });
+      await load();
+    } catch (e) {
+      setMsg({ type: "err", text: String(e instanceof Error ? e.message : e) });
+    } finally {
+      setBusyKey(null);
+    }
+  }, [load]);
+
+  return (
+    <div className="border border-violet-500/30 rounded-lg overflow-hidden bg-violet-500/[0.03]">
+      <button
+        onClick={() => setOpen((v) => !v)}
+        className="w-full flex items-center justify-between px-4 py-3 text-left hover:bg-violet-500/5 transition-colors"
+      >
+        <span className="flex items-center gap-2 text-sm font-bold uppercase tracking-wide text-violet-300">
+          <Beaker className="w-4 h-4" />
+          Scene Prompt Configuration
+        </span>
+        <span className="flex items-center gap-2">
+          {debugActive && (
+            <span className="text-[10px] font-bold uppercase tracking-wide text-amber-500 bg-amber-500/10 border border-amber-500/30 rounded-sm px-2 py-0.5">
+              Debug mode ON
+            </span>
+          )}
+          {open ? <ChevronUp className="w-4 h-4 text-muted-foreground" /> : <ChevronDown className="w-4 h-4 text-muted-foreground" />}
+        </span>
+      </button>
+
+      {open && (
+        <div className="border-t border-violet-500/20 p-4 space-y-4">
+          <p className="text-xs text-muted-foreground leading-relaxed">
+            These levers control how OpenAI turns a fact into the image scene prompt. Edit a field to set an{" "}
+            <span className="text-violet-300 font-medium">experiment</span> value, turn on Debug Mode, then use{" "}
+            <span className="text-foreground font-medium">Regenerate scene prompts</span> on any image bench below to test it.
+            When you&apos;re happy, <span className="text-foreground font-medium">Promote</span> it to production.
+          </p>
+
+          {loadErr && <p className="text-xs text-destructive">Failed to load config: {loadErr}</p>}
+          {rows === null && !loadErr && <p className="text-xs text-muted-foreground">Loading…</p>}
+
+          {rows !== null && (
+            <>
+              {/* Global debug-mode toggle */}
+              <div className="flex items-start gap-3 rounded-sm border border-amber-500/30 bg-amber-500/5 px-3 py-2.5">
+                <AlertTriangle className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-xs font-bold text-amber-200">Debug Mode {debugActive ? "ON" : "OFF"}</span>
+                    <button
+                      onClick={() => void patch("debug_mode_active", { value: debugActive ? "false" : "true" }, `Debug mode ${debugActive ? "OFF" : "ON"}`)}
+                      disabled={busyKey === "debug_mode_active"}
+                      className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors shrink-0 disabled:opacity-50 ${debugActive ? "bg-amber-500" : "bg-muted-foreground/30"}`}
+                      aria-label="Toggle debug mode"
+                    >
+                      <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform ${debugActive ? "translate-x-5" : "translate-x-1"}`} />
+                    </button>
+                  </div>
+                  <p className="text-[11px] text-amber-200/70 mt-0.5">
+                    Global flag — while ON, experiment (debug) values are live for <span className="font-semibold">all traffic</span>, not just you. Turn it off (or promote) when done testing.
+                  </p>
+                </div>
+              </div>
+
+              {SCENE_PROMPT_FIELDS.map((f) => {
+                const row = rows[f.key];
+                if (!row) return null;
+                const draft = drafts[f.key] ?? "";
+                const hasExperiment = row.debugValue != null && row.debugValue !== "";
+                const busy = busyKey === f.key;
+                return (
+                  <div key={f.key} className="rounded-sm border border-border bg-background/40 p-3 space-y-2">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-xs font-bold text-foreground">{row.label}</span>
+                      {hasExperiment && (
+                        <span className="text-[10px] font-bold uppercase tracking-wide text-violet-300 bg-violet-500/10 border border-violet-500/30 rounded-sm px-1.5 py-0.5 shrink-0">
+                          Experiment pending
+                        </span>
+                      )}
+                    </div>
+                    {row.description && <p className="text-[11px] text-muted-foreground leading-snug">{row.description}</p>}
+
+                    {f.multiline ? (
+                      <textarea
+                        value={draft}
+                        onChange={(e) => setDrafts((d) => ({ ...d, [f.key]: e.target.value }))}
+                        rows={f.rows ?? 4}
+                        className="w-full px-2.5 py-1.5 text-xs bg-background border border-border rounded-sm font-mono focus:outline-none focus:border-violet-500/60 resize-y"
+                      />
+                    ) : (
+                      <input
+                        type="text"
+                        value={draft}
+                        onChange={(e) => setDrafts((d) => ({ ...d, [f.key]: e.target.value }))}
+                        className="w-full h-9 px-3 text-sm bg-background border border-border rounded-sm font-mono focus:outline-none focus:border-violet-500/60"
+                      />
+                    )}
+
+                    <div className="flex flex-wrap items-center gap-2">
+                      <button
+                        onClick={() => void patch(f.key, { debugValue: draft }, `Saved experiment for ${row.label}`)}
+                        disabled={busy}
+                        className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium rounded-sm border border-violet-500/40 text-violet-300 hover:bg-violet-500/10 disabled:opacity-50 min-h-[36px]"
+                      >
+                        {busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Beaker className="w-3.5 h-3.5" />}
+                        Save experiment
+                      </button>
+                      <button
+                        onClick={() => void patch(f.key, { value: draft, clearDebugValue: true }, `Promoted ${row.label} to production`)}
+                        disabled={busy}
+                        className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium rounded-sm border border-green-500/40 text-green-400 hover:bg-green-500/10 disabled:opacity-50 min-h-[36px]"
+                      >
+                        <Rocket className="w-3.5 h-3.5" />
+                        Promote to production
+                      </button>
+                      {hasExperiment && (
+                        <button
+                          onClick={() => { setDrafts((d) => ({ ...d, [f.key]: row.value })); void patch(f.key, { clearDebugValue: true }, `Discarded experiment for ${row.label}`); }}
+                          disabled={busy}
+                          className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium rounded-sm border border-border text-muted-foreground hover:text-foreground hover:border-foreground/40 disabled:opacity-50 min-h-[36px]"
+                        >
+                          Discard experiment
+                        </button>
+                      )}
+                    </div>
+
+                    {hasExperiment && row.debugValue !== row.value && (
+                      <details className="text-[11px]">
+                        <summary className="cursor-pointer text-muted-foreground hover:text-foreground">Show current production value</summary>
+                        <pre className="mt-1 whitespace-pre-wrap break-words bg-muted/40 border border-border rounded-sm p-2 text-muted-foreground max-h-40 overflow-auto">{row.value}</pre>
+                      </details>
+                    )}
+                  </div>
+                );
+              })}
+
+              {msg && (
+                <p className={`text-xs ${msg.type === "ok" ? "text-green-400" : "text-destructive"}`}>{msg.text}</p>
+              )}
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function AdminEngines() {
   const [engines, setEngines] = useState<EngineRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -1563,6 +1785,8 @@ export default function AdminEngines() {
             Manage the generative engines the video / image / utility pipelines call. Code-owned fields (paramSchema, endpoint, kind) are read-only; only the {EDITABLE_FIELDS.length} runtime knobs below are editable.
           </p>
         </div>
+
+        <ScenePromptConfigPanel />
 
         <div className="flex items-center gap-1 border-b border-border">
           {(["live", "archived"] as Tab[]).map((t) => (
