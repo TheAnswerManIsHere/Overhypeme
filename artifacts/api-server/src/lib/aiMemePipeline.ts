@@ -19,6 +19,7 @@ import { db } from "@workspace/db";
 import { factsTable, userAiImagesTable, usersTable } from "@workspace/db/schema";
 import { eq, sql } from "drizzle-orm";
 import { getConfigInt, getConfigString } from "./adminConfig";
+import { getScenePromptGenerationConfig, getScenePromptCompositionSuffix } from "./scenePromptConfig";
 import { getCachedPrice, type CachedPrice } from "./falPricing";
 import { computeImageCost, resolveImageSizePx } from "./costComputation";
 import { checkBudget, recordCost, BudgetExceededError } from "./budgetGate";
@@ -51,15 +52,8 @@ const DEFAULT_IMAGE_MODEL_STANDARD  = "fal-ai/flux-pro/v1.1";
 const DEFAULT_IMAGE_MODEL_REFERENCE = "fal-ai/flux-pulid";
 const DEFAULT_IMAGE_SIZE            = "square_hd";
 
-/**
- * Composition suffix appended to reference (image-to-image) prompts so the
- * model renders a full scene rather than a portrait close-up. Exported so the
- * admin workbench can assemble the exact same prompt production sends.
- * Phase 6: ai_pulid_composition_suffix retired; baked in here.
- */
-export const PULID_COMPOSITION_SUFFIX =
-  "Full body wide angle shot. Person shown in action within the scene environment. " +
-  "Show the full setting and context. NOT a portrait or close-up.";
+// The composition/framing suffix for reference (image-to-image) prompts is now
+// admin-configurable — see lib/scenePromptConfig.ts (getScenePromptCompositionSuffix).
 
 /**
  * Models that accept a face-reference image input.
@@ -109,43 +103,16 @@ function detectImageFormat(response: Response): { contentType: string; ext: stri
 
 // ─── LLM scene prompt generation ─────────────────────────────────────────────
 
-const SCENE_PROMPT_SYSTEM = `You write cinematic scene descriptions for an AI image generator. The output is a dramatic, photo-real background for a meme built around an over-the-top "fact" about a person.
-
-You are given a personalized fact template that uses tokens like {NAME}, {SUBJ}, {OBJ}, {POSS}. Treat the tokens as one subject person; ignore the literal token text and describe what is actually happening in the fact.
-
-STEP 1 — Classify the fact (the "fact_type" field):
-- "action" — the fact can be staged as a real scene: a person doing an activity, in a place, with objects/animals/other people, a sport, a feat, a profession, a social moment, etc. Use this EVEN WHEN the claim is exaggerated, absurd, or physically impossible — you still depict it literally and play it straight. Example: "bears hang their own food high in a tree when {NAME} goes camping" → a moonlit campsite where nervous bears string a food sack up a pine while the person relaxes by the fire.
-- "abstract" — ONLY when the fact has no stageable subject, place, or action at all: a purely metaphysical or cosmic claim about willpower, luck, time, probability, reality, etc., with nothing concrete to photograph. Example: "{NAME}'s confidence rewrites the laws of probability." When in doubt, choose "action".
-
-STEP 2 — Write the scene. Describe the LITERAL content of the fact: the subject, what they are doing, the setting, and the key objects/characters/animals that make the joke land. Never default to a generic gym or studio portrait unless the fact is actually about that.
-- For "action" facts: write three variants of the SAME scene that differ ONLY in how the subject is rendered — "male" = a man, "female" = a woman, "neutral" = a gender-ambiguous person. Keep the setting, action, and props identical across all three.
-- For "abstract" facts: all three may be the same dramatic, symbolic scene.
-
-Every prompt must:
-- depict the fact's actual subject and setting
-- use dramatic lighting, high contrast, and a cinematic, photo-real quality
-- contain NO text, letters, words, captions, watermarks, or logos
-- be 25-45 words
-- begin with "Cinematic", "Epic", or "Dramatic"
-
-Do not describe the image's shape or aspect ratio — framing is handled separately.
-
-Return ONLY valid JSON in exactly this shape:
-{"fact_type":"action","male":"Cinematic ...","female":"Cinematic ...","neutral":"Cinematic ..."}`;
-
 export async function generateScenePrompts(factText: string): Promise<AiScenePrompts> {
   const openai = getOpenAIClient();
-  // Phase 6: the retired ai_scene_prompt_* admin_config keys used to live here.
-  // The engines table doesn't model OpenAI scene-prompt LLMs, and these
-  // settings had drifted into pure no-op land in production — bake the values
-  // in as constants so the call shape is stable and observable in code review.
-  const systemPrompt   = SCENE_PROMPT_SYSTEM;
-  const model          = "gpt-4o-mini";
-  const max_tokens     = 400;
-  const temperature    = 0.7;
+  // Generation settings (system prompt, model, temperature, max tokens) are
+  // admin-configurable via admin_config and resolve through the debug overlay,
+  // so the workbench can experiment with a candidate prompt before promoting it.
+  // See lib/scenePromptConfig.ts.
+  const { systemPrompt, model, temperature, maxTokens } = await getScenePromptGenerationConfig();
   const response = await openai.chat.completions.create({
     model,
-    max_tokens,
+    max_tokens: maxTokens,
     temperature,
     response_format: { type: "json_object" },
     messages: [
@@ -464,7 +431,7 @@ async function generateAndStoreImageFromReference(
   const faceParamName = REFERENCE_MODEL_INPUT_PARAM[model]!;
 
   // Append composition suffix so PuLID shows a full scene rather than a portrait close-up.
-  const compositionSuffix = PULID_COMPOSITION_SUFFIX;
+  const compositionSuffix = await getScenePromptCompositionSuffix();
   const finalPrompt = compositionSuffix ? `${prompt.trim()} ${compositionSuffix}` : prompt;
 
   const input: Record<string, unknown> = {
@@ -995,7 +962,7 @@ export async function buildFalInputPreview(
 
   if (isRef && isReferenceCapableModel(model)) {
     // Reference path (PuLID / IP-Adapter)
-    const compositionSuffix = PULID_COMPOSITION_SUFFIX;
+    const compositionSuffix = await getScenePromptCompositionSuffix();
     const finalPrompt = compositionSuffix ? `${prompt.trim()} ${compositionSuffix}` : prompt;
     const faceParamName = REFERENCE_MODEL_INPUT_PARAM[model]!;
     const input: Record<string, unknown> = {

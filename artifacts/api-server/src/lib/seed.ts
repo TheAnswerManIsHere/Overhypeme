@@ -7,6 +7,7 @@ import {
 import { eq, sql, gt } from "drizzle-orm";
 import { SEED_FACTS } from "../data/seed-facts";
 import { embedFactAsync } from "./embeddings";
+import { seedScenePromptConfig } from "./scenePromptConfig";
 import { logger } from "./logger";
 
 /**
@@ -193,6 +194,14 @@ export async function ensureSchema(): Promise<void> {
         VALUES ('max_memes_per_fact', '40', 'integer', 'Max Memes Per Fact',
          'Maximum number of memes returned per fact in the gallery (applies to both public and personal views).',
          1, 500, false)
+      ON CONFLICT (key) DO NOTHING`,
+    },
+    {
+      label: "admin_config seed debug_mode_active",
+      ddl: `INSERT INTO admin_config (key, value, data_type, label, description, is_public)
+        VALUES ('debug_mode_active', 'false', 'boolean', 'Debug Mode Active',
+         'Global staging toggle: when ON, any config key that has a debug value uses it instead of the production value. Used to experiment with settings (e.g. scene-prompt levers) before promoting them. Affects all traffic while ON.',
+         false)
       ON CONFLICT (key) DO NOTHING`,
     },
     {
@@ -552,6 +561,11 @@ export async function ensureSchema(): Promise<void> {
       logger.warn({ err, label }, "[schema] Could not apply migration");
     }
   }
+
+  // Seed the admin-configurable scene-prompt levers (system prompt, composition
+  // suffix, OpenAI model, temperature, max tokens) with their production
+  // defaults. Idempotent — existing rows / admin edits are preserved.
+  await seedScenePromptConfig();
 }
 
 function computeWilsonScore(upvotes: number, downvotes: number): number {
