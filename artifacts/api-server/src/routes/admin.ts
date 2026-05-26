@@ -5,9 +5,11 @@ import { factsTable, commentsTable, adminConfigTable, motionPresetsTable, featur
 import { eq, desc, count, ilike, sql, and, or, inArray, isNull, asc, gt, gte, sum } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import { requireRole } from "../middlewares/tierMiddleware";
-import { backfillEmbeddings } from "../lib/embeddings";
+import { backfillEmbeddings, embedFactAsync } from "../lib/embeddings";
 import { runFactImagePipeline } from "../lib/factImagePipeline";
-import { generateAiMemeBackgrounds, type AiScenePrompts, type AiMemeImages } from "../lib/aiMemePipeline";
+import { generateAiMemeBackgrounds } from "../lib/aiMemePipeline";
+import { renderCanonical } from "../lib/renderCanonical";
+import { computeSplitTokenIndex } from "../lib/splitTokenIndex";
 import { logActivity } from "../lib/activity";
 import { getAllConfig, bustConfigCache, getPublicConfig } from "../lib/adminConfig";
 import { getAllTierFeatureMatrix, setTierFeature, bustTierFeaturesCache } from "../lib/tierFeatures";
@@ -634,7 +636,9 @@ router.get("/admin/facts", requireAdmin, async (req: Request, res: Response) => 
       score: factsTable.score,
       wilsonScore: factsTable.wilsonScore,
       commentCount: factsTable.commentCount,
+      shareCount: factsTable.shareCount,
       submittedById: factsTable.submittedById,
+      splitTokenIndex: factsTable.splitTokenIndex,
       createdAt: factsTable.createdAt,
       updatedAt: factsTable.updatedAt,
       hasEmbedding: sql<boolean>`(${factsTable.embedding} IS NOT NULL)`,
@@ -672,14 +676,24 @@ router.patch("/admin/facts/:id", requireAdmin, async (req: Request, res: Respons
   const id = parseInt(String(req.params["id"] ?? ""), 10);
   if (isNaN(id)) { res.status(400).json({ error: "Invalid fact id" }); return; }
 
-  const { text, upvotes, downvotes, score, wilsonScore, commentCount, submittedById, parentId, useCase, isActive } = req.body as Record<string, unknown>;
+  const { text, upvotes, downvotes, score, wilsonScore, commentCount, shareCount, submittedById, parentId, useCase, isActive } = req.body as Record<string, unknown>;
   const updates: Record<string, unknown> = {};
-  if (text !== undefined) updates.text = String(text);
+  const textChanged = text !== undefined;
+  if (textChanged) {
+    const newText = String(text);
+    updates.text = newText;
+    // Editing the wording invalidates everything derived from it. Recompute the
+    // text-derived metadata so the canonical/dedupe form, caption split, and
+    // semantic-search vector don't silently go stale (mirrors the create paths).
+    updates.canonicalText = renderCanonical(newText);
+    updates.splitTokenIndex = computeSplitTokenIndex(newText);
+  }
   if (upvotes !== undefined) updates.upvotes = Number(upvotes);
   if (downvotes !== undefined) updates.downvotes = Number(downvotes);
   if (score !== undefined) updates.score = Number(score);
   if (wilsonScore !== undefined) updates.wilsonScore = Number(wilsonScore);
   if (commentCount !== undefined) updates.commentCount = Number(commentCount);
+  if (shareCount !== undefined) updates.shareCount = Number(shareCount);
   if (submittedById !== undefined) updates.submittedById = submittedById ? String(submittedById) : null;
   if (parentId !== undefined) updates.parentId = parentId !== null && parentId !== "" ? Number(parentId) : null;
   if (useCase !== undefined) updates.useCase = useCase ? String(useCase) : null;
@@ -688,13 +702,22 @@ router.patch("/admin/facts/:id", requireAdmin, async (req: Request, res: Respons
   const [updated] = await db.update(factsTable).set(updates).where(eq(factsTable.id, id)).returning();
   if (!updated) { res.status(404).json({ error: "Fact not found" }); return; }
 
-  // Re-run image pipeline when the fact text changes and it's a root fact
-  if (text !== undefined && updated.parentId === null) {
+  // When the text of a root fact changes, re-embed and re-seed stock photos
+  // (variants inherit the parent's images and are not embedded).
+  if (textChanged && updated.parentId === null) {
+    void embedFactAsync(updated.id, updated.text, updated.canonicalText ?? undefined);
     void runFactImagePipeline(updated.id, updated.text);
   }
 
   const { embedding: _emb, ...factRow } = updated;
-  res.json({ success: true, fact: { ...factRow, hasEmbedding: updated.embedding !== null } });
+  res.json({
+    success: true,
+    fact: {
+      ...factRow,
+      hasEmbedding: updated.embedding !== null,
+      hasPexelsImages: updated.pexelsImages !== null,
+    },
+  });
 });
 
 // POST /admin/facts/:id/variants — create a variant linked to a root fact
@@ -1170,126 +1193,6 @@ router.post("/admin/facts/backfill-embeddings", requireAdminOrApiKey, async (_re
     logger.error({ err }, "[admin] Backfill embeddings error");
     res.status(500).json({ error: "Backfill failed", details: String(err) });
   }
-});
-
-// ─── AI Meme admin endpoints ──────────────────────────────────────────────────
-
-/**
- * GET /admin/facts/:id/ai-meme — return aiScenePrompts + aiMemeImages for a fact
- */
-router.get("/admin/facts/:id/ai-meme", requireAdmin, async (req: Request, res: Response) => {
-  const id = parseInt(String(req.params["id"] ?? ""), 10);
-  if (isNaN(id)) { res.status(400).json({ error: "Invalid fact id" }); return; }
-  const [fact] = await db
-    .select({ id: factsTable.id, text: factsTable.text, aiScenePrompts: factsTable.aiScenePrompts, aiMemeImages: factsTable.aiMemeImages })
-    .from(factsTable)
-    .where(eq(factsTable.id, id))
-    .limit(1);
-  if (!fact) { res.status(404).json({ error: "Fact not found" }); return; }
-  res.json({
-    id: fact.id,
-    aiScenePrompts: fact.aiScenePrompts ?? null,
-    aiMemeImages: fact.aiMemeImages ?? null,
-  });
-});
-
-/**
- * PUT /admin/facts/:id/ai-meme/generate — trigger full AI meme background generation
- * Body: { scenePrompts?: AiScenePrompts } — optional, to use custom prompts
- */
-router.put("/admin/facts/:id/ai-meme/generate", requireAdmin, async (req: Request, res: Response) => {
-  const id = parseInt(String(req.params["id"] ?? ""), 10);
-  if (isNaN(id)) { res.status(400).json({ error: "Invalid fact id" }); return; }
-
-  const [fact] = await db
-    .select({ id: factsTable.id, text: factsTable.text, parentId: factsTable.parentId, aiScenePrompts: factsTable.aiScenePrompts, aiMemeImages: factsTable.aiMemeImages })
-    .from(factsTable)
-    .where(eq(factsTable.id, id))
-    .limit(1);
-
-  if (!fact) { res.status(404).json({ error: "Fact not found" }); return; }
-  if (fact.parentId !== null) { res.status(400).json({ error: "AI meme backgrounds are only generated for root facts" }); return; }
-
-  const body = req.body as Record<string, unknown>;
-  const customPrompts = body["scenePrompts"] as AiScenePrompts | undefined;
-
-  // Start generation in background; do not wait
-  void generateAiMemeBackgrounds(fact.id, fact.text, {
-    existingPrompts: customPrompts ?? (fact.aiScenePrompts as AiScenePrompts | undefined),
-    suppressErrors: true,
-  });
-
-  res.json({ success: true, message: "AI meme background generation started. Results will appear shortly." });
-});
-
-/**
- * PUT /admin/facts/:id/ai-meme/regenerate-image — regenerate a single AI meme image
- * Body: { gender: "male"|"female"|"neutral", imageIndex: 0|1|2 }
- */
-router.put("/admin/facts/:id/ai-meme/regenerate-image", requireAdmin, async (req: Request, res: Response) => {
-  const id = parseInt(String(req.params["id"] ?? ""), 10);
-  if (isNaN(id)) { res.status(400).json({ error: "Invalid fact id" }); return; }
-
-  const body = req.body as Record<string, unknown>;
-  const gender = body["gender"] as string;
-  const imageIndex = parseInt(String(body["imageIndex"] ?? "0"), 10);
-
-  if (!["male", "female", "neutral"].includes(gender)) {
-    res.status(400).json({ error: "gender must be male, female, or neutral" });
-    return;
-  }
-  if (isNaN(imageIndex) || imageIndex < 0 || imageIndex > 2) {
-    res.status(400).json({ error: "imageIndex must be 0, 1, or 2" });
-    return;
-  }
-
-  const [fact] = await db
-    .select({ id: factsTable.id, text: factsTable.text, parentId: factsTable.parentId, aiScenePrompts: factsTable.aiScenePrompts, aiMemeImages: factsTable.aiMemeImages })
-    .from(factsTable)
-    .where(eq(factsTable.id, id))
-    .limit(1);
-
-  if (!fact) { res.status(404).json({ error: "Fact not found" }); return; }
-  if (fact.parentId !== null) { res.status(400).json({ error: "AI meme backgrounds are only generated for root facts" }); return; }
-
-  const existingPrompts = fact.aiScenePrompts as AiScenePrompts | undefined;
-  if (!existingPrompts) {
-    res.status(400).json({ error: "No scene prompts found. Run full generation first." });
-    return;
-  }
-
-  void generateAiMemeBackgrounds(fact.id, fact.text, {
-    existingPrompts,
-    existingImages: (fact.aiMemeImages as AiMemeImages | undefined),
-    targetGender: gender as "male" | "female" | "neutral",
-    targetIndex: imageIndex,
-    suppressErrors: true,
-  });
-
-  res.json({ success: true, message: "Image regeneration started. Results will appear shortly." });
-});
-
-/**
- * PUT /admin/facts/:id/ai-scene-prompts — update scene prompts for a fact
- */
-router.put("/admin/facts/:id/ai-scene-prompts", requireAdmin, async (req: Request, res: Response) => {
-  const id = parseInt(String(req.params["id"] ?? ""), 10);
-  if (isNaN(id)) { res.status(400).json({ error: "Invalid fact id" }); return; }
-
-  const body = req.body as Record<string, unknown>;
-  const prompts = body["prompts"] as AiScenePrompts | undefined;
-
-  if (!prompts || typeof prompts.male !== "string" || typeof prompts.female !== "string" || typeof prompts.neutral !== "string") {
-    res.status(400).json({ error: "prompts.male, prompts.female, and prompts.neutral are required strings" });
-    return;
-  }
-
-  await db
-    .update(factsTable)
-    .set({ aiScenePrompts: prompts })
-    .where(eq(factsTable.id, id));
-
-  res.json({ success: true });
 });
 
 // ─── Config ───────────────────────────────────────────────────────────────────
