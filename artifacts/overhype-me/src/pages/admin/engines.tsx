@@ -368,6 +368,11 @@ function EngineTestPanel({ engine }: { engine: EngineRow }) {
   } | null>(null);
   const [httpError, setHttpError] = useState<string | null>(null);
 
+  // Dry-run preview of the exact call that WILL be sent to the engine, shown
+  // above the Run button so the admin can verify the shape without rendering.
+  const [preview, setPreview] = useState<{ endpointId?: string; falInput?: unknown } | null>(null);
+  const [previewError, setPreviewError] = useState<string | null>(null);
+
   // Coerce engine-param string inputs back to the type the schema declared
   // so the server sees proper types (boolean true vs "true", number 0.5 vs "0.5").
   function coerceExtraValue(entry: ParamSchemaEntryLike, raw: string): unknown {
@@ -404,6 +409,83 @@ function EngineTestPanel({ engine }: { engine: EngineRow }) {
     return spaced.charAt(0).toUpperCase() + spaced.slice(1);
   }
 
+  // Build the exact request body sent to POST /:id/test. Shared by the live
+  // run and the dry-run preview so the preview can never drift from reality.
+  const buildRequestBody = (): Record<string, unknown> => {
+    const body: Record<string, unknown> = {};
+    if (sampleUrl.trim()) body.sampleImageUrl = sampleUrl.trim();
+    // Transform/scene prompt — image benches only.
+    if (isImagePromptBench && imagePrompt.trim()) {
+      body.imagePrompt = imagePrompt.trim();
+    }
+    // Motion + dialogue + duration + audio are video-only concepts.
+    if (isVideoBench) {
+      if (motionPrompt.trim() && motionPrompt !== DEFAULT_TEST_MOTION_PROMPT) {
+        body.motionPrompt = motionPrompt;
+      }
+      // dialogueText: null = explicit silence, string = override, undefined = default
+      if (!dialogueEnabled) {
+        body.dialogueText = null;
+      } else if (dialogueText.trim() && dialogueText !== DEFAULT_TEST_DIALOGUE_FULL) {
+        body.dialogueText = dialogueText;
+      }
+      if (durationSec && Number(durationSec) > 0) body.durationSec = Number(durationSec);
+      if (generateAudio !== (engine.audioHandling !== "none")) {
+        body.generateAudio = generateAudio;
+      }
+      if (mode) body.mode = mode;
+    }
+    if (aspectRatio && benchType !== "utility") body.aspectRatio = aspectRatio;
+    if (resolution) body.resolution = resolution;
+    if (engineParams.length > 0) {
+      const extras: Record<string, unknown> = {};
+      for (const p of engineParams) {
+        if (!p.from) continue;
+        const raw = extraParams[p.from] ?? "";
+        const coerced = coerceExtraValue(p, raw);
+        if (coerced !== undefined) extras[p.from] = coerced;
+      }
+      if (Object.keys(extras).length > 0) body.extraParams = extras;
+    }
+    return body;
+  };
+
+  // Serialized snapshot of the request body; the preview effect re-runs only
+  // when the body that would be sent actually changes.
+  const requestBodyJson = JSON.stringify(buildRequestBody());
+
+  useEffect(() => {
+    const controller = new AbortController();
+    const timer = setTimeout(async () => {
+      try {
+        setPreviewError(null);
+        const r = await fetch(`/api/admin/engines/${engine.id}/test`, {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ...(JSON.parse(requestBodyJson) as Record<string, unknown>), dryRun: true }),
+          signal: controller.signal,
+        });
+        const json = await r.json().catch(() => null);
+        if (!r.ok || !json) {
+          const errMsg =
+            (typeof json?.error === "string" ? json.error : json?.error?.message) ||
+            json?.message ||
+            `Preview failed (HTTP ${r.status})`;
+          setPreview(null);
+          setPreviewError(errMsg);
+          return;
+        }
+        setPreview({ endpointId: json.endpointId, falInput: json.falInput });
+      } catch (err) {
+        if ((err as Error)?.name === "AbortError") return;
+        setPreview(null);
+        setPreviewError("Preview unavailable");
+      }
+    }, 400);
+    return () => { controller.abort(); clearTimeout(timer); };
+  }, [requestBodyJson, engine.id]);
+
   const handleRun = async () => {
     // Abort any in-flight poll loop from a previous Run before starting a new one.
     abortRef.current?.abort();
@@ -416,41 +498,7 @@ function EngineTestPanel({ engine }: { engine: EngineRow }) {
     setResult(null);
     setPollPhase(null);
     try {
-      const body: Record<string, unknown> = {};
-      if (sampleUrl.trim()) body.sampleImageUrl = sampleUrl.trim();
-      // Transform/scene prompt — image benches only.
-      if (isImagePromptBench && imagePrompt.trim()) {
-        body.imagePrompt = imagePrompt.trim();
-      }
-      // Motion + dialogue + duration + audio are video-only concepts.
-      if (isVideoBench) {
-        if (motionPrompt.trim() && motionPrompt !== DEFAULT_TEST_MOTION_PROMPT) {
-          body.motionPrompt = motionPrompt;
-        }
-        // dialogueText: null = explicit silence, string = override, undefined = default
-        if (!dialogueEnabled) {
-          body.dialogueText = null;
-        } else if (dialogueText.trim() && dialogueText !== DEFAULT_TEST_DIALOGUE_FULL) {
-          body.dialogueText = dialogueText;
-        }
-        if (durationSec && Number(durationSec) > 0) body.durationSec = Number(durationSec);
-        if (generateAudio !== (engine.audioHandling !== "none")) {
-          body.generateAudio = generateAudio;
-        }
-        if (mode) body.mode = mode;
-      }
-      if (aspectRatio && benchType !== "utility") body.aspectRatio = aspectRatio;
-      if (resolution) body.resolution = resolution;
-      if (engineParams.length > 0) {
-        const extras: Record<string, unknown> = {};
-        for (const p of engineParams) {
-          if (!p.from) continue;
-          const raw = extraParams[p.from] ?? "";
-          const coerced = coerceExtraValue(p, raw);
-          if (coerced !== undefined) extras[p.from] = coerced;
-        }
-        if (Object.keys(extras).length > 0) body.extraParams = extras;
-      }
+      const body = buildRequestBody();
 
       const submittedAt = Date.now();
       const r = await fetch(`/api/admin/engines/${engine.id}/test`, {
@@ -1029,6 +1077,29 @@ function EngineTestPanel({ engine }: { engine: EngineRow }) {
         </div>
       )}
 
+      {/* Live preview of the exact call that will be sent — no render cost. */}
+      <div className="space-y-1">
+        <div className="flex items-center gap-2">
+          <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">
+            fal input (will be sent)
+          </p>
+          {preview?.endpointId && (
+            <code className="text-[10px] font-mono text-primary/80 bg-primary/5 px-1.5 py-0.5 rounded-sm">
+              {preview.endpointId}
+            </code>
+          )}
+        </div>
+        {previewError ? (
+          <pre className="text-[11px] font-mono bg-destructive/5 border border-destructive/30 text-destructive rounded-sm p-2 overflow-x-auto whitespace-pre-wrap break-all">
+            {previewError}
+          </pre>
+        ) : (
+          <pre className="text-[11px] font-mono bg-muted/30 border border-border rounded-sm p-2 overflow-x-auto whitespace-pre-wrap break-all">
+            {preview ? safeJson(preview.falInput) : "Building preview…"}
+          </pre>
+        )}
+      </div>
+
       <button
         onClick={handleRun}
         disabled={running}
@@ -1533,7 +1604,6 @@ interface ScenePromptConfigRow {
 
 const SCENE_PROMPT_FIELDS: { key: string; multiline: boolean; rows?: number }[] = [
   { key: "scene_prompt_system", multiline: true, rows: 14 },
-  { key: "scene_prompt_composition_suffix", multiline: true, rows: 3 },
   { key: "scene_prompt_model", multiline: false },
   { key: "scene_prompt_temperature", multiline: false },
   { key: "scene_prompt_max_tokens", multiline: false },

@@ -42,7 +42,6 @@ import {
   generateScenePrompts,
   type AiScenePrompts,
 } from "../lib/aiMemePipeline.js";
-import { getScenePromptCompositionSuffix } from "../lib/scenePromptConfig.js";
 import { renderPersonalized } from "../lib/renderCanonical.js";
 
 // Hardcoded test identity for workbench prompt assembly — renders fact
@@ -434,7 +433,16 @@ interface TestBody {
    * Test panel without hard-coding them server-side.
    */
   extraParams?: Record<string, unknown>;
+  /**
+   * Preview mode: build and return the exact `falInput` that would be sent to
+   * the engine WITHOUT uploading the test asset or submitting to fal. Lets the
+   * workbench show the completed call shape before the admin commits to a run.
+   */
+  dryRun?: boolean;
 }
+
+/** Placeholder URL used for source assets in dry-run previews (no upload). */
+const DRY_RUN_ASSET_PLACEHOLDER = "<source asset — uploaded to fal at run time>";
 
 /**
  * Synthetic generation through fal.subscribe — used by admins to verify
@@ -624,7 +632,6 @@ router.post(
 
     let imagePrompt = scene;
     if (styleSuffix.trim()) imagePrompt += ` ${styleSuffix.trim()}`;
-    if (benchType === "image-to-image") imagePrompt += ` ${await getScenePromptCompositionSuffix()}`;
 
     res.json({ benchType, imagePrompt });
   },
@@ -638,20 +645,25 @@ router.post("/admin/engines/:id/test", requireAdmin, async (req: Request, res: R
     return;
   }
 
+  const body = (req.body && typeof req.body === "object" ? req.body : {}) as TestBody;
+  const dryRun = body.dryRun === true;
+
   // Belt-and-suspenders — boot already calls ensureFalConfigured(), but
   // surfacing a clean 503 here means a missing key never leaks through as
   // a confusing 401 "Authorization header is required" from the fal SDK.
-  try {
-    ensureFalConfigured();
-  } catch (err) {
-    res.status(503).json({
-      error: "fal_not_configured",
-      message: err instanceof Error ? err.message : "fal.ai client is not configured",
-    });
-    return;
+  // A dry-run preview never touches fal, so skip the gate entirely.
+  if (!dryRun) {
+    try {
+      ensureFalConfigured();
+    } catch (err) {
+      res.status(503).json({
+        error: "fal_not_configured",
+        message: err instanceof Error ? err.message : "fal.ai client is not configured",
+      });
+      return;
+    }
   }
 
-  const body = (req.body && typeof req.body === "object" ? req.body : {}) as TestBody;
   const provided = typeof body.sampleImageUrl === "string" ? body.sampleImageUrl.trim() : "";
 
   // ── Configure fal client with API key ────────────────────────────────────
@@ -668,14 +680,25 @@ router.post("/admin/engines/:id/test", requireAdmin, async (req: Request, res: R
   //   utility → an explicit video URL (the face placeholder is meaningless)
   let sampleImageUrl = provided;
   if (benchType === "utility" && !sampleImageUrl) {
-    res.status(400).json({
-      error: "test_not_supported",
-      message: `Test not supported for utility engine "${engine.id}" without an explicit sampleImageUrl. Utility engines like auto-subtitle expect a video URL, not the bundled face placeholder.`,
-    });
-    return;
+    // A dry-run preview just shows the call shape, so a placeholder stands in
+    // for the video URL the admin would otherwise have to supply.
+    if (dryRun) {
+      sampleImageUrl = DRY_RUN_ASSET_PLACEHOLDER;
+    } else {
+      res.status(400).json({
+        error: "test_not_supported",
+        message: `Test not supported for utility engine "${engine.id}" without an explicit sampleImageUrl. Utility engines like auto-subtitle expect a video URL, not the bundled face placeholder.`,
+      });
+      return;
+    }
   }
   const needsSourceImage = benchType === "image-to-image" || benchType === "video";
   if (needsSourceImage && !sampleImageUrl) {
+    // Skip the fal.storage upload for previews — the URL doesn't change the
+    // call shape, so a placeholder keeps the preview free + instant.
+    if (dryRun) {
+      sampleImageUrl = DRY_RUN_ASSET_PLACEHOLDER;
+    } else {
     try {
       const buf = await fs.readFile(TEST_FACE_ASSET);
       const blob = new Blob([new Uint8Array(buf)], { type: "image/jpeg" });
@@ -689,6 +712,7 @@ router.post("/admin/engines/:id/test", requireAdmin, async (req: Request, res: R
         message: err instanceof Error ? err.message : "Failed to upload test image",
       });
       return;
+    }
     }
   }
 
@@ -797,6 +821,19 @@ router.post("/admin/engines/:id/test", requireAdmin, async (req: Request, res: R
         message: err instanceof Error ? err.message : "Failed to build engine input",
         stage: "buildEngineInput",
       },
+    });
+    return;
+  }
+
+  // ── Dry-run preview: return the built call shape without submitting ────────
+  if (dryRun) {
+    res.status(200).json({
+      ok: true,
+      dryRun: true,
+      engineId: engine.id,
+      endpointId: engine.endpointId,
+      falInput,
+      benchType,
     });
     return;
   }

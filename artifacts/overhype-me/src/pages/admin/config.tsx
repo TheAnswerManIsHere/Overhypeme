@@ -1,6 +1,6 @@
 import { AdminLayout } from "@/components/admin/AdminLayout";
 import { CollapsibleSection } from "@/components/CollapsibleSection";
-import { Settings, Loader2, Bug, Bot, Sliders, DollarSign, Shield, Mail, ShoppingBag, Clock, Wand2 } from "lucide-react";
+import { Settings, Loader2, Bug, Bot, Sliders, DollarSign, Shield, Mail, ShoppingBag, Clock, Wand2, Clapperboard } from "lucide-react";
 import {
   ConfigPageContext,
   ConfigPageCtx,
@@ -9,6 +9,7 @@ import {
   MODEL_CONFIG_KEYS,
   RETRY_DELAY_MS_KEYS,
   SCENE_PROMPT_KEYS,
+  VIDEO_DIRECTION_KEYS,
   useConfigCtx,
   useConfigPageState,
   msToHuman,
@@ -159,28 +160,31 @@ function RetryTimelinePanel() {
 
 // ── AI Settings group (nested inside Configuration) ───────────────────────────
 //
-// Hosts the scene-prompt generation levers (system prompt, composition suffix,
-// OpenAI model, temperature, max tokens — see lib/scenePromptConfig.ts) and the
-// AI gallery display limit. Image-engine / video config lives at /admin/engines;
-// look-style prompt text lives on the `look_styles` DB table.
+// Hosts the OpenAI prompt-generation levers — scene prompt (image) and video
+// direction (image-to-video), each with system prompt / model / temperature /
+// max tokens — plus the AI gallery display limit. Image-engine / video config
+// lives at /admin/engines; look-style prompt text lives on `look_styles`.
 
 function AISettingsGroup() {
   const { rows } = useConfigCtx();
 
-  // Ordered scene-prompt levers (system prompt → framing suffix → model knobs).
   const scenePromptRows = [...SCENE_PROMPT_KEYS]
+    .map((key) => rows.find((r) => r.key === key))
+    .filter((r): r is NonNullable<typeof r> => r !== undefined);
+
+  const videoDirectionRows = [...VIDEO_DIRECTION_KEYS]
     .map((key) => rows.find((r) => r.key === key))
     .filter((r): r is NonNullable<typeof r> => r !== undefined);
 
   return (
     <div className="space-y-3">
 
-      {/* Scene Prompt — OpenAI scene-prompt generation levers */}
+      {/* Scene Prompt — OpenAI scene-prompt generation levers (image) */}
       {scenePromptRows.length > 0 && (
         <CollapsibleSection
           title="Scene Prompt"
           icon={<Wand2 className="w-4 h-4 text-muted-foreground" />}
-          description="How OpenAI turns a fact template into the scene prompts used for AI image generation: the system prompt, the image-to-image framing suffix, and the model / sampling knobs."
+          description="How OpenAI turns a fact template into the scene prompts used for AI image generation: the system prompt and the model / sampling knobs."
           storageKey="admin_section_config_scene_prompt"
         >
           <div className="space-y-3">
@@ -189,6 +193,26 @@ function AISettingsGroup() {
                 key={row.key}
                 row={row}
                 textareaRows={row.key === "scene_prompt_system" ? 16 : 4}
+              />
+            ))}
+          </div>
+        </CollapsibleSection>
+      )}
+
+      {/* Video Prompt — OpenAI motion-direction generation levers (video) */}
+      {videoDirectionRows.length > 0 && (
+        <CollapsibleSection
+          title="Video Prompt"
+          icon={<Clapperboard className="w-4 h-4 text-muted-foreground" />}
+          description="How OpenAI generates the motion/action direction for image-to-video. This is layered on top of the chosen motion preset (camera/movement); a user's custom motion prompt bypasses it."
+          storageKey="admin_section_config_video_direction"
+        >
+          <div className="space-y-3">
+            {videoDirectionRows.map((row) => (
+              <ConfigCard
+                key={row.key}
+                row={row}
+                textareaRows={row.key === "video_direction_system" ? 16 : 4}
               />
             ))}
           </div>
@@ -231,6 +255,7 @@ export default function AdminConfig() {
     r.key !== "debug_mode_active" &&
     !MODEL_CONFIG_KEYS.has(r.key) &&
     !SCENE_PROMPT_KEYS.has(r.key) &&
+    !VIDEO_DIRECTION_KEYS.has(r.key) &&
     !BUDGET_KEYS.has(r.key) &&
     !LIMIT_KEYS.has(r.key) &&
     !EMAIL_KEYS.has(r.key) &&

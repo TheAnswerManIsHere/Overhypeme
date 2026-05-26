@@ -205,12 +205,12 @@ export function msToHuman(ms: number): string {
   return `≈ ${rounded} hour${rounded === 1 ? "" : "s"}`;
 }
 
-// OpenAI chat models offered for scene-prompt generation. Restricted to the
-// GPT-4o / 4.1 chat-completions family — every model here works with the
-// existing call in aiMemePipeline.ts (max_tokens + temperature + JSON mode).
-// Reasoning models (gpt-5 / o-series) are intentionally excluded because they
-// reject those params and would need a different call shape.
-export const SCENE_PROMPT_MODEL_OPTIONS: { value: string; label: string }[] = [
+// OpenAI chat models offered for scene-prompt + video-direction generation.
+// Restricted to the GPT-4o / 4.1 chat-completions family — every model here
+// works with the existing calls (max_tokens + temperature). Reasoning models
+// (gpt-5 / o-series) are intentionally excluded because they reject those
+// params and would need a different call shape.
+export const OPENAI_CHAT_MODEL_OPTIONS: { value: string; label: string }[] = [
   { value: "gpt-4o-mini",  label: "GPT-4o mini (fast, cheap — default)" },
   { value: "gpt-4o",       label: "GPT-4o" },
   { value: "gpt-4.1-nano", label: "GPT-4.1 nano (fastest, cheapest)" },
@@ -219,16 +219,24 @@ export const SCENE_PROMPT_MODEL_OPTIONS: { value: string; label: string }[] = [
 ];
 
 export const SELECT_CONFIGS: Record<string, { value: string; label: string }[]> = {
-  scene_prompt_model: SCENE_PROMPT_MODEL_OPTIONS,
+  scene_prompt_model: OPENAI_CHAT_MODEL_OPTIONS,
+  video_direction_model: OPENAI_CHAT_MODEL_OPTIONS,
 };
 
 // Scene-prompt generation levers — grouped together on the AI Settings page.
 export const SCENE_PROMPT_KEYS = new Set<string>([
   "scene_prompt_system",
-  "scene_prompt_composition_suffix",
   "scene_prompt_model",
   "scene_prompt_temperature",
   "scene_prompt_max_tokens",
+]);
+
+// Video-direction generation levers — grouped together on the AI Settings page.
+export const VIDEO_DIRECTION_KEYS = new Set<string>([
+  "video_direction_system",
+  "video_direction_model",
+  "video_direction_temperature",
+  "video_direction_max_tokens",
 ]);
 
 // Keys that are surfaced through dedicated sections elsewhere on the

@@ -1,6 +1,6 @@
 /**
  * Tests for lib/scenePromptConfig.ts — the admin-configurable scene-prompt
- * levers (system prompt, composition suffix, model, temperature, max tokens).
+ * levers (system prompt, model, temperature, max tokens).
  *
  * Touches the real test DB. Verifies idempotent seeding, that the getters
  * return the seeded production defaults, and that the debug overlay promotes a
@@ -20,7 +20,6 @@ import { sql } from "drizzle-orm";
 import {
   seedScenePromptConfig,
   getScenePromptGenerationConfig,
-  getScenePromptCompositionSuffix,
   SCENE_PROMPT_MODEL_DEFAULT,
   SCENE_PROMPT_TEMPERATURE_DEFAULT,
   SCENE_PROMPT_MAX_TOKENS_DEFAULT,
@@ -53,7 +52,6 @@ describe("scenePromptConfig", () => {
     assert.equal(cfg.temperature, SCENE_PROMPT_TEMPERATURE_DEFAULT);
     assert.equal(cfg.maxTokens, SCENE_PROMPT_MAX_TOKENS_DEFAULT);
     assert.ok(cfg.systemPrompt.length > 100, "system prompt should be the seeded default");
-    assert.match(await getScenePromptCompositionSuffix(), /Full body wide angle/);
   });
 
   it("seeding is idempotent (re-seed leaves existing values untouched)", async () => {

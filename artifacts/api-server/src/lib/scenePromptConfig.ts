@@ -24,7 +24,6 @@ import { logger } from "./logger";
 
 export const SCENE_PROMPT_CONFIG_KEYS = {
   system: "scene_prompt_system",
-  compositionSuffix: "scene_prompt_composition_suffix",
   model: "scene_prompt_model",
   temperature: "scene_prompt_temperature",
   maxTokens: "scene_prompt_max_tokens",
@@ -56,10 +55,6 @@ Do not describe the image's shape or aspect ratio — framing is handled separat
 Return ONLY valid JSON in exactly this shape:
 {"fact_type":"action","male":"Cinematic ...","female":"Cinematic ...","neutral":"Cinematic ..."}`;
 
-export const SCENE_PROMPT_COMPOSITION_SUFFIX_DEFAULT =
-  "Full body wide angle shot. Person shown in action within the scene environment. " +
-  "Show the full setting and context. NOT a portrait or close-up.";
-
 export const SCENE_PROMPT_MODEL_DEFAULT = "gpt-4o-mini";
 export const SCENE_PROMPT_TEMPERATURE_DEFAULT = 0.7;
 export const SCENE_PROMPT_MAX_TOKENS_DEFAULT = 400;
@@ -84,17 +79,6 @@ export async function getScenePromptGenerationConfig(): Promise<ScenePromptGener
   return { systemPrompt, model, temperature, maxTokens };
 }
 
-/**
- * The composition/framing suffix appended to image-to-image (reference) prompts.
- * Controls how the subject is framed within the scene.
- */
-export async function getScenePromptCompositionSuffix(): Promise<string> {
-  return getConfigString(
-    SCENE_PROMPT_CONFIG_KEYS.compositionSuffix,
-    SCENE_PROMPT_COMPOSITION_SUFFIX_DEFAULT,
-  );
-}
-
 // ─── Seeding ─────────────────────────────────────────────────────────────────
 
 interface ScenePromptConfigDef {
@@ -113,13 +97,6 @@ export const SCENE_PROMPT_CONFIG_DEFS: ScenePromptConfigDef[] = [
     dataType: "text",
     label: "Scene Prompt — System Prompt",
     description: "OpenAI system prompt that turns a fact template into scene prompts. Must still return JSON with fact_type/male/female/neutral.",
-  },
-  {
-    key: SCENE_PROMPT_CONFIG_KEYS.compositionSuffix,
-    value: SCENE_PROMPT_COMPOSITION_SUFFIX_DEFAULT,
-    dataType: "text",
-    label: "Scene Prompt — Composition Suffix",
-    description: "Framing text appended to image-to-image (reference) prompts. Controls how the subject is composed within the scene.",
   },
   {
     key: SCENE_PROMPT_CONFIG_KEYS.model,

@@ -8,6 +8,7 @@ import { eq, sql, gt } from "drizzle-orm";
 import { SEED_FACTS } from "../data/seed-facts";
 import { embedFactAsync } from "./embeddings";
 import { seedScenePromptConfig } from "./scenePromptConfig";
+import { seedVideoDirectionConfig } from "./videoDirection";
 import { logger } from "./logger";
 
 /**
@@ -555,6 +556,12 @@ export async function ensureSchema(): Promise<void> {
       label: "admin_config delete bg_display_limit_ai",
       ddl: `DELETE FROM admin_config WHERE key = 'bg_display_limit_ai'`,
     },
+    {
+      // Retired: the PuLID composition/framing suffix is no longer appended to
+      // reference-image prompts (moving to Nano Banana). Drop the stale key.
+      label: "admin_config delete scene_prompt_composition_suffix",
+      ddl: `DELETE FROM admin_config WHERE key = 'scene_prompt_composition_suffix'`,
+    },
   ];
 
   for (const { label, ddl } of migrations) {
@@ -565,10 +572,14 @@ export async function ensureSchema(): Promise<void> {
     }
   }
 
-  // Seed the admin-configurable scene-prompt levers (system prompt, composition
-  // suffix, OpenAI model, temperature, max tokens) with their production
-  // defaults. Idempotent — existing rows / admin edits are preserved.
+  // Seed the admin-configurable scene-prompt levers (system prompt, OpenAI
+  // model, temperature, max tokens) with their production defaults. Idempotent
+  // — existing rows / admin edits are preserved.
   await seedScenePromptConfig();
+
+  // Seed the admin-configurable video-direction levers (the motion/action
+  // direction layered on top of the motion preset for image-to-video).
+  await seedVideoDirectionConfig();
 }
 
 function computeWilsonScore(upvotes: number, downvotes: number): number {

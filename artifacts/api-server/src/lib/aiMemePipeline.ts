@@ -19,7 +19,7 @@ import { db } from "@workspace/db";
 import { factsTable, userAiImagesTable, usersTable } from "@workspace/db/schema";
 import { eq, sql } from "drizzle-orm";
 import { getConfigInt, getConfigString } from "./adminConfig";
-import { getScenePromptGenerationConfig, getScenePromptCompositionSuffix } from "./scenePromptConfig";
+import { getScenePromptGenerationConfig } from "./scenePromptConfig";
 import { getCachedPrice, type CachedPrice } from "./falPricing";
 import { computeImageCost, resolveImageSizePx } from "./costComputation";
 import { checkBudget, recordCost, BudgetExceededError } from "./budgetGate";
@@ -51,9 +51,6 @@ const DEFAULT_REFERENCE_FRAME_PROMPT =
 const DEFAULT_IMAGE_MODEL_STANDARD  = "fal-ai/flux-pro/v1.1";
 const DEFAULT_IMAGE_MODEL_REFERENCE = "fal-ai/flux-pulid";
 const DEFAULT_IMAGE_SIZE            = "square_hd";
-
-// The composition/framing suffix for reference (image-to-image) prompts is now
-// admin-configurable — see lib/scenePromptConfig.ts (getScenePromptCompositionSuffix).
 
 /**
  * Models that accept a face-reference image input.
@@ -430,13 +427,9 @@ async function generateAndStoreImageFromReference(
   // Each reference model uses a different parameter name for the face image URL.
   const faceParamName = REFERENCE_MODEL_INPUT_PARAM[model]!;
 
-  // Append composition suffix so PuLID shows a full scene rather than a portrait close-up.
-  const compositionSuffix = await getScenePromptCompositionSuffix();
-  const finalPrompt = compositionSuffix ? `${prompt.trim()} ${compositionSuffix}` : prompt;
-
   const input: Record<string, unknown> = {
     [faceParamName]: faceImageUrl,
-    prompt: finalPrompt,
+    prompt: prompt.trim(),
     image_size: imageSize,
     num_images: 1,
   };
@@ -962,12 +955,10 @@ export async function buildFalInputPreview(
 
   if (isRef && isReferenceCapableModel(model)) {
     // Reference path (PuLID / IP-Adapter)
-    const compositionSuffix = await getScenePromptCompositionSuffix();
-    const finalPrompt = compositionSuffix ? `${prompt.trim()} ${compositionSuffix}` : prompt;
     const faceParamName = REFERENCE_MODEL_INPUT_PARAM[model]!;
     const input: Record<string, unknown> = {
       [faceParamName]: "<reference_image_url>",
-      prompt: finalPrompt,
+      prompt: prompt.trim(),
       image_size: imageSize,
       num_images: 1,
     };

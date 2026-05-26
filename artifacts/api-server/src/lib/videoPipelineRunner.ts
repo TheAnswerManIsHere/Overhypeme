@@ -73,6 +73,7 @@ import {
 import { applyAudioHandling } from "./engineAudio";
 import { cropBufferToAspect, aspectRatioToPulidImageSize } from "./imageFraming";
 import { generateAiMemeBackgroundFromReference, generateAiMemeBackgroundStandalone } from "./aiMemePipeline";
+import { generateVideoDirection } from "./videoDirection";
 import { addCaptionsToVideo } from "./falAutoSubtitle";
 import { classifyAndDecide } from "./moderation/nsfwClassifier";
 import { checkBudget, recordCost } from "./budgetGate";
@@ -1200,21 +1201,42 @@ async function runStage2(job: JobState, stillObjectPath: string): Promise<{ vide
   const engine = await loadEngine(job.videoEngineId);
   if (!engine) throw new Error(`Engine ${job.videoEngineId} not found`);
 
-  let motionPrompt = job.customModePrompt?.trim() ?? "";
-  if (!motionPrompt && job.motionPresetId) {
-    try {
-      const [row] = await db
-        .select({ motionPrompt: motionPresetsTable.motionPrompt })
-        .from(motionPresetsTable)
-        .where(eq(motionPresetsTable.id, job.motionPresetId))
-        .limit(1);
-      motionPrompt = row?.motionPrompt ?? "";
-    } catch (err) {
-      logger.warn({ err, motionPresetId: job.motionPresetId }, "[videoPipeline] failed to fetch motion prompt");
+  // A user-supplied custom prompt is a manual override: use it verbatim and
+  // skip the generated direction entirely.
+  const customPrompt = job.customModePrompt?.trim() ?? "";
+
+  let motionPrompt: string;
+  if (customPrompt) {
+    motionPrompt = customPrompt;
+  } else {
+    // Resolve the motion preset (camera/movement) text.
+    let presetPrompt = "";
+    if (job.motionPresetId) {
+      try {
+        const [row] = await db
+          .select({ motionPrompt: motionPresetsTable.motionPrompt })
+          .from(motionPresetsTable)
+          .where(eq(motionPresetsTable.id, job.motionPresetId))
+          .limit(1);
+        presetPrompt = row?.motionPrompt ?? "";
+      } catch (err) {
+        logger.warn({ err, motionPresetId: job.motionPresetId }, "[videoPipeline] failed to fetch motion prompt");
+      }
     }
-  }
-  if (!motionPrompt) {
-    motionPrompt = "Subtle cinematic motion, dramatic lighting, slow camera push-in, epic atmosphere.";
+    if (!presetPrompt) {
+      presetPrompt = "Subtle cinematic motion, dramatic lighting, slow camera push-in, epic atmosphere.";
+    }
+
+    // Generate the scene/action direction and layer it on top of the motion
+    // preset. LLM failure is non-fatal — fall back to the preset alone.
+    let direction = "";
+    try {
+      direction = await generateVideoDirection(job.renderedFactText ?? "");
+    } catch (err) {
+      logger.warn({ err, factId: job.factId }, "[videoPipeline] video direction generation failed; using motion preset only");
+    }
+
+    motionPrompt = direction ? `${direction} ${presetPrompt}` : presetPrompt;
   }
 
   // Convert /objects path → fal CDN URL.
