@@ -495,9 +495,6 @@ export async function ensureSchema(): Promise<void> {
         ('bg_display_limit_gradient', '20', 'integer', 'Background Picker: Gradient Limit',
          'Maximum number of gradient backgrounds shown in the background image picker when creating a meme.',
          1, 200, true),
-        ('bg_display_limit_ai', '20', 'integer', 'Background Picker: AI Generated Limit',
-         'Maximum number of AI-generated backgrounds shown in the background image picker when creating a meme. Does not affect how many are generated or stored.',
-         1, 500, true),
         ('bg_display_limit_upload', '20', 'integer', 'Background Picker: Upload Limit',
          'Maximum number of uploaded images shown in the background image picker when creating a meme. Does not affect storage limits.',
          1, 500, true)
@@ -551,6 +548,12 @@ export async function ensureSchema(): Promise<void> {
           'Number of days to keep delivered and abandoned emails in the outbox before they are automatically purged. Set to 0 to disable auto-purge.',
           0, 3650, false)
         ON CONFLICT (key) DO NOTHING`,
+    },
+    {
+      // Dead control: the AI background picker reads ai_gallery_display_limit,
+      // never bg_display_limit_ai. Nothing consumed this key, so drop it.
+      label: "admin_config delete bg_display_limit_ai",
+      ddl: `DELETE FROM admin_config WHERE key = 'bg_display_limit_ai'`,
     },
   ];
 

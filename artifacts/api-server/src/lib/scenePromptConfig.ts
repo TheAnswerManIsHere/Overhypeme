@@ -109,14 +109,15 @@ export const SCENE_PROMPT_CONFIG_DEFS: ScenePromptConfigDef[] = [
   {
     key: SCENE_PROMPT_CONFIG_KEYS.system,
     value: SCENE_PROMPT_SYSTEM_DEFAULT,
-    dataType: "string",
+    // "text" renders as a multi-line textarea in the workbench (vs a single-line input).
+    dataType: "text",
     label: "Scene Prompt — System Prompt",
     description: "OpenAI system prompt that turns a fact template into scene prompts. Must still return JSON with fact_type/male/female/neutral.",
   },
   {
     key: SCENE_PROMPT_CONFIG_KEYS.compositionSuffix,
     value: SCENE_PROMPT_COMPOSITION_SUFFIX_DEFAULT,
-    dataType: "string",
+    dataType: "text",
     label: "Scene Prompt — Composition Suffix",
     description: "Framing text appended to image-to-image (reference) prompts. Controls how the subject is composed within the scene.",
   },
@@ -156,6 +157,15 @@ export async function seedScenePromptConfig(): Promise<void> {
         VALUES (${def.key}, ${def.value}, ${def.dataType}, ${def.label}, ${def.description}, false)
         ON CONFLICT (key) DO NOTHING
       `);
+      // Backfill data_type for rows seeded before these keys became multi-line
+      // textareas. INSERT ... ON CONFLICT DO NOTHING leaves existing rows alone,
+      // so promote the type explicitly (idempotent — only touches stale rows).
+      if (def.dataType === "text") {
+        await db.execute(sql`
+          UPDATE admin_config SET data_type = 'text'
+          WHERE key = ${def.key} AND data_type <> 'text'
+        `);
+      }
     } catch (err) {
       logger.warn({ err, key: def.key }, "[scenePromptConfig] seed failed for key");
     }
