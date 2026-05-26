@@ -261,11 +261,12 @@ function EngineTestPanel({ engine }: { engine: EngineRow }) {
   const [motionPresetId, setMotionPresetId] = useState("");
   const [assembling, setAssembling] = useState(false);
   const [assembleError, setAssembleError] = useState<string | null>(null);
-  // Video benches have no server-side cache for the generated AI Video Style
+  // Video benches have no server-side cache for the generated AI Video Motion
   // Prompt (production regenerates per render). Hold the last generated value
-  // here, keyed by fact, so swapping the motion preset reuses it instead of
-  // re-rolling — only the explicit "Regenerate" link forces a fresh one.
-  const videoStyleRef = useRef<{ factId: number; value: string } | null>(null);
+  // here, keyed by fact + source image, so swapping the motion preset reuses it
+  // instead of re-rolling — only a new image/fact or the explicit "Regenerate"
+  // link forces a fresh one (the motion prompt depends on the image).
+  const videoStyleRef = useRef<{ key: string; value: string } | null>(null);
 
   // Fetch the look-style + motion-preset catalogues once (only what the bench needs).
   useEffect(() => {
@@ -306,10 +307,12 @@ function EngineTestPanel({ engine }: { engine: EngineRow }) {
     if (!selectedFact || benchType === "utility") return;
     setAssembling(true);
     setAssembleError(null);
-    // Reuse the cached video style prompt for this fact unless a regenerate was
-    // asked for. A new fact invalidates the cache (different factId).
+    // Reuse the cached video motion prompt unless a regenerate was asked for.
+    // The motion prompt depends on the fact AND the source image, so a change to
+    // either invalidates the cache; the motion preset does not.
+    const videoCacheKey = `${selectedFact.id}|${sampleUrl.trim()}`;
     const cachedVideoStyle =
-      !forceRegenerate && videoStyleRef.current?.factId === selectedFact.id
+      !forceRegenerate && videoStyleRef.current?.key === videoCacheKey
         ? videoStyleRef.current.value
         : undefined;
     try {
@@ -322,6 +325,7 @@ function EngineTestPanel({ engine }: { engine: EngineRow }) {
           gender,
           lookStyleId: lookStyleId || undefined,
           motionPresetId: motionPresetId || undefined,
+          sampleImageUrl: isVideoBench ? (sampleUrl.trim() || undefined) : undefined,
           videoDirection: cachedVideoStyle,
           forceRegenerate,
         }),
@@ -333,7 +337,7 @@ function EngineTestPanel({ engine }: { engine: EngineRow }) {
       if (typeof data.motionPrompt === "string") { setMotionPrompt(data.motionPrompt); setExperiment("custom"); }
       if (typeof data.dialogueText === "string") { setDialogueText(data.dialogueText); setDialogueEnabled(true); }
       if (typeof data.videoDirection === "string") {
-        videoStyleRef.current = { factId: selectedFact.id, value: data.videoDirection };
+        videoStyleRef.current = { key: videoCacheKey, value: data.videoDirection };
       }
     } catch (e) {
       setAssembleError(String(e instanceof Error ? e.message : e));
@@ -341,7 +345,7 @@ function EngineTestPanel({ engine }: { engine: EngineRow }) {
       setAssembling(false);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedFact?.id, gender, lookStyleId, motionPresetId, benchType, engine.id]);
+  }, [selectedFact?.id, gender, lookStyleId, motionPresetId, sampleUrl, isVideoBench, benchType, engine.id]);
 
   // Auto-assemble (cached prompts) whenever the selection changes.
   useEffect(() => { void runAssemble(false); }, [runAssemble]);
@@ -817,8 +821,8 @@ function EngineTestPanel({ engine }: { engine: EngineRow }) {
             </button>
           )}
 
-          {/* Regenerate: re-roll the AI Video Style Prompt (the generated layer
-              merged with the motion preset below). */}
+          {/* Regenerate: re-roll the AI Video Motion Prompt (generated from the
+              source image, merged with the motion preset below). */}
           {isVideoBench && selectedFact && (
             <button
               type="button"
@@ -827,7 +831,7 @@ function EngineTestPanel({ engine }: { engine: EngineRow }) {
               className="text-[10px] text-primary hover:underline disabled:opacity-50"
               data-testid="engine-test-regenerate-video-style"
             >
-              ↻ Regenerate AI Video Style Prompt
+              ↻ Regenerate AI Video Motion Prompt
             </button>
           )}
         </div>
@@ -902,13 +906,16 @@ function EngineTestPanel({ engine }: { engine: EngineRow }) {
       {/* ── Motion prompt (video only) ───────────────────────────────── */}
       {isVideoBench && (
         <div>
-          <label className={labelCls}>Motion prompt (AI Video Style Prompt + motion preset)</label>
+          <label className={labelCls}>Motion prompt (AI Video Motion Prompt + motion preset)</label>
           <textarea
             value={motionPrompt}
             onChange={(e) => { setMotionPrompt(e.target.value); setExperiment("custom"); }}
             rows={4}
             className={`${inputCls} font-sans`}
           />
+          <p className="text-[10px] text-muted-foreground mt-1">
+            The motion is generated from the source image below (the model sees the still). Paste a real rendered still as the Sample image URL for an accurate preview — otherwise it falls back to the bundled placeholder.
+          </p>
         </div>
       )}
 
