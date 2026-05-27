@@ -653,18 +653,6 @@ export type CheckDuplicate200 = {
   matchingFactText?: string | null;
 };
 
-export type SuggestHashtagsBody = {
-  /**
-   * @minLength 5
-   * @maxLength 1000
-   */
-  text: string;
-};
-
-export type SuggestHashtags200 = {
-  hashtags: string[];
-};
-
 export type GetAdminFlaggedComments200CommentsItem = {
   id: number;
   factId: number;

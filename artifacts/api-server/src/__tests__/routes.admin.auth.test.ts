@@ -76,6 +76,7 @@ const ADMIN_AUTH_ROUTES: readonly RouteEntry[] = [
   { method: "post",   path: "/admin/backfill-pexels" },
   { method: "post",   path: "/admin/facts/backfill-ai-memes" },
   { method: "post",   path: "/admin/facts/backfill-embeddings" },
+  { method: "post",   path: "/admin/facts/backfill-enrichment" },
   { method: "get",    path: "/admin/config" },
   { method: "patch",  path: "/admin/config/:key" },
   { method: "get",    path: "/admin/video-styles" },

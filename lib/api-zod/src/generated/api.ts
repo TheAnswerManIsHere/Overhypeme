@@ -678,23 +678,6 @@ export const CheckDuplicateResponse = zod.object({
 });
 
 /**
- * @summary Suggest hashtags for a fact text (requires auth)
- */
-export const suggestHashtagsBodyTextMin = 5;
-export const suggestHashtagsBodyTextMax = 1000;
-
-export const SuggestHashtagsBody = zod.object({
-  text: zod
-    .string()
-    .min(suggestHashtagsBodyTextMin)
-    .max(suggestHashtagsBodyTextMax),
-});
-
-export const SuggestHashtagsResponse = zod.object({
-  hashtags: zod.array(zod.string()),
-});
-
-/**
  * @summary List AI-flagged comments (admin only)
  */
 export const GetAdminFlaggedCommentsResponse = zod.object({

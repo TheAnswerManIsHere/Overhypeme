@@ -59,8 +59,6 @@ import type {
   RecordFactShareResponse,
   RecordSearchRequest,
   RelatedFactsResponse,
-  SuggestHashtags200,
-  SuggestHashtagsBody,
   UpdateNotificationsRequest,
   UpdateNotificationsResponse,
   UpdateProfileRequest,
@@ -2205,92 +2203,6 @@ export const useCheckDuplicate = <
   TContext
 > => {
   return useMutation(getCheckDuplicateMutationOptions(options));
-};
-
-/**
- * @summary Suggest hashtags for a fact text (requires auth)
- */
-export const getSuggestHashtagsUrl = () => {
-  return `/api/ai/suggest-hashtags`;
-};
-
-export const suggestHashtags = async (
-  suggestHashtagsBody: SuggestHashtagsBody,
-  options?: RequestInit,
-): Promise<SuggestHashtags200> => {
-  return customFetch<SuggestHashtags200>(getSuggestHashtagsUrl(), {
-    ...options,
-    method: "POST",
-    headers: { "Content-Type": "application/json", ...options?.headers },
-    body: JSON.stringify(suggestHashtagsBody),
-  });
-};
-
-export const getSuggestHashtagsMutationOptions = <
-  TError = ErrorType<void>,
-  TContext = unknown,
->(options?: {
-  mutation?: UseMutationOptions<
-    Awaited<ReturnType<typeof suggestHashtags>>,
-    TError,
-    { data: BodyType<SuggestHashtagsBody> },
-    TContext
-  >;
-  request?: SecondParameter<typeof customFetch>;
-}): UseMutationOptions<
-  Awaited<ReturnType<typeof suggestHashtags>>,
-  TError,
-  { data: BodyType<SuggestHashtagsBody> },
-  TContext
-> => {
-  const mutationKey = ["suggestHashtags"];
-  const { mutation: mutationOptions, request: requestOptions } = options
-    ? options.mutation &&
-      "mutationKey" in options.mutation &&
-      options.mutation.mutationKey
-      ? options
-      : { ...options, mutation: { ...options.mutation, mutationKey } }
-    : { mutation: { mutationKey }, request: undefined };
-
-  const mutationFn: MutationFunction<
-    Awaited<ReturnType<typeof suggestHashtags>>,
-    { data: BodyType<SuggestHashtagsBody> }
-  > = (props) => {
-    const { data } = props ?? {};
-
-    return suggestHashtags(data, requestOptions);
-  };
-
-  return { mutationFn, ...mutationOptions };
-};
-
-export type SuggestHashtagsMutationResult = NonNullable<
-  Awaited<ReturnType<typeof suggestHashtags>>
->;
-export type SuggestHashtagsMutationBody = BodyType<SuggestHashtagsBody>;
-export type SuggestHashtagsMutationError = ErrorType<void>;
-
-/**
- * @summary Suggest hashtags for a fact text (requires auth)
- */
-export const useSuggestHashtags = <
-  TError = ErrorType<void>,
-  TContext = unknown,
->(options?: {
-  mutation?: UseMutationOptions<
-    Awaited<ReturnType<typeof suggestHashtags>>,
-    TError,
-    { data: BodyType<SuggestHashtagsBody> },
-    TContext
-  >;
-  request?: SecondParameter<typeof customFetch>;
-}): UseMutationResult<
-  Awaited<ReturnType<typeof suggestHashtags>>,
-  TError,
-  { data: BodyType<SuggestHashtagsBody> },
-  TContext
-> => {
-  return useMutation(getSuggestHashtagsMutationOptions(options));
 };
 
 /**

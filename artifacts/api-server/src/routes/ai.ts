@@ -1,7 +1,7 @@
 import { Router, type IRouter, type Request, type Response, type NextFunction } from "express";
 import { db } from "@workspace/db";
-import { factsTable, hashtagsTable, commentsTable } from "@workspace/db/schema";
-import { eq, sql, desc } from "drizzle-orm";
+import { factsTable, commentsTable } from "@workspace/db/schema";
+import { eq, sql } from "drizzle-orm";
 import { getOpenAIClient } from "@workspace/integrations-openai-ai-server";
 import { z } from "zod";
 import { getSessionId, getSession } from "../lib/auth";
@@ -17,7 +17,6 @@ const router: IRouter = Router();
 const requireRateLimit = createRateLimiter();
 
 const CheckDuplicateBody    = z.object({ text: z.string().min(10).max(1000) });
-const SuggestHashtagsBody   = z.object({ text: z.string().min(5).max(1000) });
 const TokenizeFactBody      = z.object({ text: z.string().min(5).max(2000), captchaToken: z.string().optional() });
 const SuggestPronounsBody   = z.object({ name: z.string().min(1).max(200) });
 
@@ -194,76 +193,6 @@ router.post("/ai/check-duplicate", requireAuth, requireRateLimit, async (req: Re
   } catch (err) {
     logger.error({ err }, "[AI] check-duplicate error");
     res.json({ isDuplicate: false, confidence: 0 });
-  }
-});
-
-router.post("/ai/suggest-hashtags", requireAuth, requireRateLimit, async (req: Request, res: Response) => {
-  const bodyParsed = SuggestHashtagsBody.safeParse(req.body);
-  if (!bodyParsed.success) {
-    res.status(400).json({ error: "Invalid input" });
-    return;
-  }
-  const { text } = bodyParsed.data;
-
-  try {
-    const gate = enforceGovernance(req, res, {
-      path: "ai",
-      provider: "openai",
-      model: "gpt-4o-mini",
-      estimatedCostUsd: 0.005,
-      payloadBytes: Buffer.byteLength(JSON.stringify(req.body ?? {}), "utf8"),
-    });
-    if (!gate.ok) return;
-    const started = Date.now();
-    const existing = await db
-      .select({ name: hashtagsTable.name })
-      .from(hashtagsTable)
-      .orderBy(desc(hashtagsTable.factCount))
-      .limit(40);
-
-    const existingNames = existing.map((h) => h.name);
-
-    const response = await getOpenAIClient().chat.completions.create({
-      model: "gpt-4o-mini",
-      max_completion_tokens: 256,
-      response_format: { type: "json_object" },
-      messages: [
-        {
-          role: "system",
-          content:
-            "You suggest hashtags for personalized facts on a humor website called Overhype.me. " +
-            "Return a JSON object with a single key 'hashtags' containing an array of 3-5 lowercase strings (no # prefix, letters/numbers/underscores only). " +
-            "Prefer tags from the existing list when relevant. You may add 1-2 new tags if needed. " +
-            "Example output: {\"hashtags\": [\"strength\",\"supernatural\",\"wisdom\"]}",
-        },
-        {
-          role: "user",
-          content: `Fact: "${text}"\n\nExisting hashtags: ${existingNames.join(", ")}`,
-        },
-      ],
-    });
-
-    const raw = response.choices[0]?.message?.content ?? "{}";
-    let tags: string[] = [];
-    try {
-      const parsed2 = JSON.parse(raw) as Record<string, unknown>;
-      const arr = Array.isArray(parsed2.hashtags) ? parsed2.hashtags : [];
-      tags = (arr as unknown[])
-        .filter((t): t is string => typeof t === "string")
-        .map((t) => t.toLowerCase().replace(/[^a-z0-9_]/g, ""))
-        .filter((t) => t.length > 0)
-        .slice(0, 5);
-    } catch {
-      tags = [];
-    }
-
-    const body = { hashtags: tags };
-    completeGovernance(req, { provider: "openai", latencyMs: Date.now() - started, failed: false, actualCostUsd: 0.005, responseStatus: 200, responseBody: body, idempotencyKey: gate.idempotencyKey });
-    res.json(body);
-  } catch (err) {
-    completeGovernance(req, { provider: "openai", latencyMs: 0, failed: true, actualCostUsd: 0 });
-    logger.error({ err }, "[AI] suggest-hashtags error");
-    res.json({ hashtags: [] });
   }
 });
 
