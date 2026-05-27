@@ -64,12 +64,39 @@ export function __setScenePromptGeneratorForTest(
   scenePromptGenerator = fn ?? generateScenePrompts;
 }
 
-// Test seam: override the AI Video Style Prompt generator likewise.
-let videoStylePromptGenerator: (factText: string) => Promise<string> = generateVideoDirection;
+// Test seam: override the AI Video Motion Prompt generator likewise.
+let videoStylePromptGenerator: (factText: string, imageUrl?: string | null) => Promise<string> = generateVideoDirection;
 export function __setVideoStylePromptGeneratorForTest(
-  fn: ((factText: string) => Promise<string>) | null,
+  fn: ((factText: string, imageUrl?: string | null) => Promise<string>) | null,
 ): void {
   videoStylePromptGenerator = fn ?? generateVideoDirection;
+}
+
+// Lazily upload the bundled 1×1 test face to fal so OpenAI's vision call has a
+// fetchable URL when the bench has no real sample image. Memoized per process
+// (the placeholder never changes); the falUploadOverride seam keeps tests off
+// the network.
+let bundledFaceUrlPromise: Promise<string> | null = null;
+async function getBundledTestFaceUrl(): Promise<string> {
+  if (!bundledFaceUrlPromise) {
+    bundledFaceUrlPromise = (async () => {
+      const buf = await fs.readFile(TEST_FACE_ASSET);
+      const blob = new Blob([new Uint8Array(buf)], { type: "image/jpeg" });
+      if (falUploadOverride) return falUploadOverride(blob);
+      const { fal, ensureFalConfigured } = await import("../lib/falClient.js");
+      ensureFalConfigured();
+      return fal.storage.upload(blob);
+    })().catch((err) => {
+      bundledFaceUrlPromise = null; // allow retry on a later request
+      throw err;
+    });
+  }
+  return bundledFaceUrlPromise;
+}
+
+/** Test helper: clear the memoized bundled-face URL between cases. */
+export function __resetBundledFaceUrlForTest(): void {
+  bundledFaceUrlPromise = null;
 }
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -543,7 +570,13 @@ interface AssemblePromptBody {
   lookStyleId?: string;
   motionPresetId?: string;
   /**
-   * The video style prompt already shown in the bench. Video benches have no
+   * Source image for the video bench — the still the motion prompt is generated
+   * against (the model must see what's in the frame). Falls back to the bundled
+   * test face when absent.
+   */
+  sampleImageUrl?: string;
+  /**
+   * The video motion prompt already shown in the bench. Video benches have no
    * persistent cache (production regenerates per render), so the client passes
    * the current value back: it's reused when only the motion preset changes and
    * regenerated when absent or when forceRegenerate is set.
@@ -552,7 +585,7 @@ interface AssemblePromptBody {
   /**
    * Force fresh generation: for image benches, regenerate the scene prompts and
    * overwrite the fact's cached aiScenePrompts; for video benches, regenerate
-   * the AI Video Style Prompt instead of reusing the passed-in value.
+   * the AI Video Motion Prompt instead of reusing the passed-in value.
    */
   forceRegenerate?: boolean;
 }
@@ -587,9 +620,9 @@ router.post(
 
     const benchType = engineBenchType(engine);
 
-    // Video: the AI Video Style Prompt (generated) + the motion preset
-    // (camera/movement) are merged exactly like videoPipelineRunner.runStage2;
-    // the fact text is also the voice/dialogue cue.
+    // Video: the AI Video Motion Prompt (generated from the source image) + the
+    // motion preset (camera/movement) are merged exactly like
+    // videoPipelineRunner.runStage2; the fact text is also the voice/dialogue cue.
     if (benchType === "video") {
       // Motion preset — the second, separate layer.
       let presetPrompt = "";
@@ -602,19 +635,30 @@ router.post(
         presetPrompt = mp?.motionPrompt ?? "";
       }
       // Render the fact template down to a concrete name + pronoun — both the
-      // dialogue cue and the text fed to the style-prompt generator (matching
+      // dialogue cue and the text fed to the motion generator (matching
       // production, which generates from the rendered fact text).
       const dialogueText = renderPersonalized(fact.text, WORKBENCH_TEST_NAME, WORKBENCH_TEST_PRONOUNS);
 
-      // AI Video Style Prompt — the generated first layer. Reuse the value the
+      // AI Video Motion Prompt — the generated first layer. Reuse the value the
       // bench already holds unless it's absent or a regenerate was requested, so
       // swapping the motion preset doesn't re-roll the (non-deterministic) prompt.
       let videoStyle = typeof body.videoDirection === "string" ? body.videoDirection.trim() : "";
       if (!videoStyle || body.forceRegenerate) {
+        // The generator must SEE the still: use the admin's sample image, else
+        // the bundled test face. A failed face upload is non-fatal (degrade to
+        // text-only generation).
+        let imageUrl = typeof body.sampleImageUrl === "string" ? body.sampleImageUrl.trim() : "";
+        if (!imageUrl) {
+          try {
+            imageUrl = await getBundledTestFaceUrl();
+          } catch (err) {
+            logger.warn({ err }, "[adminEngines/assemble-prompt] bundled test-face upload failed; generating text-only");
+          }
+        }
         try {
-          videoStyle = (await videoStylePromptGenerator(dialogueText)).trim();
+          videoStyle = (await videoStylePromptGenerator(dialogueText, imageUrl || null)).trim();
         } catch (err) {
-          logger.warn({ err, factId }, "[adminEngines/assemble-prompt] video style-prompt generation failed");
+          logger.warn({ err, factId }, "[adminEngines/assemble-prompt] video motion-prompt generation failed");
           videoStyle = "";
         }
       }

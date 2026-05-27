@@ -187,7 +187,7 @@ function AISettingsGroup() {
         <CollapsibleSection
           title="AI Style Prompt Configuration"
           icon={<Wand2 className="w-4 h-4 text-muted-foreground" />}
-          description="How OpenAI turns a fact into the style prompt sent to fal.ai. The image and video style prompts work the same way; each is then merged with a second layer (look-style suffix for images, motion preset for video)."
+          description="How OpenAI turns a fact into the prompt sent to fal.ai. The image style prompt (text → scene, once per fact) drives still generation; the video motion prompt (image + fact → motion, once per render) animates the still. Each is merged with a second layer: the look-style suffix for images, the motion preset for video."
           storageKey="admin_section_config_ai_style_prompts"
         >
           <div className="space-y-5">
@@ -206,7 +206,7 @@ function AISettingsGroup() {
 
             {videoStyleRows.length > 0 && (
               <div className="space-y-3">
-                <h4 className="text-xs font-bold uppercase tracking-wide text-muted-foreground">AI Video Style Prompt</h4>
+                <h4 className="text-xs font-bold uppercase tracking-wide text-muted-foreground">AI Video Motion Prompt</h4>
                 {videoStyleRows.map((row) => (
                   <ConfigCard
                     key={row.key}

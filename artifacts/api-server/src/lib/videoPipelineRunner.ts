@@ -1205,6 +1205,21 @@ async function runStage2(job: JobState, stillObjectPath: string): Promise<{ vide
   // skip the generated direction entirely.
   const customPrompt = job.customModePrompt?.trim() ?? "";
 
+  // Convert /objects path → fal CDN URL. Done up front because the motion
+  // generator needs to SEE this still (image-to-video direction is grounded in
+  // what's actually in the frame), and the engine call needs the same URL.
+  const objectStorage = new ObjectStorageService();
+  const normalized = objectStorage.normalizeObjectEntityPath(stillObjectPath);
+  const file = await objectStorage.getObjectEntityFile(normalized);
+  const response = await objectStorage.downloadObject(file, 60);
+  const bytes = Buffer.from(await response.arrayBuffer());
+  const { fal, ensureFalConfigured } = await import("./falClient");
+  ensureFalConfigured();
+  const cdnUrl = await fal.storage.upload(
+    new Blob([new Uint8Array(bytes)], { type: "image/jpeg" }),
+    { lifecycle: { expiresIn: "1h" } },
+  );
+
   let motionPrompt: string;
   if (customPrompt) {
     motionPrompt = customPrompt;
@@ -1227,30 +1242,18 @@ async function runStage2(job: JobState, stillObjectPath: string): Promise<{ vide
       presetPrompt = "Subtle cinematic motion, dramatic lighting, slow camera push-in, epic atmosphere.";
     }
 
-    // Generate the scene/action direction and layer it on top of the motion
-    // preset. LLM failure is non-fatal — fall back to the preset alone.
+    // Generate image-grounded motion direction (the model sees the still) and
+    // layer it on top of the motion preset. LLM failure is non-fatal — fall
+    // back to the preset alone.
     let direction = "";
     try {
-      direction = await generateVideoDirection(job.renderedFactText ?? "");
+      direction = await generateVideoDirection(job.renderedFactText ?? "", cdnUrl);
     } catch (err) {
       logger.warn({ err, factId: job.factId }, "[videoPipeline] video direction generation failed; using motion preset only");
     }
 
     motionPrompt = direction ? `${direction} ${presetPrompt}` : presetPrompt;
   }
-
-  // Convert /objects path → fal CDN URL.
-  const objectStorage = new ObjectStorageService();
-  const normalized = objectStorage.normalizeObjectEntityPath(stillObjectPath);
-  const file = await objectStorage.getObjectEntityFile(normalized);
-  const response = await objectStorage.downloadObject(file, 60);
-  const bytes = Buffer.from(await response.arrayBuffer());
-  const { fal, ensureFalConfigured } = await import("./falClient");
-  ensureFalConfigured();
-  const cdnUrl = await fal.storage.upload(
-    new Blob([new Uint8Array(bytes)], { type: "image/jpeg" }),
-    { lifecycle: { expiresIn: "1h" } },
-  );
 
   const pipelineParams: Record<string, unknown> = {
     imageUrl: cdnUrl,

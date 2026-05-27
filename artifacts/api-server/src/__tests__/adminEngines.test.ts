@@ -36,6 +36,7 @@ import adminEnginesRouter, {
   __resetSubmitTimestampsForTest,
   __setScenePromptGeneratorForTest,
   __setVideoStylePromptGeneratorForTest,
+  __resetBundledFaceUrlForTest,
   engineBenchType,
 } from "../routes/adminEngines.js";
 import { buildTestApp } from "./helpers/buildTestApp.js";
@@ -175,6 +176,7 @@ afterEach(() => {
   __setFalSubmitForTest(null);
   __setFalPollForTest(null);
   __setVideoStylePromptGeneratorForTest(null);
+  __resetBundledFaceUrlForTest();
   __resetSubmitTimestampsForTest();
 });
 
@@ -811,7 +813,9 @@ describe("POST /admin/engines/:id/assemble-prompt", () => {
     assert.doesNotMatch(res.body.imagePrompt, /Full body wide angle/);
   });
 
-  it("video: empty style prompt falls back to the motion preset alone", async () => {
+  const SAMPLE_STILL = "https://img.test/still.jpg";
+
+  it("video: empty motion prompt falls back to the motion preset alone", async () => {
     const engineId = await seedEngine({ kind: "video" });
     const factId = await seedFact(SCENE); factIds.push(factId);
     const motionPresetId = await seedMotionPreset();
@@ -820,7 +824,7 @@ describe("POST /admin/engines/:id/assemble-prompt", () => {
       const app = buildTestApp({ kind: "authenticated", userId: adminUserId }, adminEnginesRouter);
       const res = await request(app)
         .post(`/api/admin/engines/${engineId}/assemble-prompt`)
-        .send({ factId, motionPresetId });
+        .send({ factId, motionPresetId, sampleImageUrl: SAMPLE_STILL });
 
       assert.equal(res.body.benchType, "video");
       assert.equal(res.body.motionPrompt, "slow dolly push-in");
@@ -831,27 +835,30 @@ describe("POST /admin/engines/:id/assemble-prompt", () => {
     }
   });
 
-  it("video: merges the generated AI Video Style Prompt before the motion preset", async () => {
+  it("video: generates motion from the source image and merges it before the preset", async () => {
     const engineId = await seedEngine({ kind: "video" });
     const factId = await seedFact(SCENE); factIds.push(factId);
     const motionPresetId = await seedMotionPreset();
     let calls = 0;
-    __setVideoStylePromptGeneratorForTest(async () => { calls += 1; return "Cinematic neutral video scene"; });
+    let seenImage: string | null | undefined;
+    __setVideoStylePromptGeneratorForTest(async (_fact, imageUrl) => { calls += 1; seenImage = imageUrl; return "the bears strain to haul a sack up the pine"; });
     try {
       const app = buildTestApp({ kind: "authenticated", userId: adminUserId }, adminEnginesRouter);
       const res = await request(app)
         .post(`/api/admin/engines/${engineId}/assemble-prompt`)
-        .send({ factId, motionPresetId });
+        .send({ factId, motionPresetId, sampleImageUrl: SAMPLE_STILL });
 
-      assert.equal(res.body.motionPrompt, "Cinematic neutral video scene slow dolly push-in");
-      assert.equal(res.body.videoDirection, "Cinematic neutral video scene");
+      assert.equal(res.body.motionPrompt, "the bears strain to haul a sack up the pine slow dolly push-in");
+      assert.equal(res.body.videoDirection, "the bears strain to haul a sack up the pine");
       assert.equal(calls, 1);
+      // The source image is handed to the generator (vision input).
+      assert.equal(seenImage, SAMPLE_STILL);
     } finally {
       __setVideoStylePromptGeneratorForTest(null);
     }
   });
 
-  it("video: reuses a passed-in style prompt; forceRegenerate re-rolls it", async () => {
+  it("video: reuses a passed-in motion prompt; forceRegenerate re-rolls it", async () => {
     const engineId = await seedEngine({ kind: "video" });
     const factId = await seedFact(SCENE); factIds.push(factId);
     const motionPresetId = await seedMotionPreset();
@@ -860,23 +867,44 @@ describe("POST /admin/engines/:id/assemble-prompt", () => {
     try {
       const app = buildTestApp({ kind: "authenticated", userId: adminUserId }, adminEnginesRouter);
 
-      // Passing the current style prompt back → reused verbatim, no generation.
+      // Passing the current motion prompt back → reused verbatim, no generation.
       const reused = await request(app)
         .post(`/api/admin/engines/${engineId}/assemble-prompt`)
-        .send({ factId, motionPresetId, videoDirection: "held style" });
-      assert.equal(reused.body.motionPrompt, "held style slow dolly push-in");
-      assert.equal(reused.body.videoDirection, "held style");
+        .send({ factId, motionPresetId, sampleImageUrl: SAMPLE_STILL, videoDirection: "held motion" });
+      assert.equal(reused.body.motionPrompt, "held motion slow dolly push-in");
+      assert.equal(reused.body.videoDirection, "held motion");
       assert.equal(calls, 0);
 
       // forceRegenerate ignores the held value and generates a fresh one.
       const fresh = await request(app)
         .post(`/api/admin/engines/${engineId}/assemble-prompt`)
-        .send({ factId, motionPresetId, videoDirection: "held style", forceRegenerate: true });
+        .send({ factId, motionPresetId, sampleImageUrl: SAMPLE_STILL, videoDirection: "held motion", forceRegenerate: true });
       assert.equal(fresh.body.videoDirection, "fresh-1");
       assert.equal(fresh.body.motionPrompt, "fresh-1 slow dolly push-in");
       assert.equal(calls, 1);
     } finally {
       __setVideoStylePromptGeneratorForTest(null);
+    }
+  });
+
+  it("video: falls back to the bundled test face when no sample image is given", async () => {
+    const engineId = await seedEngine({ kind: "video" });
+    const factId = await seedFact(SCENE); factIds.push(factId);
+    const motionPresetId = await seedMotionPreset();
+    __setFalUploadForTest(async () => "https://fal.cdn.test/bundled-face.jpg");
+    let seenImage: string | null | undefined;
+    __setVideoStylePromptGeneratorForTest(async (_fact, imageUrl) => { seenImage = imageUrl; return "subject lifts a finger"; });
+    try {
+      const app = buildTestApp({ kind: "authenticated", userId: adminUserId }, adminEnginesRouter);
+      const res = await request(app)
+        .post(`/api/admin/engines/${engineId}/assemble-prompt`)
+        .send({ factId, motionPresetId }); // no sampleImageUrl
+
+      assert.equal(seenImage, "https://fal.cdn.test/bundled-face.jpg");
+      assert.equal(res.body.videoDirection, "subject lifts a finger");
+    } finally {
+      __setVideoStylePromptGeneratorForTest(null);
+      __setFalUploadForTest(null);
     }
   });
 
@@ -897,7 +925,7 @@ describe("POST /admin/engines/:id/assemble-prompt", () => {
       const app = buildTestApp({ kind: "authenticated", userId: adminUserId }, adminEnginesRouter);
       const res = await request(app)
         .post(`/api/admin/engines/${engineId}/assemble-prompt`)
-        .send({ factId: row!.id, motionPresetId });
+        .send({ factId: row!.id, motionPresetId, sampleImageUrl: SAMPLE_STILL });
 
       assert.equal(res.body.dialogueText, "David Franklin pushes the Earth down when he does a pushup.");
     } finally {
