@@ -123,6 +123,16 @@ const ADMIN_EDITABLE_SET = new Set<string>(ADMIN_EDITABLE_FIELDS);
 
 const VALID_TIERS = new Set(["unregistered", "registered", "legendary"]);
 
+/** OpenAI models the General Intelligence engine may be set to. Keep in sync
+ *  with OPENAI_CHAT_MODEL_OPTIONS in the admin frontend. Includes the GPT-4o /
+ *  4.1 chat family and the gpt-5 / o-series reasoning family. */
+const ALLOWED_LLM_MODELS = new Set([
+  "gpt-4o-mini", "gpt-4o", "gpt-4.1-nano", "gpt-4.1-mini", "gpt-4.1",
+  "gpt-5.1", "gpt-5.2", "gpt-5.4-mini",
+]);
+
+const VALID_REASONING_EFFORTS = new Set(["none", "low", "medium", "high"]);
+
 // ────────────────────────────────────────────────────────────────────────────
 // Synthetic-test asset
 // ────────────────────────────────────────────────────────────────────────────
@@ -307,6 +317,34 @@ function buildPatchUpdates(body: Record<string, unknown>): { updates: Record<str
     else if (typeof v === "number" && Number.isFinite(v) && v >= 0) updates.estimatedCostUsdPerSecond = String(v);
     else return { error: "estimatedCostUsdPerSecond must be a non-negative number or null" };
   }
+  // ── LLM engine fields ─────────────────────────────────────────────────────
+  // endpointId (the model) is only valid for OpenAI engines — the provider
+  // guard lives in the PATCH route (it has the engine row).
+  if ("endpointId" in body) {
+    const v = body.endpointId;
+    if (typeof v !== "string" || !ALLOWED_LLM_MODELS.has(v)) {
+      return { error: `endpointId must be one of: ${[...ALLOWED_LLM_MODELS].join(", ")}` };
+    }
+    updates.endpointId = v;
+  }
+  if ("defaultTemperature" in body) {
+    const v = body.defaultTemperature;
+    if (v === null) updates.defaultTemperature = null;
+    else if (typeof v === "number" && Number.isFinite(v) && v >= 0 && v <= 2) updates.defaultTemperature = String(v);
+    else return { error: "defaultTemperature must be a number between 0 and 2, or null" };
+  }
+  if ("defaultMaxTokens" in body) {
+    const v = body.defaultMaxTokens;
+    if (v === null) updates.defaultMaxTokens = null;
+    else if (typeof v === "number" && Number.isFinite(v) && v > 0) updates.defaultMaxTokens = Math.trunc(v);
+    else return { error: "defaultMaxTokens must be a positive number or null" };
+  }
+  if ("defaultReasoningEffort" in body) {
+    const v = body.defaultReasoningEffort;
+    if (v === null || v === "") updates.defaultReasoningEffort = null;
+    else if (typeof v === "string" && VALID_REASONING_EFFORTS.has(v)) updates.defaultReasoningEffort = v;
+    else return { error: "defaultReasoningEffort must be one of none | low | medium | high, or null" };
+  }
 
   return { updates };
 }
@@ -347,6 +385,20 @@ router.patch("/admin/engines/:id", requireAdmin, async (req: Request, res: Respo
   if ("error" in result) {
     res.status(400).json({ error: result.error });
     return;
+  }
+
+  // The model (endpointId) is only editable on OpenAI/LLM engines; media engine
+  // endpoints stay code-owned.
+  if ("endpointId" in body) {
+    const existing = await fetchEngineById(id);
+    if (!existing) {
+      res.status(404).json({ error: "Engine not found" });
+      return;
+    }
+    if (existing.provider !== "openai") {
+      res.status(400).json({ error: "endpointId is only editable for OpenAI engines" });
+      return;
+    }
   }
 
   const [updated] = await db

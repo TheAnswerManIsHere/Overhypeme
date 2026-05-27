@@ -12,15 +12,14 @@
  */
 
 import { fal, ensureFalConfigured } from "./falClient";
-import { getOpenAIClient } from "@workspace/integrations-openai-ai-server";
+import { callUtilityLLM } from "./utilityLLM";
 import { ObjectStorageService } from "./objectStorage";
 import { aiBackgroundKey } from "./storageKeys";
 import { db } from "@workspace/db";
 import { factsTable, userAiImagesTable, usersTable } from "@workspace/db/schema";
 import { eq, sql } from "drizzle-orm";
 import { getConfigInt, getConfigString } from "./adminConfig";
-import { getScenePromptGenerationConfig } from "./scenePromptConfig";
-import { chatModelTuningParams } from "./openaiChatParams";
+import { getScenePromptSystem } from "./scenePromptConfig";
 import { getCachedPrice, type CachedPrice } from "./falPricing";
 import { computeImageCost, resolveImageSizePx } from "./costComputation";
 import { checkBudget, recordCost, BudgetExceededError } from "./budgetGate";
@@ -102,17 +101,12 @@ function detectImageFormat(response: Response): { contentType: string; ext: stri
 // ─── LLM scene prompt generation ─────────────────────────────────────────────
 
 export async function generateScenePrompts(factText: string): Promise<AiScenePrompts> {
-  const openai = getOpenAIClient();
-  // Generation settings (system prompt, model, temperature, max tokens,
-  // reasoning effort) are admin-configurable via admin_config and resolve
-  // through the debug overlay, so the workbench can experiment with a candidate
-  // prompt before promoting it. The call shape branches on reasoning vs
-  // non-reasoning models (chatModelTuningParams). See lib/scenePromptConfig.ts.
-  const { systemPrompt, model, temperature, maxTokens, reasoningEffort } = await getScenePromptGenerationConfig();
-  const response = await openai.chat.completions.create({
-    model,
-    ...chatModelTuningParams({ model, maxTokens, temperature, reasoningEffort }),
-    response_format: { type: "json_object" },
+  // The system prompt is admin-configurable (debug-overlay aware). The model +
+  // sampling come from the shared General Intelligence engine, which picks the
+  // right call shape for reasoning vs non-reasoning models. See lib/utilityLLM.ts.
+  const systemPrompt = await getScenePromptSystem();
+  const response = await callUtilityLLM({
+    responseFormat: { type: "json_object" },
     messages: [
       { role: "system", content: systemPrompt },
       { role: "user", content: `Fact template: "${factText}"` },

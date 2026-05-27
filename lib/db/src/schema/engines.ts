@@ -99,6 +99,21 @@ export const enginesTable = pgTable("engines", {
   /** EMA seed for the loading bar's expected run time. Default 30000ms; updated after each successful run. */
   expectedRunMs: integer("expected_run_ms").notNull().default(30000),
   /**
+   * Default sampling temperature for LLM ("llm" kind / provider "openai")
+   * engines. Null for media engines. Admin-editable; call sites may override.
+   */
+  defaultTemperature: numeric("default_temperature", { precision: 4, scale: 2 }),
+  /**
+   * Default max output tokens for LLM engines. Null for media engines.
+   * Admin-editable; call sites may override.
+   */
+  defaultMaxTokens: integer("default_max_tokens"),
+  /**
+   * Default reasoning effort ("low" | "medium" | "high") for reasoning LLM
+   * models (gpt-5 / o-series). Ignored by gpt-4.x. Null for media engines.
+   */
+  defaultReasoningEffort: varchar("default_reasoning_effort", { length: 16 }),
+  /**
    * Power-user feature flag gate. When non-null, the engine is only visible in
    * the wizard's engine selector to users who have this feature flag enabled.
    * Today this is just "engine_experiments" for all non-default video engines.

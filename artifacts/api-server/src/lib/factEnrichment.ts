@@ -15,7 +15,6 @@
 import { eq } from "drizzle-orm";
 import { db } from "@workspace/db";
 import { pendingReviewsTable } from "@workspace/db/schema";
-import { getOpenAIClient } from "@workspace/integrations-openai-ai-server";
 import {
   validateEnrichment,
   TAXONOMY_VERSION,
@@ -26,8 +25,12 @@ import {
   type OverhypeFit,
   type AdultSuitability,
 } from "@workspace/api-zod";
-import { getFactEnrichmentConfig } from "./factEnrichmentConfig";
-import { chatModelTuningParams } from "./openaiChatParams";
+import {
+  getFactEnrichmentSystem,
+  FACT_ENRICHMENT_TEMPERATURE,
+  FACT_ENRICHMENT_MAX_TOKENS,
+} from "./factEnrichmentConfig";
+import { callUtilityLLM } from "./utilityLLM";
 import { logger } from "./logger";
 
 export class EnrichmentError extends Error {
@@ -138,13 +141,11 @@ export async function enrichFactWithModel(
 }
 
 async function callOpenAIEnrichment(userMessages: UserMessage[]): Promise<string> {
-  const openai = getOpenAIClient();
-  const { systemPrompt, model, temperature, maxTokens, reasoningEffort } =
-    await getFactEnrichmentConfig();
-  const response = await openai.chat.completions.create({
-    model,
-    ...chatModelTuningParams({ model, maxTokens, temperature, reasoningEffort }),
-    response_format: { type: "json_object" },
+  const systemPrompt = await getFactEnrichmentSystem();
+  const response = await callUtilityLLM({
+    temperature: FACT_ENRICHMENT_TEMPERATURE,
+    maxTokens: FACT_ENRICHMENT_MAX_TOKENS,
+    responseFormat: { type: "json_object" },
     messages: [{ role: "system", content: systemPrompt }, ...userMessages],
   });
   return response.choices[0]?.message?.content ?? "{}";

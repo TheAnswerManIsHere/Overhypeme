@@ -1,45 +1,32 @@
 /**
  * AI Video Motion Prompt generation configuration + generator.
  *
- * The video counterpart to the AI Image Style Prompt (lib/scenePromptConfig.ts),
- * but it is NOT text-only and NOT run per fact. Image-to-video animates an
- * already-rendered still, so this is a VISION call: OpenAI is shown the source
- * image (ground truth for what exists in the frame) plus the fact, and returns
- * MOTION-ONLY direction — what the subject/world/ambient elements do — never a
- * re-description of the scene and never new elements (which would morph or trip
- * Veo's safety filter). Because it depends on the specific still, it runs once
- * per VIDEO RENDER, not once per fact. The chosen motion preset (camera) is
- * appended afterwards in videoPipelineRunner.runStage2.
+ * The video counterpart to the AI Image Style Prompt (lib/scenePromptConfig.ts).
+ * Image-to-video animates an already-rendered still, so this is a VISION call:
+ * the LLM is shown the source image (ground truth for what exists in the frame)
+ * plus the fact, and returns MOTION-ONLY direction. It runs once per VIDEO
+ * RENDER. The chosen motion preset (camera) is appended afterwards in
+ * videoPipelineRunner.runStage2.
  *
- * The levers (system prompt, model, temperature, max tokens) live in
- * admin_config, resolve through the standard debug overlay, and are tuned from
- * the AI Style Prompt Configuration panel on the admin config page. The model
- * must be vision-capable (the GPT-4o / 4.1 families all are).
- *
- * NOTE: the config keys keep their original `video_direction_*` names so the
- * already-seeded production rows (and any admin edits) carry over — only the
- * human-facing labels and the generated content changed.
+ * Only the system prompt lives in admin_config here (debug-overlay aware). The
+ * model + sampling come from the shared General Intelligence engine
+ * (lib/utilityLLM.ts / /admin/engines) — which must be vision-capable.
  */
 
 import type OpenAI from "openai";
 import { db } from "@workspace/db";
 import { sql } from "drizzle-orm";
-import { getOpenAIClient } from "@workspace/integrations-openai-ai-server";
-import { getConfigString, getConfigFloat, getConfigInt } from "./adminConfig";
-import { chatModelTuningParams } from "./openaiChatParams";
+import { getConfigString } from "./adminConfig";
+import { callUtilityLLM } from "./utilityLLM";
 import { logger } from "./logger";
 
 // ─── Config keys ───────────────────────────────────────────────────────────────
 
 export const VIDEO_DIRECTION_CONFIG_KEYS = {
   system: "video_direction_system",
-  model: "video_direction_model",
-  temperature: "video_direction_temperature",
-  maxTokens: "video_direction_max_tokens",
-  reasoningEffort: "video_direction_reasoning_effort",
 } as const;
 
-// ─── Production defaults ─────────────────────────────────────────────────────
+// ─── Production default ───────────────────────────────────────────────────────
 
 export const VIDEO_DIRECTION_SYSTEM_DEFAULT = `You write motion instructions for an AI image-to-video generator. You are given two things:
 
@@ -95,32 +82,11 @@ Rules:
 - Do NOT include camera directions, shot types, lens, or aspect-ratio notes — those are added separately.
 - Output the plain direction text only: no quotes, labels, or JSON.`;
 
-export const VIDEO_DIRECTION_MODEL_DEFAULT = "gpt-4o-mini";
-export const VIDEO_DIRECTION_TEMPERATURE_DEFAULT = 0.7;
-export const VIDEO_DIRECTION_MAX_TOKENS_DEFAULT = 200;
-/** Reasoning effort for gpt-5/o-series models (ignored by gpt-4.x). */
-export const VIDEO_DIRECTION_REASONING_EFFORT_DEFAULT = "low";
-
 // ─── Getter (debug-overlay aware via adminConfig) ─────────────────────────────
 
-export interface VideoDirectionGenerationConfig {
-  systemPrompt: string;
-  model: string;
-  temperature: number;
-  maxTokens: number;
-  reasoningEffort: string;
-}
-
-/** Resolve the OpenAI generation settings for video-direction generation. */
-export async function getVideoDirectionGenerationConfig(): Promise<VideoDirectionGenerationConfig> {
-  const [systemPrompt, model, temperature, maxTokens, reasoningEffort] = await Promise.all([
-    getConfigString(VIDEO_DIRECTION_CONFIG_KEYS.system, VIDEO_DIRECTION_SYSTEM_DEFAULT),
-    getConfigString(VIDEO_DIRECTION_CONFIG_KEYS.model, VIDEO_DIRECTION_MODEL_DEFAULT),
-    getConfigFloat(VIDEO_DIRECTION_CONFIG_KEYS.temperature, VIDEO_DIRECTION_TEMPERATURE_DEFAULT),
-    getConfigInt(VIDEO_DIRECTION_CONFIG_KEYS.maxTokens, VIDEO_DIRECTION_MAX_TOKENS_DEFAULT),
-    getConfigString(VIDEO_DIRECTION_CONFIG_KEYS.reasoningEffort, VIDEO_DIRECTION_REASONING_EFFORT_DEFAULT),
-  ]);
-  return { systemPrompt, model, temperature, maxTokens, reasoningEffort };
+/** Resolve the admin-configurable video motion-prompt system prompt. */
+export async function getVideoDirectionSystem(): Promise<string> {
+  return getConfigString(VIDEO_DIRECTION_CONFIG_KEYS.system, VIDEO_DIRECTION_SYSTEM_DEFAULT);
 }
 
 // ─── Generator ─────────────────────────────────────────────────────────────────
@@ -131,8 +97,10 @@ export async function getVideoDirectionGenerationConfig(): Promise<VideoDirectio
  * in the frame) plus the fact. Returns "" when the fact text is blank so the
  * caller can fall back to the motion preset alone.
  *
- * `imageUrl` must be a URL the OpenAI vision model can fetch (e.g. the fal CDN
- * URL of the uploaded still). When null/empty the call degrades to text-only.
+ * `imageUrl` must be a URL the vision model can fetch (e.g. the fal CDN URL of
+ * the uploaded still). When null/empty the call degrades to text-only. The
+ * model + sampling come from the General Intelligence engine (must be vision-
+ * capable; the gpt-4o / 4.1 default family is).
  */
 export async function generateVideoDirection(
   factText: string,
@@ -141,8 +109,7 @@ export async function generateVideoDirection(
   const trimmed = factText?.trim() ?? "";
   if (!trimmed) return "";
 
-  const openai = getOpenAIClient();
-  const { systemPrompt, model, temperature, maxTokens, reasoningEffort } = await getVideoDirectionGenerationConfig();
+  const systemPrompt = await getVideoDirectionSystem();
   const url = imageUrl?.trim() ?? "";
   const userContent: string | OpenAI.Chat.Completions.ChatCompletionContentPart[] = url
     ? [
@@ -150,9 +117,7 @@ export async function generateVideoDirection(
         { type: "image_url", image_url: { url } },
       ]
     : `Fact: "${trimmed}"`;
-  const response = await openai.chat.completions.create({
-    model,
-    ...chatModelTuningParams({ model, maxTokens, temperature, reasoningEffort }),
+  const response = await callUtilityLLM({
     messages: [
       { role: "system", content: systemPrompt },
       { role: "user", content: userContent },
@@ -178,41 +143,13 @@ export const VIDEO_DIRECTION_CONFIG_DEFS: VideoDirectionConfigDef[] = [
     // "text" renders as a multi-line textarea in the workbench (vs a single-line input).
     dataType: "text",
     label: "AI Video Motion Prompt — System Prompt",
-    description: "OpenAI system prompt for image-to-video. The model is shown the source still (vision) plus the fact and returns motion-only direction; the motion preset the user selects is appended for camera. Output a single plain-text description — no JSON, no gender variants, and do NOT re-describe the scene or add elements not in the image.",
-  },
-  {
-    key: VIDEO_DIRECTION_CONFIG_KEYS.model,
-    value: VIDEO_DIRECTION_MODEL_DEFAULT,
-    dataType: "string",
-    label: "AI Video Motion Prompt — OpenAI Model",
-    description: "Vision-capable OpenAI model used to generate the video motion direction from the source image (e.g. gpt-4o-mini, gpt-4o).",
-  },
-  {
-    key: VIDEO_DIRECTION_CONFIG_KEYS.temperature,
-    value: String(VIDEO_DIRECTION_TEMPERATURE_DEFAULT),
-    dataType: "string",
-    label: "AI Video Motion Prompt — Temperature",
-    description: "Sampling temperature for video motion-prompt generation (0–2). Higher = more varied.",
-  },
-  {
-    key: VIDEO_DIRECTION_CONFIG_KEYS.maxTokens,
-    value: String(VIDEO_DIRECTION_MAX_TOKENS_DEFAULT),
-    dataType: "integer",
-    label: "AI Video Motion Prompt — Max Tokens",
-    description: "Maximum tokens for the generated video motion-direction text (visible output; reasoning models get extra headroom on top).",
-  },
-  {
-    key: VIDEO_DIRECTION_CONFIG_KEYS.reasoningEffort,
-    value: VIDEO_DIRECTION_REASONING_EFFORT_DEFAULT,
-    dataType: "string",
-    label: "AI Video Motion Prompt — Reasoning Effort",
-    description: "Reasoning effort for GPT-5 / o-series models (none/low/medium/high). Higher = more capable but more tokens/cost. Ignored by GPT-4.x models.",
+    description: "LLM system prompt for image-to-video. The model is shown the source still (vision) plus the fact and returns motion-only direction; the motion preset the user selects is appended for camera. Output a single plain-text description — no JSON, and do NOT re-describe the scene or add elements not in the image. The model + sampling come from the General Intelligence engine (must be vision-capable).",
   },
 ];
 
 /**
- * Idempotently seed the video style-prompt config rows with their production
- * defaults. Safe to call on every boot — admin-customized values are left
+ * Idempotently seed the video motion-prompt system prompt with its production
+ * default. Safe to call on every boot — admin-customized values are left
  * untouched via ON CONFLICT DO NOTHING (and the legacy-default migration below
  * only fires on a row that still holds the original motion-only prompt).
  */
@@ -224,17 +161,13 @@ export async function seedVideoDirectionConfig(): Promise<void> {
         VALUES (${def.key}, ${def.value}, ${def.dataType}, ${def.label}, ${def.description}, false)
         ON CONFLICT (key) DO NOTHING
       `);
-      // Backfill data_type for rows seeded before these keys became multi-line
-      // textareas (idempotent — only touches stale rows).
       if (def.dataType === "text") {
         await db.execute(sql`
           UPDATE admin_config SET data_type = 'text'
           WHERE key = ${def.key} AND data_type <> 'text'
         `);
       }
-      // Labels/descriptions are code-owned (not admin-editable), so force them
-      // to the current copy. Brings rows seeded under the old "Video Prompt"
-      // naming up to the "AI Video Style Prompt" naming (idempotent).
+      // Labels/descriptions are code-owned — force them to the current copy.
       await db.execute(sql`
         UPDATE admin_config SET label = ${def.label}, description = ${def.description}
         WHERE key = ${def.key}
@@ -245,10 +178,9 @@ export async function seedVideoDirectionConfig(): Promise<void> {
     }
   }
 
-  // One-time content migration: this generator originally produced a text-only
-  // motion direction. It now produces image-grounded motion direction (vision).
-  // Promote a row that still holds the unmodified legacy default to the new
-  // default; rows an admin has edited are left as-is.
+  // One-time content migration: promote a row that still holds the unmodified
+  // legacy text-only default to the new image-grounded default; rows an admin
+  // has edited are left as-is.
   try {
     await db.execute(sql`
       UPDATE admin_config SET value = ${VIDEO_DIRECTION_SYSTEM_DEFAULT}

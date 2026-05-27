@@ -160,13 +160,12 @@ function RetryTimelinePanel() {
 
 // ── AI Settings group (nested inside Configuration) ───────────────────────────
 //
-// Hosts the OpenAI prompt-generation levers — the AI Image Style Prompt and the
-// AI Video Style Prompt, each with system prompt / model / temperature / max
-// tokens — plus the AI gallery display limit. Both style prompts work the same
-// way (generate a cinematic prompt, then merge a second layer: the look-style
-// suffix for images, the motion preset for video), so they share one panel.
-// Image-engine / video config lives at /admin/engines; look-style prompt text
-// lives on `look_styles`.
+// Hosts the editable system prompts — the AI Image Style Prompt and the AI
+// Video Motion Prompt — plus the AI gallery display limit. The model + sampling
+// (temperature, max tokens, reasoning effort) for these calls come from the
+// shared General Intelligence engine (/admin/engines). Image-engine / video
+// config also lives at /admin/engines; look-style prompt text lives on
+// `look_styles`.
 
 function AISettingsGroup() {
   const { rows } = useConfigCtx();
@@ -187,7 +186,7 @@ function AISettingsGroup() {
         <CollapsibleSection
           title="AI Style Prompt Configuration"
           icon={<Wand2 className="w-4 h-4 text-muted-foreground" />}
-          description="How OpenAI turns a fact into the prompt sent to fal.ai. The image style prompt (text → scene, once per fact) drives still generation; the video motion prompt (image + fact → motion, once per render) animates the still. Each is merged with a second layer: the look-style suffix for images, the motion preset for video."
+          description="The system prompts that turn a fact into the prompt sent to fal.ai — image style prompt (text → scene, per fact) and video motion prompt (image + fact → motion, per render). The model + sampling come from the General Intelligence engine (/admin/engines)."
           storageKey="admin_section_config_ai_style_prompts"
         >
           <div className="space-y-5">

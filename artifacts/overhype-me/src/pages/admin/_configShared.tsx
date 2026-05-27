@@ -230,29 +230,20 @@ export const REASONING_EFFORT_OPTIONS: { value: string; label: string }[] = [
   { value: "high",   label: "High (most capable, priciest)" },
 ];
 
-export const SELECT_CONFIGS: Record<string, { value: string; label: string }[]> = {
-  scene_prompt_model: OPENAI_CHAT_MODEL_OPTIONS,
-  video_direction_model: OPENAI_CHAT_MODEL_OPTIONS,
-  scene_prompt_reasoning_effort: REASONING_EFFORT_OPTIONS,
-  video_direction_reasoning_effort: REASONING_EFFORT_OPTIONS,
-};
+// Model + sampling + reasoning effort for all LLM calls now live on the shared
+// General Intelligence engine (/admin/engines), so no scene/video config key is
+// a dropdown anymore. OPENAI_CHAT_MODEL_OPTIONS / REASONING_EFFORT_OPTIONS are
+// still exported for the engine editor on the engines page.
+export const SELECT_CONFIGS: Record<string, { value: string; label: string }[]> = {};
 
-// Image scene-prompt levers — grouped together on the AI Settings page.
+// Image scene-prompt system prompt (model/sampling live on the engine now).
 export const SCENE_PROMPT_KEYS = new Set<string>([
   "scene_prompt_system",
-  "scene_prompt_model",
-  "scene_prompt_temperature",
-  "scene_prompt_max_tokens",
-  "scene_prompt_reasoning_effort",
 ]);
 
-// Video motion-prompt levers — grouped together on the AI Settings page.
+// Video motion-prompt system prompt (model/sampling live on the engine now).
 export const VIDEO_DIRECTION_KEYS = new Set<string>([
   "video_direction_system",
-  "video_direction_model",
-  "video_direction_temperature",
-  "video_direction_max_tokens",
-  "video_direction_reasoning_effort",
 ]);
 
 // Keys that are surfaced through dedicated sections elsewhere on the
