@@ -25,6 +25,7 @@ import {
   VIDEO_DIRECTION_MODEL_DEFAULT,
   VIDEO_DIRECTION_TEMPERATURE_DEFAULT,
   VIDEO_DIRECTION_MAX_TOKENS_DEFAULT,
+  VIDEO_DIRECTION_REASONING_EFFORT_DEFAULT,
   VIDEO_DIRECTION_SYSTEM_DEFAULT,
   VIDEO_DIRECTION_SYSTEM_LEGACY_DEFAULT,
 } from "../lib/videoDirection";
@@ -54,6 +55,7 @@ describe("videoDirection", () => {
     assert.equal(cfg.model, VIDEO_DIRECTION_MODEL_DEFAULT);
     assert.equal(cfg.temperature, VIDEO_DIRECTION_TEMPERATURE_DEFAULT);
     assert.equal(cfg.maxTokens, VIDEO_DIRECTION_MAX_TOKENS_DEFAULT);
+    assert.equal(cfg.reasoningEffort, VIDEO_DIRECTION_REASONING_EFFORT_DEFAULT);
     assert.ok(cfg.systemPrompt.length > 100, "system prompt should be the seeded default");
   });
 

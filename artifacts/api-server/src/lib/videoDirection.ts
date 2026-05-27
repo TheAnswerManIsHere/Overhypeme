@@ -26,6 +26,7 @@ import { db } from "@workspace/db";
 import { sql } from "drizzle-orm";
 import { getOpenAIClient } from "@workspace/integrations-openai-ai-server";
 import { getConfigString, getConfigFloat, getConfigInt } from "./adminConfig";
+import { chatModelTuningParams } from "./openaiChatParams";
 import { logger } from "./logger";
 
 // ─── Config keys ───────────────────────────────────────────────────────────────
@@ -35,6 +36,7 @@ export const VIDEO_DIRECTION_CONFIG_KEYS = {
   model: "video_direction_model",
   temperature: "video_direction_temperature",
   maxTokens: "video_direction_max_tokens",
+  reasoningEffort: "video_direction_reasoning_effort",
 } as const;
 
 // ─── Production defaults ─────────────────────────────────────────────────────
@@ -96,6 +98,8 @@ Rules:
 export const VIDEO_DIRECTION_MODEL_DEFAULT = "gpt-4o-mini";
 export const VIDEO_DIRECTION_TEMPERATURE_DEFAULT = 0.7;
 export const VIDEO_DIRECTION_MAX_TOKENS_DEFAULT = 200;
+/** Reasoning effort for gpt-5/o-series models (ignored by gpt-4.x). */
+export const VIDEO_DIRECTION_REASONING_EFFORT_DEFAULT = "low";
 
 // ─── Getter (debug-overlay aware via adminConfig) ─────────────────────────────
 
@@ -104,17 +108,19 @@ export interface VideoDirectionGenerationConfig {
   model: string;
   temperature: number;
   maxTokens: number;
+  reasoningEffort: string;
 }
 
 /** Resolve the OpenAI generation settings for video-direction generation. */
 export async function getVideoDirectionGenerationConfig(): Promise<VideoDirectionGenerationConfig> {
-  const [systemPrompt, model, temperature, maxTokens] = await Promise.all([
+  const [systemPrompt, model, temperature, maxTokens, reasoningEffort] = await Promise.all([
     getConfigString(VIDEO_DIRECTION_CONFIG_KEYS.system, VIDEO_DIRECTION_SYSTEM_DEFAULT),
     getConfigString(VIDEO_DIRECTION_CONFIG_KEYS.model, VIDEO_DIRECTION_MODEL_DEFAULT),
     getConfigFloat(VIDEO_DIRECTION_CONFIG_KEYS.temperature, VIDEO_DIRECTION_TEMPERATURE_DEFAULT),
     getConfigInt(VIDEO_DIRECTION_CONFIG_KEYS.maxTokens, VIDEO_DIRECTION_MAX_TOKENS_DEFAULT),
+    getConfigString(VIDEO_DIRECTION_CONFIG_KEYS.reasoningEffort, VIDEO_DIRECTION_REASONING_EFFORT_DEFAULT),
   ]);
-  return { systemPrompt, model, temperature, maxTokens };
+  return { systemPrompt, model, temperature, maxTokens, reasoningEffort };
 }
 
 // ─── Generator ─────────────────────────────────────────────────────────────────
@@ -136,7 +142,7 @@ export async function generateVideoDirection(
   if (!trimmed) return "";
 
   const openai = getOpenAIClient();
-  const { systemPrompt, model, temperature, maxTokens } = await getVideoDirectionGenerationConfig();
+  const { systemPrompt, model, temperature, maxTokens, reasoningEffort } = await getVideoDirectionGenerationConfig();
   const url = imageUrl?.trim() ?? "";
   const userContent: string | OpenAI.Chat.Completions.ChatCompletionContentPart[] = url
     ? [
@@ -146,8 +152,7 @@ export async function generateVideoDirection(
     : `Fact: "${trimmed}"`;
   const response = await openai.chat.completions.create({
     model,
-    max_tokens: maxTokens,
-    temperature,
+    ...chatModelTuningParams({ model, maxTokens, temperature, reasoningEffort }),
     messages: [
       { role: "system", content: systemPrompt },
       { role: "user", content: userContent },
@@ -194,7 +199,14 @@ export const VIDEO_DIRECTION_CONFIG_DEFS: VideoDirectionConfigDef[] = [
     value: String(VIDEO_DIRECTION_MAX_TOKENS_DEFAULT),
     dataType: "integer",
     label: "AI Video Motion Prompt — Max Tokens",
-    description: "Maximum tokens for the generated video motion-direction text.",
+    description: "Maximum tokens for the generated video motion-direction text (visible output; reasoning models get extra headroom on top).",
+  },
+  {
+    key: VIDEO_DIRECTION_CONFIG_KEYS.reasoningEffort,
+    value: VIDEO_DIRECTION_REASONING_EFFORT_DEFAULT,
+    dataType: "string",
+    label: "AI Video Motion Prompt — Reasoning Effort",
+    description: "Reasoning effort for GPT-5 / o-series models (none/low/medium/high). Higher = more capable but more tokens/cost. Ignored by GPT-4.x models.",
   },
 ];
 
