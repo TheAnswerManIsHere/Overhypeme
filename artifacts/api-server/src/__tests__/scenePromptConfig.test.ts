@@ -23,6 +23,7 @@ import {
   SCENE_PROMPT_MODEL_DEFAULT,
   SCENE_PROMPT_TEMPERATURE_DEFAULT,
   SCENE_PROMPT_MAX_TOKENS_DEFAULT,
+  SCENE_PROMPT_REASONING_EFFORT_DEFAULT,
 } from "../lib/scenePromptConfig";
 import { bustConfigCache } from "../lib/adminConfig";
 
@@ -51,6 +52,7 @@ describe("scenePromptConfig", () => {
     assert.equal(cfg.model, SCENE_PROMPT_MODEL_DEFAULT);
     assert.equal(cfg.temperature, SCENE_PROMPT_TEMPERATURE_DEFAULT);
     assert.equal(cfg.maxTokens, SCENE_PROMPT_MAX_TOKENS_DEFAULT);
+    assert.equal(cfg.reasoningEffort, SCENE_PROMPT_REASONING_EFFORT_DEFAULT);
     assert.ok(cfg.systemPrompt.length > 100, "system prompt should be the seeded default");
   });
 

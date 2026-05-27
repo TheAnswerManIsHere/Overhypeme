@@ -27,6 +27,7 @@ export const SCENE_PROMPT_CONFIG_KEYS = {
   model: "scene_prompt_model",
   temperature: "scene_prompt_temperature",
   maxTokens: "scene_prompt_max_tokens",
+  reasoningEffort: "scene_prompt_reasoning_effort",
 } as const;
 
 // ─── Production defaults ─────────────────────────────────────────────────────
@@ -58,6 +59,8 @@ Return ONLY valid JSON in exactly this shape:
 export const SCENE_PROMPT_MODEL_DEFAULT = "gpt-4o-mini";
 export const SCENE_PROMPT_TEMPERATURE_DEFAULT = 0.7;
 export const SCENE_PROMPT_MAX_TOKENS_DEFAULT = 400;
+/** Reasoning effort for gpt-5/o-series models (ignored by gpt-4.x). */
+export const SCENE_PROMPT_REASONING_EFFORT_DEFAULT = "low";
 
 // ─── Getters (debug-overlay aware via adminConfig) ─────────────────────────────
 
@@ -66,17 +69,19 @@ export interface ScenePromptGenerationConfig {
   model: string;
   temperature: number;
   maxTokens: number;
+  reasoningEffort: string;
 }
 
 /** Resolve the OpenAI generation settings for scene-prompt generation. */
 export async function getScenePromptGenerationConfig(): Promise<ScenePromptGenerationConfig> {
-  const [systemPrompt, model, temperature, maxTokens] = await Promise.all([
+  const [systemPrompt, model, temperature, maxTokens, reasoningEffort] = await Promise.all([
     getConfigString(SCENE_PROMPT_CONFIG_KEYS.system, SCENE_PROMPT_SYSTEM_DEFAULT),
     getConfigString(SCENE_PROMPT_CONFIG_KEYS.model, SCENE_PROMPT_MODEL_DEFAULT),
     getConfigFloat(SCENE_PROMPT_CONFIG_KEYS.temperature, SCENE_PROMPT_TEMPERATURE_DEFAULT),
     getConfigInt(SCENE_PROMPT_CONFIG_KEYS.maxTokens, SCENE_PROMPT_MAX_TOKENS_DEFAULT),
+    getConfigString(SCENE_PROMPT_CONFIG_KEYS.reasoningEffort, SCENE_PROMPT_REASONING_EFFORT_DEFAULT),
   ]);
-  return { systemPrompt, model, temperature, maxTokens };
+  return { systemPrompt, model, temperature, maxTokens, reasoningEffort };
 }
 
 // ─── Seeding ─────────────────────────────────────────────────────────────────
@@ -117,7 +122,14 @@ export const SCENE_PROMPT_CONFIG_DEFS: ScenePromptConfigDef[] = [
     value: String(SCENE_PROMPT_MAX_TOKENS_DEFAULT),
     dataType: "integer",
     label: "AI Image Style Prompt — Max Tokens",
-    description: "Maximum tokens for the generated image scene-prompt JSON response.",
+    description: "Maximum tokens for the generated image scene-prompt JSON response (visible output; reasoning models get extra headroom on top).",
+  },
+  {
+    key: SCENE_PROMPT_CONFIG_KEYS.reasoningEffort,
+    value: SCENE_PROMPT_REASONING_EFFORT_DEFAULT,
+    dataType: "string",
+    label: "AI Image Style Prompt — Reasoning Effort",
+    description: "Reasoning effort for GPT-5 / o-series models (none/low/medium/high). Higher = more capable but more tokens/cost. Ignored by GPT-4.x models.",
   },
 ];
 
