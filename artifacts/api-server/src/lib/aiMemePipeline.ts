@@ -19,6 +19,7 @@ import { db } from "@workspace/db";
 import { factsTable, userAiImagesTable, usersTable } from "@workspace/db/schema";
 import { eq, sql } from "drizzle-orm";
 import { getConfigInt, getConfigString } from "./adminConfig";
+import { getScenePromptGenerationConfig } from "./scenePromptConfig";
 import { getCachedPrice, type CachedPrice } from "./falPricing";
 import { computeImageCost, resolveImageSizePx } from "./costComputation";
 import { checkBudget, recordCost, BudgetExceededError } from "./budgetGate";
@@ -50,16 +51,6 @@ const DEFAULT_REFERENCE_FRAME_PROMPT =
 const DEFAULT_IMAGE_MODEL_STANDARD  = "fal-ai/flux-pro/v1.1";
 const DEFAULT_IMAGE_MODEL_REFERENCE = "fal-ai/flux-pulid";
 const DEFAULT_IMAGE_SIZE            = "square_hd";
-
-/**
- * Composition suffix appended to reference (image-to-image) prompts so the
- * model renders a full scene rather than a portrait close-up. Exported so the
- * admin workbench can assemble the exact same prompt production sends.
- * Phase 6: ai_pulid_composition_suffix retired; baked in here.
- */
-export const PULID_COMPOSITION_SUFFIX =
-  "Full body wide angle shot. Person shown in action within the scene environment. " +
-  "Show the full setting and context. NOT a portrait or close-up.";
 
 /**
  * Models that accept a face-reference image input.
@@ -109,39 +100,16 @@ function detectImageFormat(response: Response): { contentType: string; ext: stri
 
 // ─── LLM scene prompt generation ─────────────────────────────────────────────
 
-const SCENE_PROMPT_SYSTEM = `You generate cinematic scene prompts for AI image generation for meme backgrounds.
-
-Given a personalized fact template (using tokens like {NAME}, {SUBJ}, {OBJ}, {POSS}), produce three scene prompts for cinematic AI image generation.
-
-Rules:
-1. Classify the fact:
-   - "action" = a person doing something physical, social, or occupational
-   - "abstract" = cosmic, metaphysical, or impossible to photograph
-2. For "action" facts: produce 3 different prompts (male, female, neutral subject).
-   For "abstract" facts: all 3 prompts can be identical dramatic cinematic scenes.
-3. Each prompt must:
-   - Describe a SQUARE cinematic scene
-   - Have dramatic lighting, high contrast, cinematic quality
-   - NOT contain any text or letters
-   - Be 20-40 words
-   - Start with "Cinematic " or "Epic " or "Dramatic "
-
-Return ONLY valid JSON:
-{"fact_type":"action","male":"Cinematic shot of a muscular man...","female":"Cinematic shot of a strong woman...","neutral":"Dramatic scene of a person..."}`;
-
 export async function generateScenePrompts(factText: string): Promise<AiScenePrompts> {
   const openai = getOpenAIClient();
-  // Phase 6: the retired ai_scene_prompt_* admin_config keys used to live here.
-  // The engines table doesn't model OpenAI scene-prompt LLMs, and these
-  // settings had drifted into pure no-op land in production — bake the values
-  // in as constants so the call shape is stable and observable in code review.
-  const systemPrompt   = SCENE_PROMPT_SYSTEM;
-  const model          = "gpt-4o-mini";
-  const max_tokens     = 400;
-  const temperature    = 0.7;
+  // Generation settings (system prompt, model, temperature, max tokens) are
+  // admin-configurable via admin_config and resolve through the debug overlay,
+  // so the workbench can experiment with a candidate prompt before promoting it.
+  // See lib/scenePromptConfig.ts.
+  const { systemPrompt, model, temperature, maxTokens } = await getScenePromptGenerationConfig();
   const response = await openai.chat.completions.create({
     model,
-    max_tokens,
+    max_tokens: maxTokens,
     temperature,
     response_format: { type: "json_object" },
     messages: [
@@ -459,13 +427,9 @@ async function generateAndStoreImageFromReference(
   // Each reference model uses a different parameter name for the face image URL.
   const faceParamName = REFERENCE_MODEL_INPUT_PARAM[model]!;
 
-  // Append composition suffix so PuLID shows a full scene rather than a portrait close-up.
-  const compositionSuffix = PULID_COMPOSITION_SUFFIX;
-  const finalPrompt = compositionSuffix ? `${prompt.trim()} ${compositionSuffix}` : prompt;
-
   const input: Record<string, unknown> = {
     [faceParamName]: faceImageUrl,
-    prompt: finalPrompt,
+    prompt: prompt.trim(),
     image_size: imageSize,
     num_images: 1,
   };
@@ -991,12 +955,10 @@ export async function buildFalInputPreview(
 
   if (isRef && isReferenceCapableModel(model)) {
     // Reference path (PuLID / IP-Adapter)
-    const compositionSuffix = PULID_COMPOSITION_SUFFIX;
-    const finalPrompt = compositionSuffix ? `${prompt.trim()} ${compositionSuffix}` : prompt;
     const faceParamName = REFERENCE_MODEL_INPUT_PARAM[model]!;
     const input: Record<string, unknown> = {
       [faceParamName]: "<reference_image_url>",
-      prompt: finalPrompt,
+      prompt: prompt.trim(),
       image_size: imageSize,
       num_images: 1,
     };

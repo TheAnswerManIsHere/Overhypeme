@@ -1,6 +1,6 @@
 import { AdminLayout } from "@/components/admin/AdminLayout";
 import { CollapsibleSection } from "@/components/CollapsibleSection";
-import { Settings, Loader2, Palette, Bug, Bot, Sliders, DollarSign, Shield, Mail, ShoppingBag, Clock, Zap } from "lucide-react";
+import { Settings, Loader2, Bug, Bot, Sliders, DollarSign, Shield, Mail, ShoppingBag, Clock, Wand2 } from "lucide-react";
 import {
   ConfigPageContext,
   ConfigPageCtx,
@@ -8,6 +8,8 @@ import {
   ModelParamRow,
   MODEL_CONFIG_KEYS,
   RETRY_DELAY_MS_KEYS,
+  SCENE_PROMPT_KEYS,
+  VIDEO_DIRECTION_KEYS,
   useConfigCtx,
   useConfigPageState,
   msToHuman,
@@ -27,7 +29,6 @@ const LIMIT_KEYS = new Set([
   "user_max_images",
   "bg_display_limit_stock",
   "bg_display_limit_gradient",
-  "bg_display_limit_ai",
   "bg_display_limit_upload",
 ]);
 
@@ -39,6 +40,7 @@ const EMAIL_KEYS = new Set([
   "email_retry_delay_2_ms",
   "email_retry_delay_3_ms",
   "email_retry_delay_4_ms",
+  "email_outbox_retention_days",
 ]);
 
 const ZAZZLE_KEYS = new Set([
@@ -158,59 +160,65 @@ function RetryTimelinePanel() {
 
 // ── AI Settings group (nested inside Configuration) ───────────────────────────
 //
-// Phase 6 + admin-panel cleanup: the AI image / scene-prompt / video sections
-// previously rendered here have been retired (their backing admin_config keys
-// were deleted). The Image Style Suffixes section was also dropped — style
-// prompt content now lives on the `look_styles` DB table, not admin_config.
-// Engine configuration lives at /admin/engines; the look-styles editor is a
-// follow-up. Only the AI gallery display limit and a couple of generation
-// caps survive on this page.
+// Hosts the OpenAI prompt-generation levers — the AI Image Style Prompt and the
+// AI Video Style Prompt, each with system prompt / model / temperature / max
+// tokens — plus the AI gallery display limit. Both style prompts work the same
+// way (generate a cinematic prompt, then merge a second layer: the look-style
+// suffix for images, the motion preset for video), so they share one panel.
+// Image-engine / video config lives at /admin/engines; look-style prompt text
+// lives on `look_styles`.
 
 function AISettingsGroup() {
+  const { rows } = useConfigCtx();
+
+  const imageStyleRows = [...SCENE_PROMPT_KEYS]
+    .map((key) => rows.find((r) => r.key === key))
+    .filter((r): r is NonNullable<typeof r> => r !== undefined);
+
+  const videoStyleRows = [...VIDEO_DIRECTION_KEYS]
+    .map((key) => rows.find((r) => r.key === key))
+    .filter((r): r is NonNullable<typeof r> => r !== undefined);
+
   return (
     <div className="space-y-3">
 
-      {/* AI Engine configuration — moved out of admin/config */}
-      <div className="rounded-lg border border-border bg-muted/40 p-4 flex items-start gap-3">
-        <Zap className="w-5 h-5 text-primary shrink-0 mt-0.5" />
-        <div className="space-y-1">
-          <p className="text-sm font-semibold text-foreground">
-            AI engine configuration has moved
-          </p>
-          <p className="text-sm text-muted-foreground">
-            Per-engine settings (model id, allowed durations, resolutions, aspect
-            ratios, audio handling, parameter schemas) now live in the{" "}
-            <a href="/admin/engines" className="text-primary underline hover:text-primary/80">
-              /admin/engines
-            </a>{" "}
-            panel. The legacy ad-hoc admin_config keys
-            (<code className="text-xs bg-muted px-1 py-0.5 rounded">ai_std_*</code>,
-            <code className="text-xs bg-muted px-1 py-0.5 rounded ml-1">ai_ref_pulid_*</code>,
-            <code className="text-xs bg-muted px-1 py-0.5 rounded ml-1">ai_image_model_*</code>,
-            <code className="text-xs bg-muted px-1 py-0.5 rounded ml-1">ai_scene_prompt_*</code>,
-            <code className="text-xs bg-muted px-1 py-0.5 rounded ml-1">video_model</code>, …)
-            were retired in Phase 6.
-          </p>
-        </div>
-      </div>
+      {/* AI Style Prompt Configuration — image + video, one unified panel */}
+      {(imageStyleRows.length > 0 || videoStyleRows.length > 0) && (
+        <CollapsibleSection
+          title="AI Style Prompt Configuration"
+          icon={<Wand2 className="w-4 h-4 text-muted-foreground" />}
+          description="How OpenAI turns a fact into the prompt sent to fal.ai. The image style prompt (text → scene, once per fact) drives still generation; the video motion prompt (image + fact → motion, once per render) animates the still. Each is merged with a second layer: the look-style suffix for images, the motion preset for video."
+          storageKey="admin_section_config_ai_style_prompts"
+        >
+          <div className="space-y-5">
+            {imageStyleRows.length > 0 && (
+              <div className="space-y-3">
+                <h4 className="text-xs font-bold uppercase tracking-wide text-muted-foreground">AI Image Style Prompt</h4>
+                {imageStyleRows.map((row) => (
+                  <ConfigCard
+                    key={row.key}
+                    row={row}
+                    textareaRows={row.key === "scene_prompt_system" ? 16 : 4}
+                  />
+                ))}
+              </div>
+            )}
 
-      {/* Look style suffixes — moved to look_styles DB table */}
-      <div className="rounded-lg border border-border bg-muted/40 p-4 flex items-start gap-3">
-        <Palette className="w-5 h-5 text-primary shrink-0 mt-0.5" />
-        <div className="space-y-1">
-          <p className="text-sm font-semibold text-foreground">
-            Image style suffixes moved to look_styles
-          </p>
-          <p className="text-sm text-muted-foreground">
-            Style prompt content (the text appended to the scene prompt for
-            each visual style) now lives on the{" "}
-            <code className="text-xs bg-muted px-1 py-0.5 rounded">look_styles</code>{" "}
-            DB table. A dedicated <code className="text-xs bg-muted px-1 py-0.5 rounded">/admin/look-styles</code>{" "}
-            editor is a follow-up; in the meantime, prompt content lives in
-            migration 0057 and the typed engine catalogue.
-          </p>
-        </div>
-      </div>
+            {videoStyleRows.length > 0 && (
+              <div className="space-y-3">
+                <h4 className="text-xs font-bold uppercase tracking-wide text-muted-foreground">AI Video Motion Prompt</h4>
+                {videoStyleRows.map((row) => (
+                  <ConfigCard
+                    key={row.key}
+                    row={row}
+                    textareaRows={row.key === "video_direction_system" ? 16 : 4}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
+        </CollapsibleSection>
+      )}
 
       {/* AI Generation Limits */}
       <CollapsibleSection
@@ -247,6 +255,8 @@ export default function AdminConfig() {
     !r.key.startsWith("style_suffix_") &&
     r.key !== "debug_mode_active" &&
     !MODEL_CONFIG_KEYS.has(r.key) &&
+    !SCENE_PROMPT_KEYS.has(r.key) &&
+    !VIDEO_DIRECTION_KEYS.has(r.key) &&
     !BUDGET_KEYS.has(r.key) &&
     !LIMIT_KEYS.has(r.key) &&
     !EMAIL_KEYS.has(r.key) &&

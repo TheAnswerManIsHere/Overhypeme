@@ -7,6 +7,8 @@ import {
 import { eq, sql, gt } from "drizzle-orm";
 import { SEED_FACTS } from "../data/seed-facts";
 import { embedFactAsync } from "./embeddings";
+import { seedScenePromptConfig } from "./scenePromptConfig";
+import { seedVideoDirectionConfig } from "./videoDirection";
 import { logger } from "./logger";
 
 /**
@@ -193,6 +195,14 @@ export async function ensureSchema(): Promise<void> {
         VALUES ('max_memes_per_fact', '40', 'integer', 'Max Memes Per Fact',
          'Maximum number of memes returned per fact in the gallery (applies to both public and personal views).',
          1, 500, false)
+      ON CONFLICT (key) DO NOTHING`,
+    },
+    {
+      label: "admin_config seed debug_mode_active",
+      ddl: `INSERT INTO admin_config (key, value, data_type, label, description, is_public)
+        VALUES ('debug_mode_active', 'false', 'boolean', 'Debug Mode Active',
+         'Global staging toggle: when ON, any config key that has a debug value uses it instead of the production value. Used to experiment with settings (e.g. scene-prompt levers) before promoting them. Affects all traffic while ON.',
+         false)
       ON CONFLICT (key) DO NOTHING`,
     },
     {
@@ -486,9 +496,6 @@ export async function ensureSchema(): Promise<void> {
         ('bg_display_limit_gradient', '20', 'integer', 'Background Picker: Gradient Limit',
          'Maximum number of gradient backgrounds shown in the background image picker when creating a meme.',
          1, 200, true),
-        ('bg_display_limit_ai', '20', 'integer', 'Background Picker: AI Generated Limit',
-         'Maximum number of AI-generated backgrounds shown in the background image picker when creating a meme. Does not affect how many are generated or stored.',
-         1, 500, true),
         ('bg_display_limit_upload', '20', 'integer', 'Background Picker: Upload Limit',
          'Maximum number of uploaded images shown in the background image picker when creating a meme. Does not affect storage limits.',
          1, 500, true)
@@ -543,6 +550,18 @@ export async function ensureSchema(): Promise<void> {
           0, 3650, false)
         ON CONFLICT (key) DO NOTHING`,
     },
+    {
+      // Dead control: the AI background picker reads ai_gallery_display_limit,
+      // never bg_display_limit_ai. Nothing consumed this key, so drop it.
+      label: "admin_config delete bg_display_limit_ai",
+      ddl: `DELETE FROM admin_config WHERE key = 'bg_display_limit_ai'`,
+    },
+    {
+      // Retired: the PuLID composition/framing suffix is no longer appended to
+      // reference-image prompts (moving to Nano Banana). Drop the stale key.
+      label: "admin_config delete scene_prompt_composition_suffix",
+      ddl: `DELETE FROM admin_config WHERE key = 'scene_prompt_composition_suffix'`,
+    },
   ];
 
   for (const { label, ddl } of migrations) {
@@ -552,6 +571,15 @@ export async function ensureSchema(): Promise<void> {
       logger.warn({ err, label }, "[schema] Could not apply migration");
     }
   }
+
+  // Seed the admin-configurable scene-prompt levers (system prompt, OpenAI
+  // model, temperature, max tokens) with their production defaults. Idempotent
+  // — existing rows / admin edits are preserved.
+  await seedScenePromptConfig();
+
+  // Seed the admin-configurable video-direction levers (the motion/action
+  // direction layered on top of the motion preset for image-to-video).
+  await seedVideoDirectionConfig();
 }
 
 function computeWilsonScore(upvotes: number, downvotes: number): number {

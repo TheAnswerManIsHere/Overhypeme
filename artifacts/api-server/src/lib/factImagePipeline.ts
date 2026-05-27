@@ -58,10 +58,10 @@ const KEYWORD_SYSTEM_PROMPT = `You extract Pexels stock photo search keywords fr
 Fact templates use tokens like {NAME}, {SUBJ}, {OBJ}, {POSS}, {REFL} for the subject person, and verb alternation like {does|do}.
 
 Your job:
-1. Identify the core visual concept of the fact — ignore the impossibility or humor.
+1. Identify the core visual scene of the fact — the subject, what they are doing, the setting, and the key objects/animals/people involved. Ignore the impossibility or humor; the photo just needs to evoke that scene.
 2. Classify it:
-   - "action" = a person doing something physical, social, or occupational
-   - "abstract" = cosmic, metaphysical, conceptual, or impossible to photograph (e.g. controlling gravity, being the internet, existing since the beginning of time)
+   - "action" — the fact can be staged as a real photo: a person doing an activity, in a place, with objects/animals/other people, a sport, a feat, a profession, a social moment, etc. Use this EVEN WHEN the claim is exaggerated or physically impossible — search for the LITERAL scene it describes (e.g. "bears hang their own food up a tree when {NAME} goes camping" → keywords about a campsite / forest / bears, NOT cosmic energy).
+   - "abstract" — ONLY when there is no stageable subject or scene at all: a purely cosmic/metaphysical/conceptual claim about willpower, luck, time, probability, controlling gravity, being the internet, existing since the beginning of time, etc. When in doubt, choose "action".
 3. Return THREE search keyword strings optimized for Pexels stock photo results:
    - "male"    — always include "man" naturally in the phrase (even for abstract facts — e.g. "man gravity concept", "man dark energy power")
    - "female"  — always include "woman" naturally in the phrase (e.g. "woman gravity concept", "woman space power")

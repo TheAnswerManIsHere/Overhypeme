@@ -205,7 +205,39 @@ export function msToHuman(ms: number): string {
   return `≈ ${rounded} hour${rounded === 1 ? "" : "s"}`;
 }
 
-export const SELECT_CONFIGS: Record<string, { value: string; label: string }[]> = {};
+// OpenAI chat models offered for scene-prompt + video-direction generation.
+// Restricted to the GPT-4o / 4.1 chat-completions family — every model here
+// works with the existing calls (max_tokens + temperature). Reasoning models
+// (gpt-5 / o-series) are intentionally excluded because they reject those
+// params and would need a different call shape.
+export const OPENAI_CHAT_MODEL_OPTIONS: { value: string; label: string }[] = [
+  { value: "gpt-4o-mini",  label: "GPT-4o mini (fast, cheap — default)" },
+  { value: "gpt-4o",       label: "GPT-4o" },
+  { value: "gpt-4.1-nano", label: "GPT-4.1 nano (fastest, cheapest)" },
+  { value: "gpt-4.1-mini", label: "GPT-4.1 mini" },
+  { value: "gpt-4.1",      label: "GPT-4.1" },
+];
+
+export const SELECT_CONFIGS: Record<string, { value: string; label: string }[]> = {
+  scene_prompt_model: OPENAI_CHAT_MODEL_OPTIONS,
+  video_direction_model: OPENAI_CHAT_MODEL_OPTIONS,
+};
+
+// Scene-prompt generation levers — grouped together on the AI Settings page.
+export const SCENE_PROMPT_KEYS = new Set<string>([
+  "scene_prompt_system",
+  "scene_prompt_model",
+  "scene_prompt_temperature",
+  "scene_prompt_max_tokens",
+]);
+
+// Video-direction generation levers — grouped together on the AI Settings page.
+export const VIDEO_DIRECTION_KEYS = new Set<string>([
+  "video_direction_system",
+  "video_direction_model",
+  "video_direction_temperature",
+  "video_direction_max_tokens",
+]);
 
 // Keys that are surfaced through dedicated sections elsewhere on the
 // admin config page (so they don't appear in the catch-all generic list).
@@ -494,7 +526,7 @@ export function ConfigInput({
   );
 }
 
-export function ConfigCard({ row }: { row: ConfigRow }) {
+export function ConfigCard({ row, textareaRows = 4 }: { row: ConfigRow; textareaRows?: number }) {
   const { stdEdits, dbgEdits, debugActive, setDbgEdits, saveDbg, dbgDirty } = useConfigCtx();
   const stdState = stdEdits[row.key];
   const dbgState = dbgEdits[row.key];
@@ -541,7 +573,7 @@ export function ConfigCard({ row }: { row: ConfigRow }) {
             <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Standard</span>
             {!debugActive && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-primary/15 text-primary font-medium">Active</span>}
           </div>
-          <ConfigInput configKey={row.key} kind="std" rows={4} />
+          <ConfigInput configKey={row.key} kind="std" rows={textareaRows} />
         </div>
 
         <div className={`rounded-lg border p-3 space-y-2 ${debugActive ? "border-amber-500/50 bg-amber-500/5" : "border-border"}`}>
@@ -560,6 +592,7 @@ export function ConfigCard({ row }: { row: ConfigRow }) {
                     onChange={(e) => onDbgChange(e.target.value)}
                     className={`flex-1 bg-background border rounded px-3 py-1.5 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-amber-500/50 ${dbgBorderClass}`}
                   >
+                    <option value="">— Same as standard (no override) —</option>
                     {dbgSelectOptions.map((opt) => (
                       <option key={opt.value} value={opt.value}>{opt.label}</option>
                     ))}
@@ -567,15 +600,17 @@ export function ConfigCard({ row }: { row: ConfigRow }) {
                   <SaveButton dirty={dbgDirty(row.key)} saving={dbgState.saving} saved={dbgState.saved} onClick={() => saveDbg(row.key)} />
                   {dbgState.error && <p className="text-destructive text-xs flex items-center gap-1"><AlertCircle className="w-3 h-3" />{dbgState.error}</p>}
                 </div>
-                <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                  <span className="shrink-0">API value:</span>
-                  <code className="bg-muted px-1.5 py-0.5 rounded text-xs font-mono text-foreground/80 select-all">{dbgState.value}</code>
-                </div>
+                {dbgState.value !== "" && (
+                  <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                    <span className="shrink-0">API value:</span>
+                    <code className="bg-muted px-1.5 py-0.5 rounded text-xs font-mono text-foreground/80 select-all">{dbgState.value}</code>
+                  </div>
+                )}
               </div>
             ) : row.dataType === "text" ? (
               <>
                 <textarea
-                  rows={4}
+                  rows={textareaRows}
                   value={dbgState.value}
                   onChange={(e) => onDbgChange(e.target.value)}
                   placeholder={row.debugValue ?? "Same as standard (no override)"}

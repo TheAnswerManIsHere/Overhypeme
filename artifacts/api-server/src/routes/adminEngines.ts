@@ -40,9 +40,9 @@ import { clearEngineCaches, buildEngineInput } from "../lib/engineInterpreter.js
 import { applyAudioHandling } from "../lib/engineAudio.js";
 import {
   generateScenePrompts,
-  PULID_COMPOSITION_SUFFIX,
   type AiScenePrompts,
 } from "../lib/aiMemePipeline.js";
+import { generateVideoDirection } from "../lib/videoDirection.js";
 import { renderPersonalized } from "../lib/renderCanonical.js";
 
 // Hardcoded test identity for workbench prompt assembly — renders fact
@@ -62,6 +62,41 @@ export function __setScenePromptGeneratorForTest(
   fn: ((factText: string) => Promise<AiScenePrompts>) | null,
 ): void {
   scenePromptGenerator = fn ?? generateScenePrompts;
+}
+
+// Test seam: override the AI Video Motion Prompt generator likewise.
+let videoStylePromptGenerator: (factText: string, imageUrl?: string | null) => Promise<string> = generateVideoDirection;
+export function __setVideoStylePromptGeneratorForTest(
+  fn: ((factText: string, imageUrl?: string | null) => Promise<string>) | null,
+): void {
+  videoStylePromptGenerator = fn ?? generateVideoDirection;
+}
+
+// Lazily upload the bundled 1×1 test face to fal so OpenAI's vision call has a
+// fetchable URL when the bench has no real sample image. Memoized per process
+// (the placeholder never changes); the falUploadOverride seam keeps tests off
+// the network.
+let bundledFaceUrlPromise: Promise<string> | null = null;
+async function getBundledTestFaceUrl(): Promise<string> {
+  if (!bundledFaceUrlPromise) {
+    bundledFaceUrlPromise = (async () => {
+      const buf = await fs.readFile(TEST_FACE_ASSET);
+      const blob = new Blob([new Uint8Array(buf)], { type: "image/jpeg" });
+      if (falUploadOverride) return falUploadOverride(blob);
+      const { fal, ensureFalConfigured } = await import("../lib/falClient.js");
+      ensureFalConfigured();
+      return fal.storage.upload(blob);
+    })().catch((err) => {
+      bundledFaceUrlPromise = null; // allow retry on a later request
+      throw err;
+    });
+  }
+  return bundledFaceUrlPromise;
+}
+
+/** Test helper: clear the memoized bundled-face URL between cases. */
+export function __resetBundledFaceUrlForTest(): void {
+  bundledFaceUrlPromise = null;
 }
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -434,7 +469,16 @@ interface TestBody {
    * Test panel without hard-coding them server-side.
    */
   extraParams?: Record<string, unknown>;
+  /**
+   * Preview mode: build and return the exact `falInput` that would be sent to
+   * the engine WITHOUT uploading the test asset or submitting to fal. Lets the
+   * workbench show the completed call shape before the admin commits to a run.
+   */
+  dryRun?: boolean;
 }
+
+/** Placeholder URL used for source assets in dry-run previews (no upload). */
+const DRY_RUN_ASSET_PLACEHOLDER = "<source asset — uploaded to fal at run time>";
 
 /**
  * Synthetic generation through fal.subscribe — used by admins to verify
@@ -526,9 +570,22 @@ interface AssemblePromptBody {
   lookStyleId?: string;
   motionPresetId?: string;
   /**
-   * Force fresh scene-prompt generation (image benches), overwriting the
-   * fact's cached aiScenePrompts. Use to refresh stale/misclassified caches —
-   * e.g. older facts whose cached prompts predate the current SCENE_PROMPT_SYSTEM.
+   * Source image for the video bench — the still the motion prompt is generated
+   * against (the model must see what's in the frame). Falls back to the bundled
+   * test face when absent.
+   */
+  sampleImageUrl?: string;
+  /**
+   * The video motion prompt already shown in the bench. Video benches have no
+   * persistent cache (production regenerates per render), so the client passes
+   * the current value back: it's reused when only the motion preset changes and
+   * regenerated when absent or when forceRegenerate is set.
+   */
+  videoDirection?: string;
+  /**
+   * Force fresh generation: for image benches, regenerate the scene prompts and
+   * overwrite the fact's cached aiScenePrompts; for video benches, regenerate
+   * the AI Video Motion Prompt instead of reusing the passed-in value.
    */
   forceRegenerate?: boolean;
 }
@@ -563,21 +620,53 @@ router.post(
 
     const benchType = engineBenchType(engine);
 
-    // Video: motion preset drives motion; the fact text is the voice/dialogue cue.
+    // Video: the AI Video Motion Prompt (generated from the source image) + the
+    // motion preset (camera/movement) are merged exactly like
+    // videoPipelineRunner.runStage2; the fact text is also the voice/dialogue cue.
     if (benchType === "video") {
-      let motionPrompt = "";
+      // Motion preset — the second, separate layer.
+      let presetPrompt = "";
       if (body.motionPresetId) {
         const [mp] = await db
           .select({ motionPrompt: motionPresetsTable.motionPrompt })
           .from(motionPresetsTable)
           .where(eq(motionPresetsTable.id, body.motionPresetId))
           .limit(1);
-        motionPrompt = mp?.motionPrompt ?? "";
+        presetPrompt = mp?.motionPrompt ?? "";
       }
-      // Render the fact template down to a concrete name + pronoun, exactly
-      // like the production voice/dialogue cue.
+      // Render the fact template down to a concrete name + pronoun — both the
+      // dialogue cue and the text fed to the motion generator (matching
+      // production, which generates from the rendered fact text).
       const dialogueText = renderPersonalized(fact.text, WORKBENCH_TEST_NAME, WORKBENCH_TEST_PRONOUNS);
-      res.json({ benchType, motionPrompt, dialogueText });
+
+      // AI Video Motion Prompt — the generated first layer. Reuse the value the
+      // bench already holds unless it's absent or a regenerate was requested, so
+      // swapping the motion preset doesn't re-roll the (non-deterministic) prompt.
+      let videoStyle = typeof body.videoDirection === "string" ? body.videoDirection.trim() : "";
+      if (!videoStyle || body.forceRegenerate) {
+        // The generator must SEE the still: use the admin's sample image, else
+        // the bundled test face. A failed face upload is non-fatal (degrade to
+        // text-only generation).
+        let imageUrl = typeof body.sampleImageUrl === "string" ? body.sampleImageUrl.trim() : "";
+        if (!imageUrl) {
+          try {
+            imageUrl = await getBundledTestFaceUrl();
+          } catch (err) {
+            logger.warn({ err }, "[adminEngines/assemble-prompt] bundled test-face upload failed; generating text-only");
+          }
+        }
+        try {
+          videoStyle = (await videoStylePromptGenerator(dialogueText, imageUrl || null)).trim();
+        } catch (err) {
+          logger.warn({ err, factId }, "[adminEngines/assemble-prompt] video motion-prompt generation failed");
+          videoStyle = "";
+        }
+      }
+
+      const motionPrompt = videoStyle
+        ? (presetPrompt ? `${videoStyle} ${presetPrompt}` : videoStyle)
+        : presetPrompt;
+      res.json({ benchType, motionPrompt, dialogueText, videoDirection: videoStyle });
       return;
     }
 
@@ -624,7 +713,6 @@ router.post(
 
     let imagePrompt = scene;
     if (styleSuffix.trim()) imagePrompt += ` ${styleSuffix.trim()}`;
-    if (benchType === "image-to-image") imagePrompt += ` ${PULID_COMPOSITION_SUFFIX}`;
 
     res.json({ benchType, imagePrompt });
   },
@@ -638,20 +726,25 @@ router.post("/admin/engines/:id/test", requireAdmin, async (req: Request, res: R
     return;
   }
 
+  const body = (req.body && typeof req.body === "object" ? req.body : {}) as TestBody;
+  const dryRun = body.dryRun === true;
+
   // Belt-and-suspenders — boot already calls ensureFalConfigured(), but
   // surfacing a clean 503 here means a missing key never leaks through as
   // a confusing 401 "Authorization header is required" from the fal SDK.
-  try {
-    ensureFalConfigured();
-  } catch (err) {
-    res.status(503).json({
-      error: "fal_not_configured",
-      message: err instanceof Error ? err.message : "fal.ai client is not configured",
-    });
-    return;
+  // A dry-run preview never touches fal, so skip the gate entirely.
+  if (!dryRun) {
+    try {
+      ensureFalConfigured();
+    } catch (err) {
+      res.status(503).json({
+        error: "fal_not_configured",
+        message: err instanceof Error ? err.message : "fal.ai client is not configured",
+      });
+      return;
+    }
   }
 
-  const body = (req.body && typeof req.body === "object" ? req.body : {}) as TestBody;
   const provided = typeof body.sampleImageUrl === "string" ? body.sampleImageUrl.trim() : "";
 
   // ── Configure fal client with API key ────────────────────────────────────
@@ -668,14 +761,25 @@ router.post("/admin/engines/:id/test", requireAdmin, async (req: Request, res: R
   //   utility → an explicit video URL (the face placeholder is meaningless)
   let sampleImageUrl = provided;
   if (benchType === "utility" && !sampleImageUrl) {
-    res.status(400).json({
-      error: "test_not_supported",
-      message: `Test not supported for utility engine "${engine.id}" without an explicit sampleImageUrl. Utility engines like auto-subtitle expect a video URL, not the bundled face placeholder.`,
-    });
-    return;
+    // A dry-run preview just shows the call shape, so a placeholder stands in
+    // for the video URL the admin would otherwise have to supply.
+    if (dryRun) {
+      sampleImageUrl = DRY_RUN_ASSET_PLACEHOLDER;
+    } else {
+      res.status(400).json({
+        error: "test_not_supported",
+        message: `Test not supported for utility engine "${engine.id}" without an explicit sampleImageUrl. Utility engines like auto-subtitle expect a video URL, not the bundled face placeholder.`,
+      });
+      return;
+    }
   }
   const needsSourceImage = benchType === "image-to-image" || benchType === "video";
   if (needsSourceImage && !sampleImageUrl) {
+    // Skip the fal.storage upload for previews — the URL doesn't change the
+    // call shape, so a placeholder keeps the preview free + instant.
+    if (dryRun) {
+      sampleImageUrl = DRY_RUN_ASSET_PLACEHOLDER;
+    } else {
     try {
       const buf = await fs.readFile(TEST_FACE_ASSET);
       const blob = new Blob([new Uint8Array(buf)], { type: "image/jpeg" });
@@ -689,6 +793,7 @@ router.post("/admin/engines/:id/test", requireAdmin, async (req: Request, res: R
         message: err instanceof Error ? err.message : "Failed to upload test image",
       });
       return;
+    }
     }
   }
 
@@ -797,6 +902,19 @@ router.post("/admin/engines/:id/test", requireAdmin, async (req: Request, res: R
         message: err instanceof Error ? err.message : "Failed to build engine input",
         stage: "buildEngineInput",
       },
+    });
+    return;
+  }
+
+  // ── Dry-run preview: return the built call shape without submitting ────────
+  if (dryRun) {
+    res.status(200).json({
+      ok: true,
+      dryRun: true,
+      engineId: engine.id,
+      endpointId: engine.endpointId,
+      falInput,
+      benchType,
     });
     return;
   }

@@ -66,8 +66,12 @@ const EDITABLE_FIELDS = [
   "estimatedCostUsdPerSecond",
 ] as const;
 
+// Section labels. Image engines are split into their two benches
+// (text-to-image vs image-to-image) so each gets its own section.
 const KIND_LABELS: Record<string, string> = {
   video: "Video engines",
+  "text-to-image": "Text-to-image engines",
+  "image-to-image": "Image-to-image engines",
   image: "Image engines",
   utility: "Utility engines",
 };
@@ -257,6 +261,12 @@ function EngineTestPanel({ engine }: { engine: EngineRow }) {
   const [motionPresetId, setMotionPresetId] = useState("");
   const [assembling, setAssembling] = useState(false);
   const [assembleError, setAssembleError] = useState<string | null>(null);
+  // Video benches have no server-side cache for the generated AI Video Motion
+  // Prompt (production regenerates per render). Hold the last generated value
+  // here, keyed by fact + source image, so swapping the motion preset reuses it
+  // instead of re-rolling — only a new image/fact or the explicit "Regenerate"
+  // link forces a fresh one (the motion prompt depends on the image).
+  const videoStyleRef = useRef<{ key: string; value: string } | null>(null);
 
   // Fetch the look-style + motion-preset catalogues once (only what the bench needs).
   useEffect(() => {
@@ -297,6 +307,14 @@ function EngineTestPanel({ engine }: { engine: EngineRow }) {
     if (!selectedFact || benchType === "utility") return;
     setAssembling(true);
     setAssembleError(null);
+    // Reuse the cached video motion prompt unless a regenerate was asked for.
+    // The motion prompt depends on the fact AND the source image, so a change to
+    // either invalidates the cache; the motion preset does not.
+    const videoCacheKey = `${selectedFact.id}|${sampleUrl.trim()}`;
+    const cachedVideoStyle =
+      !forceRegenerate && videoStyleRef.current?.key === videoCacheKey
+        ? videoStyleRef.current.value
+        : undefined;
     try {
       const r = await fetch(`/api/admin/engines/${engine.id}/assemble-prompt`, {
         method: "POST",
@@ -307,22 +325,27 @@ function EngineTestPanel({ engine }: { engine: EngineRow }) {
           gender,
           lookStyleId: lookStyleId || undefined,
           motionPresetId: motionPresetId || undefined,
+          sampleImageUrl: isVideoBench ? (sampleUrl.trim() || undefined) : undefined,
+          videoDirection: cachedVideoStyle,
           forceRegenerate,
         }),
       });
       const json = await r.json().catch(() => null);
       if (!r.ok) throw new Error(json?.error ?? `HTTP ${r.status}`);
-      const data = json as { imagePrompt?: string; motionPrompt?: string; dialogueText?: string };
+      const data = json as { imagePrompt?: string; motionPrompt?: string; dialogueText?: string; videoDirection?: string };
       if (typeof data.imagePrompt === "string") setImagePrompt(data.imagePrompt);
       if (typeof data.motionPrompt === "string") { setMotionPrompt(data.motionPrompt); setExperiment("custom"); }
       if (typeof data.dialogueText === "string") { setDialogueText(data.dialogueText); setDialogueEnabled(true); }
+      if (typeof data.videoDirection === "string") {
+        videoStyleRef.current = { key: videoCacheKey, value: data.videoDirection };
+      }
     } catch (e) {
       setAssembleError(String(e instanceof Error ? e.message : e));
     } finally {
       setAssembling(false);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedFact?.id, gender, lookStyleId, motionPresetId, benchType, engine.id]);
+  }, [selectedFact?.id, gender, lookStyleId, motionPresetId, sampleUrl, isVideoBench, benchType, engine.id]);
 
   // Auto-assemble (cached prompts) whenever the selection changes.
   useEffect(() => { void runAssemble(false); }, [runAssemble]);
@@ -366,6 +389,11 @@ function EngineTestPanel({ engine }: { engine: EngineRow }) {
   } | null>(null);
   const [httpError, setHttpError] = useState<string | null>(null);
 
+  // Dry-run preview of the exact call that WILL be sent to the engine, shown
+  // above the Run button so the admin can verify the shape without rendering.
+  const [preview, setPreview] = useState<{ endpointId?: string; falInput?: unknown } | null>(null);
+  const [previewError, setPreviewError] = useState<string | null>(null);
+
   // Coerce engine-param string inputs back to the type the schema declared
   // so the server sees proper types (boolean true vs "true", number 0.5 vs "0.5").
   function coerceExtraValue(entry: ParamSchemaEntryLike, raw: string): unknown {
@@ -402,6 +430,83 @@ function EngineTestPanel({ engine }: { engine: EngineRow }) {
     return spaced.charAt(0).toUpperCase() + spaced.slice(1);
   }
 
+  // Build the exact request body sent to POST /:id/test. Shared by the live
+  // run and the dry-run preview so the preview can never drift from reality.
+  const buildRequestBody = (): Record<string, unknown> => {
+    const body: Record<string, unknown> = {};
+    if (sampleUrl.trim()) body.sampleImageUrl = sampleUrl.trim();
+    // Transform/scene prompt — image benches only.
+    if (isImagePromptBench && imagePrompt.trim()) {
+      body.imagePrompt = imagePrompt.trim();
+    }
+    // Motion + dialogue + duration + audio are video-only concepts.
+    if (isVideoBench) {
+      if (motionPrompt.trim() && motionPrompt !== DEFAULT_TEST_MOTION_PROMPT) {
+        body.motionPrompt = motionPrompt;
+      }
+      // dialogueText: null = explicit silence, string = override, undefined = default
+      if (!dialogueEnabled) {
+        body.dialogueText = null;
+      } else if (dialogueText.trim() && dialogueText !== DEFAULT_TEST_DIALOGUE_FULL) {
+        body.dialogueText = dialogueText;
+      }
+      if (durationSec && Number(durationSec) > 0) body.durationSec = Number(durationSec);
+      if (generateAudio !== (engine.audioHandling !== "none")) {
+        body.generateAudio = generateAudio;
+      }
+      if (mode) body.mode = mode;
+    }
+    if (aspectRatio && benchType !== "utility") body.aspectRatio = aspectRatio;
+    if (resolution) body.resolution = resolution;
+    if (engineParams.length > 0) {
+      const extras: Record<string, unknown> = {};
+      for (const p of engineParams) {
+        if (!p.from) continue;
+        const raw = extraParams[p.from] ?? "";
+        const coerced = coerceExtraValue(p, raw);
+        if (coerced !== undefined) extras[p.from] = coerced;
+      }
+      if (Object.keys(extras).length > 0) body.extraParams = extras;
+    }
+    return body;
+  };
+
+  // Serialized snapshot of the request body; the preview effect re-runs only
+  // when the body that would be sent actually changes.
+  const requestBodyJson = JSON.stringify(buildRequestBody());
+
+  useEffect(() => {
+    const controller = new AbortController();
+    const timer = setTimeout(async () => {
+      try {
+        setPreviewError(null);
+        const r = await fetch(`/api/admin/engines/${engine.id}/test`, {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ...(JSON.parse(requestBodyJson) as Record<string, unknown>), dryRun: true }),
+          signal: controller.signal,
+        });
+        const json = await r.json().catch(() => null);
+        if (!r.ok || !json) {
+          const errMsg =
+            (typeof json?.error === "string" ? json.error : json?.error?.message) ||
+            json?.message ||
+            `Preview failed (HTTP ${r.status})`;
+          setPreview(null);
+          setPreviewError(errMsg);
+          return;
+        }
+        setPreview({ endpointId: json.endpointId, falInput: json.falInput });
+      } catch (err) {
+        if ((err as Error)?.name === "AbortError") return;
+        setPreview(null);
+        setPreviewError("Preview unavailable");
+      }
+    }, 400);
+    return () => { controller.abort(); clearTimeout(timer); };
+  }, [requestBodyJson, engine.id]);
+
   const handleRun = async () => {
     // Abort any in-flight poll loop from a previous Run before starting a new one.
     abortRef.current?.abort();
@@ -414,41 +519,7 @@ function EngineTestPanel({ engine }: { engine: EngineRow }) {
     setResult(null);
     setPollPhase(null);
     try {
-      const body: Record<string, unknown> = {};
-      if (sampleUrl.trim()) body.sampleImageUrl = sampleUrl.trim();
-      // Transform/scene prompt — image benches only.
-      if (isImagePromptBench && imagePrompt.trim()) {
-        body.imagePrompt = imagePrompt.trim();
-      }
-      // Motion + dialogue + duration + audio are video-only concepts.
-      if (isVideoBench) {
-        if (motionPrompt.trim() && motionPrompt !== DEFAULT_TEST_MOTION_PROMPT) {
-          body.motionPrompt = motionPrompt;
-        }
-        // dialogueText: null = explicit silence, string = override, undefined = default
-        if (!dialogueEnabled) {
-          body.dialogueText = null;
-        } else if (dialogueText.trim() && dialogueText !== DEFAULT_TEST_DIALOGUE_FULL) {
-          body.dialogueText = dialogueText;
-        }
-        if (durationSec && Number(durationSec) > 0) body.durationSec = Number(durationSec);
-        if (generateAudio !== (engine.audioHandling !== "none")) {
-          body.generateAudio = generateAudio;
-        }
-        if (mode) body.mode = mode;
-      }
-      if (aspectRatio && benchType !== "utility") body.aspectRatio = aspectRatio;
-      if (resolution) body.resolution = resolution;
-      if (engineParams.length > 0) {
-        const extras: Record<string, unknown> = {};
-        for (const p of engineParams) {
-          if (!p.from) continue;
-          const raw = extraParams[p.from] ?? "";
-          const coerced = coerceExtraValue(p, raw);
-          if (coerced !== undefined) extras[p.from] = coerced;
-        }
-        if (Object.keys(extras).length > 0) body.extraParams = extras;
-      }
+      const body = buildRequestBody();
 
       const submittedAt = Date.now();
       const r = await fetch(`/api/admin/engines/${engine.id}/test`, {
@@ -749,6 +820,20 @@ function EngineTestPanel({ engine }: { engine: EngineRow }) {
               ↻ Regenerate scene prompts (overwrites this fact's cache)
             </button>
           )}
+
+          {/* Regenerate: re-roll the AI Video Motion Prompt (generated from the
+              source image, merged with the motion preset below). */}
+          {isVideoBench && selectedFact && (
+            <button
+              type="button"
+              disabled={assembling}
+              onClick={() => void runAssemble(true)}
+              className="text-[10px] text-primary hover:underline disabled:opacity-50"
+              data-testid="engine-test-regenerate-video-style"
+            >
+              ↻ Regenerate AI Video Motion Prompt
+            </button>
+          )}
         </div>
       )}
 
@@ -821,13 +906,16 @@ function EngineTestPanel({ engine }: { engine: EngineRow }) {
       {/* ── Motion prompt (video only) ───────────────────────────────── */}
       {isVideoBench && (
         <div>
-          <label className={labelCls}>Motion prompt</label>
+          <label className={labelCls}>Motion prompt (AI Video Motion Prompt + motion preset)</label>
           <textarea
             value={motionPrompt}
             onChange={(e) => { setMotionPrompt(e.target.value); setExperiment("custom"); }}
             rows={4}
             className={`${inputCls} font-sans`}
           />
+          <p className="text-[10px] text-muted-foreground mt-1">
+            The motion is generated from the source image below (the model sees the still). Paste a real rendered still as the Sample image URL for an accurate preview — otherwise it falls back to the bundled placeholder.
+          </p>
         </div>
       )}
 
@@ -1026,6 +1114,29 @@ function EngineTestPanel({ engine }: { engine: EngineRow }) {
           </div>
         </div>
       )}
+
+      {/* Live preview of the exact call that will be sent — no render cost. */}
+      <div className="space-y-1">
+        <div className="flex items-center gap-2">
+          <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">
+            fal input (will be sent)
+          </p>
+          {preview?.endpointId && (
+            <code className="text-[10px] font-mono text-primary/80 bg-primary/5 px-1.5 py-0.5 rounded-sm">
+              {preview.endpointId}
+            </code>
+          )}
+        </div>
+        {previewError ? (
+          <pre className="text-[11px] font-mono bg-destructive/5 border border-destructive/30 text-destructive rounded-sm p-2 overflow-x-auto whitespace-pre-wrap break-all">
+            {previewError}
+          </pre>
+        ) : (
+          <pre className="text-[11px] font-mono bg-muted/30 border border-border rounded-sm p-2 overflow-x-auto whitespace-pre-wrap break-all">
+            {preview ? safeJson(preview.falInput) : "Building preview…"}
+          </pre>
+        )}
+      </div>
 
       <button
         onClick={handleRun}
@@ -1537,13 +1648,15 @@ export default function AdminEngines() {
     const filtered = engines.filter((e) => (tab === "archived" ? e.deletedAt !== null : e.deletedAt === null));
     const map = new Map<string, EngineRow[]>();
     for (const e of filtered) {
-      if (!map.has(e.kind)) map.set(e.kind, []);
-      map.get(e.kind)!.push(e);
+      // Split image engines into their two benches; everything else groups by kind.
+      const section = e.kind === "image" ? engineBenchType(e) : e.kind;
+      if (!map.has(section)) map.set(section, []);
+      map.get(section)!.push(e);
     }
     for (const arr of map.values()) {
       arr.sort((a, b) => a.sortOrder - b.sortOrder || a.id.localeCompare(b.id));
     }
-    const order = ["video", "image", "utility"];
+    const order = ["video", "text-to-image", "image-to-image", "utility"];
     return [...map.entries()].sort(([a], [b]) => {
       const ia = order.indexOf(a);
       const ib = order.indexOf(b);
