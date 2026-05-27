@@ -693,3 +693,132 @@ describe("applyMigrations() DML errors propagate", () => {
     }
   });
 });
+
+/**
+ * DDL "already absent" recovery tests.
+ *
+ * applyMigrations() must also suppress errors that mean the intended DROP has
+ * already happened — the symmetric counterpart of the "already exists" codes
+ * above. The canonical production case: migration 0056 contains
+ * `ALTER TABLE video_jobs DROP COLUMN "style_id"` but some environments never
+ * had that column (it was added and renamed before the migration was written).
+ * The runner must treat 42703 (undefined_column) as a skip-safe signal rather
+ * than a fatal error, so the migration is recorded as applied and subsequent
+ * deploys are unblocked.
+ */
+const RUN_ID_DROP = crypto.randomBytes(4).toString("hex");
+const TAG_DROP = `9301_ddl_already_absent_${RUN_ID_DROP}`;
+const TABLE_DROP = `migrate_test_drop_${RUN_ID_DROP}`;
+const COL_DROP = `col_that_never_existed_${RUN_ID_DROP}`;
+// Two-statement migration: create the table (so the runner has something to
+// work with), then drop a column that was never added to it.
+const SQL_DROP = [
+  `CREATE TABLE "${TABLE_DROP}" (id integer PRIMARY KEY);`,
+  `ALTER TABLE "${TABLE_DROP}" DROP COLUMN "${COL_DROP}";`,
+].join("\n--> statement-breakpoint\n");
+const HASH_DROP = crypto.createHash("sha256").update(SQL_DROP).digest("hex");
+
+let tempDirDrop: string;
+let poolDrop: pg.Pool;
+let prevMigrationsFolderDrop: string | undefined;
+
+describe("applyMigrations() DDL already-absent recovery", () => {
+  before(async () => {
+    if (!process.env.DATABASE_URL) {
+      throw new Error(
+        "DATABASE_URL must be set to run lib/db migrate tests against a real Postgres.",
+      );
+    }
+
+    tempDirDrop = fs.mkdtempSync(path.join(os.tmpdir(), "migrate-drop-recovery-"));
+    fs.mkdirSync(path.join(tempDirDrop, "meta"));
+    fs.writeFileSync(path.join(tempDirDrop, `${TAG_DROP}.sql`), SQL_DROP);
+
+    const journal = {
+      version: "7",
+      dialect: "postgresql",
+      entries: [
+        { idx: 0, version: "7", when: 1900000300000, tag: TAG_DROP, breakpoints: true },
+      ],
+    };
+    fs.writeFileSync(
+      path.join(tempDirDrop, "meta/_journal.json"),
+      JSON.stringify(journal, null, 2),
+    );
+
+    prevMigrationsFolderDrop = process.env.DRIZZLE_MIGRATIONS_FOLDER;
+    process.env.DRIZZLE_MIGRATIONS_FOLDER = tempDirDrop;
+
+    poolDrop = new pg.Pool({ connectionString: process.env.DATABASE_URL, max: 2 });
+
+    const cleanup = await poolDrop.connect();
+    try {
+      await cleanup.query(`DROP TABLE IF EXISTS "${TABLE_DROP}"`);
+      try {
+        await cleanup.query(
+          `DELETE FROM drizzle.__drizzle_migrations WHERE hash = $1`,
+          [HASH_DROP],
+        );
+      } catch {
+        // drizzle.__drizzle_migrations may not exist yet on a fresh DB.
+      }
+    } finally {
+      cleanup.release();
+    }
+  });
+
+  after(async () => {
+    try {
+      const cleanup = await poolDrop.connect();
+      try {
+        await cleanup.query(`DROP TABLE IF EXISTS "${TABLE_DROP}"`);
+        await cleanup.query(
+          `DELETE FROM drizzle.__drizzle_migrations WHERE hash = $1`,
+          [HASH_DROP],
+        );
+      } finally {
+        cleanup.release();
+      }
+    } finally {
+      await poolDrop.end();
+      if (prevMigrationsFolderDrop === undefined) {
+        delete process.env.DRIZZLE_MIGRATIONS_FOLDER;
+      } else {
+        process.env.DRIZZLE_MIGRATIONS_FOLDER = prevMigrationsFolderDrop;
+      }
+      fs.rmSync(tempDirDrop, { recursive: true, force: true });
+    }
+  });
+
+  it("suppresses undefined_column (42703) and records the migration as applied", async () => {
+    const c = await poolDrop.connect();
+    let result: Awaited<ReturnType<typeof applyMigrations>>;
+    try {
+      // Must not throw — the runner should catch 42703 on the DROP COLUMN,
+      // ROLLBACK TO SAVEPOINT, and continue to record the migration as applied.
+      result = await applyMigrations(c);
+    } finally {
+      c.release();
+    }
+
+    assert.equal(result.total, 1, "synthetic journal has 1 entry");
+    assert.equal(result.applied, 1, "migration must be marked applied even though the column never existed");
+    assert.equal(result.skipped, 0);
+
+    // The hash must be persisted so a subsequent deploy is a no-op.
+    const probe = await poolDrop.connect();
+    try {
+      const { rows } = await probe.query<{ count: string }>(
+        `SELECT COUNT(*)::text AS count FROM drizzle.__drizzle_migrations WHERE hash = $1`,
+        [HASH_DROP],
+      );
+      assert.equal(
+        Number(rows[0].count),
+        1,
+        `migration ${TAG_DROP} should be recorded exactly once after 42703 recovery`,
+      );
+    } finally {
+      probe.release();
+    }
+  });
+});
