@@ -50,15 +50,27 @@ interface Journal {
   entries: JournalEntry[];
 }
 
-// Only suppress DDL "already exists" errors — these are safe to skip because
-// the object is already in place. Data errors (e.g. 23505 unique_violation)
-// are intentionally excluded so real DML bugs surface rather than being masked.
+// Suppress DDL idempotency errors — errors that mean the intended schema state
+// is already in place, either because the object already exists (for ADD/CREATE
+// operations) or because it was already removed (for DROP operations). Data
+// errors (e.g. 23505 unique_violation) are intentionally excluded so real DML
+// bugs surface rather than being silently masked.
+//
+// "already exists" codes (ADD/CREATE ops — object is already present):
+//   42P07 duplicate_table, 42701 duplicate_column, 42710 duplicate_object,
+//   42P16 invalid_table_definition, 42P12 duplicate_index
+//
+// "already absent" codes (DROP ops — object was already removed):
+//   42703 undefined_column  — ALTER TABLE … DROP COLUMN on a non-existent col
+//   42P01 undefined_table   — DROP TABLE on a non-existent table
 const DDL_ALREADY_EXISTS_CODES = new Set([
   "42P07", // duplicate_table
   "42701", // duplicate_column
   "42710", // duplicate_object (triggers, rules, etc.)
   "42P16", // invalid_table_definition (existing constraints)
   "42P12", // duplicate_index (via CREATE INDEX)
+  "42703", // undefined_column  (DROP COLUMN on already-absent column)
+  "42P01", // undefined_table   (DROP TABLE on already-absent table)
 ]);
 
 // Fixed advisory lock key for the migration runner. Any 32-bit integer works;
