@@ -25,31 +25,39 @@ async function snapshot() {
 }
 
 async function restore(rows: Awaited<ReturnType<typeof snapshot>>) {
-  // Wipe everything we seeded then put the snapshot back.
-  await db.delete(enginesTable).where(inArray(enginesTable.id, SEEDED_IDS));
-  if (rows.length > 0) {
-    // drizzle's .values() typing is strict; we insert via the row shape we
-    // already pulled from the DB so the types line up.
-    await db.insert(enginesTable).values(rows as never);
-  }
+  // Wipe everything we seeded then put the snapshot back, atomically.
+  // Wrapped in a transaction so a concurrent restore from another shard
+  // cannot interleave between the DELETE and the INSERT.
+  await db.transaction(async (tx) => {
+    await tx.delete(enginesTable).where(inArray(enginesTable.id, SEEDED_IDS));
+    if (rows.length > 0) {
+      // drizzle's .values() typing is strict; we insert via the row shape we
+      // already pulled from the DB so the types line up.
+      await tx.insert(enginesTable).values(rows as never);
+    }
+  });
   clearEngineCaches();
 }
 
 let baselineRows: Awaited<ReturnType<typeof snapshot>> = [];
 
-before(async () => {
-  baselineRows = await snapshot();
-});
-
-after(async () => {
-  await restore(baselineRows);
-});
-
-beforeEach(async () => {
-  await restore(baselineRows);
-});
+// NOTE: hooks are intentionally placed INSIDE the describe block below.
+// With --test-isolation=none all top-level hooks become global (they fire
+// before every test in the entire shard, across all files).  Scoping them
+// inside the describe keeps them local to reconcileEngines tests only.
 
 describe("reconcileEngines", () => {
+  before(async () => {
+    baselineRows = await snapshot();
+  });
+
+  after(async () => {
+    await restore(baselineRows);
+  });
+
+  beforeEach(async () => {
+    await restore(baselineRows);
+  });
   it("upserts every code-defined engine into the table", async () => {
     // Wipe so we hit the insert branch for every engine.
     await db.delete(enginesTable).where(inArray(enginesTable.id, SEEDED_IDS));
