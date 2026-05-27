@@ -13,17 +13,17 @@
 
 import { db } from "@workspace/db";
 import { sql } from "drizzle-orm";
-import { getConfigString, getConfigFloat, getConfigInt } from "./adminConfig";
+import { getConfigString } from "./adminConfig";
 import { logger } from "./logger";
+
+/** Call-site sampling overrides (classification wants low temperature + room). */
+export const FACT_ENRICHMENT_TEMPERATURE = 0.2;
+export const FACT_ENRICHMENT_MAX_TOKENS = 600;
 
 // ─── Config keys ───────────────────────────────────────────────────────────
 
 export const FACT_ENRICHMENT_CONFIG_KEYS = {
   system: "fact_enrichment_system",
-  model: "fact_enrichment_model",
-  temperature: "fact_enrichment_temperature",
-  maxTokens: "fact_enrichment_max_tokens",
-  reasoningEffort: "fact_enrichment_reasoning_effort",
 } as const;
 
 // ─── Production defaults ─────────────────────────────────────────────────────
@@ -260,32 +260,11 @@ Known modifier catalog:
 Return ONLY a single JSON object with exactly these keys: primaryArchetype, subtype, modifiers (array of strings), visualLiteralness, visualComplexity, overhypeFit, adultSuitability, adultSuitabilityNotes (string, "" if none), suggestedHashtags (array of 3-8 lowercase alphanumeric strings), taxonomyConfidence (number 0-1), adminReviewNotes (string, "" if none).
 Do not include explanation outside the JSON.`;
 
-export const FACT_ENRICHMENT_MODEL_DEFAULT = "gpt-4o-mini";
-export const FACT_ENRICHMENT_TEMPERATURE_DEFAULT = 0.2;
-export const FACT_ENRICHMENT_MAX_TOKENS_DEFAULT = 600;
-/** Reasoning effort for gpt-5/o-series models (ignored by gpt-4.x). */
-export const FACT_ENRICHMENT_REASONING_EFFORT_DEFAULT = "low";
+// ─── Getter (debug-overlay aware via adminConfig) ─────────────────────────────
 
-// ─── Getters (debug-overlay aware via adminConfig) ─────────────────────────────
-
-export interface FactEnrichmentGenerationConfig {
-  systemPrompt: string;
-  model: string;
-  temperature: number;
-  maxTokens: number;
-  reasoningEffort: string;
-}
-
-/** Resolve the OpenAI generation settings for fact enrichment. */
-export async function getFactEnrichmentConfig(): Promise<FactEnrichmentGenerationConfig> {
-  const [systemPrompt, model, temperature, maxTokens, reasoningEffort] = await Promise.all([
-    getConfigString(FACT_ENRICHMENT_CONFIG_KEYS.system, FACT_ENRICHMENT_SYSTEM_DEFAULT),
-    getConfigString(FACT_ENRICHMENT_CONFIG_KEYS.model, FACT_ENRICHMENT_MODEL_DEFAULT),
-    getConfigFloat(FACT_ENRICHMENT_CONFIG_KEYS.temperature, FACT_ENRICHMENT_TEMPERATURE_DEFAULT),
-    getConfigInt(FACT_ENRICHMENT_CONFIG_KEYS.maxTokens, FACT_ENRICHMENT_MAX_TOKENS_DEFAULT),
-    getConfigString(FACT_ENRICHMENT_CONFIG_KEYS.reasoningEffort, FACT_ENRICHMENT_REASONING_EFFORT_DEFAULT),
-  ]);
-  return { systemPrompt, model, temperature, maxTokens, reasoningEffort };
+/** Resolve the admin-configurable fact-enrichment system prompt. */
+export async function getFactEnrichmentSystem(): Promise<string> {
+  return getConfigString(FACT_ENRICHMENT_CONFIG_KEYS.system, FACT_ENRICHMENT_SYSTEM_DEFAULT);
 }
 
 // ─── Seeding ─────────────────────────────────────────────────────────────────
@@ -305,35 +284,7 @@ export const FACT_ENRICHMENT_CONFIG_DEFS: FactEnrichmentConfigDef[] = [
     // "text" renders as a multi-line textarea in the workbench.
     dataType: "text",
     label: "Fact Enrichment — System Prompt",
-    description: "OpenAI system prompt that classifies a submitted fact into the Overhype visual taxonomy. Must return JSON matching the enrichment schema (archetype, subtype, modifiers, etc.).",
-  },
-  {
-    key: FACT_ENRICHMENT_CONFIG_KEYS.model,
-    value: FACT_ENRICHMENT_MODEL_DEFAULT,
-    dataType: "string",
-    label: "Fact Enrichment — OpenAI Model",
-    description: "OpenAI chat model used to classify facts (e.g. gpt-4o-mini, gpt-4o, gpt-5).",
-  },
-  {
-    key: FACT_ENRICHMENT_CONFIG_KEYS.temperature,
-    value: String(FACT_ENRICHMENT_TEMPERATURE_DEFAULT),
-    dataType: "string",
-    label: "Fact Enrichment — Temperature",
-    description: "Sampling temperature for fact enrichment (0–2). Lower = more consistent classification.",
-  },
-  {
-    key: FACT_ENRICHMENT_CONFIG_KEYS.maxTokens,
-    value: String(FACT_ENRICHMENT_MAX_TOKENS_DEFAULT),
-    dataType: "integer",
-    label: "Fact Enrichment — Max Tokens",
-    description: "Maximum tokens for the enrichment JSON response (visible output; reasoning models get extra headroom on top).",
-  },
-  {
-    key: FACT_ENRICHMENT_CONFIG_KEYS.reasoningEffort,
-    value: FACT_ENRICHMENT_REASONING_EFFORT_DEFAULT,
-    dataType: "string",
-    label: "Fact Enrichment — Reasoning Effort",
-    description: "Reasoning effort for GPT-5 / o-series models (none/low/medium/high). Ignored by GPT-4.x models.",
+    description: "LLM system prompt that classifies a submitted fact into the Overhype visual taxonomy. Must return JSON matching the enrichment schema (archetype, subtype, modifiers, etc.). The model + sampling come from the General Intelligence engine.",
   },
 ];
 

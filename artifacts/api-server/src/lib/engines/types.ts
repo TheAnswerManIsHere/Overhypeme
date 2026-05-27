@@ -48,7 +48,7 @@ export type AudioHandling =
   | "native_audio_boolean"
   | "none";
 
-export type EngineKind = "image" | "video" | "utility";
+export type EngineKind = "image" | "video" | "utility" | "llm";
 export type TierRequirement = "unregistered" | "registered" | "legendary";
 
 /**
@@ -101,6 +101,14 @@ export interface EngineDefinition {
   estimatedCostUsdPerCall: number | null;
   /** Fallback per-second cost when fal pricing is unavailable. */
   estimatedCostUsdPerSecond: number | null;
+
+  // ── LLM engines ("llm" kind / provider "openai") only; omit for media ───
+  /** Default sampling temperature. */
+  defaultTemperature?: number | null;
+  /** Default max output tokens. */
+  defaultMaxTokens?: number | null;
+  /** Default reasoning effort for reasoning models (gpt-5 / o-series). */
+  defaultReasoningEffort?: string | null;
 }
 
 /**
@@ -127,6 +135,14 @@ export const ADMIN_EDITABLE_FIELDS = [
   "expectedRunMs",
   "estimatedCostUsdPerCall",
   "estimatedCostUsdPerSecond",
+  // LLM engines: the model (endpointId) and sampling defaults are admin-tunable.
+  // For media (fal) engines, endpointId stays code-owned — reconcile.ts
+  // re-asserts it on every boot (see codeOwnedFields), so only "openai"
+  // providers actually have an editable endpoint.
+  "endpointId",
+  "defaultTemperature",
+  "defaultMaxTokens",
+  "defaultReasoningEffort",
 ] as const;
 
 export type AdminEditableField = (typeof ADMIN_EDITABLE_FIELDS)[number];

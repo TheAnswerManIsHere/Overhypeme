@@ -599,6 +599,31 @@ export async function ensureSchema(): Promise<void> {
       label: "pending_reviews.enrichment_status",
       ddl: `ALTER TABLE pending_reviews ADD COLUMN IF NOT EXISTS enrichment_status varchar(16)`,
     },
+    {
+      label: "engines.default_temperature",
+      ddl: `ALTER TABLE engines ADD COLUMN IF NOT EXISTS default_temperature numeric(4,2)`,
+    },
+    {
+      label: "engines.default_max_tokens",
+      ddl: `ALTER TABLE engines ADD COLUMN IF NOT EXISTS default_max_tokens integer`,
+    },
+    {
+      label: "engines.default_reasoning_effort",
+      ddl: `ALTER TABLE engines ADD COLUMN IF NOT EXISTS default_reasoning_effort varchar(16)`,
+    },
+    {
+      // Consolidated: the model + sampling + reasoning effort for ALL LLM calls
+      // now come from the shared General Intelligence engine (engines table,
+      // provider "openai"). Only the editable system prompts remain in
+      // admin_config. Drop the per-feature model/temperature/max-token/
+      // reasoning-effort keys for image style, video motion, and fact enrichment.
+      label: "admin_config delete consolidated LLM model/sampling keys",
+      ddl: `DELETE FROM admin_config WHERE key IN (
+        'scene_prompt_model', 'scene_prompt_temperature', 'scene_prompt_max_tokens', 'scene_prompt_reasoning_effort',
+        'video_direction_model', 'video_direction_temperature', 'video_direction_max_tokens', 'video_direction_reasoning_effort',
+        'fact_enrichment_model', 'fact_enrichment_temperature', 'fact_enrichment_max_tokens', 'fact_enrichment_reasoning_effort'
+      )`,
+    },
   ];
 
   for (const { label, ddl } of migrations) {

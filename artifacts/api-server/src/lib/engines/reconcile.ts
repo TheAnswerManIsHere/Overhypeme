@@ -129,6 +129,10 @@ function codeDefinitionToRow(def: EngineDefinition): InsertEngine {
       def.estimatedCostUsdPerSecond != null ? String(def.estimatedCostUsdPerSecond) : null,
     expectedRunMs: def.expectedRunMs,
     featureFlagRequired: def.featureFlagRequired,
+    defaultTemperature:
+      def.defaultTemperature != null ? String(def.defaultTemperature) : null,
+    defaultMaxTokens: def.defaultMaxTokens,
+    defaultReasoningEffort: def.defaultReasoningEffort ?? null,
     deletedAt: null,
   };
 }
@@ -144,6 +148,12 @@ function codeOwnedFields(def: EngineDefinition): Partial<InsertEngine> {
   // Remove admin-editable fields (preserved across boots).
   for (const field of ADMIN_EDITABLE_FIELDS) {
     delete allFields[field];
+  }
+  // endpointId is admin-editable ONLY for LLM engines (the model picker).
+  // For media (fal) engines, code remains the source of truth for the
+  // endpoint, so re-assert it on every boot.
+  if (def.provider !== "openai") {
+    allFields.endpointId = def.endpointId;
   }
   // `deletedAt` is also admin-owned (soft-delete via the dedicated DELETE
   // endpoint) but lives outside ADMIN_EDITABLE_FIELDS because it's not

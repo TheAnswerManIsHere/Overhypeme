@@ -13,6 +13,7 @@ import {
   Beaker,
   Loader2,
 } from "lucide-react";
+import { OPENAI_CHAT_MODEL_OPTIONS, REASONING_EFFORT_OPTIONS } from "./_configShared";
 
 interface EngineRow {
   id: string;
@@ -39,6 +40,9 @@ interface EngineRow {
   estimatedCostUsdPerSecond: string | number | null;
   expectedRunMs: number;
   featureFlagRequired: string | null;
+  defaultTemperature: string | number | null;
+  defaultMaxTokens: number | null;
+  defaultReasoningEffort: string | null;
   createdAt: string;
   updatedAt: string;
   deletedAt: string | null;
@@ -64,6 +68,10 @@ const EDITABLE_FIELDS = [
   "expectedRunMs",
   "estimatedCostUsdPerCall",
   "estimatedCostUsdPerSecond",
+  "endpointId",
+  "defaultTemperature",
+  "defaultMaxTokens",
+  "defaultReasoningEffort",
 ] as const;
 
 // Section labels. Image engines are split into their two benches
@@ -1232,6 +1240,7 @@ function EngineTestPanel({ engine }: { engine: EngineRow }) {
 }
 
 function EngineEditor({ engine, onSaved }: { engine: EngineRow; onSaved: (e: EngineRow) => void }) {
+  const isLLM = engine.kind === "llm";
   const [form, setForm] = useState({
     isActive: engine.isActive,
     isDefault: engine.isDefault,
@@ -1245,6 +1254,10 @@ function EngineEditor({ engine, onSaved }: { engine: EngineRow; onSaved: (e: Eng
     expectedRunMs: String(engine.expectedRunMs),
     estimatedCostUsdPerCall: engine.estimatedCostUsdPerCall === null ? "" : String(engine.estimatedCostUsdPerCall),
     estimatedCostUsdPerSecond: engine.estimatedCostUsdPerSecond === null ? "" : String(engine.estimatedCostUsdPerSecond),
+    endpointId: engine.endpointId,
+    defaultTemperature: engine.defaultTemperature === null ? "" : String(engine.defaultTemperature),
+    defaultMaxTokens: engine.defaultMaxTokens === null ? "" : String(engine.defaultMaxTokens),
+    defaultReasoningEffort: engine.defaultReasoningEffort ?? "",
   });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -1271,6 +1284,13 @@ function EngineEditor({ engine, onSaved }: { engine: EngineRow; onSaved: (e: Eng
         estimatedCostUsdPerCall: form.estimatedCostUsdPerCall === "" ? null : Number(form.estimatedCostUsdPerCall),
         estimatedCostUsdPerSecond: form.estimatedCostUsdPerSecond === "" ? null : Number(form.estimatedCostUsdPerSecond),
       };
+      // LLM engines: model (endpointId) + sampling + reasoning effort are editable.
+      if (isLLM) {
+        patch.endpointId = form.endpointId;
+        patch.defaultTemperature = form.defaultTemperature === "" ? null : Number(form.defaultTemperature);
+        patch.defaultMaxTokens = form.defaultMaxTokens === "" ? null : Number.parseInt(form.defaultMaxTokens, 10);
+        patch.defaultReasoningEffort = form.defaultReasoningEffort === "" ? null : form.defaultReasoningEffort;
+      }
       const r = await fetch(`/api/admin/engines/${engine.id}`, {
         method: "PATCH",
         credentials: "include",
@@ -1355,6 +1375,58 @@ function EngineEditor({ engine, onSaved }: { engine: EngineRow; onSaved: (e: Eng
           />
         </div>
 
+        {isLLM && (
+          <div className="grid grid-cols-2 gap-3">
+            <div className="col-span-2">
+              <label className="block text-[10px] font-semibold text-muted-foreground mb-1 uppercase tracking-wide">Model (general intelligence)</label>
+              <select
+                value={form.endpointId}
+                onChange={(e) => set("endpointId", e.target.value)}
+                className="w-full min-h-[40px] px-2 py-1 text-xs bg-muted/30 border border-border rounded-sm focus:outline-none focus:border-primary"
+              >
+                {OPENAI_CHAT_MODEL_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                {!OPENAI_CHAT_MODEL_OPTIONS.some((o) => o.value === form.endpointId) && (
+                  <option value={form.endpointId}>{form.endpointId} (current)</option>
+                )}
+              </select>
+            </div>
+            <div>
+              <label className="block text-[10px] font-semibold text-muted-foreground mb-1 uppercase tracking-wide">Default temperature</label>
+              <input
+                type="number"
+                step="0.1"
+                min="0"
+                max="2"
+                value={form.defaultTemperature}
+                onChange={(e) => set("defaultTemperature", e.target.value)}
+                className="w-full min-h-[40px] px-2 py-1 text-xs bg-muted/30 border border-border rounded-sm focus:outline-none focus:border-primary"
+              />
+            </div>
+            <div>
+              <label className="block text-[10px] font-semibold text-muted-foreground mb-1 uppercase tracking-wide">Default max tokens</label>
+              <input
+                type="number"
+                value={form.defaultMaxTokens}
+                onChange={(e) => set("defaultMaxTokens", e.target.value)}
+                className="w-full min-h-[40px] px-2 py-1 text-xs bg-muted/30 border border-border rounded-sm focus:outline-none focus:border-primary"
+              />
+            </div>
+            <div className="col-span-2">
+              <label className="block text-[10px] font-semibold text-muted-foreground mb-1 uppercase tracking-wide">Default reasoning effort (GPT-5 / o-series only)</label>
+              <select
+                value={form.defaultReasoningEffort}
+                onChange={(e) => set("defaultReasoningEffort", e.target.value)}
+                className="w-full min-h-[40px] px-2 py-1 text-xs bg-muted/30 border border-border rounded-sm focus:outline-none focus:border-primary"
+              >
+                <option value="">— none —</option>
+                {REASONING_EFFORT_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+              </select>
+            </div>
+          </div>
+        )}
+
+        {!isLLM && (
+        <>
         <div className="grid grid-cols-2 gap-3">
           <div>
             <label className="block text-[10px] font-semibold text-muted-foreground mb-1 uppercase tracking-wide">
@@ -1437,6 +1509,8 @@ function EngineEditor({ engine, onSaved }: { engine: EngineRow; onSaved: (e: Eng
             />
           </div>
         </div>
+        </>
+        )}
 
         {error && <p className="text-xs text-destructive">{error}</p>}
 
@@ -1556,13 +1630,16 @@ function EngineCard({
         <div className="flex flex-col sm:flex-row gap-1 shrink-0">
           {!archived && (
             <>
-              <button
-                onClick={() => setTestOpen((v) => !v)}
-                className="min-h-[36px] px-2 py-1 text-[11px] font-bold border border-border rounded-sm hover:border-primary/50 text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1"
-                title="Run synthetic test"
-              >
-                <Beaker className="w-3 h-3" /> Test
-              </button>
+              {/* The synthetic fal test bench doesn't apply to LLM engines. */}
+              {engine.kind !== "llm" && (
+                <button
+                  onClick={() => setTestOpen((v) => !v)}
+                  className="min-h-[36px] px-2 py-1 text-[11px] font-bold border border-border rounded-sm hover:border-primary/50 text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1"
+                  title="Run synthetic test"
+                >
+                  <Beaker className="w-3 h-3" /> Test
+                </button>
+              )}
               {!engine.isDefault && (
                 <button
                   onClick={setDefault}
