@@ -97,6 +97,9 @@ export default function AdminFacts() {
   const [pipelineRunning, setPipelineRunning] = useState(false);
   const [pipelineResult, setPipelineResult] = useState<{ type: "success" | "info" | "error"; message: string } | null>(null);
 
+  const [backfillingEnrichment, setBackfillingEnrichment] = useState(false);
+  const [enrichmentBackfillResult, setEnrichmentBackfillResult] = useState<{ type: "success" | "error"; message: string } | null>(null);
+
   const LIMIT = 25;
 
   useEffect(() => {
@@ -320,6 +323,24 @@ export default function AdminFacts() {
       setImportResult({ type: "error", message: err instanceof Error ? err.message : "Import failed" });
     } finally {
       setImporting(false);
+    }
+  }
+
+  async function handleBackfillEnrichment() {
+    setBackfillingEnrichment(true);
+    setEnrichmentBackfillResult(null);
+    try {
+      const res = await fetch("/api/admin/facts/backfill-enrichment", { method: "POST", credentials: "include" });
+      const data = await res.json() as { queued?: number; message?: string; error?: string };
+      if (res.ok) {
+        setEnrichmentBackfillResult({ type: "success", message: data.message ?? `Queued ${data.queued ?? 0} facts.` });
+      } else {
+        setEnrichmentBackfillResult({ type: "error", message: data.error ?? "Backfill failed" });
+      }
+    } catch (err) {
+      setEnrichmentBackfillResult({ type: "error", message: err instanceof Error ? err.message : "Backfill failed" });
+    } finally {
+      setBackfillingEnrichment(false);
     }
   }
 
@@ -935,6 +956,30 @@ export default function AdminFacts() {
             <Button onClick={handleImport} disabled={!importText.trim() || importing} className="w-full">
               {importing ? "Importing…" : "Import Facts"}
             </Button>
+
+            <div className="border-t border-border pt-4 mt-1 flex flex-col gap-2">
+              <h3 className="text-sm font-bold text-foreground uppercase tracking-wide flex items-center gap-2">
+                <Brain className="w-4 h-4" /> Visual Taxonomy
+              </h3>
+              <p className="text-xs text-muted-foreground">
+                Classify existing facts that have no enrichment yet (archetype, subtype, modifiers, hashtags). Runs in the background.
+              </p>
+              {enrichmentBackfillResult && (
+                <div className={`flex items-start gap-2 text-sm px-3 py-2.5 rounded-sm ${
+                  enrichmentBackfillResult.type === "success"
+                    ? "bg-green-500/10 text-green-400 border border-green-500/30"
+                    : "bg-destructive/10 text-destructive border border-destructive/30"
+                }`}>
+                  {enrichmentBackfillResult.type === "success"
+                    ? <CheckCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                    : <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />}
+                  {enrichmentBackfillResult.message}
+                </div>
+              )}
+              <Button variant="outline" onClick={handleBackfillEnrichment} disabled={backfillingEnrichment} className="w-full">
+                {backfillingEnrichment ? "Starting…" : "Backfill enrichment"}
+              </Button>
+            </div>
           </div>
         )}
       </div>

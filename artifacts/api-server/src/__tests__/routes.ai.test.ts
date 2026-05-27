@@ -3,13 +3,13 @@
  *
  * Each AI endpoint hits OpenAI on the success path, so this batch only
  * covers the parts that gate execution before the OpenAI call:
- *   - The custom requireAuth middleware on /ai/check-duplicate and
- *     /ai/suggest-hashtags (reads session directly via getSessionId).
+ *   - The custom requireAuth middleware on /ai/check-duplicate
+ *     (reads session directly via getSessionId).
  *   - Zod 400 on every endpoint.
  *   - The captcha bypass on /ai/tokenize-fact when no token is supplied.
  *
- * The OpenAI-call success paths (the actual duplicate / hashtag / token
- * logic) require live OPENAI_API_KEY and are out of scope.
+ * The OpenAI-call success paths (the actual duplicate / token logic)
+ * require live OPENAI_API_KEY and are out of scope.
  */
 
 import { describe, it, before, after } from "node:test";
@@ -99,26 +99,6 @@ describe("POST /ai/check-duplicate — auth + validation", () => {
       .post("/ai/check-duplicate")
       .set("authorization", `Bearer ${sid}`)
       .send({ text: "x".repeat(1001) });
-    assert.equal(res.status, 400);
-  });
-});
-
-describe("POST /ai/suggest-hashtags — auth + validation", () => {
-
-  it("returns 401 when no session is presented", async () => {
-    const res = await request(makeApp())
-      .post("/ai/suggest-hashtags")
-      .send({ text: "fact text" });
-    assert.equal(res.status, 401);
-  });
-
-  it("returns 400 when text is too short (Zod min(5))", async () => {
-    const userId = await createTestUser();
-    const sid = await bearerForUser(userId);
-    const res = await request(makeApp())
-      .post("/ai/suggest-hashtags")
-      .set("authorization", `Bearer ${sid}`)
-      .send({ text: "abc" });
     assert.equal(res.status, 400);
   });
 });

@@ -9,6 +9,7 @@ import { SEED_FACTS } from "../data/seed-facts";
 import { embedFactAsync } from "./embeddings";
 import { seedScenePromptConfig } from "./scenePromptConfig";
 import { seedVideoDirectionConfig } from "./videoDirection";
+import { seedFactEnrichmentConfig } from "./factEnrichmentConfig";
 import { logger } from "./logger";
 
 /**
@@ -562,6 +563,42 @@ export async function ensureSchema(): Promise<void> {
       label: "admin_config delete scene_prompt_composition_suffix",
       ddl: `DELETE FROM admin_config WHERE key = 'scene_prompt_composition_suffix'`,
     },
+    {
+      label: "facts.enrichment",
+      ddl: `ALTER TABLE facts ADD COLUMN IF NOT EXISTS enrichment jsonb`,
+    },
+    {
+      label: "facts.primary_archetype",
+      ddl: `ALTER TABLE facts ADD COLUMN IF NOT EXISTS primary_archetype varchar(64)`,
+    },
+    {
+      label: "facts.subtype",
+      ddl: `ALTER TABLE facts ADD COLUMN IF NOT EXISTS subtype varchar(64)`,
+    },
+    {
+      label: "facts.overhype_fit",
+      ddl: `ALTER TABLE facts ADD COLUMN IF NOT EXISTS overhype_fit varchar(16)`,
+    },
+    {
+      label: "facts.adult_suitability",
+      ddl: `ALTER TABLE facts ADD COLUMN IF NOT EXISTS adult_suitability varchar(24)`,
+    },
+    {
+      label: "facts.primary_archetype index",
+      ddl: `CREATE INDEX IF NOT EXISTS facts_primary_archetype_idx ON facts (primary_archetype)`,
+    },
+    {
+      label: "facts.adult_suitability index",
+      ddl: `CREATE INDEX IF NOT EXISTS facts_adult_suitability_idx ON facts (adult_suitability)`,
+    },
+    {
+      label: "pending_reviews.enrichment",
+      ddl: `ALTER TABLE pending_reviews ADD COLUMN IF NOT EXISTS enrichment jsonb`,
+    },
+    {
+      label: "pending_reviews.enrichment_status",
+      ddl: `ALTER TABLE pending_reviews ADD COLUMN IF NOT EXISTS enrichment_status varchar(16)`,
+    },
   ];
 
   for (const { label, ddl } of migrations) {
@@ -580,6 +617,10 @@ export async function ensureSchema(): Promise<void> {
   // Seed the admin-configurable video-direction levers (the motion/action
   // direction layered on top of the motion preset for image-to-video).
   await seedVideoDirectionConfig();
+
+  // Seed the admin-configurable fact-enrichment levers (the visual-taxonomy
+  // classifier system prompt, OpenAI model, temperature, max tokens).
+  await seedFactEnrichmentConfig();
 }
 
 function computeWilsonScore(upvotes: number, downvotes: number): number {

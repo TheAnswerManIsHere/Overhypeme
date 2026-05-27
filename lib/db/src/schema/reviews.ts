@@ -12,6 +12,10 @@ export const pendingReviewsTable = pgTable("pending_reviews", {
   matchingFactId: integer("matching_fact_id").references(() => factsTable.id),
   matchingSimilarity: integer("matching_similarity").notNull().default(0),
   hashtags: jsonb("hashtags").$type<string[]>().default([]),
+  /** Visual-taxonomy enrichment blob (FactEnrichment from @workspace/api-zod). Null until the async enrichment job writes it. */
+  enrichment: jsonb("enrichment"),
+  /** Enrichment lifecycle for the admin UI: "pending" | "ok" | "failed". Null before the job starts. */
+  enrichmentStatus: varchar("enrichment_status", { length: 16 }),
   status: reviewStatusEnum("status").notNull().default("pending"),
   reason: reviewReasonEnum("reason"),
   adminNote: text("admin_note"),
