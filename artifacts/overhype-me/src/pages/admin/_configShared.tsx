@@ -205,38 +205,54 @@ export function msToHuman(ms: number): string {
   return `≈ ${rounded} hour${rounded === 1 ? "" : "s"}`;
 }
 
-// OpenAI chat models offered for scene-prompt + video-direction generation.
-// Restricted to the GPT-4o / 4.1 chat-completions family — every model here
-// works with the existing calls (max_tokens + temperature). Reasoning models
-// (gpt-5 / o-series) are intentionally excluded because they reject those
-// params and would need a different call shape.
+// OpenAI chat models offered for the image scene + video motion prompts.
+// Both families are supported: the GPT-4o / 4.1 chat models (max_tokens +
+// temperature) and the GPT-5 reasoning models (max_completion_tokens +
+// reasoning_effort, no temperature). The server picks the right call shape per
+// model via chatModelTuningParams (lib/openaiChatParams.ts), so any value here
+// works. GPT-5 models also honor the "Reasoning Effort" lever below.
 export const OPENAI_CHAT_MODEL_OPTIONS: { value: string; label: string }[] = [
   { value: "gpt-4o-mini",  label: "GPT-4o mini (fast, cheap — default)" },
   { value: "gpt-4o",       label: "GPT-4o" },
   { value: "gpt-4.1-nano", label: "GPT-4.1 nano (fastest, cheapest)" },
   { value: "gpt-4.1-mini", label: "GPT-4.1 mini" },
   { value: "gpt-4.1",      label: "GPT-4.1" },
+  { value: "gpt-5.1",      label: "GPT-5.1 (reasoning — value)" },
+  { value: "gpt-5.2",      label: "GPT-5.2 (reasoning — frontier)" },
+  { value: "gpt-5.4-mini", label: "GPT-5.4 mini (reasoning — cheap)" },
+];
+
+// Reasoning effort for GPT-5 / o-series models. Ignored by GPT-4.x models.
+export const REASONING_EFFORT_OPTIONS: { value: string; label: string }[] = [
+  { value: "none",   label: "None (fastest, cheapest)" },
+  { value: "low",    label: "Low (default)" },
+  { value: "medium", label: "Medium" },
+  { value: "high",   label: "High (most capable, priciest)" },
 ];
 
 export const SELECT_CONFIGS: Record<string, { value: string; label: string }[]> = {
   scene_prompt_model: OPENAI_CHAT_MODEL_OPTIONS,
   video_direction_model: OPENAI_CHAT_MODEL_OPTIONS,
+  scene_prompt_reasoning_effort: REASONING_EFFORT_OPTIONS,
+  video_direction_reasoning_effort: REASONING_EFFORT_OPTIONS,
 };
 
-// Scene-prompt generation levers — grouped together on the AI Settings page.
+// Image scene-prompt levers — grouped together on the AI Settings page.
 export const SCENE_PROMPT_KEYS = new Set<string>([
   "scene_prompt_system",
   "scene_prompt_model",
   "scene_prompt_temperature",
   "scene_prompt_max_tokens",
+  "scene_prompt_reasoning_effort",
 ]);
 
-// Video-direction generation levers — grouped together on the AI Settings page.
+// Video motion-prompt levers — grouped together on the AI Settings page.
 export const VIDEO_DIRECTION_KEYS = new Set<string>([
   "video_direction_system",
   "video_direction_model",
   "video_direction_temperature",
   "video_direction_max_tokens",
+  "video_direction_reasoning_effort",
 ]);
 
 // Keys that are surfaced through dedicated sections elsewhere on the
