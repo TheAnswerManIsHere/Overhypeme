@@ -152,6 +152,13 @@ buildAll()
     const distAssets = path.resolve(artifactDir, "dist/assets");
     await cp(srcAssets, distAssets, { recursive: true });
 
+    // The bundled server resolves asset paths as path.resolve(__dirname, "../assets/…")
+    // where __dirname is dist/. That puts the lookup one level above dist/ at
+    // artifacts/api-server/assets/ — not inside dist/assets/. Copy assets there
+    // too so the bundle finds them at runtime in both dev-server and production.
+    const rootAssets = path.resolve(artifactDir, "assets");
+    await cp(srcAssets, rootAssets, { recursive: true });
+
     const dbMigrations = path.resolve(artifactDir, "../../lib/db/migrations");
     const distMigrations = path.resolve(artifactDir, "dist/migrations");
     await cp(dbMigrations, distMigrations, { recursive: true });
