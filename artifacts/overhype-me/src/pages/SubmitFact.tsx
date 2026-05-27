@@ -72,10 +72,6 @@ export default function SubmitFact() {
 
   const [hashtagsStr, setHashtagsStr] = useState("");
   const [captchaToken, setCaptchaToken] = useState("");
-  const [suggestedTags, setSuggestedTags] = useState<string[]>([]);
-  const [acceptedTags, setAcceptedTags] = useState<Set<string>>(new Set());
-  const [loadingSuggestions, setLoadingSuggestions] = useState(false);
-  const [suggestionsLoaded, setSuggestionsLoaded] = useState(false);
   const [draftSavedAt, setDraftSavedAt] = useState<number | null>(null);
   const [draftSavedLabel, setDraftSavedLabel] = useState<string>("");
   const [submitting, setSubmitting] = useState(false);
@@ -108,9 +104,7 @@ export default function SubmitFact() {
   }, [toast]);
 
   const dupTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const tagTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const lastSuggestedTextRef = useRef("");
 
   useEffect(() => {
     if (submitted) {
@@ -176,45 +170,6 @@ export default function SubmitFact() {
     return () => { if (dupTimer.current) clearTimeout(dupTimer.current); };
   }, [rawText, checkDuplicate]);
 
-  const fetchSuggestions = useCallback(async (factText: string) => {
-    if (factText.length < 20) return;
-    lastSuggestedTextRef.current = factText;
-    setLoadingSuggestions(true);
-    try {
-      const r = await fetch("/api/ai/suggest-hashtags", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({ text: factText }),
-      });
-      if (r.ok) {
-        const data: { hashtags: string[] } = await r.json();
-        setSuggestedTags(data.hashtags);
-        setHashtagsStr((current) => {
-          const trimmed = current.trim();
-          if (trimmed === "") {
-            setAcceptedTags(new Set(data.hashtags));
-            return data.hashtags.join(", ");
-          } else {
-            const inputTags = trimmed.split(",").map((t) => t.trim().replace(/^#/, "")).filter(Boolean);
-            setAcceptedTags(new Set(data.hashtags.filter((t) => inputTags.includes(t))));
-            return current;
-          }
-        });
-        setSuggestionsLoaded(true);
-      }
-    } catch { setSuggestedTags([]); }
-    finally { setLoadingSuggestions(false); }
-  }, []);
-
-  useEffect(() => {
-    if (step !== "submit") return;
-    if (tagTimer.current) clearTimeout(tagTimer.current);
-    if (suggestionsLoaded) return;
-    tagTimer.current = setTimeout(() => { void fetchSuggestions(template || rawText); }, 800);
-    return () => { if (tagTimer.current) clearTimeout(tagTimer.current); };
-  }, [step, template, rawText, suggestionsLoaded, fetchSuggestions]);
-
   async function handleTokenize() {
     if (rawText.length < 10) return;
     if (!captchaToken && !isCaptchaVerified) return;
@@ -250,8 +205,7 @@ export default function SubmitFact() {
 
   const getTags = () => {
     const manual = hashtagsStr.split(",").map((t) => t.trim().replace(/^#/, "")).filter(Boolean);
-    const auto = Array.from(acceptedTags);
-    return Array.from(new Set([...manual, ...auto]));
+    return Array.from(new Set(manual));
   };
 
   async function handleFinalSubmit(e: React.FormEvent) {
@@ -297,26 +251,8 @@ export default function SubmitFact() {
     }
   }
 
-  const toggleTag = (tag: string) => {
-    setAcceptedTags((prev) => {
-      const next = new Set(prev);
-      if (next.has(tag)) next.delete(tag); else next.add(tag);
-      setHashtagsStr((currentStr) => {
-        const currentTags = currentStr.split(",").map((t) => t.trim().replace(/^#/, "")).filter(Boolean);
-        if (next.has(tag)) {
-          return currentTags.includes(tag) ? currentStr : [...currentTags, tag].join(", ");
-        } else {
-          return currentTags.filter((t) => t !== tag).join(", ");
-        }
-      });
-      return next;
-    });
-  };
-
   const handleHashtagsChange = (value: string) => {
     setHashtagsStr(value);
-    const inputTags = value.split(",").map((t) => t.trim().replace(/^#/, "")).filter(Boolean);
-    setAcceptedTags(new Set(suggestedTags.filter((t) => inputTags.includes(t))));
   };
 
   if (authLoading) {
@@ -363,8 +299,7 @@ export default function SubmitFact() {
             <Button size="lg" onClick={() => {
               try { localStorage.removeItem(DRAFT_STORAGE_KEY); } catch { /* ignore */ }
               setRawText(""); setTemplate(""); setSubmitted(false);
-              setDuplicate(null); setHashtagsStr(""); setSuggestionsLoaded(false);
-              setSuggestedTags([]); setAcceptedTags(new Set()); setStep("write");
+              setDuplicate(null); setHashtagsStr(""); setStep("write");
               setOnboardingRequired(false); setError("");
             }}>
               Submit Another
@@ -694,38 +629,13 @@ export default function SubmitFact() {
                     Hashtags
                   </label>
                   <p className="text-muted-foreground mb-4">
-                    Help people find your fact. We've suggested a few — toggle to add or remove them.
+                    Add tags to help people find your fact — comma-separated, optional.
                   </p>
-
-                  {loadingSuggestions && (
-                    <div className="flex items-center gap-2 mb-4 text-muted-foreground text-sm">
-                      <Loader2 className="w-4 h-4 animate-spin" /> Generating suggestions…
-                    </div>
-                  )}
-
-                  {suggestedTags.length > 0 && (
-                    <div className="flex flex-wrap gap-2 mb-4">
-                      {suggestedTags.map((tag) => (
-                        <button
-                          key={tag}
-                          type="button"
-                          onClick={() => toggleTag(tag)}
-                          className={`px-3 py-1.5 rounded-full text-sm font-semibold border transition-all ${
-                            acceptedTags.has(tag)
-                              ? "bg-primary/15 border-primary text-primary"
-                              : "border-border text-muted-foreground hover:border-primary/50 hover:text-foreground"
-                          }`}
-                        >
-                          #{tag}
-                        </button>
-                      ))}
-                    </div>
-                  )}
 
                   <Input
                     value={hashtagsStr}
                     onChange={(e) => handleHashtagsChange(e.target.value)}
-                    placeholder="Add more tags, comma-separated…"
+                    placeholder="e.g. strength, legendary, coffee"
                     className="text-base"
                   />
                 </div>

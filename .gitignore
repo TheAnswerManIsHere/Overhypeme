@@ -54,3 +54,6 @@ attached_assets/
 
 # Claude Code agent worktrees (per-session ephemeral)
 .claude/worktrees/
+
+# Claude Code personal/local settings (machine-specific, not shared)
+.claude/settings.local.json

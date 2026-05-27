@@ -18,6 +18,11 @@ import { runFactImagePipeline } from "../lib/factImagePipeline";
 import { createRateLimiter } from "../lib/rateLimit";
 import { validateTemplate } from "../lib/templateGrammar";
 import { computeSplitTokenIndex } from "../lib/splitTokenIndex";
+import { validateEnrichment, type FactEnrichment } from "@workspace/api-zod";
+import {
+  enrichAndStorePendingReview,
+  buildFactEnrichmentColumns,
+} from "../lib/factEnrichment";
 
 const requireRateLimit = createRateLimiter();
 
@@ -82,7 +87,13 @@ router.post("/facts/submit-review", requireAuth, requireRateLimit, async (req: A
     hashtags,
     status: "pending",
     reason: reason ?? null,
+    enrichmentStatus: "pending",
   }).returning();
+
+  // Classify the fact in the background so the structured taxonomy is ready
+  // for the admin reviewer. Best-effort — failure marks the review for manual
+  // enrichment and never blocks submission.
+  void enrichAndStorePendingReview(review.id, { factText: text, status: "new_fact" });
 
   void notifyAdmins({
     type: "fact_review",
@@ -207,6 +218,44 @@ const ApproveVariantBody = z.object({
   adminNote: z.string().max(500).optional(),
 });
 
+/**
+ * Resolve the enrichment to persist on approval. Prefers the admin's edited
+ * `enrichment` from the request body (validated); falls back to the stored
+ * pending-review enrichment. Returns an error string only when the body
+ * explicitly supplies an invalid enrichment — we never block approval just
+ * because background enrichment failed.
+ */
+function resolveApprovalEnrichment(
+  body: unknown,
+  storedEnrichment: unknown,
+): { ok: true; enrichment: FactEnrichment | null } | { ok: false; error: string } {
+  const provided = (body as { enrichment?: unknown } | null | undefined)?.enrichment;
+  if (provided !== undefined && provided !== null) {
+    const result = validateEnrichment(provided);
+    if (!result.ok) return { ok: false, error: result.error };
+    return { ok: true, enrichment: result.data };
+  }
+  if (storedEnrichment) {
+    const result = validateEnrichment(storedEnrichment);
+    if (result.ok) return { ok: true, enrichment: result.data };
+  }
+  return { ok: true, enrichment: null };
+}
+
+/** Attach hashtags to a fact, upserting into the hashtags master + join table. */
+async function attachHashtags(factId: number, tags: string[]): Promise<void> {
+  for (const tag of tags) {
+    const name = tag.toLowerCase().replace(/[^a-z0-9_]/g, "");
+    if (!name) continue;
+    let [ht] = await db.select().from(hashtagsTable).where(eq(hashtagsTable.name, name)).limit(1);
+    if (!ht) { [ht] = await db.insert(hashtagsTable).values({ name }).returning(); }
+    const [joined] = await db.insert(factHashtagsTable).values({ factId, hashtagId: ht.id }).onConflictDoNothing().returning();
+    if (joined) {
+      await db.update(hashtagsTable).set({ factCount: sql`${hashtagsTable.factCount} + 1` }).where(eq(hashtagsTable.id, ht.id));
+    }
+  }
+}
+
 router.post("/admin/reviews/:id/approve-variant", requireAdmin, async (req: AuthenticatedRequest, res: Response) => {
   const id = parseInt(String(req.params["id"] ?? ""), 10);
   if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
@@ -226,6 +275,14 @@ router.post("/admin/reviews/:id/approve-variant", requireAdmin, async (req: Auth
     .limit(1);
   if (!parentFact) { res.status(404).json({ error: `Fact #${parentFactId} not found or inactive` }); return; }
 
+  const enrichmentResult = resolveApprovalEnrichment(req.body, review.enrichment);
+  if (!enrichmentResult.ok) {
+    res.status(400).json({ error: `Invalid enrichment: ${enrichmentResult.error}` });
+    return;
+  }
+  const enrichment = enrichmentResult.enrichment;
+  const enrichmentCols = enrichment ? buildFactEnrichmentColumns(enrichment) : {};
+
   const hasPronounsFlag = /\{(SUBJ|OBJ|POSS|POSS_PRO|REFL|Subj|Obj|Poss|Poss_Pro|Refl|[^|{}]+\|[^|{}]+)\}/.test(review.submittedText);
   const canonicalText = renderCanonical(review.submittedText);
   const [fact] = await db.insert(factsTable).values({
@@ -236,20 +293,13 @@ router.post("/admin/reviews/:id/approve-variant", requireAdmin, async (req: Auth
     isActive: true,
     parentId: parentFactId,
     splitTokenIndex: computeSplitTokenIndex(review.submittedText),
+    ...enrichmentCols,
   }).returning();
 
-  // Attach hashtags
-  const tags = (review.hashtags as string[] | null) ?? [];
-  for (const tag of tags) {
-    const name = tag.toLowerCase().replace(/[^a-z0-9_]/g, "");
-    if (!name) continue;
-    let [ht] = await db.select().from(hashtagsTable).where(eq(hashtagsTable.name, name)).limit(1);
-    if (!ht) { [ht] = await db.insert(hashtagsTable).values({ name }).returning(); }
-    const [joined] = await db.insert(factHashtagsTable).values({ factId: fact.id, hashtagId: ht.id }).onConflictDoNothing().returning();
-    if (joined) {
-      await db.update(hashtagsTable).set({ factCount: sql`${hashtagsTable.factCount} + 1` }).where(eq(hashtagsTable.id, ht.id));
-    }
-  }
+  // Attach hashtags — the admin's curated enrichment tags when present,
+  // otherwise the submitter's manual custom tags.
+  const tags = enrichment?.suggestedHashtags ?? (review.hashtags as string[] | null) ?? [];
+  await attachHashtags(fact.id, tags);
 
   await db.update(pendingReviewsTable).set({
     status: "approved",
@@ -257,6 +307,7 @@ router.post("/admin/reviews/:id/approve-variant", requireAdmin, async (req: Auth
     approvedFactId: fact.id,
     adminNote,
     reviewedAt: new Date(),
+    ...(enrichment ? { enrichment, enrichmentStatus: "ok" } : {}),
   }).where(eq(pendingReviewsTable.id, id));
 
   void embedFactAsync(fact.id, fact.text, canonicalText);
@@ -297,6 +348,14 @@ router.post("/admin/reviews/:id/approve", requireAdmin, async (req: Authenticate
   if (!review) { res.status(404).json({ error: "Review not found" }); return; }
   if (review.status !== "pending") { res.status(409).json({ error: `Review already ${review.status}` }); return; }
 
+  const enrichmentResult = resolveApprovalEnrichment(req.body, review.enrichment);
+  if (!enrichmentResult.ok) {
+    res.status(400).json({ error: `Invalid enrichment: ${enrichmentResult.error}` });
+    return;
+  }
+  const enrichment = enrichmentResult.enrichment;
+  const enrichmentCols = enrichment ? buildFactEnrichmentColumns(enrichment) : {};
+
   // Insert the fact into the main table, detecting pronoun tokens from the template
   const hasPronounsFlag = /\{(SUBJ|OBJ|POSS|POSS_PRO|REFL|Subj|Obj|Poss|Poss_Pro|Refl|[^|{}]+\|[^|{}]+)\}/.test(review.submittedText);
   const canonicalText = renderCanonical(review.submittedText);
@@ -307,22 +366,13 @@ router.post("/admin/reviews/:id/approve", requireAdmin, async (req: Authenticate
     canonicalText,
     isActive: true,
     splitTokenIndex: computeSplitTokenIndex(review.submittedText),
+    ...enrichmentCols,
   }).returning();
 
-  // Attach hashtags
-  const tags = (review.hashtags as string[] | null) ?? [];
-  for (const tag of tags) {
-    const name = tag.toLowerCase().replace(/[^a-z0-9_]/g, "");
-    if (!name) continue;
-    let [ht] = await db.select().from(hashtagsTable).where(eq(hashtagsTable.name, name)).limit(1);
-    if (!ht) {
-      [ht] = await db.insert(hashtagsTable).values({ name }).returning();
-    }
-    const [joined] = await db.insert(factHashtagsTable).values({ factId: fact.id, hashtagId: ht.id }).onConflictDoNothing().returning();
-    if (joined) {
-      await db.update(hashtagsTable).set({ factCount: sql`${hashtagsTable.factCount} + 1` }).where(eq(hashtagsTable.id, ht.id));
-    }
-  }
+  // Attach hashtags — the admin's curated enrichment tags when present,
+  // otherwise the submitter's manual custom tags.
+  const tags = enrichment?.suggestedHashtags ?? (review.hashtags as string[] | null) ?? [];
+  await attachHashtags(fact.id, tags);
 
   // Mark review as approved
   await db.update(pendingReviewsTable).set({
@@ -331,6 +381,7 @@ router.post("/admin/reviews/:id/approve", requireAdmin, async (req: Authenticate
     approvedFactId: fact.id,
     adminNote,
     reviewedAt: new Date(),
+    ...(enrichment ? { enrichment, enrichmentStatus: "ok" } : {}),
   }).where(eq(pendingReviewsTable.id, id));
 
   // Embed the new fact in the background using canonical text for cleaner duplicate matching
@@ -417,6 +468,41 @@ router.post("/admin/reviews/:id/reject", requireAdmin, async (req: Authenticated
   }
 
   res.json({ success: true });
+});
+
+// ─── Enrichment: save admin edits (admin) ─────────────────────────────────────
+
+router.patch("/admin/reviews/:id/enrichment", requireAdmin, async (req: AuthenticatedRequest, res: Response) => {
+  const id = parseInt(String(req.params["id"] ?? ""), 10);
+  if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
+
+  const result = validateEnrichment((req.body as { enrichment?: unknown } | null | undefined)?.enrichment);
+  if (!result.ok) { res.status(400).json({ error: `Invalid enrichment: ${result.error}` }); return; }
+
+  const [review] = await db.select({ id: pendingReviewsTable.id }).from(pendingReviewsTable).where(eq(pendingReviewsTable.id, id)).limit(1);
+  if (!review) { res.status(404).json({ error: "Review not found" }); return; }
+
+  await db.update(pendingReviewsTable)
+    .set({ enrichment: result.data, enrichmentStatus: "ok" })
+    .where(eq(pendingReviewsTable.id, id));
+
+  res.json({ success: true, enrichment: result.data });
+});
+
+// ─── Enrichment: re-run classification (admin) ────────────────────────────────
+
+router.post("/admin/reviews/:id/enrich", requireAdmin, async (req: Request, res: Response) => {
+  const id = parseInt(String(req.params["id"] ?? ""), 10);
+  if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
+
+  const [review] = await db.select({ id: pendingReviewsTable.id, submittedText: pendingReviewsTable.submittedText })
+    .from(pendingReviewsTable).where(eq(pendingReviewsTable.id, id)).limit(1);
+  if (!review) { res.status(404).json({ error: "Review not found" }); return; }
+
+  await db.update(pendingReviewsTable).set({ enrichmentStatus: "pending" }).where(eq(pendingReviewsTable.id, id));
+  void enrichAndStorePendingReview(review.id, { factText: review.submittedText, status: "new_fact" });
+
+  res.json({ success: true, enrichmentStatus: "pending" });
 });
 
 // ─── Activity Feed ────────────────────────────────────────────────────────────

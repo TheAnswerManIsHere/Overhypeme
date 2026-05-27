@@ -6,6 +6,7 @@ import { eq, desc, count, ilike, sql, and, or, inArray, isNull, asc, gt, gte, su
 import { alias } from "drizzle-orm/pg-core";
 import { requireRole } from "../middlewares/tierMiddleware";
 import { backfillEmbeddings, embedFactAsync } from "../lib/embeddings";
+import { enrichFact, buildFactEnrichmentColumns } from "../lib/factEnrichment";
 import { runFactImagePipeline } from "../lib/factImagePipeline";
 import { generateAiMemeBackgrounds } from "../lib/aiMemePipeline";
 import { renderCanonical } from "../lib/renderCanonical";
@@ -1191,6 +1192,49 @@ router.post("/admin/facts/backfill-embeddings", requireAdminOrApiKey, async (_re
     res.json({ success: true, ...result });
   } catch (err) {
     logger.error({ err }, "[admin] Backfill embeddings error");
+    res.status(500).json({ error: "Backfill failed", details: String(err) });
+  }
+});
+
+// Backfill visual-taxonomy enrichment onto existing facts (covers bulk-imported
+// facts too). With ?force=true, re-enriches every active fact; otherwise only
+// facts that have no enrichment yet. Runs sequentially in the background to
+// respect OpenAI rate limits.
+router.post("/admin/facts/backfill-enrichment", requireAdminOrApiKey, async (req: Request, res: Response) => {
+  try {
+    const force = String((req.query as Record<string, unknown>)["force"] ?? "") === "true";
+
+    const rows = await db
+      .select({ id: factsTable.id, text: factsTable.text, parentId: factsTable.parentId })
+      .from(factsTable)
+      .where(force
+        ? eq(factsTable.isActive, true)
+        : and(eq(factsTable.isActive, true), isNull(factsTable.enrichment)));
+
+    const total = rows.length;
+    res.json({ success: true, queued: total, message: `Enriching ${total} facts sequentially in the background.` });
+
+    void (async () => {
+      logger.info({ total, force }, "[admin] backfill-enrichment: starting");
+      let done = 0;
+      let failed = 0;
+      for (const fact of rows) {
+        try {
+          const enrichment = await enrichFact({
+            factText: fact.text,
+            status: fact.parentId ? "variant" : "new_fact",
+          });
+          await db.update(factsTable).set(buildFactEnrichmentColumns(enrichment)).where(eq(factsTable.id, fact.id));
+          done++;
+        } catch (err) {
+          failed++;
+          logger.warn({ err, factId: fact.id }, "[admin] backfill-enrichment: fact failed");
+        }
+      }
+      logger.info({ total, done, failed }, "[admin] backfill-enrichment: done");
+    })();
+  } catch (err) {
+    logger.error({ err }, "[admin] Backfill enrichment error");
     res.status(500).json({ error: "Backfill failed", details: String(err) });
   }
 });

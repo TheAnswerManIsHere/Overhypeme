@@ -708,43 +708,6 @@ paths:
         "429":
           description: Rate limit exceeded
 
-  /ai/suggest-hashtags:
-    post:
-      operationId: suggestHashtags
-      tags: [hashtags]
-      summary: Suggest hashtags for a fact text (requires auth)
-      security:
-        - SessionCookie: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [text]
-              properties:
-                text:
-                  type: string
-                  minLength: 5
-                  maxLength: 1000
-      responses:
-        "200":
-          description: Suggested hashtags
-          content:
-            application/json:
-              schema:
-                type: object
-                required: [hashtags]
-                properties:
-                  hashtags:
-                    type: array
-                    items:
-                      type: string
-        "401":
-          description: Authentication required
-        "429":
-          description: Rate limit exceeded
-
   /admin/comments/flagged:
     get:
       operationId: getAdminFlaggedComments

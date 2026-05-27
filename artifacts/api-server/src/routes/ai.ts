@@ -1,7 +1,7 @@
 import { Router, type IRouter, type Request, type Response, type NextFunction } from "express";
 import { db } from "@workspace/db";
-import { factsTable, hashtagsTable, commentsTable } from "@workspace/db/schema";
-import { eq, sql, desc } from "drizzle-orm";
+import { factsTable, commentsTable } from "@workspace/db/schema";
+import { eq, sql } from "drizzle-orm";
 import { getOpenAIClient } from "@workspace/integrations-openai-ai-server";
 import { z } from "zod";
 import { getSessionId, getSession } from "../lib/auth";
@@ -17,7 +17,6 @@ const router: IRouter = Router();
 const requireRateLimit = createRateLimiter();
 
 const CheckDuplicateBody    = z.object({ text: z.string().min(10).max(1000) });
-const SuggestHashtagsBody   = z.object({ text: z.string().min(5).max(1000) });
 const TokenizeFactBody      = z.object({ text: z.string().min(5).max(2000), captchaToken: z.string().optional() });
 const SuggestPronounsBody   = z.object({ name: z.string().min(1).max(200) });
 
@@ -197,76 +196,6 @@ router.post("/ai/check-duplicate", requireAuth, requireRateLimit, async (req: Re
   }
 });
 
-router.post("/ai/suggest-hashtags", requireAuth, requireRateLimit, async (req: Request, res: Response) => {
-  const bodyParsed = SuggestHashtagsBody.safeParse(req.body);
-  if (!bodyParsed.success) {
-    res.status(400).json({ error: "Invalid input" });
-    return;
-  }
-  const { text } = bodyParsed.data;
-
-  try {
-    const gate = enforceGovernance(req, res, {
-      path: "ai",
-      provider: "openai",
-      model: "gpt-4o-mini",
-      estimatedCostUsd: 0.005,
-      payloadBytes: Buffer.byteLength(JSON.stringify(req.body ?? {}), "utf8"),
-    });
-    if (!gate.ok) return;
-    const started = Date.now();
-    const existing = await db
-      .select({ name: hashtagsTable.name })
-      .from(hashtagsTable)
-      .orderBy(desc(hashtagsTable.factCount))
-      .limit(40);
-
-    const existingNames = existing.map((h) => h.name);
-
-    const response = await getOpenAIClient().chat.completions.create({
-      model: "gpt-4o-mini",
-      max_completion_tokens: 256,
-      response_format: { type: "json_object" },
-      messages: [
-        {
-          role: "system",
-          content:
-            "You suggest hashtags for personalized facts on a humor website called Overhype.me. " +
-            "Return a JSON object with a single key 'hashtags' containing an array of 3-5 lowercase strings (no # prefix, letters/numbers/underscores only). " +
-            "Prefer tags from the existing list when relevant. You may add 1-2 new tags if needed. " +
-            "Example output: {\"hashtags\": [\"strength\",\"supernatural\",\"wisdom\"]}",
-        },
-        {
-          role: "user",
-          content: `Fact: "${text}"\n\nExisting hashtags: ${existingNames.join(", ")}`,
-        },
-      ],
-    });
-
-    const raw = response.choices[0]?.message?.content ?? "{}";
-    let tags: string[] = [];
-    try {
-      const parsed2 = JSON.parse(raw) as Record<string, unknown>;
-      const arr = Array.isArray(parsed2.hashtags) ? parsed2.hashtags : [];
-      tags = (arr as unknown[])
-        .filter((t): t is string => typeof t === "string")
-        .map((t) => t.toLowerCase().replace(/[^a-z0-9_]/g, ""))
-        .filter((t) => t.length > 0)
-        .slice(0, 5);
-    } catch {
-      tags = [];
-    }
-
-    const body = { hashtags: tags };
-    completeGovernance(req, { provider: "openai", latencyMs: Date.now() - started, failed: false, actualCostUsd: 0.005, responseStatus: 200, responseBody: body, idempotencyKey: gate.idempotencyKey });
-    res.json(body);
-  } catch (err) {
-    completeGovernance(req, { provider: "openai", latencyMs: 0, failed: true, actualCostUsd: 0 });
-    logger.error({ err }, "[AI] suggest-hashtags error");
-    res.json({ hashtags: [] });
-  }
-});
-
 const TOKENIZE_SYSTEM_PROMPT = `You are a fact-template tokenizer for a personalized humor website called Overhype.me.
 Users write facts in plain English about a person. You convert them into a template using a closed token set.
 
@@ -280,14 +209,57 @@ TOKEN RULES:
 7. For ANY verb or auxiliary that conjugates differently for "they" vs "he/she", use {singular_form|plural_form} syntax.
    Examples: {doesn't|don't}  {isn't|aren't}  {was|were}  {does|do}  {has|have}  {pushes|push}  {counts|count}
    The LEFT form is used for he/she; the RIGHT form is used for they.
-8. Keep everything else exactly as written.
+8. Keep everything else exactly as written — no braces around any other word.
 
 IMPORTANT:
 - Capitalize tokens at the start of sentences: {Subj} not {SUBJ}, etc.
 - Verb conjugation is the hardest part. Identify EVERY third-person singular verb that would change with "they". Don't miss any.
 - "they" triggers plural: "he sleeps" → "{SUBJ} {sleeps|sleep}", "he doesn't" → "{SUBJ} {doesn't|don't}", "he was" → "{SUBJ} {was|were}"
+- NEVER put braces around words that are not in the token list above. Conjunctions ("When", "But", "If", "Because"), articles ("The", "A", "An"), prepositions ("In", "On", "At"), and all other non-token words must be written as plain text without braces. Wrapping any such word in braces is ALWAYS wrong.
 - Return ONLY valid JSON: {"template": "...the tokenized template..."}
-- Do NOT explain, do NOT add any other keys.`;
+- Do NOT explain, do NOT add any other keys.
+
+EXAMPLES (correct output):
+Input: "When David laughs, the earth cries."
+Output: {"template": "When {NAME} {laughs|laugh}, the earth {cries|cry}."}
+
+Input: "Sarah doesn't age because time fears her."
+Output: {"template": "{NAME} {doesn't|don't} age because time {fears|fear} {Obj}."}`;
+
+// The complete list of tokens the grammar validator accepts. Duplicated here so
+// stripUnknownTokens stays self-contained without importing from api-zod.
+const ALLOWED_TEMPLATE_TOKENS = new Set([
+  "NAME",
+  "SUBJ", "Subj",
+  "OBJ",  "Obj",
+  "POSS", "Poss",
+  "POSS_PRO", "Poss_Pro",
+  "REFL", "Refl",
+]);
+
+/**
+ * Remove braces from tokens the grammar validator does not recognise.
+ *
+ * When the model hallucinates `{When}` or `{The}` it violates rule 8 of the
+ * system prompt ("keep everything else exactly as written"). Stripping the
+ * braces from those tokens restores the original plain text — which is what
+ * the prompt intended — rather than aborting with a 422.
+ *
+ * Valid tokens (NAME / SUBJ / OBJ etc.) and conjugation pairs ({is|are}) are
+ * left untouched.
+ */
+function stripUnknownTokens(template: string): string {
+  return template.replace(/\{([^{}]+)\}/g, (match, inner: string) => {
+    if (ALLOWED_TEMPLATE_TOKENS.has(inner)) return match;
+    // Conjugation pair: two non-empty alternatives separated by exactly one |
+    const pipeIdx = inner.indexOf("|");
+    if (pipeIdx > 0 && pipeIdx === inner.lastIndexOf("|") && pipeIdx < inner.length - 1) {
+      return match;
+    }
+    // Unknown token — strip the braces, leave the word as plain text
+    return inner;
+  });
+}
 
 router.post("/ai/tokenize-fact", requireRateLimit, async (req: Request, res: Response) => {
   const bodyParsed = TokenizeFactBody.safeParse(req.body);
@@ -336,6 +308,11 @@ router.post("/ai/tokenize-fact", requireRateLimit, async (req: Request, res: Res
     } catch {
       template = text;
     }
+
+    // Strip braces from any word the model hallucinated as a token (e.g. {When},
+    // {The}) — rule 8 says those words must be kept as plain text, so removing
+    // the braces is the correct repair, not a silent corruption.
+    template = stripUnknownTokens(template);
 
     const grammarResult = validateTemplate(template);
     if (!grammarResult.valid) {

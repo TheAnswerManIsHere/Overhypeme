@@ -45,12 +45,25 @@ export const factsTable = pgTable("facts", {
   aiScenePrompts: jsonb("ai_scene_prompts"),
   /** Object storage paths for generated AI meme background images (9 total: 3 genders × 3 each). */
   aiMemeImages: jsonb("ai_meme_images"),
+  /**
+   * Full visual-taxonomy enrichment blob (FactEnrichment from @workspace/api-zod).
+   * Populated when a fact is approved from an enriched review, or via backfill.
+   * Nullable until enriched. The four columns below are promoted, indexed
+   * projections of this blob for search / related-fact surfacing.
+   */
+  enrichment: jsonb("enrichment"),
+  primaryArchetype: varchar("primary_archetype", { length: 64 }),
+  subtype: varchar("subtype", { length: 64 }),
+  overhypeFit: varchar("overhype_fit", { length: 16 }),
+  adultSuitability: varchar("adult_suitability", { length: 24 }),
   embedding: vector("embedding", { dimensions: 384 }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
 }, (table) => [
   index("facts_wilson_score_idx").on(table.wilsonScore.desc()),
   index("facts_parent_id_idx").on(table.parentId),
+  index("facts_primary_archetype_idx").on(table.primaryArchetype),
+  index("facts_adult_suitability_idx").on(table.adultSuitability),
 ]);
 
 export const insertFactSchema = createInsertSchema(factsTable).omit({ id: true, upvotes: true, downvotes: true, score: true, wilsonScore: true, commentCount: true, shareCount: true, createdAt: true, updatedAt: true });

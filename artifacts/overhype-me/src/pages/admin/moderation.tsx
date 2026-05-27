@@ -7,6 +7,8 @@ import {
   ExternalLink, ClipboardList, Loader2, AlertTriangle, GitBranch,
   MessageSquare, Trash2, User,
 } from "lucide-react";
+import type { FactEnrichment } from "@workspace/api-zod";
+import { EnrichmentEditor, EnrichmentSummary } from "@/components/admin/EnrichmentEditor";
 
 // ─── Shared ───────────────────────────────────────────────────────────────────
 
@@ -38,6 +40,8 @@ interface Review {
   submitter: Submitter | null;
   matchingFact: MatchingFact | null;
   approvedFactId: number | null;
+  enrichment: FactEnrichment | null;
+  enrichmentStatus: string | null;
 }
 
 interface ReviewsResponse {
@@ -126,23 +130,50 @@ function ReviewModal({
 }: {
   review: Review;
   onClose: () => void;
-  onDecision: (id: number, action: "approve" | "reject" | "approve-variant", note: string, parentFactId?: number, rejectionReason?: RejectionReason) => Promise<void>;
+  onDecision: (id: number, action: "approve" | "reject" | "approve-variant", note: string, parentFactId?: number, rejectionReason?: RejectionReason, enrichment?: FactEnrichment | null) => Promise<void>;
 }) {
   const [note, setNote] = useState(review.adminNote ?? "");
   const [loading, setLoading] = useState(false);
   const [parentFactId, setParentFactId] = useState<string>(String(review.matchingFact?.id ?? ""));
   const [showVariantPanel, setShowVariantPanel] = useState(false);
   const [rejectionReason, setRejectionReason] = useState<RejectionReason | "">("");
+  const [enrichment, setEnrichment] = useState<FactEnrichment | null>(review.enrichment);
+  const [enrichmentStatus, setEnrichmentStatus] = useState<string | null>(review.enrichmentStatus);
+  const [enrichmentMsg, setEnrichmentMsg] = useState("");
+
+  const saveEnrichment = async () => {
+    if (!enrichment) return;
+    setLoading(true);
+    setEnrichmentMsg("");
+    const r = await fetch(`/api/admin/reviews/${review.id}/enrichment`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({ enrichment }),
+    });
+    setEnrichmentMsg(r.ok ? "Enrichment saved." : `Save failed (${r.status}).`);
+    if (r.ok) setEnrichmentStatus("ok");
+    setLoading(false);
+  };
+
+  const rerunEnrichment = async () => {
+    setLoading(true);
+    setEnrichmentMsg("");
+    const r = await fetch(`/api/admin/reviews/${review.id}/enrich`, { method: "POST", credentials: "include" });
+    setEnrichmentMsg(r.ok ? "Re-running enrichment — refresh in a moment." : `Re-run failed (${r.status}).`);
+    if (r.ok) setEnrichmentStatus("pending");
+    setLoading(false);
+  };
 
   const handle = async (action: "approve" | "reject" | "approve-variant") => {
     setLoading(true);
     if (action === "approve-variant") {
       const pid = parseInt(parentFactId, 10);
-      await onDecision(review.id, action, note, isNaN(pid) ? undefined : pid);
+      await onDecision(review.id, action, note, isNaN(pid) ? undefined : pid, undefined, enrichment);
     } else if (action === "reject") {
       await onDecision(review.id, action, note, undefined, rejectionReason || undefined);
     } else {
-      await onDecision(review.id, action, note);
+      await onDecision(review.id, action, note, undefined, undefined, enrichment);
     }
     setLoading(false);
   };
@@ -193,6 +224,22 @@ function ReviewModal({
               )}
             </div>
           </div>
+
+          {review.status === "pending" ? (
+            <div className="space-y-2">
+              <EnrichmentEditor
+                value={enrichment}
+                status={enrichmentStatus}
+                onChange={setEnrichment}
+                onSave={enrichment ? saveEnrichment : undefined}
+                onRerun={rerunEnrichment}
+                busy={loading}
+              />
+              {enrichmentMsg && <p className="text-xs text-muted-foreground">{enrichmentMsg}</p>}
+            </div>
+          ) : enrichment ? (
+            <EnrichmentSummary e={enrichment} />
+          ) : null}
 
           {review.status === "pending" && (
             <div className="space-y-4">
@@ -332,11 +379,13 @@ function FactReviewsPanel() {
     note: string,
     parentFactId?: number,
     rejectionReason?: RejectionReason,
+    enrichment?: FactEnrichment | null,
   ) => {
     setActionMsg("");
     const body: Record<string, unknown> = { adminNote: note || undefined };
     if (action === "approve-variant" && parentFactId !== undefined) body.parentFactId = parentFactId;
     if (action === "reject" && rejectionReason) body.rejectionReason = rejectionReason;
+    if ((action === "approve" || action === "approve-variant") && enrichment) body.enrichment = enrichment;
     const r = await fetch(`/api/admin/reviews/${id}/${action}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
