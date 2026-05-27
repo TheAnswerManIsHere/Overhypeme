@@ -209,14 +209,57 @@ TOKEN RULES:
 7. For ANY verb or auxiliary that conjugates differently for "they" vs "he/she", use {singular_form|plural_form} syntax.
    Examples: {doesn't|don't}  {isn't|aren't}  {was|were}  {does|do}  {has|have}  {pushes|push}  {counts|count}
    The LEFT form is used for he/she; the RIGHT form is used for they.
-8. Keep everything else exactly as written.
+8. Keep everything else exactly as written — no braces around any other word.
 
 IMPORTANT:
 - Capitalize tokens at the start of sentences: {Subj} not {SUBJ}, etc.
 - Verb conjugation is the hardest part. Identify EVERY third-person singular verb that would change with "they". Don't miss any.
 - "they" triggers plural: "he sleeps" → "{SUBJ} {sleeps|sleep}", "he doesn't" → "{SUBJ} {doesn't|don't}", "he was" → "{SUBJ} {was|were}"
+- NEVER put braces around words that are not in the token list above. Conjunctions ("When", "But", "If", "Because"), articles ("The", "A", "An"), prepositions ("In", "On", "At"), and all other non-token words must be written as plain text without braces. Wrapping any such word in braces is ALWAYS wrong.
 - Return ONLY valid JSON: {"template": "...the tokenized template..."}
-- Do NOT explain, do NOT add any other keys.`;
+- Do NOT explain, do NOT add any other keys.
+
+EXAMPLES (correct output):
+Input: "When David laughs, the earth cries."
+Output: {"template": "When {NAME} {laughs|laugh}, the earth {cries|cry}."}
+
+Input: "Sarah doesn't age because time fears her."
+Output: {"template": "{NAME} {doesn't|don't} age because time {fears|fear} {Obj}."}`;
+
+// The complete list of tokens the grammar validator accepts. Duplicated here so
+// stripUnknownTokens stays self-contained without importing from api-zod.
+const ALLOWED_TEMPLATE_TOKENS = new Set([
+  "NAME",
+  "SUBJ", "Subj",
+  "OBJ",  "Obj",
+  "POSS", "Poss",
+  "POSS_PRO", "Poss_Pro",
+  "REFL", "Refl",
+]);
+
+/**
+ * Remove braces from tokens the grammar validator does not recognise.
+ *
+ * When the model hallucinates `{When}` or `{The}` it violates rule 8 of the
+ * system prompt ("keep everything else exactly as written"). Stripping the
+ * braces from those tokens restores the original plain text — which is what
+ * the prompt intended — rather than aborting with a 422.
+ *
+ * Valid tokens (NAME / SUBJ / OBJ etc.) and conjugation pairs ({is|are}) are
+ * left untouched.
+ */
+function stripUnknownTokens(template: string): string {
+  return template.replace(/\{([^{}]+)\}/g, (match, inner: string) => {
+    if (ALLOWED_TEMPLATE_TOKENS.has(inner)) return match;
+    // Conjugation pair: two non-empty alternatives separated by exactly one |
+    const pipeIdx = inner.indexOf("|");
+    if (pipeIdx > 0 && pipeIdx === inner.lastIndexOf("|") && pipeIdx < inner.length - 1) {
+      return match;
+    }
+    // Unknown token — strip the braces, leave the word as plain text
+    return inner;
+  });
+}
 
 router.post("/ai/tokenize-fact", requireRateLimit, async (req: Request, res: Response) => {
   const bodyParsed = TokenizeFactBody.safeParse(req.body);
@@ -265,6 +308,11 @@ router.post("/ai/tokenize-fact", requireRateLimit, async (req: Request, res: Res
     } catch {
       template = text;
     }
+
+    // Strip braces from any word the model hallucinated as a token (e.g. {When},
+    // {The}) — rule 8 says those words must be kept as plain text, so removing
+    // the braces is the correct repair, not a silent corruption.
+    template = stripUnknownTokens(template);
 
     const grammarResult = validateTemplate(template);
     if (!grammarResult.valid) {
