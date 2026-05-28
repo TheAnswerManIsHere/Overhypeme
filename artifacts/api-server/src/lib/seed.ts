@@ -11,6 +11,7 @@ import { seedScenePromptConfig } from "./scenePromptConfig";
 import { seedVideoDirectionConfig } from "./videoDirection";
 import { seedFactEnrichmentConfig } from "./factEnrichmentConfig";
 import { seedFactVisualPreviewConfig } from "./factVisualPreviewConfig";
+import { seedImagePromptConfig } from "./imagePromptConfig";
 import { logger } from "./logger";
 
 /**
@@ -652,6 +653,10 @@ export async function ensureSchema(): Promise<void> {
   // produces the admin-visible visual interpretation preview from the
   // classified taxonomy + cultural references + authored strategy entry).
   await seedFactVisualPreviewConfig();
+
+  // Seed the Phase 2 image-prompt admin config (image-prompt + source-classifier
+  // system prompts, active classifier engine id, enable_image_prompt_v2 flag).
+  await seedImagePromptConfig();
 }
 
 function computeWilsonScore(upvotes: number, downvotes: number): number {

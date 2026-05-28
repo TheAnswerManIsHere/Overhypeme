@@ -1575,4 +1575,226 @@ router.delete("/memes/ai/:factId/image", requireLegendary, async (req: Authentic
   res.json({ success: true });
 });
 
+// ────────────────────────────────────────────────────────────────────────────
+// Phase 2 — new render-time prompt pipeline (gated by enable_image_prompt_v2).
+//
+//   POST /memes/ai/:factId/analyze-source     run Tier-1+2(+3) on an upload
+//   POST /memes/ai/:factId/generate-v2        enqueue prompt+image jobs, return renderJobId
+//   GET  /memes/ai/renders/:renderJobId       poll status / fetch result
+//
+// Legacy /generate stays live until the cutover follow-up PR retires it.
+// ────────────────────────────────────────────────────────────────────────────
+
+import {
+  validateEnrichment as _validateEnrichment_v2,
+  defaultIdentityPolicyForRenderMode as _defaultIdentityPolicyForRenderMode_v2,
+  type RenderControls as RenderControls_v2,
+  type SubjectRenderMode as SubjectRenderMode_v2,
+  type FactEnrichment as FactEnrichment_v2,
+  type SourceImageAnalysis as SourceImageAnalysis_v2,
+} from "@workspace/api-zod";
+import {
+  analyzeSourceImage as analyzeSourceImage_v2,
+  resolveSubjectRenderMode as resolveSubjectRenderMode_v2,
+  generationModeFromSubjectRenderMode as generationModeFromSubjectRenderMode_v2,
+  noImageAnalysis as noImageAnalysis_v2,
+} from "../lib/sourceImageAnalysis";
+import {
+  isImagePromptV2Enabled as isImagePromptV2Enabled_v2,
+} from "../lib/imagePromptConfig";
+import {
+  imagePromptAttemptsTable as imagePromptAttemptsTable_v2,
+  uploadImageMetadataTable as uploadImageMetadataTable_v2,
+} from "@workspace/db";
+import { enqueueJob as enqueueJob_v2 } from "../lib/asyncJobs";
+
+const PUBLIC_OBJECT_PREFIX_v2 = "/objects/";
+
+// Resolve a stored uploadedObjectPath to a public URL the fal detector + image
+// engines can fetch. Reuse the existing public path convention.
+function resolvePublicUrlForUpload_v2(uploadedObjectPath: string): string {
+  // Existing convention: uploadedObjectPath already starts with /objects/.
+  // Image engines / fal can fetch it via SERVER_PUBLIC_URL + path.
+  const publicBase = process.env["PUBLIC_BASE_URL"] ?? process.env["SERVER_PUBLIC_URL"] ?? "";
+  if (publicBase) {
+    return `${publicBase.replace(/\/$/, "")}${uploadedObjectPath}`;
+  }
+  return uploadedObjectPath;
+}
+
+router.post("/memes/ai/:factId/analyze-source", requireLegendary, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const factId = parseInt(String(req.params["factId"] ?? ""), 10);
+    if (isNaN(factId)) {
+      res.status(400).json({ error: "Invalid factId" });
+      return;
+    }
+    const body = req.body as { uploadedObjectPath?: unknown };
+    const uploadedObjectPath = typeof body.uploadedObjectPath === "string" ? body.uploadedObjectPath : "";
+    if (!uploadedObjectPath || !uploadedObjectPath.startsWith(PUBLIC_OBJECT_PREFIX_v2)) {
+      res.status(400).json({ error: "uploadedObjectPath required (must start with /objects/)" });
+      return;
+    }
+    // Ownership check: the upload row must belong to req.user.
+    const [meta] = await db
+      .select({ userId: uploadImageMetadataTable_v2.userId })
+      .from(uploadImageMetadataTable_v2)
+      .where(eq(uploadImageMetadataTable_v2.objectPath, uploadedObjectPath))
+      .limit(1);
+    if (!meta) {
+      res.status(404).json({ error: "upload_not_found" });
+      return;
+    }
+    if (meta.userId !== req.user?.id) {
+      res.status(403).json({ error: "upload_not_owned" });
+      return;
+    }
+
+    const analysis = await analyzeSourceImage_v2(
+      {
+        uploadedObjectPath,
+        imageUrl: resolvePublicUrlForUpload_v2(uploadedObjectPath),
+      },
+    );
+    res.json({
+      analysis,
+      defaultIdentityPolicy: _defaultIdentityPolicyForRenderMode_v2(analysis.suggestedRenderMode),
+    });
+  } catch (err) {
+    logger.warn({ err }, "[memes.v2/analyze-source] failed");
+    res.status(502).json({ error: "analyze_failed", details: err instanceof Error ? err.message : String(err) });
+  }
+});
+
+router.post("/memes/ai/:factId/generate-v2", requireLegendary, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    if (!(await isImagePromptV2Enabled_v2())) {
+      res.status(404).json({ error: "image_prompt_v2_not_enabled" });
+      return;
+    }
+    const factId = parseInt(String(req.params["factId"] ?? ""), 10);
+    if (isNaN(factId)) {
+      res.status(400).json({ error: "Invalid factId" });
+      return;
+    }
+    const body = (req.body && typeof req.body === "object" ? req.body : {}) as {
+      sourceImageAnalysis?: SourceImageAnalysis_v2;
+      userSelectedSubjectRenderMode?: SubjectRenderMode_v2;
+      identityPolicyOverrides?: Record<string, unknown>;
+      renderControls?: Partial<RenderControls_v2>;
+      lookStyleId?: string | null;
+      uploadedObjectPath?: string | null;
+    };
+
+    const [factRow] = await db
+      .select({ text: factsTable.text, enrichment: factsTable.enrichment })
+      .from(factsTable)
+      .where(eq(factsTable.id, factId))
+      .limit(1);
+    if (!factRow) {
+      res.status(404).json({ error: "fact_not_found" });
+      return;
+    }
+    const ev = _validateEnrichment_v2(factRow.enrichment);
+    if (!ev.ok) {
+      res.status(400).json({ error: "fact_enrichment_invalid", details: ev.error });
+      return;
+    }
+    const enrichment: FactEnrichment_v2 = ev.data;
+
+    const analysis: SourceImageAnalysis_v2 = body.sourceImageAnalysis ?? noImageAnalysis_v2();
+    const subjectRenderMode = resolveSubjectRenderMode_v2(analysis, body.userSelectedSubjectRenderMode);
+    const generationMode = generationModeFromSubjectRenderMode_v2(subjectRenderMode);
+    const identityPolicy = {
+      ..._defaultIdentityPolicyForRenderMode_v2(subjectRenderMode),
+      ...(body.identityPolicyOverrides ?? {}),
+    };
+
+    const renderControls = {
+      aspectRatio: body.renderControls?.aspectRatio ?? "portrait",
+      contentMode: body.renderControls?.contentMode ?? "sfw",
+      negativeSpacePreference: body.renderControls?.negativeSpacePreference,
+      fallbackSubjectGender: body.renderControls?.fallbackSubjectGender,
+      styleId: body.lookStyleId ?? null,
+      referenceImageUrl: body.uploadedObjectPath ? resolvePublicUrlForUpload_v2(body.uploadedObjectPath) : null,
+    };
+
+    const renderJobId = crypto.randomUUID();
+    const [attempt] = await db
+      .insert(imagePromptAttemptsTable_v2)
+      .values({
+        factId,
+        userId: req.user?.id ?? null,
+        renderJobId,
+        generationMode,
+        subjectRenderMode,
+        userSelectedSubjectRenderMode: body.userSelectedSubjectRenderMode ?? null,
+        targetEngine: "nano_banana_2",
+        sourceImageAnalysis: analysis,
+        sourceImageSha256: analysis.sourceImageSha256 ?? null,
+        identityPolicy,
+        renderControls,
+        factEnrichmentSnapshot: enrichment,
+        archetypeStrategyVersion: "v2",
+      })
+      .returning({ id: imagePromptAttemptsTable_v2.id });
+
+    await enqueueJob_v2({
+      queue: "image_prompt_generation",
+      payload: { attemptId: attempt!.id },
+      dedupeKey: `image_prompt:attempt:${attempt!.id}`,
+    });
+
+    res.status(202).json({ renderJobId, attemptId: attempt!.id });
+  } catch (err) {
+    logger.warn({ err }, "[memes.v2/generate-v2] failed");
+    res.status(500).json({ error: "generate_v2_failed", details: err instanceof Error ? err.message : String(err) });
+  }
+});
+
+router.get("/memes/ai/renders/:renderJobId", async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const renderJobId = String(req.params["renderJobId"] ?? "");
+    if (!renderJobId) {
+      res.status(400).json({ error: "renderJobId required" });
+      return;
+    }
+    const [attempt] = await db
+      .select()
+      .from(imagePromptAttemptsTable_v2)
+      .where(eq(imagePromptAttemptsTable_v2.renderJobId, renderJobId))
+      .limit(1);
+    if (!attempt) {
+      res.status(404).json({ error: "render_not_found" });
+      return;
+    }
+    // Ownership check.
+    if (attempt.userId && attempt.userId !== req.user?.id) {
+      res.status(403).json({ error: "render_not_owned" });
+      return;
+    }
+    // Compute status.
+    let status: "pending" | "prompt_ready" | "image_ready" | "failed";
+    if (attempt.error) status = "failed";
+    else if (attempt.generatedImageObjectPath) status = "image_ready";
+    else if (attempt.visualPlan) status = "prompt_ready";
+    else status = "pending";
+
+    res.json({
+      status,
+      attemptId: attempt.id,
+      subjectRenderMode: attempt.subjectRenderMode,
+      generationMode: attempt.generationMode,
+      visualPlan: attempt.visualPlan ?? null,
+      compiledPrompt: attempt.compiledPrompt ?? null,
+      subjectFactCompatibility: attempt.subjectFactCompatibility ?? null,
+      generatedImageObjectPath: attempt.generatedImageObjectPath ?? null,
+      error: attempt.error ?? null,
+    });
+  } catch (err) {
+    logger.warn({ err }, "[memes.v2/renders] failed");
+    res.status(500).json({ error: "render_status_failed" });
+  }
+});
+
 export default router;
