@@ -28,6 +28,7 @@ export const EMPTY_ENRICHMENT: FactEnrichment = {
   suggestedHashtags: [],
   taxonomyConfidence: 0,
   adminReviewNotes: "",
+  culturalReferences: [],
 };
 
 const SELECT_CLASS =
