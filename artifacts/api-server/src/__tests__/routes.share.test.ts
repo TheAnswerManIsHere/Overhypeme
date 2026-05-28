@@ -21,8 +21,16 @@ import express, { type Express } from "express";
 import request from "supertest";
 
 import { db } from "@workspace/db";
-import { usersTable, emailOutboxTable } from "@workspace/db/schema";
-import { eq, like } from "drizzle-orm";
+import { usersTable, asyncJobsTable } from "@workspace/db/schema";
+import { eq, like, sql, and } from "drizzle-orm";
+
+type EmailJobPayload = { to: string; subject: string; text: string; html?: string | null; kind?: string | null };
+function emailPayload(row: { payload: unknown }): EmailJobPayload {
+  return row.payload as EmailJobPayload;
+}
+function whereEmailTo(to: string) {
+  return and(eq(asyncJobsTable.queue, "email"), sql`${asyncJobsTable.payload}->>'to' = ${to}`);
+}
 
 import shareRouter, { __resetShareInviteGuardsForTests } from "../routes/share.js";
 import { createSession, type SessionData } from "../lib/auth.js";
@@ -57,7 +65,10 @@ async function createTestUser(displayName: string | null): Promise<string> {
 }
 
 async function cleanup(): Promise<void> {
-  await db.delete(emailOutboxTable).where(like(emailOutboxTable.to, `${RECIPIENT_PREFIX}%`));
+  await db.delete(asyncJobsTable).where(and(
+    eq(asyncJobsTable.queue, "email"),
+    sql`${asyncJobsTable.payload}->>'to' LIKE ${`${RECIPIENT_PREFIX}%`}`,
+  ));
   await db.delete(usersTable).where(like(usersTable.id, `${USER_PREFIX}%`));
 }
 
@@ -163,11 +174,12 @@ describe("POST /share/invite", () => {
     assert.equal(res.status, 200);
     assert.deepEqual(res.body, { success: true });
 
-    const [row] = await db.select().from(emailOutboxTable).where(eq(emailOutboxTable.to, body.recipientEmail));
+    const [row] = await db.select().from(asyncJobsTable).where(whereEmailTo(body.recipientEmail));
     assert.ok(row, "outbox row should exist");
-    assert.match(row.subject, /Someone thinks/);
-    assert.match(row.text ?? "", /SOMEONE THINKS/);
-    assert.match(row.text ?? "", /https:\/\/example\.com\/share\/abc/);
+    const p = emailPayload(row);
+    assert.match(p.subject, /Someone thinks/);
+    assert.match(p.text ?? "", /SOMEONE THINKS/);
+    assert.match(p.text ?? "", /https:\/\/example\.com\/share\/abc/);
   });
 
   it("uses authed displayName as sender", async () => {
@@ -179,11 +191,12 @@ describe("POST /share/invite", () => {
 
     const [row] = await db
       .select()
-      .from(emailOutboxTable)
-      .where(eq(emailOutboxTable.to, body.recipientEmail));
+      .from(asyncJobsTable)
+      .where(whereEmailTo(body.recipientEmail));
     assert.ok(row);
-    assert.match(row.subject, /Alex thinks/);
-    assert.match(row.text ?? "", /ALEX THINKS/);
+    const p = emailPayload(row);
+    assert.match(p.subject, /Alex thinks/);
+    assert.match(p.text ?? "", /ALEX THINKS/);
   });
 
   it("falls back to the default sender when the session resolves but has no displayName", async () => {
@@ -195,10 +208,10 @@ describe("POST /share/invite", () => {
 
     const [row] = await db
       .select()
-      .from(emailOutboxTable)
-      .where(eq(emailOutboxTable.to, body.recipientEmail));
+      .from(asyncJobsTable)
+      .where(whereEmailTo(body.recipientEmail));
     assert.ok(row);
-    assert.match(row.subject, /Someone thinks/);
+    assert.match(emailPayload(row).subject, /Someone thinks/);
   });
 
   it("trims whitespace from recipientEmail and recipientName before use", async () => {
@@ -213,8 +226,8 @@ describe("POST /share/invite", () => {
 
     const [row] = await db
       .select()
-      .from(emailOutboxTable)
-      .where(eq(emailOutboxTable.to, recipient));
+      .from(asyncJobsTable)
+      .where(whereEmailTo(recipient));
     assert.ok(row, "row should be inserted under the trimmed recipient");
   });
 });

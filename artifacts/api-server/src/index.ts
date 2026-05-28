@@ -13,7 +13,8 @@ import { backfillEmbeddings } from "./lib/embeddings";
 import { refreshPricingCache } from "./lib/falPricing";
 import { getConfigString, getConfigInt } from "./lib/adminConfig";
 import { attachShutdownHandlers } from "./shutdown";
-import { runEmailOutboxWorker } from "./lib/email.js";
+import { registerEmailHandler } from "./lib/email.js";
+import { runAsyncJobsWorker } from "./lib/asyncJobs.js";
 import { reconcileEngines, ALL_ENGINES } from "./lib/engines";
 import { ensureFalConfigured, getFalApiKey } from "./lib/falClient";
 
@@ -407,4 +408,7 @@ reconcileEngines()
       logger.warn({ err }, "Pricing cache init error"),
     );
   });
-runEmailOutboxWorker();
+// Register all async-job handlers before starting the worker. New queues
+// (enrichment, preview, future fal_*) call their own register* function here.
+registerEmailHandler();
+runAsyncJobsWorker();
