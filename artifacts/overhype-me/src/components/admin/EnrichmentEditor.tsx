@@ -7,13 +7,29 @@ import {
   OVERHYPE_FIT_VALUES,
   ADULT_SUITABILITY_VALUES,
   KNOWN_FACT_MODIFIERS,
+  REFERENCE_TYPE_VALUES,
   isKnownModifier,
   normalizeHashtag,
   validateEnrichment,
+  hasUsableVisualPreview,
+  PREVIEW_GENERATION_MODE,
+  PREVIEW_STYLE,
   type FactEnrichment,
+  type CulturalReference,
+  type VisualPromptPreview,
+  type ReferenceType,
   type PrimaryArchetype,
 } from "@workspace/api-zod";
-import { AlertTriangle, RefreshCw, Save, X } from "lucide-react";
+import { AlertTriangle, RefreshCw, Save, X, Eye, Plus, Trash2 } from "lucide-react";
+
+// ─── Forbidden-text heuristic ───────────────────────────────────────────────
+//
+// Per the Phase 2A supporting-text policy, ALL readable text isn't forbidden —
+// only specific categories (full captions, full fact text, hashtags, watermarks,
+// logos, brand marks, long paragraphs) are. This regex flags only the forbidden
+// signals so the admin sees a warning when the preview leans on something it
+// shouldn't.
+const FORBIDDEN_TEXT_RE = /\b(watermark|logo|brand[\s-]?(?:name|mark)|full[\s-]?(?:caption|fact|text)|hashtag|paragraph|prose)\b/i;
 
 /** Blank scaffold used when an admin fills enrichment manually (AI failed). */
 export const EMPTY_ENRICHMENT: FactEnrichment = {
@@ -44,6 +60,36 @@ function Warnings({ e }: { e: FactEnrichment }) {
   if (e.visualComplexity === "high") warnings.push("Hard to visualize");
   const customMods = e.modifiers.filter((m) => !isKnownModifier(m));
   if (customMods.length) warnings.push(`New modifier(s): ${customMods.join(", ")}`);
+
+  // Phase 2A: cultural-reference and visual-preview signals.
+  const flaggedRefs = e.culturalReferences.filter((r) => r.requiresAdminReview);
+  if (flaggedRefs.length) {
+    warnings.push(`Cultural reference needs admin review: ${flaggedRefs.map((r) => r.sourcePhrase).join(", ")}`);
+  }
+  const lowConfRefs = e.culturalReferences.filter((r) => r.confidence < 0.75);
+  if (lowConfRefs.length) {
+    warnings.push(`Low-confidence cultural reference(s): ${lowConfRefs.map((r) => r.sourcePhrase).join(", ")}`);
+  }
+  const preview = e.visualPromptPreview;
+  if (preview) {
+    const promptBody = [preview.exampleI2iPrompt, preview.exampleT2iPrompt, preview.engineNeutralVisualPlan].join(" ");
+    if (FORBIDDEN_TEXT_RE.test(promptBody)) {
+      warnings.push("Preview may render forbidden text (logos / watermarks / hashtags / full text / long paragraphs)");
+    }
+    // Generic-vs-reference: if cultural refs exist, at least one of them should
+    // surface in the preview's culturalReferencesUsed OR in the scene text.
+    if (e.culturalReferences.length > 0) {
+      const referenceMentions = new Set(preview.culturalReferencesUsed.map((s) => s.toLowerCase()));
+      const sceneText = `${preview.sceneConcept} ${preview.archetypeApplication} ${preview.visualApproach}`.toLowerCase();
+      const anyMatched = e.culturalReferences.some((r) =>
+        referenceMentions.has(r.sourcePhrase.toLowerCase()) ||
+        (r.sourcePhrase && sceneText.includes(r.sourcePhrase.toLowerCase())) ||
+        (r.canonicalReference && sceneText.includes(r.canonicalReference.toLowerCase()))
+      );
+      if (!anyMatched) warnings.push("Preview seems generic — none of the cultural references appear in the scene");
+    }
+  }
+
   if (!warnings.length) return null;
   return (
     <div className="rounded-sm border border-amber-500/40 bg-amber-500/10 p-3 space-y-1">
@@ -52,6 +98,340 @@ function Warnings({ e }: { e: FactEnrichment }) {
           <AlertTriangle className="w-3.5 h-3.5 shrink-0" /> {w}
         </p>
       ))}
+    </div>
+  );
+}
+
+function emptyCulturalRef(): CulturalReference {
+  return {
+    sourcePhrase: "",
+    referenceType: "cultural_reference",
+    canonicalReference: "",
+    explanation: "",
+    visualImplication: "",
+    confidence: 0.7,
+    requiresAdminReview: false,
+  };
+}
+
+function emptyVisualPreview(): VisualPromptPreview {
+  return {
+    archetypeApplication: "",
+    selectedFrame: "",
+    sceneConcept: "",
+    visualGoal: "",
+    visualApproach: "",
+    keyVisualElements: [],
+    engineNeutralVisualPlan: "",
+    exampleI2iPrompt: "",
+    exampleT2iPrompt: "",
+    promptGuardrailsPreview: "",
+    supportingTextPolicy: { allowed: [], forbidden: [], notes: "" },
+    culturalReferencesUsed: [],
+    interpretationWarnings: [],
+    previewAssumptions: {
+      sampleName: "David",
+      generationMode: PREVIEW_GENERATION_MODE,
+      style: PREVIEW_STYLE,
+      preserveFace: true,
+      preservePhysique: false,
+    },
+  };
+}
+
+/**
+ * Cultural references editor (Phase 2A). Admins can edit `explanation` and
+ * `visualImplication` directly per the addendum; `sourcePhrase` and
+ * `canonicalReference` are also editable so a manual-fill workflow can author
+ * the whole entry. `referenceType` and `confidence` are selectable;
+ * `requiresAdminReview` is a checkbox.
+ */
+function CulturalReferencesEditor({
+  refs,
+  onChange,
+}: {
+  refs: CulturalReference[];
+  onChange: (next: CulturalReference[]) => void;
+}) {
+  const update = (i: number, patch: Partial<CulturalReference>) => {
+    const next = refs.slice();
+    next[i] = { ...next[i]!, ...patch };
+    onChange(next);
+  };
+  const remove = (i: number) => onChange(refs.filter((_, idx) => idx !== i));
+  const add = () => onChange([...refs, emptyCulturalRef()]);
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between">
+        <label className={LABEL_CLASS}>Cultural / Inside References</label>
+        <button
+          type="button"
+          onClick={add}
+          className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
+        >
+          <Plus className="w-3 h-3" /> Add reference
+        </button>
+      </div>
+      {refs.length === 0 ? (
+        <p className="text-xs text-muted-foreground italic">No outside-context dependencies — the joke is intelligible from the literal text alone.</p>
+      ) : (
+        <div className="space-y-3">
+          {refs.map((r, i) => (
+            <div key={i} className="rounded-sm border border-border bg-muted/30 p-3 space-y-2">
+              <div className="flex items-start justify-between gap-2">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 flex-1">
+                  <div>
+                    <label className={LABEL_CLASS}>Source phrase</label>
+                    <input
+                      className={SELECT_CLASS}
+                      value={r.sourcePhrase}
+                      onChange={(ev) => update(i, { sourcePhrase: ev.target.value })}
+                    />
+                  </div>
+                  <div>
+                    <label className={LABEL_CLASS}>Reference type</label>
+                    <select
+                      className={SELECT_CLASS}
+                      value={r.referenceType}
+                      onChange={(ev) => update(i, { referenceType: ev.target.value as ReferenceType })}
+                    >
+                      {REFERENCE_TYPE_VALUES.map((t) => <option key={t} value={t}>{t}</option>)}
+                    </select>
+                  </div>
+                  <div className="sm:col-span-2">
+                    <label className={LABEL_CLASS}>Canonical reference</label>
+                    <input
+                      className={SELECT_CLASS}
+                      value={r.canonicalReference}
+                      onChange={(ev) => update(i, { canonicalReference: ev.target.value })}
+                    />
+                  </div>
+                  <div className="sm:col-span-2">
+                    <label className={LABEL_CLASS}>Explanation</label>
+                    <textarea
+                      className={`${SELECT_CLASS} resize-none`}
+                      rows={2}
+                      maxLength={800}
+                      value={r.explanation}
+                      onChange={(ev) => update(i, { explanation: ev.target.value })}
+                    />
+                  </div>
+                  <div className="sm:col-span-2">
+                    <label className={LABEL_CLASS}>Visual implication</label>
+                    <textarea
+                      className={`${SELECT_CLASS} resize-none`}
+                      rows={2}
+                      maxLength={800}
+                      value={r.visualImplication}
+                      onChange={(ev) => update(i, { visualImplication: ev.target.value })}
+                    />
+                  </div>
+                  <div className="flex items-center gap-3 sm:col-span-2">
+                    <label className="text-xs text-muted-foreground">
+                      Confidence:{" "}
+                      <input
+                        type="number"
+                        min={0}
+                        max={1}
+                        step={0.05}
+                        className="w-20 px-2 py-0.5 bg-background border border-border rounded-sm text-sm text-foreground"
+                        value={r.confidence}
+                        onChange={(ev) => update(i, { confidence: Math.max(0, Math.min(1, Number(ev.target.value) || 0)) })}
+                      />
+                    </label>
+                    <label className="text-xs text-muted-foreground inline-flex items-center gap-1.5">
+                      <input
+                        type="checkbox"
+                        checked={r.requiresAdminReview}
+                        onChange={(ev) => update(i, { requiresAdminReview: ev.target.checked })}
+                      />
+                      Requires admin review
+                    </label>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => remove(i)}
+                  className="p-1 text-muted-foreground hover:text-destructive"
+                  aria-label="Remove cultural reference"
+                >
+                  <Trash2 className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Visual interpretation preview editor (Phase 2A). Narrative fields are
+ * editable; previewAssumptions stays literal (the generator owns those).
+ * The list editors (keyVisualElements, supportingTextPolicy.allowed/forbidden,
+ * culturalReferencesUsed, interpretationWarnings) are stored as
+ * newline-separated text in textareas for ease of editing.
+ */
+function VisualPreviewPanel({
+  preview,
+  onChange,
+  onRegenerate,
+  busy,
+}: {
+  preview: VisualPromptPreview | undefined;
+  onChange: (next: VisualPromptPreview) => void;
+  onRegenerate?: () => void;
+  busy?: boolean;
+}) {
+  const p = preview ?? emptyVisualPreview();
+  const update = (patch: Partial<VisualPromptPreview>) => onChange({ ...p, ...patch });
+  const linesOf = (s: string) => s.split("\n").map((x) => x.trim()).filter(Boolean);
+
+  return (
+    <div className="rounded-sm border border-border bg-muted/20 p-3 space-y-3">
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-xs font-bold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
+          <Eye className="w-3.5 h-3.5" /> Visual Interpretation Preview
+        </p>
+        {onRegenerate && (
+          <button
+            type="button"
+            onClick={onRegenerate}
+            disabled={busy}
+            className="inline-flex items-center gap-1 text-xs text-primary hover:underline disabled:opacity-50"
+          >
+            <RefreshCw className="w-3 h-3" /> Regenerate preview
+          </button>
+        )}
+      </div>
+
+      {!preview && (
+        <p className="text-xs text-muted-foreground italic">
+          No preview yet. Click "Regenerate preview" once enrichment is saved, or fill the fields below by hand before approving.
+        </p>
+      )}
+
+      <div>
+        <label className={LABEL_CLASS}>Archetype application</label>
+        <textarea className={`${SELECT_CLASS} resize-none`} rows={2}
+          value={p.archetypeApplication}
+          onChange={(ev) => update({ archetypeApplication: ev.target.value })}
+        />
+      </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div>
+          <label className={LABEL_CLASS}>Selected frame</label>
+          <input className={SELECT_CLASS}
+            value={p.selectedFrame}
+            onChange={(ev) => update({ selectedFrame: ev.target.value })}
+          />
+        </div>
+        <div>
+          <label className={LABEL_CLASS}>Scene concept</label>
+          <input className={SELECT_CLASS}
+            value={p.sceneConcept}
+            onChange={(ev) => update({ sceneConcept: ev.target.value })}
+          />
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div>
+          <label className={LABEL_CLASS}>Visual goal</label>
+          <textarea className={`${SELECT_CLASS} resize-none`} rows={2}
+            value={p.visualGoal}
+            onChange={(ev) => update({ visualGoal: ev.target.value })}
+          />
+        </div>
+        <div>
+          <label className={LABEL_CLASS}>Visual approach</label>
+          <textarea className={`${SELECT_CLASS} resize-none`} rows={2}
+            value={p.visualApproach}
+            onChange={(ev) => update({ visualApproach: ev.target.value })}
+          />
+        </div>
+      </div>
+
+      <div>
+        <label className={LABEL_CLASS}>Key visual elements (one per line)</label>
+        <textarea className={`${SELECT_CLASS} resize-none`} rows={3}
+          value={p.keyVisualElements.join("\n")}
+          onChange={(ev) => update({ keyVisualElements: linesOf(ev.target.value) })}
+        />
+      </div>
+
+      <div>
+        <label className={LABEL_CLASS}>Engine-neutral visual plan</label>
+        <textarea className={`${SELECT_CLASS} resize-none`} rows={3}
+          value={p.engineNeutralVisualPlan}
+          onChange={(ev) => update({ engineNeutralVisualPlan: ev.target.value })}
+        />
+      </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div>
+          <label className={LABEL_CLASS}>Example i2i prompt</label>
+          <textarea className={`${SELECT_CLASS} resize-none font-mono text-xs`} rows={4}
+            value={p.exampleI2iPrompt}
+            onChange={(ev) => update({ exampleI2iPrompt: ev.target.value })}
+          />
+        </div>
+        <div>
+          <label className={LABEL_CLASS}>Example t2i prompt</label>
+          <textarea className={`${SELECT_CLASS} resize-none font-mono text-xs`} rows={4}
+            value={p.exampleT2iPrompt}
+            onChange={(ev) => update({ exampleT2iPrompt: ev.target.value })}
+          />
+        </div>
+      </div>
+
+      <div>
+        <label className={LABEL_CLASS}>Prompt guardrails preview</label>
+        <textarea className={`${SELECT_CLASS} resize-none`} rows={2}
+          value={p.promptGuardrailsPreview}
+          onChange={(ev) => update({ promptGuardrailsPreview: ev.target.value })}
+        />
+      </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div>
+          <label className={LABEL_CLASS}>Supporting text — allowed (one per line)</label>
+          <textarea className={`${SELECT_CLASS} resize-none`} rows={3}
+            value={p.supportingTextPolicy.allowed.join("\n")}
+            onChange={(ev) =>
+              update({ supportingTextPolicy: { ...p.supportingTextPolicy, allowed: linesOf(ev.target.value) } })
+            }
+          />
+        </div>
+        <div>
+          <label className={LABEL_CLASS}>Supporting text — forbidden (one per line)</label>
+          <textarea className={`${SELECT_CLASS} resize-none`} rows={3}
+            value={p.supportingTextPolicy.forbidden.join("\n")}
+            onChange={(ev) =>
+              update({ supportingTextPolicy: { ...p.supportingTextPolicy, forbidden: linesOf(ev.target.value) } })
+            }
+          />
+        </div>
+      </div>
+
+      <div>
+        <label className={LABEL_CLASS}>Cultural references used (sourcePhrases, one per line)</label>
+        <textarea className={`${SELECT_CLASS} resize-none`} rows={2}
+          value={p.culturalReferencesUsed.join("\n")}
+          onChange={(ev) => update({ culturalReferencesUsed: linesOf(ev.target.value) })}
+        />
+      </div>
+
+      <div>
+        <label className={LABEL_CLASS}>Interpretation warnings (one per line)</label>
+        <textarea className={`${SELECT_CLASS} resize-none`} rows={2}
+          value={p.interpretationWarnings.join("\n")}
+          onChange={(ev) => update({ interpretationWarnings: linesOf(ev.target.value) })}
+        />
+      </div>
     </div>
   );
 }
@@ -115,6 +495,33 @@ export function EnrichmentSummary({ e }: { e: FactEnrichment }) {
       {e.suggestedHashtags.length > 0 && (
         <p className="text-xs text-muted-foreground">Hashtags: <span className="text-foreground">{e.suggestedHashtags.join(", ")}</span></p>
       )}
+      {e.culturalReferences.length > 0 && (
+        <div className="border-t border-border pt-2 mt-2 space-y-1">
+          <p className="text-xs font-bold text-muted-foreground uppercase tracking-wide">Cultural references</p>
+          {e.culturalReferences.map((r, i) => (
+            <p key={i} className="text-xs text-foreground">
+              <span className="text-muted-foreground">"{r.sourcePhrase}"</span> ({r.referenceType})
+              {r.canonicalReference && <> → <span className="font-medium">{r.canonicalReference}</span></>}
+              {r.requiresAdminReview && <span className="text-amber-600 dark:text-amber-400"> · review</span>}
+            </p>
+          ))}
+        </div>
+      )}
+      {e.visualPromptPreview && (
+        <div className="border-t border-border pt-2 mt-2 space-y-1">
+          <p className="text-xs font-bold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
+            <Eye className="w-3 h-3" /> Visual preview
+          </p>
+          <p className="text-xs text-foreground"><span className="text-muted-foreground">Scene: </span>{e.visualPromptPreview.sceneConcept}</p>
+          <p className="text-xs text-foreground"><span className="text-muted-foreground">Frame: </span>{e.visualPromptPreview.selectedFrame}</p>
+          <details className="text-xs">
+            <summary className="text-muted-foreground cursor-pointer">Example i2i / t2i prompts</summary>
+            <pre className="mt-1 whitespace-pre-wrap font-mono text-[10px] text-foreground bg-background border border-border rounded-sm p-2">
+{`i2i: ${e.visualPromptPreview.exampleI2iPrompt}\n\nt2i: ${e.visualPromptPreview.exampleT2iPrompt}`}
+            </pre>
+          </details>
+        </div>
+      )}
     </div>
   );
 }
@@ -125,6 +532,7 @@ export function EnrichmentEditor({
   onChange,
   onSave,
   onRerun,
+  onRegeneratePreview,
   busy = false,
 }: {
   value: FactEnrichment | null;
@@ -132,6 +540,7 @@ export function EnrichmentEditor({
   onChange: (next: FactEnrichment) => void;
   onSave?: () => void;
   onRerun?: () => void;
+  onRegeneratePreview?: () => void;
   busy?: boolean;
 }) {
   const e = value ?? EMPTY_ENRICHMENT;
@@ -177,7 +586,7 @@ export function EnrichmentEditor({
               disabled={busy}
               className="inline-flex items-center gap-1 text-xs text-primary hover:underline disabled:opacity-50"
             >
-              <RefreshCw className="w-3 h-3" /> Re-run AI
+              <RefreshCw className="w-3 h-3" /> Re-run classification
             </button>
           )}
         </div>
@@ -295,9 +704,28 @@ export function EnrichmentEditor({
         />
       </div>
 
+      <CulturalReferencesEditor
+        refs={e.culturalReferences}
+        onChange={(next) => update({ culturalReferences: next })}
+      />
+
+      <VisualPreviewPanel
+        preview={e.visualPromptPreview}
+        onChange={(next) => update({ visualPromptPreview: next })}
+        onRegenerate={onRegeneratePreview}
+        busy={busy}
+      />
+
       {!validity.ok && (
         <p className="text-xs text-destructive flex items-center gap-1.5">
           <AlertTriangle className="w-3.5 h-3.5 shrink-0" /> {validity.error}
+        </p>
+      )}
+
+      {validity.ok && !hasUsableVisualPreview(e) && (
+        <p className="text-xs text-amber-600 dark:text-amber-400 flex items-center gap-1.5">
+          <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+          Generate a visual preview before approving — Approve is disabled without one.
         </p>
       )}
 
@@ -313,4 +741,14 @@ export function EnrichmentEditor({
       )}
     </div>
   );
+}
+
+/**
+ * True when an enrichment is ready to approve — used by the moderation page
+ * to gate the Approve / Approve-as-Variant buttons in lockstep with the
+ * server-side hard gate.
+ */
+export function isApprovable(enrichment: FactEnrichment | null | undefined): boolean {
+  if (!enrichment) return false;
+  return validateEnrichment(enrichment).ok && hasUsableVisualPreview(enrichment);
 }
