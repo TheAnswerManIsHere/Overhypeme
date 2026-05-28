@@ -18,7 +18,7 @@
  */
 
 import * as Sentry from "@sentry/node";
-import { getOpenAIClient } from "@workspace/integrations-openai-ai-server";
+import { callUtilityLLM } from "./utilityLLM";
 import { searchPhotos } from "./pexelsClient";
 import type { PexelsPhotoEntry } from "./pexelsClient";
 import { db } from "@workspace/db";
@@ -77,13 +77,10 @@ Return ONLY valid JSON — no explanation, no markdown:
 {"fact_type":"action","keywords":{"male":"man lifting weights gym","female":"woman lifting weights gym","neutral":"person strength training gym"}}`;
 
 async function extractImageKeywords(factText: string): Promise<LLMKeywordResult> {
-  const openai = getOpenAIClient();
-
-  const response = await openai.chat.completions.create({
-    model: "gpt-4o-mini",
-    max_tokens: 150,
+  const response = await callUtilityLLM({
+    maxTokens: 150,
     temperature: 0.2,
-    response_format: { type: "json_object" },
+    responseFormat: { type: "json_object" },
     messages: [
       { role: "system", content: KEYWORD_SYSTEM_PROMPT },
       { role: "user",   content: `Fact template: "${factText}"` },

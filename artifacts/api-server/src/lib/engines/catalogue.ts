@@ -21,6 +21,7 @@ import { FLUX_2_PRO } from "./flux-2-pro";
 import { GPT_IMAGE_2 } from "./gpt-image-2";
 import { GPT_IMAGE_2_EDIT } from "./gpt-image-2-edit";
 import { FAL_AUTO_SUBTITLE } from "./fal-auto-subtitle";
+import { OPENAI_GENERAL } from "./openai-general";
 
 /**
  * Code-first engine catalogue. To add a new engine: drop a new file in this
@@ -44,4 +45,5 @@ export const ALL_ENGINES: EngineDefinition[] = [
   GPT_IMAGE_2,
   GPT_IMAGE_2_EDIT,
   FAL_AUTO_SUBTITLE,
+  OPENAI_GENERAL,
 ];

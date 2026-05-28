@@ -1,36 +1,27 @@
 /**
- * Scene-prompt generation configuration.
+ * AI Image Style Prompt configuration.
  *
- * These are the "levers" that control how OpenAI turns a fact template into the
- * scene prompts used for AI image generation (text-to-image and image-to-image).
- * They used to be hard-coded constants; they now live in the `admin_config`
- * table so they can be tuned from the workbench without a deploy.
+ * The system prompt that controls how the LLM turns a fact template into the
+ * scene prompts used for AI image generation. It lives in `admin_config` so it
+ * can be tuned from the workbench without a deploy, and resolves through the
+ * standard debug overlay (a key's `debug_value` wins when `debug_mode_active`).
  *
- * Each value resolves through the standard admin_config debug overlay: when
- * `debug_mode_active` is "true", a key's `debug_value` (if set) wins over its
- * `value`. That lets an admin experiment with a candidate prompt in the
- * workbench (debug value), verify it, then promote it to production (value).
- *
- * The constants below are the production defaults — also used as the fallback
- * when a key is missing/blank, and as the seed value written to the DB row.
+ * The model + sampling are NOT configured here — they come from the shared
+ * General Intelligence engine (see lib/utilityLLM.ts / /admin/engines).
  */
 
 import { db } from "@workspace/db";
 import { sql } from "drizzle-orm";
-import { getConfigString, getConfigFloat, getConfigInt } from "./adminConfig";
+import { getConfigString } from "./adminConfig";
 import { logger } from "./logger";
 
 // ─── Config keys ───────────────────────────────────────────────────────────────
 
 export const SCENE_PROMPT_CONFIG_KEYS = {
   system: "scene_prompt_system",
-  model: "scene_prompt_model",
-  temperature: "scene_prompt_temperature",
-  maxTokens: "scene_prompt_max_tokens",
-  reasoningEffort: "scene_prompt_reasoning_effort",
 } as const;
 
-// ─── Production defaults ─────────────────────────────────────────────────────
+// ─── Production default ───────────────────────────────────────────────────────
 
 export const SCENE_PROMPT_SYSTEM_DEFAULT = `You write cinematic scene descriptions for an AI image generator. The output is a dramatic, photo-real background for a meme built around an over-the-top "fact" about a person.
 
@@ -56,32 +47,11 @@ Do not describe the image's shape or aspect ratio — framing is handled separat
 Return ONLY valid JSON in exactly this shape:
 {"fact_type":"action","male":"Cinematic ...","female":"Cinematic ...","neutral":"Cinematic ..."}`;
 
-export const SCENE_PROMPT_MODEL_DEFAULT = "gpt-4o-mini";
-export const SCENE_PROMPT_TEMPERATURE_DEFAULT = 0.7;
-export const SCENE_PROMPT_MAX_TOKENS_DEFAULT = 400;
-/** Reasoning effort for gpt-5/o-series models (ignored by gpt-4.x). */
-export const SCENE_PROMPT_REASONING_EFFORT_DEFAULT = "low";
+// ─── Getter (debug-overlay aware via adminConfig) ─────────────────────────────
 
-// ─── Getters (debug-overlay aware via adminConfig) ─────────────────────────────
-
-export interface ScenePromptGenerationConfig {
-  systemPrompt: string;
-  model: string;
-  temperature: number;
-  maxTokens: number;
-  reasoningEffort: string;
-}
-
-/** Resolve the OpenAI generation settings for scene-prompt generation. */
-export async function getScenePromptGenerationConfig(): Promise<ScenePromptGenerationConfig> {
-  const [systemPrompt, model, temperature, maxTokens, reasoningEffort] = await Promise.all([
-    getConfigString(SCENE_PROMPT_CONFIG_KEYS.system, SCENE_PROMPT_SYSTEM_DEFAULT),
-    getConfigString(SCENE_PROMPT_CONFIG_KEYS.model, SCENE_PROMPT_MODEL_DEFAULT),
-    getConfigFloat(SCENE_PROMPT_CONFIG_KEYS.temperature, SCENE_PROMPT_TEMPERATURE_DEFAULT),
-    getConfigInt(SCENE_PROMPT_CONFIG_KEYS.maxTokens, SCENE_PROMPT_MAX_TOKENS_DEFAULT),
-    getConfigString(SCENE_PROMPT_CONFIG_KEYS.reasoningEffort, SCENE_PROMPT_REASONING_EFFORT_DEFAULT),
-  ]);
-  return { systemPrompt, model, temperature, maxTokens, reasoningEffort };
+/** Resolve the admin-configurable image style-prompt system prompt. */
+export async function getScenePromptSystem(): Promise<string> {
+  return getConfigString(SCENE_PROMPT_CONFIG_KEYS.system, SCENE_PROMPT_SYSTEM_DEFAULT);
 }
 
 // ─── Seeding ─────────────────────────────────────────────────────────────────
@@ -101,42 +71,14 @@ export const SCENE_PROMPT_CONFIG_DEFS: ScenePromptConfigDef[] = [
     // "text" renders as a multi-line textarea in the workbench (vs a single-line input).
     dataType: "text",
     label: "AI Image Style Prompt — System Prompt",
-    description: "OpenAI system prompt that turns a fact template into the scene prompts used for AI image generation. Must still return JSON with fact_type/male/female/neutral.",
-  },
-  {
-    key: SCENE_PROMPT_CONFIG_KEYS.model,
-    value: SCENE_PROMPT_MODEL_DEFAULT,
-    dataType: "string",
-    label: "AI Image Style Prompt — OpenAI Model",
-    description: "OpenAI chat model used to generate the image scene prompts (e.g. gpt-4o-mini, gpt-4o).",
-  },
-  {
-    key: SCENE_PROMPT_CONFIG_KEYS.temperature,
-    value: String(SCENE_PROMPT_TEMPERATURE_DEFAULT),
-    dataType: "string",
-    label: "AI Image Style Prompt — Temperature",
-    description: "Sampling temperature for image scene-prompt generation (0–2). Higher = more varied.",
-  },
-  {
-    key: SCENE_PROMPT_CONFIG_KEYS.maxTokens,
-    value: String(SCENE_PROMPT_MAX_TOKENS_DEFAULT),
-    dataType: "integer",
-    label: "AI Image Style Prompt — Max Tokens",
-    description: "Maximum tokens for the generated image scene-prompt JSON response (visible output; reasoning models get extra headroom on top).",
-  },
-  {
-    key: SCENE_PROMPT_CONFIG_KEYS.reasoningEffort,
-    value: SCENE_PROMPT_REASONING_EFFORT_DEFAULT,
-    dataType: "string",
-    label: "AI Image Style Prompt — Reasoning Effort",
-    description: "Reasoning effort for GPT-5 / o-series models (none/low/medium/high). Higher = more capable but more tokens/cost. Ignored by GPT-4.x models.",
+    description: "LLM system prompt that turns a fact template into the scene prompts used for AI image generation. Must still return JSON with fact_type/male/female/neutral. The model + sampling come from the General Intelligence engine.",
   },
 ];
 
 /**
- * Idempotently seed the scene-prompt config rows with their production defaults.
- * Safe to call on every boot — existing rows (including admin edits) are left
- * untouched via ON CONFLICT DO NOTHING.
+ * Idempotently seed the image style-prompt system prompt with its production
+ * default. Safe to call on every boot — existing rows (including admin edits)
+ * are left untouched via ON CONFLICT DO NOTHING.
  */
 export async function seedScenePromptConfig(): Promise<void> {
   for (const def of SCENE_PROMPT_CONFIG_DEFS) {
@@ -146,18 +88,13 @@ export async function seedScenePromptConfig(): Promise<void> {
         VALUES (${def.key}, ${def.value}, ${def.dataType}, ${def.label}, ${def.description}, false)
         ON CONFLICT (key) DO NOTHING
       `);
-      // Backfill data_type for rows seeded before these keys became multi-line
-      // textareas. INSERT ... ON CONFLICT DO NOTHING leaves existing rows alone,
-      // so promote the type explicitly (idempotent — only touches stale rows).
       if (def.dataType === "text") {
         await db.execute(sql`
           UPDATE admin_config SET data_type = 'text'
           WHERE key = ${def.key} AND data_type <> 'text'
         `);
       }
-      // Labels/descriptions are code-owned (not admin-editable), so force them
-      // to the current copy. Brings rows seeded under the old "Scene Prompt"
-      // naming up to the "AI Image Style Prompt" naming (idempotent).
+      // Labels/descriptions are code-owned — force them to the current copy.
       await db.execute(sql`
         UPDATE admin_config SET label = ${def.label}, description = ${def.description}
         WHERE key = ${def.key}

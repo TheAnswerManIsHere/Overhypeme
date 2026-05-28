@@ -2,7 +2,7 @@ import { Router, type IRouter, type Request, type Response, type NextFunction } 
 import { db } from "@workspace/db";
 import { factsTable, commentsTable } from "@workspace/db/schema";
 import { eq, sql } from "drizzle-orm";
-import { getOpenAIClient } from "@workspace/integrations-openai-ai-server";
+import { callUtilityLLM } from "../lib/utilityLLM";
 import { z } from "zod";
 import { getSessionId, getSession } from "../lib/auth";
 import { createRateLimiter } from "../lib/rateLimit";
@@ -30,10 +30,9 @@ async function requireAuth(req: Request, res: Response, next: NextFunction): Pro
 
 export async function moderateComment(commentId: number, text: string): Promise<void> {
   try {
-    const response = await getOpenAIClient().chat.completions.create({
-      model: "gpt-4o-mini",
-      max_completion_tokens: 256,
-      response_format: { type: "json_object" },
+    const response = await callUtilityLLM({
+      maxTokens: 256,
+      responseFormat: { type: "json_object" },
       messages: [
         {
           role: "system",
@@ -104,7 +103,6 @@ async function llmDuplicateCheck(
   newText: string,
   candidates: Neighbor[],
 ): Promise<{ isDuplicate: boolean; matchIndex: number | null }> {
-  const openai = getOpenAIClient();
   const candidateList = candidates
     .map((c, i) => `${i + 1}. "${c.canonicalText ?? c.text}"`)
     .join("\n");
@@ -118,12 +116,11 @@ async function llmDuplicateCheck(
     `even if worded differently? Paraphrases and minor rewrites count as duplicates. ` +
     `Respond with JSON only: {"isDuplicate": true|false, "matchIndex": <1-based index or null>}`;
 
-  const response = await openai.chat.completions.create({
-    model: "gpt-4o-mini",
+  const response = await callUtilityLLM({
     messages: [{ role: "user", content: prompt }],
-    response_format: { type: "json_object" },
+    responseFormat: { type: "json_object" },
     temperature: 0,
-    max_tokens: 60,
+    maxTokens: 60,
   });
 
   const content = response.choices[0]?.message?.content ?? "{}";
@@ -287,11 +284,9 @@ router.post("/ai/tokenize-fact", requireRateLimit, async (req: Request, res: Res
   }
 
   try {
-    const openai = getOpenAIClient();
-    const completion = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
-      max_tokens: 1024,
-      response_format: { type: "json_object" },
+    const completion = await callUtilityLLM({
+      maxTokens: 1024,
+      responseFormat: { type: "json_object" },
       messages: [
         { role: "system", content: TOKENIZE_SYSTEM_PROMPT },
         { role: "user",   content: `Convert this fact to a template:\n\n"${text}"` },
@@ -340,11 +335,9 @@ router.post("/ai/suggest-pronouns", requireRateLimit, async (req: Request, res: 
   const { name } = bodyParsed.data;
 
   try {
-    const openai = getOpenAIClient();
-    const completion = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
-      max_tokens: 64,
-      response_format: { type: "json_object" },
+    const completion = await callUtilityLLM({
+      maxTokens: 64,
+      responseFormat: { type: "json_object" },
       messages: [
         {
           role: "system",

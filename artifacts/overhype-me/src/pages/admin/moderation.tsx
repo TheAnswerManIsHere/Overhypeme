@@ -181,10 +181,10 @@ function ReviewModal({
   return (
     <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4" onClick={onClose}>
       <div
-        className="bg-card border-2 border-border rounded-sm w-full max-w-3xl shadow-2xl overflow-hidden"
+        className="bg-card border-2 border-border rounded-sm w-full max-w-3xl shadow-2xl flex flex-col max-h-[90vh]"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="border-b border-border px-6 py-4 flex items-center justify-between">
+        <div className="border-b border-border px-6 py-4 flex items-center justify-between shrink-0">
           <div className="flex items-center gap-3 flex-wrap">
             <ClipboardList className="w-5 h-5 text-primary" />
             <h2 className="font-display font-bold uppercase tracking-wide text-foreground">Review #{review.id}</h2>
@@ -194,7 +194,7 @@ function ReviewModal({
           <button onClick={onClose} className="text-muted-foreground hover:text-foreground text-xl leading-none">×</button>
         </div>
 
-        <div className="p-6 space-y-6">
+        <div className="p-6 space-y-6 overflow-y-auto">
           <div className="flex flex-wrap gap-4 text-sm text-muted-foreground">
             <span>Submitted by: <strong className="text-foreground">{review.submitter?.displayName ?? review.submitter?.email ?? "Unknown"}</strong></span>
             {review.submitter?.email && <span>Email: <strong className="text-foreground">{review.submitter.email}</strong></span>}

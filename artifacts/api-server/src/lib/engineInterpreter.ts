@@ -223,7 +223,7 @@ export async function loadEngine(id: string): Promise<Engine | null> {
 
 /** Fetches the default engine for a kind. Throws if no active default exists. */
 export async function loadDefaultEngine(
-  kind: "image" | "video" | "utility",
+  kind: "image" | "video" | "utility" | "llm",
 ): Promise<Engine> {
   const cached = getCached(defaultByKindCache, kind);
   if (cached) return cached;
@@ -266,7 +266,7 @@ export interface LoadActiveEnginesOpts {
  *   - the engine is the default for its kind (defaults are always visible)
  */
 export async function loadActiveEngines(
-  kind: "image" | "video" | "utility",
+  kind: "image" | "video" | "utility" | "llm",
   opts: LoadActiveEnginesOpts = {},
 ): Promise<Engine[]> {
   let rows = getCached(activeByKindCache, kind);

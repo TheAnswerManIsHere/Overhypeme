@@ -63,7 +63,9 @@ async function createTestUser(opts: { isAdmin?: boolean } = {}): Promise<string>
 
 interface SeedOpts {
   id?: string;
-  kind?: "image" | "video" | "utility";
+  kind?: "image" | "video" | "utility" | "llm";
+  provider?: string;
+  endpointId?: string;
   isDefault?: boolean;
   isActive?: boolean;
   featureFlagRequired?: string | null;
@@ -74,8 +76,8 @@ async function seedEngine(opts: SeedOpts = {}): Promise<string> {
   const id = opts.id ?? `${ENGINE_PREFIX}${randomUUID().slice(0, 12)}`;
   await db.insert(enginesTable).values({
     id,
-    provider: "fal",
-    endpointId: `fal-ai/test/${id}`,
+    provider: opts.provider ?? "fal",
+    endpointId: opts.endpointId ?? `fal-ai/test/${id}`,
     label: `Test engine ${id}`,
     description: "Synthetic test engine — created by adminEngines.test.ts.",
     kind: opts.kind ?? "video",
@@ -306,6 +308,39 @@ describe("PATCH /admin/engines/:id", () => {
       .send({ endpointId: "fal-ai/some-other" });
     assert.equal(res.status, 400);
     assert.match(String(res.body.error), /endpointId/);
+  });
+
+  it("rejects endpointId edits on a non-OpenAI engine", async () => {
+    const id = await seedEngine({ provider: "fal" });
+    const app = buildTestApp({ kind: "authenticated", userId: adminUserId }, adminEnginesRouter);
+    const res = await request(app)
+      .patch(`/api/admin/engines/${id}`)
+      .send({ endpointId: "gpt-4o" });
+    assert.equal(res.status, 400);
+    assert.match(String(res.body.error), /only editable for OpenAI/i);
+  });
+
+  it("edits the model + sampling + reasoning on an OpenAI llm engine", async () => {
+    const id = await seedEngine({ provider: "openai", kind: "llm", endpointId: "gpt-4o-mini" });
+    const app = buildTestApp({ kind: "authenticated", userId: adminUserId }, adminEnginesRouter);
+    const res = await request(app)
+      .patch(`/api/admin/engines/${id}`)
+      .send({ endpointId: "gpt-5.2", defaultTemperature: 0.3, defaultMaxTokens: 800, defaultReasoningEffort: "medium" });
+    assert.equal(res.status, 200);
+    assert.equal(res.body.endpointId, "gpt-5.2");
+    assert.equal(Number(res.body.defaultTemperature), 0.3);
+    assert.equal(res.body.defaultMaxTokens, 800);
+    assert.equal(res.body.defaultReasoningEffort, "medium");
+  });
+
+  it("rejects an unknown model for an OpenAI llm engine", async () => {
+    const id = await seedEngine({ provider: "openai", kind: "llm", endpointId: "gpt-4o-mini" });
+    const app = buildTestApp({ kind: "authenticated", userId: adminUserId }, adminEnginesRouter);
+    const res = await request(app)
+      .patch(`/api/admin/engines/${id}`)
+      .send({ endpointId: "gpt-9-imaginary" });
+    assert.equal(res.status, 400);
+    assert.match(String(res.body.error), /endpointId must be one of/i);
   });
 
   it("returns 404 for an unknown id", async () => {
