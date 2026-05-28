@@ -20,6 +20,11 @@ async function cleanupQueues(): Promise<void> {
   await db.delete(asyncJobsTable).where(like(asyncJobsTable.queue, `${QUEUE_PREFIX}%`));
 }
 
+async function cleanupJobs(ids: number[]): Promise<void> {
+  if (ids.length === 0) return;
+  await db.delete(asyncJobsTable).where(inArray(asyncJobsTable.id, ids));
+}
+
 async function cleanupConfig(keys: string[]): Promise<void> {
   if (keys.length === 0) return;
   await db.delete(adminConfigTable).where(inArray(adminConfigTable.key, keys));
@@ -44,14 +49,17 @@ async function setConfigInt(key: string, value: number): Promise<void> {
 
 async function getJob(id: number) {
   const [row] = await db.select().from(asyncJobsTable).where(eq(asyncJobsTable.id, id)).limit(1);
+  assert.ok(row, `Expected async job ${id} to exist`);
   return row;
 }
 
 describe("asyncJobs worker", () => {
   const configKeys: string[] = [];
+  const jobIds: number[] = [];
 
   afterEach(async () => {
     __resetHandlersForTest();
+    await cleanupJobs(jobIds.splice(0));
     await cleanupQueues();
     await cleanupConfig(configKeys.splice(0));
     delete process.env.RESEND_API_KEY;
@@ -80,6 +88,8 @@ describe("asyncJobs worker", () => {
         nextAttemptAt: new Date(Date.now() - 1000),
       })
       .returning();
+    assert.ok(row);
+    jobIds.push(row.id);
 
     await asyncJobsTick(db);
 
@@ -108,6 +118,9 @@ describe("asyncJobs worker", () => {
       .from(asyncJobsTable)
       .where(eq(asyncJobsTable.queue, queue))
       .limit(1);
+    assert.ok(inserted);
+    jobIds.push(inserted.id);
+
     await db
       .update(asyncJobsTable)
       .set({ attempts: 1, nextAttemptAt: new Date(Date.now() - 1000) })
