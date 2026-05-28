@@ -134,3 +134,25 @@ This applies even when David didn't explicitly ask for a PR. The
 default is "ship for review." The only exceptions: pure exploration
 with no commits, or David has explicitly said "don't open a PR for
 this."
+
+### Every PR ships with a Replit test plan + a UAT (do this BEFORE opening the PR)
+
+For **every** PR that has product-visible or testable behavior, I write
+two docs in `docs/` and commit them on the branch *before* I open the PR,
+then reference both in the PR body:
+
+1. **`docs/<FEATURE>_TEST_RUN.md`** — the engineering/automated checklist
+   for Replit (the technical safety net). Exact commands, expected
+   pass/fail counts, schema/SQL checks, gotchas, and a "what's
+   deliberately not shipped" section.
+2. **`docs/<FEATURE>_UAT.md`** — the in-app, click-through acceptance test
+   for David. Written for the end user: where to click, what to expect vs.
+   not expect, regression smoke table, a bug-report template, and known
+   non-bug limitations.
+
+Match the established format/tone of the existing pair
+(`docs/FACT_ENRICHMENT_TEST_RUN.md` + `docs/FACT_ENRICHMENT_UAT.md`). The
+two docs cross-link each other; the PR body links to both. This is not
+optional and not a follow-up — the docs are part of the same PR as the
+code. (Pure infra/refactor with zero observable behavior can use a single
+short verification note instead, per rule 2's exception.)
