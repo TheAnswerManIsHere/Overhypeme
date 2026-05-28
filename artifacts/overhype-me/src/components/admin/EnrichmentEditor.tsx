@@ -280,7 +280,21 @@ export function EnrichmentEditor({
 
       {submittedHashtags.length > 0 && (
         <div>
-          <label className={LABEL_CLASS}>User-Submitted Hashtags</label>
+          <div className="flex items-center justify-between mb-1">
+            <label className={LABEL_CLASS} style={{ marginBottom: 0 }}>User-Submitted Hashtags</label>
+            {submittedHashtags.some((tag) => !e.suggestedHashtags.includes(tag)) && (
+              <button
+                type="button"
+                onClick={() => {
+                  const toAdd = submittedHashtags.filter((tag) => !e.suggestedHashtags.includes(tag));
+                  update({ suggestedHashtags: [...e.suggestedHashtags, ...toAdd] });
+                }}
+                className="text-xs text-primary hover:underline"
+              >
+                Add all
+              </button>
+            )}
+          </div>
           <div className="flex flex-wrap gap-1.5">
             {submittedHashtags.map((tag) => {
               const already = e.suggestedHashtags.includes(tag);
