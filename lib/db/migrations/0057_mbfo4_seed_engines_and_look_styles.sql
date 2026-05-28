@@ -246,7 +246,8 @@ INSERT INTO "engines" (
   0.02, NULL,
   8000,
   NULL
-);
+)
+ON CONFLICT ("id") DO NOTHING;
 
 --> statement-breakpoint
 
