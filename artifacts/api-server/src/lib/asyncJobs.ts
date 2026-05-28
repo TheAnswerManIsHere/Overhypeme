@@ -3,7 +3,7 @@
  *
  * One durable queue table (`async_jobs`) + one polling worker + many
  * per-queue handlers. Generalized from the original `email_outbox` worker
- * (Phase 2A — see migration 0063). Any feature can register a handler:
+ * (Phase 2A - see migration 0063). Any feature can register a handler:
  *
  *   registerJobHandler("email",      emailHandler)
  *   registerJobHandler("enrichment", enrichmentHandler)
@@ -16,7 +16,7 @@
  *
  * The `external_id` column on the table is reserved for future queues that
  * submit to a third-party service and poll for completion (e.g. a future
- * "fal_video" queue) — handlers may stash the third-party request id there.
+ * "fal_video" queue) - handlers may stash the third-party request id there.
  */
 
 import { eq, and, or, lte, lt, asc, sql } from "drizzle-orm";
@@ -60,6 +60,9 @@ export function getRegisteredQueues(): string[] {
  */
 export const RETRY_DELAYS_MS = [0, 5 * 60_000, 30 * 60_000, 2 * 3_600_000, 8 * 3_600_000];
 
+/** max_attempts=0 means "use async_job_<queue>_max_attempts from admin_config". */
+export const USE_CONFIGURED_MAX_ATTEMPTS = 0;
+
 async function getRetryConfig(queue: string): Promise<{ maxAttempts: number; retryDelays: number[] }> {
   const [maxAttempts, d1, d2, d3, d4] = await Promise.all([
     getConfigInt(`async_job_${queue}_max_attempts`, 5),
@@ -71,6 +74,29 @@ async function getRetryConfig(queue: string): Promise<{ maxAttempts: number; ret
   return { maxAttempts, retryDelays: [0, d1, d2, d3, d4] };
 }
 
+function isEmailDeliveryConfigured(): boolean {
+  const isProd = process.env.NODE_ENV === "production";
+  return !!(isProd
+    ? (process.env.RESEND_API_KEY_PROD || process.env.RESEND_API_KEY)
+    : (process.env.RESEND_API_KEY_DEV || process.env.RESEND_API_KEY_PROD || process.env.RESEND_API_KEY));
+}
+
+async function deferEmailWhileDeliveryDisabled(row: AsyncJobRow, tx: unknown): Promise<boolean> {
+  if (row.queue !== "email" || isEmailDeliveryConfigured()) return false;
+  const typedTx = tx as Pick<typeof defaultDb, "update">;
+  await typedTx
+    .update(asyncJobsTable)
+    .set({
+      status: "pending",
+      lastError: "Email delivery is not configured; leaving job pending",
+      nextAttemptAt: new Date(Date.now() + RETRY_DELAYS_MS[1]!),
+      updatedAt: new Date(),
+    })
+    .where(eq(asyncJobsTable.id, row.id));
+  logger.info({ id: row.id }, "[asyncJobs] email delivery not configured — leaving job pending");
+  return true;
+}
+
 // ─── Enqueue ────────────────────────────────────────────────────────────────
 
 export interface EnqueueOptions {
@@ -78,6 +104,7 @@ export interface EnqueueOptions {
   payload: Record<string, unknown>;
   /** When set, the partial unique index dedupes non-terminal jobs by (queue, dedupeKey). */
   dedupeKey?: string;
+  /** Optional per-job override. Omit to use async_job_<queue>_max_attempts. */
   maxAttempts?: number;
   /** When set, schedules the job for the future instead of running ASAP. */
   nextAttemptAt?: Date;
@@ -99,7 +126,7 @@ export async function enqueueJob(
       queue: options.queue,
       payload: options.payload as unknown as object,
       dedupeKey: options.dedupeKey ?? null,
-      maxAttempts: options.maxAttempts ?? 5,
+      maxAttempts: options.maxAttempts ?? USE_CONFIGURED_MAX_ATTEMPTS,
       nextAttemptAt: options.nextAttemptAt ?? new Date(),
       externalId: options.externalId ?? null,
     });
@@ -146,6 +173,10 @@ export async function asyncJobsTick(
         continue;
       }
 
+      if (await deferEmailWhileDeliveryDisabled(row, tx)) {
+        continue;
+      }
+
       await tx
         .update(asyncJobsTable)
         .set({ status: "processing", updatedAt: new Date() })
@@ -174,7 +205,8 @@ export async function asyncJobsTick(
           .where(eq(asyncJobsTable.id, row.id));
       } else {
         const { maxAttempts, retryDelays } = await getRetryConfig(row.queue);
-        const effectiveMax = row.maxAttempts ?? maxAttempts;
+        const explicitMax = row.maxAttempts > USE_CONFIGURED_MAX_ATTEMPTS ? row.maxAttempts : undefined;
+        const effectiveMax = Math.max(1, explicitMax ?? maxAttempts);
         const abandoned = newAttempts >= effectiveMax;
         const scheduledDelay = retryDelays[newAttempts];
         const delayMs = scheduledDelay ?? retryDelays[retryDelays.length - 1] ?? 0;
