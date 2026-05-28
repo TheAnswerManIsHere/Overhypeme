@@ -13,7 +13,7 @@ import { useToast } from "@/hooks/use-toast";
 import {
   ShieldAlert, AlertTriangle, Sparkles, Loader2,
   CheckCircle2, ChevronRight, ChevronLeft, CheckCheck,
-  ChevronDown, ChevronUp, GitBranch,
+  ChevronDown, ChevronUp, GitBranch, Trash2,
 } from "lucide-react";
 
 const HCAPTCHA_SITE_KEY =
@@ -255,6 +255,22 @@ export default function SubmitFact() {
     setHashtagsStr(value);
   };
 
+  const handleStartOver = () => {
+    try { localStorage.removeItem(DRAFT_STORAGE_KEY); } catch { /* ignore */ }
+    setRawText("");
+    setTemplate("");
+    setHashtagsStr("");
+    setDuplicate(null);
+    setStep("write");
+    setTokenizeError("");
+    setError("");
+    setOnboardingRequired(false);
+    setDraftSavedAt(null);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
+  const hasDraftContent = !!(rawText || template || hashtagsStr);
+
   if (authLoading) {
     return (
       <Layout>
@@ -335,7 +351,7 @@ export default function SubmitFact() {
         </div>
 
         {/* Step indicator */}
-        <div className="flex items-center justify-center mb-8">
+        <div className="flex items-center justify-center mb-4">
           {steps.map((s, i) => (
             <div key={s.id} className="flex items-center">
               <div className={`flex items-center gap-2 px-5 py-2 rounded-full text-sm font-bold tracking-wide transition-all ${
@@ -357,6 +373,20 @@ export default function SubmitFact() {
               )}
             </div>
           ))}
+        </div>
+
+        {/* Discard / start-over link — only shown when there is content to discard */}
+        <div className="flex justify-center mb-6 h-5">
+          {hasDraftContent && (
+            <button
+              type="button"
+              onClick={handleStartOver}
+              className="flex items-center gap-1.5 text-xs text-muted-foreground/60 hover:text-destructive transition-colors"
+            >
+              <Trash2 className="w-3 h-3" />
+              Discard and start over
+            </button>
+          )}
         </div>
 
         <div className="bg-card border border-border rounded-xl shadow-xl overflow-hidden">
