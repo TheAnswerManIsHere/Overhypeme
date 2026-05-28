@@ -22,7 +22,7 @@ export * from "./featureFlags";
 export * from "./falPricing";
 export * from "./routeStats";
 export * from "./routeStatEvents";
-export * from "./emailOutbox";
+export * from "./asyncJobs";
 export * from "./rateLimit";
 export * from "./moderation";
 export * from "./transientRenders";

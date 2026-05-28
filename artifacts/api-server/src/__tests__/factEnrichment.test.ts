@@ -37,6 +37,7 @@ const VALID: FactEnrichment = {
   suggestedHashtags: ["strength", "pushups", "earth", "legendary"],
   taxonomyConfidence: 0.95,
   adminReviewNotes: "",
+  culturalReferences: [],
 };
 
 // Same fields, but subtype belongs to a DIFFERENT archetype.

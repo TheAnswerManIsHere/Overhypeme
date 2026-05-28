@@ -1,21 +1,27 @@
 /**
  * Fact-enrichment service — turns a submitted fact into structured visual
- * taxonomy metadata via OpenAI, validates it against the shared schema, and
- * persists it to the pending review for admin approval.
+ * taxonomy metadata (incl. cultural references) via OpenAI, validates it
+ * against the shared schema, and persists it to the pending review for admin
+ * approval.
  *
- * This is durable classification metadata, NOT an image prompt. The image/video
- * prompt generator (a later phase) will consume the stored taxonomy.
+ * This is durable classification metadata, NOT an image prompt. The Phase 2A
+ * visual-preview generator + the Phase 2 render-time generator will consume
+ * the stored taxonomy + cultural references.
  *
- * Uses JSON mode + app-side validation (the pattern every other OpenAI call in
- * this server uses through the Replit proxy) rather than Structured Outputs.
- * Invalid output triggers one corrective retry before the enrichment is marked
- * failed — submission is never blocked.
+ * Uses **OpenAI Structured Outputs** (`response_format: json_schema`) backed
+ * by `factEnrichmentWireSchema` so the model is forced to emit the full shape
+ * (including `culturalReferences`). The parsed result is then run through our
+ * `validateEnrichment` for business-rule validation (subtype ∈ archetype,
+ * hashtag normalization). One corrective retry on validation failure before
+ * the enrichment is marked failed — submission is never blocked.
  */
 
 import { eq } from "drizzle-orm";
+import { zodResponseFormat } from "openai/helpers/zod";
 import { db } from "@workspace/db";
 import { pendingReviewsTable } from "@workspace/db/schema";
 import {
+  factEnrichmentWireSchema,
   validateEnrichment,
   TAXONOMY_VERSION,
   CLASSIFICATION_PROMPT_VERSION,
@@ -145,7 +151,7 @@ async function callOpenAIEnrichment(userMessages: UserMessage[]): Promise<string
   const response = await callUtilityLLM({
     temperature: FACT_ENRICHMENT_TEMPERATURE,
     maxTokens: FACT_ENRICHMENT_MAX_TOKENS,
-    responseFormat: { type: "json_object" },
+    responseFormat: zodResponseFormat(factEnrichmentWireSchema, "fact_enrichment"),
     messages: [{ role: "system", content: systemPrompt }, ...userMessages],
   });
   return response.choices[0]?.message?.content ?? "{}";

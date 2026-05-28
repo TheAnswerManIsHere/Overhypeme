@@ -1,12 +1,14 @@
 import { Router, type IRouter, type Request, type Response, type NextFunction } from "express";
 import * as Sentry from "@sentry/node";
 import { db, usersTable, sessionsTable } from "@workspace/db";
-import { factsTable, commentsTable, adminConfigTable, motionPresetsTable, featureFlagsTable, tierFeaturePermissionsTable, userGenerationCostsTable, lifetimeEntitlementsTable, subscriptionsTable, membershipHistoryTable, activityFeedTable, memesTable, userAiImagesTable, routeStatsTable, routeStatEventsTable, emailOutboxTable, stripeWebhookAuditTable, stripeCheckoutRequestLedgerTable } from "@workspace/db/schema";
+import { factsTable, commentsTable, adminConfigTable, motionPresetsTable, featureFlagsTable, tierFeaturePermissionsTable, userGenerationCostsTable, lifetimeEntitlementsTable, subscriptionsTable, membershipHistoryTable, activityFeedTable, memesTable, userAiImagesTable, routeStatsTable, routeStatEventsTable, asyncJobsTable, stripeWebhookAuditTable, stripeCheckoutRequestLedgerTable } from "@workspace/db/schema";
 import { eq, desc, count, ilike, sql, and, or, inArray, isNull, asc, gt, gte, sum } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import { requireRole } from "../middlewares/tierMiddleware";
 import { backfillEmbeddings, embedFactAsync } from "../lib/embeddings";
 import { enrichFact, buildFactEnrichmentColumns } from "../lib/factEnrichment";
+import { enqueueJob } from "../lib/asyncJobs";
+import { validateEnrichment, type FactEnrichment } from "@workspace/api-zod";
 import { runFactImagePipeline } from "../lib/factImagePipeline";
 import { generateAiMemeBackgrounds } from "../lib/aiMemePipeline";
 import { renderCanonical } from "../lib/renderCanonical";
@@ -1239,6 +1241,43 @@ router.post("/admin/facts/backfill-enrichment", requireAdminOrApiKey, async (req
   }
 });
 
+// On-demand visual prompt preview for an approved fact (Phase 2A). Backfilled
+// facts have enrichment but no preview by default; this endpoint enqueues a
+// "preview" job to generate one durably (the async-jobs worker retries on
+// transient failures and surfaces the result in `facts.enrichment.visualPromptPreview`).
+router.post("/admin/facts/:id/preview", requireAdmin, async (req: Request, res: Response) => {
+  const id = parseInt(String(req.params["id"] ?? ""), 10);
+  if (isNaN(id)) { res.status(400).json({ error: "Invalid fact id" }); return; }
+
+  const [fact] = await db
+    .select({ id: factsTable.id, enrichment: factsTable.enrichment })
+    .from(factsTable)
+    .where(eq(factsTable.id, id))
+    .limit(1);
+  if (!fact) { res.status(404).json({ error: "Fact not found" }); return; }
+
+  const validated = validateEnrichment(fact.enrichment);
+  if (!validated.ok) {
+    res.status(400).json({
+      error: "Cannot generate preview: fact has no enrichment. Run backfill-enrichment first.",
+    });
+    return;
+  }
+
+  const merged = { ...validated.data, previewStatus: "pending" as const };
+  await db.update(factsTable)
+    .set({ enrichment: merged as unknown as FactEnrichment })
+    .where(eq(factsTable.id, id));
+
+  await enqueueJob({
+    queue: "preview",
+    payload: { targetType: "fact", targetId: id },
+    dedupeKey: `preview:fact:${id}`,
+  });
+
+  res.json({ success: true, previewStatus: "pending" });
+});
+
 // ─── Config ───────────────────────────────────────────────────────────────────
 
 router.get("/config/public", async (_req: Request, res: Response) => {
@@ -2027,46 +2066,67 @@ router.get("/admin/route-stats", requireAdmin, async (req: Request, res: Respons
 });
 
 // GET /admin/email-queue — paginated list of email outbox rows, filterable by status
+// Admin email queue is a typed projection of the shared async_jobs table
+// filtered to queue = "email". The status vocabulary is the generic one
+// (pending / processing / done / failed) — the legacy email-only values
+// (sending / delivered / abandoned) were normalized in migration 0063.
 router.get("/admin/email-queue", requireAdmin, async (req: Request, res: Response) => {
-  const VALID_STATUSES = ["pending", "sending", "delivered", "abandoned"] as const;
-  type OutboxStatus = typeof VALID_STATUSES[number];
+  const VALID_STATUSES = ["pending", "processing", "done", "failed"] as const;
+  type JobStatus = typeof VALID_STATUSES[number];
 
   const page = Math.max(1, parseInt(String(req.query["page"] ?? "1"), 10));
   const limit = Math.min(100, Math.max(1, parseInt(String(req.query["limit"] ?? "50"), 10)));
   const offset = (page - 1) * limit;
 
   const rawStatus = String(req.query["status"] ?? "").trim();
+  const queueFilter = eq(asyncJobsTable.queue, "email");
   const statusFilter = rawStatus && (VALID_STATUSES as readonly string[]).includes(rawStatus)
-    ? eq(emailOutboxTable.status, rawStatus as OutboxStatus)
-    : undefined;
+    ? and(queueFilter, eq(asyncJobsTable.status, rawStatus as JobStatus))
+    : queueFilter;
 
   try {
     const [rows, [{ total }]] = await Promise.all([
       db
         .select({
-          id: emailOutboxTable.id,
-          to: emailOutboxTable.to,
-          subject: emailOutboxTable.subject,
-          text: emailOutboxTable.text,
-          html: emailOutboxTable.html,
-          kind: emailOutboxTable.kind,
-          status: emailOutboxTable.status,
-          attempts: emailOutboxTable.attempts,
-          maxAttempts: emailOutboxTable.maxAttempts,
-          lastError: emailOutboxTable.lastError,
-          nextAttemptAt: emailOutboxTable.nextAttemptAt,
-          createdAt: emailOutboxTable.createdAt,
-          updatedAt: emailOutboxTable.updatedAt,
+          id: asyncJobsTable.id,
+          payload: asyncJobsTable.payload,
+          status: asyncJobsTable.status,
+          attempts: asyncJobsTable.attempts,
+          maxAttempts: asyncJobsTable.maxAttempts,
+          lastError: asyncJobsTable.lastError,
+          nextAttemptAt: asyncJobsTable.nextAttemptAt,
+          createdAt: asyncJobsTable.createdAt,
+          updatedAt: asyncJobsTable.updatedAt,
         })
-        .from(emailOutboxTable)
+        .from(asyncJobsTable)
         .where(statusFilter)
-        .orderBy(desc(emailOutboxTable.createdAt))
+        .orderBy(desc(asyncJobsTable.createdAt))
         .limit(limit)
         .offset(offset),
-      db.select({ total: count() }).from(emailOutboxTable).where(statusFilter),
+      db.select({ total: count() }).from(asyncJobsTable).where(statusFilter),
     ]);
 
-    res.json({ rows, total, page, limit, validStatuses: VALID_STATUSES });
+    // Flatten the payload back into the per-row shape the admin UI expects.
+    const flattened = rows.map((r) => {
+      const p = (r.payload ?? {}) as { to?: string; subject?: string; text?: string; html?: string | null; kind?: string | null };
+      return {
+        id: r.id,
+        to: p.to ?? "",
+        subject: p.subject ?? "",
+        text: p.text ?? "",
+        html: p.html ?? null,
+        kind: p.kind ?? null,
+        status: r.status,
+        attempts: r.attempts,
+        maxAttempts: r.maxAttempts,
+        lastError: r.lastError,
+        nextAttemptAt: r.nextAttemptAt,
+        createdAt: r.createdAt,
+        updatedAt: r.updatedAt,
+      };
+    });
+
+    res.json({ rows: flattened, total, page, limit, validStatuses: VALID_STATUSES });
   } catch (err) {
     logger.error({ err }, "[admin] email-queue error");
     const msg = err instanceof Error ? err.message : "Failed to load email queue";
@@ -2074,9 +2134,9 @@ router.get("/admin/email-queue", requireAdmin, async (req: Request, res: Respons
   }
 });
 
-// DELETE /admin/email-queue?status=delivered|abandoned — bulk-delete all rows with the given terminal status
+// DELETE /admin/email-queue?status=done|failed|pending — bulk-delete email-queue rows with the given status
 router.delete("/admin/email-queue", requireAdmin, async (req: Request, res: Response) => {
-  const CLEARABLE_STATUSES = ["delivered", "abandoned", "pending"] as const;
+  const CLEARABLE_STATUSES = ["done", "failed", "pending"] as const;
   type ClearableStatus = typeof CLEARABLE_STATUSES[number];
 
   const rawStatus = String(req.query["status"] ?? "").trim();
@@ -2091,9 +2151,9 @@ router.delete("/admin/email-queue", requireAdmin, async (req: Request, res: Resp
 
   try {
     const deleted = await db
-      .delete(emailOutboxTable)
-      .where(eq(emailOutboxTable.status, status))
-      .returning({ id: emailOutboxTable.id });
+      .delete(asyncJobsTable)
+      .where(and(eq(asyncJobsTable.queue, "email"), eq(asyncJobsTable.status, status)))
+      .returning({ id: asyncJobsTable.id });
 
     res.json({ success: true, deleted: deleted.length });
   } catch (err) {
@@ -2103,7 +2163,7 @@ router.delete("/admin/email-queue", requireAdmin, async (req: Request, res: Resp
   }
 });
 
-// POST /admin/email-queue/:id/retry — reset an abandoned row back to pending
+// POST /admin/email-queue/:id/retry — reset a failed row back to pending
 router.post("/admin/email-queue/:id/retry", requireAdmin, async (req: Request, res: Response) => {
   const id = parseInt(String(req.params["id"] ?? ""), 10);
   if (isNaN(id)) {
@@ -2112,21 +2172,24 @@ router.post("/admin/email-queue/:id/retry", requireAdmin, async (req: Request, r
   }
 
   try {
-    // Atomic conditional update: only resets the row if it is still abandoned.
+    // Atomic conditional update: only resets the row if it is still failed.
     // This prevents a race where two concurrent admin retries both pass a
     // read-then-check and then both reset the same row to pending.
     const [updated] = await db
-      .update(emailOutboxTable)
-      .set({ status: "pending", nextAttemptAt: new Date(), updatedAt: new Date() })
-      .where(and(eq(emailOutboxTable.id, id), eq(emailOutboxTable.status, "abandoned")))
+      .update(asyncJobsTable)
+      .set({ status: "pending", attempts: 0, nextAttemptAt: new Date(), updatedAt: new Date() })
+      .where(and(
+        eq(asyncJobsTable.id, id),
+        eq(asyncJobsTable.queue, "email"),
+        eq(asyncJobsTable.status, "failed"),
+      ))
       .returning();
 
     if (!updated) {
-      // Row either doesn't exist or is no longer abandoned — fetch current state for a useful error.
       const [current] = await db
-        .select({ id: emailOutboxTable.id, status: emailOutboxTable.status })
-        .from(emailOutboxTable)
-        .where(eq(emailOutboxTable.id, id))
+        .select({ id: asyncJobsTable.id, status: asyncJobsTable.status })
+        .from(asyncJobsTable)
+        .where(and(eq(asyncJobsTable.id, id), eq(asyncJobsTable.queue, "email")))
         .limit(1);
 
       if (!current) {
@@ -2134,7 +2197,7 @@ router.post("/admin/email-queue/:id/retry", requireAdmin, async (req: Request, r
         return;
       }
       res.status(400).json({
-        error: `Cannot retry a row with status "${current.status}" — only abandoned rows can be retried`,
+        error: `Cannot retry a row with status "${current.status}" — only failed rows can be retried`,
       });
       return;
     }

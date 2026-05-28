@@ -1,0 +1,353 @@
+/**
+ * Shared async-jobs worker.
+ *
+ * One durable queue table (`async_jobs`) + one polling worker + many
+ * per-queue handlers. Generalized from the original `email_outbox` worker
+ * (Phase 2A - see migration 0063). Any feature can register a handler:
+ *
+ *   registerJobHandler("email",      emailHandler)
+ *   registerJobHandler("enrichment", enrichmentHandler)
+ *   registerJobHandler("preview",    previewHandler)
+ *
+ * and enqueue work via `enqueueJob({ queue, payload, dedupeKey? })`. The
+ * worker reclaims stuck rows on boot, claims due pending rows with
+ * `FOR UPDATE SKIP LOCKED`, applies exponential backoff on failure, and
+ * abandons (marks `failed`) after maxAttempts.
+ *
+ * The `external_id` column on the table is reserved for future queues that
+ * submit to a third-party service and poll for completion (e.g. a future
+ * "fal_video" queue) - handlers may stash the third-party request id there.
+ */
+
+import { eq, and, or, lte, lt, asc, sql } from "drizzle-orm";
+import { db as defaultDb } from "@workspace/db";
+import { asyncJobsTable, type AsyncJobRow } from "@workspace/db/schema";
+import { getConfigInt } from "./adminConfig";
+import { logger } from "./logger";
+
+// ─── Handler registry ───────────────────────────────────────────────────────
+
+export type HandlerResult = { ok: true; result?: unknown } | { ok: false; error: string };
+
+export interface JobHandler {
+  /** Process one row. Should never throw; return { ok:false, error } instead. */
+  run(payload: unknown, row: AsyncJobRow): Promise<HandlerResult>;
+  /** Optional: fired when a row is marked `failed` after exhausting retries. */
+  onAbandon?(row: AsyncJobRow): Promise<void> | void;
+  /** Optional: skip a row purge during retention sweep (returns true to keep). */
+  retainDuringPurge?(row: AsyncJobRow): boolean;
+  /** Optional: per-queue retention override in days (otherwise admin-config / 30). */
+  retentionDaysOverride?(): Promise<number | undefined>;
+}
+
+const HANDLERS = new Map<string, JobHandler>();
+
+/** Register the handler for a given queue. Idempotent (replaces). */
+export function registerJobHandler(queue: string, handler: JobHandler): void {
+  HANDLERS.set(queue, handler);
+}
+
+export function getRegisteredQueues(): string[] {
+  return Array.from(HANDLERS.keys());
+}
+
+// ─── Retry schedule ─────────────────────────────────────────────────────────
+
+/**
+ * Per-attempt delay in ms. Attempt N delay = `RETRY_DELAYS_MS[N]` (attempt 1 = first
+ * failure scheduled to retry after 5min, attempt 4 = 8h). Overridable per queue
+ * via admin_config (`async_job_<queue>_retry_delay_<N>_ms`).
+ */
+export const RETRY_DELAYS_MS = [0, 5 * 60_000, 30 * 60_000, 2 * 3_600_000, 8 * 3_600_000];
+
+/** max_attempts=0 means "use async_job_<queue>_max_attempts from admin_config". */
+export const USE_CONFIGURED_MAX_ATTEMPTS = 0;
+
+async function getRetryConfig(queue: string): Promise<{ maxAttempts: number; retryDelays: number[] }> {
+  const [maxAttempts, d1, d2, d3, d4] = await Promise.all([
+    getConfigInt(`async_job_${queue}_max_attempts`, 5),
+    getConfigInt(`async_job_${queue}_retry_delay_1_ms`, RETRY_DELAYS_MS[1]!),
+    getConfigInt(`async_job_${queue}_retry_delay_2_ms`, RETRY_DELAYS_MS[2]!),
+    getConfigInt(`async_job_${queue}_retry_delay_3_ms`, RETRY_DELAYS_MS[3]!),
+    getConfigInt(`async_job_${queue}_retry_delay_4_ms`, RETRY_DELAYS_MS[4]!),
+  ]);
+  return { maxAttempts, retryDelays: [0, d1, d2, d3, d4] };
+}
+
+function isEmailDeliveryConfigured(): boolean {
+  const isProd = process.env.NODE_ENV === "production";
+  return !!(isProd
+    ? (process.env.RESEND_API_KEY_PROD || process.env.RESEND_API_KEY)
+    : (process.env.RESEND_API_KEY_DEV || process.env.RESEND_API_KEY_PROD || process.env.RESEND_API_KEY));
+}
+
+async function deferEmailWhileDeliveryDisabled(row: AsyncJobRow, tx: unknown): Promise<boolean> {
+  if (row.queue !== "email" || isEmailDeliveryConfigured()) return false;
+  const typedTx = tx as Pick<typeof defaultDb, "update">;
+  await typedTx
+    .update(asyncJobsTable)
+    .set({
+      status: "pending",
+      lastError: "Email delivery is not configured; leaving job pending",
+      nextAttemptAt: new Date(Date.now() + RETRY_DELAYS_MS[1]!),
+      updatedAt: new Date(),
+    })
+    .where(eq(asyncJobsTable.id, row.id));
+  logger.info({ id: row.id }, "[asyncJobs] email delivery not configured — leaving job pending");
+  return true;
+}
+
+// ─── Enqueue ────────────────────────────────────────────────────────────────
+
+export interface EnqueueOptions {
+  queue: string;
+  payload: Record<string, unknown>;
+  /** When set, the partial unique index dedupes non-terminal jobs by (queue, dedupeKey). */
+  dedupeKey?: string;
+  /** Optional per-job override. Omit to use async_job_<queue>_max_attempts. */
+  maxAttempts?: number;
+  /** When set, schedules the job for the future instead of running ASAP. */
+  nextAttemptAt?: Date;
+  /** Optional: stash an external request id (e.g. fal request id) for poll-style handlers. */
+  externalId?: string;
+}
+
+/**
+ * Insert a pending job. With a `dedupeKey`, the partial unique index makes
+ * concurrent enqueues a safe no-op (the existing pending/processing row is kept).
+ */
+export async function enqueueJob(
+  options: EnqueueOptions,
+  dbOverride?: Pick<typeof defaultDb, "insert">,
+): Promise<void> {
+  const dbInstance = dbOverride ?? defaultDb;
+  try {
+    await dbInstance.insert(asyncJobsTable).values({
+      queue: options.queue,
+      payload: options.payload as unknown as object,
+      dedupeKey: options.dedupeKey ?? null,
+      maxAttempts: options.maxAttempts ?? USE_CONFIGURED_MAX_ATTEMPTS,
+      nextAttemptAt: options.nextAttemptAt ?? new Date(),
+      externalId: options.externalId ?? null,
+    });
+  } catch (err) {
+    // Unique-index conflict on (queue, dedupe_key) → a non-terminal job for
+    // the same key exists. That's the dedupe path; not an error.
+    if (err instanceof Error && /async_jobs_dedupe_idx/.test(err.message)) {
+      logger.debug({ queue: options.queue, dedupeKey: options.dedupeKey }, "[asyncJobs] enqueue dedupe — pending/processing row exists");
+      return;
+    }
+    throw err;
+  }
+}
+
+// ─── Worker tick ────────────────────────────────────────────────────────────
+
+type DbWithTransaction = Pick<typeof defaultDb, "transaction" | "delete">;
+
+/**
+ * Process one tick: claim due pending rows across all registered queues,
+ * dispatch by `queue`, apply success/retry/abandon. Exported for tests with
+ * an injected db.
+ */
+export async function asyncJobsTick(
+  dbInstance: DbWithTransaction,
+  now: Date = new Date(),
+): Promise<void> {
+  await dbInstance.transaction(async (tx) => {
+    const rows = (await tx
+      .select()
+      .from(asyncJobsTable)
+      .where(and(
+        eq(asyncJobsTable.status, "pending"),
+        lte(asyncJobsTable.nextAttemptAt, now),
+      ))
+      .orderBy(asc(asyncJobsTable.nextAttemptAt), asc(asyncJobsTable.id))
+      .limit(10)
+      .for("update", { skipLocked: true })) as AsyncJobRow[];
+
+    for (const row of rows) {
+      const handler = HANDLERS.get(row.queue);
+      if (!handler) {
+        logger.warn({ queue: row.queue, id: row.id }, "[asyncJobs] no handler registered for queue — skipping");
+        continue;
+      }
+
+      if (await deferEmailWhileDeliveryDisabled(row, tx)) {
+        continue;
+      }
+
+      await tx
+        .update(asyncJobsTable)
+        .set({ status: "processing", updatedAt: new Date() })
+        .where(eq(asyncJobsTable.id, row.id));
+
+      // Run the handler. The handler is responsible for not throwing; if it
+      // does, we treat it as a retryable failure with a synthetic error message.
+      let outcome: HandlerResult;
+      try {
+        outcome = await handler.run(row.payload, row);
+      } catch (err) {
+        outcome = { ok: false, error: err instanceof Error ? err.message : String(err) };
+      }
+
+      const newAttempts = row.attempts + 1;
+
+      if (outcome.ok) {
+        await tx
+          .update(asyncJobsTable)
+          .set({
+            status: "done",
+            attempts: newAttempts,
+            result: (outcome.result as object | undefined) ?? null,
+            updatedAt: new Date(),
+          })
+          .where(eq(asyncJobsTable.id, row.id));
+      } else {
+        const { maxAttempts, retryDelays } = await getRetryConfig(row.queue);
+        const explicitMax = row.maxAttempts > USE_CONFIGURED_MAX_ATTEMPTS ? row.maxAttempts : undefined;
+        const effectiveMax = Math.max(1, explicitMax ?? maxAttempts);
+        const abandoned = newAttempts >= effectiveMax;
+        const scheduledDelay = retryDelays[newAttempts];
+        const delayMs = scheduledDelay ?? retryDelays[retryDelays.length - 1] ?? 0;
+        await tx
+          .update(asyncJobsTable)
+          .set({
+            status: abandoned ? "failed" : "pending",
+            attempts: newAttempts,
+            lastError: outcome.error,
+            nextAttemptAt: abandoned ? new Date() : new Date(Date.now() + delayMs),
+            updatedAt: new Date(),
+          })
+          .where(eq(asyncJobsTable.id, row.id));
+
+        if (abandoned) {
+          logger.error({ queue: row.queue, id: row.id, error: outcome.error }, "[asyncJobs] job abandoned after max retries");
+          if (handler.onAbandon) {
+            try {
+              await handler.onAbandon({ ...row, status: "failed", attempts: newAttempts, lastError: outcome.error });
+            } catch (hookErr) {
+              logger.error({ err: hookErr, queue: row.queue, id: row.id }, "[asyncJobs] onAbandon hook threw");
+            }
+          }
+        }
+      }
+    }
+  });
+}
+
+// ─── Stuck-row recovery (on boot) ───────────────────────────────────────────
+
+/**
+ * Reset rows stuck in `processing` (crashed mid-run) back to `pending` so the
+ * next tick will retry them. Only rows older than `cutoffMinutes` are touched.
+ */
+export async function recoverStuckProcessing(
+  dbInstance: Pick<typeof defaultDb, "update">,
+  cutoffMinutes = 5,
+): Promise<void> {
+  const cutoff = new Date(Date.now() - cutoffMinutes * 60_000);
+  await dbInstance
+    .update(asyncJobsTable)
+    .set({ status: "pending", updatedAt: new Date() })
+    .where(and(eq(asyncJobsTable.status, "processing"), lt(asyncJobsTable.updatedAt, cutoff)));
+}
+
+// ─── Retention purge ────────────────────────────────────────────────────────
+
+/**
+ * Delete done/failed rows older than `retentionDays` days for a given queue.
+ * Per-queue retention via admin_config `async_job_<queue>_retention_days`
+ * (default 30). Handlers can implement `retainDuringPurge(row)` to keep
+ * specific rows around longer (used by the email handler to retain the
+ * abandoned-email admin-alert thread).
+ */
+export async function purgeTerminalJobs(
+  dbInstance: Pick<typeof defaultDb, "delete" | "select">,
+  queue: string,
+  now: Date = new Date(),
+): Promise<number> {
+  const handler = HANDLERS.get(queue);
+  const overrideDays = handler?.retentionDaysOverride
+    ? await handler.retentionDaysOverride()
+    : undefined;
+  const retentionDays = overrideDays ?? (await getConfigInt(`async_job_${queue}_retention_days`, 30));
+  if (retentionDays <= 0) return 0;
+  const cutoff = new Date(now.getTime() - retentionDays * 24 * 3_600_000);
+
+  if (handler?.retainDuringPurge) {
+    // Per-row filtering — slower but supports the abandoned-email retain path.
+    const candidates = await dbInstance
+      .select()
+      .from(asyncJobsTable)
+      .where(and(
+        eq(asyncJobsTable.queue, queue),
+        or(eq(asyncJobsTable.status, "done"), eq(asyncJobsTable.status, "failed")),
+        lt(asyncJobsTable.createdAt, cutoff),
+      ));
+    let deleted = 0;
+    for (const row of candidates) {
+      if (handler.retainDuringPurge(row)) continue;
+      await dbInstance.delete(asyncJobsTable).where(eq(asyncJobsTable.id, row.id));
+      deleted++;
+    }
+    return deleted;
+  }
+
+  const result = await dbInstance
+    .delete(asyncJobsTable)
+    .where(and(
+      eq(asyncJobsTable.queue, queue),
+      or(eq(asyncJobsTable.status, "done"), eq(asyncJobsTable.status, "failed")),
+      lt(asyncJobsTable.createdAt, cutoff),
+    ))
+    .returning({ id: asyncJobsTable.id });
+  return result.length;
+}
+
+// ─── Worker startup ─────────────────────────────────────────────────────────
+
+/**
+ * Start the durable async-jobs background worker. Should be called once on
+ * server startup AFTER all handlers are registered.
+ */
+export function runAsyncJobsWorker(intervalMs = 30_000): NodeJS.Timeout {
+  if (HANDLERS.size === 0) {
+    logger.warn("[asyncJobs] no handlers registered — worker still started for future registrations");
+  }
+
+  recoverStuckProcessing(defaultDb).catch((err) => {
+    logger.error({ err }, "[asyncJobs] startup recovery failed");
+  });
+
+  const tick = async () => {
+    try {
+      await asyncJobsTick(defaultDb);
+    } catch (err) {
+      logger.error({ err }, "[asyncJobs] worker tick failed");
+    }
+    // Run a retention purge for each registered queue once per tick (cheap,
+    // bounded by retention SQL).
+    for (const queue of HANDLERS.keys()) {
+      try {
+        await purgeTerminalJobs(defaultDb, queue);
+      } catch (err) {
+        logger.error({ err, queue }, "[asyncJobs] retention purge failed");
+      }
+    }
+  };
+
+  const handle = setInterval(() => void tick(), intervalMs);
+  handle.unref();
+  // Run an initial tick immediately so newly-enqueued jobs don't wait the
+  // first interval.
+  void tick();
+  return handle;
+}
+
+// ─── Reset for tests ────────────────────────────────────────────────────────
+
+/** Reset the handler registry — exported for unit tests. */
+export function __resetHandlersForTest(): void {
+  HANDLERS.clear();
+}
