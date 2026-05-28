@@ -47,6 +47,25 @@ async function setConfigInt(key: string, value: number): Promise<void> {
   bustConfigCache();
 }
 
+function clearResendEnv(): Record<string, string | undefined> {
+  const previous = {
+    RESEND_API_KEY: process.env.RESEND_API_KEY,
+    RESEND_API_KEY_DEV: process.env.RESEND_API_KEY_DEV,
+    RESEND_API_KEY_PROD: process.env.RESEND_API_KEY_PROD,
+  };
+  delete process.env.RESEND_API_KEY;
+  delete process.env.RESEND_API_KEY_DEV;
+  delete process.env.RESEND_API_KEY_PROD;
+  return previous;
+}
+
+function restoreEnv(previous: Record<string, string | undefined>): void {
+  for (const [key, value] of Object.entries(previous)) {
+    if (value === undefined) delete process.env[key];
+    else process.env[key] = value;
+  }
+}
+
 async function getJob(id: number) {
   const [row] = await db.select().from(asyncJobsTable).where(eq(asyncJobsTable.id, id)).limit(1);
   assert.ok(row, `Expected async job ${id} to exist`);
@@ -56,18 +75,18 @@ async function getJob(id: number) {
 describe("asyncJobs worker", () => {
   const configKeys: string[] = [];
   const jobIds: number[] = [];
+  const envStack: Array<Record<string, string | undefined>> = [];
 
   afterEach(async () => {
     __resetHandlersForTest();
     await cleanupJobs(jobIds.splice(0));
     await cleanupQueues();
     await cleanupConfig(configKeys.splice(0));
-    delete process.env.RESEND_API_KEY;
-    delete process.env.RESEND_API_KEY_DEV;
-    delete process.env.RESEND_API_KEY_PROD;
+    while (envStack.length > 0) restoreEnv(envStack.pop()!);
   });
 
   it("leaves queued email pending when delivery is not configured", async () => {
+    envStack.push(clearResendEnv());
     const queue = "email";
     let called = false;
     registerJobHandler(queue, {
