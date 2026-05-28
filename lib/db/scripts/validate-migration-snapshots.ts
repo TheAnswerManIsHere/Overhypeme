@@ -102,6 +102,10 @@ interface SqlDdlInfo {
   createdTables: Set<string>;
   /** Tables removed by DROP TABLE. */
   droppedTables: Set<string>;
+  /** Tables renamed via ALTER TABLE old RENAME TO new; key = old name, value = new name. */
+  renamedTablesFromTo: Map<string, string>;
+  /** Tables renamed via ALTER TABLE old RENAME TO new; key = new name, value = old name. */
+  renamedTablesToFrom: Map<string, string>;
   /** Columns added via ALTER TABLE … ADD COLUMN, keyed by table name. */
   addedColumns: Map<string, Set<string>>;
   /** Columns removed via ALTER TABLE … DROP COLUMN, keyed by table name. */
@@ -176,6 +180,8 @@ function parseSqlDdl(sql: string): SqlDdlInfo {
     hasDdl: false,
     createdTables: new Set(),
     droppedTables: new Set(),
+    renamedTablesFromTo: new Map(),
+    renamedTablesToFrom: new Map(),
     addedColumns: new Map(),
     droppedColumns: new Map(),
     createdEnums: new Set(),
@@ -211,6 +217,20 @@ function parseSqlDdl(sql: string): SqlDdlInfo {
   );
   while ((m = dropTableRe.exec(clean)) !== null) {
     info.droppedTables.add(extractSqlName(m[1]));
+  }
+
+  // ── ALTER TABLE … RENAME TO … ─────────────────────────────────────────────
+  // The old name disappearing from the snapshot AND the new name appearing in
+  // the snapshot are both accounted for by a rename — no CREATE/DROP needed.
+  const renameTableRe = new RegExp(
+    `ALTER\\s+TABLE\\s+(?:IF\\s+EXISTS\\s+)?(${ID})\\s+RENAME\\s+TO\\s+(${ID})`,
+    "gi",
+  );
+  while ((m = renameTableRe.exec(clean)) !== null) {
+    const oldName = extractSqlName(m[1]);
+    const newName = extractSqlName(m[2]);
+    info.renamedTablesFromTo.set(oldName, newName);
+    info.renamedTablesToFrom.set(newName, oldName);
   }
 
   // ── ALTER TABLE ADD COLUMN ────────────────────────────────────────────────
@@ -328,6 +348,8 @@ function validatePair(
     hasDdl: false,
     createdTables: new Set(),
     droppedTables: new Set(),
+    renamedTablesFromTo: new Map(),
+    renamedTablesToFrom: new Map(),
     addedColumns: new Map(),
     droppedColumns: new Map(),
     createdEnums: new Set(),
@@ -343,6 +365,10 @@ function validatePair(
     if (parsed.hasDdl) ddl.hasDdl = true;
     for (const t of parsed.createdTables) ddl.createdTables.add(t);
     for (const t of parsed.droppedTables) ddl.droppedTables.add(t);
+    for (const [from, to] of parsed.renamedTablesFromTo) {
+      ddl.renamedTablesFromTo.set(from, to);
+      ddl.renamedTablesToFrom.set(to, from);
+    }
     for (const [tbl, cols] of parsed.addedColumns) {
       if (!ddl.addedColumns.has(tbl)) ddl.addedColumns.set(tbl, new Set());
       for (const c of cols) ddl.addedColumns.get(tbl)!.add(c);
@@ -473,7 +499,7 @@ function validatePair(
   for (const tableKey of Object.keys(currTables)) {
     if (!prevTables[tableKey]) {
       const name = tableBaseName(tableKey);
-      if (!ddl.createdTables.has(name)) {
+      if (!ddl.createdTables.has(name) && !ddl.renamedTablesToFrom.has(name)) {
         errors.push({
           currPrefix,
           kind: "phantom",
@@ -489,7 +515,7 @@ function validatePair(
   for (const tableKey of Object.keys(prevTables)) {
     if (!currTables[tableKey]) {
       const name = tableBaseName(tableKey);
-      if (!ddl.droppedTables.has(name)) {
+      if (!ddl.droppedTables.has(name) && !ddl.renamedTablesFromTo.has(name)) {
         errors.push({
           currPrefix,
           kind: "phantom",
