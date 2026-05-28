@@ -125,6 +125,7 @@ export function EnrichmentEditor({
   onSave,
   onRerun,
   busy = false,
+  submittedHashtags = [],
 }: {
   value: FactEnrichment | null;
   status: string | null;
@@ -132,6 +133,7 @@ export function EnrichmentEditor({
   onSave?: () => void;
   onRerun?: () => void;
   busy?: boolean;
+  submittedHashtags?: string[];
 }) {
   const e = value ?? EMPTY_ENRICHMENT;
   const [modifierInput, setModifierInput] = useState("");
@@ -275,6 +277,32 @@ export function EnrichmentEditor({
           <button type="button" onClick={addHashtag} className="px-3 py-1.5 text-sm border border-border rounded-sm hover:bg-muted text-foreground">Add</button>
         </div>
       </div>
+
+      {submittedHashtags.length > 0 && (
+        <div>
+          <label className={LABEL_CLASS}>User-Submitted Hashtags</label>
+          <div className="flex flex-wrap gap-1.5">
+            {submittedHashtags.map((tag) => {
+              const already = e.suggestedHashtags.includes(tag);
+              return (
+                <span key={tag} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold border bg-muted/60 border-border text-muted-foreground">
+                  {tag}
+                  {!already && (
+                    <button
+                      type="button"
+                      title="Copy to suggested hashtags"
+                      onClick={() => update({ suggestedHashtags: [...e.suggestedHashtags, tag] })}
+                      className="hover:text-primary transition-colors"
+                    >
+                      +
+                    </button>
+                  )}
+                </span>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <div>

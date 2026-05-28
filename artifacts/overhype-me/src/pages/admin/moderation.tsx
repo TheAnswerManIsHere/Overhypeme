@@ -40,6 +40,7 @@ interface Review {
   submitter: Submitter | null;
   matchingFact: MatchingFact | null;
   approvedFactId: number | null;
+  hashtags: string[] | null;
   enrichment: FactEnrichment | null;
   enrichmentStatus: string | null;
 }
@@ -231,6 +232,7 @@ function ReviewModal({
                 onSave={enrichment ? saveEnrichment : undefined}
                 onRerun={rerunEnrichment}
                 busy={loading}
+                submittedHashtags={review.hashtags ?? []}
               />
               {enrichmentMsg && <p className="text-xs text-muted-foreground">{enrichmentMsg}</p>}
             </div>
