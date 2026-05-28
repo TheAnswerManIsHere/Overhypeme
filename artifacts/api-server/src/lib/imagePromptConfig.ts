@@ -191,11 +191,17 @@ export const IMAGE_PROMPT_CONFIG_DEFS: ConfigDef[] = [
  */
 export async function seedImagePromptConfig(): Promise<void> {
   for (const def of IMAGE_PROMPT_CONFIG_DEFS) {
+    const isPublic = def.key === IMAGE_PROMPT_CONFIG_KEYS.enableImagePromptV2;
     try {
       await db.execute(sql`
         INSERT INTO admin_config (key, value, data_type, label, description, is_public)
-        VALUES (${def.key}, ${def.value}, ${def.dataType}, ${def.label}, ${def.description}, false)
+        VALUES (${def.key}, ${def.value}, ${def.dataType}, ${def.label}, ${def.description}, ${isPublic})
         ON CONFLICT (key) DO NOTHING
+      `);
+      // Refresh is_public bit in case the row pre-exists from an older seed.
+      await db.execute(sql`
+        UPDATE admin_config SET is_public = ${isPublic}
+        WHERE key = ${def.key} AND is_public IS DISTINCT FROM ${isPublic}
       `);
       await db.execute(sql`
         UPDATE admin_config SET data_type = ${def.dataType}
