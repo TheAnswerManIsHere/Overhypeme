@@ -216,10 +216,34 @@ export function isKnownModifier(modifier: string): boolean {
   return (KNOWN_FACT_MODIFIERS as readonly string[]).includes(modifier);
 }
 
+// ─── Cultural-reference metadata (Phase 2A) ────────────────────────────────
+
+/**
+ * What kind of outside-context dependency a cultural reference is. Used in the
+ * fact enrichment blob so admins (and the future image-prompt generator) know
+ * the joke depends on culture/brand/workplace/idiom knowledge that may not be
+ * obvious from the literal words.
+ *
+ * `none` is intentionally NOT a value — when a fact has no outside-context
+ * dependency, `culturalReferences` is an empty array `[]`.
+ */
+export const REFERENCE_TYPE_VALUES = [
+  "cultural_reference",
+  "brand_reference",
+  "workplace_context",
+  "professional_domain_context",
+  "idiom_or_phrase",
+  "wordplay",
+  "mechanism_knowledge",
+  "inside_reference",
+] as const;
+export type ReferenceType = (typeof REFERENCE_TYPE_VALUES)[number];
+
 // ─── Versioning (lightweight; useful for debugging + future prompt changes) ─
 
 export const TAXONOMY_VERSION = "v1";
-export const CLASSIFICATION_PROMPT_VERSION = "v1";
+export const CLASSIFICATION_PROMPT_VERSION = "v2";
+export const PREVIEW_PROMPT_VERSION = "v1";
 
 // ─── Hashtag normalization ─────────────────────────────────────────────────
 
@@ -228,53 +252,158 @@ export function normalizeHashtag(tag: string): string {
   return tag.toLowerCase().replace(/[^a-z0-9]/g, "");
 }
 
+// ─── Cultural reference + supporting-text policy + visual preview ──────────
+
+/**
+ * A single outside-context dependency surfaced during enrichment. Informs
+ * visual interpretation but never reclassifies the archetype/subtype.
+ *
+ * Fields with `.default("")` cover the case where the model omits a soft field
+ * (e.g. no canonical reference name for an idiom). `requiresAdminReview` flips
+ * to true when the model is uncertain or when the reference is brand/workplace
+ * adjacent.
+ */
+export const culturalReferenceSchema = z.object({
+  sourcePhrase: z.string().trim().min(1).max(300),
+  referenceType: z.enum(REFERENCE_TYPE_VALUES),
+  canonicalReference: z.string().trim().max(300).default(""),
+  explanation: z.string().trim().max(800).default(""),
+  visualImplication: z.string().trim().max(800).default(""),
+  confidence: z.number().min(0).max(1),
+  requiresAdminReview: z.boolean().default(false),
+});
+export type CulturalReference = z.infer<typeof culturalReferenceSchema>;
+
+/**
+ * Per-fact supporting-text policy: what readable text the image model is
+ * allowed vs forbidden to render for this specific joke. Centralized; the
+ * default population (forbidden = full meme captions / full fact text /
+ * hashtags / watermarks / real logos / brand marks / long paragraphs; allowed
+ * = concise short labels / numbers / symbols / equations / UI fragments /
+ * scoreboards / documents / keypad digits / signs when they directly support
+ * the joke) is set in the prompt-strategy guardrails module.
+ */
+export const supportingTextPolicySchema = z.object({
+  allowed: z.array(z.string().trim().min(1)).max(20).default([]),
+  forbidden: z.array(z.string().trim().min(1)).max(20).default([]),
+  notes: z.string().trim().max(800).default(""),
+});
+export type SupportingTextPolicy = z.infer<typeof supportingTextPolicySchema>;
+
+/**
+ * Fixed preview assumptions. Modeled as literals so the model can't quietly
+ * change them (preview mode, style, face-preserve, physique-preserve are
+ * product-fixed for this bridge phase). `sampleName` defaults to "David" — the
+ * canonical brand example — and is used by the guardrail's subject-label rule
+ * (literal "David" only when sampleName is "David", else "the named subject").
+ */
+export const PREVIEW_GENERATION_MODE = "i2i_and_t2i_preview" as const;
+export const PREVIEW_STYLE = "default_sfw_cinematic" as const;
+
+export const previewAssumptionsSchema = z.object({
+  sampleName: z.string().trim().min(1).max(80).default("David"),
+  generationMode: z.literal(PREVIEW_GENERATION_MODE).default(PREVIEW_GENERATION_MODE),
+  style: z.literal(PREVIEW_STYLE).default(PREVIEW_STYLE),
+  preserveFace: z.literal(true).default(true),
+  preservePhysique: z.literal(false).default(false),
+});
+
+/**
+ * Admin-visible text preview of the system's intended visual interpretation.
+ * Structurally close to the Phase 2 render-time visual plan so the strategy
+ * module is reusable: `archetypeApplication`, `selectedFrame`, `keyVisualElements`,
+ * `supportingTextPolicy`, and `culturalReferencesUsed` mirror what render-time
+ * will consume. NOT a real render prompt and NOT an image.
+ */
+export const visualPromptPreviewSchema = z.object({
+  archetypeApplication: z.string().trim().min(1).max(1200),
+  selectedFrame: z.string().trim().min(1).max(300),
+  sceneConcept: z.string().trim().min(1).max(1200),
+  visualGoal: z.string().trim().min(1).max(1200),
+  visualApproach: z.string().trim().min(1).max(1200),
+  keyVisualElements: z.array(z.string().trim().min(1)).max(30).default([]),
+  engineNeutralVisualPlan: z.string().trim().min(1).max(3000),
+  exampleI2iPrompt: z.string().trim().min(1).max(3000),
+  exampleT2iPrompt: z.string().trim().min(1).max(3000),
+  promptGuardrailsPreview: z.string().trim().max(2000).default(""),
+  supportingTextPolicy: supportingTextPolicySchema,
+  culturalReferencesUsed: z.array(z.string().trim().min(1)).max(20).default([]),
+  interpretationWarnings: z.array(z.string().trim().min(1)).max(20).default([]),
+  previewAssumptions: previewAssumptionsSchema,
+  // Provenance (stamped by the preview generator, mirrors enrichment provenance).
+  previewPromptVersion: z.string().optional(),
+  generatedAt: z.string().optional(),
+  generatedBy: z.string().optional(),
+});
+export type VisualPromptPreview = z.infer<typeof visualPromptPreviewSchema>;
+
 // ─── Enrichment schema ─────────────────────────────────────────────────────
 
 const archetypeEnum = z.enum(PRIMARY_ARCHETYPES);
 const subtypeEnum = z.enum(ALL_SUBTYPES as [FactSubtype, ...FactSubtype[]]);
 
 /**
+ * Base object (no superRefine yet) so we can lift it into wire schemas / extend
+ * downstream. Apply the subtype cross-field refine in `factEnrichmentSchema`.
+ *
+ * `culturalReferences` is REQUIRED but may be `[]` (`.default([])` keeps
+ * Phase-1 / backfilled blobs valid). `visualPromptPreview` is optional — a
+ * freshly-classified review may not have one yet; the approval gate checks its
+ * presence separately. `previewStatus` tracks phase-2 status inside the blob
+ * (keeps `enrichment_status` on `pending_reviews` semantic to phase-1 only).
+ */
+const factEnrichmentBase = z.object({
+  primaryArchetype: archetypeEnum,
+  subtype: subtypeEnum,
+  modifiers: z
+    .array(z.string().trim().min(1))
+    .max(20)
+    .default([]),
+  visualLiteralness: z.enum(VISUAL_LITERALNESS_VALUES),
+  visualComplexity: z.enum(VISUAL_COMPLEXITY_VALUES),
+  overhypeFit: z.enum(OVERHYPE_FIT_VALUES),
+  adultSuitability: z.enum(ADULT_SUITABILITY_VALUES),
+  adultSuitabilityNotes: z.string().trim().max(500).default(""),
+  suggestedHashtags: z
+    .array(z.string())
+    .transform((arr) =>
+      Array.from(new Set(arr.map(normalizeHashtag).filter((t) => t.length > 0))),
+    )
+    .pipe(z.array(z.string().regex(/^[a-z0-9]+$/)).min(3).max(8)),
+  taxonomyConfidence: z.number().min(0).max(1),
+  adminReviewNotes: z.string().trim().max(800).default(""),
+  culturalReferences: z.array(culturalReferenceSchema).max(20).default([]),
+  visualPromptPreview: visualPromptPreviewSchema.optional(),
+  previewStatus: z.enum(["pending", "ok", "failed"]).optional(),
+  // Optional provenance — stamped by the enrichment service.
+  taxonomyVersion: z.string().optional(),
+  classificationPromptVersion: z.string().optional(),
+  enrichedAt: z.string().optional(),
+  enrichedBy: z.string().optional(),
+});
+
+const enforceSubtypeBelongsToArchetype = (
+  val: { primaryArchetype: PrimaryArchetype; subtype: string },
+  ctx: z.RefinementCtx,
+): void => {
+  const allowed = SUBTYPES_BY_ARCHETYPE[val.primaryArchetype] as readonly string[];
+  if (!allowed.includes(val.subtype)) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["subtype"],
+      message: `subtype "${val.subtype}" is not valid for primaryArchetype "${val.primaryArchetype}"`,
+    });
+  }
+};
+
+/**
  * Validates a raw enrichment object (from OpenAI or an admin edit). Normalizes
  * hashtags, trims strings, defaults notes to "", and enforces that the subtype
  * is valid for the chosen archetype.
  */
-export const factEnrichmentSchema = z
-  .object({
-    primaryArchetype: archetypeEnum,
-    subtype: subtypeEnum,
-    modifiers: z
-      .array(z.string().trim().min(1))
-      .max(20)
-      .default([]),
-    visualLiteralness: z.enum(VISUAL_LITERALNESS_VALUES),
-    visualComplexity: z.enum(VISUAL_COMPLEXITY_VALUES),
-    overhypeFit: z.enum(OVERHYPE_FIT_VALUES),
-    adultSuitability: z.enum(ADULT_SUITABILITY_VALUES),
-    adultSuitabilityNotes: z.string().trim().max(500).default(""),
-    suggestedHashtags: z
-      .array(z.string())
-      .transform((arr) =>
-        Array.from(new Set(arr.map(normalizeHashtag).filter((t) => t.length > 0))),
-      )
-      .pipe(z.array(z.string().regex(/^[a-z0-9]+$/)).min(3).max(8)),
-    taxonomyConfidence: z.number().min(0).max(1),
-    adminReviewNotes: z.string().trim().max(800).default(""),
-    // Optional provenance — stamped by the enrichment service.
-    taxonomyVersion: z.string().optional(),
-    classificationPromptVersion: z.string().optional(),
-    enrichedAt: z.string().optional(),
-    enrichedBy: z.string().optional(),
-  })
-  .superRefine((val, ctx) => {
-    const allowed = SUBTYPES_BY_ARCHETYPE[val.primaryArchetype] as readonly string[];
-    if (!allowed.includes(val.subtype)) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ["subtype"],
-        message: `subtype "${val.subtype}" is not valid for primaryArchetype "${val.primaryArchetype}"`,
-      });
-    }
-  });
+export const factEnrichmentSchema = factEnrichmentBase.superRefine(
+  enforceSubtypeBelongsToArchetype,
+);
 
 export type FactEnrichment = z.infer<typeof factEnrichmentSchema>;
 
@@ -294,3 +423,96 @@ export function validateEnrichment(raw: unknown): EnrichmentValidationResult {
     .join("; ");
   return { ok: false, error, subtypeMismatch };
 }
+
+export type VisualPreviewValidationResult =
+  | { ok: true; data: VisualPromptPreview }
+  | { ok: false; error: string };
+
+/** Safe-parse wrapper for a standalone visual-preview object. */
+export function validateVisualPreview(raw: unknown): VisualPreviewValidationResult {
+  const result = visualPromptPreviewSchema.safeParse(raw);
+  if (result.success) return { ok: true, data: result.data };
+  const error = result.error.issues
+    .map((i) => `${i.path.join(".") || "(root)"}: ${i.message}`)
+    .join("; ");
+  return { ok: false, error };
+}
+
+/**
+ * Shared by the server approval gate (`/admin/reviews/:id/approve(/-variant)`)
+ * and the client approve button so both stay in lockstep. True iff the
+ * enrichment carries a valid, complete visualPromptPreview.
+ */
+export function hasUsableVisualPreview(
+  enrichment: { visualPromptPreview?: unknown } | null | undefined,
+): boolean {
+  if (!enrichment || !enrichment.visualPromptPreview) return false;
+  return validateVisualPreview(enrichment.visualPromptPreview).ok;
+}
+
+// ─── Strict "wire" schemas for OpenAI Structured Outputs ───────────────────
+
+/**
+ * OpenAI's strict json_schema response_format requires every property to be
+ * required, no `default`/`transform`/refinements. So the wire mirrors below
+ * are plain objects describing only the transport contract; once we receive
+ * the parsed response we run it through `validateEnrichment` /
+ * `validateVisualPreview` for normalization (hashtag transform) and business
+ * rules (subtype ∈ archetype).
+ */
+
+const culturalReferenceWireSchema = z.object({
+  sourcePhrase: z.string(),
+  referenceType: z.enum(REFERENCE_TYPE_VALUES),
+  canonicalReference: z.string(),
+  explanation: z.string(),
+  visualImplication: z.string(),
+  confidence: z.number(),
+  requiresAdminReview: z.boolean(),
+});
+
+export const factEnrichmentWireSchema = z.object({
+  primaryArchetype: archetypeEnum,
+  subtype: subtypeEnum,
+  modifiers: z.array(z.string()),
+  visualLiteralness: z.enum(VISUAL_LITERALNESS_VALUES),
+  visualComplexity: z.enum(VISUAL_COMPLEXITY_VALUES),
+  overhypeFit: z.enum(OVERHYPE_FIT_VALUES),
+  adultSuitability: z.enum(ADULT_SUITABILITY_VALUES),
+  adultSuitabilityNotes: z.string(),
+  suggestedHashtags: z.array(z.string()),
+  taxonomyConfidence: z.number(),
+  adminReviewNotes: z.string(),
+  culturalReferences: z.array(culturalReferenceWireSchema),
+});
+
+const supportingTextPolicyWireSchema = z.object({
+  allowed: z.array(z.string()),
+  forbidden: z.array(z.string()),
+  notes: z.string(),
+});
+
+const previewAssumptionsWireSchema = z.object({
+  sampleName: z.string(),
+  generationMode: z.literal(PREVIEW_GENERATION_MODE),
+  style: z.literal(PREVIEW_STYLE),
+  preserveFace: z.literal(true),
+  preservePhysique: z.literal(false),
+});
+
+export const visualPreviewWireSchema = z.object({
+  archetypeApplication: z.string(),
+  selectedFrame: z.string(),
+  sceneConcept: z.string(),
+  visualGoal: z.string(),
+  visualApproach: z.string(),
+  keyVisualElements: z.array(z.string()),
+  engineNeutralVisualPlan: z.string(),
+  exampleI2iPrompt: z.string(),
+  exampleT2iPrompt: z.string(),
+  promptGuardrailsPreview: z.string(),
+  supportingTextPolicy: supportingTextPolicyWireSchema,
+  culturalReferencesUsed: z.array(z.string()),
+  interpretationWarnings: z.array(z.string()),
+  previewAssumptions: previewAssumptionsWireSchema,
+});

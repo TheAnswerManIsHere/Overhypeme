@@ -3,21 +3,25 @@
  * Requires RESEND_API_KEY. RESEND_FROM_EMAIL overrides the default sender.
  * When the key is absent, emails are logged to stdout (development fallback).
  *
- * Production mode: sendEmail() inserts into the email_outbox table and returns
- * immediately. The outbox worker (runEmailOutboxWorker) polls every 30 seconds,
- * claims pending rows, calls Resend, and retries on failure using exponential
- * backoff (5m → 30m → 2h → 8h). After maxAttempts the row is marked abandoned.
+ * Production mode: sendEmail() enqueues a row in the shared `async_jobs`
+ * table (queue "email") and returns immediately. The shared async-jobs worker
+ * (runAsyncJobsWorker, started in index.ts) polls every 30 seconds, claims
+ * pending rows, dispatches by queue to the registered handler (this file
+ * registers `"email"` → emailJobHandler), and applies the standard retry +
+ * abandon flow. The handler retains all the email-specific behaviors that
+ * existed before: Resend-401 process-wide disable, abandoned-email admin
+ * alert, retention exclusion for the alert thread itself.
  *
  * Brand: dark bg (#0d0d0e), danger orange (BRAND_ORANGE), Oswald + Inter typography.
  */
 import { BRAND_ORANGE } from "@workspace/api-zod";
 import { Resend } from "resend";
-import { eq, and, or, lte, lt, asc, not, like, isNull } from "drizzle-orm";
 import { db as defaultDb } from "@workspace/db";
-import { emailOutboxTable, type EmailOutboxRow } from "@workspace/db/schema";
+import type { AsyncJobRow } from "@workspace/db/schema";
 import { getConfigString, getConfigInt } from "./adminConfig";
 import { getSiteBaseUrl } from "./siteUrl";
 import { logger } from "./logger";
+import { enqueueJob, registerJobHandler, type HandlerResult, type JobHandler } from "./asyncJobs";
 // NOTE: Do NOT add a static import of ./adminNotify here. adminNotify imports
 // sendEmail from this file, so a static import would create a circular module
 // dependency. With ESM + top-level await anywhere in the bundled graph, esbuild
@@ -98,6 +102,18 @@ export interface EmailPayload {
   html?: string;
 }
 
+/**
+ * Internal payload shape stored in `async_jobs.payload` for queue "email".
+ * Mirrors the legacy email_outbox row columns.
+ */
+export interface EmailJobPayload {
+  to: string;
+  subject: string;
+  text: string;
+  html?: string | null;
+  kind?: string | null;
+}
+
 export async function sendEmail(
   payload: EmailPayload & { kind?: string },
   dbOverride?: Pick<typeof defaultDb, "insert">,
@@ -121,8 +137,8 @@ export async function sendEmail(
   // dummy key (the test runner sets RESEND_API_KEY="re_test_dummy" while
   // clearing the real dev/prod vars).  Skip the outbox insert unless the
   // caller explicitly supplies a dbOverride — without this guard the shared
-  // email_outbox would accumulate test rows that the running dev-server's
-  // outbox worker would attempt to deliver with the real API key.
+  // async_jobs would accumulate test rows that the running dev-server's
+  // worker would attempt to deliver with the real API key.
   if (!dbOverride && (getResendApiKey()?.startsWith("re_test_") ?? false)) {
     logger.info(
       { to: payload.to, subject: payload.subject },
@@ -130,29 +146,25 @@ export async function sendEmail(
     );
     return;
   }
-  const dbInstance = dbOverride ?? defaultDb;
-  await dbInstance.insert(emailOutboxTable).values({
-    to:      payload.to,
+  const jobPayload: EmailJobPayload = {
+    to: payload.to,
     subject: payload.subject,
-    text:    payload.text,
-    html:    payload.html ?? null,
-    kind:    payload.kind ?? null,
-  });
+    text: payload.text,
+    html: payload.html ?? null,
+    kind: payload.kind ?? null,
+  };
+  await enqueueJob(
+    { queue: "email", payload: jobPayload as unknown as Record<string, unknown> },
+    dbOverride,
+  );
 }
 
 /**
- * Retry delay schedule (in ms). Index = attempt number after the failure.
- * Attempt 1 (first try fails) → 5 min, attempt 2 → 30 min, etc.
- * Index 0 means "immediate" — used for the very first attempt.
- */
-export const RETRY_DELAYS_MS = [0, 5 * 60_000, 30 * 60_000, 2 * 3_600_000, 8 * 3_600_000];
-
-/**
- * Actually call the Resend API for a single outbox row.
+ * Actually call the Resend API for a single email payload.
  * Never throws — returns { ok, error } instead.
  */
 export async function deliverFromOutbox(
-  row: Pick<EmailOutboxRow, "to" | "subject" | "text" | "html">,
+  row: Pick<EmailJobPayload, "to" | "subject" | "text" | "html">,
 ): Promise<{ ok: boolean; error?: string }> {
   if (resendAuthDisabled) {
     return {
@@ -202,187 +214,62 @@ export async function deliverFromOutbox(
   }
 }
 
-type DbWithTransaction = Pick<typeof defaultDb, "transaction" | "delete">;
-type DeliverFn = (row: Pick<EmailOutboxRow, "to" | "subject" | "text" | "html">) => Promise<{ ok: boolean; error?: string }>;
-
 /**
- * Reads the live retry schedule from admin config, falling back to RETRY_DELAYS_MS.
- * Called once per tick so config changes take effect within the next 60s cache window.
+ * Email job handler. Registered against the shared async-jobs worker for the
+ * `"email"` queue. Preserves every email-specific behavior the old dedicated
+ * worker had:
+ *   - Resend 401 disables delivery process-wide.
+ *   - Abandoned (max-retries) emails fire an admin alert email (unless the
+ *     row IS the admin alert itself).
+ *   - Retention purge skips rows whose `kind` starts with
+ *     "admin_abandoned_email_alert" so the alert thread isn't auto-deleted.
  */
-async function getRetryConfig(): Promise<{ maxAttempts: number; retryDelays: number[] }> {
-  const [maxAttempts, d1, d2, d3, d4] = await Promise.all([
-    getConfigInt("email_max_attempts",      5),
-    getConfigInt("email_retry_delay_1_ms",  RETRY_DELAYS_MS[1]!),
-    getConfigInt("email_retry_delay_2_ms",  RETRY_DELAYS_MS[2]!),
-    getConfigInt("email_retry_delay_3_ms",  RETRY_DELAYS_MS[3]!),
-    getConfigInt("email_retry_delay_4_ms",  RETRY_DELAYS_MS[4]!),
-  ]);
-  return { maxAttempts, retryDelays: [0, d1, d2, d3, d4] };
-}
-
-/**
- * Delete delivered and abandoned rows older than `email_outbox_retention_days` days.
- * Returns the number of rows deleted. A retention value of 0 or less disables purging.
- * Exported for unit tests.
- */
-export async function purgeTerminalEmailRows(
-  dbInstance: Pick<typeof defaultDb, "delete">,
-  now: Date = new Date(),
-  excludeKindPrefix?: string,
-): Promise<number> {
-  const retentionDays = await getConfigInt("email_outbox_retention_days", 30);
-  if (retentionDays <= 0) return 0;
-  const cutoff = new Date(now.getTime() - retentionDays * 24 * 3_600_000);
-  const deleted = await dbInstance
-    .delete(emailOutboxTable)
-    .where(
-      and(
-        or(
-          eq(emailOutboxTable.status, "delivered"),
-          eq(emailOutboxTable.status, "abandoned"),
-        ),
-        lt(emailOutboxTable.createdAt, cutoff),
-        excludeKindPrefix
-          ? or(
-              isNull(emailOutboxTable.kind),
-              not(like(emailOutboxTable.kind, `${excludeKindPrefix}%`)),
-            )
-          : undefined,
-      ),
-    )
-    .returning({ id: emailOutboxTable.id });
-  return deleted.length;
-}
-
-/**
- * Process one tick of the email outbox worker.
- * Exported for unit tests so they can inject a fake DB and delivery function.
- */
-export async function emailOutboxTick(
-  dbInstance: DbWithTransaction,
-  deliverFn: DeliverFn,
-  now: Date = new Date(),
-  excludeKindPrefix?: string,
-): Promise<void> {
-  const { maxAttempts, retryDelays } = await getRetryConfig();
-
-  await dbInstance.transaction(async (tx) => {
-    const rows = await tx
-      .select()
-      .from(emailOutboxTable)
-      .where(and(
-        eq(emailOutboxTable.status, "pending"),
-        lte(emailOutboxTable.nextAttemptAt, now),
-      ))
-      .orderBy(asc(emailOutboxTable.nextAttemptAt), asc(emailOutboxTable.id))
-      .limit(10)
-      .for("update", { skipLocked: true });
-
-    for (const row of rows) {
-      await tx.update(emailOutboxTable)
-        .set({ status: "sending", updatedAt: new Date() })
-        .where(eq(emailOutboxTable.id, row.id));
-
-      const { ok, error } = await deliverFn(row);
-      const newAttempts = row.attempts + 1;
-
-      if (ok) {
-        await tx.update(emailOutboxTable)
-          .set({ status: "delivered", attempts: newAttempts, updatedAt: new Date() })
-          .where(eq(emailOutboxTable.id, row.id));
-      } else {
-        const abandoned = newAttempts >= maxAttempts;
-        // If we have more retries to go but have exhausted the per-slot schedule,
-        // repeat the last configured delay so extra attempts aren't silently dropped.
-        const scheduledDelay = retryDelays[newAttempts];
-        const delayMs = scheduledDelay ?? retryDelays[retryDelays.length - 1] ?? 0;
-        await tx.update(emailOutboxTable)
-          .set({
-            status:        abandoned ? "abandoned" : "pending",
-            attempts:      newAttempts,
-            lastError:     error ?? "unknown",
-            nextAttemptAt: abandoned ? new Date() : new Date(Date.now() + delayMs),
-            updatedAt:     new Date(),
-          })
-          .where(eq(emailOutboxTable.id, row.id));
-
-        if (abandoned) {
-          logger.error(
-            { outboxId: row.id, to: row.to, subject: row.subject, error },
-            "Email permanently abandoned after max retries",
-          );
-          if (row.kind !== "admin_abandoned_email_alert") {
-            const alertsEnabled = await getConfigString(
-              "email_admin_abandoned_alerts_enabled", "false"
-            );
-            if (alertsEnabled === "true") {
-              // Lazy dynamic import to break the email <-> adminNotify circular
-              // dependency. See the import-block comment at top of this file.
-              void import("./adminNotify").then(({ notifyAdminsOfAbandonedEmail }) =>
-                notifyAdminsOfAbandonedEmail({
-                  outboxId: row.id,
-                  to: row.to,
-                  subject: row.subject,
-                  lastError: error ?? "unknown",
-                }),
-              );
-            }
-          }
-        }
-      }
+export const emailJobHandler: JobHandler = {
+  async run(payload: unknown): Promise<HandlerResult> {
+    const ep = payload as EmailJobPayload;
+    if (!isEnabled()) {
+      // The dev-fallback path: pretend success so the row terminates as done.
+      logger.info({ to: ep.to, subject: ep.subject }, "[email] Resend not configured — skipping delivery");
+      return { ok: true };
     }
-  });
+    const { ok, error } = await deliverFromOutbox(ep);
+    return ok ? { ok: true } : { ok: false, error: error ?? "unknown" };
+  },
 
-  await purgeTerminalEmailRows(dbInstance, now, excludeKindPrefix);
-}
+  async onAbandon(row: AsyncJobRow): Promise<void> {
+    const ep = row.payload as EmailJobPayload;
+    // Don't recurse — never alert about a failed admin alert email.
+    if (ep.kind === "admin_abandoned_email_alert") return;
+    const alertsEnabled = await getConfigString("email_admin_abandoned_alerts_enabled", "false");
+    if (alertsEnabled !== "true") return;
+    // Lazy dynamic import to break the email <-> adminNotify circular
+    // dependency (see import-block comment at top of file).
+    void import("./adminNotify").then(({ notifyAdminsOfAbandonedEmail }) =>
+      notifyAdminsOfAbandonedEmail({
+        outboxId: row.id,
+        to: ep.to,
+        subject: ep.subject,
+        lastError: row.lastError ?? "unknown",
+      }),
+    );
+  },
+
+  retainDuringPurge(row: AsyncJobRow): boolean {
+    const ep = row.payload as EmailJobPayload | null;
+    return ep?.kind?.startsWith("admin_abandoned_email_alert") === true;
+  },
+
+  async retentionDaysOverride(): Promise<number | undefined> {
+    return getConfigInt("email_outbox_retention_days", 30);
+  },
+};
 
 /**
- * On startup: reset any rows stuck in 'sending' (crash mid-delivery) back to
- * 'pending' so they will be retried by the next worker tick.
- * Rows are only reset if they have been in 'sending' for longer than cutoffMinutes.
+ * Register the email handler with the shared async-jobs worker. Called once
+ * from index.ts before `runAsyncJobsWorker()` starts.
  */
-export async function recoverStuckSendingRows(
-  dbInstance: Pick<typeof defaultDb, "update">,
-  cutoffMinutes = 5,
-): Promise<void> {
-  if (!isEnabled()) return;
-  const cutoff = new Date(Date.now() - cutoffMinutes * 60_000);
-  await dbInstance.update(emailOutboxTable)
-    .set({ status: "pending", updatedAt: new Date() })
-    .where(and(
-      eq(emailOutboxTable.status, "sending"),
-      lt(emailOutboxTable.updatedAt, cutoff),
-    ));
-}
-
-/**
- * Start the email outbox background worker.
- * Polls every `intervalMs` milliseconds (default 30s) and delivers pending rows.
- * Should be called once on server startup.
- */
-export function runEmailOutboxWorker(intervalMs = 30_000): NodeJS.Timeout {
-  if (!isEnabled()) {
-    logger.info("Email outbox worker skipped — RESEND_API_KEY not set");
-    const noop = setInterval(() => { /* no-op */ }, intervalMs);
-    noop.unref();
-    return noop;
-  }
-
-  recoverStuckSendingRows(defaultDb).catch((err) => {
-    logger.error({ err }, "Email outbox: startup recovery failed");
-  });
-
-  const tick = async () => {
-    try {
-      await emailOutboxTick(defaultDb, deliverFromOutbox);
-    } catch (err) {
-      logger.error({ err }, "Email outbox worker tick failed");
-    }
-  };
-
-  const handle = setInterval(() => void tick(), intervalMs);
-  handle.unref();
-  return handle;
+export function registerEmailHandler(): void {
+  registerJobHandler("email", emailJobHandler);
 }
 
 /**

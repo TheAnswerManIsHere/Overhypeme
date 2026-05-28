@@ -27,9 +27,9 @@ import {
   uploadImageMetadataTable,
   userAiImagesTable,
   userGenerationCostsTable,
-  emailOutboxTable,
+  asyncJobsTable,
 } from "@workspace/db/schema";
-import { eq, like } from "drizzle-orm";
+import { eq, like, sql, and } from "drizzle-orm";
 
 import usersRouter from "../routes/users.js";
 import { authMiddleware } from "../middlewares/authMiddleware.js";
@@ -80,7 +80,10 @@ async function deleteFactsBy(userId: string) {
 }
 
 async function cleanupOutbox() {
-  await db.delete(emailOutboxTable).where(like(emailOutboxTable.to, `${USER_PREFIX}%`));
+  await db.delete(asyncJobsTable).where(and(
+    eq(asyncJobsTable.queue, "email"),
+    sql`${asyncJobsTable.payload}->>'to' LIKE ${`${USER_PREFIX}%`}`,
+  ));
 }
 
 async function cleanupUsers() {

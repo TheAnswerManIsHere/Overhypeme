@@ -18,11 +18,9 @@ import { runFactImagePipeline } from "../lib/factImagePipeline";
 import { createRateLimiter } from "../lib/rateLimit";
 import { validateTemplate } from "../lib/templateGrammar";
 import { computeSplitTokenIndex } from "../lib/splitTokenIndex";
-import { validateEnrichment, type FactEnrichment } from "@workspace/api-zod";
-import {
-  enrichAndStorePendingReview,
-  buildFactEnrichmentColumns,
-} from "../lib/factEnrichment";
+import { validateEnrichment, hasUsableVisualPreview, type FactEnrichment } from "@workspace/api-zod";
+import { buildFactEnrichmentColumns } from "../lib/factEnrichment";
+import { enqueueJob } from "../lib/asyncJobs";
 
 const requireRateLimit = createRateLimiter();
 
@@ -90,10 +88,19 @@ router.post("/facts/submit-review", requireAuth, requireRateLimit, async (req: A
     enrichmentStatus: "pending",
   }).returning();
 
-  // Classify the fact in the background so the structured taxonomy is ready
-  // for the admin reviewer. Best-effort — failure marks the review for manual
-  // enrichment and never blocks submission.
-  void enrichAndStorePendingReview(review.id, { factText: text, status: "new_fact" });
+  // Classify the fact + generate the visual preview in the background so both
+  // are ready for the admin reviewer. Enqueued onto the durable async-jobs
+  // worker (queue "enrichment"); never blocks submission. Phase 1
+  // (classify + cultural refs) → phase 2 (visual preview) runs in the handler.
+  await db
+    .update(pendingReviewsTable)
+    .set({ enrichmentStatus: "pending" })
+    .where(eq(pendingReviewsTable.id, review.id));
+  await enqueueJob({
+    queue: "enrichment",
+    payload: { reviewId: review.id },
+    dedupeKey: `enrichment:${review.id}`,
+  });
 
   void notifyAdmins({
     type: "fact_review",
@@ -221,25 +228,43 @@ const ApproveVariantBody = z.object({
 /**
  * Resolve the enrichment to persist on approval. Prefers the admin's edited
  * `enrichment` from the request body (validated); falls back to the stored
- * pending-review enrichment. Returns an error string only when the body
- * explicitly supplies an invalid enrichment — we never block approval just
- * because background enrichment failed.
+ * pending-review enrichment.
+ *
+ * **Hard approval gate (Phase 2A):** approval requires both (a) a valid
+ * enrichment and (b) a usable visual prompt preview. This is a deliberate
+ * behavior change from Phase 1 (which allowed approving with no enrichment) —
+ * see the Phase 2A addendum: "approve only after valid enrichment and a
+ * visual preview exist." The gate applies to pending-review approval only;
+ * approved facts may exist without a preview and have one generated on
+ * demand from /admin/facts.
  */
 function resolveApprovalEnrichment(
   body: unknown,
   storedEnrichment: unknown,
-): { ok: true; enrichment: FactEnrichment | null } | { ok: false; error: string } {
+): { ok: true; enrichment: FactEnrichment } | { ok: false; error: string } {
   const provided = (body as { enrichment?: unknown } | null | undefined)?.enrichment;
+  let resolved: FactEnrichment | null = null;
   if (provided !== undefined && provided !== null) {
     const result = validateEnrichment(provided);
-    if (!result.ok) return { ok: false, error: result.error };
-    return { ok: true, enrichment: result.data };
-  }
-  if (storedEnrichment) {
+    if (!result.ok) return { ok: false, error: `Invalid enrichment: ${result.error}` };
+    resolved = result.data;
+  } else if (storedEnrichment) {
     const result = validateEnrichment(storedEnrichment);
-    if (result.ok) return { ok: true, enrichment: result.data };
+    if (result.ok) resolved = result.data;
   }
-  return { ok: true, enrichment: null };
+  if (!resolved) {
+    return {
+      ok: false,
+      error: "A valid enrichment is required before approval. Re-run classification or fill it in manually.",
+    };
+  }
+  if (!hasUsableVisualPreview(resolved)) {
+    return {
+      ok: false,
+      error: "A visual prompt preview is required before approval. Click \"Regenerate preview\" or fill it in manually before approving.",
+    };
+  }
+  return { ok: true, enrichment: resolved };
 }
 
 /** Attach hashtags to a fact, upserting into the hashtags master + join table. */
@@ -277,7 +302,7 @@ router.post("/admin/reviews/:id/approve-variant", requireAdmin, async (req: Auth
 
   const enrichmentResult = resolveApprovalEnrichment(req.body, review.enrichment);
   if (!enrichmentResult.ok) {
-    res.status(400).json({ error: `Invalid enrichment: ${enrichmentResult.error}` });
+    res.status(400).json({ error: enrichmentResult.error });
     return;
   }
   const enrichment = enrichmentResult.enrichment;
@@ -350,7 +375,7 @@ router.post("/admin/reviews/:id/approve", requireAdmin, async (req: Authenticate
 
   const enrichmentResult = resolveApprovalEnrichment(req.body, review.enrichment);
   if (!enrichmentResult.ok) {
-    res.status(400).json({ error: `Invalid enrichment: ${enrichmentResult.error}` });
+    res.status(400).json({ error: enrichmentResult.error });
     return;
   }
   const enrichment = enrichmentResult.enrichment;
@@ -500,9 +525,47 @@ router.post("/admin/reviews/:id/enrich", requireAdmin, async (req: Request, res:
   if (!review) { res.status(404).json({ error: "Review not found" }); return; }
 
   await db.update(pendingReviewsTable).set({ enrichmentStatus: "pending" }).where(eq(pendingReviewsTable.id, id));
-  void enrichAndStorePendingReview(review.id, { factText: review.submittedText, status: "new_fact" });
+  await enqueueJob({
+    queue: "enrichment",
+    payload: { reviewId: review.id },
+    dedupeKey: `enrichment:${review.id}`,
+  });
 
   res.json({ success: true, enrichmentStatus: "pending" });
+});
+
+// ─── Enrichment: regenerate visual preview only (admin) ───────────────────────
+
+router.post("/admin/reviews/:id/preview", requireAdmin, async (req: Request, res: Response) => {
+  const id = parseInt(String(req.params["id"] ?? ""), 10);
+  if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
+
+  const [review] = await db.select({ id: pendingReviewsTable.id, enrichment: pendingReviewsTable.enrichment })
+    .from(pendingReviewsTable).where(eq(pendingReviewsTable.id, id)).limit(1);
+  if (!review) { res.status(404).json({ error: "Review not found" }); return; }
+
+  const validated = validateEnrichment(review.enrichment);
+  if (!validated.ok) {
+    res.status(400).json({
+      error: "Cannot regenerate preview: stored enrichment is missing or invalid. Re-run classification first.",
+    });
+    return;
+  }
+
+  // Mark previewStatus="pending" inside the enrichment blob so the admin UI
+  // surfaces in-flight state.
+  const merged = { ...validated.data, previewStatus: "pending" as const };
+  await db.update(pendingReviewsTable)
+    .set({ enrichment: merged as unknown as FactEnrichment })
+    .where(eq(pendingReviewsTable.id, id));
+
+  await enqueueJob({
+    queue: "preview",
+    payload: { targetType: "pending_review", targetId: id },
+    dedupeKey: `preview:pending_review:${id}`,
+  });
+
+  res.json({ success: true, previewStatus: "pending" });
 });
 
 // ─── Activity Feed ────────────────────────────────────────────────────────────

@@ -20,8 +20,8 @@ import express from "express";
 import { randomUUID } from "node:crypto";
 
 import { db } from "@workspace/db";
-import { emailOutboxTable, usersTable } from "@workspace/db/schema";
-import { eq } from "drizzle-orm";
+import { asyncJobsTable, usersTable } from "@workspace/db/schema";
+import { eq, and, sql } from "drizzle-orm";
 
 import adminRouter from "../routes/admin.js";
 import { buildTestApp, type FakeAuth } from "./helpers/buildTestApp.js";
@@ -33,17 +33,20 @@ const TEST_TAG = `${TEST_KIND_PREFIX}t259`;
 // ── DB helpers ────────────────────────────────────────────────────────────────
 
 async function insertOutboxRow(status: string) {
-  // Use a far-future nextAttemptAt so that emailOutboxTick calls in concurrently
-  // running test files never pick up these rows and mutate their status mid-test.
-  // This test suite only exercises the DELETE endpoint, not delivery behaviour,
-  // so the scheduled time is irrelevant to what is being tested here.
+  // Use a far-future nextAttemptAt so that the async-jobs worker in concurrently
+  // running test files never picks up these rows and mutates their status
+  // mid-test. This test suite only exercises the DELETE endpoint, not delivery
+  // behaviour, so the scheduled time is irrelevant to what is being tested here.
   const farFuture = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000);
-  const [row] = await db.insert(emailOutboxTable).values({
-    to:            "test@example.com",
-    subject:       "Test subject",
-    text:          "Test body",
-    html:          "<p>Test</p>",
-    kind:          TEST_TAG,
+  const [row] = await db.insert(asyncJobsTable).values({
+    queue: "email",
+    payload: {
+      to:      "test@example.com",
+      subject: "Test subject",
+      text:    "Test body",
+      html:    "<p>Test</p>",
+      kind:    TEST_TAG,
+    },
     status,
     attempts:      1,
     maxAttempts:   5,
@@ -53,11 +56,17 @@ async function insertOutboxRow(status: string) {
 }
 
 async function getTestRows() {
-  return db.select().from(emailOutboxTable).where(eq(emailOutboxTable.kind, TEST_TAG));
+  return db.select().from(asyncJobsTable).where(and(
+    eq(asyncJobsTable.queue, "email"),
+    sql`${asyncJobsTable.payload}->>'kind' = ${TEST_TAG}`,
+  ));
 }
 
 async function cleanupTestOutboxRows() {
-  await db.delete(emailOutboxTable).where(eq(emailOutboxTable.kind, TEST_TAG));
+  await db.delete(asyncJobsTable).where(and(
+    eq(asyncJobsTable.queue, "email"),
+    sql`${asyncJobsTable.payload}->>'kind' = ${TEST_TAG}`,
+  ));
 }
 
 
@@ -151,7 +160,7 @@ describe("DELETE /admin/email-queue", () => {
       try {
         const { status } = await deleteRequest(
           server,
-          "/api/admin/email-queue?status=delivered",
+          "/api/admin/email-queue?status=done",
         );
         assert.equal(status, 401, "unauthenticated request should receive 401");
       } finally {
@@ -165,7 +174,7 @@ describe("DELETE /admin/email-queue", () => {
       try {
         const { status } = await deleteRequest(
           server,
-          "/api/admin/email-queue?status=delivered",
+          "/api/admin/email-queue?status=done",
         );
         assert.equal(status, 403, "non-admin request should receive 403");
       } finally {
@@ -233,14 +242,14 @@ describe("DELETE /admin/email-queue", () => {
     });
 
     it("deleting delivered removes only delivered rows", async () => {
-      const d1 = await insertOutboxRow("delivered");
-      const d2 = await insertOutboxRow("delivered");
-      const ab = await insertOutboxRow("abandoned");
+      const d1 = await insertOutboxRow("done");
+      const d2 = await insertOutboxRow("done");
+      const ab = await insertOutboxRow("failed");
       const pe = await insertOutboxRow("pending");
 
       const { status, body } = await deleteRequest(
         server,
-        "/api/admin/email-queue?status=delivered",
+        "/api/admin/email-queue?status=done",
       );
 
       assert.equal(status, 200, "should succeed with 200");
@@ -260,14 +269,14 @@ describe("DELETE /admin/email-queue", () => {
     });
 
     it("deleting abandoned removes only abandoned rows", async () => {
-      const a1 = await insertOutboxRow("abandoned");
-      const a2 = await insertOutboxRow("abandoned");
-      const dl = await insertOutboxRow("delivered");
+      const a1 = await insertOutboxRow("failed");
+      const a2 = await insertOutboxRow("failed");
+      const dl = await insertOutboxRow("done");
       const pe = await insertOutboxRow("pending");
 
       const { status, body } = await deleteRequest(
         server,
-        "/api/admin/email-queue?status=abandoned",
+        "/api/admin/email-queue?status=failed",
       );
 
       assert.equal(status, 200, "should succeed with 200");
@@ -289,8 +298,8 @@ describe("DELETE /admin/email-queue", () => {
     it("deleting pending removes only pending rows", async () => {
       const p1 = await insertOutboxRow("pending");
       const p2 = await insertOutboxRow("pending");
-      const dl = await insertOutboxRow("delivered");
-      const ab = await insertOutboxRow("abandoned");
+      const dl = await insertOutboxRow("done");
+      const ab = await insertOutboxRow("failed");
 
       const { status, body } = await deleteRequest(
         server,
@@ -320,7 +329,7 @@ describe("DELETE /admin/email-queue", () => {
 
       const { status, body } = await deleteRequest(
         server,
-        "/api/admin/email-queue?status=delivered",
+        "/api/admin/email-queue?status=done",
       );
 
       assert.equal(status, 200, "should succeed with 200");

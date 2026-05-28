@@ -23,9 +23,9 @@ import {
   membershipHistoryTable,
   stripeProcessedEventsTable,
   stripeWebhookAuditTable,
-  emailOutboxTable,
+  asyncJobsTable,
 } from "@workspace/db/schema";
-import { eq, and, gte, isNull, or, like } from "drizzle-orm";
+import { eq, and, gte, isNull, or, like, sql } from "drizzle-orm";
 
 // ── Handler under test ───────────────────────────────────────────────────────
 import { WebhookHandlers } from "../lib/webhookHandlers.js";
@@ -54,11 +54,15 @@ after(async () => {
   // single-character wildcard. Without the escape, a kind like "adminXfoo"
   // would also match, silently deleting unintended rows.
   await db
-    .delete(emailOutboxTable)
+    .delete(asyncJobsTable)
     .where(
       and(
-        gte(emailOutboxTable.createdAt, TEST_FILE_START),
-        or(isNull(emailOutboxTable.kind), like(emailOutboxTable.kind, "admin\\_%")),
+        eq(asyncJobsTable.queue, "email"),
+        gte(asyncJobsTable.createdAt, TEST_FILE_START),
+        or(
+          sql`${asyncJobsTable.payload}->>'kind' IS NULL`,
+          sql`${asyncJobsTable.payload}->>'kind' LIKE ${"admin\\_%"}`,
+        ),
       ),
     );
 });

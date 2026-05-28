@@ -34,7 +34,7 @@ const SRC_DIR = path.join(apiServerRoot, "src");
 const ALLOWED = [
   {
     file: "src/lib/email.ts",
-    line: 181,
+    line: 193,
     reason:
       "Last-resort console.error inside the Resend 401 error-object path: the " +
       "crash this file guards against was triggered when a Resend 401 caused a " +
