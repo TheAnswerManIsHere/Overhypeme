@@ -25,7 +25,8 @@ export const asyncJobsTable = pgTable(
     dedupeKey: varchar("dedupe_key", { length: 255 }),
     status: varchar("status", { length: 20 }).notNull().default("pending"),
     attempts: integer("attempts").notNull().default(0),
-    maxAttempts: integer("max_attempts").notNull().default(5),
+    // 0 = no per-job override; use async_job_<queue>_max_attempts.
+    maxAttempts: integer("max_attempts").notNull().default(0),
     nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true }).notNull().defaultNow(),
     lastError: text("last_error"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
