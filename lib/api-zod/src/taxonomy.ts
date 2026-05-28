@@ -78,10 +78,9 @@ export const SUBTYPES_BY_ARCHETYPE = {
   ],
   logic_formal_impossibility: [
     "infinity_impossibility",
-    "zero_division_impossibility",
     "probability_impossibility",
     "rule_system_impossibility",
-    "paradox_impossibility",
+    "paradox_or_undefined_impossibility",
     "formal_language_impossibility",
   ],
   intellectual_omniscience: [
