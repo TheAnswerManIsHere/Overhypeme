@@ -100,6 +100,28 @@ export default function AdminFacts() {
   const [backfillingEnrichment, setBackfillingEnrichment] = useState(false);
   const [enrichmentBackfillResult, setEnrichmentBackfillResult] = useState<{ type: "success" | "error"; message: string } | null>(null);
 
+  // On-demand visual preview generation for an approved fact (Phase 2A).
+  const [previewGenerating, setPreviewGenerating] = useState(false);
+  const [previewResult, setPreviewResult] = useState<{ type: "success" | "error"; message: string } | null>(null);
+
+  async function triggerFactPreview(factId: number): Promise<void> {
+    setPreviewGenerating(true);
+    setPreviewResult(null);
+    try {
+      const res = await fetch(`/api/admin/facts/${factId}/preview`, { method: "POST", credentials: "include" });
+      const data = (await res.json()) as { previewStatus?: string; error?: string };
+      if (res.ok) {
+        setPreviewResult({ type: "success", message: "Visual preview queued — refresh in a moment to see it on the fact." });
+      } else {
+        setPreviewResult({ type: "error", message: data.error ?? `Preview failed (${res.status}).` });
+      }
+    } catch (err) {
+      setPreviewResult({ type: "error", message: err instanceof Error ? err.message : "Preview failed" });
+    } finally {
+      setPreviewGenerating(false);
+    }
+  }
+
   const LIMIT = 25;
 
   useEffect(() => {
@@ -848,6 +870,35 @@ export default function AdminFacts() {
                     {selectedFact.hasPexelsImages
                       ? "Re-run fetches new Pexels photos. Use Force to overwrite existing images."
                       : "Fetches Pexels stock photos for this fact using AI-generated keywords."}
+                  </p>
+                </div>
+
+                {/* On-demand visual prompt preview (Phase 2A) — for facts that
+                    were backfilled with enrichment but don't have a preview. */}
+                <div className="pt-3 border-t border-border space-y-2">
+                  <p className="text-xs font-bold text-foreground uppercase tracking-wide">Visual prompt preview</p>
+                  {previewResult && (
+                    <div className={`text-xs px-2 py-1 rounded-sm border ${
+                      previewResult.type === "success"
+                        ? "bg-green-500/10 border-green-500/30 text-green-600 dark:text-green-400"
+                        : "bg-destructive/10 border-destructive/30 text-destructive"
+                    }`}>
+                      {previewResult.message}
+                    </div>
+                  )}
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => void triggerFactPreview(selectedFact.id)}
+                    isLoading={previewGenerating}
+                    disabled={previewGenerating}
+                    className="w-full gap-1.5 text-xs min-h-[44px]"
+                  >
+                    <RefreshCw className="w-3.5 h-3.5" />
+                    Generate preview
+                  </Button>
+                  <p className="text-[10px] text-muted-foreground">
+                    Enqueues a visual prompt preview job for this approved fact. Requires the fact to already have enrichment (run Backfill enrichment first if not).
                   </p>
                 </div>
               </div>

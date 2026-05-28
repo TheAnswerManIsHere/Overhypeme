@@ -8,7 +8,7 @@ import {
   MessageSquare, Trash2, User,
 } from "lucide-react";
 import type { FactEnrichment } from "@workspace/api-zod";
-import { EnrichmentEditor, EnrichmentSummary } from "@/components/admin/EnrichmentEditor";
+import { EnrichmentEditor, EnrichmentSummary, isApprovable } from "@/components/admin/EnrichmentEditor";
 
 // ─── Shared ───────────────────────────────────────────────────────────────────
 
@@ -159,10 +159,20 @@ function ReviewModal({
     setLoading(true);
     setEnrichmentMsg("");
     const r = await fetch(`/api/admin/reviews/${review.id}/enrich`, { method: "POST", credentials: "include" });
-    setEnrichmentMsg(r.ok ? "Re-running enrichment — refresh in a moment." : `Re-run failed (${r.status}).`);
+    setEnrichmentMsg(r.ok ? "Re-running classification — refresh in a moment." : `Re-run failed (${r.status}).`);
     if (r.ok) setEnrichmentStatus("pending");
     setLoading(false);
   };
+
+  const regeneratePreview = async () => {
+    setLoading(true);
+    setEnrichmentMsg("");
+    const r = await fetch(`/api/admin/reviews/${review.id}/preview`, { method: "POST", credentials: "include" });
+    setEnrichmentMsg(r.ok ? "Regenerating preview — refresh in a moment." : `Preview regen failed (${r.status}).`);
+    setLoading(false);
+  };
+
+  const canApprove = isApprovable(enrichment);
 
   const handle = async (action: "approve" | "reject" | "approve-variant") => {
     setLoading(true);
@@ -231,6 +241,7 @@ function ReviewModal({
                 onChange={setEnrichment}
                 onSave={enrichment ? saveEnrichment : undefined}
                 onRerun={rerunEnrichment}
+                onRegeneratePreview={regeneratePreview}
                 busy={loading}
                 submittedHashtags={review.hashtags ?? []}
               />
@@ -298,7 +309,13 @@ function ReviewModal({
           {review.status === "pending" ? (
             <div className="pt-2 border-t border-border space-y-3">
               <div className="flex flex-wrap gap-3">
-                <Button onClick={() => handle("approve")} isLoading={loading} className="bg-green-600 hover:bg-green-700 text-white gap-2">
+                <Button
+                  onClick={() => handle("approve")}
+                  isLoading={loading}
+                  disabled={!canApprove || loading}
+                  title={canApprove ? undefined : "Approve is disabled until enrichment is valid and a visual preview exists"}
+                  className="bg-green-600 hover:bg-green-700 text-white gap-2 disabled:opacity-50"
+                >
                   <CheckCircle2 className="w-4 h-4" /> Approve — New Fact
                 </Button>
                 <Button variant="outline" onClick={() => handle("approve-variant")} isLoading={loading}
@@ -312,6 +329,12 @@ function ReviewModal({
                 </Button>
                 <Button variant="outline" onClick={onClose} disabled={loading}>Cancel</Button>
               </div>
+              {!canApprove && (
+                <p className="text-xs text-amber-600 dark:text-amber-400 flex items-center gap-1.5">
+                  <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+                  Approve is locked until enrichment is valid and a visual preview exists. Generate one or fill it in manually.
+                </p>
+              )}
 
             </div>
           ) : (

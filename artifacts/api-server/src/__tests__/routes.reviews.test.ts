@@ -27,9 +27,9 @@ import {
   factsTable,
   pendingReviewsTable,
   activityFeedTable,
-  emailOutboxTable,
+  asyncJobsTable,
 } from "@workspace/db/schema";
-import { and, eq, gte, like } from "drizzle-orm";
+import { and, eq, gte, like, sql } from "drizzle-orm";
 
 import reviewsRouter from "../routes/reviews.js";
 import { authMiddleware } from "../middlewares/authMiddleware.js";
@@ -109,11 +109,12 @@ after(cleanup);
 // time to avoid touching rows from other concurrently-running test files.
 after(async () => {
   await db
-    .delete(emailOutboxTable)
+    .delete(asyncJobsTable)
     .where(
       and(
-        gte(emailOutboxTable.createdAt, TEST_FILE_START),
-        eq(emailOutboxTable.kind, "admin_fact_notify"),
+        eq(asyncJobsTable.queue, "email"),
+        gte(asyncJobsTable.createdAt, TEST_FILE_START),
+        sql`${asyncJobsTable.payload}->>'kind' = ${"admin_fact_notify"}`,
       ),
     );
 });

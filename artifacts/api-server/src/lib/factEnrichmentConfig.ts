@@ -122,10 +122,9 @@ logic_formal_impossibility:
 Use when the fact violates formal logic, math, infinity, probability, rules, games, paradox, or formal language.
 Allowed subtypes:
 - infinity_impossibility
-- zero_division_impossibility
 - probability_impossibility
 - rule_system_impossibility
-- paradox_impossibility
+- paradox_or_undefined_impossibility
 - formal_language_impossibility
 
 intellectual_omniscience:
@@ -202,6 +201,26 @@ Hashtag rules:
 - Prefer tags useful for discovery, not one-off words.
 - Include brand or company tags only when explicitly present in the fact.
 
+Cultural reference rules:
+Detect outside-context dependencies in the fact and emit them as a culturalReferences array. Outside-context means the joke relies on knowledge that isn't obvious from the literal words: a brand, a workplace/professional context, a familiar phrase or idiom, wordplay, mechanism knowledge (e.g. how a magnifying glass normally focuses sunlight), or an inside reference to a cultural artifact (TV show, song, event). Examples:
+- "Sharks have a David Week" → cultural_reference, canonical "Shark Week" (broadcast TV); visualImplication "sharks are the audience watching the subject as spectacle".
+- "David doesn't prepare for demos, demos prepare for David. #Yardi" → professional_domain_context / workplace_context (SaaS presales demos at Yardi).
+- "David can set an ant on fire with a magnifying glass. At night." → mechanism_knowledge (magnifying glass focuses sunlight; nighttime breaks it).
+
+Each cultural reference object has:
+- sourcePhrase (string): the literal phrase or word in the fact that triggers the reference.
+- referenceType (one of: cultural_reference, brand_reference, workplace_context, professional_domain_context, idiom_or_phrase, wordplay, mechanism_knowledge, inside_reference).
+- canonicalReference (string): the canonical name/source of the reference (e.g. "Shark Week", "Pi", "Victoria's Secret"). May be "" when there is no single canonical name.
+- explanation (string): plain-language explanation of the joke mechanism that the reference enables.
+- visualImplication (string): how the reference should change the visual interpretation of the scene.
+- confidence (number 0..1): how confident you are that the reference is the joke's actual hook.
+- requiresAdminReview (boolean): true when the reference touches a real brand, workplace, professional context, or is otherwise ambiguous and worth a human sanity check.
+
+Cultural references INFORM the visual interpretation but MUST NOT change the primary archetype or subtype. The taxonomy classifies the joke MECHANISM; cultural references only flesh out HOW to render it.
+
+If the fact has no outside-context dependency, emit an empty array: culturalReferences: [].
+Do NOT emit a "none" reference type — there is no "none" type.
+
 Modifier rules:
 Prefer known modifiers from the known modifier catalog when possible. You may add a custom modifier only if no known modifier captures an important rendering, discovery, identity, setting, or safety constraint.
 
@@ -257,7 +276,7 @@ Known modifier catalog:
 - workplace_context
 - audience_inside_reference
 
-Return ONLY a single JSON object with exactly these keys: primaryArchetype, subtype, modifiers (array of strings), visualLiteralness, visualComplexity, overhypeFit, adultSuitability, adultSuitabilityNotes (string, "" if none), suggestedHashtags (array of 3-8 lowercase alphanumeric strings), taxonomyConfidence (number 0-1), adminReviewNotes (string, "" if none).
+Return ONLY a single JSON object with exactly these keys: primaryArchetype, subtype, modifiers (array of strings), visualLiteralness, visualComplexity, overhypeFit, adultSuitability, adultSuitabilityNotes (string, "" if none), suggestedHashtags (array of 3-8 lowercase alphanumeric strings), taxonomyConfidence (number 0-1), adminReviewNotes (string, "" if none), culturalReferences (array; empty array if no outside-context dependency, otherwise objects with sourcePhrase, referenceType, canonicalReference, explanation, visualImplication, confidence, requiresAdminReview).
 Do not include explanation outside the JSON.`;
 
 // ─── Getter (debug-overlay aware via adminConfig) ─────────────────────────────
