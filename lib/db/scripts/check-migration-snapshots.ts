@@ -120,6 +120,13 @@ const SNAPSHOT_EXEMPT_TAGS = new Set<string>([
   // rows. Visual style prompt content now lives on the look_styles DB
   // table (seeded by 0057). Pure DML.
   "0061_retire_style_suffix_admin_config_keys",
+
+  // Phase 2A: normalizes logic_formal_impossibility subtype names — folds
+  // `zero_division_impossibility` and renames `paradox_impossibility` into
+  // the canonical `paradox_or_undefined_impossibility`. Updates
+  // facts.subtype + facts.enrichment->>'subtype' +
+  // pending_reviews.enrichment->>'subtype'. Pure DML.
+  "0064_subtype_name_normalization",
 ]);
 
 interface JournalEntry {

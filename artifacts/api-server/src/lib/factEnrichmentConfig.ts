@@ -122,10 +122,9 @@ logic_formal_impossibility:
 Use when the fact violates formal logic, math, infinity, probability, rules, games, paradox, or formal language.
 Allowed subtypes:
 - infinity_impossibility
-- zero_division_impossibility
 - probability_impossibility
 - rule_system_impossibility
-- paradox_impossibility
+- paradox_or_undefined_impossibility
 - formal_language_impossibility
 
 intellectual_omniscience:
