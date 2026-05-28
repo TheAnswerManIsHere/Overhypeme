@@ -6,3 +6,4 @@ export * from "./brandTokens";
 export * from "./memeAspectRatios";
 export * from "./templateGrammar";
 export * from "./taxonomy";
+export * from "./visualPromptStrategies";
