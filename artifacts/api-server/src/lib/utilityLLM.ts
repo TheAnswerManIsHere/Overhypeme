@@ -21,6 +21,9 @@ const FALLBACK_MODEL = "gpt-4o-mini";
 const FALLBACK_TEMPERATURE = 0.7;
 const FALLBACK_MAX_TOKENS = 512;
 
+/** Milliseconds before a utility LLM call is aborted. */
+const UTILITY_LLM_TIMEOUT_MS = 30_000;
+
 export interface UtilityLLMRequest {
   messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[];
   /** e.g. { type: "json_object" }. Omit for plain-text completions. */
@@ -29,6 +32,8 @@ export interface UtilityLLMRequest {
   temperature?: number;
   /** Per-call override of the engine's default max output tokens. */
   maxTokens?: number;
+  /** Override the default per-call timeout (ms). */
+  timeoutMs?: number;
 }
 
 interface LLMSettings {
@@ -65,15 +70,19 @@ export async function callUtilityLLM(
 ): Promise<OpenAI.Chat.Completions.ChatCompletion> {
   const openai = getOpenAIClient();
   const settings = await resolveLLMSettings();
-  return openai.chat.completions.create({
-    model: settings.model,
-    ...chatModelTuningParams({
+  const timeoutMs = req.timeoutMs ?? UTILITY_LLM_TIMEOUT_MS;
+  return openai.chat.completions.create(
+    {
       model: settings.model,
-      maxTokens: req.maxTokens ?? settings.maxTokens,
-      temperature: req.temperature ?? settings.temperature,
-      reasoningEffort: settings.reasoningEffort,
-    }),
-    ...(req.responseFormat ? { response_format: req.responseFormat } : {}),
-    messages: req.messages,
-  });
+      ...chatModelTuningParams({
+        model: settings.model,
+        maxTokens: req.maxTokens ?? settings.maxTokens,
+        temperature: req.temperature ?? settings.temperature,
+        reasoningEffort: settings.reasoningEffort,
+      }),
+      ...(req.responseFormat ? { response_format: req.responseFormat } : {}),
+      messages: req.messages,
+    },
+    { timeout: timeoutMs },
+  );
 }

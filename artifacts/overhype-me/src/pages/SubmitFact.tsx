@@ -177,6 +177,8 @@ export default function SubmitFact() {
     setTokenizeError("");
     setDuplicate(null);
     const sanitizedText = rawText.replace(/[{}]/g, "");
+    const controller = new AbortController();
+    const abortTimer = setTimeout(() => controller.abort(), 35_000);
     try {
       const tokenizeBody: Record<string, unknown> = { text: sanitizedText };
       if (captchaToken) tokenizeBody.captchaToken = captchaToken;
@@ -185,6 +187,7 @@ export default function SubmitFact() {
         headers: { "Content-Type": "application/json" },
         credentials: "include",
         body: JSON.stringify(tokenizeBody),
+        signal: controller.signal,
       });
       const data = await r.json() as { template?: string; error?: string };
       if (!r.ok || !data.template) {
@@ -196,9 +199,14 @@ export default function SubmitFact() {
       setStep("preview");
       window.scrollTo({ top: 0, behavior: "smooth" });
       void checkDuplicate(data.template);
-    } catch {
-      setTokenizeError("Network error — please try again.");
+    } catch (err) {
+      if (err instanceof Error && err.name === "AbortError") {
+        setTokenizeError("The request took too long — please try again.");
+      } else {
+        setTokenizeError("Network error — please try again.");
+      }
     } finally {
+      clearTimeout(abortTimer);
       setTokenizing(false);
     }
   }
