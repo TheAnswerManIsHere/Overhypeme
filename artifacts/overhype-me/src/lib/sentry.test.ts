@@ -1,4 +1,6 @@
-import { vi, describe, it, expect, afterEach } from "vitest";
+import { vi, describe, it, expect, afterEach, beforeAll } from "vitest";
+
+vi.setConfig({ testTimeout: 30_000, hookTimeout: 30_000 });
 
 const { mockInit, mockReplayIntegration } = vi.hoisted(() => ({
   mockInit: vi.fn(),
@@ -35,6 +37,14 @@ async function loadSentry(dropDebugEvents: boolean): Promise<{ mod: typeof impor
   const initArg = mockInit.mock.calls[0][0] as SentryHooks;
   return { mod, hooks: initArg };
 }
+
+beforeAll(async () => {
+  vi.stubEnv("VITE_DROP_DEBUG_EVENTS", "false");
+  await import("./sentry");
+  vi.unstubAllEnvs();
+  mockInit.mockClear();
+  mockReplayIntegration.mockClear();
+});
 
 afterEach(() => {
   vi.unstubAllEnvs();
