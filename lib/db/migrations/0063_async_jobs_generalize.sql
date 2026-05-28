@@ -28,6 +28,13 @@ UPDATE "async_jobs" SET "payload" = jsonb_strip_nulls(
   )
 ) WHERE "payload" IS NULL;--> statement-breakpoint
 
+-- `max_attempts` is now an optional per-job override. 0 means "use the
+-- queue-level admin_config value" (async_job_<queue>_max_attempts). Existing
+-- default-valued email rows should keep following the configured email retry
+-- policy; any non-default custom row value is preserved as an explicit override.
+ALTER TABLE "async_jobs" ALTER COLUMN "max_attempts" SET DEFAULT 0;--> statement-breakpoint
+UPDATE "async_jobs" SET "max_attempts" = 0 WHERE "max_attempts" = 5;--> statement-breakpoint
+
 -- Normalize the legacy email-specific status vocabulary to the generic one.
 -- Old (email_outbox)  → New (async_jobs)
 --   pending           →  pending     (no change)
