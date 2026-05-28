@@ -7,6 +7,8 @@ import { alias } from "drizzle-orm/pg-core";
 import { requireRole } from "../middlewares/tierMiddleware";
 import { backfillEmbeddings, embedFactAsync } from "../lib/embeddings";
 import { enrichFact, buildFactEnrichmentColumns } from "../lib/factEnrichment";
+import { enqueueJob } from "../lib/asyncJobs";
+import { validateEnrichment, type FactEnrichment } from "@workspace/api-zod";
 import { runFactImagePipeline } from "../lib/factImagePipeline";
 import { generateAiMemeBackgrounds } from "../lib/aiMemePipeline";
 import { renderCanonical } from "../lib/renderCanonical";
@@ -1237,6 +1239,43 @@ router.post("/admin/facts/backfill-enrichment", requireAdminOrApiKey, async (req
     logger.error({ err }, "[admin] Backfill enrichment error");
     res.status(500).json({ error: "Backfill failed", details: String(err) });
   }
+});
+
+// On-demand visual prompt preview for an approved fact (Phase 2A). Backfilled
+// facts have enrichment but no preview by default; this endpoint enqueues a
+// "preview" job to generate one durably (the async-jobs worker retries on
+// transient failures and surfaces the result in `facts.enrichment.visualPromptPreview`).
+router.post("/admin/facts/:id/preview", requireAdmin, async (req: Request, res: Response) => {
+  const id = parseInt(String(req.params["id"] ?? ""), 10);
+  if (isNaN(id)) { res.status(400).json({ error: "Invalid fact id" }); return; }
+
+  const [fact] = await db
+    .select({ id: factsTable.id, enrichment: factsTable.enrichment })
+    .from(factsTable)
+    .where(eq(factsTable.id, id))
+    .limit(1);
+  if (!fact) { res.status(404).json({ error: "Fact not found" }); return; }
+
+  const validated = validateEnrichment(fact.enrichment);
+  if (!validated.ok) {
+    res.status(400).json({
+      error: "Cannot generate preview: fact has no enrichment. Run backfill-enrichment first.",
+    });
+    return;
+  }
+
+  const merged = { ...validated.data, previewStatus: "pending" as const };
+  await db.update(factsTable)
+    .set({ enrichment: merged as unknown as FactEnrichment })
+    .where(eq(factsTable.id, id));
+
+  await enqueueJob({
+    queue: "preview",
+    payload: { targetType: "fact", targetId: id },
+    dedupeKey: `preview:fact:${id}`,
+  });
+
+  res.json({ success: true, previewStatus: "pending" });
 });
 
 // ─── Config ───────────────────────────────────────────────────────────────────
