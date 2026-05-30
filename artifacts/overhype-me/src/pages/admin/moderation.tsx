@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { AdminLayout } from "@/components/admin/AdminLayout";
 import { Link } from "wouter";
 import { Button } from "@/components/ui/Button";
@@ -140,6 +140,54 @@ function ReviewModal({
   const [enrichment, setEnrichment] = useState<FactEnrichment | null>(review.enrichment);
   const [enrichmentStatus, setEnrichmentStatus] = useState<string | null>(review.enrichmentStatus);
   const [enrichmentMsg, setEnrichmentMsg] = useState("");
+  // Once the admin edits enrichment manually, stop syncing from the server so
+  // background polling never clobbers their work.
+  const dirtyRef = useRef(false);
+  const [previewPolls, setPreviewPolls] = useState(0);
+
+  // Pull the latest stored enrichment from the server (the async job writes it
+  // out-of-band). Returns the fresh enrichmentStatus, or null when skipped/failed.
+  const syncFromServer = useCallback(async (): Promise<string | null> => {
+    if (dirtyRef.current) return null;
+    try {
+      const r = await fetch(`/api/admin/reviews/${review.id}`, { credentials: "include" });
+      if (!r.ok || dirtyRef.current) return null;
+      const fresh = await r.json() as Review;
+      if (dirtyRef.current) return null;
+      setEnrichment(fresh.enrichment);
+      setEnrichmentStatus(fresh.enrichmentStatus);
+      return fresh.enrichmentStatus;
+    } catch {
+      return null;
+    }
+  }, [review.id]);
+
+  // While enrichment is still running, poll until it lands (initial submission
+  // and "Re-run classification" both flow through here).
+  useEffect(() => {
+    if (enrichmentStatus !== "pending") return;
+    let cancelled = false;
+    const id = setInterval(async () => {
+      const status = await syncFromServer();
+      if (cancelled) return;
+      if (status && status !== "pending") clearInterval(id);
+    }, 2500);
+    return () => { cancelled = true; clearInterval(id); };
+  }, [enrichmentStatus, syncFromServer]);
+
+  // Preview regeneration runs as a separate async job that updates the stored
+  // enrichment in place; poll briefly so the regenerated preview shows up.
+  useEffect(() => {
+    if (previewPolls === 0) return;
+    let cancelled = false;
+    let ticks = 0;
+    const id = setInterval(async () => {
+      ticks += 1;
+      await syncFromServer();
+      if (cancelled || ticks >= 6) clearInterval(id);
+    }, 2500);
+    return () => { cancelled = true; clearInterval(id); };
+  }, [previewPolls, syncFromServer]);
 
   const saveEnrichment = async () => {
     if (!enrichment) return;
@@ -152,7 +200,10 @@ function ReviewModal({
       body: JSON.stringify({ enrichment }),
     });
     setEnrichmentMsg(r.ok ? "Enrichment saved." : `Save failed (${r.status}).`);
-    if (r.ok) setEnrichmentStatus("ok");
+    if (r.ok) {
+      dirtyRef.current = false;
+      setEnrichmentStatus("ok");
+    }
     setLoading(false);
   };
 
@@ -160,8 +211,11 @@ function ReviewModal({
     setLoading(true);
     setEnrichmentMsg("");
     const r = await fetch(`/api/admin/reviews/${review.id}/enrich`, { method: "POST", credentials: "include" });
-    setEnrichmentMsg(r.ok ? "Re-running classification — refresh in a moment." : `Re-run failed (${r.status}).`);
-    if (r.ok) setEnrichmentStatus("pending");
+    setEnrichmentMsg(r.ok ? "Re-running classification…" : `Re-run failed (${r.status}).`);
+    if (r.ok) {
+      dirtyRef.current = false;
+      setEnrichmentStatus("pending");
+    }
     setLoading(false);
   };
 
@@ -169,7 +223,8 @@ function ReviewModal({
     setLoading(true);
     setEnrichmentMsg("");
     const r = await fetch(`/api/admin/reviews/${review.id}/preview`, { method: "POST", credentials: "include" });
-    setEnrichmentMsg(r.ok ? "Regenerating preview — refresh in a moment." : `Preview regen failed (${r.status}).`);
+    setEnrichmentMsg(r.ok ? "Regenerating preview…" : `Preview regen failed (${r.status}).`);
+    if (r.ok) setPreviewPolls((n) => n + 1);
     setLoading(false);
   };
 
@@ -243,7 +298,7 @@ function ReviewModal({
               <EnrichmentEditor
                 value={enrichment}
                 status={enrichmentStatus}
-                onChange={setEnrichment}
+                onChange={(next) => { dirtyRef.current = true; setEnrichment(next); }}
                 onSave={enrichment ? saveEnrichment : undefined}
                 onRerun={rerunEnrichment}
                 onRegeneratePreview={regeneratePreview}
