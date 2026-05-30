@@ -279,11 +279,13 @@ function VisualPreviewPanel({
   onChange,
   onRegenerate,
   busy,
+  previewBusy,
 }: {
   preview: VisualPromptPreview | undefined;
   onChange: (next: VisualPromptPreview) => void;
   onRegenerate?: () => void;
   busy?: boolean;
+  previewBusy?: boolean;
 }) {
   const p = preview ?? emptyVisualPreview();
   const update = (patch: Partial<VisualPromptPreview>) => onChange({ ...p, ...patch });
@@ -302,7 +304,8 @@ function VisualPreviewPanel({
             disabled={busy}
             className="inline-flex items-center gap-1 text-xs text-primary hover:underline disabled:opacity-50"
           >
-            <RefreshCw className="w-3 h-3" /> Regenerate preview
+            <RefreshCw className={`w-3 h-3 ${previewBusy ? "animate-spin" : ""}`} />
+            {previewBusy ? "Regenerating…" : "Regenerate preview"}
           </button>
         )}
       </div>
@@ -534,6 +537,8 @@ export function EnrichmentEditor({
   onRerun,
   onRegeneratePreview,
   busy = false,
+  rerunBusy = false,
+  previewBusy = false,
   submittedHashtags = [],
 }: {
   value: FactEnrichment | null;
@@ -543,6 +548,8 @@ export function EnrichmentEditor({
   onRerun?: () => void;
   onRegeneratePreview?: () => void;
   busy?: boolean;
+  rerunBusy?: boolean;
+  previewBusy?: boolean;
   submittedHashtags?: string[];
 }) {
   const e = value ?? EMPTY_ENRICHMENT;
@@ -576,11 +583,16 @@ export function EnrichmentEditor({
       <div className="flex items-center justify-between gap-2">
         <p className="text-sm font-bold text-foreground uppercase tracking-wide">Visual Taxonomy Enrichment</p>
         <div className="flex items-center gap-2">
-          {status && (
+          {status === "pending" || rerunBusy ? (
+            <span className="inline-flex items-center gap-1.5 text-xs text-amber-600 dark:text-amber-400">
+              <span className="inline-block w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
+              Classifying…
+            </span>
+          ) : status ? (
             <span className="text-xs text-muted-foreground">
               status: <strong className={status === "failed" ? "text-destructive" : "text-foreground"}>{status}</strong>
             </span>
-          )}
+          ) : null}
           {onRerun && (
             <button
               type="button"
@@ -588,7 +600,8 @@ export function EnrichmentEditor({
               disabled={busy}
               className="inline-flex items-center gap-1 text-xs text-primary hover:underline disabled:opacity-50"
             >
-              <RefreshCw className="w-3 h-3" /> Re-run classification
+              <RefreshCw className={`w-3 h-3 ${rerunBusy ? "animate-spin" : ""}`} />
+              {rerunBusy ? "Running…" : "Re-run classification"}
             </button>
           )}
         </div>
@@ -756,6 +769,7 @@ export function EnrichmentEditor({
         onChange={(next) => update({ visualPromptPreview: next })}
         onRegenerate={onRegeneratePreview}
         busy={busy}
+        previewBusy={previewBusy}
       />
 
       {!validity.ok && (
