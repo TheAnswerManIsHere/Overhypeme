@@ -311,18 +311,16 @@ function ReviewModal({
           <div className="flex flex-wrap gap-4 text-sm text-muted-foreground">
             <span>Submitted by: <strong className="text-foreground">{review.submitter?.displayName ?? review.submitter?.email ?? "Unknown"}</strong></span>
             {review.submitter?.email && <span>Email: <strong className="text-foreground">{review.submitter.email}</strong></span>}
-            {review.matchingSimilarity >= duplicateThreshold && (
-              <span>Similarity: <strong className="text-foreground">{review.matchingSimilarity}%</strong></span>
-            )}
+            <span>Similarity: <strong className="text-foreground">{review.matchingSimilarity}%</strong></span>
             <span>Date: <strong className="text-foreground">{new Date(review.createdAt).toLocaleDateString()}</strong></span>
           </div>
 
-          <div className={`grid gap-4 ${(review.matchingFactId != null || review.matchingSimilarity > 0) && review.matchingSimilarity >= duplicateThreshold ? "grid-cols-1 sm:grid-cols-2" : "grid-cols-1"}`}>
+          <div className={`grid gap-4 ${review.matchingSimilarity >= duplicateThreshold ? "grid-cols-1 sm:grid-cols-2" : "grid-cols-1"}`}>
             <div className="bg-background border-2 border-border rounded-sm p-4">
               <p className="text-xs font-bold text-muted-foreground uppercase tracking-wide mb-3">Submitted Fact</p>
               <p className="text-base italic text-foreground leading-relaxed">"{review.submittedText}"</p>
             </div>
-            {(review.matchingFactId != null || review.matchingSimilarity > 0) && review.matchingSimilarity >= duplicateThreshold && (
+            {review.matchingSimilarity >= duplicateThreshold && (
               <div className="bg-background border-2 border-primary/40 rounded-sm p-4">
                 <div className="flex items-center justify-between mb-3">
                   <p className="text-xs font-bold text-primary uppercase tracking-wide">Flagged Duplicate</p>
