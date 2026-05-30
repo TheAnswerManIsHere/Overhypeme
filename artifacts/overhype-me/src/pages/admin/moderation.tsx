@@ -140,6 +140,9 @@ function ReviewModal({
   const [enrichment, setEnrichment] = useState<FactEnrichment | null>(review.enrichment);
   const [enrichmentStatus, setEnrichmentStatus] = useState<string | null>(review.enrichmentStatus);
   const [enrichmentMsg, setEnrichmentMsg] = useState("");
+  const [errorMsg, setErrorMsg] = useState("");
+  const [rerunBusy, setRerunBusy] = useState(false);
+  const [previewBusy, setPreviewBusy] = useState(false);
   // Once the admin edits enrichment manually, stop syncing from the server so
   // background polling never clobbers their work.
   const dirtyRef = useRef(false);
@@ -162,47 +165,65 @@ function ReviewModal({
     }
   }, [review.id]);
 
-  // While enrichment is still running, poll until it lands (initial submission
-  // and "Re-run classification" both flow through here).
+  // While enrichment is still running, poll until it lands. Clear rerunBusy
+  // as soon as the status leaves "pending".
   useEffect(() => {
-    if (enrichmentStatus !== "pending") return;
+    if (enrichmentStatus !== "pending") {
+      setRerunBusy(false);
+      return;
+    }
     let cancelled = false;
     const id = setInterval(async () => {
       const status = await syncFromServer();
       if (cancelled) return;
-      if (status && status !== "pending") clearInterval(id);
+      if (status && status !== "pending") {
+        clearInterval(id);
+        setRerunBusy(false);
+      }
     }, 2500);
     return () => { cancelled = true; clearInterval(id); };
   }, [enrichmentStatus, syncFromServer]);
 
-  // Preview regeneration runs as a separate async job that updates the stored
-  // enrichment in place; poll briefly so the regenerated preview shows up.
+  // Preview regeneration runs as a separate async job; poll briefly so the
+  // result shows up. Clear previewBusy when polling ends.
   useEffect(() => {
     if (previewPolls === 0) return;
+    setPreviewBusy(true);
     let cancelled = false;
     let ticks = 0;
     const id = setInterval(async () => {
       ticks += 1;
       await syncFromServer();
-      if (cancelled || ticks >= 6) clearInterval(id);
+      if (cancelled) return;
+      if (ticks >= 6) {
+        clearInterval(id);
+        setPreviewBusy(false);
+      }
     }, 2500);
-    return () => { cancelled = true; clearInterval(id); };
+    return () => { cancelled = true; clearInterval(id); setPreviewBusy(false); };
   }, [previewPolls, syncFromServer]);
 
   const saveEnrichment = async () => {
     if (!enrichment) return;
     setLoading(true);
     setEnrichmentMsg("");
-    const r = await fetch(`/api/admin/reviews/${review.id}/enrichment`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      credentials: "include",
-      body: JSON.stringify({ enrichment }),
-    });
-    setEnrichmentMsg(r.ok ? "Enrichment saved." : `Save failed (${r.status}).`);
-    if (r.ok) {
-      dirtyRef.current = false;
-      setEnrichmentStatus("ok");
+    setErrorMsg("");
+    try {
+      const r = await fetch(`/api/admin/reviews/${review.id}/enrichment`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ enrichment }),
+      });
+      if (r.ok) {
+        dirtyRef.current = false;
+        setEnrichmentStatus("ok");
+        setEnrichmentMsg("Enrichment saved.");
+      } else {
+        setErrorMsg(r.status === 503 ? "API unavailable — try again shortly." : `Save failed (${r.status}).`);
+      }
+    } catch {
+      setErrorMsg("Network error — could not reach the server.");
     }
     setLoading(false);
   };
@@ -210,11 +231,22 @@ function ReviewModal({
   const rerunEnrichment = async () => {
     setLoading(true);
     setEnrichmentMsg("");
-    const r = await fetch(`/api/admin/reviews/${review.id}/enrich`, { method: "POST", credentials: "include" });
-    setEnrichmentMsg(r.ok ? "Re-running classification…" : `Re-run failed (${r.status}).`);
-    if (r.ok) {
-      dirtyRef.current = false;
-      setEnrichmentStatus("pending");
+    setErrorMsg("");
+    try {
+      const r = await fetch(`/api/admin/reviews/${review.id}/enrich`, { method: "POST", credentials: "include" });
+      if (r.ok) {
+        dirtyRef.current = false;
+        setRerunBusy(true);
+        setEnrichmentStatus("pending");
+      } else {
+        setErrorMsg(
+          r.status === 503 ? "API unavailable — try again shortly." :
+          r.status === 429 ? "Rate limited — wait a moment and retry." :
+          `Re-run failed (${r.status}).`
+        );
+      }
+    } catch {
+      setErrorMsg("Network error — could not reach the server.");
     }
     setLoading(false);
   };
@@ -222,9 +254,21 @@ function ReviewModal({
   const regeneratePreview = async () => {
     setLoading(true);
     setEnrichmentMsg("");
-    const r = await fetch(`/api/admin/reviews/${review.id}/preview`, { method: "POST", credentials: "include" });
-    setEnrichmentMsg(r.ok ? "Regenerating preview…" : `Preview regen failed (${r.status}).`);
-    if (r.ok) setPreviewPolls((n) => n + 1);
+    setErrorMsg("");
+    try {
+      const r = await fetch(`/api/admin/reviews/${review.id}/preview`, { method: "POST", credentials: "include" });
+      if (r.ok) {
+        setPreviewPolls((n) => n + 1);
+      } else {
+        setErrorMsg(
+          r.status === 503 ? "API unavailable — try again shortly." :
+          r.status === 429 ? "Rate limited — wait a moment and retry." :
+          `Preview regeneration failed (${r.status}).`
+        );
+      }
+    } catch {
+      setErrorMsg("Network error — could not reach the server.");
+    }
     setLoading(false);
   };
 
@@ -302,10 +346,18 @@ function ReviewModal({
                 onSave={enrichment ? saveEnrichment : undefined}
                 onRerun={rerunEnrichment}
                 onRegeneratePreview={regeneratePreview}
-                busy={loading}
+                busy={loading || rerunBusy || previewBusy}
+                rerunBusy={rerunBusy}
+                previewBusy={previewBusy}
                 submittedHashtags={review.hashtags ?? []}
               />
               {enrichmentMsg && <p className="text-xs text-muted-foreground">{enrichmentMsg}</p>}
+              {errorMsg && (
+                <div className="flex items-start gap-2 rounded-sm border border-destructive/50 bg-destructive/10 px-3 py-2">
+                  <AlertTriangle className="w-4 h-4 text-destructive shrink-0 mt-0.5" />
+                  <p className="text-sm text-destructive">{errorMsg}</p>
+                </div>
+              )}
             </div>
           ) : enrichment ? (
             <EnrichmentSummary e={enrichment} />
