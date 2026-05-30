@@ -107,7 +107,9 @@ describe("authMiddleware", () => {
     assert.equal(res.clearCookieCalls.length, 0);
   });
 
-  it("clears the cookie and attaches no user when the session id is unknown", async () => {
+  it("attaches no user and does NOT clear cookie when Bearer session id is unknown", async () => {
+    // Bearer tokens live in localStorage — clearing the cookie for a stale
+    // Bearer token would evict any valid concurrent cookie session.
     const bogusSid = randomUUID();
     const req = makeReq({ bearer: bogusSid });
     const res = makeRes();
@@ -116,11 +118,10 @@ describe("authMiddleware", () => {
     assert.equal(req.user, undefined);
     assert.equal(req.isAuthenticated(), false);
     assert.equal(next.calls, 1);
-    assert.equal(res.clearCookieCalls.length, 1);
-    assert.equal(res.clearCookieCalls[0]?.name, SESSION_COOKIE);
+    assert.equal(res.clearCookieCalls.length, 0);
   });
 
-  it("clears the session when the row exists but its sess payload has no user id", async () => {
+  it("deletes the DB row but does NOT clear cookie when Bearer sess payload has no user id", async () => {
     const userId = await createTestUser();
     const sid = `${USER_PREFIX}${randomUUID()}`;
     await db.insert(sessionsTable).values({
@@ -135,10 +136,10 @@ describe("authMiddleware", () => {
     await authMiddleware(req, res as unknown as Response, next.fn);
     assert.equal(req.user, undefined);
     assert.equal(next.calls, 1);
-    assert.equal(res.clearCookieCalls.length, 1);
+    assert.equal(res.clearCookieCalls.length, 0);
 
     const [row] = await db.select().from(sessionsTable).where(eq(sessionsTable.sid, sid));
-    assert.equal(row, undefined, "session row should have been deleted");
+    assert.equal(row, undefined, "session row should have been deleted from DB");
   });
 
   it("attaches the user to the request when the bearer token resolves to a valid session", async () => {
@@ -189,7 +190,7 @@ describe("authMiddleware", () => {
     assert.equal(next.calls, 1);
   });
 
-  it("treats expired sessions as invalid (clears them and attaches no user)", async () => {
+  it("treats expired Bearer sessions as invalid (deletes DB row, does NOT clear cookie)", async () => {
     const userId = await createTestUser();
     const sid = `${USER_PREFIX}${randomUUID()}`;
     await db.insert(sessionsTable).values({
@@ -209,9 +210,44 @@ describe("authMiddleware", () => {
 
     assert.equal(req.user, undefined);
     assert.equal(next.calls, 1);
-    assert.equal(res.clearCookieCalls.length, 1);
+    // A stale Bearer token must NOT clear the cookie — the browser may have a
+    // valid cookie session that would be wrongly evicted otherwise.
+    assert.equal(res.clearCookieCalls.length, 0);
 
     const [row] = await db.select().from(sessionsTable).where(eq(sessionsTable.sid, sid));
-    assert.equal(row, undefined, "expired session row should have been deleted");
+    assert.equal(row, undefined, "expired session row should have been deleted from DB");
+  });
+
+  it("falls back to cookie session when Bearer token is stale (sign-in regression guard)", async () => {
+    const userId = await createTestUser();
+    const cookieSessionData: SessionData = {
+      user: { id: userId, email: `${userId}@test.local` } as unknown as SessionData["user"],
+      access_token: "",
+    };
+    const cookieSid = await createSession(cookieSessionData, userId);
+
+    // Stale Bearer token (simulates an expired dev-admin-login stored in localStorage)
+    const staleBearerSid = `${USER_PREFIX}${randomUUID()}`;
+    await db.insert(sessionsTable).values({
+      sid: staleBearerSid,
+      sess: { user: { id: userId }, access_token: "" } as unknown as Record<string, unknown>,
+      expire: new Date(Date.now() - 60_000),
+      userId,
+    });
+
+    const req = makeReq({ bearer: staleBearerSid, cookieSid });
+    const res = makeRes();
+    const next = makeNext();
+    await authMiddleware(req, res as unknown as Response, next.fn);
+
+    // Must authenticate via the valid cookie session despite the stale Bearer
+    assert.equal(req.user?.id, userId);
+    assert.equal(req.isAuthenticated(), true);
+    assert.equal(next.calls, 1);
+    // Stale Bearer DB row should be cleaned up
+    const [staleRow] = await db.select().from(sessionsTable).where(eq(sessionsTable.sid, staleBearerSid));
+    assert.equal(staleRow, undefined, "stale Bearer session row should be deleted");
+    // Cookie must NOT be cleared
+    assert.equal(res.clearCookieCalls.length, 0);
   });
 });

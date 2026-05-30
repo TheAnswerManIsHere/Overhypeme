@@ -5,7 +5,8 @@ import { usersTable } from "@workspace/db/schema";
 import { and, eq } from "drizzle-orm";
 import {
   clearSession,
-  getSessionId,
+  deleteSession,
+  SESSION_COOKIE,
   getSession,
   isAdminById,
   isAdminByEmail,
@@ -45,6 +46,12 @@ export interface AuthenticatedRequest extends Request {
 // This is intentionally the single source of truth for "who is the user on
 // this request". Routes and downstream middlewares MUST read `req.user.*`
 // instead of doing their own user lookups.
+//
+// Session resolution order: Bearer token → cookie.
+// A stale Bearer token (e.g. expired dev-admin-login stored in localStorage)
+// falls through to the cookie rather than blocking a valid new cookie session.
+// Cookie-clearance only happens for cookie sessions — Bearer tokens live in
+// client-side localStorage and cannot be evicted via Set-Cookie.
 export async function authMiddleware(
   req: Request,
   res: Response,
@@ -54,70 +61,82 @@ export async function authMiddleware(
     return this.user != null;
   } as Request["isAuthenticated"];
 
-  const sid = getSessionId(req);
-  if (!sid) {
+  const bearerSid = req.headers["authorization"]?.startsWith("Bearer ")
+    ? req.headers["authorization"].slice(7)
+    : undefined;
+  const cookieSid = req.cookies?.[SESSION_COOKIE] as string | undefined;
+
+  const candidates: Array<{ sid: string; isCookie: boolean }> = [];
+  if (bearerSid) candidates.push({ sid: bearerSid, isCookie: false });
+  if (cookieSid) candidates.push({ sid: cookieSid, isCookie: true });
+
+  for (const { sid, isCookie } of candidates) {
+    const session = await getSession(sid);
+    if (!session?.user?.id) {
+      // Stale/expired session: always delete the DB row for cleanup, but
+      // only clear the cookie for cookie sessions — a stale Bearer token
+      // (from localStorage) must not evict a valid concurrent cookie session.
+      if (isCookie) {
+        await clearSession(res, sid);
+      } else {
+        await deleteSession(sid);
+      }
+      continue;
+    }
+
+    const userId = session.user.id;
+
+    const [dbUser] = await db
+      .select({
+        id: usersTable.id,
+        email: usersTable.email,
+        firstName: usersTable.firstName,
+        lastName: usersTable.lastName,
+        displayName: usersTable.displayName,
+        pronouns: usersTable.pronouns,
+        profileImageUrl: usersTable.profileImageUrl,
+        membershipTier: usersTable.membershipTier,
+        isAdmin: usersTable.isAdmin,
+        captchaVerified: usersTable.captchaVerified,
+        nsfwModeEnabled: usersTable.nsfwModeEnabled,
+      })
+      .from(usersTable)
+      .where(and(eq(usersTable.id, userId), eq(usersTable.isActive, true)))
+      .limit(1);
+
+    if (!dbUser) {
+      if (isCookie) {
+        await clearSession(res, sid);
+      } else {
+        await deleteSession(sid);
+      }
+      continue;
+    }
+
+    const isRealAdmin = !!(dbUser.isAdmin || isAdminById(dbUser.id) || isAdminByEmail(dbUser.email));
+    const isAdmin = isRealAdmin && !session.adminModeDisabled;
+    const captchaVerified = !!(dbUser.captchaVerified || session.captchaVerified);
+
+    req.user = {
+      id: dbUser.id,
+      email: dbUser.email,
+      firstName: dbUser.firstName,
+      lastName: dbUser.lastName,
+      displayName: dbUser.displayName,
+      pronouns: dbUser.pronouns,
+      profileImageUrl: dbUser.profileImageUrl,
+      membershipTier: dbUser.membershipTier,
+      isAdmin,
+      isRealAdmin,
+      captchaVerified,
+      nsfwModeEnabled: !!dbUser.nsfwModeEnabled,
+      userRole: deriveUserRole(dbUser.membershipTier, isAdmin),
+      realUserRole: deriveUserRole(dbUser.membershipTier, isRealAdmin),
+    };
+
     next();
     return;
   }
-
-  const session = await getSession(sid);
-  if (!session?.user?.id) {
-    await clearSession(res, sid);
-    next();
-    return;
-  }
-
-  const userId = session.user.id;
-
-  const [dbUser] = await db
-    .select({
-      id: usersTable.id,
-      email: usersTable.email,
-      firstName: usersTable.firstName,
-      lastName: usersTable.lastName,
-      displayName: usersTable.displayName,
-      pronouns: usersTable.pronouns,
-      profileImageUrl: usersTable.profileImageUrl,
-      membershipTier: usersTable.membershipTier,
-      isAdmin: usersTable.isAdmin,
-      captchaVerified: usersTable.captchaVerified,
-      nsfwModeEnabled: usersTable.nsfwModeEnabled,
-    })
-    .from(usersTable)
-    .where(and(eq(usersTable.id, userId), eq(usersTable.isActive, true)))
-    .limit(1);
-
-  // Session points to a user that no longer exists (or was soft-deleted) —
-  // treat the request as logged out and remove the orphaned session row.
-  if (!dbUser) {
-    await clearSession(res, sid);
-    next();
-    return;
-  }
-
-  const isRealAdmin = !!(dbUser.isAdmin || isAdminById(dbUser.id) || isAdminByEmail(dbUser.email));
-  // Real admins can toggle "admin mode" off to view the site as a regular
-  // user. The session-scoped `adminModeDisabled` flag is purely a UI affordance
-  // — backend authorization (e.g. requireAdmin) should consult `isRealAdmin`.
-  const isAdmin = isRealAdmin && !session.adminModeDisabled;
-  const captchaVerified = !!(dbUser.captchaVerified || session.captchaVerified);
-
-  req.user = {
-    id: dbUser.id,
-    email: dbUser.email,
-    firstName: dbUser.firstName,
-    lastName: dbUser.lastName,
-    displayName: dbUser.displayName,
-    pronouns: dbUser.pronouns,
-    profileImageUrl: dbUser.profileImageUrl,
-    membershipTier: dbUser.membershipTier,
-    isAdmin,
-    isRealAdmin,
-    captchaVerified,
-    nsfwModeEnabled: !!dbUser.nsfwModeEnabled,
-    userRole: deriveUserRole(dbUser.membershipTier, isAdmin),
-    realUserRole: deriveUserRole(dbUser.membershipTier, isRealAdmin),
-  };
 
   next();
 }
