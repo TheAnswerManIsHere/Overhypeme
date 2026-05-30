@@ -9,7 +9,7 @@ export const pendingReviewsTable = pgTable("pending_reviews", {
   id: serial("id").primaryKey(),
   submittedText: text("submitted_text").notNull(),
   submittedById: varchar("submitted_by_id").references(() => usersTable.id),
-  matchingFactId: integer("matching_fact_id").references(() => factsTable.id),
+  matchingFactId: integer("matching_fact_id").references(() => factsTable.id, { onDelete: "set null" }),
   matchingSimilarity: integer("matching_similarity").notNull().default(0),
   hashtags: jsonb("hashtags").$type<string[]>().default([]),
   /** Visual-taxonomy enrichment blob (FactEnrichment from @workspace/api-zod). Null until the async enrichment job writes it. */
@@ -20,7 +20,7 @@ export const pendingReviewsTable = pgTable("pending_reviews", {
   reason: reviewReasonEnum("reason"),
   adminNote: text("admin_note"),
   reviewedById: varchar("reviewed_by_id").references(() => usersTable.id),
-  approvedFactId: integer("approved_fact_id").references(() => factsTable.id),
+  approvedFactId: integer("approved_fact_id").references(() => factsTable.id, { onDelete: "set null" }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   reviewedAt: timestamp("reviewed_at", { withTimezone: true }),
 }, (table) => [
