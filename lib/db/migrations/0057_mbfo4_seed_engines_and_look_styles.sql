@@ -328,7 +328,8 @@ INSERT INTO "look_styles" ("id", "label", "description", "prompt_suffix", "promp
 ('neon-noir', 'Neon noir', 'Rain-drenched neon-lit detective thriller.',
   'Rendered in neon noir style with a rain-drenched nighttime setting, deep black shadows pierced only by harsh neon signage reflections, film grain, and a moody detective-thriller atmosphere.',
   'Reimagine this scene in neon noir style with a rain-drenched nighttime setting, deep black shadows pierced only by harsh neon signage reflections, film grain, and a moody detective-thriller atmosphere.',
-  19, true);
+  19, true)
+ON CONFLICT ("id") DO NOTHING;
 
 --> statement-breakpoint
 
