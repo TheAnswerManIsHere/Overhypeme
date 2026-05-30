@@ -262,6 +262,26 @@ export function normalizeHashtag(tag: string): string {
  * to true when the model is uncertain or when the reference is brand/workplace
  * adjacent.
  */
+// Source-type vocabulary for the admin reference-research tool. Mirrored
+// here (rather than imported from referenceResearch.ts) so taxonomy.ts has no
+// upward dep on the research module; the values are kept in lockstep.
+const CULTURAL_REFERENCE_RESEARCH_SOURCE_TYPE_VALUES = [
+  "official",
+  "encyclopedic",
+  "news",
+  "community",
+  "search_result",
+  "admin_context",
+  "other",
+] as const;
+
+const culturalReferenceResearchSourceSchema = z.object({
+  title: z.string().trim().min(1).max(300),
+  url: z.string().trim().max(1024).default(""),
+  sourceType: z.enum(CULTURAL_REFERENCE_RESEARCH_SOURCE_TYPE_VALUES),
+  summary: z.string().trim().max(800).default(""),
+});
+
 export const culturalReferenceSchema = z.object({
   sourcePhrase: z.string().trim().min(1).max(300),
   referenceType: z.enum(REFERENCE_TYPE_VALUES),
@@ -270,6 +290,15 @@ export const culturalReferenceSchema = z.object({
   visualImplication: z.string().trim().max(800).default(""),
   confidence: z.number().min(0).max(1),
   requiresAdminReview: z.boolean().default(false),
+  // Optional research metadata stamped when an admin runs the "Research
+  // Reference" tool. Absent for enrichment blobs the enrichment AI emitted
+  // without a research pass.
+  researchConfidence: z.enum(["high", "medium", "low"]).optional(),
+  researchSources: z.array(culturalReferenceResearchSourceSchema).max(20).optional(),
+  researchNotes: z.string().trim().max(2000).optional(),
+  ambiguityWarnings: z.array(z.string().trim().min(1)).max(10).optional(),
+  researchedAt: z.string().optional(),
+  researchedBy: z.literal("ai_reference_research").optional(),
 });
 export type CulturalReference = z.infer<typeof culturalReferenceSchema>;
 

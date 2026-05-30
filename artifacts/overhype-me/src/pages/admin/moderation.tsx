@@ -362,6 +362,7 @@ function ReviewModal({
               <EnrichmentEditor
                 value={enrichment}
                 status={enrichmentStatus}
+                factText={review.submittedText}
                 onChange={(next) => { dirtyRef.current = true; setEnrichment(next); }}
                 onSave={enrichment ? saveEnrichment : undefined}
                 onRerun={rerunEnrichment}

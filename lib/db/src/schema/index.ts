@@ -29,3 +29,4 @@ export * from "./transientRenders";
 export * from "./shareIntents";
 export * from "./heroExamples";
 export * from "./imagePromptAttempts";
+export * from "./referenceResearchCache";
