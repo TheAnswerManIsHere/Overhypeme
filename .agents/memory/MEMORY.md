@@ -1,1 +1,2 @@
 - [Auth middleware Bearer-cookie priority](auth-bearer-cookie-fallback.md) — stale Bearer in localStorage blocked valid cookie sessions; auth middleware now falls back to cookie when Bearer is stale.
+- [OpenAI no Replit proxy](openai-no-replit-proxy.md) — all OpenAI/embeddings calls use direct OPENAI_API_KEY; never add an AI_INTEGRATIONS_OPENAI_* proxy fallback.
