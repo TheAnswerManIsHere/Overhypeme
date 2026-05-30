@@ -254,10 +254,27 @@ function ReviewModal({
   };
 
   const regeneratePreview = async () => {
+    if (!enrichment) return;
     setLoading(true);
     setEnrichmentMsg("");
     setErrorMsg("");
     try {
+      // Save first so the server generates the preview from the current enrichment
+      // (including any cultural references / semantic entities added since the last save).
+      // This also resets dirtyRef so the preview-polling syncFromServer isn't blocked.
+      const saveRes = await fetch(`/api/admin/reviews/${review.id}/enrichment`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ enrichment }),
+      });
+      if (!saveRes.ok) {
+        setErrorMsg(saveRes.status === 503 ? "API unavailable — try again shortly." : `Save failed (${saveRes.status}) — preview not triggered.`);
+        setLoading(false);
+        return;
+      }
+      dirtyRef.current = false;
+
       const r = await fetch(`/api/admin/reviews/${review.id}/preview`, { method: "POST", credentials: "include" });
       if (r.ok) {
         setPreviewPolls((n) => n + 1);
