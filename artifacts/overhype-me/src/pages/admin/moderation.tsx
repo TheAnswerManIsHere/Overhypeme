@@ -129,10 +129,12 @@ function ReviewModal({
   review,
   onClose,
   onDecision,
+  duplicateThreshold,
 }: {
   review: Review;
   onClose: () => void;
   onDecision: (id: number, action: "approve" | "reject" | "approve-variant", note: string, parentFactId?: number, rejectionReason?: RejectionReason, enrichment?: FactEnrichment | null) => Promise<string | null>;
+  duplicateThreshold: number;
 }) {
   const [note, setNote] = useState(review.adminNote ?? "");
   const [loading, setLoading] = useState(false);
@@ -309,16 +311,18 @@ function ReviewModal({
           <div className="flex flex-wrap gap-4 text-sm text-muted-foreground">
             <span>Submitted by: <strong className="text-foreground">{review.submitter?.displayName ?? review.submitter?.email ?? "Unknown"}</strong></span>
             {review.submitter?.email && <span>Email: <strong className="text-foreground">{review.submitter.email}</strong></span>}
-            <span>Similarity: <strong className="text-foreground">{review.matchingSimilarity}%</strong></span>
+            {review.matchingSimilarity >= duplicateThreshold && (
+              <span>Similarity: <strong className="text-foreground">{review.matchingSimilarity}%</strong></span>
+            )}
             <span>Date: <strong className="text-foreground">{new Date(review.createdAt).toLocaleDateString()}</strong></span>
           </div>
 
-          <div className={`grid gap-4 ${review.matchingFactId != null || review.matchingSimilarity > 0 ? "grid-cols-1 sm:grid-cols-2" : "grid-cols-1"}`}>
+          <div className={`grid gap-4 ${(review.matchingFactId != null || review.matchingSimilarity > 0) && review.matchingSimilarity >= duplicateThreshold ? "grid-cols-1 sm:grid-cols-2" : "grid-cols-1"}`}>
             <div className="bg-background border-2 border-border rounded-sm p-4">
               <p className="text-xs font-bold text-muted-foreground uppercase tracking-wide mb-3">Submitted Fact</p>
               <p className="text-base italic text-foreground leading-relaxed">"{review.submittedText}"</p>
             </div>
-            {(review.matchingFactId != null || review.matchingSimilarity > 0) && (
+            {(review.matchingFactId != null || review.matchingSimilarity > 0) && review.matchingSimilarity >= duplicateThreshold && (
               <div className="bg-background border-2 border-primary/40 rounded-sm p-4">
                 <div className="flex items-center justify-between mb-3">
                   <p className="text-xs font-bold text-primary uppercase tracking-wide">Flagged Duplicate</p>
@@ -481,6 +485,20 @@ function FactReviewsPanel() {
   const [page, setPage] = useState(1);
   const [selectedReview, setSelectedReview] = useState<Review | null>(null);
   const [actionMsg, setActionMsg] = useState("");
+  const [duplicateThreshold, setDuplicateThreshold] = useState(80);
+
+  useEffect(() => {
+    fetch("/api/admin/config", { credentials: "include" })
+      .then((r) => r.ok ? r.json() as Promise<{ key: string; value: string }[]> : Promise.reject())
+      .then((rows) => {
+        const row = rows.find((r) => r.key === "review_duplicate_threshold");
+        if (row) {
+          const n = parseInt(row.value, 10);
+          if (isFinite(n)) setDuplicateThreshold(n);
+        }
+      })
+      .catch(() => {});
+  }, []);
 
   const { data, loading, error, load } = useReviews(statusFilter, page);
 
@@ -584,12 +602,12 @@ function FactReviewsPanel() {
                     <ReviewStatusBadge status={r.status} />
                     <ReasonBadge reason={r.reason} />
                     <span className="text-xs text-muted-foreground">
-                      {r.matchingSimilarity > 0 ? `${r.matchingSimilarity}% match · ` : ""}
+                      {r.matchingSimilarity >= duplicateThreshold ? `${r.matchingSimilarity}% match · ` : ""}
                       by {r.submitter?.displayName ?? r.submitter?.email ?? "unknown"} · {new Date(r.createdAt).toLocaleDateString()}
                     </span>
                   </div>
                   <p className="text-sm text-foreground italic line-clamp-2">"{r.submittedText}"</p>
-                  {r.matchingFact && (
+                  {r.matchingFact && r.matchingSimilarity >= duplicateThreshold && (
                     <p className="text-xs text-muted-foreground mt-1 truncate">vs. "{r.matchingFact.text}"</p>
                   )}
                 </div>
@@ -627,6 +645,7 @@ function FactReviewsPanel() {
           review={selectedReview}
           onClose={() => setSelectedReview(null)}
           onDecision={handleDecision}
+          duplicateThreshold={duplicateThreshold}
         />
       )}
     </div>
