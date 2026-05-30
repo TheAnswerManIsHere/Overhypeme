@@ -19,10 +19,9 @@ The User Acceptance Test for David is in [`PHASE_2_UAT.md`](./PHASE_2_UAT.md).
 
 ## TL;DR
 
-```bash
-# 0. Test DB is up (session-start hook).
-export DATABASE_URL="postgres://overhype:overhype@localhost:5432/overhype_test"
+Run, against your own database connection:
 
+```bash
 # 1. Apply the new migrations (0065 + 0066).
 pnpm --filter @workspace/db run migrate
 
@@ -33,13 +32,11 @@ pnpm --filter @workspace/db run check-snapshots
 pnpm -w typecheck
 
 # 4. Validator unit tests.
-cd artifacts/api-server
-DATABASE_URL=$DATABASE_URL TEST_DB_ALLOW_EXIT_ON_IDLE=1 BCRYPT_SALT_ROUNDS=4 \
-  node --import tsx/esm --test \
-    src/__tests__/imagePromptGeneration.validate.test.ts \
-    src/__tests__/visualPromptStrategies.test.ts \
-    src/__tests__/factEnrichment.test.ts \
-    src/__tests__/asyncJobs.test.ts
+node --import tsx/esm --test \
+  artifacts/api-server/src/__tests__/imagePromptGeneration.validate.test.ts \
+  artifacts/api-server/src/__tests__/visualPromptStrategies.test.ts \
+  artifacts/api-server/src/__tests__/factEnrichment.test.ts \
+  artifacts/api-server/src/__tests__/asyncJobs.test.ts
 ```
 
 Expected: typecheck clean, snapshot check `✓ All 67 journal entries`, 53/53
