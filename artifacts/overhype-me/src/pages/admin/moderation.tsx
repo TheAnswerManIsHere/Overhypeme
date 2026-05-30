@@ -279,6 +279,10 @@ function ReviewModal({
   const [decisionError, setDecisionError] = useState("");
 
   const handle = async (action: "approve" | "reject" | "approve-variant") => {
+    if (action === "reject" && !rejectionReason) {
+      setDecisionError("Please select a rejection reason before rejecting.");
+      return;
+    }
     setLoading(true);
     setDecisionError("");
     const err =
@@ -372,7 +376,7 @@ function ReviewModal({
             <div className="space-y-4">
               <div>
                 <label className="block text-sm font-semibold text-foreground mb-2">
-                  Rejection Reason <span className="text-muted-foreground font-normal">(optional, shown to user if rejecting)</span>
+                  Rejection Reason <span className="text-destructive font-normal">*</span>
                 </label>
                 <select
                   value={rejectionReason}
