@@ -552,7 +552,7 @@ export function EnrichmentEditor({
   previewBusy?: boolean;
   submittedHashtags?: string[];
 }) {
-  const e = value ?? EMPTY_ENRICHMENT;
+  const e = value ? { ...EMPTY_ENRICHMENT, ...value } : EMPTY_ENRICHMENT;
   const [modifierInput, setModifierInput] = useState("");
   const [hashtagInput, setHashtagInput] = useState("");
 
