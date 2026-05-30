@@ -218,7 +218,7 @@ router.get("/admin/reviews/:id", requireAdmin, async (req: Request, res: Respons
 const ReviewDecisionBody = z.object({ adminNote: z.string().max(500).optional() });
 const RejectBody = z.object({
   adminNote: z.string().max(500).optional(),
-  rejectionReason: z.enum(["duplicate", "spam", "offensive", "lame"]),
+  rejectionReason: z.enum(["duplicate", "spam", "offensive", "lame"]).optional(),
 });
 const ApproveVariantBody = z.object({
   parentFactId: z.number().int().positive(),
@@ -453,7 +453,7 @@ router.post("/admin/reviews/:id/reject", requireAdmin, async (req: Authenticated
 
   const bodyParsed = RejectBody.safeParse(req.body);
   if (!bodyParsed.success) {
-    res.status(400).json({ error: "rejectionReason is required and must be one of: duplicate, spam, offensive, lame", details: bodyParsed.error.flatten() });
+    res.status(400).json({ error: "Invalid rejection reason. Must be one of: duplicate, spam, offensive, lame.", details: bodyParsed.error.flatten() });
     return;
   }
   const { adminNote = null, rejectionReason } = bodyParsed.data;
