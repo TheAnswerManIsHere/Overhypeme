@@ -1,6 +1,6 @@
 import { AdminLayout } from "@/components/admin/AdminLayout";
 import { CollapsibleSection } from "@/components/CollapsibleSection";
-import { Settings, Loader2, Bug, Bot, Sliders, DollarSign, Shield, Mail, ShoppingBag, Clock, Wand2 } from "lucide-react";
+import { Settings, Loader2, Bug, Bot, Sliders, DollarSign, Shield, Mail, ShoppingBag, Clock, Wand2, ClipboardList } from "lucide-react";
 import {
   ConfigPageContext,
   ConfigPageCtx,
@@ -51,6 +51,10 @@ const ZAZZLE_KEYS = new Set([
   "zazzle_cg",
   "zazzle_ed",
   "zazzle_tc",
+]);
+
+const MODERATION_KEYS = new Set([
+  "review_duplicate_threshold",
 ]);
 
 // Keys that belong elsewhere (Billing tab) or are removed from this page
@@ -250,6 +254,7 @@ export default function AdminConfig() {
   const limitRows   = rows.filter((r) => LIMIT_KEYS.has(r.key));
   const emailRows   = rows.filter((r) => EMAIL_KEYS.has(r.key));
   const zazzleRows  = rows.filter((r) => ZAZZLE_KEYS.has(r.key));
+  const moderationRows = rows.filter((r) => MODERATION_KEYS.has(r.key));
   const genericRows = rows.filter((r) =>
     !r.key.startsWith("style_suffix_") &&
     r.key !== "debug_mode_active" &&
@@ -260,6 +265,7 @@ export default function AdminConfig() {
     !LIMIT_KEYS.has(r.key) &&
     !EMAIL_KEYS.has(r.key) &&
     !ZAZZLE_KEYS.has(r.key) &&
+    !MODERATION_KEYS.has(r.key) &&
     !BILLING_ONLY_KEYS.has(r.key)
   );
 
@@ -381,6 +387,20 @@ export default function AdminConfig() {
                 >
                   <div className="space-y-3">
                     {zazzleRows.map((row) => <ConfigCard key={row.key} row={row} />)}
+                  </div>
+                </CollapsibleSection>
+              )}
+
+              {/* Moderation — collapsible section */}
+              {moderationRows.length > 0 && (
+                <CollapsibleSection
+                  title="Moderation"
+                  icon={<ClipboardList className="w-4 h-4 text-muted-foreground" />}
+                  description="Controls for the fact review and duplicate-flagging workflow."
+                  storageKey="admin_section_config_moderation"
+                >
+                  <div className="space-y-3">
+                    {moderationRows.map((row) => <ConfigCard key={row.key} row={row} />)}
                   </div>
                 </CollapsibleSection>
               )}
