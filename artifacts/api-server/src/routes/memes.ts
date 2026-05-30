@@ -1576,13 +1576,14 @@ router.delete("/memes/ai/:factId/image", requireLegendary, async (req: Authentic
 });
 
 // ────────────────────────────────────────────────────────────────────────────
-// Phase 2 — new render-time prompt pipeline (gated by enable_image_prompt_v2).
+// Phase 2 — new render-time prompt pipeline.
 //
 //   POST /memes/ai/:factId/analyze-source     run Tier-1+2(+3) on an upload
 //   POST /memes/ai/:factId/generate-v2        enqueue prompt+image jobs, return renderJobId
 //   GET  /memes/ai/renders/:renderJobId       poll status / fetch result
 //
-// Legacy /generate stays live until the cutover follow-up PR retires it.
+// Reference-photo uploads always use this flow. The legacy /generate route
+// stays live for Generic (no-upload) generation.
 // ────────────────────────────────────────────────────────────────────────────
 
 import {
@@ -1599,9 +1600,6 @@ import {
   generationModeFromSubjectRenderMode as generationModeFromSubjectRenderMode_v2,
   noImageAnalysis as noImageAnalysis_v2,
 } from "../lib/sourceImageAnalysis";
-import {
-  isImagePromptV2Enabled as isImagePromptV2Enabled_v2,
-} from "../lib/imagePromptConfig";
 import {
   imagePromptAttemptsTable as imagePromptAttemptsTable_v2,
   uploadImageMetadataTable as uploadImageMetadataTable_v2,
@@ -1668,10 +1666,6 @@ router.post("/memes/ai/:factId/analyze-source", requireLegendary, async (req: Au
 
 router.post("/memes/ai/:factId/generate-v2", requireLegendary, async (req: AuthenticatedRequest, res: Response) => {
   try {
-    if (!(await isImagePromptV2Enabled_v2())) {
-      res.status(404).json({ error: "image_prompt_v2_not_enabled" });
-      return;
-    }
     const factId = parseInt(String(req.params["factId"] ?? ""), 10);
     if (isNaN(factId)) {
       res.status(400).json({ error: "Invalid factId" });

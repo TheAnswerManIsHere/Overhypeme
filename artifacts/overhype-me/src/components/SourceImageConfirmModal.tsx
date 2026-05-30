@@ -9,9 +9,9 @@
  *   5. Poll GET /api/memes/ai/renders/:renderJobId until image_ready / failed.
  *   6. Call onComplete(generatedImageObjectPath) or onCancel().
  *
- * Gated by the public `enable_image_prompt_v2` admin_config flag; the caller
- * (AiBgPicker) decides when to open this modal vs fall through to the legacy
- * /generate route.
+ * The caller (AiBgPicker) opens this modal whenever the user generates from a
+ * reference-photo upload; Generic (no-upload) generation still falls through
+ * to the legacy /generate route.
  */
 
 import { useEffect, useState, useRef, useCallback } from "react";
