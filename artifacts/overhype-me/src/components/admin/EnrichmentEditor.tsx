@@ -25,7 +25,7 @@ import {
   SEMANTIC_ENTITY_KIND_VALUES,
   CAPITALIZATION_SIGNAL_VALUES,
 } from "@workspace/api-zod";
-import { AlertTriangle, RefreshCw, Save, X, Eye, Plus, Trash2 } from "lucide-react";
+import { AlertTriangle, RefreshCw, Save, X, Eye, Plus, Trash2, Search, Loader2, Sparkles, ExternalLink } from "lucide-react";
 
 // ─── Forbidden-text heuristic ───────────────────────────────────────────────
 //
@@ -170,6 +170,303 @@ function emptyVisualPreview(): VisualPromptPreview {
   };
 }
 
+// ─── Research Reference panel ──────────────────────────────────────────────
+//
+// Per-row "Research Reference" button. POSTs to /api/admin/references/research
+// with the cultural reference fields + the surrounding fact text, then renders
+// a result panel with Apply / Replace / Dismiss. Auto-applies when both target
+// fields are empty AND the service flagged canAutoApplyToEmptyFields=true
+// (high/medium confidence + no ambiguity warnings + sources present for
+// public references).
+
+type ResearchSource = {
+  title: string;
+  url: string;
+  sourceType: "official" | "encyclopedic" | "news" | "community" | "search_result" | "admin_context" | "other";
+  summary: string;
+};
+type ResearchResult = {
+  explanation: string;
+  visualImplication: string;
+  confidence: "high" | "medium" | "low";
+  sources: ResearchSource[];
+  researchNotes: string;
+  ambiguityWarnings: string[];
+  canAutoApplyToEmptyFields: boolean;
+  researchedAt: string;
+  researchedBy: "ai_reference_research";
+};
+type ResearchPhase = "idle" | "researching" | "result" | "applied" | "error";
+
+function ResearchReferencePanel({
+  factText,
+  reference,
+  onApplyPatch,
+}: {
+  factText: string;
+  reference: CulturalReference;
+  onApplyPatch: (patch: Partial<CulturalReference>) => void;
+}) {
+  const [phase, setPhase] = useState<ResearchPhase>("idle");
+  const [result, setResult] = useState<ResearchResult | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [fromCache, setFromCache] = useState(false);
+  const [autoApplied, setAutoApplied] = useState(false);
+
+  const buttonEnabled =
+    !!factText.trim() &&
+    (!!reference.sourcePhrase || !!reference.canonicalReference) &&
+    !!reference.referenceType;
+  const disabledReason = !factText.trim()
+    ? "Need fact text to research."
+    : !reference.sourcePhrase && !reference.canonicalReference
+      ? "Add a source phrase or canonical reference before researching."
+      : !reference.referenceType
+        ? "Pick a reference type before researching."
+        : "";
+
+  const applyPatchFromResult = (mode: "empty_only" | "replace_all", r: ResearchResult) => {
+    const patch: Partial<CulturalReference> = {
+      researchConfidence: r.confidence,
+      researchSources: r.sources,
+      researchNotes: r.researchNotes,
+      ambiguityWarnings: r.ambiguityWarnings,
+      researchedAt: r.researchedAt,
+      researchedBy: r.researchedBy,
+    };
+    const explanationEmpty = !reference.explanation.trim();
+    const visualEmpty = !reference.visualImplication.trim();
+    if (mode === "replace_all") {
+      patch.explanation = r.explanation;
+      patch.visualImplication = r.visualImplication;
+    } else {
+      if (explanationEmpty) patch.explanation = r.explanation;
+      if (visualEmpty) patch.visualImplication = r.visualImplication;
+    }
+    onApplyPatch(patch);
+  };
+
+  const handleResearch = async () => {
+    setPhase("researching");
+    setError(null);
+    setAutoApplied(false);
+    try {
+      const res = await fetch("/api/admin/references/research", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          factText,
+          sourcePhrase: reference.sourcePhrase,
+          referenceType: reference.referenceType,
+          canonicalReference: reference.canonicalReference,
+          existingExplanation: reference.explanation || undefined,
+          existingVisualImplication: reference.visualImplication || undefined,
+        }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({ error: "research_failed" })) as { error?: string; details?: string };
+        throw new Error(body.details ?? body.error ?? "research_failed");
+      }
+      const body = (await res.json()) as { result: ResearchResult; fromCache: boolean };
+      setResult(body.result);
+      setFromCache(body.fromCache);
+      const explanationEmpty = !reference.explanation.trim();
+      const visualEmpty = !reference.visualImplication.trim();
+      if (
+        body.result.canAutoApplyToEmptyFields &&
+        explanationEmpty &&
+        visualEmpty &&
+        body.result.confidence !== "low"
+      ) {
+        applyPatchFromResult("empty_only", body.result);
+        setAutoApplied(true);
+        setPhase("applied");
+      } else {
+        setPhase("result");
+      }
+    } catch (err) {
+      setError((err as Error).message);
+      setPhase("error");
+    }
+  };
+
+  const handleDismiss = () => {
+    setPhase("idle");
+    setResult(null);
+    setError(null);
+    setAutoApplied(false);
+  };
+
+  return (
+    <div className="rounded-sm border border-border bg-muted/20 p-2.5 space-y-2">
+      <div className="flex items-center justify-between flex-wrap gap-2">
+        <p className="text-xs font-bold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
+          <Sparkles className="w-3 h-3" /> Research reference
+        </p>
+        <button
+          type="button"
+          onClick={handleResearch}
+          disabled={!buttonEnabled || phase === "researching"}
+          className="inline-flex items-center gap-1.5 text-xs text-primary hover:underline disabled:text-muted-foreground disabled:cursor-not-allowed disabled:no-underline"
+          title={!buttonEnabled ? disabledReason : "Look up this reference and propose explanation + visual implication"}
+        >
+          {phase === "researching" ? (
+            <>
+              <Loader2 className="w-3 h-3 animate-spin" /> Researching…
+            </>
+          ) : (
+            <>
+              <Search className="w-3 h-3" /> Research reference
+            </>
+          )}
+        </button>
+      </div>
+
+      {phase === "idle" && !buttonEnabled && (
+        <p className="text-xs text-muted-foreground italic">{disabledReason}</p>
+      )}
+
+      {phase === "applied" && autoApplied && result && (
+        <div className="rounded-sm border border-emerald-500/40 bg-emerald-500/10 p-2 space-y-1">
+          <p className="text-xs text-emerald-700 dark:text-emerald-400">
+            Auto-applied to empty fields ({result.confidence} confidence{fromCache ? " · from cache" : ""}).
+          </p>
+          <button
+            type="button"
+            onClick={handleDismiss}
+            className="text-xs text-muted-foreground hover:underline"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
+
+      {phase === "result" && result && (
+        <div className="space-y-2">
+          <div className="flex items-center gap-2 text-xs flex-wrap">
+            <span
+              className={
+                result.confidence === "high"
+                  ? "px-1.5 py-0.5 rounded-sm bg-emerald-500/20 text-emerald-700 dark:text-emerald-400"
+                  : result.confidence === "medium"
+                    ? "px-1.5 py-0.5 rounded-sm bg-amber-500/20 text-amber-700 dark:text-amber-400"
+                    : "px-1.5 py-0.5 rounded-sm bg-red-500/20 text-red-600 dark:text-red-400"
+              }
+            >
+              {result.confidence} confidence
+            </span>
+            {fromCache && <span className="text-muted-foreground">from cache</span>}
+          </div>
+
+          {result.ambiguityWarnings.length > 0 && (
+            <div className="rounded-sm border border-amber-500/40 bg-amber-500/10 p-2 space-y-0.5">
+              {result.ambiguityWarnings.map((w, i) => (
+                <p key={i} className="text-xs text-amber-700 dark:text-amber-400 flex items-start gap-1">
+                  <AlertTriangle className="w-3 h-3 shrink-0 mt-0.5" /> {w}
+                </p>
+              ))}
+            </div>
+          )}
+
+          <div className="space-y-0.5">
+            <p className="text-xs font-bold text-muted-foreground uppercase tracking-wide">Proposed explanation</p>
+            <p className="text-xs text-foreground whitespace-pre-wrap">{result.explanation}</p>
+          </div>
+
+          <div className="space-y-0.5">
+            <p className="text-xs font-bold text-muted-foreground uppercase tracking-wide">Proposed visual implication</p>
+            <p className="text-xs text-foreground whitespace-pre-wrap">{result.visualImplication}</p>
+          </div>
+
+          {result.sources.length > 0 && (
+            <details className="text-xs">
+              <summary className="cursor-pointer text-muted-foreground">
+                Sources ({result.sources.length})
+              </summary>
+              <ul className="mt-1 space-y-1 pl-3">
+                {result.sources.map((s, i) => (
+                  <li key={i} className="text-xs text-foreground">
+                    {s.url ? (
+                      <a
+                        href={s.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-primary hover:underline inline-flex items-center gap-1"
+                      >
+                        {s.title} <ExternalLink className="w-2.5 h-2.5" />
+                      </a>
+                    ) : (
+                      <span>{s.title}</span>
+                    )}
+                    <span className="text-muted-foreground"> · {s.sourceType}</span>
+                    {s.summary && <p className="text-muted-foreground pl-2">{s.summary}</p>}
+                  </li>
+                ))}
+              </ul>
+            </details>
+          )}
+
+          {result.researchNotes && (
+            <details className="text-xs">
+              <summary className="cursor-pointer text-muted-foreground">Research notes</summary>
+              <p className="mt-1 text-xs text-foreground whitespace-pre-wrap pl-3">{result.researchNotes}</p>
+            </details>
+          )}
+
+          <div className="flex items-center gap-2 flex-wrap pt-1">
+            <button
+              type="button"
+              onClick={() => {
+                applyPatchFromResult("empty_only", result);
+                setPhase("applied");
+              }}
+              className="px-2 py-1 text-xs rounded-sm bg-primary text-primary-foreground hover:opacity-90"
+            >
+              Apply to empty fields
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                if (!confirm("Replace existing explanation + visual implication with the researched values?")) return;
+                applyPatchFromResult("replace_all", result);
+                setPhase("applied");
+              }}
+              className="px-2 py-1 text-xs rounded-sm border border-border hover:bg-muted"
+            >
+              Replace existing fields
+            </button>
+            <button
+              type="button"
+              onClick={handleDismiss}
+              className="px-2 py-1 text-xs rounded-sm text-muted-foreground hover:underline"
+            >
+              Dismiss
+            </button>
+          </div>
+        </div>
+      )}
+
+      {phase === "applied" && !autoApplied && (
+        <p className="text-xs text-muted-foreground">Applied. <button type="button" onClick={handleDismiss} className="underline">Dismiss</button></p>
+      )}
+
+      {phase === "error" && (
+        <div className="rounded-sm border border-destructive/40 bg-destructive/10 p-2 space-y-1">
+          <p className="text-xs text-destructive">{error ?? "Research failed."}</p>
+          <button
+            type="button"
+            onClick={handleDismiss}
+            className="text-xs text-muted-foreground hover:underline"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 /**
  * Cultural references editor (Phase 2A). Admins can edit `explanation` and
  * `visualImplication` directly per the addendum; `sourcePhrase` and
@@ -179,9 +476,11 @@ function emptyVisualPreview(): VisualPromptPreview {
  */
 function CulturalReferencesEditor({
   refs,
+  factText,
   onChange,
 }: {
   refs: CulturalReference[];
+  factText: string;
   onChange: (next: CulturalReference[]) => void;
 }) {
   const update = (i: number, patch: Partial<CulturalReference>) => {
@@ -279,6 +578,13 @@ function CulturalReferencesEditor({
                       />
                       Requires admin review
                     </label>
+                  </div>
+                  <div className="sm:col-span-2">
+                    <ResearchReferencePanel
+                      factText={factText}
+                      reference={r}
+                      onApplyPatch={(patch) => update(i, patch)}
+                    />
                   </div>
                 </div>
                 <button
@@ -735,6 +1041,7 @@ export function EnrichmentSummary({ e }: { e: FactEnrichment }) {
 export function EnrichmentEditor({
   value,
   status,
+  factText,
   onChange,
   onSave,
   onRerun,
@@ -746,6 +1053,8 @@ export function EnrichmentEditor({
 }: {
   value: FactEnrichment | null;
   status: string | null;
+  /** Source fact text — used by the per-row "Research Reference" tool. */
+  factText?: string;
   onChange: (next: FactEnrichment) => void;
   onSave?: () => void;
   onRerun?: () => void;
@@ -969,6 +1278,7 @@ export function EnrichmentEditor({
 
       <CulturalReferencesEditor
         refs={e.culturalReferences}
+        factText={factText ?? ""}
         onChange={(next) => update({ culturalReferences: next })}
       />
 

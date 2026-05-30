@@ -12,6 +12,7 @@ import { seedVideoDirectionConfig } from "./videoDirection";
 import { seedFactEnrichmentConfig } from "./factEnrichmentConfig";
 import { seedFactVisualPreviewConfig } from "./factVisualPreviewConfig";
 import { seedImagePromptConfig } from "./imagePromptConfig";
+import { seedReferenceResearchConfig } from "./referenceResearchConfig";
 import { logger } from "./logger";
 
 /**
@@ -665,6 +666,9 @@ export async function ensureSchema(): Promise<void> {
   // Seed the Phase 2 image-prompt admin config (image-prompt + source-classifier
   // system prompts, active classifier engine id, enable_image_prompt_v2 flag).
   await seedImagePromptConfig();
+
+  // Seed the admin Reference Research tool's system prompt.
+  await seedReferenceResearchConfig();
 }
 
 function computeWilsonScore(upvotes: number, downvotes: number): number {

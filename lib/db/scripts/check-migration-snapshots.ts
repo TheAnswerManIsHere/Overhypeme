@@ -140,6 +140,13 @@ const SNAPSHOT_EXEMPT_TAGS = new Set<string>([
   // VARCHAR(16) to upload_image_metadata as the analyzer cache. Hand-authored
   // DDL — see 0065 comment for snapshot rationale.
   "0066_upload_image_metadata_source_analysis",
+
+  // Reference research cache: new table backing the admin "Research Reference"
+  // tool (POST /admin/references/research). Hand-authored DDL — drizzle-kit's
+  // snapshot regen still fails on the upstream malformed 0063 snapshot, so
+  // the snapshot is intentionally absent. Drizzle TS schema in
+  // lib/db/src/schema/referenceResearchCache.ts is the source of truth.
+  "0067_reference_research_cache",
 ]);
 
 interface JournalEntry {
