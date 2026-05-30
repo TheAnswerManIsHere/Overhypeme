@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useLocation, Link } from "wouter";
 import HCaptcha from "@hcaptcha/react-hcaptcha";
 import { useAuth } from "@workspace/replit-auth-web";
@@ -10,6 +10,8 @@ import { Button } from "@/components/ui/Button";
 import { Textarea, Input } from "@/components/ui/Input";
 import { renderFact } from "@/lib/render-fact";
 import { useToast } from "@/hooks/use-toast";
+import { useFormDraft } from "@/hooks/use-form-draft";
+import { createLocalStorageAdapter } from "@/lib/form-draft-storage";
 import {
   ShieldAlert, AlertTriangle, Sparkles, Loader2,
   CheckCircle2, ChevronRight, ChevronLeft, CheckCheck,
@@ -19,20 +21,13 @@ import {
 const HCAPTCHA_SITE_KEY =
   import.meta.env.VITE_HCAPTCHA_SITE_KEY || "10000000-ffff-ffff-ffff-000000000001";
 
-const DRAFT_STORAGE_KEY = "submit_fact_draft";
-
-function getRelativeTime(savedAt: number): string {
-  const seconds = Math.floor((Date.now() - savedAt) / 1000);
-  if (seconds < 30) return "Saved just now";
-  if (seconds < 90) return "Saved 1 min ago";
-  const minutes = Math.round(seconds / 60);
-  if (minutes < 60) return `Saved ${minutes} min ago`;
-  const hours = Math.round(minutes / 60);
-  if (hours < 24) return `Saved ${hours}h ago`;
-  return "Saved a while ago";
-}
-
 type Step = "write" | "preview";
+
+interface SubmitDraft {
+  rawText: string;
+  template: string;
+  hashtagsStr: string;
+}
 
 interface DuplicateResult {
   isDuplicate: boolean;
@@ -72,8 +67,6 @@ export default function SubmitFact() {
 
   const [hashtagsStr, setHashtagsStr] = useState("");
   const [captchaToken, setCaptchaToken] = useState("");
-  const [draftSavedAt, setDraftSavedAt] = useState<number | null>(null);
-  const [draftSavedLabel, setDraftSavedLabel] = useState<string>("");
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   const [error, setError] = useState("");
@@ -90,65 +83,39 @@ export default function SubmitFact() {
       .catch(() => {});
   }, []);
 
-  useEffect(() => {
-    try {
-      const saved = localStorage.getItem(DRAFT_STORAGE_KEY);
-      if (saved) {
-        const draft = JSON.parse(saved) as { rawText?: string; template?: string; hashtagsStr?: string; savedAt?: number };
-        const isStale = draft.savedAt ? Date.now() - draft.savedAt > 24 * 60 * 60 * 1000 : false;
-        let restored = false;
-        if (!isStale) {
-          if (draft.rawText) { setRawText(draft.rawText); restored = true; }
-          if (draft.template) { setTemplate(draft.template); setStep("preview"); restored = true; }
-          if (draft.hashtagsStr) { setHashtagsStr(draft.hashtagsStr); restored = true; }
-        }
-        localStorage.removeItem(DRAFT_STORAGE_KEY);
-        if (restored) {
-          toast({
-            title: "Draft restored",
-            description: "Your saved draft has been loaded — pick up right where you left off.",
-            duration: 4000,
-          });
-        }
-      }
-    } catch { /* ignore */ }
-  }, [toast]);
-
   const dupTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  useEffect(() => {
-    if (submitted) {
-      if (saveTimer.current) clearTimeout(saveTimer.current);
-      return;
-    }
-    if (saveTimer.current) clearTimeout(saveTimer.current);
-    saveTimer.current = setTimeout(() => {
-      try {
-        if (rawText || template || hashtagsStr) {
-          const now = Date.now();
-          localStorage.setItem(
-            DRAFT_STORAGE_KEY,
-            JSON.stringify({ rawText, template, hashtagsStr, savedAt: now }),
-          );
-          setDraftSavedAt(now);
-        } else {
-          localStorage.removeItem(DRAFT_STORAGE_KEY);
-          setDraftSavedAt(null);
-        }
-      } catch { /* ignore */ }
-    }, 500);
-    return () => { if (saveTimer.current) clearTimeout(saveTimer.current); };
-  }, [rawText, template, hashtagsStr, submitted]);
+  // Draft autosave to localStorage — survives leaving the page (24h TTL).
+  const draftAdapter = useMemo(
+    () =>
+      createLocalStorageAdapter<SubmitDraft>({
+        key: "submit_fact_draft",
+        isValid: (v): v is SubmitDraft =>
+          !!v &&
+          typeof v === "object" &&
+          typeof (v as SubmitDraft).rawText === "string" &&
+          typeof (v as SubmitDraft).template === "string" &&
+          typeof (v as SubmitDraft).hashtagsStr === "string",
+      }),
+    [],
+  );
 
-  useEffect(() => {
-    if (draftSavedAt === null) { setDraftSavedLabel(""); return; }
-    setDraftSavedLabel(getRelativeTime(draftSavedAt));
-    const interval = setInterval(() => {
-      setDraftSavedLabel(getRelativeTime(draftSavedAt));
-    }, 30_000);
-    return () => clearInterval(interval);
-  }, [draftSavedAt]);
+  const draft = useFormDraft<SubmitDraft>({
+    value: { rawText, template, hashtagsStr },
+    adapter: draftAdapter,
+    enabled: !submitted,
+    isEmpty: (d) => !d.rawText && !d.template && !d.hashtagsStr,
+    onRestore: (d) => {
+      if (d.rawText) setRawText(d.rawText);
+      if (d.template) { setTemplate(d.template); setStep("preview"); }
+      if (d.hashtagsStr) setHashtagsStr(d.hashtagsStr);
+      toast({
+        title: "Draft restored",
+        description: "Your saved draft has been loaded — pick up right where you left off.",
+        duration: 4000,
+      });
+    },
+  });
 
   useEffect(() => {
     if (!template) { setTemplateGrammarError(null); return; }
@@ -252,7 +219,7 @@ export default function SubmitFact() {
         body: JSON.stringify(body),
       });
       if (r.ok) {
-        try { localStorage.removeItem(DRAFT_STORAGE_KEY); } catch { /* ignore */ }
+        draft.clear();
         setSubmitted(true);
         window.scrollTo({ top: 0, behavior: "smooth" });
       } else {
@@ -275,7 +242,7 @@ export default function SubmitFact() {
   };
 
   const handleStartOver = () => {
-    try { localStorage.removeItem(DRAFT_STORAGE_KEY); } catch { /* ignore */ }
+    draft.clear();
     setRawText("");
     setTemplate("");
     setHashtagsStr("");
@@ -284,7 +251,6 @@ export default function SubmitFact() {
     setTokenizeError("");
     setError("");
     setOnboardingRequired(false);
-    setDraftSavedAt(null);
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
@@ -332,7 +298,7 @@ export default function SubmitFact() {
           )}
           <div className="flex gap-4 justify-center">
             <Button size="lg" onClick={() => {
-              try { localStorage.removeItem(DRAFT_STORAGE_KEY); } catch { /* ignore */ }
+              draft.clear();
               setRawText(""); setTemplate(""); setSubmitted(false);
               setDuplicate(null); setHashtagsStr(""); setStep("write");
               setOnboardingRequired(false); setError("");
@@ -461,10 +427,10 @@ export default function SubmitFact() {
                   }`}
                   disabled={!captchaToken && !isCaptchaVerified}
                 />
-                {draftSavedAt !== null && (
+                {draft.savedAt !== null && (
                   <p className="mt-2 text-xs text-muted-foreground/60 flex items-center gap-1.5 animate-in fade-in duration-300">
                     <CheckCircle2 className="w-3 h-3 shrink-0" />
-                    {draftSavedLabel}
+                    {draft.savedLabel}
                   </p>
                 )}
               </div>
@@ -646,13 +612,11 @@ export default function SubmitFact() {
                     <button
                       type="button"
                       onClick={() => {
-                        try {
-                          localStorage.setItem(
-                            DRAFT_STORAGE_KEY,
-                            JSON.stringify({ rawText, template, hashtagsStr, savedAt: Date.now() }),
-                          );
-                        } catch { /* ignore */ }
-                        setLocation("/onboard?returnTo=/submit");
+                        // Flush the latest draft before navigating; restore (which
+                        // no longer clears) brings it back when the user returns.
+                        void draft.saveNow().finally(() => {
+                          setLocation("/onboard?returnTo=/submit");
+                        });
                       }}
                       className="inline-flex items-center gap-1.5 text-sm font-bold text-amber-600 dark:text-amber-400 underline hover:opacity-80"
                     >
