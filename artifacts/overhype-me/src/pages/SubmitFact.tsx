@@ -229,9 +229,9 @@ export default function SubmitFact() {
         text: template,
         hashtags: getTags(),
       };
-      if (duplicate?.matchingFactId) {
-        body.matchingFactId = duplicate.matchingFactId;
-        body.matchingSimilarity = duplicate.confidence;
+      if (duplicate) {
+        if (duplicate.matchingFactId) body.matchingFactId = duplicate.matchingFactId;
+        if (duplicate.confidence > 0) body.matchingSimilarity = duplicate.confidence;
         body.isDuplicate = duplicate.isDuplicate;
       }
       const r = await fetch("/api/facts/submit-review", {
