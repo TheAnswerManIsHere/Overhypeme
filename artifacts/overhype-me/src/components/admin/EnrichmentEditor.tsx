@@ -777,9 +777,9 @@ export function EnrichmentEditor({
         previewBusy={previewBusy}
       />
 
-      {!validity.ok && (
+      {!validity.ok && validity.error.split("; ").filter((err) => !err.startsWith("suggestedHashtags:")).length > 0 && (
         <p className="text-xs text-destructive flex items-center gap-1.5">
-          <AlertTriangle className="w-3.5 h-3.5 shrink-0" /> {validity.error}
+          <AlertTriangle className="w-3.5 h-3.5 shrink-0" /> {validity.error.split("; ").filter((err) => !err.startsWith("suggestedHashtags:")).join("; ")}
         </p>
       )}
 
