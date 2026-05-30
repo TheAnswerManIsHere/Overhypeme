@@ -270,6 +270,9 @@ describe("visual prompt strategy map — helpers", () => {
 
   it("VISUAL_STRATEGY_VERSION is a non-empty string", () => {
     assert.ok(VISUAL_STRATEGY_VERSION.length > 0);
-    assert.equal(VISUAL_STRATEGY_VERSION, "v1");
+    // Phase 2 bumped to v2: added non-human i2i + t2i fallback +
+    // anthropomorphic treatment policy to VISUAL_PROMPT_GLOBAL_RULES.
+    // Per-archetype strategy entries unchanged from v1.
+    assert.equal(VISUAL_STRATEGY_VERSION, "v2");
   });
 });
