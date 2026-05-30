@@ -277,8 +277,8 @@ describe("authMiddleware (fresh user row on every request)", () => {
     const userId = await createTestUser({ tier: "legendary" });
     const sid = await createSessionFor(userId);
 
-    {
-      const req = makeReq({ bearer: sid });
+      {
+      const req = makeReq({ cookieSid: sid });
       const res = makeRes();
       const next = makeNext();
       await authMiddleware(req, res as unknown as Response, next.fn);
@@ -294,7 +294,7 @@ describe("authMiddleware (fresh user row on every request)", () => {
       .where(eq(usersTable.id, userId));
 
     {
-      const req = makeReq({ bearer: sid });
+      const req = makeReq({ cookieSid: sid });
       const res = makeRes();
       const next = makeNext();
       await authMiddleware(req, res as unknown as Response, next.fn);
