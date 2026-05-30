@@ -32,7 +32,7 @@ function getRelativeTime(savedAt: number): string {
   return "Saved a while ago";
 }
 
-type Step = "write" | "preview" | "submit";
+type Step = "write" | "preview";
 
 interface DuplicateResult {
   isDuplicate: boolean;
@@ -88,7 +88,7 @@ export default function SubmitFact() {
         let restored = false;
         if (!isStale) {
           if (draft.rawText) { setRawText(draft.rawText); restored = true; }
-          if (draft.template) { setTemplate(draft.template); setStep("submit"); restored = true; }
+          if (draft.template) { setTemplate(draft.template); setStep("preview"); restored = true; }
           if (draft.hashtagsStr) { setHashtagsStr(draft.hashtagsStr); restored = true; }
         }
         localStorage.removeItem(DRAFT_STORAGE_KEY);
@@ -339,8 +339,7 @@ export default function SubmitFact() {
 
   const steps: { id: Step; label: string }[] = [
     { id: "write",   label: "Write" },
-    { id: "preview", label: "Preview" },
-    { id: "submit",  label: "Submit" },
+    { id: "preview", label: "Preview & Submit" },
   ];
   const stepIndex = steps.findIndex((s) => s.id === step);
 
@@ -480,8 +479,9 @@ export default function SubmitFact() {
             </div>
           )}
 
-          {/* ── STEP 2: PREVIEW ───────────────────────────────────────────────── */}
+          {/* ── STEP 2: PREVIEW & SUBMIT ──────────────────────────────────────── */}
           {step === "preview" && (
+            <form onSubmit={(e) => void handleFinalSubmit(e)}>
             <div className="p-6 md:p-10 space-y-8">
 
               {/* Intro */}
@@ -608,152 +608,98 @@ export default function SubmitFact() {
                 )}
               </div>
 
+              {/* Hashtags */}
+              <div>
+                <label className="block text-xl font-bold text-foreground mb-1">
+                  Hashtags
+                </label>
+                <p className="text-muted-foreground mb-4">
+                  Add tags to help people find your fact — comma-separated, optional.
+                </p>
+                <Input
+                  value={hashtagsStr}
+                  onChange={(e) => handleHashtagsChange(e.target.value)}
+                  placeholder="e.g. strength, legendary, coffee"
+                  className="text-base"
+                />
+              </div>
+
+              {onboardingRequired && (
+                <div className="p-5 bg-amber-500/10 border border-amber-500/30 rounded-lg flex items-start gap-4">
+                  <ShieldAlert className="w-6 h-6 text-amber-500 shrink-0 mt-0.5" />
+                  <div>
+                    <p className="font-bold text-foreground mb-1">Onboarding required</p>
+                    <p className="text-muted-foreground text-sm mb-3">
+                      You need to complete a quick one-time setup before submitting facts.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        try {
+                          localStorage.setItem(
+                            DRAFT_STORAGE_KEY,
+                            JSON.stringify({ rawText, template, hashtagsStr, savedAt: Date.now() }),
+                          );
+                        } catch { /* ignore */ }
+                        setLocation("/onboard?returnTo=/submit");
+                      }}
+                      className="inline-flex items-center gap-1.5 text-sm font-bold text-amber-600 dark:text-amber-400 underline hover:opacity-80"
+                    >
+                      Complete onboarding <ChevronRight className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {error && (
+                <div className="p-4 bg-destructive/10 border border-destructive/30 text-destructive flex items-center gap-3 rounded-lg">
+                  <AlertTriangle className="w-5 h-5 shrink-0" />
+                  <span className="font-semibold">{error}</span>
+                </div>
+              )}
+
               <div className="flex gap-3">
                 <Button
+                  type="button"
                   variant="outline"
                   size="lg"
                   className="flex-1"
-                  onClick={() => { setStep("write"); setTokenizeError(""); setDuplicate(null); }}
+                  onClick={() => { setStep("write"); setTokenizeError(""); setDuplicate(null); setOnboardingRequired(false); setError(""); }}
                 >
                   <ChevronLeft className="w-4 h-4 mr-1" /> Edit
                 </Button>
                 <Button
+                  type="submit"
                   size="lg"
                   className="flex-1 text-lg font-bold"
-                  disabled={!template.trim() || !!templateGrammarError}
-                  onClick={() => { setStep("submit"); window.scrollTo({ top: 0, behavior: "smooth" }); }}
+                  disabled={!template.trim() || !!templateGrammarError || submitting}
                 >
-                  Looks Correct <ChevronRight className="w-4 h-4 ml-1" />
+                  {submitting
+                    ? <><Loader2 className="w-5 h-5 animate-spin mr-2" /> Submitting…</>
+                    : <><CheckCircle2 className="w-5 h-5 mr-2" /> Looks Great — Submit</>
+                  }
                 </Button>
               </div>
-            </div>
-          )}
 
-          {/* ── STEP 3: SUBMIT ────────────────────────────────────────────────── */}
-          {step === "submit" && (
-            <form onSubmit={(e) => void handleFinalSubmit(e)}>
-              <div className="p-6 md:p-10 space-y-8">
-
-                <div>
-                  <h2 className="text-2xl font-bold text-foreground mb-2">You're all set — confirm and submit</h2>
-                  <p className="text-muted-foreground text-lg">
-                    Here's how your fact will appear for each set of pronouns. Check that everything reads naturally.
-                  </p>
-                </div>
-
-                {/* Approved previews with checkmarks */}
-                <div className="space-y-3">
-                  {PRONOUN_PREVIEWS.map((p) => (
-                    <div key={p.label} className="flex items-start gap-4 rounded-lg border border-green-500/30 bg-green-500/5 p-5">
-                      <CheckCircle2 className="w-6 h-6 text-green-500 shrink-0 mt-0.5" />
-                      <div className="min-w-0">
-                        <div className="flex items-center gap-2 mb-2">
-                          <span className="text-xs font-bold text-green-600 dark:text-green-400 uppercase tracking-wider">
-                            {p.label}
-                          </span>
-                          <span className="text-xs text-muted-foreground">{p.name}</span>
-                        </div>
-                        <p className="text-lg font-medium text-foreground leading-snug">
-                          "{renderFact(template, p.name, p.label)}"
-                        </p>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-
-                {/* Hashtags */}
-                <div>
-                  <label className="block text-xl font-bold text-foreground mb-1">
-                    Hashtags
-                  </label>
-                  <p className="text-muted-foreground mb-4">
-                    Add tags to help people find your fact — comma-separated, optional.
-                  </p>
-
-                  <Input
-                    value={hashtagsStr}
-                    onChange={(e) => handleHashtagsChange(e.target.value)}
-                    placeholder="e.g. strength, legendary, coffee"
-                    className="text-base"
-                  />
-                </div>
-
-                {onboardingRequired && (
-                  <div className="p-5 bg-amber-500/10 border border-amber-500/30 rounded-lg flex items-start gap-4">
-                    <ShieldAlert className="w-6 h-6 text-amber-500 shrink-0 mt-0.5" />
-                    <div>
-                      <p className="font-bold text-foreground mb-1">Onboarding required</p>
-                      <p className="text-muted-foreground text-sm mb-3">
-                        You need to complete a quick one-time setup before submitting facts.
-                      </p>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          try {
-                            localStorage.setItem(
-                              DRAFT_STORAGE_KEY,
-                              JSON.stringify({ rawText, template, hashtagsStr, savedAt: Date.now() }),
-                            );
-                          } catch { /* ignore */ }
-                          setLocation("/onboard?returnTo=/submit");
-                        }}
-                        className="inline-flex items-center gap-1.5 text-sm font-bold text-amber-600 dark:text-amber-400 underline hover:opacity-80"
-                      >
-                        Complete onboarding <ChevronRight className="w-4 h-4" />
-                      </button>
-                    </div>
-                  </div>
-                )}
-
-                {error && (
-                  <div className="p-4 bg-destructive/10 border border-destructive/30 text-destructive flex items-center gap-3 rounded-lg">
-                    <AlertTriangle className="w-5 h-5 shrink-0" />
-                    <span className="font-semibold">{error}</span>
-                  </div>
-                )}
-
-                <div className="flex gap-3">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="lg"
-                    className="flex-1"
-                    onClick={() => { setStep("preview"); setOnboardingRequired(false); setError(""); }}
-                  >
-                    <ChevronLeft className="w-4 h-4 mr-1" /> Back
-                  </Button>
-                  <Button
-                    type="submit"
-                    size="lg"
-                    className="flex-1 text-lg font-bold"
-                    disabled={submitting || !!templateGrammarError}
-                  >
-                    {submitting
-                      ? <><Loader2 className="w-5 h-5 animate-spin mr-2" /> Submitting…</>
-                      : "Submit for Review"
-                    }
-                  </Button>
-                </div>
-
-                {/* Moderation notice — at the bottom */}
-                <div className="pt-4 border-t border-border">
-                  <p className="text-sm text-muted-foreground text-center">
-                    All submissions go through a quick review before going live.
-                    You'll be notified in your{" "}
-                    <Link href="/activity" className="text-primary underline hover:opacity-80">
-                      activity feed
-                    </Link>{" "}
-                    once it's approved or declined.
-                    {duplicate?.isDuplicate && (
-                      <span className="block mt-2 text-amber-600 dark:text-amber-400">
-                        <GitBranch className="w-3.5 h-3.5 inline mr-1" />
-                        Flagged as similar to an existing fact ({duplicate.confidence}% match) — the moderator will decide.
-                      </span>
-                    )}
-                  </p>
-                </div>
-
+              {/* Moderation notice */}
+              <div className="pt-4 border-t border-border">
+                <p className="text-sm text-muted-foreground text-center">
+                  All submissions go through a quick review before going live.
+                  You'll be notified in your{" "}
+                  <Link href="/activity" className="text-primary underline hover:opacity-80">
+                    activity feed
+                  </Link>{" "}
+                  once it's approved or declined.
+                  {duplicate?.isDuplicate && (
+                    <span className="block mt-2 text-amber-600 dark:text-amber-400">
+                      <GitBranch className="w-3.5 h-3.5 inline mr-1" />
+                      Flagged as similar to an existing fact ({duplicate.confidence}% match) — the moderator will decide.
+                    </span>
+                  )}
+                </p>
               </div>
+
+            </div>
             </form>
           )}
         </div>
