@@ -79,7 +79,7 @@ function Warnings({ e }: { e: FactEnrichment }) {
     // Generic-vs-reference: if cultural refs exist, at least one of them should
     // surface in the preview's culturalReferencesUsed OR in the scene text.
     if (e.culturalReferences.length > 0) {
-      const referenceMentions = new Set(preview.culturalReferencesUsed.map((s) => s.toLowerCase()));
+      const referenceMentions = new Set((preview.culturalReferencesUsed ?? []).map((s) => s.toLowerCase()));
       const sceneText = `${preview.sceneConcept} ${preview.archetypeApplication} ${preview.visualApproach}`.toLowerCase();
       const anyMatched = e.culturalReferences.some((r) =>
         referenceMentions.has(r.sourcePhrase.toLowerCase()) ||
@@ -358,7 +358,7 @@ function VisualPreviewPanel({
       <div>
         <label className={LABEL_CLASS}>Key visual elements (one per line)</label>
         <textarea className={`${SELECT_CLASS} resize-none`} rows={3}
-          value={p.keyVisualElements.join("\n")}
+          value={(p.keyVisualElements ?? []).join("\n")}
           onChange={(ev) => update({ keyVisualElements: linesOf(ev.target.value) })}
         />
       </div>
@@ -400,7 +400,7 @@ function VisualPreviewPanel({
         <div>
           <label className={LABEL_CLASS}>Supporting text — allowed (one per line)</label>
           <textarea className={`${SELECT_CLASS} resize-none`} rows={3}
-            value={p.supportingTextPolicy.allowed.join("\n")}
+            value={(p.supportingTextPolicy?.allowed ?? []).join("\n")}
             onChange={(ev) =>
               update({ supportingTextPolicy: { ...p.supportingTextPolicy, allowed: linesOf(ev.target.value) } })
             }
@@ -409,7 +409,7 @@ function VisualPreviewPanel({
         <div>
           <label className={LABEL_CLASS}>Supporting text — forbidden (one per line)</label>
           <textarea className={`${SELECT_CLASS} resize-none`} rows={3}
-            value={p.supportingTextPolicy.forbidden.join("\n")}
+            value={(p.supportingTextPolicy?.forbidden ?? []).join("\n")}
             onChange={(ev) =>
               update({ supportingTextPolicy: { ...p.supportingTextPolicy, forbidden: linesOf(ev.target.value) } })
             }
@@ -420,7 +420,7 @@ function VisualPreviewPanel({
       <div>
         <label className={LABEL_CLASS}>Cultural references used (sourcePhrases, one per line)</label>
         <textarea className={`${SELECT_CLASS} resize-none`} rows={2}
-          value={p.culturalReferencesUsed.join("\n")}
+          value={(p.culturalReferencesUsed ?? []).join("\n")}
           onChange={(ev) => update({ culturalReferencesUsed: linesOf(ev.target.value) })}
         />
       </div>
@@ -428,7 +428,7 @@ function VisualPreviewPanel({
       <div>
         <label className={LABEL_CLASS}>Interpretation warnings (one per line)</label>
         <textarea className={`${SELECT_CLASS} resize-none`} rows={2}
-          value={p.interpretationWarnings.join("\n")}
+          value={(p.interpretationWarnings ?? []).join("\n")}
           onChange={(ev) => update({ interpretationWarnings: linesOf(ev.target.value) })}
         />
       </div>
@@ -489,13 +489,13 @@ export function EnrichmentSummary({ e }: { e: FactEnrichment }) {
           <div key={k}><span className="text-muted-foreground">{k}: </span><span className="text-foreground font-medium">{v}</span></div>
         ))}
       </div>
-      {e.modifiers.length > 0 && (
+      {(e.modifiers ?? []).length > 0 && (
         <p className="text-xs text-muted-foreground">Modifiers: <span className="text-foreground">{e.modifiers.join(", ")}</span></p>
       )}
-      {e.suggestedHashtags.length > 0 && (
+      {(e.suggestedHashtags ?? []).length > 0 && (
         <p className="text-xs text-muted-foreground">Hashtags: <span className="text-foreground">{e.suggestedHashtags.join(", ")}</span></p>
       )}
-      {e.culturalReferences.length > 0 && (
+      {(e.culturalReferences ?? []).length > 0 && (
         <div className="border-t border-border pt-2 mt-2 space-y-1">
           <p className="text-xs font-bold text-muted-foreground uppercase tracking-wide">Cultural references</p>
           {e.culturalReferences.map((r, i) => (
