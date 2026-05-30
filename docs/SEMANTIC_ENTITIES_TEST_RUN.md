@@ -27,17 +27,16 @@ UAT for David: [`SEMANTIC_ENTITIES_UAT.md`](./SEMANTIC_ENTITIES_UAT.md).
 
 ## TL;DR
 
+Run, against your own database connection:
+
 ```bash
-export DATABASE_URL="postgres://overhype:overhype@localhost:5432/overhype_test"
 pnpm --filter @workspace/db migrate          # no new migrations in this PR
 pnpm -w typecheck                            # all clean
-cd artifacts/api-server
-DATABASE_URL=$DATABASE_URL TEST_DB_ALLOW_EXIT_ON_IDLE=1 BCRYPT_SALT_ROUNDS=4 \
-  node --import tsx/esm --test \
-    src/__tests__/imagePromptGeneration.validate.test.ts \
-    src/__tests__/factEnrichment.test.ts \
-    src/__tests__/visualPromptStrategies.test.ts \
-    src/__tests__/asyncJobs.test.ts
+node --import tsx/esm --test \
+  artifacts/api-server/src/__tests__/imagePromptGeneration.validate.test.ts \
+  artifacts/api-server/src/__tests__/factEnrichment.test.ts \
+  artifacts/api-server/src/__tests__/visualPromptStrategies.test.ts \
+  artifacts/api-server/src/__tests__/asyncJobs.test.ts
 # Expected: 72/72 pass (25 validator + 25 enrichment + 11 strategy + 11 asyncJobs).
 ```
 
