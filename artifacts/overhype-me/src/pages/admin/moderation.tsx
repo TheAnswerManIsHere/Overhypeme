@@ -152,6 +152,12 @@ function ReviewModal({
   const dirtyRef = useRef(false);
   const [dirty, setDirty] = useState(false);
   const [previewPolls, setPreviewPolls] = useState(0);
+  // Tracks the latest enrichment.previewStatus from the server so the preview
+  // polling interval (which has a stale closure over React state) can detect
+  // when the job has landed without relying on a fixed tick count.
+  const latestPreviewStatusRef = useRef<string | null | undefined>(
+    review.enrichment?.previewStatus,
+  );
 
   // Pull the latest stored enrichment from the server (async job writes it
   // out-of-band). Returns the fresh enrichmentStatus, or null when skipped/failed.
@@ -162,6 +168,7 @@ function ReviewModal({
       if (!r.ok || dirtyRef.current) return null;
       const fresh = await r.json() as Review;
       if (dirtyRef.current) return null;
+      latestPreviewStatusRef.current = fresh.enrichment?.previewStatus;
       setEnrichment(fresh.enrichment);
       setEnrichmentStatus(fresh.enrichmentStatus);
       return fresh.enrichmentStatus;
@@ -237,18 +244,24 @@ function ReviewModal({
     return () => { cancelled = true; clearInterval(id); };
   }, [enrichmentStatus, syncFromServer]);
 
-  // Preview regeneration runs as a separate async job; poll briefly so the
-  // result shows up. Clear previewBusy when polling ends.
+  // Preview regeneration runs as a separate async job. Poll until the job
+  // lands (previewStatus leaves "pending") or a 100s hard timeout expires,
+  // matching the condition-based pattern used for enrichment-status polling.
   useEffect(() => {
     if (previewPolls === 0) return;
     setPreviewBusy(true);
+    // Reset so the fresh "pending" written by the POST is detected as a change.
+    latestPreviewStatusRef.current = "pending";
     let cancelled = false;
     let ticks = 0;
+    const MAX_TICKS = 40; // 40 × 2500ms = 100s hard timeout
     const id = setInterval(async () => {
       ticks += 1;
       await syncFromServer();
       if (cancelled) return;
-      if (ticks >= 6) {
+      const done =
+        latestPreviewStatusRef.current !== "pending" || ticks >= MAX_TICKS;
+      if (done) {
         clearInterval(id);
         setPreviewBusy(false);
       }
