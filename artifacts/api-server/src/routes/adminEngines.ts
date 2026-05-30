@@ -585,16 +585,29 @@ const TEST_IMAGE_PROMPT =
  * image (`referenceImageUrl`/`imageUrl`) — if it does it's image-to-image,
  * otherwise text-to-image (prompt only).
  */
-export type EngineBenchType = "text-to-image" | "image-to-image" | "video" | "utility";
+export type EngineBenchType =
+  | "text-to-image"
+  | "image-to-image"
+  | "video"
+  | "utility"
+  | "image-classifier";
 
 export function engineBenchType(engine: {
   kind: string;
   paramSchema?: unknown;
 }): EngineBenchType {
   if (engine.kind === "video") return "video";
-  if (engine.kind === "utility") return "utility";
   const params =
-    (engine.paramSchema as { params?: Array<{ from?: string }> } | null | undefined)?.params ?? [];
+    (engine.paramSchema as { params?: Array<{ from?: string; name?: string }> } | null | undefined)?.params ?? [];
+  if (engine.kind === "utility") {
+    // Detector / classifier utilities: utility engines whose paramSchema
+    // takes an `imageUrl` input but no `prompt` text. They sit next to the
+    // image/video benches in /admin/engines for IO testing.
+    const hasImageInput = params.some((p) => p.from === "imageUrl" || p.from === "referenceImageUrl");
+    const hasPromptInput = params.some((p) => p.from === "imagePrompt" || p.from === "prompt" || p.name === "prompt");
+    if (hasImageInput && !hasPromptInput) return "image-classifier";
+    return "utility";
+  }
   const needsSourceImage = params.some(
     (p) => p.from === "referenceImageUrl" || p.from === "imageUrl",
   );

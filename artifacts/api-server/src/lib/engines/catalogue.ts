@@ -21,6 +21,7 @@ import { FLUX_2_PRO } from "./flux-2-pro";
 import { GPT_IMAGE_2 } from "./gpt-image-2";
 import { GPT_IMAGE_2_EDIT } from "./gpt-image-2-edit";
 import { FAL_AUTO_SUBTITLE } from "./fal-auto-subtitle";
+import { FAL_YOLO_WORLD } from "./fal-yolo-world";
 import { OPENAI_GENERAL } from "./openai-general";
 
 /**
@@ -45,5 +46,6 @@ export const ALL_ENGINES: EngineDefinition[] = [
   GPT_IMAGE_2,
   GPT_IMAGE_2_EDIT,
   FAL_AUTO_SUBTITLE,
+  FAL_YOLO_WORLD,
   OPENAI_GENERAL,
 ];

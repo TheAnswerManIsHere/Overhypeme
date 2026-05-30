@@ -117,6 +117,16 @@ export const uploadImageMetadataTable = pgTable("upload_image_metadata", {
   factId: integer("fact_id"),
   /** For derivatives: stable hash of (model, params, prompt). Used as dedup key. */
   transformParamsHash: varchar("transform_params_hash", { length: 64 }),
+  /**
+   * Phase 2 — cached SourceImageAnalysis blob. Keyed by `arachnidSha256Hex`
+   * (the natural per-byte hash already populated by the moderation scan).
+   * Populated lazily by `analyzeSourceImage` on first call; invalidated
+   * implicitly when `sourceImageAnalysisVersion` no longer matches
+   * `SOURCE_IMAGE_ANALYZER_VERSION` from `@workspace/api-zod`.
+   */
+  sourceImageAnalysis: jsonb("source_image_analysis"),
+  /** Analyzer version that produced `sourceImageAnalysis`. NULL when unanalyzed. */
+  sourceImageAnalysisVersion: varchar("source_image_analysis_version", { length: 16 }),
 }, (t) => [
   index("IDX_uim_user_id").on(t.userId),
   index("IDX_uim_arachnid_sha256").on(t.arachnidSha256Hex),

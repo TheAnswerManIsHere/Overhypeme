@@ -218,7 +218,7 @@ router.get("/admin/reviews/:id", requireAdmin, async (req: Request, res: Respons
 const ReviewDecisionBody = z.object({ adminNote: z.string().max(500).optional() });
 const RejectBody = z.object({
   adminNote: z.string().max(500).optional(),
-  rejectionReason: z.enum(["duplicate", "spam", "offensive", "lame"]).optional(),
+  rejectionReason: z.enum(["duplicate", "spam", "offensive", "lame"]),
 });
 const ApproveVariantBody = z.object({
   parentFactId: z.number().int().positive(),

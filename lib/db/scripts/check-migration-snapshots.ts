@@ -127,6 +127,19 @@ const SNAPSHOT_EXEMPT_TAGS = new Set<string>([
   // facts.subtype + facts.enrichment->>'subtype' +
   // pending_reviews.enrichment->>'subtype'. Pure DML.
   "0064_subtype_name_normalization",
+
+  // Phase 2: image_prompt_attempts table + indexes for per-attempt prompt
+  // generation metadata. Hand-authored DDL — drizzle-kit's snapshot regen
+  // currently fails on the upstream 0063 snapshot (malformed under the
+  // pinned drizzle-kit version), so the snapshot is intentionally absent
+  // for these two migrations. The drizzle TS schema in
+  // `lib/db/src/schema/imagePromptAttempts.ts` is the source of truth.
+  "0065_image_prompt_attempts",
+
+  // Phase 2: adds source_image_analysis JSONB + source_image_analysis_version
+  // VARCHAR(16) to upload_image_metadata as the analyzer cache. Hand-authored
+  // DDL — see 0065 comment for snapshot rationale.
+  "0066_upload_image_metadata_source_analysis",
 ]);
 
 interface JournalEntry {

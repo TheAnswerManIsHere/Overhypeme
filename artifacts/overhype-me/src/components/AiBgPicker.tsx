@@ -6,6 +6,7 @@ import {
   useRef,
 } from "react";
 import { Sparkles, Loader2, Upload, X, RefreshCw, AlertTriangle } from "lucide-react";
+import { SourceImageConfirmModal } from "@/components/SourceImageConfirmModal";
 import { AccessGate } from "@/components/AccessGate";
 import { Link } from "wouter";
 import { ImageCard } from "@/components/ui/ImageCard";
@@ -182,12 +183,16 @@ export function AiBgPicker({
   const aiModelStandard = "fal-ai/flux-pro/v1.1";
   const aiModelReference = "fal-ai/flux-pulid";
 
+  // Phase 2 rollout flag — read from public admin config.
+  const [enableImagePromptV2, setEnableImagePromptV2] = useState(false);
+
   useEffect(() => {
     fetch("/api/config")
       .then(r => r.json())
       .then((cfg: Record<string, number | string | boolean>) => {
         const limit = cfg["ai_gallery_display_limit"];
         if (typeof limit === "number" && limit > 0) setAiGalleryDisplayLimit(limit);
+        if (cfg["enable_image_prompt_v2"] === true) setEnableImagePromptV2(true);
       })
       .catch(() => {});
   }, []);
@@ -456,11 +461,24 @@ export function AiBgPicker({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [aiSubMode, selectedRefGenPath]);
 
+  // ── Phase 2 confirm-modal state ─────────────────────────────────────────────
+  const [showV2ConfirmModal, setShowV2ConfirmModal] = useState(false);
+
   // ── Generate new AI images ──────────────────────────────────────────────────
   const handleGenerate = async () => {
     if (isGenerating) return;
     if (aiSubMode === "reference" && !selectedRefUpload) {
       setAiGenerateError("Select a reference photo below before generating.");
+      return;
+    }
+
+    // Phase 2: when enabled AND we have a reference upload, route through the
+    // pre-generate confirmation modal so the user can see what the analyzer
+    // found and pick the subject-render mode (human i2i / non-human i2i / t2i).
+    // Legacy path still handles the no-reference case + the flag-off case.
+    if (enableImagePromptV2 && aiSubMode === "reference" && selectedRefUpload) {
+      setAiGenerateError(null);
+      setShowV2ConfirmModal(true);
       return;
     }
 
@@ -1086,6 +1104,44 @@ export function AiBgPicker({
             Generating… {generationElapsed}s — thumbnails will refresh automatically.
           </p>
         </div>
+      )}
+
+      {/* Phase 2 pre-generate confirmation modal — opens when the rollout flag
+          is on and the user clicks Generate with a reference image. The modal
+          handles the analyze/generate-v2/poll lifecycle internally; on
+          completion we re-fetch the user's reference-generated images so the
+          gallery picks up the new render. */}
+      {enableImagePromptV2 && (
+        <SourceImageConfirmModal
+          open={showV2ConfirmModal}
+          factId={factId}
+          uploadedObjectPath={selectedRefUpload?.objectPath ?? null}
+          lookStyleId={selectedStyleId}
+          aspectRatio="portrait"
+          onComplete={async () => {
+            setShowV2ConfirmModal(false);
+            try {
+              const images = await fetchRefGenImages();
+              if (images) {
+                setRefGenImages(images);
+                const newest = images[0];
+                if (newest) setSelectedRefGenPath(newest.storagePath);
+              }
+            } catch { /* the user can manually refresh */ }
+            setAiCacheBuster(Date.now());
+            setAiGenState("completed");
+          }}
+          onCancel={() => {
+            setShowV2ConfirmModal(false);
+            setAiGenState("idle");
+          }}
+          onUploadDifferent={() => {
+            setShowV2ConfirmModal(false);
+            setAiGenState("idle");
+            setShowAddForm(true);
+            setSelectedRefUpload(null);
+          }}
+        />
       )}
     </div>
   );

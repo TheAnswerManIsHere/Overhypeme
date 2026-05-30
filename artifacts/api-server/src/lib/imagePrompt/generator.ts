@@ -1,0 +1,283 @@
+/**
+ * Render-time image-prompt generator (Phase 2).
+ *
+ * Calls OpenAI with strict Structured Outputs to produce:
+ *   - visualPlan (engine-neutral)
+ *   - compiledPrompt (Nano Banana 2)
+ *   - subjectFactCompatibility (inline)
+ *
+ * Mirrors `lib/promptStrategy/visualPreview.ts`: build user message, call
+ * model via `callUtilityLLM` + `zodResponseFormat(strictSchema)`, parse,
+ * run business validator with mode-aware rules, retry ONCE on validation
+ * failure with a corrective message, throw on second failure.
+ */
+
+import { zodResponseFormat } from "openai/helpers/zod";
+import {
+  imagePromptPlanWireSchema,
+  validateImagePromptPlan,
+  IMAGE_PROMPT_GENERATION_VERSION,
+  VISUAL_PROMPT_GLOBAL_RULES,
+  VISUAL_STRATEGY_VERSION,
+  getVisualPromptStrategy,
+  getSubtypeGuidance,
+  type ImagePromptGenerationInput,
+  type PlanExpectations,
+  type FactSubtype,
+} from "@workspace/api-zod";
+import { callUtilityLLM } from "../utilityLLM";
+import { getImagePromptSystem } from "../imagePromptConfig";
+import { logger } from "../logger";
+import { generationModeFromSubjectRenderMode } from "../sourceImageAnalysis";
+import type { ImagePromptGenerationOutput } from "./types";
+
+export const IMAGE_PROMPT_TEMPERATURE = 0.4;
+export const IMAGE_PROMPT_MAX_TOKENS = 2800;
+
+export class ImagePromptError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ImagePromptError";
+  }
+}
+
+type UserMessage = { role: "user"; content: string };
+
+// ─── User-message assembly ────────────────────────────────────────────────
+
+function expectationsFromInput(input: ImagePromptGenerationInput): PlanExpectations {
+  return {
+    archetype: input.enrichment.primaryArchetype,
+    subtype: input.enrichment.subtype as FactSubtype,
+    targetEngine: input.targetEngine,
+    subjectRenderMode: input.subjectRenderMode,
+    generationMode: generationModeFromSubjectRenderMode(input.subjectRenderMode),
+    preserveHumanFace: input.identityPolicy.preserveHumanFace,
+    preservePhysique: input.identityPolicy.preservePhysique,
+    factText: input.factText,
+    fallbackSubjectGender: input.renderControls.fallbackSubjectGender ?? null,
+  };
+}
+
+export function buildImagePromptUserMessage(input: ImagePromptGenerationInput): string {
+  const e = input.enrichment;
+  const strategy = getVisualPromptStrategy(e.primaryArchetype);
+  const subtypeGuide = getSubtypeGuidance(e.primaryArchetype, e.subtype as FactSubtype);
+
+  const culturalRefsBlock = e.culturalReferences.length
+    ? e.culturalReferences
+        .map(
+          (r, i) =>
+            `  ${i + 1}. sourcePhrase="${r.sourcePhrase}", referenceType=${r.referenceType}, canonical="${r.canonicalReference}", explanation="${r.explanation}", visualImplication="${r.visualImplication}", confidence=${r.confidence}, requiresAdminReview=${r.requiresAdminReview}`,
+        )
+        .join("\n")
+    : "  (no cultural references — render the joke from the literal text + taxonomy alone)";
+
+  const examplesBlock = strategy.visualizationExamples
+    .map((ex, i) => {
+      const refs = ex.culturalReferences?.length
+        ? `\n     example culturalReferences:\n${ex.culturalReferences.map((r) => `       - reference="${r.reference}", type=${r.type}, meaning="${r.meaning}", visualImplication="${r.visualImplication}"`).join("\n")}`
+        : "";
+      return `  ${i + 1}. fact: "${ex.fact}"
+     visualApproach: ${ex.visualApproach || "(authoring pending)"}
+     whyItWorks: ${ex.whyItWorks || "(authoring pending)"}
+     avoid: ${ex.avoid || "(authoring pending)"}${refs}`;
+    })
+    .join("\n");
+
+  // Per-mode global-rule excerpts.
+  const modeRuleExcerpt = (() => {
+    if (input.subjectRenderMode === "human_identity_i2i") {
+      const physique = input.identityPolicy.preservePhysique
+        ? VISUAL_PROMPT_GLOBAL_RULES.preservePhysiqueOverride
+        : "";
+      return [
+        "Identity rule (human i2i):",
+        VISUAL_PROMPT_GLOBAL_RULES.identityBaseline,
+        physique ? `\nPreserve-physique override:\n${physique}` : "",
+        `\nAge / life-stage policy:\n${VISUAL_PROMPT_GLOBAL_RULES.ageAndLifeStagePolicy}`,
+      ]
+        .filter(Boolean)
+        .join("\n");
+    }
+    if (input.subjectRenderMode === "nonhuman_subject_i2i") {
+      return [
+        "Identity rule (non-human i2i):",
+        VISUAL_PROMPT_GLOBAL_RULES.nonhumanSubjectIdentityPolicy,
+        `\nAnthropomorphic treatment policy:\n${VISUAL_PROMPT_GLOBAL_RULES.anthropomorphicTreatmentPolicy}`,
+        `\nAge / life-stage policy:\n${VISUAL_PROMPT_GLOBAL_RULES.ageAndLifeStagePolicy}`,
+      ].join("\n");
+    }
+    return [
+      "Identity rule (t2i fallback):",
+      VISUAL_PROMPT_GLOBAL_RULES.textToImageFallbackPolicy,
+    ].join("\n");
+  })();
+
+  const fallbackGender = input.renderControls.fallbackSubjectGender ?? null;
+
+  return [
+    "Generate the engine-neutral visualPlan + Nano Banana 2 compiledPrompt + subjectFactCompatibility for this render.",
+    "",
+    "RENDERED FACT TEXT (subject/pronouns already resolved):",
+    input.factText,
+    "",
+    "TAXONOMY (FIXED — DO NOT reclassify):",
+    `- primaryArchetype: ${e.primaryArchetype}`,
+    `- subtype: ${e.subtype}`,
+    `- modifiers: ${e.modifiers.join(", ") || "(none)"}`,
+    `- visualLiteralness: ${e.visualLiteralness}`,
+    `- visualComplexity: ${e.visualComplexity}`,
+    `- overhypeFit: ${e.overhypeFit}`,
+    `- adultSuitability: ${e.adultSuitability}`,
+    `- taxonomyConfidence: ${e.taxonomyConfidence}`,
+    "",
+    "AUTHORED VISUAL STRATEGY (apply this — do not improvise):",
+    `Strategy block: ${strategy.strategyBlock}`,
+    `Core visual goal: ${strategy.coreVisualGoal}`,
+    `i2i default: ${strategy.i2iDefault}`,
+    strategy.t2iFallback ? `t2i fallback: ${strategy.t2iFallback}` : "",
+    strategy.preservePhysique ? `Per-archetype preservePhysique: ${strategy.preservePhysique}` : "",
+    subtypeGuide ? `Subtype guidance for ${e.subtype}: ${subtypeGuide.principle}${subtypeGuide.useWhen ? ` (use when: ${subtypeGuide.useWhen})` : ""}` : "",
+    "",
+    "Visualization examples:",
+    examplesBlock,
+    "",
+    `Locked rule: ${strategy.lockedRule}`,
+    strategy.frameSelectionGuidance && strategy.frameSelectionGuidance.length
+      ? `Frames: ${strategy.frameSelectionGuidance.map((f) => `${f.frame} (${f.useWhen})`).join("; ")}`
+      : "",
+    "",
+    "PER-FACT CULTURAL REFERENCES (override example annotations for THIS fact):",
+    culturalRefsBlock,
+    "",
+    "SOURCE-IMAGE ANALYSIS:",
+    `- subjectKind: ${input.sourceImageAnalysis.subjectKind}`,
+    `- confidence: ${input.sourceImageAnalysis.confidence}`,
+    `- hasUsableHumanFace: ${input.sourceImageAnalysis.hasUsableHumanFace}`,
+    `- hasUsableSubject: ${input.sourceImageAnalysis.hasUsableSubject}`,
+    `- subjectCount: ${input.sourceImageAnalysis.subjectCount}`,
+    input.sourceImageAnalysis.subjectDescription ? `- subjectDescription: "${input.sourceImageAnalysis.subjectDescription}"` : "",
+    input.sourceImageAnalysis.warnings.length ? `- warnings: ${input.sourceImageAnalysis.warnings.join("; ")}` : "",
+    `- classificationMethod: ${input.sourceImageAnalysis.classificationMethod}`,
+    "",
+    `RESOLVED subjectRenderMode: ${input.subjectRenderMode}`,
+    input.userSelectedSubjectRenderMode ? `(user explicitly overrode suggestedRenderMode to ${input.userSelectedSubjectRenderMode})` : "",
+    `RESOLVED generationMode: ${generationModeFromSubjectRenderMode(input.subjectRenderMode)}`,
+    `Reference image present: ${input.referenceImageUrl ? "yes" : "no"}`,
+    "",
+    modeRuleExcerpt,
+    "",
+    "IDENTITY POLICY:",
+    `- preserveHumanFace: ${input.identityPolicy.preserveHumanFace}`,
+    `- preserveNonhumanSubjectIdentity: ${input.identityPolicy.preserveNonhumanSubjectIdentity}`,
+    `- preservePhysique: ${input.identityPolicy.preservePhysique}`,
+    `- allowBodyExaggeration: ${input.identityPolicy.allowBodyExaggeration}`,
+    `- allowCostumeTransformation: ${input.identityPolicy.allowCostumeTransformation}`,
+    `- allowAnthropomorphicTransformation: ${input.identityPolicy.allowAnthropomorphicTransformation}`,
+    `- ageAndLifeStagePolicy: ${input.identityPolicy.ageAndLifeStagePolicy}`,
+    "",
+    "RENDER CONTROLS:",
+    `- aspectRatio: ${input.renderControls.aspectRatio}`,
+    `- negativeSpacePreference: ${input.renderControls.negativeSpacePreference ?? "auto"}`,
+    `- contentMode: ${input.renderControls.contentMode}`,
+    `- fallbackSubjectGender: ${fallbackGender ?? "(unset)"} ${input.subjectRenderMode === "t2i_fallback" ? "(REQUIRED for t2i_fallback — reference this in the prompt)" : "(ignore unless t2i_fallback)"}`,
+    "",
+    "STYLE INTEGRATION (weave naturally):",
+    input.stylePrompt || "(no style suffix configured)",
+    "",
+    `TARGET ENGINE: ${input.targetEngine} (use t2i variant when generationMode=t2i, edit/i2i variant otherwise)`,
+    "",
+    "OUTPUT CONTRACT:",
+    "- Echo input targetEngine, generationMode, archetype, subtype, subjectRenderMode verbatim.",
+    "- keyVisualElements: 3-12 entries.",
+    "- supportingTextPolicy.forbiddenTextTypes MUST include all 7 mandatory entries (full meme captions, full fact text, hashtags, watermarks, real logos, brand marks, long explanatory paragraphs).",
+    "- If allowSupportingText is false, supportingTextElements MUST be an empty array.",
+    "- supportingTextElements (when present) MUST have shape { content, purpose, placement } per element.",
+    `- nonhumanSubjectTreatment.applicable MUST be ${input.subjectRenderMode === "nonhuman_subject_i2i" ? "true" : "false"}.`,
+    `- subjectTreatment.fallbackSubjectGender MUST be ${input.subjectRenderMode === "t2i_fallback" ? `"${fallbackGender ?? "neutral"}"` : '"not_applicable"'}.`,
+    "- subjectFactCompatibility: rate strong/workable/risky/poor with a reason; when rating is poor, recommendedFallback must NOT be \"none\".",
+    "- Return ONLY the JSON object.",
+  ]
+    .filter((s) => s !== "")
+    .join("\n");
+}
+
+function buildCorrective(error: string, hint?: string): string {
+  if (hint && hint !== error) {
+    return `The previous response failed validation: ${error}\n\nFix: ${hint}\n\nReturn the full JSON object again with all fields correct.`;
+  }
+  return `The previous response failed validation: ${error}\n\nReturn the full JSON object again with all fields correct.`;
+}
+
+function safeJsonParse(raw: string): unknown {
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return undefined;
+  }
+}
+
+// ─── Orchestration ────────────────────────────────────────────────────────
+
+export async function generateImagePromptPlanWithModel(
+  input: ImagePromptGenerationInput,
+  callModel: (msgs: UserMessage[]) => Promise<string>,
+): Promise<ImagePromptGenerationOutput> {
+  const expectations = expectationsFromInput(input);
+  const firstUser: UserMessage = { role: "user", content: buildImagePromptUserMessage(input) };
+
+  let raw = await callModel([firstUser]);
+  let parsed = safeJsonParse(raw);
+  let result = validateImagePromptPlan(parsed, expectations);
+
+  if (!result.ok) {
+    raw = await callModel([firstUser, { role: "user", content: buildCorrective(result.error, result.correctableHint) }]);
+    parsed = safeJsonParse(raw);
+    result = validateImagePromptPlan(parsed, expectations);
+  }
+
+  if (!result.ok) {
+    throw new ImagePromptError(result.error);
+  }
+
+  const data = result.data;
+  return {
+    visualPlan: data.visualPlan,
+    compiledPrompt: data.compiledPrompt,
+    promptVersion: IMAGE_PROMPT_GENERATION_VERSION,
+    archetypeStrategyVersion: VISUAL_STRATEGY_VERSION,
+    generatedAt: new Date().toISOString(),
+    generatedBy: "openai",
+  };
+}
+
+// ─── Live wrapper ─────────────────────────────────────────────────────────
+
+async function callOpenAIImagePrompt(userMessages: UserMessage[]): Promise<string> {
+  const systemPrompt = await getImagePromptSystem();
+  const response = await callUtilityLLM({
+    temperature: IMAGE_PROMPT_TEMPERATURE,
+    maxTokens: IMAGE_PROMPT_MAX_TOKENS,
+    responseFormat: zodResponseFormat(imagePromptPlanWireSchema, "image_prompt_plan"),
+    messages: [{ role: "system", content: systemPrompt }, ...userMessages],
+  });
+  return response.choices[0]?.message?.content ?? "{}";
+}
+
+/**
+ * Generate the image-prompt plan via OpenAI. Throws `ImagePromptError` on
+ * unrecoverable failure. Callers (the async-jobs handler + admin route)
+ * catch this and surface `error` on the attempt row.
+ */
+export async function generateImagePromptPlan(
+  input: ImagePromptGenerationInput,
+): Promise<ImagePromptGenerationOutput> {
+  try {
+    return await generateImagePromptPlanWithModel(input, callOpenAIImagePrompt);
+  } catch (err) {
+    if (err instanceof ImagePromptError) throw err;
+    logger.error({ err }, "[imagePrompt.generator] unexpected failure");
+    throw new ImagePromptError(err instanceof Error ? err.message : String(err));
+  }
+}
