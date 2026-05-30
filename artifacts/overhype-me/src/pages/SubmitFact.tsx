@@ -78,6 +78,17 @@ export default function SubmitFact() {
   const [submitted, setSubmitted] = useState(false);
   const [error, setError] = useState("");
   const [onboardingRequired, setOnboardingRequired] = useState(false);
+  const [duplicateThreshold, setDuplicateThreshold] = useState(80);
+
+  useEffect(() => {
+    fetch("/api/config", { credentials: "include" })
+      .then((r) => r.ok ? r.json() as Promise<Record<string, unknown>> : Promise.reject())
+      .then((cfg) => {
+        const t = cfg["review_duplicate_threshold"];
+        if (typeof t === "number" && isFinite(t)) setDuplicateThreshold(t);
+      })
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
     try {
@@ -313,7 +324,7 @@ export default function SubmitFact() {
             </Link>{" "}
             to see when it goes live.
           </p>
-          {duplicate?.isDuplicate && (
+          {(duplicate && duplicate.confidence >= duplicateThreshold) && (
             <div className="mb-8 p-4 bg-amber-500/10 border border-amber-500/30 rounded-sm text-amber-600 dark:text-amber-400">
               <GitBranch className="w-4 h-4 inline mr-1.5" />
               Your fact was flagged as similar to an existing one. The moderator will decide how to handle it.
@@ -501,8 +512,8 @@ export default function SubmitFact() {
                 </div>
               )}
 
-              {/* Duplicate warning — only shown if LLM confirmed above threshold */}
-              {!checkingDuplicate && duplicate?.isDuplicate && (
+              {/* Duplicate warning — only shown if confidence meets the admin threshold */}
+              {!checkingDuplicate && duplicate && duplicate.confidence >= duplicateThreshold && (
                 <div className="rounded-xl border-2 border-amber-500/40 bg-amber-500/5 p-6">
                   <p className="text-lg font-semibold text-amber-600 dark:text-amber-400 mb-4">
                     Your fact is very similar to another fact already in the database:
@@ -690,7 +701,7 @@ export default function SubmitFact() {
                     activity feed
                   </Link>{" "}
                   once it's approved or declined.
-                  {duplicate?.isDuplicate && (
+                  {duplicate && duplicate.confidence >= duplicateThreshold && (
                     <span className="block mt-2 text-amber-600 dark:text-amber-400">
                       <GitBranch className="w-3.5 h-3.5 inline mr-1" />
                       Flagged as similar to an existing fact ({duplicate.confidence}% match) — the moderator will decide.

@@ -277,6 +277,7 @@ function ReviewModal({
   const canApprove = isApprovable(enrichment);
 
   const [decisionError, setDecisionError] = useState("");
+  const [showDuplicate, setShowDuplicate] = useState(false);
 
   const handle = async (action: "approve" | "reject" | "approve-variant") => {
     if (action === "reject" && !rejectionReason) {
@@ -315,16 +316,26 @@ function ReviewModal({
           <div className="flex flex-wrap gap-4 text-sm text-muted-foreground">
             <span>Submitted by: <strong className="text-foreground">{review.submitter?.displayName ?? review.submitter?.email ?? "Unknown"}</strong></span>
             {review.submitter?.email && <span>Email: <strong className="text-foreground">{review.submitter.email}</strong></span>}
-            <span>Similarity: <strong className="text-foreground">{review.matchingSimilarity}%</strong></span>
+            <span className="flex items-center gap-2">
+              Duplicate Likelihood: <strong className="text-foreground">{review.matchingSimilarity}%</strong>
+              {review.matchingSimilarity > 0 && review.matchingSimilarity < duplicateThreshold && !showDuplicate && (
+                <button
+                  onClick={() => setShowDuplicate(true)}
+                  className="text-xs text-primary underline hover:opacity-80 font-normal"
+                >
+                  Show potential duplicate
+                </button>
+              )}
+            </span>
             <span>Date: <strong className="text-foreground">{new Date(review.createdAt).toLocaleDateString()}</strong></span>
           </div>
 
-          <div className={`grid gap-4 ${review.matchingSimilarity >= duplicateThreshold ? "grid-cols-1 sm:grid-cols-2" : "grid-cols-1"}`}>
+          <div className={`grid gap-4 ${(review.matchingSimilarity >= duplicateThreshold || showDuplicate) ? "grid-cols-1 sm:grid-cols-2" : "grid-cols-1"}`}>
             <div className="bg-background border-2 border-border rounded-sm p-4">
               <p className="text-xs font-bold text-muted-foreground uppercase tracking-wide mb-3">Submitted Fact</p>
               <p className="text-base italic text-foreground leading-relaxed">"{review.submittedText}"</p>
             </div>
-            {review.matchingSimilarity >= duplicateThreshold && (
+            {(review.matchingSimilarity >= duplicateThreshold || showDuplicate) && (
               <div className="bg-background border-2 border-primary/40 rounded-sm p-4">
                 <div className="flex items-center justify-between mb-3">
                   <p className="text-xs font-bold text-primary uppercase tracking-wide">Flagged Duplicate</p>

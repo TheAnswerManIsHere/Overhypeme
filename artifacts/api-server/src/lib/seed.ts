@@ -494,8 +494,8 @@ export async function ensureSchema(): Promise<void> {
       ddl: `INSERT INTO admin_config (key, value, data_type, label, description, min_value, max_value, is_public)
             VALUES ('review_duplicate_threshold', '80', 'integer', 'Duplicate Flag Threshold (%)',
                     'Minimum similarity percentage at which a submission is flagged as a duplicate in the moderation panel. Submissions below this threshold will not show duplicate information. Default: 80.',
-                    0, 100, false)
-            ON CONFLICT (key) DO NOTHING`,
+                    0, 100, true)
+            ON CONFLICT (key) DO UPDATE SET is_public = true`,
     },
     {
       label: "admin_config seed background picker display limits",
