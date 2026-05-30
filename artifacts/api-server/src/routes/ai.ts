@@ -1,7 +1,7 @@
 import { Router, type IRouter, type Request, type Response, type NextFunction } from "express";
 import { db } from "@workspace/db";
-import { factsTable, commentsTable } from "@workspace/db/schema";
-import { eq, sql } from "drizzle-orm";
+import { factsTable, commentsTable, pendingReviewsTable } from "@workspace/db/schema";
+import { eq, sql, and } from "drizzle-orm";
 import { callUtilityLLM } from "../lib/utilityLLM";
 import { z } from "zod";
 import { getSessionId, getSession } from "../lib/auth";
@@ -132,6 +132,44 @@ async function llmDuplicateCheck(
 }
 
 export async function checkDuplicateInternal(text: string): Promise<DuplicateCheckResult> {
+  const normalizedText = text.trim().toLowerCase();
+
+  // Fast pre-check: exact text match against approved facts (avoids embedding round-trip).
+  const [exactFact] = await db
+    .select({ id: factsTable.id, text: factsTable.text, canonicalText: factsTable.canonicalText })
+    .from(factsTable)
+    .where(and(eq(factsTable.isActive, true), sql`LOWER(TRIM(${factsTable.text})) = ${normalizedText}`))
+    .limit(1);
+  if (exactFact) {
+    return {
+      isDuplicate: true,
+      confidence: 100,
+      matchingFactId: exactFact.id,
+      matchingFactText: exactFact.text,
+      matchingCanonicalText: exactFact.canonicalText ?? exactFact.text,
+      llmChecked: false,
+    };
+  }
+
+  // Fast pre-check: exact text match against pending reviews still awaiting decision.
+  const [exactReview] = await db
+    .select({ submittedText: pendingReviewsTable.submittedText })
+    .from(pendingReviewsTable)
+    .where(and(
+      eq(pendingReviewsTable.status, "pending"),
+      sql`LOWER(TRIM(${pendingReviewsTable.submittedText})) = ${normalizedText}`,
+    ))
+    .limit(1);
+  if (exactReview) {
+    return {
+      isDuplicate: true,
+      confidence: 100,
+      matchingFactText: exactReview.submittedText,
+      matchingCanonicalText: renderCanonical(exactReview.submittedText),
+      llmChecked: false,
+    };
+  }
+
   // Render template tokens to canonical form so embeddings compare apples-to-apples.
   const textToEmbed = TEMPLATE_TOKEN_RE.test(text) ? renderCanonical(text) : text;
   const embedding = await embedText(textToEmbed);
