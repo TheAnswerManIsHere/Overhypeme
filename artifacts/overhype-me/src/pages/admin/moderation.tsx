@@ -1,5 +1,7 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { AdminLayout } from "@/components/admin/AdminLayout";
+import { useFormDraft } from "@/hooks/use-form-draft";
+import type { StorageAdapter } from "@/lib/form-draft-storage";
 import { Link } from "wouter";
 import { Button } from "@/components/ui/Button";
 import {
@@ -125,17 +127,6 @@ const REJECTION_REASONS = [
 
 type RejectionReason = typeof REJECTION_REASONS[number]["value"];
 
-function getRelativeTime(savedAt: number): string {
-  const seconds = Math.floor((Date.now() - savedAt) / 1000);
-  if (seconds < 30) return "Saved just now";
-  if (seconds < 90) return "Saved 1 min ago";
-  const minutes = Math.round(seconds / 60);
-  if (minutes < 60) return `Saved ${minutes} min ago`;
-  const hours = Math.round(minutes / 60);
-  if (hours < 24) return `Saved ${hours}h ago`;
-  return "Saved a while ago";
-}
-
 function ReviewModal({
   review,
   onClose,
@@ -156,12 +147,10 @@ function ReviewModal({
   const [rerunBusy, setRerunBusy] = useState(false);
   const [previewBusy, setPreviewBusy] = useState(false);
   // dirtyRef: true while there are unsaved admin edits. Prevents syncFromServer
-  // from clobbering local state, and gates the debounced auto-save.
+  // from clobbering local state. A parallel `dirty` state gates the autosave hook
+  // (a ref can't drive the hook's effect); both reset together on a successful save.
   const dirtyRef = useRef(false);
-  const autoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
-  const [savedAt, setSavedAt] = useState<number | null>(null);
-  const [savedLabel, setSavedLabel] = useState("");
+  const [dirty, setDirty] = useState(false);
   const [previewPolls, setPreviewPolls] = useState(0);
 
   // Pull the latest stored enrichment from the server (async job writes it
@@ -181,56 +170,53 @@ function ReviewModal({
     }
   }, [review.id]);
 
-  // Shared PATCH helper. Handles the save indicator, dirtyRef reset, and error
-  // display. Returns true on success so callers can chain (e.g. trigger preview).
-  const performSave = useCallback(async (enrichmentToSave: FactEnrichment): Promise<boolean> => {
-    setSaveStatus("saving");
-    try {
-      const r = await fetch(`/api/admin/reviews/${review.id}/enrichment`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({ enrichment: enrichmentToSave }),
-      });
-      if (r.ok) {
-        dirtyRef.current = false;
-        const now = Date.now();
-        setSavedAt(now);
-        setSavedLabel(getRelativeTime(now));
-        setSaveStatus("saved");
-        return true;
-      }
-      setSaveStatus("error");
-      setErrorMsg(r.status === 503 ? "API unavailable — try again shortly." : `Save failed (${r.status}).`);
-      return false;
-    } catch {
-      setSaveStatus("error");
-      setErrorMsg("Network error — could not save.");
-      return false;
-    }
-  }, [review.id]);
+  // Server-backed draft adapter for the shared useFormDraft hook: persistence is
+  // a PATCH rather than localStorage. load() is a no-op (server authority comes
+  // from syncFromServer polling); save() throws on failure so the hook surfaces
+  // the error. The 1.5s debounce only fires while `dirty` is true, so server
+  // syncs are never echoed back. onSaved resets dirty/dirtyRef — and the hook
+  // calls it only for the latest save, so a stale PATCH response can't re-mark
+  // the form clean while a newer edit is pending (which would unblock the poll).
+  const enrichmentAdapter = useMemo<StorageAdapter<FactEnrichment | null>>(
+    () => ({
+      load: () => null,
+      clear: () => {},
+      save: async (enrichmentToSave) => {
+        if (!enrichmentToSave) return Date.now();
+        let r: Response;
+        try {
+          r = await fetch(`/api/admin/reviews/${review.id}/enrichment`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            credentials: "include",
+            body: JSON.stringify({ enrichment: enrichmentToSave }),
+          });
+        } catch {
+          throw new Error("Network error — could not save.");
+        }
+        if (!r.ok) {
+          throw new Error(
+            r.status === 503 ? "API unavailable — try again shortly." : `Save failed (${r.status}).`,
+          );
+        }
+        return Date.now();
+      },
+    }),
+    [review.id],
+  );
 
-  // Debounced auto-save: fires 1.5 s after the last admin edit.
-  // Only runs when dirtyRef is true (admin changed something) to avoid
-  // echoing server-synced updates back to the server.
-  useEffect(() => {
-    if (!enrichment) return;
-    if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
-    autoSaveTimerRef.current = setTimeout(() => {
-      if (!dirtyRef.current || !enrichment) return;
-      void performSave(enrichment);
-    }, 1500);
-    return () => {
-      if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
-    };
-  }, [enrichment, performSave]);
-
-  // Keep the "Saved X min ago" label fresh.
-  useEffect(() => {
-    if (savedAt === null) return;
-    const interval = setInterval(() => setSavedLabel(getRelativeTime(savedAt)), 30_000);
-    return () => clearInterval(interval);
-  }, [savedAt]);
+  const draft = useFormDraft<FactEnrichment | null>({
+    value: enrichment,
+    adapter: enrichmentAdapter,
+    debounceMs: 1500,
+    restoreOnMount: false,
+    manualDirty: dirty,
+    isEmpty: (e) => e == null,
+    onSaved: () => {
+      dirtyRef.current = false;
+      setDirty(false);
+    },
+  });
 
   // While enrichment is still running, poll until it lands. Clear rerunBusy
   // as soon as the status leaves "pending".
@@ -277,6 +263,7 @@ function ReviewModal({
       const r = await fetch(`/api/admin/reviews/${review.id}/enrich`, { method: "POST", credentials: "include" });
       if (r.ok) {
         dirtyRef.current = false;
+        setDirty(false);
         setRerunBusy(true);
         setEnrichmentStatus("pending");
       } else {
@@ -298,8 +285,9 @@ function ReviewModal({
     setErrorMsg("");
     // Save first so the server generates the preview from the current enrichment
     // (including any unsaved cultural references / semantic entities). Also
-    // resets dirtyRef so the preview-polling syncFromServer is not blocked.
-    const saved = await performSave(enrichment);
+    // resets dirty so the preview-polling syncFromServer is not blocked. If the
+    // save fails, do not kick off the preview job.
+    const saved = await draft.saveNow();
     if (!saved) { setLoading(false); return; }
     try {
       const r = await fetch(`/api/admin/reviews/${review.id}/preview`, { method: "POST", credentials: "include" });
@@ -407,7 +395,7 @@ function ReviewModal({
                 value={enrichment}
                 status={enrichmentStatus}
                 factText={review.submittedText}
-                onChange={(next) => { dirtyRef.current = true; setEnrichment(next); }}
+                onChange={(next) => { dirtyRef.current = true; setDirty(true); setEnrichment(next); }}
                 onRerun={rerunEnrichment}
                 onRegeneratePreview={regeneratePreview}
                 busy={loading || rerunBusy || previewBusy}
@@ -417,15 +405,15 @@ function ReviewModal({
               />
               <div className="flex items-center justify-between gap-2">
                 <div className="text-xs text-muted-foreground">
-                  {saveStatus === "saving" && <span className="flex items-center gap-1"><Loader2 className="w-3 h-3 animate-spin" />Saving…</span>}
-                  {saveStatus === "saved" && savedLabel && <span>{savedLabel}</span>}
-                  {saveStatus === "error" && <span className="text-destructive">Auto-save failed — see error below</span>}
+                  {draft.status === "saving" && <span className="flex items-center gap-1"><Loader2 className="w-3 h-3 animate-spin" />Saving…</span>}
+                  {draft.status === "saved" && draft.savedLabel && <span>{draft.savedLabel}</span>}
+                  {draft.status === "error" && <span className="text-destructive">Auto-save failed — see error below</span>}
                 </div>
               </div>
-              {errorMsg && (
+              {(errorMsg || draft.error) && (
                 <div className="flex items-start gap-2 rounded-sm border border-destructive/50 bg-destructive/10 px-3 py-2">
                   <AlertTriangle className="w-4 h-4 text-destructive shrink-0 mt-0.5" />
-                  <p className="text-sm text-destructive">{errorMsg}</p>
+                  <p className="text-sm text-destructive">{errorMsg || draft.error}</p>
                 </div>
               )}
             </div>
