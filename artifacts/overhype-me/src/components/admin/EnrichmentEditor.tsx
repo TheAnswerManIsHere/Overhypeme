@@ -246,7 +246,7 @@ function ResearchReferencePanel({
     onApplyPatch(patch);
   };
 
-  const handleResearch = async () => {
+  const handleResearch = async (forceRefresh = false) => {
     setPhase("researching");
     setError(null);
     setAutoApplied(false);
@@ -262,6 +262,7 @@ function ResearchReferencePanel({
           canonicalReference: reference.canonicalReference,
           existingExplanation: reference.explanation || undefined,
           existingVisualImplication: reference.visualImplication || undefined,
+          ...(forceRefresh ? { forceRefresh: true } : {}),
         }),
       });
       if (!res.ok) {
@@ -306,7 +307,7 @@ function ResearchReferencePanel({
         </p>
         <button
           type="button"
-          onClick={handleResearch}
+          onClick={() => handleResearch()}
           disabled={!buttonEnabled || phase === "researching"}
           className="inline-flex items-center gap-1.5 text-xs text-primary hover:underline disabled:text-muted-foreground disabled:cursor-not-allowed disabled:no-underline"
           title={!buttonEnabled ? disabledReason : "Look up this reference and propose explanation + visual implication"}
@@ -332,13 +333,25 @@ function ResearchReferencePanel({
           <p className="text-xs text-emerald-700 dark:text-emerald-400">
             Auto-applied to empty fields ({result.confidence} confidence{fromCache ? " · from cache" : ""}).
           </p>
-          <button
-            type="button"
-            onClick={handleDismiss}
-            className="text-xs text-muted-foreground hover:underline"
-          >
-            Dismiss
-          </button>
+          <div className="flex items-center gap-3">
+            {fromCache && (
+              <button
+                type="button"
+                onClick={() => handleResearch(true)}
+                className="text-xs text-primary hover:underline"
+                title="Bypass cache and re-run the AI research"
+              >
+                Re-fetch
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={handleDismiss}
+              className="text-xs text-muted-foreground hover:underline"
+            >
+              Dismiss
+            </button>
+          </div>
         </div>
       )}
 
@@ -356,7 +369,19 @@ function ResearchReferencePanel({
             >
               {result.confidence} confidence
             </span>
-            {fromCache && <span className="text-muted-foreground">from cache</span>}
+            {fromCache && (
+              <>
+                <span className="text-muted-foreground">from cache</span>
+                <button
+                  type="button"
+                  onClick={() => handleResearch(true)}
+                  className="text-xs text-primary hover:underline"
+                  title="Bypass cache and re-run the AI research"
+                >
+                  Re-fetch
+                </button>
+              </>
+            )}
           </div>
 
           {result.ambiguityWarnings.length > 0 && (
