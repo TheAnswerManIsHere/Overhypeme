@@ -54,6 +54,7 @@ Inputs you receive (in the user message):
 - A FIXED taxonomy (archetype, subtype, modifiers, etc.). Do NOT reclassify.
 - The authored visual strategy entry for the archetype (strategy block, core visual goal, i2i default, t2i fallback when present, subtype guidance, visualization examples with their hand-authored cultural references, prompt-generator requirements, locked rule). You MUST apply this — do not improvise.
 - Per-fact culturalReferences from the stored enrichment blob. These OVERRIDE the example annotations for THIS fact.
+- Per-fact semanticEntities from the stored enrichment blob. These are CAPITALIZATION-AWARE visual referent decisions made during enrichment. Treat them as HARD context. Do not override them. For every entry with materiallyAffectsVisualPrompt=true, you MUST list a matching {surfaceText, visualReferentUsed, effectOnVisualPlan} in visualPlan.semanticEntitiesUsed.
 - A structured sourceImageAnalysis (subjectKind, hasUsableHumanFace, hasUsableSubject, subjectCount, subjectDescription, warnings).
 - The RESOLVED subjectRenderMode: one of human_identity_i2i, nonhuman_subject_i2i, t2i_fallback.
 - Identity controls (preserveHumanFace, preserveNonhumanSubjectIdentity, preservePhysique, allowBodyExaggeration, allowCostumeTransformation, allowAnthropomorphicTransformation, ageAndLifeStagePolicy).
@@ -89,6 +90,7 @@ Hard rules:
 13. Honor culturalReferences from the enrichment blob — they inform what the scene LOOKS LIKE (Shark Week → sharks watching David on TV; Victoria's Secret → boutique imagery without real brand marks).
 14. Do NOT render the full fact text or meme caption inside the image. Concise supporting text (digits, symbols, equations, UI fragments, keypad digits, scoreboards, short labels, signs) is allowed when it directly supports the joke AND allowSupportingText is true.
 15. The visualPlan must be engine-neutral; the compiledPrompt is for Nano Banana 2 specifically. Weave the resolved stylePrompt suffix naturally into both styleIntegration and the compiledPrompt.
+16. Capitalization-aware referents: when input semanticEntities lists a surface term (e.g. "Earth" → "the planet Earth", "earth" → "ground, dirt, soil, or terrain beneath the subject"), reflect the RESOLVED referent in keyVisualElements and compiledPrompt. Do not render "Earth" as ground when the entity says it means the planet; do not render "earth" as the planet when the entity says it means ground. Echo every material entity in visualPlan.semanticEntitiesUsed with concrete visualReferentUsed + a one-sentence effectOnVisualPlan.
 
 Return ONLY the JSON object. Do not include any explanation outside it.`;
 

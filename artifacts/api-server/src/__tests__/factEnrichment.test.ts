@@ -38,6 +38,7 @@ const VALID: FactEnrichment = {
   taxonomyConfidence: 0.95,
   adminReviewNotes: "",
   culturalReferences: [],
+  semanticEntities: [],
 };
 
 // Same fields, but subtype belongs to a DIFFERENT archetype.
@@ -96,6 +97,132 @@ describe("validateEnrichment — required fields & confidence", () => {
   it("rejects taxonomyConfidence outside 0..1", () => {
     assert.equal(validateEnrichment({ ...VALID, taxonomyConfidence: 1.5 }).ok, false);
     assert.equal(validateEnrichment({ ...VALID, taxonomyConfidence: -0.1 }).ok, false);
+  });
+});
+
+describe("validateEnrichment — semantic entities (capitalization-aware referents)", () => {
+  const MATERIAL_EARTH = {
+    surfaceText: "Earth",
+    normalizedText: "earth",
+    entityKind: "celestial_body" as const,
+    visualReferent: "the planet Earth",
+    capitalizationSignal: "capitalized_named_entity" as const,
+    materiallyAffectsVisualPrompt: true,
+    requiresAdminReview: false,
+    confidence: 0.95,
+    notes: "Capitalized Earth + 'the Earth' phrase → the planet, not soil.",
+  };
+  const MATERIAL_LOWER_EARTH = {
+    surfaceText: "earth",
+    normalizedText: "earth",
+    entityKind: "common_noun" as const,
+    visualReferent: "ground, dirt, soil, or terrain beneath the subject",
+    capitalizationSignal: "lowercase_common_noun" as const,
+    materiallyAffectsVisualPrompt: true,
+    requiresAdminReview: false,
+    confidence: 0.9,
+    notes: "Lowercase earth + dirt context → soil.",
+  };
+
+  it("accepts empty semanticEntities array", () => {
+    const r = validateEnrichment({ ...VALID, semanticEntities: [] });
+    assert.equal(r.ok, true);
+  });
+
+  it("accepts a valid semantic entity entry", () => {
+    const r = validateEnrichment({ ...VALID, semanticEntities: [MATERIAL_EARTH] });
+    assert.equal(r.ok, true, r.ok ? "" : r.error);
+  });
+
+  it("accepts two distinct entries for the same surface text in different casings", () => {
+    const r = validateEnrichment({
+      ...VALID,
+      semanticEntities: [
+        { ...MATERIAL_EARTH, surfaceText: "Earth" },
+        { ...MATERIAL_LOWER_EARTH, surfaceText: "earth" },
+      ],
+    });
+    assert.equal(r.ok, true);
+  });
+
+  it("rejects confidence outside [0,1]", () => {
+    const r = validateEnrichment({
+      ...VALID,
+      semanticEntities: [{ ...MATERIAL_EARTH, confidence: 1.5 }],
+    });
+    assert.equal(r.ok, false);
+  });
+
+  it("rejects unknown entityKind", () => {
+    const r = validateEnrichment({
+      ...VALID,
+      semanticEntities: [{ ...MATERIAL_EARTH, entityKind: "not_a_real_kind" }],
+    });
+    assert.equal(r.ok, false);
+  });
+
+  it("rejects unknown capitalizationSignal", () => {
+    const r = validateEnrichment({
+      ...VALID,
+      semanticEntities: [{ ...MATERIAL_EARTH, capitalizationSignal: "shouting" }],
+    });
+    assert.equal(r.ok, false);
+  });
+
+  it("rejects empty surfaceText / visualReferent", () => {
+    const r1 = validateEnrichment({
+      ...VALID,
+      semanticEntities: [{ ...MATERIAL_EARTH, surfaceText: "" }],
+    });
+    assert.equal(r1.ok, false);
+    const r2 = validateEnrichment({
+      ...VALID,
+      semanticEntities: [{ ...MATERIAL_EARTH, visualReferent: "   " }],
+    });
+    assert.equal(r2.ok, false);
+  });
+
+  it("accepts the sentence-initial ambiguous case with requiresAdminReview=true", () => {
+    const r = validateEnrichment({
+      ...VALID,
+      semanticEntities: [
+        {
+          ...MATERIAL_EARTH,
+          capitalizationSignal: "sentence_initial_ambiguous",
+          requiresAdminReview: true,
+          confidence: 0.7,
+          notes: "Sentence-initial; pushup idiom suggests planet.",
+        },
+      ],
+    });
+    assert.equal(r.ok, true, r.ok ? "" : r.error);
+  });
+
+  it("accepts a brand entity with requiresAdminReview=true", () => {
+    const r = validateEnrichment({
+      ...VALID,
+      semanticEntities: [
+        {
+          surfaceText: "Apple",
+          normalizedText: "apple",
+          entityKind: "brand_or_cultural_reference",
+          visualReferent: "the Apple technology brand or company",
+          capitalizationSignal: "capitalized_named_entity",
+          materiallyAffectsVisualPrompt: true,
+          requiresAdminReview: true,
+          confidence: 0.9,
+          notes: "Capitalized Apple changing its logo → the brand.",
+        },
+      ],
+    });
+    assert.equal(r.ok, true, r.ok ? "" : r.error);
+  });
+
+  it("normalizes missing semanticEntities to []", () => {
+    const { semanticEntities: _drop, ...withoutField } = { ...VALID };
+    const r = validateEnrichment(withoutField);
+    assert.equal(r.ok, true);
+    if (r.ok) assert.deepEqual(r.data.semanticEntities, []);
   });
 });
 

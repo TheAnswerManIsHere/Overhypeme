@@ -43,6 +43,7 @@ function basePlan(overrides: Partial<{
   keyVisualElements: string[];
   compatibilityRating: "strong" | "workable" | "risky" | "poor";
   compatibilityFallback: "none" | "t2i_fallback" | "upload_human_photo" | "choose_different_fact";
+  semanticEntitiesUsed: Array<{ surfaceText: string; visualReferentUsed: string; effectOnVisualPlan: string }>;
 }> = {}) {
   return {
     visualPlan: {
@@ -100,6 +101,7 @@ function basePlan(overrides: Partial<{
           "long explanatory paragraphs",
         ],
       },
+      semanticEntitiesUsed: overrides.semanticEntitiesUsed ?? [],
       styleIntegration: "Apply cinematic style with shallow depth of field",
       contentNotes: "SFW; no real brand marks",
       debugNotes: "Strategy v2; example #2 echoed",
@@ -323,5 +325,68 @@ describe("validateImagePromptPlan", () => {
     if (!result.ok) {
       assert.ok(result.correctableHint, "expected correctableHint to be populated");
     }
+  });
+
+  // Rule 14 — semanticEntitiesUsed echo-back.
+
+  it("accepts when materialSemanticEntities is empty and semanticEntitiesUsed is []", () => {
+    const result = validateImagePromptPlan(basePlan(), { ...baseExpectations, materialSemanticEntities: [] });
+    assert.equal(result.ok, true, result.ok ? "" : result.error);
+  });
+
+  it("rejects when a material semantic entity is missing from semanticEntitiesUsed", () => {
+    const plan = basePlan({ semanticEntitiesUsed: [] });
+    const result = validateImagePromptPlan(plan, { ...baseExpectations, materialSemanticEntities: ["Earth"] });
+    assert.equal(result.ok, false);
+    if (!result.ok) assert.match(result.error, /semanticEntitiesUsed/);
+  });
+
+  it("accepts when every material semantic entity is echoed (case-insensitive)", () => {
+    const plan = basePlan({
+      semanticEntitiesUsed: [
+        {
+          surfaceText: "earth", // lower-case in plan; matches "Earth" expectation
+          visualReferentUsed: "the planet Earth",
+          effectOnVisualPlan: "Composition pulls back to show the whole planet under David's hand.",
+        },
+      ],
+    });
+    const result = validateImagePromptPlan(plan, { ...baseExpectations, materialSemanticEntities: ["Earth"] });
+    assert.equal(result.ok, true, result.ok ? "" : result.error);
+  });
+
+  it("rejects semanticEntitiesUsed entry with empty visualReferentUsed", () => {
+    const plan = basePlan({
+      semanticEntitiesUsed: [
+        { surfaceText: "Earth", visualReferentUsed: "   ", effectOnVisualPlan: "n/a" },
+      ],
+    });
+    const result = validateImagePromptPlan(plan, { ...baseExpectations, materialSemanticEntities: ["Earth"] });
+    assert.equal(result.ok, false);
+    if (!result.ok) assert.match(result.error, /visualReferentUsed|effectOnVisualPlan/);
+  });
+
+  it("rejects semanticEntitiesUsed entry with empty effectOnVisualPlan", () => {
+    const plan = basePlan({
+      semanticEntitiesUsed: [
+        { surfaceText: "Earth", visualReferentUsed: "the planet Earth", effectOnVisualPlan: "" },
+      ],
+    });
+    const result = validateImagePromptPlan(plan, { ...baseExpectations, materialSemanticEntities: ["Earth"] });
+    assert.equal(result.ok, false);
+  });
+
+  it("requires every material entity, not just one (multi-entity echo)", () => {
+    const plan = basePlan({
+      semanticEntitiesUsed: [
+        { surfaceText: "Earth", visualReferentUsed: "the planet Earth", effectOnVisualPlan: "planet-scale framing" },
+      ],
+    });
+    const result = validateImagePromptPlan(plan, {
+      ...baseExpectations,
+      materialSemanticEntities: ["Earth", "Apple"],
+    });
+    assert.equal(result.ok, false);
+    if (!result.ok) assert.match(result.error, /Apple/);
   });
 });
