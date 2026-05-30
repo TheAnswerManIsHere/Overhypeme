@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, Suspense } from "react";
+import { useState, useRef, useEffect, useMemo, Suspense } from "react";
 import { Link, useLocation } from "wouter";
 import { motion } from "framer-motion";
 import { format } from "date-fns";
@@ -7,6 +7,8 @@ import { FactSummary, useListComments, getListCommentsQueryKey } from "@workspac
 import { useAppMutations } from "@/hooks/use-mutations";
 import { useAuth } from "@workspace/replit-auth-web";
 import { useToast } from "@/hooks/use-toast";
+import { useFormDraft } from "@/hooks/use-form-draft";
+import { createLocalStorageAdapter } from "@/lib/form-draft-storage";
 import { CommentHeartButton } from "@/components/comments/CommentHeartButton";
 import { Button } from "@/components/ui/Button";
 import { Textarea } from "@/components/ui/Input";
@@ -93,6 +95,33 @@ export function FactComments({
   const [optimisticComments, setOptimisticComments] = useState<OptimisticComment[]>([]);
   const [submitted, setSubmitted] = useState(false);
 
+  // Persist the comment draft to localStorage (per user + fact, 24h TTL) so a
+  // half-written comment survives a reload / tab close. The in-memory fast path
+  // (`draft`/`onDraftChange`) still handles instant card collapse/expand and
+  // takes precedence on restore so no keystrokes are lost.
+  const commentDraftAdapter = useMemo(
+    () =>
+      createLocalStorageAdapter<{ text: string }>({
+        key: user?.id ? `comment_draft::${user.id}::${fact.id}` : `comment_draft::${fact.id}`,
+        isValid: (v): v is { text: string } =>
+          !!v && typeof v === "object" && typeof (v as { text: unknown }).text === "string",
+      }),
+    [user?.id, fact.id],
+  );
+
+  const commentDraft = useFormDraft<{ text: string }>({
+    value: { text },
+    adapter: commentDraftAdapter,
+    enabled: !submitted,
+    isEmpty: (d) => d.text.trim() === "",
+    onRestore: (d) => {
+      // In-memory fast path wins — never clobber an existing draft.
+      if (text.trim().length > 0) return;
+      setText(d.text);
+      onDraftChange?.(d.text);
+    },
+  });
+
   const canSubmit =
     text.trim().length > 0 &&
     (!needsCaptcha || !!captchaToken) &&
@@ -130,6 +159,7 @@ export function FactComments({
       setFormState("submitting");
       setText("");
       onDraftChange?.("");
+      commentDraft.clear();
       setCaptchaToken("");
       onCommentSubmit?.();
 
@@ -163,6 +193,7 @@ export function FactComments({
       {
         onSuccess: () => {
           setText("");
+          commentDraft.clear();
           setCaptchaToken("");
           setFormState("idle");
           setSubmitted(true);
