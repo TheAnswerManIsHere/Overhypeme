@@ -31,6 +31,7 @@ interface MatchingFact {
 interface Review {
   id: number;
   submittedText: string;
+  matchingFactId: number | null;
   matchingSimilarity: number;
   status: "pending" | "approved" | "rejected";
   reason: string | null;
@@ -210,27 +211,31 @@ function ReviewModal({
             <span>Date: <strong className="text-foreground">{new Date(review.createdAt).toLocaleDateString()}</strong></span>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div className={`grid gap-4 ${review.matchingFactId != null || review.matchingSimilarity > 0 ? "grid-cols-1 sm:grid-cols-2" : "grid-cols-1"}`}>
             <div className="bg-background border-2 border-border rounded-sm p-4">
               <p className="text-xs font-bold text-muted-foreground uppercase tracking-wide mb-3">Submitted Fact</p>
               <p className="text-base italic text-foreground leading-relaxed">"{review.submittedText}"</p>
             </div>
-            <div className="bg-background border-2 border-primary/40 rounded-sm p-4">
-              <div className="flex items-center justify-between mb-3">
-                <p className="text-xs font-bold text-primary uppercase tracking-wide">Flagged Duplicate</p>
-                {review.matchingFact && (
-                  <a href={`/facts/${review.matchingFact.id}`} target="_blank" rel="noreferrer"
-                    className="text-xs text-primary hover:underline flex items-center gap-1">
-                    View <ExternalLink className="w-3 h-3" />
-                  </a>
+            {(review.matchingFactId != null || review.matchingSimilarity > 0) && (
+              <div className="bg-background border-2 border-primary/40 rounded-sm p-4">
+                <div className="flex items-center justify-between mb-3">
+                  <p className="text-xs font-bold text-primary uppercase tracking-wide">Flagged Duplicate</p>
+                  {review.matchingFact && (
+                    <a href={`/facts/${review.matchingFact.id}`} target="_blank" rel="noreferrer"
+                      className="text-xs text-primary hover:underline flex items-center gap-1">
+                      View <ExternalLink className="w-3 h-3" />
+                    </a>
+                  )}
+                </div>
+                {review.matchingFact ? (
+                  <p className="text-base italic text-foreground leading-relaxed">"{review.matchingFact.text}"</p>
+                ) : review.matchingFactId != null ? (
+                  <p className="text-muted-foreground text-sm italic">Original fact no longer available</p>
+                ) : (
+                  <p className="text-muted-foreground text-sm italic">Duplicate found in pending submissions — no approved original yet</p>
                 )}
               </div>
-              {review.matchingFact ? (
-                <p className="text-base italic text-foreground leading-relaxed">"{review.matchingFact.text}"</p>
-              ) : (
-                <p className="text-muted-foreground text-sm italic">Original fact no longer available</p>
-              )}
-            </div>
+            )}
           </div>
 
           {review.status === "pending" ? (
