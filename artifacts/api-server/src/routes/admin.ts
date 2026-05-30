@@ -664,14 +664,19 @@ router.delete("/admin/facts/:id", requireAdmin, async (req: Request, res: Respon
 
   const hard = req.query["hard"] === "true";
 
-  if (hard) {
-    const [deleted] = await db.delete(factsTable).where(eq(factsTable.id, id)).returning({ id: factsTable.id });
-    if (!deleted) { res.status(404).json({ error: "Fact not found" }); return; }
-    res.json({ success: true, deleted: true });
-  } else {
-    const [updated] = await db.update(factsTable).set({ isActive: false }).where(and(eq(factsTable.id, id), eq(factsTable.isActive, true))).returning({ id: factsTable.id });
-    if (!updated) { res.status(404).json({ error: "Fact not found or already inactive" }); return; }
-    res.json({ success: true, deleted: false });
+  try {
+    if (hard) {
+      const [deleted] = await db.delete(factsTable).where(eq(factsTable.id, id)).returning({ id: factsTable.id });
+      if (!deleted) { res.status(404).json({ error: "Fact not found" }); return; }
+      res.json({ success: true, deleted: true });
+    } else {
+      const [updated] = await db.update(factsTable).set({ isActive: false }).where(and(eq(factsTable.id, id), eq(factsTable.isActive, true))).returning({ id: factsTable.id });
+      if (!updated) { res.status(404).json({ error: "Fact not found or already inactive" }); return; }
+      res.json({ success: true, deleted: false });
+    }
+  } catch (e) {
+    logger.error({ err: e, factId: id, hard }, "[DELETE /admin/facts/:id] failed");
+    res.status(500).json({ error: "Failed to delete fact" });
   }
 });
 
