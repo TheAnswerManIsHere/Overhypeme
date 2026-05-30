@@ -699,6 +699,11 @@ export function EnrichmentEditor({
           />
           <button type="button" onClick={addHashtag} className="px-3 py-1.5 text-sm border border-border rounded-sm hover:bg-muted text-foreground">Add</button>
         </div>
+        {!validity.ok && validity.error.split("; ").filter((err) => err.startsWith("suggestedHashtags:")).map((err) => (
+          <p key={err} className="text-xs text-destructive flex items-center gap-1.5 mt-2">
+            <AlertTriangle className="w-3.5 h-3.5 shrink-0" /> {err.replace(/^suggestedHashtags: /, "")}
+          </p>
+        ))}
       </div>
 
       {submittedHashtags.length > 0 && (
