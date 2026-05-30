@@ -35,26 +35,20 @@ pnpm typecheck
 cd artifacts/overhype-me && pnpm exec vitest run
 
 # 5. Server unit tests for MBFO-4 (49 new across 4 files).
-cd artifacts/api-server && \
-  DATABASE_URL="postgres://overhype:overhype@localhost:5432/overhype_test" \
-  TEST_DB_ALLOW_EXIT_ON_IDLE=1 BCRYPT_SALT_ROUNDS=4 \
-  node --import tsx/esm --test \
-    src/__tests__/engineInterpreter.test.ts \
-    src/__tests__/engineAudio.test.ts \
-    src/__tests__/videoJobs.test.ts \
-    src/__tests__/createMemeRecord.test.ts
+node --import tsx/esm --test \
+  artifacts/api-server/src/__tests__/engineInterpreter.test.ts \
+  artifacts/api-server/src/__tests__/engineAudio.test.ts \
+  artifacts/api-server/src/__tests__/videoJobs.test.ts \
+  artifacts/api-server/src/__tests__/createMemeRecord.test.ts
 
 # 6. Regression sweep on the surfaces MBFO-4 refactored.
-cd artifacts/api-server && \
-  DATABASE_URL="postgres://overhype:overhype@localhost:5432/overhype_test" \
-  TEST_DB_ALLOW_EXIT_ON_IDLE=1 BCRYPT_SALT_ROUNDS=4 \
-  node --import tsx/esm --test \
-    src/__tests__/routes.memes.test.ts \
-    src/__tests__/phase4.memes.save.test.ts \
-    src/__tests__/phase4.validators.test.ts \
-    src/__tests__/phase4.composite.test.ts \
-    src/__tests__/budgetGate.test.ts \
-    src/__tests__/pulidJobs.test.ts
+node --import tsx/esm --test \
+  artifacts/api-server/src/__tests__/routes.memes.test.ts \
+  artifacts/api-server/src/__tests__/phase4.memes.save.test.ts \
+  artifacts/api-server/src/__tests__/phase4.validators.test.ts \
+  artifacts/api-server/src/__tests__/phase4.composite.test.ts \
+  artifacts/api-server/src/__tests__/budgetGate.test.ts \
+  artifacts/api-server/src/__tests__/pulidJobs.test.ts
 
 # 7. DB package tests (snapshot integrity + journal).
 pnpm --filter @workspace/db test
@@ -78,10 +72,8 @@ Run before each pass. Environment checks, not behavior checks.
 
 ### A1. Test DB is up
 
-The session-start hook brings up Postgres on `:5432` and applies the
-schema. Confirm with:
-
-> `Test DB ready at postgres://overhype:overhype@localhost:5432/overhype_test`
+Ensure a Postgres database is reachable for the test runs. The exact
+connection setup belongs to the running environment, not to this doc.
 
 ### A2. New migrations apply cleanly
 
@@ -280,16 +272,14 @@ optional `onNoFaceReview` callback) — none of those break call sites.
 
 ## C — API server tests
 
-Run from `artifacts/api-server`:
+Run:
 
 ```bash
-DATABASE_URL="postgres://overhype:overhype@localhost:5432/overhype_test" \
-TEST_DB_ALLOW_EXIT_ON_IDLE=1 BCRYPT_SALT_ROUNDS=4 \
 node --import tsx/esm --test \
-  src/__tests__/engineInterpreter.test.ts \
-  src/__tests__/engineAudio.test.ts \
-  src/__tests__/videoJobs.test.ts \
-  src/__tests__/createMemeRecord.test.ts
+  artifacts/api-server/src/__tests__/engineInterpreter.test.ts \
+  artifacts/api-server/src/__tests__/engineAudio.test.ts \
+  artifacts/api-server/src/__tests__/videoJobs.test.ts \
+  artifacts/api-server/src/__tests__/createMemeRecord.test.ts
 ```
 
 Pass criterion: **49 tests pass, 0 fail** across the four new files.
@@ -361,15 +351,13 @@ Pass criterion: **3 tests pass**.
 ### C5. Regression sweep
 
 ```bash
-DATABASE_URL="postgres://overhype:overhype@localhost:5432/overhype_test" \
-TEST_DB_ALLOW_EXIT_ON_IDLE=1 BCRYPT_SALT_ROUNDS=4 \
 node --import tsx/esm --test \
-  src/__tests__/routes.memes.test.ts \
-  src/__tests__/phase4.memes.save.test.ts \
-  src/__tests__/phase4.validators.test.ts \
-  src/__tests__/phase4.composite.test.ts \
-  src/__tests__/budgetGate.test.ts \
-  src/__tests__/pulidJobs.test.ts
+  artifacts/api-server/src/__tests__/routes.memes.test.ts \
+  artifacts/api-server/src/__tests__/phase4.memes.save.test.ts \
+  artifacts/api-server/src/__tests__/phase4.validators.test.ts \
+  artifacts/api-server/src/__tests__/phase4.composite.test.ts \
+  artifacts/api-server/src/__tests__/budgetGate.test.ts \
+  artifacts/api-server/src/__tests__/pulidJobs.test.ts
 ```
 
 Pass criterion: **120 tests pass**, 0 fail. The MBFO-4 refactor of

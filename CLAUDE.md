@@ -145,6 +145,15 @@ then reference both in the PR body:
    for Replit (the technical safety net). Exact commands, expected
    pass/fail counts, schema/SQL checks, gotchas, and a "what's
    deliberately not shipped" section.
+
+   **Replit owns the database connection.** Don't include
+   `DATABASE_URL=...` exports, test-DB env-var setup, or any other
+   environment-specific DB config in this doc — Replit's database lives
+   somewhere different than the local container and any DB config I write
+   would be wrong or contradictory there. Instead, describe what should
+   happen against the DB ("apply migrations", "run these test files",
+   "confirm the new columns exist on `upload_image_metadata`") and let
+   Replit handle the connection itself.
 2. **`docs/<FEATURE>_UAT.md`** — the in-app, click-through acceptance test
    for David. Written for the end user: where to click, what to expect vs.
    not expect, regression smoke table, a bug-report template, and known

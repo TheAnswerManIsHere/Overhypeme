@@ -19,6 +19,11 @@ import {
   type VisualPromptPreview,
   type ReferenceType,
   type PrimaryArchetype,
+  type SemanticEntity,
+  type SemanticEntityKind,
+  type CapitalizationSignal,
+  SEMANTIC_ENTITY_KIND_VALUES,
+  CAPITALIZATION_SIGNAL_VALUES,
 } from "@workspace/api-zod";
 import { AlertTriangle, RefreshCw, Save, X, Eye, Plus, Trash2 } from "lucide-react";
 
@@ -45,6 +50,7 @@ export const EMPTY_ENRICHMENT: FactEnrichment = {
   taxonomyConfidence: 0,
   adminReviewNotes: "",
   culturalReferences: [],
+  semanticEntities: [],
 };
 
 const SELECT_CLASS =
@@ -69,6 +75,31 @@ function Warnings({ e }: { e: FactEnrichment }) {
   const lowConfRefs = e.culturalReferences.filter((r) => r.confidence < 0.75);
   if (lowConfRefs.length) {
     warnings.push(`Low-confidence cultural reference(s): ${lowConfRefs.map((r) => r.sourcePhrase).join(", ")}`);
+  }
+
+  // CLASSIFICATION_PROMPT_VERSION v3: capitalization-aware visual referents.
+  const entities = e.semanticEntities ?? [];
+  const sentenceInitial = entities.filter((s) => s.capitalizationSignal === "sentence_initial_ambiguous");
+  if (sentenceInitial.length) {
+    warnings.push(
+      `Ambiguous sentence-initial entity: ${sentenceInitial.map((s) => `"${s.surfaceText}"`).join(", ")} — confirm interpretation.`,
+    );
+  }
+  const ambiguousEntities = entities.filter((s) => s.entityKind === "ambiguous");
+  if (ambiguousEntities.length) {
+    warnings.push(`Ambiguous semantic entity: ${ambiguousEntities.map((s) => `"${s.surfaceText}"`).join(", ")}`);
+  }
+  const brandEntities = entities.filter((s) => s.entityKind === "brand_or_cultural_reference");
+  if (brandEntities.length) {
+    warnings.push(`Brand / cultural reference entity: ${brandEntities.map((s) => `"${s.surfaceText}"`).join(", ")} — confirm rendering policy.`);
+  }
+  const reviewEntities = entities.filter((s) => s.requiresAdminReview && !sentenceInitial.includes(s) && !ambiguousEntities.includes(s) && !brandEntities.includes(s));
+  if (reviewEntities.length) {
+    warnings.push(`Semantic entity flagged for review: ${reviewEntities.map((s) => `"${s.surfaceText}"`).join(", ")}`);
+  }
+  const lowConfEntities = entities.filter((s) => s.confidence < 0.75);
+  if (lowConfEntities.length) {
+    warnings.push(`Low-confidence semantic entity: ${lowConfEntities.map((s) => `"${s.surfaceText}"`).join(", ")}`);
   }
   const preview = e.visualPromptPreview;
   if (preview) {
@@ -255,6 +286,166 @@ function CulturalReferencesEditor({
                   onClick={() => remove(i)}
                   className="p-1 text-muted-foreground hover:text-destructive"
                   aria-label="Remove cultural reference"
+                >
+                  <Trash2 className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function emptySemanticEntity(): SemanticEntity {
+  return {
+    surfaceText: "",
+    normalizedText: "",
+    entityKind: "common_noun",
+    visualReferent: "",
+    capitalizationSignal: "lowercase_common_noun",
+    materiallyAffectsVisualPrompt: true,
+    requiresAdminReview: false,
+    confidence: 0.8,
+    notes: "",
+  };
+}
+
+/**
+ * Semantic entities editor (CLASSIFICATION_PROMPT_VERSION v3).
+ * Surfaces capitalization-aware visual referent decisions made during
+ * enrichment so an admin can sanity-check them before approval. All fields
+ * are editable; the admin can add/remove entries manually.
+ */
+function SemanticEntitiesEditor({
+  entities,
+  onChange,
+}: {
+  entities: SemanticEntity[];
+  onChange: (next: SemanticEntity[]) => void;
+}) {
+  const update = (i: number, patch: Partial<SemanticEntity>) => {
+    const next = entities.slice();
+    next[i] = { ...next[i]!, ...patch };
+    onChange(next);
+  };
+  const remove = (i: number) => onChange(entities.filter((_, idx) => idx !== i));
+  const add = () => onChange([...entities, emptySemanticEntity()]);
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between">
+        <label className={LABEL_CLASS}>Semantic Entities / Visual Referents</label>
+        <button
+          type="button"
+          onClick={add}
+          className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
+        >
+          <Plus className="w-3 h-3" /> Add entity
+        </button>
+      </div>
+      {entities.length === 0 ? (
+        <p className="text-xs text-muted-foreground italic">
+          No capitalization-sensitive terms flagged. Add an entry when a term's interpretation (e.g. "Earth" the planet vs "earth" the soil) materially affects the image.
+        </p>
+      ) : (
+        <div className="space-y-3">
+          {entities.map((s, i) => (
+            <div key={i} className="rounded-sm border border-border bg-muted/30 p-3 space-y-2">
+              <div className="flex items-start justify-between gap-2">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 flex-1">
+                  <div>
+                    <label className={LABEL_CLASS}>Surface text (verbatim case)</label>
+                    <input
+                      className={SELECT_CLASS}
+                      value={s.surfaceText}
+                      onChange={(ev) => update(i, { surfaceText: ev.target.value })}
+                    />
+                  </div>
+                  <div>
+                    <label className={LABEL_CLASS}>Normalized text</label>
+                    <input
+                      className={SELECT_CLASS}
+                      value={s.normalizedText}
+                      onChange={(ev) => update(i, { normalizedText: ev.target.value })}
+                    />
+                  </div>
+                  <div>
+                    <label className={LABEL_CLASS}>Entity kind</label>
+                    <select
+                      className={SELECT_CLASS}
+                      value={s.entityKind}
+                      onChange={(ev) => update(i, { entityKind: ev.target.value as SemanticEntityKind })}
+                    >
+                      {SEMANTIC_ENTITY_KIND_VALUES.map((k) => <option key={k} value={k}>{k}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label className={LABEL_CLASS}>Capitalization signal</label>
+                    <select
+                      className={SELECT_CLASS}
+                      value={s.capitalizationSignal}
+                      onChange={(ev) => update(i, { capitalizationSignal: ev.target.value as CapitalizationSignal })}
+                    >
+                      {CAPITALIZATION_SIGNAL_VALUES.map((c) => <option key={c} value={c}>{c}</option>)}
+                    </select>
+                  </div>
+                  <div className="sm:col-span-2">
+                    <label className={LABEL_CLASS}>Visual referent</label>
+                    <input
+                      className={SELECT_CLASS}
+                      value={s.visualReferent}
+                      onChange={(ev) => update(i, { visualReferent: ev.target.value })}
+                      placeholder="e.g. the planet Earth, or: ground/dirt/soil beneath the subject"
+                    />
+                  </div>
+                  <div className="sm:col-span-2">
+                    <label className={LABEL_CLASS}>Notes</label>
+                    <textarea
+                      className={`${SELECT_CLASS} resize-none`}
+                      rows={2}
+                      maxLength={800}
+                      value={s.notes}
+                      onChange={(ev) => update(i, { notes: ev.target.value })}
+                    />
+                  </div>
+                  <div className="flex items-center gap-3 sm:col-span-2 flex-wrap text-xs">
+                    <label className="inline-flex items-center gap-1.5">
+                      <input
+                        type="checkbox"
+                        checked={s.materiallyAffectsVisualPrompt}
+                        onChange={(ev) => update(i, { materiallyAffectsVisualPrompt: ev.target.checked })}
+                      />
+                      Materially affects visual prompt
+                    </label>
+                    <label className="inline-flex items-center gap-1.5">
+                      <input
+                        type="checkbox"
+                        checked={s.requiresAdminReview}
+                        onChange={(ev) => update(i, { requiresAdminReview: ev.target.checked })}
+                      />
+                      Requires admin review
+                    </label>
+                    <label className="inline-flex items-center gap-1.5">
+                      Confidence
+                      <input
+                        type="number"
+                        className="w-16 px-1 py-0.5 bg-background border border-border rounded-sm"
+                        min={0}
+                        max={1}
+                        step={0.05}
+                        value={s.confidence}
+                        onChange={(ev) => update(i, { confidence: Math.max(0, Math.min(1, parseFloat(ev.target.value) || 0)) })}
+                      />
+                    </label>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => remove(i)}
+                  className="text-muted-foreground hover:text-destructive shrink-0"
+                  aria-label="Remove semantic entity"
                 >
                   <Trash2 className="w-4 h-4" />
                 </button>
@@ -506,6 +697,18 @@ export function EnrichmentSummary({ e }: { e: FactEnrichment }) {
               <span className="text-muted-foreground">"{r.sourcePhrase}"</span> ({r.referenceType})
               {r.canonicalReference && <> → <span className="font-medium">{r.canonicalReference}</span></>}
               {r.requiresAdminReview && <span className="text-amber-600 dark:text-amber-400"> · review</span>}
+            </p>
+          ))}
+        </div>
+      )}
+      {(e.semanticEntities ?? []).length > 0 && (
+        <div className="border-t border-border pt-2 mt-2 space-y-1">
+          <p className="text-xs font-bold text-muted-foreground uppercase tracking-wide">Semantic entities</p>
+          {(e.semanticEntities ?? []).map((s, i) => (
+            <p key={i} className="text-xs text-foreground">
+              <span className="text-muted-foreground">"{s.surfaceText}"</span> ({s.entityKind})
+              {s.visualReferent && <> → <span className="font-medium">{s.visualReferent}</span></>}
+              {s.requiresAdminReview && <span className="text-amber-600 dark:text-amber-400"> · review</span>}
             </p>
           ))}
         </div>
@@ -767,6 +970,11 @@ export function EnrichmentEditor({
       <CulturalReferencesEditor
         refs={e.culturalReferences}
         onChange={(next) => update({ culturalReferences: next })}
+      />
+
+      <SemanticEntitiesEditor
+        entities={e.semanticEntities ?? []}
+        onChange={(next) => update({ semanticEntities: next })}
       />
 
       <VisualPreviewPanel

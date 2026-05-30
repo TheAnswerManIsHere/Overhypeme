@@ -67,7 +67,9 @@ export function buildEnrichmentUserMessage(input: EnrichInput): string {
   return [
     "Classify this submitted Overhype.me fact.",
     "",
-    "Fact text:",
+    "Inspect the EXACT spelling and capitalization of factTextExact. Do NOT lowercase, title-case, or otherwise normalize the case before semantic interpretation — capitalization is meaningful (e.g. \"Earth\" vs \"earth\").",
+    "",
+    "factTextExact:",
     input.factText,
     "",
     "Fact status:",
@@ -81,6 +83,7 @@ export function buildEnrichmentUserMessage(input: EnrichInput): string {
     "- Classify the joke mechanism of the fact itself.",
     "- If this is a variant, classify it independently. Do not assume it has the same taxonomy as the parent.",
     "- If the fact includes hashtags or brand/company names, detect them as context, but do not let them override the core archetype.",
+    "- Identify capitalization-sensitive or ambiguity-sensitive terms whose visual interpretation matters and list them in semanticEntities. Do not list every noun — only terms where interpretation materially affects the visual prompt or is genuinely ambiguous.",
   ].join("\n");
 }
 
