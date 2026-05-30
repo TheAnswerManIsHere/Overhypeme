@@ -285,6 +285,21 @@ const compositionWireSchema = z.object({
   sceneReadability: z.string(),
 });
 
+/**
+ * Phase 2 visual-plan echo-back of the semantic entities (capitalization-aware
+ * referents) consumed from the fact enrichment. For every entity in
+ * `input.enrichment.semanticEntities` with `materiallyAffectsVisualPrompt=true`,
+ * the generator MUST list a matching `{surfaceText, visualReferentUsed,
+ * effectOnVisualPlan}`. The validator enforces this.
+ *
+ * Empty array allowed when the enrichment has no material entities.
+ */
+const semanticEntityUsedWireSchema = z.object({
+  surfaceText: z.string(),
+  visualReferentUsed: z.string(),
+  effectOnVisualPlan: z.string(),
+});
+
 const visualPlanWireSchema = z.object({
   sceneConcept: z.string(),
   visualGoal: z.string(),
@@ -295,6 +310,9 @@ const visualPlanWireSchema = z.object({
   subjectFactCompatibility: subjectFactCompatibilityWireSchema,
   composition: compositionWireSchema,
   supportingTextPolicy: supportingTextPolicyWireSchema,
+  // Echo-back of capitalization-aware referents. Must cover every input
+  // semanticEntity with materiallyAffectsVisualPrompt=true (validator rule 14).
+  semanticEntitiesUsed: z.array(semanticEntityUsedWireSchema),
   styleIntegration: z.string(),
   contentNotes: z.string(),
   debugNotes: z.string(),
@@ -332,6 +350,12 @@ export interface PlanExpectations {
   preservePhysique: boolean;
   factText: string;
   fallbackSubjectGender?: FallbackSubjectGender | null;
+  /**
+   * Surface texts of semantic entities with materiallyAffectsVisualPrompt=true.
+   * The validator requires each to appear (case-insensitive) in
+   * visualPlan.semanticEntitiesUsed[].surfaceText.
+   */
+  materialSemanticEntities?: string[];
 }
 
 export type ImagePromptValidationResult =
@@ -604,6 +628,36 @@ export function validateImagePromptPlan(
         error: `subjectTreatment.fallbackSubjectGender must be "not_applicable" for ${expectations.subjectRenderMode}`,
         correctableHint: `fallbackSubjectGender applies only to t2i_fallback.`,
       };
+    }
+  }
+  // 14. semanticEntitiesUsed echo-back. Every input semantic entity with
+  // materiallyAffectsVisualPrompt=true MUST be covered by an entry whose
+  // surfaceText matches (case-insensitively).
+  const material = expectations.materialSemanticEntities ?? [];
+  if (material.length > 0) {
+    const echoed = new Set(
+      vp.semanticEntitiesUsed.map((e) => e.surfaceText.trim().toLowerCase()),
+    );
+    for (const expected of material) {
+      const wanted = expected.trim().toLowerCase();
+      if (!echoed.has(wanted)) {
+        return {
+          ok: false,
+          error: `visualPlan.semanticEntitiesUsed is missing required surfaceText "${expected}"`,
+          correctableHint: `For every semantic entity in the enrichment with materiallyAffectsVisualPrompt=true, echo it back in visualPlan.semanticEntitiesUsed as { surfaceText, visualReferentUsed, effectOnVisualPlan }. Required surfaceText: ${material.join(", ")}.`,
+        };
+      }
+    }
+    // Each echoed entry must carry non-empty visualReferentUsed +
+    // effectOnVisualPlan so it actually informs the plan.
+    for (const entry of vp.semanticEntitiesUsed) {
+      if (!entry.visualReferentUsed.trim() || !entry.effectOnVisualPlan.trim()) {
+        return {
+          ok: false,
+          error: `semanticEntitiesUsed entry for "${entry.surfaceText}" has empty visualReferentUsed or effectOnVisualPlan`,
+          correctableHint: `Each semanticEntitiesUsed entry must include a concrete visualReferentUsed and a short effectOnVisualPlan describing how it shaped the scene.`,
+        };
+      }
     }
   }
 

@@ -46,6 +46,9 @@ type UserMessage = { role: "user"; content: string };
 // ─── User-message assembly ────────────────────────────────────────────────
 
 function expectationsFromInput(input: ImagePromptGenerationInput): PlanExpectations {
+  const materialSemanticEntities = (input.enrichment.semanticEntities ?? [])
+    .filter((e) => e.materiallyAffectsVisualPrompt)
+    .map((e) => e.surfaceText);
   return {
     archetype: input.enrichment.primaryArchetype,
     subtype: input.enrichment.subtype as FactSubtype,
@@ -56,6 +59,7 @@ function expectationsFromInput(input: ImagePromptGenerationInput): PlanExpectati
     preservePhysique: input.identityPolicy.preservePhysique,
     factText: input.factText,
     fallbackSubjectGender: input.renderControls.fallbackSubjectGender ?? null,
+    materialSemanticEntities,
   };
 }
 
@@ -72,6 +76,17 @@ export function buildImagePromptUserMessage(input: ImagePromptGenerationInput): 
         )
         .join("\n")
     : "  (no cultural references — render the joke from the literal text + taxonomy alone)";
+
+  const semanticEntities = e.semanticEntities ?? [];
+  const materialEntities = semanticEntities.filter((s) => s.materiallyAffectsVisualPrompt);
+  const semanticEntitiesBlock = semanticEntities.length
+    ? semanticEntities
+        .map(
+          (s, i) =>
+            `  ${i + 1}. surfaceText="${s.surfaceText}", entityKind=${s.entityKind}, visualReferent="${s.visualReferent}", capitalizationSignal=${s.capitalizationSignal}, materiallyAffectsVisualPrompt=${s.materiallyAffectsVisualPrompt}, requiresAdminReview=${s.requiresAdminReview}, confidence=${s.confidence}${s.notes ? `, notes="${s.notes}"` : ""}`,
+        )
+        .join("\n")
+    : "  (no capitalization-sensitive entities flagged by enrichment)";
 
   const examplesBlock = strategy.visualizationExamples
     .map((ex, i) => {
@@ -119,8 +134,8 @@ export function buildImagePromptUserMessage(input: ImagePromptGenerationInput): 
   return [
     "Generate the engine-neutral visualPlan + Nano Banana 2 compiledPrompt + subjectFactCompatibility for this render.",
     "",
-    "RENDERED FACT TEXT (subject/pronouns already resolved):",
-    input.factText,
+    "RENDERED FACT TEXT (subject/pronouns already resolved). Inspect the EXACT spelling and capitalization — capitalization is meaningful for visual interpretation:",
+    `factTextExact: ${input.factText}`,
     "",
     "TAXONOMY (FIXED — DO NOT reclassify):",
     `- primaryArchetype: ${e.primaryArchetype}`,
@@ -150,6 +165,12 @@ export function buildImagePromptUserMessage(input: ImagePromptGenerationInput): 
     "",
     "PER-FACT CULTURAL REFERENCES (override example annotations for THIS fact):",
     culturalRefsBlock,
+    "",
+    "SEMANTIC ENTITY INTERPRETATION (hard visual context — DO NOT override; treat as the locked meaning of the surface term in this fact):",
+    semanticEntitiesBlock,
+    materialEntities.length > 0
+      ? `\nFor every entity above with materiallyAffectsVisualPrompt=true, include a matching entry in visualPlan.semanticEntitiesUsed (echo surfaceText verbatim; fill visualReferentUsed with the resolved referent; fill effectOnVisualPlan with one sentence on how this shaped the scene). Required surfaceTexts: ${materialEntities.map((s) => `"${s.surfaceText}"`).join(", ")}.`
+      : "\n(semanticEntitiesUsed may be an empty array.)",
     "",
     "SOURCE-IMAGE ANALYSIS:",
     `- subjectKind: ${input.sourceImageAnalysis.subjectKind}`,
@@ -197,6 +218,9 @@ export function buildImagePromptUserMessage(input: ImagePromptGenerationInput): 
     `- nonhumanSubjectTreatment.applicable MUST be ${input.subjectRenderMode === "nonhuman_subject_i2i" ? "true" : "false"}.`,
     `- subjectTreatment.fallbackSubjectGender MUST be ${input.subjectRenderMode === "t2i_fallback" ? `"${fallbackGender ?? "neutral"}"` : '"not_applicable"'}.`,
     "- subjectFactCompatibility: rate strong/workable/risky/poor with a reason; when rating is poor, recommendedFallback must NOT be \"none\".",
+    materialEntities.length > 0
+      ? `- semanticEntitiesUsed: MUST include an entry for each of [${materialEntities.map((s) => `"${s.surfaceText}"`).join(", ")}]; each entry needs surfaceText + visualReferentUsed + effectOnVisualPlan all non-empty.`
+      : "- semanticEntitiesUsed: may be an empty array (no material entities in this fact).",
     "- Return ONLY the JSON object.",
   ]
     .filter((s) => s !== "")

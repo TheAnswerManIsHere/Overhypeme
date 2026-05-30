@@ -241,7 +241,7 @@ export type ReferenceType = (typeof REFERENCE_TYPE_VALUES)[number];
 // ─── Versioning (lightweight; useful for debugging + future prompt changes) ─
 
 export const TAXONOMY_VERSION = "v1";
-export const CLASSIFICATION_PROMPT_VERSION = "v2";
+export const CLASSIFICATION_PROMPT_VERSION = "v3";
 export const PREVIEW_PROMPT_VERSION = "v1";
 
 // ─── Hashtag normalization ─────────────────────────────────────────────────
@@ -272,6 +272,69 @@ export const culturalReferenceSchema = z.object({
   requiresAdminReview: z.boolean().default(false),
 });
 export type CulturalReference = z.infer<typeof culturalReferenceSchema>;
+
+// ─── Semantic entities (capitalization-aware visual referents) ─────────────
+
+/**
+ * The kind of thing a surface term refers to in this fact. Drives visual
+ * interpretation downstream (Phase 2 image-prompt generation reads these as
+ * HARD context — see imagePromptGeneration.ts).
+ *
+ * Not a new archetype layer — entity interpretation is render context, not
+ * taxonomy. The fact's primaryArchetype + subtype don't change because we
+ * resolved "Earth" to the planet.
+ */
+export const SEMANTIC_ENTITY_KIND_VALUES = [
+  "proper_noun",
+  "common_noun",
+  "named_entity",
+  "brand_or_cultural_reference",
+  "abstract_concept",
+  "personified_concept",
+  "physical_object",
+  "place",
+  "celestial_body",
+  "institution_or_system",
+  "ambiguous",
+] as const;
+export type SemanticEntityKind = (typeof SEMANTIC_ENTITY_KIND_VALUES)[number];
+
+/**
+ * What signal the surface casing carried for THIS interpretation. Sentence-
+ * initial ambiguity is the common reason an entry needs admin review even
+ * when confidence is otherwise high.
+ */
+export const CAPITALIZATION_SIGNAL_VALUES = [
+  "capitalized_named_entity",
+  "lowercase_common_noun",
+  "sentence_initial_ambiguous",
+  "all_caps_presentation_ignored",
+  "mixed_case_brand_or_title",
+  "not_relevant",
+] as const;
+export type CapitalizationSignal = (typeof CAPITALIZATION_SIGNAL_VALUES)[number];
+
+/**
+ * One disambiguated surface term in the fact text. The enrichment AI lists
+ * only entries where interpretation MATTERS for visual prompting — not every
+ * noun. Entries with `materiallyAffectsVisualPrompt=true` are echoed back by
+ * the Phase 2 prompt generator in `visualPlan.semanticEntitiesUsed`.
+ *
+ * Capitalization is preserved on `surfaceText` (do NOT normalize the case
+ * before enrichment). `normalizedText` is the lowercase comparable form.
+ */
+export const semanticEntitySchema = z.object({
+  surfaceText: z.string().trim().min(1).max(120),
+  normalizedText: z.string().trim().min(1).max(120),
+  entityKind: z.enum(SEMANTIC_ENTITY_KIND_VALUES),
+  visualReferent: z.string().trim().min(1).max(400),
+  capitalizationSignal: z.enum(CAPITALIZATION_SIGNAL_VALUES),
+  materiallyAffectsVisualPrompt: z.boolean(),
+  requiresAdminReview: z.boolean().default(false),
+  confidence: z.number().min(0).max(1),
+  notes: z.string().trim().max(800).default(""),
+});
+export type SemanticEntity = z.infer<typeof semanticEntitySchema>;
 
 /**
  * Per-fact supporting-text policy: what readable text the image model is
@@ -372,6 +435,14 @@ const factEnrichmentBase = z.object({
   taxonomyConfidence: z.number().min(0).max(1),
   adminReviewNotes: z.string().trim().max(800).default(""),
   culturalReferences: z.array(culturalReferenceSchema).max(20).default([]),
+  /**
+   * Capitalization-aware visual-referent disambiguation (CLASSIFICATION_PROMPT_VERSION v3).
+   * Optional + defaults to `[]` so older enrichment blobs validate unchanged.
+   * Only entries where interpretation materially affects the visual prompt
+   * should be listed — the enrichment AI is instructed not to enumerate
+   * every noun.
+   */
+  semanticEntities: z.array(semanticEntitySchema).max(20).default([]),
   visualPromptPreview: visualPromptPreviewSchema.optional(),
   previewStatus: z.enum(["pending", "ok", "failed"]).optional(),
   // Optional provenance — stamped by the enrichment service.
@@ -470,6 +541,18 @@ const culturalReferenceWireSchema = z.object({
   requiresAdminReview: z.boolean(),
 });
 
+const semanticEntityWireSchema = z.object({
+  surfaceText: z.string(),
+  normalizedText: z.string(),
+  entityKind: z.enum(SEMANTIC_ENTITY_KIND_VALUES),
+  visualReferent: z.string(),
+  capitalizationSignal: z.enum(CAPITALIZATION_SIGNAL_VALUES),
+  materiallyAffectsVisualPrompt: z.boolean(),
+  requiresAdminReview: z.boolean(),
+  confidence: z.number(),
+  notes: z.string(),
+});
+
 export const factEnrichmentWireSchema = z.object({
   primaryArchetype: archetypeEnum,
   subtype: subtypeEnum,
@@ -483,6 +566,7 @@ export const factEnrichmentWireSchema = z.object({
   taxonomyConfidence: z.number(),
   adminReviewNotes: z.string(),
   culturalReferences: z.array(culturalReferenceWireSchema),
+  semanticEntities: z.array(semanticEntityWireSchema),
 });
 
 const supportingTextPolicyWireSchema = z.object({

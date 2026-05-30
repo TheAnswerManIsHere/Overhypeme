@@ -221,6 +221,30 @@ Cultural references INFORM the visual interpretation but MUST NOT change the pri
 If the fact has no outside-context dependency, emit an empty array: culturalReferences: [].
 Do NOT emit a "none" reference type — there is no "none" type.
 
+Semantic entity and capitalization-aware interpretation:
+
+Preserve and interpret meaningful capitalization. DO NOT normalize casing before semantic interpretation. The fact text is provided to you in a field named factTextExact — use it verbatim.
+
+Distinguish common nouns from proper nouns, named entities, brands, cultural references, celestial bodies, abstract concepts, and personified concepts when that distinction changes the visual meaning of the fact.
+
+Examples:
+- "earth" usually means dirt, soil, ground, or terrain.
+- "Earth" usually means the planet Earth.
+- "apple" usually means the fruit.
+- "Apple" may mean the technology company or brand.
+- "sun" may mean sunlight or the visible sun generally.
+- "Sun" may mean the named celestial body or a personified entity, depending on context.
+- "law" may mean legal rules or the legal system.
+- "Law" may indicate personification, a title, or an institution, depending on context.
+
+Use capitalization as a strong signal, but do not rely on capitalization alone. If a word is capitalized only because it begins a sentence, set capitalizationSignal to "sentence_initial_ambiguous", set requiresAdminReview to true, and infer the referent from context.
+
+When capitalization, wording, or cultural reference materially changes the visual referent, add a semanticEntities entry. Required fields per entry: surfaceText (verbatim case from the fact), normalizedText (lowercase comparable form), entityKind (one of: proper_noun, common_noun, named_entity, brand_or_cultural_reference, abstract_concept, personified_concept, physical_object, place, celestial_body, institution_or_system, ambiguous), visualReferent (the concrete interpretation, e.g. "the planet Earth" or "ground, dirt, soil, or terrain beneath the subject"), capitalizationSignal (one of: capitalized_named_entity, lowercase_common_noun, sentence_initial_ambiguous, all_caps_presentation_ignored, mixed_case_brand_or_title, not_relevant), materiallyAffectsVisualPrompt (boolean — true when changing the interpretation would materially change the rendered image), requiresAdminReview (boolean — true for sentence-initial ambiguity, brand/cultural references, ambiguous kind, or any case an admin should sanity-check), confidence (0-1), notes (string with the reasoning; "" if none).
+
+Do NOT list every noun. Only list terms whose interpretation materially affects the visual prompt, is ambiguous, or could be confused with another referent. When no entries are warranted, emit an empty array: semanticEntities: [].
+
+Semantic entities do NOT change the primaryArchetype or subtype. The taxonomy is unchanged; semantic entities are RENDER context for the downstream image prompt generator.
+
 Modifier rules:
 Prefer known modifiers from the known modifier catalog when possible. You may add a custom modifier only if no known modifier captures an important rendering, discovery, identity, setting, or safety constraint.
 
@@ -276,7 +300,7 @@ Known modifier catalog:
 - workplace_context
 - audience_inside_reference
 
-Return ONLY a single JSON object with exactly these keys: primaryArchetype, subtype, modifiers (array of strings), visualLiteralness, visualComplexity, overhypeFit, adultSuitability, adultSuitabilityNotes (string, "" if none), suggestedHashtags (array of 3-8 lowercase alphanumeric strings), taxonomyConfidence (number 0-1), adminReviewNotes (string, "" if none), culturalReferences (array; empty array if no outside-context dependency, otherwise objects with sourcePhrase, referenceType, canonicalReference, explanation, visualImplication, confidence, requiresAdminReview).
+Return ONLY a single JSON object with exactly these keys: primaryArchetype, subtype, modifiers (array of strings), visualLiteralness, visualComplexity, overhypeFit, adultSuitability, adultSuitabilityNotes (string, "" if none), suggestedHashtags (array of 3-8 lowercase alphanumeric strings), taxonomyConfidence (number 0-1), adminReviewNotes (string, "" if none), culturalReferences (array; empty array if no outside-context dependency, otherwise objects with sourcePhrase, referenceType, canonicalReference, explanation, visualImplication, confidence, requiresAdminReview), semanticEntities (array; empty array when no capitalization-sensitive disambiguation is needed, otherwise objects with surfaceText, normalizedText, entityKind, visualReferent, capitalizationSignal, materiallyAffectsVisualPrompt, requiresAdminReview, confidence, notes).
 Do not include explanation outside the JSON.`;
 
 // ─── Getter (debug-overlay aware via adminConfig) ─────────────────────────────

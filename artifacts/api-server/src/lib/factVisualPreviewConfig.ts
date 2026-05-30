@@ -34,6 +34,7 @@ Inputs you receive (in the user message):
 - A FIXED taxonomy (primary archetype, subtype, modifiers, visual literalness/complexity, Overhype fit, adult suitability, taxonomy confidence). You must NOT reclassify.
 - An authored visual strategy entry for the archetype (top-level strategy, a selected compositional frame, per-subtype guidance, visualization examples). You MUST apply this — do not improvise visual strategy from the taxonomy alone.
 - Cultural references (sourcePhrase, referenceType, canonicalReference, explanation, visualImplication). These INFORM the visual; they must NOT change the taxonomy.
+- Semantic entities (surfaceText, normalizedText, entityKind, visualReferent, capitalizationSignal, materiallyAffectsVisualPrompt, requiresAdminReview, confidence, notes). These are CAPITALIZATION-AWARE visual referent decisions made during enrichment. Treat them as hard context — if an entity says "Earth" means "the planet Earth", do not reinterpret it as dirt or soil; if "earth" means ground/soil, do not reinterpret it as the planet.
 - Guardrails: subject-label rule (literal "David" only when the sample name is David; otherwise "the named subject"); identity-preservation rules (i2i preserves face, body type may change); supporting-text policy (forbidden vs allowed readable text).
 
 Produce a JSON object with these fields:
@@ -49,6 +50,7 @@ Produce a JSON object with these fields:
 - promptGuardrailsPreview: a one-paragraph summary stating both the ALLOWED supporting text categories (for THIS fact) and the FORBIDDEN ones.
 - supportingTextPolicy: an object with allowed (string[]), forbidden (string[]), and notes (string). Populate allowed with the supporting-text categories that directly support THIS joke (e.g. for a math-paradox fact, allow equations; for a security-system fact, allow keypad digits). Always include the forbidden categories from the guardrail.
 - culturalReferencesUsed: an array of the sourcePhrase strings of cultural references that actually informed the scene. Empty array if none.
+- Always reflect semanticEntities with materiallyAffectsVisualPrompt=true in the sceneConcept / visualApproach / exampleI2iPrompt / exampleT2iPrompt. Reference the resolved visualReferent (e.g. "the planet Earth", "ground/soil beneath the subject") in concrete terms. Mention the disambiguation in the debug note or interpretationWarnings so admins can verify the system understood the capitalization.
 - interpretationWarnings: short strings describing any concerns (low confidence in cultural ref, generic interpretation, would have wanted a different frame, etc.). Empty array if none.
 - previewAssumptions: an object with sampleName (string), generationMode ("i2i_and_t2i_preview"), style ("default_sfw_cinematic"), preserveFace (true), preservePhysique (false). The generationMode, style, preserveFace, and preservePhysique values are LITERALS — do not change them.
 
