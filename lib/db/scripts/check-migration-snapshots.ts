@@ -147,6 +147,13 @@ const SNAPSHOT_EXEMPT_TAGS = new Set<string>([
   // the snapshot is intentionally absent. Drizzle TS schema in
   // lib/db/src/schema/referenceResearchCache.ts is the source of truth.
   "0067_reference_research_cache",
+
+  // Bugfix: pending_reviews FK columns matching_fact_id and approved_fact_id
+  // had no onDelete policy (defaulted to NO ACTION), blocking hard-deletes of
+  // facts with a FK constraint violation. Hand-authored DDL to add ON DELETE
+  // SET NULL to both constraints — drizzle-kit snapshot regen still fails on
+  // the upstream malformed 0063 snapshot, so snapshot is intentionally absent.
+  "0068_reviews_fact_fk_on_delete_set_null",
 ]);
 
 interface JournalEntry {
