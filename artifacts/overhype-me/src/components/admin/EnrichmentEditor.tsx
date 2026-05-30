@@ -331,7 +331,7 @@ function VisualPreviewPanel({
         </div>
         <div>
           <label className={LABEL_CLASS}>Scene concept</label>
-          <input className={SELECT_CLASS}
+          <textarea className={`${SELECT_CLASS} resize-none`} rows={2}
             value={p.sceneConcept}
             onChange={(ev) => update({ sceneConcept: ev.target.value })}
           />

@@ -378,11 +378,13 @@ function ReviewModal({
                 >
                   <CheckCircle2 className="w-4 h-4" /> Approve — New Fact
                 </Button>
-                <Button variant="outline" onClick={() => handle("approve-variant")} isLoading={loading}
-                  disabled={!review.matchingFact}
-                  className="border-blue-500/50 text-blue-600 dark:text-blue-400 hover:bg-blue-500/10 gap-2">
-                  <GitBranch className="w-4 h-4" /> Approve as Variant of #{review.matchingFact?.id ?? "?"}
-                </Button>
+                {review.matchingFact && (
+                  <Button variant="outline" onClick={() => handle("approve-variant")} isLoading={loading}
+                    disabled={!review.matchingFact}
+                    className="border-blue-500/50 text-blue-600 dark:text-blue-400 hover:bg-blue-500/10 gap-2">
+                    <GitBranch className="w-4 h-4" /> Approve as Variant of #{review.matchingFact.id}
+                  </Button>
+                )}
                 <Button variant="outline" onClick={() => handle("reject")} isLoading={loading}
                   className="border-destructive text-destructive hover:bg-destructive/10 gap-2">
                   <XCircle className="w-4 h-4" /> Reject
