@@ -1,0 +1,1 @@
+- [Auth middleware Bearer-cookie priority](auth-bearer-cookie-fallback.md) — stale Bearer in localStorage blocked valid cookie sessions; auth middleware now falls back to cookie when Bearer is stale.
