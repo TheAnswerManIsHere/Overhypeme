@@ -157,7 +157,7 @@ export default function SubmitFact() {
       });
       if (r.ok) {
         const data: DuplicateResult = await r.json();
-        setDuplicate(data.matchingFactId && data.confidence > 0 ? data : null);
+        setDuplicate(data.confidence > 0 ? data : null);
       }
     } catch { setDuplicate(null); }
     finally { setCheckingDuplicate(false); }
