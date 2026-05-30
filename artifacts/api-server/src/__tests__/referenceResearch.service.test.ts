@@ -13,6 +13,7 @@ import { eq } from "drizzle-orm";
 import {
   researchCulturalReferenceWithModel,
   computeReferenceResearchCacheKey,
+  buildResearchUserMessage,
   ReferenceResearchError,
 } from "../lib/referenceResearch";
 
@@ -122,6 +123,14 @@ describe("researchCulturalReferenceWithModel", () => {
     const a = computeReferenceResearchCacheKey(INPUT);
     const b = computeReferenceResearchCacheKey({ ...INPUT });
     assert.equal(a, b);
+  });
+
+  it("user message instructs the model to capture the fact's twist / role reversal", () => {
+    const msg = buildResearchUserMessage(INPUT);
+    assert.match(msg, /twist|reversal|inversion|subver/i);
+    assert.match(msg, /misreading to avoid/i);
+    // The fact text itself must be present so the model can derive the twist.
+    assert.ok(msg.includes(INPUT.factText));
   });
 
   it("throws ReferenceResearchError(input) when factText is missing", async () => {

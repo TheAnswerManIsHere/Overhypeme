@@ -147,6 +147,8 @@ export function buildResearchUserMessage(input: ReferenceResearchInput): string 
     `sourcePhrase: ${input.sourcePhrase}`,
     `referenceType: ${input.referenceType}`,
     `canonicalReference: ${input.canonicalReference}`,
+    "",
+    "Before writing the visual implication: identify how this fact TWISTS the reference (role reversal, inversion, subversion, or literalized pun) and who/what ends up in the surprising role. The visual implication must commit to that bent scene with the named subject as the protagonist, and must state the obvious misreading to avoid.",
   ];
   if (input.existingExplanation && input.existingExplanation.trim()) {
     lines.push("");
@@ -164,7 +166,7 @@ export function buildResearchUserMessage(input: ReferenceResearchInput): string 
     lines.push(input.adminNotes.trim());
   }
   lines.push("");
-  lines.push("If the canonical name suggests a public entity, use the web_search_preview tool to look it up. Cite source URLs. Return ONLY the JSON object.");
+  lines.push("If the canonical name suggests a public entity, use the web_search_preview tool to look it up. Cite source URLs. The visualImplication must capture the specific twist in this fact, not the reference's generic atmosphere. Return ONLY the JSON object.");
   return lines.join("\n");
 }
 
