@@ -132,7 +132,7 @@ function ReviewModal({
 }: {
   review: Review;
   onClose: () => void;
-  onDecision: (id: number, action: "approve" | "reject" | "approve-variant", note: string, parentFactId?: number, rejectionReason?: RejectionReason, enrichment?: FactEnrichment | null) => Promise<void>;
+  onDecision: (id: number, action: "approve" | "reject" | "approve-variant", note: string, parentFactId?: number, rejectionReason?: RejectionReason, enrichment?: FactEnrichment | null) => Promise<string | null>;
 }) {
   const [note, setNote] = useState(review.adminNote ?? "");
   const [loading, setLoading] = useState(false);
@@ -274,15 +274,18 @@ function ReviewModal({
 
   const canApprove = isApprovable(enrichment);
 
+  const [decisionError, setDecisionError] = useState("");
+
   const handle = async (action: "approve" | "reject" | "approve-variant") => {
     setLoading(true);
-    if (action === "approve-variant") {
-      await onDecision(review.id, action, note, review.matchingFact?.id ?? undefined, undefined, enrichment);
-    } else if (action === "reject") {
-      await onDecision(review.id, action, note, undefined, rejectionReason || undefined);
-    } else {
-      await onDecision(review.id, action, note, undefined, undefined, enrichment);
-    }
+    setDecisionError("");
+    const err =
+      action === "approve-variant"
+        ? await onDecision(review.id, action, note, review.matchingFact?.id ?? undefined, undefined, enrichment)
+        : action === "reject"
+        ? await onDecision(review.id, action, note, undefined, rejectionReason || undefined)
+        : await onDecision(review.id, action, note, undefined, undefined, enrichment);
+    if (err) setDecisionError(err);
     setLoading(false);
   };
 
@@ -371,7 +374,7 @@ function ReviewModal({
                 </label>
                 <select
                   value={rejectionReason}
-                  onChange={(e) => setRejectionReason(e.target.value as RejectionReason | "")}
+                  onChange={(e) => { setRejectionReason(e.target.value as RejectionReason | ""); setDecisionError(""); }}
                   className="w-full px-3 py-2 bg-background border border-border rounded-sm text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
                 >
                   <option value="">— No specific reason —</option>
@@ -379,6 +382,12 @@ function ReviewModal({
                     <option key={r.value} value={r.value}>{r.label}</option>
                   ))}
                 </select>
+                {decisionError && (
+                  <div className="flex items-start gap-2 mt-2 rounded-sm border border-destructive/50 bg-destructive/10 px-3 py-2">
+                    <AlertTriangle className="w-4 h-4 text-destructive shrink-0 mt-0.5" />
+                    <p className="text-sm text-destructive">{decisionError}</p>
+                  </div>
+                )}
               </div>
               <div>
                 <label className="block text-sm font-semibold text-foreground mb-2">Admin Note <span className="text-muted-foreground font-normal">(optional, sent to user)</span></label>
@@ -491,8 +500,7 @@ function FactReviewsPanel() {
     parentFactId?: number,
     rejectionReason?: RejectionReason,
     enrichment?: FactEnrichment | null,
-  ) => {
-    setActionMsg("");
+  ): Promise<string | null> => {
     const body: Record<string, unknown> = { adminNote: note || undefined };
     if (action === "approve-variant" && parentFactId !== undefined) body.parentFactId = parentFactId;
     if (action === "reject" && rejectionReason) body.rejectionReason = rejectionReason;
@@ -504,15 +512,13 @@ function FactReviewsPanel() {
       body: JSON.stringify(body),
     });
     if (r.ok) {
-      const label = action === "approve-variant" ? "approved as variant" : `${action}d`;
-      setActionMsg(`Review #${id} ${label} successfully.`);
       setSelectedReview(null);
       setInitialized(false);
       void load();
-    } else {
-      const d = await r.json() as { error?: string };
-      setActionMsg(`Error: ${d.error ?? "Unknown error"}`);
+      return null;
     }
+    const d = await r.json() as { error?: string };
+    return d.error ?? `Request failed (${r.status})`;
   };
 
   const totalPages = data ? Math.ceil(data.total / data.limit) : 1;
@@ -546,7 +552,7 @@ function FactReviewsPanel() {
       </div>
 
       {actionMsg && (
-        <div className={`p-3 rounded-sm text-sm ${actionMsg.startsWith("Error") ? "bg-destructive/10 text-destructive" : "bg-green-500/10 text-green-600"}`}>
+        <div className="p-3 rounded-sm text-sm bg-green-500/10 text-green-600">
           {actionMsg}
         </div>
       )}
