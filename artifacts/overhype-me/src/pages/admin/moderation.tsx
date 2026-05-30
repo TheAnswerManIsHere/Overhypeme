@@ -125,6 +125,17 @@ const REJECTION_REASONS = [
 
 type RejectionReason = typeof REJECTION_REASONS[number]["value"];
 
+function getRelativeTime(savedAt: number): string {
+  const seconds = Math.floor((Date.now() - savedAt) / 1000);
+  if (seconds < 30) return "Saved just now";
+  if (seconds < 90) return "Saved 1 min ago";
+  const minutes = Math.round(seconds / 60);
+  if (minutes < 60) return `Saved ${minutes} min ago`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return `Saved ${hours}h ago`;
+  return "Saved a while ago";
+}
+
 function ReviewModal({
   review,
   onClose,
@@ -141,16 +152,19 @@ function ReviewModal({
   const [rejectionReason, setRejectionReason] = useState<RejectionReason | "">("");
   const [enrichment, setEnrichment] = useState<FactEnrichment | null>(review.enrichment);
   const [enrichmentStatus, setEnrichmentStatus] = useState<string | null>(review.enrichmentStatus);
-  const [enrichmentMsg, setEnrichmentMsg] = useState("");
   const [errorMsg, setErrorMsg] = useState("");
   const [rerunBusy, setRerunBusy] = useState(false);
   const [previewBusy, setPreviewBusy] = useState(false);
-  // Once the admin edits enrichment manually, stop syncing from the server so
-  // background polling never clobbers their work.
+  // dirtyRef: true while there are unsaved admin edits. Prevents syncFromServer
+  // from clobbering local state, and gates the debounced auto-save.
   const dirtyRef = useRef(false);
+  const autoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  const [savedAt, setSavedAt] = useState<number | null>(null);
+  const [savedLabel, setSavedLabel] = useState("");
   const [previewPolls, setPreviewPolls] = useState(0);
 
-  // Pull the latest stored enrichment from the server (the async job writes it
+  // Pull the latest stored enrichment from the server (async job writes it
   // out-of-band). Returns the fresh enrichmentStatus, or null when skipped/failed.
   const syncFromServer = useCallback(async (): Promise<string | null> => {
     if (dirtyRef.current) return null;
@@ -166,6 +180,57 @@ function ReviewModal({
       return null;
     }
   }, [review.id]);
+
+  // Shared PATCH helper. Handles the save indicator, dirtyRef reset, and error
+  // display. Returns true on success so callers can chain (e.g. trigger preview).
+  const performSave = useCallback(async (enrichmentToSave: FactEnrichment): Promise<boolean> => {
+    setSaveStatus("saving");
+    try {
+      const r = await fetch(`/api/admin/reviews/${review.id}/enrichment`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ enrichment: enrichmentToSave }),
+      });
+      if (r.ok) {
+        dirtyRef.current = false;
+        const now = Date.now();
+        setSavedAt(now);
+        setSavedLabel(getRelativeTime(now));
+        setSaveStatus("saved");
+        return true;
+      }
+      setSaveStatus("error");
+      setErrorMsg(r.status === 503 ? "API unavailable — try again shortly." : `Save failed (${r.status}).`);
+      return false;
+    } catch {
+      setSaveStatus("error");
+      setErrorMsg("Network error — could not save.");
+      return false;
+    }
+  }, [review.id]);
+
+  // Debounced auto-save: fires 1.5 s after the last admin edit.
+  // Only runs when dirtyRef is true (admin changed something) to avoid
+  // echoing server-synced updates back to the server.
+  useEffect(() => {
+    if (!enrichment) return;
+    if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
+    autoSaveTimerRef.current = setTimeout(() => {
+      if (!dirtyRef.current || !enrichment) return;
+      void performSave(enrichment);
+    }, 1500);
+    return () => {
+      if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
+    };
+  }, [enrichment, performSave]);
+
+  // Keep the "Saved X min ago" label fresh.
+  useEffect(() => {
+    if (savedAt === null) return;
+    const interval = setInterval(() => setSavedLabel(getRelativeTime(savedAt)), 30_000);
+    return () => clearInterval(interval);
+  }, [savedAt]);
 
   // While enrichment is still running, poll until it lands. Clear rerunBusy
   // as soon as the status leaves "pending".
@@ -205,34 +270,8 @@ function ReviewModal({
     return () => { cancelled = true; clearInterval(id); setPreviewBusy(false); };
   }, [previewPolls, syncFromServer]);
 
-  const saveEnrichment = async () => {
-    if (!enrichment) return;
-    setLoading(true);
-    setEnrichmentMsg("");
-    setErrorMsg("");
-    try {
-      const r = await fetch(`/api/admin/reviews/${review.id}/enrichment`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({ enrichment }),
-      });
-      if (r.ok) {
-        dirtyRef.current = false;
-        setEnrichmentStatus("ok");
-        setEnrichmentMsg("Enrichment saved.");
-      } else {
-        setErrorMsg(r.status === 503 ? "API unavailable — try again shortly." : `Save failed (${r.status}).`);
-      }
-    } catch {
-      setErrorMsg("Network error — could not reach the server.");
-    }
-    setLoading(false);
-  };
-
   const rerunEnrichment = async () => {
     setLoading(true);
-    setEnrichmentMsg("");
     setErrorMsg("");
     try {
       const r = await fetch(`/api/admin/reviews/${review.id}/enrich`, { method: "POST", credentials: "include" });
@@ -256,25 +295,13 @@ function ReviewModal({
   const regeneratePreview = async () => {
     if (!enrichment) return;
     setLoading(true);
-    setEnrichmentMsg("");
     setErrorMsg("");
+    // Save first so the server generates the preview from the current enrichment
+    // (including any unsaved cultural references / semantic entities). Also
+    // resets dirtyRef so the preview-polling syncFromServer is not blocked.
+    const saved = await performSave(enrichment);
+    if (!saved) { setLoading(false); return; }
     try {
-      // Save first so the server generates the preview from the current enrichment
-      // (including any cultural references / semantic entities added since the last save).
-      // This also resets dirtyRef so the preview-polling syncFromServer isn't blocked.
-      const saveRes = await fetch(`/api/admin/reviews/${review.id}/enrichment`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({ enrichment }),
-      });
-      if (!saveRes.ok) {
-        setErrorMsg(saveRes.status === 503 ? "API unavailable — try again shortly." : `Save failed (${saveRes.status}) — preview not triggered.`);
-        setLoading(false);
-        return;
-      }
-      dirtyRef.current = false;
-
       const r = await fetch(`/api/admin/reviews/${review.id}/preview`, { method: "POST", credentials: "include" });
       if (r.ok) {
         setPreviewPolls((n) => n + 1);
@@ -380,7 +407,6 @@ function ReviewModal({
                 value={enrichment}
                 status={enrichmentStatus}
                 onChange={(next) => { dirtyRef.current = true; setEnrichment(next); }}
-                onSave={enrichment ? saveEnrichment : undefined}
                 onRerun={rerunEnrichment}
                 onRegeneratePreview={regeneratePreview}
                 busy={loading || rerunBusy || previewBusy}
@@ -388,7 +414,13 @@ function ReviewModal({
                 previewBusy={previewBusy}
                 submittedHashtags={review.hashtags ?? []}
               />
-              {enrichmentMsg && <p className="text-xs text-muted-foreground">{enrichmentMsg}</p>}
+              <div className="flex items-center justify-between gap-2">
+                <div className="text-xs text-muted-foreground">
+                  {saveStatus === "saving" && <span className="flex items-center gap-1"><Loader2 className="w-3 h-3 animate-spin" />Saving…</span>}
+                  {saveStatus === "saved" && savedLabel && <span>{savedLabel}</span>}
+                  {saveStatus === "error" && <span className="text-destructive">Auto-save failed — see error below</span>}
+                </div>
+              </div>
               {errorMsg && (
                 <div className="flex items-start gap-2 rounded-sm border border-destructive/50 bg-destructive/10 px-3 py-2">
                   <AlertTriangle className="w-4 h-4 text-destructive shrink-0 mt-0.5" />
