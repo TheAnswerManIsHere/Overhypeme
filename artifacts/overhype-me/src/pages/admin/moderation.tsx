@@ -151,6 +151,9 @@ function ReviewModal({
   // (a ref can't drive the hook's effect); both reset together on a successful save.
   const dirtyRef = useRef(false);
   const [dirty, setDirty] = useState(false);
+  // Separate dirty tracking for the admin note field (top-level, not enrichment).
+  const noteDirtyRef = useRef(false);
+  const [noteDirty, setNoteDirty] = useState(false);
   const [previewPolls, setPreviewPolls] = useState(0);
   // Tracks the latest enrichment.previewStatus from the server so the preview
   // polling interval (which has a stale closure over React state) can detect
@@ -224,6 +227,55 @@ function ReviewModal({
       setDirty(false);
     },
   });
+
+  // Server-backed adapter for the admin note field (top-level, sent to user on decision).
+  const noteAdapter = useMemo<StorageAdapter<string>>(
+    () => ({
+      load: () => null,
+      clear: () => {},
+      save: async (noteToSave) => {
+        let r: Response;
+        try {
+          r = await fetch(`/api/admin/reviews/${review.id}/note`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            credentials: "include",
+            body: JSON.stringify({ note: noteToSave }),
+          });
+        } catch {
+          throw new Error("Network error — could not save.");
+        }
+        if (!r.ok) {
+          throw new Error(
+            r.status === 503 ? "API unavailable — try again shortly." : `Save failed (${r.status}).`,
+          );
+        }
+        return Date.now();
+      },
+    }),
+    [review.id],
+  );
+
+  const noteDraft = useFormDraft<string>({
+    value: note,
+    adapter: noteAdapter,
+    debounceMs: 1500,
+    restoreOnMount: false,
+    manualDirty: noteDirty,
+    isEmpty: (n) => !n.trim(),
+    onSaved: () => {
+      noteDirtyRef.current = false;
+      setNoteDirty(false);
+    },
+  });
+
+  // Flush both drafts (fire-and-forget) before closing so unsaved edits made
+  // within the debounce window are not lost when the modal unmounts.
+  const handleClose = useCallback(() => {
+    if (dirtyRef.current) void draft.saveNow();
+    if (noteDirtyRef.current) void noteDraft.saveNow();
+    onClose();
+  }, [draft, noteDraft, onClose]);
 
   // While enrichment is still running, poll until it lands. Clear rerunBusy
   // as soon as the status leaves "pending".
@@ -342,7 +394,7 @@ function ReviewModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4" onClick={onClose}>
+    <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4" onClick={handleClose}>
       <div
         className="bg-card border-2 border-border rounded-sm w-full max-w-3xl shadow-2xl flex flex-col max-h-[90vh]"
         onClick={(e) => e.stopPropagation()}
@@ -354,7 +406,7 @@ function ReviewModal({
             <ReviewStatusBadge status={review.status} />
             <ReasonBadge reason={review.reason} />
           </div>
-          <button onClick={onClose} className="text-muted-foreground hover:text-foreground text-xl leading-none">×</button>
+          <button onClick={handleClose} className="text-muted-foreground hover:text-foreground text-xl leading-none">×</button>
         </div>
 
         <div className="p-6 space-y-6 overflow-y-auto">
@@ -461,7 +513,7 @@ function ReviewModal({
                 <label className="block text-sm font-semibold text-foreground mb-2">Admin Note <span className="text-muted-foreground font-normal">(optional, sent to user)</span></label>
                 <textarea
                   value={note}
-                  onChange={(e) => setNote(e.target.value)}
+                  onChange={(e) => { noteDirtyRef.current = true; setNoteDirty(true); setNote(e.target.value); }}
                   rows={3}
                   maxLength={500}
                   placeholder="Add a personal message to explain your decision…"
@@ -518,7 +570,7 @@ function ReviewModal({
                   className="border-destructive text-destructive hover:bg-destructive/10 gap-2">
                   <XCircle className="w-4 h-4" /> Reject
                 </Button>
-                <Button variant="outline" onClick={onClose} disabled={loading}>Cancel</Button>
+                <Button variant="outline" onClick={handleClose} disabled={loading}>Cancel</Button>
               </div>
               {!canApprove && (
                 <p className="text-xs text-amber-600 dark:text-amber-400 flex items-center gap-1.5">

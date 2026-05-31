@@ -495,6 +495,25 @@ router.post("/admin/reviews/:id/reject", requireAdmin, async (req: Authenticated
   res.json({ success: true });
 });
 
+// ─── Admin note: autosave draft (admin) ───────────────────────────────────────
+
+router.patch("/admin/reviews/:id/note", requireAdmin, async (req: AuthenticatedRequest, res: Response) => {
+  const id = parseInt(String(req.params["id"] ?? ""), 10);
+  if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
+
+  const body = z.object({ note: z.string().max(500) }).safeParse(req.body);
+  if (!body.success) { res.status(400).json({ error: "Invalid note" }); return; }
+
+  const [review] = await db.select({ id: pendingReviewsTable.id }).from(pendingReviewsTable).where(eq(pendingReviewsTable.id, id)).limit(1);
+  if (!review) { res.status(404).json({ error: "Review not found" }); return; }
+
+  await db.update(pendingReviewsTable)
+    .set({ adminNote: body.data.note || null })
+    .where(eq(pendingReviewsTable.id, id));
+
+  res.json({ success: true });
+});
+
 // ─── Enrichment: save admin edits (admin) ─────────────────────────────────────
 
 router.patch("/admin/reviews/:id/enrichment", requireAdmin, async (req: AuthenticatedRequest, res: Response) => {
