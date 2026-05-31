@@ -7,6 +7,14 @@ import { validateTemplate } from "@workspace/api-zod";
 import { Layout } from "@/components/layout/Layout";
 import { AccessGate } from "@/components/AccessGate";
 import { Button } from "@/components/ui/Button";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogFooter,
+  DialogTitle,
+  DialogDescription,
+} from "@/components/ui/dialog";
 import { Textarea, Input } from "@/components/ui/Input";
 import { renderFact } from "@/lib/render-fact";
 import { useToast } from "@/hooks/use-toast";
@@ -72,6 +80,7 @@ export default function SubmitFact() {
   const [error, setError] = useState("");
   const [onboardingRequired, setOnboardingRequired] = useState(false);
   const [duplicateThreshold, setDuplicateThreshold] = useState(80);
+  const [showDiscardDialog, setShowDiscardDialog] = useState(false);
 
   useEffect(() => {
     fetch("/api/config", { credentials: "include" })
@@ -364,7 +373,7 @@ export default function SubmitFact() {
           {hasDraftContent && (
             <button
               type="button"
-              onClick={handleStartOver}
+              onClick={() => setShowDiscardDialog(true)}
               className="flex items-center gap-1.5 text-xs text-muted-foreground/60 hover:text-destructive transition-colors"
             >
               <Trash2 className="w-3 h-3" />
@@ -372,6 +381,38 @@ export default function SubmitFact() {
             </button>
           )}
         </div>
+
+        {/* Discard confirmation dialog */}
+        <Dialog open={showDiscardDialog} onOpenChange={setShowDiscardDialog}>
+          <DialogContent className="max-w-sm">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <Trash2 className="w-4 h-4 text-destructive" />
+                Discard and start over?
+              </DialogTitle>
+              <DialogDescription>
+                This will clear everything you've written. This action cannot be undone.
+              </DialogDescription>
+            </DialogHeader>
+            <DialogFooter className="gap-2 sm:gap-0">
+              <Button
+                variant="outline"
+                onClick={() => setShowDiscardDialog(false)}
+              >
+                Keep editing
+              </Button>
+              <Button
+                variant="danger"
+                onClick={() => {
+                  setShowDiscardDialog(false);
+                  handleStartOver();
+                }}
+              >
+                Discard
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
 
         <div className="bg-card border border-border rounded-xl shadow-xl overflow-hidden">
           <div className="h-1 bg-gradient-to-r from-primary to-primary/40" />
