@@ -484,6 +484,13 @@
       "when": 1748649600000,
       "tag": "0068_reviews_fact_fk_on_delete_set_null",
       "breakpoints": true
+    },
+    {
+      "idx": 69,
+      "version": "7",
+      "when": 1780300000000,
+      "tag": "0069_facts_enrichment_status",
+      "breakpoints": true
     }
   ]
 }

@@ -24,7 +24,7 @@ import {
   type FactEnrichment,
   type VisualPromptPreview,
 } from "@workspace/api-zod";
-import { enrichFact } from "./factEnrichment";
+import { enrichFact, buildFactEnrichmentColumns } from "./factEnrichment";
 import { generateVisualPreview } from "./promptStrategy";
 import {
   registerJobHandler,
@@ -35,8 +35,12 @@ import { logger } from "./logger";
 
 // ─── Payload shapes ─────────────────────────────────────────────────────────
 
+// The enrichment job classifies either a pending review (submission flow +
+// admin re-run) or a live fact (admin re-run on the Facts page). Exactly one of
+// reviewId / factId is set.
 interface EnrichmentJobPayload {
-  reviewId: number;
+  reviewId?: number;
+  factId?: number;
 }
 
 interface PreviewJobPayload {
@@ -118,58 +122,140 @@ async function mergePreviewIntoFact(
 
 // ─── "enrichment" handler — phase 1 then phase 2 ───────────────────────────
 
-export const enrichmentJobHandler: JobHandler = {
-  async run(payload: unknown): Promise<HandlerResult> {
-    const { reviewId } = payload as EnrichmentJobPayload;
-    if (typeof reviewId !== "number") {
-      return { ok: false, error: "enrichmentJob payload missing reviewId" };
-    }
-    // Load the submitted text so we can classify.
-    const [reviewRow] = await db
-      .select({ submittedText: pendingReviewsTable.submittedText })
-      .from(pendingReviewsTable)
-      .where(eq(pendingReviewsTable.id, reviewId))
-      .limit(1);
-    if (!reviewRow) {
-      return { ok: false, error: `pending review ${reviewId} not found` };
-    }
+async function runEnrichmentForReview(reviewId: number): Promise<HandlerResult> {
+  // Load the submitted text so we can classify.
+  const [reviewRow] = await db
+    .select({ submittedText: pendingReviewsTable.submittedText })
+    .from(pendingReviewsTable)
+    .where(eq(pendingReviewsTable.id, reviewId))
+    .limit(1);
+  if (!reviewRow) {
+    return { ok: false, error: `pending review ${reviewId} not found` };
+  }
 
-    // ── Phase 1: classify + cultural references ──
-    let enrichment: FactEnrichment;
-    try {
-      enrichment = await enrichFact({ factText: reviewRow.submittedText, status: "new_fact" });
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      await db
-        .update(pendingReviewsTable)
-        .set({ enrichmentStatus: "failed" })
-        .where(eq(pendingReviewsTable.id, reviewId));
-      return { ok: false, error: `phase 1 (classify): ${msg}` };
-    }
-
-    // Write phase 1 result so the admin UI sees progress even if phase 2 fails.
+  // ── Phase 1: classify + cultural references ──
+  let enrichment: FactEnrichment;
+  try {
+    enrichment = await enrichFact({ factText: reviewRow.submittedText, status: "new_fact" });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
     await db
       .update(pendingReviewsTable)
-      .set({ enrichment, enrichmentStatus: "ok" })
+      .set({ enrichmentStatus: "failed" })
       .where(eq(pendingReviewsTable.id, reviewId));
+    return { ok: false, error: `phase 1 (classify): ${msg}` };
+  }
 
-    // ── Phase 2: visual prompt preview ──
-    try {
-      const preview = await generateVisualPreview({
-        factText: reviewRow.submittedText,
-        enrichment,
-      });
-      await mergePreviewIntoPendingReview(reviewId, preview, "ok");
-      return { ok: true };
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      logger.warn({ err, reviewId }, "[enrichmentJob] phase 2 preview failed; phase 1 enrichment retained");
-      await mergePreviewIntoPendingReview(reviewId, null, "failed");
-      // Phase 2 failure is non-fatal — admin can hand-fill the preview or
-      // regenerate it. Return ok so the job isn't retried indefinitely (a
-      // chronic failure should be visible to the admin and fixed there).
-      return { ok: true, result: { previewError: msg } };
+  // Write phase 1 result so the admin UI sees progress even if phase 2 fails.
+  await db
+    .update(pendingReviewsTable)
+    .set({ enrichment, enrichmentStatus: "ok" })
+    .where(eq(pendingReviewsTable.id, reviewId));
+
+  // ── Phase 2: visual prompt preview ──
+  try {
+    const preview = await generateVisualPreview({
+      factText: reviewRow.submittedText,
+      enrichment,
+    });
+    await mergePreviewIntoPendingReview(reviewId, preview, "ok");
+    return { ok: true };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    logger.warn({ err, reviewId }, "[enrichmentJob] phase 2 preview failed; phase 1 enrichment retained");
+    await mergePreviewIntoPendingReview(reviewId, null, "failed");
+    // Phase 2 failure is non-fatal — admin can hand-fill the preview or
+    // regenerate it. Return ok so the job isn't retried indefinitely (a
+    // chronic failure should be visible to the admin and fixed there).
+    return { ok: true, result: { previewError: msg } };
+  }
+}
+
+/**
+ * Dependency seam for runEnrichmentForFact: classification + preview are
+ * network calls, so tests inject deterministic stubs to exercise the three
+ * outcome branches (classify-fail, classify-ok+preview-fail, both-ok).
+ */
+export interface FactEnrichmentDeps {
+  classify: typeof enrichFact;
+  preview: typeof generateVisualPreview;
+}
+
+export async function runEnrichmentForFact(
+  factId: number,
+  deps: FactEnrichmentDeps = { classify: enrichFact, preview: generateVisualPreview },
+): Promise<HandlerResult> {
+  // Load the fact text + parentId so a variant is classified with its parent
+  // context (same shape the approve-variant path uses).
+  const [factRow] = await db
+    .select({ text: factsTable.text, parentId: factsTable.parentId })
+    .from(factsTable)
+    .where(eq(factsTable.id, factId))
+    .limit(1);
+  if (!factRow) {
+    return { ok: false, error: `fact ${factId} not found` };
+  }
+
+  let parentText: string | null = null;
+  if (factRow.parentId != null) {
+    const [parent] = await db
+      .select({ text: factsTable.text })
+      .from(factsTable)
+      .where(eq(factsTable.id, factRow.parentId))
+      .limit(1);
+    parentText = parent?.text ?? null;
+  }
+
+  // ── Phase 1: classify + cultural references ──
+  let enrichment: FactEnrichment;
+  try {
+    enrichment = await deps.classify({
+      factText: factRow.text,
+      status: factRow.parentId != null ? "variant" : "new_fact",
+      parentText,
+    });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    await db
+      .update(factsTable)
+      .set({ enrichmentStatus: "failed" })
+      .where(eq(factsTable.id, factId));
+    return { ok: false, error: `phase 1 (classify): ${msg}` };
+  }
+
+  // Write phase 1 result + re-sync the indexed projection columns. Set
+  // enrichmentStatus "ok" now so a later preview failure can't revert it —
+  // enrichmentStatus tracks classification only, never the preview.
+  await db
+    .update(factsTable)
+    .set({ ...buildFactEnrichmentColumns(enrichment), enrichmentStatus: "ok" })
+    .where(eq(factsTable.id, factId));
+
+  // ── Phase 2: visual prompt preview ──
+  try {
+    const preview = await deps.preview({ factText: factRow.text, enrichment });
+    await mergePreviewIntoFact(factId, preview, "ok");
+    return { ok: true };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    logger.warn({ err, factId }, "[enrichmentJob] phase 2 preview failed; phase 1 enrichment retained");
+    // previewStatus="failed" but enrichmentStatus stays "ok" (classification
+    // succeeded). Return ok so the job isn't retried indefinitely.
+    await mergePreviewIntoFact(factId, null, "failed");
+    return { ok: true, result: { previewError: msg } };
+  }
+}
+
+export const enrichmentJobHandler: JobHandler = {
+  async run(payload: unknown): Promise<HandlerResult> {
+    const { reviewId, factId } = payload as EnrichmentJobPayload;
+    if (typeof factId === "number") {
+      return runEnrichmentForFact(factId);
     }
+    if (typeof reviewId === "number") {
+      return runEnrichmentForReview(reviewId);
+    }
+    return { ok: false, error: "enrichmentJob payload missing reviewId/factId" };
   },
 };
 
