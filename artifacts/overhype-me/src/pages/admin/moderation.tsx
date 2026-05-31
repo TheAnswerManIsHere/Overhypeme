@@ -140,7 +140,7 @@ function ReviewModal({
 }) {
   const [note, setNote] = useState(review.adminNote ?? "");
   const [loading, setLoading] = useState(false);
-  const [rejectionReason, setRejectionReason] = useState<RejectionReason | "">("");
+  const [rejectionReason, setRejectionReason] = useState<RejectionReason | "">((review.reason as RejectionReason | null) ?? "");
   const [enrichment, setEnrichment] = useState<FactEnrichment | null>(review.enrichment);
   const [enrichmentStatus, setEnrichmentStatus] = useState<string | null>(review.enrichmentStatus);
   const [errorMsg, setErrorMsg] = useState("");
@@ -154,6 +154,9 @@ function ReviewModal({
   // Separate dirty tracking for the admin note field (top-level, not enrichment).
   const noteDirtyRef = useRef(false);
   const [noteDirty, setNoteDirty] = useState(false);
+  // Separate dirty tracking for the rejection reason field.
+  const rejectionReasonDirtyRef = useRef(false);
+  const [rejectionReasonDirty, setRejectionReasonDirty] = useState(false);
   const [previewPolls, setPreviewPolls] = useState(0);
   // Tracks the latest enrichment.previewStatus from the server so the preview
   // polling interval (which has a stale closure over React state) can detect
@@ -269,13 +272,54 @@ function ReviewModal({
     },
   });
 
-  // Flush both drafts (fire-and-forget) before closing so unsaved edits made
+  // Server-backed adapter for the rejection reason field.
+  const rejectionReasonAdapter = useMemo<StorageAdapter<RejectionReason | "">>(
+    () => ({
+      load: () => null,
+      clear: () => {},
+      save: async (reasonToSave) => {
+        let r: Response;
+        try {
+          r = await fetch(`/api/admin/reviews/${review.id}/rejection-reason`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            credentials: "include",
+            body: JSON.stringify({ reason: reasonToSave }),
+          });
+        } catch {
+          throw new Error("Network error — could not save.");
+        }
+        if (!r.ok) {
+          throw new Error(
+            r.status === 503 ? "API unavailable — try again shortly." : `Save failed (${r.status}).`,
+          );
+        }
+        return Date.now();
+      },
+    }),
+    [review.id],
+  );
+
+  const rejectionReasonDraft = useFormDraft<RejectionReason | "">({
+    value: rejectionReason,
+    adapter: rejectionReasonAdapter,
+    debounceMs: 1500,
+    restoreOnMount: false,
+    manualDirty: rejectionReasonDirty,
+    onSaved: () => {
+      rejectionReasonDirtyRef.current = false;
+      setRejectionReasonDirty(false);
+    },
+  });
+
+  // Flush all drafts (fire-and-forget) before closing so unsaved edits made
   // within the debounce window are not lost when the modal unmounts.
   const handleClose = useCallback(() => {
     if (dirtyRef.current) void draft.saveNow();
     if (noteDirtyRef.current) void noteDraft.saveNow();
+    if (rejectionReasonDirtyRef.current) void rejectionReasonDraft.saveNow();
     onClose();
-  }, [draft, noteDraft, onClose]);
+  }, [draft, noteDraft, rejectionReasonDraft, onClose]);
 
   // While enrichment is still running, poll until it lands. Clear rerunBusy
   // as soon as the status leaves "pending".
@@ -494,7 +538,7 @@ function ReviewModal({
                 </label>
                 <select
                   value={rejectionReason}
-                  onChange={(e) => { setRejectionReason(e.target.value as RejectionReason | ""); setDecisionError(""); }}
+                  onChange={(e) => { rejectionReasonDirtyRef.current = true; setRejectionReasonDirty(true); setRejectionReason(e.target.value as RejectionReason | ""); setDecisionError(""); }}
                   className="w-full px-3 py-2 bg-background border border-border rounded-sm text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
                 >
                   <option value="">— No specific reason —</option>

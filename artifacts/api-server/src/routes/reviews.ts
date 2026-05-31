@@ -495,6 +495,25 @@ router.post("/admin/reviews/:id/reject", requireAdmin, async (req: Authenticated
   res.json({ success: true });
 });
 
+// ─── Rejection reason: autosave draft (admin) ────────────────────────────────
+
+router.patch("/admin/reviews/:id/rejection-reason", requireAdmin, async (req: AuthenticatedRequest, res: Response) => {
+  const id = parseInt(String(req.params["id"] ?? ""), 10);
+  if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
+
+  const body = z.object({ reason: z.enum(["duplicate", "spam", "offensive", "lame", ""]) }).safeParse(req.body);
+  if (!body.success) { res.status(400).json({ error: "Invalid reason" }); return; }
+
+  const [review] = await db.select({ id: pendingReviewsTable.id }).from(pendingReviewsTable).where(eq(pendingReviewsTable.id, id)).limit(1);
+  if (!review) { res.status(404).json({ error: "Review not found" }); return; }
+
+  await db.update(pendingReviewsTable)
+    .set({ reason: (body.data.reason || null) as "duplicate" | "spam" | "offensive" | "lame" | null })
+    .where(eq(pendingReviewsTable.id, id));
+
+  res.json({ success: true });
+});
+
 // ─── Admin note: autosave draft (admin) ───────────────────────────────────────
 
 router.patch("/admin/reviews/:id/note", requireAdmin, async (req: AuthenticatedRequest, res: Response) => {
