@@ -16,6 +16,8 @@ import { attachShutdownHandlers } from "./shutdown";
 import { registerEmailHandler } from "./lib/email.js";
 import { registerEnrichmentJobHandlers } from "./lib/enrichmentJobs.js";
 import { registerImagePromptHandlers } from "./lib/imagePromptJobs.js";
+import { registerProjectionRepairHandler } from "./lib/projectionRepairJob.js";
+import { registerFactEnrichmentBackfillHandler } from "./lib/factEnrichmentBackfillJob.js";
 import { runAsyncJobsWorker } from "./lib/asyncJobs.js";
 import { reconcileEngines, ALL_ENGINES } from "./lib/engines";
 import { ensureFalConfigured, getFalApiKey } from "./lib/falClient";
@@ -415,4 +417,6 @@ reconcileEngines()
 registerEmailHandler();
 registerEnrichmentJobHandlers();
 registerImagePromptHandlers();
+registerProjectionRepairHandler();
+registerFactEnrichmentBackfillHandler();
 runAsyncJobsWorker();
