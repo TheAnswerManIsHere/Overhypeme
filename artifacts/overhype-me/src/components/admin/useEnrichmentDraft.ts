@@ -64,6 +64,12 @@ export interface UseEnrichmentDraftResult {
   onRerun: () => Promise<void>;
   onRegeneratePreview: () => Promise<void>;
   saveNow: () => Promise<boolean>;
+  /**
+   * Update enrichment + status from a freshly-fetched server response WITHOUT
+   * marking the field dirty. Safe to call on modal open to hydrate stale list
+   * cache. No-ops if the user has already started editing (dirty flag guards it).
+   */
+  refreshFromServer: (enrichment: FactEnrichment | null, status: string | null) => void;
   busy: boolean;
   rerunBusy: boolean;
   previewBusy: boolean;
@@ -225,6 +231,16 @@ export function useEnrichmentDraft(opts: UseEnrichmentDraftOptions): UseEnrichme
     setEnrichment(next);
   }, []);
 
+  // Called by the parent (e.g. ReviewModal) after a fresh GET on modal open so
+  // the editor shows the latest DB values instead of the stale list-cache entry.
+  // No-ops when dirty so an in-progress edit is never clobbered.
+  const refreshFromServer = useCallback((freshEnrichment: FactEnrichment | null, freshStatus: string | null) => {
+    if (dirtyRef.current) return;
+    latestPreviewStatusRef.current = freshEnrichment?.previewStatus;
+    setEnrichment(freshEnrichment);
+    setStatus(freshStatus);
+  }, []);
+
   // While classification is running, poll until it lands.
   useEffect(() => {
     if (status !== "pending") {
@@ -322,6 +338,7 @@ export function useEnrichmentDraft(opts: UseEnrichmentDraftOptions): UseEnrichme
     onRerun,
     onRegeneratePreview,
     saveNow: draft.saveNow,
+    refreshFromServer,
     busy: loading || rerunBusy || previewBusy,
     rerunBusy,
     previewBusy,

@@ -74,13 +74,15 @@ preview section is shown.
 
 ## B — Runtime Compiled Prompt Preview (Facts admin)
 
-Go to the **Facts** admin page and select an approved fact that has
-enrichment. Scroll to the image tooling area (just below "Visual prompt
-preview").
+Go to the **Facts** admin page and select a fact (the right-hand editor
+panel opens). Scroll down past the **Pexels Image Pipeline** card — the
+**Runtime Compiled Prompt Preview** panel sits directly above the
+**Visual Taxonomy Enrichment** editor. (Use a fact that already has
+enrichment; if it doesn't, see section E.)
 
 | #  | Step | Expect |
 | -- | ---- | ------ |
-| B1 | Find the **Runtime Compiled Prompt Preview** panel | Present, collapsed, with a beaker icon |
+| B1 | Find the **Runtime Compiled Prompt Preview** panel | Present, collapsed, with a beaker icon, just above the Visual Taxonomy Enrichment editor |
 | B2 | Expand it | Controls appear: subject render mode, source subject kind, subject description, style, aspect ratio, negative space, content mode, target engine (fixed `nano_banana_2`), plus "Preserve physique" and "Save this as an image-prompt attempt" checkboxes (both off) |
 | B3 | Leave mode = `human_identity_i2i`, click **Generate runtime prompt preview** | After a moment, a **Compiled prompt** pane shows real prompt text. The fact's `{NAME}` appears resolved as **David** (no literal `{NAME}`). The prompt includes face-preservation language ("preserve the reference person's recognizable face") |
 | B4 | Check the **Input summary** | Shows the mode, `generationMode: i2i`, `targetEngine: nano_banana_2`, and `styleSource: none` (since no style chosen) — with a note that no style suffix is being appended |
