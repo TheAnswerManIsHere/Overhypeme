@@ -2,7 +2,9 @@ import { useEffect, useRef, useState } from "react";
 import { AdminLayout } from "@/components/admin/AdminLayout";
 import { Button } from "@/components/ui/Button";
 import { Textarea, Input } from "@/components/ui/Input";
-import { Trash2, Upload, Search, AlertCircle, CheckCircle, Pencil, X, Save, GitBranch, Plus, Brain, EyeOff, Eye, RefreshCw, ImageIcon } from "lucide-react";
+import { Trash2, Upload, Search, AlertCircle, CheckCircle, Pencil, X, Save, GitBranch, Plus, Brain, EyeOff, Eye, RefreshCw, ImageIcon, Loader2, Sparkles } from "lucide-react";
+import { EnrichmentEditor } from "@/components/admin/EnrichmentEditor";
+import { useEnrichmentDraft, type EnrichmentSaveResponse } from "@/components/admin/useEnrichmentDraft";
 
 const USE_CASE_SUGGESTIONS = ["default", "one_line", "two_line", "short", "long", "meme_caption", "shirt_print", "social_media", "title_case"];
 
@@ -25,6 +27,11 @@ interface Fact {
   splitTokenIndex: number | null;
   createdAt: string;
   updatedAt: string;
+  // Visual-taxonomy enrichment projections (present from the list query; the
+  // full blob is loaded on demand by the enrichment editor).
+  primaryArchetype?: string | null;
+  enrichmentStatus?: string | null;
+  hasEnrichment?: boolean;
 }
 
 interface FactVariant {
@@ -60,6 +67,70 @@ function ReadOnlyField({ label, value }: { label: string; value: string | number
       <div className="h-9 px-3 flex items-center bg-muted/40 border border-border rounded-sm text-sm text-muted-foreground font-mono select-all">
         {value}
       </div>
+    </div>
+  );
+}
+
+/**
+ * The shared Visual Taxonomy Enrichment editor, surfaced on a live fact. Same
+ * component + behavior the moderation panel uses (via useEnrichmentDraft) — edit,
+ * autosave, regenerate preview, and re-run classification — so tuning a fact
+ * that renders bad images/videos happens right here. Keyed by fact id so it
+ * resets cleanly between facts.
+ */
+function FactEnrichmentPanel({ fact, onSaved }: { fact: Fact; onSaved: (resp: EnrichmentSaveResponse) => void }) {
+  const enrich = useEnrichmentDraft({
+    resource: "facts",
+    id: fact.id,
+    autoLoad: true,
+    initialStatus: fact.enrichmentStatus ?? null,
+    onSaved,
+  });
+
+  // Re-running classification overwrites possibly admin-tuned metadata on a live
+  // fact, so confirm first when enrichment already exists.
+  async function handleRerun() {
+    if (
+      enrich.enrichment &&
+      !window.confirm(
+        "Re-running classification will overwrite the current, possibly admin-tuned, enrichment for this fact. Continue?",
+      )
+    ) {
+      return;
+    }
+    await enrich.onRerun();
+  }
+
+  return (
+    <div className="space-y-2">
+      {enrich.loading && !enrich.enrichment && (
+        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+          <Loader2 className="w-3 h-3 animate-spin" /> Loading enrichment…
+        </div>
+      )}
+      <EnrichmentEditor
+        value={enrich.enrichment}
+        status={enrich.status}
+        factText={fact.text}
+        onChange={enrich.onChange}
+        onRerun={handleRerun}
+        onRegeneratePreview={enrich.onRegeneratePreview}
+        busy={enrich.busy}
+        rerunBusy={enrich.rerunBusy}
+        previewBusy={enrich.previewBusy}
+      />
+      <div className="text-xs text-muted-foreground min-h-[1.25rem]">
+        {enrich.draft.status === "saving" && <span className="flex items-center gap-1"><Loader2 className="w-3 h-3 animate-spin" />Saving…</span>}
+        {enrich.draft.status === "saved" && enrich.draft.savedLabel && <span>{enrich.draft.savedLabel}</span>}
+        {enrich.unsavedInvalid && <span className="text-amber-600 dark:text-amber-400">Unsaved — resolve validation errors to autosave</span>}
+        {enrich.draft.status === "error" && !enrich.unsavedInvalid && <span className="text-destructive">Auto-save failed — see error below</span>}
+      </div>
+      {enrich.error && (
+        <div className="flex items-start gap-2 rounded-sm border border-destructive/50 bg-destructive/10 px-3 py-2">
+          <AlertCircle className="w-4 h-4 text-destructive shrink-0 mt-0.5" />
+          <p className="text-sm text-destructive">{enrich.error}</p>
+        </div>
+      )}
     </div>
   );
 }
@@ -100,26 +171,16 @@ export default function AdminFacts() {
   const [backfillingEnrichment, setBackfillingEnrichment] = useState(false);
   const [enrichmentBackfillResult, setEnrichmentBackfillResult] = useState<{ type: "success" | "error"; message: string } | null>(null);
 
-  // On-demand visual preview generation for an approved fact (Phase 2A).
-  const [previewGenerating, setPreviewGenerating] = useState(false);
-  const [previewResult, setPreviewResult] = useState<{ type: "success" | "error"; message: string } | null>(null);
-
-  async function triggerFactPreview(factId: number): Promise<void> {
-    setPreviewGenerating(true);
-    setPreviewResult(null);
-    try {
-      const res = await fetch(`/api/admin/facts/${factId}/preview`, { method: "POST", credentials: "include" });
-      const data = (await res.json()) as { previewStatus?: string; error?: string };
-      if (res.ok) {
-        setPreviewResult({ type: "success", message: "Visual preview queued — refresh in a moment to see it on the fact." });
-      } else {
-        setPreviewResult({ type: "error", message: data.error ?? `Preview failed (${res.status}).` });
-      }
-    } catch (err) {
-      setPreviewResult({ type: "error", message: err instanceof Error ? err.message : "Preview failed" });
-    } finally {
-      setPreviewGenerating(false);
-    }
+  // Patch the selected fact + its list row when the enrichment editor saves, so
+  // the projection (archetype) and status stay consistent without a refetch.
+  function applyEnrichmentSave(factId: number, resp: EnrichmentSaveResponse) {
+    const patch = {
+      primaryArchetype: resp.projection?.primaryArchetype ?? resp.enrichment.primaryArchetype,
+      enrichmentStatus: "ok" as const,
+      hasEnrichment: true,
+    };
+    setFacts((prev) => prev.map((f) => (f.id === factId ? { ...f, ...patch } : f)));
+    setSelectedFact((f) => (f && f.id === factId ? { ...f, ...patch } : f));
   }
 
   const LIMIT = 25;
@@ -526,6 +587,15 @@ export default function AdminFacts() {
                           <Brain className={`inline w-3 h-3 ${fact.hasEmbedding ? "text-green-500" : "text-destructive"}`} />
                           {fact.hasEmbedding ? "" : " no embed"}
                         </span>
+                        {fact.hasEnrichment && (
+                          <span
+                            className="inline-flex items-center gap-1 text-primary"
+                            title={fact.primaryArchetype ? `Enriched — ${fact.primaryArchetype}` : "Has visual taxonomy enrichment"}
+                          >
+                            <Sparkles className="inline w-3 h-3" />
+                            {fact.enrichmentStatus === "pending" ? "classifying…" : (fact.primaryArchetype ?? "enriched")}
+                          </span>
+                        )}
                         <span>{new Date(fact.createdAt).toLocaleDateString()}</span>
                       </div>
                     </div>
@@ -872,37 +942,19 @@ export default function AdminFacts() {
                       : "Fetches Pexels stock photos for this fact using AI-generated keywords."}
                   </p>
                 </div>
-
-                {/* On-demand visual prompt preview (Phase 2A) — for facts that
-                    were backfilled with enrichment but don't have a preview. */}
-                <div className="pt-3 border-t border-border space-y-2">
-                  <p className="text-xs font-bold text-foreground uppercase tracking-wide">Visual prompt preview</p>
-                  {previewResult && (
-                    <div className={`text-xs px-2 py-1 rounded-sm border ${
-                      previewResult.type === "success"
-                        ? "bg-green-500/10 border-green-500/30 text-green-600 dark:text-green-400"
-                        : "bg-destructive/10 border-destructive/30 text-destructive"
-                    }`}>
-                      {previewResult.message}
-                    </div>
-                  )}
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => void triggerFactPreview(selectedFact.id)}
-                    isLoading={previewGenerating}
-                    disabled={previewGenerating}
-                    className="w-full gap-1.5 text-xs min-h-[44px]"
-                  >
-                    <RefreshCw className="w-3.5 h-3.5" />
-                    Generate preview
-                  </Button>
-                  <p className="text-[10px] text-muted-foreground">
-                    Enqueues a visual prompt preview job for this approved fact. Requires the fact to already have enrichment (run Backfill enrichment first if not).
-                  </p>
-                </div>
               </div>
             )}
+
+            {/* Visual Taxonomy Enrichment — the shared editor (same as moderation).
+                Edit + autosave the metadata, regenerate the visual preview, or
+                re-run classification to tune a fact rendering bad images/videos. */}
+            <div className="border-t border-border pt-3">
+              <FactEnrichmentPanel
+                key={selectedFact.id}
+                fact={selectedFact}
+                onSaved={(resp) => applyEnrichmentSave(selectedFact.id, resp)}
+              />
+            </div>
 
             {/* Save result */}
             {saveResult && (
