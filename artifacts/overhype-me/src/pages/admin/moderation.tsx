@@ -149,29 +149,6 @@ function ReviewModal({
   const rejectionReasonDirtyRef = useRef(false);
   const [rejectionReasonDirty, setRejectionReasonDirty] = useState(false);
 
-  // Fetch fresh review data on mount so the modal always shows the latest
-  // saved note/reason, not the stale cached list entry.
-  useEffect(() => {
-    let cancelled = false;
-    void (async () => {
-      try {
-        const r = await fetch(`/api/admin/reviews/${review.id}`, { credentials: "include" });
-        if (!r.ok || cancelled) return;
-        const fresh = await r.json() as { adminNote?: string | null; reason?: string | null };
-        if (cancelled) return;
-        // Only overwrite if the user hasn't started editing (dirty = false).
-        if (!noteDirtyRef.current) setNote(fresh.adminNote ?? "");
-        if (!rejectionReasonDirtyRef.current) setRejectionReason((fresh.reason as RejectionReason | null) ?? "");
-      } catch {
-        // Leave the seeded values in place on network error.
-      }
-    })();
-    return () => { cancelled = true; };
-  // Run once per review id — intentionally not including note/rejectionReason
-  // so user edits in flight don't trigger a reload.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [review.id]);
-
   // Enrichment editing — form state, debounced autosave, re-run classification,
   // and preview regeneration — lives in the shared hook so this modal and the
   // Facts admin page behave identically. We already have review.enrichment, so
@@ -182,6 +159,37 @@ function ReviewModal({
     initialEnrichment: review.enrichment,
     initialStatus: review.enrichmentStatus,
   });
+
+  // Fetch fresh review data on mount so ALL form fields (note, rejection reason,
+  // AND enrichment) show the latest DB values, not the stale cached list entry.
+  // Placed after `enrich` so we can call enrich.refreshFromServer.
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const r = await fetch(`/api/admin/reviews/${review.id}`, { credentials: "include" });
+        if (!r.ok || cancelled) return;
+        const fresh = await r.json() as {
+          adminNote?: string | null;
+          reason?: string | null;
+          enrichment?: FactEnrichment | null;
+          enrichmentStatus?: string | null;
+        };
+        if (cancelled) return;
+        // Only overwrite fields the user hasn't started editing yet.
+        if (!noteDirtyRef.current) setNote(fresh.adminNote ?? "");
+        if (!rejectionReasonDirtyRef.current) setRejectionReason((fresh.reason as RejectionReason | null) ?? "");
+        // Refresh enrichment — no-ops inside the hook if the user is already editing.
+        enrich.refreshFromServer(fresh.enrichment ?? null, fresh.enrichmentStatus ?? null);
+      } catch {
+        // Leave the seeded values in place on network error.
+      }
+    })();
+    return () => { cancelled = true; };
+  // Run once per review id. enrich.refreshFromServer is stable (useCallback []).
+  // Intentionally excluding note/rejectionReason so edits in flight don't reload.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [review.id]);
 
   // Server-backed adapter for the admin note field (top-level, sent to user on decision).
   const noteAdapter = useMemo<StorageAdapter<string>>(
