@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { AdminLayout } from "@/components/admin/AdminLayout";
+import { RuntimePromptPreview } from "@/components/admin/RuntimePromptPreview";
 import { Button } from "@/components/ui/Button";
 import { Textarea, Input } from "@/components/ui/Input";
 import { Trash2, Upload, Search, AlertCircle, CheckCircle, Pencil, X, Save, GitBranch, Plus, Brain, EyeOff, Eye, RefreshCw, ImageIcon, Loader2, Sparkles } from "lucide-react";
@@ -941,6 +942,13 @@ export default function AdminFacts() {
                       ? "Re-run fetches new Pexels photos. Use Force to overwrite existing images."
                       : "Fetches Pexels stock photos for this fact using AI-generated keywords."}
                   </p>
+                </div>
+
+                {/* Runtime Compiled Prompt Preview (Phase 2C) — the ACTUAL
+                    engine prompt, distinct from the enrichment editor's
+                    preview-only example prompts below. */}
+                <div className="pt-3 border-t border-border">
+                  <RuntimePromptPreview factId={selectedFact.id} />
                 </div>
               </div>
             )}
