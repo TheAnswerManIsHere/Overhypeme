@@ -898,20 +898,25 @@ function VisualPreviewPanel({
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <div>
-          <label className={LABEL_CLASS}>Example i2i prompt</label>
+          <label className={LABEL_CLASS}>Preview-only example I2I prompt</label>
           <textarea className={`${SELECT_CLASS} resize-none font-mono text-xs`} rows={4}
             value={p.exampleI2iPrompt}
             onChange={(ev) => update({ exampleI2iPrompt: ev.target.value })}
           />
         </div>
         <div>
-          <label className={LABEL_CLASS}>Example t2i prompt</label>
+          <label className={LABEL_CLASS}>Preview-only example T2I prompt</label>
           <textarea className={`${SELECT_CLASS} resize-none font-mono text-xs`} rows={4}
             value={p.exampleT2iPrompt}
             onChange={(ev) => update({ exampleT2iPrompt: ev.target.value })}
           />
         </div>
       </div>
+      <p className="text-[11px] text-muted-foreground leading-snug">
+        This is an admin preview generated during taxonomy enrichment. It is not the final image-engine prompt.
+        Use <span className="font-semibold">Runtime Compiled Prompt Preview</span> (on the Facts admin page) to inspect
+        the actual prompt that would be sent to Nano Banana for a selected render context.
+      </p>
 
       <div>
         <label className={LABEL_CLASS}>Prompt guardrails preview</label>
@@ -1052,7 +1057,7 @@ export function EnrichmentSummary({ e }: { e: FactEnrichment }) {
           <p className="text-xs text-foreground"><span className="text-muted-foreground">Scene: </span>{e.visualPromptPreview.sceneConcept}</p>
           <p className="text-xs text-foreground"><span className="text-muted-foreground">Frame: </span>{e.visualPromptPreview.selectedFrame}</p>
           <details className="text-xs">
-            <summary className="text-muted-foreground cursor-pointer">Example i2i / t2i prompts</summary>
+            <summary className="text-muted-foreground cursor-pointer">Preview-only example I2I / T2I prompts</summary>
             <pre className="mt-1 whitespace-pre-wrap font-mono text-[10px] text-foreground bg-background border border-border rounded-sm p-2">
 {`i2i: ${e.visualPromptPreview.exampleI2iPrompt}\n\nt2i: ${e.visualPromptPreview.exampleT2iPrompt}`}
             </pre>

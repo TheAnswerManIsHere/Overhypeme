@@ -106,6 +106,12 @@ export const imagePromptGenerationHandler: JobHandler = {
     const stylePrompt = await resolveStylePrompt(renderControls, generationMode);
 
     const input: ImagePromptGenerationInput = {
+      // TODO(prompt-rendering): the generator expects RENDERED fact text
+      // (subject/pronouns resolved — see generator.ts buildImagePromptUserMessage
+      // "RENDERED FACT TEXT"). This passes the raw {NAME}/{SUBJ} template, so
+      // production prompts can carry unresolved tokens. Resolve from the
+      // attempt's user (name + pronouns) via renderPersonalized before
+      // generation. The admin runtime-prompt-preview already renders this way.
       factText: factRow.text,
       enrichment,
       sourceImageAnalysis: attempt.sourceImageAnalysis as SourceImageAnalysis,
