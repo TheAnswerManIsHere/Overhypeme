@@ -41,9 +41,31 @@ function appendIfMissing(prompt: string, suffix: string): string {
   return `${prompt.trim()} ${suffix.trim()}`;
 }
 
-function prependIfMissing(prompt: string, preamble: string, sentinel: string): string {
-  if (prompt.toLowerCase().includes(sentinel.toLowerCase())) return prompt;
-  return `${preamble}${prompt.trim()}`;
+/** Split a prompt blob into trimmed sentences, keeping terminal punctuation. */
+function splitSentences(text: string): string[] {
+  const matches = text.match(/[^.!?]+[.!?]+(?=\s|$)/g);
+  if (matches) return matches.map((s) => s.trim()).filter(Boolean);
+  const trimmed = text.trim();
+  return trimmed ? [trimmed] : [];
+}
+
+function normalizeSentence(s: string): string {
+  return s.trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+/**
+ * Prepend the preamble, but drop any preamble sentence already present
+ * (verbatim) in the prompt. The preambles are multi-sentence belt-and-suspenders
+ * blocks; the generator frequently emits some of the same required sentences
+ * (e.g. the non-human "Do not replace the subject with a human." guard the
+ * validator enforces). Prepending the preamble as one unit duplicated those
+ * sentences — this de-dupes at sentence granularity so each clause appears once.
+ */
+function prependMissingSentences(prompt: string, preamble: string): string {
+  const present = new Set(splitSentences(prompt).map(normalizeSentence));
+  const missing = splitSentences(preamble).filter((s) => !present.has(normalizeSentence(s)));
+  if (missing.length === 0) return prompt.trim();
+  return `${missing.join(" ")} ${prompt.trim()}`;
 }
 
 function truncate(s: string, max: number): string {
@@ -71,20 +93,12 @@ function finalize(prompt: string, args: CompileArgs, withReferenceUrl: boolean):
 }
 
 export function compileNanoBanana2HumanI2I(args: CompileArgs): CompiledImagePrompt {
-  const prompt = prependIfMissing(
-    args.compiledPrompt.prompt,
-    HUMAN_I2I_PREAMBLE,
-    "preserve the reference person's recognizable face",
-  );
+  const prompt = prependMissingSentences(args.compiledPrompt.prompt, HUMAN_I2I_PREAMBLE);
   return finalize(prompt, args, /* withReferenceUrl */ true);
 }
 
 export function compileNanoBanana2NonhumanI2I(args: CompileArgs): CompiledImagePrompt {
-  let prompt = prependIfMissing(
-    args.compiledPrompt.prompt,
-    NONHUMAN_I2I_PREAMBLE,
-    "preserve the uploaded subject's recognizable visual identity",
-  );
+  let prompt = prependMissingSentences(args.compiledPrompt.prompt, NONHUMAN_I2I_PREAMBLE);
   // Defensive: ensure the "do not replace with a human" clause appears even
   // if the LLM picked a paraphrase that fooled the validator regex.
   if (!/do\s+not\s+replace.*human|never\s+replace.*human/i.test(prompt)) {
@@ -94,11 +108,7 @@ export function compileNanoBanana2NonhumanI2I(args: CompileArgs): CompiledImageP
 }
 
 export function compileNanoBanana2T2I(args: CompileArgs): CompiledImagePrompt {
-  let prompt = prependIfMissing(
-    args.compiledPrompt.prompt,
-    T2I_PREAMBLE,
-    "no reference identity is being preserved",
-  );
+  let prompt = prependMissingSentences(args.compiledPrompt.prompt, T2I_PREAMBLE);
   // If the caller provided a fallbackSubjectGender, make sure it appears.
   const gender = args.input.renderControls.fallbackSubjectGender;
   if (gender) {
