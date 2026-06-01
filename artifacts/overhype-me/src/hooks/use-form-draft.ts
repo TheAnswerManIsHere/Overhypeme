@@ -156,12 +156,19 @@ export function useFormDraft<T>(opts: UseFormDraftOptions<T>): UseFormDraftResul
   }, []);
 
   // Restore-on-mount. Never clears a valid restored draft.
+  //
+  // Race-safety: a consumer-initiated clear() or saveNow() during the load()
+  // await bumps `seqRef`, signalling "the form has been touched, don't replay
+  // the persisted draft over it." We capture the starting seq and skip
+  // applying the loaded value when anything happened during the await.
+  // setRestored(true) still fires in `finally` so the autosave gate opens.
   useEffect(() => {
     let cancelled = false;
     if (!restoreOnMount) {
       setRestored(true);
       return;
     }
+    const seqAtStart = seqRef.current;
     void (async () => {
       try {
         let loaded: Awaited<ReturnType<StorageAdapter<T>["load"]>> = null;
@@ -171,6 +178,9 @@ export function useFormDraft<T>(opts: UseFormDraftOptions<T>): UseFormDraftResul
           loaded = null;
         }
         if (cancelled || !loaded) return;
+        // Consumer touched the form (clear / saveNow) during the load await —
+        // their intent wins. Don't replay the persisted draft.
+        if (seqRef.current !== seqAtStart) return;
         lastPersistedSnapshotRef.current = serializeRef.current(loaded.value);
         setSavedAt(loaded.savedAt);
         setSavedLabel(getRelativeTime(loaded.savedAt));

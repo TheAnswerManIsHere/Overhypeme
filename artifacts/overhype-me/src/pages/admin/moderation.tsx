@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import type { FactEnrichment } from "@workspace/api-zod";
 import { EnrichmentEditor, EnrichmentSummary, isApprovable } from "@/components/admin/EnrichmentEditor";
+import { useEnrichmentDraft } from "@/components/admin/useEnrichmentDraft";
 
 // ─── Shared ───────────────────────────────────────────────────────────────────
 
@@ -141,94 +142,22 @@ function ReviewModal({
   const [note, setNote] = useState(review.adminNote ?? "");
   const [loading, setLoading] = useState(false);
   const [rejectionReason, setRejectionReason] = useState<RejectionReason | "">((review.reason as RejectionReason | null) ?? "");
-  const [enrichment, setEnrichment] = useState<FactEnrichment | null>(review.enrichment);
-  const [enrichmentStatus, setEnrichmentStatus] = useState<string | null>(review.enrichmentStatus);
-  const [errorMsg, setErrorMsg] = useState("");
-  const [rerunBusy, setRerunBusy] = useState(false);
-  const [previewBusy, setPreviewBusy] = useState(false);
-  // dirtyRef: true while there are unsaved admin edits. Prevents syncFromServer
-  // from clobbering local state. A parallel `dirty` state gates the autosave hook
-  // (a ref can't drive the hook's effect); both reset together on a successful save.
-  const dirtyRef = useRef(false);
-  const [dirty, setDirty] = useState(false);
   // Separate dirty tracking for the admin note field (top-level, not enrichment).
   const noteDirtyRef = useRef(false);
   const [noteDirty, setNoteDirty] = useState(false);
   // Separate dirty tracking for the rejection reason field.
   const rejectionReasonDirtyRef = useRef(false);
   const [rejectionReasonDirty, setRejectionReasonDirty] = useState(false);
-  const [previewPolls, setPreviewPolls] = useState(0);
-  // Tracks the latest enrichment.previewStatus from the server so the preview
-  // polling interval (which has a stale closure over React state) can detect
-  // when the job has landed without relying on a fixed tick count.
-  const latestPreviewStatusRef = useRef<string | null | undefined>(
-    review.enrichment?.previewStatus,
-  );
 
-  // Pull the latest stored enrichment from the server (async job writes it
-  // out-of-band). Returns the fresh enrichmentStatus, or null when skipped/failed.
-  const syncFromServer = useCallback(async (): Promise<string | null> => {
-    if (dirtyRef.current) return null;
-    try {
-      const r = await fetch(`/api/admin/reviews/${review.id}`, { credentials: "include" });
-      if (!r.ok || dirtyRef.current) return null;
-      const fresh = await r.json() as Review;
-      if (dirtyRef.current) return null;
-      latestPreviewStatusRef.current = fresh.enrichment?.previewStatus;
-      setEnrichment(fresh.enrichment);
-      setEnrichmentStatus(fresh.enrichmentStatus);
-      return fresh.enrichmentStatus;
-    } catch {
-      return null;
-    }
-  }, [review.id]);
-
-  // Server-backed draft adapter for the shared useFormDraft hook: persistence is
-  // a PATCH rather than localStorage. load() is a no-op (server authority comes
-  // from syncFromServer polling); save() throws on failure so the hook surfaces
-  // the error. The 1.5s debounce only fires while `dirty` is true, so server
-  // syncs are never echoed back. onSaved resets dirty/dirtyRef — and the hook
-  // calls it only for the latest save, so a stale PATCH response can't re-mark
-  // the form clean while a newer edit is pending (which would unblock the poll).
-  const enrichmentAdapter = useMemo<StorageAdapter<FactEnrichment | null>>(
-    () => ({
-      load: () => null,
-      clear: () => {},
-      save: async (enrichmentToSave) => {
-        if (!enrichmentToSave) return Date.now();
-        let r: Response;
-        try {
-          r = await fetch(`/api/admin/reviews/${review.id}/enrichment`, {
-            method: "PATCH",
-            headers: { "Content-Type": "application/json" },
-            credentials: "include",
-            body: JSON.stringify({ enrichment: enrichmentToSave }),
-          });
-        } catch {
-          throw new Error("Network error — could not save.");
-        }
-        if (!r.ok) {
-          throw new Error(
-            r.status === 503 ? "API unavailable — try again shortly." : `Save failed (${r.status}).`,
-          );
-        }
-        return Date.now();
-      },
-    }),
-    [review.id],
-  );
-
-  const draft = useFormDraft<FactEnrichment | null>({
-    value: enrichment,
-    adapter: enrichmentAdapter,
-    debounceMs: 1500,
-    restoreOnMount: false,
-    manualDirty: dirty,
-    isEmpty: (e) => e == null,
-    onSaved: () => {
-      dirtyRef.current = false;
-      setDirty(false);
-    },
+  // Enrichment editing — form state, debounced autosave, re-run classification,
+  // and preview regeneration — lives in the shared hook so this modal and the
+  // Facts admin page behave identically. We already have review.enrichment, so
+  // seed it (no autoLoad fetch).
+  const enrich = useEnrichmentDraft({
+    resource: "reviews",
+    id: review.id,
+    initialEnrichment: review.enrichment,
+    initialStatus: review.enrichmentStatus,
   });
 
   // Server-backed adapter for the admin note field (top-level, sent to user on decision).
@@ -315,107 +244,13 @@ function ReviewModal({
   // Flush all drafts (fire-and-forget) before closing so unsaved edits made
   // within the debounce window are not lost when the modal unmounts.
   const handleClose = useCallback(() => {
-    if (dirtyRef.current) void draft.saveNow();
+    if (enrich.dirty) void enrich.saveNow();
     if (noteDirtyRef.current) void noteDraft.saveNow();
     if (rejectionReasonDirtyRef.current) void rejectionReasonDraft.saveNow();
     onClose();
-  }, [draft, noteDraft, rejectionReasonDraft, onClose]);
+  }, [enrich, noteDraft, rejectionReasonDraft, onClose]);
 
-  // While enrichment is still running, poll until it lands. Clear rerunBusy
-  // as soon as the status leaves "pending".
-  useEffect(() => {
-    if (enrichmentStatus !== "pending") {
-      setRerunBusy(false);
-      return;
-    }
-    let cancelled = false;
-    const id = setInterval(async () => {
-      const status = await syncFromServer();
-      if (cancelled) return;
-      if (status && status !== "pending") {
-        clearInterval(id);
-        setRerunBusy(false);
-      }
-    }, 2500);
-    return () => { cancelled = true; clearInterval(id); };
-  }, [enrichmentStatus, syncFromServer]);
-
-  // Preview regeneration runs as a separate async job. Poll until the job
-  // lands (previewStatus leaves "pending") or a 100s hard timeout expires,
-  // matching the condition-based pattern used for enrichment-status polling.
-  useEffect(() => {
-    if (previewPolls === 0) return;
-    setPreviewBusy(true);
-    // Reset so the fresh "pending" written by the POST is detected as a change.
-    latestPreviewStatusRef.current = "pending";
-    let cancelled = false;
-    let ticks = 0;
-    const MAX_TICKS = 40; // 40 × 2500ms = 100s hard timeout
-    const id = setInterval(async () => {
-      ticks += 1;
-      await syncFromServer();
-      if (cancelled) return;
-      const done =
-        latestPreviewStatusRef.current !== "pending" || ticks >= MAX_TICKS;
-      if (done) {
-        clearInterval(id);
-        setPreviewBusy(false);
-      }
-    }, 2500);
-    return () => { cancelled = true; clearInterval(id); setPreviewBusy(false); };
-  }, [previewPolls, syncFromServer]);
-
-  const rerunEnrichment = async () => {
-    setLoading(true);
-    setErrorMsg("");
-    try {
-      const r = await fetch(`/api/admin/reviews/${review.id}/enrich`, { method: "POST", credentials: "include" });
-      if (r.ok) {
-        dirtyRef.current = false;
-        setDirty(false);
-        setRerunBusy(true);
-        setEnrichmentStatus("pending");
-      } else {
-        setErrorMsg(
-          r.status === 503 ? "API unavailable — try again shortly." :
-          r.status === 429 ? "Rate limited — wait a moment and retry." :
-          `Re-run failed (${r.status}).`
-        );
-      }
-    } catch {
-      setErrorMsg("Network error — could not reach the server.");
-    }
-    setLoading(false);
-  };
-
-  const regeneratePreview = async () => {
-    if (!enrichment) return;
-    setLoading(true);
-    setErrorMsg("");
-    // Save first so the server generates the preview from the current enrichment
-    // (including any unsaved cultural references / semantic entities). Also
-    // resets dirty so the preview-polling syncFromServer is not blocked. If the
-    // save fails, do not kick off the preview job.
-    const saved = await draft.saveNow();
-    if (!saved) { setLoading(false); return; }
-    try {
-      const r = await fetch(`/api/admin/reviews/${review.id}/preview`, { method: "POST", credentials: "include" });
-      if (r.ok) {
-        setPreviewPolls((n) => n + 1);
-      } else {
-        setErrorMsg(
-          r.status === 503 ? "API unavailable — try again shortly." :
-          r.status === 429 ? "Rate limited — wait a moment and retry." :
-          `Preview regeneration failed (${r.status}).`
-        );
-      }
-    } catch {
-      setErrorMsg("Network error — could not reach the server.");
-    }
-    setLoading(false);
-  };
-
-  const canApprove = isApprovable(enrichment);
+  const canApprove = isApprovable(enrich.enrichment);
 
   const [decisionError, setDecisionError] = useState("");
   const [showDuplicate, setShowDuplicate] = useState(false);
@@ -429,10 +264,10 @@ function ReviewModal({
     setDecisionError("");
     const err =
       action === "approve-variant"
-        ? await onDecision(review.id, action, note, review.matchingFact?.id ?? undefined, undefined, enrichment)
+        ? await onDecision(review.id, action, note, review.matchingFact?.id ?? undefined, undefined, enrich.enrichment)
         : action === "reject"
         ? await onDecision(review.id, action, note, undefined, rejectionReason || undefined)
-        : await onDecision(review.id, action, note, undefined, undefined, enrichment);
+        : await onDecision(review.id, action, note, undefined, undefined, enrich.enrichment);
     if (err) setDecisionError(err);
     setLoading(false);
   };
@@ -501,33 +336,34 @@ function ReviewModal({
           {review.status === "pending" ? (
             <div className="space-y-2">
               <EnrichmentEditor
-                value={enrichment}
-                status={enrichmentStatus}
+                value={enrich.enrichment}
+                status={enrich.status}
                 factText={review.submittedText}
-                onChange={(next) => { dirtyRef.current = true; setDirty(true); setEnrichment(next); }}
-                onRerun={rerunEnrichment}
-                onRegeneratePreview={regeneratePreview}
-                busy={loading || rerunBusy || previewBusy}
-                rerunBusy={rerunBusy}
-                previewBusy={previewBusy}
+                onChange={enrich.onChange}
+                onRerun={enrich.onRerun}
+                onRegeneratePreview={enrich.onRegeneratePreview}
+                busy={loading || enrich.busy}
+                rerunBusy={enrich.rerunBusy}
+                previewBusy={enrich.previewBusy}
                 submittedHashtags={review.hashtags ?? []}
               />
               <div className="flex items-center justify-between gap-2">
                 <div className="text-xs text-muted-foreground">
-                  {draft.status === "saving" && <span className="flex items-center gap-1"><Loader2 className="w-3 h-3 animate-spin" />Saving…</span>}
-                  {draft.status === "saved" && draft.savedLabel && <span>{draft.savedLabel}</span>}
-                  {draft.status === "error" && <span className="text-destructive">Auto-save failed — see error below</span>}
+                  {enrich.draft.status === "saving" && <span className="flex items-center gap-1"><Loader2 className="w-3 h-3 animate-spin" />Saving…</span>}
+                  {enrich.draft.status === "saved" && enrich.draft.savedLabel && <span>{enrich.draft.savedLabel}</span>}
+                  {enrich.unsavedInvalid && <span className="text-amber-600 dark:text-amber-400">Unsaved — resolve validation errors to autosave</span>}
+                  {enrich.draft.status === "error" && !enrich.unsavedInvalid && <span className="text-destructive">Auto-save failed — see error below</span>}
                 </div>
               </div>
-              {(errorMsg || draft.error) && (
+              {enrich.error && (
                 <div className="flex items-start gap-2 rounded-sm border border-destructive/50 bg-destructive/10 px-3 py-2">
                   <AlertTriangle className="w-4 h-4 text-destructive shrink-0 mt-0.5" />
-                  <p className="text-sm text-destructive">{errorMsg || draft.error}</p>
+                  <p className="text-sm text-destructive">{enrich.error}</p>
                 </div>
               )}
             </div>
-          ) : enrichment ? (
-            <EnrichmentSummary e={enrichment} />
+          ) : enrich.enrichment ? (
+            <EnrichmentSummary e={enrich.enrichment} />
           ) : null}
 
           {review.status === "pending" && (

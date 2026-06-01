@@ -644,8 +644,11 @@ router.get("/admin/facts", requireAdmin, async (req: Request, res: Response) => 
       splitTokenIndex: factsTable.splitTokenIndex,
       createdAt: factsTable.createdAt,
       updatedAt: factsTable.updatedAt,
+      primaryArchetype: factsTable.primaryArchetype,
+      enrichmentStatus: factsTable.enrichmentStatus,
       hasEmbedding: sql<boolean>`(${factsTable.embedding} IS NOT NULL)`,
       hasPexelsImages: sql<boolean>`(${factsTable.pexelsImages} IS NOT NULL)`,
+      hasEnrichment: sql<boolean>`(${factsTable.enrichment} IS NOT NULL)`,
     })
       .from(factsTable)
       .where(where)
@@ -726,6 +729,103 @@ router.patch("/admin/facts/:id", requireAdmin, async (req: Request, res: Respons
       hasPexelsImages: updated.pexelsImages !== null,
     },
   });
+});
+
+// GET /admin/facts/:id — admin detail shape for the Facts editor. Intentionally
+// trimmed: includes the editable scalars + the enrichment blob, enrichmentStatus,
+// and the derived previewStatus, but omits the embedding vector and the large
+// generation blobs (aiScenePrompts, aiMemeImages, raw pexelsImages) the editor
+// never touches. `:id` must be a positive integer (a non-numeric segment is a
+// 400, never a silent match against a static subpath like /import).
+router.get("/admin/facts/:id", requireAdmin, async (req: Request, res: Response) => {
+  const id = Number(req.params["id"]);
+  if (!Number.isInteger(id) || id <= 0) { res.status(400).json({ error: "Invalid fact id" }); return; }
+
+  const [row] = await db
+    .select({
+      id: factsTable.id,
+      text: factsTable.text,
+      canonicalText: factsTable.canonicalText,
+      parentId: factsTable.parentId,
+      useCase: factsTable.useCase,
+      isActive: factsTable.isActive,
+      upvotes: factsTable.upvotes,
+      downvotes: factsTable.downvotes,
+      score: factsTable.score,
+      wilsonScore: factsTable.wilsonScore,
+      commentCount: factsTable.commentCount,
+      shareCount: factsTable.shareCount,
+      submittedById: factsTable.submittedById,
+      splitTokenIndex: factsTable.splitTokenIndex,
+      createdAt: factsTable.createdAt,
+      updatedAt: factsTable.updatedAt,
+      enrichment: factsTable.enrichment,
+      enrichmentStatus: factsTable.enrichmentStatus,
+      hasEmbedding: sql<boolean>`(${factsTable.embedding} IS NOT NULL)`,
+      hasPexelsImages: sql<boolean>`(${factsTable.pexelsImages} IS NOT NULL)`,
+    })
+    .from(factsTable)
+    .where(eq(factsTable.id, id))
+    .limit(1);
+  if (!row) { res.status(404).json({ error: "Fact not found" }); return; }
+
+  const previewStatus = (row.enrichment as { previewStatus?: string } | null)?.previewStatus ?? null;
+  res.json({ ...row, previewStatus });
+});
+
+// PATCH /admin/facts/:id/enrichment — persist admin edits to a live fact's
+// enrichment. Mirrors the review endpoint but additionally re-syncs the indexed
+// projection columns (primaryArchetype/subtype/overhypeFit/adultSuitability) via
+// buildFactEnrichmentColumns so search/related surfaces stay correct. Invalid
+// enrichment is rejected (the server is the second gate behind the client).
+router.patch("/admin/facts/:id/enrichment", requireAdmin, async (req: Request, res: Response) => {
+  const id = Number(req.params["id"]);
+  if (!Number.isInteger(id) || id <= 0) { res.status(400).json({ error: "Invalid fact id" }); return; }
+
+  const result = validateEnrichment((req.body as { enrichment?: unknown } | null | undefined)?.enrichment);
+  if (!result.ok) { res.status(400).json({ error: `Invalid enrichment: ${result.error}` }); return; }
+
+  const cols = buildFactEnrichmentColumns(result.data);
+  const [updated] = await db
+    .update(factsTable)
+    .set({ ...cols, enrichmentStatus: "ok" })
+    .where(eq(factsTable.id, id))
+    .returning({ id: factsTable.id });
+  if (!updated) { res.status(404).json({ error: "Fact not found" }); return; }
+
+  // Return the saved blob + the projection fields so the client can patch its
+  // list row without a refetch.
+  res.json({
+    success: true,
+    enrichment: result.data,
+    projection: {
+      primaryArchetype: cols.primaryArchetype,
+      subtype: cols.subtype,
+      overhypeFit: cols.overhypeFit,
+      adultSuitability: cols.adultSuitability,
+    },
+  });
+});
+
+// POST /admin/facts/:id/enrich — re-run classification on a live fact. Marks
+// enrichmentStatus "pending" and enqueues the (generalized) enrichment job for
+// the fact target. The destructive "this overwrites admin-tuned metadata"
+// confirmation is enforced client-side; this endpoint just enqueues.
+router.post("/admin/facts/:id/enrich", requireAdmin, async (req: Request, res: Response) => {
+  const id = Number(req.params["id"]);
+  if (!Number.isInteger(id) || id <= 0) { res.status(400).json({ error: "Invalid fact id" }); return; }
+
+  const [fact] = await db.select({ id: factsTable.id }).from(factsTable).where(eq(factsTable.id, id)).limit(1);
+  if (!fact) { res.status(404).json({ error: "Fact not found" }); return; }
+
+  await db.update(factsTable).set({ enrichmentStatus: "pending" }).where(eq(factsTable.id, id));
+  await enqueueJob({
+    queue: "enrichment",
+    payload: { factId: id },
+    dedupeKey: `enrichment:fact:${id}`,
+  });
+
+  res.json({ success: true, enrichmentStatus: "pending" });
 });
 
 // POST /admin/facts/:id/variants — create a variant linked to a root fact

@@ -9,3 +9,4 @@ export * from "./taxonomy";
 export * from "./visualPromptStrategies";
 export * from "./imagePromptGeneration";
 export * from "./referenceResearch";
+export * from "./taxonomyHealth";

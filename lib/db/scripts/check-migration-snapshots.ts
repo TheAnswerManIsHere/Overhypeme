@@ -154,6 +154,14 @@ const SNAPSHOT_EXEMPT_TAGS = new Set<string>([
   // SET NULL to both constraints — drizzle-kit snapshot regen still fails on
   // the upstream malformed 0063 snapshot, so snapshot is intentionally absent.
   "0068_reviews_fact_fk_on_delete_set_null",
+
+  // Surfaces the Visual Taxonomy Enrichment editor on the admin Facts page:
+  // adds facts.enrichment_status VARCHAR(16) (nullable) to track the in-place
+  // re-run-classification lifecycle, mirroring pending_reviews.enrichment_status.
+  // Hand-authored single ADD COLUMN — drizzle-kit snapshot regen still fails on
+  // the upstream malformed 0063 snapshot, so snapshot is intentionally absent.
+  // lib/db/src/schema/facts.ts is the source of truth.
+  "0069_facts_enrichment_status",
 ]);
 
 interface JournalEntry {

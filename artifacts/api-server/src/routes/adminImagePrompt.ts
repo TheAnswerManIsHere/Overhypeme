@@ -25,8 +25,24 @@ import { requireAdmin } from "./admin";
 import { analyzeSourceImage, generationModeFromSubjectRenderMode, noImageAnalysis } from "../lib/sourceImageAnalysis";
 import { generateImagePromptPlan, ImagePromptError } from "../lib/imagePrompt/generator";
 import { compileForSubjectRenderMode } from "../lib/imagePrompt/compilers/nanoBanana2";
+import { renderPersonalized } from "../lib/renderCanonical";
 
 const router: IRouter = Router();
+
+// Admin runtime-prompt-preview uses the brand protagonist as the rendered
+// identity (David). The generator expects RENDERED fact text (tokens resolved),
+// so we personalize before prompt generation — not just for display.
+const PREVIEW_NAME = "David";
+const PREVIEW_PRONOUNS = "he/him";
+
+// Test seam: the route statically imports the live (OpenAI-backed)
+// generateImagePromptPlan. Mirroring adminEngines.ts, we route the call through
+// a swappable binding so tests can stub it without hitting OpenAI.
+type PlanGenerator = typeof generateImagePromptPlan;
+let planGenerator: PlanGenerator = generateImagePromptPlan;
+export function __setPlanGeneratorForTest(fn: PlanGenerator | null): void {
+  planGenerator = fn ?? generateImagePromptPlan;
+}
 
 // ─── POST /admin/image-prompt/preview ────────────────────────────────────
 
@@ -113,9 +129,16 @@ router.post("/admin/image-prompt/preview", requireAdmin, async (req: Request, re
       stylePrompt = generationMode === "i2i" ? ls.promptSuffixReference : ls.promptSuffix;
     }
   }
+  const styleSource: "selected_look_style" | "none" =
+    body.lookStyleId && stylePrompt ? "selected_look_style" : "none";
+
+  // The generator expects rendered fact text (tokens resolved). Fact templates
+  // store {NAME}/{SUBJ}/… — personalize with the brand protagonist for the
+  // preview so the generated plan matches what a real render would see.
+  const renderedFactText = renderPersonalized(factRow.text, PREVIEW_NAME, PREVIEW_PRONOUNS);
 
   const input: ImagePromptGenerationInput = {
-    factText: factRow.text,
+    factText: renderedFactText,
     enrichment,
     sourceImageAnalysis: analysis,
     subjectRenderMode,
@@ -130,7 +153,7 @@ router.post("/admin/image-prompt/preview", requireAdmin, async (req: Request, re
 
   let output;
   try {
-    output = await generateImagePromptPlan(input);
+    output = await planGenerator(input);
   } catch (err) {
     const msg = err instanceof ImagePromptError ? err.message : err instanceof Error ? err.message : String(err);
     res.status(502).json({ error: "prompt_generation_failed", details: msg });
@@ -170,11 +193,41 @@ router.post("/admin/image-prompt/preview", requireAdmin, async (req: Request, re
   }
 
   res.json({
+    renderedFactText,
+    inputSummary: {
+      factId,
+      subjectRenderMode,
+      generationMode,
+      targetEngine: "nano_banana_2",
+      lookStyleId: body.lookStyleId ?? null,
+      stylePrompt,
+      styleSource,
+      fallbackSubjectGender: renderControls.fallbackSubjectGender ?? null,
+      preservePhysique: identityPolicy.preservePhysique,
+      aspectRatio: renderControls.aspectRatio,
+      negativeSpacePreference: renderControls.negativeSpacePreference ?? null,
+    },
     visualPlan: output.visualPlan,
     compiledPrompt: compiled,
     subjectFactCompatibility: output.visualPlan.subjectFactCompatibility,
     promptVersion: output.promptVersion,
     archetypeStrategyVersion: output.archetypeStrategyVersion,
+    debug: {
+      primaryArchetype: output.visualPlan.archetypeApplication.primaryArchetype,
+      subtype: output.visualPlan.archetypeApplication.subtype,
+      // The visualPlan has no echo array for cultural references, so we surface
+      // what the generator was *given* (provided) vs. what the plan echoes
+      // (used — currently none for cultural refs). `provided` is authoritative.
+      culturalReferencesProvided: enrichment.culturalReferences ?? [],
+      culturalReferencesUsed: [] as unknown[],
+      semanticEntitiesUsed: output.visualPlan.semanticEntitiesUsed ?? [],
+      supportingTextPolicy: output.visualPlan.supportingTextPolicy,
+      subjectFactCompatibility: output.visualPlan.subjectFactCompatibility,
+      promptVersion: output.promptVersion,
+      visualStrategyVersion: output.archetypeStrategyVersion,
+      generatedAt: output.generatedAt,
+      generatedBy: output.generatedBy,
+    },
     attemptId,
   });
 });

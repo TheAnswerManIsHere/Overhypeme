@@ -21,12 +21,12 @@ where:
 ## Setup
 
 1. Sign in as a legendary user (or use admin override).
-2. Open `/admin/config` → set `enable_image_prompt_v2` to `true`. Save.
-3. Reload the wizard; the AI background picker now shows the new flow when
-   you have a reference image selected.
+2. Open the wizard → AI background → **Reference Photo** sub-tab. The new
+   flow is always on for reference-photo uploads — no flag to flip.
 
-If the flag is `false`, the wizard uses the legacy `/generate` route — no
-visible change.
+Generic (no-upload) generation still uses the legacy `/generate` route; the
+pre-generate modal only appears in **Reference Photo** mode with an upload
+selected.
 
 ---
 
@@ -164,13 +164,10 @@ Open `/admin` and visit:
 
 ## Known non-bugs (not in this PR)
 
-- The legacy `/memes/ai/:factId/generate` route is still live; flipping
-  `enable_image_prompt_v2` to `false` returns the wizard to the original
-  flow. Cutover (deleting the flag + legacy route) is a follow-up PR after
-  a week of clean prod UAT.
 - The pre-generate modal only opens in **reference mode** with an upload
-  selected. Generic (no reference) generation still uses the legacy path —
-  there's no need for the analyzer when there's no upload.
+  selected. Generic (no reference) generation still uses the legacy
+  `/memes/ai/:factId/generate` route — there's no need for the analyzer
+  when there's no upload, so that path stays live.
 - "Use this object anyway" with a poor-compat rating still proceeds with
   the render. A future UX iteration could surface the rating in the modal
   itself and recommend the user pick t2i_fallback. For now the rating is
