@@ -664,7 +664,7 @@ export async function ensureSchema(): Promise<void> {
   await seedFactVisualPreviewConfig();
 
   // Seed the Phase 2 image-prompt admin config (image-prompt + source-classifier
-  // system prompts, active classifier engine id, enable_image_prompt_v2 flag).
+  // system prompts, active classifier engine id).
   await seedImagePromptConfig();
 
   // Seed the admin Reference Research tool's system prompt.

@@ -2,7 +2,7 @@
  * Phase 2 — admin-configurable knobs for the render-time image-prompt
  * generation pipeline.
  *
- * Four keys live in `admin_config`:
+ * Three keys live in `admin_config`:
  *
  *   fact_image_prompt_system            — system prompt for the OpenAI
  *                                         Structured Outputs call that produces
@@ -14,9 +14,6 @@
  *                                         Tier-1 detection (default: "fal-yolo-world").
  *                                         Admin can swap to another detector
  *                                         catalogued later without code change.
- *   enable_image_prompt_v2              — rollout flag for the new flow on the
- *                                         user-facing wizard. Removed after the
- *                                         legacy `/generate` route retires.
  *
  * Sampling overrides (temperature, max tokens) for the image-prompt LLM call
  * live as constants in `lib/imagePrompt/generator.ts`. Sampling for the AI
@@ -34,13 +31,11 @@ export const IMAGE_PROMPT_CONFIG_KEYS = {
   imagePromptSystem: "fact_image_prompt_system",
   sourceClassifierSystem: "fact_source_classifier_system",
   sourceClassifierEngineId: "fact_source_classifier_engine_id",
-  enableImagePromptV2: "enable_image_prompt_v2",
 } as const;
 
 // ─── Defaults ──────────────────────────────────────────────────────────────
 
 export const DEFAULT_IMAGE_CLASSIFIER_ENGINE_ID = "fal-yolo-world";
-export const DEFAULT_ENABLE_IMAGE_PROMPT_V2 = "false";
 
 export const FACT_IMAGE_PROMPT_SYSTEM_DEFAULT = `You are the Overhype.me render-time image-prompt generator.
 
@@ -133,14 +128,6 @@ export async function getImageClassifierEngineId(): Promise<string> {
   );
 }
 
-export async function isImagePromptV2Enabled(): Promise<boolean> {
-  const raw = await getConfigString(
-    IMAGE_PROMPT_CONFIG_KEYS.enableImagePromptV2,
-    DEFAULT_ENABLE_IMAGE_PROMPT_V2,
-  );
-  return raw.toLowerCase() === "true";
-}
-
 // ─── Seeding ───────────────────────────────────────────────────────────────
 
 interface ConfigDef {
@@ -176,14 +163,6 @@ export const IMAGE_PROMPT_CONFIG_DEFS: ConfigDef[] = [
     description:
       "Engine id (from the engines table) used as the Tier-1 source-image detector. Swap to a different catalogued detector to change which fal model classifies uploads.",
   },
-  {
-    key: IMAGE_PROMPT_CONFIG_KEYS.enableImagePromptV2,
-    value: DEFAULT_ENABLE_IMAGE_PROMPT_V2,
-    dataType: "boolean",
-    label: "Enable Image Prompt v2 (rollout flag)",
-    description:
-      "TEMPORARY rollout flag for the Phase 2 image-prompt flow. When 'true', the wizard's Create button uses the new pre-generate confirmation modal + /generate-v2. When 'false', the legacy /generate path is used. Will be removed in a follow-up PR after route cutover.",
-  },
 ];
 
 /**
@@ -192,18 +171,21 @@ export const IMAGE_PROMPT_CONFIG_DEFS: ConfigDef[] = [
  * descriptions are refreshed in case the canonical text was updated.
  */
 export async function seedImagePromptConfig(): Promise<void> {
+  // Retire the old rollout flag: the Phase 2 reference-photo flow is now always
+  // on, so drop the dead `enable_image_prompt_v2` toggle from any DB where an
+  // earlier seed created it (pre-launch — no rollout-flag guards).
+  try {
+    await db.execute(sql`DELETE FROM admin_config WHERE key = 'enable_image_prompt_v2'`);
+  } catch (err) {
+    logger.warn({ err }, "[imagePromptConfig] failed to drop retired enable_image_prompt_v2 row");
+  }
+
   for (const def of IMAGE_PROMPT_CONFIG_DEFS) {
-    const isPublic = def.key === IMAGE_PROMPT_CONFIG_KEYS.enableImagePromptV2;
     try {
       await db.execute(sql`
         INSERT INTO admin_config (key, value, data_type, label, description, is_public)
-        VALUES (${def.key}, ${def.value}, ${def.dataType}, ${def.label}, ${def.description}, ${isPublic})
+        VALUES (${def.key}, ${def.value}, ${def.dataType}, ${def.label}, ${def.description}, false)
         ON CONFLICT (key) DO NOTHING
-      `);
-      // Refresh is_public bit in case the row pre-exists from an older seed.
-      await db.execute(sql`
-        UPDATE admin_config SET is_public = ${isPublic}
-        WHERE key = ${def.key} AND is_public IS DISTINCT FROM ${isPublic}
       `);
       await db.execute(sql`
         UPDATE admin_config SET data_type = ${def.dataType}

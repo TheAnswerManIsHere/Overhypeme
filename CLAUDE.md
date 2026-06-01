@@ -91,6 +91,24 @@ When Codex / Replit / other AI agents leave review comments on my PRs:
 David doesn't need to triage every nit, but he should weigh in on
 anything that's a real decision.
 
+### 7. No rollout-flag guards pre-launch
+
+Until we launch, new features ship **on by default**. I do not gate
+user-visible behavior behind a manual rollout flag (an `admin_config`
+toggle David has to flip, an `enable_*` env var, etc.). These guards
+just trip David up during UAT — he expects to test the feature, not
+hunt for a switch first.
+
+If a change is risky enough that I want a way to turn it off, that's a
+signal to make the change smaller or more confidently correct, not to
+add a flag. The exception is a true kill-switch for something
+externally destructive (e.g. disabling outbound sends during an
+incident) — that's not a rollout gate.
+
+Post-launch, when the bar for not breaking production is higher, we'll
+reintroduce feature flags / staged rollouts deliberately. Until then,
+"done" means the behavior is live, not live-behind-a-toggle.
+
 ## Always open a PR when work is done
 
 David works exclusively from the Claude Code on the Web UI. Pushing to
