@@ -943,15 +943,17 @@ export default function AdminFacts() {
                       : "Fetches Pexels stock photos for this fact using AI-generated keywords."}
                   </p>
                 </div>
-
-                {/* Runtime Compiled Prompt Preview (Phase 2C) — the ACTUAL
-                    engine prompt, distinct from the enrichment editor's
-                    preview-only example prompts below. */}
-                <div className="pt-3 border-t border-border">
-                  <RuntimePromptPreview factId={selectedFact.id} />
-                </div>
               </div>
             )}
+
+            {/* Runtime Compiled Prompt Preview (Phase 2C) — the ACTUAL render-time
+                engine prompt for a chosen render context. Distinct from the
+                enrichment editor's preview-only example prompts below. Shown for
+                any selected fact; it reads the fact's saved enrichment by id. The
+                component renders its own collapsible bordered header. */}
+            <div className="border-t border-border pt-3">
+              <RuntimePromptPreview factId={selectedFact.id} />
+            </div>
 
             {/* Visual Taxonomy Enrichment — the shared editor (same as moderation).
                 Edit + autosave the metadata, regenerate the visual preview, or
