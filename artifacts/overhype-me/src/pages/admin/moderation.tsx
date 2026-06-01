@@ -149,6 +149,29 @@ function ReviewModal({
   const rejectionReasonDirtyRef = useRef(false);
   const [rejectionReasonDirty, setRejectionReasonDirty] = useState(false);
 
+  // Fetch fresh review data on mount so the modal always shows the latest
+  // saved note/reason, not the stale cached list entry.
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const r = await fetch(`/api/admin/reviews/${review.id}`, { credentials: "include" });
+        if (!r.ok || cancelled) return;
+        const fresh = await r.json() as { adminNote?: string | null; reason?: string | null };
+        if (cancelled) return;
+        // Only overwrite if the user hasn't started editing (dirty = false).
+        if (!noteDirtyRef.current) setNote(fresh.adminNote ?? "");
+        if (!rejectionReasonDirtyRef.current) setRejectionReason((fresh.reason as RejectionReason | null) ?? "");
+      } catch {
+        // Leave the seeded values in place on network error.
+      }
+    })();
+    return () => { cancelled = true; };
+  // Run once per review id — intentionally not including note/rejectionReason
+  // so user edits in flight don't trigger a reload.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [review.id]);
+
   // Enrichment editing — form state, debounced autosave, re-run classification,
   // and preview regeneration — lives in the shared hook so this modal and the
   // Facts admin page behave identically. We already have review.enrichment, so
@@ -382,6 +405,13 @@ function ReviewModal({
                     <option key={r.value} value={r.value}>{r.label}</option>
                   ))}
                 </select>
+                <div className="flex items-center justify-between mt-1 min-h-[1.25rem]">
+                  <div className="text-xs text-muted-foreground">
+                    {rejectionReasonDraft.status === "saving" && <span className="flex items-center gap-1"><Loader2 className="w-3 h-3 animate-spin" />Saving…</span>}
+                    {rejectionReasonDraft.status === "saved" && rejectionReasonDraft.savedLabel && <span>{rejectionReasonDraft.savedLabel}</span>}
+                    {rejectionReasonDraft.status === "error" && <span className="text-destructive">{rejectionReasonDraft.error ?? "Save failed"}</span>}
+                  </div>
+                </div>
                 {decisionError && (
                   <div className="flex items-start gap-2 mt-2 rounded-sm border border-destructive/50 bg-destructive/10 px-3 py-2">
                     <AlertTriangle className="w-4 h-4 text-destructive shrink-0 mt-0.5" />
@@ -399,6 +429,14 @@ function ReviewModal({
                   placeholder="Add a personal message to explain your decision…"
                   className="w-full px-3 py-2 bg-background border border-border rounded-sm text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary resize-none"
                 />
+                <div className="flex items-center justify-between mt-1 min-h-[1.25rem]">
+                  <div className="text-xs text-muted-foreground">
+                    {noteDraft.status === "saving" && <span className="flex items-center gap-1"><Loader2 className="w-3 h-3 animate-spin" />Saving…</span>}
+                    {noteDraft.status === "saved" && noteDraft.savedLabel && <span>{noteDraft.savedLabel}</span>}
+                    {noteDraft.status === "error" && <span className="text-destructive">{noteDraft.error ?? "Save failed"}</span>}
+                  </div>
+                  <span className="text-xs text-muted-foreground">{note.length}/500</span>
+                </div>
               </div>
             </div>
           )}
