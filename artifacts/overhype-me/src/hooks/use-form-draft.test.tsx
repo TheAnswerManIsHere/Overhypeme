@@ -373,4 +373,98 @@ describe("useFormDraft", () => {
       renderHook(() => useFormDraft<Draft>({ value: { text: "x" }, adapter, debounceMs: 50 })),
     ).not.toThrow();
   });
+
+  // ── restore-on-mount race safety ─────────────────────────────────────────
+
+  it("clear() during restore-on-mount discards the loaded draft", async () => {
+    const d = deferred<{ value: Draft; savedAt: number } | null>();
+    const load = vi.fn(() => d.promise);
+    const save = vi.fn((_v: Draft) => Date.now());
+    const clear = vi.fn();
+    const adapter: StorageAdapter<Draft> = { load, save, clear };
+
+    const onRestore = vi.fn();
+    const { result } = renderHook(() =>
+      useDraftHarness({
+        initial: "",
+        adapter,
+        debounceMs: 50,
+        onRestore,
+      }),
+    );
+
+    // Pre-restore: consumer hits Discard.
+    act(() => {
+      result.current.draft.clear();
+    });
+
+    // Now the load() finally resolves with a saved draft.
+    await act(async () => {
+      d.resolve({ value: { text: "stale-restored" }, savedAt: Date.now() });
+      await Promise.resolve();
+    });
+
+    // onRestore must NOT fire — the consumer already said "discard".
+    expect(onRestore).not.toHaveBeenCalled();
+    expect(result.current.text).toBe("");
+    expect(result.current.draft.savedAt).toBeNull();
+  });
+
+  it("saveNow() during restore-on-mount preserves the just-saved state", async () => {
+    const d = deferred<{ value: Draft; savedAt: number } | null>();
+    const load = vi.fn(() => d.promise);
+    const save = vi.fn((_v: Draft) => 9999);
+    const clear = vi.fn();
+    const adapter: StorageAdapter<Draft> = { load, save, clear };
+
+    const onRestore = vi.fn();
+    const { result } = renderHook(() =>
+      useDraftHarness({
+        initial: "user-typed",
+        adapter,
+        debounceMs: 50,
+        onRestore,
+      }),
+    );
+
+    // Pre-restore: consumer flushes the current value via saveNow().
+    await act(async () => {
+      await result.current.draft.saveNow();
+    });
+    expect(save).toHaveBeenCalledWith({ text: "user-typed" });
+    expect(result.current.draft.savedAt).toBe(9999);
+
+    // Restore comes in late with a stale value. Must not replace what we just saved.
+    await act(async () => {
+      d.resolve({ value: { text: "stale-restored" }, savedAt: 5555 });
+      await Promise.resolve();
+    });
+    expect(onRestore).not.toHaveBeenCalled();
+    expect(result.current.draft.savedAt).toBe(9999);
+    expect(result.current.text).toBe("user-typed");
+  });
+
+  it("restore still completes (autosave gate opens) when nothing raced it", async () => {
+    const d = deferred<{ value: Draft; savedAt: number } | null>();
+    const load = vi.fn(() => d.promise);
+    const save = vi.fn((_v: Draft) => Date.now());
+    const clear = vi.fn();
+    const adapter: StorageAdapter<Draft> = { load, save, clear };
+
+    const { result } = renderHook(() =>
+      useDraftHarness({
+        initial: "",
+        adapter,
+        debounceMs: 50,
+      }),
+    );
+
+    await act(async () => {
+      d.resolve({ value: { text: "restored" }, savedAt: 7777 });
+      await Promise.resolve();
+    });
+
+    expect(result.current.text).toBe("restored");
+    expect(result.current.draft.savedAt).toBe(7777);
+  });
 });
