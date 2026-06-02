@@ -183,6 +183,7 @@ router.post("/admin/image-prompt/preview", requireAdmin, async (req: Request, re
         identityPolicy,
         renderControls,
         factEnrichmentSnapshot: enrichment,
+        renderedFactText,
         archetypeStrategyVersion: output.archetypeStrategyVersion,
         visualPlan: output.visualPlan,
         compiledPrompt: compiled,
@@ -215,11 +216,10 @@ router.post("/admin/image-prompt/preview", requireAdmin, async (req: Request, re
     debug: {
       primaryArchetype: output.visualPlan.archetypeApplication.primaryArchetype,
       subtype: output.visualPlan.archetypeApplication.subtype,
-      // The visualPlan has no echo array for cultural references, so we surface
-      // what the generator was *given* (provided) vs. what the plan echoes
-      // (used — currently none for cultural refs). `provided` is authoritative.
+      // `provided` = what the generator was given (authoritative); `used` = what
+      // the plan echoed back as material and folded into the scene.
       culturalReferencesProvided: enrichment.culturalReferences ?? [],
-      culturalReferencesUsed: [] as unknown[],
+      culturalReferencesUsed: output.visualPlan.culturalReferencesUsed ?? [],
       semanticEntitiesUsed: output.visualPlan.semanticEntitiesUsed ?? [],
       supportingTextPolicy: output.visualPlan.supportingTextPolicy,
       subjectFactCompatibility: output.visualPlan.subjectFactCompatibility,

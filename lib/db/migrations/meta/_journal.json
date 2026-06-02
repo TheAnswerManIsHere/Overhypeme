@@ -491,6 +491,13 @@
       "when": 1780300000000,
       "tag": "0069_facts_enrichment_status",
       "breakpoints": true
+    },
+    {
+      "idx": 70,
+      "version": "7",
+      "when": 1780400000000,
+      "tag": "0070_image_prompt_attempts_rendered_fact_text",
+      "breakpoints": true
     }
   ]
 }
