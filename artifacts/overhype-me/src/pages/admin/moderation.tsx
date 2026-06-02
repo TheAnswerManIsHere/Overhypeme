@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { AdminLayout } from "@/components/admin/AdminLayout";
 import { useFormDraft } from "@/hooks/use-form-draft";
-import type { StorageAdapter } from "@/lib/form-draft-storage";
+import { stableSerialize, type StorageAdapter } from "@/lib/form-draft-storage";
 import { Link } from "wouter";
 import { Button } from "@/components/ui/Button";
 import {
@@ -11,7 +11,7 @@ import {
 } from "lucide-react";
 import type { FactEnrichment } from "@workspace/api-zod";
 import { EnrichmentEditor, EnrichmentSummary, isApprovable } from "@/components/admin/EnrichmentEditor";
-import { useEnrichmentDraft } from "@/components/admin/useEnrichmentDraft";
+import { useEnrichmentJobs } from "@/components/admin/useEnrichmentJobs";
 
 // ─── Shared ───────────────────────────────────────────────────────────────────
 
@@ -139,155 +139,149 @@ function ReviewModal({
   onDecision: (id: number, action: "approve" | "reject" | "approve-variant", note: string, parentFactId?: number, rejectionReason?: RejectionReason, enrichment?: FactEnrichment | null) => Promise<string | null>;
   duplicateThreshold: number;
 }) {
-  const [note, setNote] = useState(review.adminNote ?? "");
   const [loading, setLoading] = useState(false);
-  const [rejectionReason, setRejectionReason] = useState<RejectionReason | "">((review.reason as RejectionReason | null) ?? "");
-  // Separate dirty tracking for the admin note field (top-level, not enrichment).
-  const noteDirtyRef = useRef(false);
-  const [noteDirty, setNoteDirty] = useState(false);
-  // Separate dirty tracking for the rejection reason field.
-  const rejectionReasonDirtyRef = useRef(false);
-  const [rejectionReasonDirty, setRejectionReasonDirty] = useState(false);
 
-  // Enrichment editing — form state, debounced autosave, re-run classification,
-  // and preview regeneration — lives in the shared hook so this modal and the
-  // Facts admin page behave identically. We already have review.enrichment, so
-  // seed it (no autoLoad fetch).
-  const enrich = useEnrichmentDraft({
-    resource: "reviews",
-    id: review.id,
-    initialEnrichment: review.enrichment,
-    initialStatus: review.enrichmentStatus,
+  // The whole review form — note, rejection reason, AND enrichment — is one form
+  // backed by the ONE universal `useFormDraft` helper. There is no enrichment-
+  // specific autosave path; enrichment is just another field. A single dirty flag
+  // gates autosave (distinguishing real user edits from background server syncs).
+  const [note, setNote] = useState(review.adminNote ?? "");
+  const [reason, setReason] = useState<RejectionReason | "">((review.reason as RejectionReason | null) ?? "");
+  const [enrichment, setEnrichment] = useState<FactEnrichment | null>(review.enrichment);
+  const [enrichmentStatus, setEnrichmentStatus] = useState<string | null>(review.enrichmentStatus);
+
+  const [dirty, setDirty] = useState(false);
+  const dirtyRef = useRef(false);
+  const markDirty = useCallback(() => { dirtyRef.current = true; setDirty(true); }, []);
+
+  // What the server currently holds, so the adapter sends only the fields the
+  // admin actually changed (the endpoint accepts any subset). This also avoids a
+  // note-only edit re-writing server-managed preview state inside enrichment.
+  const lastSavedRef = useRef<{ note: string; reason: RejectionReason | ""; enrichment: FactEnrichment | null }>({
+    note: review.adminNote ?? "",
+    reason: (review.reason as RejectionReason | null) ?? "",
+    enrichment: review.enrichment ?? null,
   });
 
-  // Fetch fresh review data on mount so ALL form fields (note, rejection reason,
-  // AND enrichment) show the latest DB values, not the stale cached list entry.
-  // Placed after `enrich` so we can call enrich.refreshFromServer.
+  // Apply server-fetched state (mount refresh + job polling) WITHOUT dirtying, so
+  // a background sync never schedules an autosave or clobbers an in-flight edit.
+  const applyServerState = useCallback((e: FactEnrichment | null, s: string | null) => {
+    dirtyRef.current = false;
+    setDirty(false);
+    setEnrichment(e);
+    setEnrichmentStatus(s);
+    lastSavedRef.current = { ...lastSavedRef.current, enrichment: e };
+  }, []);
+
+  const formValue = useMemo(() => ({ note, reason, enrichment }), [note, reason, enrichment]);
+
+  const adapter = useMemo<StorageAdapter<typeof formValue>>(
+    () => ({
+      load: () => null,
+      clear: () => {},
+      save: async (v) => {
+        const prev = lastSavedRef.current;
+        const patch: { note?: string; reason?: RejectionReason | ""; enrichment?: FactEnrichment | null } = {};
+        if (v.note !== prev.note) patch.note = v.note;
+        if (v.reason !== prev.reason) patch.reason = v.reason;
+        if (stableSerialize(v.enrichment) !== stableSerialize(prev.enrichment)) patch.enrichment = v.enrichment;
+        if (Object.keys(patch).length === 0) return Date.now();
+
+        let r: Response;
+        try {
+          r = await fetch(`/api/admin/reviews/${review.id}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            credentials: "include",
+            body: JSON.stringify(patch),
+          });
+        } catch {
+          throw new Error("Network error — could not save.");
+        }
+        if (!r.ok) {
+          throw new Error(
+            r.status === 503 ? "API unavailable — try again shortly." : `Save failed (${r.status}).`,
+          );
+        }
+        lastSavedRef.current = { note: v.note, reason: v.reason, enrichment: v.enrichment };
+        return Date.now();
+      },
+    }),
+    [review.id],
+  );
+
+  const draft = useFormDraft<typeof formValue>({
+    value: formValue,
+    adapter,
+    debounceMs: 1500,
+    restoreOnMount: false,
+    manualDirty: dirty,
+    onSaved: () => { dirtyRef.current = false; setDirty(false); },
+  });
+
+  // Enrichment-specific ACTIONS (re-run, regenerate preview, server polling) —
+  // separate from autosave, shared with the Facts admin page.
+  const jobs = useEnrichmentJobs({
+    resource: "reviews",
+    id: review.id,
+    status: enrichmentStatus,
+    getEnrichment: () => enrichment,
+    isDirty: () => dirtyRef.current,
+    applyServerState,
+    saveNow: draft.saveNow,
+  });
+
+  // Fetch fresh review data on mount so all fields show the latest DB values, not
+  // the stale cached list entry. The modal is keyed by review id, so this runs
+  // once per opened review and never races a different review's data.
   useEffect(() => {
     let cancelled = false;
     void (async () => {
       try {
         const r = await fetch(`/api/admin/reviews/${review.id}`, { credentials: "include" });
-        if (!r.ok || cancelled) return;
+        if (!r.ok || cancelled || dirtyRef.current) return;
         const fresh = await r.json() as {
           adminNote?: string | null;
           reason?: string | null;
           enrichment?: FactEnrichment | null;
           enrichmentStatus?: string | null;
         };
-        if (cancelled) return;
-        // Only overwrite fields the user hasn't started editing yet.
-        if (!noteDirtyRef.current) setNote(fresh.adminNote ?? "");
-        if (!rejectionReasonDirtyRef.current) setRejectionReason((fresh.reason as RejectionReason | null) ?? "");
-        // Refresh enrichment — no-ops inside the hook if the user is already editing.
-        enrich.refreshFromServer(fresh.enrichment ?? null, fresh.enrichmentStatus ?? null);
+        if (cancelled || dirtyRef.current) return;
+        setNote(fresh.adminNote ?? "");
+        setReason((fresh.reason as RejectionReason | null) ?? "");
+        setEnrichment(fresh.enrichment ?? null);
+        setEnrichmentStatus(fresh.enrichmentStatus ?? null);
+        lastSavedRef.current = {
+          note: fresh.adminNote ?? "",
+          reason: (fresh.reason as RejectionReason | null) ?? "",
+          enrichment: fresh.enrichment ?? null,
+        };
       } catch {
         // Leave the seeded values in place on network error.
       }
     })();
     return () => { cancelled = true; };
-  // Run once per review id. enrich.refreshFromServer is stable (useCallback []).
-  // Intentionally excluding note/rejectionReason so edits in flight don't reload.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [review.id]);
 
-  // Server-backed adapter for the admin note field (top-level, sent to user on decision).
-  const noteAdapter = useMemo<StorageAdapter<string>>(
-    () => ({
-      load: () => null,
-      clear: () => {},
-      save: async (noteToSave) => {
-        let r: Response;
-        try {
-          r = await fetch(`/api/admin/reviews/${review.id}/note`, {
-            method: "PATCH",
-            headers: { "Content-Type": "application/json" },
-            credentials: "include",
-            body: JSON.stringify({ note: noteToSave }),
-          });
-        } catch {
-          throw new Error("Network error — could not save.");
-        }
-        if (!r.ok) {
-          throw new Error(
-            r.status === 503 ? "API unavailable — try again shortly." : `Save failed (${r.status}).`,
-          );
-        }
-        return Date.now();
-      },
-    }),
-    [review.id],
-  );
+  const onEnrichmentChange = useCallback((e: FactEnrichment) => {
+    markDirty();
+    setEnrichment(e);
+  }, [markDirty]);
 
-  const noteDraft = useFormDraft<string>({
-    value: note,
-    adapter: noteAdapter,
-    debounceMs: 1500,
-    restoreOnMount: false,
-    manualDirty: noteDirty,
-    isEmpty: (n) => !n.trim(),
-    onSaved: () => {
-      noteDirtyRef.current = false;
-      setNoteDirty(false);
-    },
-  });
-
-  // Server-backed adapter for the rejection reason field.
-  const rejectionReasonAdapter = useMemo<StorageAdapter<RejectionReason | "">>(
-    () => ({
-      load: () => null,
-      clear: () => {},
-      save: async (reasonToSave) => {
-        let r: Response;
-        try {
-          r = await fetch(`/api/admin/reviews/${review.id}/rejection-reason`, {
-            method: "PATCH",
-            headers: { "Content-Type": "application/json" },
-            credentials: "include",
-            body: JSON.stringify({ reason: reasonToSave }),
-          });
-        } catch {
-          throw new Error("Network error — could not save.");
-        }
-        if (!r.ok) {
-          throw new Error(
-            r.status === 503 ? "API unavailable — try again shortly." : `Save failed (${r.status}).`,
-          );
-        }
-        return Date.now();
-      },
-    }),
-    [review.id],
-  );
-
-  const rejectionReasonDraft = useFormDraft<RejectionReason | "">({
-    value: rejectionReason,
-    adapter: rejectionReasonAdapter,
-    debounceMs: 1500,
-    restoreOnMount: false,
-    manualDirty: rejectionReasonDirty,
-    onSaved: () => {
-      rejectionReasonDirtyRef.current = false;
-      setRejectionReasonDirty(false);
-    },
-  });
-
-  // Flush all drafts (fire-and-forget) before closing so unsaved edits made
-  // within the debounce window are not lost when the modal unmounts.
+  // Flush the draft (fire-and-forget) before closing so unsaved edits made within
+  // the debounce window are not lost when the modal unmounts.
   const handleClose = useCallback(() => {
-    if (enrich.dirty) void enrich.saveNow();
-    if (noteDirtyRef.current) void noteDraft.saveNow();
-    if (rejectionReasonDirtyRef.current) void rejectionReasonDraft.saveNow();
+    if (dirtyRef.current) void draft.saveNow();
     onClose();
-  }, [enrich, noteDraft, rejectionReasonDraft, onClose]);
+  }, [draft, onClose]);
 
-  const canApprove = isApprovable(enrich.enrichment);
+  const canApprove = isApprovable(enrichment);
 
   const [decisionError, setDecisionError] = useState("");
   const [showDuplicate, setShowDuplicate] = useState(false);
 
   const handle = async (action: "approve" | "reject" | "approve-variant") => {
-    if (action === "reject" && !rejectionReason) {
+    if (action === "reject" && !reason) {
       setDecisionError("Please select a rejection reason before rejecting.");
       return;
     }
@@ -295,10 +289,10 @@ function ReviewModal({
     setDecisionError("");
     const err =
       action === "approve-variant"
-        ? await onDecision(review.id, action, note, review.matchingFact?.id ?? undefined, undefined, enrich.enrichment)
+        ? await onDecision(review.id, action, note, review.matchingFact?.id ?? undefined, undefined, enrichment)
         : action === "reject"
-        ? await onDecision(review.id, action, note, undefined, rejectionReason || undefined)
-        : await onDecision(review.id, action, note, undefined, undefined, enrich.enrichment);
+        ? await onDecision(review.id, action, note, undefined, reason || undefined)
+        : await onDecision(review.id, action, note, undefined, undefined, enrichment);
     if (err) setDecisionError(err);
     setLoading(false);
   };
@@ -367,34 +361,26 @@ function ReviewModal({
           {review.status === "pending" ? (
             <div className="space-y-2">
               <EnrichmentEditor
-                value={enrich.enrichment}
-                status={enrich.status}
+                value={enrichment}
+                status={enrichmentStatus}
                 factText={review.submittedText}
-                onChange={enrich.onChange}
-                onRerun={enrich.onRerun}
-                onRegeneratePreview={enrich.onRegeneratePreview}
-                busy={loading || enrich.busy}
-                rerunBusy={enrich.rerunBusy}
-                previewBusy={enrich.previewBusy}
+                onChange={onEnrichmentChange}
+                onRerun={jobs.onRerun}
+                onRegeneratePreview={jobs.onRegeneratePreview}
+                busy={loading || jobs.loading || jobs.rerunBusy || jobs.previewBusy}
+                rerunBusy={jobs.rerunBusy}
+                previewBusy={jobs.previewBusy}
                 submittedHashtags={review.hashtags ?? []}
               />
-              <div className="flex items-center justify-between gap-2">
-                <div className="text-xs text-muted-foreground">
-                  {enrich.draft.status === "saving" && <span className="flex items-center gap-1"><Loader2 className="w-3 h-3 animate-spin" />Saving…</span>}
-                  {enrich.draft.status === "saved" && enrich.draft.savedLabel && <span>{enrich.draft.savedLabel}</span>}
-                  {enrich.unsavedInvalid && <span className="text-amber-600 dark:text-amber-400">Unsaved — resolve validation errors to autosave</span>}
-                  {enrich.draft.status === "error" && !enrich.unsavedInvalid && <span className="text-destructive">Auto-save failed — see error below</span>}
-                </div>
-              </div>
-              {enrich.error && (
+              {jobs.error && (
                 <div className="flex items-start gap-2 rounded-sm border border-destructive/50 bg-destructive/10 px-3 py-2">
                   <AlertTriangle className="w-4 h-4 text-destructive shrink-0 mt-0.5" />
-                  <p className="text-sm text-destructive">{enrich.error}</p>
+                  <p className="text-sm text-destructive">{jobs.error}</p>
                 </div>
               )}
             </div>
-          ) : enrich.enrichment ? (
-            <EnrichmentSummary e={enrich.enrichment} />
+          ) : enrichment ? (
+            <EnrichmentSummary e={enrichment} />
           ) : null}
 
           {review.status === "pending" && (
@@ -404,8 +390,8 @@ function ReviewModal({
                   Rejection Reason <span className="text-destructive font-normal">*</span>
                 </label>
                 <select
-                  value={rejectionReason}
-                  onChange={(e) => { rejectionReasonDirtyRef.current = true; setRejectionReasonDirty(true); setRejectionReason(e.target.value as RejectionReason | ""); setDecisionError(""); }}
+                  value={reason}
+                  onChange={(e) => { markDirty(); setReason(e.target.value as RejectionReason | ""); setDecisionError(""); }}
                   className="w-full px-3 py-2 bg-background border border-border rounded-sm text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
                 >
                   <option value="">— No specific reason —</option>
@@ -413,13 +399,6 @@ function ReviewModal({
                     <option key={r.value} value={r.value}>{r.label}</option>
                   ))}
                 </select>
-                <div className="flex items-center justify-between mt-1 min-h-[1.25rem]">
-                  <div className="text-xs text-muted-foreground">
-                    {rejectionReasonDraft.status === "saving" && <span className="flex items-center gap-1"><Loader2 className="w-3 h-3 animate-spin" />Saving…</span>}
-                    {rejectionReasonDraft.status === "saved" && rejectionReasonDraft.savedLabel && <span>{rejectionReasonDraft.savedLabel}</span>}
-                    {rejectionReasonDraft.status === "error" && <span className="text-destructive">{rejectionReasonDraft.error ?? "Save failed"}</span>}
-                  </div>
-                </div>
                 {decisionError && (
                   <div className="flex items-start gap-2 mt-2 rounded-sm border border-destructive/50 bg-destructive/10 px-3 py-2">
                     <AlertTriangle className="w-4 h-4 text-destructive shrink-0 mt-0.5" />
@@ -431,17 +410,19 @@ function ReviewModal({
                 <label className="block text-sm font-semibold text-foreground mb-2">Admin Note <span className="text-muted-foreground font-normal">(optional, sent to user)</span></label>
                 <textarea
                   value={note}
-                  onChange={(e) => { noteDirtyRef.current = true; setNoteDirty(true); setNote(e.target.value); }}
+                  onChange={(e) => { markDirty(); setNote(e.target.value); }}
                   rows={3}
                   maxLength={500}
                   placeholder="Add a personal message to explain your decision…"
                   className="w-full px-3 py-2 bg-background border border-border rounded-sm text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary resize-none"
                 />
                 <div className="flex items-center justify-between mt-1 min-h-[1.25rem]">
+                  {/* Single unified autosave status line for the whole review form
+                      (note, rejection reason, and enrichment all share one draft). */}
                   <div className="text-xs text-muted-foreground">
-                    {noteDraft.status === "saving" && <span className="flex items-center gap-1"><Loader2 className="w-3 h-3 animate-spin" />Saving…</span>}
-                    {noteDraft.status === "saved" && noteDraft.savedLabel && <span>{noteDraft.savedLabel}</span>}
-                    {noteDraft.status === "error" && <span className="text-destructive">{noteDraft.error ?? "Save failed"}</span>}
+                    {draft.status === "saving" && <span className="flex items-center gap-1"><Loader2 className="w-3 h-3 animate-spin" />Saving…</span>}
+                    {draft.status === "saved" && draft.savedLabel && <span>{draft.savedLabel}</span>}
+                    {draft.status === "error" && <span className="text-destructive">{draft.error ?? "Save failed"}</span>}
                   </div>
                   <span className="text-xs text-muted-foreground">{note.length}/500</span>
                 </div>
@@ -684,6 +665,7 @@ function FactReviewsPanel() {
 
       {selectedReview && (
         <ReviewModal
+          key={selectedReview.id}
           review={selectedReview}
           onClose={() => setSelectedReview(null)}
           onDecision={handleDecision}
