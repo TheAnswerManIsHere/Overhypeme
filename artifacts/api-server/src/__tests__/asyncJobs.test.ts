@@ -119,6 +119,37 @@ describe("asyncJobs worker", () => {
     assert.match(after.lastError ?? "", /not configured/);
   });
 
+  it("returns a concrete job id and reuses it on a dedupe hit", async () => {
+    const queue = `${QUEUE_PREFIX}${randomUUID()}`;
+    const dedupeKey = `dedupe-${randomUUID()}`;
+
+    const first = await enqueueJob({ queue, payload: { n: 1 }, dedupeKey });
+    jobIds.push(first.jobId);
+    assert.equal(typeof first.jobId, "number");
+    assert.equal(first.inserted, true);
+    assert.equal(first.status, "pending");
+
+    // Same (queue, dedupeKey) while the first job is still pending → reuse it.
+    const second = await enqueueJob({ queue, payload: { n: 2 }, dedupeKey });
+    assert.equal(second.jobId, first.jobId);
+    assert.equal(second.inserted, false);
+  });
+
+  it("creates a NEW job when the prior dedupe job is already terminal", async () => {
+    const queue = `${QUEUE_PREFIX}${randomUUID()}`;
+    const dedupeKey = `dedupe-${randomUUID()}`;
+
+    const first = await enqueueJob({ queue, payload: {}, dedupeKey });
+    jobIds.push(first.jobId);
+    // Mark it done — the partial unique index no longer covers it.
+    await db.update(asyncJobsTable).set({ status: "done" }).where(eq(asyncJobsTable.id, first.jobId));
+
+    const second = await enqueueJob({ queue, payload: {}, dedupeKey });
+    jobIds.push(second.jobId);
+    assert.notEqual(second.jobId, first.jobId, "a finished job must not block a fresh enqueue");
+    assert.equal(second.inserted, true);
+  });
+
   it("uses the queue-level max-attempts config when no per-job override is set", async () => {
     const queue = `${QUEUE_PREFIX}${randomUUID()}`;
     const configKey = `async_job_${queue}_max_attempts`;

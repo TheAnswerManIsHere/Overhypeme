@@ -156,3 +156,183 @@ export interface TaxonomyHealthSummaryCounts {
   semanticEntitiesNeedReview: number;
   lowConfidence: number;
 }
+
+// ─── Health filters — single source of truth for count + list ─────────────
+//
+// The summary card counts and the facts-list filter MUST use the same
+// predicate, or a card can show "3" and then list 8 rows (the historical
+// "Healthy returns everything" + "semantic entities counts 1, lists 8" bugs).
+// `matchesHealthFilter` is that one predicate; both the summary tally and the
+// list endpoint route every card through it so they can never diverge.
+//
+// Cards are *overlapping* filters, not exclusive buckets: a fact that is
+// `overallStatus === "healthy"` may still carry an info-level hint and so
+// appear under another card too. The UI explains this.
+
+export const TAXONOMY_HEALTH_FILTER_VALUES = [
+  "any",
+  "healthy",
+  "missing_enrichment",
+  "invalid_enrichment",
+  "needs_admin_review",
+  "missing_visual_preview",
+  "stale_visual_preview",
+  "stale_enrichment_version",
+  "projection_mismatch",
+  "incomplete_cultural_references",
+  "semantic_entities_need_review",
+  "low_confidence",
+  "questionable_fit",
+] as const;
+export type TaxonomyHealthFilter = (typeof TAXONOMY_HEALTH_FILTER_VALUES)[number];
+
+/**
+ * The single predicate shared by the summary counts and the facts list.
+ * `semantic_entities_need_review` deliberately uses `statuses` (the broad set,
+ * which includes the info-level capitalization hints) so the count matches the
+ * list — per product decision to surface the hints under this card.
+ */
+export function matchesHealthFilter(
+  health: FactTaxonomyHealth,
+  filter: TaxonomyHealthFilter,
+): boolean {
+  switch (filter) {
+    case "any":
+      return true;
+    case "healthy":
+      return health.overallStatus === "healthy";
+    case "missing_enrichment":
+      return health.statuses.includes("missing_enrichment");
+    case "invalid_enrichment":
+      return health.reviewFlags.invalidEnrichment;
+    case "needs_admin_review":
+      return health.statuses.includes("needs_admin_review");
+    case "missing_visual_preview":
+      return health.reviewFlags.missingPreview;
+    case "stale_visual_preview":
+      return health.reviewFlags.stalePreview;
+    case "stale_enrichment_version":
+      return health.reviewFlags.staleEnrichmentVersion;
+    case "projection_mismatch":
+      return health.reviewFlags.projectionMismatch;
+    case "incomplete_cultural_references":
+      return health.reviewFlags.culturalReferenceNeedsResearch;
+    case "semantic_entities_need_review":
+      return health.statuses.includes("semantic_entities_need_review");
+    case "low_confidence":
+      return health.reviewFlags.lowConfidence;
+    case "questionable_fit":
+      return health.statuses.includes("questionable_fit");
+    default: {
+      // Exhaustiveness guard — a new filter value must add a case above.
+      const _never: never = filter;
+      return _never;
+    }
+  }
+}
+
+/**
+ * Maps each summary-count key (except `totalFacts`) to the filter whose
+ * predicate produces it. The summary route loops over this so each count is
+ * `matchesHealthFilter(...)` — identical to what the list returns.
+ */
+export const SUMMARY_COUNT_TO_FILTER: Record<
+  Exclude<keyof TaxonomyHealthSummaryCounts, "totalFacts">,
+  TaxonomyHealthFilter
+> = {
+  healthy: "healthy",
+  missingEnrichment: "missing_enrichment",
+  invalidEnrichment: "invalid_enrichment",
+  needsAdminReview: "needs_admin_review",
+  missingVisualPreview: "missing_visual_preview",
+  staleVisualPreview: "stale_visual_preview",
+  staleEnrichmentVersion: "stale_enrichment_version",
+  projectionMismatch: "projection_mismatch",
+  incompleteCulturalReferences: "incomplete_cultural_references",
+  semanticEntitiesNeedReview: "semantic_entities_need_review",
+  lowConfidence: "low_confidence",
+};
+
+// ─── Action response contract (observable jobs + inline outcomes) ──────────
+//
+// Every Taxonomy Health action returns the same shape so the UI can render a
+// spinner→done/✗ for queued work and immediate terminal state for inline work.
+// Queued work returns concrete `async_jobs.id`s the frontend polls by id;
+// inline/skip work returns `outcomes` resolved synchronously.
+
+export const TAXONOMY_HEALTH_ACTION_VALUES = [
+  "re_enrich",
+  "regenerate_visual_plan",
+  "repair_projections",
+] as const;
+export type TaxonomyHealthAction = (typeof TAXONOMY_HEALTH_ACTION_VALUES)[number];
+
+export const TAXONOMY_HEALTH_SKIP_REASON_VALUES = [
+  "admin_edited",
+  "not_applicable",
+  "already_current",
+  "missing_required_data",
+] as const;
+export type TaxonomyHealthSkipReason =
+  (typeof TAXONOMY_HEALTH_SKIP_REASON_VALUES)[number];
+
+export type AsyncJobStatusValue = "pending" | "processing" | "done" | "failed";
+
+export interface QueuedJobDescriptor {
+  factId: number;
+  jobId: number;
+  queue: string;
+  dedupeKey: string | null;
+  action: TaxonomyHealthAction;
+  status: AsyncJobStatusValue;
+  /** True when this enqueue attached to an existing non-terminal job. */
+  deduped: boolean;
+}
+
+export type ActionOutcome =
+  | { factId: number; action: TaxonomyHealthAction; status: "done"; message?: string }
+  | { factId: number; action: TaxonomyHealthAction; status: "failed"; error: string }
+  | {
+      factId: number;
+      action: TaxonomyHealthAction;
+      status: "skipped";
+      reason: TaxonomyHealthSkipReason;
+      message: string;
+    };
+
+export interface TaxonomyHealthActionSummary {
+  requested: number;
+  queued: number;
+  done: number;
+  failed: number;
+  skipped: number;
+  skippedAdminEdited?: number;
+  alreadyCurrent?: number;
+  notApplicable?: number;
+}
+
+export interface TaxonomyHealthActionResponse {
+  /** Descriptive only — the UI derives behavior from the arrays below. */
+  mode: "queued" | "inline" | "mixed";
+  jobs: QueuedJobDescriptor[];
+  outcomes: ActionOutcome[];
+  summary: TaxonomyHealthActionSummary;
+}
+
+// ─── Job-status polling (poll by concrete async_jobs.id) ───────────────────
+
+export interface JobStatusEntry {
+  jobId: number;
+  queue: string;
+  dedupeKey: string | null;
+  status: AsyncJobStatusValue;
+  attempts: number;
+  maxAttempts: number;
+  /** Concise diagnostic (no stack traces). */
+  error: string | null;
+  updatedAt: string | null;
+}
+
+export interface JobStatusResponse {
+  jobs: JobStatusEntry[];
+}

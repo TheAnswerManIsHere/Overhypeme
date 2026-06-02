@@ -4,26 +4,20 @@ import { AdminLayout } from "@/components/admin/AdminLayout";
 import { Button } from "@/components/ui/Button";
 import {
   Loader2, AlertTriangle, Activity, RefreshCw, ExternalLink, Wrench, Search, ListChecks,
+  CheckCircle2, XCircle, Clock, Info, X,
 } from "lucide-react";
 import type {
   FactTaxonomyHealth,
   TaxonomyHealthSummaryCounts,
   TaxonomyHealthStatus,
+  TaxonomyHealthAction,
+  ActionOutcome,
 } from "@workspace/api-zod";
-
-type FilterStatus =
-  | "any"
-  | "missing_enrichment"
-  | "invalid_enrichment"
-  | "needs_admin_review"
-  | "missing_visual_preview"
-  | "stale_visual_preview"
-  | "stale_enrichment_version"
-  | "projection_mismatch"
-  | "incomplete_cultural_references"
-  | "semantic_entities_need_review"
-  | "low_confidence"
-  | "questionable_fit";
+import { CARD_META, type FilterStatus, type CardMeta, type CardTone } from "./taxonomyHealthCards";
+import {
+  useTaxonomyHealthActions,
+  type UiOpState,
+} from "@/components/admin/useTaxonomyHealthActions";
 
 interface HealthRow {
   factId: number;
@@ -44,26 +38,18 @@ interface ListResponse {
   offset: number;
 }
 
-const CARD_DEFS: Array<{ key: keyof TaxonomyHealthSummaryCounts; label: string; filter: FilterStatus; tone: "green" | "red" | "amber" | "blue" | "neutral" }> = [
-  { key: "healthy",                      label: "Healthy",                         filter: "any",                            tone: "green"   },
-  { key: "missingEnrichment",            label: "Missing enrichment",              filter: "missing_enrichment",             tone: "red"     },
-  { key: "invalidEnrichment",            label: "Invalid enrichment",              filter: "invalid_enrichment",             tone: "red"     },
-  { key: "needsAdminReview",             label: "Needs admin review",              filter: "needs_admin_review",             tone: "amber"   },
-  { key: "missingVisualPreview",         label: "Missing preview",                 filter: "missing_visual_preview",         tone: "amber"   },
-  { key: "staleVisualPreview",           label: "Stale preview",                   filter: "stale_visual_preview",           tone: "amber"   },
-  { key: "staleEnrichmentVersion",       label: "Stale enrichment",                filter: "stale_enrichment_version",       tone: "amber"   },
-  { key: "projectionMismatch",           label: "Projection mismatch",             filter: "projection_mismatch",            tone: "blue"    },
-  { key: "incompleteCulturalReferences", label: "Cultural refs need research",     filter: "incomplete_cultural_references", tone: "amber"   },
-  { key: "semanticEntitiesNeedReview",   label: "Semantic entities need review",   filter: "semantic_entities_need_review",  tone: "amber"   },
-  { key: "lowConfidence",                label: "Low confidence",                  filter: "low_confidence",                 tone: "amber"   },
-];
-
-const TONE_CLASS: Record<"green"|"red"|"amber"|"blue"|"neutral", string> = {
+const TONE_CLASS: Record<CardTone, string> = {
   green:   "border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
   red:     "border-red-500/40 bg-red-500/10 text-red-700 dark:text-red-300",
   amber:   "border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300",
   blue:    "border-blue-500/40 bg-blue-500/10 text-blue-700 dark:text-blue-300",
   neutral: "border-border bg-muted/20 text-muted-foreground",
+};
+
+const ACTION_LABEL: Record<TaxonomyHealthAction, string> = {
+  re_enrich: "Re-enrich",
+  regenerate_visual_plan: "Regenerate Visual Plan",
+  repair_projections: "Repair projections",
 };
 
 function fmtConfidence(c: number | null): string {
@@ -94,6 +80,54 @@ function OverallBadge({ s }: { s: FactTaxonomyHealth["overallStatus"] }) {
   return <span className={`inline-block px-1.5 py-0.5 rounded-sm text-xs uppercase tracking-wide ${color}`}>{s}</span>;
 }
 
+/** Per-row operation indicator: spinner → done/failed/skipped/still-running. */
+function ActionIndicator({ state, outcome }: { state: UiOpState; outcome: ActionOutcome | null }) {
+  switch (state) {
+    case "posting":
+    case "processing":
+      return (
+        <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+          <Loader2 className="w-3 h-3 animate-spin" /> Working…
+        </span>
+      );
+    case "done":
+      return (
+        <span className="inline-flex items-center gap-1 text-xs text-emerald-600 dark:text-emerald-400">
+          <CheckCircle2 className="w-3 h-3" /> Done
+        </span>
+      );
+    case "failed":
+      return (
+        <span
+          className="inline-flex items-center gap-1 text-xs text-red-600 dark:text-red-400"
+          title={outcome?.status === "failed" ? outcome.error : undefined}
+        >
+          <XCircle className="w-3 h-3" /> Failed
+        </span>
+      );
+    case "skipped":
+      return (
+        <span
+          className="inline-flex items-center gap-1 text-xs text-muted-foreground"
+          title={outcome?.status === "skipped" ? outcome.message : undefined}
+        >
+          <Info className="w-3 h-3" />
+          {outcome?.status === "skipped" && outcome.reason === "admin_edited"
+            ? "Skipped — admin-edited"
+            : "Skipped"}
+        </span>
+      );
+    case "still_running":
+      return (
+        <span className="inline-flex items-center gap-1 text-xs text-amber-600 dark:text-amber-400">
+          <Clock className="w-3 h-3" /> Still running
+        </span>
+      );
+    default:
+      return null;
+  }
+}
+
 export default function TaxonomyHealth() {
   const [summary, setSummary] = useState<TaxonomyHealthSummaryCounts | null>(null);
   const [rows, setRows] = useState<HealthRow[]>([]);
@@ -102,8 +136,6 @@ export default function TaxonomyHealth() {
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [actionBusy, setActionBusy] = useState<string | null>(null);
-  const [actionMessage, setActionMessage] = useState<string | null>(null);
 
   const loadSummary = useCallback(async () => {
     try {
@@ -138,82 +170,118 @@ export default function TaxonomyHealth() {
   useEffect(() => { void loadSummary(); }, [loadSummary]);
   useEffect(() => { void loadList(); }, [loadList]);
 
-  const runAction = useCallback(
-    async (label: string, url: string, body: Record<string, unknown>, confirmMsg?: string) => {
-      if (confirmMsg && !window.confirm(confirmMsg)) return;
-      setActionBusy(label);
-      setActionMessage(null);
-      try {
-        const r = await fetch(url, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          credentials: "include",
-          body: JSON.stringify(body),
-        });
-        if (!r.ok) throw new Error(`${label}_failed`);
-        const result = await r.json() as Record<string, unknown>;
-        setActionMessage(`${label}: ${JSON.stringify(result)}`);
-        await loadSummary();
-        await loadList();
-      } catch (err) {
-        setActionMessage(`${label} failed: ${(err as Error).message}`);
-      } finally {
-        setActionBusy(null);
-      }
-    },
-    [loadList, loadSummary],
+  // Refresh both surfaces whenever an action reaches a terminal transition. The
+  // selected `filter` is intentionally NOT reset, so the admin stays on the
+  // card they were working; rows that get fixed simply drop out of the list.
+  const onChanged = useCallback(() => {
+    void loadSummary();
+    void loadList();
+  }, [loadSummary, loadList]);
+
+  const actions = useTaxonomyHealthActions(onChanged);
+
+  const activeCard: CardMeta | undefined = useMemo(
+    () => CARD_META.find((c) => c.filter === filter),
+    [filter],
   );
 
-  const isBulkMode = filter !== "any";
   const bulkActions = useMemo(() => {
-    const list: Array<{ key: string; label: string; url: string; body: Record<string, unknown>; confirmMsg?: string }> = [];
+    const list: Array<{
+      key: string;
+      label: string;
+      action: TaxonomyHealthAction;
+      url: string;
+      body: Record<string, unknown>;
+      confirm?: (count: number) => string;
+    }> = [];
     if (filter === "missing_enrichment") {
       list.push({
         key: "backfill_missing",
         label: "Backfill missing enrichment",
+        action: "re_enrich",
         url: "/api/admin/taxonomy-health/actions/backfill-enrichment",
         body: { mode: "missing_only" },
-        confirmMsg: "Queue enrichment for all facts missing enrichment?",
+        confirm: (n) => `Queue enrichment model jobs for ${n} fact${n === 1 ? "" : "s"}? This costs model calls and can take a while. Admin-edited facts are skipped automatically.`,
       });
     }
     if (filter === "stale_enrichment_version") {
       list.push({
         key: "reenrich_stale",
         label: "Re-enrich stale facts",
+        action: "re_enrich",
         url: "/api/admin/taxonomy-health/actions/backfill-enrichment",
         body: { mode: "stale_only" },
-        confirmMsg: "Re-enrich stale facts? Admin-edited rows (enrichedBy=admin or with adminReviewNotes) are skipped automatically.",
+        confirm: (n) => `Re-enrich ${n} stale fact${n === 1 ? "" : "s"}? This costs model calls and can take a while. Admin-edited facts are skipped automatically.`,
       });
     }
     if (filter === "missing_visual_preview") {
       list.push({
         key: "regen_missing_previews",
-        label: "Regenerate missing previews",
+        label: "Regenerate missing visual plans",
+        action: "regenerate_visual_plan",
         url: "/api/admin/taxonomy-health/actions/regenerate-previews",
         body: { mode: "missing_only" },
-        confirmMsg: "Queue preview generation for all facts missing a preview?",
+        confirm: (n) => `Queue visual-plan jobs for ${n} fact${n === 1 ? "" : "s"}? This costs model calls and can take a while.`,
       });
     }
     if (filter === "stale_visual_preview") {
       list.push({
         key: "regen_stale_previews",
-        label: "Regenerate stale previews",
+        label: "Regenerate stale visual plans",
+        action: "regenerate_visual_plan",
         url: "/api/admin/taxonomy-health/actions/regenerate-previews",
         body: { mode: "stale_only" },
-        confirmMsg: "Queue preview regeneration for facts with a stale preview?",
+        confirm: (n) => `Regenerate visual plans for ${n} fact${n === 1 ? "" : "s"}? This costs model calls and can take a while.`,
       });
     }
     if (filter === "projection_mismatch") {
       list.push({
         key: "repair_projections",
         label: "Repair projection mismatches",
+        action: "repair_projections",
         url: "/api/admin/taxonomy-health/actions/repair-projections",
         body: { mode: "mismatches_only" },
-        confirmMsg: "Repair projection columns for all facts where they don't match the enrichment? Safe — derives from the existing JSONB blob.",
+        // No confirm — projection repair is fast, idempotent, and makes no model calls.
       });
     }
     return list;
   }, [filter]);
+
+  const runBulk = useCallback(
+    (a: { label: string; action: TaxonomyHealthAction; url: string; body: Record<string, unknown>; confirm?: (count: number) => string }) => {
+      if (a.confirm) {
+        const msg = a.confirm(total);
+        if (!window.confirm(msg)) return;
+      }
+      void actions.submit("bulk", a.action, a.url, a.body);
+    },
+    [actions, total],
+  );
+
+  const runRow = useCallback(
+    (factId: number, action: TaxonomyHealthAction, url: string) => {
+      void actions.submit(`row:${factId}`, action, url, { mode: "selected_fact_ids", factIds: [factId] });
+    },
+    [actions],
+  );
+
+  const bannerText = useMemo(() => {
+    const op = actions.lastOp;
+    if (!op) return null;
+    const c = actions.counts(op.scope);
+    if (!c) return null;
+    if (op.posting) return `${ACTION_LABEL[op.action]}: starting…`;
+    const segs: string[] = [];
+    if (c.done > 0) segs.push(`${c.done} done`);
+    if (c.failed > 0) segs.push(`${c.failed} failed`);
+    if (c.skipped > 0) segs.push(`${c.skipped} skipped`);
+    if (c.running > 0) segs.push(`${c.running} running`);
+    if (c.stillRunning > 0) segs.push(`${c.stillRunning} still running`);
+    if (segs.length === 0) segs.push("no matching facts");
+    return `${ACTION_LABEL[op.action]}: ${segs.join(" · ")}`;
+  }, [actions]);
+
+  const isBulkMode = filter !== "any";
 
   return (
     <AdminLayout title="Taxonomy Health">
@@ -229,7 +297,7 @@ export default function TaxonomyHealth() {
         {/* Summary cards */}
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">
           <SummaryCard label="Total facts" value={summary?.totalFacts ?? null} tone="neutral" onClick={() => setFilter("any")} active={filter === "any"} />
-          {CARD_DEFS.map((d) => (
+          {CARD_META.map((d) => (
             <SummaryCard
               key={d.key}
               label={d.label}
@@ -241,7 +309,17 @@ export default function TaxonomyHealth() {
           ))}
         </div>
 
-        {/* Filters + search */}
+        {/* Selected-card explanation */}
+        {activeCard ? (
+          <CardDescriptionPanel card={activeCard} />
+        ) : (
+          <div className="rounded-sm border border-border bg-muted/20 p-3 text-xs text-muted-foreground">
+            Showing all facts. Select a card above to see what each health issue means and how to fix it.
+            Cards are filters, not exclusive buckets — a fact can appear under more than one.
+          </div>
+        )}
+
+        {/* Filters + search + bulk actions */}
         <div className="flex items-end gap-2 flex-wrap">
           <div className="flex-1 min-w-[240px]">
             <label className="block text-xs text-muted-foreground uppercase tracking-wide mb-1">Search fact text</label>
@@ -260,18 +338,28 @@ export default function TaxonomyHealth() {
               key={a.key}
               variant="primary"
               size="sm"
-              disabled={actionBusy !== null}
-              onClick={() => void runAction(a.label, a.url, a.body, a.confirmMsg)}
+              disabled={actions.busy("bulk")}
+              onClick={() => runBulk(a)}
             >
-              {actionBusy === a.label ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : <ListChecks className="w-3 h-3 mr-1" />}
+              {actions.busy("bulk") ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : <ListChecks className="w-3 h-3 mr-1" />}
               {a.label}
             </Button>
           ))}
         </div>
 
-        {actionMessage && (
-          <div className="rounded-sm border border-border bg-muted/30 p-2 text-xs text-foreground whitespace-pre-wrap">
-            {actionMessage}
+        {/* Last-action banner */}
+        {bannerText && !actions.bannerDismissed && (
+          <div className="rounded-sm border border-border bg-muted/30 p-2 text-xs text-foreground flex items-start justify-between gap-2">
+            <span className="whitespace-pre-wrap">{bannerText}</span>
+            <button type="button" onClick={actions.dismissBanner} className="text-muted-foreground hover:text-foreground shrink-0" aria-label="Dismiss">
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        )}
+
+        {actions.error && (
+          <div className="rounded-sm border border-destructive/40 bg-destructive/10 p-2 text-xs text-destructive">
+            {actions.error}
           </div>
         )}
 
@@ -311,7 +399,10 @@ export default function TaxonomyHealth() {
                 </tr>
               )}
               {!loading &&
-                rows.map((row) => (
+                rows.map((row) => {
+                  const rowBusy = actions.busy(`row:${row.factId}`);
+                  const { state, outcome } = actions.rowState(row.factId);
+                  return (
                   <tr key={row.factId} className="border-t border-border">
                     <td className="px-2 py-1.5 align-top">
                       <Link href={`/admin/facts?focus=${row.factId}`} className="text-primary hover:underline inline-flex items-center gap-1">
@@ -338,61 +429,44 @@ export default function TaxonomyHealth() {
                         <p className="text-[10px] text-muted-foreground">{row.health.issues[0]!.message}</p>
                       )}
                     </td>
-                    <td className="px-2 py-1.5 align-top whitespace-nowrap space-x-1">
-                      {row.health.reviewFlags.projectionMismatch && (
-                        <Button
-                          variant="secondary"
-                          size="sm"
-                          disabled={actionBusy !== null}
-                          onClick={() =>
-                            void runAction(
-                              "Repair projections",
-                              "/api/admin/taxonomy-health/actions/repair-projections",
-                              { mode: "selected_fact_ids", factIds: [row.factId] },
-                            )
-                          }
-                        >
-                          <Wrench className="w-3 h-3 mr-1" /> Repair
-                        </Button>
-                      )}
-                      {(row.health.statuses.includes("missing_enrichment") || row.health.reviewFlags.staleEnrichmentVersion) && (
-                        <Button
-                          variant="secondary"
-                          size="sm"
-                          disabled={actionBusy !== null}
-                          onClick={() =>
-                            void runAction(
-                              "Re-enrich",
-                              "/api/admin/taxonomy-health/actions/backfill-enrichment",
-                              { mode: "selected_fact_ids", factIds: [row.factId] },
-                              row.health.statuses.includes("missing_enrichment")
-                                ? undefined
-                                : "Re-run classification on this fact? Admin-edited enrichment may be replaced unless you have force-overwrite off.",
-                            )
-                          }
-                        >
-                          <RefreshCw className="w-3 h-3 mr-1" /> Re-enrich
-                        </Button>
-                      )}
-                      {(row.health.reviewFlags.missingPreview || row.health.reviewFlags.stalePreview) && (
-                        <Button
-                          variant="secondary"
-                          size="sm"
-                          disabled={actionBusy !== null}
-                          onClick={() =>
-                            void runAction(
-                              "Regenerate preview",
-                              "/api/admin/taxonomy-health/actions/regenerate-previews",
-                              { mode: "selected_fact_ids", factIds: [row.factId] },
-                            )
-                          }
-                        >
-                          Preview
-                        </Button>
-                      )}
+                    <td className="px-2 py-1.5 align-top whitespace-nowrap">
+                      <div className="flex items-center gap-1 flex-wrap">
+                        {row.health.reviewFlags.projectionMismatch && (
+                          <Button
+                            variant="secondary"
+                            size="sm"
+                            disabled={rowBusy}
+                            onClick={() => runRow(row.factId, "repair_projections", "/api/admin/taxonomy-health/actions/repair-projections")}
+                          >
+                            <Wrench className="w-3 h-3 mr-1" /> Repair
+                          </Button>
+                        )}
+                        {(row.health.statuses.includes("missing_enrichment") || row.health.reviewFlags.staleEnrichmentVersion || row.health.reviewFlags.invalidEnrichment) && (
+                          <Button
+                            variant="secondary"
+                            size="sm"
+                            disabled={rowBusy}
+                            onClick={() => runRow(row.factId, "re_enrich", "/api/admin/taxonomy-health/actions/backfill-enrichment")}
+                          >
+                            <RefreshCw className="w-3 h-3 mr-1" /> Re-enrich
+                          </Button>
+                        )}
+                        {(row.health.reviewFlags.missingPreview || row.health.reviewFlags.stalePreview) && (
+                          <Button
+                            variant="secondary"
+                            size="sm"
+                            disabled={rowBusy}
+                            onClick={() => runRow(row.factId, "regenerate_visual_plan", "/api/admin/taxonomy-health/actions/regenerate-previews")}
+                          >
+                            <RefreshCw className="w-3 h-3 mr-1" /> Regenerate Visual Plan
+                          </Button>
+                        )}
+                        <ActionIndicator state={state} outcome={outcome} />
+                      </div>
                     </td>
                   </tr>
-                ))}
+                  );
+                })}
             </tbody>
           </table>
         </div>
@@ -415,7 +489,7 @@ function SummaryCard({
 }: {
   label: string;
   value: number | null;
-  tone: "green" | "red" | "amber" | "blue" | "neutral";
+  tone: CardTone;
   onClick?: () => void;
   active?: boolean;
 }) {
@@ -428,5 +502,37 @@ function SummaryCard({
       <p className="text-[10px] uppercase tracking-wide opacity-80">{label}</p>
       <p className="text-lg font-bold">{value ?? "—"}</p>
     </button>
+  );
+}
+
+function CardDescriptionPanel({ card }: { card: CardMeta }) {
+  const safetyLabel: Record<string, string> = {
+    safe: "Safe to repeat · no model calls",
+    costs_model_calls: "Costs model calls",
+    overwrite_risk: "May overwrite data",
+  };
+  return (
+    <div className="rounded-sm border border-border bg-muted/20 p-3 space-y-2">
+      <p className="text-sm font-bold text-foreground">{card.label}</p>
+      <p className="text-xs text-foreground">{card.description}</p>
+      <p className="text-xs text-muted-foreground"><span className="font-semibold text-foreground">What to do:</span> {card.whatToDo}</p>
+      {card.actions.length > 0 && (
+        <ul className="space-y-1">
+          {card.actions.map((a) => (
+            <li key={a.label} className="text-xs text-muted-foreground">
+              <span className="font-semibold text-foreground">{a.label}</span>
+              <span className={`ml-2 inline-block px-1.5 py-0.5 rounded-sm text-[10px] uppercase tracking-wide ${a.safety === "safe" ? "bg-emerald-500/20 text-emerald-700 dark:text-emerald-300" : a.safety === "overwrite_risk" ? "bg-red-500/20 text-red-700 dark:text-red-300" : "bg-amber-500/20 text-amber-700 dark:text-amber-300"}`}>
+                {safetyLabel[a.safety]}
+              </span>
+              <span className="block">{a.help}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+      <p className="text-[10px] text-muted-foreground italic">
+        Cards are filters, not exclusive buckets — a fact can appear under more than one. A completed action doesn't always
+        resolve the issue; the refreshed list is the source of truth.
+      </p>
+    </div>
   );
 }
