@@ -495,61 +495,55 @@ router.post("/admin/reviews/:id/reject", requireAdmin, async (req: Authenticated
   res.json({ success: true });
 });
 
-// ─── Rejection reason: autosave draft (admin) ────────────────────────────────
-
-router.patch("/admin/reviews/:id/rejection-reason", requireAdmin, async (req: AuthenticatedRequest, res: Response) => {
-  const id = parseInt(String(req.params["id"] ?? ""), 10);
-  if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
-
-  const body = z.object({ reason: z.enum(["duplicate", "spam", "offensive", "lame", ""]) }).safeParse(req.body);
-  if (!body.success) { res.status(400).json({ error: "Invalid reason" }); return; }
-
-  const [review] = await db.select({ id: pendingReviewsTable.id }).from(pendingReviewsTable).where(eq(pendingReviewsTable.id, id)).limit(1);
-  if (!review) { res.status(404).json({ error: "Review not found" }); return; }
-
-  await db.update(pendingReviewsTable)
-    .set({ reason: (body.data.reason || null) as "duplicate" | "spam" | "offensive" | "lame" | null })
-    .where(eq(pendingReviewsTable.id, id));
-
-  res.json({ success: true });
+// ─── Consolidated draft autosave: note / rejection reason / enrichment (admin) ─
+//
+// One endpoint, any subset of fields. The review form autosaves through the
+// universal `useFormDraft` helper and sends only the fields the admin actually
+// changed. Each field is validated independently; the enrichment blob is stored
+// AS-IS — a partial or invalid draft is allowed here. Validity is enforced later
+// at approval (see resolveApprovalEnrichment), not on every keystroke. This is a
+// pending review (a draft), so there are no projection columns to protect, unlike
+// a live fact.
+const ReviewDraftBody = z.object({
+  note: z.string().max(500).optional(),
+  reason: z.enum(["duplicate", "spam", "offensive", "lame", ""]).optional(),
+  enrichment: z.unknown().optional(),
 });
 
-// ─── Admin note: autosave draft (admin) ───────────────────────────────────────
-
-router.patch("/admin/reviews/:id/note", requireAdmin, async (req: AuthenticatedRequest, res: Response) => {
+router.patch("/admin/reviews/:id", requireAdmin, async (req: AuthenticatedRequest, res: Response) => {
   const id = parseInt(String(req.params["id"] ?? ""), 10);
   if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
 
-  const body = z.object({ note: z.string().max(500) }).safeParse(req.body);
-  if (!body.success) { res.status(400).json({ error: "Invalid note" }); return; }
+  const body = ReviewDraftBody.safeParse(req.body);
+  if (!body.success) { res.status(400).json({ error: "Invalid draft payload" }); return; }
 
   const [review] = await db.select({ id: pendingReviewsTable.id }).from(pendingReviewsTable).where(eq(pendingReviewsTable.id, id)).limit(1);
   if (!review) { res.status(404).json({ error: "Review not found" }); return; }
 
-  await db.update(pendingReviewsTable)
-    .set({ adminNote: body.data.note || null })
-    .where(eq(pendingReviewsTable.id, id));
+  const raw = (req.body ?? {}) as Record<string, unknown>;
+  const updates: {
+    adminNote?: string | null;
+    reason?: "duplicate" | "spam" | "offensive" | "lame" | null;
+    enrichment?: FactEnrichment | null;
+    enrichmentStatus?: string | null;
+  } = {};
+  if (body.data.note !== undefined) updates.adminNote = body.data.note || null;
+  if (body.data.reason !== undefined) {
+    updates.reason = (body.data.reason || null) as "duplicate" | "spam" | "offensive" | "lame" | null;
+  }
+  if ("enrichment" in raw) {
+    const e = body.data.enrichment;
+    updates.enrichment = (e ?? null) as FactEnrichment | null;
+    // "ok" just means "a stored blob exists" (not pending/failed) — it is NOT a
+    // validity claim; the approval gate validates the blob independently.
+    updates.enrichmentStatus = e ? "ok" : null;
+  }
+
+  if (Object.keys(updates).length > 0) {
+    await db.update(pendingReviewsTable).set(updates).where(eq(pendingReviewsTable.id, id));
+  }
 
   res.json({ success: true });
-});
-
-// ─── Enrichment: save admin edits (admin) ─────────────────────────────────────
-
-router.patch("/admin/reviews/:id/enrichment", requireAdmin, async (req: AuthenticatedRequest, res: Response) => {
-  const id = parseInt(String(req.params["id"] ?? ""), 10);
-  if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
-
-  const result = validateEnrichment((req.body as { enrichment?: unknown } | null | undefined)?.enrichment);
-  if (!result.ok) { res.status(400).json({ error: `Invalid enrichment: ${result.error}` }); return; }
-
-  const [review] = await db.select({ id: pendingReviewsTable.id }).from(pendingReviewsTable).where(eq(pendingReviewsTable.id, id)).limit(1);
-  if (!review) { res.status(404).json({ error: "Review not found" }); return; }
-
-  await db.update(pendingReviewsTable)
-    .set({ enrichment: result.data, enrichmentStatus: "ok" })
-    .where(eq(pendingReviewsTable.id, id));
-
-  res.json({ success: true, enrichment: result.data });
 });
 
 // ─── Enrichment: re-run classification (admin) ────────────────────────────────
