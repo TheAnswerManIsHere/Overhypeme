@@ -81,6 +81,8 @@ function makeOutput(overrides: {
   subjectRenderMode?: "human_identity_i2i" | "nonhuman_subject_i2i" | "t2i_fallback";
   promptText?: string;
   semanticEntitiesUsed?: Array<{ surfaceText: string; visualReferentUsed: string; effectOnVisualPlan: string }>;
+  culturalReferencesUsed?: Array<{ sourcePhrase: string; canonicalReferenceUsed: string; visualImplicationUsed: string; effectOnVisualPlan: string }>;
+  keyVisualElements?: string[];
 } = {}) {
   const mode = overrides.subjectRenderMode ?? "human_identity_i2i";
   const generationMode = mode === "t2i_fallback" ? ("t2i" as const) : ("i2i" as const);
@@ -95,7 +97,7 @@ function makeOutput(overrides: {
         selectedFrame: "direct_action",
         strategyRationale: "Authored strategy applies.",
       },
-      keyVisualElements: ["David central foreground", "dramatic lighting", "exertion pose"],
+      keyVisualElements: overrides.keyVisualElements ?? ["David central foreground", "dramatic lighting", "exertion pose"],
       subjectTreatment: {
         roleInScene: "Legendary protagonist",
         subjectRenderMode: mode,
@@ -136,6 +138,7 @@ function makeOutput(overrides: {
         ],
       },
       semanticEntitiesUsed: overrides.semanticEntitiesUsed ?? [],
+      culturalReferencesUsed: overrides.culturalReferencesUsed ?? [],
       styleIntegration: "Apply cinematic style",
       contentNotes: "SFW",
       debugNotes: "Strategy v2",

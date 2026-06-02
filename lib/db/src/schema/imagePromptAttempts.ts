@@ -49,6 +49,13 @@ export const imagePromptAttemptsTable = pgTable("image_prompt_attempts", {
   renderControls: jsonb("render_controls").notNull(),
   factEnrichmentSnapshot: jsonb("fact_enrichment_snapshot").notNull(),
   archetypeStrategyVersion: varchar("archetype_strategy_version", { length: 16 }).notNull(),
+  /**
+   * RENDERED fact text (subject/pronoun tokens resolved) the generator was
+   * given. Frozen at insert time so a render is reproducible and never re-runs
+   * the {NAME}/{SUBJ} template. NULL on rows created before migration 0070 —
+   * the job handler renders those on the fly or fails with a clear legacy error.
+   */
+  renderedFactText: text("rendered_fact_text"),
   /** NULL until image_prompt_generation handler succeeds. */
   visualPlan: jsonb("visual_plan"),
   /** NULL until image_prompt_generation handler succeeds. */

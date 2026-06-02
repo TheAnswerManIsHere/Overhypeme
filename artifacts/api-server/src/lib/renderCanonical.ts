@@ -77,6 +77,20 @@ function parsePronounMap(name: string, pronouns: string | null | undefined): Rec
 }
 
 /**
+ * After personalization a fact string should carry no residual identity tokens
+ * ({NAME}/{SUBJ}/…) and no leftover {singular|plural} pairs. We intentionally do
+ * NOT flag every `{`/`}` — supporting text, math, or emoji shortcodes can carry
+ * braces legitimately — only the recognized template-token shapes. Used to guard
+ * render-time prompt inputs against leaking template syntax to the image model.
+ */
+const UNRESOLVED_FACT_TOKEN_RE =
+  /\{(?:NAME|SUBJ|Subj|OBJ|Obj|POSS|Poss|POSS_PRO|Poss_Pro|REFL|Refl)\}|\{[^{}|]+\|[^{}|]+\}/;
+
+export function hasUnresolvedFactTokens(text: string): boolean {
+  return UNRESOLVED_FACT_TOKEN_RE.test(text);
+}
+
+/**
  * Renders a tokenized fact template personalized to a specific person.
  * Uses singular verb form for {singular|plural} when the subject is he/she.
  */

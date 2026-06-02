@@ -154,7 +154,23 @@ export interface SourceImageConfirmModalProps {
   onUploadDifferent: () => void;
 }
 
-type Phase = "analyzing" | "confirm" | "generating" | "polling" | "completed" | "failed";
+type Phase = "analyzing" | "confirm" | "generating" | "polling" | "completed" | "failed" | "blocked";
+
+type RecommendedFallback = "none" | "t2i_fallback" | "upload_human_photo" | "choose_different_fact";
+
+/** Plain-language nudge for a blocked render's recommended fallback. */
+function fallbackHint(fallback: RecommendedFallback | undefined): string {
+  switch (fallback) {
+    case "upload_human_photo":
+      return "Try uploading a clear photo of a person instead.";
+    case "t2i_fallback":
+      return "Try generating without an uploaded photo.";
+    case "choose_different_fact":
+      return "This photo doesn't fit this fact — try a different fact, or a different photo.";
+    default:
+      return "Try a different photo.";
+  }
+}
 
 const POLL_INTERVAL_MS = 2000;
 const MAX_POLLS = 60;
@@ -174,6 +190,7 @@ export function SourceImageConfirmModal({
   const [analysis, setAnalysis] = useState<SourceImageAnalysis | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [renderJobId, setRenderJobId] = useState<string | null>(null);
+  const [blockFallback, setBlockFallback] = useState<RecommendedFallback>("none");
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Reset state when the modal opens / the upload changes.
@@ -265,9 +282,12 @@ export function SourceImageConfirmModal({
             const pollRes = await fetch(`/api/memes/ai/renders/${data.renderJobId}`, { credentials: "include" });
             if (!pollRes.ok) return;
             const status = (await pollRes.json()) as {
-              status: "pending" | "prompt_ready" | "image_ready" | "failed";
+              status: "pending" | "prompt_ready" | "image_ready" | "failed" | "blocked";
               generatedImageObjectPath: string | null;
               error: string | null;
+              blocked?: boolean;
+              blockReason?: string | null;
+              subjectFactCompatibility?: { rating: string; reason: string; recommendedFallback: RecommendedFallback } | null;
             };
             if (status.status === "image_ready" && status.generatedImageObjectPath) {
               if (pollRef.current) {
@@ -280,6 +300,19 @@ export function SourceImageConfirmModal({
                 subjectRenderMode,
                 renderJobId: data.renderJobId,
               });
+            } else if (status.status === "blocked") {
+              // The uploaded subject can't carry this fact — we deliberately
+              // skipped generation. Surface the reason + a recommended fallback
+              // instead of spinning until timeout.
+              if (pollRef.current) {
+                clearInterval(pollRef.current);
+                pollRef.current = null;
+              }
+              const compat = status.subjectFactCompatibility;
+              const fallback = compat?.recommendedFallback ?? "none";
+              setBlockFallback(fallback);
+              setError(`${compat?.reason ?? "This photo doesn't fit this fact."} ${fallbackHint(fallback)}`);
+              setPhase("blocked");
             } else if (status.status === "failed") {
               if (pollRef.current) {
                 clearInterval(pollRef.current);
@@ -319,7 +352,9 @@ export function SourceImageConfirmModal({
                   ? "Generating..."
                   : phase === "failed"
                     ? "Something went wrong"
-                    : "Done"}
+                    : phase === "blocked"
+                      ? "This photo doesn't fit"
+                      : "Done"}
           </DialogTitle>
         </DialogHeader>
 
@@ -366,6 +401,13 @@ export function SourceImageConfirmModal({
           {phase === "failed" && (
             <div className="text-sm text-red-500">{error ?? "Unknown error."}</div>
           )}
+
+          {phase === "blocked" && (
+            <div className="flex items-start gap-2 text-sm text-yellow-700">
+              <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
+              <span>{error ?? "This photo doesn't fit this fact."}</span>
+            </div>
+          )}
         </div>
 
         <DialogFooter className="flex flex-col gap-2">
@@ -387,6 +429,18 @@ export function SourceImageConfirmModal({
             <Button variant="secondary" onClick={onCancel} className="w-full">
               Close
             </Button>
+          )}
+          {phase === "blocked" && (
+            <>
+              {(blockFallback === "upload_human_photo" || blockFallback === "choose_different_fact") && (
+                <Button variant="primary" onClick={onUploadDifferent} className="w-full">
+                  Upload a different photo
+                </Button>
+              )}
+              <Button variant="secondary" onClick={onCancel} className="w-full">
+                Close
+              </Button>
+            </>
           )}
           {(phase === "analyzing" || phase === "generating" || phase === "polling") && (
             <Button variant="secondary" onClick={onCancel} className="w-full">

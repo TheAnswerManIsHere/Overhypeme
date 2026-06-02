@@ -27,10 +27,12 @@
  * surface it to the user.
  */
 
-import { and, eq } from "drizzle-orm";
+import { eq } from "drizzle-orm";
+import sharp from "sharp";
 import {
   db,
   factsTable,
+  usersTable,
   lookStylesTable,
   imagePromptAttemptsTable,
   userAiImagesTable,
@@ -52,6 +54,7 @@ import { registerJobHandler, enqueueJob, type JobHandler, type HandlerResult } f
 import { generateImagePromptPlan, ImagePromptError } from "./imagePrompt/generator";
 import { compileForSubjectRenderMode } from "./imagePrompt/compilers/nanoBanana2";
 import { generationModeFromSubjectRenderMode } from "./sourceImageAnalysis";
+import { renderPersonalized, hasUnresolvedFactTokens } from "./renderCanonical";
 import { loadEngine, buildEngineInput } from "./engineInterpreter";
 import { fal, ensureFalConfigured } from "./falClient";
 import { ObjectStorageService } from "./objectStorage";
@@ -80,22 +83,27 @@ export const imagePromptGenerationHandler: JobHandler = {
       return { ok: false, error: `image_prompt_generation: attempt ${p.attemptId} not found` };
     }
 
-    // Pull fact + enrichment.
-    const [factRow] = await db
-      .select({ text: factsTable.text, enrichment: factsTable.enrichment })
-      .from(factsTable)
-      .where(eq(factsTable.id, attempt.factId))
-      .limit(1);
-    if (!factRow) {
-      await markAttemptError(p.attemptId, `fact ${attempt.factId} not found`);
-      return { ok: false, error: `fact ${attempt.factId} not found` };
-    }
-    const enrichmentValidation = validateEnrichment(factRow.enrichment);
+    // Reproducible inputs: validate the enrichment SNAPSHOT frozen on the
+    // attempt at insert time — NOT the fact's current enrichment, which may
+    // have been re-classified since this render was requested.
+    const enrichmentValidation = validateEnrichment(attempt.factEnrichmentSnapshot);
     if (!enrichmentValidation.ok) {
-      await markAttemptError(p.attemptId, `enrichment invalid: ${enrichmentValidation.error}`);
-      return { ok: false, error: `enrichment invalid: ${enrichmentValidation.error}` };
+      await markAttemptError(p.attemptId, `enrichment snapshot invalid: ${enrichmentValidation.error}`);
+      return { ok: false, error: `enrichment snapshot invalid: ${enrichmentValidation.error}` };
     }
     const enrichment = enrichmentValidation.data;
+
+    // RENDERED fact text (subject/pronouns resolved). Frozen on the attempt
+    // since migration 0070; legacy rows are rendered on the fly. Either way the
+    // generator must never see an unresolved {NAME}/{SUBJ} token.
+    let factText: string;
+    try {
+      factText = await resolveRenderedFactText(attempt);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      await markAttemptError(p.attemptId, msg);
+      return { ok: false, error: msg };
+    }
 
     // Resolve style suffix per generation mode.
     const generationMode = generationModeFromSubjectRenderMode(
@@ -106,13 +114,7 @@ export const imagePromptGenerationHandler: JobHandler = {
     const stylePrompt = await resolveStylePrompt(renderControls, generationMode);
 
     const input: ImagePromptGenerationInput = {
-      // TODO(prompt-rendering): the generator expects RENDERED fact text
-      // (subject/pronouns resolved — see generator.ts buildImagePromptUserMessage
-      // "RENDERED FACT TEXT"). This passes the raw {NAME}/{SUBJ} template, so
-      // production prompts can carry unresolved tokens. Resolve from the
-      // attempt's user (name + pronouns) via renderPersonalized before
-      // generation. The admin runtime-prompt-preview already renders this way.
-      factText: factRow.text,
+      factText,
       enrichment,
       sourceImageAnalysis: attempt.sourceImageAnalysis as SourceImageAnalysis,
       subjectRenderMode: attempt.subjectRenderMode as SubjectRenderMode,
@@ -141,17 +143,37 @@ export const imagePromptGenerationHandler: JobHandler = {
       input,
     });
 
+    // A "poor" subject↔fact compatibility means the uploaded subject can't
+    // carry this fact — rendering anyway wastes a paid generation and produces
+    // an off-target image. Block here: persist the plan + reason, surface it via
+    // the poll route (which maps this error to status:"blocked"), and do NOT
+    // enqueue image_generation. "risky" still proceeds but the warning rides
+    // along on the poll payload.
+    const compatibility = output.visualPlan.subjectFactCompatibility;
+    const blockedPoor = compatibility.rating === "poor";
+
     await db
       .update(imagePromptAttemptsTable)
       .set({
         visualPlan: output.visualPlan,
         compiledPrompt: compiled as unknown as Record<string, unknown>,
-        subjectFactCompatibility: output.visualPlan.subjectFactCompatibility,
+        subjectFactCompatibility: compatibility,
         archetypeStrategyVersion: output.archetypeStrategyVersion,
-        error: null,
+        error: blockedPoor ? "subject_fact_compatibility_poor" : null,
         updatedAt: new Date(),
       })
       .where(eq(imagePromptAttemptsTable.id, p.attemptId));
+
+    if (blockedPoor) {
+      logger.info(
+        { attemptId: p.attemptId, recommendedFallback: compatibility.recommendedFallback },
+        "[imagePromptJobs] attempt blocked: subject_fact_compatibility=poor",
+      );
+      return {
+        ok: true,
+        result: { attemptId: p.attemptId, blocked: true, subjectFactCompatibility: compatibility },
+      };
+    }
 
     // Chain into image_generation.
     await enqueueJob({
@@ -197,6 +219,12 @@ export const imageGenerationHandler: JobHandler = {
     const generationMode = generationModeFromSubjectRenderMode(
       attempt.subjectRenderMode as SubjectRenderMode,
     );
+    // Fail fast + legibly when an i2i render has no reference image, instead of
+    // the opaque MissingRequiredParamError buildEngineInput would throw later.
+    if (generationMode === "i2i" && !compiled.referenceImageUrl) {
+      await markAttemptError(p.attemptId, "i2i_missing_reference_url");
+      return { ok: false, error: "i2i_missing_reference_url" };
+    }
     const engineId = generationMode === "i2i" ? "nano-banana-2-edit" : "nano-banana-2";
     const engine = await loadEngine(engineId);
     if (!engine) {
@@ -206,14 +234,23 @@ export const imageGenerationHandler: JobHandler = {
     }
 
     const renderControls = attempt.renderControls as RenderControls;
+    // Render at 2K. Both nano-banana-2 engines accept it; it materially lifts
+    // detail/legibility for meme backgrounds at the cost of more latency/$ per
+    // image and larger stored files (see PROMPT_FIDELITY_TEST_RUN.md).
+    const resolution = "2K";
     const pipelineParams: Record<string, unknown> = {
       imagePrompt: promptText,
       aspectRatio: renderControls.aspectRatio,
       numImages: 1,
+      resolution,
     };
     if (generationMode === "i2i" && compiled.referenceImageUrl) {
       pipelineParams["referenceImageUrl"] = compiled.referenceImageUrl;
     }
+    logger.info(
+      { attemptId: p.attemptId, engineId, generationMode, resolution, aspectRatio: renderControls.aspectRatio },
+      "[imagePromptJobs] submitting image_generation",
+    );
 
     let falInput: Record<string, unknown>;
     try {
@@ -239,10 +276,14 @@ export const imageGenerationHandler: JobHandler = {
       return { ok: false, error: `fal submit failed: ${msg}` };
     }
 
-    // Download + persist to object storage.
+    // Download + persist to object storage. Measure the ACTUAL output
+    // dimensions off the buffer (at 2K these are no longer 1024²) so the
+    // lineage row records the truth.
     let storedPath: string;
+    let outputDimensions: OutputDimensions = { width: 0, height: 0, byteSize: 0 };
     try {
       const buf = await downloadToBuffer(resultUrl);
+      outputDimensions = await measureImage(buf, p.attemptId);
       const subPath = `ai-bg-v2/${attempt.factId}/${attempt.id}-${Date.now()}.png`;
       storedPath = await objectStorage.uploadObjectBuffer({
         subPath,
@@ -263,7 +304,7 @@ export const imageGenerationHandler: JobHandler = {
 
     // Mirror to facts.aiMemeImages + user_ai_images for read compatibility
     // with the legacy GET /memes/ai/:factId/image endpoint.
-    await mirrorToLegacyStorage(attempt, storedPath);
+    await mirrorToLegacyStorage(attempt, storedPath, outputDimensions);
 
     return { ok: true, result: { attemptId: p.attemptId, generatedImageObjectPath: storedPath } };
   },
@@ -283,6 +324,49 @@ async function loadAttempt(attemptId: number): Promise<ImagePromptAttempt | null
     .where(eq(imagePromptAttemptsTable.id, attemptId))
     .limit(1);
   return row ?? null;
+}
+
+/**
+ * Resolve the RENDERED (token-free) fact text for an attempt.
+ *
+ * Preferred path: the `renderedFactText` frozen on the row at insert time
+ * (migration 0070+). Legacy rows (pre-0070) have a null column — render the
+ * fact template on the fly using the attempt's user identity. In both cases we
+ * refuse to proceed if unresolved {NAME}/{SUBJ} tokens remain, so a template
+ * can never leak into a production image prompt.
+ */
+async function resolveRenderedFactText(attempt: ImagePromptAttempt): Promise<string> {
+  if (attempt.renderedFactText && attempt.renderedFactText.trim()) {
+    if (hasUnresolvedFactTokens(attempt.renderedFactText)) {
+      throw new Error(`renderedFactText on attempt ${attempt.id} still contains unresolved tokens`);
+    }
+    return attempt.renderedFactText;
+  }
+  // Legacy fallback: render from the fact template + the attempt's user.
+  const [factRow] = await db
+    .select({ text: factsTable.text })
+    .from(factsTable)
+    .where(eq(factsTable.id, attempt.factId))
+    .limit(1);
+  if (!factRow) {
+    throw new Error(`legacy_attempt_missing_rendered_text: fact ${attempt.factId} not found`);
+  }
+  let name = "Alex";
+  let pronouns: string | null = null;
+  if (attempt.userId) {
+    const [u] = await db
+      .select({ displayName: usersTable.displayName, pronouns: usersTable.pronouns })
+      .from(usersTable)
+      .where(eq(usersTable.id, attempt.userId))
+      .limit(1);
+    if (u?.displayName) name = u.displayName;
+    pronouns = u?.pronouns ?? null;
+  }
+  const rendered = renderPersonalized(factRow.text, name, pronouns);
+  if (hasUnresolvedFactTokens(rendered)) {
+    throw new Error(`legacy_attempt_missing_rendered_text: render left unresolved tokens on attempt ${attempt.id}`);
+  }
+  return rendered;
 }
 
 async function markAttemptError(attemptId: number, error: string): Promise<void> {
@@ -355,9 +439,28 @@ async function downloadToBuffer(url: string): Promise<Buffer> {
   return Buffer.from(arr);
 }
 
+interface OutputDimensions {
+  width: number;
+  height: number;
+  byteSize: number;
+}
+
+/** Read real pixel dimensions + byte size off a generated image buffer. */
+async function measureImage(buf: Buffer, attemptId: number): Promise<OutputDimensions> {
+  const byteSize = buf.length;
+  try {
+    const meta = await sharp(buf).metadata();
+    return { width: meta.width ?? 0, height: meta.height ?? 0, byteSize };
+  } catch (err) {
+    logger.warn({ err, attemptId }, "[imagePromptJobs] could not read output image dimensions");
+    return { width: 0, height: 0, byteSize };
+  }
+}
+
 async function mirrorToLegacyStorage(
   attempt: ImagePromptAttempt,
   storedPath: string,
+  dimensions: OutputDimensions,
 ): Promise<void> {
   try {
     // Append to facts.aiMemeImages[gender] so the legacy GET image endpoint
@@ -391,12 +494,14 @@ async function mirrorToLegacyStorage(
     }
     // Drop a derivative row in upload_image_metadata for lineage too — best-effort.
     try {
+      // Use the measured output dimensions; fall back to the engine's nominal
+      // square only if metadata couldn't be read (notNull columns).
       await db.insert(uploadImageMetadataTable).values({
         objectPath: storedPath,
-        width: 1024,
-        height: 1024,
+        width: dimensions.width > 0 ? dimensions.width : 1024,
+        height: dimensions.height > 0 ? dimensions.height : 1024,
         isLowRes: false,
-        fileSizeBytes: 0,
+        fileSizeBytes: dimensions.byteSize,
         userId: attempt.userId ?? null,
         transform: "phase2_v2",
         factId: attempt.factId,
