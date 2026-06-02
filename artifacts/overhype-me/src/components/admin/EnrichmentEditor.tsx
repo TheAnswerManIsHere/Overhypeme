@@ -817,7 +817,7 @@ function VisualPreviewPanel({
     <div className="rounded-sm border border-border bg-muted/20 p-3 space-y-3">
       <div className="flex items-center justify-between gap-2">
         <p className="text-xs font-bold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
-          <Eye className="w-3.5 h-3.5" /> Visual Interpretation Preview
+          <Eye className="w-3.5 h-3.5" /> Visual Plan
         </p>
         {onRegenerate && (
           <button
@@ -827,14 +827,14 @@ function VisualPreviewPanel({
             className="inline-flex items-center gap-1 text-xs text-primary hover:underline disabled:opacity-50"
           >
             <RefreshCw className={`w-3 h-3 ${previewBusy ? "animate-spin" : ""}`} />
-            {previewBusy ? "Regenerating…" : "Regenerate preview"}
+            {previewBusy ? "Regenerating…" : "Regenerate visual plan"}
           </button>
         )}
       </div>
 
       {!preview && (
         <p className="text-xs text-muted-foreground italic">
-          No preview yet. Click "Regenerate preview" once enrichment is saved, or fill the fields below by hand before approving.
+          No visual plan yet. Click "Regenerate visual plan" once enrichment is saved, or fill the fields below by hand before approving.
         </p>
       )}
 
