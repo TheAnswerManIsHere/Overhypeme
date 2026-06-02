@@ -20,7 +20,9 @@ import { PRIMARY_ARCHETYPES, SUBTYPES_BY_ARCHETYPE, type PrimaryArchetype, type 
 
 // ─── Versioning ────────────────────────────────────────────────────────────
 
-export const IMAGE_PROMPT_GENERATION_VERSION = "v1";
+// v2: visualPlan gained `culturalReferencesUsed` (audit echo-back of the
+// material cultural references the plan consumed, parallel to semanticEntitiesUsed).
+export const IMAGE_PROMPT_GENERATION_VERSION = "v2";
 export const SOURCE_IMAGE_ANALYZER_VERSION = "v1";
 
 // ─── Enums ────────────────────────────────────────────────────────────────
@@ -300,6 +302,22 @@ const semanticEntityUsedWireSchema = z.object({
   effectOnVisualPlan: z.string(),
 });
 
+/**
+ * Phase 2 visual-plan echo-back of the cultural references consumed from the
+ * fact enrichment. For every MATERIAL reference (high research confidence, or
+ * confident + not flagged for admin review), the generator MUST list a matching
+ * `{sourcePhrase, canonicalReferenceUsed, visualImplicationUsed,
+ * effectOnVisualPlan}`. The validator enforces this; the compiler turns these
+ * into explicit engine directives so a researched reference reliably reaches
+ * the image. Empty array allowed when the enrichment has no material references.
+ */
+const culturalReferenceUsedWireSchema = z.object({
+  sourcePhrase: z.string(),
+  canonicalReferenceUsed: z.string(),
+  visualImplicationUsed: z.string(),
+  effectOnVisualPlan: z.string(),
+});
+
 const visualPlanWireSchema = z.object({
   sceneConcept: z.string(),
   visualGoal: z.string(),
@@ -313,6 +331,9 @@ const visualPlanWireSchema = z.object({
   // Echo-back of capitalization-aware referents. Must cover every input
   // semanticEntity with materiallyAffectsVisualPrompt=true (validator rule 14).
   semanticEntitiesUsed: z.array(semanticEntityUsedWireSchema),
+  // Echo-back of consumed cultural references. Must cover every MATERIAL
+  // reference in the enrichment (validator rule 15).
+  culturalReferencesUsed: z.array(culturalReferenceUsedWireSchema),
   styleIntegration: z.string(),
   contentNotes: z.string(),
   debugNotes: z.string(),
@@ -337,6 +358,8 @@ export type CompiledPrompt = z.infer<typeof compiledPromptWireSchema>;
 export type SubjectTreatment = z.infer<typeof subjectTreatmentWireSchema>;
 export type SubjectFactCompatibility = z.infer<typeof subjectFactCompatibilityWireSchema>;
 export type SupportingTextElement = z.infer<typeof supportingTextElementWireSchema>;
+export type SemanticEntityUsed = z.infer<typeof semanticEntityUsedWireSchema>;
+export type CulturalReferenceUsed = z.infer<typeof culturalReferenceUsedWireSchema>;
 
 // ─── Business validator ──────────────────────────────────────────────────
 
@@ -356,6 +379,12 @@ export interface PlanExpectations {
    * visualPlan.semanticEntitiesUsed[].surfaceText.
    */
   materialSemanticEntities?: string[];
+  /**
+   * Source phrases (canonical fallback) of MATERIAL cultural references. The
+   * validator requires each to appear (case-insensitive) in
+   * visualPlan.culturalReferencesUsed[].sourcePhrase (canonical fallback).
+   */
+  materialCulturalReferences?: string[];
 }
 
 export type ImagePromptValidationResult =
@@ -659,6 +688,50 @@ export function validateImagePromptPlan(
         };
       }
     }
+  }
+
+  // 15. culturalReferencesUsed echo-back. Every MATERIAL cultural reference
+  // (high research confidence, or confident + not flagged for admin review)
+  // MUST be covered by an entry whose sourcePhrase matches (case-insensitively).
+  // Ambiguous / review-required references are intentionally NOT forced.
+  const materialCultural = expectations.materialCulturalReferences ?? [];
+  if (materialCultural.length > 0) {
+    const echoed = new Set(
+      vp.culturalReferencesUsed.map((e) => e.sourcePhrase.trim().toLowerCase()),
+    );
+    for (const expected of materialCultural) {
+      const wanted = expected.trim().toLowerCase();
+      if (!echoed.has(wanted)) {
+        return {
+          ok: false,
+          error: `visualPlan.culturalReferencesUsed is missing required sourcePhrase "${expected}"`,
+          correctableHint: `For every material cultural reference in the enrichment, echo it back in visualPlan.culturalReferencesUsed as { sourcePhrase, canonicalReferenceUsed, visualImplicationUsed, effectOnVisualPlan }. Required sourcePhrase: ${materialCultural.join(", ")}.`,
+        };
+      }
+    }
+    for (const entry of vp.culturalReferencesUsed) {
+      if (
+        !entry.canonicalReferenceUsed.trim() ||
+        !entry.visualImplicationUsed.trim() ||
+        !entry.effectOnVisualPlan.trim()
+      ) {
+        return {
+          ok: false,
+          error: `culturalReferencesUsed entry for "${entry.sourcePhrase}" has an empty canonicalReferenceUsed, visualImplicationUsed, or effectOnVisualPlan`,
+          correctableHint: `Each culturalReferencesUsed entry needs a concrete canonicalReferenceUsed, visualImplicationUsed, and a short effectOnVisualPlan.`,
+        };
+      }
+    }
+  }
+
+  // 16. Nano Banana 2 has no negative-prompt parameter — the compiler drops it.
+  // Force exclusions into the positive prompt so they actually take effect.
+  if (expectations.targetEngine === "nano_banana_2" && cp.negativePrompt.trim().length > 0) {
+    return {
+      ok: false,
+      error: `compiledPrompt.negativePrompt must be empty for nano_banana_2 (it has no negative-prompt parameter)`,
+      correctableHint: `Leave compiledPrompt.negativePrompt as an empty string and express every exclusion as positive scene language inside compiledPrompt.prompt (e.g. "a clean wall" instead of a "no posters" negative).`,
+    };
   }
 
   return { ok: true, data };

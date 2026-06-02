@@ -1,7 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 
-import { renderCanonical, renderPersonalized } from "../lib/renderCanonical.js";
+import { renderCanonical, renderPersonalized, hasUnresolvedFactTokens } from "../lib/renderCanonical.js";
 
 // ── renderCanonical ───────────────────────────────────────────────────────────
 
@@ -147,5 +147,27 @@ describe("renderPersonalized — edge cases", () => {
 
   it("returns empty string unchanged", () => {
     assert.equal(renderPersonalized("", "Dave", "he/him"), "");
+  });
+});
+
+// ── hasUnresolvedFactTokens ───────────────────────────────────────────────────
+
+describe("hasUnresolvedFactTokens", () => {
+  it("flags leftover identity tokens", () => {
+    assert.equal(hasUnresolvedFactTokens("{NAME} did a thing"), true);
+    assert.equal(hasUnresolvedFactTokens("It belongs to {POSS} cat"), true);
+  });
+
+  it("flags leftover {singular|plural} pairs", () => {
+    assert.equal(hasUnresolvedFactTokens("Dave {run|runs} fast"), true);
+  });
+
+  it("passes fully-rendered text", () => {
+    assert.equal(hasUnresolvedFactTokens("Dave runs fast at night"), false);
+  });
+
+  it("does not flag legitimate braces (math / emoji shortcodes)", () => {
+    assert.equal(hasUnresolvedFactTokens("the set {1, 2, 3} is small"), false);
+    assert.equal(hasUnresolvedFactTokens("score of 100% :{tada}:"), false);
   });
 });

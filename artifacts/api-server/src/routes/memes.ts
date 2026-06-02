@@ -1589,11 +1589,13 @@ router.delete("/memes/ai/:factId/image", requireLegendary, async (req: Authentic
 import {
   validateEnrichment as _validateEnrichment_v2,
   defaultIdentityPolicyForRenderMode as _defaultIdentityPolicyForRenderMode_v2,
+  SOURCE_IMAGE_ANALYZER_VERSION as SOURCE_IMAGE_ANALYZER_VERSION_v2,
   type RenderControls as RenderControls_v2,
   type SubjectRenderMode as SubjectRenderMode_v2,
   type FactEnrichment as FactEnrichment_v2,
   type SourceImageAnalysis as SourceImageAnalysis_v2,
 } from "@workspace/api-zod";
+import { hasUnresolvedFactTokens as hasUnresolvedFactTokens_v2 } from "../lib/renderCanonical";
 import {
   analyzeSourceImage as analyzeSourceImage_v2,
   resolveSubjectRenderMode as resolveSubjectRenderMode_v2,
@@ -1696,9 +1698,87 @@ router.post("/memes/ai/:factId/generate-v2", requireLegendary, async (req: Authe
     }
     const enrichment: FactEnrichment_v2 = ev.data;
 
-    const analysis: SourceImageAnalysis_v2 = body.sourceImageAnalysis ?? noImageAnalysis_v2();
+    const uploadedObjectPath =
+      typeof body.uploadedObjectPath === "string" && body.uploadedObjectPath ? body.uploadedObjectPath : null;
+
+    // Resolve the source-image analysis. When an upload is involved we verify
+    // ownership and DISTRUST the client-supplied analysis blob: accept it only
+    // if it pins to this exact upload (sha) and the current analyzer version,
+    // otherwise re-derive server-side (cached by sha, so cheap on repeats). No
+    // upload → text-to-image only; ignore any client analysis.
+    let analysis: SourceImageAnalysis_v2;
+    if (uploadedObjectPath) {
+      const [meta] = await db
+        .select({
+          userId: uploadImageMetadataTable_v2.userId,
+          sha256: uploadImageMetadataTable_v2.arachnidSha256Hex,
+        })
+        .from(uploadImageMetadataTable_v2)
+        .where(eq(uploadImageMetadataTable_v2.objectPath, uploadedObjectPath))
+        .limit(1);
+      if (!meta) {
+        res.status(404).json({ error: "upload_not_found" });
+        return;
+      }
+      if (meta.userId !== req.user?.id) {
+        res.status(403).json({ error: "upload_not_owned" });
+        return;
+      }
+      const client = body.sourceImageAnalysis;
+      const clientTrusted =
+        !!client &&
+        !!meta.sha256 &&
+        client.sourceImageSha256 === meta.sha256 &&
+        client.analyzerVersion === SOURCE_IMAGE_ANALYZER_VERSION_v2;
+      analysis = clientTrusted
+        ? client!
+        : await analyzeSourceImage_v2({
+            uploadedObjectPath,
+            imageUrl: resolvePublicUrlForUpload_v2(uploadedObjectPath),
+          });
+    } else {
+      analysis = noImageAnalysis_v2();
+    }
+
     const subjectRenderMode = resolveSubjectRenderMode_v2(analysis, body.userSelectedSubjectRenderMode);
     const generationMode = generationModeFromSubjectRenderMode_v2(subjectRenderMode);
+
+    // Reject impossible render-mode selections before enqueueing any work.
+    if (generationMode === "i2i" && !uploadedObjectPath) {
+      res.status(400).json({ error: "i2i_requires_uploaded_object_path" });
+      return;
+    }
+    if (subjectRenderMode === "human_identity_i2i" && !analysis.hasUsableHumanFace) {
+      res.status(400).json({ error: "human_i2i_requires_usable_face" });
+      return;
+    }
+    if (subjectRenderMode === "nonhuman_subject_i2i" && !analysis.hasUsableSubject) {
+      res.status(400).json({ error: "nonhuman_i2i_requires_usable_subject" });
+      return;
+    }
+
+    // Freeze the RENDERED (token-resolved) fact text for this requester so the
+    // generator never sees a {NAME}/{SUBJ} template and the render is reproducible.
+    let protagonistName = "Alex";
+    let protagonistPronouns: string | null = null;
+    if (req.user?.id) {
+      const [u] = await db
+        .select({ displayName: usersTable.displayName, pronouns: usersTable.pronouns })
+        .from(usersTable)
+        .where(eq(usersTable.id, req.user.id))
+        .limit(1);
+      if (u?.displayName) protagonistName = u.displayName;
+      protagonistPronouns = u?.pronouns ?? null;
+    }
+    const renderedFactText = renderPersonalized(factRow.text, protagonistName, protagonistPronouns);
+    if (hasUnresolvedFactTokens_v2(renderedFactText)) {
+      res.status(422).json({
+        error: "fact_template_unresolved",
+        details: "rendered fact text still contains unresolved template tokens",
+      });
+      return;
+    }
+
     const identityPolicy = {
       ..._defaultIdentityPolicyForRenderMode_v2(subjectRenderMode),
       ...(body.identityPolicyOverrides ?? {}),
@@ -1729,6 +1809,7 @@ router.post("/memes/ai/:factId/generate-v2", requireLegendary, async (req: Authe
         identityPolicy,
         renderControls,
         factEnrichmentSnapshot: enrichment,
+        renderedFactText,
         archetypeStrategyVersion: "v2",
       })
       .returning({ id: imagePromptAttemptsTable_v2.id });
@@ -1767,9 +1848,14 @@ router.get("/memes/ai/renders/:renderJobId", async (req: AuthenticatedRequest, r
       res.status(403).json({ error: "render_not_owned" });
       return;
     }
-    // Compute status.
-    let status: "pending" | "prompt_ready" | "image_ready" | "failed";
-    if (attempt.error) status = "failed";
+    // Compute status. A "poor" subject↔fact compatibility is a deliberate
+    // product block (not an engine failure): the prompt job recorded the reason
+    // and skipped image generation. Surface it as its own `blocked` state so the
+    // UI can offer the recommended fallback instead of a generic error.
+    const blockedPoor = attempt.error === "subject_fact_compatibility_poor";
+    let status: "pending" | "prompt_ready" | "image_ready" | "failed" | "blocked";
+    if (blockedPoor) status = "blocked";
+    else if (attempt.error) status = "failed";
     else if (attempt.generatedImageObjectPath) status = "image_ready";
     else if (attempt.visualPlan) status = "prompt_ready";
     else status = "pending";
@@ -1783,7 +1869,9 @@ router.get("/memes/ai/renders/:renderJobId", async (req: AuthenticatedRequest, r
       compiledPrompt: attempt.compiledPrompt ?? null,
       subjectFactCompatibility: attempt.subjectFactCompatibility ?? null,
       generatedImageObjectPath: attempt.generatedImageObjectPath ?? null,
-      error: attempt.error ?? null,
+      blocked: blockedPoor,
+      blockReason: blockedPoor ? "subject_fact_compatibility_poor" : null,
+      error: blockedPoor ? null : (attempt.error ?? null),
     });
   } catch (err) {
     logger.warn({ err }, "[memes.v2/renders] failed");

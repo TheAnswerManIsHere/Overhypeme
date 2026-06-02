@@ -44,6 +44,8 @@ function basePlan(overrides: Partial<{
   compatibilityRating: "strong" | "workable" | "risky" | "poor";
   compatibilityFallback: "none" | "t2i_fallback" | "upload_human_photo" | "choose_different_fact";
   semanticEntitiesUsed: Array<{ surfaceText: string; visualReferentUsed: string; effectOnVisualPlan: string }>;
+  culturalReferencesUsed: Array<{ sourcePhrase: string; canonicalReferenceUsed: string; visualImplicationUsed: string; effectOnVisualPlan: string }>;
+  negativePrompt: string;
 }> = {}) {
   return {
     visualPlan: {
@@ -102,6 +104,7 @@ function basePlan(overrides: Partial<{
         ],
       },
       semanticEntitiesUsed: overrides.semanticEntitiesUsed ?? [],
+      culturalReferencesUsed: overrides.culturalReferencesUsed ?? [],
       styleIntegration: "Apply cinematic style with shallow depth of field",
       contentNotes: "SFW; no real brand marks",
       debugNotes: "Strategy v2; example #2 echoed",
@@ -112,7 +115,7 @@ function basePlan(overrides: Partial<{
       prompt:
         overrides.promptText ??
         "Image-to-image edit using the reference image as the person's facial identity source. Preserve the reference person's recognizable face. David stands outside at night holding a magnifying glass over a tiny ant while an impossible beam of moonlight focuses through the lens.",
-      negativePrompt: "",
+      negativePrompt: overrides.negativePrompt ?? "",
       engineNotes: "",
     },
   };
@@ -388,5 +391,58 @@ describe("validateImagePromptPlan", () => {
     });
     assert.equal(result.ok, false);
     if (!result.ok) assert.match(result.error, /Apple/);
+  });
+
+  // Rule 15 — culturalReferencesUsed echo-back.
+  it("accepts when materialCulturalReferences is empty and culturalReferencesUsed is []", () => {
+    const result = validateImagePromptPlan(basePlan(), { ...baseExpectations, materialCulturalReferences: [] });
+    assert.equal(result.ok, true, result.ok ? "" : result.error);
+  });
+
+  it("rejects when a material cultural reference is missing from culturalReferencesUsed", () => {
+    const plan = basePlan({ culturalReferencesUsed: [] });
+    const result = validateImagePromptPlan(plan, { ...baseExpectations, materialCulturalReferences: ["Shark Week"] });
+    assert.equal(result.ok, false);
+    if (!result.ok) assert.match(result.error, /culturalReferencesUsed/);
+  });
+
+  it("accepts when every material cultural reference is echoed with full fields", () => {
+    const plan = basePlan({
+      culturalReferencesUsed: [
+        { sourcePhrase: "Shark Week", canonicalReferenceUsed: "Discovery's Shark Week", visualImplicationUsed: "sharks on a TV", effectOnVisualPlan: "adds the gag" },
+      ],
+    });
+    const result = validateImagePromptPlan(plan, { ...baseExpectations, materialCulturalReferences: ["Shark Week"] });
+    assert.equal(result.ok, true, result.ok ? "" : result.error);
+  });
+
+  it("rejects a culturalReferencesUsed entry with an empty visualImplicationUsed", () => {
+    const plan = basePlan({
+      culturalReferencesUsed: [
+        { sourcePhrase: "Shark Week", canonicalReferenceUsed: "Discovery's Shark Week", visualImplicationUsed: "", effectOnVisualPlan: "adds the gag" },
+      ],
+    });
+    const result = validateImagePromptPlan(plan, { ...baseExpectations, materialCulturalReferences: ["Shark Week"] });
+    assert.equal(result.ok, false);
+  });
+
+  it("does not require ambiguous/non-material references (echo not forced)", () => {
+    const result = validateImagePromptPlan(basePlan({ culturalReferencesUsed: [] }), {
+      ...baseExpectations,
+      materialCulturalReferences: [],
+    });
+    assert.equal(result.ok, true, result.ok ? "" : result.error);
+  });
+
+  // Rule 16 — empty negativePrompt for nano_banana_2.
+  it("accepts an empty negativePrompt", () => {
+    const result = validateImagePromptPlan(basePlan({ negativePrompt: "" }), baseExpectations);
+    assert.equal(result.ok, true, result.ok ? "" : result.error);
+  });
+
+  it("rejects a non-empty negativePrompt for nano_banana_2", () => {
+    const result = validateImagePromptPlan(basePlan({ negativePrompt: "no posters, no text" }), baseExpectations);
+    assert.equal(result.ok, false);
+    if (!result.ok) assert.match(result.error, /negativePrompt/);
   });
 });

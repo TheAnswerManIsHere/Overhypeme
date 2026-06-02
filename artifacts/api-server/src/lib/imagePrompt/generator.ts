@@ -45,10 +45,43 @@ type UserMessage = { role: "user"; content: string };
 
 // ─── User-message assembly ────────────────────────────────────────────────
 
+/** Truncate to `max` chars on a word boundary with an ellipsis. */
+function truncateText(s: string, max: number): string {
+  if (s.length <= max) return s;
+  const slice = s.slice(0, max);
+  const lastSpace = slice.lastIndexOf(" ");
+  return `${(lastSpace > max * 0.6 ? slice.slice(0, lastSpace) : slice).trimEnd()}…`;
+}
+
+/**
+ * A cultural reference is "material" — strong enough to force into the plan and
+ * the engine prompt — when it was researched with high confidence, OR the
+ * enrichment was confident about it and it isn't flagged for admin review.
+ * Ambiguous / review-required references are surfaced to the generator as
+ * context but never forced (they may be wrong).
+ */
+export function isMaterialCulturalReference(r: {
+  confidence: number;
+  requiresAdminReview: boolean;
+  researchConfidence?: "high" | "medium" | "low";
+}): boolean {
+  if (r.researchConfidence === "high") return true;
+  return r.confidence >= 0.8 && !r.requiresAdminReview;
+}
+
+/** Identity key for a reference: its sourcePhrase, falling back to canonical. */
+export function culturalReferenceKey(r: { sourcePhrase: string; canonicalReference: string }): string {
+  return (r.sourcePhrase.trim() || r.canonicalReference.trim());
+}
+
 function expectationsFromInput(input: ImagePromptGenerationInput): PlanExpectations {
   const materialSemanticEntities = (input.enrichment.semanticEntities ?? [])
     .filter((e) => e.materiallyAffectsVisualPrompt)
     .map((e) => e.surfaceText);
+  const materialCulturalReferences = (input.enrichment.culturalReferences ?? [])
+    .filter(isMaterialCulturalReference)
+    .map(culturalReferenceKey)
+    .filter(Boolean);
   return {
     archetype: input.enrichment.primaryArchetype,
     subtype: input.enrichment.subtype as FactSubtype,
@@ -60,6 +93,7 @@ function expectationsFromInput(input: ImagePromptGenerationInput): PlanExpectati
     factText: input.factText,
     fallbackSubjectGender: input.renderControls.fallbackSubjectGender ?? null,
     materialSemanticEntities,
+    materialCulturalReferences,
   };
 }
 
@@ -70,12 +104,24 @@ export function buildImagePromptUserMessage(input: ImagePromptGenerationInput): 
 
   const culturalRefsBlock = e.culturalReferences.length
     ? e.culturalReferences
-        .map(
-          (r, i) =>
-            `  ${i + 1}. sourcePhrase="${r.sourcePhrase}", referenceType=${r.referenceType}, canonical="${r.canonicalReference}", explanation="${r.explanation}", visualImplication="${r.visualImplication}", confidence=${r.confidence}, requiresAdminReview=${r.requiresAdminReview}`,
-        )
+        .map((r, i) => {
+          const base = `  ${i + 1}. sourcePhrase="${r.sourcePhrase}", referenceType=${r.referenceType}, canonical="${r.canonicalReference}", explanation="${r.explanation}", visualImplication="${r.visualImplication}", confidence=${r.confidence}, requiresAdminReview=${r.requiresAdminReview}, material=${isMaterialCulturalReference(r)}`;
+          // Research context (only present after an admin runs "Research
+          // Reference"). Compact: confidence + truncated notes + ≤3 warnings.
+          const research: string[] = [];
+          if (r.researchConfidence) research.push(`researchConfidence=${r.researchConfidence}`);
+          if (r.researchNotes && r.researchNotes.trim()) {
+            research.push(`researchNotes="${truncateText(r.researchNotes.trim(), 400)}"`);
+          }
+          if (r.ambiguityWarnings && r.ambiguityWarnings.length) {
+            research.push(`ambiguityWarnings=[${r.ambiguityWarnings.slice(0, 3).map((w) => `"${w}"`).join(", ")}]`);
+          }
+          return research.length ? `${base}\n       ${research.join(", ")}` : base;
+        })
         .join("\n")
     : "  (no cultural references — render the joke from the literal text + taxonomy alone)";
+
+  const materialCulturalRefs = e.culturalReferences.filter(isMaterialCulturalReference).map(culturalReferenceKey).filter(Boolean);
 
   const semanticEntities = e.semanticEntities ?? [];
   const materialEntities = semanticEntities.filter((s) => s.materiallyAffectsVisualPrompt);
@@ -171,6 +217,9 @@ export function buildImagePromptUserMessage(input: ImagePromptGenerationInput): 
     materialEntities.length > 0
       ? `\nFor every entity above with materiallyAffectsVisualPrompt=true, include a matching entry in visualPlan.semanticEntitiesUsed (echo surfaceText verbatim; fill visualReferentUsed with the resolved referent; fill effectOnVisualPlan with one sentence on how this shaped the scene). Required surfaceTexts: ${materialEntities.map((s) => `"${s.surfaceText}"`).join(", ")}.`
       : "\n(semanticEntitiesUsed may be an empty array.)",
+    materialCulturalRefs.length > 0
+      ? `\nFor every MATERIAL cultural reference (material=true above), include a matching entry in visualPlan.culturalReferencesUsed (echo sourcePhrase verbatim; fill canonicalReferenceUsed + visualImplicationUsed + a one-sentence effectOnVisualPlan). Bake the reference's visual implication into keyVisualElements + the compiledPrompt.prompt, but never draw a real logo or brand mark. Required sourcePhrases: ${materialCulturalRefs.map((s) => `"${s}"`).join(", ")}.`
+      : "\n(culturalReferencesUsed may be an empty array — no material references in this fact.)",
     "",
     "SOURCE-IMAGE ANALYSIS:",
     `- subjectKind: ${input.sourceImageAnalysis.subjectKind}`,
@@ -221,6 +270,10 @@ export function buildImagePromptUserMessage(input: ImagePromptGenerationInput): 
     materialEntities.length > 0
       ? `- semanticEntitiesUsed: MUST include an entry for each of [${materialEntities.map((s) => `"${s.surfaceText}"`).join(", ")}]; each entry needs surfaceText + visualReferentUsed + effectOnVisualPlan all non-empty.`
       : "- semanticEntitiesUsed: may be an empty array (no material entities in this fact).",
+    materialCulturalRefs.length > 0
+      ? `- culturalReferencesUsed: MUST include an entry for each of [${materialCulturalRefs.map((s) => `"${s}"`).join(", ")}]; each entry needs sourcePhrase + canonicalReferenceUsed + visualImplicationUsed + effectOnVisualPlan all non-empty.`
+      : "- culturalReferencesUsed: may be an empty array (no material references in this fact).",
+    `- compiledPrompt.negativePrompt: Nano Banana 2 has NO negative-prompt parameter — leave it as an empty string ("") and express every exclusion as positive scene language inside compiledPrompt.prompt (describe what SHOULD be there, e.g. "a clean bare wall" rather than "no posters").`,
     "- Return ONLY the JSON object.",
   ]
     .filter((s) => s !== "")
