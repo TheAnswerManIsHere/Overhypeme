@@ -21,6 +21,7 @@ import {
   PROJECTION_REPAIR_MODE_VALUES,
   TAXONOMY_HEALTH_FILTER_VALUES,
   SUMMARY_COUNT_TO_FILTER,
+  CLASSIFICATION_PROMPT_VERSION,
   matchesHealthFilter,
   type FactTaxonomyHealth,
   type TaxonomyHealthBulkActionMode,
@@ -117,7 +118,6 @@ router.get("/admin/taxonomy-health/summary", requireAdmin, async (_req: Request,
       missingEnrichment: 0,
       invalidEnrichment: 0,
       needsAdminReview: 0,
-      missingVisualPreview: 0,
       staleVisualPreview: 0,
       staleEnrichmentVersion: 0,
       projectionMismatch: 0,
@@ -327,10 +327,21 @@ router.post(
         res.status(400).json({ error: `invalid mode: ${mode}` });
         return;
       }
-      const targets = await pickPreviewTargets(mode, body.factIds);
+      const { targets, skippedStaleEnrichment } = await pickPreviewTargets(mode, body.factIds);
       const jobs: QueuedJobDescriptor[] = [];
       const outcomes: ActionOutcome[] = [];
       let failed = 0;
+      // Facts with stale enrichment must be re-enriched first — skip them with an explanation
+      // so the caller knows which facts were not queued and why.
+      for (const factId of skippedStaleEnrichment) {
+        outcomes.push({
+          factId,
+          action: "regenerate_visual_plan",
+          status: "skipped",
+          reason: "stale_enrichment",
+          message: "Re-enrich first — the visual plan must be built from current enrichment.",
+        });
+      }
       for (const factId of targets) {
         try {
           const r = await enqueueJob({
@@ -348,11 +359,12 @@ router.post(
           outcomes.push({ factId, action: "regenerate_visual_plan", status: "failed", error: "Could not queue the visual-plan job." });
         }
       }
+      const requested = targets.length + skippedStaleEnrichment.length;
       const response: TaxonomyHealthActionResponse = {
         mode: deriveActionMode(jobs, outcomes),
         jobs,
         outcomes,
-        summary: { requested: targets.length, queued: jobs.length, done: 0, failed, skipped: 0 },
+        summary: { requested, queued: jobs.length, done: 0, failed, skipped: skippedStaleEnrichment.length },
       };
       res.json(response);
     } catch (err) {
@@ -560,21 +572,40 @@ async function pickEnrichmentTargets(
 async function pickPreviewTargets(
   mode: TaxonomyHealthBulkActionMode,
   factIds: number[] | undefined,
-): Promise<number[]> {
-  if (mode === "selected_fact_ids") return factIds ?? [];
+): Promise<{ targets: number[]; skippedStaleEnrichment: number[] }> {
+  if (mode === "selected_fact_ids") {
+    const ids = factIds ?? [];
+    if (ids.length === 0) return { targets: [], skippedStaleEnrichment: [] };
+    const rows = await db
+      .select({ id: factsTable.id, enrichment: factsTable.enrichment })
+      .from(factsTable)
+      .where(inArray(factsTable.id, ids));
+    const targets: number[] = [];
+    const skippedStaleEnrichment: number[] = [];
+    for (const row of rows) {
+      const enr = row.enrichment as { classificationPromptVersion?: string } | null;
+      if (enr?.classificationPromptVersion === CLASSIFICATION_PROMPT_VERSION) {
+        targets.push(row.id);
+      } else {
+        skippedStaleEnrichment.push(row.id);
+      }
+    }
+    return { targets, skippedStaleEnrichment };
+  }
   const facts = await loadAllApprovedFactsForHealth();
-  const out: number[] = [];
+  const targets: number[] = [];
+  const skippedStaleEnrichment: number[] = [];
   for (const row of facts) {
     const h = evaluateFactTaxonomyHealth(toHealthInput(row));
-    const isMissing = h.reviewFlags.missingPreview;
-    const isStale = h.reviewFlags.stalePreview;
-    const include =
-      (mode === "missing_only" && isMissing) ||
-      (mode === "stale_only" && isStale) ||
-      (mode === "missing_or_stale" && (isMissing || isStale));
-    if (include) out.push(row.id);
+    // Skip facts whose enrichment is stale — the visual plan must be regenerated
+    // from current enrichment, so re-enriching is required first.
+    if (h.reviewFlags.staleEnrichmentVersion) {
+      if (h.reviewFlags.stalePreview) skippedStaleEnrichment.push(row.id);
+      continue;
+    }
+    if (h.reviewFlags.stalePreview) targets.push(row.id);
   }
-  return out;
+  return { targets, skippedStaleEnrichment };
 }
 
 async function pickProjectionRepairTargets(

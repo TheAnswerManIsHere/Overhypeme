@@ -97,23 +97,14 @@ export const CARD_META: CardMeta[] = [
     actions: [],
   },
   {
-    key: "missingVisualPreview",
-    label: "Missing visual plan",
-    filter: "missing_visual_preview",
-    tone: "amber",
-    description:
-      "Enrichment exists but there's no stored visual plan yet, so the image-prompt pipeline has no visual strategy to work from.",
-    whatToDo: "Regenerate the visual plan from the current enrichment.",
-    actions: [VISUAL_PLAN_ACTION],
-  },
-  {
     key: "staleVisualPreview",
     label: "Stale visual plan",
     filter: "stale_visual_preview",
     tone: "amber",
     description:
-      "The stored visual plan was generated under an older prompt version than the current one.",
-    whatToDo: "Regenerate the visual plan to bring it to the current version.",
+      "The visual plan is missing or outdated. This includes facts with no plan yet, plans generated under an older prompt version, and plans whose underlying enrichment has since changed. All three need regeneration — the visual plan is always tied to the enrichment that produced it.",
+    whatToDo:
+      "Regenerate the visual plan from the current enrichment. If the enrichment itself is also stale, re-enrich first — regenerating a visual plan from stale enrichment just locks in the outdated data.",
     actions: [VISUAL_PLAN_ACTION],
   },
   {

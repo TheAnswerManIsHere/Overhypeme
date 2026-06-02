@@ -184,12 +184,20 @@ describe("evaluateFactTaxonomyHealth", () => {
     assert.equal(h.reviewFlags.semanticEntityNeedsReview, false);
   });
 
-  it("flags missing_visual_preview when the blob has no visualPromptPreview", () => {
+  it("flags stale_visual_preview (not a separate missing status) when the blob has no visualPromptPreview", () => {
     const e = VALID_ENRICHMENT();
     delete (e as Record<string, unknown>)["visualPromptPreview"];
     const h = evaluateFactTaxonomyHealth({ fact: row(e) });
-    assert.equal(h.reviewFlags.missingPreview, true);
-    assert.ok(h.statuses.includes("missing_visual_preview"));
+    assert.equal(h.reviewFlags.stalePreview, true);
+    assert.ok(h.statuses.includes("stale_visual_preview"));
+  });
+
+  it("flags stale_visual_preview (lockstep) when enrichment is stale and preview exists", () => {
+    const e = VALID_ENRICHMENT({ classificationPromptVersion: "v1" });
+    const h = evaluateFactTaxonomyHealth({ fact: row(e) });
+    assert.equal(h.reviewFlags.staleEnrichmentVersion, true);
+    assert.equal(h.reviewFlags.stalePreview, true);
+    assert.ok(h.statuses.includes("stale_visual_preview"));
   });
 
   it("flags stale_visual_preview when previewPromptVersion differs", () => {

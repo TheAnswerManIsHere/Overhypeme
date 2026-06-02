@@ -214,24 +214,14 @@ export default function TaxonomyHealth() {
         confirm: (n) => `Re-enrich ${n} stale fact${n === 1 ? "" : "s"}? This costs model calls and can take a while. Admin-edited facts are skipped automatically.`,
       });
     }
-    if (filter === "missing_visual_preview") {
-      list.push({
-        key: "regen_missing_previews",
-        label: "Regenerate missing visual plans",
-        action: "regenerate_visual_plan",
-        url: "/api/admin/taxonomy-health/actions/regenerate-previews",
-        body: { mode: "missing_only" },
-        confirm: (n) => `Queue visual-plan jobs for ${n} fact${n === 1 ? "" : "s"}? This costs model calls and can take a while.`,
-      });
-    }
     if (filter === "stale_visual_preview") {
       list.push({
         key: "regen_stale_previews",
         label: "Regenerate stale visual plans",
         action: "regenerate_visual_plan",
         url: "/api/admin/taxonomy-health/actions/regenerate-previews",
-        body: { mode: "stale_only" },
-        confirm: (n) => `Regenerate visual plans for ${n} fact${n === 1 ? "" : "s"}? This costs model calls and can take a while.`,
+        body: { mode: "missing_or_stale" },
+        confirm: (n) => `Regenerate visual plans for ${n} fact${n === 1 ? "" : "s"}? This costs model calls and can take a while. Facts with stale enrichment are skipped automatically — re-enrich those first.`,
       });
     }
     if (filter === "projection_mismatch") {
@@ -451,15 +441,21 @@ export default function TaxonomyHealth() {
                             <RefreshCw className="w-3 h-3 mr-1" /> Re-enrich
                           </Button>
                         )}
-                        {(row.health.reviewFlags.missingPreview || row.health.reviewFlags.stalePreview) && (
-                          <Button
-                            variant="secondary"
-                            size="sm"
-                            disabled={rowBusy}
-                            onClick={() => runRow(row.factId, "regenerate_visual_plan", "/api/admin/taxonomy-health/actions/regenerate-previews")}
-                          >
-                            <RefreshCw className="w-3 h-3 mr-1" /> Regenerate Visual Plan
-                          </Button>
+                        {row.health.reviewFlags.stalePreview && (
+                          row.health.reviewFlags.staleEnrichmentVersion ? (
+                            <span className="inline-flex items-center gap-1 text-xs text-amber-600 dark:text-amber-400 px-2 py-1 rounded border border-amber-200 dark:border-amber-800">
+                              <AlertTriangle className="w-3 h-3" /> Re-enrich first
+                            </span>
+                          ) : (
+                            <Button
+                              variant="secondary"
+                              size="sm"
+                              disabled={rowBusy}
+                              onClick={() => runRow(row.factId, "regenerate_visual_plan", "/api/admin/taxonomy-health/actions/regenerate-previews")}
+                            >
+                              <RefreshCw className="w-3 h-3 mr-1" /> Regenerate Visual Plan
+                            </Button>
+                          )
                         )}
                         <ActionIndicator state={state} outcome={outcome} />
                       </div>

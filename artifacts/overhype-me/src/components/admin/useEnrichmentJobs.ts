@@ -18,7 +18,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { FactEnrichment } from "@workspace/api-zod";
+import { CLASSIFICATION_PROMPT_VERSION, type FactEnrichment } from "@workspace/api-zod";
 
 export type EnrichmentResource = "reviews" | "facts";
 
@@ -191,7 +191,16 @@ export function useEnrichmentJobs(opts: UseEnrichmentJobsOptions): UseEnrichment
   }, [base]);
 
   const onRegeneratePreview = useCallback(async () => {
-    if (!getEnrichmentRef.current()) return;
+    const currentEnrichment = getEnrichmentRef.current();
+    if (!currentEnrichment) return;
+    // Guard: the visual plan operates in lockstep with the enrichment. Regenerating
+    // it when the enrichment is stale would produce a plan built from outdated data.
+    if (currentEnrichment.classificationPromptVersion !== CLASSIFICATION_PROMPT_VERSION) {
+      setError(
+        "Cannot regenerate visual plan — enrichment is outdated. Re-enrich this fact first, then regenerate the visual plan.",
+      );
+      return;
+    }
     setLoading(true);
     setError("");
     // Persist the current enrichment first so the preview is generated from what

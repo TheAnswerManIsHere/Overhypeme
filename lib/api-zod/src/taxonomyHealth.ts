@@ -15,7 +15,6 @@ export const TAXONOMY_HEALTH_STATUS_VALUES = [
   "invalid_enrichment",
   "needs_admin_review",
   "stale_enrichment_version",
-  "missing_visual_preview",
   "stale_visual_preview",
   "projection_mismatch",
   "incomplete_cultural_references",
@@ -63,7 +62,6 @@ export interface TaxonomyHealthReviewFlags {
   adultRequiresReview: boolean;
   culturalReferenceNeedsResearch: boolean;
   semanticEntityNeedsReview: boolean;
-  missingPreview: boolean;
   stalePreview: boolean;
   staleEnrichmentVersion: boolean;
   projectionMismatch: boolean;
@@ -148,7 +146,6 @@ export interface TaxonomyHealthSummaryCounts {
   missingEnrichment: number;
   invalidEnrichment: number;
   needsAdminReview: number;
-  missingVisualPreview: number;
   staleVisualPreview: number;
   staleEnrichmentVersion: number;
   projectionMismatch: number;
@@ -175,7 +172,6 @@ export const TAXONOMY_HEALTH_FILTER_VALUES = [
   "missing_enrichment",
   "invalid_enrichment",
   "needs_admin_review",
-  "missing_visual_preview",
   "stale_visual_preview",
   "stale_enrichment_version",
   "projection_mismatch",
@@ -207,8 +203,6 @@ export function matchesHealthFilter(
       return health.reviewFlags.invalidEnrichment;
     case "needs_admin_review":
       return health.statuses.includes("needs_admin_review");
-    case "missing_visual_preview":
-      return health.reviewFlags.missingPreview;
     case "stale_visual_preview":
       return health.reviewFlags.stalePreview;
     case "stale_enrichment_version":
@@ -244,7 +238,6 @@ export const SUMMARY_COUNT_TO_FILTER: Record<
   missingEnrichment: "missing_enrichment",
   invalidEnrichment: "invalid_enrichment",
   needsAdminReview: "needs_admin_review",
-  missingVisualPreview: "missing_visual_preview",
   staleVisualPreview: "stale_visual_preview",
   staleEnrichmentVersion: "stale_enrichment_version",
   projectionMismatch: "projection_mismatch",
@@ -272,6 +265,7 @@ export const TAXONOMY_HEALTH_SKIP_REASON_VALUES = [
   "not_applicable",
   "already_current",
   "missing_required_data",
+  "stale_enrichment",
 ] as const;
 export type TaxonomyHealthSkipReason =
   (typeof TAXONOMY_HEALTH_SKIP_REASON_VALUES)[number];

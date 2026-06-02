@@ -112,7 +112,7 @@ describe("matchesHealthFilter", () => {
     // Tally the summary exactly as the route does — via SUMMARY_COUNT_TO_FILTER.
     const summary = {
       healthy: 0, missingEnrichment: 0, invalidEnrichment: 0, needsAdminReview: 0,
-      missingVisualPreview: 0, staleVisualPreview: 0, staleEnrichmentVersion: 0,
+      staleVisualPreview: 0, staleEnrichmentVersion: 0,
       projectionMismatch: 0, incompleteCulturalReferences: 0,
       semanticEntitiesNeedReview: 0, lowConfidence: 0,
     } as Omit<TaxonomyHealthSummaryCounts, "totalFacts">;
