@@ -433,6 +433,22 @@ export default function AdminFacts() {
     setPipelineResult(null);
   }
 
+  // On mount: if ?focus=<id> is in the URL (e.g. linked from Taxonomy Health),
+  // fetch that fact by ID and select it immediately, regardless of which page of
+  // the list it would appear on.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const focusId = Number(params.get("focus"));
+    if (!Number.isInteger(focusId) || focusId <= 0) return;
+    fetch(`/api/admin/facts/${focusId}`, { credentials: "include" })
+      .then(async (r) => {
+        if (!r.ok) return;
+        const fact = (await r.json()) as Fact;
+        selectFact(fact);
+      })
+      .catch(() => {});
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   async function triggerImagePipeline(factId: number, force: boolean) {
     setPipelineRunning(true);
     setPipelineResult(null);
