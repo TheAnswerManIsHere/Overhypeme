@@ -473,7 +473,7 @@ const factEnrichmentBase = z.object({
    */
   semanticEntities: z.array(semanticEntitySchema).max(20).default([]),
   visualPromptPreview: visualPromptPreviewSchema.optional(),
-  previewStatus: z.enum(["pending", "ok", "failed"]).optional(),
+  previewStatus: z.enum(["pending", "ok", "failed", "stale"]).optional(),
   // Optional provenance — stamped by the enrichment service.
   taxonomyVersion: z.string().optional(),
   classificationPromptVersion: z.string().optional(),

@@ -8,7 +8,7 @@ import { requireRole } from "../middlewares/tierMiddleware";
 import { backfillEmbeddings, embedFactAsync } from "../lib/embeddings";
 import { enrichFact, buildFactEnrichmentColumns } from "../lib/factEnrichment";
 import { enqueueJob } from "../lib/asyncJobs";
-import { validateEnrichment, type FactEnrichment } from "@workspace/api-zod";
+import { validateEnrichment, type FactEnrichment, CLASSIFICATION_PROMPT_VERSION } from "@workspace/api-zod";
 import { runFactImagePipeline } from "../lib/factImagePipeline";
 import { generateAiMemeBackgrounds } from "../lib/aiMemePipeline";
 import { renderCanonical } from "../lib/renderCanonical";
@@ -786,9 +786,17 @@ router.patch("/admin/facts/:id/enrichment", requireAdmin, async (req: Request, r
   if (!result.ok) { res.status(400).json({ error: `Invalid enrichment: ${result.error}` }); return; }
 
   const cols = buildFactEnrichmentColumns(result.data);
+  // Mark the visual plan stale: admin-edited enrichment may have changed the
+  // archetype, subtype, or other fields that the visual plan was derived from.
+  // The plan must be regenerated from the updated enrichment — but only after
+  // re-enriching if the classificationPromptVersion is also behind.
+  const enrichmentWithStalePlan = {
+    ...(result.data as Record<string, unknown>),
+    previewStatus: "stale",
+  };
   const [updated] = await db
     .update(factsTable)
-    .set({ ...cols, enrichmentStatus: "ok" })
+    .set({ ...cols, enrichment: enrichmentWithStalePlan as unknown as FactEnrichment, enrichmentStatus: "ok" })
     .where(eq(factsTable.id, id))
     .returning({ id: factsTable.id });
   if (!updated) { res.status(404).json({ error: "Fact not found" }); return; }
@@ -797,7 +805,7 @@ router.patch("/admin/facts/:id/enrichment", requireAdmin, async (req: Request, r
   // list row without a refetch.
   res.json({
     success: true,
-    enrichment: result.data,
+    enrichment: enrichmentWithStalePlan as FactEnrichment,
     projection: {
       primaryArchetype: cols.primaryArchetype,
       subtype: cols.subtype,
@@ -1365,6 +1373,16 @@ router.post("/admin/facts/:id/preview", requireAdmin, async (req: Request, res: 
   if (!validated.ok) {
     res.status(400).json({
       error: "Cannot generate preview: fact has no enrichment. Run backfill-enrichment first.",
+    });
+    return;
+  }
+
+  // Guard: the visual plan operates in lockstep with the enrichment. Regenerating
+  // it when the enrichment is stale would embed outdated archetype/subtype data into
+  // the new plan. Re-enrich first to bring the classification current.
+  if (validated.data.classificationPromptVersion !== CLASSIFICATION_PROMPT_VERSION) {
+    res.status(400).json({
+      error: "Cannot regenerate visual plan — enrichment is outdated. Re-enrich this fact first, then regenerate the visual plan.",
     });
     return;
   }

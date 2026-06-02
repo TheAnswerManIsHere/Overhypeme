@@ -88,7 +88,6 @@ export function evaluateFactTaxonomyHealth(
     adultRequiresReview: false,
     culturalReferenceNeedsResearch: false,
     semanticEntityNeedsReview: false,
-    missingPreview: false,
     stalePreview: false,
     staleEnrichmentVersion: false,
     projectionMismatch: false,
@@ -237,13 +236,17 @@ export function evaluateFactTaxonomyHealth(
   }
 
   // 9. Visual preview presence + 10. staleness
+  // "No visual plan" is treated as stale — there is no meaningful distinction
+  // between a plan that was never generated and one that is outdated. Both need
+  // regeneration, and the same guard (re-enrich first when enrichment is stale)
+  // applies to both cases.
   const preview = e.visualPromptPreview;
   if (!preview) {
-    flags.missingPreview = true;
+    flags.stalePreview = true;
     addIssue(issues, statuses, {
-      code: "missing_visual_preview",
+      code: "stale_visual_preview",
       severity: "warning",
-      message: "No visual prompt preview generated for this fact.",
+      message: "No visual plan has been generated for this fact yet.",
       recommendedAction: "regenerate_visual_preview",
     });
   } else if (
@@ -279,6 +282,20 @@ export function evaluateFactTaxonomyHealth(
       code: "stale_enrichment_version",
       severity: "info",
       message: `Enrichment has no classificationPromptVersion field — pre-versioned enrichment.`,
+      recommendedAction: "rerun_enrichment",
+    });
+  }
+
+  // Lockstep: stale enrichment → stale visual plan. The existing visual plan
+  // was built from outdated enrichment data; regenerating it without re-enriching
+  // first would produce a plan based on stale archetype/subtype/etc.
+  if (flags.staleEnrichmentVersion && !flags.stalePreview) {
+    flags.stalePreview = true;
+    addIssue(issues, statuses, {
+      code: "stale_visual_preview",
+      severity: "info",
+      message:
+        "Visual plan is implicitly stale — it was built from outdated enrichment. Re-enrich first, then regenerate the visual plan.",
       recommendedAction: "rerun_enrichment",
     });
   }
