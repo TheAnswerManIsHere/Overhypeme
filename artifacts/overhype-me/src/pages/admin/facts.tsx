@@ -7,8 +7,7 @@ import { Trash2, Upload, Search, AlertCircle, CheckCircle, Pencil, X, Save, GitB
 import type { FactEnrichment } from "@workspace/api-zod";
 import { EnrichmentEditor } from "@/components/admin/EnrichmentEditor";
 import { useEnrichmentJobs } from "@/components/admin/useEnrichmentJobs";
-import { useFormDraft } from "@/hooks/use-form-draft";
-import type { StorageAdapter } from "@/lib/form-draft-storage";
+import { useDraftForm } from "@/components/admin/useDraftForm";
 
 /** Server response from the enrichment PATCH, including re-synced projection columns. */
 interface EnrichmentSaveResponse {
@@ -19,6 +18,12 @@ interface EnrichmentSaveResponse {
     overhypeFit: string;
     adultSuitability: string;
   };
+}
+
+/** The slice of a fact's detail record consumed by the enrichment editor. */
+interface FactServerRecord {
+  enrichment?: FactEnrichment | null;
+  enrichmentStatus?: string | null;
 }
 
 const USE_CASE_SUGGESTIONS = ["default", "one_line", "two_line", "short", "long", "meme_caption", "shirt_print", "social_media", "title_case"];
@@ -67,6 +72,40 @@ type ImportMode = "json" | "csv" | "lines";
 
 type EditDraft = Omit<Fact, "id" | "createdAt" | "updatedAt" | "hasEmbedding" | "hasPexelsImages" | "splitTokenIndex">;
 
+/** Blank baseline used by the edit form while no fact is selected. */
+const EMPTY_EDIT_DRAFT: EditDraft = {
+  text: "",
+  canonicalText: null,
+  parentId: null,
+  useCase: null,
+  isActive: true,
+  upvotes: 0,
+  downvotes: 0,
+  score: 0,
+  wilsonScore: 0,
+  commentCount: 0,
+  shareCount: 0,
+  submittedById: "",
+};
+
+/** Project a fact (the server source of truth) into the editable form value. */
+function factToEditDraft(fact: Fact): EditDraft {
+  return {
+    text: fact.text,
+    canonicalText: fact.canonicalText ?? null,
+    parentId: fact.parentId ?? null,
+    useCase: fact.useCase ?? null,
+    isActive: fact.isActive,
+    upvotes: fact.upvotes,
+    downvotes: fact.downvotes,
+    score: fact.score,
+    wilsonScore: fact.wilsonScore ?? 0,
+    commentCount: fact.commentCount ?? 0,
+    shareCount: fact.shareCount ?? 0,
+    submittedById: fact.submittedById ?? "",
+  };
+}
+
 function FieldLabel({ children }: { children: React.ReactNode }) {
   return (
     <label className="block text-xs font-bold uppercase tracking-wider text-muted-foreground mb-1">
@@ -97,102 +136,67 @@ function ReadOnlyField({ label, value }: { label: string; value: string | number
  * invalid edit surfaces here as a save error rather than being stored.
  */
 function FactEnrichmentPanel({ fact, onSaved }: { fact: Fact; onSaved: (resp: EnrichmentSaveResponse) => void }) {
-  const [enrichment, setEnrichment] = useState<FactEnrichment | null>(null);
   const [enrichmentStatus, setEnrichmentStatus] = useState<string | null>(fact.enrichmentStatus ?? null);
-  const [loading, setLoading] = useState(false);
-
-  const [dirty, setDirty] = useState(false);
-  const dirtyRef = useRef(false);
-  const markDirty = useCallback(() => { dirtyRef.current = true; setDirty(true); }, []);
 
   const onSavedRef = useRef(onSaved);
   onSavedRef.current = onSaved;
 
-  // Apply server-fetched state (mount load + job polling) WITHOUT dirtying, so a
-  // background sync never schedules an autosave or clobbers an in-flight edit.
-  const applyServerState = useCallback((e: FactEnrichment | null, s: string | null) => {
-    dirtyRef.current = false;
-    setDirty(false);
-    setEnrichment(e);
-    setEnrichmentStatus(s);
-  }, []);
-
-  // Load the enrichment on mount (the facts list omits the heavy blob).
-  useEffect(() => {
-    let cancelled = false;
-    setLoading(true);
-    void (async () => {
-      try {
-        const r = await fetch(`/api/admin/facts/${fact.id}`, { credentials: "include" });
-        if (!r.ok || cancelled || dirtyRef.current) return;
-        const fresh = (await r.json()) as { enrichment?: FactEnrichment | null; enrichmentStatus?: string | null };
-        if (cancelled || dirtyRef.current) return;
-        setEnrichment(fresh.enrichment ?? null);
-        setEnrichmentStatus(fresh.enrichmentStatus ?? null);
-      } catch {
-        /* leave empty state in place on network error */
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    })();
-    return () => { cancelled = true; };
-  }, [fact.id]);
-
-  const adapter = useMemo<StorageAdapter<FactEnrichment | null>>(
-    () => ({
-      load: () => null,
-      clear: () => {},
-      save: async (toSave) => {
-        if (!toSave) throw new Error("Nothing to save.");
-        let r: Response;
-        try {
-          r = await fetch(`/api/admin/facts/${fact.id}/enrichment`, {
-            method: "PATCH",
-            headers: { "Content-Type": "application/json" },
-            credentials: "include",
-            body: JSON.stringify({ enrichment: toSave }),
-          });
-        } catch {
-          throw new Error("Network error — could not save.");
-        }
-        if (!r.ok) {
-          let msg = r.status === 503 ? "API unavailable — try again shortly." : `Save failed (${r.status}).`;
-          try { const b = (await r.json()) as { error?: string }; if (b?.error) msg = b.error; } catch { /* generic */ }
-          throw new Error(msg);
-        }
-        try {
-          const body = (await r.json()) as EnrichmentSaveResponse;
-          if (body?.enrichment) onSavedRef.current?.(body);
-        } catch {
-          /* response body is best-effort; the save itself succeeded */
-        }
-        return Date.now();
-      },
-    }),
-    [fact.id],
-  );
-
-  const draft = useFormDraft<FactEnrichment | null>({
-    value: enrichment,
-    adapter,
+  // Local-draft model: edits autosave to localStorage; an explicit Save commits to
+  // the server (validated + projections re-synced) and becomes the new baseline;
+  // Discard reverts to the server source of truth. Keyed by fact id at the call
+  // site so the draft resets cleanly between facts.
+  const draft = useDraftForm<FactEnrichment | null, FactServerRecord>({
+    storageKey: `fact-enrichment-draft::${fact.id}`,
+    emptyValue: null,
     debounceMs: 1500,
-    restoreOnMount: false,
-    manualDirty: dirty,
-    isEmpty: (e) => e == null,
-    onSaved: () => { dirtyRef.current = false; setDirty(false); },
+    fetchServer: async () => {
+      const r = await fetch(`/api/admin/facts/${fact.id}`, { credentials: "include" });
+      if (!r.ok) return null;
+      return (await r.json()) as FactServerRecord;
+    },
+    selectValue: (rec) => rec.enrichment ?? null,
+    onServerRecord: (rec) => setEnrichmentStatus(rec?.enrichmentStatus ?? null),
+    commit: async (toSave) => {
+      if (!toSave) throw new Error("Nothing to save.");
+      let r: Response;
+      try {
+        r = await fetch(`/api/admin/facts/${fact.id}/enrichment`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({ enrichment: toSave }),
+        });
+      } catch {
+        throw new Error("Network error — could not save.");
+      }
+      if (!r.ok) {
+        let msg = r.status === 503 ? "API unavailable — try again shortly." : `Save failed (${r.status}).`;
+        try { const b = (await r.json()) as { error?: string }; if (b?.error) msg = b.error; } catch { /* generic */ }
+        throw new Error(msg);
+      }
+      try {
+        const body = (await r.json()) as EnrichmentSaveResponse;
+        if (body?.enrichment) onSavedRef.current?.(body);
+      } catch {
+        /* response body is best-effort; the save itself succeeded */
+      }
+    },
   });
+
+  const enrichment = draft.value;
 
   const jobs = useEnrichmentJobs({
     resource: "facts",
     id: fact.id,
     status: enrichmentStatus,
-    getEnrichment: () => enrichment,
-    isDirty: () => dirtyRef.current,
-    applyServerState,
-    saveNow: draft.saveNow,
+    getEnrichment: () => draft.value,
+    isDirty: () => draft.hasUncommittedChanges,
+    // A background job (re-run / preview) rewrites the enrichment server-side;
+    // fold it into BOTH value and baseline so it becomes the new source of truth.
+    applyServerState: (e, s) => { draft.adoptServerSlice(() => e); setEnrichmentStatus(s); },
+    // Regenerate-preview must persist the current enrichment first; Save does that.
+    saveNow: draft.save,
   });
-
-  const onChange = useCallback((next: FactEnrichment) => { markDirty(); setEnrichment(next); }, [markDirty]);
 
   // Re-running classification overwrites possibly admin-tuned metadata on a live
   // fact, so confirm first when enrichment already exists.
@@ -208,9 +212,11 @@ function FactEnrichmentPanel({ fact, onSaved }: { fact: Fact; onSaved: (resp: En
     await jobs.onRerun();
   }
 
+  const busy = draft.loading || draft.committing || jobs.loading || jobs.rerunBusy || jobs.previewBusy;
+
   return (
     <div className="space-y-2">
-      {loading && !enrichment && (
+      {draft.loading && !enrichment && (
         <div className="flex items-center gap-2 text-xs text-muted-foreground">
           <Loader2 className="w-3 h-3 animate-spin" /> Loading enrichment…
         </div>
@@ -219,17 +225,34 @@ function FactEnrichmentPanel({ fact, onSaved }: { fact: Fact; onSaved: (resp: En
         value={enrichment}
         status={enrichmentStatus}
         factText={fact.text}
-        onChange={onChange}
+        onChange={(next) => draft.setValue(next)}
+        onSave={draft.hasUncommittedChanges ? () => void draft.save() : undefined}
         onRerun={handleRerun}
         onRegeneratePreview={jobs.onRegeneratePreview}
-        busy={loading || jobs.loading || jobs.rerunBusy || jobs.previewBusy}
+        busy={busy}
         rerunBusy={jobs.rerunBusy}
         previewBusy={jobs.previewBusy}
       />
-      <div className="text-xs text-muted-foreground min-h-[1.25rem]">
-        {draft.status === "saving" && <span className="flex items-center gap-1"><Loader2 className="w-3 h-3 animate-spin" />Saving…</span>}
-        {draft.status === "saved" && draft.savedLabel && <span>{draft.savedLabel}</span>}
-        {draft.status === "error" && <span className="text-destructive">{draft.error ?? "Save failed"}</span>}
+      <div className="flex items-center justify-between gap-3 min-h-[1.75rem]">
+        <div className="text-xs text-muted-foreground">
+          {draft.committing ? (
+            <span className="flex items-center gap-1"><Loader2 className="w-3 h-3 animate-spin" />Saving to server…</span>
+          ) : draft.commitError ? (
+            <span className="text-destructive">{draft.commitError}</span>
+          ) : draft.hasUncommittedChanges ? (
+            <span>{draft.draftLabel || "Unsaved changes"}</span>
+          ) : draft.committedAt ? (
+            <span className="text-green-600 dark:text-green-400">Saved to server</span>
+          ) : null}
+        </div>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={draft.discard}
+          disabled={!draft.hasUncommittedChanges || draft.committing}
+        >
+          Discard changes
+        </Button>
       </div>
       {jobs.error && (
         <div className="flex items-start gap-2 rounded-sm border border-destructive/50 bg-destructive/10 px-3 py-2">
@@ -251,8 +274,8 @@ export default function AdminFacts() {
   const [showInactive, setShowInactive] = useState(false);
 
   const [selectedFact, setSelectedFact] = useState<Fact | null>(null);
-  const [draft, setDraft] = useState<EditDraft | null>(null);
-  const [saving, setSaving] = useState(false);
+  const selectedFactRef = useRef<Fact | null>(null);
+  selectedFactRef.current = selectedFact;
   const [variants, setVariants] = useState<FactVariant[]>([]);
   const [loadingVariants, setLoadingVariants] = useState(false);
   const [newVariantText, setNewVariantText] = useState("");
@@ -289,6 +312,49 @@ export default function AdminFacts() {
     setSelectedFact((f) => (f && f.id === factId ? { ...f, ...patch } : f));
   }
 
+  // The fact text/use-case edit form follows the universal local-draft model:
+  // edits autosave to localStorage, "Save Changes" commits to the server (new
+  // baseline), and "Discard" reverts to the server source of truth. The baseline
+  // comes from the in-memory selected fact (the list already carries every
+  // editable field); no separate fetch is needed.
+  const editForm = useDraftForm<EditDraft, Fact>({
+    storageKey: selectedFact ? `fact-edit-draft::${selectedFact.id}` : "fact-edit-draft::none",
+    emptyValue: EMPTY_EDIT_DRAFT,
+    debounceMs: 1000,
+    fetchServer: async () => selectedFactRef.current,
+    selectValue: (fact) => factToEditDraft(fact),
+    commit: async (v) => {
+      const sf = selectedFactRef.current;
+      if (!sf) throw new Error("No fact selected.");
+      const body = {
+        text: v.text,
+        parentId: v.parentId !== null && v.parentId !== undefined && String(v.parentId) !== "" ? Number(v.parentId) : null,
+        useCase: v.useCase || null,
+        isActive: v.isActive,
+        upvotes: Number(v.upvotes),
+        downvotes: Number(v.downvotes),
+        score: Number(v.score),
+        wilsonScore: Number(v.wilsonScore),
+        commentCount: Number(v.commentCount),
+        shareCount: Number(v.shareCount),
+        submittedById: v.submittedById || null,
+      };
+      const res = await fetch(`/api/admin/facts/${sf.id}`, {
+        method: "PATCH",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const data = (await res.json()) as { success?: boolean; fact?: Fact; error?: string };
+      if (!res.ok) throw new Error(data.error ?? "Save failed");
+      const updated = data.fact!;
+      setFacts((prev) => prev.map((f) => (f.id === updated.id ? updated : f)));
+      setSelectedFact(updated);
+      setSaveResult({ type: "success", message: "Saved successfully." });
+    },
+  });
+  const draft = editForm.value;
+
   const LIMIT = 25;
 
   useEffect(() => {
@@ -320,20 +386,6 @@ export default function AdminFacts() {
 
   function selectFact(fact: Fact) {
     setSelectedFact(fact);
-    setDraft({
-      text: fact.text,
-      canonicalText: fact.canonicalText ?? null,
-      parentId: fact.parentId ?? null,
-      useCase: fact.useCase ?? null,
-      isActive: fact.isActive,
-      upvotes: fact.upvotes,
-      downvotes: fact.downvotes,
-      score: fact.score,
-      wilsonScore: fact.wilsonScore ?? 0,
-      commentCount: fact.commentCount ?? 0,
-      shareCount: fact.shareCount ?? 0,
-      submittedById: fact.submittedById ?? "",
-    });
     setSaveResult(null);
     setShowAddVariant(false);
     setNewVariantText("");
@@ -356,7 +408,6 @@ export default function AdminFacts() {
 
   function clearSelection() {
     setSelectedFact(null);
-    setDraft(null);
     setSaveResult(null);
     setVariants([]);
     setShowAddVariant(false);
@@ -387,43 +438,6 @@ export default function AdminFacts() {
       setPipelineResult({ type: "error", message: err instanceof Error ? err.message : "Pipeline failed" });
     } finally {
       setPipelineRunning(false);
-    }
-  }
-
-  async function saveFact() {
-    if (!selectedFact || !draft) return;
-    setSaving(true);
-    setSaveResult(null);
-    try {
-      const body = {
-        text: draft.text,
-        parentId: draft.parentId !== null && draft.parentId !== undefined && String(draft.parentId) !== "" ? Number(draft.parentId) : null,
-        useCase: draft.useCase || null,
-        isActive: draft.isActive,
-        upvotes: Number(draft.upvotes),
-        downvotes: Number(draft.downvotes),
-        score: Number(draft.score),
-        wilsonScore: Number(draft.wilsonScore),
-        commentCount: Number(draft.commentCount),
-        shareCount: Number(draft.shareCount),
-        submittedById: draft.submittedById || null,
-      };
-      const res = await fetch(`/api/admin/facts/${selectedFact.id}`, {
-        method: "PATCH",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-      const data = (await res.json()) as { success?: boolean; fact?: Fact; error?: string };
-      if (!res.ok) throw new Error(data.error ?? "Save failed");
-      const updated = data.fact!;
-      setFacts((prev) => prev.map((f) => (f.id === updated.id ? updated : f)));
-      setSelectedFact(updated);
-      setSaveResult({ type: "success", message: "Saved successfully." });
-    } catch (err) {
-      setSaveResult({ type: "error", message: err instanceof Error ? err.message : "Save failed" });
-    } finally {
-      setSaving(false);
     }
   }
 
@@ -549,7 +563,7 @@ export default function AdminFacts() {
     <input
       type="number"
       value={String(draft?.[key] ?? "")}
-      onChange={(e) => setDraft((d) => d ? { ...d, [key]: e.target.value } : d)}
+      onChange={(e) => editForm.setValue((d) => d ? { ...d, [key]: e.target.value } : d)}
       className="h-9 w-full px-3 bg-background border border-border rounded-sm text-sm font-mono focus:outline-none focus:border-primary"
     />
   );
@@ -792,7 +806,7 @@ export default function AdminFacts() {
               <FieldLabel>Text</FieldLabel>
               <textarea
                 value={draft.text}
-                onChange={(e) => setDraft((d) => d ? { ...d, text: e.target.value } : d)}
+                onChange={(e) => editForm.setValue((d) => d ? { ...d, text: e.target.value } : d)}
                 rows={4}
                 className="w-full px-3 py-2 bg-background border border-border rounded-sm text-sm focus:outline-none focus:border-primary resize-none"
               />
@@ -816,7 +830,7 @@ export default function AdminFacts() {
               </div>
               <button
                 type="button"
-                onClick={() => setDraft((d) => d ? { ...d, isActive: !d.isActive } : d)}
+                onClick={() => editForm.setValue((d) => d ? { ...d, isActive: !d.isActive } : d)}
                 className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none ${
                   draft.isActive ? "bg-green-500" : "bg-muted-foreground/30"
                 }`}
@@ -852,7 +866,7 @@ export default function AdminFacts() {
                   type="number"
                   step="0.000001"
                   value={String(draft.wilsonScore)}
-                  onChange={(e) => setDraft((d) => d ? { ...d, wilsonScore: parseFloat(e.target.value) || 0 } : d)}
+                  onChange={(e) => editForm.setValue((d) => d ? { ...d, wilsonScore: parseFloat(e.target.value) || 0 } : d)}
                   className="h-9 w-full px-3 bg-background border border-border rounded-sm text-sm font-mono focus:outline-none focus:border-primary"
                 />
               </div>
@@ -873,7 +887,7 @@ export default function AdminFacts() {
                 <input
                   type="number"
                   value={draft.parentId !== null && draft.parentId !== undefined ? String(draft.parentId) : ""}
-                  onChange={(e) => setDraft((d) => d ? { ...d, parentId: e.target.value ? Number(e.target.value) : null } : d)}
+                  onChange={(e) => editForm.setValue((d) => d ? { ...d, parentId: e.target.value ? Number(e.target.value) : null } : d)}
                   placeholder="blank for root"
                   className="h-9 w-full px-3 bg-background border border-border rounded-sm text-sm font-mono focus:outline-none focus:border-primary"
                 />
@@ -883,7 +897,7 @@ export default function AdminFacts() {
                 <input
                   list="use-case-options"
                   value={draft.useCase ?? ""}
-                  onChange={(e) => setDraft((d) => d ? { ...d, useCase: e.target.value || null } : d)}
+                  onChange={(e) => editForm.setValue((d) => d ? { ...d, useCase: e.target.value || null } : d)}
                   placeholder="e.g. one_line, meme_caption…"
                   className="h-9 w-full px-3 bg-background border border-border rounded-sm text-sm font-mono focus:outline-none focus:border-primary"
                 />
@@ -896,7 +910,7 @@ export default function AdminFacts() {
                 <input
                   type="text"
                   value={draft.submittedById ?? ""}
-                  onChange={(e) => setDraft((d) => d ? { ...d, submittedById: e.target.value } : d)}
+                  onChange={(e) => editForm.setValue((d) => d ? { ...d, submittedById: e.target.value } : d)}
                   placeholder="user UUID or blank"
                   className="h-9 w-full px-3 bg-background border border-border rounded-sm text-sm font-mono focus:outline-none focus:border-primary"
                 />
@@ -1085,10 +1099,36 @@ export default function AdminFacts() {
               </div>
             )}
 
+            {/* Draft indicator */}
+            <div className="text-xs text-muted-foreground min-h-[1.25rem]">
+              {editForm.committing ? (
+                <span className="flex items-center gap-1"><Loader2 className="w-3 h-3 animate-spin" />Saving to server…</span>
+              ) : editForm.commitError ? (
+                <span className="text-destructive">{editForm.commitError}</span>
+              ) : editForm.hasUncommittedChanges ? (
+                <span>{editForm.draftLabel || "Unsaved changes"}</span>
+              ) : editForm.committedAt ? (
+                <span className="text-green-600 dark:text-green-400">Saved to server</span>
+              ) : null}
+            </div>
+
             {/* Actions */}
             <div className="flex gap-3 pt-1">
-              <Button onClick={saveFact} isLoading={saving} className="flex-1">
+              <Button
+                onClick={() => void editForm.save()}
+                isLoading={editForm.committing}
+                disabled={!editForm.hasUncommittedChanges}
+                className="flex-1"
+              >
                 <Save className="w-4 h-4" /> Save Changes
+              </Button>
+              <Button
+                variant="outline"
+                onClick={editForm.discard}
+                disabled={!editForm.hasUncommittedChanges || editForm.committing}
+                className="flex-1"
+              >
+                Discard
               </Button>
               <Button variant="outline" onClick={clearSelection} className="flex-1">
                 Cancel
