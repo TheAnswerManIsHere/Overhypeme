@@ -216,6 +216,36 @@ function FactEnrichmentPanel({ fact, onSaved }: { fact: Fact; onSaved: (resp: En
 
   return (
     <div className="space-y-2">
+      {/* Pinned header bar with draft status */}
+      <div className="flex items-center justify-between gap-2">
+        <h3 className="font-display font-bold text-foreground uppercase tracking-wide text-sm flex items-center gap-2">
+          <Sparkles className="w-4 h-4 text-primary" />
+          Visual Taxonomy Enrichment
+        </h3>
+        <div className="flex items-center gap-3 shrink-0">
+          <div className="text-xs text-muted-foreground">
+            {draft.committing ? (
+              <span className="flex items-center gap-1"><Loader2 className="w-3 h-3 animate-spin" />Saving to server…</span>
+            ) : draft.commitError ? (
+              <span className="text-destructive">{draft.commitError}</span>
+            ) : draft.hasUncommittedChanges ? (
+              <span>{draft.draftLabel || "Unsaved changes"}</span>
+            ) : draft.committedAt ? (
+              <span className="text-green-600 dark:text-green-400">Saved to server</span>
+            ) : null}
+          </div>
+          {draft.hasUncommittedChanges && (
+            <button
+              type="button"
+              onClick={draft.discard}
+              className="text-xs text-primary underline hover:opacity-80"
+            >
+              Discard changes
+            </button>
+          )}
+        </div>
+      </div>
+
       {draft.loading && !enrichment && (
         <div className="flex items-center gap-2 text-xs text-muted-foreground">
           <Loader2 className="w-3 h-3 animate-spin" /> Loading enrichment…
@@ -233,18 +263,7 @@ function FactEnrichmentPanel({ fact, onSaved }: { fact: Fact; onSaved: (resp: En
         rerunBusy={jobs.rerunBusy}
         previewBusy={jobs.previewBusy}
       />
-      <div className="flex items-center justify-between gap-3 min-h-[1.75rem]">
-        <div className="text-xs text-muted-foreground">
-          {draft.committing ? (
-            <span className="flex items-center gap-1"><Loader2 className="w-3 h-3 animate-spin" />Saving to server…</span>
-          ) : draft.commitError ? (
-            <span className="text-destructive">{draft.commitError}</span>
-          ) : draft.hasUncommittedChanges ? (
-            <span>{draft.draftLabel || "Unsaved changes"}</span>
-          ) : draft.committedAt ? (
-            <span className="text-green-600 dark:text-green-400">Saved to server</span>
-          ) : null}
-        </div>
+      <div className="flex items-center justify-end gap-3 min-h-[1.75rem]">
         <Button
           variant="outline"
           size="sm"
@@ -757,14 +776,37 @@ export default function AdminFacts() {
                 <Pencil className="w-4 h-4 text-primary" />
                 Edit Fact #{selectedFact.id}
               </h2>
-              <button
-                onClick={clearSelection}
-                className="flex items-center justify-center w-11 h-11 -mr-2 text-muted-foreground hover:text-foreground transition-colors rounded-sm"
-                title="Close"
-                aria-label="Close edit panel"
-              >
-                <X className="w-5 h-5" />
-              </button>
+              <div className="flex items-center gap-3 shrink-0">
+                {/* Draft status — always visible in the pinned header */}
+                <div className="text-xs text-muted-foreground">
+                  {editForm.committing ? (
+                    <span className="flex items-center gap-1"><Loader2 className="w-3 h-3 animate-spin" />Saving to server…</span>
+                  ) : editForm.commitError ? (
+                    <span className="text-destructive">{editForm.commitError}</span>
+                  ) : editForm.hasUncommittedChanges ? (
+                    <span>{editForm.draftLabel || "Unsaved changes"}</span>
+                  ) : editForm.committedAt ? (
+                    <span className="text-green-600 dark:text-green-400">Saved to server</span>
+                  ) : null}
+                </div>
+                {editForm.hasUncommittedChanges && (
+                  <button
+                    type="button"
+                    onClick={editForm.discard}
+                    className="text-xs text-primary underline hover:opacity-80"
+                  >
+                    Discard changes
+                  </button>
+                )}
+                <button
+                  onClick={clearSelection}
+                  className="flex items-center justify-center w-11 h-11 -mr-2 text-muted-foreground hover:text-foreground transition-colors rounded-sm"
+                  title="Close"
+                  aria-label="Close edit panel"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
             </div>
 
             {/* Status badges */}
@@ -1098,19 +1140,6 @@ export default function AdminFacts() {
                 {saveResult.message}
               </div>
             )}
-
-            {/* Draft indicator */}
-            <div className="text-xs text-muted-foreground min-h-[1.25rem]">
-              {editForm.committing ? (
-                <span className="flex items-center gap-1"><Loader2 className="w-3 h-3 animate-spin" />Saving to server…</span>
-              ) : editForm.commitError ? (
-                <span className="text-destructive">{editForm.commitError}</span>
-              ) : editForm.hasUncommittedChanges ? (
-                <span>{editForm.draftLabel || "Unsaved changes"}</span>
-              ) : editForm.committedAt ? (
-                <span className="text-green-600 dark:text-green-400">Saved to server</span>
-              ) : null}
-            </div>
 
             {/* Actions */}
             <div className="flex gap-3 pt-1">
