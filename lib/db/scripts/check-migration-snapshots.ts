@@ -92,6 +92,15 @@ const SNAPSHOT_EXEMPT_TAGS = new Set<string>([
   // Index-only migration; no table shape change.
   "0051_memes_creator_created_at_index",
 
+  // Phase 2 prompt-fidelity: adds `rendered_fact_text` (nullable text) to
+  // image_prompt_attempts. Single ADD COLUMN; the column exists in the TS
+  // schema but the snapshot was not regenerated because the previous snapshot
+  // chain (0063) is missing the entire image_prompt_attempts table (manually
+  // authored migration, not via drizzle-kit generate). snapshot #0063 is the
+  // closest known-good snapshot, but the chain breaks after it because the
+  // subsequent tables were not backfilled.
+  "0070_image_prompt_attempts_rendered_fact_text",
+
   // Task #507: manually authored DDL. Adds `is_profile boolean NOT NULL DEFAULT
   // false` to upload_image_metadata, a partial unique index
   // UQ_uim_user_is_profile, and a backfill that tags existing
