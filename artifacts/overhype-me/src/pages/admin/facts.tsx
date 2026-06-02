@@ -1,11 +1,25 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AdminLayout } from "@/components/admin/AdminLayout";
 import { RuntimePromptPreview } from "@/components/admin/RuntimePromptPreview";
 import { Button } from "@/components/ui/Button";
 import { Textarea, Input } from "@/components/ui/Input";
 import { Trash2, Upload, Search, AlertCircle, CheckCircle, Pencil, X, Save, GitBranch, Plus, Brain, EyeOff, Eye, RefreshCw, ImageIcon, Loader2, Sparkles } from "lucide-react";
+import type { FactEnrichment } from "@workspace/api-zod";
 import { EnrichmentEditor } from "@/components/admin/EnrichmentEditor";
-import { useEnrichmentDraft, type EnrichmentSaveResponse } from "@/components/admin/useEnrichmentDraft";
+import { useEnrichmentJobs } from "@/components/admin/useEnrichmentJobs";
+import { useFormDraft } from "@/hooks/use-form-draft";
+import type { StorageAdapter } from "@/lib/form-draft-storage";
+
+/** Server response from the enrichment PATCH, including re-synced projection columns. */
+interface EnrichmentSaveResponse {
+  enrichment: FactEnrichment;
+  projection?: {
+    primaryArchetype: string;
+    subtype: string;
+    overhypeFit: string;
+    adultSuitability: string;
+  };
+}
 
 const USE_CASE_SUGGESTIONS = ["default", "one_line", "two_line", "short", "long", "meme_caption", "shirt_print", "social_media", "title_case"];
 
@@ -73,63 +87,154 @@ function ReadOnlyField({ label, value }: { label: string; value: string | number
 }
 
 /**
- * The shared Visual Taxonomy Enrichment editor, surfaced on a live fact. Same
- * component + behavior the moderation panel uses (via useEnrichmentDraft) — edit,
- * autosave, regenerate preview, and re-run classification — so tuning a fact
- * that renders bad images/videos happens right here. Keyed by fact id so it
- * resets cleanly between facts.
+ * The shared Visual Taxonomy Enrichment editor, surfaced on a live fact. Uses the
+ * SAME universal autosave helper (`useFormDraft`) as every other form, plus the
+ * shared `useEnrichmentJobs` for the enrichment-specific ACTIONS (re-run, preview,
+ * polling). Keyed by fact id at the call site so it resets cleanly between facts.
+ *
+ * Unlike the moderation review form (which stores drafts as-is), a live fact is
+ * validated server-side on save and its projection columns re-synced — so an
+ * invalid edit surfaces here as a save error rather than being stored.
  */
 function FactEnrichmentPanel({ fact, onSaved }: { fact: Fact; onSaved: (resp: EnrichmentSaveResponse) => void }) {
-  const enrich = useEnrichmentDraft({
+  const [enrichment, setEnrichment] = useState<FactEnrichment | null>(null);
+  const [enrichmentStatus, setEnrichmentStatus] = useState<string | null>(fact.enrichmentStatus ?? null);
+  const [loading, setLoading] = useState(false);
+
+  const [dirty, setDirty] = useState(false);
+  const dirtyRef = useRef(false);
+  const markDirty = useCallback(() => { dirtyRef.current = true; setDirty(true); }, []);
+
+  const onSavedRef = useRef(onSaved);
+  onSavedRef.current = onSaved;
+
+  // Apply server-fetched state (mount load + job polling) WITHOUT dirtying, so a
+  // background sync never schedules an autosave or clobbers an in-flight edit.
+  const applyServerState = useCallback((e: FactEnrichment | null, s: string | null) => {
+    dirtyRef.current = false;
+    setDirty(false);
+    setEnrichment(e);
+    setEnrichmentStatus(s);
+  }, []);
+
+  // Load the enrichment on mount (the facts list omits the heavy blob).
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    void (async () => {
+      try {
+        const r = await fetch(`/api/admin/facts/${fact.id}`, { credentials: "include" });
+        if (!r.ok || cancelled || dirtyRef.current) return;
+        const fresh = (await r.json()) as { enrichment?: FactEnrichment | null; enrichmentStatus?: string | null };
+        if (cancelled || dirtyRef.current) return;
+        setEnrichment(fresh.enrichment ?? null);
+        setEnrichmentStatus(fresh.enrichmentStatus ?? null);
+      } catch {
+        /* leave empty state in place on network error */
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [fact.id]);
+
+  const adapter = useMemo<StorageAdapter<FactEnrichment | null>>(
+    () => ({
+      load: () => null,
+      clear: () => {},
+      save: async (toSave) => {
+        if (!toSave) throw new Error("Nothing to save.");
+        let r: Response;
+        try {
+          r = await fetch(`/api/admin/facts/${fact.id}/enrichment`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            credentials: "include",
+            body: JSON.stringify({ enrichment: toSave }),
+          });
+        } catch {
+          throw new Error("Network error — could not save.");
+        }
+        if (!r.ok) {
+          let msg = r.status === 503 ? "API unavailable — try again shortly." : `Save failed (${r.status}).`;
+          try { const b = (await r.json()) as { error?: string }; if (b?.error) msg = b.error; } catch { /* generic */ }
+          throw new Error(msg);
+        }
+        try {
+          const body = (await r.json()) as EnrichmentSaveResponse;
+          if (body?.enrichment) onSavedRef.current?.(body);
+        } catch {
+          /* response body is best-effort; the save itself succeeded */
+        }
+        return Date.now();
+      },
+    }),
+    [fact.id],
+  );
+
+  const draft = useFormDraft<FactEnrichment | null>({
+    value: enrichment,
+    adapter,
+    debounceMs: 1500,
+    restoreOnMount: false,
+    manualDirty: dirty,
+    isEmpty: (e) => e == null,
+    onSaved: () => { dirtyRef.current = false; setDirty(false); },
+  });
+
+  const jobs = useEnrichmentJobs({
     resource: "facts",
     id: fact.id,
-    autoLoad: true,
-    initialStatus: fact.enrichmentStatus ?? null,
-    onSaved,
+    status: enrichmentStatus,
+    getEnrichment: () => enrichment,
+    isDirty: () => dirtyRef.current,
+    applyServerState,
+    saveNow: draft.saveNow,
   });
+
+  const onChange = useCallback((next: FactEnrichment) => { markDirty(); setEnrichment(next); }, [markDirty]);
 
   // Re-running classification overwrites possibly admin-tuned metadata on a live
   // fact, so confirm first when enrichment already exists.
   async function handleRerun() {
     if (
-      enrich.enrichment &&
+      enrichment &&
       !window.confirm(
         "Re-running classification will overwrite the current, possibly admin-tuned, enrichment for this fact. Continue?",
       )
     ) {
       return;
     }
-    await enrich.onRerun();
+    await jobs.onRerun();
   }
 
   return (
     <div className="space-y-2">
-      {enrich.loading && !enrich.enrichment && (
+      {loading && !enrichment && (
         <div className="flex items-center gap-2 text-xs text-muted-foreground">
           <Loader2 className="w-3 h-3 animate-spin" /> Loading enrichment…
         </div>
       )}
       <EnrichmentEditor
-        value={enrich.enrichment}
-        status={enrich.status}
+        value={enrichment}
+        status={enrichmentStatus}
         factText={fact.text}
-        onChange={enrich.onChange}
+        onChange={onChange}
         onRerun={handleRerun}
-        onRegeneratePreview={enrich.onRegeneratePreview}
-        busy={enrich.busy}
-        rerunBusy={enrich.rerunBusy}
-        previewBusy={enrich.previewBusy}
+        onRegeneratePreview={jobs.onRegeneratePreview}
+        busy={loading || jobs.loading || jobs.rerunBusy || jobs.previewBusy}
+        rerunBusy={jobs.rerunBusy}
+        previewBusy={jobs.previewBusy}
       />
       <div className="text-xs text-muted-foreground min-h-[1.25rem]">
-        {enrich.draft.status === "saving" && <span className="flex items-center gap-1"><Loader2 className="w-3 h-3 animate-spin" />Saving…</span>}
-        {enrich.draft.status === "saved" && enrich.draft.savedLabel && <span>{enrich.draft.savedLabel}</span>}
-        {enrich.unsavedInvalid && <span className="text-amber-600 dark:text-amber-400">Unsaved — resolve validation errors to autosave</span>}
-        {enrich.draft.status === "error" && !enrich.unsavedInvalid && <span className="text-destructive">Auto-save failed — see error below</span>}
+        {draft.status === "saving" && <span className="flex items-center gap-1"><Loader2 className="w-3 h-3 animate-spin" />Saving…</span>}
+        {draft.status === "saved" && draft.savedLabel && <span>{draft.savedLabel}</span>}
+        {draft.status === "error" && <span className="text-destructive">{draft.error ?? "Save failed"}</span>}
       </div>
-      {enrich.error && (
+      {jobs.error && (
         <div className="flex items-start gap-2 rounded-sm border border-destructive/50 bg-destructive/10 px-3 py-2">
           <AlertCircle className="w-4 h-4 text-destructive shrink-0 mt-0.5" />
-          <p className="text-sm text-destructive">{enrich.error}</p>
+          <p className="text-sm text-destructive">{jobs.error}</p>
         </div>
       )}
     </div>
