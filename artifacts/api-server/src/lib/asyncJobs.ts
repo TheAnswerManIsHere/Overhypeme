@@ -19,9 +19,9 @@
  * "fal_video" queue) - handlers may stash the third-party request id there.
  */
 
-import { eq, and, or, lte, lt, asc, sql } from "drizzle-orm";
+import { eq, and, or, lte, lt, asc, desc, sql } from "drizzle-orm";
 import { db as defaultDb } from "@workspace/db";
-import { asyncJobsTable, type AsyncJobRow } from "@workspace/db/schema";
+import { asyncJobsTable, type AsyncJobRow, type AsyncJobStatus } from "@workspace/db/schema";
 import { getConfigInt } from "./adminConfig";
 import { logger } from "./logger";
 
@@ -113,29 +113,117 @@ export interface EnqueueOptions {
 }
 
 /**
- * Insert a pending job. With a `dedupeKey`, the partial unique index makes
- * concurrent enqueues a safe no-op (the existing pending/processing row is kept).
+ * True when an insert failed because of the `(queue, dedupe_key)` partial
+ * unique index. Drizzle wraps the driver error ("Failed query: …"), so we walk
+ * the cause chain and match the Postgres unique-violation code (23505) /
+ * constraint name rather than the wrapper message.
+ */
+function isDedupeConflict(err: unknown): boolean {
+  let e: unknown = err;
+  for (let depth = 0; e != null && depth < 5; depth++) {
+    const o = e as { code?: unknown; constraint?: unknown; message?: unknown; cause?: unknown };
+    if (o.code === "23505") return true;
+    if (o.constraint === "async_jobs_dedupe_idx") return true;
+    if (typeof o.message === "string" && o.message.includes("async_jobs_dedupe_idx")) return true;
+    e = o.cause;
+  }
+  return false;
+}
+
+/** What `enqueueJob` returns so callers can observe the job by its concrete id. */
+export interface EnqueueJobResult {
+  jobId: number;
+  queue: string;
+  dedupeKey: string | null;
+  status: AsyncJobStatus;
+  /**
+   * True when a fresh row was inserted. False when this enqueue attached to an
+   * existing non-terminal (pending/processing) job with the same dedupe key.
+   */
+  inserted: boolean;
+}
+
+/**
+ * Insert a pending job and return its concrete id. With a `dedupeKey`, the
+ * partial unique index (non-terminal rows only) dedupes concurrent enqueues:
+ * if a pending/processing job already exists we return *its* id with
+ * `inserted:false` so the caller polls the in-flight work. Because the index
+ * only covers non-terminal rows, a prior `done`/`failed` job never blocks a
+ * fresh enqueue — repeatable actions (e.g. Regenerate Visual Plan) get a new
+ * job each time.
  */
 export async function enqueueJob(
   options: EnqueueOptions,
   dbOverride?: Pick<typeof defaultDb, "insert">,
-): Promise<void> {
+): Promise<EnqueueJobResult> {
   const dbInstance = dbOverride ?? defaultDb;
+  const dedupeKey = options.dedupeKey ?? null;
   try {
-    await dbInstance.insert(asyncJobsTable).values({
+    const [row] = await dbInstance
+      .insert(asyncJobsTable)
+      .values({
+        queue: options.queue,
+        payload: options.payload as unknown as object,
+        dedupeKey,
+        maxAttempts: options.maxAttempts ?? USE_CONFIGURED_MAX_ATTEMPTS,
+        nextAttemptAt: options.nextAttemptAt ?? new Date(),
+        externalId: options.externalId ?? null,
+      })
+      .returning({ id: asyncJobsTable.id, status: asyncJobsTable.status });
+    return {
+      jobId: row!.id,
       queue: options.queue,
-      payload: options.payload as unknown as object,
-      dedupeKey: options.dedupeKey ?? null,
-      maxAttempts: options.maxAttempts ?? USE_CONFIGURED_MAX_ATTEMPTS,
-      nextAttemptAt: options.nextAttemptAt ?? new Date(),
-      externalId: options.externalId ?? null,
-    });
+      dedupeKey,
+      status: row!.status as AsyncJobStatus,
+      inserted: true,
+    };
   } catch (err) {
-    // Unique-index conflict on (queue, dedupe_key) → a non-terminal job for
-    // the same key exists. That's the dedupe path; not an error.
-    if (err instanceof Error && /async_jobs_dedupe_idx/.test(err.message)) {
-      logger.debug({ queue: options.queue, dedupeKey: options.dedupeKey }, "[asyncJobs] enqueue dedupe — pending/processing row exists");
-      return;
+    // Unique-index conflict on (queue, dedupe_key) → a non-terminal job for the
+    // same key exists. That's the dedupe path; return the existing job's id.
+    if (isDedupeConflict(err)) {
+      logger.debug({ queue: options.queue, dedupeKey }, "[asyncJobs] enqueue dedupe — pending/processing row exists");
+      // Read via the module db (the conflicting row is committed by another tx).
+      const [existing] = await defaultDb
+        .select({ id: asyncJobsTable.id, status: asyncJobsTable.status })
+        .from(asyncJobsTable)
+        .where(
+          and(
+            eq(asyncJobsTable.queue, options.queue),
+            dedupeKey == null ? sql`false` : eq(asyncJobsTable.dedupeKey, dedupeKey),
+            or(eq(asyncJobsTable.status, "pending"), eq(asyncJobsTable.status, "processing")),
+          ),
+        )
+        .orderBy(desc(asyncJobsTable.id))
+        .limit(1);
+      if (existing) {
+        return {
+          jobId: existing.id,
+          queue: options.queue,
+          dedupeKey,
+          status: existing.status as AsyncJobStatus,
+          inserted: false,
+        };
+      }
+      // Rare race: the conflicting job went terminal between the failed insert
+      // and this read. The dedupe index no longer covers it, so retry once.
+      const [retry] = await dbInstance
+        .insert(asyncJobsTable)
+        .values({
+          queue: options.queue,
+          payload: options.payload as unknown as object,
+          dedupeKey,
+          maxAttempts: options.maxAttempts ?? USE_CONFIGURED_MAX_ATTEMPTS,
+          nextAttemptAt: options.nextAttemptAt ?? new Date(),
+          externalId: options.externalId ?? null,
+        })
+        .returning({ id: asyncJobsTable.id, status: asyncJobsTable.status });
+      return {
+        jobId: retry!.id,
+        queue: options.queue,
+        dedupeKey,
+        status: retry!.status as AsyncJobStatus,
+        inserted: true,
+      };
     }
     throw err;
   }

@@ -1,162 +1,132 @@
 # Taxonomy Health Workbench — UAT
 
-In-app click-through for the new admin Taxonomy Health workbench.
+In-app click-through for the admin Taxonomy Health workbench.
 Engineering test plan:
 [`TAXONOMY_HEALTH_TEST_RUN.md`](./TAXONOMY_HEALTH_TEST_RUN.md).
 
-The workbench answers, in one page: which approved facts are healthy,
-which are missing pieces, which are stale (due to prompt-version bumps),
-and which need an admin touch. Bulk actions queue the right fix
-(re-enrich, regenerate preview, repair projection columns).
+The workbench answers, in one page: which approved facts are healthy, which are
+missing pieces, which are stale (prompt-version bumps), and which need an admin
+touch. Actions queue the right fix (re-enrich, regenerate the visual plan,
+repair projection columns) and now **show you exactly what's happening** —
+a spinner while a job runs, then a ✓ / ✗ / skipped indicator when it finishes.
+
+This pass fixed the cards (Healthy no longer shows everything; every card's
+number matches the rows it lists), added a plain-language explanation when you
+select a card, and renamed the misleading "Preview" wording to **Visual Plan**.
 
 ---
 
 ## Setup
 
 1. Sign in as admin.
-2. Open `/admin/taxonomy-health` (sidebar entry: **Taxonomy Health**,
-   under Engines).
+2. Open `/admin/taxonomy-health` (sidebar: **Taxonomy Health**, under Engines).
 
-You should see a row of summary cards plus a table beneath. The first
-view filters to **Missing enrichment** by default — change the filter by
-clicking any card.
+You'll see a row of summary cards, a description panel for the selected card,
+and a table beneath. The default filter is **Missing enrichment** — click any
+card to change it.
 
 ---
 
-## 1. Summary cards reflect the corpus
+## 1. Cards count what they list (the big fix)
 
-Cards show:
-- Total facts
-- Healthy
-- Missing enrichment
-- Invalid enrichment
-- Needs admin review
-- Missing preview
-- Stale preview
-- Stale enrichment (version)
-- Projection mismatch
-- Cultural refs need research
-- Semantic entities need review
-- Low confidence
+1. Click **Healthy**. The table should show **only** healthy facts — NOT the
+   whole corpus. The number on the card should equal the number of rows listed.
+2. Click **Semantic entities need review**. The card number should equal the
+   number of rows shown. This card now includes the informational
+   "capitalization hint" facts (text mentions a capitalization-sensitive term
+   like *sun* / *earth* but no entities were extracted).
+3. Spot-check a couple of other cards (e.g. **Missing enrichment**, **Stale
+   enrichment**): card number == rows listed.
 
-Click each card → the table re-queries with that filter applied.
+> Note: cards are **filters, not exclusive buckets**. A healthy fact can also
+> show under an informational card (e.g. a capitalization hint). The panel says
+> this in the description block.
 
-## 2. Missing enrichment
+## 2. The selected-card explanation
 
-1. Click **Missing enrichment**.
-2. If any facts appear, click **Backfill missing enrichment** in the
-   action row. A confirm dialog appears.
-3. Accept. The server enqueues a `fact_enrichment_backfill` job per
-   fact. Response shows `{ queued, skipped, failed }`.
-4. Wait ~30–60s for the async-jobs worker to process them.
-5. Click **Refresh**. The missing-enrichment count should drop; the
-   facts should reappear under **Healthy** or **Needs admin review**.
+Click any card. Above the search box you should see a panel that explains:
+- **what the issue means**,
+- **what to do** about it, and
+- for each action button: **what it does**, whether it's **safe to repeat**, and
+  whether it **costs model calls** or could **overwrite** data.
 
-## 3. Re-enrich stale facts
+E.g. **Projection mismatch** says Repair is *safe to repeat, no model calls*;
+**Missing enrichment** says Re-enrich *costs model calls and protects
+admin-edited facts*.
 
-1. Click **Stale enrichment**.
-2. Click **Re-enrich stale facts** (confirms first).
-3. The default skips facts where `enrichedBy === "admin"` or
-   `adminReviewNotes` is non-empty. Server response lists `skipped`.
-4. After workers run, refresh — stale count drops, and the rows now
-   carry the current `CLASSIFICATION_PROMPT_VERSION` in their summary.
+## 3. Single-fact Re-enrich — spinner → done
 
-To force-overwrite admin-edited rows, the row-level **Re-enrich** action
-in the table (per fact) prompts for confirmation.
+1. Click **Missing enrichment** (or **Stale enrichment**).
+2. On a row that is NOT admin-edited, click **Re-enrich**.
+3. You should see a **spinner ("Working…")** on that row while the queued job
+   runs, then a **✓ Done** when the async worker finishes (give it up to ~30–60s;
+   the panel polls every couple seconds). Other rows stay clickable meanwhile.
+4. A **last-action banner** appears up top summarizing the run (e.g.
+   "Re-enrich: 1 done"). You can dismiss it with the ✕.
 
-## 4. Missing / stale visual preview
+## 4. Admin-edited protection
 
-1. Click **Missing preview**.
-2. Click **Regenerate missing previews**. Confirm.
-3. Each fact gets a `preview` job (queue name `preview`, payload
-   `{targetType: "fact", targetId}`).
-4. After workers run, refresh — the previews appear in the fact editor
-   (you can verify by clicking the fact id in the table, which deep-links
-   to `/admin/facts?focus=<id>`).
+1. Open a fact, edit its enrichment (so `enrichedBy` becomes admin / it has
+   admin review notes), save.
+2. Back on the panel, click **Re-enrich** on that row.
+3. It should show **"Skipped — admin-edited"** (not an error, not a silent
+   no-op). The banner reports `skipped`. Admin-edited facts are protected by
+   default — edit them in the fact editor instead of re-classifying from here.
 
-Same flow for **Stale preview** (`previewPromptVersion` doesn't match
-current `PREVIEW_PROMPT_VERSION`).
+## 5. Regenerate Visual Plan — spinner → done
 
-## 5. Projection mismatch — sync repair
+1. Click **Missing visual plan** (formerly "Missing preview").
+2. On a row, click **Regenerate Visual Plan** (formerly the bare "Preview"
+   button). Spinner → ✓ Done when the `preview` job finishes.
+3. Verify in the editor: click the fact id (deep-links to
+   `/admin/facts?focus=<id>`). The section is titled **Visual Plan** and its
+   button reads **Regenerate visual plan**.
+
+## 6. Repair projections — instant, safe
 
 1. Click **Projection mismatch**.
-2. For a single row, click the row-level **Repair** button. Runs
-   synchronously and shows the before/after columns in the action message
-   panel.
-3. For a bulk repair with ≤25 facts, click **Repair projection
-   mismatches** — runs synchronously and returns full outcomes.
-4. For a larger set, the same button enqueues `projection_repair` jobs;
-   response includes `{mode: "async", queued}`.
+2. Click the row-level **Repair**. No scary modal — it's a fast, idempotent DB
+   write with no model calls. You should see **✓ Done** immediately.
+3. Refresh — the row drops out of the **Projection mismatch** filter.
 
-Pure DB UPDATE under the hood — derives the right column values from
-the existing `enrichment` JSONB. Safe to run repeatedly.
+## 7. Bulk actions — warnings + partial progress
 
-## 6. Cultural references needing research
+1. Click a card with several affected rows (e.g. **Stale enrichment**).
+2. Click the bulk action (e.g. **Re-enrich stale facts**). A confirm dialog
+   warns you with the **affected count** and that it **costs model calls / takes
+   time** (Repair has no such modal — it's safe).
+3. Accept. The button spins; the banner shows **partial progress** as jobs
+   drain — e.g. "Re-enrich: 6 done · 1 failed · 3 still running · 2 skipped".
+4. If the panel stops polling before everything finishes (long queue), the
+   stragglers show **"Still running"** — NOT failed. Refresh later to confirm.
 
-1. Click **Cultural refs need research**.
-2. Click the fact id to open it in the moderation/facts editor.
-3. The per-row **Research Reference** button (built in the previous PR)
-   does the research. Apply, save, return to the workbench.
-4. Refresh — the row should drop from the **Cultural refs need
-   research** filter.
+## 8. Selected filter is preserved
 
-There's no bulk action for reference research in this PR — the
-per-fact flow keeps cost predictable.
-
-## 7. Semantic entities needing review
-
-1. Click **Semantic entities need review**.
-2. Open a fact whose semantic entity has `sentence_initial_ambiguous` or
-   `requiresAdminReview=true`. (Example: any fact starting with "Earth …".)
-3. Confirm the in-editor warning matches the table.
-4. Edit, save, return to the workbench.
-5. Refresh — the row should drop from the filter.
-
-## 8. Regression fixture confidence check
-
-The fixture suite (offline, no LLM) runs as part of CI/local tests:
-
-```bash
-node --import tsx/esm --test \
-  artifacts/api-server/src/__tests__/taxonomyRegressionFixtures.test.ts
-# Expected: # tests >= 50 # pass all
-```
-
-Every canonical fact (Earth / earth / Shark Week / Victoria's Secret /
-pi / teachers / baby / Yardi / water / system / coffee / magnifying
-glass) is locked at the SHAPE level — archetype + subtype + key
-referent words, with explicit must-avoid keywords for the ones the
-spec called out (Shark Week must NOT be David-swimming-with-sharks;
-lowercase earth must NOT be the planet).
-
-If the enrichment prompts or validators drift in a way that breaks one
-of these, the test names tell you which fact and which assertion.
+After any action completes and the panel auto-refreshes, you should stay on the
+**same card** you were working — fixed rows simply drop out of that filtered list.
 
 ---
 
 ## Known non-bugs
 
-- Summary counts are computed on every page load. With ~10k facts this
-  is fine; if the corpus grows much larger, the page may slow down. A
-  persisted snapshot table is the planned follow-up if that happens.
-- The page filter is single-select. "Needs admin review" overlaps with
-  several other filters by design; pick the one you care about.
-- The action message panel shows the raw JSON response so you can spot
-  surprises (e.g. an unexpectedly large `skipped` count). It's intended
-  as a developer-friendly readout, not polished UI.
-- Bulk **re-enrich stale** skips admin-edited rows automatically. To
-  force-overwrite, use the row-level Re-enrich (with the appropriate
-  confirm dialog).
-- No retention on `async_jobs` for these new queues — the existing
-  retention sweeps continue to apply.
+- A completed job does **not** always mean the health issue is resolved (e.g. a
+  re-enrich can still land in "Needs admin review"). The refreshed list is the
+  source of truth; the banner only reports operation progress.
+- Cards overlap by design. A fact can appear under more than one (Healthy +
+  an informational hint, "Needs admin review" + a specific sub-reason).
+- The panel polls async-jobs every ~2s with a ceiling (~90s). Long bulk runs
+  keep draining in the background even after the panel says "still running".
+- Single-row Re-enrich never overwrites admin-edited enrichment from this panel.
+  There's no force toggle here — use the fact editor for admin-curated facts.
+- Summary counts are computed per page load; fine at current corpus size.
 
 ## Bug report template
 
 ```
 Filter:    <which summary card you clicked>
 Action:    <which bulk or row-level action you triggered>
-Expected:  <e.g. "all 5 missing-enrichment rows queued">
-Got:       <screenshot of action panel + table state>
+Expected:  <e.g. "Healthy count == rows listed", "spinner then ✓">
+Got:       <what you saw — screenshot of the row indicator + banner>
 Fact id:   <if a specific fact is misbehaving>
 Health badges shown: <from the table>
 ```

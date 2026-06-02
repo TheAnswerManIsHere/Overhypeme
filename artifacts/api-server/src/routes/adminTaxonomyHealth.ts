@@ -13,16 +13,26 @@
  */
 
 import { Router, type IRouter, type Request, type Response } from "express";
-import { and, count, desc, eq, ilike, inArray, isNull, sql } from "drizzle-orm";
+import { and, eq, ilike, inArray, sql } from "drizzle-orm";
 import { db, factsTable } from "@workspace/db";
+import { asyncJobsTable } from "@workspace/db/schema";
 import {
   TAXONOMY_HEALTH_BULK_ACTION_MODE_VALUES,
   PROJECTION_REPAIR_MODE_VALUES,
+  TAXONOMY_HEALTH_FILTER_VALUES,
+  SUMMARY_COUNT_TO_FILTER,
+  matchesHealthFilter,
   type FactTaxonomyHealth,
   type TaxonomyHealthBulkActionMode,
-  type TaxonomyHealthStatus,
+  type TaxonomyHealthFilter,
   type TaxonomyHealthSummaryCounts,
   type ProjectionRepairMode,
+  type TaxonomyHealthActionResponse,
+  type QueuedJobDescriptor,
+  type ActionOutcome,
+  type AsyncJobStatusValue,
+  type JobStatusEntry,
+  type JobStatusResponse,
 } from "@workspace/api-zod";
 import { requireAdmin } from "./admin";
 import { evaluateFactTaxonomyHealth, isEnrichmentAdminEdited } from "../lib/taxonomyHealth";
@@ -37,7 +47,21 @@ const router: IRouter = Router();
 
 const DEFAULT_LIMIT = 25;
 const MAX_LIMIT = 100;
-const SYNC_PROJECTION_REPAIR_LIMIT = 25;
+/**
+ * Projection repair is a fast, idempotent, no-model DB write. Up to this many
+ * targets are repaired inline (returned as terminal `outcomes` immediately);
+ * larger sets are queued onto `PROJECTION_REPAIR_QUEUE` and observed via job ids.
+ */
+const INLINE_PROJECTION_REPAIR_LIMIT = 25;
+
+function deriveActionMode(
+  jobs: QueuedJobDescriptor[],
+  outcomes: ActionOutcome[],
+): "queued" | "inline" | "mixed" {
+  if (jobs.length > 0 && outcomes.length > 0) return "mixed";
+  if (jobs.length > 0) return "queued";
+  return "inline";
+}
 
 interface FactRowSelect {
   id: number;
@@ -101,19 +125,16 @@ router.get("/admin/taxonomy-health/summary", requireAdmin, async (_req: Request,
       semanticEntitiesNeedReview: 0,
       lowConfidence: 0,
     };
+    // Every count goes through the same `matchesHealthFilter` predicate the
+    // facts-list endpoint uses, so a card's number can never disagree with the
+    // rows it lists (the old Healthy/semantic-entities mismatches).
     for (const row of facts) {
       const h = evaluateFactTaxonomyHealth(toHealthInput(row));
-      if (h.overallStatus === "healthy") summary.healthy++;
-      if (h.statuses.includes("missing_enrichment")) summary.missingEnrichment++;
-      if (h.reviewFlags.invalidEnrichment) summary.invalidEnrichment++;
-      if (h.statuses.includes("needs_admin_review")) summary.needsAdminReview++;
-      if (h.reviewFlags.missingPreview) summary.missingVisualPreview++;
-      if (h.reviewFlags.stalePreview) summary.staleVisualPreview++;
-      if (h.reviewFlags.staleEnrichmentVersion) summary.staleEnrichmentVersion++;
-      if (h.reviewFlags.projectionMismatch) summary.projectionMismatch++;
-      if (h.reviewFlags.culturalReferenceNeedsResearch) summary.incompleteCulturalReferences++;
-      if (h.reviewFlags.semanticEntityNeedsReview) summary.semanticEntitiesNeedReview++;
-      if (h.reviewFlags.lowConfidence) summary.lowConfidence++;
+      for (const [countKey, filter] of Object.entries(SUMMARY_COUNT_TO_FILTER) as Array<
+        [Exclude<keyof TaxonomyHealthSummaryCounts, "totalFacts">, TaxonomyHealthFilter]
+      >) {
+        if (matchesHealthFilter(h, filter)) summary[countKey]++;
+      }
     }
     res.json(summary);
   } catch (err) {
@@ -125,7 +146,7 @@ router.get("/admin/taxonomy-health/summary", requireAdmin, async (_req: Request,
 // ─── GET /admin/taxonomy-health/facts ────────────────────────────────────
 
 interface ListQuery {
-  status?: TaxonomyHealthStatus | "any";
+  status?: TaxonomyHealthFilter;
   severity?: "info" | "warning" | "error";
   archetype?: string;
   subtype?: string;
@@ -138,8 +159,13 @@ interface ListQuery {
 
 router.get("/admin/taxonomy-health/facts", requireAdmin, async (req: Request, res: Response): Promise<void> => {
   try {
+    const rawStatus = typeof req.query["status"] === "string" ? req.query["status"] : undefined;
+    const status: TaxonomyHealthFilter | undefined =
+      rawStatus && (TAXONOMY_HEALTH_FILTER_VALUES as readonly string[]).includes(rawStatus)
+        ? (rawStatus as TaxonomyHealthFilter)
+        : undefined;
     const q: ListQuery = {
-      status: (typeof req.query["status"] === "string" ? (req.query["status"] as TaxonomyHealthStatus | "any") : undefined),
+      status,
       severity: (typeof req.query["severity"] === "string" ? (req.query["severity"] as ListQuery["severity"]) : undefined),
       archetype: typeof req.query["archetype"] === "string" ? req.query["archetype"] : undefined,
       subtype: typeof req.query["subtype"] === "string" ? req.query["subtype"] : undefined,
@@ -189,7 +215,7 @@ router.get("/admin/taxonomy-health/facts", requireAdmin, async (req: Request, re
 
     for (const row of allRows) {
       const health = evaluateFactTaxonomyHealth(toHealthInput(row));
-      if (q.status && q.status !== "any" && !health.statuses.includes(q.status)) continue;
+      if (q.status && q.status !== "any" && !matchesHealthFilter(health, q.status)) continue;
       if (q.severity && !health.issues.some((i) => i.severity === q.severity)) continue;
       matching.push({
         factId: row.id,
@@ -234,22 +260,48 @@ router.post(
       }
       const force = body.forceOverwriteAdminEdited === true;
       const targets = await pickEnrichmentTargets(mode, body.factIds, force);
-      let queued = 0;
+      const jobs: QueuedJobDescriptor[] = [];
+      const outcomes: ActionOutcome[] = [];
       let failed = 0;
       for (const factId of targets.toEnqueue) {
         try {
-          await enqueueJob({
+          const r = await enqueueJob({
             queue: FACT_ENRICHMENT_BACKFILL_QUEUE,
             payload: { factId, forceOverwriteAdminEdited: force, reason: "taxonomy_health_backfill" },
             dedupeKey: `fact_enrichment_backfill:${factId}`,
           });
-          queued++;
+          jobs.push({
+            factId, jobId: r.jobId, queue: r.queue, dedupeKey: r.dedupeKey,
+            action: "re_enrich", status: r.status, deduped: !r.inserted,
+          });
         } catch (err) {
           logger.warn({ err, factId }, "[backfill-enrichment] enqueue failed");
           failed++;
+          outcomes.push({ factId, action: "re_enrich", status: "failed", error: "Could not queue the enrichment job." });
         }
       }
-      res.json({ queued, skipped: targets.skipped, failed });
+      // Admin-edited rows are protected by default — surface them as first-class
+      // skipped outcomes (not failed, not invisible) so the UI can explain why.
+      for (const factId of targets.skippedAdminEdited) {
+        outcomes.push({
+          factId, action: "re_enrich", status: "skipped",
+          reason: "admin_edited", message: "Admin-edited enrichment is protected by default.",
+        });
+      }
+      const response: TaxonomyHealthActionResponse = {
+        mode: deriveActionMode(jobs, outcomes),
+        jobs,
+        outcomes,
+        summary: {
+          requested: targets.toEnqueue.length + targets.skippedAdminEdited.length,
+          queued: jobs.length,
+          done: 0,
+          failed,
+          skipped: targets.skippedAdminEdited.length,
+          skippedAdminEdited: targets.skippedAdminEdited.length,
+        },
+      };
+      res.json(response);
     } catch (err) {
       logger.error({ err }, "[adminTaxonomyHealth/backfill-enrichment] failed");
       res.status(500).json({ error: "backfill_failed" });
@@ -276,22 +328,33 @@ router.post(
         return;
       }
       const targets = await pickPreviewTargets(mode, body.factIds);
-      let queued = 0;
+      const jobs: QueuedJobDescriptor[] = [];
+      const outcomes: ActionOutcome[] = [];
       let failed = 0;
       for (const factId of targets) {
         try {
-          await enqueueJob({
+          const r = await enqueueJob({
             queue: "preview",
             payload: { targetType: "fact", targetId: factId },
             dedupeKey: `preview:fact:${factId}`,
           });
-          queued++;
+          jobs.push({
+            factId, jobId: r.jobId, queue: r.queue, dedupeKey: r.dedupeKey,
+            action: "regenerate_visual_plan", status: r.status, deduped: !r.inserted,
+          });
         } catch (err) {
           logger.warn({ err, factId }, "[regenerate-previews] enqueue failed");
           failed++;
+          outcomes.push({ factId, action: "regenerate_visual_plan", status: "failed", error: "Could not queue the visual-plan job." });
         }
       }
-      res.json({ queued, failed });
+      const response: TaxonomyHealthActionResponse = {
+        mode: deriveActionMode(jobs, outcomes),
+        jobs,
+        outcomes,
+        summary: { requested: targets.length, queued: jobs.length, done: 0, failed, skipped: 0 },
+      };
+      res.json(response);
     } catch (err) {
       logger.error({ err }, "[adminTaxonomyHealth/regenerate-previews] failed");
       res.status(500).json({ error: "regenerate_previews_failed" });
@@ -318,41 +381,129 @@ router.post(
         return;
       }
       const targets = await pickProjectionRepairTargets(mode, body.factIds);
-      // Sync if small, queue if large.
-      if (targets.length <= SYNC_PROJECTION_REPAIR_LIMIT) {
-        const outcomes = [];
-        let repaired = 0;
+      // Inline for small sets (fast, idempotent, no model call); queue large sets.
+      if (targets.length <= INLINE_PROJECTION_REPAIR_LIMIT) {
+        const outcomes: ActionOutcome[] = [];
+        let done = 0;
+        let failedCount = 0;
         let skipped = 0;
-        const errors: Array<{ factId: number; error: string }> = [];
         for (const factId of targets) {
           const outcome = await repairFactEnrichmentProjection(factId);
-          if (outcome.repaired) repaired++;
-          else if (outcome.error) errors.push({ factId, error: outcome.error });
-          else skipped++;
-          outcomes.push(outcome);
+          if (outcome.repaired) {
+            done++;
+            outcomes.push({ factId, action: "repair_projections", status: "done", message: "Projection columns repaired from stored enrichment." });
+          } else if (outcome.error) {
+            failedCount++;
+            outcomes.push({ factId, action: "repair_projections", status: "failed", error: outcome.error });
+          } else {
+            skipped++;
+            outcomes.push({ factId, action: "repair_projections", status: "skipped", reason: "already_current", message: "Projection columns already match the stored enrichment." });
+          }
         }
-        res.json({ mode: "sync", repaired, skipped, errors, outcomes });
+        const response: TaxonomyHealthActionResponse = {
+          mode: "inline",
+          jobs: [],
+          outcomes,
+          summary: { requested: targets.length, queued: 0, done, failed: failedCount, skipped, alreadyCurrent: skipped },
+        };
+        res.json(response);
         return;
       }
-      let queued = 0;
+      const jobs: QueuedJobDescriptor[] = [];
+      const outcomes: ActionOutcome[] = [];
       let failed = 0;
       for (const factId of targets) {
         try {
-          await enqueueJob({
+          const r = await enqueueJob({
             queue: PROJECTION_REPAIR_QUEUE,
             payload: { factId },
             dedupeKey: `projection_repair:${factId}`,
           });
-          queued++;
+          jobs.push({
+            factId, jobId: r.jobId, queue: r.queue, dedupeKey: r.dedupeKey,
+            action: "repair_projections", status: r.status, deduped: !r.inserted,
+          });
         } catch (err) {
           logger.warn({ err, factId }, "[repair-projections] enqueue failed");
           failed++;
+          outcomes.push({ factId, action: "repair_projections", status: "failed", error: "Could not queue the projection-repair job." });
         }
       }
-      res.json({ mode: "async", queued, failed });
+      const response: TaxonomyHealthActionResponse = {
+        mode: deriveActionMode(jobs, outcomes),
+        jobs,
+        outcomes,
+        summary: { requested: targets.length, queued: jobs.length, done: 0, failed, skipped: 0 },
+      };
+      res.json(response);
     } catch (err) {
       logger.error({ err }, "[adminTaxonomyHealth/repair-projections] failed");
       res.status(500).json({ error: "repair_projections_failed" });
+    }
+  },
+);
+
+// ─── POST /admin/taxonomy-health/job-status ──────────────────────────────
+//
+// Poll async_jobs by concrete id. The frontend keeps the jobId → {factId,
+// action} mapping locally (from the action response), so this endpoint returns
+// only generic job fields and never assumes taxonomy-specific payload shape.
+
+interface JobStatusRequestBody {
+  jobs?: Array<{ jobId?: number }>;
+}
+
+/** First line only, capped — never leak a multi-line stack trace to the UI. */
+function conciseJobError(raw: string | null): string | null {
+  if (!raw) return null;
+  const oneLine = raw.split("\n")[0]!.trim();
+  return oneLine.length > 300 ? `${oneLine.slice(0, 297)}…` : oneLine;
+}
+
+router.post(
+  "/admin/taxonomy-health/job-status",
+  requireAdmin,
+  async (req: Request, res: Response): Promise<void> => {
+    try {
+      const body = (req.body && typeof req.body === "object" ? req.body : {}) as JobStatusRequestBody;
+      const ids = Array.from(
+        new Set(
+          (Array.isArray(body.jobs) ? body.jobs : [])
+            .map((j) => Number(j?.jobId))
+            .filter((n) => Number.isInteger(n) && n > 0),
+        ),
+      );
+      if (ids.length === 0) {
+        res.json({ jobs: [] } satisfies JobStatusResponse);
+        return;
+      }
+      const rows = await db
+        .select({
+          id: asyncJobsTable.id,
+          queue: asyncJobsTable.queue,
+          dedupeKey: asyncJobsTable.dedupeKey,
+          status: asyncJobsTable.status,
+          attempts: asyncJobsTable.attempts,
+          maxAttempts: asyncJobsTable.maxAttempts,
+          lastError: asyncJobsTable.lastError,
+          updatedAt: asyncJobsTable.updatedAt,
+        })
+        .from(asyncJobsTable)
+        .where(inArray(asyncJobsTable.id, ids));
+      const jobs: JobStatusEntry[] = rows.map((r) => ({
+        jobId: r.id,
+        queue: r.queue,
+        dedupeKey: r.dedupeKey,
+        status: r.status as AsyncJobStatusValue,
+        attempts: r.attempts,
+        maxAttempts: r.maxAttempts,
+        error: conciseJobError(r.lastError),
+        updatedAt: r.updatedAt ? r.updatedAt.toISOString() : null,
+      }));
+      res.json({ jobs } satisfies JobStatusResponse);
+    } catch (err) {
+      logger.error({ err }, "[adminTaxonomyHealth/job-status] failed");
+      res.status(500).json({ error: "job_status_failed" });
     }
   },
 );
@@ -361,7 +512,8 @@ router.post(
 
 interface EnrichmentTargetPick {
   toEnqueue: number[];
-  skipped: number;
+  /** Fact ids skipped because they're admin-edited and force is off. */
+  skippedAdminEdited: number[];
 }
 
 async function pickEnrichmentTargets(
@@ -369,32 +521,40 @@ async function pickEnrichmentTargets(
   factIds: number[] | undefined,
   force: boolean,
 ): Promise<EnrichmentTargetPick> {
-  if (mode === "selected_fact_ids") {
-    return { toEnqueue: factIds ?? [], skipped: 0 };
-  }
   const facts = await loadAllApprovedFactsForHealth();
+  // `selected_fact_ids` now runs through the same admin-edited guard as the
+  // bulk modes (it used to pass ids verbatim and silently overwrite).
+  let candidates: FactRowSelect[];
+  if (mode === "selected_fact_ids") {
+    const byId = new Map(facts.map((f) => [f.id, f] as const));
+    candidates = (factIds ?? [])
+      .map((id) => byId.get(id))
+      .filter((f): f is FactRowSelect => f != null);
+  } else {
+    candidates = facts.filter((row) => {
+      const h = evaluateFactTaxonomyHealth(toHealthInput(row));
+      const isMissing = h.statuses.includes("missing_enrichment");
+      const isStale = h.reviewFlags.staleEnrichmentVersion || h.reviewFlags.invalidEnrichment;
+      return (
+        (mode === "missing_only" && isMissing) ||
+        (mode === "stale_only" && isStale) ||
+        (mode === "missing_or_stale" && (isMissing || isStale))
+      );
+    });
+  }
   const toEnqueue: number[] = [];
-  let skipped = 0;
-  for (const row of facts) {
-    const h = evaluateFactTaxonomyHealth(toHealthInput(row));
-    const isMissing = h.statuses.includes("missing_enrichment");
-    const isStale =
-      h.reviewFlags.staleEnrichmentVersion || h.reviewFlags.invalidEnrichment;
-    const include =
-      (mode === "missing_only" && isMissing) ||
-      (mode === "stale_only" && isStale) ||
-      (mode === "missing_or_stale" && (isMissing || isStale));
-    if (!include) continue;
+  const skippedAdminEdited: number[] = [];
+  for (const row of candidates) {
     if (!force && row.enrichment != null) {
       const validation = validateEnrichment(row.enrichment);
       if (validation.ok && isEnrichmentAdminEdited(validation.data)) {
-        skipped++;
+        skippedAdminEdited.push(row.id);
         continue;
       }
     }
     toEnqueue.push(row.id);
   }
-  return { toEnqueue, skipped };
+  return { toEnqueue, skippedAdminEdited };
 }
 
 async function pickPreviewTargets(
