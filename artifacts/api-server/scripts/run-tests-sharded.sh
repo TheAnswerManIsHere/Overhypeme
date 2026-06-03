@@ -43,6 +43,30 @@ common_args=(
   --test
 )
 
+# purge_test_data — FK-safe sweep of every test-created row from the database.
+#
+# Tests run against the real dev DB (no isolated test DB), so leaked rows
+# accumulate and cost money. This runs OUTSIDE the parallel-shard window (once
+# before, once after) so it never races a shard mid-test:
+#
+#   • pre-sweep  heals any rows left by a previously crashed/interrupted run, so
+#                each run starts from a clean DB.
+#   • post-sweep removes this run's rows on normal completion, and via the EXIT
+#                trap also runs if the script is interrupted (SIGINT/SIGTERM).
+#
+# The sweep is best-effort: a failure here must never mask a real test result,
+# so its exit code is swallowed. The next run's pre-sweep is the hard guarantee.
+purge_test_data() {
+  TEST_DB_ALLOW_EXIT_ON_IDLE=1 node --import tsx/esm \
+    src/__tests__/helpers/purgeTestData.ts || true
+}
+
+# Ensure a sweep runs even if the shards are interrupted partway through.
+trap 'purge_test_data' EXIT
+
+echo "[run-tests-sharded] pre-sweep: purging leftover test rows…"
+purge_test_data
+
 pids=()
 for ((k = 1; k <= shards; k++)); do
   TEST_DB_ALLOW_EXIT_ON_IDLE=1 RESEND_API_KEY_DEV="" RESEND_API_KEY_PROD="" RESEND_API_KEY="re_test_dummy" \
@@ -57,5 +81,10 @@ for pid in "${pids[@]}"; do
     overall=1
   fi
 done
+
+# Normal-completion sweep. The EXIT trap also fires after this (harmless: a
+# second sweep on an already-clean DB is a no-op).
+echo "[run-tests-sharded] post-sweep: purging this run's test rows…"
+purge_test_data
 
 exit "$overall"
