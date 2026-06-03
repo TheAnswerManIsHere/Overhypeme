@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { act, renderHook } from "@testing-library/react";
-import type { FactEnrichment } from "@workspace/api-zod";
+import { CLASSIFICATION_PROMPT_VERSION, type FactEnrichment } from "@workspace/api-zod";
 import { useEnrichmentJobs, type UseEnrichmentJobsOptions } from "./useEnrichmentJobs";
 
 const ENRICHMENT: FactEnrichment = {
@@ -17,6 +17,9 @@ const ENRICHMENT: FactEnrichment = {
   adminReviewNotes: "",
   culturalReferences: [],
   semanticEntities: [],
+  // Current version so the regenerate-preview guard treats this fixture as
+  // up-to-date and exercises the happy path. A separate test covers the stale case.
+  classificationPromptVersion: CLASSIFICATION_PROMPT_VERSION,
 };
 
 interface Call { url: string; method: string }
@@ -99,6 +102,22 @@ describe("useEnrichmentJobs", () => {
 
     expect(saveNow).not.toHaveBeenCalled();
     expect(calls.length).toBe(0);
+  });
+
+  it("onRegeneratePreview is blocked when the enrichment is stale (lockstep guard)", async () => {
+    const { calls } = mockFetch();
+    const staleEnrichment: FactEnrichment = {
+      ...ENRICHMENT,
+      classificationPromptVersion: `${CLASSIFICATION_PROMPT_VERSION}-stale`,
+    };
+    const { opts, saveNow } = makeOpts({ getEnrichment: () => staleEnrichment });
+    const { result } = renderHook((p: UseEnrichmentJobsOptions) => useEnrichmentJobs(p), { initialProps: opts });
+
+    await act(async () => { await result.current.onRegeneratePreview(); });
+
+    expect(saveNow).not.toHaveBeenCalled();
+    expect(calls.some((c) => c.method === "POST" && c.url === "/api/admin/reviews/7/preview")).toBe(false);
+    expect(result.current.error).toMatch(/re-enrich/i);
   });
 
   it("polls and syncs while status is pending, then stops once resolved", async () => {
