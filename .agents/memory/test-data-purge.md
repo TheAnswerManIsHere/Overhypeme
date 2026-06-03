@@ -24,6 +24,19 @@ window so there is no cross-shard race.
 **Why `id LIKE 't%'` is safe:** real user IDs are UUIDs (hex 0-9a-f) and can never start
 with `t`; only synthetic test users use a `t…` prefix. Verified against live data.
 
+## Directly-inserted test facts must use a `t`-prefixed text
+Facts inserted without a `submitted_by_id` (null submitter) carry no user-marker, so the
+user-based purge misses them. The global purge catches them via:
+`submitted_by_id IS NULL AND text LIKE 't%'`
+Every test file that inserts facts directly MUST prefix the fact text with a lowercase `t`
+(e.g. `t-cmr-fact-`, `t-ipp-fact-`, `t_p4s_fact_`). Real production facts with null
+submitter start with `{NAME}`, `When`, `Firearms`, etc. — never `t`.
+
+**Why:** `createMemeRecord.test.ts` used `"Test {NAME}"` and `imagePromptPreview.test.ts`
+used `"{NAME} bench-presses..."` — both had null submitters, so 11 facts leaked and
+showed in the admin UI. Fixed by changing both to use `t-cmr-fact-` / `t-ipp-fact-`
+prefixes and adding `AND isNull(submittedById) AND text LIKE 't%'` to the global purge.
+
 ## The recurring trap: stay exhaustive over non-cascade user FKs
 The purge must delete from EVERY table with a user-referencing FK that lacks
 `onDelete: cascade`/`set null` — those are the only ones that block `DELETE FROM users`.

@@ -50,7 +50,7 @@ import {
   externalLinksTable,
   stripeCheckoutRequestLedgerTable,
 } from "@workspace/db/schema";
-import { like, or } from "drizzle-orm";
+import { and, isNull, like, or } from "drizzle-orm";
 
 /** Marker every test user id begins with. UUIDs (real users) never start with `t`. */
 export const TEST_USER_ID_PREFIX = "t";
@@ -151,9 +151,19 @@ export async function purgeTestData(): Promise<PurgeResult> {
       .where(like(stripeCheckoutRequestLedgerTable.userId, TEST_LIKE)),
   );
 
-  // Facts SUBMITTED by a test user are themselves test data; deleting them
-  // cascades to their memes/comments/hashtags. Facts inserted directly by tests
-  // (no submitter) carry no marker and are cleaned by each file's own teardown.
+  // Facts inserted directly by test files (no submitter) are identified by their
+  // text prefix. Every test file that inserts facts without a submitter uses a
+  // text prefix starting with `t` (e.g. `t-cmr-fact-`, `t-ipp-fact-`,
+  // `t_p4s_fact_`, `t-vj-fact`, …). Real facts with null submitter start with
+  // `{NAME}`, `When`, `Firearms`, etc. — never a bare `t`. This sweep runs after
+  // memes are purged above so no memes.factId FK can block it.
+  await del("facts_by_text_prefix", () =>
+    db.delete(factsTable).where(
+      and(isNull(factsTable.submittedById), like(factsTable.text, "t%")),
+    ),
+  );
+
+  // Facts SUBMITTED by a test user are themselves test data.
   await del("facts", () =>
     db.delete(factsTable).where(like(factsTable.submittedById, TEST_LIKE)),
   );
