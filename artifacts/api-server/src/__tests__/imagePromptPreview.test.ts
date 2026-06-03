@@ -27,6 +27,7 @@ import { buildTestApp } from "./helpers/buildTestApp.js";
 
 const USER_PREFIX = "t-ipp-u-";
 const STYLE_PREFIX = "t-ipp-style-";
+const FACT_TEXT_PREFIX = "t-ipp-fact-";
 
 const insertedUserIds: string[] = [];
 const insertedFactIds: number[] = [];
@@ -173,7 +174,7 @@ async function seedFact(opts: { text?: string; enrichment?: unknown } = {}): Pro
   const [row] = await db
     .insert(factsTable)
     .values({
-      text: opts.text ?? "{NAME} bench-presses the Earth during Shark Week.",
+      text: opts.text ?? `${FACT_TEXT_PREFIX}{NAME} bench-presses the Earth during Shark Week.`,
       enrichment: (opts.enrichment ?? VALID_ENRICHMENT) as FactEnrichment,
     })
     .returning({ id: factsTable.id });
@@ -198,6 +199,8 @@ async function cleanup(): Promise<void> {
     await db.delete(factsTable).where(inArray(factsTable.id, insertedFactIds));
     insertedFactIds.length = 0;
   }
+  // Prefix-based safety net: catches any facts left by a prior crashed run.
+  await db.delete(factsTable).where(like(factsTable.text, `${FACT_TEXT_PREFIX}%`));
   if (insertedStyleIds.length > 0) {
     await db.delete(lookStylesTable).where(inArray(lookStylesTable.id, insertedStyleIds));
     insertedStyleIds.length = 0;

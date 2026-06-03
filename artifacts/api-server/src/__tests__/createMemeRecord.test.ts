@@ -41,10 +41,12 @@ async function createTestUser(): Promise<string> {
   return id;
 }
 
+const FACT_TEXT_PREFIX = "t-cmr-fact-";
+
 async function insertFact(): Promise<number> {
   const [row] = await db
     .insert(factsTable)
-    .values({ text: "Test {NAME}", isActive: true, canonicalText: "Test" })
+    .values({ text: `${FACT_TEXT_PREFIX}{NAME}`, isActive: true, canonicalText: FACT_TEXT_PREFIX })
     .returning();
   insertedFactIds.push(row.id);
   return row.id;
@@ -59,6 +61,8 @@ async function cleanup(): Promise<void> {
     await db.delete(factsTable).where(inArray(factsTable.id, insertedFactIds));
     insertedFactIds.length = 0;
   }
+  // Prefix-based safety net: catches any facts left by a prior crashed run.
+  await db.delete(factsTable).where(like(factsTable.text, `${FACT_TEXT_PREFIX}%`));
   await db.delete(usersTable).where(like(usersTable.id, `${USER_PREFIX}%`));
   insertedUserIds.length = 0;
 }
