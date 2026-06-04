@@ -25,7 +25,7 @@ import { logger } from "../lib/logger";
 import { hasFeature } from "../lib/tierFeatures";
 import { verifyCaptcha } from "../lib/captcha";
 import { checkSharedRateLimit } from "../lib/sharedRateLimiter";
-import { eq, sql, desc, asc, ilike, and, inArray, isNull } from "drizzle-orm";
+import { eq, sql, desc, asc, ilike, and, inArray, isNull, not, like, or } from "drizzle-orm";
 import {
   ListFactsQueryParams, CreateFactBody, GetFactParams,
   RateFactParams, RateFactBody,
@@ -139,7 +139,13 @@ router.get("/facts/hero", async (req: AuthenticatedRequest, res: Response) => {
     for (const r of seenRows) excludeIds.push(r.factId);
   }
 
-  const baseConds = [eq(factsTable.isActive, true), isNull(factsTable.parentId)];
+  // Exclude facts submitted by test users (id LIKE 't%') so that a running
+  // test suite never surfaces synthetic facts in the live dev hero feed.
+  const baseConds = [
+    eq(factsTable.isActive, true),
+    isNull(factsTable.parentId),
+    or(isNull(factsTable.submittedById), not(like(factsTable.submittedById, "t%"))),
+  ];
 
   // First pass: top pool minus exclusions.
   const conds = [...baseConds];

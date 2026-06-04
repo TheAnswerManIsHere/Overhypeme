@@ -8,19 +8,24 @@
  * authenticated user, and persists `last_seen_as_hero_at` into
  * `user_fact_preferences` after each pick (auth users only, best-effort).
  *
+ * The hero endpoint also excludes facts whose submitter ID starts with `t`
+ * (test user marker) so that test runs never pollute the live dev feed.
+ * All tests here work against real DB facts rather than injecting synthetic
+ * facts into the live hero pool.
+ *
  * These tests cover:
- *   - Returns one of the top-N wilson-ranked facts (sanity check ranking).
+ *   - Returns one of the top-N wilson-ranked real facts (sanity check ranking).
  *   - Honors `?exclude=id1,id2` and never returns excluded IDs.
  *   - For authenticated users, writes `last_seen_as_hero_at` into
  *     `user_fact_preferences` after the response (best-effort upsert).
  *   - For unauthenticated users, does NOT write to the table.
- *   - Falls back gracefully when the candidate pool is small or every
- *     candidate has wilsonScore=0 (epsilon floor in the weighting).
+ *   - Falls back gracefully when the candidate pool is exhausted by the
+ *     caller's exclude list.
  *
- * Test isolation: each test creates its own user via a dedicated prefix and
- * inserts test-owned facts.  The before/after hooks delete every fact whose
- * submitter matches the prefix and then the users themselves; the cascade on
- * `user_fact_preferences.user_id` cleans the preference rows on user delete.
+ * Test isolation: auth tests create a test user via the `t_routes_hero_`
+ * prefix.  The before/after hooks delete those users; user_fact_preferences
+ * cascades on user delete.  No facts are inserted — the tests rely on real
+ * data already present in the shared dev DB.
  */
 
 import { describe, it, before, after } from "node:test";
@@ -35,7 +40,7 @@ import {
   factsTable,
   userFactPreferencesTable,
 } from "@workspace/db/schema";
-import { and, desc, eq, isNull, like, sql, inArray } from "drizzle-orm";
+import { and, desc, eq, isNull, like, not, or, sql } from "drizzle-orm";
 
 import factsRouter from "../routes/facts.js";
 import { buildTestApp } from "./helpers/buildTestApp.js";
@@ -48,26 +53,15 @@ async function createTestUser(): Promise<string> {
   return id;
 }
 
-const insertedFactIds: number[] = [];
-
-async function insertHeroFact(opts: {
-  text: string;
-  wilsonScore?: number;
-  submittedById?: string;
-}): Promise<number> {
-  const [row] = await db
-    .insert(factsTable)
-    .values({
-      text: opts.text,
-      submittedById: opts.submittedById,
-      isActive: true,
-      canonicalText: opts.text,
-      wilsonScore: opts.wilsonScore ?? 0,
-    })
-    .returning();
-  insertedFactIds.push(row.id);
-  return row.id;
-}
+/**
+ * Condition that mirrors the hero endpoint's test-user exclusion filter.
+ * Facts with `submitted_by_id LIKE 't%'` (test users) are never served by
+ * the hero endpoint, so test-side pool queries must use the same filter.
+ */
+const notTestUserFact = or(
+  isNull(factsTable.submittedById),
+  not(like(factsTable.submittedById, "t%")),
+);
 
 /**
  * The route persists `last_seen_as_hero_at` via a fire-and-forget `void
@@ -97,19 +91,6 @@ async function waitForHeroPref(
 }
 
 async function cleanup() {
-  const users = await db
-    .select({ id: usersTable.id })
-    .from(usersTable)
-    .where(like(usersTable.id, `${USER_PREFIX}%`));
-  for (const u of users) {
-    // user_fact_preferences cascades on user delete; deleting our facts also
-    // cascades to any preference rows other users wrote against them.
-    await db.delete(factsTable).where(eq(factsTable.submittedById, u.id));
-  }
-  if (insertedFactIds.length > 0) {
-    await db.delete(factsTable).where(inArray(factsTable.id, [...insertedFactIds]));
-    insertedFactIds.length = 0;
-  }
   await db.delete(usersTable).where(like(usersTable.id, `${USER_PREFIX}%`));
 }
 
@@ -127,24 +108,15 @@ describe("routes.facts.hero", () => {
 
 describe("GET /facts/hero — ranking sanity", () => {
   it("returns a fact drawn from the top-50 wilson-ranked pool", async () => {
-    const userId = await createTestUser();
-    // Make sure at least one of our facts is provably in the top-50 by
-    // assigning it a wilsonScore at the ceiling (1.0).  We assert against
-    // the dynamic top-50 set rather than a fixed identity because the
-    // existing DB may already host other facts at the ceiling.
-    await insertHeroFact({ text: "hero-rank-1", wilsonScore: 1.0, submittedById: userId });
-    await insertHeroFact({ text: "hero-rank-2", wilsonScore: 1.0, submittedById: userId });
-    await insertHeroFact({ text: "hero-rank-3", wilsonScore: 1.0, submittedById: userId });
-
-    // Mirror the route's pool filters exactly: active root facts only
-    // (variants, parentId IS NOT NULL, are excluded by the route).
+    // Mirror the route's pool filters exactly: active root non-test-user facts.
     const top50 = await db
       .select({ id: factsTable.id })
       .from(factsTable)
-      .where(and(eq(factsTable.isActive, true), isNull(factsTable.parentId)))
+      .where(and(eq(factsTable.isActive, true), isNull(factsTable.parentId), notTestUserFact))
       .orderBy(desc(factsTable.wilsonScore))
       .limit(50);
     const top50Ids = new Set(top50.map((r) => r.id));
+    assert.ok(top50Ids.size > 0, "DB must have at least one real active fact");
 
     const res = await request(
       buildTestApp({ kind: "unauthenticated" }, factsRouter),
@@ -163,10 +135,16 @@ describe("GET /facts/hero — ranking sanity", () => {
 
 describe("GET /facts/hero — exclude param", () => {
   it("never returns an excluded id across repeated samples", async () => {
-    const userId = await createTestUser();
-    const a = await insertHeroFact({ text: "hero-ex-a", wilsonScore: 1.0, submittedById: userId });
-    const b = await insertHeroFact({ text: "hero-ex-b", wilsonScore: 1.0, submittedById: userId });
+    // Use the two highest-ranked real facts as exclusion targets.
+    const top2 = await db
+      .select({ id: factsTable.id })
+      .from(factsTable)
+      .where(and(eq(factsTable.isActive, true), isNull(factsTable.parentId), notTestUserFact))
+      .orderBy(desc(factsTable.wilsonScore))
+      .limit(2);
+    assert.ok(top2.length >= 2, "DB must have at least 2 real active facts to test exclusion");
 
+    const [a, b] = top2.map((r) => r.id);
     const exclude = `${a},${b}`;
     // The pick is stochastic, but the SQL `NOT IN` filter is absolute —
     // excluded ids should never appear regardless of how many samples we
@@ -185,9 +163,6 @@ describe("GET /facts/hero — exclude param", () => {
   });
 
   it("ignores garbage tokens in the exclude list and still returns a fact", async () => {
-    const userId = await createTestUser();
-    await insertHeroFact({ text: "hero-ex-garbage", wilsonScore: 1.0, submittedById: userId });
-
     const res = await request(
       buildTestApp({ kind: "unauthenticated" }, factsRouter),
     )
@@ -202,7 +177,6 @@ describe("GET /facts/hero — exclude param", () => {
 describe("GET /facts/hero — auth-side persistence", () => {
   it("writes last_seen_as_hero_at to user_fact_preferences for authenticated users", async () => {
     const userId = await createTestUser();
-    await insertHeroFact({ text: "hero-auth-1", wilsonScore: 1.0, submittedById: userId });
 
     const res = await request(
       buildTestApp({ kind: "authenticated", userId }, factsRouter),
@@ -220,7 +194,6 @@ describe("GET /facts/hero — auth-side persistence", () => {
 
   it("does NOT write user_fact_preferences for unauthenticated callers", async () => {
     const userId = await createTestUser();
-    await insertHeroFact({ text: "hero-unauth", wilsonScore: 1.0, submittedById: userId });
 
     // Snapshot the preference-row count for every test-prefix user before
     // the request.  Since unauth has no userId of its own, the strongest
@@ -253,57 +226,20 @@ describe("GET /facts/hero — auth-side persistence", () => {
       before,
       "unauthenticated /facts/hero must not insert into user_fact_preferences",
     );
+
+    void userId; // used via USER_PREFIX count scope above
   });
 });
 
 describe("GET /facts/hero — fallback / epsilon floor", () => {
-  it("still returns a fact when the candidate pool is dominated by wilsonScore=0", async () => {
-    const userId = await createTestUser();
-    // Insert several zero-score facts and then exclude the top of the DB
-    // so the remaining pool is dominated by zero-score candidates.  The
-    // route's epsilon floor in the weighting math (`weight = max(score, 0) +
-    // epsilon`) ensures `total > 0` even when every candidate weights to
-    // zero, so a pick is always reachable.
-    const z1 = await insertHeroFact({ text: "hero-zero-1", wilsonScore: 0, submittedById: userId });
-    const z2 = await insertHeroFact({ text: "hero-zero-2", wilsonScore: 0, submittedById: userId });
-    const z3 = await insertHeroFact({ text: "hero-zero-3", wilsonScore: 0, submittedById: userId });
-
-    // Server caps the parsed exclude list at 100 ids; mirror that here.
-    // Match the route's pool filters (active + root) so we exclude exactly
-    // what would otherwise dominate the pool ahead of our z* facts.
-    const exclusions = await db
-      .select({ id: factsTable.id })
-      .from(factsTable)
-      .where(and(eq(factsTable.isActive, true), isNull(factsTable.parentId)))
-      .orderBy(desc(factsTable.wilsonScore))
-      .limit(100);
-    const excludeIds = exclusions
-      .map((r) => r.id)
-      .filter((id) => id !== z1 && id !== z2 && id !== z3);
-
-    const res = await request(
-      buildTestApp({ kind: "unauthenticated" }, factsRouter),
-    )
-      .get("/api/facts/hero")
-      .query({ exclude: excludeIds.join(",") });
-
-    assert.equal(res.status, 200);
-    assert.ok(res.body.fact, "expected a fact even when the pool is zero-scored");
-    assert.ok(res.body.poolSize >= 1, "poolSize must be positive");
-  });
-
-  it("survives a maximally-large exclude list without 4xx/5xx", async () => {
-    const userId = await createTestUser();
-    await insertHeroFact({ text: "hero-fallback", wilsonScore: 1.0, submittedById: userId });
-
+  it("still returns a fact when the candidate pool is exhausted by the exclude list", async () => {
     // Build an exclude list of the top-100 active root facts (the server
-    // slices `?exclude` at 100 ids regardless).  When the DB happens to
-    // hold ≤ 100 active root facts in total, the route's first SELECT
-    // returns zero rows and the fallback re-query without exclusions
-    // takes over; when there are >100, the route still returns a fact
-    // from positions 101+.  Either way the contract is the same: the
-    // endpoint must respond 200 with a populated `fact`, never a 4xx /
-    // 5xx, when given a saturated exclude list.
+    // slices `?exclude` at 100 ids regardless).  When the DB holds ≤100
+    // active root facts in total, the route's first SELECT returns zero rows
+    // and the fallback re-query without exclusions takes over; when there
+    // are >100, the route still returns a fact from positions 101+.  Either
+    // way the contract is the same: the endpoint must respond 200 with a
+    // populated `fact`, never a 4xx/5xx.
     const top = await db
       .select({ id: factsTable.id })
       .from(factsTable)
@@ -319,7 +255,8 @@ describe("GET /facts/hero — fallback / epsilon floor", () => {
       .query({ exclude });
 
     assert.equal(res.status, 200);
-    assert.ok(res.body.fact);
+    assert.ok(res.body.fact, "expected a fact even when the pool is heavily excluded");
+    assert.ok(res.body.poolSize >= 1, "poolSize must be positive");
   });
 });
 

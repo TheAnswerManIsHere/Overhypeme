@@ -24,6 +24,18 @@ window so there is no cross-shard race.
 **Why `id LIKE 't%'` is safe:** real user IDs are UUIDs (hex 0-9a-f) and can never start
 with `t`; only synthetic test users use a `t…` prefix. Verified against live data.
 
+## Hero endpoint excludes test-user facts at the query level
+`GET /facts/hero` in `routes/facts.ts` adds `OR(IS NULL, NOT LIKE 't%')` on
+`submittedById` to `baseConds` (shared by both the main pool query and the
+fallback). This prevents any test-user fact from ever appearing in the live
+dev hero feed, even during an active test run. `routes.facts.hero.test.ts`
+was restructured to use real DB facts rather than inserting high-wilson-score
+synthetic ones into the live pool.
+
+**Why:** Tests share the real dev DB. The hero test used `wilsonScore: 1.0`,
+making test facts guaranteed to surface in the live feed during the ~25s test
+window. The endpoint-level guard is the only reliable fix for a shared-DB setup.
+
 ## Directly-inserted test facts must use a `t`-prefixed text
 Facts inserted without a `submitted_by_id` (null submitter) carry no user-marker, so the
 user-based purge misses them. The global purge catches them via:
