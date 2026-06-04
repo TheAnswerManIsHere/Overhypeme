@@ -399,7 +399,22 @@ export async function purgeTerminalJobs(
  * Start the durable async-jobs background worker. Should be called once on
  * server startup AFTER all handlers are registered.
  */
-export function runAsyncJobsWorker(intervalMs = 30_000): NodeJS.Timeout {
+/**
+ * Default poll cadence. Short enough that a queued job (an enrichment, a
+ * transactional email, an image render) starts within a few seconds rather
+ * than waiting up to half a minute. Override per-deploy with
+ * `ASYNC_JOBS_WORKER_INTERVAL_MS`. This is a *latency* knob, NOT a throughput
+ * one — throughput is bounded by the batch size (10/tick) processed
+ * sequentially; raise that, not this, to drain a backlog faster (and only
+ * after weighing external-API cost / rate limits).
+ */
+const DEFAULT_WORKER_INTERVAL_MS = 5_000;
+/** Retention purge isn't time-sensitive — don't run it every short tick. */
+const PURGE_INTERVAL_MS = 60_000;
+
+export function runAsyncJobsWorker(
+  intervalMs = Number(process.env["ASYNC_JOBS_WORKER_INTERVAL_MS"]) || DEFAULT_WORKER_INTERVAL_MS,
+): NodeJS.Timeout {
   if (HANDLERS.size === 0) {
     logger.warn("[asyncJobs] no handlers registered — worker still started for future registrations");
   }
@@ -408,20 +423,34 @@ export function runAsyncJobsWorker(intervalMs = 30_000): NodeJS.Timeout {
     logger.error({ err }, "[asyncJobs] startup recovery failed");
   });
 
+  // Re-entrancy guard: a tick can take longer than `intervalMs` (a batch of 10
+  // slow LLM/image jobs runs sequentially in one transaction). Without this,
+  // setInterval would fire overlapping ticks and multiply concurrent external
+  // calls. With it, the cadence is effectively "interval AFTER the previous
+  // tick finishes" — responsive when idle, self-throttling under load.
+  let ticking = false;
+  let lastPurgeAt = 0;
   const tick = async () => {
+    if (ticking) return;
+    ticking = true;
     try {
-      await asyncJobsTick(defaultDb);
-    } catch (err) {
-      logger.error({ err }, "[asyncJobs] worker tick failed");
-    }
-    // Run a retention purge for each registered queue once per tick (cheap,
-    // bounded by retention SQL).
-    for (const queue of HANDLERS.keys()) {
       try {
-        await purgeTerminalJobs(defaultDb, queue);
+        await asyncJobsTick(defaultDb);
       } catch (err) {
-        logger.error({ err, queue }, "[asyncJobs] retention purge failed");
+        logger.error({ err }, "[asyncJobs] worker tick failed");
       }
+      if (Date.now() - lastPurgeAt >= PURGE_INTERVAL_MS) {
+        lastPurgeAt = Date.now();
+        for (const queue of HANDLERS.keys()) {
+          try {
+            await purgeTerminalJobs(defaultDb, queue);
+          } catch (err) {
+            logger.error({ err, queue }, "[asyncJobs] retention purge failed");
+          }
+        }
+      }
+    } finally {
+      ticking = false;
     }
   };
 
