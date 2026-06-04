@@ -93,12 +93,17 @@ export const imagePromptGenerationHandler: JobHandler = {
     }
     const enrichment = enrichmentValidation.data;
 
+    // The identity (name + pronouns) used to render this attempt. Drives both
+    // the legacy fact-text render and the compiler's final token gate, so a
+    // template token can never leak into the engine prompt.
+    const renderedSubject = await resolveAttemptIdentity(attempt);
+
     // RENDERED fact text (subject/pronouns resolved). Frozen on the attempt
     // since migration 0070; legacy rows are rendered on the fly. Either way the
     // generator must never see an unresolved {NAME}/{SUBJ} token.
     let factText: string;
     try {
-      factText = await resolveRenderedFactText(attempt);
+      factText = await resolveRenderedFactText(attempt, renderedSubject);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       await markAttemptError(p.attemptId, msg);
@@ -141,6 +146,7 @@ export const imagePromptGenerationHandler: JobHandler = {
       visualPlan: output.visualPlan,
       compiledPrompt: output.compiledPrompt,
       input,
+      renderedSubject,
     });
 
     // A "poor" subject↔fact compatibility means the uploaded subject can't
@@ -327,30 +333,14 @@ async function loadAttempt(attemptId: number): Promise<ImagePromptAttempt | null
 }
 
 /**
- * Resolve the RENDERED (token-free) fact text for an attempt.
- *
- * Preferred path: the `renderedFactText` frozen on the row at insert time
- * (migration 0070+). Legacy rows (pre-0070) have a null column — render the
- * fact template on the fly using the attempt's user identity. In both cases we
- * refuse to proceed if unresolved {NAME}/{SUBJ} tokens remain, so a template
- * can never leak into a production image prompt.
+ * Resolve the identity (display name + pronouns) for an attempt from its user,
+ * falling back to the canonical "Alex / they-them" when there is no user (e.g.
+ * an anonymous/admin render). Used both to render legacy fact templates and as
+ * the compiler's final token gate.
  */
-async function resolveRenderedFactText(attempt: ImagePromptAttempt): Promise<string> {
-  if (attempt.renderedFactText && attempt.renderedFactText.trim()) {
-    if (hasUnresolvedFactTokens(attempt.renderedFactText)) {
-      throw new Error(`renderedFactText on attempt ${attempt.id} still contains unresolved tokens`);
-    }
-    return attempt.renderedFactText;
-  }
-  // Legacy fallback: render from the fact template + the attempt's user.
-  const [factRow] = await db
-    .select({ text: factsTable.text })
-    .from(factsTable)
-    .where(eq(factsTable.id, attempt.factId))
-    .limit(1);
-  if (!factRow) {
-    throw new Error(`legacy_attempt_missing_rendered_text: fact ${attempt.factId} not found`);
-  }
+async function resolveAttemptIdentity(
+  attempt: ImagePromptAttempt,
+): Promise<{ name: string; pronouns: string | null }> {
   let name = "Alex";
   let pronouns: string | null = null;
   if (attempt.userId) {
@@ -362,7 +352,38 @@ async function resolveRenderedFactText(attempt: ImagePromptAttempt): Promise<str
     if (u?.displayName) name = u.displayName;
     pronouns = u?.pronouns ?? null;
   }
-  const rendered = renderPersonalized(factRow.text, name, pronouns);
+  return { name, pronouns };
+}
+
+/**
+ * Resolve the RENDERED (token-free) fact text for an attempt.
+ *
+ * Preferred path: the `renderedFactText` frozen on the row at insert time
+ * (migration 0070+). Legacy rows (pre-0070) have a null column — render the
+ * fact template on the fly using the supplied attempt identity. In both cases
+ * we refuse to proceed if unresolved {NAME}/{SUBJ} tokens remain, so a template
+ * can never leak into a production image prompt.
+ */
+async function resolveRenderedFactText(
+  attempt: ImagePromptAttempt,
+  identity: { name: string; pronouns: string | null },
+): Promise<string> {
+  if (attempt.renderedFactText && attempt.renderedFactText.trim()) {
+    if (hasUnresolvedFactTokens(attempt.renderedFactText)) {
+      throw new Error(`renderedFactText on attempt ${attempt.id} still contains unresolved tokens`);
+    }
+    return attempt.renderedFactText;
+  }
+  // Legacy fallback: render from the fact template + the attempt's identity.
+  const [factRow] = await db
+    .select({ text: factsTable.text })
+    .from(factsTable)
+    .where(eq(factsTable.id, attempt.factId))
+    .limit(1);
+  if (!factRow) {
+    throw new Error(`legacy_attempt_missing_rendered_text: fact ${attempt.factId} not found`);
+  }
+  const rendered = renderPersonalized(factRow.text, identity.name, identity.pronouns);
   if (hasUnresolvedFactTokens(rendered)) {
     throw new Error(`legacy_attempt_missing_rendered_text: render left unresolved tokens on attempt ${attempt.id}`);
   }

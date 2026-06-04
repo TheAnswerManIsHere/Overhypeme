@@ -164,6 +164,9 @@ router.post("/admin/image-prompt/preview", requireAdmin, async (req: Request, re
     visualPlan: output.visualPlan,
     compiledPrompt: output.compiledPrompt,
     input,
+    // Resolve any residual identity tokens with the same brand protagonist used
+    // to render the fact text, so {NAME} never reaches the engine prompt.
+    renderedSubject: { name: PREVIEW_NAME, pronouns: PREVIEW_PRONOUNS },
   });
 
   let attemptId: number | undefined;

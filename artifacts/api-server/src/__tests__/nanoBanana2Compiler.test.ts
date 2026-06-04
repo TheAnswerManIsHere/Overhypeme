@@ -73,6 +73,7 @@ function makeArgs(opts: {
   modifiers?: string[];
   visualPlan?: Partial<VisualPlan>;
   negativePrompt?: string;
+  renderedSubject?: { name: string; pronouns: string | null };
 }) {
   const input = {
     subjectRenderMode: opts.subjectRenderMode,
@@ -89,6 +90,7 @@ function makeArgs(opts: {
     visualPlan: makeVisualPlan(opts.visualPlan),
     compiledPrompt: { prompt: opts.prompt, negativePrompt: opts.negativePrompt ?? "", engineNotes: "" },
     input,
+    ...(opts.renderedSubject ? { renderedSubject: opts.renderedSubject } : {}),
   };
 }
 
@@ -245,6 +247,63 @@ describe("nanoBanana2 — structured directive injection", () => {
     }));
     assert.match(out.imagePrompt.toLowerCase(), /crowd reacting/);
     assert.match(out.imagePrompt.toLowerCase(), /exactly one instance of the subject/);
+  });
+
+  it("resolves residual identity tokens the LLM echoed (e.g. a {NAME} semantic entity) using renderedSubject", () => {
+    const out = compileNanoBanana2HumanI2I(makeArgs({
+      subjectRenderMode: "human_identity_i2i",
+      prompt: "David stands triumphant. Preserve the reference person's recognizable face.",
+      renderedSubject: { name: "David", pronouns: "he/him" },
+      visualPlan: {
+        semanticEntitiesUsed: [
+          { surfaceText: "{NAME}", visualReferentUsed: "the user's name", effectOnVisualPlan: "names the hero" },
+        ],
+      },
+    }));
+    assert.doesNotMatch(out.imagePrompt, /\{NAME\}/);
+    assert.match(out.imagePrompt, /"David" means the user's name/);
+  });
+});
+
+describe("nanoBanana2 — prompt component breakdown", () => {
+  it("returns a per-section breakdown with goal/approach split out and statuses", () => {
+    const out = compileNanoBanana2HumanI2I(makeArgs({
+      subjectRenderMode: "human_identity_i2i",
+      prompt: "David stands in a thunderstorm. Preserve the reference person's recognizable face.",
+      visualPlan: {
+        visualGoal: "Make the feat feel legendary",
+        visualApproach: "Grounded cinematic framing",
+        keyVisualElements: ["a thunderstorm", "a glowing trophy"],
+      },
+    }));
+    const bd = out.promptBreakdown;
+    assert.ok(bd && bd.length > 0, "promptBreakdown present");
+    const byId = Object.fromEntries(bd!.map((s) => [s.id, s]));
+
+    // Goal + approach are surfaced as distinct components.
+    assert.equal(byId["visual_goal"]?.status, "included");
+    assert.match(byId["visual_goal"]!.text, /Make the feat feel legendary/);
+    assert.equal(byId["visual_approach"]?.status, "included");
+    assert.match(byId["visual_approach"]!.text, /Grounded cinematic framing/);
+
+    // The preamble + face guard are required and present.
+    assert.equal(byId["mode_preamble"]?.priority, "required");
+    assert.equal(byId["mode_preamble"]?.status, "included");
+
+    // Key elements already in the prose ("a thunderstorm") are deduped out of
+    // the gap-fill directive; novel ones ("a glowing trophy") are kept.
+    assert.match(byId["key_visual_elements"]!.text, /glowing trophy/);
+    assert.doesNotMatch(byId["key_visual_elements"]!.text, /a thunderstorm/);
+
+    // Empty components are recorded as empty (style not configured here).
+    assert.equal(byId["style"]?.status, "empty");
+
+    // Concatenating the included/compressed section texts reproduces the prompt.
+    const reassembled = bd!
+      .filter((s) => s.status === "included" || s.status === "compressed")
+      .map((s) => s.text)
+      .join(" ");
+    assert.equal(reassembled, out.imagePrompt);
   });
 
   it("never sets negativePrompt and keeps required content under an over-long prose", () => {
