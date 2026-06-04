@@ -138,7 +138,17 @@ Supporting rules:
   success and failure — never collapse them into a checkmark or an error.
 - Don't yank items out from under the user mid-run. Keep them visible
   (showing their result) until the operation completes, then reconcile.
-- Polling/timeout ending is "still running," not "failed."
+- **Never impose a UI timeout on a legitimately long-running job.** The
+  whole point of the async queue is that work can be long and robust —
+  enriching 1000 facts may take an hour, and that's fine. Poll at a
+  steady cadence (~1s) and keep showing live per-line status until every
+  item is terminal, no matter how long it takes. A page refresh must
+  NEVER be required to see current status.
+- The backend's retry/`maxAttempts` is what fails a crash-looping job;
+  the UI just reflects `done`/`failed`. The only reason the *frontend*
+  stops polling early is an extreme stall (~24h of zero progress = a
+  dead/stuck worker) — and then it says so loudly ("something went
+  wrong"), it doesn't silently give up or pretend success.
 - Prefer the existing polling helpers (`asyncJobs` job-status by id;
   `useTaxonomyHealthActions` on the frontend) over inventing a new
   status channel.

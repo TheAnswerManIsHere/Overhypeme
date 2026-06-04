@@ -28,8 +28,16 @@ import type {
   JobStatusResponse,
 } from "@workspace/api-zod";
 
-const POLL_INTERVAL_MS = 2000;
-const MAX_POLL_TICKS = 45; // ~90s ceiling before we declare "still running".
+// Near-real-time: re-poll every ~1s so each row + the summary update within a
+// second of the backend changing.
+const POLL_INTERVAL_MS = 1000;
+// We NEVER time out a legitimately long-running job. Async jobs are meant to be
+// long and robust — enriching 1000 facts can take an hour, and that's fine. We
+// keep polling until every job is terminal (done/failed; the worker itself
+// marks a crash-looping job `failed` after its retries). The ONLY reason to
+// stop is a job making no progress for an extreme window — a stuck/dead worker
+// — at which point we surface a loud "something's wrong" message. 24h.
+const STALL_GIVE_UP_MS = 24 * 60 * 60 * 1000;
 
 export type UiOpState =
   | "posting"
@@ -177,7 +185,10 @@ export function useTaxonomyHealthActions(
 
   const opsRef = useRef(ops);
   opsRef.current = ops;
-  const tickRef = useRef(0);
+  // Wall-clock of the last observed status change. Used ONLY to detect a
+  // genuinely stuck worker (no progress for STALL_GIVE_UP_MS) — never to stop
+  // polling a run that's still making progress, however long it takes.
+  const lastProgressRef = useRef(Date.now());
   const onChangedRef = useRef(onChanged);
   onChangedRef.current = onChanged;
   // Scopes we've already refreshed for. We refresh the summary+list ONCE an
@@ -213,7 +224,6 @@ export function useTaxonomyHealthActions(
   );
 
   const pollTick = useCallback(async () => {
-    tickRef.current += 1;
     const inflight: number[] = [];
     for (const op of Object.values(opsRef.current)) {
       for (const j of op.jobs) {
@@ -221,18 +231,6 @@ export function useTaxonomyHealthActions(
       }
     }
     if (inflight.length === 0) return;
-    // Ceiling hit: declare the stragglers "still running" rather than failed.
-    if (tickRef.current > MAX_POLL_TICKS) {
-      setOps((prev) =>
-        mapJobs(prev, (j) =>
-          j.status === "pending" || j.status === "processing"
-            ? { ...j, status: "still_running" }
-            : j,
-        ),
-      );
-      finalizeCompletedOps(() => "still_running");
-      return;
-    }
     try {
       const r = await fetch("/api/admin/taxonomy-health/job-status", {
         method: "POST",
@@ -240,9 +238,20 @@ export function useTaxonomyHealthActions(
         credentials: "include",
         body: JSON.stringify({ jobs: inflight.map((jobId) => ({ jobId })) }),
       });
-      if (!r.ok) return;
+      if (!r.ok) return; // transient — keep polling, don't count as a stall
       const data = (await r.json()) as JobStatusResponse;
       const byId = new Map(data.jobs.map((j) => [j.jobId, j]));
+
+      // Did anything actually change since last poll?
+      let progressed = false;
+      for (const op of Object.values(opsRef.current)) {
+        for (const j of op.jobs) {
+          const fresh = byId.get(j.jobId);
+          if (fresh && fresh.status !== j.status) { progressed = true; break; }
+        }
+        if (progressed) break;
+      }
+
       // Functional update so a concurrently-submitted op is never clobbered.
       setOps((prev) =>
         mapJobs(prev, (j) => {
@@ -251,6 +260,27 @@ export function useTaxonomyHealthActions(
         }),
       );
       finalizeCompletedOps((jobId) => byId.get(jobId)?.status);
+
+      if (progressed) {
+        lastProgressRef.current = Date.now();
+        return;
+      }
+      // No change this poll — that's fine, the worker may just be between
+      // batches. Keep polling indefinitely unless it's been stuck for ~24h,
+      // which means the worker is dead/crash-looping and won't finish.
+      if (Date.now() - lastProgressRef.current >= STALL_GIVE_UP_MS) {
+        setOps((prev) =>
+          mapJobs(prev, (j) =>
+            j.status === "pending" || j.status === "processing"
+              ? { ...j, status: "still_running" }
+              : j,
+          ),
+        );
+        finalizeCompletedOps(() => "still_running");
+        setError(
+          "Stopped monitoring after 24h with no progress — the job queue worker may be stuck. Check the async jobs queue; something went wrong.",
+        );
+      }
     } catch {
       /* transient — try again next tick */
     }
@@ -258,7 +288,7 @@ export function useTaxonomyHealthActions(
 
   useEffect(() => {
     if (!hasInflight) {
-      tickRef.current = 0;
+      lastProgressRef.current = Date.now();
       return;
     }
     const handle = setInterval(() => {
@@ -273,6 +303,7 @@ export function useTaxonomyHealthActions(
       setBannerDismissed(false);
       setLastScope(scope);
       finalizedRef.current.delete(scope); // this scope is starting fresh
+      lastProgressRef.current = Date.now(); // reset the stuck-worker watchdog
       const startedAt = Date.now();
       setOps((prev) => ({
         ...prev,
