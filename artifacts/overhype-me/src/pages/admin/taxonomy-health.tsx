@@ -92,7 +92,7 @@ function ActionIndicator({ state, outcome }: { state: UiOpState; outcome: Action
     case "queued":
       return (
         <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
-          <Clock className="w-3 h-3" /> Queued…
+          <Loader2 className="w-3 h-3 animate-spin" /> Queued…
         </span>
       );
     case "processing":
