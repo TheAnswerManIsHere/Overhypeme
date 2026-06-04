@@ -89,15 +89,22 @@ admin-edited facts*.
    write with no model calls. You should see **✓ Done** immediately.
 3. Refresh — the row drops out of the **Projection mismatch** filter.
 
-## 7. Bulk actions — warnings + partial progress
+## 7. Bulk actions — per-fact progress + a running tally
 
 1. Click a card with several affected rows (e.g. **Stale enrichment**).
 2. Click the bulk action (e.g. **Re-enrich stale facts**). A confirm dialog
    warns you with the **affected count** and that it **costs model calls / takes
    time** (Repair has no such modal — it's safe).
-3. Accept. The button spins; the banner shows **partial progress** as jobs
-   drain — e.g. "Re-enrich: 6 done · 1 failed · 3 still running · 2 skipped".
-4. If the panel stops polling before everything finishes (long queue), the
+3. Accept. Now watch **two things at once**:
+   - **In the list:** every affected fact lights up its own indicator —
+     **Queued… → Working… → ✓ Done** (or ✗ Failed / Skipped) — fact by fact,
+     exactly as if you'd clicked Re-enrich on each one. Rows stay put while the
+     run is in flight so you can see each one finish.
+   - **Up top:** a live banner counts the total — e.g. **"Re-enrich: 7 of 25
+     done · 5 in progress · 1 failed"** — updated every time a fact completes.
+4. When the whole run finishes, the list refreshes once: facts that were fixed
+   drop out of the filter, and the banner shows the final tally (dismiss with ✕).
+5. If the panel hits its polling ceiling before a long queue drains, the
    stragglers show **"Still running"** — NOT failed. Refresh later to confirm.
 
 ## 8. Selected filter is preserved
