@@ -109,6 +109,42 @@ Post-launch, when the bar for not breaking production is higher, we'll
 reintroduce feature flags / staged rollouts deliberately. Until then,
 "done" means the behavior is live, not live-behind-a-toggle.
 
+### 8. Async work must SHOW its status to the human
+
+We built the async job queue so requests to external systems are robust
+— but the squishy human watching the screen still needs to know exactly
+what's happening, **visually and in text**, at all times. Robust delivery
+is only half the job; legible status is the other half.
+
+Whenever I build (or touch) anything that runs asynchronously — a queued
+job, a batch/bulk action, a long external call, a poll-style request —
+the surface that triggers it must report status at **two altitudes**:
+
+- **Per item, in place.** Every individual thing being worked
+  (each fact, each row, each recipient) shows its own live state right
+  where the user is looking: `queued → working → done / failed / skipped
+  / still-running`, with a spinner while active and a clear terminal
+  icon when finished. A bulk action is NOT "fire and forget with one
+  spinner" — it must light up each affected item exactly as if the user
+  had triggered them one by one.
+- **Aggregate summary.** A running tally the user can follow without
+  counting rows — "Enriched 7 of 25 · 2 failed · 3 still running" —
+  updated every time an item completes.
+
+Supporting rules:
+- A single global spinner with no per-item detail is a bug, not a
+  loading state.
+- "Skipped" and "still running" are first-class states, distinct from
+  success and failure — never collapse them into a checkmark or an error.
+- Don't yank items out from under the user mid-run. Keep them visible
+  (showing their result) until the operation completes, then reconcile.
+- Polling/timeout ending is "still running," not "failed."
+- Prefer the existing polling helpers (`asyncJobs` job-status by id;
+  `useTaxonomyHealthActions` on the frontend) over inventing a new
+  status channel.
+
+The Taxonomy Health panel is the reference implementation.
+
 ## Always open a PR when work is done
 
 David works exclusively from the Claude Code on the Web UI. Pushing to
