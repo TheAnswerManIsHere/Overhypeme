@@ -1187,9 +1187,10 @@ export function EnrichmentEditor({
 
   return (
     <div className="rounded-sm border-2 border-border bg-background p-4 space-y-4">
-      <div className="flex items-center justify-between gap-2">
+      <div className="flex items-center justify-between gap-2 flex-wrap">
         <p className="text-sm font-bold text-foreground uppercase tracking-wide">Visual Taxonomy Enrichment</p>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
+          {value && <EnrichmentStalenessBadge e={value} />}
           {status === "pending" || rerunBusy ? (
             <span className="inline-flex items-center gap-1.5 text-xs text-amber-600 dark:text-amber-400">
               <span className="inline-block w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
