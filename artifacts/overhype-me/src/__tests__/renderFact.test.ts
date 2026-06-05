@@ -17,6 +17,48 @@ describe("renderFact — {NAME} token", () => {
   });
 });
 
+describe("renderFact — indefinite article agreement around {NAME}", () => {
+  it("turns 'a {NAME}' into 'an' when the name starts with a vowel", () => {
+    expect(renderFact("Sharks have a {NAME} Week", "Alex")).toBe("Sharks have an Alex Week");
+  });
+
+  it("keeps 'a {NAME}' as 'a' when the name starts with a consonant", () => {
+    expect(renderFact("Sharks have a {NAME} Week", "David")).toBe("Sharks have a David Week");
+  });
+
+  it("turns 'an {NAME}' back into 'a' when the name starts with a consonant", () => {
+    expect(renderFact("It was an {NAME} moment", "David")).toBe("It was a David moment");
+  });
+
+  it("keeps 'an {NAME}' as 'an' when the name starts with a vowel", () => {
+    expect(renderFact("It was an {NAME} moment", "Alex")).toBe("It was an Alex moment");
+  });
+
+  it("preserves capitalization at sentence start (A → An)", () => {
+    expect(renderFact("A {NAME} legend", "Owen")).toBe("An Owen legend");
+  });
+
+  it("preserves capitalization at sentence start (An → A)", () => {
+    expect(renderFact("An {NAME} legend", "Sam")).toBe("A Sam legend");
+  });
+
+  it("is case-insensitive about the name's first letter", () => {
+    expect(renderFact("a {NAME}", "emma")).toBe("an emma");
+  });
+
+  it("uses 'a' for the empty-name placeholder", () => {
+    expect(renderFact("Sharks have a {NAME} Week", "")).toBe("Sharks have a ___ Week");
+  });
+
+  it("only touches the article immediately before {NAME}, not other articles", () => {
+    expect(renderFact("a unicorn met a {NAME}", "Alex")).toBe("a unicorn met an Alex");
+  });
+
+  it("does not treat a trailing 'a' inside a word as an article", () => {
+    expect(renderFact("extra {NAME}", "Alex")).toBe("extra Alex");
+  });
+});
+
 describe("renderFact — pronoun tokens (he/him)", () => {
   const name = "Dave";
   const pronouns = "he/him";
