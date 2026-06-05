@@ -73,6 +73,7 @@ function makeArgs(opts: {
   modifiers?: string[];
   visualPlan?: Partial<VisualPlan>;
   negativePrompt?: string;
+  renderedSubject?: { name: string; pronouns: string | null };
 }) {
   const input = {
     subjectRenderMode: opts.subjectRenderMode,
@@ -89,6 +90,7 @@ function makeArgs(opts: {
     visualPlan: makeVisualPlan(opts.visualPlan),
     compiledPrompt: { prompt: opts.prompt, negativePrompt: opts.negativePrompt ?? "", engineNotes: "" },
     input,
+    ...(opts.renderedSubject ? { renderedSubject: opts.renderedSubject } : {}),
   };
 }
 
@@ -245,6 +247,106 @@ describe("nanoBanana2 — structured directive injection", () => {
     }));
     assert.match(out.imagePrompt.toLowerCase(), /crowd reacting/);
     assert.match(out.imagePrompt.toLowerCase(), /exactly one instance of the subject/);
+  });
+
+  it("resolves residual identity tokens the LLM echoed (e.g. a {NAME} semantic entity) using renderedSubject", () => {
+    const out = compileNanoBanana2HumanI2I(makeArgs({
+      subjectRenderMode: "human_identity_i2i",
+      prompt: "David stands triumphant. Preserve the reference person's recognizable face.",
+      renderedSubject: { name: "David", pronouns: "he/him" },
+      visualPlan: {
+        semanticEntitiesUsed: [
+          { surfaceText: "{NAME}", visualReferentUsed: "the user's name", effectOnVisualPlan: "names the hero" },
+        ],
+      },
+    }));
+    assert.doesNotMatch(out.imagePrompt, /\{NAME\}/);
+    assert.match(out.imagePrompt, /"David" means the user's name/);
+  });
+});
+
+describe("nanoBanana2 — prompt component breakdown", () => {
+  it("returns a per-section breakdown with a compact strategic-intent section and statuses", () => {
+    const out = compileNanoBanana2HumanI2I(makeArgs({
+      subjectRenderMode: "human_identity_i2i",
+      prompt: "David stands in a thunderstorm. Preserve the reference person's recognizable face.",
+      visualPlan: {
+        visualGoal: "Make the feat feel legendary",
+        visualApproach: "Ground it in cinematic framing",
+        keyVisualElements: ["a thunderstorm", "a glowing trophy"],
+      },
+    }));
+    const bd = out.promptBreakdown;
+    assert.ok(bd && bd.length > 0, "promptBreakdown present");
+    const byId = Object.fromEntries(bd!.map((s) => [s.id, s]));
+
+    // Goal + approach are folded into ONE compact strategic-intent component.
+    assert.equal(byId["strategic_intent"]?.status, "included");
+    assert.match(byId["strategic_intent"]!.text, /Intent: Make the feat feel legendary/);
+    assert.match(byId["strategic_intent"]!.text, /Stage it as: Ground it in cinematic framing/);
+    assert.equal(byId["visual_goal"], undefined);
+    assert.equal(byId["visual_approach"], undefined);
+
+    // The preamble + face guard are required and present.
+    assert.equal(byId["mode_preamble"]?.priority, "required");
+    assert.equal(byId["mode_preamble"]?.status, "included");
+
+    // Key elements already in the prose ("a thunderstorm") are deduped out of
+    // the gap-fill directive; novel ones ("a glowing trophy") are kept.
+    assert.match(byId["key_visual_elements"]!.text, /glowing trophy/);
+    assert.doesNotMatch(byId["key_visual_elements"]!.text, /a thunderstorm/);
+
+    // Empty components are recorded as empty (style not configured here).
+    assert.equal(byId["style"]?.status, "empty");
+
+    // Concatenating the included/compressed section texts reproduces the prompt.
+    const reassembled = bd!
+      .filter((s) => s.status === "included" || s.status === "compressed")
+      .map((s) => s.text)
+      .join(" ");
+    assert.equal(reassembled, out.imagePrompt);
+  });
+
+  it("strips identity-preservation, reference-image, token, and text-policy clauses from the prose", () => {
+    const out = compileNanoBanana2HumanI2I(makeArgs({
+      subjectRenderMode: "human_identity_i2i",
+      renderedSubject: { name: "David", pronouns: "he/him" },
+      prompt:
+        "Create an image of Superman wearing David pajamas in a city skyline. " +
+        "Ensure Superman's recognizable face is preserved. " +
+        "Use the uploaded image as the identity source. " +
+        'Interpret these terms exactly: "{NAME}" means user\'s name. ' +
+        "Keep all surfaces free of readable text, watermarks, and logos.",
+    }));
+    const removed = out.diagnostics?.removedPlannerProseSentences ?? [];
+    const reasons = new Set(removed.map((r) => r.reason));
+    assert.ok(reasons.has("identity-preservation-owned-by-compiler"), JSON.stringify(removed));
+    assert.ok(reasons.has("reference-image-owned-by-compiler"), JSON.stringify(removed));
+    assert.ok(reasons.has("token-interpretation-owned-by-compiler"), JSON.stringify(removed));
+    assert.ok(reasons.has("text-policy-owned-by-compiler"), JSON.stringify(removed));
+
+    // The concrete scene sentence survives.
+    assert.match(out.imagePrompt, /Create an image of Superman wearing David pajamas in a city skyline\./);
+    // The prose's competing face clause is gone; identity language now comes
+    // ONLY from the compiler preamble (exactly once).
+    assert.doesNotMatch(out.imagePrompt, /Superman's recognizable face/);
+    assert.equal(countOccurrences(out.imagePrompt, "recognizable face"), 1, out.imagePrompt);
+    // No leaked token, no reference-image prose, no text-policy boilerplate from prose.
+    assert.doesNotMatch(out.imagePrompt, /\{NAME\}/);
+    assert.doesNotMatch(out.imagePrompt.toLowerCase(), /uploaded image as the identity source/);
+  });
+
+  it("flags a tone split between a serious approach and playful prose (advisory only)", () => {
+    const out = compileNanoBanana2HumanI2I(makeArgs({
+      subjectRenderMode: "human_identity_i2i",
+      prompt: "David stands heroically with a playful, humorous aura. Preserve the reference person's recognizable face.",
+      visualPlan: { visualGoal: "Show the legend", visualApproach: "A grounded, cinematic, heroic scene" },
+    }));
+    const warnings = out.diagnostics?.warnings ?? [];
+    assert.equal(warnings.length, 1, JSON.stringify(warnings));
+    assert.equal(warnings[0]!.code, "possible-tone-split-between-approach-and-prose");
+    // Advisory only — the playful/heroic words are NOT removed from the prompt.
+    assert.match(out.imagePrompt.toLowerCase(), /playful/);
   });
 
   it("never sets negativePrompt and keeps required content under an over-long prose", () => {

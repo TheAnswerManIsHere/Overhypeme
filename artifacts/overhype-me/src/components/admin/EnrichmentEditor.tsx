@@ -14,6 +14,8 @@ import {
   hasUsableVisualPreview,
   PREVIEW_GENERATION_MODE,
   PREVIEW_STYLE,
+  computeEnrichmentVersionStatus,
+  type EnrichmentVersionStatus,
   type FactEnrichment,
   type CulturalReference,
   type VisualPromptPreview,
@@ -25,7 +27,7 @@ import {
   SEMANTIC_ENTITY_KIND_VALUES,
   CAPITALIZATION_SIGNAL_VALUES,
 } from "@workspace/api-zod";
-import { AlertTriangle, RefreshCw, Save, X, Eye, Plus, Trash2, Search, Loader2, Sparkles, ExternalLink } from "lucide-react";
+import { AlertTriangle, RefreshCw, Save, X, Eye, Plus, Trash2, Search, Loader2, Sparkles, ExternalLink, CheckCircle2 } from "lucide-react";
 
 // ─── Forbidden-text heuristic ───────────────────────────────────────────────
 //
@@ -1001,6 +1003,66 @@ function Chips({
 }
 
 /** Compact read-only view for already-decided reviews. */
+/**
+ * Per-fact enrichment staleness badge. Shows whether the stored enrichment was
+ * produced under the CURRENT taxonomy/visual-plan versions — and, when stale,
+ * the exact stored→current discrepancy so the admin knows a re-enrich is due.
+ * Uses the shared `computeEnrichmentVersionStatus` so it agrees with the
+ * Taxonomy Health evaluator. `status` can be injected for testing.
+ */
+export function EnrichmentStalenessBadge({
+  e,
+  status,
+}: {
+  e: Pick<FactEnrichment, "classificationPromptVersion" | "visualPromptPreview">;
+  status?: EnrichmentVersionStatus;
+}) {
+  const s = status ?? computeEnrichmentVersionStatus(e);
+  // Only surface the visual-plan version line when a plan actually exists —
+  // "not generated yet" is the Taxonomy Health page's job, not this badge's.
+  const hasPreview = !!e.visualPromptPreview;
+  const fields = s.fields.filter((f) => f.field === "classification" || hasPreview);
+  const showStale = s.enrichmentStale || (hasPreview && s.previewStale);
+
+  if (!showStale) {
+    return (
+      <span
+        className="inline-flex items-center gap-1 text-[11px] text-emerald-700 dark:text-emerald-300"
+        data-testid="enrichment-staleness"
+        data-stale="false"
+      >
+        <CheckCircle2 className="w-3.5 h-3.5" />
+        Enrichment up to date (taxonomy {s.fields[0]?.current})
+      </span>
+    );
+  }
+
+  return (
+    <div
+      className="rounded-sm border border-amber-500/40 bg-amber-500/10 px-2 py-1.5 space-y-1"
+      data-testid="enrichment-staleness"
+      data-stale="true"
+    >
+      <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-amber-700 dark:text-amber-300">
+        <AlertTriangle className="w-3.5 h-3.5" />
+        Enrichment is stale — re-enrich to refresh
+      </span>
+      <div className="flex flex-wrap gap-x-3 gap-y-0.5">
+        {fields
+          .filter((f) => f.stale)
+          .map((f) => (
+            <span key={f.field} className="text-[10px] text-amber-700/90 dark:text-amber-300/90">
+              {f.label}:{" "}
+              <span className="font-mono">{f.missing ? "unversioned" : f.stored}</span>
+              {" → "}
+              <span className="font-mono font-semibold">{f.current}</span>
+            </span>
+          ))}
+      </div>
+    </div>
+  );
+}
+
 export function EnrichmentSummary({ e }: { e: FactEnrichment }) {
   const rows: [string, string][] = [
     ["Archetype", e.primaryArchetype],
@@ -1013,7 +1075,10 @@ export function EnrichmentSummary({ e }: { e: FactEnrichment }) {
   ];
   return (
     <div className="rounded-sm border border-border bg-muted/40 p-4 space-y-2">
-      <p className="text-xs font-bold text-muted-foreground uppercase tracking-wide">Visual Taxonomy Enrichment</p>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="text-xs font-bold text-muted-foreground uppercase tracking-wide">Visual Taxonomy Enrichment</p>
+        <EnrichmentStalenessBadge e={e} />
+      </div>
       <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-4 gap-y-1 text-sm">
         {rows.map(([k, v]) => (
           <div key={k}><span className="text-muted-foreground">{k}: </span><span className="text-foreground font-medium">{v}</span></div>
@@ -1122,9 +1187,10 @@ export function EnrichmentEditor({
 
   return (
     <div className="rounded-sm border-2 border-border bg-background p-4 space-y-4">
-      <div className="flex items-center justify-between gap-2">
+      <div className="flex items-center justify-between gap-2 flex-wrap">
         <p className="text-sm font-bold text-foreground uppercase tracking-wide">Visual Taxonomy Enrichment</p>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
+          {value && <EnrichmentStalenessBadge e={value} />}
           {status === "pending" || rerunBusy ? (
             <span className="inline-flex items-center gap-1.5 text-xs text-amber-600 dark:text-amber-400">
               <span className="inline-block w-2 h-2 rounded-full bg-amber-500 animate-pulse" />

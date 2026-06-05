@@ -24,8 +24,15 @@ import type {
   CompiledPrompt,
   ImagePromptGenerationInput,
 } from "@workspace/api-zod";
-import type { CompiledImagePrompt } from "../types";
+import type {
+  CompiledImagePrompt,
+  PromptSection,
+  RemovedProseReason,
+  RemovedProseSentence,
+  PromptWarning,
+} from "../types";
 import { modifierDirectives } from "../modifierDirectives";
+import { renderPersonalized, hasUnresolvedFactTokens } from "../../renderCanonical";
 
 const MAX_PROMPT_CHARS = 4000;
 
@@ -33,6 +40,23 @@ interface CompileArgs {
   visualPlan: VisualPlan;
   compiledPrompt: CompiledPrompt;
   input: ImagePromptGenerationInput;
+  /**
+   * Identity used to render the fact text for this generation. Used as a final
+   * gate to resolve any residual identity tokens ({NAME}/{SUBJ}/…) the LLM
+   * echoed from the fact template (e.g. a semantic entity whose surfaceText is
+   * literally "{NAME}") — a template token must NEVER reach the image engine.
+   * When omitted (some unit tests), no token rendering is applied.
+   */
+  renderedSubject?: { name: string; pronouns: string | null };
+}
+
+/**
+ * Resolve any leftover identity tokens in a section's text using the same
+ * identity that rendered the fact text. No-op when no subject is supplied.
+ */
+function renderIdentityTokens(text: string, subject?: CompileArgs["renderedSubject"]): string {
+  if (!subject || !text) return text;
+  return renderPersonalized(text, subject.name, subject.pronouns);
 }
 
 const HUMAN_I2I_PREAMBLE =
@@ -168,12 +192,123 @@ function composeModifierDirective(input: ImagePromptGenerationInput, haystack: s
   return directives.join(" ").trim();
 }
 
+// ─── Strategic intent (goal + approach) ────────────────────────────────────
+
+/** Strip a leading "Create/Make/Generate an image/scene of/that …" so the
+ *  fragment reads as intent guidance, not a second scene description. */
+function cleanDirectiveFragment(value?: string | null): string {
+  if (!value) return "";
+  return value
+    .replace(/\s+/g, " ")
+    .replace(/^(?:create|make|generate)\s+(?:an?\s+)?(?:image|scene)\s+(?:of|that)\s+/i, "")
+    .trim()
+    .replace(/[.!?]+$/, "");
+}
+
+/**
+ * Fold `visualGoal` + `visualApproach` into ONE compact required section so the
+ * engine prompt carries a single strategic-intent line instead of two large
+ * mini-prompts ahead of the prose. This does NOT semantically de-dupe against
+ * the prose — it just reduces the visual weight of the abstract intent.
+ */
+function composeStrategicIntentDirective(visualGoal?: string | null, visualApproach?: string | null): string {
+  const goal = cleanDirectiveFragment(visualGoal);
+  const approach = cleanDirectiveFragment(visualApproach);
+  if (goal && approach) return `Intent: ${goal}. Stage it as: ${approach}.`;
+  if (goal) return `Intent: ${goal}.`;
+  if (approach) return `Staging intent: ${approach}.`;
+  return "";
+}
+
+// ─── Planner-prose sanitation ───────────────────────────────────────────────
+
+/**
+ * Decide whether a single planner-prose sentence must be dropped because it
+ * authors a clause the compiler OWNS deterministically (identity preservation,
+ * reference-image operation, token interpretation, or text/logo policy). Narrow
+ * and conservative on purpose: it does NOT try to remove all overlapping
+ * meaning — only these four compiler-owned categories — so it never strips a
+ * concrete scene description. Returns the removal reason, or null to keep.
+ */
+function getPlannerProseRemovalReason(sentence: string): RemovedProseReason | null {
+  const s = normalizeSentence(sentence);
+  if (!s) return "empty-or-duplicate";
+
+  // Unresolved template tokens / explicit interpretation clauses.
+  if (hasUnresolvedFactTokens(sentence) || /\binterpret these terms exactly\b/.test(s)) {
+    return "token-interpretation-owned-by-compiler";
+  }
+  // Reference-image / mode operational language.
+  if (
+    /\b(?:reference|uploaded|source)\s+(?:image|photo|picture|person)\b/.test(s) ||
+    /\bimage-to-image\b|\bi2i\b|\btext-to-image\b|\bt2i\b/.test(s)
+  ) {
+    return "reference-image-owned-by-compiler";
+  }
+  // Identity / face / likeness preservation.
+  if (
+    /\b(?:preserv\w*|maintain|keep|retain)\b.*\b(?:face|facial|identity|likeness|recognizable|same person)\b/.test(s) ||
+    /\b(?:face|facial|identity|likeness|recognizable)\b.*\b(?:preserv\w*|maintain|keep|retain)\b/.test(s) ||
+    /\brecognizable face\b/.test(s) ||
+    /\bfacial identity\b/.test(s)
+  ) {
+    return "identity-preservation-owned-by-compiler";
+  }
+  // Readable-text / logo / watermark policy.
+  if (
+    /\b(?:readable text|captions?|watermarks?|logos?|brand marks?)\b/.test(s) ||
+    /\bfree of\b.*\b(?:text|captions?|watermarks?|logos?|brand marks?)\b/.test(s)
+  ) {
+    return "text-policy-owned-by-compiler";
+  }
+  return null;
+}
+
+/** Split the planner prose into sentences and drop the compiler-owned ones. */
+function sanitizePlannerProse(raw: string): { text: string; removed: RemovedProseSentence[] } {
+  const removed: RemovedProseSentence[] = [];
+  const kept: string[] = [];
+  for (const sentence of splitSentences(raw)) {
+    const reason = getPlannerProseRemovalReason(sentence);
+    if (reason) {
+      removed.push({ sentence: sentence.trim(), reason });
+      continue;
+    }
+    kept.push(sentence.trim());
+  }
+  return { text: kept.join(" ").trim(), removed };
+}
+
+/**
+ * Flag a likely tone split between the staging approach and the prose (e.g.
+ * "grounded/heroic" vs "playful/humorous") WITHOUT mutating the prompt — those
+ * words can be correct if the intended hierarchy is clear. Advisory only.
+ */
+function detectToneWarnings(args: { visualApproach?: string | null; prose?: string | null }): PromptWarning[] {
+  const approach = normalizeSentence(args.visualApproach ?? "");
+  const prose = normalizeSentence(args.prose ?? "");
+  const seriousTone = /\b(grounded|realistic|cinematic|serious|heroic|dramatic|epic)\b/;
+  const comicTone = /\b(playful|goofy|silly|slapstick|cartoonish|humorous|funny|comedic)\b/;
+  if (seriousTone.test(approach) && comicTone.test(prose)) {
+    return [
+      {
+        code: "possible-tone-split-between-approach-and-prose",
+        severity: "warning",
+        message:
+          "Visual approach uses a serious/cinematic tone while the prose uses a comic/playful tone. This may be intentional — confirm the final prompt states the intended tone hierarchy (e.g. serious staging, humor from the visual contrast).",
+      },
+    ];
+  }
+  return [];
+}
+
 // ─── Section assembly ──────────────────────────────────────────────────────
 
-type Priority = "required" | "high" | "medium";
+type Priority = PromptSection["priority"];
 
 interface Section {
   id: string;
+  label: string;
   text: string;
   priority: Priority;
   compressible?: boolean;
@@ -185,19 +320,40 @@ interface Section {
  * the pathological case where they alone overflow). Optional sections are
  * included while budget allows; compressible ones are trimmed to fit before
  * being dropped. Drops/compressions are appended to `notes`.
+ *
+ * Returns the assembled prompt plus a per-section `breakdown` recording how
+ * each component fared (included / compressed / dropped / deduped / empty) so
+ * admins can see exactly how the final prompt was computed from its parts.
  */
-function assembleSections(sections: Section[], notes: string[]): string {
+function assembleSections(
+  sections: Section[],
+  notes: string[],
+): { prompt: string; breakdown: PromptSection[] } {
   let assembled = "";
+  const breakdown: PromptSection[] = [];
+  const record = (s: Section, status: PromptSection["status"], text: string, rawText: string) =>
+    breakdown.push({ id: s.id, label: s.label, priority: s.priority, status, text, rawText });
+
   for (const section of sections) {
-    const deduped = dedupeSentences(section.text, assembled);
-    if (!deduped) continue;
+    const raw = section.text.trim();
+    if (!raw) {
+      record(section, "empty", "", "");
+      continue;
+    }
+    const deduped = dedupeSentences(raw, assembled);
+    if (!deduped) {
+      record(section, "deduped", "", raw);
+      continue;
+    }
     const candidate = assembled ? `${assembled} ${deduped}` : deduped;
     if (candidate.length <= MAX_PROMPT_CHARS) {
       assembled = candidate;
+      record(section, "included", deduped, raw);
       continue;
     }
     if (section.priority === "required") {
       assembled = candidate; // keep; final truncate will clamp if needed
+      record(section, "included", deduped, raw);
       continue;
     }
     if (section.compressible) {
@@ -206,16 +362,20 @@ function assembleSections(sections: Section[], notes: string[]): string {
       if (fitted) {
         assembled = assembled ? `${assembled} ${fitted}` : fitted;
         notes.push(`Compressed ${section.id} to fit the engine prompt budget.`);
+        record(section, "compressed", fitted, raw);
         continue;
       }
     }
     notes.push(`Dropped ${section.id} (over the engine prompt budget).`);
+    record(section, "dropped", "", raw);
   }
-  if (assembled.length > MAX_PROMPT_CHARS) {
+
+  let prompt = assembled.trim();
+  if (prompt.length > MAX_PROMPT_CHARS) {
     notes.push("Hard-truncated required content to the engine prompt budget.");
-    assembled = fitSentences(assembled, MAX_PROMPT_CHARS);
+    prompt = fitSentences(prompt, MAX_PROMPT_CHARS);
   }
-  return assembled.trim();
+  return { prompt, breakdown };
 }
 
 interface ModeContext {
@@ -231,17 +391,31 @@ function compile(args: CompileArgs, mode: ModeContext): CompiledImagePrompt {
   const notes: string[] = [];
 
   // Required core comes first so it always survives and so the prose + directive
-  // composers de-dupe against it (not the other way around).
-  const coreMechanic = [vp.visualGoal?.trim(), vp.visualApproach?.trim()].filter(Boolean).join(" ");
-  const requiredHead = [mode.preamble, ...mode.requiredClauses, coreMechanic].filter(Boolean).join(" ");
+  // composers de-dupe against it (not the other way around). visualGoal +
+  // visualApproach are folded into ONE compact "strategic intent" section so the
+  // engine prompt isn't fronted by two large abstract mini-prompts.
+  const clauses = mode.requiredClauses.filter(Boolean).join(" ");
+  const visualGoal = vp.visualGoal?.trim() ?? "";
+  const visualApproach = vp.visualApproach?.trim() ?? "";
+  const strategicIntent = composeStrategicIntentDirective(visualGoal, visualApproach);
+  // Haystack for semantic/cultural dedupe still uses the raw goal + approach
+  // text (not the compacted "Intent:" wrapper) so referents already named in
+  // the intent aren't re-listed.
+  const requiredHead = [mode.preamble, clauses, visualGoal, visualApproach].filter(Boolean).join(" ");
 
   const semantic = composeSemanticDirective(vp, requiredHead);
   const cultural = composeCulturalDirective(vp, `${requiredHead} ${semantic}`);
   const supportingText = composeSupportingTextDirective(vp);
+
+  // Strip planner-prose clauses the compiler owns (identity, reference-image,
+  // token interpretation, text policy) BEFORE assembly, so the LLM prose can't
+  // inject a competing identity/policy instruction into the engine prompt.
+  const sanitized = sanitizePlannerProse(args.compiledPrompt.prompt);
+  const prose = sanitized.text;
+
   // Haystack for the prose-dependent (high-priority) composers: everything
   // required, so directives only fill what the prose itself doesn't cover.
   const requiredAll = [requiredHead, semantic, cultural, supportingText].filter(Boolean).join(" ");
-  const prose = args.compiledPrompt.prompt.trim();
   const proseHaystack = `${requiredAll} ${prose}`;
 
   const keyElements = composeKeyElementsDirective(vp, proseHaystack);
@@ -249,21 +423,36 @@ function compile(args: CompileArgs, mode: ModeContext): CompiledImagePrompt {
   const modifiers = composeModifierDirective(input, proseHaystack);
   const style = input.stylePrompt?.trim() ?? "";
 
-  const sections: Section[] = [
-    { id: "preamble + core mechanic", text: requiredHead, priority: "required" },
-    { id: "semantic referents", text: semantic, priority: "required" },
-    { id: "cultural references", text: cultural, priority: "required" },
-    { id: "supporting-text rule", text: supportingText, priority: "required" },
-    { id: "prose", text: prose, priority: "high", compressible: true },
-    { id: "keyVisualElements", text: keyElements, priority: "high", compressible: true },
-    { id: "composition", text: composition, priority: "high" },
-    { id: "modifier directives", text: modifiers, priority: "medium", compressible: true },
-    { id: "style", text: style, priority: "medium", compressible: true },
+  const rawSections: Section[] = [
+    { id: "mode_preamble", label: "Mode preamble (operational lead)", text: mode.preamble, priority: "required" },
+    { id: "required_clauses", label: "Required mode clauses", text: clauses, priority: "required" },
+    { id: "strategic_intent", label: "Strategic intent (goal + approach)", text: strategicIntent, priority: "required" },
+    { id: "semantic_referents", label: "Semantic referents", text: semantic, priority: "required" },
+    { id: "cultural_references", label: "Cultural references", text: cultural, priority: "required" },
+    { id: "supporting_text_rule", label: "Supporting-text rule", text: supportingText, priority: "required" },
+    { id: "prose", label: "LLM prose (sanitized)", text: prose, priority: "high", compressible: true },
+    { id: "key_visual_elements", label: "Key visual elements (gap-fill)", text: keyElements, priority: "high", compressible: true },
+    { id: "composition", label: "Composition", text: composition, priority: "high" },
+    { id: "modifier_directives", label: "Modifier directives", text: modifiers, priority: "medium", compressible: true },
+    { id: "style", label: "Style suffix", text: style, priority: "medium", compressible: true },
   ];
 
-  const finalPrompt = assembleSections(sections, notes);
+  // Final identity gate: resolve any residual {NAME}/{SUBJ}/… tokens the LLM
+  // echoed (e.g. from a semantic entity whose surfaceText is "{NAME}") BEFORE
+  // assembly, so neither the engine prompt nor the debug breakdown ever carries
+  // a raw template token.
+  const sections = rawSections.map((s) => ({ ...s, text: renderIdentityTokens(s.text, args.renderedSubject) }));
 
-  const out: CompiledImagePrompt = { prompt: finalPrompt, imagePrompt: finalPrompt };
+  const { prompt: finalPrompt, breakdown } = assembleSections(sections, notes);
+
+  const warnings = detectToneWarnings({ visualApproach, prose });
+
+  const out: CompiledImagePrompt = {
+    prompt: finalPrompt,
+    imagePrompt: finalPrompt,
+    promptBreakdown: breakdown,
+    diagnostics: { removedPlannerProseSentences: sanitized.removed, warnings },
+  };
 
   // Nano Banana 2 has no negative-prompt parameter; the validator already
   // forces negativePrompt empty, but never forward one even if present.

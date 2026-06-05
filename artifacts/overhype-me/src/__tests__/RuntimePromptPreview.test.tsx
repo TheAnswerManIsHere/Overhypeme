@@ -139,6 +139,76 @@ describe("RuntimePromptPreview", () => {
     fireEvent.click(screen.getByTestId("rpp-toggle-visual-plan"));
     expect(screen.getByTestId("rpp-visual-plan").textContent).toContain("sceneConcept");
   });
+
+  it("renders the per-component prompt breakdown when present", async () => {
+    const body = previewResponse({
+      compiledPrompt: {
+        prompt: "PROMPT TEXT",
+        imagePrompt: "COMPILED IMAGE PROMPT TEXT",
+        negativePrompt: "",
+        promptBreakdown: [
+          { id: "visual_goal", label: "Visual goal", priority: "required", status: "included", text: "Make it legendary", rawText: "Make it legendary" },
+          { id: "style", label: "Style suffix", priority: "medium", status: "empty", text: "", rawText: "" },
+        ],
+      },
+    });
+    installFetch({ previewBody: body });
+    render(<RuntimePromptPreview factId={42} />);
+    expand();
+    fireEvent.click(screen.getByTestId("rpp-generate"));
+    await waitFor(() => expect(screen.getByTestId("rpp-breakdown")).toBeTruthy());
+
+    // Components render with their labels + content; empty ones are marked.
+    expect(screen.getByTestId("rpp-breakdown-section-visual_goal").textContent).toContain("Make it legendary");
+    expect(screen.getByTestId("rpp-breakdown-section-style").textContent).toMatch(/no content/i);
+  });
+
+  it("surfaces compiler diagnostics: removed prose clauses + tone warning", async () => {
+    const body = previewResponse({
+      compiledPrompt: {
+        prompt: "PROMPT TEXT",
+        imagePrompt: "COMPILED IMAGE PROMPT TEXT",
+        negativePrompt: "",
+        diagnostics: {
+          removedPlannerProseSentences: [
+            { sentence: "Ensure Superman's recognizable face is preserved.", reason: "identity-preservation-owned-by-compiler" },
+          ],
+          warnings: [
+            { code: "possible-tone-split-between-approach-and-prose", severity: "warning", message: "Approach is serious while prose is playful." },
+          ],
+        },
+      },
+    });
+    installFetch({ previewBody: body });
+    render(<RuntimePromptPreview factId={42} />);
+    expand();
+    fireEvent.click(screen.getByTestId("rpp-generate"));
+    await waitFor(() => expect(screen.getByTestId("rpp-diagnostics")).toBeTruthy());
+
+    expect(screen.getByTestId("rpp-tone-warning").textContent).toMatch(/serious while prose is playful/i);
+    expect(screen.getByTestId("rpp-removed-clauses").textContent).toContain("recognizable face is preserved");
+    expect(screen.getByTestId("rpp-removed-clauses").textContent).toMatch(/identity preservation/i);
+  });
+
+  it("persists the result to localStorage and restores it on remount (no recompute)", async () => {
+    localStorage.clear();
+    const { unmount } = render(<RuntimePromptPreview factId={99} />);
+    expand();
+    fireEvent.click(screen.getByTestId("rpp-generate"));
+    await waitFor(() => expect(screen.getByTestId("rpp-compiled-prompt")).toBeTruthy());
+
+    // Saved under the per-fact key.
+    await waitFor(() => expect(localStorage.getItem("overhype:rpp:v1:99")).toBeTruthy());
+
+    unmount();
+    calls = [];
+    // Fresh mount: the prior result is restored WITHOUT calling /preview again.
+    render(<RuntimePromptPreview factId={99} />);
+    fireEvent.click(screen.getByText(/Runtime Compiled Prompt Preview/i));
+    await waitFor(() => expect(screen.getByTestId("rpp-compiled-prompt")).toBeTruthy());
+    expect(screen.getByTestId("rpp-compiled-prompt").textContent).toContain("COMPILED IMAGE PROMPT TEXT");
+    expect(calls.some((c) => c.url.includes("/api/admin/image-prompt/preview"))).toBe(false);
+  });
 });
 
 // ── Relabeled preview-only summary ───────────────────────────────────────────

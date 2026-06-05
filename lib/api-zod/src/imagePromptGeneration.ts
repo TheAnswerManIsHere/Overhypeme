@@ -393,8 +393,6 @@ export type ImagePromptValidationResult =
 
 const HUMAN_FACE_PRESERVATION_RE = /(preserve|maintain|keep)\s+(the\s+)?(reference\s+)?(person'?s\s+)?face|face\s+(must|should)\s+remain\s+recognizable|recognizable\s+face/i;
 const T2I_LIKENESS_CLAIM_RE = /preserve\s+.*?face|recognizable\s+face|reference\s+person|facial\s+likeness|reference\s+image\s+as\s+(the\s+)?(person'?s\s+)?facial/i;
-const NONHUMAN_VISUAL_IDENTITY_RE = /(visual\s+identity|recognizable\s+(?:visual\s+)?identity|preserve.*?subject'?s\s+(?:recognizable|visual|markings|color|shape))/i;
-const NONHUMAN_NO_HUMAN_RE = /(do\s+not|don'?t|never)\s+(replace|transform|turn)\s+(the\s+)?(uploaded\s+|reference\s+)?subject\s+(into|with)\s+a\s+human/i;
 const PHYSIQUE_PRESERVE_RE = /preserv\w*\s+(the\s+)?(reference\s+)?(person'?s\s+|subject'?s\s+)?(body|physique|build|frame)/i;
 
 function lowercaseSet(arr: readonly string[]): Set<string> {
@@ -498,31 +496,16 @@ export function validateImagePromptPlan(
       correctableHint: `When allowSupportingText is false, supportingTextElements MUST be an empty array.`,
     };
   }
-  // 8. Per-mode prompt regex
-  if (expectations.subjectRenderMode === "human_identity_i2i" && expectations.preserveHumanFace) {
-    if (!HUMAN_FACE_PRESERVATION_RE.test(cp.prompt)) {
-      return {
-        ok: false,
-        error: `human_identity_i2i compiledPrompt.prompt is missing explicit face-preservation language`,
-        correctableHint: `When subjectRenderMode is human_identity_i2i and preserveHumanFace is true, the compiledPrompt.prompt MUST contain explicit face-preservation language (e.g. "preserve the reference person's face" or "recognizable face").`,
-      };
-    }
-  }
+  // 8. Per-mode prompt regex.
+  //
+  // Identity ownership: the deterministic compiler injects the mode preamble's
+  // identity language itself (human face preservation; non-human visual-identity
+  // + "do not replace with a human"), so the LLM prose is NO LONGER REQUIRED to
+  // author it — the generator is instructed not to, and the compiler strips any
+  // that leaks. We still ENFORCE the FORBIDS below, which catch genuinely wrong
+  // claims (a non-human subject claiming human facial likeness; a t2i render
+  // claiming to preserve a reference face) that the compiler can't silently fix.
   if (expectations.subjectRenderMode === "nonhuman_subject_i2i") {
-    if (!NONHUMAN_VISUAL_IDENTITY_RE.test(cp.prompt)) {
-      return {
-        ok: false,
-        error: `nonhuman_subject_i2i compiledPrompt.prompt is missing visual-identity preservation language`,
-        correctableHint: `The compiledPrompt.prompt MUST describe preserving the uploaded subject's recognizable visual identity (color, markings, shape).`,
-      };
-    }
-    if (!NONHUMAN_NO_HUMAN_RE.test(cp.prompt)) {
-      return {
-        ok: false,
-        error: `nonhuman_subject_i2i compiledPrompt.prompt is missing "do not replace the subject with a human" instruction`,
-        correctableHint: `Add an explicit instruction not to replace or transform the uploaded subject into a human.`,
-      };
-    }
     if (HUMAN_FACE_PRESERVATION_RE.test(cp.prompt)) {
       return {
         ok: false,

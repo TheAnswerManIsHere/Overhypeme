@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { Beaker, ChevronDown, ChevronRight, Copy, Check, RefreshCw, AlertTriangle } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { Beaker, ChevronDown, ChevronRight, Copy, Check, RefreshCw, AlertTriangle, Layers } from "lucide-react";
 
 /**
  * Runtime Compiled Prompt Preview (Phase 2C).
@@ -38,12 +38,41 @@ interface LookStyle {
   label: string;
 }
 
+type PromptSectionStatus = "included" | "compressed" | "dropped" | "deduped" | "empty";
+
+interface PromptSection {
+  id: string;
+  label: string;
+  priority: "required" | "high" | "medium";
+  status: PromptSectionStatus;
+  text: string;
+  rawText: string;
+}
+
+interface RemovedProseSentence {
+  sentence: string;
+  reason: string;
+}
+
+interface PromptWarning {
+  code: string;
+  message: string;
+  severity: "info" | "warning";
+}
+
+interface CompiledPromptDiagnostics {
+  removedPlannerProseSentences?: RemovedProseSentence[];
+  warnings?: PromptWarning[];
+}
+
 interface CompiledPrompt {
   prompt: string;
   imagePrompt?: string;
   negativePrompt?: string;
   engineNotes?: string;
   referenceImageUrl?: string;
+  promptBreakdown?: PromptSection[];
+  diagnostics?: CompiledPromptDiagnostics;
 }
 
 interface PreviewResponse {
@@ -84,6 +113,61 @@ const VISUAL_PLAN_KEYS = [
   "debugNotes",
 ];
 
+// Per-section status → label + Tailwind classes for the breakdown chips.
+const STATUS_META: Record<PromptSectionStatus, { label: string; cls: string }> = {
+  included: { label: "included", cls: "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400" },
+  compressed: { label: "compressed", cls: "bg-amber-500/15 text-amber-600 dark:text-amber-400" },
+  dropped: { label: "dropped (over budget)", cls: "bg-destructive/15 text-destructive" },
+  deduped: { label: "deduped (already present)", cls: "bg-muted text-muted-foreground" },
+  empty: { label: "empty", cls: "bg-muted text-muted-foreground" },
+};
+
+const PRIORITY_CLS: Record<PromptSection["priority"], string> = {
+  required: "bg-primary/15 text-primary",
+  high: "bg-blue-500/15 text-blue-600 dark:text-blue-400",
+  medium: "bg-muted text-muted-foreground",
+};
+
+// Human labels for the reasons a planner-prose clause was stripped.
+const REMOVAL_REASON_LABEL: Record<string, string> = {
+  "identity-preservation-owned-by-compiler": "identity preservation (compiler owns this)",
+  "reference-image-owned-by-compiler": "reference-image / mode language (compiler owns this)",
+  "token-interpretation-owned-by-compiler": "token interpretation (compiler owns this)",
+  "text-policy-owned-by-compiler": "text/logo policy (compiler owns this)",
+  "empty-or-duplicate": "empty / duplicate",
+};
+
+// ── localStorage persistence (survives page reload without recomputing) ──────
+
+const STORAGE_PREFIX = "overhype:rpp:v1:";
+const storageKey = (factId: number) => `${STORAGE_PREFIX}${factId}`;
+
+interface PersistedControls {
+  subjectRenderMode: SubjectRenderMode;
+  sourceSubjectKind: SourceSubjectKind;
+  subjectDescription: string;
+  lookStyleId: string;
+  fallbackSubjectGender: FallbackGender;
+  preservePhysique: boolean;
+  aspectRatio: AspectRatio;
+  negativeSpacePreference: NegativeSpacePreference;
+  contentMode: ContentMode;
+}
+
+interface PersistedState {
+  result: PreviewResponse | null;
+  controls: PersistedControls;
+}
+
+function loadPersisted(factId: number): PersistedState | null {
+  try {
+    const raw = localStorage.getItem(storageKey(factId));
+    return raw ? (JSON.parse(raw) as PersistedState) : null;
+  } catch {
+    return null;
+  }
+}
+
 export function RuntimePromptPreview({ factId }: { factId: number }) {
   const [expanded, setExpanded] = useState(false);
   const [lookStyles, setLookStyles] = useState<LookStyle[]>([]);
@@ -103,7 +187,12 @@ export function RuntimePromptPreview({ factId }: { factId: number }) {
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<PreviewResponse | null>(null);
   const [showVisualPlan, setShowVisualPlan] = useState(false);
+  const [showBreakdown, setShowBreakdown] = useState(true);
   const [copied, setCopied] = useState(false);
+
+  // Skip the very first save pass after a (re)hydration so restored data isn't
+  // immediately clobbered by the current (pre-restore) state in the same commit.
+  const skipNextSaveRef = useRef(false);
 
   useEffect(() => {
     if (!expanded) return;
@@ -112,6 +201,66 @@ export function RuntimePromptPreview({ factId }: { factId: number }) {
       .then((rows) => setLookStyles(Array.isArray(rows) ? rows : []))
       .catch(() => setLookStyles([]));
   }, [expanded]);
+
+  // Restore (or reset to defaults) whenever the selected fact changes, so a
+  // page reload — or switching back to a fact — shows the last preview without
+  // recomputing it.
+  useEffect(() => {
+    const saved = loadPersisted(factId);
+    const c = saved?.controls;
+    setSubjectRenderMode(c?.subjectRenderMode ?? "human_identity_i2i");
+    setSourceSubjectKind(c?.sourceSubjectKind ?? "human_face");
+    setSubjectDescription(c?.subjectDescription ?? "");
+    setLookStyleId(c?.lookStyleId ?? "");
+    setFallbackSubjectGender(c?.fallbackSubjectGender ?? "neutral");
+    setPreservePhysique(c?.preservePhysique ?? false);
+    setAspectRatio(c?.aspectRatio ?? "portrait");
+    setNegativeSpacePreference(c?.negativeSpacePreference ?? "auto");
+    setContentMode(c?.contentMode ?? "sfw");
+    setResult(saved?.result ?? null);
+    setError(null);
+    skipNextSaveRef.current = true;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [factId]);
+
+  // Persist controls + the last result per fact.
+  useEffect(() => {
+    if (skipNextSaveRef.current) {
+      skipNextSaveRef.current = false;
+      return;
+    }
+    try {
+      const payload: PersistedState = {
+        result,
+        controls: {
+          subjectRenderMode,
+          sourceSubjectKind,
+          subjectDescription,
+          lookStyleId,
+          fallbackSubjectGender,
+          preservePhysique,
+          aspectRatio,
+          negativeSpacePreference,
+          contentMode,
+        },
+      };
+      localStorage.setItem(storageKey(factId), JSON.stringify(payload));
+    } catch {
+      /* storage full / unavailable — ignore */
+    }
+  }, [
+    factId,
+    result,
+    subjectRenderMode,
+    sourceSubjectKind,
+    subjectDescription,
+    lookStyleId,
+    fallbackSubjectGender,
+    preservePhysique,
+    aspectRatio,
+    negativeSpacePreference,
+    contentMode,
+  ]);
 
   const isI2i = subjectRenderMode !== "t2i_fallback";
   const missingFallbackGender = subjectRenderMode === "t2i_fallback" && !fallbackSubjectGender;
@@ -417,6 +566,103 @@ export function RuntimePromptPreview({ factId }: { factId: number }) {
                   {promptText}
                 </pre>
               </div>
+
+              {/* Prompt components — how the final prompt was assembled */}
+              {result.compiledPrompt.promptBreakdown && result.compiledPrompt.promptBreakdown.length > 0 && (
+                <div data-testid="rpp-breakdown">
+                  <button
+                    type="button"
+                    onClick={() => setShowBreakdown((v) => !v)}
+                    className="flex items-center gap-1 text-[10px] font-semibold text-muted-foreground uppercase tracking-wide"
+                    data-testid="rpp-toggle-breakdown"
+                  >
+                    {showBreakdown ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
+                    <Layers className="w-3 h-3" />
+                    Prompt components ({result.compiledPrompt.promptBreakdown.length})
+                  </button>
+                  {showBreakdown && (
+                    <div className="mt-1.5 space-y-1.5">
+                      <p className="text-[10px] text-muted-foreground italic leading-snug">
+                        The deterministic compiler concatenates these components (in order) to build the
+                        final prompt above. Each shows whether it was included, compressed to fit the
+                        engine budget, de-duplicated against earlier text, or empty for this render.
+                      </p>
+                      {result.compiledPrompt.promptBreakdown.map((s, i) => {
+                        const meta = STATUS_META[s.status];
+                        const body = s.status === "included" || s.status === "compressed" ? s.text : s.rawText;
+                        const muted = s.status === "deduped" || s.status === "empty" || s.status === "dropped";
+                        return (
+                          <div
+                            key={`${s.id}-${i}`}
+                            className="rounded-sm border border-border bg-background p-2"
+                            data-testid={`rpp-breakdown-section-${s.id}`}
+                          >
+                            <div className="flex flex-wrap items-center gap-1.5 mb-1">
+                              <span className="text-[11px] font-semibold text-foreground">{s.label}</span>
+                              <span className={`text-[9px] font-semibold uppercase tracking-wide px-1 py-0.5 rounded-sm ${PRIORITY_CLS[s.priority]}`}>
+                                {s.priority}
+                              </span>
+                              <span className={`text-[9px] font-semibold uppercase tracking-wide px-1 py-0.5 rounded-sm ${meta.cls}`}>
+                                {meta.label}
+                              </span>
+                            </div>
+                            {body ? (
+                              <p className={`whitespace-pre-wrap font-mono text-[10px] leading-snug ${muted ? "text-muted-foreground line-through decoration-muted-foreground/40" : "text-foreground"}`}>
+                                {body}
+                              </p>
+                            ) : (
+                              <p className="text-[10px] text-muted-foreground italic">— no content for this render —</p>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Compiler diagnostics — stripped prose clauses + tone warnings */}
+              {result.compiledPrompt.diagnostics &&
+                ((result.compiledPrompt.diagnostics.warnings?.length ?? 0) > 0 ||
+                  (result.compiledPrompt.diagnostics.removedPlannerProseSentences?.length ?? 0) > 0) && (
+                  <div className="space-y-2" data-testid="rpp-diagnostics">
+                    {result.compiledPrompt.diagnostics.warnings?.map((w, i) => (
+                      <div
+                        key={`${w.code}-${i}`}
+                        className="flex items-start gap-2 rounded-sm border border-amber-500/40 bg-amber-500/10 px-3 py-2"
+                        data-testid="rpp-tone-warning"
+                      >
+                        <AlertTriangle className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+                        <p className="text-[11px] text-amber-700 dark:text-amber-300 leading-snug">{w.message}</p>
+                      </div>
+                    ))}
+
+                    {(result.compiledPrompt.diagnostics.removedPlannerProseSentences?.length ?? 0) > 0 && (
+                      <div className="rounded-sm border border-border bg-background p-2" data-testid="rpp-removed-clauses">
+                        <span className={labelCls}>
+                          Prompt guard removed {result.compiledPrompt.diagnostics.removedPlannerProseSentences!.length} planner-prose
+                          clause(s)
+                        </span>
+                        <p className="text-[10px] text-muted-foreground italic mb-1.5 leading-snug">
+                          These were dropped from the LLM prose because the compiler emits them itself — so the engine prompt
+                          can&apos;t carry a competing or duplicate instruction. Check here for false positives.
+                        </p>
+                        <ul className="space-y-1">
+                          {result.compiledPrompt.diagnostics.removedPlannerProseSentences!.map((r, i) => (
+                            <li key={i} className="text-[10px] leading-snug">
+                              <span className="font-mono text-muted-foreground line-through decoration-muted-foreground/40">
+                                {r.sentence}
+                              </span>
+                              <span className="ml-1 text-[9px] font-semibold uppercase tracking-wide text-muted-foreground">
+                                — {REMOVAL_REASON_LABEL[r.reason] ?? r.reason}
+                              </span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                  </div>
+                )}
 
               {result.compiledPrompt.negativePrompt && (
                 <div>

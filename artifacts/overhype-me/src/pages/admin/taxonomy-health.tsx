@@ -6,12 +6,14 @@ import {
   Loader2, AlertTriangle, Activity, RefreshCw, ExternalLink, Wrench, Search, ListChecks,
   CheckCircle2, XCircle, Clock, Info, X,
 } from "lucide-react";
-import type {
-  FactTaxonomyHealth,
-  TaxonomyHealthSummaryCounts,
-  TaxonomyHealthStatus,
-  TaxonomyHealthAction,
-  ActionOutcome,
+import {
+  currentTaxonomyVersions,
+  enrichmentVersionStatusFromStored,
+  type FactTaxonomyHealth,
+  type TaxonomyHealthSummaryCounts,
+  type TaxonomyHealthStatus,
+  type TaxonomyHealthAction,
+  type ActionOutcome,
 } from "@workspace/api-zod";
 import { CARD_META, type FilterStatus, type CardMeta, type CardTone } from "./taxonomyHealthCards";
 import {
@@ -37,6 +39,8 @@ interface ListResponse {
   limit: number;
   offset: number;
 }
+
+const CURRENT_VERSIONS = currentTaxonomyVersions();
 
 const TONE_CLASS: Record<CardTone, string> = {
   green:   "border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
@@ -70,6 +74,32 @@ function HealthBadge({ s }: { s: TaxonomyHealthStatus }) {
   return <span className={`inline-block px-1.5 py-0.5 rounded-sm text-[10px] uppercase tracking-wide ${color}`}>{label}</span>;
 }
 
+/**
+ * Compact stored→current version diff for a fact's enrichment, shown in the
+ * Health cell when the row is version-stale. Uses the shared comparison so it
+ * matches the evaluator + the per-fact enrichment panel.
+ */
+function VersionDiff({ summary }: { summary: FactTaxonomyHealth["summary"] }) {
+  const status = enrichmentVersionStatusFromStored({
+    classificationPromptVersion: summary.classificationPromptVersion,
+    previewPromptVersion: summary.visualPreviewVersion,
+  });
+  const stale = status.fields.filter((f) => f.stale);
+  if (stale.length === 0) return null;
+  return (
+    <div className="flex flex-wrap gap-x-2 gap-y-0.5" data-testid="version-diff">
+      {stale.map((f) => (
+        <span key={f.field} className="text-[10px] text-amber-700 dark:text-amber-300">
+          {f.label === "Taxonomy enrichment" ? "enrich" : "plan"}{" "}
+          <span className="font-mono">{f.missing ? "—" : f.stored}</span>
+          <span aria-hidden>→</span>
+          <span className="font-mono font-semibold">{f.current}</span>
+        </span>
+      ))}
+    </div>
+  );
+}
+
 function OverallBadge({ s }: { s: FactTaxonomyHealth["overallStatus"] }) {
   const color =
     s === "healthy"
@@ -84,9 +114,20 @@ function OverallBadge({ s }: { s: FactTaxonomyHealth["overallStatus"] }) {
 function ActionIndicator({ state, outcome }: { state: UiOpState; outcome: ActionOutcome | null }) {
   switch (state) {
     case "posting":
-    case "processing":
       return (
         <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+          <Loader2 className="w-3 h-3 animate-spin" /> Sending…
+        </span>
+      );
+    case "queued":
+      return (
+        <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+          <Loader2 className="w-3 h-3 animate-spin" /> Queued…
+        </span>
+      );
+    case "processing":
+      return (
+        <span className="inline-flex items-center gap-1 text-xs text-blue-600 dark:text-blue-400">
           <Loader2 className="w-3 h-3 animate-spin" /> Working…
         </span>
       );
@@ -255,20 +296,23 @@ export default function TaxonomyHealth() {
     [actions],
   );
 
-  const bannerText = useMemo(() => {
+  // Live "X of N done" tally + per-state breakdown, recomputed on every poll.
+  const banner = useMemo(() => {
     const op = actions.lastOp;
     if (!op) return null;
     const c = actions.counts(op.scope);
     if (!c) return null;
-    if (op.posting) return `${ACTION_LABEL[op.action]}: starting…`;
+    const label = ACTION_LABEL[op.action];
+    if (op.posting) return { text: `${label}: sending…`, done: false };
+    if (c.requested === 0) return { text: `${label}: no matching facts.`, done: true };
     const segs: string[] = [];
-    if (c.done > 0) segs.push(`${c.done} done`);
+    if (c.running > 0) segs.push(`${c.running} in progress`);
     if (c.failed > 0) segs.push(`${c.failed} failed`);
     if (c.skipped > 0) segs.push(`${c.skipped} skipped`);
-    if (c.running > 0) segs.push(`${c.running} running`);
     if (c.stillRunning > 0) segs.push(`${c.stillRunning} still running`);
-    if (segs.length === 0) segs.push("no matching facts");
-    return `${ACTION_LABEL[op.action]}: ${segs.join(" · ")}`;
+    const detail = segs.length > 0 ? ` · ${segs.join(" · ")}` : "";
+    const allDone = c.running === 0 && c.stillRunning === 0;
+    return { text: `${label}: ${c.done} of ${c.requested} done${detail}`, done: allDone };
   }, [actions]);
 
   const isBulkMode = filter !== "any";
@@ -276,12 +320,18 @@ export default function TaxonomyHealth() {
   return (
     <AdminLayout title="Taxonomy Health">
       <div className="space-y-4">
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           <Activity className="w-5 h-5 text-primary" />
           <h2 className="text-lg font-bold">Taxonomy Health</h2>
           <Button variant="secondary" size="sm" onClick={() => { void loadSummary(); void loadList(); }} disabled={loading}>
             <RefreshCw className="w-3 h-3 mr-1" /> Refresh
           </Button>
+          <span className="text-[11px] text-muted-foreground ml-auto" data-testid="current-versions">
+            Current versions — taxonomy{" "}
+            <span className="font-mono text-foreground">{CURRENT_VERSIONS.classificationPromptVersion}</span> · visual plan{" "}
+            <span className="font-mono text-foreground">{CURRENT_VERSIONS.previewPromptVersion}</span> · strategy{" "}
+            <span className="font-mono text-foreground">{CURRENT_VERSIONS.visualStrategyVersion}</span>
+          </span>
         </div>
 
         {/* Summary cards */}
@@ -337,10 +387,15 @@ export default function TaxonomyHealth() {
           ))}
         </div>
 
-        {/* Last-action banner */}
-        {bannerText && !actions.bannerDismissed && (
+        {/* Last-action banner — live total progress */}
+        {banner && !actions.bannerDismissed && (
           <div className="rounded-sm border border-border bg-muted/30 p-2 text-xs text-foreground flex items-start justify-between gap-2">
-            <span className="whitespace-pre-wrap">{bannerText}</span>
+            <span className="inline-flex items-center gap-1.5">
+              {banner.done
+                ? <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                : <Loader2 className="w-3.5 h-3.5 animate-spin shrink-0" />}
+              <span className="whitespace-pre-wrap">{banner.text}</span>
+            </span>
             <button type="button" onClick={actions.dismissBanner} className="text-muted-foreground hover:text-foreground shrink-0" aria-label="Dismiss">
               <X className="w-3.5 h-3.5" />
             </button>
@@ -390,7 +445,9 @@ export default function TaxonomyHealth() {
               )}
               {!loading &&
                 rows.map((row) => {
-                  const rowBusy = actions.busy(`row:${row.factId}`);
+                  // Busy if this fact has in-flight work from ANY operation —
+                  // including a bulk run — so we never double-queue it.
+                  const rowBusy = actions.factBusy(row.factId);
                   const { state, outcome } = actions.rowState(row.factId);
                   return (
                   <tr key={row.factId} className="border-t border-border">
@@ -415,6 +472,11 @@ export default function TaxonomyHealth() {
                           .slice(0, 4)
                           .map((s) => <HealthBadge key={s} s={s} />)}
                       </div>
+                      {!row.health.statuses.includes("missing_enrichment") &&
+                        !row.health.reviewFlags.invalidEnrichment &&
+                        (row.health.reviewFlags.staleEnrichmentVersion || row.health.reviewFlags.stalePreview) && (
+                          <VersionDiff summary={row.health.summary} />
+                        )}
                       {row.health.issues.length > 0 && (
                         <p className="text-[10px] text-muted-foreground">{row.health.issues[0]!.message}</p>
                       )}
