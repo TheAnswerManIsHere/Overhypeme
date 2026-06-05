@@ -1,7 +1,19 @@
 # Compiled visual prompt — duplication analysis & options
 
-**Status:** investigation / second-opinion brief. Nothing in the prompt
-assembly has been changed as a result of this analysis — the only shipped
+> **Update (follow-up):** the deterministic guards from the second-opinion plan
+> are now implemented — planner-prose sanitation (strips compiler-owned identity
+> / reference-image / token / text-policy clauses), goal+approach compacted into
+> one **Strategic intent** section, and tone-split + removed-clause diagnostics
+> surfaced in the preview. The one part **not** shipped is making the LLM stop
+> *authoring* identity language at the source: that needs `validateImagePromptPlan`
+> rule 8 (which *requires* face-preservation in the prose for i2i) to be relaxed
+> in tandem, which is a shared-contract change awaiting a decision (Path A vs B,
+> see below). Today the boundary is enforced by the compiler stripping the prose
+> after validation.
+
+**Status:** investigation / second-opinion brief. The original analysis below
+predates that follow-up; at the time of writing nothing in the prompt assembly
+had been changed — the only shipped
 changes are *visibility* (the component breakdown), the `{NAME}` token gate,
 and `localStorage` persistence (PR #101). This doc exists so the question
 "is the Visual goal / Visual approach / LLM-prose overlap actually a problem,

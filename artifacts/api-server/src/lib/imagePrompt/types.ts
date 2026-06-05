@@ -50,6 +50,41 @@ export interface PromptSection {
   rawText: string;
 }
 
+/**
+ * Why a planner-prose sentence was stripped before assembly. Each category is
+ * a class of clause the deterministic compiler OWNS (and emits itself), so the
+ * LLM prose is not allowed to also author it and create a competing/duplicate
+ * instruction in the final engine prompt.
+ */
+export type RemovedProseReason =
+  | "identity-preservation-owned-by-compiler"
+  | "reference-image-owned-by-compiler"
+  | "token-interpretation-owned-by-compiler"
+  | "text-policy-owned-by-compiler"
+  | "empty-or-duplicate";
+
+export interface RemovedProseSentence {
+  sentence: string;
+  reason: RemovedProseReason;
+}
+
+export interface PromptWarning {
+  code: string;
+  message: string;
+  severity: "info" | "warning";
+}
+
+/**
+ * Non-fatal compiler diagnostics surfaced in the admin prompt preview: which
+ * planner-prose clauses the compiler stripped (and why), and any soft warnings
+ * (e.g. a tone split between the visual approach and the prose). Debug-only;
+ * does not affect the engine prompt.
+ */
+export interface CompiledPromptDiagnostics {
+  removedPlannerProseSentences: RemovedProseSentence[];
+  warnings: PromptWarning[];
+}
+
 export interface CompiledImagePrompt {
   /** Final prompt text passed to the image engine. */
   prompt: string;
@@ -66,6 +101,8 @@ export interface CompiledImagePrompt {
    * (the engine reads `imagePrompt`); surfaced in the admin prompt preview.
    */
   promptBreakdown?: PromptSection[];
+  /** Non-fatal compiler diagnostics (stripped prose clauses, tone warnings). */
+  diagnostics?: CompiledPromptDiagnostics;
 }
 
 export type { ImagePromptGenerationInput, ImagePromptTargetEngine, GenerationMode };

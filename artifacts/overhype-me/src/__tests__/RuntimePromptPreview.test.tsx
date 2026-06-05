@@ -163,6 +163,33 @@ describe("RuntimePromptPreview", () => {
     expect(screen.getByTestId("rpp-breakdown-section-style").textContent).toMatch(/no content/i);
   });
 
+  it("surfaces compiler diagnostics: removed prose clauses + tone warning", async () => {
+    const body = previewResponse({
+      compiledPrompt: {
+        prompt: "PROMPT TEXT",
+        imagePrompt: "COMPILED IMAGE PROMPT TEXT",
+        negativePrompt: "",
+        diagnostics: {
+          removedPlannerProseSentences: [
+            { sentence: "Ensure Superman's recognizable face is preserved.", reason: "identity-preservation-owned-by-compiler" },
+          ],
+          warnings: [
+            { code: "possible-tone-split-between-approach-and-prose", severity: "warning", message: "Approach is serious while prose is playful." },
+          ],
+        },
+      },
+    });
+    installFetch({ previewBody: body });
+    render(<RuntimePromptPreview factId={42} />);
+    expand();
+    fireEvent.click(screen.getByTestId("rpp-generate"));
+    await waitFor(() => expect(screen.getByTestId("rpp-diagnostics")).toBeTruthy());
+
+    expect(screen.getByTestId("rpp-tone-warning").textContent).toMatch(/serious while prose is playful/i);
+    expect(screen.getByTestId("rpp-removed-clauses").textContent).toContain("recognizable face is preserved");
+    expect(screen.getByTestId("rpp-removed-clauses").textContent).toMatch(/identity preservation/i);
+  });
+
   it("persists the result to localStorage and restores it on remount (no recompute)", async () => {
     localStorage.clear();
     const { unmount } = render(<RuntimePromptPreview factId={99} />);
