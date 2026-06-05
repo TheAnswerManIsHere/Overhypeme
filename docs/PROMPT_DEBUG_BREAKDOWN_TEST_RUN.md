@@ -177,18 +177,37 @@ scene must show the name, never the token).
 
 ---
 
-## Deliberately NOT shipped (pending a product decision)
+## Identity ownership — now a hard boundary (Path B, decided)
 
-- **The "LLM must never author identity-preservation language in the prose"
-  generator rule, as a *hard boundary*.** The plan's strongest form would tell
-  the planner to omit face/identity language from `compiledPrompt.prompt`
-  entirely — but `validateImagePromptPlan` (in `@workspace/api-zod`) currently
-  **requires** the prose to *contain* face-preservation language for i2i renders
-  (rule 8). Telling the LLM to omit it would fail validation and thrash renders.
-  This round therefore enforces the boundary **deterministically in the
-  compiler** (the sanitizer strips it after validation) rather than at the
-  generator. Flipping the generator contract + relaxing the validator is a
-  shared-contract change held for David's call.
+David chose to make the compiler the **sole** owner of identity language
+(Path B), so this is now enforced at the source, not just stripped after:
+
+- **Validator relaxed:** `validateImagePromptPlan` (in `@workspace/api-zod`) no
+  longer **requires** the LLM prose to *contain* face-preservation
+  (human i2i) or visual-identity / "do not replace with a human" (non-human
+  i2i) language — the compiler's mode preamble injects all of it
+  deterministically. The protective **forbids stay**: a non-human prose still
+  may NOT claim human facial likeness, and a t2i prose still may NOT claim
+  reference-face preservation (those are real errors the compiler can't fix).
+- **Generator flipped:** `buildImagePromptUserMessage` now instructs the planner
+  that `compiledPrompt.prompt` must author ONLY the concrete scene — no
+  identity/reference/token/text-policy language.
+- **Compiler sanitizer stays** as the safety net for anything that still leaks.
+
+Verify the relaxation didn't break the contract:
+
+```bash
+node --import tsx/esm --test \
+  artifacts/api-server/src/__tests__/imagePromptGeneration.validate.test.ts \
+  artifacts/api-server/src/__tests__/imagePromptUserMessage.test.ts
+```
+
+Pass criterion: **37 tests pass, 0 fail.** Note the renamed test "accepts human
+i2i prose WITHOUT face-preservation language (compiler owns identity now)" — the
+inverse of the old requirement.
+
+## Deliberately NOT shipped
+
 - **No broad semantic/fuzzy de-dupe** between Strategic intent and the prose.
   Repetition of the same concept at different altitudes is left intact by
   design; only the four compiler-owned categories are stripped.

@@ -192,11 +192,13 @@ describe("validateImagePromptPlan", () => {
     assert.equal(result.ok, true, result.ok ? "" : result.error);
   });
 
-  it("rejects human i2i without face-preservation language", () => {
+  it("accepts human i2i prose WITHOUT face-preservation language (compiler owns identity now)", () => {
+    // Identity ownership moved to the compiler preamble: the LLM prose is no
+    // longer required to author face-preservation, so a clean concrete scene
+    // validates fine.
     const plan = basePlan({ promptText: "A cinematic scene of David doing the impossible." });
     const result = validateImagePromptPlan(plan, baseExpectations);
-    assert.equal(result.ok, false);
-    if (!result.ok) assert.match(result.error, /face-preservation/);
+    assert.equal(result.ok, true, result.ok ? "" : result.error);
   });
 
   it("rejects t2i prompt that claims face preservation", () => {

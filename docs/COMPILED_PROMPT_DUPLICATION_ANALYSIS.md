@@ -4,12 +4,15 @@
 > are now implemented — planner-prose sanitation (strips compiler-owned identity
 > / reference-image / token / text-policy clauses), goal+approach compacted into
 > one **Strategic intent** section, and tone-split + removed-clause diagnostics
-> surfaced in the preview. The one part **not** shipped is making the LLM stop
-> *authoring* identity language at the source: that needs `validateImagePromptPlan`
-> rule 8 (which *requires* face-preservation in the prose for i2i) to be relaxed
-> in tandem, which is a shared-contract change awaiting a decision (Path A vs B,
-> see below). Today the boundary is enforced by the compiler stripping the prose
-> after validation.
+> surfaced in the preview.
+>
+> **Update 2:** David chose **Path B** — the identity boundary is now enforced at
+> the source. `validateImagePromptPlan` rule 8 was relaxed (the prose is no
+> longer *required* to carry identity language; the compiler preamble owns it),
+> and the generator instructs the LLM not to author identity / reference / token
+> / text-policy language in the prose. The protective forbids (a non-human can't
+> claim a human face; t2i can't claim a reference face) stay, and the compiler
+> sanitizer remains as a safety net.
 
 **Status:** investigation / second-opinion brief. The original analysis below
 predates that follow-up; at the time of writing nothing in the prompt assembly

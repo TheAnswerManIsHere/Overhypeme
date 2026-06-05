@@ -48,6 +48,116 @@ export type TaxonomyHealthRecommendedAction =
 
 export type TaxonomyHealthSeverity = "info" | "warning" | "error";
 
+// ─── Enrichment version staleness (shared with the per-fact UI) ─────────────
+//
+// The server evaluator (`evaluateFactTaxonomyHealth`) decides stale-or-not for
+// the Taxonomy Health page. The same decision needs to render on the per-fact
+// "Visual Taxonomy Enrichment" panel and as an explicit stored→current diff on
+// the health page. This pure helper is the single source of that comparison so
+// both surfaces agree with the evaluator (which flags classification-version
+// mismatch/absence as stale, and a missing/old visual-plan version as stale).
+
+import {
+  CLASSIFICATION_PROMPT_VERSION,
+  PREVIEW_PROMPT_VERSION,
+} from "./taxonomy";
+import { VISUAL_STRATEGY_VERSION } from "./visualPromptStrategies";
+
+export interface CurrentTaxonomyVersions {
+  classificationPromptVersion: string;
+  previewPromptVersion: string;
+  visualStrategyVersion: string;
+}
+
+/** The version constants the live pipeline currently produces. */
+export function currentTaxonomyVersions(): CurrentTaxonomyVersions {
+  return {
+    classificationPromptVersion: CLASSIFICATION_PROMPT_VERSION,
+    previewPromptVersion: PREVIEW_PROMPT_VERSION,
+    visualStrategyVersion: VISUAL_STRATEGY_VERSION,
+  };
+}
+
+export type EnrichmentVersionField = "classification" | "preview";
+
+export interface EnrichmentVersionDiscrepancy {
+  field: EnrichmentVersionField;
+  /** Human label for the surface this version gates. */
+  label: string;
+  /** The version stamped on the stored data (null = never generated / pre-versioning). */
+  stored: string | null;
+  /** The version the live pipeline produces now. */
+  current: string;
+  /** True when stored is absent OR differs from current. */
+  stale: boolean;
+  /** True when stored is absent (pre-versioned blob or not generated yet). */
+  missing: boolean;
+}
+
+export interface EnrichmentVersionStatus {
+  /** Either the enrichment or the visual plan is stale. */
+  isStale: boolean;
+  /** Classification (taxonomy enrichment) is stale or unversioned. */
+  enrichmentStale: boolean;
+  /** Visual plan is stale, unversioned, or not generated. */
+  previewStale: boolean;
+  fields: EnrichmentVersionDiscrepancy[];
+}
+
+/** Compare already-extracted stored versions against the current ones. */
+export function enrichmentVersionStatusFromStored(
+  stored: { classificationPromptVersion: string | null; previewPromptVersion: string | null },
+  current: CurrentTaxonomyVersions = currentTaxonomyVersions(),
+): EnrichmentVersionStatus {
+  const classification: EnrichmentVersionDiscrepancy = {
+    field: "classification",
+    label: "Taxonomy enrichment",
+    stored: stored.classificationPromptVersion,
+    current: current.classificationPromptVersion,
+    missing: stored.classificationPromptVersion == null,
+    stale:
+      stored.classificationPromptVersion == null ||
+      stored.classificationPromptVersion !== current.classificationPromptVersion,
+  };
+  const preview: EnrichmentVersionDiscrepancy = {
+    field: "preview",
+    label: "Visual plan",
+    stored: stored.previewPromptVersion,
+    current: current.previewPromptVersion,
+    missing: stored.previewPromptVersion == null,
+    stale:
+      stored.previewPromptVersion == null ||
+      stored.previewPromptVersion !== current.previewPromptVersion,
+  };
+  return {
+    enrichmentStale: classification.stale,
+    previewStale: preview.stale,
+    isStale: classification.stale || preview.stale,
+    fields: [classification, preview],
+  };
+}
+
+/** Compute version staleness directly from a (possibly partial) enrichment blob. */
+export function computeEnrichmentVersionStatus(
+  enrichment:
+    | {
+        classificationPromptVersion?: string | null;
+        visualPromptPreview?: { previewPromptVersion?: string | null } | null;
+      }
+    | null
+    | undefined,
+  current: CurrentTaxonomyVersions = currentTaxonomyVersions(),
+): EnrichmentVersionStatus {
+  return enrichmentVersionStatusFromStored(
+    {
+      classificationPromptVersion: enrichment?.classificationPromptVersion ?? null,
+      previewPromptVersion: enrichment?.visualPromptPreview?.previewPromptVersion ?? null,
+    },
+    current,
+  );
+}
+
+
 export interface TaxonomyHealthIssue {
   code: TaxonomyHealthStatus;
   severity: TaxonomyHealthSeverity;
