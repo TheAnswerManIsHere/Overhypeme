@@ -57,6 +57,28 @@ function cap(s: string): string {
 }
 
 /**
+ * Choose "a" or "an" so the indefinite article agrees with the word that
+ * follows it. English article agreement is decided by the *following* word, so
+ * once {NAME} is filled in, the article in front of it has to match the actual
+ * name: "a {NAME}" renders "an Alex" but "a David". Because the name varies per
+ * viewer, this can only be resolved at render time — the stored template keeps a
+ * plain "a"/"an". The original article's capitalization is preserved so a
+ * sentence-initial "A {NAME}" becomes "An Alex".
+ *
+ * Agreement is decided purely from the first letter (vowel a/e/i/o/u → "an").
+ * This is correct for the overwhelming majority of names; rare phonetic
+ * exceptions ("a Uma", "an Hugo") are not special-cased.
+ */
+function indefiniteArticle(original: string, nextWord: string): string {
+  const article = /^[aeiou]/i.test(nextWord) ? "an" : "a";
+  return /^[A-Z]/.test(original) ? cap(article) : article;
+}
+
+// Matches a standalone indefinite article ("a"/"an", any case) immediately
+// before a {NAME} token, capturing the whitespace between them.
+const ARTICLE_BEFORE_NAME_RE = /\b([Aa]n?)(\s+)\{NAME\}/g;
+
+/**
  * Resolve a stored pronouns value to a full PronounMap.
  *
  * Handles three formats:
@@ -135,11 +157,16 @@ export function renderFact(
 ): string {
   const p = resolveMap(pronouns);
   const isSingular = p.plurality === "singular";
+  const resolvedName = name || "___";
 
   return text
     // Name — when no name is set (cold visitor) we render an underscored
     // placeholder so the sentence still scans and signals "fill me in".
-    .replace(/\{NAME\}/g, name || "___")
+    // Fix indefinite-article agreement ("a {NAME}" → "an Alex") before filling
+    // the remaining {NAME} tokens.
+    .replace(ARTICLE_BEFORE_NAME_RE, (_m, art: string, sp: string) =>
+      indefiniteArticle(art, resolvedName) + sp + resolvedName)
+    .replace(/\{NAME\}/g, resolvedName)
 
     // Verb conjugation: {singular_form|plural_form}
     .replace(/\{([^|{}]+)\|([^|{}]+)\}/g, (_, singular, plural) =>
@@ -221,6 +248,10 @@ export function renderFactSegments(
   const PLACEHOLDER = "\u0000\u0001\u0000";
 
   const processed = text
+    // Fix indefinite-article agreement against the resolved name before swapping
+    // {NAME} for the placeholder (e.g. "a {NAME}" → "an " + placeholder).
+    .replace(ARTICLE_BEFORE_NAME_RE, (_m, art: string, sp: string) =>
+      indefiniteArticle(art, resolvedName) + sp + PLACEHOLDER)
     .replace(/\{NAME\}/g, PLACEHOLDER)
     .replace(/\{([^|{}]+)\|([^|{}]+)\}/g, (_, singular, plural) =>
       isSingular ? singular : plural

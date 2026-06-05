@@ -25,15 +25,26 @@ const TOKEN_MAP: Record<string, string> = {
   REFL: "themselves", Refl: "Themselves",
 };
 
+// Indefinite-article agreement: "a {NAME}" must render "an Alex" (canonical
+// name starts with a vowel). Mirrors indefiniteArticle in renderCanonical.ts.
+const ARTICLE_BEFORE_NAME_RE = /\b([Aa]n?)(\s+)\{NAME\}/g;
+function indefiniteArticle(original: string, nextWord: string): string {
+  const article = /^[aeiou]/i.test(nextWord) ? "an" : "a";
+  return /^[A-Z]/.test(original) ? article.charAt(0).toUpperCase() + article.slice(1) : article;
+}
+
 function renderCanonical(template: string): string {
-  return template.replace(/\{([^{}]+)\}/g, (_match, inner: string) => {
-    if (inner in TOKEN_MAP) return TOKEN_MAP[inner];
-    if (inner.includes("|")) {
-      const parts = inner.split("|");
-      return parts[parts.length - 1];
-    }
-    return _match;
-  });
+  return template
+    .replace(ARTICLE_BEFORE_NAME_RE, (_m, art: string, sp: string) =>
+      indefiniteArticle(art, TOKEN_MAP.NAME) + sp + "{NAME}")
+    .replace(/\{([^{}]+)\}/g, (_match, inner: string) => {
+      if (inner in TOKEN_MAP) return TOKEN_MAP[inner];
+      if (inner.includes("|")) {
+        const parts = inner.split("|");
+        return parts[parts.length - 1];
+      }
+      return _match;
+    });
 }
 
 // ---------- seed data ----------

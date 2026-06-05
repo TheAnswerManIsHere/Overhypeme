@@ -23,6 +23,31 @@ const TOKEN_MAP: Record<string, string> = {
   Refl: "Themselves",
 };
 
+// Matches a standalone indefinite article ("a"/"an", any case) immediately
+// before a {NAME} token, capturing the whitespace between them.
+const ARTICLE_BEFORE_NAME_RE = /\b([Aa]n?)(\s+)\{NAME\}/g;
+
+/**
+ * Choose "a" or "an" so the indefinite article agrees with the word that
+ * follows it. English article agreement is decided by the *following* word, so
+ * once {NAME} is filled in, the article in front of it has to match the actual
+ * name: "a {NAME}" renders "an Alex" but "a David". Because the name varies per
+ * viewer, this can only be resolved at render time — the stored template keeps a
+ * plain "a"/"an". The original article's capitalization is preserved so a
+ * sentence-initial "A {NAME}" becomes "An Alex".
+ *
+ * Agreement is decided purely from the first letter (vowel a/e/i/o/u → "an").
+ * This is correct for the overwhelming majority of names; rare phonetic
+ * exceptions ("a Uma", "an Hugo") are not special-cased.
+ */
+function indefiniteArticle(original: string, nextWord: string): string {
+  const article = /^[aeiou]/i.test(nextWord) ? "an" : "a";
+  if (/^[A-Z]/.test(original)) {
+    return article.charAt(0).toUpperCase() + article.slice(1);
+  }
+  return article;
+}
+
 /**
  * Renders a template to canonical plain English.
  * - {NAME} → "Alex"
@@ -34,16 +59,21 @@ const TOKEN_MAP: Record<string, string> = {
  * - {singular|plural} → plural form (right side)
  */
 export function renderCanonical(template: string): string {
-  return template.replace(/\{([^{}]+)\}/g, (_match, inner: string) => {
-    if (inner in TOKEN_MAP) {
-      return TOKEN_MAP[inner];
-    }
-    if (inner.includes("|")) {
-      const parts = inner.split("|");
-      return parts[parts.length - 1];
-    }
-    return _match;
-  });
+  return template
+    // Fix indefinite-article agreement ("a {NAME}" → "an Alex") before the
+    // token substitution fills {NAME} with the canonical name.
+    .replace(ARTICLE_BEFORE_NAME_RE, (_m, art: string, sp: string) =>
+      indefiniteArticle(art, CANONICAL_NAME) + sp + "{NAME}")
+    .replace(/\{([^{}]+)\}/g, (_match, inner: string) => {
+      if (inner in TOKEN_MAP) {
+        return TOKEN_MAP[inner];
+      }
+      if (inner.includes("|")) {
+        const parts = inner.split("|");
+        return parts[parts.length - 1];
+      }
+      return _match;
+    });
 }
 
 /**
@@ -98,14 +128,19 @@ export function renderPersonalized(template: string, name: string, pronouns: str
   const map = parsePronounMap(name, pronouns);
   const useSingular = !["they"].includes((pronouns ?? "they/them").toLowerCase().split("/")[0] ?? "they");
 
-  return template.replace(/\{([^{}]+)\}/g, (_match, inner: string) => {
-    if (inner in map) {
-      return map[inner];
-    }
-    if (inner.includes("|")) {
-      const parts = inner.split("|");
-      return useSingular ? (parts[0] ?? _match) : (parts[parts.length - 1] ?? _match);
-    }
-    return _match;
-  });
+  return template
+    // Fix indefinite-article agreement against the personalized name ("a {NAME}"
+    // → "an Alex" / "a David") before the token substitution fills {NAME}.
+    .replace(ARTICLE_BEFORE_NAME_RE, (_m, art: string, sp: string) =>
+      indefiniteArticle(art, name) + sp + "{NAME}")
+    .replace(/\{([^{}]+)\}/g, (_match, inner: string) => {
+      if (inner in map) {
+        return map[inner];
+      }
+      if (inner.includes("|")) {
+        const parts = inner.split("|");
+        return useSingular ? (parts[0] ?? _match) : (parts[parts.length - 1] ?? _match);
+      }
+      return _match;
+    });
 }
