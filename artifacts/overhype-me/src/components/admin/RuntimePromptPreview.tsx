@@ -49,6 +49,22 @@ interface PromptSection {
   rawText: string;
 }
 
+interface RemovedProseSentence {
+  sentence: string;
+  reason: string;
+}
+
+interface PromptWarning {
+  code: string;
+  message: string;
+  severity: "info" | "warning";
+}
+
+interface CompiledPromptDiagnostics {
+  removedPlannerProseSentences?: RemovedProseSentence[];
+  warnings?: PromptWarning[];
+}
+
 interface CompiledPrompt {
   prompt: string;
   imagePrompt?: string;
@@ -56,6 +72,7 @@ interface CompiledPrompt {
   engineNotes?: string;
   referenceImageUrl?: string;
   promptBreakdown?: PromptSection[];
+  diagnostics?: CompiledPromptDiagnostics;
 }
 
 interface PreviewResponse {
@@ -109,6 +126,15 @@ const PRIORITY_CLS: Record<PromptSection["priority"], string> = {
   required: "bg-primary/15 text-primary",
   high: "bg-blue-500/15 text-blue-600 dark:text-blue-400",
   medium: "bg-muted text-muted-foreground",
+};
+
+// Human labels for the reasons a planner-prose clause was stripped.
+const REMOVAL_REASON_LABEL: Record<string, string> = {
+  "identity-preservation-owned-by-compiler": "identity preservation (compiler owns this)",
+  "reference-image-owned-by-compiler": "reference-image / mode language (compiler owns this)",
+  "token-interpretation-owned-by-compiler": "token interpretation (compiler owns this)",
+  "text-policy-owned-by-compiler": "text/logo policy (compiler owns this)",
+  "empty-or-duplicate": "empty / duplicate",
 };
 
 // ── localStorage persistence (survives page reload without recomputing) ──────
@@ -594,6 +620,49 @@ export function RuntimePromptPreview({ factId }: { factId: number }) {
                   )}
                 </div>
               )}
+
+              {/* Compiler diagnostics — stripped prose clauses + tone warnings */}
+              {result.compiledPrompt.diagnostics &&
+                ((result.compiledPrompt.diagnostics.warnings?.length ?? 0) > 0 ||
+                  (result.compiledPrompt.diagnostics.removedPlannerProseSentences?.length ?? 0) > 0) && (
+                  <div className="space-y-2" data-testid="rpp-diagnostics">
+                    {result.compiledPrompt.diagnostics.warnings?.map((w, i) => (
+                      <div
+                        key={`${w.code}-${i}`}
+                        className="flex items-start gap-2 rounded-sm border border-amber-500/40 bg-amber-500/10 px-3 py-2"
+                        data-testid="rpp-tone-warning"
+                      >
+                        <AlertTriangle className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+                        <p className="text-[11px] text-amber-700 dark:text-amber-300 leading-snug">{w.message}</p>
+                      </div>
+                    ))}
+
+                    {(result.compiledPrompt.diagnostics.removedPlannerProseSentences?.length ?? 0) > 0 && (
+                      <div className="rounded-sm border border-border bg-background p-2" data-testid="rpp-removed-clauses">
+                        <span className={labelCls}>
+                          Prompt guard removed {result.compiledPrompt.diagnostics.removedPlannerProseSentences!.length} planner-prose
+                          clause(s)
+                        </span>
+                        <p className="text-[10px] text-muted-foreground italic mb-1.5 leading-snug">
+                          These were dropped from the LLM prose because the compiler emits them itself — so the engine prompt
+                          can&apos;t carry a competing or duplicate instruction. Check here for false positives.
+                        </p>
+                        <ul className="space-y-1">
+                          {result.compiledPrompt.diagnostics.removedPlannerProseSentences!.map((r, i) => (
+                            <li key={i} className="text-[10px] leading-snug">
+                              <span className="font-mono text-muted-foreground line-through decoration-muted-foreground/40">
+                                {r.sentence}
+                              </span>
+                              <span className="ml-1 text-[9px] font-semibold uppercase tracking-wide text-muted-foreground">
+                                — {REMOVAL_REASON_LABEL[r.reason] ?? r.reason}
+                              </span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                  </div>
+                )}
 
               {result.compiledPrompt.negativePrompt && (
                 <div>
