@@ -43,7 +43,7 @@ For example:
 - A sun blinking fact is environmental obedience or personification, not a cosmic category.
 - Counting to infinity is logic/formal impossibility, not physical scale.
 - A baby driving their mother home is authority/threat reversal with social role reversal subtype.
-- A grenade causing effects before exploding is temporal/causality inversion with pre-cause consequence subtype.
+- "Threw a grenade and killed 50 people, then it exploded" is a superhuman physical feat (the throw is so powerful it kills before the grenade's normal explosion matters), NOT temporal/causality inversion. The explosion is a redundant normal mechanism, not an effect that precedes its cause. Add the normal_function_rendered_unnecessary modifier.
 - A bar fight ending because the subject raises an eyebrow is presence-induced reaction/aura, not temporal inversion.
 
 Use only the allowed primary archetypes and subtypes.
@@ -106,6 +106,19 @@ Allowed subtypes:
 - pure_timeline_inversion
 - pre_cause_consequence
 - reverse_process_entropy_reversal
+
+IMPORTANT — "then" does not automatically mean temporal causality inversion.
+Some facts mention a normal mechanism happening AFTER the result (a grenade exploding, a gun firing, a bomb detonating). Do NOT classify these as temporal inversion when the joke is that the subject's power made the normal mechanism unnecessary.
+Use temporal_causality_inversion ONLY when the humor depends on impossible event order, time reversal, retrocausality, or the effect clearly occurring before its cause.
+Use superhuman_physical_feat (or the relevant power archetype) when:
+- the subject performs an action with an object, tool, weapon, or system;
+- the result happens because the subject's power is impossibly strong;
+- the object's normal function happens later or is implied to be unnecessary;
+- the humor is that the normal mechanism was overkill, redundant, or irrelevant.
+In that case add the normal_function_rendered_unnecessary modifier.
+Before assigning temporal_causality_inversion, ask: (1) Is the joke primarily about impossible time order? (2) Or did the subject's power accomplish the result before the normal mechanism was needed? If the normal mechanism still happens later but is redundant, do NOT choose temporal_causality_inversion.
+Canonical example: "{NAME} once threw a grenade and killed 50 people, then it exploded." → primaryArchetype superhuman_physical_feat, subtype force_scaled_action, modifiers include normal_function_rendered_unnecessary. The throw is the impossible force; the explosion is a redundant normal mechanism. Incorrect: temporal_causality_inversion / "the explosion happened before the throw".
+Another redundant-mechanism example: "{NAME} threw a bullet through the target, then fired the gun." → superhuman_physical_feat with normal_function_rendered_unnecessary.
 
 presence_induced_reaction_aura:
 Use when the subject does little or nothing, but people, objects, opportunities, conflicts, crowds, or situations react because of their presence, reputation, aura, or tiny gesture.
@@ -296,6 +309,8 @@ Known modifier catalog:
 - astronomical_consequence
 - celestial_object
 - subject_object_reversal
+- normal_function_rendered_unnecessary
+- projectile_impact_power
 - brand_context
 - workplace_context
 - audience_inside_reference

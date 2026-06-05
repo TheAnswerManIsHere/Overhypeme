@@ -172,6 +172,11 @@ The subject should be the star of the image and should appear powerful, heroic, 
 
 Use concrete visual evidence to prove the scale of the feat: cracked ground, shockwaves, bent structures, displaced objects, dust, motion trails, scale contrast, extreme distance, or large background consequences.
 
+Redundant-mechanism jokes (modifier normal_function_rendered_unnecessary): some facts mention a tool, weapon, or process whose normal mechanism (an explosion, a gunshot, a detonation) happens AFTER the subject's action. The joke is that the subject's physical force already accomplished the result, so the normal mechanism is comically redundant — it is NOT a time/causality inversion. For these:
+- Stage the subject's action as the impossible force (the throw, the punch, the kick), with cinematic shockwaves, motion trails, craters, or debris proving its power.
+- Keep the object's normal mechanism intact, unused, delayed, or secondary in the frame (e.g. an intact, unexploded grenade still in flight). Do NOT depict the normal mechanism as happening before the subject's action.
+- For weapon or destruction facts, prove the scale through non-graphic environmental impact — shockwaves, craters, debris, distant chaos, abstract knocked-over targets — and avoid bodies, blood, gore, visible casualties, or readable casualty numbers.
+
 Keep the composition clean, visually readable, and meme-ready, with the subject clearly connected to the impossible result.`,
   i2iDefault: `Use the reference image as the facial identity source. Preserve the reference person's face and recognizability strongly.
 
@@ -226,6 +231,14 @@ Unless preservePhysique is enabled, exaggerate the subject's body, physique, out
       visualApproach: "Show David running confidently on a smoking, overheated treadmill that appears exhausted, broken, or slumped from trying to keep up. David is still composed, powerful, and barely sweating. The gym environment reinforces the physical endurance context.",
       whyItWorks: "The machine's failure proves David's endurance without needing to show time passing literally.",
       avoid: "Do not make David look exhausted. Do not make the treadmill the only focus. The joke is David outlasting the machine.",
+    },
+    {
+      fact: "David once threw a grenade and killed 50 people, then it exploded.",
+      archetype: "superhuman_physical_feat",
+      subtype: "force_scaled_action",
+      visualApproach: "Show David in a powerful throwing follow-through pose, calm and confident, as an intact, unexploded grenade rockets away from him like a meteor with a visible shockwave and motion trail. Prove the impossible force through shattered debris, a cracked-earth impact path, and distant non-graphic environmental chaos. The grenade has clearly NOT detonated yet; its eventual explosion is unnecessary because the throw alone is overwhelming.",
+      whyItWorks: "The humor is mechanism redundancy, not time travel: David's throw is so impossibly powerful that the grenade is already redundant. Keeping the grenade intact in flight makes the throw the cause and the later detonation an afterthought.",
+      avoid: "Do not stage a detonation happening before or instead of the throw — this is NOT a temporal/causality inversion. Do not depict bodies, gore, blood, visible casualties, or readable casualty numbers; prove the scale through environmental impact only. Do not let the explosion be the focus; the throw is.",
     },
   ],
   promptGeneratorRequirements: {
@@ -477,7 +490,9 @@ The image should show the key impossible moment: a result appearing before its c
 
 The subject should be the star of the image and should appear confident, legendary, and effortlessly in control of the impossible sequence.
 
-The visual should not feel like random chaos. It should make the time or causality inversion readable through staging, before-and-after contrast, frozen action, reversed motion cues, impossible age relationships, or process-reversal evidence.`,
+The visual should not feel like random chaos. It should make the time or causality inversion readable through staging, before-and-after contrast, frozen action, reversed motion cues, impossible age relationships, or process-reversal evidence.
+
+Do NOT use this strategy for redundant-mechanism jokes — facts where the subject's impossible power makes a tool's, weapon's, or process's normal mechanism unnecessary, even when the sentence contains "then" or "before". Example: "{NAME} threw a grenade and killed 50 people, then it exploded" is a superhuman physical feat (the throw is the impossible force; the later explosion is redundant), and must be staged as impossible throwing force with an intact grenade — NOT as an explosion occurring before the throw. The presence of "then" or a normal mechanism happening after the result does not by itself make a fact a temporal inversion; only use this archetype when the humor depends on impossible event order, time reversal, retrocausality, or the effect clearly occurring before its cause.`,
   i2iDefault: `Use the reference image as the facial identity source. Preserve the reference person's face and recognizability strongly.
 
 Unless preservePhysique is enabled, exaggerate the subject's body, outfit, posture, aura, and heroic presence as needed to sell the time-defying or causality-breaking scene. The subject should appear calm and in control of the impossible sequence.`,
