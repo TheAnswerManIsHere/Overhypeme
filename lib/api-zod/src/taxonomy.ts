@@ -205,6 +205,13 @@ export const KNOWN_FACT_MODIFIERS = [
   "astronomical_consequence",
   "celestial_object",
   "subject_object_reversal",
+  // Redundant-mechanism jokes: the subject's impossible power accomplishes the
+  // result before an object/tool/weapon/process's normal mechanism is needed.
+  // The normal mechanism may still happen afterward, but it is comically
+  // redundant — NOT a temporal/causality inversion. (e.g. "threw a grenade and
+  // killed 50 people, then it exploded".)
+  "normal_function_rendered_unnecessary",
+  "projectile_impact_power",
   "brand_context",
   "workplace_context",
   "audience_inside_reference",
@@ -241,7 +248,11 @@ export type ReferenceType = (typeof REFERENCE_TYPE_VALUES)[number];
 // ─── Versioning (lightweight; useful for debugging + future prompt changes) ─
 
 export const TAXONOMY_VERSION = "v1";
-export const CLASSIFICATION_PROMPT_VERSION = "v3";
+// v4: redundant-mechanism guard — "then"/result-before-mechanism jokes (e.g.
+// "threw a grenade and killed 50 people, then it exploded") classify as a
+// superhuman physical feat with the `normal_function_rendered_unnecessary`
+// modifier, NOT temporal causality inversion.
+export const CLASSIFICATION_PROMPT_VERSION = "v4";
 export const PREVIEW_PROMPT_VERSION = "v1";
 
 // ─── Hashtag normalization ─────────────────────────────────────────────────
