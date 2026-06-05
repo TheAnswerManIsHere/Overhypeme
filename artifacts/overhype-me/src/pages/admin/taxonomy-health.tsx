@@ -6,12 +6,14 @@ import {
   Loader2, AlertTriangle, Activity, RefreshCw, ExternalLink, Wrench, Search, ListChecks,
   CheckCircle2, XCircle, Clock, Info, X,
 } from "lucide-react";
-import type {
-  FactTaxonomyHealth,
-  TaxonomyHealthSummaryCounts,
-  TaxonomyHealthStatus,
-  TaxonomyHealthAction,
-  ActionOutcome,
+import {
+  currentTaxonomyVersions,
+  enrichmentVersionStatusFromStored,
+  type FactTaxonomyHealth,
+  type TaxonomyHealthSummaryCounts,
+  type TaxonomyHealthStatus,
+  type TaxonomyHealthAction,
+  type ActionOutcome,
 } from "@workspace/api-zod";
 import { CARD_META, type FilterStatus, type CardMeta, type CardTone } from "./taxonomyHealthCards";
 import {
@@ -37,6 +39,8 @@ interface ListResponse {
   limit: number;
   offset: number;
 }
+
+const CURRENT_VERSIONS = currentTaxonomyVersions();
 
 const TONE_CLASS: Record<CardTone, string> = {
   green:   "border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
@@ -68,6 +72,32 @@ function HealthBadge({ s }: { s: TaxonomyHealthStatus }) {
           ? "bg-emerald-500/20 text-emerald-700 dark:text-emerald-300"
           : "bg-amber-500/20 text-amber-700 dark:text-amber-300";
   return <span className={`inline-block px-1.5 py-0.5 rounded-sm text-[10px] uppercase tracking-wide ${color}`}>{label}</span>;
+}
+
+/**
+ * Compact stored→current version diff for a fact's enrichment, shown in the
+ * Health cell when the row is version-stale. Uses the shared comparison so it
+ * matches the evaluator + the per-fact enrichment panel.
+ */
+function VersionDiff({ summary }: { summary: FactTaxonomyHealth["summary"] }) {
+  const status = enrichmentVersionStatusFromStored({
+    classificationPromptVersion: summary.classificationPromptVersion,
+    previewPromptVersion: summary.visualPreviewVersion,
+  });
+  const stale = status.fields.filter((f) => f.stale);
+  if (stale.length === 0) return null;
+  return (
+    <div className="flex flex-wrap gap-x-2 gap-y-0.5" data-testid="version-diff">
+      {stale.map((f) => (
+        <span key={f.field} className="text-[10px] text-amber-700 dark:text-amber-300">
+          {f.label === "Taxonomy enrichment" ? "enrich" : "plan"}{" "}
+          <span className="font-mono">{f.missing ? "—" : f.stored}</span>
+          <span aria-hidden>→</span>
+          <span className="font-mono font-semibold">{f.current}</span>
+        </span>
+      ))}
+    </div>
+  );
 }
 
 function OverallBadge({ s }: { s: FactTaxonomyHealth["overallStatus"] }) {
@@ -290,12 +320,18 @@ export default function TaxonomyHealth() {
   return (
     <AdminLayout title="Taxonomy Health">
       <div className="space-y-4">
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           <Activity className="w-5 h-5 text-primary" />
           <h2 className="text-lg font-bold">Taxonomy Health</h2>
           <Button variant="secondary" size="sm" onClick={() => { void loadSummary(); void loadList(); }} disabled={loading}>
             <RefreshCw className="w-3 h-3 mr-1" /> Refresh
           </Button>
+          <span className="text-[11px] text-muted-foreground ml-auto" data-testid="current-versions">
+            Current versions — taxonomy{" "}
+            <span className="font-mono text-foreground">{CURRENT_VERSIONS.classificationPromptVersion}</span> · visual plan{" "}
+            <span className="font-mono text-foreground">{CURRENT_VERSIONS.previewPromptVersion}</span> · strategy{" "}
+            <span className="font-mono text-foreground">{CURRENT_VERSIONS.visualStrategyVersion}</span>
+          </span>
         </div>
 
         {/* Summary cards */}
@@ -436,6 +472,11 @@ export default function TaxonomyHealth() {
                           .slice(0, 4)
                           .map((s) => <HealthBadge key={s} s={s} />)}
                       </div>
+                      {!row.health.statuses.includes("missing_enrichment") &&
+                        !row.health.reviewFlags.invalidEnrichment &&
+                        (row.health.reviewFlags.staleEnrichmentVersion || row.health.reviewFlags.stalePreview) && (
+                          <VersionDiff summary={row.health.summary} />
+                        )}
                       {row.health.issues.length > 0 && (
                         <p className="text-[10px] text-muted-foreground">{row.health.issues[0]!.message}</p>
                       )}
