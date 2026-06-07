@@ -54,6 +54,18 @@ describe("renderCanonical", () => {
   it("returns empty string unchanged", () => {
     assert.equal(renderCanonical(""), "");
   });
+
+  it("fixes 'a {NAME}' to 'an Alex' (canonical name starts with a vowel)", () => {
+    assert.equal(renderCanonical("Sharks have a {NAME} Week"), "Sharks have an Alex Week");
+  });
+
+  it("fixes 'A {NAME}' to 'An Alex' at sentence start", () => {
+    assert.equal(renderCanonical("A {NAME} legend"), "An Alex legend");
+  });
+
+  it("only touches the article directly before {NAME}", () => {
+    assert.equal(renderCanonical("a unicorn met a {NAME}"), "a unicorn met an Alex");
+  });
 });
 
 // ── renderPersonalized ────────────────────────────────────────────────────────
@@ -90,6 +102,24 @@ describe("renderPersonalized — he/him (singular)", () => {
       renderPersonalized("{NAME} {has|have} done {POSS} work {REFL}.", "Dave", "he/him"),
       "Dave has done his work himself.",
     );
+  });
+});
+
+describe("renderPersonalized — indefinite article agreement around {NAME}", () => {
+  it("renders 'a {NAME}' as 'an Alex' for a vowel-initial name", () => {
+    assert.equal(renderPersonalized("Sharks have a {NAME} Week", "Alex", "he/him"), "Sharks have an Alex Week");
+  });
+
+  it("renders 'a {NAME}' as 'a David' for a consonant-initial name", () => {
+    assert.equal(renderPersonalized("Sharks have a {NAME} Week", "David", "he/him"), "Sharks have a David Week");
+  });
+
+  it("rewrites 'an {NAME}' to 'a' for a consonant-initial name", () => {
+    assert.equal(renderPersonalized("It was an {NAME} moment", "David", "he/him"), "It was a David moment");
+  });
+
+  it("preserves sentence-start capitalization (A → An)", () => {
+    assert.equal(renderPersonalized("A {NAME} legend", "Owen", "she/her"), "An Owen legend");
   });
 });
 

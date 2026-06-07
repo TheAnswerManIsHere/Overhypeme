@@ -33,6 +33,11 @@ export function modifierDirectives(modifiers: readonly string[]): string[] {
   add("mock_heroic", "Stage the subject in an exaggerated, mock-heroic pose.");
   add("cinematic_aftermath", "Capture the cinematic aftermath of the action.");
   add("action_comedy", "Lean into energetic, slapstick action-comedy staging.");
+  add(
+    "normal_function_rendered_unnecessary",
+    "Stage the subject's own action as the overwhelming force; keep the object's normal mechanism intact, unused, delayed, or secondary so it reads as redundant — do not depict that mechanism happening before the subject's action.",
+  );
+  add("projectile_impact_power", "Show the thrown or launched object carrying impossible force through a shockwave, motion trail, or impact path.");
 
   // Scale / abstraction.
   add("astronomical_consequence", "Stage a dramatic astronomical or planetary-scale consequence.");
