@@ -241,25 +241,32 @@ TOKEN RULES:
 4. Replace possessive adjectives (his, her as adjective) with {POSS}; capitalize to {Poss} when needed
 5. Replace possessive pronouns (his, hers as standalone pronoun) with {POSS_PRO}; capitalize to {Poss_Pro} when needed
 6. Replace reflexive pronouns (himself, herself) with {REFL}; capitalize to {Refl} when needed
-7. For ANY verb or auxiliary that conjugates differently for "they" vs "he/she", use {singular_form|plural_form} syntax.
-   Examples: {doesn't|don't}  {isn't|aren't}  {was|were}  {does|do}  {has|have}  {pushes|push}  {counts|count}
+7. Conjugation pairs are ONLY for verbs whose grammatical subject is the
+   personalized person — i.e. the subject is the name you replaced with {NAME},
+   or a {SUBJ}/{Subj} pronoun referring to that person. For such a verb or
+   auxiliary, use {singular_form|plural_form} syntax.
    The LEFT form is used for he/she; the RIGHT form is used for they.
+   Examples (subject IS the person): {doesn't|don't}  {isn't|aren't}  {was|were}  {does|do}  {has|have}  {pushes|push}  {counts|count}
+   A verb whose subject is ANYTHING ELSE — a literal noun ("Sharks", "time", "the earth", "death", "people") or any noun phrase that is not the person — MUST stay plain text with NO braces, even if it is third-person singular. The person's pronouns never change another subject's number.
 8. Keep everything else exactly as written — no braces around any other word.
 
 IMPORTANT:
 - Capitalize tokens at the start of sentences: {Subj} not {SUBJ}, etc.
-- Verb conjugation is the hardest part. Identify EVERY third-person singular verb that would change with "they". Don't miss any.
-- "they" triggers plural: "he sleeps" → "{SUBJ} {sleeps|sleep}", "he doesn't" → "{SUBJ} {doesn't|don't}", "he was" → "{SUBJ} {was|were}"
+- Verb conjugation is NARROW: only conjugate a verb whose subject is the person ({NAME}/{SUBJ}). Before adding a pair, ask "is the person the subject of THIS verb?" — if a different noun is the subject, leave the verb plain.
+- When the person is the subject, "they" triggers plural: "he sleeps" → "{SUBJ} {sleeps|sleep}", "he doesn't" → "{SUBJ} {doesn't|don't}", "he was" → "{SUBJ} {was|were}"
 - NEVER put braces around words that are not in the token list above. Conjunctions ("When", "But", "If", "Because"), articles ("The", "A", "An"), prepositions ("In", "On", "At"), and all other non-token words must be written as plain text without braces. Wrapping any such word in braces is ALWAYS wrong.
 - Return ONLY valid JSON: {"template": "...the tokenized template..."}
 - Do NOT explain, do NOT add any other keys.
 
 EXAMPLES (correct output):
 Input: "When David laughs, the earth cries."
-Output: {"template": "When {NAME} {laughs|laugh}, the earth {cries|cry}."}
+Output: {"template": "When {NAME} {laughs|laugh}, the earth cries."}
 
 Input: "Sarah doesn't age because time fears her."
-Output: {"template": "{NAME} {doesn't|don't} age because time {fears|fear} {Obj}."}`;
+Output: {"template": "{NAME} {doesn't|don't} age because time fears {Obj}."}
+
+Input: "Sharks have a David Week."
+Output: {"template": "Sharks have a {NAME} Week."}`;
 
 // The complete list of tokens the grammar validator accepts. Duplicated here so
 // stripUnknownTokens stays self-contained without importing from api-zod.
@@ -324,6 +331,9 @@ router.post("/ai/tokenize-fact", requireRateLimit, async (req: Request, res: Res
   try {
     const completion = await callUtilityLLM({
       maxTokens: 1024,
+      // Tokenization is a structural transform with one correct answer — keep it
+      // deterministic rather than using the engine's default creative temperature.
+      temperature: 0,
       responseFormat: { type: "json_object" },
       messages: [
         { role: "system", content: TOKENIZE_SYSTEM_PROMPT },
