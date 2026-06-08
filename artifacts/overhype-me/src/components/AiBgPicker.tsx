@@ -14,6 +14,7 @@ import { AdminMediaInfo, AdminMediaInfoForUrl, getFileNameFromUrl, getMimeTypeFr
 import { Button } from "@/components/ui/Button";
 import { IMAGE_STYLES } from "@/config/imageStyles";
 import type { AiMemeImages } from "@/types/meme";
+import type { MemeAspectRatio } from "@workspace/api-zod";
 import { uploadUserImage } from "@/lib/image-upload";
 
 // ─── Shared admin constants (same as MemeBuilder) ────────────────────────────
@@ -147,6 +148,11 @@ export interface AiBgPickerProps {
   defaultStyleId?: string;
   /** Thumbnail pixel size for the image grids — controlled by the parent's slider. Default: 158 */
   thumbPx?: number;
+  /**
+   * The aspect ratio the user is rendering the meme in. Generic AI backgrounds
+   * are generated in this ratio (Nano Banana 2). Default: "landscape".
+   */
+  memeAspectRatio?: MemeAspectRatio;
   /** Called when user clicks "Go to Uploads" after a no-face error. */
   onGoToUpload?: () => void;
   /**
@@ -170,6 +176,7 @@ export function AiBgPicker({
   showStylePicker = false,
   defaultStyleId = "none",
   thumbPx = 158,
+  memeAspectRatio = "landscape",
   onGoToUpload,
   profileImageUrl,
 }: AiBgPickerProps) {
@@ -506,21 +513,10 @@ export function AiBgPicker({
 
     try {
       let baselineRefCount = 0;
-      let baselineSlotPath: string | null = null;
-      let baselineUpdatedAt: string | null = null;
 
       if (aiSubMode === "reference") {
         const baseline = await fetchRefGenImages().catch(() => null) ?? [];
         baselineRefCount = baseline.filter(img => img.gender === aiGender).length;
-      } else {
-        try {
-          const initRes = await fetch(`/api/facts/${factId}`, { credentials: "include", cache: "no-store" });
-          if (initRes.ok) {
-            const init = await initRes.json() as { updatedAt?: string; aiMemeImages?: AiMemeImages | null };
-            baselineSlotPath = init.aiMemeImages?.[aiGender]?.[0] ?? null;
-            baselineUpdatedAt = init.updatedAt ?? null;
-          }
-        } catch { /* proceed without baseline */ }
       }
 
       const res = await fetch(`/api/memes/ai/${factId}/generate`, {
@@ -531,7 +527,7 @@ export function AiBgPicker({
         body: JSON.stringify({
           ...(aiSubMode === "reference" && selectedRefUpload
             ? { referenceImagePath: selectedRefUpload.objectPath, targetGender: aiGender, styleId: selectedStyleId }
-            : { scope: isGendered ? "gendered" : "abstract", styleId: selectedStyleId }),
+            : { scope: isGendered ? "gendered" : "abstract", styleId: selectedStyleId, aspectRatio: memeAspectRatio }),
           ...(isAdmin && adminModelOverride.trim() ? { modelOverride: adminModelOverride.trim() } : {}),
           ...(isAdmin && Object.keys(adminParamOverrides).some(k => adminParamOverrides[k] !== "")
             ? { paramsOverride: Object.fromEntries(Object.entries(adminParamOverrides).filter(([, v]) => v !== "")) }
@@ -552,8 +548,19 @@ export function AiBgPicker({
           setAiGenState("error");
           return;
         }
-        throw new Error(body.error ?? "Generation failed");
+        const code = body.error ?? "Generation failed";
+        throw new Error(
+          code === "fact_enrichment_invalid"
+            ? "This fact isn't enriched yet — it can't be turned into an AI background."
+            : code,
+        );
       }
+
+      // Generic generation returns 202 { renderJobId, attemptId }; reference
+      // (legacy) returns nothing pollable here. Capture the render job id so the
+      // generic branch can poll per-item status.
+      const genResp = await res.json().catch(() => ({})) as { renderJobId?: string };
+      const renderJobId = typeof genResp.renderJobId === "string" ? genResp.renderJobId : null;
 
       if (aiSubMode === "reference") {
         let polls = 0;
@@ -602,20 +609,30 @@ export function AiBgPicker({
         };
         setTimeout(() => void pollRef(), POLL_INTERVAL);
       } else {
+        // Generic generation runs on the async Nano-Banana-2 attempt pipeline.
+        // Poll the render job for legible per-item status (pending →
+        // prompt_ready → image_ready / blocked / failed). On image_ready, refresh
+        // the canonical fact so the mirrored background lands in the gallery —
+        // we never append a separate local copy (no duplicates).
+        if (!renderJobId) throw new Error("Generation did not start. Try again.");
         let polls = 0;
         const poll = async () => {
           if (generationIdRef.current !== myId) return;
           polls++;
           try {
-            const factRes = await fetch(`/api/facts/${factId}`, { credentials: "include", cache: "no-store" });
-            if (factRes.ok) {
-              const data = await factRes.json() as { updatedAt?: string; aiMemeImages?: AiMemeImages | null };
-              const newSlotPath = data.aiMemeImages?.[aiGender]?.[0] ?? null;
-              const newUpdatedAt = data.updatedAt ?? null;
-              const done = baselineSlotPath === null
-                ? newSlotPath !== null
-                : newUpdatedAt !== baselineUpdatedAt && newSlotPath !== null;
-              if (done) {
+            const sres = await fetch(`/api/memes/ai/renders/${renderJobId}`, { credentials: "include", cache: "no-store" });
+            if (sres.ok) {
+              const s = await sres.json() as {
+                status?: string;
+                error?: string | null;
+                subjectFactCompatibility?: { recommendedFallback?: string } | null;
+              };
+              if (s.status === "image_ready") {
+                // The job mirrored the new background into facts.aiMemeImages[gender].
+                const factRes = await fetch(`/api/facts/${factId}`, { credentials: "include", cache: "no-store" });
+                const data = factRes.ok
+                  ? (await factRes.json() as { aiMemeImages?: AiMemeImages | null })
+                  : { aiMemeImages: null };
                 if (generationIdRef.current !== myId) return;
                 if (generationTimerRef.current) { clearInterval(generationTimerRef.current); generationTimerRef.current = null; }
                 abortControllerRef.current = null;
@@ -630,13 +647,22 @@ export function AiBgPicker({
                   setGenerationElapsed(0);
                   setShowAddForm(false);
                 }, 400);
-                fetch(`/api/memes/ai/${factId}/prompts`, { credentials: "include" })
-                  .then(r => r.ok ? r.json() : null)
-                  .then((d: { prompts: Record<string, string> | null; falCallPreview?: { model: string; input: Record<string, unknown> } | null } | null) => {
-                    if (d?.prompts) setSceneDebug(prev => ({ ...prev!, prompts: d.prompts!, falCallPreview: d.falCallPreview ?? prev?.falCallPreview ?? null }));
-                  }).catch(() => {});
                 return;
               }
+              if (s.status === "blocked" || s.status === "failed") {
+                if (generationIdRef.current !== myId) return;
+                if (generationTimerRef.current) { clearInterval(generationTimerRef.current); generationTimerRef.current = null; }
+                setGenerationProgress(0);
+                setGenerationElapsed(0);
+                setAiGenerateError(
+                  s.status === "blocked"
+                    ? `This fact can't be staged as an AI background${s.subjectFactCompatibility?.recommendedFallback ? ` — try ${s.subjectFactCompatibility.recommendedFallback}` : ""}.`
+                    : (s.error ?? "Generation failed."),
+                );
+                setAiGenState("error");
+                return;
+              }
+              // pending / prompt_ready → keep polling.
             }
           } catch { /* keep polling */ }
           if (polls >= MAX_POLLS) {

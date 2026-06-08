@@ -255,7 +255,13 @@ describe("image-prompt preview — validation", () => {
   it("400 when factId is missing", async () => {
     const res = await request(adminApp()).post("/api/admin/image-prompt/preview").send({});
     assert.equal(res.status, 400);
-    assert.equal(res.body.error, "factId is required");
+    assert.equal(res.body.error, "factId or reviewId is required");
+  });
+
+  it("400 review_not_found for an unknown review", async () => {
+    const res = await request(adminApp()).post("/api/admin/image-prompt/preview").send({ reviewId: 999_000_001 });
+    assert.equal(res.status, 400);
+    assert.equal(res.body.error, "review_not_found");
   });
 
   it("400 fact_not_found for an unknown fact", async () => {
