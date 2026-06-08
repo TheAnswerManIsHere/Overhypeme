@@ -72,11 +72,41 @@ home from the hospital."** Re-enrich it and confirm it still classifies as
 **Temporal / causality inversion**. We fixed the over-eager temporal reads — we
 didn't break the legitimate ones.
 
+## 4. Why it stayed broken — and the new guardrails
+
+If you re-enriched the grenade fact earlier and it *still* came back as Temporal,
+the cause was that the live enrichment prompt was a **stale stored copy** in the
+admin config, not the corrected code default — and the "taxonomy v4" badge
+couldn't tell you that. Two new things fix and expose this:
+
+**a) Provenance line on the enrichment panel.** Open any fact's **Visual Taxonomy
+Enrichment** panel. Under the modifiers you'll now see a small line like
+"Enrichment prompt matches code default (code_default, `a1b2…`)". If it instead
+says **"differs from current code default"** or **"Debug enrichment prompt
+active"** (amber), the model ran an old/overridden prompt — that's your signal to
+reset it.
+
+**b) Reset to code default.** Go to **Admin → Configuration**, find the
+`fact_enrichment_system` card, and click **Reset to code default**. It shows the
+current source + hash vs the code-default hash and asks you to confirm; on
+confirm it replaces the stored prompt and clears any debug override. Re-enrich
+the grenade fact afterward and it classifies correctly.
+
+**c) Safety net.** Even if a prompt is briefly stale, a deterministic guard now
+catches the exact "threw a [weapon] … then it [exploded/fired]" pattern when the
+model returns a *low-confidence* Temporal result, and repairs it to a physical
+feat with an "Auto-repaired …" admin note. A genuinely time-bending fact (e.g.
+"the grenade exploded, then he threw it") or a *confident* Temporal call is left
+alone (the latter gets a "review recommended" note instead).
+
 ## Regression smoke
 
 | Area | Expect |
 |---|---|
 | Grenade fact, re-enriched | `superhuman_physical_feat` + `normal_function_rendered_unnecessary`; never temporal |
+| Enrichment panel provenance line | Shows prompt source + hash; amber when it differs from code default or a debug prompt was used |
+| Config → `fact_enrichment_system` → Reset to code default | Confirms with current vs code-default hash, then resets value + clears debug override |
+| Low-confidence Temporal grenade output | Auto-repaired to physical feat with an "Auto-repaired" admin note; `overhypeFit`/`adultSuitability` unchanged |
 | Grenade compiled prompt | Impossible throw, intact grenade, shockwave; no "explosion before throw", no time paradox, no gore |
 | A real temporal fact (baby drives mom home) | Still `temporal_causality_inversion` |
 | New modifier chip in the enrichment editor | `normal_function_rendered_unnecessary` appears in the known-modifier suggestions and renders as a recognized chip |
@@ -93,6 +123,13 @@ didn't break the legitimate ones.
 - **"killed" stays in the fact text.** The taxonomy understands the joke; the
   image is kept non-graphic at the render layer, so the prompt talks about force
   and environmental impact rather than depicting harm.
+- **Reset to code default is destructive.** It replaces a stored, possibly
+  admin-customized prompt and clears the debug override — that's why it asks you
+  to confirm and shows the hashes first. It only touches `fact_enrichment_system`.
+- **The repair guard is narrow and confidence-gated.** It only catches the
+  specific thrown-weapon-then-mechanism pattern on *low-confidence* Temporal
+  output. A confident Temporal classification is trusted (and flagged for review),
+  not overridden — so the real fix is keeping the prompt fresh.
 
 ---
 

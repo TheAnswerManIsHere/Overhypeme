@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useCallback, createContext, useContext } from "react";
 import {
-  Clock, Check, AlertCircle, Loader2, Bug, X,
+  Clock, Check, AlertCircle, Loader2, Bug, X, RotateCcw,
 } from "lucide-react";
 import { IMAGE_STYLES } from "@/config/imageStyles";
 
@@ -268,6 +268,8 @@ export interface ConfigPageCtx {
   saveDbg: (key: string) => void;
   stdDirty: (key: string) => boolean;
   dbgDirty: (key: string) => boolean;
+  /** Refetch all config rows (used after out-of-band writes like prompt reset). */
+  load: () => void;
 }
 
 export const ConfigPageContext = createContext<ConfigPageCtx | null>(null);
@@ -533,6 +535,78 @@ export function ConfigInput({
   );
 }
 
+const FACT_ENRICHMENT_SYSTEM_KEY = "fact_enrichment_system";
+
+/**
+ * Destructive admin action: replace the stored fact-enrichment system prompt
+ * with the current code default and clear the debug override. Confirms first,
+ * showing current effective source + hash vs the code-default hash so the
+ * admin sees exactly what is being replaced (the whole point: DB-backed config
+ * can silently diverge from the code default).
+ */
+function ResetEnrichmentPromptButton() {
+  const { load } = useConfigCtx();
+  const [busy, setBusy] = useState(false);
+
+  async function onReset() {
+    setBusy(true);
+    try {
+      let detail = "";
+      try {
+        const provRes = await fetch(
+          `/api/admin/config/${FACT_ENRICHMENT_SYSTEM_KEY}/provenance`,
+          { credentials: "include" },
+        );
+        if (provRes.ok) {
+          const p = (await provRes.json()) as {
+            source: string; hash: string; codeDefaultHash: string; matchesCodeDefault: boolean;
+          };
+          detail =
+            `\n\nCurrent effective prompt source: ${p.source}` +
+            `\nCurrent hash: ${p.hash}` +
+            `\nCode default hash: ${p.codeDefaultHash}` +
+            `\n${p.matchesCodeDefault ? "(already matches code default)" : "(differs from code default)"}`;
+        }
+      } catch { /* best-effort; confirm still proceeds */ }
+
+      const ok = window.confirm(
+        "This will replace the stored fact-enrichment system prompt with the current code default and clear the debug override. Continue?" +
+          detail,
+      );
+      if (!ok) return;
+
+      const res = await fetch(
+        `/api/admin/config/${FACT_ENRICHMENT_SYSTEM_KEY}/reset-to-default`,
+        { method: "POST", credentials: "include" },
+      );
+      const data = (await res.json()) as { ok?: boolean; hash?: string; error?: string };
+      if (res.ok && data.ok) {
+        load();
+        window.alert(`Fact enrichment prompt reset to code default. New hash: ${data.hash ?? "(unknown)"}.`);
+      } else {
+        window.alert(`Reset failed: ${data.error ?? "unknown error"}`);
+      }
+    } catch {
+      window.alert("Reset failed: network error");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <button
+      onClick={onReset}
+      disabled={busy}
+      data-testid="reset-enrichment-prompt"
+      className="text-xs px-2 py-1 rounded border border-border text-muted-foreground hover:text-foreground hover:border-foreground/30 flex items-center gap-1 disabled:opacity-50 shrink-0"
+      title="Replace the stored prompt with the current code default and clear the debug override"
+    >
+      {busy ? <Loader2 className="w-3 h-3 animate-spin" /> : <RotateCcw className="w-3 h-3" />}
+      Reset to code default
+    </button>
+  );
+}
+
 export function ConfigCard({ row, textareaRows = 4 }: { row: ConfigRow; textareaRows?: number }) {
   const { stdEdits, dbgEdits, debugActive, setDbgEdits, saveDbg, dbgDirty } = useConfigCtx();
   const stdState = stdEdits[row.key];
@@ -571,7 +645,10 @@ export function ConfigCard({ row, textareaRows = 4 }: { row: ConfigRow; textarea
             <span>Last updated {new Date(row.updatedAt).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })}</span>
           </div>
         </div>
-        <code className="text-xs text-muted-foreground bg-muted px-2 py-1 rounded shrink-0">{row.key}</code>
+        <div className="flex items-center gap-2 shrink-0">
+          {row.key === FACT_ENRICHMENT_SYSTEM_KEY && <ResetEnrichmentPromptButton />}
+          <code className="text-xs text-muted-foreground bg-muted px-2 py-1 rounded">{row.key}</code>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">

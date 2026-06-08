@@ -247,7 +247,7 @@ export default function AdminConfig() {
     rows, loading,
     stdEdits, dbgEdits, setStdEdits, setDbgEdits,
     debugActive, debugToggling, toggleDebugMode,
-    saveStd, saveDbg, stdDirty, dbgDirty,
+    saveStd, saveDbg, stdDirty, dbgDirty, load,
   } = state;
 
   const budgetRows  = rows.filter((r) => BUDGET_KEYS.has(r.key));
@@ -272,7 +272,7 @@ export default function AdminConfig() {
   const ctxValue: ConfigPageCtx = {
     rows, stdEdits, dbgEdits, debugActive,
     setStdEdits, setDbgEdits,
-    saveStd, saveDbg, stdDirty, dbgDirty,
+    saveStd, saveDbg, stdDirty, dbgDirty, load,
   };
 
   return (
