@@ -1063,6 +1063,39 @@ export function EnrichmentStalenessBadge({
   );
 }
 
+/**
+ * Provenance of the prompt that actually produced this enrichment. A "taxonomy
+ * vN" badge proves the version CONSTANT, not WHICH prompt text ran — a stale or
+ * debug-overridden `admin_config` prompt can diverge from the code default. This
+ * line surfaces that divergence so it can't hide behind the version badge.
+ */
+export function PromptProvenanceLine({
+  diagnostics,
+}: {
+  diagnostics?: FactEnrichment["classificationPromptDiagnostics"];
+}) {
+  if (!diagnostics) return null;
+  const { source, hash, matchesCodeDefault } = diagnostics;
+  const warn = source === "admin_config_debug_value" || !matchesCodeDefault;
+  const label =
+    source === "admin_config_debug_value"
+      ? "Debug enrichment prompt active"
+      : !matchesCodeDefault
+        ? "Enrichment prompt differs from current code default"
+        : "Enrichment prompt matches code default";
+  return (
+    <p
+      className={`text-[11px] inline-flex items-center gap-1 ${warn ? "text-amber-700 dark:text-amber-300" : "text-muted-foreground"}`}
+      data-testid="enrichment-prompt-provenance"
+      data-prompt-source={source}
+      data-matches-code-default={String(matchesCodeDefault)}
+    >
+      {warn ? <AlertTriangle className="w-3.5 h-3.5" /> : <CheckCircle2 className="w-3.5 h-3.5" />}
+      {label} <span className="font-mono">({source}, {hash})</span>
+    </p>
+  );
+}
+
 export function EnrichmentSummary({ e }: { e: FactEnrichment }) {
   const rows: [string, string][] = [
     ["Archetype", e.primaryArchetype],
@@ -1087,6 +1120,7 @@ export function EnrichmentSummary({ e }: { e: FactEnrichment }) {
       {(e.modifiers ?? []).length > 0 && (
         <p className="text-xs text-muted-foreground">Modifiers: <span className="text-foreground">{e.modifiers.join(", ")}</span></p>
       )}
+      <PromptProvenanceLine diagnostics={e.classificationPromptDiagnostics} />
       {(e.suggestedHashtags ?? []).length > 0 && (
         <p className="text-xs text-muted-foreground">Hashtags: <span className="text-foreground">{e.suggestedHashtags.join(", ")}</span></p>
       )}

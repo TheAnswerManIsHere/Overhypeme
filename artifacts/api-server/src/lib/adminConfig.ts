@@ -105,6 +105,52 @@ export async function getConfigString(key: string, defaultValue: string): Promis
 }
 
 /**
+ * Where a resolved config string actually came from. `fallback_default`
+ * (DB read failed → emergency code default) is deliberately distinct from
+ * `code_default` (DB read succeeded but no row exists → intentional default),
+ * so production diagnostics can tell an outage apart from an unconfigured key.
+ */
+export type ConfigStringSource =
+  | "code_default"
+  | "admin_config_value"
+  | "admin_config_debug_value"
+  | "fallback_default";
+
+export interface ConfigStringResolution {
+  value: string;
+  source: ConfigStringSource;
+}
+
+/**
+ * Like `getConfigString`, but also reports WHICH source produced the value.
+ * Used by provenance-sensitive callers (e.g. the fact-enrichment prompt
+ * resolver) that need to surface whether the effective value was the code
+ * default, a stored admin-config value, or a debug override.
+ */
+export async function getConfigStringWithSource(
+  key: string,
+  defaultValue: string,
+): Promise<ConfigStringResolution> {
+  try {
+    const { byKey } = await loadAll();
+    const row = byKey.get(key);
+    if (!row) return { value: defaultValue, source: "code_default" };
+    const debugActive = byKey.get("debug_mode_active")?.value === "true";
+    if (
+      row.key !== "debug_mode_active" &&
+      debugActive &&
+      row.debugValue != null &&
+      row.debugValue !== ""
+    ) {
+      return { value: row.debugValue, source: "admin_config_debug_value" };
+    }
+    return { value: row.value, source: "admin_config_value" };
+  } catch {
+    return { value: defaultValue, source: "fallback_default" };
+  }
+}
+
+/**
  * Get a config float (decimal) value.
  * Returns `defaultValue` if the key is missing, not a number, or the DB is unreachable.
  * Zero DB hits when cache is warm.

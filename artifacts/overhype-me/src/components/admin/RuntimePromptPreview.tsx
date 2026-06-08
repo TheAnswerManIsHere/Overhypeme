@@ -140,7 +140,8 @@ const REMOVAL_REASON_LABEL: Record<string, string> = {
 // ── localStorage persistence (survives page reload without recomputing) ──────
 
 const STORAGE_PREFIX = "overhype:rpp:v1:";
-const storageKey = (factId: number) => `${STORAGE_PREFIX}${factId}`;
+const storageKey = (factId: number | null, reviewId: number | null) =>
+  reviewId !== null ? `${STORAGE_PREFIX}review:${reviewId}` : `${STORAGE_PREFIX}${factId}`;
 
 interface PersistedControls {
   subjectRenderMode: SubjectRenderMode;
@@ -159,16 +160,21 @@ interface PersistedState {
   controls: PersistedControls;
 }
 
-function loadPersisted(factId: number): PersistedState | null {
+function loadPersisted(factId: number | null, reviewId: number | null): PersistedState | null {
   try {
-    const raw = localStorage.getItem(storageKey(factId));
+    const raw = localStorage.getItem(storageKey(factId, reviewId));
     return raw ? (JSON.parse(raw) as PersistedState) : null;
   } catch {
     return null;
   }
 }
 
-export function RuntimePromptPreview({ factId }: { factId: number }) {
+type RuntimePromptPreviewProps =
+  | { factId: number; reviewId?: undefined }
+  | { reviewId: number; factId?: undefined };
+
+export function RuntimePromptPreview({ factId, reviewId }: RuntimePromptPreviewProps) {
+  const isReviewMode = reviewId !== undefined;
   const [expanded, setExpanded] = useState(false);
   const [lookStyles, setLookStyles] = useState<LookStyle[]>([]);
 
@@ -202,11 +208,11 @@ export function RuntimePromptPreview({ factId }: { factId: number }) {
       .catch(() => setLookStyles([]));
   }, [expanded]);
 
-  // Restore (or reset to defaults) whenever the selected fact changes, so a
+  // Restore (or reset to defaults) whenever the selected fact/review changes, so a
   // page reload — or switching back to a fact — shows the last preview without
   // recomputing it.
   useEffect(() => {
-    const saved = loadPersisted(factId);
+    const saved = loadPersisted(factId ?? null, reviewId ?? null);
     const c = saved?.controls;
     setSubjectRenderMode(c?.subjectRenderMode ?? "human_identity_i2i");
     setSourceSubjectKind(c?.sourceSubjectKind ?? "human_face");
@@ -221,7 +227,7 @@ export function RuntimePromptPreview({ factId }: { factId: number }) {
     setError(null);
     skipNextSaveRef.current = true;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [factId]);
+  }, [factId, reviewId]);
 
   // Persist controls + the last result per fact.
   useEffect(() => {
@@ -244,12 +250,13 @@ export function RuntimePromptPreview({ factId }: { factId: number }) {
           contentMode,
         },
       };
-      localStorage.setItem(storageKey(factId), JSON.stringify(payload));
+      localStorage.setItem(storageKey(factId ?? null, reviewId ?? null), JSON.stringify(payload));
     } catch {
       /* storage full / unavailable — ignore */
     }
   }, [
     factId,
+    reviewId,
     result,
     subjectRenderMode,
     sourceSubjectKind,
@@ -289,7 +296,8 @@ export function RuntimePromptPreview({ factId }: { factId: number }) {
     setCopied(false);
     try {
       const body = {
-        factId,
+        // Send reviewId for review-mode, factId otherwise.
+        ...(isReviewMode ? { reviewId } : { factId }),
         subjectRenderMode,
         userSelectedSubjectRenderMode: subjectRenderMode,
         // For t2i_fallback there is no source subject — let the server use its
@@ -303,7 +311,8 @@ export function RuntimePromptPreview({ factId }: { factId: number }) {
           fallbackSubjectGender: subjectRenderMode === "t2i_fallback" ? fallbackSubjectGender : null,
         },
         identityPolicyOverrides: { preservePhysique },
-        persist,
+        // persist requires a real fact row; silently omit in review mode.
+        ...(isReviewMode ? {} : { persist }),
       };
       const res = await fetch(`/api/admin/image-prompt/preview`, {
         method: "POST",
@@ -505,15 +514,17 @@ export function RuntimePromptPreview({ factId }: { factId: number }) {
               />
               Preserve physique
             </label>
-            <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
-              <input
-                type="checkbox"
-                checked={persist}
-                onChange={(e) => setPersist(e.target.checked)}
-                data-testid="rpp-persist"
-              />
-              Save this as an image-prompt attempt
-            </label>
+            {!isReviewMode && (
+              <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                <input
+                  type="checkbox"
+                  checked={persist}
+                  onChange={(e) => setPersist(e.target.checked)}
+                  data-testid="rpp-persist"
+                />
+                Save this as an image-prompt attempt
+              </label>
+            )}
           </div>
 
           {missingFallbackGender && (

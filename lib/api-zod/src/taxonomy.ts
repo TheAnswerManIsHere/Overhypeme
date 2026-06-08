@@ -439,6 +439,31 @@ export const visualPromptPreviewSchema = z.object({
 });
 export type VisualPromptPreview = z.infer<typeof visualPromptPreviewSchema>;
 
+// ─── Classification-prompt provenance ──────────────────────────────────────
+
+/**
+ * Provenance of the EFFECTIVE fact-enrichment system prompt at classify time.
+ * Server-stamped (never model-produced) so it is NOT part of the strict wire
+ * schema. Proves which prompt text actually ran — a stale `admin_config` value
+ * can diverge from the code default while `classificationPromptVersion` still
+ * reads the current constant, so the version stamp alone isn't proof.
+ */
+export const classificationPromptDiagnosticsSchema = z.object({
+  source: z.enum([
+    "code_default",
+    "admin_config_value",
+    "admin_config_debug_value",
+    "fallback_default",
+  ]),
+  hash: z.string().trim().min(1).max(64),
+  length: z.number().int().nonnegative(),
+  codeDefaultHash: z.string().trim().min(1).max(64),
+  matchesCodeDefault: z.boolean(),
+});
+export type ClassificationPromptDiagnostics = z.infer<
+  typeof classificationPromptDiagnosticsSchema
+>;
+
 // ─── Enrichment schema ─────────────────────────────────────────────────────
 
 const archetypeEnum = z.enum(PRIMARY_ARCHETYPES);
@@ -488,6 +513,9 @@ const factEnrichmentBase = z.object({
   // Optional provenance — stamped by the enrichment service.
   taxonomyVersion: z.string().optional(),
   classificationPromptVersion: z.string().optional(),
+  // Which prompt text actually ran (source/hash). Optional so older blobs and
+  // admin edits validate unchanged; stamped onto fresh enrichments.
+  classificationPromptDiagnostics: classificationPromptDiagnosticsSchema.optional(),
   enrichedAt: z.string().optional(),
   enrichedBy: z.string().optional(),
 });

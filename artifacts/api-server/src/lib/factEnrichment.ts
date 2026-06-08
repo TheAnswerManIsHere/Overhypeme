@@ -30,9 +30,10 @@ import {
   type FactSubtype,
   type OverhypeFit,
   type AdultSuitability,
+  type ClassificationPromptDiagnostics,
 } from "@workspace/api-zod";
 import {
-  getFactEnrichmentSystem,
+  resolveFactEnrichmentSystemPrompt,
   FACT_ENRICHMENT_TEMPERATURE,
   FACT_ENRICHMENT_MAX_TOKENS,
 } from "./factEnrichmentConfig";
@@ -103,13 +104,118 @@ function safeJsonParse(raw: string): unknown {
   }
 }
 
-function stampProvenance(enrichment: FactEnrichment): FactEnrichment {
+function stampProvenance(
+  enrichment: FactEnrichment,
+  promptDiagnostics?: ClassificationPromptDiagnostics,
+): FactEnrichment {
   return {
     ...enrichment,
     taxonomyVersion: TAXONOMY_VERSION,
     classificationPromptVersion: CLASSIFICATION_PROMPT_VERSION,
+    classificationPromptDiagnostics: promptDiagnostics,
     enrichedAt: new Date().toISOString(),
     enrichedBy: "openai",
+  };
+}
+
+// ─── Redundant-mechanism repair guard ──────────────────────────────────────
+//
+// A deterministic safety net for the "thrown weapon, then its normal mechanism"
+// pattern (e.g. "threw a grenade and killed 50 people, then it exploded"). The
+// joke is a superhuman physical feat where the weapon's normal mechanism is
+// redundant — NOT a temporal/causality inversion. Even with the v4 classifier
+// guidance, a low-confidence model can still emit the wrong archetype, so we
+// repair it here. Confidence-gated (< 0.5) so a confident temporal call is left
+// alone, and skipped on explicit reverse-order phrasing (which IS temporal).
+
+const THROW_VERB_RE = /\b(threw|throw|throws|throwing|hurled|hurls|tossed|tosses|launched|launches)\b/;
+const PROJECTILE_RE = /\b(grenade|bomb|bullet|missile|rocket|dynamite|explosive|cannonball)\b/;
+const MECHANISM_RE = /\b(exploded|explodes|detonated|detonates|fired|fires|went off|goes off|ignited|ignites)\b/;
+const THEN_RE = /\bthen\b/;
+
+const REDUNDANT_MECHANISM_REPAIR_NOTE =
+  "Auto-repaired from low-confidence temporal_causality_inversion: thrown weapon pattern indicates a redundant normal mechanism, not temporal inversion.";
+const REDUNDANT_MECHANISM_HIGH_CONFIDENCE_NOTE =
+  "Redundant-mechanism pattern detected, but not auto-repaired because the temporal classification was high-confidence; review recommended.";
+
+/**
+ * Obvious reverse-order case: mechanism … then … throw (e.g. "the grenade
+ * exploded, then David threw it") — far more likely a true temporal inversion,
+ * so we explicitly exclude it from the redundant-mechanism detector.
+ */
+function isExplicitReverseOrderExplosionThenThrow(factText: string): boolean {
+  const text = factText.toLowerCase();
+  const mech = text.search(MECHANISM_RE);
+  const then = text.search(THEN_RE);
+  const thrown = text.search(THROW_VERB_RE);
+  return mech !== -1 && then !== -1 && thrown !== -1 && mech < then && then < thrown;
+}
+
+function isThrownWeaponRedundantMechanismPattern(factText: string): boolean {
+  if (isExplicitReverseOrderExplosionThenThrow(factText)) return false;
+  const text = factText.toLowerCase();
+  return (
+    THROW_VERB_RE.test(text) &&
+    PROJECTILE_RE.test(text) &&
+    THEN_RE.test(text) &&
+    MECHANISM_RE.test(text)
+  );
+}
+
+function appendAdminReviewNote(existing: string | undefined, note: string): string {
+  const trimmed = existing?.trim();
+  return trimmed ? `${trimmed} ${note}` : note;
+}
+
+/**
+ * Repair a low-confidence redundant-mechanism misclassification. Only the
+ * joke-MECHANISM classification is touched — `overhypeFit`, `adultSuitability`,
+ * and `adultSuitabilityNotes` are deliberately left as-is (the grenade fact may
+ * still be correctly rejected / adult-incompatible for violence).
+ */
+export function repairRedundantMechanismMisclassification(
+  factText: string,
+  enrichment: FactEnrichment,
+): FactEnrichment {
+  const matchesPattern = isThrownWeaponRedundantMechanismPattern(factText);
+  const isTemporal = enrichment.primaryArchetype === "temporal_causality_inversion";
+  if (!matchesPattern || !isTemporal) return enrichment;
+
+  // High-confidence temporal: don't override the model, but surface the
+  // tension so a human can refine the detector / the model later.
+  if (enrichment.taxonomyConfidence >= 0.5) {
+    logger.warn(
+      { factText, taxonomyConfidence: enrichment.taxonomyConfidence },
+      "[factEnrichment] redundant-mechanism pattern matched a high-confidence temporal classification; not auto-repaired",
+    );
+    return {
+      ...enrichment,
+      adminReviewNotes: appendAdminReviewNote(
+        enrichment.adminReviewNotes,
+        REDUNDANT_MECHANISM_HIGH_CONFIDENCE_NOTE,
+      ),
+    };
+  }
+
+  return {
+    ...enrichment,
+    primaryArchetype: "superhuman_physical_feat",
+    subtype: "force_scaled_action",
+    modifiers: Array.from(
+      new Set([
+        ...enrichment.modifiers,
+        "projectile_impact_power",
+        "normal_function_rendered_unnecessary",
+        "avoid_gore",
+        "non_graphic_action",
+      ]),
+    ),
+    // Keep it flagged for review rather than presenting as confident.
+    taxonomyConfidence: Math.min(enrichment.taxonomyConfidence, 0.49),
+    adminReviewNotes: appendAdminReviewNote(
+      enrichment.adminReviewNotes,
+      REDUNDANT_MECHANISM_REPAIR_NOTE,
+    ),
   };
 }
 
@@ -124,6 +230,7 @@ function stampProvenance(enrichment: FactEnrichment): FactEnrichment {
 export async function enrichFactWithModel(
   input: EnrichInput,
   callModel: (userMessages: UserMessage[]) => Promise<string>,
+  options?: { promptDiagnostics?: ClassificationPromptDiagnostics },
 ): Promise<FactEnrichment> {
   const firstUser: UserMessage = { role: "user", content: buildEnrichmentUserMessage(input) };
 
@@ -146,23 +253,42 @@ export async function enrichFactWithModel(
   if (!result.ok) {
     throw new EnrichmentError(result.error);
   }
-  return stampProvenance(result.data);
-}
 
-async function callOpenAIEnrichment(userMessages: UserMessage[]): Promise<string> {
-  const systemPrompt = await getFactEnrichmentSystem();
-  const response = await callUtilityLLM({
-    temperature: FACT_ENRICHMENT_TEMPERATURE,
-    maxTokens: FACT_ENRICHMENT_MAX_TOKENS,
-    responseFormat: zodResponseFormat(factEnrichmentWireSchema, "fact_enrichment"),
-    messages: [{ role: "system", content: systemPrompt }, ...userMessages],
-  });
-  return response.choices[0]?.message?.content ?? "{}";
+  // Deterministic repair (mutates archetype/subtype/modifiers) → re-validate so
+  // a future taxonomy change can't let the repair silently emit an invalid blob.
+  const repaired = repairRedundantMechanismMisclassification(input.factText, result.data);
+  const revalidated = validateEnrichment(repaired);
+  if (!revalidated.ok) {
+    throw new EnrichmentError(`Repair produced invalid enrichment: ${revalidated.error}`);
+  }
+  return stampProvenance(revalidated.data, options?.promptDiagnostics);
 }
 
 /** Classify a fact via OpenAI. Throws EnrichmentError on unrecoverable failure. */
 export async function enrichFact(input: EnrichInput): Promise<FactEnrichment> {
-  return enrichFactWithModel(input, callOpenAIEnrichment);
+  // Resolve the EFFECTIVE system prompt (code default vs admin-config vs debug
+  // override) so we both use it AND stamp its provenance onto the result.
+  const resolution = await resolveFactEnrichmentSystemPrompt();
+
+  const callModel = async (userMessages: UserMessage[]): Promise<string> => {
+    const response = await callUtilityLLM({
+      temperature: FACT_ENRICHMENT_TEMPERATURE,
+      maxTokens: FACT_ENRICHMENT_MAX_TOKENS,
+      responseFormat: zodResponseFormat(factEnrichmentWireSchema, "fact_enrichment"),
+      messages: [{ role: "system", content: resolution.prompt }, ...userMessages],
+    });
+    return response.choices[0]?.message?.content ?? "{}";
+  };
+
+  return enrichFactWithModel(input, callModel, {
+    promptDiagnostics: {
+      source: resolution.source,
+      hash: resolution.hash,
+      length: resolution.length,
+      codeDefaultHash: resolution.codeDefaultHash,
+      matchesCodeDefault: resolution.matchesCodeDefault,
+    },
+  });
 }
 
 // ─── Persistence helpers ────────────────────────────────────────────────────

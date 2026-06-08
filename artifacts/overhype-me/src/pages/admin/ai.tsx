@@ -25,13 +25,13 @@ export default function AdminAI() {
     rows, loading,
     stdEdits, dbgEdits, setStdEdits, setDbgEdits,
     debugActive, debugToggling, toggleDebugMode,
-    saveStd, saveDbg, stdDirty, dbgDirty,
+    saveStd, saveDbg, stdDirty, dbgDirty, load,
   } = state;
 
   const ctxValue: ConfigPageCtx = {
     rows, stdEdits, dbgEdits, debugActive,
     setStdEdits, setDbgEdits,
-    saveStd, saveDbg, stdDirty, dbgDirty,
+    saveStd, saveDbg, stdDirty, dbgDirty, load,
   };
 
   return (

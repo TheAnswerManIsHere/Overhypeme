@@ -11,9 +11,14 @@
  * when a key is missing/blank, and as the seed value written to the DB row.
  */
 
+import { createHash } from "node:crypto";
 import { db } from "@workspace/db";
 import { sql } from "drizzle-orm";
-import { getConfigString } from "./adminConfig";
+import {
+  getConfigString,
+  getConfigStringWithSource,
+  type ConfigStringSource,
+} from "./adminConfig";
 import { logger } from "./logger";
 
 /** Call-site sampling overrides (classification wants low temperature + room). */
@@ -323,6 +328,53 @@ Do not include explanation outside the JSON.`;
 /** Resolve the admin-configurable fact-enrichment system prompt. */
 export async function getFactEnrichmentSystem(): Promise<string> {
   return getConfigString(FACT_ENRICHMENT_CONFIG_KEYS.system, FACT_ENRICHMENT_SYSTEM_DEFAULT);
+}
+
+// ─── Prompt provenance ────────────────────────────────────────────────────────
+
+/**
+ * Short, stable content hash of a prompt string. Used to prove WHICH prompt
+ * text was actually used at enrichment time — the version stamp alone can't,
+ * because a stale `admin_config` value can diverge from the code default while
+ * the version constant still reads "v4".
+ */
+export function hashPromptText(value: string): string {
+  return createHash("sha256").update(value, "utf8").digest("hex").slice(0, 16);
+}
+
+export type FactEnrichmentSystemPromptSource = ConfigStringSource;
+
+export interface FactEnrichmentSystemPromptResolution {
+  prompt: string;
+  source: FactEnrichmentSystemPromptSource;
+  hash: string;
+  length: number;
+  codeDefaultHash: string;
+  matchesCodeDefault: boolean;
+}
+
+/**
+ * Resolve the EFFECTIVE fact-enrichment system prompt plus provenance: which
+ * source produced it (code default / admin-config value / debug override /
+ * emergency fallback), its hash + length, the code-default hash, and whether
+ * the two match. The enrichment service stamps this onto the blob so a stale or
+ * overridden prompt can never hide behind a "current version" badge.
+ */
+export async function resolveFactEnrichmentSystemPrompt(): Promise<FactEnrichmentSystemPromptResolution> {
+  const codeDefaultHash = hashPromptText(FACT_ENRICHMENT_SYSTEM_DEFAULT);
+  const resolution = await getConfigStringWithSource(
+    FACT_ENRICHMENT_CONFIG_KEYS.system,
+    FACT_ENRICHMENT_SYSTEM_DEFAULT,
+  );
+  const prompt = resolution.value;
+  return {
+    prompt,
+    source: resolution.source,
+    hash: hashPromptText(prompt),
+    length: prompt.length,
+    codeDefaultHash,
+    matchesCodeDefault: prompt === FACT_ENRICHMENT_SYSTEM_DEFAULT,
+  };
 }
 
 // ─── Seeding ─────────────────────────────────────────────────────────────────
