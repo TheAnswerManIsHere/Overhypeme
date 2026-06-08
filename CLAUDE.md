@@ -176,9 +176,17 @@ David reports a conflict:
    doubt, `git diff origin/main HEAD --stat` shows the true delta — that,
    and nothing else, is what the new PR should contain.)
 3. Re-run typecheck + the touched tests on the rebased state.
-4. Force-push with lease (`git push --force-with-lease`) — the rebase
-   rewrote history, so the feature branch needs it. This is expected and
-   pre-authorized for MY feature branch (never `main`).
+4. Publish the rewritten branch. **NEVER force-push** — `.claude/guard.sh`
+   hard-blocks any `git push --force` / `--force-with-lease` and the attempt
+   just fails. Instead:
+   - After a squash-merge, GitHub auto-deletes the merged feature branch, so
+     the remote ref is usually gone. Run `git fetch --prune origin`, then a
+     plain `git push -u origin <branch>` recreates it fresh (no force needed).
+   - If the remote branch still exists and has diverged (a stale ref whose PR
+     is already merged/closed), delete it first with
+     `git push origin --delete <branch>`, then plain-push. Confirm the PR is
+     merged/closed before deleting.
+   - Only ever do this to MY feature branch, never `main`.
 
 **Whenever I finish a unit of work, before ending my turn:**
 
