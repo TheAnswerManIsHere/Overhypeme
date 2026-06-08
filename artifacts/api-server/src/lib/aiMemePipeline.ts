@@ -100,6 +100,15 @@ function detectImageFormat(response: Response): { contentType: string; ext: stri
 
 // ─── LLM scene prompt generation ─────────────────────────────────────────────
 
+/**
+ * @deprecated Legacy FLUX/PuLID scene-prompt generator. The t2i/i2i engine
+ * bench and the image meme generator now use the render-time image-prompt engine
+ * (`lib/imagePrompt/*` + `buildAndEnqueueImagePromptAttempt`) rendering with Nano
+ * Banana 2. This function survives ONLY for the video pipeline, the PuLID
+ * reference jobs, `regenerate-scene-prompts`, and admin/script backfill, until
+ * the Nano Banana video rebuild retires those paths. Do NOT wire new
+ * image-generation surfaces to this path.
+ */
 export async function generateScenePrompts(factText: string): Promise<AiScenePrompts> {
   // The system prompt is admin-configurable (debug-overlay aware). The model +
   // sampling come from the shared General Intelligence engine, which picks the

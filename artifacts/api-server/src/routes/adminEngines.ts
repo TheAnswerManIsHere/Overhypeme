@@ -38,12 +38,21 @@ import { eq, ne, and } from "drizzle-orm";
 import { requireAdmin } from "./admin.js";
 import { clearEngineCaches, buildEngineInput } from "../lib/engineInterpreter.js";
 import { applyAudioHandling } from "../lib/engineAudio.js";
-import {
-  generateScenePrompts,
-  type AiScenePrompts,
-} from "../lib/aiMemePipeline.js";
 import { generateVideoDirection } from "../lib/videoDirection.js";
 import { renderPersonalized } from "../lib/renderCanonical.js";
+import { assembleImagePromptForPreview } from "../lib/imagePrompt/preview.js";
+import { analyzeSourceImage, noImageAnalysis } from "../lib/sourceImageAnalysis/index.js";
+import { parseAspectRatio, normalizeStyleId } from "../lib/imagePromptAttempts.js";
+import {
+  validateEnrichment,
+  defaultIdentityPolicyForRenderMode,
+  type SubjectRenderMode,
+  type SourceImageAnalysis,
+} from "@workspace/api-zod";
+
+// Re-export the plan-generator test seam (owned by the shared preview helper) so
+// the engine-bench tests can stub prompt generation without hitting OpenAI.
+export { __setPlanGeneratorForTest } from "../lib/imagePrompt/preview.js";
 
 // Hardcoded test identity for workbench prompt assembly — renders fact
 // templates ({NAME}/{SUBJ}/…) down to a concrete person so the prompt reads
@@ -55,16 +64,14 @@ import { logger } from "../lib/logger.js";
 
 const router: IRouter = Router();
 
-// Test seam: override the scene-prompt generator so the assemble-prompt
-// endpoint can be tested without a real OpenAI call.
-let scenePromptGenerator: (factText: string) => Promise<AiScenePrompts> = generateScenePrompts;
-export function __setScenePromptGeneratorForTest(
-  fn: ((factText: string) => Promise<AiScenePrompts>) | null,
-): void {
-  scenePromptGenerator = fn ?? generateScenePrompts;
+// Test seam: override the source-image analyzer so the i2i bench can be tested
+// without hitting the fal detector / vision fallback.
+let sourceImageAnalyzer: typeof analyzeSourceImage = analyzeSourceImage;
+export function __setSourceImageAnalyzerForTest(fn: typeof analyzeSourceImage | null): void {
+  sourceImageAnalyzer = fn ?? analyzeSourceImage;
 }
 
-// Test seam: override the AI Video Motion Prompt generator likewise.
+// Test seam: override the AI Video Motion Prompt generator.
 let videoStylePromptGenerator: (factText: string, imageUrl?: string | null) => Promise<string> = generateVideoDirection;
 export function __setVideoStylePromptGeneratorForTest(
   fn: ((factText: string, imageUrl?: string | null) => Promise<string>) | null,
@@ -633,6 +640,8 @@ interface AssemblePromptBody {
   factId?: number;
   gender?: "male" | "female" | "neutral";
   lookStyleId?: string;
+  /** Output aspect ratio the admin is rendering in (wizard format). */
+  aspectRatio?: string;
   motionPresetId?: string;
   /**
    * Source image for the video bench — the still the motion prompt is generated
@@ -674,7 +683,7 @@ router.post(
     }
 
     const [fact] = await db
-      .select({ text: factsTable.text, aiScenePrompts: factsTable.aiScenePrompts })
+      .select({ text: factsTable.text, enrichment: factsTable.enrichment })
       .from(factsTable)
       .where(eq(factsTable.id, factId))
       .limit(1);
@@ -741,27 +750,48 @@ router.post(
       return;
     }
 
-    // Image (text-to-image or image-to-image): scene prompt (per gender) +
-    // look-style suffix [+ composition suffix for image-to-image].
-    let prompts = fact.aiScenePrompts as AiScenePrompts | null;
-    if (!prompts || body.forceRegenerate) {
+    // Image (text-to-image or image-to-image): the render-time image-prompt
+    // engine produces the bench's prompt. t2i → t2i_fallback (gender-driven);
+    // i2i → human_identity_i2i, analyzed + rendered against a sample image —
+    // exactly as production does, so the bench exercises the real pipeline.
+    const ev = validateEnrichment(fact.enrichment);
+    if (!ev.ok) {
+      res.status(400).json({ error: "fact_enrichment_invalid", details: ev.error });
+      return;
+    }
+    const enrichment = ev.data;
+
+    const gender = body.gender ?? "neutral";
+    const subjectRenderMode: SubjectRenderMode =
+      benchType === "image-to-image" ? "human_identity_i2i" : "t2i_fallback";
+    const generationMode = subjectRenderMode === "t2i_fallback" ? "t2i" : "i2i";
+
+    // i2i needs a source image to analyze + render against. Resolve ONE
+    // reference URL (the admin's sample, else the bundled test face) and use it
+    // for analysis, the generation input, and render controls alike.
+    let analysis: SourceImageAnalysis = noImageAnalysis();
+    let referenceImageUrl: string | null = null;
+    if (subjectRenderMode === "human_identity_i2i") {
+      referenceImageUrl =
+        typeof body.sampleImageUrl === "string" && body.sampleImageUrl.trim()
+          ? body.sampleImageUrl.trim()
+          : await getBundledTestFaceUrl();
       try {
-        prompts = await scenePromptGenerator(fact.text);
-        // Cache on the fact so repeated picks (and production) reuse them.
-        // forceRegenerate overwrites a stale/misclassified cache — this also
-        // fixes the fact for production, which reads the same cache.
-        await db.update(factsTable).set({ aiScenePrompts: prompts }).where(eq(factsTable.id, factId));
+        analysis = await sourceImageAnalyzer(
+          { uploadedObjectPath: "", imageUrl: referenceImageUrl },
+          { skipAiFallback: false },
+        );
       } catch (err) {
-        logger.warn({ err, factId }, "[adminEngines/assemble-prompt] scene-prompt generation failed");
-        res.status(502).json({ error: "scene_prompt_generation_failed" });
+        logger.warn({ err, factId }, "[adminEngines/assemble-prompt] source-image analysis failed");
+        res.status(502).json({ error: "source_image_analysis_failed" });
         return;
       }
     }
 
-    const gender = body.gender ?? "neutral";
-    const scene = (prompts[gender] ?? prompts.neutral ?? fact.text).trim();
+    const identityPolicy = defaultIdentityPolicyForRenderMode(subjectRenderMode);
 
-    let styleSuffix = "";
+    // Resolve the look-style suffix per generation mode.
+    let stylePrompt = "";
     if (body.lookStyleId) {
       const [ls] = await db
         .select({
@@ -771,15 +801,46 @@ router.post(
         .from(lookStylesTable)
         .where(eq(lookStylesTable.id, body.lookStyleId))
         .limit(1);
-      if (ls) {
-        styleSuffix = benchType === "image-to-image" ? ls.promptSuffixReference : ls.promptSuffix;
-      }
+      if (ls) stylePrompt = generationMode === "i2i" ? ls.promptSuffixReference : ls.promptSuffix;
     }
 
-    let imagePrompt = scene;
-    if (styleSuffix.trim()) imagePrompt += ` ${styleSuffix.trim()}`;
+    const renderControls = {
+      aspectRatio: parseAspectRatio(body.aspectRatio),
+      contentMode: "sfw" as const,
+      negativeSpacePreference: undefined,
+      fallbackSubjectGender: subjectRenderMode === "t2i_fallback" ? gender : undefined,
+      styleId: normalizeStyleId(body.lookStyleId),
+      referenceImageUrl,
+    };
 
-    res.json({ benchType, imagePrompt });
+    // Render the fact template to the bench's test identity so {NAME}/{SUBJ}
+    // never reach the prompt engine.
+    const renderedFactText = renderPersonalized(fact.text, WORKBENCH_TEST_NAME, WORKBENCH_TEST_PRONOUNS);
+
+    try {
+      const assembled = await assembleImagePromptForPreview({
+        renderedFactText,
+        enrichment,
+        sourceImageAnalysis: analysis,
+        subjectRenderMode,
+        identityPolicy,
+        renderControls,
+        stylePrompt,
+        referenceImageUrl,
+        renderedSubject: { name: WORKBENCH_TEST_NAME, pronouns: WORKBENCH_TEST_PRONOUNS },
+        requestId: `bench-${engine.id}-${Date.now()}`,
+      });
+      // subjectFactCompatibility is ADVISORY here — the bench tests engines, it
+      // does not gate production — so surface it without blocking.
+      res.json({
+        benchType,
+        imagePrompt: assembled.compiled.imagePrompt,
+        subjectFactCompatibility: assembled.output.visualPlan.subjectFactCompatibility,
+      });
+    } catch (err) {
+      logger.warn({ err, factId }, "[adminEngines/assemble-prompt] image-prompt generation failed");
+      res.status(502).json({ error: "image_prompt_generation_failed" });
+    }
   },
 );
 

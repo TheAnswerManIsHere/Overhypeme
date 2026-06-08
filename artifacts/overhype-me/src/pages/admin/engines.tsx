@@ -333,13 +333,28 @@ function EngineTestPanel({ engine }: { engine: EngineRow }) {
           gender,
           lookStyleId: lookStyleId || undefined,
           motionPresetId: motionPresetId || undefined,
-          sampleImageUrl: isVideoBench ? (sampleUrl.trim() || undefined) : undefined,
+          // i2i analyzes + renders against the sample image, so send it for
+          // image-to-image too (not just video). t2i sends none.
+          sampleImageUrl: (isVideoBench || benchType === "image-to-image") ? (sampleUrl.trim() || undefined) : undefined,
+          // The new prompt engine renders in the bench's chosen aspect ratio.
+          aspectRatio: isImagePromptBench ? (aspectRatio || undefined) : undefined,
           videoDirection: cachedVideoStyle,
           forceRegenerate,
         }),
       });
       const json = await r.json().catch(() => null);
-      if (!r.ok) throw new Error(json?.error ?? `HTTP ${r.status}`);
+      if (!r.ok) {
+        const code = json?.error ?? `HTTP ${r.status}`;
+        const friendly =
+          code === "fact_enrichment_invalid"
+            ? "This fact has no valid enrichment — enrich it before using the image bench."
+            : code === "image_prompt_generation_failed"
+              ? "The image-prompt engine failed while building the prompt. Try again or check the fact's enrichment."
+              : code === "source_image_analysis_failed"
+                ? "Could not analyze the sample image for image-to-image. Check the sample image URL."
+                : code;
+        throw new Error(friendly);
+      }
       const data = json as { imagePrompt?: string; motionPrompt?: string; dialogueText?: string; videoDirection?: string };
       if (typeof data.imagePrompt === "string") setImagePrompt(data.imagePrompt);
       if (typeof data.motionPrompt === "string") { setMotionPrompt(data.motionPrompt); setExperiment("custom"); }
@@ -353,7 +368,7 @@ function EngineTestPanel({ engine }: { engine: EngineRow }) {
       setAssembling(false);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedFact?.id, gender, lookStyleId, motionPresetId, sampleUrl, isVideoBench, benchType, engine.id]);
+  }, [selectedFact?.id, gender, lookStyleId, motionPresetId, sampleUrl, aspectRatio, isImagePromptBench, isVideoBench, benchType, engine.id]);
 
   // Auto-assemble (cached prompts) whenever the selection changes.
   useEffect(() => { void runAssemble(false); }, [runAssemble]);

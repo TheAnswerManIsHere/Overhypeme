@@ -34,7 +34,8 @@ import adminEnginesRouter, {
   __setFalSubmitForTest,
   __setFalPollForTest,
   __resetSubmitTimestampsForTest,
-  __setScenePromptGeneratorForTest,
+  __setPlanGeneratorForTest,
+  __setSourceImageAnalyzerForTest,
   __setVideoStylePromptGeneratorForTest,
   __resetBundledFaceUrlForTest,
   engineBenchType,
@@ -791,17 +792,103 @@ describe("POST /admin/engines/:id/assemble-prompt", () => {
       .returning({ id: factsTable.id });
     return row!.id;
   }
-  async function seedLookStyle(): Promise<string> {
-    const id = `t-ae-ls-${randomUUID().slice(0, 8)}`;
-    await db.insert(lookStylesTable).values({
-      id, label: "Test look", promptSuffix: "in cyberpunk style", promptSuffixReference: "reimagined as cyberpunk",
-    });
-    return id;
-  }
   async function seedMotionPreset(): Promise<string> {
     const id = `t-ae-mp-${randomUUID().slice(0, 8)}`;
     await db.insert(motionPresetsTable).values({ id, label: "Test motion", motionPrompt: "slow dolly push-in" });
     return id;
+  }
+
+  // Image benches now run the render-time prompt engine, which REQUIRES valid
+  // fact enrichment. Seed a minimal-valid enrichment; the plan generator is
+  // stubbed so no test hits OpenAI (the real Nano Banana compiler still runs).
+  const VALID_ENRICHMENT = {
+    primaryArchetype: "superhuman_physical_feat",
+    subtype: "force_scaled_action",
+    modifiers: ["single_subject_focus"],
+    visualLiteralness: "literal_dramatization",
+    visualComplexity: "medium",
+    overhypeFit: "strong",
+    adultSuitability: "safe",
+    adultSuitabilityNotes: "",
+    suggestedHashtags: ["legendary", "strength", "feat"],
+    taxonomyConfidence: 0.95,
+    adminReviewNotes: "",
+    culturalReferences: [],
+    semanticEntities: [],
+  };
+
+  async function seedEnrichedFact(enrichment: unknown = VALID_ENRICHMENT): Promise<number> {
+    const [row] = await db
+      .insert(factsTable)
+      .values({ text: `t-ae assemble fact ${randomUUID().slice(0, 8)}`, isActive: true, enrichment: enrichment as never })
+      .returning({ id: factsTable.id });
+    return row!.id;
+  }
+
+  // A full ImagePromptGenerationOutput the stubbed generator returns; the route
+  // feeds visualPlan/compiledPrompt into the real Nano Banana 2 compiler.
+  function makeStubPlan(mode: "human_identity_i2i" | "t2i_fallback", promptText: string) {
+    const generationMode = mode === "t2i_fallback" ? ("t2i" as const) : ("i2i" as const);
+    return {
+      visualPlan: {
+        sceneConcept: "A superhuman feat",
+        visualGoal: "Make the feat legible",
+        visualApproach: "Cinematic close-up",
+        archetypeApplication: {
+          primaryArchetype: "superhuman_physical_feat",
+          subtype: "force_scaled_action",
+          selectedFrame: "direct_action",
+          strategyRationale: "Authored strategy applies.",
+        },
+        keyVisualElements: ["central subject", "dramatic lighting", "exertion pose"],
+        subjectTreatment: {
+          roleInScene: "Protagonist",
+          subjectRenderMode: mode,
+          identityPreservation: mode === "human_identity_i2i" ? "human_face" : "none",
+          nonhumanSubjectTreatment: {
+            applicable: false,
+            subjectKind: "not_applicable",
+            preserveTraits: [],
+            anthropomorphicTreatment: "none",
+            doNotTransformIntoHuman: false,
+          },
+          fallbackSubjectGender: mode === "t2i_fallback" ? "female" : "not_applicable",
+          expressionAndPose: "Confident, focused",
+        },
+        subjectFactCompatibility: { rating: "strong", reason: "Stages well.", recommendedFallback: "none" },
+        composition: {
+          subjectFraming: "Medium close-up",
+          negativeSpace: "top",
+          cameraStyle: "Cinematic 35mm",
+          sceneReadability: "Subject is the readable element",
+        },
+        supportingTextPolicy: {
+          allowSupportingText: false,
+          supportingTextElements: [],
+          forbiddenTextTypes: [
+            "full meme captions",
+            "full fact text",
+            "hashtags",
+            "watermarks",
+            "real logos",
+            "brand marks",
+            "long explanatory paragraphs",
+          ],
+        },
+        semanticEntitiesUsed: [],
+        culturalReferencesUsed: [],
+        styleIntegration: "Apply cinematic style",
+        contentNotes: "SFW",
+        debugNotes: "Strategy v2",
+        targetEngine: "nano_banana_2" as const,
+        generationMode,
+      },
+      compiledPrompt: { prompt: promptText, negativePrompt: "", engineNotes: "" },
+      promptVersion: "test-prompt-v1",
+      archetypeStrategyVersion: "test-strategy-v1",
+      generatedAt: new Date("2026-01-01T00:00:00.000Z").toISOString(),
+      generatedBy: "openai" as const,
+    };
   }
 
   const factIds: number[] = [];
@@ -811,41 +898,87 @@ describe("POST /admin/engines/:id/assemble-prompt", () => {
     await db.delete(motionPresetsTable).where(like(motionPresetsTable.id, "t-ae-mp-%"));
   });
 
-  it("image-to-image: scene[gender] + reference suffix (cached prompts, no LLM)", async () => {
+  it("text-to-image: runs the new engine → t2i_fallback with the bench gender + aspect ratio", async () => {
+    const engineId = await seedEngine({ kind: "image", paramSchema: { params: [
+      { name: "prompt", from: "imagePrompt", type: "string", required: true },
+    ] } });
+    const factId = await seedEnrichedFact(); factIds.push(factId);
+
+    let seenInput: { subjectRenderMode?: string; renderControls?: Record<string, unknown> } | null = null;
+    __setPlanGeneratorForTest(async (input) => {
+      seenInput = input as never;
+      return makeStubPlan("t2i_fallback", "A protagonist lifts a mountain.") as never;
+    });
+    try {
+      const app = buildTestApp({ kind: "authenticated", userId: adminUserId }, adminEnginesRouter);
+      const res = await request(app)
+        .post(`/api/admin/engines/${engineId}/assemble-prompt`)
+        .send({ factId, gender: "female", aspectRatio: "square" });
+
+      assert.equal(res.status, 200, JSON.stringify(res.body));
+      assert.equal(res.body.benchType, "text-to-image");
+      // The compiled Nano Banana prompt carries the stub scene text.
+      assert.match(String(res.body.imagePrompt), /lifts a mountain/);
+      // t2i → t2i_fallback, bench gender + aspect ratio flow into render controls.
+      assert.equal(seenInput!.subjectRenderMode, "t2i_fallback");
+      assert.equal(seenInput!.renderControls!["fallbackSubjectGender"], "female");
+      assert.equal(seenInput!.renderControls!["aspectRatio"], "square");
+    } finally {
+      __setPlanGeneratorForTest(null);
+    }
+  });
+
+  it("image-to-image: analyzes + renders against ONE resolved reference URL", async () => {
     const engineId = await seedEngine({ kind: "image", paramSchema: { params: [
       { name: "prompt", from: "imagePrompt", type: "string", required: true },
       { name: "image_urls", from: "referenceImageUrl", type: "stringArray", required: true },
     ] } });
-    const factId = await seedFact(SCENE); factIds.push(factId);
-    const lookStyleId = await seedLookStyle();
+    const factId = await seedEnrichedFact(); factIds.push(factId);
+    const SAMPLE = "https://img.test/face.jpg";
 
-    const app = buildTestApp({ kind: "authenticated", userId: adminUserId }, adminEnginesRouter);
-    const res = await request(app)
-      .post(`/api/admin/engines/${engineId}/assemble-prompt`)
-      .send({ factId, gender: "female", lookStyleId });
+    let analyzedUrl: string | null = null;
+    __setSourceImageAnalyzerForTest(async (ref) => {
+      analyzedUrl = ref.imageUrl;
+      const { noImageAnalysis } = await import("../lib/sourceImageAnalysis/index.js");
+      return { ...noImageAnalysis(), hasUsableHumanFace: true, subjectKind: "human" } as never;
+    });
+    let seenInput: { subjectRenderMode?: string; referenceImageUrl?: string | null; renderControls?: Record<string, unknown> } | null = null;
+    __setPlanGeneratorForTest(async (input) => {
+      seenInput = input as never;
+      return makeStubPlan("human_identity_i2i", "Restyle the person into a noir alley.") as never;
+    });
+    try {
+      const app = buildTestApp({ kind: "authenticated", userId: adminUserId }, adminEnginesRouter);
+      const res = await request(app)
+        .post(`/api/admin/engines/${engineId}/assemble-prompt`)
+        .send({ factId, gender: "neutral", sampleImageUrl: SAMPLE });
 
-    assert.equal(res.status, 200);
-    assert.equal(res.body.benchType, "image-to-image");
-    assert.equal(res.body.imagePrompt, "Cinematic woman scene reimagined as cyberpunk");
-    // Composition suffix was retired — no longer appended to reference prompts.
-    assert.doesNotMatch(res.body.imagePrompt, /Full body wide angle/);
+      assert.equal(res.status, 200, JSON.stringify(res.body));
+      assert.equal(res.body.benchType, "image-to-image");
+      assert.equal(seenInput!.subjectRenderMode, "human_identity_i2i");
+      // The SAME resolved URL is analyzed, fed to the generator, and put in renderControls.
+      assert.equal(analyzedUrl, SAMPLE);
+      assert.equal(seenInput!.referenceImageUrl, SAMPLE);
+      assert.equal(seenInput!.renderControls!["referenceImageUrl"], SAMPLE);
+    } finally {
+      __setPlanGeneratorForTest(null);
+      __setSourceImageAnalyzerForTest(null);
+    }
   });
 
-  it("text-to-image: scene[gender] + plain suffix, no composition", async () => {
+  it("400 fact_enrichment_invalid when the fact has no usable enrichment", async () => {
     const engineId = await seedEngine({ kind: "image", paramSchema: { params: [
       { name: "prompt", from: "imagePrompt", type: "string", required: true },
     ] } });
-    const factId = await seedFact(SCENE); factIds.push(factId);
-    const lookStyleId = await seedLookStyle();
+    const factId = await seedEnrichedFact({ primaryArchetype: "nope" }); factIds.push(factId);
 
     const app = buildTestApp({ kind: "authenticated", userId: adminUserId }, adminEnginesRouter);
     const res = await request(app)
       .post(`/api/admin/engines/${engineId}/assemble-prompt`)
-      .send({ factId, gender: "male", lookStyleId });
+      .send({ factId, gender: "neutral" });
 
-    assert.equal(res.body.benchType, "text-to-image");
-    assert.equal(res.body.imagePrompt, "Cinematic man scene in cyberpunk style");
-    assert.doesNotMatch(res.body.imagePrompt, /Full body wide angle/);
+    assert.equal(res.status, 400);
+    assert.equal(res.body.error, "fact_enrichment_invalid");
   });
 
   const SAMPLE_STILL = "https://img.test/still.jpg";
@@ -968,50 +1101,22 @@ describe("POST /admin/engines/:id/assemble-prompt", () => {
     }
   });
 
-  it("generates + caches scene prompts when the fact has none (via test hook)", async () => {
+  it("image bench does NOT touch the legacy aiScenePrompts cache", async () => {
     const engineId = await seedEngine({ kind: "image", paramSchema: { params: [
       { name: "prompt", from: "imagePrompt", type: "string", required: true },
     ] } });
-    const factId = await seedFact(null); factIds.push(factId);
-    let generatorCalls = 0;
-    __setScenePromptGeneratorForTest(async () => { generatorCalls += 1; return SCENE; });
+    const factId = await seedEnrichedFact(); factIds.push(factId);
+    __setPlanGeneratorForTest(async () => makeStubPlan("t2i_fallback", "A neutral cosmic scene.") as never);
     try {
       const app = buildTestApp({ kind: "authenticated", userId: adminUserId }, adminEnginesRouter);
       const res = await request(app).post(`/api/admin/engines/${engineId}/assemble-prompt`).send({ factId, gender: "neutral" });
-      assert.equal(res.body.imagePrompt, "Cinematic neutral scene");
-      assert.equal(generatorCalls, 1);
-      // Cached on the fact now.
+      assert.equal(res.status, 200, JSON.stringify(res.body));
+      assert.match(String(res.body.imagePrompt), /cosmic scene/);
+      // The new engine must NOT write the legacy scene-prompt cache.
       const [row] = await db.select({ p: factsTable.aiScenePrompts }).from(factsTable).where(eq(factsTable.id, factId));
-      assert.ok(row?.p, "scene prompts should be cached on the fact");
+      assert.equal(row?.p ?? null, null, "the new engine must not write aiScenePrompts");
     } finally {
-      __setScenePromptGeneratorForTest(null);
-    }
-  });
-
-  it("forceRegenerate re-runs generation and overwrites a cached prompt", async () => {
-    const engineId = await seedEngine({ kind: "image", paramSchema: { params: [
-      { name: "prompt", from: "imagePrompt", type: "string", required: true },
-    ] } });
-    // Seed WITH a (stale) cached prompt — forceRegenerate must ignore + overwrite it.
-    const factId = await seedFact({ ...SCENE, neutral: "Stale cosmic scene" }); factIds.push(factId);
-    let generatorCalls = 0;
-    __setScenePromptGeneratorForTest(async () => { generatorCalls += 1; return { ...SCENE, neutral: "Fresh bear scene" }; });
-    try {
-      const app = buildTestApp({ kind: "authenticated", userId: adminUserId }, adminEnginesRouter);
-
-      // Without forceRegenerate → serves the stale cache, no generation.
-      const cached = await request(app).post(`/api/admin/engines/${engineId}/assemble-prompt`).send({ factId, gender: "neutral" });
-      assert.equal(cached.body.imagePrompt, "Stale cosmic scene");
-      assert.equal(generatorCalls, 0);
-
-      // With forceRegenerate → regenerates + overwrites the cache.
-      const fresh = await request(app).post(`/api/admin/engines/${engineId}/assemble-prompt`).send({ factId, gender: "neutral", forceRegenerate: true });
-      assert.equal(fresh.body.imagePrompt, "Fresh bear scene");
-      assert.equal(generatorCalls, 1);
-      const [row] = await db.select({ p: factsTable.aiScenePrompts }).from(factsTable).where(eq(factsTable.id, factId));
-      assert.equal((row?.p as { neutral?: string } | null)?.neutral, "Fresh bear scene");
-    } finally {
-      __setScenePromptGeneratorForTest(null);
+      __setPlanGeneratorForTest(null);
     }
   });
 

@@ -25,7 +25,7 @@ import { getConfigInt } from "../lib/adminConfig";
 import { getRandomStockPhoto, getPhotoById } from "../lib/pexelsClient";
 import { renderPersonalized } from "../lib/renderCanonical";
 import { compositeAiMeme } from "../lib/aiMemeCompositor";
-import { generateAiMemeBackgrounds, generateAiMemeBackgroundFromReference, isUserAtImageLimit, buildFalInputPreview } from "../lib/aiMemePipeline";
+import { generateAiMemeBackgroundFromReference, isUserAtImageLimit, buildFalInputPreview } from "../lib/aiMemePipeline";
 import { memeKey } from "../lib/storageKeys";
 import { BudgetExceededError } from "../lib/budgetGate";
 import { classifyAndDecide } from "../lib/moderation/nsfwClassifier";
@@ -1297,7 +1297,7 @@ router.post("/memes/ai/:factId/generate", requireLegendary, async (req: Request,
     rawGender === "female" ? "female" : "neutral";
 
   const [fact] = await db
-    .select({ id: factsTable.id, text: factsTable.text, parentId: factsTable.parentId, aiScenePrompts: factsTable.aiScenePrompts, aiMemeImages: factsTable.aiMemeImages })
+    .select({ id: factsTable.id, text: factsTable.text, parentId: factsTable.parentId, enrichment: factsTable.enrichment, aiScenePrompts: factsTable.aiScenePrompts, aiMemeImages: factsTable.aiMemeImages })
     .from(factsTable)
     .where(and(eq(factsTable.id, factId), eq(factsTable.isActive, true)))
     .limit(1);
@@ -1315,18 +1315,21 @@ router.post("/memes/ai/:factId/generate", requireLegendary, async (req: Request,
   }
 
   const existingPrompts = fact.aiScenePrompts as import("../lib/aiMemePipeline").AiScenePrompts | undefined;
-  const existingImages = fact.aiMemeImages as AiMemeImages | undefined;
 
   // Derive the requesting user's gender from their pronouns so we only generate
   // for their gender slot instead of all three simultaneously.
   // he/* → male, she/* → female, anything else → neutral.
   let userGender: "male" | "female" | "neutral" = "neutral";
+  let protagonistName = "Alex";
+  let protagonistPronouns: string | null = null;
   if (req.user?.id) {
     const [userRow] = await db
-      .select({ pronouns: usersTable.pronouns })
+      .select({ displayName: usersTable.displayName, pronouns: usersTable.pronouns })
       .from(usersTable)
       .where(eq(usersTable.id, req.user.id))
       .limit(1);
+    if (userRow?.displayName) protagonistName = userRow.displayName;
+    protagonistPronouns = userRow?.pronouns ?? null;
     const pronounSubj = (userRow?.pronouns ?? "they/them").toLowerCase().trim().split("/")[0] ?? "they";
     if (pronounSubj === "he") userGender = "male";
     else if (pronounSubj === "she") userGender = "female";
@@ -1439,35 +1442,49 @@ router.post("/memes/ai/:factId/generate", requireLegendary, async (req: Request,
       return;
     }
   } else {
-    try {
-      await generateAiMemeBackgrounds(fact.id, fact.text, {
-        // For abstract facts, use the "abstract" scope (generates 1 neutral image).
-        // For action facts, only generate for the requesting user's gender (1 image)
-        // instead of all three genders simultaneously.
-        ...(isAbstractScope
-          ? { scope: "abstract" as const }
-          : { targetGender: userGender, targetIndex: 0 }),
-        existingPrompts,
-        existingImages,
-        userId: req.user?.id,
-        styleSuffix,
-        modelOverride,
-        paramsOverride,
-      });
-    } catch (err) {
-      if (err instanceof BudgetExceededError) {
-        res.status(429).json({
-          error: "BUDGET_EXCEEDED",
-          currentSpend: err.budgetStatus.currentSpend,
-          limit: err.budgetStatus.limit,
-          remainingBudget: err.budgetStatus.remainingBudget,
-          upgradePath: err.upgradePath,
-        });
-      } else {
-        res.status(500).json({ error: extractGenerationError(err) });
-      }
+    // Generic (no reference image): the render-time prompt engine + Nano Banana 2,
+    // via the SAME async attempt pipeline as /generate-v2 (t2i fallback). Requires
+    // valid enrichment — the legacy scene-prompt fallback is gone.
+    const ev = _validateEnrichment_v2(fact.enrichment);
+    if (!ev.ok) {
+      res.status(400).json({ error: "fact_enrichment_invalid", details: ev.error });
       return;
     }
+    const renderedFactText = renderPersonalized(fact.text, protagonistName, protagonistPronouns);
+    if (hasUnresolvedFactTokens_v2(renderedFactText)) {
+      res.status(422).json({ error: "fact_template_unresolved" });
+      return;
+    }
+
+    const analysis = noImageAnalysis_v2();
+    // No source image → resolves to t2i_fallback.
+    const subjectRenderMode = resolveSubjectRenderMode_v2(analysis, undefined);
+    const identityPolicy = _defaultIdentityPolicyForRenderMode_v2(subjectRenderMode);
+    const renderControls = {
+      aspectRatio: parseAspectRatio(body["aspectRatio"]),
+      contentMode: "sfw" as const,
+      negativeSpacePreference: undefined,
+      // Abstract facts have no personal subject → neutral; otherwise the
+      // requester's pronoun-derived gender, preserving legacy slot semantics.
+      fallbackSubjectGender: isAbstractScope ? ("neutral" as const) : userGender,
+      styleId: normalizeStyleId(rawStyleId),
+      referenceImageUrl: null,
+    };
+
+    const { renderJobId, attemptId } = await buildAndEnqueueImagePromptAttempt({
+      factId: fact.id,
+      userId: req.user?.id ?? null,
+      enrichment: ev.data,
+      renderedFactText,
+      analysis,
+      subjectRenderMode,
+      userSelectedSubjectRenderMode: null,
+      identityPolicy,
+      renderControls,
+    });
+
+    res.status(202).json({ renderJobId, attemptId });
+    return;
   }
 
   res.json({ success: true, objectPath: generatedObjectPath });
@@ -1607,6 +1624,7 @@ import {
   uploadImageMetadataTable as uploadImageMetadataTable_v2,
 } from "@workspace/db";
 import { enqueueJob as enqueueJob_v2 } from "../lib/asyncJobs";
+import { buildAndEnqueueImagePromptAttempt, parseAspectRatio, normalizeStyleId } from "../lib/imagePromptAttempts";
 
 const PUBLIC_OBJECT_PREFIX_v2 = "/objects/";
 

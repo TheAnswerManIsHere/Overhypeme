@@ -19,13 +19,17 @@ import {
   type SubjectRenderMode,
   type SourceImageAnalysis,
   type FactEnrichment,
-  type ImagePromptGenerationInput,
+  type IdentityPolicy,
 } from "@workspace/api-zod";
 import { requireAdmin } from "./admin";
 import { analyzeSourceImage, generationModeFromSubjectRenderMode, noImageAnalysis } from "../lib/sourceImageAnalysis";
-import { generateImagePromptPlan, ImagePromptError } from "../lib/imagePrompt/generator";
-import { compileForSubjectRenderMode } from "../lib/imagePrompt/compilers/nanoBanana2";
+import { ImagePromptError } from "../lib/imagePrompt/generator";
+import { assembleImagePromptForPreview } from "../lib/imagePrompt/preview";
 import { renderPersonalized } from "../lib/renderCanonical";
+
+// Re-export the plan-generator test seam (now owned by the shared preview helper)
+// so existing tests importing it from this route keep working.
+export { __setPlanGeneratorForTest } from "../lib/imagePrompt/preview";
 
 const router: IRouter = Router();
 
@@ -34,15 +38,6 @@ const router: IRouter = Router();
 // so we personalize before prompt generation — not just for display.
 const PREVIEW_NAME = "David";
 const PREVIEW_PRONOUNS = "he/him";
-
-// Test seam: the route statically imports the live (OpenAI-backed)
-// generateImagePromptPlan. Mirroring adminEngines.ts, we route the call through
-// a swappable binding so tests can stub it without hitting OpenAI.
-type PlanGenerator = typeof generateImagePromptPlan;
-let planGenerator: PlanGenerator = generateImagePromptPlan;
-export function __setPlanGeneratorForTest(fn: PlanGenerator | null): void {
-  planGenerator = fn ?? generateImagePromptPlan;
-}
 
 // ─── POST /admin/image-prompt/preview ────────────────────────────────────
 
@@ -137,37 +132,32 @@ router.post("/admin/image-prompt/preview", requireAdmin, async (req: Request, re
   // preview so the generated plan matches what a real render would see.
   const renderedFactText = renderPersonalized(factRow.text, PREVIEW_NAME, PREVIEW_PRONOUNS);
 
-  const input: ImagePromptGenerationInput = {
-    factText: renderedFactText,
-    enrichment,
-    sourceImageAnalysis: analysis,
-    subjectRenderMode,
-    userSelectedSubjectRenderMode: body.userSelectedSubjectRenderMode ?? null,
-    identityPolicy: identityPolicy as ImagePromptGenerationInput["identityPolicy"],
-    renderControls,
-    stylePrompt,
-    referenceImageUrl: body.referenceImageUrl ?? null,
-    targetEngine: "nano_banana_2",
-    requestId: `admin-preview-${crypto.randomUUID()}`,
-  };
-
+  const requestId = `admin-preview-${crypto.randomUUID()}`;
   let output;
+  let compiled;
   try {
-    output = await planGenerator(input);
+    const assembled = await assembleImagePromptForPreview({
+      renderedFactText,
+      enrichment,
+      sourceImageAnalysis: analysis,
+      subjectRenderMode,
+      userSelectedSubjectRenderMode: body.userSelectedSubjectRenderMode ?? null,
+      identityPolicy: identityPolicy as IdentityPolicy,
+      renderControls,
+      stylePrompt,
+      referenceImageUrl: body.referenceImageUrl ?? null,
+      // Resolve any residual identity tokens with the same brand protagonist used
+      // to render the fact text, so {NAME} never reaches the engine prompt.
+      renderedSubject: { name: PREVIEW_NAME, pronouns: PREVIEW_PRONOUNS },
+      requestId,
+    });
+    output = assembled.output;
+    compiled = assembled.compiled;
   } catch (err) {
     const msg = err instanceof ImagePromptError ? err.message : err instanceof Error ? err.message : String(err);
     res.status(502).json({ error: "prompt_generation_failed", details: msg });
     return;
   }
-
-  const compiled = compileForSubjectRenderMode({
-    visualPlan: output.visualPlan,
-    compiledPrompt: output.compiledPrompt,
-    input,
-    // Resolve any residual identity tokens with the same brand protagonist used
-    // to render the fact text, so {NAME} never reaches the engine prompt.
-    renderedSubject: { name: PREVIEW_NAME, pronouns: PREVIEW_PRONOUNS },
-  });
 
   let attemptId: number | undefined;
   if (body.persist) {
@@ -176,7 +166,7 @@ router.post("/admin/image-prompt/preview", requireAdmin, async (req: Request, re
       .values({
         factId,
         userId: (req as Request & { user?: { id: string } }).user?.id ?? null,
-        requestId: input.requestId ?? null,
+        requestId: requestId ?? null,
         generationMode,
         subjectRenderMode,
         userSelectedSubjectRenderMode: body.userSelectedSubjectRenderMode ?? null,
