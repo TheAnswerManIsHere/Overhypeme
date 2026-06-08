@@ -11,7 +11,7 @@
 
 import { Router, type IRouter, type Request, type Response } from "express";
 import { and, desc, eq, sql } from "drizzle-orm";
-import { db, imagePromptAttemptsTable, factsTable, lookStylesTable } from "@workspace/db";
+import { db, imagePromptAttemptsTable, factsTable, lookStylesTable, pendingReviewsTable } from "@workspace/db";
 import {
   defaultIdentityPolicyForRenderMode,
   validateEnrichment,
@@ -43,6 +43,7 @@ const PREVIEW_PRONOUNS = "he/him";
 
 interface PreviewBody {
   factId?: number;
+  reviewId?: number;
   subjectRenderMode?: SubjectRenderMode;
   userSelectedSubjectRenderMode?: SubjectRenderMode;
   sourceImageAnalysis?: SourceImageAnalysis;
@@ -57,26 +58,56 @@ interface PreviewBody {
 router.post("/admin/image-prompt/preview", requireAdmin, async (req: Request, res: Response): Promise<void> => {
   const body = (req.body && typeof req.body === "object" ? req.body : {}) as PreviewBody;
   const factId = typeof body.factId === "number" ? body.factId : NaN;
-  if (!Number.isFinite(factId)) {
-    res.status(400).json({ error: "factId is required" });
+  const reviewId = typeof body.reviewId === "number" ? body.reviewId : NaN;
+
+  if (!Number.isFinite(factId) && !Number.isFinite(reviewId)) {
+    res.status(400).json({ error: "factId or reviewId is required" });
     return;
   }
 
-  const [factRow] = await db
-    .select({ text: factsTable.text, enrichment: factsTable.enrichment })
-    .from(factsTable)
-    .where(eq(factsTable.id, factId))
-    .limit(1);
-  if (!factRow) {
-    res.status(400).json({ error: "fact_not_found", factId });
-    return;
+  let sourceText: string;
+  let enrichment: FactEnrichment;
+  let resolvedFactId: number | null = null;
+
+  if (Number.isFinite(reviewId)) {
+    // Review path: look up the pending review for its submitted text + enrichment.
+    // persist is silently ignored — there is no approved fact row yet to link to.
+    const [reviewRow] = await db
+      .select({ submittedText: pendingReviewsTable.submittedText, enrichment: pendingReviewsTable.enrichment })
+      .from(pendingReviewsTable)
+      .where(eq(pendingReviewsTable.id, reviewId))
+      .limit(1);
+    if (!reviewRow) {
+      res.status(400).json({ error: "review_not_found", reviewId });
+      return;
+    }
+    const ev = validateEnrichment(reviewRow.enrichment);
+    if (!ev.ok) {
+      res.status(400).json({ error: "fact_enrichment_invalid", details: ev.error });
+      return;
+    }
+    sourceText = reviewRow.submittedText;
+    enrichment = ev.data;
+  } else {
+    // Fact path: existing behaviour.
+    const [factRow] = await db
+      .select({ text: factsTable.text, enrichment: factsTable.enrichment })
+      .from(factsTable)
+      .where(eq(factsTable.id, factId))
+      .limit(1);
+    if (!factRow) {
+      res.status(400).json({ error: "fact_not_found", factId });
+      return;
+    }
+    const ev = validateEnrichment(factRow.enrichment);
+    if (!ev.ok) {
+      res.status(400).json({ error: "fact_enrichment_invalid", details: ev.error });
+      return;
+    }
+    sourceText = factRow.text;
+    enrichment = ev.data;
+    resolvedFactId = factId;
   }
-  const ev = validateEnrichment(factRow.enrichment);
-  if (!ev.ok) {
-    res.status(400).json({ error: "fact_enrichment_invalid", details: ev.error });
-    return;
-  }
-  const enrichment: FactEnrichment = ev.data;
 
   // Resolve source-image analysis: caller can supply a synthetic blob, OR
   // pass uploadedObjectPath to run the real analyzer, OR omit both (= no
@@ -130,7 +161,7 @@ router.post("/admin/image-prompt/preview", requireAdmin, async (req: Request, re
   // The generator expects rendered fact text (tokens resolved). Fact templates
   // store {NAME}/{SUBJ}/… — personalize with the brand protagonist for the
   // preview so the generated plan matches what a real render would see.
-  const renderedFactText = renderPersonalized(factRow.text, PREVIEW_NAME, PREVIEW_PRONOUNS);
+  const renderedFactText = renderPersonalized(sourceText, PREVIEW_NAME, PREVIEW_PRONOUNS);
 
   const requestId = `admin-preview-${crypto.randomUUID()}`;
   let output;
@@ -160,11 +191,12 @@ router.post("/admin/image-prompt/preview", requireAdmin, async (req: Request, re
   }
 
   let attemptId: number | undefined;
-  if (body.persist) {
+  // persist requires a real fact row — skip silently for the review path.
+  if (body.persist && resolvedFactId !== null) {
     const [inserted] = await db
       .insert(imagePromptAttemptsTable)
       .values({
-        factId,
+        factId: resolvedFactId,
         userId: (req as Request & { user?: { id: string } }).user?.id ?? null,
         requestId: requestId ?? null,
         generationMode,
@@ -189,7 +221,7 @@ router.post("/admin/image-prompt/preview", requireAdmin, async (req: Request, re
   res.json({
     renderedFactText,
     inputSummary: {
-      factId,
+      factId: resolvedFactId ?? null,
       subjectRenderMode,
       generationMode,
       targetEngine: "nano_banana_2",

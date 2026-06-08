@@ -12,6 +12,7 @@ import {
 import type { FactEnrichment } from "@workspace/api-zod";
 import { EnrichmentEditor, EnrichmentSummary, isApprovable } from "@/components/admin/EnrichmentEditor";
 import { useEnrichmentJobs } from "@/components/admin/useEnrichmentJobs";
+import { RuntimePromptPreview } from "@/components/admin/RuntimePromptPreview";
 
 // ─── Shared ───────────────────────────────────────────────────────────────────
 
@@ -365,6 +366,7 @@ function ReviewModal({
                   <p className="text-sm text-destructive">{jobs.error}</p>
                 </div>
               )}
+              <RuntimePromptPreview reviewId={review.id} />
             </div>
           ) : enrichment ? (
             <EnrichmentSummary e={enrichment} />
