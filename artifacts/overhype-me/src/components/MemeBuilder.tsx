@@ -1698,6 +1698,7 @@ export function MemeBuilder({ factId, factText, rawFactText, pexelsImages, aiMem
               onSelect={setAiSelectedInfo}
               showStylePicker
               thumbPx={thumbPx}
+              memeAspectRatio={aspectRatio}
               onGoToUpload={() => handleSetImageMode("upload")}
               profileImageUrl={user?.profileImageUrl ?? null}
             />
