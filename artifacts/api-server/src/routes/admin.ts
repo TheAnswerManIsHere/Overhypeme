@@ -15,6 +15,12 @@ import { renderCanonical } from "../lib/renderCanonical";
 import { computeSplitTokenIndex } from "../lib/splitTokenIndex";
 import { logActivity } from "../lib/activity";
 import { getAllConfig, bustConfigCache, getPublicConfig } from "../lib/adminConfig";
+import {
+  FACT_ENRICHMENT_CONFIG_KEYS,
+  FACT_ENRICHMENT_SYSTEM_DEFAULT,
+  resolveFactEnrichmentSystemPrompt,
+  hashPromptText,
+} from "../lib/factEnrichmentConfig";
 import { getAllTierFeatureMatrix, setTierFeature, bustTierFeaturesCache } from "../lib/tierFeatures";
 import { ObjectStorageService } from "../lib/objectStorage";
 import { memeKey } from "../lib/storageKeys";
@@ -1571,6 +1577,72 @@ router.patch("/admin/config/:key", requireAdmin, async (req: Request, res: Respo
 
   res.json(updated);
 });
+
+// ─── Fact-enrichment prompt provenance + reset ─────────────────────────────────
+
+/**
+ * Report the EFFECTIVE fact-enrichment system prompt's provenance (without the
+ * prompt text): source, hash, code-default hash, and whether they match. Powers
+ * the "reset to code default" confirmation so admins see current vs code-default
+ * before replacing a stored/overridden prompt.
+ */
+router.get(
+  "/admin/config/fact-enrichment-system/provenance",
+  requireAdmin,
+  async (_req: Request, res: Response) => {
+    try {
+      const r = await resolveFactEnrichmentSystemPrompt();
+      res.json({
+        source: r.source,
+        hash: r.hash,
+        length: r.length,
+        codeDefaultHash: r.codeDefaultHash,
+        matchesCodeDefault: r.matchesCodeDefault,
+      });
+    } catch (err) {
+      logger.error({ err }, "[admin] failed to resolve fact-enrichment prompt provenance");
+      res.status(500).json({ error: "Failed to resolve prompt provenance" });
+    }
+  },
+);
+
+/**
+ * Reset the stored fact-enrichment system prompt to the current code default
+ * and clear any debug override. Destructive (replaces admin-customized prompt),
+ * so the UI gates this behind a confirmation showing current vs code-default
+ * hashes.
+ */
+router.post(
+  "/admin/config/fact-enrichment-system/reset-to-default",
+  requireAdmin,
+  async (req: Request, res: Response) => {
+    const [updated] = await db
+      .update(adminConfigTable)
+      .set({
+        value: FACT_ENRICHMENT_SYSTEM_DEFAULT,
+        debugValue: null,
+        debugValueLabel: null,
+        updatedAt: new Date(),
+        updatedById: req.user?.id ?? null,
+      })
+      .where(eq(adminConfigTable.key, FACT_ENRICHMENT_CONFIG_KEYS.system))
+      .returning();
+
+    bustConfigCache();
+
+    if (!updated) {
+      res.status(404).json({ error: "Config key not found" });
+      return;
+    }
+
+    res.json({
+      ok: true,
+      key: FACT_ENRICHMENT_CONFIG_KEYS.system,
+      hash: hashPromptText(FACT_ENRICHMENT_SYSTEM_DEFAULT),
+      length: FACT_ENRICHMENT_SYSTEM_DEFAULT.length,
+    });
+  },
+);
 
 // ─── Video Styles ─────────────────────────────────────────────────────────────
 

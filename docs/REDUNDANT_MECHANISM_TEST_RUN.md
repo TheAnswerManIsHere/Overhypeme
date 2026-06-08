@@ -146,6 +146,78 @@ After applying the branch and pointing the app at the DB:
 Do **not** run a global re-enrich backfill as part of this validation — the fix
 is surgical; broad re-enrichment is a separate, deliberate admin action.
 
+---
+
+## Follow-up: runtime-prompt provenance + deterministic repair guard
+
+The first cut fixed the **code-default** classifier prompt, but enrichment can
+still run a **stale `admin_config` prompt** (the DB value wins over the code
+default, and seeding is `ON CONFLICT DO NOTHING`), while
+`classificationPromptVersion` still stamps the current constant. This follow-up
+makes the effective prompt inspectable and adds a deterministic safety net.
+
+### What changed (follow-up)
+
+- **Effective-prompt resolver** — `getConfigStringWithSource` (`adminConfig.ts`)
+  reports the source (`code_default` / `admin_config_value` /
+  `admin_config_debug_value` / `fallback_default`; the last is a DB-read failure,
+  distinct from a missing row). `resolveFactEnrichmentSystemPrompt` +
+  `hashPromptText` (`factEnrichmentConfig.ts`) compute source + hash +
+  `matchesCodeDefault`.
+- **Provenance stamped on the blob** — optional `classificationPromptDiagnostics`
+  on the enrichment schema (`@workspace/api-zod`, base schema only — NOT the
+  OpenAI wire schema). `enrichFact` now injects the *resolved* prompt and stamps
+  which prompt actually ran.
+- **Deterministic repair guard** (`factEnrichment.ts`) — for the narrow
+  thrown-weapon-then-mechanism pattern AND
+  `primaryArchetype === temporal_causality_inversion` AND
+  `taxonomyConfidence < 0.5`, repair to `superhuman_physical_feat` /
+  `force_scaled_action` + the redundant-mechanism modifiers. **Confidence-gated**
+  (≥ 0.5 temporal is left alone but annotated), **reverse-order-guarded**
+  ("exploded, then … threw" stays temporal), and the result is **re-validated**
+  before stamping. `overhypeFit` / `adultSuitability` are never touched.
+- **Reset-to-code-default** — `GET /admin/config/fact-enrichment-system/provenance`
+  + `POST /admin/config/fact-enrichment-system/reset-to-default` (`admin.ts`),
+  surfaced as a **"Reset to code default"** button on the `fact_enrichment_system`
+  config card.
+- **Provenance badge** — the enrichment summary panel shows the stored prompt's
+  source/hash and warns when it differs from the code default or a debug prompt
+  was active.
+
+### Follow-up tests
+
+```bash
+cd artifacts/api-server && node --import tsx/esm --test \
+  src/__tests__/factEnrichmentRepair.test.ts
+```
+
+Pass criterion: **11 tests pass, 0 fail.** Covers: exact low-confidence grenade
+repair (fit/adult preserved, "Auto-repaired" note, re-validates); high-confidence
+temporal not repaired but noted; reverse-order not repaired; low-confidence
+non-thrown-weapon not repaired; bullet/gun variant repaired; provenance stamped
+through `enrichFactWithModel` (and the 2-arg back-compat call); mismatch
+diagnostics validate (`matchesCodeDefault: false` round-trips);
+`admin_config_debug_value` accepted; unknown source rejected; `hashPromptText`
+stable + 16 chars.
+
+Non-regression includes `factEnrichment.test.ts` (the optional 3rd
+`enrichFactWithModel` arg keeps the existing injected-model tests valid).
+
+### Follow-up DB / UI spot-check (Replit owns the DB)
+
+1. If the stored `admin_config.fact_enrichment_system` diverges from the code
+   default, the enrichment panel's provenance line reads "differs from current
+   code default" (or "Debug enrichment prompt active").
+2. On the `fact_enrichment_system` config card, **Reset to code default** shows a
+   confirmation with current source/hash vs code-default hash; confirming
+   replaces the value, clears the debug override, and busts the config cache.
+3. Re-enrich the grenade fact: even if the model returns low-confidence
+   `temporal_causality_inversion`, the stored result is
+   `superhuman_physical_feat` + `normal_function_rendered_unnecessary` with an
+   "Auto-repaired" admin note; `overhypeFit`/`adultSuitability` unchanged.
+
+---
+
 ## What this explicitly does NOT ship
 
 - **No new archetype.** Redundant mechanism is a *modifier* under the existing
@@ -157,3 +229,9 @@ is surgical; broad re-enrichment is a separate, deliberate admin action.
   (`avoid_gore` + the strategy's non-graphic guidance).
 - **No auto re-enrich / backfill.** The version bump only surfaces staleness;
   re-enrichment is the existing manual / bulk admin action.
+- **No auto-overwrite of admin-customized prompts.** Resetting to the code
+  default is a deliberate, confirmed admin action — seeding still leaves existing
+  rows untouched.
+- **No Taxonomy Health prompt-mismatch issue.** Surfacing prompt drift on the
+  Taxonomy Health page (whether an admin-customized or debug prompt is a health
+  warning) is deferred; the enrichment-panel provenance badge covers it for now.
