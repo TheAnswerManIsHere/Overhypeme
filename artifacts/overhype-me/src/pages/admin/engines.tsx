@@ -352,7 +352,9 @@ function EngineTestPanel({ engine }: { engine: EngineRow }) {
               ? "The image-prompt engine failed while building the prompt. Try again or check the fact's enrichment."
               : code === "source_image_analysis_failed"
                 ? "Could not analyze the sample image for image-to-image. Check the sample image URL."
-                : code;
+                : code === "bundled_face_upload_failed"
+                  ? "Could not upload the bundled test face (fal.ai account locked or balance exhausted). Paste a sample image URL above to bypass the bundled face."
+                  : code;
         throw new Error(friendly);
       }
       const data = json as { imagePrompt?: string; motionPrompt?: string; dialogueText?: string; videoDirection?: string };

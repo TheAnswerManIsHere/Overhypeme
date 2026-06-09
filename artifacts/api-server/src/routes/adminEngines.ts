@@ -772,10 +772,22 @@ router.post(
     let analysis: SourceImageAnalysis = noImageAnalysis();
     let referenceImageUrl: string | null = null;
     if (subjectRenderMode === "human_identity_i2i") {
-      referenceImageUrl =
-        typeof body.sampleImageUrl === "string" && body.sampleImageUrl.trim()
-          ? body.sampleImageUrl.trim()
-          : await getBundledTestFaceUrl();
+      const providedUrl =
+        typeof body.sampleImageUrl === "string" ? body.sampleImageUrl.trim() : "";
+      if (providedUrl) {
+        referenceImageUrl = providedUrl;
+      } else {
+        // Upload the bundled test face to fal.ai storage. This can fail if the
+        // fal.ai account is locked/exhausted — guard it separately so the caller
+        // gets a clean 502 instead of an unhandled 500.
+        try {
+          referenceImageUrl = await getBundledTestFaceUrl();
+        } catch (err) {
+          logger.warn({ err, factId }, "[adminEngines/assemble-prompt] bundled test-face upload failed");
+          res.status(502).json({ error: "bundled_face_upload_failed" });
+          return;
+        }
+      }
       try {
         analysis = await sourceImageAnalyzer(
           { uploadedObjectPath: "", imageUrl: referenceImageUrl },
