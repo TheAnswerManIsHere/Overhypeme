@@ -100,14 +100,24 @@ const inputCls =
   "w-full px-2 py-1.5 text-xs bg-muted/30 border border-border rounded-sm focus:outline-none focus:border-primary";
 const labelCls = "block text-[10px] font-semibold text-muted-foreground mb-1 uppercase tracking-wide";
 
+// Visual-plan keys surfaced in the debug view, ordered to mirror the engine
+// prompt's labeled contract (core scene → subject → environment → lighting),
+// then identity/treatment, then the audit echoes. visualGoal/visualApproach are
+// INTERNAL reasoning (not in the engine prompt) but kept here for admin insight.
 const VISUAL_PLAN_KEYS = [
   "sceneConcept",
+  "coreScene",
+  "subjectDetails",
+  "environment",
+  "lightingAndStyle",
+  "keyVisualElements",
   "visualGoal",
   "visualApproach",
   "subjectTreatment",
   "composition",
   "supportingTextPolicy",
   "semanticEntitiesUsed",
+  "culturalReferencesUsed",
   "subjectFactCompatibility",
   "styleIntegration",
   "debugNotes",

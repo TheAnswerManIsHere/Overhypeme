@@ -41,6 +41,12 @@ function basePlan(overrides: Partial<{
   allowSupportingText: boolean;
   supportingTextElements: Array<{ content: string; purpose: string; placement: string }>;
   keyVisualElements: string[];
+  coreScene: string;
+  subjectDetails: string[];
+  environment: string[];
+  lightingAndStyle: string;
+  ageLifeStageApplies: boolean;
+  ageTargetState: string;
   compatibilityRating: "strong" | "workable" | "risky" | "poor";
   compatibilityFallback: "none" | "t2i_fallback" | "upload_human_photo" | "choose_different_fact";
   semanticEntitiesUsed: Array<{ surfaceText: string; visualReferentUsed: string; effectOnVisualPlan: string }>;
@@ -58,6 +64,12 @@ function basePlan(overrides: Partial<{
         selectedFrame: "direct_action",
         strategyRationale: "Authored strategy applies; night sky must be visible.",
       },
+      coreScene:
+        overrides.coreScene ??
+        "David stands outside at night holding a magnifying glass over a tiny ant while a focused beam of moonlight passes through the lens.",
+      subjectDetails: overrides.subjectDetails ?? ["calm focused expression", "crouched over the ant"],
+      environment: overrides.environment ?? ["clear night sky with a bright moon", "dark grass underfoot"],
+      lightingAndStyle: overrides.lightingAndStyle ?? "cool moonlit key light, cinematic shallow depth of field",
       keyVisualElements: overrides.keyVisualElements ?? [
         "David central foreground",
         "clearly nighttime sky",
@@ -78,6 +90,10 @@ function basePlan(overrides: Partial<{
         },
         fallbackSubjectGender: overrides.fallbackSubjectGender ?? "not_applicable",
         expressionAndPose: overrides.expressionAndPose ?? "Confident, focused, calm",
+        ageLifeStageTransform: {
+          applies: overrides.ageLifeStageApplies ?? false,
+          targetState: overrides.ageTargetState ?? "",
+        },
       },
       subjectFactCompatibility: {
         rating: overrides.compatibilityRating ?? "strong",
@@ -446,5 +462,51 @@ describe("validateImagePromptPlan", () => {
     const result = validateImagePromptPlan(basePlan({ negativePrompt: "no posters, no text" }), baseExpectations);
     assert.equal(result.ok, false);
     if (!result.ok) assert.match(result.error, /negativePrompt/);
+  });
+
+  // Rule 17 — concrete visual specification required.
+  it("rejects an empty coreScene", () => {
+    const result = validateImagePromptPlan(basePlan({ coreScene: "   " }), baseExpectations);
+    assert.equal(result.ok, false);
+    if (!result.ok) assert.match(result.error, /coreScene/);
+  });
+
+  it("rejects empty subjectDetails", () => {
+    const result = validateImagePromptPlan(basePlan({ subjectDetails: [] }), baseExpectations);
+    assert.equal(result.ok, false);
+    if (!result.ok) assert.match(result.error, /subjectDetails/);
+  });
+
+  it("rejects empty environment", () => {
+    const result = validateImagePromptPlan(basePlan({ environment: ["  "] }), baseExpectations);
+    assert.equal(result.ok, false);
+    if (!result.ok) assert.match(result.error, /environment/);
+  });
+
+  // Rule 18 — ageLifeStageTransform coherence.
+  it("accepts an age transform with a concrete targetState", () => {
+    const result = validateImagePromptPlan(
+      basePlan({ ageLifeStageApplies: true, ageTargetState: "a baby/infant" }),
+      baseExpectations,
+    );
+    assert.equal(result.ok, true, result.ok ? "" : result.error);
+  });
+
+  it("rejects applies=true with an empty targetState", () => {
+    const result = validateImagePromptPlan(
+      basePlan({ ageLifeStageApplies: true, ageTargetState: "" }),
+      baseExpectations,
+    );
+    assert.equal(result.ok, false);
+    if (!result.ok) assert.match(result.error, /targetState/);
+  });
+
+  it("rejects applies=false with a non-empty targetState", () => {
+    const result = validateImagePromptPlan(
+      basePlan({ ageLifeStageApplies: false, ageTargetState: "an elderly man" }),
+      baseExpectations,
+    );
+    assert.equal(result.ok, false);
+    if (!result.ok) assert.match(result.error, /targetState/);
   });
 });

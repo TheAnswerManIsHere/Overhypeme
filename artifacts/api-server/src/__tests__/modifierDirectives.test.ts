@@ -27,6 +27,22 @@ describe("modifierDirectives", () => {
     assert.doesNotMatch(out, /reject|moderation|block/);
   });
 
+  it("compiles every age-transform modifier into a loud de-aging directive (never dropped)", () => {
+    for (const mod of ["baby_child_version", "infant_version", "child_version", "age_transform"]) {
+      const out = modifierDirectives([mod]).join(" ").toLowerCase();
+      assert.equal(modifierDirectives([mod]).length, 1, `${mod} should map to a directive`);
+      assert.match(out, /reference subject/, mod);
+      assert.match(out, /do not (?:add a separate|keep an adult)/, mod);
+    }
+  });
+
+  it("ages the subject up for older_self_version (and never adds a separate elder)", () => {
+    const out = modifierDirectives(["older_self_version"]).join(" ").toLowerCase();
+    assert.equal(modifierDirectives(["older_self_version"]).length, 1);
+    assert.match(out, /age the reference subject/);
+    assert.match(out, /do not add a separate, generic elderly person/);
+  });
+
   it("ignores unknown modifiers and preserves a stable order", () => {
     const out = modifierDirectives(["not_a_real_modifier", "full_body_needed", "face_prominent"]);
     // face_prominent is emitted before full_body_needed per the map's order.

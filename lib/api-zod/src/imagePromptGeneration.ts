@@ -22,7 +22,11 @@ import { PRIMARY_ARCHETYPES, SUBTYPES_BY_ARCHETYPE, type PrimaryArchetype, type 
 
 // v2: visualPlan gained `culturalReferencesUsed` (audit echo-back of the
 // material cultural references the plan consumed, parallel to semanticEntitiesUsed).
-export const IMAGE_PROMPT_GENERATION_VERSION = "v2";
+// v3: visualPlan gained the concrete visual specification (coreScene,
+// subjectDetails, environment, lightingAndStyle) and subjectTreatment gained the
+// ageLifeStageTransform binding signal; the compiler now assembles a labeled,
+// deterministic visual contract and the abstract intent line was dropped.
+export const IMAGE_PROMPT_GENERATION_VERSION = "v3";
 export const SOURCE_IMAGE_ANALYZER_VERSION = "v1";
 
 // ─── Enums ────────────────────────────────────────────────────────────────
@@ -246,6 +250,21 @@ const nonhumanSubjectTreatmentWireSchema = z.object({
 
 const FALLBACK_SUBJECT_GENDER_WIRE_VALUES = ["male", "female", "neutral", "not_applicable"] as const;
 
+/**
+ * Age / life-stage transform signal. When the fact implies an age the reference
+ * subject must be rendered at (born → infant, "as a kid" → child, "in his 90s" →
+ * elderly), `applies` is true and `targetState` is the concrete transformed noun
+ * (e.g. "a baby/infant", "a school-age child", "an elderly man"). The compiler
+ * uses this to emit the deterministic SUBJECT BINDING block that fuses the
+ * reference identity and the transformed life stage into ONE entity — so the
+ * engine de-ages the same person instead of pairing an adult with a separate
+ * baby. `applies=false` ⟹ `targetState` is an empty string.
+ */
+const ageLifeStageTransformWireSchema = z.object({
+  applies: z.boolean(),
+  targetState: z.string(),
+});
+
 const subjectTreatmentWireSchema = z.object({
   roleInScene: z.string(),
   subjectRenderMode: z.enum(SUBJECT_RENDER_MODE_VALUES),
@@ -253,6 +272,8 @@ const subjectTreatmentWireSchema = z.object({
   nonhumanSubjectTreatment: nonhumanSubjectTreatmentWireSchema,
   fallbackSubjectGender: z.enum(FALLBACK_SUBJECT_GENDER_WIRE_VALUES),
   expressionAndPose: z.string(),
+  // Age / life-stage transform binding signal (drives SUBJECT BINDING).
+  ageLifeStageTransform: ageLifeStageTransformWireSchema,
 });
 
 const supportingTextElementWireSchema = z.object({
@@ -320,9 +341,25 @@ const culturalReferenceUsedWireSchema = z.object({
 
 const visualPlanWireSchema = z.object({
   sceneConcept: z.string(),
+  // visualGoal / visualApproach are INTERNAL reasoning (admin/debug + tone
+  // checks) — the compiler no longer emits them to the engine prompt. The
+  // engine prompt is built from the concrete visual fields below.
   visualGoal: z.string(),
   visualApproach: z.string(),
   archetypeApplication: archetypeApplicationWireSchema,
+  // ─ Concrete visual specification (1:1 with the engine prompt sections) ─
+  // coreScene → CORE SCENE: one tight paragraph of what is happening.
+  coreScene: z.string(),
+  // subjectDetails → SUBJECT DETAILS: pose, expression, age/body presentation,
+  // wardrobe, distinctive features (subject-specific, visible).
+  subjectDetails: z.array(z.string()),
+  // environment → ENVIRONMENT: setting, background, props, scale (scene-side).
+  environment: z.array(z.string()),
+  // lightingAndStyle → LIGHTING AND STYLE: light, mood, aesthetic (the resolved
+  // stylePrompt suffix is appended deterministically by the compiler).
+  lightingAndStyle: z.string(),
+  // keyVisualElements stays as a gap-fill safety net: any must-see element the
+  // concrete fields above missed is injected once, de-duped against them.
   keyVisualElements: z.array(z.string()),
   subjectTreatment: subjectTreatmentWireSchema,
   subjectFactCompatibility: subjectFactCompatibilityWireSchema,
@@ -356,6 +393,7 @@ export type ImagePromptPlanWire = z.infer<typeof imagePromptPlanWireSchema>;
 export type VisualPlan = z.infer<typeof visualPlanWireSchema>;
 export type CompiledPrompt = z.infer<typeof compiledPromptWireSchema>;
 export type SubjectTreatment = z.infer<typeof subjectTreatmentWireSchema>;
+export type AgeLifeStageTransform = z.infer<typeof ageLifeStageTransformWireSchema>;
 export type SubjectFactCompatibility = z.infer<typeof subjectFactCompatibilityWireSchema>;
 export type SupportingTextElement = z.infer<typeof supportingTextElementWireSchema>;
 export type SemanticEntityUsed = z.infer<typeof semanticEntityUsedWireSchema>;
@@ -714,6 +752,54 @@ export function validateImagePromptPlan(
       ok: false,
       error: `compiledPrompt.negativePrompt must be empty for nano_banana_2 (it has no negative-prompt parameter)`,
       correctableHint: `Leave compiledPrompt.negativePrompt as an empty string and express every exclusion as positive scene language inside compiledPrompt.prompt (e.g. "a clean wall" instead of a "no posters" negative).`,
+    };
+  }
+
+  // 17. Concrete visual specification must be present. The engine prompt's CORE
+  // SCENE / SUBJECT DETAILS / ENVIRONMENT sections are built from these — empty
+  // fields would yield a hollow, intent-only prompt (the exact failure we are
+  // fixing). Require a non-empty coreScene and at least one concrete
+  // subjectDetail and one environment entry.
+  if (!vp.coreScene.trim()) {
+    return {
+      ok: false,
+      error: `visualPlan.coreScene is empty`,
+      correctableHint: `Write coreScene as one tight paragraph describing what is literally happening in the frame (subject + action + key objects). Concrete visuals only — no authorial intent.`,
+    };
+  }
+  const subjectDetailsNonEmpty = vp.subjectDetails.filter((s) => s.trim());
+  if (subjectDetailsNonEmpty.length < 1) {
+    return {
+      ok: false,
+      error: `visualPlan.subjectDetails must contain at least one concrete entry`,
+      correctableHint: `List concrete subject details: pose, expression, apparent age/body presentation, wardrobe, distinctive features.`,
+    };
+  }
+  const environmentNonEmpty = vp.environment.filter((s) => s.trim());
+  if (environmentNonEmpty.length < 1) {
+    return {
+      ok: false,
+      error: `visualPlan.environment must contain at least one concrete entry`,
+      correctableHint: `List concrete environment details: setting, background, props, and scale.`,
+    };
+  }
+
+  // 18. Age / life-stage transform coherence. When the subject must be rendered
+  // at a transformed age, the binding needs a concrete target noun; when it does
+  // not apply, the targetState must be empty so the compiler skips binding.
+  const lifeStage = vp.subjectTreatment.ageLifeStageTransform;
+  if (lifeStage.applies && !lifeStage.targetState.trim()) {
+    return {
+      ok: false,
+      error: `subjectTreatment.ageLifeStageTransform.applies is true but targetState is empty`,
+      correctableHint: `Set targetState to the concrete transformed life stage the fact implies (e.g. "a baby/infant", "a school-age child", "an elderly man").`,
+    };
+  }
+  if (!lifeStage.applies && lifeStage.targetState.trim()) {
+    return {
+      ok: false,
+      error: `subjectTreatment.ageLifeStageTransform.applies is false but targetState is non-empty`,
+      correctableHint: `When the fact does not imply an age transform, set ageLifeStageTransform.applies=false and targetState to "".`,
     };
   }
 

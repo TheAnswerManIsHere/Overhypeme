@@ -98,6 +98,10 @@ function makeOutput(overrides: {
         selectedFrame: "direct_action",
         strategyRationale: "Authored strategy applies.",
       },
+      coreScene: "David performs a superhuman feat in the foreground as onlookers react.",
+      subjectDetails: ["confident focused expression", "mid-exertion heroic pose"],
+      environment: ["dramatic stage lighting", "blurred background crowd"],
+      lightingAndStyle: "high-contrast cinematic key light",
       keyVisualElements: overrides.keyVisualElements ?? ["David central foreground", "dramatic lighting", "exertion pose"],
       subjectTreatment: {
         roleInScene: "Legendary protagonist",
@@ -113,6 +117,7 @@ function makeOutput(overrides: {
         },
         fallbackSubjectGender: mode === "t2i_fallback" ? "female" : "not_applicable",
         expressionAndPose: "Confident, focused",
+        ageLifeStageTransform: { applies: false, targetState: "" },
       },
       subjectFactCompatibility: {
         rating: "strong",
@@ -255,7 +260,7 @@ describe("image-prompt preview — validation", () => {
   it("400 when factId is missing", async () => {
     const res = await request(adminApp()).post("/api/admin/image-prompt/preview").send({});
     assert.equal(res.status, 400);
-    assert.equal(res.body.error, "factId is required");
+    assert.equal(res.body.error, "factId or reviewId is required");
   });
 
   it("400 fact_not_found for an unknown fact", async () => {
@@ -300,10 +305,10 @@ describe("image-prompt preview — human i2i", () => {
     assert.equal(res.body.debug.visualStrategyVersion, "test-strategy-v1");
     assert.equal(res.body.debug.generatedBy, "openai");
 
-    // Compiler injected the human face-preservation preamble.
+    // Compiler injected the transformation-aware human identity preamble.
     assert.match(
       String(res.body.compiledPrompt.imagePrompt).toLowerCase(),
-      /preserve the reference person's recognizable face/,
+      /preserve the reference person's recognizable identity and likeness/,
     );
   });
 });
