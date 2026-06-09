@@ -840,6 +840,10 @@ describe("POST /admin/engines/:id/assemble-prompt", () => {
           selectedFrame: "direct_action",
           strategyRationale: "Authored strategy applies.",
         },
+        coreScene: "The protagonist performs a superhuman feat in the foreground.",
+        subjectDetails: ["confident focused expression", "mid-exertion heroic pose"],
+        environment: ["dramatic stage lighting", "blurred arena background"],
+        lightingAndStyle: "high-contrast cinematic key light",
         keyVisualElements: ["central subject", "dramatic lighting", "exertion pose"],
         subjectTreatment: {
           roleInScene: "Protagonist",
@@ -854,6 +858,7 @@ describe("POST /admin/engines/:id/assemble-prompt", () => {
           },
           fallbackSubjectGender: mode === "t2i_fallback" ? "female" : "not_applicable",
           expressionAndPose: "Confident, focused",
+          ageLifeStageTransform: { applies: false, targetState: "" },
         },
         subjectFactCompatibility: { rating: "strong", reason: "Stages well.", recommendedFallback: "none" },
         composition: {
@@ -917,8 +922,10 @@ describe("POST /admin/engines/:id/assemble-prompt", () => {
 
       assert.equal(res.status, 200, JSON.stringify(res.body));
       assert.equal(res.body.benchType, "text-to-image");
-      // The compiled Nano Banana prompt carries the stub scene text.
-      assert.match(String(res.body.imagePrompt), /lifts a mountain/);
+      // The compiled Nano Banana prompt now carries the labeled visual contract
+      // (coreScene + subjectDetails + environment from the structured visualPlan).
+      assert.match(String(res.body.imagePrompt), /CORE SCENE:/);
+      assert.match(String(res.body.imagePrompt), /The protagonist performs a superhuman feat/);
       // t2i → t2i_fallback, bench gender + aspect ratio flow into render controls.
       assert.equal(seenInput!.subjectRenderMode, "t2i_fallback");
       assert.equal(seenInput!.renderControls!["fallbackSubjectGender"], "female");
@@ -1111,7 +1118,9 @@ describe("POST /admin/engines/:id/assemble-prompt", () => {
       const app = buildTestApp({ kind: "authenticated", userId: adminUserId }, adminEnginesRouter);
       const res = await request(app).post(`/api/admin/engines/${engineId}/assemble-prompt`).send({ factId, gender: "neutral" });
       assert.equal(res.status, 200, JSON.stringify(res.body));
-      assert.match(String(res.body.imagePrompt), /cosmic scene/);
+      // The compiler now produces the labeled visual contract (CORE SCENE, etc.)
+      // from the structured visualPlan, not the raw stub prompt text.
+      assert.match(String(res.body.imagePrompt), /CORE SCENE:/);
       // The new engine must NOT write the legacy scene-prompt cache.
       const [row] = await db.select({ p: factsTable.aiScenePrompts }).from(factsTable).where(eq(factsTable.id, factId));
       assert.equal(row?.p ?? null, null, "the new engine must not write aiScenePrompts");

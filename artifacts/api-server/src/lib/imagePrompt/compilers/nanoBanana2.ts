@@ -60,7 +60,7 @@ function renderIdentityTokens(text: string, subject?: CompileArgs["renderedSubje
 }
 
 const HUMAN_I2I_PREAMBLE =
-  "Image-to-image edit using the reference image as the person's facial identity source. Preserve the reference person's recognizable face.";
+  "Image-to-image edit using the reference image as the person's identity source. Preserve the reference person's recognizable identity and likeness — facial features and distinctive characteristics. Allow apparent age, body proportions, hair, clothing, and life stage to transform when the scene requires it, while keeping the same recognizable person.";
 const NONHUMAN_I2I_PREAMBLE =
   "Image-to-image edit using the reference image as the visual identity source for the uploaded subject. The uploaded subject visually represents the named subject in the fact. Preserve the uploaded subject's recognizable visual identity. Do not replace the subject with a human.";
 const T2I_PREAMBLE =
@@ -192,32 +192,152 @@ function composeModifierDirective(input: ImagePromptGenerationInput, haystack: s
   return directives.join(" ").trim();
 }
 
-// ─── Strategic intent (goal + approach) ────────────────────────────────────
+// ─── Subject binding (identity ⊗ transformed life stage) ────────────────────
 
-/** Strip a leading "Create/Make/Generate an image/scene of/that …" so the
- *  fragment reads as intent guidance, not a second scene description. */
-function cleanDirectiveFragment(value?: string | null): string {
-  if (!value) return "";
-  return value
-    .replace(/\s+/g, " ")
-    .replace(/^(?:create|make|generate)\s+(?:an?\s+)?(?:image|scene)\s+(?:of|that)\s+/i, "")
-    .trim()
-    .replace(/[.!?]+$/, "");
+/** Taxonomy modifiers that mean "render the subject at a transformed age". */
+const AGE_TRANSFORM_MODIFIERS = new Set([
+  "baby_child_version",
+  "infant_version",
+  "child_version",
+  "older_self_version",
+  "age_transform",
+]);
+
+/** A default transformed-state noun when the LLM didn't supply one but an age
+ *  modifier is present. Kept generic; the LLM's `targetState` is preferred. */
+function ageModifierTargetState(modifiers: Set<string>): string | null {
+  if (modifiers.has("infant_version")) return "a baby/infant";
+  if (modifiers.has("baby_child_version")) return "a baby/young child";
+  if (modifiers.has("child_version")) return "a young child";
+  if (modifiers.has("older_self_version")) return "a much older version of themselves";
+  if (modifiers.has("age_transform")) return "the age and life stage the fact implies";
+  return null;
+}
+
+/** Strip a leading article so a noun reads cleanly inside a "do not add a
+ *  separate, generic <noun>" clause. "a baby/infant" → "baby/infant". */
+function bareNoun(s: string): string {
+  return s.trim().replace(/^(?:an?|the)\s+/i, "").trim();
 }
 
 /**
- * Fold `visualGoal` + `visualApproach` into ONE compact required section so the
- * engine prompt carries a single strategic-intent line instead of two large
- * mini-prompts ahead of the prose. This does NOT semantically de-dupe against
- * the prose — it just reduces the visual weight of the abstract intent.
+ * Build the deterministic SUBJECT BINDING block. This is the fix for the core
+ * failure: it fuses the reference identity, the transformed life stage, and the
+ * single-instance constraint into ONE entity, so the engine de-ages/ages the
+ * SAME person instead of pairing an adult with a separate baby (or cloning the
+ * subject). Emitted when an age transform applies OR a duplicate-subject guard
+ * is requested. Returns "" when neither applies.
  */
-function composeStrategicIntentDirective(visualGoal?: string | null, visualApproach?: string | null): string {
-  const goal = cleanDirectiveFragment(visualGoal);
-  const approach = cleanDirectiveFragment(visualApproach);
-  if (goal && approach) return `Intent: ${goal}. Stage it as: ${approach}.`;
-  if (goal) return `Intent: ${goal}.`;
-  if (approach) return `Staging intent: ${approach}.`;
-  return "";
+function composeSubjectBinding(opts: {
+  name: string;
+  applies: boolean;
+  targetState: string;
+  avoidDuplicate: boolean;
+  humanIdentity: boolean;
+}): string {
+  const subject = opts.name || "the reference person";
+  const lines: string[] = [];
+  // The person/adult de-aging language only makes sense for a human identity
+  // subject. Non-human subjects get their age handling from the modifier
+  // directives + the non-human identity preamble instead.
+  if (opts.humanIdentity && opts.applies && opts.targetState.trim()) {
+    const ts = opts.targetState.trim();
+    const bare = bareNoun(ts);
+    lines.push(
+      `The reference person is ${subject}.`,
+      `${subject} is ${ts} in this scene.`,
+      `Render exactly one ${subject}.`,
+      `The transformed ${bare} IS ${subject} — the same person de-aged or aged, not a second person.`,
+    );
+  } else if (opts.avoidDuplicate) {
+    lines.push(
+      `The reference person is ${subject}.`,
+      `Render exactly one ${subject} — a single instance.`,
+    );
+  }
+  return lines.join(" ");
+}
+
+/**
+ * The negative anti-entity-split guards that pair with SUBJECT BINDING. Kept in
+ * STRICT CONSTRAINTS so the positive binding and the "do not" guards don't
+ * duplicate each other. Returns "" when no transform/dup case applies.
+ */
+function composeAntiSplitConstraints(opts: {
+  name: string;
+  applies: boolean;
+  targetState: string;
+  avoidDuplicate: boolean;
+  humanIdentity: boolean;
+}): string {
+  const subject = opts.name || "the reference person";
+  const lines: string[] = [];
+  if (opts.humanIdentity && opts.applies && opts.targetState.trim()) {
+    const bare = bareNoun(opts.targetState);
+    lines.push(
+      `Do not render the adult reference person separately.`,
+      `Do not add a second, generic ${bare}.`,
+      `Do not show both an adult ${subject} and a ${bare} in the same frame.`,
+    );
+  } else if (opts.avoidDuplicate) {
+    lines.push(`Do not duplicate, clone, or mirror ${subject} anywhere in the frame.`);
+  }
+  return lines.join(" ");
+}
+
+// ─── Intent-language scrub ──────────────────────────────────────────────────
+
+/**
+ * Phrases that EXPLAIN the joke rather than DESCRIBE the picture. Image-edit
+ * models render concrete nouns, not authorial intent, so this commentary just
+ * dilutes the visual spec. We strip it deterministically from every visual
+ * field before it reaches the engine prompt.
+ */
+const INTENT_LANGUAGE_RE =
+  /\b(?:show(?:cas|ing|s|case)?|highlight\w*|emphasiz\w*|underscor\w*|conveys?|conveying|capturing|creat\w*|enhanc\w*|reinforc\w*|playing up|leaning into)\b[^,;.]*\b(?:absurd\w*|humor\w*|comed\w*|hilar\w*|funny|iron(?:y|ic)|ridiculous\w*|whimsy|whimsical|unexpected\b|role[\s-]?reversal|contrast)\b|\b(?:humorous|comedic|comic)\s+(?:contrast|effect|tone|juxtaposition)\b|\bthe\s+(?:absurdity|humor|irony|comedy)\s+of\b|\bsense\s+of\s+(?:absurdity|humor|irony)\b/i;
+
+/**
+ * Remove authorial-intent clauses/sentences from a visual text. Operates
+ * clause-by-clause (splitting on commas/semicolons) so a sentence like "David
+ * grips the wheel, showcasing the absurdity of the situation" keeps the
+ * concrete clause and drops only the commentary. A sentence that is entirely
+ * commentary is dropped whole.
+ */
+function scrubIntentLanguage(text: string): string {
+  if (!text.trim()) return "";
+  const keptSentences: string[] = [];
+  for (const sentence of splitSentences(text)) {
+    const term = sentence.match(/[.!?]+$/)?.[0] ?? "";
+    const core = term ? sentence.slice(0, -term.length) : sentence;
+    const clauses = core.split(/\s*[,;]\s*/).filter(Boolean);
+    const keptClauses = clauses.filter((c) => !INTENT_LANGUAGE_RE.test(c));
+    if (!keptClauses.length) continue; // whole sentence was commentary
+    const rebuilt = keptClauses.join(", ") + (term || ".");
+    keptSentences.push(rebuilt.trim());
+  }
+  return keptSentences.join(" ").trim();
+}
+
+// ─── Labeled-section formatting ─────────────────────────────────────────────
+
+/** Prefix a non-empty body with its contract header; "" stays "". */
+function labeled(header: string, body: string): string {
+  const b = body.trim();
+  return b ? `${header}: ${b}` : "";
+}
+
+/**
+ * Join a list of concrete visual entries into one sentence-terminated body,
+ * dropping entries already named in `haystack` (so SUBJECT DETAILS / ENVIRONMENT
+ * don't repeat what CORE SCENE already said). Each entry becomes its own clause.
+ */
+function composeListBody(entries: readonly string[], haystack: string): string {
+  const kept = entries
+    .map((e) => scrubIntentLanguage(e).trim().replace(/[.!?]+$/, ""))
+    .filter(Boolean)
+    .filter((e) => !containsMeaningfulPhrase(haystack, e));
+  if (!kept.length) return "";
+  return `${kept.join("; ")}.`;
 }
 
 // ─── Planner-prose sanitation ───────────────────────────────────────────────
@@ -390,51 +510,92 @@ function compile(args: CompileArgs, mode: ModeContext): CompiledImagePrompt {
   const { visualPlan: vp, input } = args;
   const notes: string[] = [];
 
-  // Required core comes first so it always survives and so the prose + directive
-  // composers de-dupe against it (not the other way around). visualGoal +
-  // visualApproach are folded into ONE compact "strategic intent" section so the
-  // engine prompt isn't fronted by two large abstract mini-prompts.
-  const clauses = mode.requiredClauses.filter(Boolean).join(" ");
+  const modifierSet = new Set(input.enrichment.modifiers ?? []);
+  const subjectName = args.renderedSubject?.name?.trim() ?? "";
   const visualGoal = vp.visualGoal?.trim() ?? "";
   const visualApproach = vp.visualApproach?.trim() ?? "";
-  const strategicIntent = composeStrategicIntentDirective(visualGoal, visualApproach);
-  // Haystack for semantic/cultural dedupe still uses the raw goal + approach
-  // text (not the compacted "Intent:" wrapper) so referents already named in
-  // the intent aren't re-listed.
-  const requiredHead = [mode.preamble, clauses, visualGoal, visualApproach].filter(Boolean).join(" ");
 
-  const semantic = composeSemanticDirective(vp, requiredHead);
-  const cultural = composeCulturalDirective(vp, `${requiredHead} ${semantic}`);
+  // ── SUBJECT BINDING inputs: fuse reference identity with the transformed life
+  // stage. An age transform applies when the LLM flagged it OR an age modifier
+  // is present (belt-and-suspenders); the LLM's targetState wins, else a default
+  // derived from the modifier. avoid_duplicate_subject triggers a single-instance
+  // binding even without an age transform.
+  const lifeStage = vp.subjectTreatment?.ageLifeStageTransform;
+  const modifierTargetState = ageModifierTargetState(modifierSet);
+  const ageApplies = Boolean(lifeStage?.applies) || modifierTargetState !== null;
+  const targetState = (lifeStage?.targetState?.trim() || modifierTargetState || "").trim();
+  const avoidDuplicate = modifierSet.has("avoid_duplicate_subject");
+  const humanIdentity = input.subjectRenderMode === "human_identity_i2i";
+  const bindingArgs = { name: subjectName, applies: ageApplies, targetState, avoidDuplicate, humanIdentity };
+
+  // 1. IMAGE-TO-IMAGE TASK (operational lead + required mode clauses).
+  const clauses = mode.requiredClauses.filter(Boolean).join(" ");
+  const taskBody = [mode.preamble, clauses].filter(Boolean).join(" ");
+
+  // 2. SUBJECT BINDING (deterministic; positive identity↔life-stage fusion).
+  const binding = composeSubjectBinding(bindingArgs);
+
+  // Running haystack so each later section only adds what earlier ones didn't
+  // already say. Seeded with task + binding + the (internal, non-emitted) goal/
+  // approach so concrete fields don't echo the abstract reasoning.
+  let haystack = [taskBody, binding, visualGoal, visualApproach].filter(Boolean).join(" ");
+
+  // 3. CORE SCENE — the concrete scene. Prefer the structured coreScene; fall
+  // back to the LLM prose. Strip compiler-owned clauses (identity/text/ref/
+  // token) and scrub authorial intent so only pixels-mapping language remains.
+  const rawCore = vp.coreScene?.trim() ? vp.coreScene : args.compiledPrompt.prompt;
+  const sanitized = sanitizePlannerProse(rawCore);
+  const coreScene = scrubIntentLanguage(sanitized.text);
+  haystack = `${haystack} ${coreScene}`;
+
+  // 4. SUBJECT DETAILS — subject-specific visible details, plus expression/pose,
+  // age-transform + other modifier directives, and any key element gap-fill.
+  const subjectListBody = composeListBody(vp.subjectDetails ?? [], haystack);
+  const expressionPose = scrubIntentLanguage(vp.subjectTreatment?.expressionAndPose ?? "");
+  const modifierBody = composeModifierDirective(input, `${haystack} ${subjectListBody}`);
+  const keyElements = composeKeyElementsDirective(vp, `${haystack} ${subjectListBody} ${modifierBody}`);
+  const subjectDetails = [
+    subjectListBody,
+    expressionPose && !containsMeaningfulPhrase(haystack, expressionPose) ? `${expressionPose.replace(/[.!?]+$/, "")}.` : "",
+    keyElements,
+    modifierBody,
+  ].filter(Boolean).join(" ");
+  haystack = `${haystack} ${subjectDetails}`;
+
+  // 5. ENVIRONMENT — setting, background, props, scale.
+  const environment = composeListBody(vp.environment ?? [], haystack);
+  haystack = `${haystack} ${environment}`;
+
+  // 6. COMPOSITION — framing + camera + caption negative space.
+  const composition = composeCompositionDirective(vp, haystack);
+
+  // 7. LIGHTING AND STYLE — the plan's light/mood plus the resolved style suffix.
+  // Each clause is terminated so the assembler's sentence-aware de-dupe keeps it
+  // (an unpunctuated trailing fragment would be silently dropped).
+  const lightingParts = [
+    scrubIntentLanguage(vp.lightingAndStyle ?? ""),
+    input.stylePrompt?.trim() ?? "",
+  ].map((s) => s.trim().replace(/[.!?]+$/, "")).filter(Boolean);
+  const lightingAndStyle = lightingParts.length ? `${lightingParts.join(". ")}.` : "";
+
+  // 8. STRICT CONSTRAINTS — semantic referents, cultural refs, supporting-text
+  // rule, and the negative anti-entity-split guards.
+  const constraintHaystack = `${haystack} ${composition} ${lightingAndStyle}`;
+  const semantic = composeSemanticDirective(vp, constraintHaystack);
+  const cultural = composeCulturalDirective(vp, `${constraintHaystack} ${semantic}`);
   const supportingText = composeSupportingTextDirective(vp);
-
-  // Strip planner-prose clauses the compiler owns (identity, reference-image,
-  // token interpretation, text policy) BEFORE assembly, so the LLM prose can't
-  // inject a competing identity/policy instruction into the engine prompt.
-  const sanitized = sanitizePlannerProse(args.compiledPrompt.prompt);
-  const prose = sanitized.text;
-
-  // Haystack for the prose-dependent (high-priority) composers: everything
-  // required, so directives only fill what the prose itself doesn't cover.
-  const requiredAll = [requiredHead, semantic, cultural, supportingText].filter(Boolean).join(" ");
-  const proseHaystack = `${requiredAll} ${prose}`;
-
-  const keyElements = composeKeyElementsDirective(vp, proseHaystack);
-  const composition = composeCompositionDirective(vp, proseHaystack);
-  const modifiers = composeModifierDirective(input, proseHaystack);
-  const style = input.stylePrompt?.trim() ?? "";
+  const antiSplit = composeAntiSplitConstraints(bindingArgs);
+  const strictConstraints = [semantic, cultural, supportingText, antiSplit].filter(Boolean).join(" ");
 
   const rawSections: Section[] = [
-    { id: "mode_preamble", label: "Mode preamble (operational lead)", text: mode.preamble, priority: "required" },
-    { id: "required_clauses", label: "Required mode clauses", text: clauses, priority: "required" },
-    { id: "strategic_intent", label: "Strategic intent (goal + approach)", text: strategicIntent, priority: "required" },
-    { id: "semantic_referents", label: "Semantic referents", text: semantic, priority: "required" },
-    { id: "cultural_references", label: "Cultural references", text: cultural, priority: "required" },
-    { id: "supporting_text_rule", label: "Supporting-text rule", text: supportingText, priority: "required" },
-    { id: "prose", label: "LLM prose (sanitized)", text: prose, priority: "high", compressible: true },
-    { id: "key_visual_elements", label: "Key visual elements (gap-fill)", text: keyElements, priority: "high", compressible: true },
-    { id: "composition", label: "Composition", text: composition, priority: "high" },
-    { id: "modifier_directives", label: "Modifier directives", text: modifiers, priority: "medium", compressible: true },
-    { id: "style", label: "Style suffix", text: style, priority: "medium", compressible: true },
+    { id: "image_to_image_task", label: "IMAGE-TO-IMAGE TASK", text: labeled("IMAGE-TO-IMAGE TASK", taskBody), priority: "required" },
+    { id: "subject_binding", label: "SUBJECT BINDING", text: labeled("SUBJECT BINDING", binding), priority: "required" },
+    { id: "core_scene", label: "CORE SCENE", text: labeled("CORE SCENE", coreScene), priority: "high", compressible: true },
+    { id: "subject_details", label: "SUBJECT DETAILS", text: labeled("SUBJECT DETAILS", subjectDetails), priority: "high", compressible: true },
+    { id: "environment", label: "ENVIRONMENT", text: labeled("ENVIRONMENT", environment), priority: "high", compressible: true },
+    { id: "composition", label: "COMPOSITION", text: labeled("COMPOSITION", composition), priority: "high" },
+    { id: "lighting_and_style", label: "LIGHTING AND STYLE", text: labeled("LIGHTING AND STYLE", lightingAndStyle), priority: "medium", compressible: true },
+    { id: "strict_constraints", label: "STRICT CONSTRAINTS", text: labeled("STRICT CONSTRAINTS", strictConstraints), priority: "required" },
   ];
 
   // Final identity gate: resolve any residual {NAME}/{SUBJ}/… tokens the LLM
@@ -445,7 +606,7 @@ function compile(args: CompileArgs, mode: ModeContext): CompiledImagePrompt {
 
   const { prompt: finalPrompt, breakdown } = assembleSections(sections, notes);
 
-  const warnings = detectToneWarnings({ visualApproach, prose });
+  const warnings = detectToneWarnings({ visualApproach, prose: coreScene });
 
   const out: CompiledImagePrompt = {
     prompt: finalPrompt,
