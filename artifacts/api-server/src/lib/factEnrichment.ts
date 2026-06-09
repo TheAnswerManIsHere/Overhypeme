@@ -80,7 +80,7 @@ export function buildEnrichmentUserMessage(input: EnrichInput): string {
     parent,
     "",
     "Notes:",
-    "- The fact may include a user name, pronoun tokens, or a sample rendered name.",
+    "- The fact text has been rendered to canonical plain English (identity tokens resolved).",
     "- Classify the joke mechanism of the fact itself.",
     "- If this is a variant, classify it independently. Do not assume it has the same taxonomy as the parent.",
     "- If the fact includes hashtags or brand/company names, detect them as context, but do not let them override the core archetype.",
