@@ -272,4 +272,38 @@ describe("runEnrichmentForFact — outcome branches (req: enrichmentStatus track
     assert.equal(enr.previewStatus, "ok");
     assert.ok(enr.visualPromptPreview);
   });
+
+  it("renders {NAME}/{SUBJ}/… tokens before passing factText to classify and preview stubs", async () => {
+    // Seed a fact whose text is a raw template with identity tokens.
+    const id = await insertFact({
+      enrichmentStatus: "pending",
+      text: "{NAME} bench-presses the Earth while {SUBJ} hums {POSS} favourite tune.",
+    });
+
+    let classifyReceivedText: string | undefined;
+    let previewReceivedText: string | undefined;
+
+    const result = await runEnrichmentForFact(id, {
+      classify: async (input) => {
+        classifyReceivedText = input.factText;
+        return { ...VALID };
+      },
+      preview: async (input) => {
+        previewReceivedText = input.factText;
+        return STUB_PREVIEW;
+      },
+    });
+
+    assert.equal(result.ok, true);
+    // Both stubs must receive fully-rendered canonical text — no raw tokens.
+    assert.ok(classifyReceivedText, "classify stub must have been called");
+    assert.ok(previewReceivedText, "preview stub must have been called");
+    assert.doesNotMatch(classifyReceivedText!, /\{NAME\}|\{SUBJ\}|\{POSS\}/,
+      "classify received raw identity token (renderCanonical not applied)");
+    assert.doesNotMatch(previewReceivedText!, /\{NAME\}|\{SUBJ\}|\{POSS\}/,
+      "preview received raw identity token (renderCanonical not applied)");
+    // Spot-check: canonical name "Alex" was substituted in.
+    assert.match(classifyReceivedText!, /Alex/);
+    assert.match(previewReceivedText!, /Alex/);
+  });
 });

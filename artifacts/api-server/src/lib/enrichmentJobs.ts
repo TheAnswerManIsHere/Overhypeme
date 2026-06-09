@@ -26,6 +26,7 @@ import {
 } from "@workspace/api-zod";
 import { enrichFact, buildFactEnrichmentColumns } from "./factEnrichment";
 import { generateVisualPreview } from "./promptStrategy";
+import { renderCanonical } from "./renderCanonical";
 import {
   registerJobHandler,
   type JobHandler,
@@ -133,10 +134,15 @@ async function runEnrichmentForReview(reviewId: number): Promise<HandlerResult> 
     return { ok: false, error: `pending review ${reviewId} not found` };
   }
 
+  // Render template tokens ({NAME}/{SUBJ}/…) to the canonical identity ("Alex",
+  // they/them) before passing to either enrichment phase. The LLM classifier
+  // and visual-preview generator expect plain English, not raw template syntax.
+  const renderedText = renderCanonical(reviewRow.submittedText);
+
   // ── Phase 1: classify + cultural references ──
   let enrichment: FactEnrichment;
   try {
-    enrichment = await enrichFact({ factText: reviewRow.submittedText, status: "new_fact" });
+    enrichment = await enrichFact({ factText: renderedText, status: "new_fact" });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     await db
@@ -155,7 +161,7 @@ async function runEnrichmentForReview(reviewId: number): Promise<HandlerResult> 
   // ── Phase 2: visual prompt preview ──
   try {
     const preview = await generateVisualPreview({
-      factText: reviewRow.submittedText,
+      factText: renderedText,
       enrichment,
     });
     await mergePreviewIntoPendingReview(reviewId, preview, "ok");
@@ -206,13 +212,18 @@ export async function runEnrichmentForFact(
     parentText = parent?.text ?? null;
   }
 
+  // Render template tokens ({NAME}/{SUBJ}/…) to the canonical identity ("Alex",
+  // they/them) before passing to either enrichment phase.
+  const renderedFactText = renderCanonical(factRow.text);
+  const renderedParentText = parentText != null ? renderCanonical(parentText) : null;
+
   // ── Phase 1: classify + cultural references ──
   let enrichment: FactEnrichment;
   try {
     enrichment = await deps.classify({
-      factText: factRow.text,
+      factText: renderedFactText,
       status: factRow.parentId != null ? "variant" : "new_fact",
-      parentText,
+      parentText: renderedParentText,
     });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -233,7 +244,7 @@ export async function runEnrichmentForFact(
 
   // ── Phase 2: visual prompt preview ──
   try {
-    const preview = await deps.preview({ factText: factRow.text, enrichment });
+    const preview = await deps.preview({ factText: renderedFactText, enrichment });
     await mergePreviewIntoFact(factId, preview, "ok");
     return { ok: true };
   } catch (err) {
@@ -282,12 +293,14 @@ export const previewJobHandler: JobHandler = {
         return { ok: false, error: `cannot regenerate preview: stored enrichment is invalid (${validated.error})` };
       }
       enrichment = validated.data;
-      factText = row.submittedText;
+      // Render template tokens before passing to the visual-preview generator.
+      factText = renderCanonical(row.submittedText);
     } else {
       const loaded = await loadFactEnrichment(targetId);
       if (!loaded) return { ok: false, error: `fact ${targetId} not found or has no enrichment` };
       enrichment = loaded.enrichment;
-      factText = loaded.factText;
+      // Render template tokens before passing to the visual-preview generator.
+      factText = renderCanonical(loaded.factText);
     }
 
     try {

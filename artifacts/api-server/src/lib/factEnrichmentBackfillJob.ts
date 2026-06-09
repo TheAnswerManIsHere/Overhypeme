@@ -16,6 +16,7 @@ import { validateEnrichment, type FactEnrichment } from "@workspace/api-zod";
 import { registerJobHandler, type JobHandler, type HandlerResult } from "./asyncJobs";
 import { enrichFact, EnrichmentError, buildFactEnrichmentColumns } from "./factEnrichment";
 import { isEnrichmentAdminEdited } from "./taxonomyHealth";
+import { renderCanonical } from "./renderCanonical";
 import { logger } from "./logger";
 
 export const FACT_ENRICHMENT_BACKFILL_QUEUE = "fact_enrichment_backfill";
@@ -58,9 +59,13 @@ export const factEnrichmentBackfillHandler: JobHandler = {
       }
     }
 
+    // Render template tokens ({NAME}/{SUBJ}/…) to canonical plain English
+    // before classification — the enrichment LLM expects rendered fact text.
+    const renderedText = renderCanonical(row.text);
+
     let next: FactEnrichment;
     try {
-      next = await enrichFact({ factText: row.text, status: "new_fact" });
+      next = await enrichFact({ factText: renderedText, status: "new_fact" });
     } catch (err) {
       const msg = err instanceof EnrichmentError ? err.message : err instanceof Error ? err.message : String(err);
       logger.warn({ err, factId: p.factId }, "[fact_enrichment_backfill] enrichFact failed");
