@@ -29,7 +29,14 @@ function previewResponse(overrides: Record<string, unknown> = {}) {
       aspectRatio: "portrait",
       negativeSpacePreference: "auto",
     },
-    visualPlan: { sceneConcept: "A scene", semanticEntitiesUsed: [] },
+    visualPlan: {
+      sceneConcept: "A scene",
+      coreScene: "David grips the wheel of a parked car.",
+      subjectDetails: ["infant proportions"],
+      environment: ["car interior"],
+      lightingAndStyle: "warm daylight",
+      semanticEntitiesUsed: [],
+    },
     compiledPrompt: {
       prompt: "PROMPT TEXT",
       imagePrompt: "COMPILED IMAGE PROMPT TEXT",
@@ -137,7 +144,13 @@ describe("RuntimePromptPreview", () => {
     await waitFor(() => expect(screen.getByTestId("rpp-compiled-prompt")).toBeTruthy());
 
     fireEvent.click(screen.getByTestId("rpp-toggle-visual-plan"));
-    expect(screen.getByTestId("rpp-visual-plan").textContent).toContain("sceneConcept");
+    const planText = screen.getByTestId("rpp-visual-plan").textContent ?? "";
+    expect(planText).toContain("sceneConcept");
+    // The new concrete visual-contract fields are surfaced too.
+    expect(planText).toContain("coreScene");
+    expect(planText).toContain("subjectDetails");
+    expect(planText).toContain("environment");
+    expect(planText).toContain("lightingAndStyle");
   });
 
   it("renders the per-component prompt breakdown when present", async () => {
@@ -147,8 +160,8 @@ describe("RuntimePromptPreview", () => {
         imagePrompt: "COMPILED IMAGE PROMPT TEXT",
         negativePrompt: "",
         promptBreakdown: [
-          { id: "visual_goal", label: "Visual goal", priority: "required", status: "included", text: "Make it legendary", rawText: "Make it legendary" },
-          { id: "style", label: "Style suffix", priority: "medium", status: "empty", text: "", rawText: "" },
+          { id: "subject_binding", label: "SUBJECT BINDING", priority: "required", status: "included", text: "The reference person is David.", rawText: "The reference person is David." },
+          { id: "lighting_and_style", label: "LIGHTING AND STYLE", priority: "medium", status: "empty", text: "", rawText: "" },
         ],
       },
     });
@@ -159,8 +172,8 @@ describe("RuntimePromptPreview", () => {
     await waitFor(() => expect(screen.getByTestId("rpp-breakdown")).toBeTruthy());
 
     // Components render with their labels + content; empty ones are marked.
-    expect(screen.getByTestId("rpp-breakdown-section-visual_goal").textContent).toContain("Make it legendary");
-    expect(screen.getByTestId("rpp-breakdown-section-style").textContent).toMatch(/no content/i);
+    expect(screen.getByTestId("rpp-breakdown-section-subject_binding").textContent).toContain("The reference person is David.");
+    expect(screen.getByTestId("rpp-breakdown-section-lighting_and_style").textContent).toMatch(/no content/i);
   });
 
   it("surfaces compiler diagnostics: removed prose clauses + tone warning", async () => {

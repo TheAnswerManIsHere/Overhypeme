@@ -75,6 +75,21 @@ describe("buildImagePromptUserMessage", () => {
     assert.match(msg, /TAXONOMY \(FIXED — DO NOT reclassify\)/);
   });
 
+  it("describes the concrete visual contract fields and the age-transform binding", () => {
+    const msg = buildImagePromptUserMessage(makeInput());
+    assert.match(msg, /coreScene: REQUIRED/);
+    assert.match(msg, /subjectDetails: REQUIRED/);
+    assert.match(msg, /environment: REQUIRED/);
+    assert.match(msg, /ageLifeStageTransform/);
+    assert.match(msg, /one entity, never an adult plus a separate baby\/child/);
+  });
+
+  it("forbids authorial-intent commentary in the visual fields", () => {
+    const msg = buildImagePromptUserMessage(makeInput());
+    assert.match(msg, /DESCRIBE THE PICTURE, NOT THE JOKE/);
+    assert.match(msg.toLowerCase(), /showcasing the absurdity/);
+  });
+
   it("omits research context for plain (un-researched) references", () => {
     const msg = buildImagePromptUserMessage(makeInput({
       culturalReferences: [
