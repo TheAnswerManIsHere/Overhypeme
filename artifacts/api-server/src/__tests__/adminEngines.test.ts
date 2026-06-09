@@ -973,6 +973,28 @@ describe("POST /admin/engines/:id/assemble-prompt", () => {
     }
   });
 
+  it("image-to-image: 502 bundled_face_upload_failed when fal upload throws (no sampleImageUrl given)", async () => {
+    const engineId = await seedEngine({ kind: "image", paramSchema: { params: [
+      { name: "prompt", from: "imagePrompt", type: "string", required: true },
+      { name: "image_urls", from: "referenceImageUrl", type: "stringArray", required: true },
+    ] } });
+    const factId = await seedEnrichedFact(); factIds.push(factId);
+    __resetBundledFaceUrlForTest();
+    __setFalUploadForTest(async () => { throw Object.assign(new Error("Forbidden"), { name: "ApiError", status: 403, body: { detail: "Exhausted balance." } }); });
+    try {
+      const app = buildTestApp({ kind: "authenticated", userId: adminUserId }, adminEnginesRouter);
+      const res = await request(app)
+        .post(`/api/admin/engines/${engineId}/assemble-prompt`)
+        .send({ factId, gender: "neutral" }); // no sampleImageUrl → triggers bundled-face upload
+
+      assert.equal(res.status, 502, JSON.stringify(res.body));
+      assert.equal(res.body.error, "bundled_face_upload_failed");
+    } finally {
+      __setFalUploadForTest(null);
+      __resetBundledFaceUrlForTest();
+    }
+  });
+
   it("400 fact_enrichment_invalid when the fact has no usable enrichment", async () => {
     const engineId = await seedEngine({ kind: "image", paramSchema: { params: [
       { name: "prompt", from: "imagePrompt", type: "string", required: true },
