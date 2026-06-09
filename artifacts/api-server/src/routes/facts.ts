@@ -98,7 +98,12 @@ router.get("/facts", async (req: Request, res: Response) => {
     conds.push(inArray(factsTable.id, fIds));
   }
 
-  conds.push(isNull(factsTable.parentId));
+  // By default only root-level facts (parentId IS NULL). The admin engine
+  // workbench passes includeVariants=true so it can find child/variant facts
+  // too — e.g. "Sharks have a {NAME} Week." lives as a child of another fact.
+  if (req.query["includeVariants"] !== "true") {
+    conds.push(isNull(factsTable.parentId));
+  }
   const where = and(...conds);
   const [{ count }] = await db.select({ count: sql<number>`count(*)::int` }).from(factsTable).where(where);
   const order = sort === "newest" ? desc(factsTable.createdAt) : sort === "trending" ? desc(factsTable.commentCount) : desc(factsTable.wilsonScore);
