@@ -81,8 +81,6 @@ export * from "./ratingResultUserRating";
 export * from "./recordFactShareResponse";
 export * from "./recordSearchRequest";
 export * from "./relatedFactsResponse";
-export * from "./suggestHashtags200";
-export * from "./suggestHashtagsBody";
 export * from "./updateNotificationsRequest";
 export * from "./updateNotificationsResponse";
 export * from "./updateProfileRequest";
