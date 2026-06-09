@@ -840,6 +840,10 @@ describe("POST /admin/engines/:id/assemble-prompt", () => {
           selectedFrame: "direct_action",
           strategyRationale: "Authored strategy applies.",
         },
+        coreScene: "The protagonist performs a superhuman feat in the foreground.",
+        subjectDetails: ["confident focused expression", "mid-exertion heroic pose"],
+        environment: ["dramatic stage lighting", "blurred arena background"],
+        lightingAndStyle: "high-contrast cinematic key light",
         keyVisualElements: ["central subject", "dramatic lighting", "exertion pose"],
         subjectTreatment: {
           roleInScene: "Protagonist",
@@ -854,6 +858,7 @@ describe("POST /admin/engines/:id/assemble-prompt", () => {
           },
           fallbackSubjectGender: mode === "t2i_fallback" ? "female" : "not_applicable",
           expressionAndPose: "Confident, focused",
+          ageLifeStageTransform: { applies: false, targetState: "" },
         },
         subjectFactCompatibility: { rating: "strong", reason: "Stages well.", recommendedFallback: "none" },
         composition: {

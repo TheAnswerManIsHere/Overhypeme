@@ -23,6 +23,16 @@ export function modifierDirectives(modifiers: readonly string[]): string[] {
   add("avoid_duplicate_subject", "Show exactly one instance of the subject — no duplicates or clones.");
   add("avoid_extra_faces", "Keep extra background faces to a minimum; the subject stays the clear focal point.");
 
+  // Age / life-stage transforms. These MUST compile into a loud, identity-bound
+  // directive — never silently dropped. The reference subject IS the transformed
+  // person (one entity), so we de-age/age the SAME person rather than adding a
+  // separate child/elder. SUBJECT BINDING reinforces this; the compiler de-dupes.
+  add("baby_child_version", "De-age the reference subject into the baby/child the fact describes — the same person rendered at that life stage, with infant/child proportions, skin, and hair. Do not add a separate, generic baby or child, and do not keep an adult version in the frame.");
+  add("infant_version", "De-age the reference subject into an infant — the same person rendered as a baby, with newborn/infant proportions and features. Do not add a separate, generic baby, and do not keep an adult version in the frame.");
+  add("child_version", "Render the reference subject as the young child the fact describes — the same person de-aged to childhood, with child proportions and features. Do not add a separate, generic child, and do not keep an adult version in the frame.");
+  add("older_self_version", "Age the reference subject into the much older version the fact describes — the same person with aged skin, greyed/thinned hair, and elderly posture. Do not add a separate, generic elderly person, and do not keep a young version in the frame.");
+  add("age_transform", "Transform the reference subject's apparent age and life stage to match the fact — the same person rendered at that age. Do not add a separate person for the transformed age, and do not keep the original-age version in the frame.");
+
   // Action / causality / staging.
   add("clear_causal_relationship", "Make the scene's cause-and-effect visually unmistakable.");
   add("subject_object_reversal", "Reverse the expected roles so the object acts on the subject, not the other way around.");
