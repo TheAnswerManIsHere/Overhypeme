@@ -297,9 +297,7 @@ function EngineTestPanel({ engine }: { engine: EngineRow }) {
     const q = factQuery.trim();
     if (q.length < 2) { setFactResults([]); return; }
     const t = setTimeout(() => {
-      // templatedOnly=true → real templated facts only (user- or Replit-generated);
-      // excludes hand-typed test stubs like "Alex pushes the limit".
-      fetch(`/api/facts?search=${encodeURIComponent(q)}&limit=15&templatedOnly=true`, { credentials: "include" })
+      fetch(`/api/facts?search=${encodeURIComponent(q)}&limit=15`, { credentials: "include" })
         .then((r) => (r.ok ? r.json() : { facts: [] }))
         .then((data) => setFactResults(Array.isArray(data?.facts) ? data.facts : []))
         .catch(() => setFactResults([]));
