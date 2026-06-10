@@ -880,6 +880,7 @@ describe("POST /admin/engines/:id/assemble-prompt", () => {
             "long explanatory paragraphs",
           ],
         },
+        secondaryCharacters: [],
         semanticEntitiesUsed: [],
         culturalReferencesUsed: [],
         styleIntegration: "Apply cinematic style",

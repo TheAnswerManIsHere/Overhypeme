@@ -32,6 +32,7 @@ import type {
   PromptWarning,
 } from "../types";
 import { modifierDirectives } from "../modifierDirectives";
+import { failureModeConstraints, isActiveActionFrame } from "./failureModeConstraints";
 import { renderPersonalized, hasUnresolvedFactTokens } from "../../renderCanonical";
 
 const MAX_PROMPT_CHARS = 4000;
@@ -190,6 +191,49 @@ function composeModifierDirective(input: ImagePromptGenerationInput, haystack: s
       return lead.length > 6 ? !containsMeaningfulPhrase(haystack, lead) : true;
     });
   return directives.join(" ").trim();
+}
+
+// ─── Reference interpretation (positive role binding) ───────────────────────
+
+/**
+ * Build the deterministic REFERENCE INTERPRETATION block: a concise, POSITIVE
+ * statement of who each entity is in the scene — the subject's active role plus
+ * one short clause per secondary character — so the engine binds roles before
+ * the visual prose begins (and a secondary character can't drift into the
+ * subject's central action). Negatives live in STRICT CONSTRAINTS, not here.
+ *
+ * Kept terse on purpose: one short subject clause + one short clause per
+ * secondary character. The subject clause is included only when it is
+ * meaningful — there are secondary characters to contrast against, or the frame
+ * is an active-action frame where asserting "the subject is the one doing it"
+ * matters. Returns "" when there is nothing meaningful to bind.
+ */
+function composeReferenceInterpretation(opts: {
+  subjectName: string;
+  roleInScene: string;
+  secondaryCharacters: ReadonlyArray<{ label: string; visualRole: string }>;
+  includeSubjectRole: boolean;
+  haystack: string;
+}): string {
+  const subject = opts.subjectName.trim() || "the reference subject";
+  const clauses: string[] = [];
+
+  const role = opts.roleInScene.trim().replace(/[.!?]+$/, "");
+  if (opts.includeSubjectRole && role && !containsMeaningfulPhrase(opts.haystack, role)) {
+    clauses.push(`${subject} is ${role}`);
+  }
+
+  for (const c of opts.secondaryCharacters) {
+    const label = c.label.trim().replace(/[.!?]+$/, "");
+    const visualRole = c.visualRole.trim().replace(/[.!?]+$/, "");
+    if (!label || !visualRole) continue;
+    // Skip a secondary clause the prose already states in full.
+    if (containsMeaningfulPhrase(opts.haystack, visualRole)) continue;
+    clauses.push(`${label} is ${visualRole}`);
+  }
+
+  if (!clauses.length) return "";
+  return clauses.map((c) => `${c}.`).join(" ");
 }
 
 // ─── Subject binding (identity ⊗ transformed life stage) ────────────────────
@@ -422,6 +466,79 @@ function detectToneWarnings(args: { visualApproach?: string | null; prose?: stri
   return [];
 }
 
+/**
+ * Advisory visual-density diagnostics. These NEVER block compilation — they
+ * surface in the admin prompt preview so a thin or abstract plan is visible.
+ * Conservative on purpose (no brittle word-count thresholds): they flag a scene
+ * that is obviously too thin to render well, an abstract/empty subject role on
+ * an active-action frame, and secondary characters with an empty label/role.
+ */
+const ACTION_VERB_RE =
+  /\b(?:driv\w*|hold\w*|grip\w*|lift\w*|throw\w*|push\w*|pull\w*|run\w*|jump\w*|leap\w*|fly\w*|carr\w*|swing\w*|smash\w*|crush\w*|punch\w*|kick\w*|catch\w*|launch\w*|ride\w*|climb\w*|reach\w*|point\w*|raise\w*|press\w*|deadlift\w*|bench\w*|operat\w*|steer\w*|command\w*|perform\w*|wield\w*|balanc\w*|hurl\w*|toss\w*|dunk\w*|sprint\w*)\b/i;
+const ABSTRACT_ROLE_RE = /^(?:the\s+)?(?:protagonist|subject|hero|main\s+character|focal\s+(?:point|subject)|central\s+figure)$/i;
+
+function detectDensityWarnings(args: {
+  coreScene: string;
+  subjectDetails: readonly string[];
+  environment: readonly string[];
+  roleInScene: string;
+  activeActionFrame: boolean;
+  secondaryCharacters: ReadonlyArray<{ label: string; visualRole: string }>;
+}): PromptWarning[] {
+  const warnings: PromptWarning[] = [];
+  const scene = args.coreScene.trim();
+
+  if (scene.length < 40) {
+    warnings.push({
+      code: "thin-core-scene",
+      severity: "warning",
+      message: "Core scene may be thin: it is very short and likely under-describes what is happening.",
+    });
+  } else if (args.activeActionFrame && !ACTION_VERB_RE.test(scene)) {
+    warnings.push({
+      code: "core-scene-missing-action",
+      severity: "warning",
+      message:
+        "Core scene may be thin for an active-action frame: it does not clearly describe the subject performing an action.",
+    });
+  }
+
+  if (args.subjectDetails.filter((d) => d.trim()).length === 0) {
+    warnings.push({
+      code: "thin-subject-details",
+      severity: "warning",
+      message: "Subject details are empty: add visible pose, expression, body/age presentation, or wardrobe.",
+    });
+  }
+  if (args.environment.filter((e) => e.trim()).length === 0) {
+    warnings.push({
+      code: "thin-environment",
+      severity: "warning",
+      message: "Environment is empty: add concrete setting, background, props, or scale.",
+    });
+  }
+
+  const role = args.roleInScene.trim();
+  if (args.activeActionFrame && (!role || ABSTRACT_ROLE_RE.test(role))) {
+    warnings.push({
+      code: "abstract-subject-role",
+      severity: "warning",
+      message:
+        "subjectTreatment.roleInScene is empty or abstract on an active-action frame: describe what the subject visibly is and does.",
+    });
+  }
+
+  if (args.secondaryCharacters.some((c) => !c.label.trim() || !c.visualRole.trim())) {
+    warnings.push({
+      code: "incomplete-secondary-character",
+      severity: "warning",
+      message: "A secondary character is missing a concrete label or visualRole and was skipped in role binding.",
+    });
+  }
+
+  return warnings;
+}
+
 // ─── Section assembly ──────────────────────────────────────────────────────
 
 type Priority = PromptSection["priority"];
@@ -535,10 +652,34 @@ function compile(args: CompileArgs, mode: ModeContext): CompiledImagePrompt {
   // 2. SUBJECT BINDING (deterministic; positive identity↔life-stage fusion).
   const binding = composeSubjectBinding(bindingArgs);
 
+  // Role/action inputs (v4). secondaryCharacters defaults to [] for back-compat
+  // with pre-v4 plans replayed from storage. activeActionFrame is the reliable
+  // signal that gates the strong sole-agent + active-action constraints.
+  const secondaryCharacters = vp.secondaryCharacters ?? [];
+  const hasSecondaryCharacters = secondaryCharacters.some((c) => c.label.trim() && c.visualRole.trim());
+  const selectedFrame = vp.archetypeApplication?.selectedFrame ?? "";
+  const activeActionFrame = isActiveActionFrame(selectedFrame);
+  const roleInScene = vp.subjectTreatment?.roleInScene ?? "";
+
   // Running haystack so each later section only adds what earlier ones didn't
   // already say. Seeded with task + binding + the (internal, non-emitted) goal/
   // approach so concrete fields don't echo the abstract reasoning.
   let haystack = [taskBody, binding, visualGoal, visualApproach].filter(Boolean).join(" ");
+
+  // 2b. REFERENCE INTERPRETATION (positive role binding). Bind the subject's
+  // active role + each secondary character's role BEFORE the visual prose, so a
+  // secondary character can't drift into the subject's central action. Seed the
+  // haystack with it so CORE SCENE doesn't repeat the bound roles. The subject
+  // clause is meaningful only when there are others to contrast against or the
+  // frame asserts the subject is the one acting.
+  const referenceInterpretation = composeReferenceInterpretation({
+    subjectName,
+    roleInScene,
+    secondaryCharacters,
+    includeSubjectRole: hasSecondaryCharacters || activeActionFrame,
+    haystack,
+  });
+  haystack = [haystack, referenceInterpretation].filter(Boolean).join(" ");
 
   // 3. CORE SCENE — the concrete scene. Prefer the structured coreScene; fall
   // back to the LLM prose. Strip compiler-owned clauses (identity/text/ref/
@@ -585,11 +726,21 @@ function compile(args: CompileArgs, mode: ModeContext): CompiledImagePrompt {
   const cultural = composeCulturalDirective(vp, `${constraintHaystack} ${semantic}`);
   const supportingText = composeSupportingTextDirective(vp);
   const antiSplit = composeAntiSplitConstraints(bindingArgs);
-  const strictConstraints = [semantic, cultural, supportingText, antiSplit].filter(Boolean).join(" ");
+  // Reusable failure-mode role/action constraints, keyed off normalized data
+  // (frame + modifiers + whether secondary characters exist). Conservative:
+  // strong sole-agent / active-action only on a reliable active-action frame.
+  const failureModes = failureModeConstraints({
+    selectedFrame,
+    modifiers: input.enrichment.modifiers ?? [],
+    hasSecondaryCharacters,
+    subjectName,
+  }).join(" ");
+  const strictConstraints = [semantic, cultural, supportingText, antiSplit, failureModes].filter(Boolean).join(" ");
 
   const rawSections: Section[] = [
     { id: "image_to_image_task", label: "IMAGE-TO-IMAGE TASK", text: labeled("IMAGE-TO-IMAGE TASK", taskBody), priority: "required" },
     { id: "subject_binding", label: "SUBJECT BINDING", text: labeled("SUBJECT BINDING", binding), priority: "required" },
+    { id: "reference_interpretation", label: "REFERENCE INTERPRETATION", text: labeled("REFERENCE INTERPRETATION", referenceInterpretation), priority: "required" },
     { id: "core_scene", label: "CORE SCENE", text: labeled("CORE SCENE", coreScene), priority: "high", compressible: true },
     { id: "subject_details", label: "SUBJECT DETAILS", text: labeled("SUBJECT DETAILS", subjectDetails), priority: "high", compressible: true },
     { id: "environment", label: "ENVIRONMENT", text: labeled("ENVIRONMENT", environment), priority: "high", compressible: true },
@@ -606,7 +757,17 @@ function compile(args: CompileArgs, mode: ModeContext): CompiledImagePrompt {
 
   const { prompt: finalPrompt, breakdown } = assembleSections(sections, notes);
 
-  const warnings = detectToneWarnings({ visualApproach, prose: coreScene });
+  const warnings = [
+    ...detectToneWarnings({ visualApproach, prose: coreScene }),
+    ...detectDensityWarnings({
+      coreScene,
+      subjectDetails: vp.subjectDetails ?? [],
+      environment: vp.environment ?? [],
+      roleInScene,
+      activeActionFrame,
+      secondaryCharacters,
+    }),
+  ];
 
   const out: CompiledImagePrompt = {
     prompt: finalPrompt,

@@ -35,6 +35,7 @@ function previewResponse(overrides: Record<string, unknown> = {}) {
       subjectDetails: ["infant proportions"],
       environment: ["car interior"],
       lightingAndStyle: "warm daylight",
+      secondaryCharacters: [{ label: "mother", visualRole: "adult woman seated in the front passenger seat" }],
       semanticEntitiesUsed: [],
     },
     compiledPrompt: {

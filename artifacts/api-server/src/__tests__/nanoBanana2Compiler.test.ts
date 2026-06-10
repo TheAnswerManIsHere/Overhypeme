@@ -15,6 +15,8 @@
 
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 
 import {
   compileForSubjectRenderMode,
@@ -59,6 +61,7 @@ function makeVisualPlan(overrides: Partial<VisualPlan> = {}): VisualPlan {
       expressionAndPose: "confident",
       ageLifeStageTransform: { applies: false, targetState: "" },
     },
+    secondaryCharacters: [],
     subjectFactCompatibility: { rating: "strong", reason: "ok", recommendedFallback: "none" },
     composition: { subjectFraming: "", negativeSpace: "none", cameraStyle: "", sceneReadability: "readable" },
     supportingTextPolicy: { allowSupportingText: false, supportingTextElements: [], forbiddenTextTypes: [] },
@@ -504,5 +507,172 @@ describe("nanoBanana2 — prompt component breakdown", () => {
     assert.match(out.imagePrompt, /The reference person is David\./);
     // Budget pressure should be recorded in engineNotes.
     assert.match(String(out.engineNotes ?? ""), /budget/i);
+  });
+});
+
+// ── v4 role/action hardening — broad fixture matrix (baby fact is one proving
+//    case among several; the others guard against overfitting/regressions). ──
+
+describe("nanoBanana2 — REFERENCE INTERPRETATION + role binding", () => {
+  it("binds the subject's role and each secondary character as a separate role (baby-drives-mom proving case)", () => {
+    const out = compileNanoBanana2HumanI2I(makeArgs({
+      subjectRenderMode: "human_identity_i2i",
+      prompt: "A baby grips the steering wheel of a moving car.",
+      renderedSubject: { name: "David", pronouns: "he/him" },
+      modifiers: ["baby_child_version"],
+      visualPlan: {
+        subjectTreatment: {
+          ...makeVisualPlan().subjectTreatment,
+          roleInScene: "the newborn baby gripping the steering wheel and driving",
+          ageLifeStageTransform: { applies: true, targetState: "a newborn infant" },
+        },
+        secondaryCharacters: [
+          { label: "his mother", visualRole: "a separate adult woman seated in the front passenger seat, looking surprised" },
+        ],
+      },
+    }));
+    assert.match(out.imagePrompt, /REFERENCE INTERPRETATION:/);
+    assert.match(out.imagePrompt, /David is the newborn baby gripping the steering wheel and driving\./);
+    assert.match(out.imagePrompt.toLowerCase(), /his mother is a separate adult woman seated in the front passenger seat/);
+    // Role-swap is blocked + the subject must be actively driving (active frame).
+    assert.match(out.imagePrompt.toLowerCase(), /keep each named character in their stated visual role/);
+    assert.match(out.imagePrompt.toLowerCase(), /only david performs the central action/);
+    assert.match(out.imagePrompt.toLowerCase(), /show david actively performing the central action/);
+    // The age-split binding still holds (the mother is NOT a second baby David).
+    assert.match(out.imagePrompt, /The transformed newborn infant IS David/);
+  });
+
+  it("orders REFERENCE INTERPRETATION between SUBJECT BINDING and CORE SCENE", () => {
+    const out = compileNanoBanana2HumanI2I(makeArgs({
+      subjectRenderMode: "human_identity_i2i",
+      prompt: "A baby drives a car.",
+      renderedSubject: { name: "David", pronouns: "he/him" },
+      modifiers: ["baby_child_version"],
+      visualPlan: {
+        secondaryCharacters: [{ label: "his mother", visualRole: "an adult woman in the passenger seat" }],
+      },
+    }));
+    const ids = (out.promptBreakdown ?? []).map((s) => s.id);
+    const binding = ids.indexOf("subject_binding");
+    const refInterp = ids.indexOf("reference_interpretation");
+    const core = ids.indexOf("core_scene");
+    assert.ok(binding < refInterp && refInterp < core, ids.join(","));
+  });
+
+  it("omits REFERENCE INTERPRETATION for a solo subject on a non-active frame", () => {
+    const out = compileNanoBanana2HumanI2I(makeArgs({
+      subjectRenderMode: "human_identity_i2i",
+      prompt: "David stands on a quiet hill at dawn.",
+      renderedSubject: { name: "David", pronouns: "he/him" },
+      visualPlan: {
+        archetypeApplication: { ...makeVisualPlan().archetypeApplication, selectedFrame: "implied_aftermath" },
+        subjectTreatment: { ...makeVisualPlan().subjectTreatment, roleInScene: "protagonist" },
+      },
+    }));
+    assert.doesNotMatch(out.imagePrompt, /REFERENCE INTERPRETATION:/);
+  });
+
+  it("multi-character authority fact: binds the referee, keeps roles, no false age-split", () => {
+    const out = compileNanoBanana2HumanI2I(makeArgs({
+      subjectRenderMode: "human_identity_i2i",
+      prompt: "David ejects a referee from the field.",
+      renderedSubject: { name: "David", pronouns: "he/him" },
+      visualPlan: {
+        subjectTreatment: { ...makeVisualPlan().subjectTreatment, roleInScene: "the authority figure pointing the referee off the field" },
+        secondaryCharacters: [{ label: "the referee", visualRole: "a separate official walking away, protesting" }],
+      },
+    }));
+    assert.match(out.imagePrompt.toLowerCase(), /the referee is a separate official walking away/);
+    assert.match(out.imagePrompt.toLowerCase(), /keep each named character in their stated visual role/);
+    // No age-split language for a non-transform fact.
+    assert.doesNotMatch(out.imagePrompt.toLowerCase(), /do not render the adult reference person separately/);
+  });
+});
+
+describe("nanoBanana2 — active-action + soft packs (no overfitting)", () => {
+  it("solo active-action fact: emphasizes performing, with no secondary role-lock", () => {
+    const out = compileNanoBanana2HumanI2I(makeArgs({
+      subjectRenderMode: "human_identity_i2i",
+      prompt: "David bench-presses the moon.",
+      renderedSubject: { name: "David", pronouns: "he/him" },
+    }));
+    assert.match(out.imagePrompt.toLowerCase(), /show david actively performing the central action/);
+    assert.doesNotMatch(out.imagePrompt.toLowerCase(), /keep each named character in their stated visual role/);
+  });
+
+  it("crowd-reaction fact: keeps the subject focal, never forbids the crowd reacting", () => {
+    const out = compileNanoBanana2HumanI2I(makeArgs({
+      subjectRenderMode: "human_identity_i2i",
+      prompt: "David enters a room.",
+      renderedSubject: { name: "David", pronouns: "he/him" },
+      modifiers: ["crowd_reaction"],
+    }));
+    assert.match(out.imagePrompt.toLowerCase(), /the crowd reacts to and supports david/);
+    // It must NOT tell the model the crowd cannot react.
+    assert.doesNotMatch(out.imagePrompt.toLowerCase(), /crowd (?:must not|cannot|should not) react/);
+  });
+
+  it("subject-as-object/symbolic fact (non-active frame): no active-action, no role-lock, no duplicate ban", () => {
+    const out = compileNanoBanana2HumanI2I(makeArgs({
+      subjectRenderMode: "human_identity_i2i",
+      prompt: "A wall calendar shows a week labeled in David's honor.",
+      renderedSubject: { name: "David", pronouns: "he/him" },
+      visualPlan: {
+        archetypeApplication: { ...makeVisualPlan().archetypeApplication, selectedFrame: "social_ceremony" },
+        subjectTreatment: { ...makeVisualPlan().subjectTreatment, roleInScene: "honoree referenced on the calendar" },
+      },
+    }));
+    assert.doesNotMatch(out.imagePrompt.toLowerCase(), /actively performing the central action/);
+    assert.doesNotMatch(out.imagePrompt.toLowerCase(), /only david performs the central action/);
+    assert.doesNotMatch(out.imagePrompt.toLowerCase(), /duplicate, clone, or mirror/);
+  });
+});
+
+describe("nanoBanana2 — advisory density warnings + no per-fact hardcoding", () => {
+  it("warns (advisory) on a thin core scene without failing compilation", () => {
+    const out = compileNanoBanana2HumanI2I(makeArgs({
+      subjectRenderMode: "human_identity_i2i",
+      prompt: "David runs.",
+      renderedSubject: { name: "David", pronouns: "he/him" },
+      visualPlan: { coreScene: "David runs.", subjectDetails: [], environment: [] },
+    }));
+    const codes = (out.diagnostics?.warnings ?? []).map((w) => w.code);
+    assert.ok(codes.includes("thin-core-scene"), codes.join(","));
+    assert.ok(codes.includes("thin-subject-details"), codes.join(","));
+    assert.ok(codes.includes("thin-environment"), codes.join(","));
+    // Still produced a valid prompt (advisory, not a hard failure).
+    assert.match(out.imagePrompt, /CORE SCENE:/);
+  });
+
+  it("warns on an abstract subject role for an active-action frame", () => {
+    const out = compileNanoBanana2HumanI2I(makeArgs({
+      subjectRenderMode: "human_identity_i2i",
+      prompt: "David hurls a boulder across a canyon with a grunt.",
+      renderedSubject: { name: "David", pronouns: "he/him" },
+      visualPlan: {
+        subjectTreatment: { ...makeVisualPlan().subjectTreatment, roleInScene: "protagonist" },
+      },
+    }));
+    const codes = (out.diagnostics?.warnings ?? []).map((w) => w.code);
+    assert.ok(codes.includes("abstract-subject-role"), codes.join(","));
+  });
+
+  it("flags a secondary character missing a concrete role", () => {
+    const out = compileNanoBanana2HumanI2I(makeArgs({
+      subjectRenderMode: "human_identity_i2i",
+      prompt: "David and a companion stand together.",
+      renderedSubject: { name: "David", pronouns: "he/him" },
+      visualPlan: { secondaryCharacters: [{ label: "friend", visualRole: "" }] },
+    }));
+    const codes = (out.diagnostics?.warnings ?? []).map((w) => w.code);
+    assert.ok(codes.includes("incomplete-secondary-character"), codes.join(","));
+  });
+
+  it("does not hardcode any fact string in the compiler sources", () => {
+    const compilerDir = fileURLToPath(new URL("../lib/imagePrompt/compilers/", import.meta.url));
+    const sources = ["nanoBanana2.ts", "failureModeConstraints.ts"]
+      .map((f) => readFileSync(`${compilerDir}${f}`, "utf8").toLowerCase())
+      .join("\n");
+    assert.doesNotMatch(sources, /drove his mom home|david franklin was born|car seat|steering wheel/);
   });
 });

@@ -9,6 +9,7 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import {
   validateImagePromptPlan,
+  IMAGE_PROMPT_GENERATION_VERSION,
   type PlanExpectations,
 } from "@workspace/api-zod";
 
@@ -51,6 +52,7 @@ function basePlan(overrides: Partial<{
   compatibilityFallback: "none" | "t2i_fallback" | "upload_human_photo" | "choose_different_fact";
   semanticEntitiesUsed: Array<{ surfaceText: string; visualReferentUsed: string; effectOnVisualPlan: string }>;
   culturalReferencesUsed: Array<{ sourcePhrase: string; canonicalReferenceUsed: string; visualImplicationUsed: string; effectOnVisualPlan: string }>;
+  secondaryCharacters: Array<{ label: string; visualRole: string }>;
   negativePrompt: string;
 }> = {}) {
   return {
@@ -119,6 +121,7 @@ function basePlan(overrides: Partial<{
           "long explanatory paragraphs",
         ],
       },
+      secondaryCharacters: overrides.secondaryCharacters ?? [],
       semanticEntitiesUsed: overrides.semanticEntitiesUsed ?? [],
       culturalReferencesUsed: overrides.culturalReferencesUsed ?? [],
       styleIntegration: "Apply cinematic style with shallow depth of field",
@@ -508,5 +511,38 @@ describe("validateImagePromptPlan", () => {
     );
     assert.equal(result.ok, false);
     if (!result.ok) assert.match(result.error, /targetState/);
+  });
+
+  it("accepts an empty secondaryCharacters array (subject is alone)", () => {
+    const result = validateImagePromptPlan(basePlan({ secondaryCharacters: [] }), baseExpectations);
+    assert.equal(result.ok, true);
+  });
+
+  it("accepts populated secondaryCharacters with concrete visible roles", () => {
+    const result = validateImagePromptPlan(
+      basePlan({
+        secondaryCharacters: [
+          { label: "mother", visualRole: "adult woman seated in the front passenger seat, looking surprised" },
+        ],
+      }),
+      baseExpectations,
+    );
+    assert.equal(result.ok, true);
+    if (result.ok) {
+      assert.equal(result.data.visualPlan.secondaryCharacters.length, 1);
+      assert.equal(result.data.visualPlan.secondaryCharacters[0]?.label, "mother");
+    }
+  });
+
+  it("rejects a plan missing the secondaryCharacters field (strict wire schema)", () => {
+    const plan = basePlan();
+    delete (plan.visualPlan as { secondaryCharacters?: unknown }).secondaryCharacters;
+    const result = validateImagePromptPlan(plan, baseExpectations);
+    assert.equal(result.ok, false);
+    if (!result.ok) assert.match(result.error, /secondaryCharacters/);
+  });
+
+  it("is on generation version v4", () => {
+    assert.equal(IMAGE_PROMPT_GENERATION_VERSION, "v4");
   });
 });

@@ -143,6 +143,7 @@ function makeOutput(overrides: {
           "long explanatory paragraphs",
         ],
       },
+      secondaryCharacters: [],
       semanticEntitiesUsed: overrides.semanticEntitiesUsed ?? [],
       culturalReferencesUsed: overrides.culturalReferencesUsed ?? [],
       styleIntegration: "Apply cinematic style",
