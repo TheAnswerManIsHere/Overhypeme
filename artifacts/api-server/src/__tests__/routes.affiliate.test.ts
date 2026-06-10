@@ -21,7 +21,7 @@ import request from "supertest";
 
 import { db } from "@workspace/db";
 import { usersTable, affiliateClicksTable } from "@workspace/db/schema";
-import { like } from "drizzle-orm";
+import { like, eq } from "drizzle-orm";
 
 import affiliateRouter from "../routes/affiliate.js";
 import { authMiddleware } from "../middlewares/authMiddleware.js";
@@ -195,21 +195,28 @@ describe("POST /affiliate/click — success path", () => {
   });
 
   it("accepts a numeric sourceId by stringifying it", async () => {
-    const body = { ...validClick(), sourceId: 12345 };
-    const res = await request(makeApp()).post("/affiliate/click").send(body);
-    assert.equal(res.status, 200);
+    // The stringified sourceId "12345" doesn't carry SOURCE_PREFIX, so neither
+    // beforeEach nor the global purge sweep can reclaim it. Pre-clean any rows
+    // left by an interrupted prior run, and guarantee our own cleanup via
+    // finally so a failed assertion can never let "12345" rows accumulate.
+    await db
+      .delete(affiliateClicksTable)
+      .where(eq(affiliateClicksTable.sourceId, "12345"));
+    try {
+      const body = { ...validClick(), sourceId: 12345 };
+      const res = await request(makeApp()).post("/affiliate/click").send(body);
+      assert.equal(res.status, 200);
 
-    const rows = await db
-      .select()
-      .from(affiliateClicksTable)
-      .where(like(affiliateClicksTable.sourceId, `${SOURCE_PREFIX}%`));
-    // Numeric sourceId 12345 doesn't carry the prefix, so the prefix LIKE
-    // misses it. Instead verify by exact-match.
-    const all = await db.select().from(affiliateClicksTable);
-    const ours = all.filter((r) => r.sourceId === "12345");
-    assert.equal(ours.length, 1);
-    await db.delete(affiliateClicksTable).where(like(affiliateClicksTable.sourceId, "12345"));
-    void rows; // stash to silence unused warning — covered by the all/ours check
+      const ours = await db
+        .select()
+        .from(affiliateClicksTable)
+        .where(eq(affiliateClicksTable.sourceId, "12345"));
+      assert.equal(ours.length, 1);
+    } finally {
+      await db
+        .delete(affiliateClicksTable)
+        .where(eq(affiliateClicksTable.sourceId, "12345"));
+    }
   });
 
   it("propagates returnUrl into the built Zazzle URL as continueUrl", async () => {
