@@ -26,7 +26,11 @@ import { PRIMARY_ARCHETYPES, SUBTYPES_BY_ARCHETYPE, type PrimaryArchetype, type 
 // subjectDetails, environment, lightingAndStyle) and subjectTreatment gained the
 // ageLifeStageTransform binding signal; the compiler now assembles a labeled,
 // deterministic visual contract and the abstract intent line was dropped.
-export const IMAGE_PROMPT_GENERATION_VERSION = "v3";
+// v4: visualPlan gained `secondaryCharacters` (concrete visible roles for every
+// non-subject person/animal/crowd) so the compiler can emit a deterministic
+// REFERENCE INTERPRETATION section binding the subject's role + each secondary
+// character's role, and reusable failure-mode role/action constraints.
+export const IMAGE_PROMPT_GENERATION_VERSION = "v4";
 export const SOURCE_IMAGE_ANALYZER_VERSION = "v1";
 
 // ─── Enums ────────────────────────────────────────────────────────────────
@@ -339,6 +343,21 @@ const culturalReferenceUsedWireSchema = z.object({
   effectOnVisualPlan: z.string(),
 });
 
+/**
+ * A non-subject entity that must appear in the image (the subject's mother, a
+ * referee, a reacting crowd, sharks, …). `label` is a short relationship/name/
+ * type; `visualRole` is the CONCRETE visible role — position, action/reaction,
+ * and relationship to the subject — not a bare relationship word. The compiler
+ * turns these into a deterministic REFERENCE INTERPRETATION section (positive
+ * role binding) plus role-preservation constraints, so a secondary character
+ * keeps their stated role instead of taking over the subject's central action.
+ * Empty array when the subject is alone or no secondary entity must appear.
+ */
+const secondaryCharacterWireSchema = z.object({
+  label: z.string(),
+  visualRole: z.string(),
+});
+
 const visualPlanWireSchema = z.object({
   sceneConcept: z.string(),
   // visualGoal / visualApproach are INTERNAL reasoning (admin/debug + tone
@@ -362,6 +381,10 @@ const visualPlanWireSchema = z.object({
   // concrete fields above missed is injected once, de-duped against them.
   keyVisualElements: z.array(z.string()),
   subjectTreatment: subjectTreatmentWireSchema,
+  // Concrete visible roles for every non-subject entity in the scene. Drives the
+  // compiler's REFERENCE INTERPRETATION binding + role-preservation constraints.
+  // Empty array when the subject is alone.
+  secondaryCharacters: z.array(secondaryCharacterWireSchema),
   subjectFactCompatibility: subjectFactCompatibilityWireSchema,
   composition: compositionWireSchema,
   supportingTextPolicy: supportingTextPolicyWireSchema,
@@ -398,6 +421,7 @@ export type SubjectFactCompatibility = z.infer<typeof subjectFactCompatibilityWi
 export type SupportingTextElement = z.infer<typeof supportingTextElementWireSchema>;
 export type SemanticEntityUsed = z.infer<typeof semanticEntityUsedWireSchema>;
 export type CulturalReferenceUsed = z.infer<typeof culturalReferenceUsedWireSchema>;
+export type SecondaryCharacter = z.infer<typeof secondaryCharacterWireSchema>;
 
 // ─── Business validator ──────────────────────────────────────────────────
 

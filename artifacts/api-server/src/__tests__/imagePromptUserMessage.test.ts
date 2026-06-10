@@ -84,6 +84,21 @@ describe("buildImagePromptUserMessage", () => {
     assert.match(msg, /one entity, never an adult plus a separate baby\/child/);
   });
 
+  it("describes secondaryCharacters role binding and the softened central-action rule", () => {
+    const msg = buildImagePromptUserMessage(makeInput());
+    assert.match(msg, /secondaryCharacters:/);
+    assert.match(msg, /\{ label, visualRole \}/);
+    // Concrete role, not a bare relationship label.
+    assert.match(msg.toLowerCase(), /not\s+"his mother"|not a bare relationship word/i);
+    // Softened sole-agent wording (not a global "only the subject acts").
+    assert.match(msg.toLowerCase(), /sole active agent/);
+    assert.match(msg.toLowerCase(), /co-action, crowd-reaction, role-reversal, causal, or symbolic/);
+    // roleInScene must be concrete.
+    assert.match(msg, /roleInScene: a CONCRETE visible role\/action/);
+    // The baby fact is only a diagnostic — no overfitting.
+    assert.match(msg.toLowerCase(), /only a diagnostic/);
+  });
+
   it("forbids authorial-intent commentary in the visual fields", () => {
     const msg = buildImagePromptUserMessage(makeInput());
     assert.match(msg, /DESCRIBE THE PICTURE, NOT THE JOKE/);

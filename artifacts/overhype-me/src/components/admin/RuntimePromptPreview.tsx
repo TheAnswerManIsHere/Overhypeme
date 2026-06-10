@@ -114,6 +114,7 @@ const VISUAL_PLAN_KEYS = [
   "visualGoal",
   "visualApproach",
   "subjectTreatment",
+  "secondaryCharacters",
   "composition",
   "supportingTextPolicy",
   "semanticEntitiesUsed",
