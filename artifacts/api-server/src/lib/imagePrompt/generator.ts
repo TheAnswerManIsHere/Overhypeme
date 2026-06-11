@@ -74,9 +74,20 @@ export function culturalReferenceKey(r: { sourcePhrase: string; canonicalReferen
   return (r.sourcePhrase.trim() || r.canonicalReference.trim());
 }
 
+// Template tokens ({NAME}, {Subj}, {SUBJ}, etc.) appear in the TEMPLATE form
+// of the fact but are resolved to concrete text before the model ever sees
+// them. The model receives the RENDERED fact (e.g. "David Franklin doesn't
+// read books.") and therefore cannot reliably echo back the raw template token.
+// Filter them from the required echo-back list so check 14 only demands that
+// the model echoes fact-specific visual entities (objects, places, characters)
+// that actually appear in the rendered text. Template-token entities are still
+// included in the user-message block so the model reads their visualReferent.
+const TEMPLATE_TOKEN_RE = /^\{[^}]+\}$/;
+
 function expectationsFromInput(input: ImagePromptGenerationInput): PlanExpectations {
   const materialSemanticEntities = (input.enrichment.semanticEntities ?? [])
     .filter((e) => e.materiallyAffectsVisualPrompt)
+    .filter((e) => !TEMPLATE_TOKEN_RE.test(e.surfaceText))
     .map((e) => e.surfaceText);
   const materialCulturalReferences = (input.enrichment.culturalReferences ?? [])
     .filter(isMaterialCulturalReference)
