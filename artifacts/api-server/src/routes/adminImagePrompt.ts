@@ -24,7 +24,11 @@ import {
 import { requireAdmin } from "./admin";
 import { analyzeSourceImage, generationModeFromSubjectRenderMode, noImageAnalysis } from "../lib/sourceImageAnalysis";
 import { ImagePromptError } from "../lib/imagePrompt/generator";
-import { assembleImagePromptForPreview } from "../lib/imagePrompt/preview";
+import {
+  assembleImagePromptForPreview,
+  PREVIEW_SUBJECT_NAME,
+  PREVIEW_SUBJECT_PRONOUNS,
+} from "../lib/imagePrompt/preview";
 import { renderPersonalized } from "../lib/renderCanonical";
 
 // Re-export the plan-generator test seam (now owned by the shared preview helper)
@@ -33,11 +37,12 @@ export { __setPlanGeneratorForTest } from "../lib/imagePrompt/preview";
 
 const router: IRouter = Router();
 
-// Admin runtime-prompt-preview uses the brand protagonist as the rendered
-// identity (David). The generator expects RENDERED fact text (tokens resolved),
-// so we personalize before prompt generation — not just for display.
-const PREVIEW_NAME = "David";
-const PREVIEW_PRONOUNS = "he/him";
+// Admin runtime-prompt-preview uses the shared canonical test identity so this
+// preview and the engine workbench feed identical rendered fact text to the
+// planner. The generator expects RENDERED fact text (tokens resolved), so we
+// personalize before prompt generation — not just for display.
+const PREVIEW_NAME = PREVIEW_SUBJECT_NAME;
+const PREVIEW_PRONOUNS = PREVIEW_SUBJECT_PRONOUNS;
 
 // ─── POST /admin/image-prompt/preview ────────────────────────────────────
 

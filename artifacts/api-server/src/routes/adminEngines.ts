@@ -40,7 +40,11 @@ import { clearEngineCaches, buildEngineInput } from "../lib/engineInterpreter.js
 import { applyAudioHandling } from "../lib/engineAudio.js";
 import { generateVideoDirection } from "../lib/videoDirection.js";
 import { renderPersonalized } from "../lib/renderCanonical.js";
-import { assembleImagePromptForPreview } from "../lib/imagePrompt/preview.js";
+import {
+  assembleImagePromptForPreview,
+  PREVIEW_SUBJECT_NAME,
+  PREVIEW_SUBJECT_PRONOUNS,
+} from "../lib/imagePrompt/preview.js";
 import { analyzeSourceImage, noImageAnalysis } from "../lib/sourceImageAnalysis/index.js";
 import { parseAspectRatio, normalizeStyleId } from "../lib/imagePromptAttempts.js";
 import {
@@ -54,11 +58,13 @@ import {
 // the engine-bench tests can stub prompt generation without hitting OpenAI.
 export { __setPlanGeneratorForTest } from "../lib/imagePrompt/preview.js";
 
-// Hardcoded test identity for workbench prompt assembly — renders fact
-// templates ({NAME}/{SUBJ}/…) down to a concrete person so the prompt reads
-// like a real meme-generator request.
-const WORKBENCH_TEST_NAME = "David Franklin";
-const WORKBENCH_TEST_PRONOUNS = "he/him";
+// Test identity for workbench prompt assembly — renders fact templates
+// ({NAME}/{SUBJ}/…) down to a concrete person so the prompt reads like a real
+// meme-generator request. Drawn from the shared canonical preview identity so
+// the workbench and the Fact-page "Runtime Compiled Prompt Preview" feed
+// identical rendered fact text to the planner (single source of truth).
+const WORKBENCH_TEST_NAME = PREVIEW_SUBJECT_NAME;
+const WORKBENCH_TEST_PRONOUNS = PREVIEW_SUBJECT_PRONOUNS;
 import { ADMIN_EDITABLE_FIELDS } from "../lib/engines/types.js";
 import { logger } from "../lib/logger.js";
 
