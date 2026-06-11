@@ -462,6 +462,14 @@ function EngineTestPanel({ engine }: { engine: EngineRow }) {
     if (isImagePromptBench && imagePrompt.trim()) {
       body.imagePrompt = imagePrompt.trim();
     }
+    // When a real fact is selected, send its id + display params so the server
+    // can re-assemble the prompt fresh on every live run (no stale client cache).
+    // The dry-run preview still uses imagePrompt above (cheaper, no OpenAI call).
+    if (isImagePromptBench && selectedFact) {
+      body.factId = selectedFact.id;
+      if (lookStyleId) body.lookStyleId = lookStyleId;
+      body.gender = gender;
+    }
     // Motion + dialogue + duration + audio are video-only concepts.
     if (isVideoBench) {
       if (motionPrompt.trim() && motionPrompt !== DEFAULT_TEST_MOTION_PROMPT) {
