@@ -7,7 +7,17 @@
  * work without token-syntax noise.
  */
 
-const CANONICAL_NAME = "Alex";
+export const CANONICAL_NAME = "Alex";
+
+/**
+ * Canonical placeholder names the renderer injects for the personalized subject.
+ * The subject-name semantic-entity guard matches against this list (exact,
+ * case-insensitive). Only canonical placeholders the renderer produces belong
+ * here — NEVER arbitrary real user names. Today there is exactly one ("Alex");
+ * keeping it a list lets a future placeholder be added without touching call
+ * sites.
+ */
+export const CANONICAL_SUBJECT_NAMES: readonly string[] = [CANONICAL_NAME];
 
 const TOKEN_MAP: Record<string, string> = {
   NAME: CANONICAL_NAME,
@@ -118,6 +128,55 @@ const UNRESOLVED_FACT_TOKEN_RE =
 
 export function hasUnresolvedFactTokens(text: string): boolean {
   return UNRESOLVED_FACT_TOKEN_RE.test(text);
+}
+
+/**
+ * Narrow check for SUBJECT identity tokens only ({NAME}/{SUBJ}/{OBJ}/{POSS}/
+ * {POSS_PRO}/{REFL} in either case). Deliberately excludes the {singular|plural}
+ * pluralization pairs that `hasUnresolvedFactTokens` also matches — those are
+ * not the subject, so a legitimate non-subject template referent that happens to
+ * carry a pluralization pair must not be treated as the subject.
+ */
+const SUBJECT_IDENTITY_TOKEN_RE =
+  /\{(?:NAME|SUBJ|Subj|OBJ|Obj|POSS|Poss|POSS_PRO|Poss_Pro|REFL|Refl)\}/;
+
+export function hasSubjectIdentityToken(text: string): boolean {
+  return SUBJECT_IDENTITY_TOKEN_RE.test(text);
+}
+
+// ─── Subject-name semantic-entity guard ──────────────────────────────────────
+
+const CANONICAL_SUBJECT_NAMES_LC = new Set(
+  CANONICAL_SUBJECT_NAMES.map((n) => n.toLowerCase()),
+);
+
+/**
+ * True when a semantic entity is actually the personalized SUBJECT rather than a
+ * non-subject referent. The personalized subject is owned by the identity/
+ * rendering layer and must never be a semantic entity (otherwise it pollutes the
+ * visual prompt and the image-prompt validator forces it to be echoed).
+ *
+ * Matches when `surfaceText` or `normalizedText` EXACTLY equals a canonical
+ * placeholder name (case-insensitive, trimmed) — so multi-word referents that
+ * merely contain the name ("Alex Honnold") are preserved — or when either field
+ * still carries a subject identity token ({NAME}/{SUBJ}/…). Structurally typed
+ * so this leaf module stays decoupled from the taxonomy entity type.
+ */
+export function isSubjectNameSemanticEntity(
+  entity: { surfaceText: string; normalizedText: string },
+): boolean {
+  const surface = entity.surfaceText.trim();
+  const normalized = entity.normalizedText.trim();
+  if (CANONICAL_SUBJECT_NAMES_LC.has(surface.toLowerCase())) return true;
+  if (CANONICAL_SUBJECT_NAMES_LC.has(normalized.toLowerCase())) return true;
+  return hasSubjectIdentityToken(surface) || hasSubjectIdentityToken(normalized);
+}
+
+/** Drop any semantic entities that are actually the personalized subject. */
+export function stripSubjectNameSemanticEntities<
+  T extends { surfaceText: string; normalizedText: string },
+>(entities: readonly T[]): T[] {
+  return entities.filter((e) => !isSubjectNameSemanticEntity(e));
 }
 
 /**

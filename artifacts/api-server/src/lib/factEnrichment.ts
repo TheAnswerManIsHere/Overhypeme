@@ -39,6 +39,7 @@ import {
 } from "./factEnrichmentConfig";
 import { callUtilityLLM } from "./utilityLLM";
 import { logger } from "./logger";
+import { stripSubjectNameSemanticEntities } from "./renderCanonical";
 
 export class EnrichmentError extends Error {
   constructor(message: string) {
@@ -257,7 +258,16 @@ export async function enrichFactWithModel(
   // Deterministic repair (mutates archetype/subtype/modifiers) → re-validate so
   // a future taxonomy change can't let the repair silently emit an invalid blob.
   const repaired = repairRedundantMechanismMisclassification(input.factText, result.data);
-  const revalidated = validateEnrichment(repaired);
+  // Drop any semantic entity that is actually the personalized SUBJECT (the
+  // canonical-rendered name "Alex" / a residual identity token). The subject is
+  // owned by the identity/rendering layer and must never be a semantic entity —
+  // otherwise it pollutes the visual prompt and the image-prompt validator
+  // forces it to be echoed into the picture.
+  const deSubjected = {
+    ...repaired,
+    semanticEntities: stripSubjectNameSemanticEntities(repaired.semanticEntities ?? []),
+  };
+  const revalidated = validateEnrichment(deSubjected);
   if (!revalidated.ok) {
     throw new EnrichmentError(`Repair produced invalid enrichment: ${revalidated.error}`);
   }

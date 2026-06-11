@@ -1,7 +1,19 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 
-import { renderCanonical, renderPersonalized, hasUnresolvedFactTokens } from "../lib/renderCanonical.js";
+import {
+  renderCanonical,
+  renderPersonalized,
+  hasUnresolvedFactTokens,
+  hasSubjectIdentityToken,
+  isSubjectNameSemanticEntity,
+  stripSubjectNameSemanticEntities,
+} from "../lib/renderCanonical.js";
+
+/** Build a minimal semantic-entity-shaped object for the guard tests. */
+function ent(surfaceText: string, normalizedText = surfaceText.toLowerCase()) {
+  return { surfaceText, normalizedText };
+}
 
 // ── renderCanonical ───────────────────────────────────────────────────────────
 
@@ -199,5 +211,65 @@ describe("hasUnresolvedFactTokens", () => {
   it("does not flag legitimate braces (math / emoji shortcodes)", () => {
     assert.equal(hasUnresolvedFactTokens("the set {1, 2, 3} is small"), false);
     assert.equal(hasUnresolvedFactTokens("score of 100% :{tada}:"), false);
+  });
+});
+
+// ── hasSubjectIdentityToken (narrow: identity tokens only) ─────────────────────
+
+describe("hasSubjectIdentityToken", () => {
+  it("flags subject identity tokens", () => {
+    assert.equal(hasSubjectIdentityToken("{NAME}"), true);
+    assert.equal(hasSubjectIdentityToken("{SUBJ}"), true);
+    assert.equal(hasSubjectIdentityToken("belongs to {POSS} cat"), true);
+    assert.equal(hasSubjectIdentityToken("{Refl}"), true);
+  });
+
+  it("does NOT flag {singular|plural} pairs (those are not the subject)", () => {
+    assert.equal(hasSubjectIdentityToken("{has|have}"), false);
+    assert.equal(hasSubjectIdentityToken("Dave {run|runs} fast"), false);
+  });
+
+  it("does not flag plain text or unrelated braces", () => {
+    assert.equal(hasSubjectIdentityToken("Earth seen from orbit"), false);
+    assert.equal(hasSubjectIdentityToken("the set {1, 2, 3}"), false);
+  });
+});
+
+// ── subject-name semantic-entity guard ────────────────────────────────────────
+
+describe("isSubjectNameSemanticEntity", () => {
+  it("flags the canonical subject name (exact, case-insensitive, trimmed)", () => {
+    assert.equal(isSubjectNameSemanticEntity(ent("Alex")), true);
+    assert.equal(isSubjectNameSemanticEntity(ent("alex")), true);
+    assert.equal(isSubjectNameSemanticEntity(ent("  Alex  ")), true);
+    // Matches on normalizedText even if surfaceText differs in case.
+    assert.equal(isSubjectNameSemanticEntity({ surfaceText: "ALEX", normalizedText: "alex" }), true);
+  });
+
+  it("flags residual subject identity tokens", () => {
+    assert.equal(isSubjectNameSemanticEntity(ent("{NAME}")), true);
+    assert.equal(isSubjectNameSemanticEntity(ent("{SUBJ}")), true);
+  });
+
+  it("PRESERVES non-subject referents, including multi-word names containing the canonical name", () => {
+    assert.equal(isSubjectNameSemanticEntity(ent("Alex Honnold")), false);
+    assert.equal(isSubjectNameSemanticEntity(ent("Earth")), false);
+    assert.equal(isSubjectNameSemanticEntity(ent("Firearms")), false);
+    // A legitimate non-subject referent that happens to carry a pluralization
+    // pair must not be stripped (narrow token check, not hasUnresolvedFactTokens).
+    assert.equal(isSubjectNameSemanticEntity(ent("{cactus|cacti}")), false);
+  });
+});
+
+describe("stripSubjectNameSemanticEntities", () => {
+  it("removes only the subject-name entities, preserving order and the rest", () => {
+    const input = [ent("Earth"), ent("Alex"), ent("Firearms"), ent("{NAME}"), ent("Alex Honnold")];
+    const out = stripSubjectNameSemanticEntities(input);
+    assert.deepEqual(out.map((e) => e.surfaceText), ["Earth", "Firearms", "Alex Honnold"]);
+  });
+
+  it("is a no-op when there is no subject entity", () => {
+    const input = [ent("Earth"), ent("Firearms")];
+    assert.equal(stripSubjectNameSemanticEntities(input).length, 2);
   });
 });

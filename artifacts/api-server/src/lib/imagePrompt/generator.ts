@@ -29,6 +29,7 @@ import { callUtilityLLM } from "../utilityLLM";
 import { getImagePromptSystem } from "../imagePromptConfig";
 import { logger } from "../logger";
 import { generationModeFromSubjectRenderMode } from "../sourceImageAnalysis";
+import { stripSubjectNameSemanticEntities } from "../renderCanonical";
 import type { ImagePromptGenerationOutput } from "./types";
 
 export const IMAGE_PROMPT_TEMPERATURE = 0.4;
@@ -74,8 +75,11 @@ export function culturalReferenceKey(r: { sourcePhrase: string; canonicalReferen
   return (r.sourcePhrase.trim() || r.canonicalReference.trim());
 }
 
-function expectationsFromInput(input: ImagePromptGenerationInput): PlanExpectations {
-  const materialSemanticEntities = (input.enrichment.semanticEntities ?? [])
+export function expectationsFromInput(input: ImagePromptGenerationInput): PlanExpectations {
+  // Defensive: a fact enriched before the subject-name guard shipped may still
+  // carry the personalized subject (e.g. "Alex") as a semantic entity. Strip it
+  // so it is never required to be echoed (validator rule 14) or baked in.
+  const materialSemanticEntities = stripSubjectNameSemanticEntities(input.enrichment.semanticEntities ?? [])
     .filter((e) => e.materiallyAffectsVisualPrompt)
     .map((e) => e.surfaceText);
   const materialCulturalReferences = (input.enrichment.culturalReferences ?? [])
@@ -123,7 +127,9 @@ export function buildImagePromptUserMessage(input: ImagePromptGenerationInput): 
 
   const materialCulturalRefs = e.culturalReferences.filter(isMaterialCulturalReference).map(culturalReferenceKey).filter(Boolean);
 
-  const semanticEntities = e.semanticEntities ?? [];
+  // Defensive strip (mirrors expectationsFromInput): the personalized subject is
+  // never a semantic entity, even if an older enrichment stored it as one.
+  const semanticEntities = stripSubjectNameSemanticEntities(e.semanticEntities ?? []);
   const materialEntities = semanticEntities.filter((s) => s.materiallyAffectsVisualPrompt);
   const semanticEntitiesBlock = semanticEntities.length
     ? semanticEntities
