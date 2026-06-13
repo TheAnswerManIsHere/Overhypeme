@@ -261,6 +261,8 @@ When capitalization, wording, or cultural reference materially changes the visua
 
 Do NOT list every noun. Only list terms whose interpretation materially affects the visual prompt, is ambiguous, or could be confused with another referent. When no entries are warranted, emit an empty array: semanticEntities: [].
 
+Do NOT list the SUBJECT of the fact — the person the fact is about, shown here with the canonical placeholder name "Alex" (and they/them pronouns) — as a semanticEntities entry. The subject's identity is owned separately by the personalization/rendering layer; "Alex" is a stand-in for whoever the meme is personalized to, not a referent to resolve. Only list OTHER terms (places, objects, named entities, brands, cultural references, celestial bodies, personified concepts) whose interpretation materially affects the visual prompt.
+
 Semantic entities do NOT change the primaryArchetype or subtype. The taxonomy is unchanged; semantic entities are RENDER context for the downstream image prompt generator.
 
 Modifier rules:
