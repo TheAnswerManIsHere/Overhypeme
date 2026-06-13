@@ -259,6 +259,14 @@ describe("isSubjectNameSemanticEntity", () => {
     // pair must not be stripped (narrow token check, not hasUnresolvedFactTokens).
     assert.equal(isSubjectNameSemanticEntity(ent("{cactus|cacti}")), false);
   });
+
+  it("tolerates partial/stale entities missing normalizedText (no crash)", () => {
+    // Stored enrichment blobs may predate the normalizedText field.
+    assert.equal(isSubjectNameSemanticEntity({ surfaceText: "Alex" }), true);
+    assert.equal(isSubjectNameSemanticEntity({ surfaceText: "{NAME}" }), true);
+    assert.equal(isSubjectNameSemanticEntity({ surfaceText: "Earth" }), false);
+    assert.equal(isSubjectNameSemanticEntity({}), false);
+  });
 });
 
 describe("stripSubjectNameSemanticEntities", () => {

@@ -118,6 +118,14 @@ export type IdentityPreservation = (typeof IDENTITY_PRESERVATION_VALUES)[number]
 
 // The seven mandatory forbidden text categories that MUST appear (case-insensitive)
 // in `visualPlan.supportingTextPolicy.forbiddenTextTypes` for any plan to validate.
+//
+// SCOPE: these govern OVERLAY / CAPTION text — the meme caption, full fact text,
+// hashtags, watermarks, real logos, and brand marks — which are composited
+// separately and must NEVER be baked into the generated image. They do NOT ban
+// in-WORLD readable scene text (signs, TV titles, scoreboards, documents,
+// labels); that is governed by `renderPolicy.supportingText` (allow/forbid/
+// require). The compiler emits a narrow overlay-text exclusion from this list,
+// not a blanket "no readable text" ban.
 export const MANDATORY_FORBIDDEN_TEXT_TYPES = [
   "full meme captions",
   "full fact text",
@@ -213,6 +221,96 @@ export interface RenderControls {
   fallbackSubjectGender?: FallbackSubjectGender | null;
 }
 
+// ─── Render policy (platform / moderator content policy) ───────────────────
+//
+// Phase 1 render-policy layer. This is the PLATFORM/MODERATOR policy that
+// controls what the compiler is ALLOWED to put in the engine prompt — distinct
+// from `visualPlan.supportingTextPolicy`, which is the planner-selected *scene*
+// text (the specific in-world strings the LLM chose for this one render). Keep
+// the two straight:
+//
+//   renderPolicy.supportingText   — MAY in-world readable text appear at all?
+//                                    (platform/moderator policy: allow/forbid/require)
+//   visualPlan.supportingTextPolicy — WHICH in-world strings did the planner pick
+//                                    for this render? (per-render scene content)
+//
+// The render policy is built so Phase 2 can override it per-fact and future
+// child-safe / NSFW modes can swap the global defaults — without re-touching the
+// compiler. The render-policy slot is the one named (but unimplemented) in
+// `visualPromptStrategies.ts` ("render policy — what content level is allowed?").
+
+export const SUPPORTING_TEXT_MODE_VALUES = ["allow", "forbid", "require"] as const;
+export type SupportingTextMode = (typeof SUPPORTING_TEXT_MODE_VALUES)[number];
+
+/**
+ * Platform/moderator policy controlling whether in-WORLD readable text (signs,
+ * TV titles, scoreboards, documents, labels) may appear in the rendered image.
+ * Distinct from `visualPlan.supportingTextPolicy` (the planner-selected scene
+ * text). Overlay/caption text (the meme caption, fact text, hashtags,
+ * watermarks, logos) is ALWAYS excluded regardless of this policy — that is the
+ * separate `MANDATORY_FORBIDDEN_TEXT_TYPES` floor.
+ *
+ * - "allow"   — in-world text permitted; the compiler stays SILENT unless
+ *               `guidance` is intentionally provided (no encouragement of
+ *               unnecessary text).
+ * - "forbid"  — in-world text avoided unless a higher-priority instruction
+ *               requires it.
+ * - "require" — in-world text is required; `guidance` describes what to show.
+ */
+export interface SupportingTextRenderPolicy {
+  mode: SupportingTextMode;
+  guidance?: string;
+}
+
+export const VIOLENCE_MODE_VALUES = ["allow", "soften", "suppress"] as const;
+export type ViolenceMode = (typeof VIOLENCE_MODE_VALUES)[number];
+
+// "graphic" is FUTURE-COMPATIBLE only (a future adult/NSFW mode may use it). It
+// is never selected or encouraged by default in Phase 1 — the platform default
+// is "strong" (visible death, bodies, explosions, weapons, action aftermath,
+// without gratuitous gore).
+export const VIOLENCE_INTENSITY_VALUES = [
+  "nonviolent",
+  "mild",
+  "moderate",
+  "strong",
+  "graphic",
+] as const;
+export type ViolenceIntensity = (typeof VIOLENCE_INTENSITY_VALUES)[number];
+
+/**
+ * Platform/moderator policy controlling whether action-hero violence, visible
+ * death, weapons, and destruction may be depicted when the fact requires it.
+ *
+ * - "allow"    — permitted; the compiler emits a short, self-conditioned
+ *                permission line ONLY when the fact/plan is violence-relevant
+ *                (or `guidance` is explicitly provided).
+ * - "soften"   — soften violent consequences; avoid graphic injury/visible death.
+ * - "suppress" — do not depict violence/injury/death directly.
+ */
+export interface ViolenceRenderPolicy {
+  mode: ViolenceMode;
+  intensity: ViolenceIntensity;
+  guidance?: string;
+}
+
+export interface RenderPolicy {
+  supportingText: SupportingTextRenderPolicy;
+  violence: ViolenceRenderPolicy;
+}
+
+/**
+ * Phase 1 global default render policy for Overhype's current adult/general
+ * mode: in-world text allowed (silently — no line unless required/guided), and
+ * action-hero violence allowed at "strong" intensity when the fact requires it,
+ * without gratuitous gore. The absence of `guidance` keeps the "allow" modes
+ * silent until relevance / explicit guidance triggers a line.
+ */
+export const DEFAULT_RENDER_POLICY: RenderPolicy = {
+  supportingText: { mode: "allow" },
+  violence: { mode: "allow", intensity: "strong" },
+};
+
 // ─── Input contract ──────────────────────────────────────────────────────
 
 export interface ImagePromptGenerationInput {
@@ -223,6 +321,13 @@ export interface ImagePromptGenerationInput {
   userSelectedSubjectRenderMode?: SubjectRenderMode | null;
   identityPolicy: IdentityPolicy;
   renderControls: RenderControls;
+  /**
+   * Effective platform/moderator render policy for this render. Optional —
+   * the compiler falls back to `DEFAULT_RENDER_POLICY` when omitted (so existing
+   * callers and tests need no change). Phase 2 resolves global-default ←
+   * per-fact moderator override upstream and passes the result here.
+   */
+  renderPolicy?: RenderPolicy;
   stylePrompt: string;
   referenceImageUrl?: string | null;
   targetEngine: ImagePromptTargetEngine;

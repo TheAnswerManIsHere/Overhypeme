@@ -160,21 +160,22 @@ const CANONICAL_SUBJECT_NAMES_LC = new Set(
  * placeholder name (case-insensitive, trimmed) — so multi-word referents that
  * merely contain the name ("Alex Honnold") are preserved — or when either field
  * still carries a subject identity token ({NAME}/{SUBJ}/…). Structurally typed
- * so this leaf module stays decoupled from the taxonomy entity type.
+ * and tolerant of missing/partial fields, since it also guards possibly-stale
+ * stored enrichment blobs that may omit `normalizedText`.
  */
 export function isSubjectNameSemanticEntity(
-  entity: { surfaceText: string; normalizedText: string },
+  entity: { surfaceText?: string | null; normalizedText?: string | null },
 ): boolean {
-  const surface = entity.surfaceText.trim();
-  const normalized = entity.normalizedText.trim();
-  if (CANONICAL_SUBJECT_NAMES_LC.has(surface.toLowerCase())) return true;
-  if (CANONICAL_SUBJECT_NAMES_LC.has(normalized.toLowerCase())) return true;
+  const surface = (entity.surfaceText ?? "").trim();
+  const normalized = (entity.normalizedText ?? "").trim();
+  if (surface && CANONICAL_SUBJECT_NAMES_LC.has(surface.toLowerCase())) return true;
+  if (normalized && CANONICAL_SUBJECT_NAMES_LC.has(normalized.toLowerCase())) return true;
   return hasSubjectIdentityToken(surface) || hasSubjectIdentityToken(normalized);
 }
 
 /** Drop any semantic entities that are actually the personalized subject. */
 export function stripSubjectNameSemanticEntities<
-  T extends { surfaceText: string; normalizedText: string },
+  T extends { surfaceText?: string | null; normalizedText?: string | null },
 >(entities: readonly T[]): T[] {
   return entities.filter((e) => !isSubjectNameSemanticEntity(e));
 }

@@ -40,7 +40,11 @@ import { clearEngineCaches, buildEngineInput } from "../lib/engineInterpreter.js
 import { applyAudioHandling } from "../lib/engineAudio.js";
 import { generateVideoDirection } from "../lib/videoDirection.js";
 import { renderPersonalized } from "../lib/renderCanonical.js";
-import { assembleImagePromptForPreview } from "../lib/imagePrompt/preview.js";
+import {
+  assembleImagePromptForPreview,
+  PREVIEW_SUBJECT_NAME,
+  PREVIEW_SUBJECT_PRONOUNS,
+} from "../lib/imagePrompt/preview.js";
 import { analyzeSourceImage, noImageAnalysis } from "../lib/sourceImageAnalysis/index.js";
 import { parseAspectRatio, normalizeStyleId } from "../lib/imagePromptAttempts.js";
 import {
@@ -54,11 +58,13 @@ import {
 // the engine-bench tests can stub prompt generation without hitting OpenAI.
 export { __setPlanGeneratorForTest } from "../lib/imagePrompt/preview.js";
 
-// Hardcoded test identity for workbench prompt assembly — renders fact
-// templates ({NAME}/{SUBJ}/…) down to a concrete person so the prompt reads
-// like a real meme-generator request.
-const WORKBENCH_TEST_NAME = "David Franklin";
-const WORKBENCH_TEST_PRONOUNS = "he/him";
+// Test identity for workbench prompt assembly — renders fact templates
+// ({NAME}/{SUBJ}/…) down to a concrete person so the prompt reads like a real
+// meme-generator request. Drawn from the shared canonical preview identity so
+// the workbench and the Fact-page "Runtime Compiled Prompt Preview" feed
+// identical rendered fact text to the planner (single source of truth).
+const WORKBENCH_TEST_NAME = PREVIEW_SUBJECT_NAME;
+const WORKBENCH_TEST_PRONOUNS = PREVIEW_SUBJECT_PRONOUNS;
 import { ADMIN_EDITABLE_FIELDS } from "../lib/engines/types.js";
 import { logger } from "../lib/logger.js";
 
@@ -534,6 +540,18 @@ interface TestBody {
    * workbench show the completed call shape before the admin commits to a run.
    */
   dryRun?: boolean;
+  /**
+   * When provided for a live (non-dry-run) image bench, the server re-assembles
+   * the scene prompt fresh from the current server code before submitting to
+   * fal — guaranteeing the workbench always exercises the deployed code rather
+   * than a client-cached prompt. `imagePrompt` is still used for dry-run
+   * previews and as a fallback when no factId is supplied (manual prompt mode).
+   */
+  factId?: number;
+  /** Look-style to apply when re-assembling from factId. */
+  lookStyleId?: string;
+  /** Subject gender used when re-assembling from factId (image benches). */
+  gender?: "male" | "female" | "neutral";
 }
 
 /** Placeholder URL used for source assets in dry-run previews (no upload). */
@@ -945,9 +963,120 @@ router.post("/admin/engines/:id/test", requireAdmin, async (req: Request, res: R
     : aspectRatioRaw === "1:1" ? "square"
     : aspectRatioRaw; // already wizard format ("landscape" etc.) or engine-specific
 
-  const imagePrompt = typeof body.imagePrompt === "string" && body.imagePrompt.trim()
-    ? body.imagePrompt.trim()
-    : TEST_IMAGE_PROMPT;
+  // For live (non-dry-run) image-bench runs with a real fact, always assemble
+  // the prompt fresh from the current server code so the workbench exercises
+  // exactly what production would generate — no client-cached stale prompts.
+  const assembleFactId =
+    !dryRun && (benchType === "image-to-image" || benchType === "text-to-image")
+      ? typeof body.factId === "number" && Number.isFinite(body.factId)
+        ? body.factId
+        : null
+      : null;
+
+  let imagePrompt: string;
+  if (assembleFactId !== null) {
+    try {
+      const [assembleFactRow] = await db
+        .select({ text: factsTable.text, enrichment: factsTable.enrichment })
+        .from(factsTable)
+        .where(eq(factsTable.id, assembleFactId))
+        .limit(1);
+      if (!assembleFactRow) throw new Error(`Fact ${assembleFactId} not found`);
+
+      const ev2 = validateEnrichment(assembleFactRow.enrichment);
+      if (!ev2.ok) throw new Error(`Fact ${assembleFactId} has invalid enrichment`);
+      const assembleEnrichment = ev2.data;
+
+      const subjectRenderMode2: SubjectRenderMode =
+        benchType === "image-to-image" ? "human_identity_i2i" : "t2i_fallback";
+      const generationMode2 = subjectRenderMode2 === "t2i_fallback" ? "t2i" : "i2i";
+
+      // Analyze the source image for i2i prompts (skip for t2i or placeholder URLs).
+      let analysis2: SourceImageAnalysis = noImageAnalysis();
+      if (
+        subjectRenderMode2 === "human_identity_i2i" &&
+        sampleImageUrl &&
+        sampleImageUrl !== DRY_RUN_ASSET_PLACEHOLDER
+      ) {
+        try {
+          analysis2 = await sourceImageAnalyzer(
+            { uploadedObjectPath: "", imageUrl: sampleImageUrl },
+            { skipAiFallback: false },
+          );
+        } catch (analysisErr) {
+          logger.warn(
+            { err: analysisErr, factId: assembleFactId },
+            "[adminEngines/test] source-image analysis failed; using no-analysis fallback",
+          );
+        }
+      }
+
+      let stylePrompt2 = "";
+      if (body.lookStyleId) {
+        const [ls2] = await db
+          .select({
+            promptSuffix: lookStylesTable.promptSuffix,
+            promptSuffixReference: lookStylesTable.promptSuffixReference,
+          })
+          .from(lookStylesTable)
+          .where(eq(lookStylesTable.id, body.lookStyleId))
+          .limit(1);
+        if (ls2) stylePrompt2 = generationMode2 === "i2i" ? ls2.promptSuffixReference : ls2.promptSuffix;
+      }
+
+      const referenceImageUrl2 =
+        subjectRenderMode2 === "human_identity_i2i" &&
+        sampleImageUrl &&
+        sampleImageUrl !== DRY_RUN_ASSET_PLACEHOLDER
+          ? sampleImageUrl
+          : null;
+
+      const renderControls2 = {
+        aspectRatio: parseAspectRatio(body.aspectRatio),
+        contentMode: "sfw" as const,
+        negativeSpacePreference: undefined,
+        fallbackSubjectGender:
+          subjectRenderMode2 === "t2i_fallback" ? (body.gender ?? "neutral") : undefined,
+        styleId: normalizeStyleId(body.lookStyleId),
+        referenceImageUrl: referenceImageUrl2,
+      };
+
+      const renderedFactText2 = renderPersonalized(
+        assembleFactRow.text,
+        WORKBENCH_TEST_NAME,
+        WORKBENCH_TEST_PRONOUNS,
+      );
+      const identityPolicy2 = defaultIdentityPolicyForRenderMode(subjectRenderMode2);
+
+      const assembled2 = await assembleImagePromptForPreview({
+        renderedFactText: renderedFactText2,
+        enrichment: assembleEnrichment,
+        sourceImageAnalysis: analysis2,
+        subjectRenderMode: subjectRenderMode2,
+        identityPolicy: identityPolicy2,
+        renderControls: renderControls2,
+        stylePrompt: stylePrompt2,
+        referenceImageUrl: referenceImageUrl2,
+        renderedSubject: { name: WORKBENCH_TEST_NAME, pronouns: WORKBENCH_TEST_PRONOUNS },
+        requestId: `bench-test-${engine.id}-${Date.now()}`,
+      });
+      imagePrompt = assembled2.compiled.imagePrompt;
+    } catch (assembleErr) {
+      logger.warn(
+        { err: assembleErr, factId: assembleFactId },
+        "[adminEngines/test] fresh image-prompt assembly failed; falling back to client prompt",
+      );
+      imagePrompt =
+        typeof body.imagePrompt === "string" && body.imagePrompt.trim()
+          ? body.imagePrompt.trim()
+          : TEST_IMAGE_PROMPT;
+    }
+  } else {
+    imagePrompt =
+      typeof body.imagePrompt === "string" && body.imagePrompt.trim()
+        ? body.imagePrompt.trim()
+        : TEST_IMAGE_PROMPT;
+  }
 
   const endUserId = `admin-test-${Date.now()}`;
   let pipelineParams: Record<string, unknown>;

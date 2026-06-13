@@ -36,12 +36,27 @@ fi
 # finished, without waiting up to idleTimeoutMillis (60 s) for idle
 # connections to drain.  That lets us drop --test-force-exit and regain
 # the ability to detect leaked promises.
-common_args=(
-  --import tsx/esm
-  --test-isolation=none
-  --test-concurrency=1
-  --test
-)
+# The test-isolation flag was introduced as --experimental-test-isolation and
+# later stabilized to --test-isolation. Different node builds (CI, Replit, the
+# cloud dev environment) ship different versions and advertise different names —
+# passing the wrong one makes node abort at startup ("bad option"). Detect which
+# name THIS node knows from --help and use it; both select the same
+# single-process behavior. Don't silently omit it: within a shard we rely on
+# isolation=none so in-memory module state (the stripeSyncRunner lock, rate
+# limiters, caches) is shared and file ordering stays sequential.
+if node --help 2>&1 | grep -q -- '--test-isolation='; then
+  isolation_flag="--test-isolation=none"
+elif node --help 2>&1 | grep -q -- '--experimental-test-isolation='; then
+  isolation_flag="--experimental-test-isolation=none"
+else
+  echo "[run-tests-sharded] WARNING: node $(node --version) advertises no test-isolation flag;" >&2
+  echo "[run-tests-sharded] running without it (each test file gets its own process)." >&2
+  isolation_flag=""
+fi
+
+common_args=(--import tsx/esm)
+[[ -n "$isolation_flag" ]] && common_args+=("$isolation_flag")
+common_args+=(--test-concurrency=1 --test)
 
 # purge_test_data — FK-safe sweep of every test-created row from the database.
 #
@@ -69,7 +84,12 @@ purge_test_data
 
 pids=()
 for ((k = 1; k <= shards; k++)); do
+  # CRON_SECRET has no fallback in routes/jobs.ts — app.js throws at module load
+  # if it is unset, which fails every test that imports the full app (e.g.
+  # csrf.integration). Stub it the same way RESEND_API_KEY is stubbed so the
+  # suite is self-contained and does not depend on a real secret being present.
   TEST_DB_ALLOW_EXIT_ON_IDLE=1 RESEND_API_KEY_DEV="" RESEND_API_KEY_PROD="" RESEND_API_KEY="re_test_dummy" \
+    CRON_SECRET="${CRON_SECRET:-test-cron-secret}" \
     node "${common_args[@]}" --test-shard="${k}/${shards}" \
     'src/__tests__/**/*.test.ts' &
   pids+=("$!")

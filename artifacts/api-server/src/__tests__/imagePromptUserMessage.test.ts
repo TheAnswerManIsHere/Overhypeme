@@ -8,7 +8,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 
-import { buildImagePromptUserMessage, expectationsFromInput } from "../lib/imagePrompt/generator.js";
+import { buildImagePromptUserMessage, expectationsFromInput, generateImagePromptPlanWithModel } from "../lib/imagePrompt/generator.js";
 import type { ImagePromptGenerationInput } from "@workspace/api-zod";
 
 function makeInput(overrides: { culturalReferences?: unknown[]; factText?: string; semanticEntities?: unknown[] } = {}): ImagePromptGenerationInput {
@@ -171,5 +171,162 @@ describe("buildImagePromptUserMessage", () => {
     // but still require the real referent.
     const exp = expectationsFromInput(input);
     assert.deepEqual(exp.materialSemanticEntities, ["Earth"]);
+  });
+});
+
+// ── Template-token filter regression ─────────────────────────────────────────
+//
+// Facts whose semantic entities use template tokens ({NAME}, {Subj}, {SUBJ})
+// as surfaceText are common. After renderPersonalized() the model receives
+// "David Franklin doesn't read books." — the token {NAME} never appears in
+// the rendered text. If the model echoes "David Franklin" instead of "{NAME}"
+// in semanticEntitiesUsed, the old code would throw ImagePromptError on the
+// second validation failure. The fix filters template-token surface texts out
+// of expectationsFromInput so they are never required to be echoed back.
+describe("generateImagePromptPlanWithModel — template-token entity filter", () => {
+  const VALID_PLAN = {
+    visualPlan: {
+      sceneConcept: "David stares at books until they surrender their knowledge",
+      visualGoal: "Convey awe-inspiring presence",
+      visualApproach: "Cinematic close-up",
+      archetypeApplication: {
+        primaryArchetype: "presence_induced_reaction_aura",
+        subtype: "awe_deference",
+        selectedFrame: "direct_action",
+        strategyRationale: "Presence causes objects to react.",
+      },
+      coreScene: "David stands in a library, books glowing around him as he stares them down.",
+      subjectDetails: ["intense focused gaze", "calm commanding posture"],
+      environment: ["library shelves towering overhead", "soft glow from books"],
+      lightingAndStyle: "dramatic chiaroscuro lighting",
+      keyVisualElements: [
+        "David central",
+        "glowing books",
+        "library setting",
+        "dramatic lighting",
+        "subtle shimmer",
+      ],
+      subjectTreatment: {
+        roleInScene: "Legendary protagonist",
+        subjectRenderMode: "human_identity_i2i" as const,
+        identityPreservation: "human_face" as const,
+        nonhumanSubjectTreatment: {
+          applicable: false,
+          subjectKind: "not_applicable" as const,
+          preserveTraits: [],
+          anthropomorphicTreatment: "none" as const,
+          doNotTransformIntoHuman: false,
+        },
+        fallbackSubjectGender: "not_applicable" as const,
+        expressionAndPose: "Confident, intense, unfazed",
+        ageLifeStageTransform: { applies: false, targetState: "" },
+      },
+      subjectFactCompatibility: {
+        rating: "strong" as const,
+        reason: "Human protagonist works well.",
+        recommendedFallback: "none" as const,
+      },
+      composition: {
+        subjectFraming: "Medium close-up",
+        negativeSpace: "top" as const,
+        cameraStyle: "Cinematic 35mm",
+        sceneReadability: "Glowing books and intense gaze readable at a glance",
+      },
+      supportingTextPolicy: {
+        allowSupportingText: false,
+        supportingTextElements: [],
+        forbiddenTextTypes: [
+          "full meme captions",
+          "full fact text",
+          "hashtags",
+          "watermarks",
+          "real logos",
+          "brand marks",
+          "long explanatory paragraphs",
+        ],
+      },
+      secondaryCharacters: [],
+      // Model echoes the resolved name "David Franklin" — NOT the template token "{NAME}".
+      // With the filter in place this should be accepted (no echo-back required for {NAME}).
+      semanticEntitiesUsed: [],
+      culturalReferencesUsed: [],
+      styleIntegration: "Dramatic cinematic lighting",
+      contentNotes: "SFW",
+      debugNotes: "",
+      targetEngine: "nano_banana_2" as const,
+      generationMode: "i2i" as const,
+    },
+    compiledPrompt: {
+      prompt:
+        "Image-to-image edit using the reference image as the person's facial identity source. Preserve the reference person's recognizable face. David Franklin stands in a library surrounded by glowing books, staring them down with an intense gaze.",
+      negativePrompt: "",
+      engineNotes: "",
+    },
+  };
+
+  it("succeeds when template-token material entities are omitted from semanticEntitiesUsed", async () => {
+    const input: ImagePromptGenerationInput = {
+      ...makeInput(),
+      enrichment: {
+        primaryArchetype: "presence_induced_reaction_aura",
+        subtype: "awe_deference",
+        modifiers: [],
+        visualLiteralness: "mixed",
+        visualComplexity: "medium",
+        overhypeFit: "strong",
+        adultSuitability: "safe",
+        taxonomyConfidence: 0.9,
+        culturalReferences: [],
+        // Three material entities — all template tokens.
+        // The model will receive the rendered text (no {NAME} etc.) and
+        // cannot reliably echo these back; they should be filtered out of
+        // the required echo-back list.
+        semanticEntities: [
+          {
+            surfaceText: "{NAME}",
+            entityKind: "named_entity",
+            visualReferent: "a person with a legendary presence",
+            capitalCaseLocked: false,
+            capitalizationSignal: "capitalized_named_entity",
+            materiallyAffectsVisualPrompt: true,
+            requiresAdminReview: false,
+            confidence: 0.9,
+            notes: "Represents the subject's name.",
+          },
+          {
+            surfaceText: "{Subj}",
+            entityKind: "named_entity",
+            visualReferent: "the subject of the fact",
+            capitalCaseLocked: false,
+            capitalizationSignal: "capitalized_named_entity",
+            materiallyAffectsVisualPrompt: true,
+            requiresAdminReview: false,
+            confidence: 0.9,
+            notes: "Represents the subject's pronoun.",
+          },
+          {
+            surfaceText: "{SUBJ}",
+            entityKind: "named_entity",
+            visualReferent: "the subject of the fact",
+            capitalCaseLocked: false,
+            capitalizationSignal: "capitalized_named_entity",
+            materiallyAffectsVisualPrompt: true,
+            requiresAdminReview: false,
+            confidence: 0.9,
+            notes: "Represents the subject's pronoun.",
+          },
+        ],
+      } as unknown as ImagePromptGenerationInput["enrichment"],
+      factText: "David Franklin doesn't read books. He stares them down until he gets the information he wants.",
+      subjectRenderMode: "human_identity_i2i",
+      targetEngine: "nano_banana_2",
+    };
+
+    // Mock model always returns the valid plan (which has semanticEntitiesUsed: []).
+    // Before the filter, this would fail with ImagePromptError because the
+    // {NAME}/{Subj}/{SUBJ} template tokens wouldn't be found in semanticEntitiesUsed.
+    const mockModel = async () => JSON.stringify(VALID_PLAN);
+    const result = await generateImagePromptPlanWithModel(input, mockModel);
+    assert.ok(result.visualPlan, "should resolve without throwing");
   });
 });
