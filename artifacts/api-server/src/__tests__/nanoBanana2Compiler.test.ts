@@ -86,17 +86,21 @@ function makeArgs(opts: {
   visualPlan?: Partial<VisualPlan>;
   negativePrompt?: string;
   renderedSubject?: { name: string; pronouns: string | null };
+  factText?: string;
+  renderPolicy?: ImagePromptGenerationInput["renderPolicy"];
 }) {
   const input = {
     subjectRenderMode: opts.subjectRenderMode,
     stylePrompt: opts.stylePrompt ?? "",
     referenceImageUrl: opts.referenceImageUrl ?? null,
+    factText: opts.factText ?? "",
     enrichment: { modifiers: opts.modifiers ?? [] },
     renderControls: {
       aspectRatio: "portrait",
       contentMode: "sfw",
       ...(opts.fallbackSubjectGender ? { fallbackSubjectGender: opts.fallbackSubjectGender } : {}),
     },
+    ...(opts.renderPolicy ? { renderPolicy: opts.renderPolicy } : {}),
   } as unknown as ImagePromptGenerationInput;
   return {
     visualPlan: makeVisualPlan(opts.visualPlan),
@@ -351,7 +355,7 @@ describe("nanoBanana2 — structured directive injection", () => {
     assert.match(out.imagePrompt.toLowerCase(), /in a painterly oil style/);
   });
 
-  it("renders allowed supporting text with content + placement and forbids other text", () => {
+  it("renders the planner's in-scene text and excludes overlay text (no blanket ban)", () => {
     const out = compileNanoBanana2HumanI2I(makeArgs({
       subjectRenderMode: "human_identity_i2i",
       prompt: "David at a scoreboard.",
@@ -363,16 +367,23 @@ describe("nanoBanana2 — structured directive injection", () => {
         },
       },
     }));
-    assert.match(out.imagePrompt, /Render only this short in-image text: "999" \(on the scoreboard\)/);
-    assert.match(out.imagePrompt.toLowerCase(), /keep all other surfaces free of text/);
+    assert.match(out.imagePrompt, /Render this in-scene text clearly: "999" \(on the scoreboard\)/);
+    // Narrow overlay-text exclusion is present; the old blanket "free of readable
+    // text" ban is gone (it would contradict the rendered scoreboard text).
+    assert.match(out.imagePrompt.toLowerCase(), /do not bake overlay or caption text into the image/);
+    assert.doesNotMatch(out.imagePrompt.toLowerCase(), /free of readable text/);
   });
 
-  it("emits the no-readable-text rule when supporting text is forbidden", () => {
+  it("does NOT emit a blanket no-readable-text ban under the default allow policy", () => {
     const out = compileNanoBanana2HumanI2I(makeArgs({
       subjectRenderMode: "human_identity_i2i",
       prompt: "David wins.",
     }));
-    assert.match(out.imagePrompt.toLowerCase(), /keep all surfaces free of readable text/);
+    // The narrow overlay exclusion is always present, but in-world text is
+    // allowed silently — no "keep all surfaces free of readable text" line.
+    assert.match(out.imagePrompt.toLowerCase(), /do not bake overlay or caption text into the image/);
+    assert.doesNotMatch(out.imagePrompt.toLowerCase(), /free of readable text/);
+    assert.doesNotMatch(out.imagePrompt.toLowerCase(), /avoid readable in-scene text/);
   });
 
   it("injects semantic-entity referents", () => {
@@ -428,6 +439,114 @@ describe("nanoBanana2 — structured directive injection", () => {
     }));
     assert.doesNotMatch(out.imagePrompt, /\{NAME\}/);
     assert.match(out.imagePrompt, /"David" means the user's name/);
+  });
+});
+
+describe("nanoBanana2 — render policy (supporting text + violence)", () => {
+  // ── Supporting text ──────────────────────────────────────────────────────
+
+  it("require mode emits a required in-scene text line with the policy guidance", () => {
+    const out = compileNanoBanana2HumanI2I(makeArgs({
+      subjectRenderMode: "human_identity_i2i",
+      prompt: "Sharks circle on a TV.",
+      renderPolicy: {
+        supportingText: { mode: "require", guidance: 'the TV title "Shark Week" shown clearly on screen' },
+        violence: { mode: "allow", intensity: "strong" },
+      },
+    }));
+    assert.match(out.imagePrompt, /SUPPORTING TEXT: Readable in-scene text is required/);
+    assert.match(out.imagePrompt, /the TV title "Shark Week" shown clearly on screen/);
+    assert.doesNotMatch(out.imagePrompt.toLowerCase(), /free of readable text/);
+  });
+
+  it("require mode renders {NAME} tokens in the guidance via renderedSubject", () => {
+    const out = compileNanoBanana2HumanI2I(makeArgs({
+      subjectRenderMode: "human_identity_i2i",
+      prompt: "Sharks circle on a TV.",
+      renderedSubject: { name: "David Franklin", pronouns: "he/him" },
+      renderPolicy: {
+        supportingText: { mode: "require", guidance: 'the title "{NAME} Week: Capturing the World\'s Deadliest Predator"' },
+        violence: { mode: "allow", intensity: "strong" },
+      },
+    }));
+    assert.match(out.imagePrompt, /"David Franklin Week: Capturing the World's Deadliest Predator"/);
+    assert.doesNotMatch(out.imagePrompt, /\{NAME\}/);
+  });
+
+  it("forbid mode emits an avoid-in-scene-text line (only when explicitly selected)", () => {
+    const out = compileNanoBanana2HumanI2I(makeArgs({
+      subjectRenderMode: "human_identity_i2i",
+      prompt: "David wins.",
+      renderPolicy: {
+        supportingText: { mode: "forbid" },
+        violence: { mode: "allow", intensity: "strong" },
+      },
+    }));
+    assert.match(out.imagePrompt.toLowerCase(), /avoid readable in-scene text unless required/);
+  });
+
+  // ── Violence ─────────────────────────────────────────────────────────────
+
+  it("emits NO violence permission line for a non-violent fact under the default policy", () => {
+    const out = compileNanoBanana2HumanI2I(makeArgs({
+      subjectRenderMode: "human_identity_i2i",
+      prompt: "David solves an impossible equation on a chalkboard.",
+      factText: "David is so smart he solved an unsolvable equation.",
+    }));
+    assert.doesNotMatch(out.imagePrompt.toLowerCase(), /requires violence, death, weapons, or destruction/);
+    assert.doesNotMatch(out.imagePrompt.toLowerCase(), /soften violent consequences/);
+  });
+
+  it("emits the self-conditioned violence permission line for a violent fact (default policy)", () => {
+    const out = compileNanoBanana2HumanI2I(makeArgs({
+      subjectRenderMode: "human_identity_i2i",
+      prompt: "Fifty soldiers lie on the ground as a grenade explodes behind David.",
+      factText: "David threw a grenade and killed 50 people, then it exploded.",
+      visualPlan: { coreScene: "Fifty bodies lie on the ground; a grenade explodes in the distance." },
+    }));
+    assert.match(
+      out.imagePrompt,
+      /When the fact explicitly requires violence, death, weapons, or destruction, depict the action and consequences clearly without gratuitous gore\./,
+    );
+    // The violent scene survives — not sanitized into a harmless one.
+    assert.match(out.imagePrompt.toLowerCase(), /fifty bodies lie on the ground/);
+  });
+
+  it("suppresses the permission line when a per-fact softening modifier is present (no contradiction)", () => {
+    const out = compileNanoBanana2HumanI2I(makeArgs({
+      subjectRenderMode: "human_identity_i2i",
+      prompt: "David throws a grenade.",
+      factText: "David threw a grenade and killed 50 people.",
+      modifiers: ["avoid_gore"],
+    }));
+    // The softening modifier directive governs; the allow permission line is not
+    // also asserted (would read "show bodies" + "keep non-graphic").
+    assert.doesNotMatch(out.imagePrompt, /requires violence, death, weapons, or destruction/);
+    assert.match(out.imagePrompt.toLowerCase(), /clean and non-graphic/);
+  });
+
+  it("soften / suppress modes emit their line only when explicitly selected", () => {
+    const soften = compileNanoBanana2HumanI2I(makeArgs({
+      subjectRenderMode: "human_identity_i2i",
+      prompt: "David throws a grenade.",
+      factText: "David threw a grenade and killed 50 people.",
+      renderPolicy: {
+        supportingText: { mode: "allow" },
+        violence: { mode: "soften", intensity: "mild" },
+      },
+    }));
+    assert.match(soften.imagePrompt.toLowerCase(), /soften violent consequences/);
+
+    const suppress = compileNanoBanana2HumanI2I(makeArgs({
+      subjectRenderMode: "human_identity_i2i",
+      prompt: "David throws a grenade.",
+      factText: "David threw a grenade and killed 50 people.",
+      renderPolicy: {
+        supportingText: { mode: "allow" },
+        violence: { mode: "suppress", intensity: "nonviolent" },
+      },
+    }));
+    assert.match(suppress.imagePrompt.toLowerCase(), /do not depict violence, injury, or death directly/);
   });
 });
 
