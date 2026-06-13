@@ -84,7 +84,12 @@ purge_test_data
 
 pids=()
 for ((k = 1; k <= shards; k++)); do
+  # CRON_SECRET has no fallback in routes/jobs.ts — app.js throws at module load
+  # if it is unset, which fails every test that imports the full app (e.g.
+  # csrf.integration). Stub it the same way RESEND_API_KEY is stubbed so the
+  # suite is self-contained and does not depend on a real secret being present.
   TEST_DB_ALLOW_EXIT_ON_IDLE=1 RESEND_API_KEY_DEV="" RESEND_API_KEY_PROD="" RESEND_API_KEY="re_test_dummy" \
+    CRON_SECRET="${CRON_SECRET:-test-cron-secret}" \
     node "${common_args[@]}" --test-shard="${k}/${shards}" \
     'src/__tests__/**/*.test.ts' &
   pids+=("$!")
