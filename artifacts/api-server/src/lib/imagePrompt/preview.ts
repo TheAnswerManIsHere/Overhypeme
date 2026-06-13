@@ -18,6 +18,7 @@ import type {
   SubjectRenderMode,
   GenerationMode,
 } from "@workspace/api-zod";
+import { resolveRenderPolicy } from "@workspace/api-zod";
 import { generateImagePromptPlan } from "./generator";
 import { compileForSubjectRenderMode } from "./compilers/nanoBanana2";
 import type { ImagePromptGenerationOutput, CompiledImagePrompt } from "./types";
@@ -86,6 +87,8 @@ export async function assembleImagePromptForPreview(
     userSelectedSubjectRenderMode: args.userSelectedSubjectRenderMode ?? null,
     identityPolicy: args.identityPolicy,
     renderControls: args.renderControls,
+    // Effective render policy = Phase-1 default ← moderator override (Phase 2).
+    renderPolicy: resolveRenderPolicy(args.enrichment),
     stylePrompt: args.stylePrompt,
     referenceImageUrl: args.referenceImageUrl ?? null,
     targetEngine: "nano_banana_2",

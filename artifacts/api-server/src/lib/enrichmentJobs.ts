@@ -123,10 +123,22 @@ async function mergePreviewIntoFact(
 
 // ─── "enrichment" handler — phase 1 then phase 2 ───────────────────────────
 
+/**
+ * Re-classification regenerates the whole enrichment blob from the LLM, which
+ * does NOT know about the moderator-authored `visualPromptStrategyOverride`
+ * (Phase 2). Carry it forward verbatim (including its server-owned
+ * updatedBy/updatedAt) so re-running AI never wipes a moderator's work.
+ */
+function withPreservedOverride(fresh: FactEnrichment, prior: unknown): FactEnrichment {
+  const ov = (prior as { visualPromptStrategyOverride?: unknown } | null | undefined)?.visualPromptStrategyOverride;
+  return ov ? ({ ...fresh, visualPromptStrategyOverride: ov } as FactEnrichment) : fresh;
+}
+
 async function runEnrichmentForReview(reviewId: number): Promise<HandlerResult> {
-  // Load the submitted text so we can classify.
+  // Load the submitted text so we can classify (+ the prior enrichment so a
+  // moderator's visual-strategy override survives re-classification).
   const [reviewRow] = await db
-    .select({ submittedText: pendingReviewsTable.submittedText })
+    .select({ submittedText: pendingReviewsTable.submittedText, enrichment: pendingReviewsTable.enrichment })
     .from(pendingReviewsTable)
     .where(eq(pendingReviewsTable.id, reviewId))
     .limit(1);
@@ -151,6 +163,7 @@ async function runEnrichmentForReview(reviewId: number): Promise<HandlerResult> 
       .where(eq(pendingReviewsTable.id, reviewId));
     return { ok: false, error: `phase 1 (classify): ${msg}` };
   }
+  enrichment = withPreservedOverride(enrichment, reviewRow.enrichment);
 
   // Write phase 1 result so the admin UI sees progress even if phase 2 fails.
   await db
@@ -194,7 +207,7 @@ export async function runEnrichmentForFact(
   // Load the fact text + parentId so a variant is classified with its parent
   // context (same shape the approve-variant path uses).
   const [factRow] = await db
-    .select({ text: factsTable.text, parentId: factsTable.parentId })
+    .select({ text: factsTable.text, parentId: factsTable.parentId, enrichment: factsTable.enrichment })
     .from(factsTable)
     .where(eq(factsTable.id, factId))
     .limit(1);
@@ -233,6 +246,7 @@ export async function runEnrichmentForFact(
       .where(eq(factsTable.id, factId));
     return { ok: false, error: `phase 1 (classify): ${msg}` };
   }
+  enrichment = withPreservedOverride(enrichment, factRow.enrichment);
 
   // Write phase 1 result + re-sync the indexed projection columns. Set
   // enrichmentStatus "ok" now so a later preview failure can't revert it —

@@ -8,10 +8,10 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 
-import { buildImagePromptUserMessage, generateImagePromptPlanWithModel } from "../lib/imagePrompt/generator.js";
+import { buildImagePromptUserMessage, expectationsFromInput, generateImagePromptPlanWithModel } from "../lib/imagePrompt/generator.js";
 import type { ImagePromptGenerationInput } from "@workspace/api-zod";
 
-function makeInput(overrides: { culturalReferences?: unknown[]; factText?: string } = {}): ImagePromptGenerationInput {
+function makeInput(overrides: { culturalReferences?: unknown[]; factText?: string; semanticEntities?: unknown[] } = {}): ImagePromptGenerationInput {
   const enrichment = {
     primaryArchetype: "object_logic_impossibility",
     subtype: "medium_contradiction",
@@ -22,7 +22,7 @@ function makeInput(overrides: { culturalReferences?: unknown[]; factText?: strin
     adultSuitability: "sfw",
     taxonomyConfidence: 0.9,
     culturalReferences: overrides.culturalReferences ?? [],
-    semanticEntities: [],
+    semanticEntities: overrides.semanticEntities ?? [],
   };
   return {
     factText: overrides.factText ?? "David focuses moonlight through a magnifying glass to set an ant on fire. At night.",
@@ -144,6 +144,33 @@ describe("buildImagePromptUserMessage", () => {
     // Material reference → required in culturalReferencesUsed echo.
     assert.match(msg, /culturalReferencesUsed: MUST include an entry/);
     assert.match(msg, /"Shark Week"/);
+  });
+
+  it("never echoes or requires the personalized subject even if enrichment stored it as a semantic entity", () => {
+    const EARTH = {
+      surfaceText: "Earth", normalizedText: "earth", entityKind: "celestial_body",
+      visualReferent: "the planet Earth", capitalizationSignal: "capitalized_named_entity",
+      materiallyAffectsVisualPrompt: true, requiresAdminReview: false, confidence: 0.95, notes: "",
+    };
+    const ALEX = {
+      surfaceText: "Alex", normalizedText: "alex", entityKind: "named_entity",
+      visualReferent: "a person", capitalizationSignal: "capitalized_named_entity",
+      materiallyAffectsVisualPrompt: true, requiresAdminReview: false, confidence: 0.9, notes: "",
+    };
+    const input = makeInput({ semanticEntities: [EARTH, ALEX] });
+
+    // Defensive strip in buildImagePromptUserMessage: the subject is neither
+    // listed in the semantic block nor in the required-echo line; Earth still is.
+    const msg = buildImagePromptUserMessage(input);
+    assert.doesNotMatch(msg, /"Alex"/);
+    assert.doesNotMatch(msg, /surfaceText="Alex"/);
+    assert.match(msg, /surfaceText="Earth"/);
+    assert.match(msg, /semanticEntitiesUsed: MUST include an entry for each of \["Earth"\]/);
+
+    // Validator expectations (rule 14 required-echo list) exclude the subject
+    // but still require the real referent.
+    const exp = expectationsFromInput(input);
+    assert.deepEqual(exp.materialSemanticEntities, ["Earth"]);
   });
 });
 

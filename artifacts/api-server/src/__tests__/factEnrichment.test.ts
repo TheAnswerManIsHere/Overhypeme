@@ -44,6 +44,30 @@ const VALID: FactEnrichment = {
 // Same fields, but subtype belongs to a DIFFERENT archetype.
 const SUBTYPE_MISMATCH = { ...VALID, subtype: "social_role_reversal" };
 
+const EARTH_ENTITY = {
+  surfaceText: "Earth",
+  normalizedText: "earth",
+  entityKind: "celestial_body" as const,
+  visualReferent: "the planet Earth",
+  capitalizationSignal: "capitalized_named_entity" as const,
+  materiallyAffectsVisualPrompt: true,
+  requiresAdminReview: false,
+  confidence: 0.95,
+  notes: "",
+};
+// The personalized subject leaking through as a named entity (the bug).
+const ALEX_SUBJECT_ENTITY = {
+  surfaceText: "Alex",
+  normalizedText: "alex",
+  entityKind: "named_entity" as const,
+  visualReferent: "a person",
+  capitalizationSignal: "capitalized_named_entity" as const,
+  materiallyAffectsVisualPrompt: true,
+  requiresAdminReview: false,
+  confidence: 0.9,
+  notes: "",
+};
+
 const INPUT: EnrichInput = { factText: "{SUBJ} pushes the Earth down.", status: "new_fact" };
 
 describe("validateEnrichment — archetype/subtype pairing", () => {
@@ -276,6 +300,13 @@ describe("enrichFactWithModel — orchestration", () => {
       (err: unknown) => err instanceof EnrichmentError,
     );
     assert.equal(calls, 2);
+  });
+
+  it("strips the personalized subject from semanticEntities while keeping real referents", async () => {
+    const polluted = { ...VALID, semanticEntities: [EARTH_ENTITY, ALEX_SUBJECT_ENTITY] };
+    const result = await enrichFactWithModel(INPUT, async () => JSON.stringify(polluted));
+    const surfaces = result.semanticEntities.map((e) => e.surfaceText);
+    assert.deepEqual(surfaces, ["Earth"], JSON.stringify(result.semanticEntities));
   });
 });
 

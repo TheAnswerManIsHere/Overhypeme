@@ -23,7 +23,10 @@ import type {
   VisualPlan,
   CompiledPrompt,
   ImagePromptGenerationInput,
+  RenderPolicy,
+  VisualPromptStrategyOverride,
 } from "@workspace/api-zod";
+import { DEFAULT_RENDER_POLICY, MANDATORY_FORBIDDEN_TEXT_TYPES } from "@workspace/api-zod";
 import type {
   CompiledImagePrompt,
   PromptSection,
@@ -150,16 +153,173 @@ function composeCompositionDirective(vp: VisualPlan, haystack: string): string {
   return out.trim();
 }
 
-/** The supporting-text rule. Always emitted (required). */
-function composeSupportingTextDirective(vp: VisualPlan): string {
+/**
+ * The narrow OVERLAY-text exclusion, derived from MANDATORY_FORBIDDEN_TEXT_TYPES.
+ * Always emitted: overlay/caption text (the meme caption, fact text, hashtags,
+ * watermarks, logos, brand marks) is composited separately and must never be
+ * baked into the image. This is NOT a blanket "no readable text" ban — in-world
+ * scene text is governed by the render policy below and is fully compatible with
+ * this line.
+ */
+const OVERLAY_TEXT_EXCLUSION = `Do not bake overlay or caption text into the image: no ${MANDATORY_FORBIDDEN_TEXT_TYPES.join(", ")}.`;
+
+/**
+ * The supporting-text directive. Always emits the narrow overlay-text exclusion;
+ * then, depending on the render policy and the planner-selected scene text,
+ * governs whether IN-WORLD readable text (signs, TV titles, scoreboards,
+ * documents, labels) is rendered, required, or avoided.
+ *
+ * Phase 1 (R1): in "allow" mode the compiler stays SILENT about in-world text
+ * unless the planner picked explicit `supportingTextElements` or the policy
+ * carries intentional `guidance` — the absence of a ban is enough, and we do not
+ * encourage unnecessary text. "require"/"forbid" always emit their line.
+ */
+function composeSupportingTextDirective(vp: VisualPlan, policy: RenderPolicy["supportingText"]): string {
+  const lines: string[] = [OVERLAY_TEXT_EXCLUSION];
   const pol = vp.supportingTextPolicy;
+  const guidance = policy.guidance?.trim() ?? "";
+
+  // Planner picked concrete in-world strings for this render → render them
+  // (regardless of mode; the planner's scene content is the strongest signal).
   if (pol.allowSupportingText && pol.supportingTextElements.length > 0) {
     const items = pol.supportingTextElements
       .map((e) => `"${e.content.trim()}"${e.placement.trim() ? ` (${e.placement.trim()})` : ""}`)
       .join("; ");
-    return `Render only this short in-image text: ${items}; keep all other surfaces free of text, captions, watermarks, and logos.`;
+    lines.push(`Render this in-scene text clearly: ${items}.`);
+    return lines.join(" ");
   }
-  return "Keep all surfaces free of readable text, captions, watermarks, logos, and brand marks.";
+
+  if (policy.mode === "require") {
+    lines.push(
+      guidance
+        ? `SUPPORTING TEXT: Readable in-scene text is required in this scene. Show it clearly: ${guidance}.`
+        : "SUPPORTING TEXT: Readable in-scene text is required in this scene; show it clearly.",
+    );
+  } else if (policy.mode === "forbid") {
+    lines.push("Avoid readable in-scene text unless required by a higher-priority instruction.");
+  } else if (guidance) {
+    // "allow" with intentional guidance → emit it; otherwise stay silent (R1).
+    lines.push(guidance);
+  }
+
+  return lines.join(" ");
+}
+
+// ─── Violence policy ────────────────────────────────────────────────────────
+
+/** Taxonomy modifiers whose presence implies the fact is violence-relevant. */
+const VIOLENCE_RELEVANT_MODIFIERS = new Set([
+  "cinematic_aftermath",
+  "projectile_impact_power",
+  "action_comedy",
+  // The softening flags themselves imply a violent fact (a moderator only adds
+  // them when there is violence to soften).
+  "avoid_gore",
+  "non_graphic_action",
+  "avoid_weapons_focus",
+  "avoid_gross_literalization",
+]);
+
+/** Per-fact softening modifiers that, under "allow", let the modifier directive
+ *  govern instead of the permission line (so output never contradicts itself). */
+const VIOLENCE_SOFTENING_MODIFIERS = new Set([
+  "avoid_gore",
+  "non_graphic_action",
+  "avoid_weapons_focus",
+  "avoid_gross_literalization",
+]);
+
+const VIOLENCE_LEXICON_RE =
+  /\b(?:kill\w*|murder\w*|slay\w*|grenade|bomb\w*|explod\w*|explosion|detonat\w*|weapon\w*|gun\w*|rifle|pistol|knife|knives|sword|blade|blood\w*|bloody|gore|combat|battle|war|fight\w*|punch\w*|stab\w*|shoot\w*|shot|corpse\w*|bodies|dead\b|death\w*|die[ds]?\b|destroy\w*|destruction|wreckage|injur\w*|wound\w*|carnage|massacre|behead\w*|decapitat\w*)\b/i;
+
+/** Does the fact/plan indicate violence/death/weapons/combat/destruction so the
+ *  "allow" permission line is warranted? Scans modifiers + violent lexicon over
+ *  the fact text and the concrete visual fields. */
+function isViolenceRelevant(input: ImagePromptGenerationInput, vp: VisualPlan): boolean {
+  const modifiers = input.enrichment.modifiers ?? [];
+  if (modifiers.some((m) => VIOLENCE_RELEVANT_MODIFIERS.has(m))) return true;
+  const haystack = [
+    input.factText,
+    vp.coreScene,
+    ...(vp.keyVisualElements ?? []),
+    ...(vp.subjectDetails ?? []),
+    ...(vp.environment ?? []),
+  ]
+    .filter(Boolean)
+    .join(" ");
+  return VIOLENCE_LEXICON_RE.test(haystack);
+}
+
+const VIOLENCE_ALLOW_LINE =
+  "When the fact explicitly requires violence, death, weapons, or destruction, depict the action and consequences clearly without gratuitous gore.";
+
+/**
+ * The violence directive. Precedence (R5): an explicit "soften"/"suppress" mode
+ * wins; otherwise, under the default "allow", a per-fact softening modifier wins
+ * over the permission line (the modifier's own softening directive governs); and
+ * the permission line is only emitted when the fact is violence-relevant or the
+ * policy carries intentional guidance. Never emits "graphic"-flavored language.
+ */
+function composeViolenceDirective(
+  policy: RenderPolicy["violence"],
+  opts: { relevant: boolean; hasSofteningModifier: boolean },
+): string {
+  const guidance = policy.guidance?.trim() ?? "";
+  if (policy.mode === "suppress") {
+    return "Do not depict violence, injury, or death directly; represent consequences symbolically or through environmental damage.";
+  }
+  if (policy.mode === "soften") {
+    return "Soften violent consequences; avoid graphic injury and visible death unless explicitly required by a higher-priority instruction.";
+  }
+  // mode === "allow"
+  if (guidance) return guidance;
+  // A per-fact softening modifier already emits its own softening directive — do
+  // not also assert the permission line (avoids "show bodies" + "non-graphic").
+  if (opts.hasSofteningModifier) return "";
+  return opts.relevant ? VIOLENCE_ALLOW_LINE : "";
+}
+
+// ─── Moderator visual-strategy override (Phase 2) ───────────────────────────
+
+/** The active moderator override, or null when absent/disabled. */
+function activeOverride(input: ImagePromptGenerationInput): VisualPromptStrategyOverride | null {
+  const ov = input.enrichment.visualPromptStrategyOverride;
+  return ov?.enabled ? ov : null;
+}
+
+/** Join trimmed, sentence-terminated override list entries; "" when none. */
+function composeOverrideList(entries: readonly string[]): string {
+  const kept = entries.map((e) => e.trim().replace(/[.!?]+$/, "")).filter(Boolean);
+  return kept.length ? `${kept.join("; ")}.` : "";
+}
+
+/** SUBJECT REALIZATION block from the moderator override. Emitted only when a
+ *  realization mode other than `use_ai_plan` is chosen with a description. This
+ *  ADDS to (never replaces) the compiler-owned SUBJECT BINDING / anti-split
+ *  guards; conflicting realistic-de-age intent is handled by forbiddenVisualDetails. */
+function composeSubjectRealization(ov: VisualPromptStrategyOverride): string {
+  const r = ov.subjectRealizationOverride;
+  if (!r || r.mode === "use_ai_plan") return "";
+  const desc = r.description.trim().replace(/[.!?]+$/, "");
+  return desc ? `${desc}.` : "";
+}
+
+const NEGATIVE_LEAD_RE = /^\s*(?:do not\b|don'?t\b|avoid\b|never\b|no\b)/i;
+
+/** Normalize a forbidden/negative entry into a "Do not …" constraint, without
+ *  double-prefixing entries that already lead with Do not/Avoid/Never/No. */
+function asNegativeConstraint(entry: string): string {
+  const t = entry.trim().replace(/[.!?]+$/, "");
+  if (!t) return "";
+  return `${NEGATIVE_LEAD_RE.test(t) ? t : `Do not ${t}`}.`;
+}
+
+/** Forbidden visual details + negative-prompt additions → "Do not …" lines. */
+function composeOverrideForbidden(ov: VisualPromptStrategyOverride): string {
+  return [...ov.forbiddenVisualDetails, ...ov.negativePromptAdditions]
+    .map(asNegativeConstraint)
+    .filter(Boolean)
+    .join(" ");
 }
 
 /** Lock capitalization-aware semantic referents into the scene. */
@@ -182,9 +342,19 @@ function composeCulturalDirective(vp: VisualPlan, haystack: string): string {
   return `Cultural references: ${items.join("; ")}. Avoid real logos or brand marks.`;
 }
 
-/** High-impact fact modifiers the prose did not already cover. */
-function composeModifierDirective(input: ImagePromptGenerationInput, haystack: string): string {
-  const directives = modifierDirectives(input.enrichment.modifiers ?? [])
+/** High-impact fact modifiers the prose did not already cover. When a moderator
+ *  violence override is active we drop the per-fact softening modifiers
+ *  (avoid_gore, …) so the prompt never both demands and forbids violent
+ *  consequences (precedence: moderator override > softening modifiers). */
+function composeModifierDirective(
+  input: ImagePromptGenerationInput,
+  haystack: string,
+  opts: { dropSoftening?: boolean } = {},
+): string {
+  const modifiers = (input.enrichment.modifiers ?? []).filter(
+    (m) => !(opts.dropSoftening && VIOLENCE_SOFTENING_MODIFIERS.has(m)),
+  );
+  const directives = modifierDirectives(modifiers)
     .filter((d) => {
       // De-dupe on the directive's leading clause (before the first comma/dash).
       const lead = d.split(/[,.—-]/)[0]?.trim() ?? d;
@@ -645,6 +815,13 @@ function compile(args: CompileArgs, mode: ModeContext): CompiledImagePrompt {
   const humanIdentity = input.subjectRenderMode === "human_identity_i2i";
   const bindingArgs = { name: subjectName, applies: ageApplies, targetState, avoidDuplicate, humanIdentity };
 
+  // Moderator visual-strategy override (Phase 2). null when absent/disabled.
+  const ov = activeOverride(input);
+  // When the moderator set a violence override, it is authoritative: drop the
+  // per-fact softening-modifier directives so the prompt never both demands and
+  // forbids violent consequences (precedence: override > softening modifiers).
+  const moderatorViolenceOverride = Boolean(ov?.violencePolicyOverride);
+
   // 1. IMAGE-TO-IMAGE TASK (operational lead + required mode clauses).
   const clauses = mode.requiredClauses.filter(Boolean).join(" ");
   const taskBody = [mode.preamble, clauses].filter(Boolean).join(" ");
@@ -655,11 +832,22 @@ function compile(args: CompileArgs, mode: ModeContext): CompiledImagePrompt {
   // Role/action inputs (v4). secondaryCharacters defaults to [] for back-compat
   // with pre-v4 plans replayed from storage. activeActionFrame is the reliable
   // signal that gates the strong sole-agent + active-action constraints.
-  const secondaryCharacters = vp.secondaryCharacters ?? [];
+  // Moderator roleBindings (when present) take precedence over the AI's
+  // secondaryCharacters: the "subject" binding becomes the subject's role and
+  // every other entity becomes a secondary character. Otherwise use the AI plan.
+  const overrideRoleBindings = ov?.roleBindings?.filter((b) => b.entity.trim() && b.visualRole.trim()) ?? [];
+  const hasOverrideRoles = overrideRoleBindings.length > 0;
+  const overrideSubjectRole = overrideRoleBindings.find((b) => b.entity.trim().toLowerCase() === "subject")?.visualRole.trim() ?? "";
+  const overrideSecondary = overrideRoleBindings
+    .filter((b) => b.entity.trim().toLowerCase() !== "subject")
+    .map((b) => ({ label: b.entity.trim(), visualRole: b.visualRole.trim() }));
+
+  const aiSecondaryCharacters = vp.secondaryCharacters ?? [];
+  const secondaryCharacters = hasOverrideRoles ? overrideSecondary : aiSecondaryCharacters;
   const hasSecondaryCharacters = secondaryCharacters.some((c) => c.label.trim() && c.visualRole.trim());
   const selectedFrame = vp.archetypeApplication?.selectedFrame ?? "";
   const activeActionFrame = isActiveActionFrame(selectedFrame);
-  const roleInScene = vp.subjectTreatment?.roleInScene ?? "";
+  const roleInScene = (hasOverrideRoles && overrideSubjectRole) || vp.subjectTreatment?.roleInScene || "";
 
   // Running haystack so each later section only adds what earlier ones didn't
   // already say. Seeded with task + binding + the (internal, non-emitted) goal/
@@ -676,7 +864,7 @@ function compile(args: CompileArgs, mode: ModeContext): CompiledImagePrompt {
     subjectName,
     roleInScene,
     secondaryCharacters,
-    includeSubjectRole: hasSecondaryCharacters || activeActionFrame,
+    includeSubjectRole: hasSecondaryCharacters || activeActionFrame || Boolean(overrideSubjectRole),
     haystack,
   });
   haystack = [haystack, referenceInterpretation].filter(Boolean).join(" ");
@@ -693,7 +881,9 @@ function compile(args: CompileArgs, mode: ModeContext): CompiledImagePrompt {
   // age-transform + other modifier directives, and any key element gap-fill.
   const subjectListBody = composeListBody(vp.subjectDetails ?? [], haystack);
   const expressionPose = scrubIntentLanguage(vp.subjectTreatment?.expressionAndPose ?? "");
-  const modifierBody = composeModifierDirective(input, `${haystack} ${subjectListBody}`);
+  const modifierBody = composeModifierDirective(input, `${haystack} ${subjectListBody}`, {
+    dropSoftening: moderatorViolenceOverride,
+  });
   const keyElements = composeKeyElementsDirective(vp, `${haystack} ${subjectListBody} ${modifierBody}`);
   const subjectDetails = [
     subjectListBody,
@@ -707,8 +897,21 @@ function compile(args: CompileArgs, mode: ModeContext): CompiledImagePrompt {
   const environment = composeListBody(vp.environment ?? [], haystack);
   haystack = `${haystack} ${environment}`;
 
-  // 6. COMPOSITION — framing + camera + caption negative space.
-  const composition = composeCompositionDirective(vp, haystack);
+  // Moderator override sections (Phase 2). SUBJECT REALIZATION and REQUIRED
+  // VISUAL DETAILS are emitted as their own sections; composition guidance +
+  // style-agnostic additions + forbidden details fold into existing sections.
+  const subjectRealization = ov ? composeSubjectRealization(ov) : "";
+  const requiredVisualDetails = ov ? composeOverrideList(ov.requiredVisualDetails) : "";
+  const additionalDetails = ov ? composeOverrideList(ov.styleAgnosticPromptAdditions) : "";
+  if (subjectRealization) haystack = `${haystack} ${subjectRealization}`;
+  if (requiredVisualDetails) haystack = `${haystack} ${requiredVisualDetails}`;
+
+  // 6. COMPOSITION — framing + camera + caption negative space, plus moderator
+  // composition guidance.
+  const composition = [
+    composeCompositionDirective(vp, haystack),
+    ov ? composeOverrideList(ov.compositionGuidance) : "",
+  ].filter(Boolean).join(" ");
 
   // 7. LIGHTING AND STYLE — the plan's light/mood plus the resolved style suffix.
   // Each clause is terminated so the assembler's sentence-aware de-dupe keeps it
@@ -720,11 +923,16 @@ function compile(args: CompileArgs, mode: ModeContext): CompiledImagePrompt {
   const lightingAndStyle = lightingParts.length ? `${lightingParts.join(". ")}.` : "";
 
   // 8. STRICT CONSTRAINTS — semantic referents, cultural refs, supporting-text
-  // rule, and the negative anti-entity-split guards.
+  // rule, violence policy, and the negative anti-entity-split guards.
+  const renderPolicy: RenderPolicy = input.renderPolicy ?? DEFAULT_RENDER_POLICY;
   const constraintHaystack = `${haystack} ${composition} ${lightingAndStyle}`;
   const semantic = composeSemanticDirective(vp, constraintHaystack);
   const cultural = composeCulturalDirective(vp, `${constraintHaystack} ${semantic}`);
-  const supportingText = composeSupportingTextDirective(vp);
+  const supportingText = composeSupportingTextDirective(vp, renderPolicy.supportingText);
+  const violence = composeViolenceDirective(renderPolicy.violence, {
+    relevant: isViolenceRelevant(input, vp),
+    hasSofteningModifier: (input.enrichment.modifiers ?? []).some((m) => VIOLENCE_SOFTENING_MODIFIERS.has(m)),
+  });
   const antiSplit = composeAntiSplitConstraints(bindingArgs);
   // Reusable failure-mode role/action constraints, keyed off normalized data
   // (frame + modifiers + whether secondary characters exist). Conservative:
@@ -735,15 +943,25 @@ function compile(args: CompileArgs, mode: ModeContext): CompiledImagePrompt {
     hasSecondaryCharacters,
     subjectName,
   }).join(" ");
-  const strictConstraints = [semantic, cultural, supportingText, antiSplit, failureModes].filter(Boolean).join(" ");
+  // Moderator forbidden visual details + negative-prompt additions, as "Do not …"
+  // lines, appended after the compiler's own constraints.
+  const overrideForbidden = ov ? composeOverrideForbidden(ov) : "";
+  const strictConstraints = [semantic, cultural, supportingText, violence, antiSplit, failureModes, overrideForbidden].filter(Boolean).join(" ");
 
+  // The override sections sit at high/required priority so moderator intent
+  // survives the char budget. SUBJECT REALIZATION (required) goes right after
+  // SUBJECT BINDING; REQUIRED VISUAL DETAILS (required) after SUBJECT DETAILS;
+  // ADDITIONAL DETAILS (high) after ENVIRONMENT.
   const rawSections: Section[] = [
     { id: "image_to_image_task", label: "IMAGE-TO-IMAGE TASK", text: labeled("IMAGE-TO-IMAGE TASK", taskBody), priority: "required" },
     { id: "subject_binding", label: "SUBJECT BINDING", text: labeled("SUBJECT BINDING", binding), priority: "required" },
+    { id: "subject_realization", label: "SUBJECT REALIZATION", text: labeled("SUBJECT REALIZATION", subjectRealization), priority: "required" },
     { id: "reference_interpretation", label: "REFERENCE INTERPRETATION", text: labeled("REFERENCE INTERPRETATION", referenceInterpretation), priority: "required" },
     { id: "core_scene", label: "CORE SCENE", text: labeled("CORE SCENE", coreScene), priority: "high", compressible: true },
     { id: "subject_details", label: "SUBJECT DETAILS", text: labeled("SUBJECT DETAILS", subjectDetails), priority: "high", compressible: true },
+    { id: "required_visual_details", label: "REQUIRED VISUAL DETAILS", text: labeled("REQUIRED VISUAL DETAILS", requiredVisualDetails), priority: "required" },
     { id: "environment", label: "ENVIRONMENT", text: labeled("ENVIRONMENT", environment), priority: "high", compressible: true },
+    { id: "additional_details", label: "ADDITIONAL DETAILS", text: labeled("ADDITIONAL DETAILS", additionalDetails), priority: "high", compressible: true },
     { id: "composition", label: "COMPOSITION", text: labeled("COMPOSITION", composition), priority: "high" },
     { id: "lighting_and_style", label: "LIGHTING AND STYLE", text: labeled("LIGHTING AND STYLE", lightingAndStyle), priority: "medium", compressible: true },
     { id: "strict_constraints", label: "STRICT CONSTRAINTS", text: labeled("STRICT CONSTRAINTS", strictConstraints), priority: "required" },
@@ -768,6 +986,18 @@ function compile(args: CompileArgs, mode: ModeContext): CompiledImagePrompt {
       secondaryCharacters,
     }),
   ];
+
+  // Defensive: every section was token-rendered above, so the final prompt must
+  // carry no unresolved {NAME}/{SUBJ}/… tokens (a moderator override field or an
+  // LLM echo could otherwise leak one). Surface it as a warning rather than ship
+  // a token to the engine.
+  if (hasUnresolvedFactTokens(finalPrompt)) {
+    warnings.push({
+      code: "unresolved-token-in-final-prompt",
+      severity: "warning",
+      message: "The compiled prompt still contains an unresolved personalization token; check the moderator override and fact text.",
+    });
+  }
 
   const out: CompiledImagePrompt = {
     prompt: finalPrompt,

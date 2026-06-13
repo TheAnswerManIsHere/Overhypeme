@@ -58,6 +58,11 @@ interface PreviewBody {
   renderControls?: Partial<RenderControls>;
   identityPolicyOverrides?: Record<string, unknown>;
   persist?: boolean;
+  // Optional sample subject so a moderator can preview the prompt (and any
+  // tokenized override) rendered for different people. Defaults to the brand
+  // protagonist when omitted/blank.
+  previewName?: string;
+  previewPronouns?: string;
 }
 
 router.post("/admin/image-prompt/preview", requireAdmin, async (req: Request, res: Response): Promise<void> => {
@@ -163,10 +168,19 @@ router.post("/admin/image-prompt/preview", requireAdmin, async (req: Request, re
   const styleSource: "selected_look_style" | "none" =
     body.lookStyleId && stylePrompt ? "selected_look_style" : "none";
 
+  // Sample subject for the preview: the moderator-chosen name/pronouns when
+  // provided (so they can confirm tokenized overrides render dynamically), else
+  // the brand protagonist. Pronouns must look like "subj/obj"; otherwise default.
+  const previewName = typeof body.previewName === "string" && body.previewName.trim() ? body.previewName.trim() : PREVIEW_NAME;
+  const previewPronouns =
+    typeof body.previewPronouns === "string" && /^\s*[a-z]+\/[a-z]+\s*$/i.test(body.previewPronouns)
+      ? body.previewPronouns.trim().toLowerCase()
+      : PREVIEW_PRONOUNS;
+
   // The generator expects rendered fact text (tokens resolved). Fact templates
-  // store {NAME}/{SUBJ}/… — personalize with the brand protagonist for the
-  // preview so the generated plan matches what a real render would see.
-  const renderedFactText = renderPersonalized(sourceText, PREVIEW_NAME, PREVIEW_PRONOUNS);
+  // store {NAME}/{SUBJ}/… — personalize with the sample subject for the preview
+  // so the generated plan matches what a real render would see.
+  const renderedFactText = renderPersonalized(sourceText, previewName, previewPronouns);
 
   const requestId = `admin-preview-${crypto.randomUUID()}`;
   let output;
@@ -182,9 +196,9 @@ router.post("/admin/image-prompt/preview", requireAdmin, async (req: Request, re
       renderControls,
       stylePrompt,
       referenceImageUrl: body.referenceImageUrl ?? null,
-      // Resolve any residual identity tokens with the same brand protagonist used
-      // to render the fact text, so {NAME} never reaches the engine prompt.
-      renderedSubject: { name: PREVIEW_NAME, pronouns: PREVIEW_PRONOUNS },
+      // Resolve any residual identity tokens with the same sample subject used to
+      // render the fact text, so {NAME} never reaches the engine prompt.
+      renderedSubject: { name: previewName, pronouns: previewPronouns },
       requestId,
     });
     output = assembled.output;
