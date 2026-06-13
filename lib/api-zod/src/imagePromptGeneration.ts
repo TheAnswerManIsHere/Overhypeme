@@ -17,6 +17,15 @@
 
 import { z } from "zod";
 import { PRIMARY_ARCHETYPES, SUBTYPES_BY_ARCHETYPE, type PrimaryArchetype, type FactSubtype, type FactEnrichment } from "./taxonomy";
+import {
+  SUPPORTING_TEXT_MODE_VALUES,
+  VIOLENCE_MODE_VALUES,
+  VIOLENCE_INTENSITY_VALUES,
+  type SupportingTextMode,
+  type ViolenceMode,
+  type ViolenceIntensity,
+} from "./renderPolicyEnums";
+import type { VisualPromptStrategyOverride } from "./visualStrategyOverride";
 
 // ─── Versioning ────────────────────────────────────────────────────────────
 
@@ -239,9 +248,6 @@ export interface RenderControls {
 // compiler. The render-policy slot is the one named (but unimplemented) in
 // `visualPromptStrategies.ts` ("render policy — what content level is allowed?").
 
-export const SUPPORTING_TEXT_MODE_VALUES = ["allow", "forbid", "require"] as const;
-export type SupportingTextMode = (typeof SUPPORTING_TEXT_MODE_VALUES)[number];
-
 /**
  * Platform/moderator policy controlling whether in-WORLD readable text (signs,
  * TV titles, scoreboards, documents, labels) may appear in the rendered image.
@@ -261,22 +267,6 @@ export interface SupportingTextRenderPolicy {
   mode: SupportingTextMode;
   guidance?: string;
 }
-
-export const VIOLENCE_MODE_VALUES = ["allow", "soften", "suppress"] as const;
-export type ViolenceMode = (typeof VIOLENCE_MODE_VALUES)[number];
-
-// "graphic" is FUTURE-COMPATIBLE only (a future adult/NSFW mode may use it). It
-// is never selected or encouraged by default in Phase 1 — the platform default
-// is "strong" (visible death, bodies, explosions, weapons, action aftermath,
-// without gratuitous gore).
-export const VIOLENCE_INTENSITY_VALUES = [
-  "nonviolent",
-  "mild",
-  "moderate",
-  "strong",
-  "graphic",
-] as const;
-export type ViolenceIntensity = (typeof VIOLENCE_INTENSITY_VALUES)[number];
 
 /**
  * Platform/moderator policy controlling whether action-hero violence, visible
@@ -310,6 +300,33 @@ export const DEFAULT_RENDER_POLICY: RenderPolicy = {
   supportingText: { mode: "allow" },
   violence: { mode: "allow", intensity: "strong" },
 };
+
+/**
+ * Resolve the EFFECTIVE render policy for a render: the Phase 1 default, with the
+ * moderator's per-fact override applied when its visual-strategy override is
+ * enabled (Phase 2). Precedence: moderator override > default. Per-fact softening
+ * MODIFIERS (avoid_gore, …) are handled separately by the compiler, which drops
+ * them when a moderator violence override is set so the prompt never both demands
+ * and forbids violent consequences.
+ */
+export function resolveRenderPolicy(
+  enrichment: { visualPromptStrategyOverride?: VisualPromptStrategyOverride } | null | undefined,
+): RenderPolicy {
+  const ov = enrichment?.visualPromptStrategyOverride;
+  if (!ov?.enabled) return DEFAULT_RENDER_POLICY;
+  return {
+    supportingText: ov.supportingTextPolicyOverride
+      ? { mode: ov.supportingTextPolicyOverride.mode, guidance: ov.supportingTextPolicyOverride.guidance }
+      : DEFAULT_RENDER_POLICY.supportingText,
+    violence: ov.violencePolicyOverride
+      ? {
+          mode: ov.violencePolicyOverride.mode,
+          intensity: ov.violencePolicyOverride.intensity,
+          guidance: ov.violencePolicyOverride.guidance,
+        }
+      : DEFAULT_RENDER_POLICY.violence,
+  };
+}
 
 // ─── Input contract ──────────────────────────────────────────────────────
 

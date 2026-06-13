@@ -41,6 +41,7 @@ import {
 } from "@workspace/db";
 import type { AsyncJobRow } from "@workspace/db/schema";
 import {
+  resolveRenderPolicy,
   validateEnrichment,
   defaultIdentityPolicyForRenderMode,
   type ImagePromptGenerationInput,
@@ -127,6 +128,8 @@ export const imagePromptGenerationHandler: JobHandler = {
         (attempt.userSelectedSubjectRenderMode as SubjectRenderMode | null) ?? null,
       identityPolicy,
       renderControls,
+      // Effective render policy = Phase-1 default ← moderator override (Phase 2).
+      renderPolicy: resolveRenderPolicy(enrichment),
       stylePrompt,
       referenceImageUrl: extractReferenceImageUrl(attempt),
       targetEngine: "nano_banana_2",

@@ -24,6 +24,7 @@ import type {
   CompiledPrompt,
   ImagePromptGenerationInput,
   RenderPolicy,
+  VisualPromptStrategyOverride,
 } from "@workspace/api-zod";
 import { DEFAULT_RENDER_POLICY, MANDATORY_FORBIDDEN_TEXT_TYPES } from "@workspace/api-zod";
 import type {
@@ -278,6 +279,49 @@ function composeViolenceDirective(
   return opts.relevant ? VIOLENCE_ALLOW_LINE : "";
 }
 
+// ─── Moderator visual-strategy override (Phase 2) ───────────────────────────
+
+/** The active moderator override, or null when absent/disabled. */
+function activeOverride(input: ImagePromptGenerationInput): VisualPromptStrategyOverride | null {
+  const ov = input.enrichment.visualPromptStrategyOverride;
+  return ov?.enabled ? ov : null;
+}
+
+/** Join trimmed, sentence-terminated override list entries; "" when none. */
+function composeOverrideList(entries: readonly string[]): string {
+  const kept = entries.map((e) => e.trim().replace(/[.!?]+$/, "")).filter(Boolean);
+  return kept.length ? `${kept.join("; ")}.` : "";
+}
+
+/** SUBJECT REALIZATION block from the moderator override. Emitted only when a
+ *  realization mode other than `use_ai_plan` is chosen with a description. This
+ *  ADDS to (never replaces) the compiler-owned SUBJECT BINDING / anti-split
+ *  guards; conflicting realistic-de-age intent is handled by forbiddenVisualDetails. */
+function composeSubjectRealization(ov: VisualPromptStrategyOverride): string {
+  const r = ov.subjectRealizationOverride;
+  if (!r || r.mode === "use_ai_plan") return "";
+  const desc = r.description.trim().replace(/[.!?]+$/, "");
+  return desc ? `${desc}.` : "";
+}
+
+const NEGATIVE_LEAD_RE = /^\s*(?:do not\b|don'?t\b|avoid\b|never\b|no\b)/i;
+
+/** Normalize a forbidden/negative entry into a "Do not …" constraint, without
+ *  double-prefixing entries that already lead with Do not/Avoid/Never/No. */
+function asNegativeConstraint(entry: string): string {
+  const t = entry.trim().replace(/[.!?]+$/, "");
+  if (!t) return "";
+  return `${NEGATIVE_LEAD_RE.test(t) ? t : `Do not ${t}`}.`;
+}
+
+/** Forbidden visual details + negative-prompt additions → "Do not …" lines. */
+function composeOverrideForbidden(ov: VisualPromptStrategyOverride): string {
+  return [...ov.forbiddenVisualDetails, ...ov.negativePromptAdditions]
+    .map(asNegativeConstraint)
+    .filter(Boolean)
+    .join(" ");
+}
+
 /** Lock capitalization-aware semantic referents into the scene. */
 function composeSemanticDirective(vp: VisualPlan, haystack: string): string {
   const items = (vp.semanticEntitiesUsed ?? [])
@@ -298,9 +342,19 @@ function composeCulturalDirective(vp: VisualPlan, haystack: string): string {
   return `Cultural references: ${items.join("; ")}. Avoid real logos or brand marks.`;
 }
 
-/** High-impact fact modifiers the prose did not already cover. */
-function composeModifierDirective(input: ImagePromptGenerationInput, haystack: string): string {
-  const directives = modifierDirectives(input.enrichment.modifiers ?? [])
+/** High-impact fact modifiers the prose did not already cover. When a moderator
+ *  violence override is active we drop the per-fact softening modifiers
+ *  (avoid_gore, …) so the prompt never both demands and forbids violent
+ *  consequences (precedence: moderator override > softening modifiers). */
+function composeModifierDirective(
+  input: ImagePromptGenerationInput,
+  haystack: string,
+  opts: { dropSoftening?: boolean } = {},
+): string {
+  const modifiers = (input.enrichment.modifiers ?? []).filter(
+    (m) => !(opts.dropSoftening && VIOLENCE_SOFTENING_MODIFIERS.has(m)),
+  );
+  const directives = modifierDirectives(modifiers)
     .filter((d) => {
       // De-dupe on the directive's leading clause (before the first comma/dash).
       const lead = d.split(/[,.—-]/)[0]?.trim() ?? d;
@@ -761,6 +815,13 @@ function compile(args: CompileArgs, mode: ModeContext): CompiledImagePrompt {
   const humanIdentity = input.subjectRenderMode === "human_identity_i2i";
   const bindingArgs = { name: subjectName, applies: ageApplies, targetState, avoidDuplicate, humanIdentity };
 
+  // Moderator visual-strategy override (Phase 2). null when absent/disabled.
+  const ov = activeOverride(input);
+  // When the moderator set a violence override, it is authoritative: drop the
+  // per-fact softening-modifier directives so the prompt never both demands and
+  // forbids violent consequences (precedence: override > softening modifiers).
+  const moderatorViolenceOverride = Boolean(ov?.violencePolicyOverride);
+
   // 1. IMAGE-TO-IMAGE TASK (operational lead + required mode clauses).
   const clauses = mode.requiredClauses.filter(Boolean).join(" ");
   const taskBody = [mode.preamble, clauses].filter(Boolean).join(" ");
@@ -771,11 +832,22 @@ function compile(args: CompileArgs, mode: ModeContext): CompiledImagePrompt {
   // Role/action inputs (v4). secondaryCharacters defaults to [] for back-compat
   // with pre-v4 plans replayed from storage. activeActionFrame is the reliable
   // signal that gates the strong sole-agent + active-action constraints.
-  const secondaryCharacters = vp.secondaryCharacters ?? [];
+  // Moderator roleBindings (when present) take precedence over the AI's
+  // secondaryCharacters: the "subject" binding becomes the subject's role and
+  // every other entity becomes a secondary character. Otherwise use the AI plan.
+  const overrideRoleBindings = ov?.roleBindings?.filter((b) => b.entity.trim() && b.visualRole.trim()) ?? [];
+  const hasOverrideRoles = overrideRoleBindings.length > 0;
+  const overrideSubjectRole = overrideRoleBindings.find((b) => b.entity.trim().toLowerCase() === "subject")?.visualRole.trim() ?? "";
+  const overrideSecondary = overrideRoleBindings
+    .filter((b) => b.entity.trim().toLowerCase() !== "subject")
+    .map((b) => ({ label: b.entity.trim(), visualRole: b.visualRole.trim() }));
+
+  const aiSecondaryCharacters = vp.secondaryCharacters ?? [];
+  const secondaryCharacters = hasOverrideRoles ? overrideSecondary : aiSecondaryCharacters;
   const hasSecondaryCharacters = secondaryCharacters.some((c) => c.label.trim() && c.visualRole.trim());
   const selectedFrame = vp.archetypeApplication?.selectedFrame ?? "";
   const activeActionFrame = isActiveActionFrame(selectedFrame);
-  const roleInScene = vp.subjectTreatment?.roleInScene ?? "";
+  const roleInScene = (hasOverrideRoles && overrideSubjectRole) || vp.subjectTreatment?.roleInScene || "";
 
   // Running haystack so each later section only adds what earlier ones didn't
   // already say. Seeded with task + binding + the (internal, non-emitted) goal/
@@ -792,7 +864,7 @@ function compile(args: CompileArgs, mode: ModeContext): CompiledImagePrompt {
     subjectName,
     roleInScene,
     secondaryCharacters,
-    includeSubjectRole: hasSecondaryCharacters || activeActionFrame,
+    includeSubjectRole: hasSecondaryCharacters || activeActionFrame || Boolean(overrideSubjectRole),
     haystack,
   });
   haystack = [haystack, referenceInterpretation].filter(Boolean).join(" ");
@@ -809,7 +881,9 @@ function compile(args: CompileArgs, mode: ModeContext): CompiledImagePrompt {
   // age-transform + other modifier directives, and any key element gap-fill.
   const subjectListBody = composeListBody(vp.subjectDetails ?? [], haystack);
   const expressionPose = scrubIntentLanguage(vp.subjectTreatment?.expressionAndPose ?? "");
-  const modifierBody = composeModifierDirective(input, `${haystack} ${subjectListBody}`);
+  const modifierBody = composeModifierDirective(input, `${haystack} ${subjectListBody}`, {
+    dropSoftening: moderatorViolenceOverride,
+  });
   const keyElements = composeKeyElementsDirective(vp, `${haystack} ${subjectListBody} ${modifierBody}`);
   const subjectDetails = [
     subjectListBody,
@@ -823,8 +897,21 @@ function compile(args: CompileArgs, mode: ModeContext): CompiledImagePrompt {
   const environment = composeListBody(vp.environment ?? [], haystack);
   haystack = `${haystack} ${environment}`;
 
-  // 6. COMPOSITION — framing + camera + caption negative space.
-  const composition = composeCompositionDirective(vp, haystack);
+  // Moderator override sections (Phase 2). SUBJECT REALIZATION and REQUIRED
+  // VISUAL DETAILS are emitted as their own sections; composition guidance +
+  // style-agnostic additions + forbidden details fold into existing sections.
+  const subjectRealization = ov ? composeSubjectRealization(ov) : "";
+  const requiredVisualDetails = ov ? composeOverrideList(ov.requiredVisualDetails) : "";
+  const additionalDetails = ov ? composeOverrideList(ov.styleAgnosticPromptAdditions) : "";
+  if (subjectRealization) haystack = `${haystack} ${subjectRealization}`;
+  if (requiredVisualDetails) haystack = `${haystack} ${requiredVisualDetails}`;
+
+  // 6. COMPOSITION — framing + camera + caption negative space, plus moderator
+  // composition guidance.
+  const composition = [
+    composeCompositionDirective(vp, haystack),
+    ov ? composeOverrideList(ov.compositionGuidance) : "",
+  ].filter(Boolean).join(" ");
 
   // 7. LIGHTING AND STYLE — the plan's light/mood plus the resolved style suffix.
   // Each clause is terminated so the assembler's sentence-aware de-dupe keeps it
@@ -856,15 +943,25 @@ function compile(args: CompileArgs, mode: ModeContext): CompiledImagePrompt {
     hasSecondaryCharacters,
     subjectName,
   }).join(" ");
-  const strictConstraints = [semantic, cultural, supportingText, violence, antiSplit, failureModes].filter(Boolean).join(" ");
+  // Moderator forbidden visual details + negative-prompt additions, as "Do not …"
+  // lines, appended after the compiler's own constraints.
+  const overrideForbidden = ov ? composeOverrideForbidden(ov) : "";
+  const strictConstraints = [semantic, cultural, supportingText, violence, antiSplit, failureModes, overrideForbidden].filter(Boolean).join(" ");
 
+  // The override sections sit at high/required priority so moderator intent
+  // survives the char budget. SUBJECT REALIZATION (required) goes right after
+  // SUBJECT BINDING; REQUIRED VISUAL DETAILS (required) after SUBJECT DETAILS;
+  // ADDITIONAL DETAILS (high) after ENVIRONMENT.
   const rawSections: Section[] = [
     { id: "image_to_image_task", label: "IMAGE-TO-IMAGE TASK", text: labeled("IMAGE-TO-IMAGE TASK", taskBody), priority: "required" },
     { id: "subject_binding", label: "SUBJECT BINDING", text: labeled("SUBJECT BINDING", binding), priority: "required" },
+    { id: "subject_realization", label: "SUBJECT REALIZATION", text: labeled("SUBJECT REALIZATION", subjectRealization), priority: "required" },
     { id: "reference_interpretation", label: "REFERENCE INTERPRETATION", text: labeled("REFERENCE INTERPRETATION", referenceInterpretation), priority: "required" },
     { id: "core_scene", label: "CORE SCENE", text: labeled("CORE SCENE", coreScene), priority: "high", compressible: true },
     { id: "subject_details", label: "SUBJECT DETAILS", text: labeled("SUBJECT DETAILS", subjectDetails), priority: "high", compressible: true },
+    { id: "required_visual_details", label: "REQUIRED VISUAL DETAILS", text: labeled("REQUIRED VISUAL DETAILS", requiredVisualDetails), priority: "required" },
     { id: "environment", label: "ENVIRONMENT", text: labeled("ENVIRONMENT", environment), priority: "high", compressible: true },
+    { id: "additional_details", label: "ADDITIONAL DETAILS", text: labeled("ADDITIONAL DETAILS", additionalDetails), priority: "high", compressible: true },
     { id: "composition", label: "COMPOSITION", text: labeled("COMPOSITION", composition), priority: "high" },
     { id: "lighting_and_style", label: "LIGHTING AND STYLE", text: labeled("LIGHTING AND STYLE", lightingAndStyle), priority: "medium", compressible: true },
     { id: "strict_constraints", label: "STRICT CONSTRAINTS", text: labeled("STRICT CONSTRAINTS", strictConstraints), priority: "required" },
@@ -889,6 +986,18 @@ function compile(args: CompileArgs, mode: ModeContext): CompiledImagePrompt {
       secondaryCharacters,
     }),
   ];
+
+  // Defensive: every section was token-rendered above, so the final prompt must
+  // carry no unresolved {NAME}/{SUBJ}/… tokens (a moderator override field or an
+  // LLM echo could otherwise leak one). Surface it as a warning rather than ship
+  // a token to the engine.
+  if (hasUnresolvedFactTokens(finalPrompt)) {
+    warnings.push({
+      code: "unresolved-token-in-final-prompt",
+      severity: "warning",
+      message: "The compiled prompt still contains an unresolved personalization token; check the moderator override and fact text.",
+    });
+  }
 
   const out: CompiledImagePrompt = {
     prompt: finalPrompt,

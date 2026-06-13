@@ -26,6 +26,16 @@ import {
   type CapitalizationSignal,
   SEMANTIC_ENTITY_KIND_VALUES,
   CAPITALIZATION_SIGNAL_VALUES,
+  SUBJECT_REALIZATION_MODE_VALUES,
+  SUPPORTING_TEXT_MODE_VALUES,
+  VIOLENCE_MODE_VALUES,
+  VIOLENCE_INTENSITY_VALUES,
+  EMPTY_VISUAL_STRATEGY_OVERRIDE,
+  canonicalizeNameToken,
+  firstOverrideTokenError,
+  type VisualPromptStrategyOverride,
+  type VisualStrategyRoleBinding,
+  type SubjectRealizationMode,
 } from "@workspace/api-zod";
 import { AlertTriangle, RefreshCw, Save, X, Eye, Plus, Trash2, Search, Loader2, Sparkles, ExternalLink, CheckCircle2 } from "lucide-react";
 
@@ -1167,6 +1177,232 @@ export function EnrichmentSummary({ e }: { e: FactEnrichment }) {
   );
 }
 
+// ─── Visual Strategy Override (Phase 2) ─────────────────────────────────────
+
+/** Small editable list of free-text rows (add / edit / remove). */
+function StringListEditor({
+  label,
+  items,
+  placeholder,
+  onChange,
+}: {
+  label: string;
+  items: string[];
+  placeholder?: string;
+  onChange: (next: string[]) => void;
+}) {
+  return (
+    <div>
+      <label className={LABEL_CLASS}>{label}</label>
+      <div className="space-y-1.5">
+        {items.map((item, i) => (
+          <div key={i} className="flex gap-2">
+            <input
+              className={SELECT_CLASS}
+              value={item}
+              placeholder={placeholder}
+              onChange={(ev) => {
+                const next = items.slice();
+                next[i] = canonicalizeNameToken(ev.target.value);
+                onChange(next);
+              }}
+            />
+            <button
+              type="button"
+              onClick={() => onChange(items.filter((_, idx) => idx !== i))}
+              className="px-2 border border-border rounded-sm hover:bg-muted text-muted-foreground"
+              aria-label="Remove"
+            >
+              <Trash2 className="w-4 h-4" />
+            </button>
+          </div>
+        ))}
+        <button
+          type="button"
+          onClick={() => onChange([...items, ""])}
+          className="inline-flex items-center gap-1 px-3 py-1.5 text-sm border border-border rounded-sm hover:bg-muted text-foreground"
+        >
+          <Plus className="w-3 h-3" /> Add
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Moderator visual-strategy override editor (Phase 2). Reads/writes
+ * `enrichment.visualPromptStrategyOverride` via `onChange`. Style-agnostic,
+ * token-aware (use {NAME} and pronoun tokens); the runtime compiler merges these
+ * fields into the labeled prompt sections and renders tokens per render.
+ */
+function VisualStrategyOverridePanel({
+  value,
+  onChange,
+}: {
+  value: VisualPromptStrategyOverride | undefined;
+  onChange: (next: VisualPromptStrategyOverride | undefined) => void;
+}) {
+  const ov: VisualPromptStrategyOverride = value ?? EMPTY_VISUAL_STRATEGY_OVERRIDE;
+  const set = (patch: Partial<VisualPromptStrategyOverride>) => onChange({ ...ov, ...patch });
+
+  // Advisory client-side warnings (approval is the hard gate).
+  const warnings: string[] = [];
+  if (ov.enabled) {
+    const tokenErr = firstOverrideTokenError(ov);
+    if (tokenErr) warnings.push(`Invalid token: ${tokenErr}. Use {NAME} and pronoun tokens only.`);
+    if (ov.roleBindings.some((b) => !b.entity.trim() || !b.visualRole.trim())) {
+      warnings.push("A role binding is missing an entity or a visual role.");
+    }
+    if (ov.subjectRealizationOverride && ov.subjectRealizationOverride.mode !== "use_ai_plan" && !ov.subjectRealizationOverride.description.trim()) {
+      warnings.push("Subject realization mode is set but its description is empty.");
+    }
+    if (ov.supportingTextPolicyOverride?.mode === "require" && !ov.supportingTextPolicyOverride.guidance?.trim()) {
+      warnings.push('Supporting-text "require" needs guidance describing the required text.');
+    }
+    const empty =
+      !ov.subjectRealizationOverride &&
+      ![ov.requiredVisualDetails, ov.forbiddenVisualDetails, ov.roleBindings, ov.compositionGuidance, ov.styleAgnosticPromptAdditions, ov.negativePromptAdditions].some((a) => a.length) &&
+      !ov.supportingTextPolicyOverride && !ov.violencePolicyOverride && !ov.moderatorIntent?.trim();
+    if (empty) warnings.push("Override is enabled but empty — it will have no effect.");
+  }
+
+  return (
+    <div className="rounded-sm border border-border bg-muted/30 p-3 space-y-3">
+      <div className="flex items-center justify-between gap-2">
+        <div>
+          <p className="text-sm font-bold text-foreground">Visual Strategy Override</p>
+          <p className="text-xs text-muted-foreground">Moderator art-direction merged into the runtime prompt. Use {"{NAME}"} / pronoun tokens — never a real name.</p>
+        </div>
+        <button
+          type="button"
+          onClick={() => onChange(value ? { ...ov, enabled: !ov.enabled } : { ...EMPTY_VISUAL_STRATEGY_OVERRIDE, enabled: true })}
+          className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none ${ov.enabled ? "bg-green-500" : "bg-muted-foreground/30"}`}
+          aria-label="Toggle override"
+        >
+          <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${ov.enabled ? "translate-x-6" : "translate-x-1"}`} />
+        </button>
+      </div>
+
+      {ov.enabled && (
+        <div className="space-y-3">
+          {warnings.length > 0 && (
+            <div className="rounded-sm border border-amber-500/40 bg-amber-500/10 p-2 space-y-1">
+              {warnings.map((w, i) => (
+                <p key={i} className="text-xs text-amber-700 dark:text-amber-400 flex items-start gap-1">
+                  <AlertTriangle className="w-3 h-3 mt-0.5 shrink-0" /> {w}
+                </p>
+              ))}
+            </div>
+          )}
+
+          <div>
+            <label className={LABEL_CLASS}>Moderator Intent (admin-only, not rendered)</label>
+            <textarea
+              className={`${SELECT_CLASS} resize-none`}
+              rows={2}
+              value={ov.moderatorIntent ?? ""}
+              onChange={(ev) => set({ moderatorIntent: ev.target.value })}
+            />
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            <div>
+              <label className={LABEL_CLASS}>Subject Realization</label>
+              <select
+                className={SELECT_CLASS}
+                value={ov.subjectRealizationOverride?.mode ?? "use_ai_plan"}
+                onChange={(ev) => {
+                  const mode = ev.target.value as SubjectRealizationMode;
+                  set({ subjectRealizationOverride: mode === "use_ai_plan" ? undefined : { mode, description: ov.subjectRealizationOverride?.description ?? "" } });
+                }}
+              >
+                {SUBJECT_REALIZATION_MODE_VALUES.map((m) => <option key={m} value={m}>{m}</option>)}
+              </select>
+            </div>
+          </div>
+          {ov.subjectRealizationOverride && ov.subjectRealizationOverride.mode !== "use_ai_plan" && (
+            <div>
+              <label className={LABEL_CLASS}>Subject Realization Description</label>
+              <textarea
+                className={`${SELECT_CLASS} resize-none`}
+                rows={2}
+                value={ov.subjectRealizationOverride.description}
+                onChange={(ev) => set({ subjectRealizationOverride: { mode: ov.subjectRealizationOverride!.mode, description: canonicalizeNameToken(ev.target.value) } })}
+              />
+            </div>
+          )}
+
+          <StringListEditor label="Required Visual Details" items={ov.requiredVisualDetails} placeholder="e.g. {NAME}'s recognizable face on a newborn body" onChange={(next) => set({ requiredVisualDetails: next })} />
+          <StringListEditor label="Forbidden Visual Details" items={ov.forbiddenVisualDetails} placeholder="e.g. a separate adult version of the subject" onChange={(next) => set({ forbiddenVisualDetails: next })} />
+
+          <div>
+            <label className={LABEL_CLASS}>Role Bindings</label>
+            <div className="space-y-1.5">
+              {ov.roleBindings.map((b, i) => (
+                <div key={i} className="flex gap-2">
+                  <input className={`${SELECT_CLASS} max-w-[8rem]`} value={b.entity} placeholder="entity (subject, mother…)" onChange={(ev) => {
+                    const next = ov.roleBindings.slice(); next[i] = { ...b, entity: ev.target.value }; set({ roleBindings: next });
+                  }} />
+                  <input className={SELECT_CLASS} value={b.visualRole} placeholder="concrete visible role" onChange={(ev) => {
+                    const next = ov.roleBindings.slice(); next[i] = { ...b, visualRole: canonicalizeNameToken(ev.target.value) }; set({ roleBindings: next });
+                  }} />
+                  <button type="button" onClick={() => set({ roleBindings: ov.roleBindings.filter((_, idx) => idx !== i) })} className="px-2 border border-border rounded-sm hover:bg-muted text-muted-foreground" aria-label="Remove"><Trash2 className="w-4 h-4" /></button>
+                </div>
+              ))}
+              <button type="button" onClick={() => set({ roleBindings: [...ov.roleBindings, { entity: "", visualRole: "" } as VisualStrategyRoleBinding] })} className="inline-flex items-center gap-1 px-3 py-1.5 text-sm border border-border rounded-sm hover:bg-muted text-foreground"><Plus className="w-3 h-3" /> Add role</button>
+            </div>
+          </div>
+
+          <StringListEditor label="Composition Guidance" items={ov.compositionGuidance} onChange={(next) => set({ compositionGuidance: next })} />
+          <StringListEditor label="Style-Agnostic Prompt Additions" items={ov.styleAgnosticPromptAdditions} onChange={(next) => set({ styleAgnosticPromptAdditions: next })} />
+          <StringListEditor label="Negative Prompt Additions" items={ov.negativePromptAdditions} placeholder='becomes a "Do not …" constraint' onChange={(next) => set({ negativePromptAdditions: next })} />
+
+          {/* Supporting-text policy override */}
+          <div className="rounded-sm border border-border p-2 space-y-2">
+            <label className="text-xs font-semibold inline-flex items-center gap-1.5">
+              <input type="checkbox" checked={!!ov.supportingTextPolicyOverride} onChange={(ev) => set({ supportingTextPolicyOverride: ev.target.checked ? { mode: "allow" } : undefined })} />
+              Override supporting-text policy
+            </label>
+            {ov.supportingTextPolicyOverride && (
+              <div className="space-y-2">
+                <select className={SELECT_CLASS} value={ov.supportingTextPolicyOverride.mode} onChange={(ev) => set({ supportingTextPolicyOverride: { ...ov.supportingTextPolicyOverride!, mode: ev.target.value as (typeof SUPPORTING_TEXT_MODE_VALUES)[number] } })}>
+                  {SUPPORTING_TEXT_MODE_VALUES.map((m) => <option key={m} value={m}>{m}</option>)}
+                </select>
+                <input className={SELECT_CLASS} placeholder='guidance (e.g. a TV title reading "{NAME} Week")' value={ov.supportingTextPolicyOverride.guidance ?? ""} onChange={(ev) => set({ supportingTextPolicyOverride: { ...ov.supportingTextPolicyOverride!, guidance: canonicalizeNameToken(ev.target.value) } })} />
+              </div>
+            )}
+          </div>
+
+          {/* Violence policy override */}
+          <div className="rounded-sm border border-border p-2 space-y-2">
+            <label className="text-xs font-semibold inline-flex items-center gap-1.5">
+              <input type="checkbox" checked={!!ov.violencePolicyOverride} onChange={(ev) => set({ violencePolicyOverride: ev.target.checked ? { mode: "allow", intensity: "strong" } : undefined })} />
+              Override violence policy
+            </label>
+            {ov.violencePolicyOverride && (
+              <div className="space-y-2">
+                <div className="grid grid-cols-2 gap-2">
+                  <select className={SELECT_CLASS} value={ov.violencePolicyOverride.mode} onChange={(ev) => set({ violencePolicyOverride: { ...ov.violencePolicyOverride!, mode: ev.target.value as (typeof VIOLENCE_MODE_VALUES)[number] } })}>
+                    {VIOLENCE_MODE_VALUES.map((m) => <option key={m} value={m}>{m}</option>)}
+                  </select>
+                  <select className={SELECT_CLASS} value={ov.violencePolicyOverride.intensity} onChange={(ev) => set({ violencePolicyOverride: { ...ov.violencePolicyOverride!, intensity: ev.target.value as (typeof VIOLENCE_INTENSITY_VALUES)[number] } })}>
+                    {VIOLENCE_INTENSITY_VALUES.map((m) => <option key={m} value={m}>{m}</option>)}
+                  </select>
+                </div>
+                <input className={SELECT_CLASS} placeholder="guidance (e.g. visible bodies, non-gratuitous)" value={ov.violencePolicyOverride.guidance ?? ""} onChange={(ev) => set({ violencePolicyOverride: { ...ov.violencePolicyOverride!, guidance: canonicalizeNameToken(ev.target.value) } })} />
+              </div>
+            )}
+          </div>
+
+          {(ov.updatedBy || ov.updatedAt) && (
+            <p className="text-xs text-muted-foreground">Last edited{ov.updatedBy ? ` by ${ov.updatedBy}` : ""}{ov.updatedAt ? ` · ${new Date(ov.updatedAt).toLocaleString()}` : ""}</p>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function EnrichmentEditor({
   value,
   status,
@@ -1405,6 +1641,11 @@ export function EnrichmentEditor({
           onChange={(ev) => update({ adminReviewNotes: ev.target.value })}
         />
       </div>
+
+      <VisualStrategyOverridePanel
+        value={e.visualPromptStrategyOverride}
+        onChange={(next) => update({ visualPromptStrategyOverride: next })}
+      />
 
       <CulturalReferencesEditor
         refs={e.culturalReferences}

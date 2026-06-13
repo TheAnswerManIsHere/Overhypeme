@@ -180,6 +180,73 @@ describe("PATCH /admin/facts/:id/enrichment", () => {
     assert.equal((row.enrichment as FactEnrichment).primaryArchetype, "object_logic_impossibility");
   });
 
+  it("stamps server-owned override provenance on change and preserves it when unchanged", async () => {
+    const id = await insertFact({ ...buildFactEnrichmentColumns(VALID), enrichmentStatus: "ok" });
+    const override = {
+      version: 1 as const,
+      enabled: true,
+      requiredVisualDetails: ["a glowing aura"],
+      forbiddenVisualDetails: [],
+      roleBindings: [],
+      compositionGuidance: [],
+      styleAgnosticPromptAdditions: [],
+      negativePromptAdditions: [],
+    };
+
+    // First save: provenance is stamped by the server (never sent by the client).
+    await request(adminApp)
+      .patch(`/api/admin/facts/${id}/enrichment`)
+      .send({ enrichment: { ...VALID, visualPromptStrategyOverride: override } });
+    let [row] = await db.select().from(factsTable).where(eq(factsTable.id, id));
+    const ov1 = (row.enrichment as FactEnrichment & { visualPromptStrategyOverride?: { updatedBy?: string; updatedAt?: string } }).visualPromptStrategyOverride!;
+    assert.equal(ov1.updatedBy, adminId);
+    assert.ok(ov1.updatedAt, "updatedAt stamped");
+
+    // Re-save identical override → provenance preserved (no spurious bump).
+    await request(adminApp)
+      .patch(`/api/admin/facts/${id}/enrichment`)
+      .send({ enrichment: { ...VALID, visualPromptStrategyOverride: override } });
+    [row] = await db.select().from(factsTable).where(eq(factsTable.id, id));
+    const ov2 = (row.enrichment as FactEnrichment & { visualPromptStrategyOverride?: { updatedAt?: string } }).visualPromptStrategyOverride!;
+    assert.equal(ov2.updatedAt, ov1.updatedAt);
+
+    // Changed content → updatedAt refreshed.
+    await request(adminApp)
+      .patch(`/api/admin/facts/${id}/enrichment`)
+      .send({ enrichment: { ...VALID, visualPromptStrategyOverride: { ...override, requiredVisualDetails: ["a new detail"] } } });
+    [row] = await db.select().from(factsTable).where(eq(factsTable.id, id));
+    const ov3 = (row.enrichment as FactEnrichment & { visualPromptStrategyOverride?: { updatedAt?: string } }).visualPromptStrategyOverride!;
+    assert.notEqual(ov3.updatedAt, ov1.updatedAt);
+  });
+
+  it("canonicalizes {name}/{Name} tokens and rejects unknown tokens in the override", async () => {
+    const id = await insertFact({ ...buildFactEnrichmentColumns(VALID), enrichmentStatus: "ok" });
+    const base = {
+      version: 1 as const,
+      enabled: true,
+      forbiddenVisualDetails: [],
+      roleBindings: [],
+      compositionGuidance: [],
+      styleAgnosticPromptAdditions: [],
+      negativePromptAdditions: [],
+    };
+    // {name} canonicalizes to {NAME}.
+    const ok = await request(adminApp)
+      .patch(`/api/admin/facts/${id}/enrichment`)
+      .send({ enrichment: { ...VALID, visualPromptStrategyOverride: { ...base, requiredVisualDetails: ["{name}'s face"] } } });
+    assert.equal(ok.status, 200);
+    const [row] = await db.select().from(factsTable).where(eq(factsTable.id, id));
+    const ov = (row.enrichment as FactEnrichment & { visualPromptStrategyOverride?: { requiredVisualDetails: string[] } }).visualPromptStrategyOverride!;
+    assert.equal(ov.requiredVisualDetails[0], "{NAME}'s face");
+
+    // An unknown token is rejected.
+    const bad = await request(adminApp)
+      .patch(`/api/admin/facts/${id}/enrichment`)
+      .send({ enrichment: { ...VALID, visualPromptStrategyOverride: { ...base, requiredVisualDetails: ["{BOGUS} token"] } } });
+    assert.equal(bad.status, 400);
+    assert.match(String(bad.body.error), /token/i);
+  });
+
   it("rejects invalid enrichment with 400 and does not touch the row", async () => {
     const id = await insertFact({ ...buildFactEnrichmentColumns(VALID) });
     // subtype belongs to a different archetype → invalid
@@ -305,5 +372,42 @@ describe("runEnrichmentForFact — outcome branches (req: enrichmentStatus track
     // Spot-check: canonical name "Alex" was substituted in.
     assert.match(classifyReceivedText!, /Alex/);
     assert.match(previewReceivedText!, /Alex/);
+  });
+
+  it("preserves the moderator visual-strategy override across re-classification", async () => {
+    const override = {
+      version: 1 as const,
+      enabled: true,
+      requiredVisualDetails: ["adult head on a newborn body"],
+      forbiddenVisualDetails: [],
+      roleBindings: [],
+      compositionGuidance: [],
+      styleAgnosticPromptAdditions: [],
+      negativePromptAdditions: [],
+      updatedBy: "tfactsenrich-prior-admin",
+      updatedAt: "2026-06-13T00:00:00.000Z",
+    };
+    const id = await insertFact({
+      ...buildFactEnrichmentColumns({ ...VALID, visualPromptStrategyOverride: override } as FactEnrichment),
+      enrichmentStatus: "pending",
+    });
+
+    // The classify stub returns a fresh blob WITHOUT any override (as the LLM would).
+    const result = await runEnrichmentForFact(id, {
+      classify: async () => ({ ...OTHER }),
+      preview: async () => STUB_PREVIEW,
+    });
+    assert.equal(result.ok, true);
+
+    const [row] = await db.select().from(factsTable).where(eq(factsTable.id, id));
+    const enr = row.enrichment as FactEnrichment & {
+      visualPromptStrategyOverride?: { requiredVisualDetails: string[]; updatedBy?: string; updatedAt?: string };
+    };
+    // Re-classification swapped the taxonomy but the override (incl. provenance) survived.
+    assert.equal(row.primaryArchetype, "object_logic_impossibility");
+    assert.ok(enr.visualPromptStrategyOverride, "override preserved");
+    assert.equal(enr.visualPromptStrategyOverride!.requiredVisualDetails[0], "adult head on a newborn body");
+    assert.equal(enr.visualPromptStrategyOverride!.updatedBy, "tfactsenrich-prior-admin");
+    assert.equal(enr.visualPromptStrategyOverride!.updatedAt, "2026-06-13T00:00:00.000Z");
   });
 });
