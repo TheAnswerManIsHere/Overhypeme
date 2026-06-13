@@ -36,12 +36,27 @@ fi
 # finished, without waiting up to idleTimeoutMillis (60 s) for idle
 # connections to drain.  That lets us drop --test-force-exit and regain
 # the ability to detect leaked promises.
-common_args=(
-  --import tsx/esm
-  --test-isolation=none
-  --test-concurrency=1
-  --test
-)
+# The test-isolation flag was introduced as --experimental-test-isolation and
+# later stabilized to --test-isolation. Different node builds (CI, Replit, the
+# cloud dev environment) ship different versions and advertise different names —
+# passing the wrong one makes node abort at startup ("bad option"). Detect which
+# name THIS node knows from --help and use it; both select the same
+# single-process behavior. Don't silently omit it: within a shard we rely on
+# isolation=none so in-memory module state (the stripeSyncRunner lock, rate
+# limiters, caches) is shared and file ordering stays sequential.
+if node --help 2>&1 | grep -q -- '--test-isolation='; then
+  isolation_flag="--test-isolation=none"
+elif node --help 2>&1 | grep -q -- '--experimental-test-isolation='; then
+  isolation_flag="--experimental-test-isolation=none"
+else
+  echo "[run-tests-sharded] WARNING: node $(node --version) advertises no test-isolation flag;" >&2
+  echo "[run-tests-sharded] running without it (each test file gets its own process)." >&2
+  isolation_flag=""
+fi
+
+common_args=(--import tsx/esm)
+[[ -n "$isolation_flag" ]] && common_args+=("$isolation_flag")
+common_args+=(--test-concurrency=1 --test)
 
 # purge_test_data — FK-safe sweep of every test-created row from the database.
 #
