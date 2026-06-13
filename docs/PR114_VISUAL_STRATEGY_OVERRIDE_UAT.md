@@ -1,6 +1,6 @@
 # Moderator visual-strategy override (Phase 2) — user acceptance testing
 
-Paired with **`docs/VISUAL_STRATEGY_OVERRIDE_TEST_RUN.md`** (the automated
+Paired with **`docs/PR114_VISUAL_STRATEGY_OVERRIDE_TEST_RUN.md`** (the automated
 checklist). This is the click-through test for David.
 
 ## What you're verifying

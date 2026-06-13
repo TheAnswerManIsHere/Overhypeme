@@ -1,6 +1,6 @@
 # Moderator visual-strategy override (Phase 2) — automated test run
 
-Paired with **`docs/VISUAL_STRATEGY_OVERRIDE_UAT.md`** (the click-through
+Paired with **`docs/PR114_VISUAL_STRATEGY_OVERRIDE_UAT.md`** (the click-through
 acceptance test). This doc is the engineering safety net for Replit. **Replit
 owns the database connection** — apply migrations / run tests against your own
 DB; this doc sets no `DATABASE_URL` or DB env. **No new DB columns or migration**
