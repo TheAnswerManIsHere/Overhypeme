@@ -88,13 +88,14 @@ function makeArgs(opts: {
   renderedSubject?: { name: string; pronouns: string | null };
   factText?: string;
   renderPolicy?: ImagePromptGenerationInput["renderPolicy"];
+  override?: unknown;
 }) {
   const input = {
     subjectRenderMode: opts.subjectRenderMode,
     stylePrompt: opts.stylePrompt ?? "",
     referenceImageUrl: opts.referenceImageUrl ?? null,
     factText: opts.factText ?? "",
-    enrichment: { modifiers: opts.modifiers ?? [] },
+    enrichment: { modifiers: opts.modifiers ?? [], ...(opts.override ? { visualPromptStrategyOverride: opts.override } : {}) },
     renderControls: {
       aspectRatio: "portrait",
       contentMode: "sfw",
@@ -547,6 +548,176 @@ describe("nanoBanana2 — render policy (supporting text + violence)", () => {
       },
     }));
     assert.match(suppress.imagePrompt.toLowerCase(), /do not depict violence, injury, or death directly/);
+  });
+});
+
+describe("nanoBanana2 — moderator visual-strategy override (Phase 2)", () => {
+  type OverridePartial = Record<string, unknown>;
+  function makeOverride(partial: OverridePartial = {}): OverridePartial {
+    return {
+      version: 1,
+      enabled: true,
+      requiredVisualDetails: [],
+      forbiddenVisualDetails: [],
+      roleBindings: [],
+      compositionGuidance: [],
+      styleAgnosticPromptAdditions: [],
+      negativePromptAdditions: [],
+      ...partial,
+    };
+  }
+
+  it("disabled override does not add override sections", () => {
+    const out = compileNanoBanana2HumanI2I(makeArgs({
+      subjectRenderMode: "human_identity_i2i",
+      prompt: "David lifts a car.",
+      override: makeOverride({ enabled: false, requiredVisualDetails: ["a glowing aura"] }),
+    }));
+    assert.doesNotMatch(out.imagePrompt, /REQUIRED VISUAL DETAILS/);
+    assert.doesNotMatch(out.imagePrompt, /SUBJECT REALIZATION/);
+  });
+
+  it("enabled override emits REQUIRED VISUAL DETAILS", () => {
+    const out = compileNanoBanana2HumanI2I(makeArgs({
+      subjectRenderMode: "human_identity_i2i",
+      prompt: "David lifts a car.",
+      override: makeOverride({ requiredVisualDetails: ["baby-sized hands on the steering wheel", "hospital pickup area outside"] }),
+    }));
+    assert.match(out.imagePrompt, /REQUIRED VISUAL DETAILS: baby-sized hands on the steering wheel; hospital pickup area outside\./);
+  });
+
+  it("forbidden details + negative additions become STRICT 'Do not' lines without double-prefixing", () => {
+    const out = compileNanoBanana2HumanI2I(makeArgs({
+      subjectRenderMode: "human_identity_i2i",
+      prompt: "David drives.",
+      override: makeOverride({
+        forbiddenVisualDetails: ["a separate adult version", "Do not put the baby in a car seat"],
+        negativePromptAdditions: ["Avoid splattery horror gore"],
+      }),
+    }));
+    assert.match(out.imagePrompt, /Do not a separate adult version\./);
+    assert.match(out.imagePrompt, /Do not put the baby in a car seat\./);
+    assert.match(out.imagePrompt, /Avoid splattery horror gore\./);
+    assert.doesNotMatch(out.imagePrompt, /Do not Do not/i);
+    assert.doesNotMatch(out.imagePrompt, /Do not Avoid/i);
+  });
+
+  it("subject realization ADDS a SUBJECT REALIZATION block but keeps the SUBJECT BINDING identity guard", () => {
+    const out = compileNanoBanana2HumanI2I(makeArgs({
+      subjectRenderMode: "human_identity_i2i",
+      prompt: "David as a baby drives.",
+      renderedSubject: { name: "David", pronouns: "he/him" },
+      modifiers: ["infant_version"],
+      override: makeOverride({
+        subjectRealizationOverride: {
+          mode: "adult_head_on_transformed_body",
+          description: "tiny newborn baby body with David's recognizable adult head composited on",
+        },
+      }),
+    }));
+    assert.match(out.imagePrompt, /SUBJECT REALIZATION: tiny newborn baby body with David's recognizable adult head composited on\./);
+    // Compiler-owned identity binding is NOT removed (R2).
+    assert.match(out.imagePrompt, /SUBJECT BINDING: The reference person is David\./);
+    assert.match(out.imagePrompt, /Render exactly one David/);
+  });
+
+  it("use_ai_plan realization emits no SUBJECT REALIZATION block but still applies other override fields", () => {
+    const out = compileNanoBanana2HumanI2I(makeArgs({
+      subjectRenderMode: "human_identity_i2i",
+      prompt: "David stands.",
+      override: makeOverride({
+        subjectRealizationOverride: { mode: "use_ai_plan", description: "" },
+        requiredVisualDetails: ["a golden trophy"],
+      }),
+    }));
+    assert.doesNotMatch(out.imagePrompt, /SUBJECT REALIZATION/);
+    assert.match(out.imagePrompt, /REQUIRED VISUAL DETAILS: a golden trophy\./);
+  });
+
+  it("role bindings feed REFERENCE INTERPRETATION (subject + secondary)", () => {
+    const out = compileNanoBanana2HumanI2I(makeArgs({
+      subjectRenderMode: "human_identity_i2i",
+      prompt: "A car scene.",
+      renderedSubject: { name: "David", pronouns: "he/him" },
+      override: makeOverride({
+        roleBindings: [
+          { entity: "subject", visualRole: "newborn baby-bodied driver gripping the wheel" },
+          { entity: "mother", visualRole: "adult woman in the passenger seat, surprised and amused" },
+        ],
+      }),
+    }));
+    assert.match(out.imagePrompt, /REFERENCE INTERPRETATION:/);
+    assert.match(out.imagePrompt, /David is newborn baby-bodied driver gripping the wheel/);
+    assert.match(out.imagePrompt, /mother is adult woman in the passenger seat, surprised and amused/);
+  });
+
+  it("composition guidance feeds COMPOSITION", () => {
+    const out = compileNanoBanana2HumanI2I(makeArgs({
+      subjectRenderMode: "human_identity_i2i",
+      prompt: "A car scene.",
+      override: makeOverride({ compositionGuidance: ["frame through the windshield so the adult face is unmistakable"] }),
+    }));
+    assert.match(out.imagePrompt, /COMPOSITION:[^]*frame through the windshield so the adult face is unmistakable/);
+  });
+
+  it("style-agnostic additions feed ADDITIONAL DETAILS", () => {
+    const out = compileNanoBanana2HumanI2I(makeArgs({
+      subjectRenderMode: "human_identity_i2i",
+      prompt: "A scene.",
+      override: makeOverride({ styleAgnosticPromptAdditions: ["dramatic rim lighting on the subject"] }),
+    }));
+    assert.match(out.imagePrompt, /ADDITIONAL DETAILS: dramatic rim lighting on the subject\./);
+  });
+
+  it("a moderator violence override drops a conflicting avoid_gore softening directive (R5)", () => {
+    const out = compileNanoBanana2HumanI2I(makeArgs({
+      subjectRenderMode: "human_identity_i2i",
+      prompt: "David throws a grenade.",
+      factText: "David threw a grenade and killed 50 people.",
+      modifiers: ["avoid_gore"],
+      // resolveRenderPolicy runs upstream in production; simulate its result here.
+      renderPolicy: {
+        supportingText: { mode: "allow" },
+        violence: { mode: "allow", intensity: "strong", guidance: "Visible bodies and lethal aftermath are required; action-hero styled, non-gratuitous." },
+      },
+      override: makeOverride({
+        violencePolicyOverride: { mode: "allow", intensity: "strong", guidance: "Visible bodies and lethal aftermath are required; action-hero styled, non-gratuitous." },
+      }),
+    }));
+    assert.match(out.imagePrompt, /Visible bodies and lethal aftermath are required/);
+    assert.doesNotMatch(out.imagePrompt.toLowerCase(), /clean and non-graphic/);
+  });
+
+  it("renders {NAME} tokens in EVERY override-derived section and leaves no unresolved tokens", () => {
+    const out = compileNanoBanana2HumanI2I(makeArgs({
+      subjectRenderMode: "human_identity_i2i",
+      prompt: "A scene.",
+      renderedSubject: { name: "David Franklin", pronouns: "he/him" },
+      renderPolicy: {
+        supportingText: { mode: "require", guidance: 'a TV title reading "{NAME} Week"' },
+        violence: { mode: "allow", intensity: "strong", guidance: "{NAME} stands over the aftermath" },
+      },
+      override: makeOverride({
+        subjectRealizationOverride: { mode: "custom", description: "{NAME} composited onto a tiny body" },
+        requiredVisualDetails: ["{NAME}'s recognizable face"],
+        forbiddenVisualDetails: ["a separate adult {NAME}"],
+        roleBindings: [{ entity: "subject", visualRole: "{NAME} as the driver" }],
+        compositionGuidance: ["keep {NAME}'s face centered"],
+        styleAgnosticPromptAdditions: ["a poster of {NAME} on the wall"],
+        supportingTextPolicyOverride: { mode: "require", guidance: 'a TV title reading "{NAME} Week"' },
+        violencePolicyOverride: { mode: "allow", intensity: "strong", guidance: "{NAME} stands over the aftermath" },
+      }),
+    }));
+    // Every section rendered the token to the subject; none leaked.
+    assert.doesNotMatch(out.imagePrompt, /\{NAME\}/);
+    assert.match(out.imagePrompt, /David Franklin composited onto a tiny body/);     // SUBJECT REALIZATION
+    assert.match(out.imagePrompt, /David Franklin's recognizable face/);             // REQUIRED VISUAL DETAILS
+    assert.match(out.imagePrompt, /Do not a separate adult David Franklin/);         // STRICT CONSTRAINTS
+    assert.match(out.imagePrompt, /David Franklin as the driver/);                   // REFERENCE INTERPRETATION
+    assert.match(out.imagePrompt, /keep David Franklin's face centered/);            // COMPOSITION
+    assert.match(out.imagePrompt, /a poster of David Franklin on the wall/);         // ADDITIONAL DETAILS
+    assert.match(out.imagePrompt, /a TV title reading "David Franklin Week"/);       // SUPPORTING TEXT
+    assert.match(out.imagePrompt, /David Franklin stands over the aftermath/);       // VIOLENCE
   });
 });
 

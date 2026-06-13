@@ -11,6 +11,7 @@
  */
 
 import { z } from "zod";
+import { visualPromptStrategyOverrideSchema } from "./visualStrategyOverride";
 
 // ─── Primary archetypes ────────────────────────────────────────────────────
 
@@ -508,6 +509,12 @@ const factEnrichmentBase = z.object({
    * every noun.
    */
   semanticEntities: z.array(semanticEntitySchema).max(20).default([]),
+  /**
+   * Phase 2 — optional moderator-authored visual-strategy override. NOT part of
+   * the strict `factEnrichmentWireSchema` (the LLM never produces it); set only
+   * by an admin and preserved across re-classification.
+   */
+  visualPromptStrategyOverride: visualPromptStrategyOverrideSchema.optional(),
   visualPromptPreview: visualPromptPreviewSchema.optional(),
   previewStatus: z.enum(["pending", "ok", "failed", "stale"]).optional(),
   // Optional provenance — stamped by the enrichment service.

@@ -9,6 +9,7 @@ import { backfillEmbeddings, embedFactAsync } from "../lib/embeddings";
 import { enrichFact, buildFactEnrichmentColumns } from "../lib/factEnrichment";
 import { enqueueJob } from "../lib/asyncJobs";
 import { validateEnrichment, type FactEnrichment, CLASSIFICATION_PROMPT_VERSION } from "@workspace/api-zod";
+import { type AuthenticatedRequest } from "../middlewares/authMiddleware";
 import { runFactImagePipeline } from "../lib/factImagePipeline";
 import { generateAiMemeBackgrounds } from "../lib/aiMemePipeline";
 import { renderCanonical } from "../lib/renderCanonical";
@@ -779,6 +780,53 @@ router.get("/admin/facts/:id", requireAdmin, async (req: Request, res: Response)
   res.json({ ...row, previewStatus });
 });
 
+/**
+ * Stamp the moderator visual-strategy override's server-owned provenance
+ * (updatedBy/updatedAt) when its content changed vs the prior stored override;
+ * otherwise preserve the prior provenance verbatim. These fields are never set
+ * by the client or the AI. Returns the enrichment unchanged when there is no
+ * override. (Content comparison ignores the provenance fields themselves.)
+ */
+// Order-independent serialization: jsonb does NOT preserve object key order on
+// the DB round-trip, so a plain JSON.stringify would falsely flag "changed".
+// Sorts object keys recursively while preserving array order (reordering a list
+// IS a real change).
+function stableStringify(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(stableStringify).join(",")}]`;
+  if (value && typeof value === "object") {
+    const o = value as Record<string, unknown>;
+    // Drop undefined-valued keys: jsonb drops them on the DB round-trip, so the
+    // in-memory (freshly-parsed) object and the stored one must compare equal.
+    const keys = Object.keys(o).filter((k) => o[k] !== undefined).sort();
+    return `{${keys.map((k) => `${JSON.stringify(k)}:${stableStringify(o[k])}`).join(",")}}`;
+  }
+  return JSON.stringify(value ?? null);
+}
+
+function stampOverrideProvenance(
+  next: FactEnrichment,
+  prior: unknown,
+  adminId: string | null,
+): FactEnrichment {
+  const ov = (next as { visualPromptStrategyOverride?: Record<string, unknown> }).visualPromptStrategyOverride;
+  if (!ov) return next;
+  const priorOv = (prior as { visualPromptStrategyOverride?: Record<string, unknown> } | null | undefined)
+    ?.visualPromptStrategyOverride;
+  const stripProvenance = (o: Record<string, unknown> | undefined) => {
+    if (!o) return null;
+    const { updatedBy: _b, updatedAt: _a, ...rest } = o;
+    return stableStringify(rest);
+  };
+  const changed = stripProvenance(ov) !== stripProvenance(priorOv);
+  const provenance = changed
+    ? { updatedBy: adminId ?? undefined, updatedAt: new Date().toISOString() }
+    : { updatedBy: priorOv?.["updatedBy"] as string | undefined, updatedAt: priorOv?.["updatedAt"] as string | undefined };
+  return {
+    ...next,
+    visualPromptStrategyOverride: { ...ov, ...provenance },
+  } as FactEnrichment;
+}
+
 // PATCH /admin/facts/:id/enrichment — persist admin edits to a live fact's
 // enrichment. Mirrors the review endpoint but additionally re-syncs the indexed
 // projection columns (primaryArchetype/subtype/overhypeFit/adultSuitability) via
@@ -791,13 +839,24 @@ router.patch("/admin/facts/:id/enrichment", requireAdmin, async (req: Request, r
   const result = validateEnrichment((req.body as { enrichment?: unknown } | null | undefined)?.enrichment);
   if (!result.ok) { res.status(400).json({ error: `Invalid enrichment: ${result.error}` }); return; }
 
-  const cols = buildFactEnrichmentColumns(result.data);
+  // Load the prior enrichment so we can stamp server-owned override provenance
+  // (updatedBy/updatedAt) only when the moderator override content actually
+  // changed, and otherwise preserve it verbatim.
+  const [priorRow] = await db
+    .select({ enrichment: factsTable.enrichment })
+    .from(factsTable)
+    .where(eq(factsTable.id, id))
+    .limit(1);
+  const adminId = (req as AuthenticatedRequest).user?.id ?? null;
+  const stamped = stampOverrideProvenance(result.data, priorRow?.enrichment ?? null, adminId);
+
+  const cols = buildFactEnrichmentColumns(stamped);
   // Mark the visual plan stale: admin-edited enrichment may have changed the
   // archetype, subtype, or other fields that the visual plan was derived from.
   // The plan must be regenerated from the updated enrichment — but only after
   // re-enriching if the classificationPromptVersion is also behind.
   const enrichmentWithStalePlan = {
-    ...(result.data as Record<string, unknown>),
+    ...(stamped as Record<string, unknown>),
     previewStatus: "stale",
   };
   const [updated] = await db

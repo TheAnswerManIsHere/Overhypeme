@@ -158,6 +158,8 @@ interface PersistedControls {
   subjectRenderMode: SubjectRenderMode;
   sourceSubjectKind: SourceSubjectKind;
   subjectDescription: string;
+  previewName: string;
+  previewPronouns: string;
   lookStyleId: string;
   fallbackSubjectGender: FallbackGender;
   preservePhysique: boolean;
@@ -192,6 +194,8 @@ export function RuntimePromptPreview({ factId, reviewId }: RuntimePromptPreviewP
   const [subjectRenderMode, setSubjectRenderMode] = useState<SubjectRenderMode>("human_identity_i2i");
   const [sourceSubjectKind, setSourceSubjectKind] = useState<SourceSubjectKind>("human_face");
   const [subjectDescription, setSubjectDescription] = useState("");
+  const [previewName, setPreviewName] = useState("");
+  const [previewPronouns, setPreviewPronouns] = useState("");
   const [lookStyleId, setLookStyleId] = useState("");
   const [fallbackSubjectGender, setFallbackSubjectGender] = useState<FallbackGender>("neutral");
   const [preservePhysique, setPreservePhysique] = useState(false);
@@ -228,6 +232,8 @@ export function RuntimePromptPreview({ factId, reviewId }: RuntimePromptPreviewP
     setSubjectRenderMode(c?.subjectRenderMode ?? "human_identity_i2i");
     setSourceSubjectKind(c?.sourceSubjectKind ?? "human_face");
     setSubjectDescription(c?.subjectDescription ?? "");
+    setPreviewName(c?.previewName ?? "");
+    setPreviewPronouns(c?.previewPronouns ?? "");
     setLookStyleId(c?.lookStyleId ?? "");
     setFallbackSubjectGender(c?.fallbackSubjectGender ?? "neutral");
     setPreservePhysique(c?.preservePhysique ?? false);
@@ -253,6 +259,8 @@ export function RuntimePromptPreview({ factId, reviewId }: RuntimePromptPreviewP
           subjectRenderMode,
           sourceSubjectKind,
           subjectDescription,
+          previewName,
+          previewPronouns,
           lookStyleId,
           fallbackSubjectGender,
           preservePhysique,
@@ -272,6 +280,8 @@ export function RuntimePromptPreview({ factId, reviewId }: RuntimePromptPreviewP
     subjectRenderMode,
     sourceSubjectKind,
     subjectDescription,
+    previewName,
+    previewPronouns,
     lookStyleId,
     fallbackSubjectGender,
     preservePhysique,
@@ -315,6 +325,11 @@ export function RuntimePromptPreview({ factId, reviewId }: RuntimePromptPreviewP
         // no-image analysis. For i2i modes, send the synthetic admin choice.
         ...(isI2i ? { sourceImageAnalysis: buildSourceImageAnalysis() } : {}),
         lookStyleId: lookStyleId || null,
+        // Optional sample subject so the override (and its {NAME}/pronoun tokens)
+        // can be previewed as different people. Blank → server uses the brand
+        // protagonist.
+        ...(previewName.trim() ? { previewName: previewName.trim() } : {}),
+        ...(/^[a-z]+\/[a-z]+$/i.test(previewPronouns.trim()) ? { previewPronouns: previewPronouns.trim() } : {}),
         renderControls: {
           aspectRatio,
           contentMode,
@@ -432,6 +447,28 @@ export function RuntimePromptPreview({ factId, reviewId }: RuntimePromptPreviewP
                 />
               </div>
             )}
+
+            <div>
+              <label className={labelCls}>Sample name</label>
+              <input
+                className={inputCls}
+                value={previewName}
+                placeholder="David Franklin"
+                onChange={(e) => setPreviewName(e.target.value)}
+                data-testid="rpp-preview-name"
+              />
+            </div>
+
+            <div>
+              <label className={labelCls}>Sample pronouns</label>
+              <input
+                className={inputCls}
+                value={previewPronouns}
+                placeholder="he/him"
+                onChange={(e) => setPreviewPronouns(e.target.value)}
+                data-testid="rpp-preview-pronouns"
+              />
+            </div>
 
             <div>
               <label className={labelCls}>Style</label>
