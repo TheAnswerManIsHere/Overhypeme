@@ -304,7 +304,10 @@ function composeSubjectRealization(ov: VisualPromptStrategyOverride): string {
   return desc ? `${desc}.` : "";
 }
 
-const NEGATIVE_LEAD_RE = /^\s*(?:do not\b|don'?t\b|avoid\b|never\b|no\b)/i;
+// Recognizes a line already phrased as a negative so we don't double-prefix it.
+// The apostrophe class covers straight (') and curly (’ U+2019) so "Don't" /
+// "Don’t" both count as already-negative.
+const NEGATIVE_LEAD_RE = /^\s*(?:do not\b|don[’']?t\b|avoid\b|never\b|no\b)/i;
 
 /** Normalize a forbidden/negative entry into a "Do not …" constraint, without
  *  double-prefixing entries that already lead with Do not/Avoid/Never/No. */
@@ -332,15 +335,15 @@ function composeSemanticDirective(vp: VisualPlan, haystack: string): string {
   return `Interpret these terms exactly: ${items.join("; ")}.`;
 }
 
-/** Turn consumed cultural references into explicit, logo-free directives. */
-function composeCulturalDirective(vp: VisualPlan, haystack: string): string {
-  const items = (vp.culturalReferencesUsed ?? [])
-    .filter((r) => r.sourcePhrase.trim() && r.visualImplicationUsed.trim())
-    .filter((r) => !containsMeaningfulPhrase(haystack, r.visualImplicationUsed))
-    .map((r) => `treat "${r.sourcePhrase.trim()}" as ${(r.canonicalReferenceUsed.trim() || r.sourcePhrase.trim())}, shown via ${r.visualImplicationUsed.trim()}`);
-  if (!items.length) return "";
-  return `Cultural references: ${items.join("; ")}. Avoid real logos or brand marks.`;
-}
+/**
+ * Cultural references are an INPUT that informs the planner (OpenAI) how to
+ * interpret the fact — they are NOT emitted to the image engine. The planner
+ * bakes the reference's visual implication into the concrete fields (CORE SCENE /
+ * SUBJECT DETAILS / ENVIRONMENT / keyVisualElements); re-emitting the canonical
+ * reference + explanation here just leaks meta-instruction (and brand names like
+ * "Discovery Channel") into the prompt. The `culturalReferencesUsed` echo-back is
+ * kept on the visual plan for the validator + admin debug, but never compiled in.
+ */
 
 /** High-impact fact modifiers the prose did not already cover. When a moderator
  *  violence override is active we drop the per-fact softening modifiers
@@ -922,12 +925,12 @@ function compile(args: CompileArgs, mode: ModeContext): CompiledImagePrompt {
   ].map((s) => s.trim().replace(/[.!?]+$/, "")).filter(Boolean);
   const lightingAndStyle = lightingParts.length ? `${lightingParts.join(". ")}.` : "";
 
-  // 8. STRICT CONSTRAINTS — semantic referents, cultural refs, supporting-text
-  // rule, violence policy, and the negative anti-entity-split guards.
+  // 8. STRICT CONSTRAINTS — semantic referents, supporting-text rule, violence
+  // policy, and the negative anti-entity-split guards. Cultural references are
+  // NOT emitted (they inform the planner; the visual is already in CORE SCENE).
   const renderPolicy: RenderPolicy = input.renderPolicy ?? DEFAULT_RENDER_POLICY;
   const constraintHaystack = `${haystack} ${composition} ${lightingAndStyle}`;
   const semantic = composeSemanticDirective(vp, constraintHaystack);
-  const cultural = composeCulturalDirective(vp, `${constraintHaystack} ${semantic}`);
   const supportingText = composeSupportingTextDirective(vp, renderPolicy.supportingText);
   const violence = composeViolenceDirective(renderPolicy.violence, {
     relevant: isViolenceRelevant(input, vp),
@@ -946,7 +949,7 @@ function compile(args: CompileArgs, mode: ModeContext): CompiledImagePrompt {
   // Moderator forbidden visual details + negative-prompt additions, as "Do not …"
   // lines, appended after the compiler's own constraints.
   const overrideForbidden = ov ? composeOverrideForbidden(ov) : "";
-  const strictConstraints = [semantic, cultural, supportingText, violence, antiSplit, failureModes, overrideForbidden].filter(Boolean).join(" ");
+  const strictConstraints = [semantic, supportingText, violence, antiSplit, failureModes, overrideForbidden].filter(Boolean).join(" ");
 
   // The override sections sit at high/required priority so moderator intent
   // survives the char budget. SUBJECT REALIZATION (required) goes right after
