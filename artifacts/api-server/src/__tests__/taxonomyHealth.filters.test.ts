@@ -13,7 +13,6 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import {
   CLASSIFICATION_PROMPT_VERSION,
-  PREVIEW_PROMPT_VERSION,
   SUMMARY_COUNT_TO_FILTER,
   matchesHealthFilter,
   type FactTaxonomyHealth,
@@ -21,30 +20,6 @@ import {
   type TaxonomyHealthFilter,
 } from "@workspace/api-zod";
 import { evaluateFactTaxonomyHealth } from "../lib/taxonomyHealth";
-
-const HEALTHY_PREVIEW = {
-  archetypeApplication: "applies the strategy block",
-  selectedFrame: "direct_action",
-  sceneConcept: "scene",
-  visualGoal: "goal",
-  visualApproach: "approach",
-  keyVisualElements: ["a"],
-  engineNeutralVisualPlan: "plan",
-  exampleI2iPrompt: "i2i",
-  exampleT2iPrompt: "t2i",
-  promptGuardrailsPreview: "no logos",
-  supportingTextPolicy: { allowed: [], forbidden: [], notes: "" },
-  culturalReferencesUsed: [],
-  interpretationWarnings: [],
-  previewAssumptions: {
-    sampleName: "David",
-    generationMode: "i2i_and_t2i_preview",
-    style: "default_sfw_cinematic",
-    preserveFace: true,
-    preservePhysique: false,
-  },
-  previewPromptVersion: PREVIEW_PROMPT_VERSION,
-};
 
 function validEnrichment(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
@@ -63,7 +38,6 @@ function validEnrichment(overrides: Record<string, unknown> = {}): Record<string
     semanticEntities: [],
     classificationPromptVersion: CLASSIFICATION_PROMPT_VERSION,
     enrichedBy: "openai",
-    visualPromptPreview: HEALTHY_PREVIEW,
     ...overrides,
   };
 }
@@ -112,7 +86,7 @@ describe("matchesHealthFilter", () => {
     // Tally the summary exactly as the route does — via SUMMARY_COUNT_TO_FILTER.
     const summary = {
       healthy: 0, missingEnrichment: 0, invalidEnrichment: 0, needsAdminReview: 0,
-      staleVisualPreview: 0, staleEnrichmentVersion: 0,
+      staleEnrichmentVersion: 0,
       projectionMismatch: 0, incompleteCulturalReferences: 0,
       semanticEntitiesNeedReview: 0, lowConfidence: 0,
     } as Omit<TaxonomyHealthSummaryCounts, "totalFacts">;

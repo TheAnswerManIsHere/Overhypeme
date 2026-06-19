@@ -24,7 +24,7 @@ import request from "supertest";
 import { db } from "@workspace/db";
 import { factsTable, usersTable, asyncJobsTable } from "@workspace/db/schema";
 import { eq, inArray, like, and } from "drizzle-orm";
-import { validateEnrichment, type FactEnrichment, type VisualPromptPreview } from "@workspace/api-zod";
+import { validateEnrichment, type FactEnrichment } from "@workspace/api-zod";
 
 import adminRouter from "../routes/admin.js";
 import { buildTestApp } from "./helpers/buildTestApp.js";
@@ -58,29 +58,6 @@ const OTHER: FactEnrichment = {
   overhypeFit: "questionable",
   adultSuitability: "requires_review",
   suggestedHashtags: ["impossible", "doors", "legendary"],
-};
-
-const STUB_PREVIEW: VisualPromptPreview = {
-  archetypeApplication: "x",
-  selectedFrame: "x",
-  sceneConcept: "x",
-  visualGoal: "x",
-  visualApproach: "x",
-  keyVisualElements: ["a"],
-  engineNeutralVisualPlan: "x",
-  exampleI2iPrompt: "x",
-  exampleT2iPrompt: "x",
-  promptGuardrailsPreview: "x",
-  supportingTextPolicy: { allowed: [], forbidden: [], notes: "" },
-  culturalReferencesUsed: [],
-  interpretationWarnings: [],
-  previewAssumptions: {
-    sampleName: "David",
-    generationMode: "i2i_and_t2i_preview",
-    style: "default_sfw_cinematic",
-    preserveFace: true,
-    preservePhysique: false,
-  },
 };
 
 let adminId: string;
@@ -122,15 +99,13 @@ before(async () => {
 after(cleanup);
 
 describe("GET /admin/facts/:id", () => {
-  it("returns the enrichment, enrichmentStatus and derived previewStatus", async () => {
-    const enrichment = { ...VALID, previewStatus: "ok" as const, visualPromptPreview: STUB_PREVIEW };
-    const id = await insertFact({ ...buildFactEnrichmentColumns(enrichment), enrichmentStatus: "ok" });
+  it("returns the enrichment and enrichmentStatus", async () => {
+    const id = await insertFact({ ...buildFactEnrichmentColumns(VALID), enrichmentStatus: "ok" });
 
     const res = await request(adminApp).get(`/api/admin/facts/${id}`);
     assert.equal(res.status, 200);
     assert.equal(res.body.id, id);
     assert.equal(res.body.enrichmentStatus, "ok");
-    assert.equal(res.body.previewStatus, "ok");
     assert.equal((res.body.enrichment as FactEnrichment).primaryArchetype, "superhuman_physical_feat");
   });
 
@@ -297,50 +272,33 @@ describe("POST /admin/facts/:id/enrich", () => {
   });
 });
 
-describe("runEnrichmentForFact — outcome branches (req: enrichmentStatus tracks classification only)", () => {
+describe("runEnrichmentForFact — outcome branches (classify-only)", () => {
   it("classification failure → enrichmentStatus failed", async () => {
     const id = await insertFact({ enrichmentStatus: "pending" });
     const result = await runEnrichmentForFact(id, {
       classify: async () => { throw new EnrichmentError("boom"); },
-      preview: async () => STUB_PREVIEW,
     });
     assert.equal(result.ok, false);
     const [row] = await db.select().from(factsTable).where(eq(factsTable.id, id));
     assert.equal(row.enrichmentStatus, "failed");
   });
 
-  it("classification ok + preview failure → enrichmentStatus ok, previewStatus failed", async () => {
-    const id = await insertFact({ enrichmentStatus: "pending" });
-    const result = await runEnrichmentForFact(id, {
-      classify: async () => ({ ...VALID }),
-      preview: async () => { throw new Error("preview boom"); },
-    });
-    // job returns ok (non-fatal preview failure) so it isn't retried forever
-    assert.equal(result.ok, true);
-    const [row] = await db.select().from(factsTable).where(eq(factsTable.id, id));
-    assert.equal(row.enrichmentStatus, "ok");
-    assert.equal((row.enrichment as FactEnrichment).previewStatus, "failed");
-    // classification still projected
-    assert.equal(row.primaryArchetype, "superhuman_physical_feat");
-    assert(validateEnrichment(row.enrichment).ok);
-  });
-
-  it("classification ok + preview ok → both updated", async () => {
+  it("classification ok → enrichmentStatus ok, projection synced, no preview key", async () => {
     const id = await insertFact({ enrichmentStatus: "pending" });
     const result = await runEnrichmentForFact(id, {
       classify: async () => ({ ...OTHER }),
-      preview: async () => STUB_PREVIEW,
     });
     assert.equal(result.ok, true);
     const [row] = await db.select().from(factsTable).where(eq(factsTable.id, id));
     assert.equal(row.enrichmentStatus, "ok");
     assert.equal(row.primaryArchetype, "object_logic_impossibility");
-    const enr = row.enrichment as FactEnrichment;
-    assert.equal(enr.previewStatus, "ok");
-    assert.ok(enr.visualPromptPreview);
+    const enr = row.enrichment as FactEnrichment & { previewStatus?: unknown; visualPromptPreview?: unknown };
+    assert.equal(enr.previewStatus, undefined);
+    assert.equal(enr.visualPromptPreview, undefined);
+    assert(validateEnrichment(row.enrichment).ok);
   });
 
-  it("renders {NAME}/{SUBJ}/… tokens before passing factText to classify and preview stubs", async () => {
+  it("renders {NAME}/{SUBJ}/… tokens before passing factText to the classify stub", async () => {
     // Seed a fact whose text is a raw template with identity tokens.
     const id = await insertFact({
       enrichmentStatus: "pending",
@@ -348,30 +306,21 @@ describe("runEnrichmentForFact — outcome branches (req: enrichmentStatus track
     });
 
     let classifyReceivedText: string | undefined;
-    let previewReceivedText: string | undefined;
 
     const result = await runEnrichmentForFact(id, {
       classify: async (input) => {
         classifyReceivedText = input.factText;
         return { ...VALID };
       },
-      preview: async (input) => {
-        previewReceivedText = input.factText;
-        return STUB_PREVIEW;
-      },
     });
 
     assert.equal(result.ok, true);
-    // Both stubs must receive fully-rendered canonical text — no raw tokens.
+    // The stub must receive fully-rendered canonical text — no raw tokens.
     assert.ok(classifyReceivedText, "classify stub must have been called");
-    assert.ok(previewReceivedText, "preview stub must have been called");
     assert.doesNotMatch(classifyReceivedText!, /\{NAME\}|\{SUBJ\}|\{POSS\}/,
       "classify received raw identity token (renderCanonical not applied)");
-    assert.doesNotMatch(previewReceivedText!, /\{NAME\}|\{SUBJ\}|\{POSS\}/,
-      "preview received raw identity token (renderCanonical not applied)");
     // Spot-check: canonical name "Alex" was substituted in.
     assert.match(classifyReceivedText!, /Alex/);
-    assert.match(previewReceivedText!, /Alex/);
   });
 
   it("preserves the moderator visual-strategy override across re-classification", async () => {
@@ -395,7 +344,6 @@ describe("runEnrichmentForFact — outcome branches (req: enrichmentStatus track
     // The classify stub returns a fresh blob WITHOUT any override (as the LLM would).
     const result = await runEnrichmentForFact(id, {
       classify: async () => ({ ...OTHER }),
-      preview: async () => STUB_PREVIEW,
     });
     assert.equal(result.ok, true);
 

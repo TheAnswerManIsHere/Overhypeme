@@ -11,34 +11,9 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import {
   CLASSIFICATION_PROMPT_VERSION,
-  PREVIEW_PROMPT_VERSION,
   validateEnrichment,
 } from "@workspace/api-zod";
 import { evaluateFactTaxonomyHealth, isEnrichmentAdminEdited } from "../lib/taxonomyHealth";
-
-const HEALTHY_PREVIEW = {
-  archetypeApplication: "applies the force-scaled strategy block",
-  selectedFrame: "direct_action",
-  sceneConcept: "David doing pushups with planet-scale consequence",
-  visualGoal: "Show legendary strength",
-  visualApproach: "Cinematic wide shot",
-  keyVisualElements: ["David", "planet", "horizon"],
-  engineNeutralVisualPlan: "Wide cinematic shot of David pushing planet downward.",
-  exampleI2iPrompt: "Reference face preserved. Pushing planet downward, cinematic, dramatic.",
-  exampleT2iPrompt: "Cinematic male protagonist pushing planet downward.",
-  promptGuardrailsPreview: "No real logos.",
-  supportingTextPolicy: { allowed: [], forbidden: [], notes: "" },
-  culturalReferencesUsed: [],
-  interpretationWarnings: [],
-  previewAssumptions: {
-    sampleName: "David",
-    generationMode: "i2i_and_t2i_preview",
-    style: "default_sfw_cinematic",
-    preserveFace: true,
-    preservePhysique: false,
-  },
-  previewPromptVersion: PREVIEW_PROMPT_VERSION,
-};
 
 function VALID_ENRICHMENT(overrides: Partial<Record<string, unknown>> = {}): Record<string, unknown> {
   return {
@@ -57,7 +32,6 @@ function VALID_ENRICHMENT(overrides: Partial<Record<string, unknown>> = {}): Rec
     semanticEntities: [],
     classificationPromptVersion: CLASSIFICATION_PROMPT_VERSION,
     enrichedBy: "openai",
-    visualPromptPreview: HEALTHY_PREVIEW,
     ...overrides,
   };
 }
@@ -184,54 +158,13 @@ describe("evaluateFactTaxonomyHealth", () => {
     assert.equal(h.reviewFlags.semanticEntityNeedsReview, false);
   });
 
-  it("flags stale_visual_preview (not a separate missing status) when the blob has no visualPromptPreview", () => {
+  it("does NOT compute any visual-preview staleness (preview subsystem retired)", () => {
     const e = VALID_ENRICHMENT();
-    delete (e as Record<string, unknown>)["visualPromptPreview"];
     const h = evaluateFactTaxonomyHealth({ fact: row(e) });
-    assert.equal(h.reviewFlags.stalePreview, true);
-    assert.ok(h.statuses.includes("stale_visual_preview"));
-  });
-
-  it("flags stale_visual_preview (lockstep) when enrichment is stale and preview exists", () => {
-    const e = VALID_ENRICHMENT({ classificationPromptVersion: "v1" });
-    const h = evaluateFactTaxonomyHealth({ fact: row(e) });
-    assert.equal(h.reviewFlags.staleEnrichmentVersion, true);
-    assert.equal(h.reviewFlags.stalePreview, true);
-    assert.ok(h.statuses.includes("stale_visual_preview"));
-  });
-
-  it("flags stale_visual_preview when previewPromptVersion differs", () => {
-    const e = VALID_ENRICHMENT({
-      visualPromptPreview: {
-        archetypeApplication: "x",
-        selectedFrame: "x",
-        sceneConcept: "x",
-        visualGoal: "x",
-        visualApproach: "x",
-        keyVisualElements: [],
-        engineNeutralVisualPlan: "x",
-        exampleI2iPrompt: "x",
-        exampleT2iPrompt: "x",
-        promptGuardrailsPreview: "",
-        supportingTextPolicy: { allowed: [], forbidden: [], notes: "" },
-        culturalReferencesUsed: [],
-        interpretationWarnings: [],
-        previewAssumptions: {
-          sampleName: "David",
-          generationMode: "i2i_and_t2i_preview",
-          style: "default_sfw_cinematic",
-          preserveFace: true,
-          preservePhysique: false,
-        },
-        previewPromptVersion: "v0",
-      },
-    });
-    const h = evaluateFactTaxonomyHealth({
-      fact: row(e),
-      currentVersions: { previewPromptVersion: PREVIEW_PROMPT_VERSION },
-    });
-    assert.equal(h.reviewFlags.stalePreview, true);
-    assert.ok(h.statuses.includes("stale_visual_preview"));
+    assert.ok(!h.statuses.includes("stale_enrichment_version"));
+    // The retired stale_visual_preview status must never appear.
+    assert.ok(!(h.statuses as string[]).includes("stale_visual_preview"));
+    assert.ok(!("stalePreview" in h.reviewFlags));
   });
 
   it("flags stale_enrichment_version when classificationPromptVersion is behind", () => {

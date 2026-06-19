@@ -196,6 +196,16 @@ export async function seedImagePromptConfig(): Promise<void> {
     logger.warn({ err }, "[imagePromptConfig] failed to drop retired enable_image_prompt_v2 row");
   }
 
+  // Retire the enrichment-time visual-preview subsystem: the render-time
+  // visualPlan + Nano Banana compiler is now the single source of truth for
+  // "what will the image look like", so the admin-editable preview system
+  // prompt is dead. Drop it from any DB where an earlier seed created it.
+  try {
+    await db.execute(sql`DELETE FROM admin_config WHERE key = 'fact_visual_preview_system'`);
+  } catch (err) {
+    logger.warn({ err }, "[imagePromptConfig] failed to drop retired fact_visual_preview_system row");
+  }
+
   for (const def of IMAGE_PROMPT_CONFIG_DEFS) {
     try {
       await db.execute(sql`

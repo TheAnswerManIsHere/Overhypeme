@@ -6,7 +6,7 @@
  *   - compiledPrompt (Nano Banana 2)
  *   - subjectFactCompatibility (inline)
  *
- * Mirrors `lib/promptStrategy/visualPreview.ts`: build user message, call
+ * Standard structured-output flow: build user message, call
  * model via `callUtilityLLM` + `zodResponseFormat(strictSchema)`, parse,
  * run business validator with mode-aware rules, retry ONCE on validation
  * failure with a corrective message, throw on second failure.

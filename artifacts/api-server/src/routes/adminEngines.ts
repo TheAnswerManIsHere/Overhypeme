@@ -42,8 +42,8 @@ import { generateVideoDirection } from "../lib/videoDirection.js";
 import { renderPersonalized } from "../lib/renderCanonical.js";
 import {
   assembleImagePromptForPreview,
-  PREVIEW_SUBJECT_NAME,
-  PREVIEW_SUBJECT_PRONOUNS,
+  RUNTIME_PREVIEW_DEFAULT_NAME,
+  RUNTIME_PREVIEW_DEFAULT_PRONOUNS,
 } from "../lib/imagePrompt/preview.js";
 import { analyzeSourceImage, noImageAnalysis } from "../lib/sourceImageAnalysis/index.js";
 import { parseAspectRatio, normalizeStyleId } from "../lib/imagePromptAttempts.js";
@@ -63,8 +63,8 @@ export { __setPlanGeneratorForTest } from "../lib/imagePrompt/preview.js";
 // meme-generator request. Drawn from the shared canonical preview identity so
 // the workbench and the Fact-page "Runtime Compiled Prompt Preview" feed
 // identical rendered fact text to the planner (single source of truth).
-const WORKBENCH_TEST_NAME = PREVIEW_SUBJECT_NAME;
-const WORKBENCH_TEST_PRONOUNS = PREVIEW_SUBJECT_PRONOUNS;
+const WORKBENCH_TEST_NAME = RUNTIME_PREVIEW_DEFAULT_NAME;
+const WORKBENCH_TEST_PRONOUNS = RUNTIME_PREVIEW_DEFAULT_PRONOUNS;
 import { ADMIN_EDITABLE_FIELDS } from "../lib/engines/types.js";
 import { logger } from "../lib/logger.js";
 

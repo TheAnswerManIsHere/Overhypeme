@@ -21,7 +21,7 @@ import request from "supertest";
 import { db, factsTable, usersTable } from "@workspace/db";
 import { asyncJobsTable } from "@workspace/db/schema";
 import { eq, inArray, like } from "drizzle-orm";
-import { CLASSIFICATION_PROMPT_VERSION, PREVIEW_PROMPT_VERSION } from "@workspace/api-zod";
+import { CLASSIFICATION_PROMPT_VERSION } from "@workspace/api-zod";
 
 import adminTaxonomyHealthRouter from "../routes/adminTaxonomyHealth.js";
 import { buildTestApp } from "./helpers/buildTestApp.js";
@@ -29,30 +29,6 @@ import { buildTestApp } from "./helpers/buildTestApp.js";
 const USER_PREFIX = "ttha-act-";
 const RUN = randomUUID().slice(0, 8);
 const TEXT = (s: string) => `TTHA_${RUN} ${s}`;
-
-const HEALTHY_PREVIEW = {
-  archetypeApplication: "applies the strategy block",
-  selectedFrame: "direct_action",
-  sceneConcept: "scene",
-  visualGoal: "goal",
-  visualApproach: "approach",
-  keyVisualElements: ["a"],
-  engineNeutralVisualPlan: "plan",
-  exampleI2iPrompt: "i2i",
-  exampleT2iPrompt: "t2i",
-  promptGuardrailsPreview: "no logos",
-  supportingTextPolicy: { allowed: [], forbidden: [], notes: "" },
-  culturalReferencesUsed: [],
-  interpretationWarnings: [],
-  previewAssumptions: {
-    sampleName: "David",
-    generationMode: "i2i_and_t2i_preview",
-    style: "default_sfw_cinematic",
-    preserveFace: true,
-    preservePhysique: false,
-  },
-  previewPromptVersion: PREVIEW_PROMPT_VERSION,
-};
 
 function validEnrichment(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
@@ -71,7 +47,6 @@ function validEnrichment(overrides: Record<string, unknown> = {}): Record<string
     semanticEntities: [],
     classificationPromptVersion: CLASSIFICATION_PROMPT_VERSION,
     enrichedBy: "openai",
-    visualPromptPreview: HEALTHY_PREVIEW,
     ...overrides,
   };
 }
@@ -213,17 +188,6 @@ describe("/admin/taxonomy-health — actions & filters", () => {
       .send({ jobs: [{ jobId: 2_147_482_999 }] });
     assert.equal(res.status, 200);
     assert.equal(res.body.jobs.length, 0);
-  });
-
-  it("Regenerate Visual Plan returns a concrete job descriptor", async () => {
-    const res = await request(app)
-      .post("/api/admin/taxonomy-health/actions/regenerate-previews")
-      .send({ mode: "selected_fact_ids", factIds: [healthyId] });
-    assert.equal(res.status, 200);
-    assert.equal(res.body.jobs.length, 1);
-    assert.equal(res.body.jobs[0].action, "regenerate_visual_plan");
-    assert.equal(typeof res.body.jobs[0].jobId, "number");
-    jobIds.push(res.body.jobs[0].jobId);
   });
 
   it("Repair projections resolves inline with terminal outcomes", async () => {

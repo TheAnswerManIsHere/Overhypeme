@@ -8,12 +8,10 @@ import { Beaker, ChevronDown, ChevronRight, Copy, Check, RefreshCw, AlertTriangl
  * and shows the engine-neutral `visualPlan` + Nano Banana `compiledPrompt` an
  * image engine would actually receive under chosen render assumptions.
  *
- * This is deliberately separate from the Phase 2A "Visual Interpretation
- * Preview" (the `exampleI2iPrompt`/`exampleT2iPrompt` fields in the enrichment
- * editor), which are preview-only samples generated under default assumptions —
- * NOT the final engine prompt. This panel is read-only / non-mutating: it never
- * overwrites fact enrichment unless the admin explicitly opts into persisting an
- * image-prompt attempt row.
+ * This is the SINGLE source of truth for "what the image will be": the
+ * enrichment-time visual preview subsystem has been retired. This panel is
+ * read-only / non-mutating: it never overwrites fact enrichment unless the
+ * admin explicitly opts into persisting an image-prompt attempt row.
  */
 
 type SubjectRenderMode = "human_identity_i2i" | "nonhuman_subject_i2i" | "t2i_fallback";

@@ -13,10 +13,9 @@
  *
  * Versions checked:
  *  - `enrichment.classificationPromptVersion` vs `CLASSIFICATION_PROMPT_VERSION`
- *  - `enrichment.visualPromptPreview.previewPromptVersion` vs
- *    `PREVIEW_PROMPT_VERSION`
  * `VISUAL_STRATEGY_VERSION` doesn't appear in stored data today; we record
- * it on the summary for visibility but don't gate stale-preview on it.
+ * it on the summary for visibility but don't gate on it. The retired
+ * enrichment-time visual preview no longer participates in health at all.
  *
  * Admin-edited signal (used by bulk re-enrich):
  *  - `enrichment.enrichedBy === "admin"` OR
@@ -27,7 +26,6 @@ import {
   validateEnrichment,
   buildCapitalizationSensitiveRegex,
   CLASSIFICATION_PROMPT_VERSION,
-  PREVIEW_PROMPT_VERSION,
   VISUAL_STRATEGY_VERSION,
   type FactEnrichment,
   type FactTaxonomyHealth,
@@ -60,7 +58,6 @@ export interface EvaluateFactTaxonomyHealthInput {
    */
   currentVersions?: {
     classificationPromptVersion?: string;
-    previewPromptVersion?: string;
     visualStrategyVersion?: string;
   };
 }
@@ -74,7 +71,6 @@ export function evaluateFactTaxonomyHealth(
   const versions = {
     classification:
       input.currentVersions?.classificationPromptVersion ?? CLASSIFICATION_PROMPT_VERSION,
-    preview: input.currentVersions?.previewPromptVersion ?? PREVIEW_PROMPT_VERSION,
     strategy: input.currentVersions?.visualStrategyVersion ?? VISUAL_STRATEGY_VERSION,
   };
   const { fact } = input;
@@ -88,7 +84,6 @@ export function evaluateFactTaxonomyHealth(
     adultRequiresReview: false,
     culturalReferenceNeedsResearch: false,
     semanticEntityNeedsReview: false,
-    stalePreview: false,
     staleEnrichmentVersion: false,
     projectionMismatch: false,
     invalidEnrichment: false,
@@ -102,7 +97,7 @@ export function evaluateFactTaxonomyHealth(
       message: "Fact has no enrichment blob.",
       recommendedAction: "rerun_enrichment",
     });
-    return finalize(fact, issues, statuses, flags, buildSummary(fact, null, null));
+    return finalize(fact, issues, statuses, flags, buildSummary(fact, null));
   }
 
   // 2. Invalid enrichment
@@ -123,7 +118,7 @@ export function evaluateFactTaxonomyHealth(
       issues,
       statuses,
       flags,
-      buildSummary(fact, null, rawEnrichment),
+      buildSummary(fact, rawEnrichment),
     );
   }
   const e = validation.data;
@@ -235,34 +230,7 @@ export function evaluateFactTaxonomyHealth(
     // info-level — don't mark flag true; it's a hint not a required fix.
   }
 
-  // 9. Visual preview presence + 10. staleness
-  // "No visual plan" is treated as stale — there is no meaningful distinction
-  // between a plan that was never generated and one that is outdated. Both need
-  // regeneration, and the same guard (re-enrich first when enrichment is stale)
-  // applies to both cases.
-  const preview = e.visualPromptPreview;
-  if (!preview) {
-    flags.stalePreview = true;
-    addIssue(issues, statuses, {
-      code: "stale_visual_preview",
-      severity: "warning",
-      message: "No visual plan has been generated for this fact yet.",
-      recommendedAction: "regenerate_visual_preview",
-    });
-  } else if (
-    preview.previewPromptVersion != null &&
-    preview.previewPromptVersion !== versions.preview
-  ) {
-    flags.stalePreview = true;
-    addIssue(issues, statuses, {
-      code: "stale_visual_preview",
-      severity: "warning",
-      message: `Preview was generated under previewPromptVersion="${preview.previewPromptVersion}" (current is "${versions.preview}").`,
-      recommendedAction: "regenerate_visual_preview",
-    });
-  }
-
-  // 11. Stale enrichment prompt version
+  // 9. Stale enrichment prompt version
   if (
     e.classificationPromptVersion != null &&
     e.classificationPromptVersion !== versions.classification
@@ -286,21 +254,7 @@ export function evaluateFactTaxonomyHealth(
     });
   }
 
-  // Lockstep: stale enrichment → stale visual plan. The existing visual plan
-  // was built from outdated enrichment data; regenerating it without re-enriching
-  // first would produce a plan based on stale archetype/subtype/etc.
-  if (flags.staleEnrichmentVersion && !flags.stalePreview) {
-    flags.stalePreview = true;
-    addIssue(issues, statuses, {
-      code: "stale_visual_preview",
-      severity: "info",
-      message:
-        "Visual plan is implicitly stale — it was built from outdated enrichment. Re-enrich first, then regenerate the visual plan.",
-      recommendedAction: "rerun_enrichment",
-    });
-  }
-
-  // 12. Projection-column mismatch
+  // 10. Projection-column mismatch
   const projected = buildFactEnrichmentColumns(e);
   const projectionDiffs: string[] = [];
   if (fact.primaryArchetype !== projected.primaryArchetype) {
@@ -333,7 +287,7 @@ export function evaluateFactTaxonomyHealth(
     });
   }
 
-  return finalize(fact, issues, statuses, flags, buildSummary(fact, preview, e));
+  return finalize(fact, issues, statuses, flags, buildSummary(fact, e));
 }
 
 // ─── Admin-edited signal ──────────────────────────────────────────────────
@@ -386,8 +340,7 @@ function deriveOverallStatus(
 ): TaxonomyOverallStatus {
   if (statuses.has("missing_enrichment")) return "missing";
   if (issues.some((i) => i.severity === "error")) return "broken";
-  const staleOnly =
-    statuses.has("stale_enrichment_version") || statuses.has("stale_visual_preview");
+  const staleOnly = statuses.has("stale_enrichment_version");
   const anyAttention = issues.some(
     (i) => i.severity === "warning" || i.severity === "error",
   );
@@ -398,7 +351,6 @@ function deriveOverallStatus(
 
 function buildSummary(
   fact: FactRowForHealth,
-  preview: FactEnrichment["visualPromptPreview"] | null,
   enrichment: Partial<FactEnrichment> | null,
 ): TaxonomyHealthSummary {
   return {
@@ -410,12 +362,9 @@ function buildSummary(
     taxonomyVersion: enrichment?.taxonomyVersion ?? null,
     classificationPromptVersion: enrichment?.classificationPromptVersion ?? null,
     // VISUAL_STRATEGY_VERSION isn't stored per-fact today; surface the current
-    // constant for visibility. When/if it lands on the preview blob, point
-    // this at preview.visualStrategyVersion instead.
+    // constant for visibility.
     visualStrategyVersion: VISUAL_STRATEGY_VERSION,
-    visualPreviewVersion: preview?.previewPromptVersion ?? null,
     enrichedAt: enrichment?.enrichedAt ?? null,
-    previewGeneratedAt: preview?.generatedAt ?? null,
     enrichedBy: enrichment?.enrichedBy ?? null,
   };
 }

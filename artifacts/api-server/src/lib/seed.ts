@@ -10,7 +10,6 @@ import { embedFactAsync } from "./embeddings";
 import { seedScenePromptConfig } from "./scenePromptConfig";
 import { seedVideoDirectionConfig } from "./videoDirection";
 import { seedFactEnrichmentConfig } from "./factEnrichmentConfig";
-import { seedFactVisualPreviewConfig } from "./factVisualPreviewConfig";
 import { seedImagePromptConfig } from "./imagePromptConfig";
 import { seedReferenceResearchConfig } from "./referenceResearchConfig";
 import { logger } from "./logger";
@@ -657,11 +656,6 @@ export async function ensureSchema(): Promise<void> {
   // Seed the admin-configurable fact-enrichment levers (the visual-taxonomy
   // classifier system prompt, OpenAI model, temperature, max tokens).
   await seedFactEnrichmentConfig();
-
-  // Seed the admin-configurable visual-preview system prompt (Phase 2A —
-  // produces the admin-visible visual interpretation preview from the
-  // classified taxonomy + cultural references + authored strategy entry).
-  await seedFactVisualPreviewConfig();
 
   // Seed the Phase 2 image-prompt admin config (image-prompt + source-classifier
   // system prompts, active classifier engine id).

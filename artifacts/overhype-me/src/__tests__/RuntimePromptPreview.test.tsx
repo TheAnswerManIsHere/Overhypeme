@@ -2,7 +2,6 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, fireEvent, screen, waitFor, within } from "@testing-library/react";
 
 import { RuntimePromptPreview } from "@/components/admin/RuntimePromptPreview";
-import { EnrichmentSummary } from "@/components/admin/EnrichmentEditor";
 
 // ── fetch mock ──────────────────────────────────────────────────────────────
 
@@ -222,36 +221,5 @@ describe("RuntimePromptPreview", () => {
     await waitFor(() => expect(screen.getByTestId("rpp-compiled-prompt")).toBeTruthy());
     expect(screen.getByTestId("rpp-compiled-prompt").textContent).toContain("COMPILED IMAGE PROMPT TEXT");
     expect(calls.some((c) => c.url.includes("/api/admin/image-prompt/preview"))).toBe(false);
-  });
-});
-
-// ── Relabeled preview-only summary ───────────────────────────────────────────
-
-describe("EnrichmentSummary preview-only relabel", () => {
-  it("labels the example prompts as preview-only", () => {
-    const enrichment = {
-      primaryArchetype: "superhuman_physical_feat",
-      subtype: "force_scaled_action",
-      modifiers: [],
-      visualLiteralness: "literal_dramatization",
-      visualComplexity: "medium",
-      overhypeFit: "strong",
-      adultSuitability: "safe",
-      adultSuitabilityNotes: "",
-      suggestedHashtags: ["a", "b", "c"],
-      taxonomyConfidence: 0.9,
-      adminReviewNotes: "",
-      culturalReferences: [],
-      semanticEntities: [],
-      visualPromptPreview: {
-        sceneConcept: "A scene",
-        selectedFrame: "direct_action",
-        exampleI2iPrompt: "i2i example",
-        exampleT2iPrompt: "t2i example",
-      },
-    };
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    render(<EnrichmentSummary e={enrichment as any} />);
-    expect(screen.getByText("Preview-only example I2I / T2I prompts")).toBeTruthy();
   });
 });

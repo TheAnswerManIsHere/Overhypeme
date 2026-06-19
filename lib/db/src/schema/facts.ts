@@ -54,9 +54,8 @@ export const factsTable = pgTable("facts", {
   enrichment: jsonb("enrichment"),
   /**
    * Classification lifecycle for the admin Facts editor: "pending" | "ok" | "failed".
-   * Tracks the re-run-classification job only — visual-preview state lives in
-   * `enrichment.previewStatus`. Null on facts that were never (re)classified
-   * in-place. Mirrors `pending_reviews.enrichment_status`.
+   * Tracks the re-run-classification job only. Null on facts that were never
+   * (re)classified in-place. Mirrors `pending_reviews.enrichment_status`.
    */
   enrichmentStatus: varchar("enrichment_status", { length: 16 }),
   primaryArchetype: varchar("primary_archetype", { length: 64 }),
