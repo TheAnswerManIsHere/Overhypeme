@@ -398,12 +398,13 @@ describe("nanoBanana2 — structured directive injection", () => {
     assert.match(out.imagePrompt, /"Earth" means the planet Earth seen from orbit/);
   });
 
-  it("injects cultural-reference directives with a logo guard (Shark Week)", () => {
+  it("does NOT leak cultural-reference meta into the engine prompt (it informs the planner only)", () => {
     const out = compileNanoBanana2HumanI2I(makeArgs({
       subjectRenderMode: "human_identity_i2i",
       prompt: "David on a beach.",
       renderedSubject: { name: "David", pronouns: "he/him" },
       visualPlan: {
+        coreScene: "Sharks gather around a glowing TV screen watching David.",
         culturalReferencesUsed: [{
           sourcePhrase: "Shark Week",
           canonicalReferenceUsed: "Discovery Channel's Shark Week",
@@ -412,10 +413,12 @@ describe("nanoBanana2 — structured directive injection", () => {
         }],
       },
     }));
-    assert.match(out.imagePrompt.toLowerCase(), /treat "shark week" as discovery channel's shark week/);
-    assert.match(out.imagePrompt.toLowerCase(), /avoid real logos or brand marks/);
-    // David is the single subject of the gag — not duplicated across the frame.
-    assert.equal(countOccurrences(out.imagePrompt, "do not render the adult reference person separately"), 0, out.imagePrompt);
+    // The canonical-reference explanation + brand name must NOT reach the engine.
+    assert.doesNotMatch(out.imagePrompt.toLowerCase(), /treat "shark week" as/);
+    assert.doesNotMatch(out.imagePrompt.toLowerCase(), /discovery channel/);
+    assert.doesNotMatch(out.imagePrompt, /Cultural references:/);
+    // The gag still reaches the engine via the planner's CORE SCENE.
+    assert.match(out.imagePrompt, /Sharks gather around a glowing TV screen watching David\./);
   });
 
   it("injects high-impact modifier directives", () => {
@@ -600,6 +603,16 @@ describe("nanoBanana2 — moderator visual-strategy override (Phase 2)", () => {
     assert.match(out.imagePrompt, /Avoid splattery horror gore\./);
     assert.doesNotMatch(out.imagePrompt, /Do not Do not/i);
     assert.doesNotMatch(out.imagePrompt, /Do not Avoid/i);
+  });
+
+  it("does not double-prefix a forbidden line that already starts with a curly-apostrophe Don't", () => {
+    const out = compileNanoBanana2HumanI2I(makeArgs({
+      subjectRenderMode: "human_identity_i2i",
+      prompt: "A scene.",
+      override: makeOverride({ forbiddenVisualDetails: ["Don’t render any other text besides what is asked for"] }),
+    }));
+    assert.match(out.imagePrompt, /Don’t render any other text besides what is asked for\./);
+    assert.doesNotMatch(out.imagePrompt, /Do not Don’t/);
   });
 
   it("subject realization ADDS a SUBJECT REALIZATION block but keeps the SUBJECT BINDING identity guard", () => {
