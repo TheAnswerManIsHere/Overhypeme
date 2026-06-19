@@ -129,12 +129,34 @@ function fitSentences(text: string, budget: number): string {
 
 // ─── visualPlan → directive composers ─────────────────────────────────────
 
-/** Ensure key visual elements the prose omitted are explicitly requested. */
+/**
+ * Ensure concrete visible elements the prose omitted are explicitly requested.
+ * Candidate sources (all CONCRETE — no interpretation meta reaches the engine):
+ *   - the planner's `keyVisualElements`;
+ *   - each consumed cultural reference's `visualImplicationUsed` — the concrete
+ *     visual ONLY, never the canonical reference / brand / "treat X as Y" meta;
+ *   - each semantic entity's `visualReferentUsed` — the resolved referent ONLY
+ *     (e.g. "the planet Earth seen from orbit"), never the surface term or an
+ *     "interpret X means Y" line.
+ * Cultural references + semantic entities are inputs that inform the planner; the
+ * planner is expected to bake them into the scene, and this gap-fill is the
+ * compiler-side guarantee that their concrete visual still reaches the engine
+ * when the scene omitted it. De-duped against the running scene + each other.
+ */
 function composeKeyElementsDirective(vp: VisualPlan, haystack: string): string {
-  const missing = vp.keyVisualElements
-    .map((e) => e.trim())
-    .filter(Boolean)
-    .filter((e) => !containsMeaningfulPhrase(haystack, e));
+  const candidates = [
+    ...vp.keyVisualElements,
+    ...(vp.culturalReferencesUsed ?? []).map((r) => r.visualImplicationUsed),
+    ...(vp.semanticEntitiesUsed ?? []).map((s) => s.visualReferentUsed),
+  ].map((e) => e.trim()).filter(Boolean);
+  const seen = new Set<string>();
+  const missing: string[] = [];
+  for (const e of candidates) {
+    const key = e.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    if (!containsMeaningfulPhrase(haystack, e)) missing.push(e);
+  }
   if (!missing.length) return "";
   return `Ensure these elements are clearly visible: ${missing.join("; ")}.`;
 }
@@ -304,7 +326,10 @@ function composeSubjectRealization(ov: VisualPromptStrategyOverride): string {
   return desc ? `${desc}.` : "";
 }
 
-const NEGATIVE_LEAD_RE = /^\s*(?:do not\b|don'?t\b|avoid\b|never\b|no\b)/i;
+// Recognizes a line already phrased as a negative so we don't double-prefix it.
+// The apostrophe class covers straight (') and curly (’ U+2019) so "Don't" /
+// "Don’t" both count as already-negative.
+const NEGATIVE_LEAD_RE = /^\s*(?:do not\b|don[’']?t\b|avoid\b|never\b|no\b)/i;
 
 /** Normalize a forbidden/negative entry into a "Do not …" constraint, without
  *  double-prefixing entries that already lead with Do not/Avoid/Never/No. */
@@ -322,25 +347,25 @@ function composeOverrideForbidden(ov: VisualPromptStrategyOverride): string {
     .join(" ");
 }
 
-/** Lock capitalization-aware semantic referents into the scene. */
-function composeSemanticDirective(vp: VisualPlan, haystack: string): string {
-  const items = (vp.semanticEntitiesUsed ?? [])
-    .filter((e) => e.surfaceText.trim() && e.visualReferentUsed.trim())
-    .filter((e) => !containsMeaningfulPhrase(haystack, e.visualReferentUsed))
-    .map((e) => `"${e.surfaceText.trim()}" means ${e.visualReferentUsed.trim()}`);
-  if (!items.length) return "";
-  return `Interpret these terms exactly: ${items.join("; ")}.`;
-}
+/**
+ * Semantic entities (capitalization-aware referents, e.g. "Earth" → the planet
+ * vs "earth" → ground) are an INPUT that informs the planner how to read the
+ * fact — they are NOT emitted to the engine as an "Interpret X means Y" meta
+ * line. The planner resolves the ambiguity into the concrete scene; the resolved
+ * `visualReferentUsed` reaches the engine as a CONCRETE visible element via
+ * `composeKeyElementsDirective` (de-duped), and the echo-back stays on the visual
+ * plan for the validator + admin debug.
+ */
 
-/** Turn consumed cultural references into explicit, logo-free directives. */
-function composeCulturalDirective(vp: VisualPlan, haystack: string): string {
-  const items = (vp.culturalReferencesUsed ?? [])
-    .filter((r) => r.sourcePhrase.trim() && r.visualImplicationUsed.trim())
-    .filter((r) => !containsMeaningfulPhrase(haystack, r.visualImplicationUsed))
-    .map((r) => `treat "${r.sourcePhrase.trim()}" as ${(r.canonicalReferenceUsed.trim() || r.sourcePhrase.trim())}, shown via ${r.visualImplicationUsed.trim()}`);
-  if (!items.length) return "";
-  return `Cultural references: ${items.join("; ")}. Avoid real logos or brand marks.`;
-}
+/**
+ * Cultural references are an INPUT that informs the planner (OpenAI) how to
+ * interpret the fact — they are NOT emitted to the image engine. The planner
+ * bakes the reference's visual implication into the concrete fields (CORE SCENE /
+ * SUBJECT DETAILS / ENVIRONMENT / keyVisualElements); re-emitting the canonical
+ * reference + explanation here just leaks meta-instruction (and brand names like
+ * "Discovery Channel") into the prompt. The `culturalReferencesUsed` echo-back is
+ * kept on the visual plan for the validator + admin debug, but never compiled in.
+ */
 
 /** High-impact fact modifiers the prose did not already cover. When a moderator
  *  violence override is active we drop the per-fact softening modifiers
@@ -922,12 +947,11 @@ function compile(args: CompileArgs, mode: ModeContext): CompiledImagePrompt {
   ].map((s) => s.trim().replace(/[.!?]+$/, "")).filter(Boolean);
   const lightingAndStyle = lightingParts.length ? `${lightingParts.join(". ")}.` : "";
 
-  // 8. STRICT CONSTRAINTS — semantic referents, cultural refs, supporting-text
-  // rule, violence policy, and the negative anti-entity-split guards.
+  // 8. STRICT CONSTRAINTS — supporting-text rule, violence policy, and the
+  // negative anti-entity-split guards. Cultural references AND semantic entities
+  // are NOT emitted as interpretation meta; they inform the planner, and their
+  // concrete visual reaches the engine via the visible-elements gap-fill above.
   const renderPolicy: RenderPolicy = input.renderPolicy ?? DEFAULT_RENDER_POLICY;
-  const constraintHaystack = `${haystack} ${composition} ${lightingAndStyle}`;
-  const semantic = composeSemanticDirective(vp, constraintHaystack);
-  const cultural = composeCulturalDirective(vp, `${constraintHaystack} ${semantic}`);
   const supportingText = composeSupportingTextDirective(vp, renderPolicy.supportingText);
   const violence = composeViolenceDirective(renderPolicy.violence, {
     relevant: isViolenceRelevant(input, vp),
@@ -946,7 +970,7 @@ function compile(args: CompileArgs, mode: ModeContext): CompiledImagePrompt {
   // Moderator forbidden visual details + negative-prompt additions, as "Do not …"
   // lines, appended after the compiler's own constraints.
   const overrideForbidden = ov ? composeOverrideForbidden(ov) : "";
-  const strictConstraints = [semantic, cultural, supportingText, violence, antiSplit, failureModes, overrideForbidden].filter(Boolean).join(" ");
+  const strictConstraints = [supportingText, violence, antiSplit, failureModes, overrideForbidden].filter(Boolean).join(" ");
 
   // The override sections sit at high/required priority so moderator intent
   // survives the char budget. SUBJECT REALIZATION (required) goes right after
