@@ -1,38 +1,33 @@
 /**
- * purgeTestData — the single, authoritative, FK-safe sweep of all test-created
- * rows from the database.
+ * purgeTestData — FK-safe sweep of test-created rows from the test database.
  *
  * WHY THIS EXISTS
  * ---------------
- * The api-server test suite runs against the *real* development database (there
- * is no isolated test DB). Every test inserts rows prefixed with a recognisable
- * marker and is supposed to delete them again in its own `after()` hook.
+ * The api-server test suite runs against an **isolated test database**
+ * (${PGDATABASE}_test), never the development database. This sweep is invoked
+ * as a pre-sweep and post-sweep around the sharded run (see
+ * run-tests-sharded.sh) to clean up any rows left over from a previously
+ * interrupted run, so every run starts from a clean state.
  *
- * Two failure modes caused test rows to accumulate indefinitely:
+ * Because tests run on an isolated database, these sweeps no longer protect
+ * development data. They are a quality-of-life tool: they ensure a crashed or
+ * SIGKILL'd run does not leave behind stale rows that would confuse the next
+ * run's assertions.
  *
- *   1. FK-unsafe per-file cleanup. A file deleted its users with a broad
- *      `DELETE FROM users WHERE id LIKE 'prefix%'` but deleted child rows
- *      (memes, activity-feed, …) only by the ids it tracked in-memory. Any
- *      orphan child row — left by a previous run — made the parent delete
- *      violate a foreign-key constraint, so the whole cleanup aborted and *more*
- *      rows leaked on every subsequent run.
+ * HOW IT IDENTIFIES TEST ROWS
+ * ---------------------------
+ * The purge uses the t-prefix convention to find rows within the test database:
+ *   • Test user ids begin with `t` (real UUIDs are hex-only: 0-9a-f).
+ *   • Facts inserted without a submitter use text starting with `t`.
+ * Deletions proceed strictly child-before-parent so FK constraints are never
+ * violated, even when previous runs left orphaned child rows.
  *
- *   2. The runner has a hard wall-clock kill (`with-time-limit.sh`). When it
- *      fires mid-run, `after()` hooks never execute, so that run's rows survive.
- *
- * This helper fixes both by (a) deleting strictly child-before-parent so it can
- * never hit an FK violation, and (b) being invoked as a global *pre-sweep* and
- * *post-sweep* around the whole sharded run (see run-tests-sharded.sh). The
- * pre-sweep means even a hard-killed previous run is healed before the next run
- * starts: the database holds test rows only *during* an active run, never after.
- *
- * SAFETY
- * ------
- * Real user ids are UUIDs (hex only — `0-9a-f`), which can never begin with the
- * letter `t`. Every test user id, by convention, begins with `t`. So
- * `users.id LIKE 't%'` matches all test users and zero real users. We only ever
- * delete rows reachable from a test user (or a test-submitted fact); real seed
- * data is never touched.
+ * NOTE FOR TEST AUTHORS
+ * ----------------------
+ * The t-prefix convention (t-prefixed user ids, t-prefixed null-submitter fact
+ * text) still applies so this purge can identify and remove your test rows from
+ * the test database between runs. Without it, stale rows from an interrupted
+ * run could cause spurious failures in the next run's assertions.
  */
 
 import { db } from "@workspace/db";

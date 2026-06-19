@@ -293,7 +293,7 @@ describe("applyMigrations() concurrency", () => {
                 : (textOrConfig as { text?: string } | undefined)?.text;
             if (
               typeof text === "string" &&
-              text.includes("INSERT INTO drizzle.__drizzle_migrations") &&
+              text.includes(`INSERT INTO "drizzle".__drizzle_migrations`) &&
               Array.isArray(params) &&
               params[0] === HASH_D
             ) {
