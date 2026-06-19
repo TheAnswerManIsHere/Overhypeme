@@ -20,14 +20,15 @@
 # silence a regression). Each budget is also the literal argument at the
 # invocation site, so it is greppable from the command itself.
 #
-#   60000ms  artifacts/api-server `test` script
-#            Sharded api-server vitest suite. Baseline ~40s.
+#   300000ms artifacts/api-server `test` script
+#            Sharded api-server test suite (2 shards) + DB schema reset.
+#            Baseline ~230s.
 #
-#   60000ms  artifacts/api-server `typecheck` script
-#            tsc --noEmit + check:cycles. Baseline ~30s, ~2x headroom.
+#   120000ms artifacts/api-server `typecheck` script
+#            tsc --noEmit + check:cycles + check:no-console. Baseline ~90s.
 #
-#   30000ms  artifacts/overhype-me `test` script (the `sentry-tests`
-#            validation workflow). Vitest run. Baseline ~13s, ~2.5x headroom.
+#   120000ms artifacts/overhype-me `test` script (the `sentry-tests`
+#            validation workflow). Vitest run. Baseline ~80s.
 #
 #   15000ms  lib/db `typecheck` script
 #            tsc --noEmit on the shared db package. Baseline ~3s; generous
