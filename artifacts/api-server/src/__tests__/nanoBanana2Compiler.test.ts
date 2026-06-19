@@ -387,24 +387,34 @@ describe("nanoBanana2 — structured directive injection", () => {
     assert.doesNotMatch(out.imagePrompt.toLowerCase(), /avoid readable in-scene text/);
   });
 
-  it("injects semantic-entity referents", () => {
+  it("feeds the resolved semantic referent as a concrete element, NOT an 'interpret X means Y' meta line", () => {
     const out = compileNanoBanana2HumanI2I(makeArgs({
       subjectRenderMode: "human_identity_i2i",
       prompt: "David stands triumphant.",
       visualPlan: {
+        // coreScene omits the planet — the gap-fill must guarantee it reaches the engine.
+        coreScene: "David stands triumphant on a cliff.",
+        keyVisualElements: ["a triumphant pose", "a cliff edge", "dramatic light"],
         semanticEntitiesUsed: [{ surfaceText: "Earth", visualReferentUsed: "the planet Earth seen from orbit", effectOnVisualPlan: "sets cosmic scale" }],
       },
     }));
-    assert.match(out.imagePrompt, /"Earth" means the planet Earth seen from orbit/);
+    // No interpretation meta.
+    assert.doesNotMatch(out.imagePrompt, /Interpret these terms exactly/);
+    assert.doesNotMatch(out.imagePrompt, /"Earth" means/);
+    // The resolved referent reaches the engine as a concrete visible element.
+    assert.match(out.imagePrompt, /Ensure these elements are clearly visible:[^]*the planet Earth seen from orbit/);
   });
 
-  it("does NOT leak cultural-reference meta into the engine prompt (it informs the planner only)", () => {
+  it("cultural reference: the concrete visual reaches the engine, the meta/brand does NOT (safety net)", () => {
     const out = compileNanoBanana2HumanI2I(makeArgs({
       subjectRenderMode: "human_identity_i2i",
       prompt: "David on a beach.",
       renderedSubject: { name: "David", pronouns: "he/him" },
       visualPlan: {
-        coreScene: "Sharks gather around a glowing TV screen watching David.",
+        // A generic scene that does NOT bake in the gag — the gap-fill is the only
+        // guarantee the implication survives (the validator doesn't enforce baking).
+        coreScene: "David stands on a sunny beach.",
+        keyVisualElements: ["a sunny beach", "blue sky", "David smiling"],
         culturalReferencesUsed: [{
           sourcePhrase: "Shark Week",
           canonicalReferenceUsed: "Discovery Channel's Shark Week",
@@ -417,8 +427,26 @@ describe("nanoBanana2 — structured directive injection", () => {
     assert.doesNotMatch(out.imagePrompt.toLowerCase(), /treat "shark week" as/);
     assert.doesNotMatch(out.imagePrompt.toLowerCase(), /discovery channel/);
     assert.doesNotMatch(out.imagePrompt, /Cultural references:/);
-    // The gag still reaches the engine via the planner's CORE SCENE.
-    assert.match(out.imagePrompt, /Sharks gather around a glowing TV screen watching David\./);
+    // …but the concrete visual implication still reaches the engine (the gag survives).
+    assert.match(out.imagePrompt, /Ensure these elements are clearly visible:[^]*sharks circling on a TV screen behind David/);
+  });
+
+  it("does not duplicate a cultural visual the scene already states (dedupe)", () => {
+    const out = compileNanoBanana2HumanI2I(makeArgs({
+      subjectRenderMode: "human_identity_i2i",
+      prompt: "Sharks watch David.",
+      visualPlan: {
+        coreScene: "Sharks circling on a TV screen behind David.",
+        keyVisualElements: ["a TV screen", "blue water", "shark fins"],
+        culturalReferencesUsed: [{
+          sourcePhrase: "Shark Week",
+          canonicalReferenceUsed: "Discovery Channel's Shark Week",
+          visualImplicationUsed: "sharks circling on a TV screen behind David",
+          effectOnVisualPlan: "adds the gag",
+        }],
+      },
+    }));
+    assert.equal(countOccurrences(out.imagePrompt, "sharks circling on a TV screen behind David"), 1, out.imagePrompt);
   });
 
   it("injects high-impact modifier directives", () => {
@@ -430,19 +458,23 @@ describe("nanoBanana2 — structured directive injection", () => {
     assert.match(out.imagePrompt.toLowerCase(), /crowd reacting/);
   });
 
-  it("resolves residual identity tokens the LLM echoed (e.g. a {NAME} semantic entity) using renderedSubject", () => {
+  it("resolves residual identity tokens in emitted elements (keyVisualElements + semantic referent) using renderedSubject", () => {
     const out = compileNanoBanana2HumanI2I(makeArgs({
       subjectRenderMode: "human_identity_i2i",
-      prompt: "David stands triumphant.",
+      prompt: "Subject stands triumphant.",
       renderedSubject: { name: "David", pronouns: "he/him" },
       visualPlan: {
+        coreScene: "A triumphant stance on a cliff.",
+        keyVisualElements: ["a trophy", "a spotlight", "{NAME}'s banner overhead"],
         semanticEntitiesUsed: [
-          { surfaceText: "{NAME}", visualReferentUsed: "the user's name", effectOnVisualPlan: "names the hero" },
+          { surfaceText: "Earth", visualReferentUsed: "{NAME} standing on the planet", effectOnVisualPlan: "names the hero" },
         ],
       },
     }));
+    // No raw template token reaches the engine, from any emitted source.
     assert.doesNotMatch(out.imagePrompt, /\{NAME\}/);
-    assert.match(out.imagePrompt, /"David" means the user's name/);
+    assert.match(out.imagePrompt, /David's banner overhead/);
+    assert.match(out.imagePrompt, /David standing on the planet/);
   });
 });
 
