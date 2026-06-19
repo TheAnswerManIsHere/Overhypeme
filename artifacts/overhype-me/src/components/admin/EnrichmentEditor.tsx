@@ -11,14 +11,10 @@ import {
   isKnownModifier,
   normalizeHashtag,
   validateEnrichment,
-  hasUsableVisualPreview,
-  PREVIEW_GENERATION_MODE,
-  PREVIEW_STYLE,
   computeEnrichmentVersionStatus,
   type EnrichmentVersionStatus,
   type FactEnrichment,
   type CulturalReference,
-  type VisualPromptPreview,
   type ReferenceType,
   type PrimaryArchetype,
   type SemanticEntity,
@@ -37,16 +33,7 @@ import {
   type VisualStrategyRoleBinding,
   type SubjectRealizationMode,
 } from "@workspace/api-zod";
-import { AlertTriangle, RefreshCw, Save, X, Eye, Plus, Trash2, Search, Loader2, Sparkles, ExternalLink, CheckCircle2 } from "lucide-react";
-
-// ─── Forbidden-text heuristic ───────────────────────────────────────────────
-//
-// Per the Phase 2A supporting-text policy, ALL readable text isn't forbidden —
-// only specific categories (full captions, full fact text, hashtags, watermarks,
-// logos, brand marks, long paragraphs) are. This regex flags only the forbidden
-// signals so the admin sees a warning when the preview leans on something it
-// shouldn't.
-const FORBIDDEN_TEXT_RE = /\b(watermark|logo|brand[\s-]?(?:name|mark)|full[\s-]?(?:caption|fact|text)|hashtag|paragraph|prose)\b/i;
+import { AlertTriangle, RefreshCw, Save, X, Plus, Trash2, Search, Loader2, Sparkles, ExternalLink, CheckCircle2 } from "lucide-react";
 
 /** Blank scaffold used when an admin fills enrichment manually (AI failed). */
 export const EMPTY_ENRICHMENT: FactEnrichment = {
@@ -113,25 +100,6 @@ function Warnings({ e }: { e: FactEnrichment }) {
   if (lowConfEntities.length) {
     warnings.push(`Low-confidence semantic entity: ${lowConfEntities.map((s) => `"${s.surfaceText}"`).join(", ")}`);
   }
-  const preview = e.visualPromptPreview;
-  if (preview) {
-    const promptBody = [preview.exampleI2iPrompt, preview.exampleT2iPrompt, preview.engineNeutralVisualPlan].join(" ");
-    if (FORBIDDEN_TEXT_RE.test(promptBody)) {
-      warnings.push("Preview may render forbidden text (logos / watermarks / hashtags / full text / long paragraphs)");
-    }
-    // Generic-vs-reference: if cultural refs exist, at least one of them should
-    // surface in the preview's culturalReferencesUsed OR in the scene text.
-    if (e.culturalReferences.length > 0) {
-      const referenceMentions = new Set((preview.culturalReferencesUsed ?? []).map((s) => s.toLowerCase()));
-      const sceneText = `${preview.sceneConcept} ${preview.archetypeApplication} ${preview.visualApproach}`.toLowerCase();
-      const anyMatched = e.culturalReferences.some((r) =>
-        referenceMentions.has(r.sourcePhrase.toLowerCase()) ||
-        (r.sourcePhrase && sceneText.includes(r.sourcePhrase.toLowerCase())) ||
-        (r.canonicalReference && sceneText.includes(r.canonicalReference.toLowerCase()))
-      );
-      if (!anyMatched) warnings.push("Preview seems generic — none of the cultural references appear in the scene");
-    }
-  }
 
   if (!warnings.length) return null;
   return (
@@ -154,31 +122,6 @@ function emptyCulturalRef(): CulturalReference {
     visualImplication: "",
     confidence: 0.7,
     requiresAdminReview: false,
-  };
-}
-
-function emptyVisualPreview(): VisualPromptPreview {
-  return {
-    archetypeApplication: "",
-    selectedFrame: "",
-    sceneConcept: "",
-    visualGoal: "",
-    visualApproach: "",
-    keyVisualElements: [],
-    engineNeutralVisualPlan: "",
-    exampleI2iPrompt: "",
-    exampleT2iPrompt: "",
-    promptGuardrailsPreview: "",
-    supportingTextPolicy: { allowed: [], forbidden: [], notes: "" },
-    culturalReferencesUsed: [],
-    interpretationWarnings: [],
-    previewAssumptions: {
-      sampleName: "David",
-      generationMode: PREVIEW_GENERATION_MODE,
-      style: PREVIEW_STYLE,
-      preserveFace: true,
-      preservePhysique: false,
-    },
   };
 }
 
@@ -801,183 +744,6 @@ function SemanticEntitiesEditor({
   );
 }
 
-/**
- * Visual interpretation preview editor (Phase 2A). Narrative fields are
- * editable; previewAssumptions stays literal (the generator owns those).
- * The list editors (keyVisualElements, supportingTextPolicy.allowed/forbidden,
- * culturalReferencesUsed, interpretationWarnings) are stored as
- * newline-separated text in textareas for ease of editing.
- */
-function VisualPreviewPanel({
-  preview,
-  onChange,
-  onRegenerate,
-  busy,
-  previewBusy,
-}: {
-  preview: VisualPromptPreview | undefined;
-  onChange: (next: VisualPromptPreview) => void;
-  onRegenerate?: () => void;
-  busy?: boolean;
-  previewBusy?: boolean;
-}) {
-  const p = preview ?? emptyVisualPreview();
-  const update = (patch: Partial<VisualPromptPreview>) => onChange({ ...p, ...patch });
-  const linesOf = (s: string) => s.split("\n").map((x) => x.trim()).filter(Boolean);
-
-  return (
-    <div className="rounded-sm border border-border bg-muted/20 p-3 space-y-3">
-      <div className="flex items-center justify-between gap-2">
-        <p className="text-xs font-bold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
-          <Eye className="w-3.5 h-3.5" /> Visual Plan
-        </p>
-        {onRegenerate && (
-          <button
-            type="button"
-            onClick={onRegenerate}
-            disabled={busy}
-            className="inline-flex items-center gap-1 text-xs text-primary hover:underline disabled:opacity-50"
-          >
-            <RefreshCw className={`w-3 h-3 ${previewBusy ? "animate-spin" : ""}`} />
-            {previewBusy ? "Regenerating…" : "Regenerate visual plan"}
-          </button>
-        )}
-      </div>
-
-      {!preview && (
-        <p className="text-xs text-muted-foreground italic">
-          No visual plan yet. Click "Regenerate visual plan" once enrichment is saved, or fill the fields below by hand before approving.
-        </p>
-      )}
-
-      <div>
-        <label className={LABEL_CLASS}>Archetype application</label>
-        <textarea className={`${SELECT_CLASS} resize-none`} rows={2}
-          value={p.archetypeApplication}
-          onChange={(ev) => update({ archetypeApplication: ev.target.value })}
-        />
-      </div>
-
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-        <div>
-          <label className={LABEL_CLASS}>Selected frame</label>
-          <input className={SELECT_CLASS}
-            value={p.selectedFrame}
-            onChange={(ev) => update({ selectedFrame: ev.target.value })}
-          />
-        </div>
-        <div>
-          <label className={LABEL_CLASS}>Scene concept</label>
-          <textarea className={`${SELECT_CLASS} resize-none`} rows={2}
-            value={p.sceneConcept}
-            onChange={(ev) => update({ sceneConcept: ev.target.value })}
-          />
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-        <div>
-          <label className={LABEL_CLASS}>Visual goal</label>
-          <textarea className={`${SELECT_CLASS} resize-none`} rows={2}
-            value={p.visualGoal}
-            onChange={(ev) => update({ visualGoal: ev.target.value })}
-          />
-        </div>
-        <div>
-          <label className={LABEL_CLASS}>Visual approach</label>
-          <textarea className={`${SELECT_CLASS} resize-none`} rows={2}
-            value={p.visualApproach}
-            onChange={(ev) => update({ visualApproach: ev.target.value })}
-          />
-        </div>
-      </div>
-
-      <div>
-        <label className={LABEL_CLASS}>Key visual elements (one per line)</label>
-        <textarea className={`${SELECT_CLASS} resize-none`} rows={3}
-          value={(p.keyVisualElements ?? []).join("\n")}
-          onChange={(ev) => update({ keyVisualElements: linesOf(ev.target.value) })}
-        />
-      </div>
-
-      <div>
-        <label className={LABEL_CLASS}>Engine-neutral visual plan</label>
-        <textarea className={`${SELECT_CLASS} resize-none`} rows={3}
-          value={p.engineNeutralVisualPlan}
-          onChange={(ev) => update({ engineNeutralVisualPlan: ev.target.value })}
-        />
-      </div>
-
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-        <div>
-          <label className={LABEL_CLASS}>Preview-only example I2I prompt</label>
-          <textarea className={`${SELECT_CLASS} resize-none font-mono text-xs`} rows={4}
-            value={p.exampleI2iPrompt}
-            onChange={(ev) => update({ exampleI2iPrompt: ev.target.value })}
-          />
-        </div>
-        <div>
-          <label className={LABEL_CLASS}>Preview-only example T2I prompt</label>
-          <textarea className={`${SELECT_CLASS} resize-none font-mono text-xs`} rows={4}
-            value={p.exampleT2iPrompt}
-            onChange={(ev) => update({ exampleT2iPrompt: ev.target.value })}
-          />
-        </div>
-      </div>
-      <p className="text-[11px] text-muted-foreground leading-snug">
-        This is an admin preview generated during taxonomy enrichment. It is not the final image-engine prompt.
-        Use <span className="font-semibold">Runtime Compiled Prompt Preview</span> (on the Facts admin page) to inspect
-        the actual prompt that would be sent to Nano Banana for a selected render context.
-      </p>
-
-      <div>
-        <label className={LABEL_CLASS}>Prompt guardrails preview</label>
-        <textarea className={`${SELECT_CLASS} resize-none`} rows={2}
-          value={p.promptGuardrailsPreview}
-          onChange={(ev) => update({ promptGuardrailsPreview: ev.target.value })}
-        />
-      </div>
-
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-        <div>
-          <label className={LABEL_CLASS}>Supporting text — allowed (one per line)</label>
-          <textarea className={`${SELECT_CLASS} resize-none`} rows={3}
-            value={(p.supportingTextPolicy?.allowed ?? []).join("\n")}
-            onChange={(ev) =>
-              update({ supportingTextPolicy: { ...p.supportingTextPolicy, allowed: linesOf(ev.target.value) } })
-            }
-          />
-        </div>
-        <div>
-          <label className={LABEL_CLASS}>Supporting text — forbidden (one per line)</label>
-          <textarea className={`${SELECT_CLASS} resize-none`} rows={3}
-            value={(p.supportingTextPolicy?.forbidden ?? []).join("\n")}
-            onChange={(ev) =>
-              update({ supportingTextPolicy: { ...p.supportingTextPolicy, forbidden: linesOf(ev.target.value) } })
-            }
-          />
-        </div>
-      </div>
-
-      <div>
-        <label className={LABEL_CLASS}>Cultural references used (sourcePhrases, one per line)</label>
-        <textarea className={`${SELECT_CLASS} resize-none`} rows={2}
-          value={(p.culturalReferencesUsed ?? []).join("\n")}
-          onChange={(ev) => update({ culturalReferencesUsed: linesOf(ev.target.value) })}
-        />
-      </div>
-
-      <div>
-        <label className={LABEL_CLASS}>Interpretation warnings (one per line)</label>
-        <textarea className={`${SELECT_CLASS} resize-none`} rows={2}
-          value={(p.interpretationWarnings ?? []).join("\n")}
-          onChange={(ev) => update({ interpretationWarnings: linesOf(ev.target.value) })}
-        />
-      </div>
-    </div>
-  );
-}
-
 function Chips({
   items,
   onRemove,
@@ -1015,7 +781,7 @@ function Chips({
 /** Compact read-only view for already-decided reviews. */
 /**
  * Per-fact enrichment staleness badge. Shows whether the stored enrichment was
- * produced under the CURRENT taxonomy/visual-plan versions — and, when stale,
+ * produced under the CURRENT taxonomy/classification version — and, when stale,
  * the exact stored→current discrepancy so the admin knows a re-enrich is due.
  * Uses the shared `computeEnrichmentVersionStatus` so it agrees with the
  * Taxonomy Health evaluator. `status` can be injected for testing.
@@ -1024,15 +790,12 @@ export function EnrichmentStalenessBadge({
   e,
   status,
 }: {
-  e: Pick<FactEnrichment, "classificationPromptVersion" | "visualPromptPreview">;
+  e: Pick<FactEnrichment, "classificationPromptVersion">;
   status?: EnrichmentVersionStatus;
 }) {
   const s = status ?? computeEnrichmentVersionStatus(e);
-  // Only surface the visual-plan version line when a plan actually exists —
-  // "not generated yet" is the Taxonomy Health page's job, not this badge's.
-  const hasPreview = !!e.visualPromptPreview;
-  const fields = s.fields.filter((f) => f.field === "classification" || hasPreview);
-  const showStale = s.enrichmentStale || (hasPreview && s.previewStale);
+  const fields = s.fields;
+  const showStale = s.enrichmentStale;
 
   if (!showStale) {
     return (
@@ -1156,21 +919,6 @@ export function EnrichmentSummary({ e }: { e: FactEnrichment }) {
               {s.requiresAdminReview && <span className="text-amber-600 dark:text-amber-400"> · review</span>}
             </p>
           ))}
-        </div>
-      )}
-      {e.visualPromptPreview && (
-        <div className="border-t border-border pt-2 mt-2 space-y-1">
-          <p className="text-xs font-bold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
-            <Eye className="w-3 h-3" /> Visual preview
-          </p>
-          <p className="text-xs text-foreground"><span className="text-muted-foreground">Scene: </span>{e.visualPromptPreview.sceneConcept}</p>
-          <p className="text-xs text-foreground"><span className="text-muted-foreground">Frame: </span>{e.visualPromptPreview.selectedFrame}</p>
-          <details className="text-xs">
-            <summary className="text-muted-foreground cursor-pointer">Preview-only example I2I / T2I prompts</summary>
-            <pre className="mt-1 whitespace-pre-wrap font-mono text-[10px] text-foreground bg-background border border-border rounded-sm p-2">
-{`i2i: ${e.visualPromptPreview.exampleI2iPrompt}\n\nt2i: ${e.visualPromptPreview.exampleT2iPrompt}`}
-            </pre>
-          </details>
         </div>
       )}
     </div>
@@ -1410,10 +1158,8 @@ export function EnrichmentEditor({
   onChange,
   onSave,
   onRerun,
-  onRegeneratePreview,
   busy = false,
   rerunBusy = false,
-  previewBusy = false,
   submittedHashtags = [],
 }: {
   value: FactEnrichment | null;
@@ -1423,10 +1169,8 @@ export function EnrichmentEditor({
   onChange: (next: FactEnrichment) => void;
   onSave?: () => void;
   onRerun?: () => void;
-  onRegeneratePreview?: () => void;
   busy?: boolean;
   rerunBusy?: boolean;
-  previewBusy?: boolean;
   submittedHashtags?: string[];
 }) {
   const e = value ? { ...EMPTY_ENRICHMENT, ...value } : EMPTY_ENRICHMENT;
@@ -1658,24 +1402,18 @@ export function EnrichmentEditor({
         onChange={(next) => update({ semanticEntities: next })}
       />
 
-      <VisualPreviewPanel
-        preview={e.visualPromptPreview}
-        onChange={(next) => update({ visualPromptPreview: next })}
-        onRegenerate={onRegeneratePreview}
-        busy={busy}
-        previewBusy={previewBusy}
-      />
+      <div className="rounded-sm border border-border bg-muted/20 p-3 text-xs text-muted-foreground leading-snug">
+        This editor sets the <span className="font-semibold text-foreground">meaning</span> (taxonomy, cultural
+        references, semantic entities) and optional <span className="font-semibold text-foreground">art direction</span>{" "}
+        (Visual Strategy Override). To see what the image will actually be, use the{" "}
+        <span className="font-semibold text-foreground">Runtime Compiled Prompt Preview</span> on the Facts admin page —
+        it is the single source of truth for the rendered prompt and reflects this enrichment and any override. Approval
+        runs the same runtime pipeline as a renderability check before publishing.
+      </div>
 
       {!validity.ok && validity.error.split("; ").filter((err) => !err.startsWith("suggestedHashtags:")).length > 0 && (
         <p className="text-xs text-destructive flex items-center gap-1.5">
           <AlertTriangle className="w-3.5 h-3.5 shrink-0" /> {validity.error.split("; ").filter((err) => !err.startsWith("suggestedHashtags:")).join("; ")}
-        </p>
-      )}
-
-      {validity.ok && !hasUsableVisualPreview(e) && (
-        <p className="text-xs text-amber-600 dark:text-amber-400 flex items-center gap-1.5">
-          <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
-          Generate a visual preview before approving — Approve is disabled without one.
         </p>
       )}
 
@@ -1695,10 +1433,11 @@ export function EnrichmentEditor({
 
 /**
  * True when an enrichment is ready to approve — used by the moderation page
- * to gate the Approve / Approve-as-Variant buttons in lockstep with the
- * server-side hard gate.
+ * to gate the Approve / Approve-as-Variant buttons. The renderability check is
+ * a SERVER-side gate run at approval time (a non-persistent render preflight);
+ * the client gate only requires a valid enrichment.
  */
 export function isApprovable(enrichment: FactEnrichment | null | undefined): boolean {
   if (!enrichment) return false;
-  return validateEnrichment(enrichment).ok && hasUsableVisualPreview(enrichment);
+  return validateEnrichment(enrichment).ok;
 }

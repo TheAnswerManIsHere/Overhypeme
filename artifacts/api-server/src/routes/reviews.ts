@@ -18,9 +18,18 @@ import { runFactImagePipeline } from "../lib/factImagePipeline";
 import { createRateLimiter } from "../lib/rateLimit";
 import { validateTemplate } from "../lib/templateGrammar";
 import { computeSplitTokenIndex } from "../lib/splitTokenIndex";
-import { validateEnrichment, hasUsableVisualPreview, type FactEnrichment } from "@workspace/api-zod";
+import { validateEnrichment, type FactEnrichment } from "@workspace/api-zod";
 import { buildFactEnrichmentColumns } from "../lib/factEnrichment";
 import { enqueueJob } from "../lib/asyncJobs";
+import {
+  assertFactPassesCanonicalRenderPreflight,
+  type RenderPreflightResult,
+} from "../lib/imagePrompt/renderPreflight";
+import { logger } from "../lib/logger";
+
+// Re-export the plan-generator test seam (owned by the shared preview helper)
+// so the approval render-preflight can be stubbed in tests that import it here.
+export { __setPlanGeneratorForTest } from "../lib/imagePrompt/preview";
 
 const requireRateLimit = createRateLimiter();
 
@@ -230,13 +239,10 @@ const ApproveVariantBody = z.object({
  * `enrichment` from the request body (validated); falls back to the stored
  * pending-review enrichment.
  *
- * **Hard approval gate (Phase 2A):** approval requires both (a) a valid
- * enrichment and (b) a usable visual prompt preview. This is a deliberate
- * behavior change from Phase 1 (which allowed approving with no enrichment) —
- * see the Phase 2A addendum: "approve only after valid enrichment and a
- * visual preview exist." The gate applies to pending-review approval only;
- * approved facts may exist without a preview and have one generated on
- * demand from /admin/facts.
+ * **Hard approval gate:** approval requires a valid enrichment. The
+ * renderability check (a NON-PERSISTENT render preflight over the real
+ * runtime path) runs separately in the route handler AFTER this and BEFORE any
+ * state mutation — see `runApprovalRenderPreflight`.
  */
 function resolveApprovalEnrichment(
   body: unknown,
@@ -258,13 +264,48 @@ function resolveApprovalEnrichment(
       error: "A valid enrichment is required before approval. Re-run classification or fill it in manually.",
     };
   }
-  if (!hasUsableVisualPreview(resolved)) {
-    return {
-      ok: false,
-      error: "A visual prompt preview is required before approval. Click \"Regenerate preview\" or fill it in manually before approving.",
-    };
-  }
   return { ok: true, enrichment: resolved };
+}
+
+/**
+ * Run the canonical render preflight and, on failure, write the mapped HTTP
+ * status + error onto `res`. Returns true when the caller should HALT (the
+ * response has already been sent); false when the preflight passed and approval
+ * may proceed. The preflight persists nothing, so review state is untouched on
+ * every failure path.
+ *
+ * HTTP mapping:
+ *  - unrenderable (content-specific "poor" rating) → 400 (actionable message).
+ *  - preflight_failed + retryable (timeout/transient) → 503 ("retry").
+ *  - preflight_failed + non-retryable (planner/compiler threw) → 422 (+ server log).
+ */
+async function runApprovalRenderPreflight(
+  factText: string,
+  enrichment: FactEnrichment,
+  res: Response,
+): Promise<boolean> {
+  let result: RenderPreflightResult;
+  try {
+    result = await assertFactPassesCanonicalRenderPreflight(factText, enrichment);
+  } catch (err) {
+    // Defensive: the helper is designed never to throw, but if it does, treat
+    // it as a non-retryable preflight failure rather than crashing approval.
+    logger.error({ err }, "[reviews] render preflight threw unexpectedly");
+    res.status(422).json({ error: "Render check failed — the image pipeline could not validate this fact." });
+    return true;
+  }
+  if (result.ok) return false;
+  if (result.kind === "unrenderable") {
+    res.status(400).json({ error: result.message });
+    return true;
+  }
+  if (result.retryable) {
+    res.status(503).json({ error: "Render check failed; please retry approval shortly." });
+    return true;
+  }
+  logger.error({ detail: result.detail }, "[reviews] render preflight failed (non-retryable)");
+  res.status(422).json({ error: "Render check failed — the image pipeline could not validate this fact." });
+  return true;
 }
 
 /** Attach hashtags to a fact, upserting into the hashtags master + join table. */
@@ -306,6 +347,12 @@ router.post("/admin/reviews/:id/approve-variant", requireAdmin, async (req: Auth
     return;
   }
   const enrichment = enrichmentResult.enrichment;
+
+  // Renderability gate — run the real runtime pipeline once over a neutral
+  // canonical subject BEFORE any state mutation. The review is untouched on
+  // every failure path (the preflight persists nothing).
+  if (await runApprovalRenderPreflight(review.submittedText, enrichment, res)) return;
+
   const enrichmentCols = enrichment ? buildFactEnrichmentColumns(enrichment) : {};
 
   const hasPronounsFlag = /\{(SUBJ|OBJ|POSS|POSS_PRO|REFL|Subj|Obj|Poss|Poss_Pro|Refl|[^|{}]+\|[^|{}]+)\}/.test(review.submittedText);
@@ -379,6 +426,12 @@ router.post("/admin/reviews/:id/approve", requireAdmin, async (req: Authenticate
     return;
   }
   const enrichment = enrichmentResult.enrichment;
+
+  // Renderability gate — run the real runtime pipeline once over a neutral
+  // canonical subject BEFORE any state mutation. The review is untouched on
+  // every failure path (the preflight persists nothing).
+  if (await runApprovalRenderPreflight(review.submittedText, enrichment, res)) return;
+
   const enrichmentCols = enrichment ? buildFactEnrichmentColumns(enrichment) : {};
 
   // Insert the fact into the main table, detecting pronoun tokens from the template
@@ -564,40 +617,6 @@ router.post("/admin/reviews/:id/enrich", requireAdmin, async (req: Request, res:
   });
 
   res.json({ success: true, enrichmentStatus: "pending" });
-});
-
-// ─── Enrichment: regenerate visual preview only (admin) ───────────────────────
-
-router.post("/admin/reviews/:id/preview", requireAdmin, async (req: Request, res: Response) => {
-  const id = parseInt(String(req.params["id"] ?? ""), 10);
-  if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
-
-  const [review] = await db.select({ id: pendingReviewsTable.id, enrichment: pendingReviewsTable.enrichment })
-    .from(pendingReviewsTable).where(eq(pendingReviewsTable.id, id)).limit(1);
-  if (!review) { res.status(404).json({ error: "Review not found" }); return; }
-
-  const validated = validateEnrichment(review.enrichment);
-  if (!validated.ok) {
-    res.status(400).json({
-      error: "Cannot regenerate preview: stored enrichment is missing or invalid. Re-run classification first.",
-    });
-    return;
-  }
-
-  // Mark previewStatus="pending" inside the enrichment blob so the admin UI
-  // surfaces in-flight state.
-  const merged = { ...validated.data, previewStatus: "pending" as const };
-  await db.update(pendingReviewsTable)
-    .set({ enrichment: merged as unknown as FactEnrichment })
-    .where(eq(pendingReviewsTable.id, id));
-
-  await enqueueJob({
-    queue: "preview",
-    payload: { targetType: "pending_review", targetId: id },
-    dedupeKey: `preview:pending_review:${id}`,
-  });
-
-  res.json({ success: true, previewStatus: "pending" });
 });
 
 // ─── Activity Feed ────────────────────────────────────────────────────────────

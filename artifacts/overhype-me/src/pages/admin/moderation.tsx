@@ -190,36 +190,12 @@ function ReviewModal({
 
   const { note, reason, enrichment } = form.value;
 
-  // Persist ONLY the enrichment to the server (pre-commit before a preview
-  // regeneration). note/reason stay local until the decision.
-  const persistEnrichment = useCallback(async (): Promise<boolean> => {
-    try {
-      const r = await fetch(`/api/admin/reviews/${review.id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({ enrichment: form.value.enrichment }),
-      });
-      if (!r.ok) return false;
-      // The enrichment is now the server source of truth. Promote it into the
-      // form baseline so a later Discard reverts to THIS enrichment — not the
-      // stale pre-PATCH one — even if the subsequent preview POST fails.
-      const persisted = form.value.enrichment;
-      serverEnrichmentRef.current = persisted;
-      form.adoptServerSlice((v) => ({ ...v, enrichment: persisted }));
-      return true;
-    } catch {
-      return false;
-    }
-  }, [review.id, form]);
-
-  // Enrichment-specific ACTIONS (re-run, regenerate preview, server polling) —
+  // Enrichment-specific ACTIONS (re-run classification, server polling) —
   // separate from autosave, shared with the Facts admin page.
   const jobs = useEnrichmentJobs({
     resource: "reviews",
     id: review.id,
     status: enrichmentStatus,
-    getEnrichment: () => form.value.enrichment,
     // "Dirty" for polling = local enrichment differs from what's on the server.
     isDirty: () => stableSerialize(form.value.enrichment) !== stableSerialize(serverEnrichmentRef.current),
     // A background job rewrote the enrichment server-side; fold ONLY the
@@ -229,7 +205,6 @@ function ReviewModal({
       serverEnrichmentRef.current = e;
       setEnrichmentStatus(s);
     },
-    saveNow: persistEnrichment,
   });
 
   // The draft autosaves to localStorage (and the hook flushes any pending draft
@@ -354,10 +329,8 @@ function ReviewModal({
                 factText={review.submittedText}
                 onChange={(next) => form.setValue((v) => ({ ...v, enrichment: next }))}
                 onRerun={jobs.onRerun}
-                onRegeneratePreview={jobs.onRegeneratePreview}
-                busy={loading || form.loading || jobs.loading || jobs.rerunBusy || jobs.previewBusy}
+                busy={loading || form.loading || jobs.loading || jobs.rerunBusy}
                 rerunBusy={jobs.rerunBusy}
-                previewBusy={jobs.previewBusy}
                 submittedHashtags={review.hashtags ?? []}
               />
               {jobs.error && (
@@ -443,7 +416,7 @@ function ReviewModal({
                   onClick={() => handle("approve")}
                   isLoading={loading}
                   disabled={!canApprove || loading}
-                  title={canApprove ? undefined : "Approve is disabled until enrichment is valid and a visual preview exists"}
+                  title={canApprove ? undefined : "Approve is disabled until the enrichment is valid"}
                   className="bg-green-600 hover:bg-green-700 text-white gap-2 disabled:opacity-50"
                 >
                   <CheckCircle2 className="w-4 h-4" /> Approve — New Fact
@@ -464,7 +437,9 @@ function ReviewModal({
               {!canApprove && (
                 <p className="text-xs text-amber-600 dark:text-amber-400 flex items-center gap-1.5">
                   <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
-                  Approve is locked until enrichment is valid and a visual preview exists. Generate one or fill it in manually.
+                  Approve is locked until the enrichment is valid. Re-run classification or fill it in manually. On
+                  approve, the server runs a renderability check — if the fact can't be rendered coherently, approval is
+                  blocked with a specific reason.
                 </p>
               )}
 

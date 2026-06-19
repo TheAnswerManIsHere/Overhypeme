@@ -189,13 +189,10 @@ function FactEnrichmentPanel({ fact, onSaved }: { fact: Fact; onSaved: (resp: En
     resource: "facts",
     id: fact.id,
     status: enrichmentStatus,
-    getEnrichment: () => draft.value,
     isDirty: () => draft.hasUncommittedChanges,
-    // A background job (re-run / preview) rewrites the enrichment server-side;
-    // fold it into BOTH value and baseline so it becomes the new source of truth.
+    // A background re-run rewrites the enrichment server-side; fold it into BOTH
+    // value and baseline so it becomes the new source of truth.
     applyServerState: (e, s) => { draft.adoptServerSlice(() => e); setEnrichmentStatus(s); },
-    // Regenerate-preview must persist the current enrichment first; Save does that.
-    saveNow: draft.save,
   });
 
   // Re-running classification overwrites possibly admin-tuned metadata on a live
@@ -212,7 +209,7 @@ function FactEnrichmentPanel({ fact, onSaved }: { fact: Fact; onSaved: (resp: En
     await jobs.onRerun();
   }
 
-  const busy = draft.loading || draft.committing || jobs.loading || jobs.rerunBusy || jobs.previewBusy;
+  const busy = draft.loading || draft.committing || jobs.loading || jobs.rerunBusy;
 
   return (
     <div className="space-y-2">
@@ -258,10 +255,8 @@ function FactEnrichmentPanel({ fact, onSaved }: { fact: Fact; onSaved: (resp: En
         onChange={(next) => draft.setValue(next)}
         onSave={draft.hasUncommittedChanges ? () => void draft.save() : undefined}
         onRerun={handleRerun}
-        onRegeneratePreview={jobs.onRegeneratePreview}
         busy={busy}
         rerunBusy={jobs.rerunBusy}
-        previewBusy={jobs.previewBusy}
       />
       <div className="flex items-center justify-end gap-3 min-h-[1.75rem]">
         <Button

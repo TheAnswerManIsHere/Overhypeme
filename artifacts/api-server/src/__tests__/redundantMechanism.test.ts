@@ -20,7 +20,6 @@ import {
   isKnownModifier,
   KNOWN_FACT_MODIFIERS,
   CLASSIFICATION_PROMPT_VERSION,
-  PREVIEW_PROMPT_VERSION,
   SUBTYPES_BY_ARCHETYPE,
   VISUAL_PROMPT_STRATEGIES,
   getVisualPromptStrategy,
@@ -29,30 +28,6 @@ import {
 import { evaluateFactTaxonomyHealth } from "../lib/taxonomyHealth";
 import { modifierDirectives } from "../lib/imagePrompt/modifierDirectives.js";
 import { FACT_ENRICHMENT_SYSTEM_DEFAULT } from "../lib/factEnrichmentConfig.js";
-
-const PREVIEW = {
-  archetypeApplication: "applies the superhuman physical feat strategy",
-  selectedFrame: "direct_action",
-  sceneConcept: "scene",
-  visualGoal: "goal",
-  visualApproach: "approach",
-  keyVisualElements: ["a", "b", "c"],
-  engineNeutralVisualPlan: "engine-neutral plan",
-  exampleI2iPrompt: "i2i",
-  exampleT2iPrompt: "t2i",
-  promptGuardrailsPreview: "",
-  supportingTextPolicy: { allowed: [], forbidden: [], notes: "" },
-  culturalReferencesUsed: [],
-  interpretationWarnings: [],
-  previewAssumptions: {
-    sampleName: "David",
-    generationMode: "i2i_and_t2i_preview",
-    style: "default_sfw_cinematic",
-    preserveFace: true,
-    preservePhysique: false,
-  },
-  previewPromptVersion: PREVIEW_PROMPT_VERSION,
-};
 
 function buildEnrichment(over: {
   primaryArchetype: PrimaryArchetype;
@@ -75,7 +50,6 @@ function buildEnrichment(over: {
     semanticEntities: [],
     classificationPromptVersion: CLASSIFICATION_PROMPT_VERSION,
     enrichedBy: "openai",
-    visualPromptPreview: PREVIEW,
   };
 }
 

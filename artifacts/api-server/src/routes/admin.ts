@@ -8,7 +8,7 @@ import { requireRole } from "../middlewares/tierMiddleware";
 import { backfillEmbeddings, embedFactAsync } from "../lib/embeddings";
 import { enrichFact, buildFactEnrichmentColumns } from "../lib/factEnrichment";
 import { enqueueJob } from "../lib/asyncJobs";
-import { validateEnrichment, type FactEnrichment, CLASSIFICATION_PROMPT_VERSION } from "@workspace/api-zod";
+import { validateEnrichment, type FactEnrichment } from "@workspace/api-zod";
 import { type AuthenticatedRequest } from "../middlewares/authMiddleware";
 import { runFactImagePipeline } from "../lib/factImagePipeline";
 import { generateAiMemeBackgrounds } from "../lib/aiMemePipeline";
@@ -739,11 +739,11 @@ router.patch("/admin/facts/:id", requireAdmin, async (req: Request, res: Respons
 });
 
 // GET /admin/facts/:id — admin detail shape for the Facts editor. Intentionally
-// trimmed: includes the editable scalars + the enrichment blob, enrichmentStatus,
-// and the derived previewStatus, but omits the embedding vector and the large
-// generation blobs (aiScenePrompts, aiMemeImages, raw pexelsImages) the editor
-// never touches. `:id` must be a positive integer (a non-numeric segment is a
-// 400, never a silent match against a static subpath like /import).
+// trimmed: includes the editable scalars + the enrichment blob and
+// enrichmentStatus, but omits the embedding vector and the large generation
+// blobs (aiScenePrompts, aiMemeImages, raw pexelsImages) the editor never
+// touches. `:id` must be a positive integer (a non-numeric segment is a 400,
+// never a silent match against a static subpath like /import).
 router.get("/admin/facts/:id", requireAdmin, async (req: Request, res: Response) => {
   const id = Number(req.params["id"]);
   if (!Number.isInteger(id) || id <= 0) { res.status(400).json({ error: "Invalid fact id" }); return; }
@@ -776,8 +776,7 @@ router.get("/admin/facts/:id", requireAdmin, async (req: Request, res: Response)
     .limit(1);
   if (!row) { res.status(404).json({ error: "Fact not found" }); return; }
 
-  const previewStatus = (row.enrichment as { previewStatus?: string } | null)?.previewStatus ?? null;
-  res.json({ ...row, previewStatus });
+  res.json(row);
 });
 
 /**
@@ -851,17 +850,9 @@ router.patch("/admin/facts/:id/enrichment", requireAdmin, async (req: Request, r
   const stamped = stampOverrideProvenance(result.data, priorRow?.enrichment ?? null, adminId);
 
   const cols = buildFactEnrichmentColumns(stamped);
-  // Mark the visual plan stale: admin-edited enrichment may have changed the
-  // archetype, subtype, or other fields that the visual plan was derived from.
-  // The plan must be regenerated from the updated enrichment — but only after
-  // re-enriching if the classificationPromptVersion is also behind.
-  const enrichmentWithStalePlan = {
-    ...(stamped as Record<string, unknown>),
-    previewStatus: "stale",
-  };
   const [updated] = await db
     .update(factsTable)
-    .set({ ...cols, enrichment: enrichmentWithStalePlan as unknown as FactEnrichment, enrichmentStatus: "ok" })
+    .set({ ...cols, enrichment: stamped, enrichmentStatus: "ok" })
     .where(eq(factsTable.id, id))
     .returning({ id: factsTable.id });
   if (!updated) { res.status(404).json({ error: "Fact not found" }); return; }
@@ -870,7 +861,7 @@ router.patch("/admin/facts/:id/enrichment", requireAdmin, async (req: Request, r
   // list row without a refetch.
   res.json({
     success: true,
-    enrichment: enrichmentWithStalePlan as FactEnrichment,
+    enrichment: stamped,
     projection: {
       primaryArchetype: cols.primaryArchetype,
       subtype: cols.subtype,
@@ -1417,53 +1408,6 @@ router.post("/admin/facts/backfill-enrichment", requireAdminOrApiKey, async (req
     logger.error({ err }, "[admin] Backfill enrichment error");
     res.status(500).json({ error: "Backfill failed", details: String(err) });
   }
-});
-
-// On-demand visual prompt preview for an approved fact (Phase 2A). Backfilled
-// facts have enrichment but no preview by default; this endpoint enqueues a
-// "preview" job to generate one durably (the async-jobs worker retries on
-// transient failures and surfaces the result in `facts.enrichment.visualPromptPreview`).
-router.post("/admin/facts/:id/preview", requireAdmin, async (req: Request, res: Response) => {
-  const id = parseInt(String(req.params["id"] ?? ""), 10);
-  if (isNaN(id)) { res.status(400).json({ error: "Invalid fact id" }); return; }
-
-  const [fact] = await db
-    .select({ id: factsTable.id, enrichment: factsTable.enrichment })
-    .from(factsTable)
-    .where(eq(factsTable.id, id))
-    .limit(1);
-  if (!fact) { res.status(404).json({ error: "Fact not found" }); return; }
-
-  const validated = validateEnrichment(fact.enrichment);
-  if (!validated.ok) {
-    res.status(400).json({
-      error: "Cannot generate preview: fact has no enrichment. Run backfill-enrichment first.",
-    });
-    return;
-  }
-
-  // Guard: the visual plan operates in lockstep with the enrichment. Regenerating
-  // it when the enrichment is stale would embed outdated archetype/subtype data into
-  // the new plan. Re-enrich first to bring the classification current.
-  if (validated.data.classificationPromptVersion !== CLASSIFICATION_PROMPT_VERSION) {
-    res.status(400).json({
-      error: "Cannot regenerate visual plan — enrichment is outdated. Re-enrich this fact first, then regenerate the visual plan.",
-    });
-    return;
-  }
-
-  const merged = { ...validated.data, previewStatus: "pending" as const };
-  await db.update(factsTable)
-    .set({ enrichment: merged as unknown as FactEnrichment })
-    .where(eq(factsTable.id, id));
-
-  await enqueueJob({
-    queue: "preview",
-    payload: { targetType: "fact", targetId: id },
-    dedupeKey: `preview:fact:${id}`,
-  });
-
-  res.json({ success: true, previewStatus: "pending" });
 });
 
 // ─── Config ───────────────────────────────────────────────────────────────────

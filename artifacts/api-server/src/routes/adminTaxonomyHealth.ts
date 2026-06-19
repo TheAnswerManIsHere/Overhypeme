@@ -4,7 +4,6 @@
  *   GET  /admin/taxonomy-health/summary
  *   GET  /admin/taxonomy-health/facts
  *   POST /admin/taxonomy-health/actions/backfill-enrichment
- *   POST /admin/taxonomy-health/actions/regenerate-previews
  *   POST /admin/taxonomy-health/actions/repair-projections
  *
  * The reference-research bulk action is not exposed in v1 — the existing
@@ -118,7 +117,6 @@ router.get("/admin/taxonomy-health/summary", requireAdmin, async (_req: Request,
       missingEnrichment: 0,
       invalidEnrichment: 0,
       needsAdminReview: 0,
-      staleVisualPreview: 0,
       staleEnrichmentVersion: 0,
       projectionMismatch: 0,
       incompleteCulturalReferences: 0,
@@ -305,71 +303,6 @@ router.post(
     } catch (err) {
       logger.error({ err }, "[adminTaxonomyHealth/backfill-enrichment] failed");
       res.status(500).json({ error: "backfill_failed" });
-    }
-  },
-);
-
-// ─── POST /admin/taxonomy-health/actions/regenerate-previews ─────────────
-
-interface RegeneratePreviewsBody {
-  mode?: TaxonomyHealthBulkActionMode;
-  factIds?: number[];
-}
-
-router.post(
-  "/admin/taxonomy-health/actions/regenerate-previews",
-  requireAdmin,
-  async (req: Request, res: Response): Promise<void> => {
-    try {
-      const body = (req.body && typeof req.body === "object" ? req.body : {}) as RegeneratePreviewsBody;
-      const mode: TaxonomyHealthBulkActionMode = body.mode ?? "missing_only";
-      if (!TAXONOMY_HEALTH_BULK_ACTION_MODE_VALUES.includes(mode)) {
-        res.status(400).json({ error: `invalid mode: ${mode}` });
-        return;
-      }
-      const { targets, skippedStaleEnrichment } = await pickPreviewTargets(mode, body.factIds);
-      const jobs: QueuedJobDescriptor[] = [];
-      const outcomes: ActionOutcome[] = [];
-      let failed = 0;
-      // Facts with stale enrichment must be re-enriched first — skip them with an explanation
-      // so the caller knows which facts were not queued and why.
-      for (const factId of skippedStaleEnrichment) {
-        outcomes.push({
-          factId,
-          action: "regenerate_visual_plan",
-          status: "skipped",
-          reason: "stale_enrichment",
-          message: "Re-enrich first — the visual plan must be built from current enrichment.",
-        });
-      }
-      for (const factId of targets) {
-        try {
-          const r = await enqueueJob({
-            queue: "preview",
-            payload: { targetType: "fact", targetId: factId },
-            dedupeKey: `preview:fact:${factId}`,
-          });
-          jobs.push({
-            factId, jobId: r.jobId, queue: r.queue, dedupeKey: r.dedupeKey,
-            action: "regenerate_visual_plan", status: r.status, deduped: !r.inserted,
-          });
-        } catch (err) {
-          logger.warn({ err, factId }, "[regenerate-previews] enqueue failed");
-          failed++;
-          outcomes.push({ factId, action: "regenerate_visual_plan", status: "failed", error: "Could not queue the visual-plan job." });
-        }
-      }
-      const requested = targets.length + skippedStaleEnrichment.length;
-      const response: TaxonomyHealthActionResponse = {
-        mode: deriveActionMode(jobs, outcomes),
-        jobs,
-        outcomes,
-        summary: { requested, queued: jobs.length, done: 0, failed, skipped: skippedStaleEnrichment.length },
-      };
-      res.json(response);
-    } catch (err) {
-      logger.error({ err }, "[adminTaxonomyHealth/regenerate-previews] failed");
-      res.status(500).json({ error: "regenerate_previews_failed" });
     }
   },
 );
@@ -567,45 +500,6 @@ async function pickEnrichmentTargets(
     toEnqueue.push(row.id);
   }
   return { toEnqueue, skippedAdminEdited };
-}
-
-async function pickPreviewTargets(
-  mode: TaxonomyHealthBulkActionMode,
-  factIds: number[] | undefined,
-): Promise<{ targets: number[]; skippedStaleEnrichment: number[] }> {
-  if (mode === "selected_fact_ids") {
-    const ids = factIds ?? [];
-    if (ids.length === 0) return { targets: [], skippedStaleEnrichment: [] };
-    const rows = await db
-      .select({ id: factsTable.id, enrichment: factsTable.enrichment })
-      .from(factsTable)
-      .where(inArray(factsTable.id, ids));
-    const targets: number[] = [];
-    const skippedStaleEnrichment: number[] = [];
-    for (const row of rows) {
-      const enr = row.enrichment as { classificationPromptVersion?: string } | null;
-      if (enr?.classificationPromptVersion === CLASSIFICATION_PROMPT_VERSION) {
-        targets.push(row.id);
-      } else {
-        skippedStaleEnrichment.push(row.id);
-      }
-    }
-    return { targets, skippedStaleEnrichment };
-  }
-  const facts = await loadAllApprovedFactsForHealth();
-  const targets: number[] = [];
-  const skippedStaleEnrichment: number[] = [];
-  for (const row of facts) {
-    const h = evaluateFactTaxonomyHealth(toHealthInput(row));
-    // Skip facts whose enrichment is stale — the visual plan must be regenerated
-    // from current enrichment, so re-enriching is required first.
-    if (h.reviewFlags.staleEnrichmentVersion) {
-      if (h.reviewFlags.stalePreview) skippedStaleEnrichment.push(row.id);
-      continue;
-    }
-    if (h.reviewFlags.stalePreview) targets.push(row.id);
-  }
-  return { targets, skippedStaleEnrichment };
 }
 
 async function pickProjectionRepairTargets(
