@@ -90,7 +90,8 @@ describe("Phase 3 — lineage columns on upload_image_metadata", () => {
     const rows = await db.execute(sql`
       SELECT column_name, data_type, character_maximum_length
       FROM information_schema.columns
-      WHERE table_name = 'memes' AND column_name = 'image_transform'
+      WHERE table_schema = current_schema()
+        AND table_name = 'memes' AND column_name = 'image_transform'
     `);
     assert.equal(rows.rows.length, 1);
     const col = rows.rows[0] as { data_type: string; character_maximum_length: number | null };
@@ -102,7 +103,8 @@ describe("Phase 3 — lineage columns on upload_image_metadata", () => {
     const rows = await db.execute<{ column_name: string }>(sql`
       SELECT column_name
       FROM information_schema.columns
-      WHERE table_name = 'upload_image_metadata'
+      WHERE table_schema = current_schema()
+        AND table_name = 'upload_image_metadata'
         AND column_name IN ('transform','source_object_path','fact_id','transform_params_hash')
       ORDER BY column_name
     `);
@@ -113,7 +115,8 @@ describe("Phase 3 — lineage columns on upload_image_metadata", () => {
   it("the dedup index exists with the expected predicate", async () => {
     const rows = await db.execute<{ indexdef: string }>(sql`
       SELECT indexdef FROM pg_indexes
-      WHERE tablename = 'upload_image_metadata' AND indexname = 'IDX_uim_pulid_dedup'
+      WHERE schemaname = current_schema()
+        AND tablename = 'upload_image_metadata' AND indexname = 'IDX_uim_pulid_dedup'
     `);
     assert.equal(rows.rows.length, 1);
     // Postgres normalizes the predicate; just confirm the discriminating bit.

@@ -53,10 +53,19 @@ describe("moderation/uploadRateLimit", () => {
   describe("checkUploadRateLimit", () => {
     it("counts attempts and rejects past the configured limit", async () => {
       // Force a tiny limit via admin_config so the test runs in milliseconds.
+      // Use INSERT … ON CONFLICT DO UPDATE so the row is created if admin_config is empty
+      // (e.g. in the isolated test schema which has no seed data).
       await db
-        .update(adminConfigTable)
-        .set({ value: "2" })
-        .where(eq(adminConfigTable.key, "upload_rate_limit_registered_per_day"));
+        .insert(adminConfigTable)
+        .values({
+          key: "upload_rate_limit_registered_per_day",
+          value: "2",
+          label: "Upload rate limit (registered/day)",
+        })
+        .onConflictDoUpdate({
+          target: adminConfigTable.key,
+          set: { value: "2" },
+        });
       bustConfigCache();
       const userId = `${TEST_USER_PREFIX}${Date.now()}-${Math.random()}`;
       const r1 = await checkUploadRateLimit({ userId, membershipTier: "registered", isAdmin: false });
@@ -68,9 +77,16 @@ describe("moderation/uploadRateLimit", () => {
       assert.equal(r1.limit, 2);
       // Restore the original value so subsequent test files see the seed.
       await db
-        .update(adminConfigTable)
-        .set({ value: "20" })
-        .where(eq(adminConfigTable.key, "upload_rate_limit_registered_per_day"));
+        .insert(adminConfigTable)
+        .values({
+          key: "upload_rate_limit_registered_per_day",
+          value: "20",
+          label: "Upload rate limit (registered/day)",
+        })
+        .onConflictDoUpdate({
+          target: adminConfigTable.key,
+          set: { value: "20" },
+        });
       bustConfigCache();
     });
   });

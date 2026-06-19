@@ -16,6 +16,22 @@
 # shard failure surfaces as a non-zero overall exit. Output from the shards
 # is interleaved on stdout/stderr — that is acceptable here because the test
 # runner already prints per-test diagnostics with file paths.
+#
+# DB ISOLATION
+# ─────────────
+# Tests run against an isolated schema (heliumdb_test) inside the same
+# PostgreSQL server. The development schema (public) is never written to.
+#
+# Before each test run the test schema is dropped and recreated (clean slate),
+# then the current schema structure is cloned from the public schema using
+# pg_dump --schema-only. This is required because the earliest migration files
+# contain only ALTER TABLE statements that assume the base tables already exist
+# — there is no "migration 0" that creates the initial schema. pg_dump gives
+# us the authoritative current schema without needing the migration history.
+#
+# DATABASE_URL is then overridden to point every pool connection (via the
+# search_path startup parameter) at the test schema. The dev schema and its
+# data are never touched.
 
 set -u
 
@@ -25,6 +41,11 @@ if ! [[ "$shards" =~ ^[0-9]+$ ]] || (( shards < 1 )); then
   echo "[run-tests-sharded] shard_count must be a positive integer, got: $shards" >&2
   exit 2
 fi
+
+# Resolve the workspace root from this script's location so the script is
+# runnable from any working directory.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+WORKSPACE_ROOT="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
 
 # Args common to every shard. --test-isolation=none + --test-concurrency=1
 # keep each shard single-process (file ordering inside a shard stays
@@ -58,29 +79,116 @@ common_args=(--import tsx/esm)
 [[ -n "$isolation_flag" ]] && common_args+=("$isolation_flag")
 common_args+=(--test-concurrency=1 --test)
 
-# purge_test_data — FK-safe sweep of every test-created row from the database.
-#
-# Tests run against the real dev DB (no isolated test DB), so leaked rows
-# accumulate and cost money. This runs OUTSIDE the parallel-shard window (once
-# before, once after) so it never races a shard mid-test:
-#
-#   • pre-sweep  heals any rows left by a previously crashed/interrupted run, so
-#                each run starts from a clean DB.
-#   • post-sweep removes this run's rows on normal completion, and via the EXIT
-#                trap also runs if the script is interrupted (SIGINT/SIGTERM).
-#
-# The sweep is best-effort: a failure here must never mask a real test result,
-# so its exit code is swallowed. The next run's pre-sweep is the hard guarantee.
-purge_test_data() {
-  TEST_DB_ALLOW_EXIT_ON_IDLE=1 node --import tsx/esm \
-    src/__tests__/helpers/purgeTestData.ts || true
-}
+# ─── Test Schema Setup ────────────────────────────────────────────────────────
+TEST_SCHEMA="heliumdb_test"
 
-# Ensure a sweep runs even if the shards are interrupted partway through.
-trap 'purge_test_data' EXIT
+# Construct a DATABASE_URL that sets search_path to the test schema first,
+# then public. The two-schema path is required because extension types like
+# `vector` (pgvector) are installed in the `public` schema and must be
+# reachable at type-lookup time even when tables live in heliumdb_test.
+# Drizzle's unqualified table queries ("facts", "users") still resolve to
+# heliumdb_test because it is listed first; dev data in public is never touched.
+# Python's urllib.parse handles URL encoding correctly — spaces must be %20
+# (which libpq requires); urlencode's default '+' is not supported by libpq.
+TEST_DATABASE_URL="$(python3 << PYEOF
+import os, urllib.parse
+u = urllib.parse.urlparse(os.environ['DATABASE_URL'])
+params = dict(urllib.parse.parse_qsl(u.query))
+params['options'] = '-c search_path=${TEST_SCHEMA},public'
+new_query = urllib.parse.urlencode(params, quote_via=urllib.parse.quote)
+print(urllib.parse.urlunparse(u._replace(query=new_query)))
+PYEOF
+)"
 
-echo "[run-tests-sharded] pre-sweep: purging leftover test rows…"
-purge_test_data
+if [ -z "${TEST_DATABASE_URL:-}" ] || [ "$TEST_DATABASE_URL" = "$DATABASE_URL" ]; then
+  echo "[run-tests-sharded] ERROR: failed to construct test DATABASE_URL" >&2
+  exit 1
+fi
+
+# Step 1: Drop and recreate the test schema for a clean slate on every run.
+# DROP CASCADE removes all tables, types, indexes, and sequences from a previous
+# run. The schema is then repopulated from the dev schema below.
+echo "[run-tests-sharded] resetting test schema '${TEST_SCHEMA}'…"
+if ! psql "$DATABASE_URL" -c \
+     "DROP SCHEMA IF EXISTS \"${TEST_SCHEMA}\" CASCADE; CREATE SCHEMA \"${TEST_SCHEMA}\"" \
+     >/dev/null 2>&1; then
+  echo "[run-tests-sharded] ERROR: failed to reset test schema '${TEST_SCHEMA}'" >&2
+  exit 1
+fi
+
+# Step 2: Clone the schema structure from public to the test schema.
+# pg_dump --schema-only captures all tables, custom types (enums), indexes,
+# sequences, constraints, and FK relationships.
+#
+# pg_dump can output schema objects in two formats depending on the server
+# version: (a) fully qualified as "CREATE TABLE public.facts (...)" or (b) with
+# "SET search_path = public, pg_catalog" followed by unqualified "CREATE TABLE
+# facts (...)". The sed pipeline handles both by rewriting every schema name
+# occurrence — both explicit "public." qualifications AND the search_path
+# settings that govern unqualified names.
+#
+# We use a temp file so we can check pg_dump's exit code separately from psql's
+# (in a pipeline, only the last command's exit code is visible without pipefail).
+echo "[run-tests-sharded] cloning schema structure from public to '${TEST_SCHEMA}'…"
+_DUMP_TMP=$(mktemp /tmp/schema_dump_XXXXXX.sql)
+trap 'rm -f "$_DUMP_TMP"' EXIT
+
+pg_dump "$DATABASE_URL" \
+  --schema=public \
+  --schema-only \
+  --no-owner \
+  --no-privileges \
+  --no-comments \
+  -f "$_DUMP_TMP" 2>&1
+_PGDUMP_EXIT=$?
+if [ "$_PGDUMP_EXIT" -ne 0 ]; then
+  echo "[run-tests-sharded] ERROR: pg_dump failed (exit ${_PGDUMP_EXIT})" >&2
+  exit 1
+fi
+
+# Transform the dump:
+#   1. Remove any "CREATE SCHEMA public" line (the schema already exists).
+#   2. Protect the pgvector extension type "public.vector" with a placeholder
+#      before the general schema-rename sed runs.  The vector type is registered
+#      in the public schema by the pgvector extension and must stay as
+#      "public.vector" — renaming it to "heliumdb_test.vector" would produce
+#      "type does not exist" because the type was never created in heliumdb_test.
+#   3. Rewrite every remaining "public." prefix to "heliumdb_test." so that
+#      tables, user-defined enums, sequences, FKs, and indexes are all created
+#      in the test schema.  The dump uses explicit schema qualifications (the
+#      modern pg_dump format sets search_path to empty and qualifies every name),
+#      so replacing the prefix is sufficient — no search_path fixup is needed.
+#   4. Restore the placeholder back to "public.vector".
+grep -v "^CREATE SCHEMA " "$_DUMP_TMP" \
+  | sed "s/public\.vector/__PGVECTOR__/g" \
+  | sed "s/public\./${TEST_SCHEMA}./g" \
+  | sed "s/__PGVECTOR__/public.vector/g" \
+  | psql "$DATABASE_URL" 2>&1
+_PSQL_EXIT=$?
+rm -f "$_DUMP_TMP"
+trap - EXIT
+
+if [ "$_PSQL_EXIT" -ne 0 ]; then
+  echo "[run-tests-sharded] ERROR: schema clone to '${TEST_SCHEMA}' failed (psql exit ${_PSQL_EXIT})" >&2
+  exit 1
+fi
+
+# Verify the clone produced a non-empty schema — a sanity check that catches
+# silent empty-pipe scenarios (e.g. pg_dump produced no output).
+_TABLE_COUNT=$(psql "$DATABASE_URL" -t -c \
+  "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = '${TEST_SCHEMA}' AND table_type = 'BASE TABLE'" \
+  2>/dev/null | tr -d ' \n')
+echo "[run-tests-sharded] test schema '${TEST_SCHEMA}' has ${_TABLE_COUNT} tables"
+if [ "${_TABLE_COUNT:-0}" -lt 5 ]; then
+  echo "[run-tests-sharded] ERROR: schema clone looks incomplete (expected ≥5 tables, got ${_TABLE_COUNT})" >&2
+  exit 1
+fi
+
+echo "[run-tests-sharded] DB isolation active — tests use schema '${TEST_SCHEMA}' (public schema untouched)"
+
+# Step 3: Override DATABASE_URL for all child processes so every pool
+# connection targets the test schema via the search_path startup parameter.
+export DATABASE_URL="${TEST_DATABASE_URL}"
 
 pids=()
 for ((k = 1; k <= shards; k++)); do
@@ -101,10 +209,5 @@ for pid in "${pids[@]}"; do
     overall=1
   fi
 done
-
-# Normal-completion sweep. The EXIT trap also fires after this (harmless: a
-# second sweep on an already-clean DB is a no-op).
-echo "[run-tests-sharded] post-sweep: purging this run's test rows…"
-purge_test_data
 
 exit "$overall"

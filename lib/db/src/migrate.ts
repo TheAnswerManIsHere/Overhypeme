@@ -106,14 +106,20 @@ export async function applyMigrations(client: pg.PoolClient): Promise<{ applied:
   // in the finally block below via pg_advisory_unlock, ensuring it is freed
   // even if the migration fails — the connection is reused by the pool and the
   // lock must not linger on it.
+  // DRIZZLE_MIGRATIONS_SCHEMA controls where the migration tracking table lives.
+  // The default ("drizzle") matches the existing schema. Set to a different value
+  // (e.g. "drizzle_test") when running against an isolated test schema so that
+  // dev and test migration state never collide in the same table.
+  const trackingSchema = process.env.DRIZZLE_MIGRATIONS_SCHEMA ?? "drizzle";
+
   console.log(`[migrate] Acquiring advisory lock (key=${MIGRATION_LOCK_KEY})...`);
   await client.query("SELECT pg_advisory_lock($1)", [MIGRATION_LOCK_KEY]);
   console.log("[migrate] Advisory lock acquired.");
 
   try {
-    await client.query("CREATE SCHEMA IF NOT EXISTS drizzle");
+    await client.query(`CREATE SCHEMA IF NOT EXISTS "${trackingSchema}"`);
     await client.query(`
-      CREATE TABLE IF NOT EXISTS drizzle.__drizzle_migrations (
+      CREATE TABLE IF NOT EXISTS "${trackingSchema}".__drizzle_migrations (
         id SERIAL PRIMARY KEY,
         hash text NOT NULL,
         created_at bigint
@@ -124,7 +130,7 @@ export async function applyMigrations(client: pg.PoolClient): Promise<{ applied:
     // was ahead of us and already applied migrations while we were waiting,
     // we will see their work here and skip cleanly.
     const { rows: applied } = await client.query<{ hash: string }>(
-      "SELECT hash FROM drizzle.__drizzle_migrations",
+      `SELECT hash FROM "${trackingSchema}".__drizzle_migrations`,
     );
     const appliedHashes = new Set(applied.map((r) => r.hash));
 
@@ -175,7 +181,7 @@ export async function applyMigrations(client: pg.PoolClient): Promise<{ applied:
           }
         }
         await client.query(
-          "INSERT INTO drizzle.__drizzle_migrations (hash, created_at) VALUES ($1, $2)",
+          `INSERT INTO "${trackingSchema}".__drizzle_migrations (hash, created_at) VALUES ($1, $2)`,
           [hash, entry.when],
         );
         await client.query("COMMIT");
@@ -201,7 +207,7 @@ export async function applyMigrations(client: pg.PoolClient): Promise<{ applied:
     });
 
     const { rows: matchRows } = await client.query<{ count: string }>(
-      "SELECT COUNT(*) AS count FROM drizzle.__drizzle_migrations WHERE hash = ANY($1::text[])",
+      `SELECT COUNT(*) AS count FROM "${trackingSchema}".__drizzle_migrations WHERE hash = ANY($1::text[])`,
       [journalHashes.map((j) => j.hash)],
     );
     const matchedCount = Number(matchRows[0].count);
@@ -209,14 +215,14 @@ export async function applyMigrations(client: pg.PoolClient): Promise<{ applied:
 
     if (matchedCount !== journalCount) {
       const { rows: finalRows } = await client.query<{ hash: string }>(
-        "SELECT hash FROM drizzle.__drizzle_migrations",
+        `SELECT hash FROM "${trackingSchema}".__drizzle_migrations`,
       );
       const finalHashes = new Set(finalRows.map((r) => r.hash));
       const missingTags = journalHashes
         .filter((j) => !finalHashes.has(j.hash))
         .map((j) => j.tag);
       throw new Error(
-        `Migration verification failed: expected ${journalCount} journal entries recorded in drizzle.__drizzle_migrations, found ${matchedCount}.\n` +
+        `Migration verification failed: expected ${journalCount} journal entries recorded in "${trackingSchema}".__drizzle_migrations, found ${matchedCount}.\n` +
           `Missing: ${missingTags.join(", ")}\n` +
           `Run \`pnpm --filter @workspace/db run migrate\` again or check for SQL errors above.`,
       );
