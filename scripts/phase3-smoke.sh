@@ -84,17 +84,15 @@ step "lib/db migrate test" \
   pnpm --filter @workspace/db test
 
 if [[ "$SKIP_SERVER" -eq 0 ]]; then
-  # Run only the Phase-3 integration test directly. The api-server's full
-  # `pnpm test` uses a sharded runner with --test-isolation=none, which some
-  # older Node 22 builds don't accept. Running the file directly avoids that
-  # flag and keeps Phase-3 verification portable across dev environments.
-  step "phase3.lineage integration test (direct node:test)" \
+  # Run only the Phase-3 integration test via the run-test.sh wrapper so it
+  # targets heliumdb_test (same isolation as the full pnpm test sharded runner)
+  # rather than the live public schema.
+  step "phase3.lineage integration test (run-test.sh)" \
     bash -c 'cd artifacts/api-server && \
       pnpm --filter @workspace/api-spec run codegen >/dev/null 2>&1 && \
       pnpm tsc -p ../../lib/api-zod/tsconfig.json >/dev/null 2>&1 && \
-      BCRYPT_SALT_ROUNDS=4 TEST_DB_ALLOW_EXIT_ON_IDLE=1 \
-        RESEND_API_KEY_DEV="" RESEND_API_KEY_PROD="" RESEND_API_KEY="re_test_dummy" \
-        node --import tsx/esm --test src/__tests__/phase3.lineage.integration.test.ts'
+      BCRYPT_SALT_ROUNDS=4 bash scripts/run-test.sh \
+        src/__tests__/phase3.lineage.integration.test.ts'
 else
   echo
   echo "  (skipped api-server integration tests — --skip-server set)"
