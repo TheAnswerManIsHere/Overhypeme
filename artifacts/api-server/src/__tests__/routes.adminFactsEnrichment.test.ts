@@ -134,6 +134,38 @@ describe("GET /admin/facts/:id", () => {
   });
 });
 
+describe("GET /admin/facts — variant hierarchy", () => {
+  it("nests variants under their root, paginates by root, and groups search matches under the parent", async () => {
+    const marker = `zzhier${randomUUID().replace(/-/g, "").slice(0, 10)}`;
+    const rootId = await insertFact({ text: `${marker} root fact` });
+    const v1 = await insertFact({ text: `${marker} variant one`, parentId: rootId });
+    const v2 = await insertFact({ text: `${marker} variant two`, parentId: rootId });
+
+    const res = await request(adminApp).get(`/api/admin/facts?search=${marker}`);
+    assert.equal(res.status, 200);
+    const facts = res.body.facts as Array<{ id: number; variants?: Array<{ id: number }> }>;
+    // Only the root is a top-level entry; total counts roots, not variants.
+    assert.deepEqual(facts.map((f) => f.id), [rootId]);
+    assert.equal(res.body.total, 1);
+    // Both variants are nested under the root, not listed as top-level rows.
+    assert.deepEqual((facts[0].variants ?? []).map((v) => v.id).sort(), [v1, v2].sort());
+    assert.equal(facts.some((f) => f.id === v1 || f.id === v2), false);
+  });
+
+  it("surfaces the parent root when only a variant's text matches the search", async () => {
+    const marker = `zzhier${randomUUID().replace(/-/g, "").slice(0, 10)}`;
+    const rare = `zzonly${randomUUID().replace(/-/g, "").slice(0, 10)}`;
+    const rootId = await insertFact({ text: `${marker} plain root` });
+    const v = await insertFact({ text: `${marker} ${rare} special variant`, parentId: rootId });
+
+    const res = await request(adminApp).get(`/api/admin/facts?search=${rare}`);
+    assert.equal(res.status, 200);
+    const facts = res.body.facts as Array<{ id: number; variants?: Array<{ id: number }> }>;
+    assert.deepEqual(facts.map((f) => f.id), [rootId]);            // parent pulled in for context
+    assert.deepEqual((facts[0].variants ?? []).map((x) => x.id), [v]); // only the matching variant
+  });
+});
+
 describe("PATCH /admin/facts/:id/enrichment", () => {
   it("persists the blob, re-syncs projection columns, and sets status ok", async () => {
     const id = await insertFact({ ...buildFactEnrichmentColumns(VALID), enrichmentStatus: null });

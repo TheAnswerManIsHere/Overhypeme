@@ -622,50 +622,88 @@ router.post("/admin/users", requireAdmin, async (req: Request, res: Response) =>
   }
 });
 
+// Column projection shared by the root + variant selects in the facts list.
+const FACT_LIST_COLUMNS = {
+  id: factsTable.id,
+  text: factsTable.text,
+  canonicalText: factsTable.canonicalText,
+  parentId: factsTable.parentId,
+  useCase: factsTable.useCase,
+  isActive: factsTable.isActive,
+  upvotes: factsTable.upvotes,
+  downvotes: factsTable.downvotes,
+  score: factsTable.score,
+  wilsonScore: factsTable.wilsonScore,
+  commentCount: factsTable.commentCount,
+  shareCount: factsTable.shareCount,
+  submittedById: factsTable.submittedById,
+  splitTokenIndex: factsTable.splitTokenIndex,
+  createdAt: factsTable.createdAt,
+  updatedAt: factsTable.updatedAt,
+  primaryArchetype: factsTable.primaryArchetype,
+  enrichmentStatus: factsTable.enrichmentStatus,
+  hasEmbedding: sql<boolean>`(${factsTable.embedding} IS NOT NULL)`,
+  hasPexelsImages: sql<boolean>`(${factsTable.pexelsImages} IS NOT NULL)`,
+  hasEnrichment: sql<boolean>`(${factsTable.enrichment} IS NOT NULL)`,
+} as const;
+
+// The Facts list is paginated by ROOT fact (parentId IS NULL); each root carries
+// its variants nested so the admin UI can show the hierarchy (variants indented +
+// collapsible under their parent). A root is included when it (or one of its
+// variants) matches the search. Variants attached to a page's roots are filtered
+// to the search too, so a search shows matches grouped under their parent.
 router.get("/admin/facts", requireAdmin, async (req: Request, res: Response) => {
   const page = Math.max(1, parseInt(String(req.query["page"] ?? "1"), 10));
   const limit = Math.min(100, Math.max(1, parseInt(String(req.query["limit"] ?? "50"), 10)));
   const offset = (page - 1) * limit;
   const search = String(req.query["search"] ?? "").trim();
   const showInactive = req.query["inactive"] === "true";
+  const like = `%${search}%`;
 
   const activeFilter = showInactive ? undefined : eq(factsTable.isActive, true);
-  const searchFilter = search ? ilike(factsTable.text, `%${search}%`) : undefined;
-  const where = activeFilter && searchFilter ? and(activeFilter, searchFilter) : activeFilter ?? searchFilter;
+  // A root matches when its own text matches OR it has a (visible) variant whose
+  // text matches — so searching by a variant's text still surfaces its parent.
+  const searchFilter = search
+    ? sql`(${factsTable.text} ILIKE ${like} OR EXISTS (SELECT 1 FROM facts v WHERE v.parent_id = ${factsTable.id} AND v.text ILIKE ${like}${showInactive ? sql`` : sql` AND v.is_active = true`}))`
+    : undefined;
+  const rootWhere = and(...[isNull(factsTable.parentId), activeFilter, searchFilter].filter(Boolean));
 
-  const [rows, [{ total }]] = await Promise.all([
-    db.select({
-      id: factsTable.id,
-      text: factsTable.text,
-      canonicalText: factsTable.canonicalText,
-      parentId: factsTable.parentId,
-      useCase: factsTable.useCase,
-      isActive: factsTable.isActive,
-      upvotes: factsTable.upvotes,
-      downvotes: factsTable.downvotes,
-      score: factsTable.score,
-      wilsonScore: factsTable.wilsonScore,
-      commentCount: factsTable.commentCount,
-      shareCount: factsTable.shareCount,
-      submittedById: factsTable.submittedById,
-      splitTokenIndex: factsTable.splitTokenIndex,
-      createdAt: factsTable.createdAt,
-      updatedAt: factsTable.updatedAt,
-      primaryArchetype: factsTable.primaryArchetype,
-      enrichmentStatus: factsTable.enrichmentStatus,
-      hasEmbedding: sql<boolean>`(${factsTable.embedding} IS NOT NULL)`,
-      hasPexelsImages: sql<boolean>`(${factsTable.pexelsImages} IS NOT NULL)`,
-      hasEnrichment: sql<boolean>`(${factsTable.enrichment} IS NOT NULL)`,
-    })
+  const [roots, [{ total }]] = await Promise.all([
+    db.select(FACT_LIST_COLUMNS)
       .from(factsTable)
-      .where(where)
+      .where(rootWhere)
       .orderBy(desc(factsTable.createdAt))
       .limit(limit)
       .offset(offset),
-    db.select({ total: count() }).from(factsTable).where(where),
+    db.select({ total: count() }).from(factsTable).where(rootWhere),
   ]);
 
-  res.json({ facts: rows, total, page, limit });
+  // Attach each page-root's variants (search-filtered when searching) so the UI
+  // can render them indented + collapsible under the parent.
+  const rootIds = roots.map((r) => r.id);
+  let variantsByParent = new Map<number, (typeof roots)>();
+  if (rootIds.length) {
+    const variantWhere = and(
+      ...[
+        inArray(factsTable.parentId, rootIds),
+        activeFilter,
+        search ? ilike(factsTable.text, like) : undefined,
+      ].filter(Boolean),
+    );
+    const variantRows = await db.select(FACT_LIST_COLUMNS)
+      .from(factsTable)
+      .where(variantWhere)
+      .orderBy(asc(factsTable.createdAt));
+    variantsByParent = variantRows.reduce((m, v) => {
+      const key = v.parentId as number;
+      (m.get(key) ?? m.set(key, []).get(key)!).push(v);
+      return m;
+    }, new Map<number, typeof variantRows>());
+  }
+
+  const facts = roots.map((r) => ({ ...r, variants: variantsByParent.get(r.id) ?? [] }));
+
+  res.json({ facts, total, page, limit });
 });
 
 router.delete("/admin/facts/:id", requireAdmin, async (req: Request, res: Response) => {
