@@ -419,7 +419,7 @@ const subtypeEnum = z.enum(ALL_SUBTYPES as [FactSubtype, ...FactSubtype[]]);
  * `visualPromptPreview`/`previewStatus` keys left in old stored JSONB are
  * simply dropped on the next validate/save.
  */
-const factEnrichmentBase = z.object({
+export const factEnrichmentBase = z.object({
   primaryArchetype: archetypeEnum,
   subtype: subtypeEnum,
   modifiers: z
@@ -455,6 +455,13 @@ const factEnrichmentBase = z.object({
    */
   visualPromptStrategyOverride: visualPromptStrategyOverrideSchema.optional(),
   // Optional provenance — stamped by the enrichment service.
+  /**
+   * Identifies the AI generation that produced this baseline. Stamped fresh on
+   * every (re-)classification so manual overrides can detect when the AI value
+   * they were created against has since changed ("baseline changed"). Optional
+   * so older blobs validate unchanged; legacy/backfilled blobs use "legacy".
+   */
+  aiGenerationId: z.string().optional(),
   taxonomyVersion: z.string().optional(),
   classificationPromptVersion: z.string().optional(),
   // Which prompt text actually ran (source/hash). Optional so older blobs and

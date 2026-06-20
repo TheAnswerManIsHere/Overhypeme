@@ -19,7 +19,7 @@ import { createRateLimiter } from "../lib/rateLimit";
 import { validateTemplate } from "../lib/templateGrammar";
 import { computeSplitTokenIndex } from "../lib/splitTokenIndex";
 import { validateEnrichment, type FactEnrichment } from "@workspace/api-zod";
-import { buildFactEnrichmentColumns } from "../lib/factEnrichment";
+import { materializeFromBaseline } from "../lib/factEnrichment";
 import { enqueueJob } from "../lib/asyncJobs";
 import {
   assertFactPassesCanonicalRenderPreflight,
@@ -353,7 +353,10 @@ router.post("/admin/reviews/:id/approve-variant", requireAdmin, async (req: Auth
   // every failure path (the preflight persists nothing).
   if (await runApprovalRenderPreflight(review.submittedText, enrichment, res)) return;
 
-  const enrichmentCols = enrichment ? buildFactEnrichmentColumns(enrichment) : {};
+  // Populate the immutable AI baseline + (empty) override layers on the new fact
+  // so the override system has a baseline from day one; the visual override is
+  // split out of the baseline to keep enrichment_ai_derived pure.
+  const enrichmentCols = enrichment ? materializeFromBaseline(enrichment).columns : {};
 
   const hasPronounsFlag = /\{(SUBJ|OBJ|POSS|POSS_PRO|REFL|Subj|Obj|Poss|Poss_Pro|Refl|[^|{}]+\|[^|{}]+)\}/.test(review.submittedText);
   const canonicalText = renderCanonical(review.submittedText);
@@ -432,7 +435,10 @@ router.post("/admin/reviews/:id/approve", requireAdmin, async (req: Authenticate
   // every failure path (the preflight persists nothing).
   if (await runApprovalRenderPreflight(review.submittedText, enrichment, res)) return;
 
-  const enrichmentCols = enrichment ? buildFactEnrichmentColumns(enrichment) : {};
+  // Populate the immutable AI baseline + (empty) override layers on the new fact
+  // so the override system has a baseline from day one; the visual override is
+  // split out of the baseline to keep enrichment_ai_derived pure.
+  const enrichmentCols = enrichment ? materializeFromBaseline(enrichment).columns : {};
 
   // Insert the fact into the main table, detecting pronoun tokens from the template
   const hasPronounsFlag = /\{(SUBJ|OBJ|POSS|POSS_PRO|REFL|Subj|Obj|Poss|Poss_Pro|Refl|[^|{}]+\|[^|{}]+)\}/.test(review.submittedText);
