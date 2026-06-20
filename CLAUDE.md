@@ -237,3 +237,29 @@ two docs cross-link each other; the PR body links to both. This is not
 optional and not a follow-up — the docs are part of the same PR as the
 code. (Pure infra/refactor with zero observable behavior can use a single
 short verification note instead, per rule 2's exception.)
+
+### How tests actually run in Replit (read before writing a TEST_RUN doc)
+
+The canonical, authoritative guide is **`docs/test-db-environment.md`**. Read
+it before proposing any test command. The rules that bite if I forget them:
+
+- Tests run against an **isolated `heliumdb_test` schema**, never `public`.
+  The wrapper routes queries there via `search_path`.
+- For individual files, **always use the wrapper**, never raw `node --test`:
+  ```bash
+  cd artifacts/api-server
+  BCRYPT_SALT_ROUNDS=4 bash scripts/run-test.sh src/__tests__/<file>.test.ts
+  ```
+  (`--setup` forces a schema refresh after a new migration.) Running
+  `node --import tsx/esm --test ...` directly is **wrong** — it writes test
+  data into the live `public` schema.
+- Full api-server suite: `pnpm --filter @workspace/api-server run test`
+  (~60–90s, sharded, drops/recreates `heliumdb_test`).
+- Other suites: `pnpm --filter @workspace/db run test` (migrations),
+  `pnpm --filter @workspace/overhype-me run test` (frontend vitest),
+  `pnpm typecheck` (no DB).
+- `src/__tests__/videoJobs.test.ts` returns 503/404 in dev (no
+  `FAL_AI_API_KEY`) — pre-existing, not a regression.
+- Consistent with "Replit owns the database connection": a TEST_RUN doc
+  describes commands like the above; it never hardcodes a `DATABASE_URL=...`
+  prefix.
