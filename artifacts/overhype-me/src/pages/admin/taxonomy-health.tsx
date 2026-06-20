@@ -52,7 +52,6 @@ const TONE_CLASS: Record<CardTone, string> = {
 
 const ACTION_LABEL: Record<TaxonomyHealthAction, string> = {
   re_enrich: "Re-enrich",
-  regenerate_visual_plan: "Regenerate Visual Plan",
   repair_projections: "Repair projections",
 };
 
@@ -82,7 +81,6 @@ function HealthBadge({ s }: { s: TaxonomyHealthStatus }) {
 function VersionDiff({ summary }: { summary: FactTaxonomyHealth["summary"] }) {
   const status = enrichmentVersionStatusFromStored({
     classificationPromptVersion: summary.classificationPromptVersion,
-    previewPromptVersion: summary.visualPreviewVersion,
   });
   const stale = status.fields.filter((f) => f.stale);
   if (stale.length === 0) return null;
@@ -255,16 +253,6 @@ export default function TaxonomyHealth() {
         confirm: (n) => `Re-enrich ${n} stale fact${n === 1 ? "" : "s"}? This costs model calls and can take a while. Admin-edited facts are skipped automatically.`,
       });
     }
-    if (filter === "stale_visual_preview") {
-      list.push({
-        key: "regen_stale_previews",
-        label: "Regenerate stale visual plans",
-        action: "regenerate_visual_plan",
-        url: "/api/admin/taxonomy-health/actions/regenerate-previews",
-        body: { mode: "missing_or_stale" },
-        confirm: (n) => `Regenerate visual plans for ${n} fact${n === 1 ? "" : "s"}? This costs model calls and can take a while. Facts with stale enrichment are skipped automatically — re-enrich those first.`,
-      });
-    }
     if (filter === "projection_mismatch") {
       list.push({
         key: "repair_projections",
@@ -328,8 +316,7 @@ export default function TaxonomyHealth() {
           </Button>
           <span className="text-[11px] text-muted-foreground ml-auto" data-testid="current-versions">
             Current versions — taxonomy{" "}
-            <span className="font-mono text-foreground">{CURRENT_VERSIONS.classificationPromptVersion}</span> · visual plan{" "}
-            <span className="font-mono text-foreground">{CURRENT_VERSIONS.previewPromptVersion}</span> · strategy{" "}
+            <span className="font-mono text-foreground">{CURRENT_VERSIONS.classificationPromptVersion}</span> · strategy{" "}
             <span className="font-mono text-foreground">{CURRENT_VERSIONS.visualStrategyVersion}</span>
           </span>
         </div>
@@ -474,7 +461,7 @@ export default function TaxonomyHealth() {
                       </div>
                       {!row.health.statuses.includes("missing_enrichment") &&
                         !row.health.reviewFlags.invalidEnrichment &&
-                        (row.health.reviewFlags.staleEnrichmentVersion || row.health.reviewFlags.stalePreview) && (
+                        row.health.reviewFlags.staleEnrichmentVersion && (
                           <VersionDiff summary={row.health.summary} />
                         )}
                       {row.health.issues.length > 0 && (
@@ -502,22 +489,6 @@ export default function TaxonomyHealth() {
                           >
                             <RefreshCw className="w-3 h-3 mr-1" /> Re-enrich
                           </Button>
-                        )}
-                        {row.health.reviewFlags.stalePreview && (
-                          row.health.reviewFlags.staleEnrichmentVersion ? (
-                            <span className="inline-flex items-center gap-1 text-xs text-amber-600 dark:text-amber-400 px-2 py-1 rounded border border-amber-200 dark:border-amber-800">
-                              <AlertTriangle className="w-3 h-3" /> Re-enrich first
-                            </span>
-                          ) : (
-                            <Button
-                              variant="secondary"
-                              size="sm"
-                              disabled={rowBusy}
-                              onClick={() => runRow(row.factId, "regenerate_visual_plan", "/api/admin/taxonomy-health/actions/regenerate-previews")}
-                            >
-                              <RefreshCw className="w-3 h-3 mr-1" /> Regenerate Visual Plan
-                            </Button>
-                          )
                         )}
                         <ActionIndicator state={state} outcome={outcome} />
                       </div>

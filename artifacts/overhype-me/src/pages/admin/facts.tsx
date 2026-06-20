@@ -1,9 +1,9 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AdminLayout } from "@/components/admin/AdminLayout";
 import { RuntimePromptPreview } from "@/components/admin/RuntimePromptPreview";
 import { Button } from "@/components/ui/Button";
 import { Textarea, Input } from "@/components/ui/Input";
-import { Trash2, Upload, Search, AlertCircle, CheckCircle, Pencil, X, Save, GitBranch, Plus, Brain, EyeOff, Eye, RefreshCw, ImageIcon, Loader2, Sparkles } from "lucide-react";
+import { Trash2, Upload, Search, AlertCircle, CheckCircle, Pencil, X, Save, GitBranch, Plus, Brain, EyeOff, Eye, RefreshCw, ImageIcon, Loader2, Sparkles, ChevronRight, ChevronDown } from "lucide-react";
 import type { FactEnrichment } from "@workspace/api-zod";
 import { EnrichmentEditor } from "@/components/admin/EnrichmentEditor";
 import { useEnrichmentJobs } from "@/components/admin/useEnrichmentJobs";
@@ -52,6 +52,9 @@ interface Fact {
   primaryArchetype?: string | null;
   enrichmentStatus?: string | null;
   hasEnrichment?: boolean;
+  // Root facts carry their variants nested (the list paginates by root). When
+  // searching, this holds only the variants that matched. Absent on variant rows.
+  variants?: Fact[];
 }
 
 interface FactVariant {
@@ -189,13 +192,10 @@ function FactEnrichmentPanel({ fact, onSaved }: { fact: Fact; onSaved: (resp: En
     resource: "facts",
     id: fact.id,
     status: enrichmentStatus,
-    getEnrichment: () => draft.value,
     isDirty: () => draft.hasUncommittedChanges,
-    // A background job (re-run / preview) rewrites the enrichment server-side;
-    // fold it into BOTH value and baseline so it becomes the new source of truth.
+    // A background re-run rewrites the enrichment server-side; fold it into BOTH
+    // value and baseline so it becomes the new source of truth.
     applyServerState: (e, s) => { draft.adoptServerSlice(() => e); setEnrichmentStatus(s); },
-    // Regenerate-preview must persist the current enrichment first; Save does that.
-    saveNow: draft.save,
   });
 
   // Re-running classification overwrites possibly admin-tuned metadata on a live
@@ -212,7 +212,7 @@ function FactEnrichmentPanel({ fact, onSaved }: { fact: Fact; onSaved: (resp: En
     await jobs.onRerun();
   }
 
-  const busy = draft.loading || draft.committing || jobs.loading || jobs.rerunBusy || jobs.previewBusy;
+  const busy = draft.loading || draft.committing || jobs.loading || jobs.rerunBusy;
 
   return (
     <div className="space-y-2">
@@ -258,10 +258,8 @@ function FactEnrichmentPanel({ fact, onSaved }: { fact: Fact; onSaved: (resp: En
         onChange={(next) => draft.setValue(next)}
         onSave={draft.hasUncommittedChanges ? () => void draft.save() : undefined}
         onRerun={handleRerun}
-        onRegeneratePreview={jobs.onRegeneratePreview}
         busy={busy}
         rerunBusy={jobs.rerunBusy}
-        previewBusy={jobs.previewBusy}
       />
       <div className="flex items-center justify-end gap-3 min-h-[1.75rem]">
         <Button
@@ -283,8 +281,99 @@ function FactEnrichmentPanel({ fact, onSaved }: { fact: Fact; onSaved: (resp: En
   );
 }
 
+/**
+ * One row in the Facts list. Used for both root facts and (indented) variants.
+ * Root rows with variants get a chevron toggle + count; variant rows are
+ * indented and never carry their own chevron.
+ */
+function FactListRow({
+  fact,
+  isSelected,
+  indented = false,
+  variantCount = 0,
+  expanded = false,
+  onToggleExpand,
+  onSelect,
+  onDelete,
+}: {
+  fact: Fact;
+  isSelected: boolean;
+  indented?: boolean;
+  variantCount?: number;
+  expanded?: boolean;
+  onToggleExpand?: () => void;
+  onSelect: () => void;
+  onDelete: () => void;
+}) {
+  return (
+    <div
+      onClick={onSelect}
+      className={`flex items-start gap-2 px-4 py-3 cursor-pointer group transition-colors ${
+        isSelected ? "bg-primary/10 border-l-2 border-primary" : "hover:bg-muted/40 border-l-2 border-transparent"
+      } ${!fact.isActive ? "opacity-50" : ""} ${indented ? "pl-10 bg-muted/20" : ""}`}
+    >
+      {/* Chevron toggle (root rows with variants) or a tree guide (variant rows). */}
+      {variantCount > 0 ? (
+        <button
+          onClick={(e) => { e.stopPropagation(); onToggleExpand?.(); }}
+          className="mt-0.5 shrink-0 text-muted-foreground hover:text-foreground"
+          title={expanded ? "Collapse variants" : "Expand variants"}
+          aria-label={expanded ? "Collapse variants" : "Expand variants"}
+        >
+          {expanded ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+        </button>
+      ) : (
+        <span className="w-4 shrink-0" aria-hidden />
+      )}
+      <div className="mt-1 shrink-0">
+        <div className={`w-2 h-2 rounded-full ${fact.isActive ? "bg-green-500" : "bg-red-500"}`} title={fact.isActive ? "Active" : "Inactive"} />
+      </div>
+      <div className="flex-1 min-w-0">
+        <p className="text-sm text-foreground leading-snug line-clamp-2">{fact.text}</p>
+        <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-1 text-xs text-muted-foreground">
+          <span className="font-mono">#{fact.id}</span>
+          {indented && <span className="inline-flex items-center gap-1 text-muted-foreground"><GitBranch className="inline w-3 h-3" />variant</span>}
+          {!indented && variantCount > 0 && (
+            <span className="inline-flex items-center gap-1 text-muted-foreground" title={`${variantCount} variant${variantCount === 1 ? "" : "s"}`}>
+              <GitBranch className="inline w-3 h-3" />{variantCount}
+            </span>
+          )}
+          <span>↑{fact.upvotes} ↓{fact.downvotes}</span>
+          <span>W:{(fact.wilsonScore ?? 0).toFixed(3)}</span>
+          <span title={fact.hasEmbedding ? "Embedding present" : "No embedding — won't appear in duplicate check"}>
+            <Brain className={`inline w-3 h-3 ${fact.hasEmbedding ? "text-green-500" : "text-destructive"}`} />
+            {fact.hasEmbedding ? "" : " no embed"}
+          </span>
+          {fact.hasEnrichment && (
+            <span
+              className="inline-flex items-center gap-1 text-primary"
+              title={fact.primaryArchetype ? `Enriched — ${fact.primaryArchetype}` : "Has visual taxonomy enrichment"}
+            >
+              <Sparkles className="inline w-3 h-3" />
+              {fact.enrichmentStatus === "pending" ? "classifying…" : (fact.primaryArchetype ?? "enriched")}
+            </span>
+          )}
+          <span>{new Date(fact.createdAt).toLocaleDateString()}</span>
+        </div>
+      </div>
+      <div className="flex items-center gap-1 shrink-0">
+        <Pencil className={`w-3.5 h-3.5 transition-opacity ${isSelected ? "text-primary opacity-100" : "text-muted-foreground opacity-0 group-hover:opacity-100"}`} />
+        <button
+          onClick={(e) => { e.stopPropagation(); onDelete(); }}
+          className="p-1 text-muted-foreground hover:text-destructive opacity-0 group-hover:opacity-100 transition-all"
+          title="Delete fact"
+        >
+          <Trash2 className="w-4 h-4" />
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export default function AdminFacts() {
   const [facts, setFacts] = useState<Fact[]>([]);
+  const [expandedRoots, setExpandedRoots] = useState<Set<number>>(new Set());
+  const [refreshNonce, setRefreshNonce] = useState(0);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState("");
@@ -397,11 +486,19 @@ export default function AdminFacts() {
         if (r.ok && Array.isArray(data.facts)) {
           setFacts(data.facts);
           setTotal(data.total ?? 0);
+          // While searching, results are grouped under their parent — auto-expand
+          // roots that have matching variants so the matches are visible without a
+          // click. While browsing, start collapsed.
+          setExpandedRoots(
+            debouncedSearch
+              ? new Set(data.facts.filter((f) => (f.variants?.length ?? 0) > 0).map((f) => f.id))
+              : new Set(),
+          );
         }
       })
       .catch(() => {})
       .finally(() => setLoading(false));
-  }, [page, debouncedSearch, showInactive]);
+  }, [page, debouncedSearch, showInactive, refreshNonce]);
 
   function selectFact(fact: Fact) {
     setSelectedFact(fact);
@@ -492,6 +589,8 @@ export default function AdminFacts() {
       setNewVariantText("");
       setNewVariantUseCase("");
       setShowAddVariant(false);
+      setRefreshNonce((n) => n + 1); // refresh the list so the new variant nests under its parent
+      if (selectedFact) setExpandedRoots((prev) => new Set(prev).add(selectedFact.id));
     } catch (err) {
       alert(err instanceof Error ? err.message : "Failed to add variant");
     } finally {
@@ -503,6 +602,7 @@ export default function AdminFacts() {
     if (!confirm("Delete this variant permanently?")) return;
     await fetch(`/api/admin/facts/variants/${variantId}`, { method: "DELETE", credentials: "include" });
     setVariants((prev) => prev.filter((v) => v.id !== variantId));
+    setRefreshNonce((n) => n + 1); // refresh the list so the removed variant drops out of the hierarchy
   }
 
   async function deleteFact(hard: boolean) {
@@ -719,52 +819,38 @@ export default function AdminFacts() {
             ) : facts.length === 0 ? (
               <div className="p-8 text-center text-muted-foreground text-sm">No facts found.</div>
             ) : (
-              facts.map((fact) => {
-                const isSelected = selectedFact?.id === fact.id;
+              facts.map((root) => {
+                const variants = root.variants ?? [];
+                const expanded = expandedRoots.has(root.id);
                 return (
-                  <div
-                    key={fact.id}
-                    onClick={() => selectFact(fact)}
-                    className={`flex items-start gap-3 px-4 py-3 cursor-pointer group transition-colors ${
-                      isSelected ? "bg-primary/10 border-l-2 border-primary" : "hover:bg-muted/40 border-l-2 border-transparent"
-                    } ${!fact.isActive ? "opacity-50" : ""}`}
-                  >
-                    <div className="mt-1 shrink-0">
-                      <div className={`w-2 h-2 rounded-full ${fact.isActive ? "bg-green-500" : "bg-red-500"}`} title={fact.isActive ? "Active" : "Inactive"} />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm text-foreground leading-snug line-clamp-2">{fact.text}</p>
-                      <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-1 text-xs text-muted-foreground">
-                        <span className="font-mono">#{fact.id}</span>
-                        <span>↑{fact.upvotes} ↓{fact.downvotes}</span>
-                        <span>W:{(fact.wilsonScore ?? 0).toFixed(3)}</span>
-                        <span title={fact.hasEmbedding ? "Embedding present" : "No embedding — won't appear in duplicate check"}>
-                          <Brain className={`inline w-3 h-3 ${fact.hasEmbedding ? "text-green-500" : "text-destructive"}`} />
-                          {fact.hasEmbedding ? "" : " no embed"}
-                        </span>
-                        {fact.hasEnrichment && (
-                          <span
-                            className="inline-flex items-center gap-1 text-primary"
-                            title={fact.primaryArchetype ? `Enriched — ${fact.primaryArchetype}` : "Has visual taxonomy enrichment"}
-                          >
-                            <Sparkles className="inline w-3 h-3" />
-                            {fact.enrichmentStatus === "pending" ? "classifying…" : (fact.primaryArchetype ?? "enriched")}
-                          </span>
-                        )}
-                        <span>{new Date(fact.createdAt).toLocaleDateString()}</span>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-1 shrink-0">
-                      <Pencil className={`w-3.5 h-3.5 transition-opacity ${isSelected ? "text-primary opacity-100" : "text-muted-foreground opacity-0 group-hover:opacity-100"}`} />
-                      <button
-                        onClick={(e) => { e.stopPropagation(); selectFact(fact); setDeleteModal("choose"); }}
-                        className="p-1 text-muted-foreground hover:text-destructive opacity-0 group-hover:opacity-100 transition-all"
-                        title="Delete fact"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </div>
-                  </div>
+                  <Fragment key={root.id}>
+                    <FactListRow
+                      fact={root}
+                      isSelected={selectedFact?.id === root.id}
+                      variantCount={variants.length}
+                      expanded={expanded}
+                      onToggleExpand={() =>
+                        setExpandedRoots((prev) => {
+                          const next = new Set(prev);
+                          if (next.has(root.id)) next.delete(root.id);
+                          else next.add(root.id);
+                          return next;
+                        })
+                      }
+                      onSelect={() => selectFact(root)}
+                      onDelete={() => { selectFact(root); setDeleteModal("choose"); }}
+                    />
+                    {expanded && variants.map((v) => (
+                      <FactListRow
+                        key={v.id}
+                        fact={v}
+                        isSelected={selectedFact?.id === v.id}
+                        indented
+                        onSelect={() => selectFact(v)}
+                        onDelete={() => { selectFact(v); setDeleteModal("choose"); }}
+                      />
+                    ))}
+                  </Fragment>
                 );
               })
             )}

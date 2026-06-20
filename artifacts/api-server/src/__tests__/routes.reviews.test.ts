@@ -14,7 +14,7 @@
  * Pexels image pipeline, which needs external API access.
  */
 
-import { describe, it, before, after } from "node:test";
+import { describe, it, before, after, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 
@@ -30,10 +30,106 @@ import {
   asyncJobsTable,
 } from "@workspace/db/schema";
 import { and, eq, gte, like, sql } from "drizzle-orm";
+import type { FactEnrichment } from "@workspace/api-zod";
 
-import reviewsRouter from "../routes/reviews.js";
+import reviewsRouter, { __setPlanGeneratorForTest } from "../routes/reviews.js";
 import { authMiddleware } from "../middlewares/authMiddleware.js";
 import { createSession, type SessionData } from "../lib/auth.js";
+
+// A minimal valid render-time plan output the Nano Banana compiler accepts.
+// `rating` is overridable so a test can simulate the "poor" (unrenderable) case.
+function makePlanOutput(rating: "strong" | "poor" = "strong") {
+  return {
+    visualPlan: {
+      sceneConcept: "Alex Jordan performing a superhuman feat",
+      visualGoal: "Make the feat legible",
+      visualApproach: "Cinematic close-up",
+      archetypeApplication: {
+        primaryArchetype: "superhuman_physical_feat",
+        subtype: "force_scaled_action",
+        selectedFrame: "direct_action",
+        strategyRationale: "Authored strategy applies.",
+      },
+      coreScene: "Alex Jordan performs a superhuman feat in the foreground as onlookers react.",
+      subjectDetails: ["confident focused expression", "mid-exertion heroic pose"],
+      environment: ["dramatic stage lighting", "blurred background crowd"],
+      lightingAndStyle: "high-contrast cinematic key light",
+      keyVisualElements: ["central foreground", "dramatic lighting", "exertion pose"],
+      subjectTreatment: {
+        roleInScene: "Legendary protagonist",
+        subjectRenderMode: "human_identity_i2i",
+        identityPreservation: "human_face",
+        nonhumanSubjectTreatment: {
+          applicable: false,
+          subjectKind: "not_applicable",
+          preserveTraits: [],
+          anthropomorphicTreatment: "none",
+          doNotTransformIntoHuman: false,
+        },
+        fallbackSubjectGender: "not_applicable",
+        expressionAndPose: "Confident, focused",
+        ageLifeStageTransform: { applies: false, targetState: "" },
+      },
+      subjectFactCompatibility: {
+        rating,
+        reason: rating === "poor" ? "The fact cannot be staged on a human subject." : "Stages well.",
+        recommendedFallback: rating === "poor" ? "choose_different_fact" : "none",
+      },
+      composition: {
+        subjectFraming: "Medium close-up",
+        negativeSpace: "top",
+        cameraStyle: "Cinematic 35mm",
+        sceneReadability: "Subject is the readable element",
+      },
+      supportingTextPolicy: {
+        allowSupportingText: false,
+        supportingTextElements: [],
+        forbiddenTextTypes: [
+          "full meme captions",
+          "full fact text",
+          "hashtags",
+          "watermarks",
+          "real logos",
+          "brand marks",
+          "long explanatory paragraphs",
+        ],
+      },
+      secondaryCharacters: [],
+      semanticEntitiesUsed: [],
+      culturalReferencesUsed: [],
+      styleIntegration: "Apply cinematic style",
+      contentNotes: "SFW",
+      debugNotes: "Strategy v2",
+      targetEngine: "nano_banana_2" as const,
+      generationMode: "i2i" as const,
+    },
+    compiledPrompt: {
+      prompt: "Alex Jordan lifts a mountain over their head with one arm.",
+      negativePrompt: "",
+      engineNotes: "",
+    },
+    promptVersion: "test-prompt-v1",
+    archetypeStrategyVersion: "test-strategy-v1",
+    generatedAt: new Date("2026-01-01T00:00:00.000Z").toISOString(),
+    generatedBy: "openai" as const,
+  };
+}
+
+const VALID_APPROVAL_ENRICHMENT: FactEnrichment = {
+  primaryArchetype: "superhuman_physical_feat",
+  subtype: "force_scaled_action",
+  modifiers: [],
+  visualLiteralness: "literal_dramatization",
+  visualComplexity: "medium",
+  overhypeFit: "strong",
+  adultSuitability: "safe",
+  adultSuitabilityNotes: "",
+  suggestedHashtags: ["strength", "legendary", "pushups"],
+  taxonomyConfidence: 0.95,
+  adminReviewNotes: "",
+  culturalReferences: [],
+  semanticEntities: [],
+};
 
 
 const USER_PREFIX = "t_routes_rv_";
@@ -103,6 +199,10 @@ async function cleanup() {
 
 before(cleanup);
 after(cleanup);
+
+// Every test must restore the live plan generator so a stub can't leak across
+// tests.
+afterEach(() => __setPlanGeneratorForTest(null));
 
 // Delete any admin-notify outbox rows queued by this test file so the email
 // worker doesn't deliver them to real inboxes. Filtered by kind and start
@@ -395,6 +495,168 @@ describe("POST /admin/reviews/:id/approve-variant", () => {
       .set("authorization", `Bearer ${sid}`)
       .send({ parentFactId: 1 });
     assert.equal(res.status, 409);
+  });
+});
+
+// ── Approval render preflight ─────────────────────────────────────────────
+//
+// Approval runs a NON-PERSISTENT renderability preflight (the real runtime
+// pipeline over the neutral canonical subject "Alex Jordan"/they-them) BEFORE
+// any state mutation. The planner is stubbed via __setPlanGeneratorForTest; the
+// real Nano Banana compiler still runs on the stubbed plan.
+describe("approval render preflight", () => {
+  async function seedPendingReviewWithParent(): Promise<{ reviewId: number; parentId: number }> {
+    const adminId = await createTestUser({ isAdmin: true });
+    const submitterId = await createTestUser();
+    const [parent] = await db
+      .insert(factsTable)
+      .values({ text: "{NAME} parent fact", submittedById: adminId, isActive: true })
+      .returning();
+    const [review] = await db
+      .insert(pendingReviewsTable)
+      .values({
+        submittedText: "{NAME} bench-presses the Earth.",
+        submittedById: submitterId,
+        status: "pending",
+        enrichment: VALID_APPROVAL_ENRICHMENT,
+        enrichmentStatus: "ok",
+      })
+      .returning();
+    return { reviewId: review.id, parentId: parent.id };
+  }
+
+  it("passes on a non-poor rating and the canonical subject is Alex Jordan / they-them", async () => {
+    const { reviewId, parentId } = await seedPendingReviewWithParent();
+    const adminId = await createTestUser({ isAdmin: true });
+    const sid = await bearerForUser(adminId, { isAdmin: true });
+
+    let seenFactText = "";
+    __setPlanGeneratorForTest(async (input) => {
+      seenFactText = input.factText;
+      return makePlanOutput("strong") as never;
+    });
+
+    const res = await request(makeApp())
+      .post(`/admin/reviews/${reviewId}/approve-variant`)
+      .set("authorization", `Bearer ${sid}`)
+      .send({ parentFactId: parentId });
+
+    assert.equal(res.status, 200);
+    assert.equal(res.body.success, true);
+    // The preflight rendered the fact text for the neutral canonical subject.
+    assert.match(seenFactText, /Alex Jordan/);
+    assert.doesNotMatch(seenFactText, /\{NAME\}/);
+    assert.doesNotMatch(seenFactText, /David/);
+
+    const [r] = await db.select().from(pendingReviewsTable).where(eq(pendingReviewsTable.id, reviewId));
+    assert.equal(r.status, "approved");
+  });
+
+  it("blocks with 400 on a poor rating and leaves the review unchanged", async () => {
+    const { reviewId, parentId } = await seedPendingReviewWithParent();
+    const adminId = await createTestUser({ isAdmin: true });
+    const sid = await bearerForUser(adminId, { isAdmin: true });
+
+    __setPlanGeneratorForTest(async () => makePlanOutput("poor") as never);
+
+    const res = await request(makeApp())
+      .post(`/admin/reviews/${reviewId}/approve-variant`)
+      .set("authorization", `Bearer ${sid}`)
+      .send({ parentFactId: parentId });
+
+    assert.equal(res.status, 400);
+    assert.match(String(res.body.error), /render coherently|achievable/i);
+
+    const [r] = await db.select().from(pendingReviewsTable).where(eq(pendingReviewsTable.id, reviewId));
+    assert.equal(r.status, "pending", "review must NOT be mutated when the preflight blocks");
+  });
+
+  it("returns 503 (retryable) on a simulated timeout and leaves the review unchanged", async () => {
+    const { reviewId, parentId } = await seedPendingReviewWithParent();
+    const adminId = await createTestUser({ isAdmin: true });
+    const sid = await bearerForUser(adminId, { isAdmin: true });
+
+    // The preflight races a ~20s deadline; a planner that never resolves trips
+    // the timeout (with one retry, also timing out) → retryable 503.
+    __setPlanGeneratorForTest(() => new Promise(() => {}) as never);
+
+    const res = await request(makeApp())
+      .post(`/admin/reviews/${reviewId}/approve-variant`)
+      .set("authorization", `Bearer ${sid}`)
+      .send({ parentFactId: parentId });
+
+    assert.equal(res.status, 503);
+    assert.match(String(res.body.error), /retry/i);
+
+    const [r] = await db.select().from(pendingReviewsTable).where(eq(pendingReviewsTable.id, reviewId));
+    assert.equal(r.status, "pending", "review must NOT be mutated on a transient failure");
+  });
+
+  it("returns 422 (non-retryable) when the planner throws and leaves the review unchanged", async () => {
+    const { reviewId, parentId } = await seedPendingReviewWithParent();
+    const adminId = await createTestUser({ isAdmin: true });
+    const sid = await bearerForUser(adminId, { isAdmin: true });
+
+    __setPlanGeneratorForTest(async () => { throw new Error("planner schema validation failed"); });
+
+    const res = await request(makeApp())
+      .post(`/admin/reviews/${reviewId}/approve-variant`)
+      .set("authorization", `Bearer ${sid}`)
+      .send({ parentFactId: parentId });
+
+    assert.equal(res.status, 422);
+
+    const [r] = await db.select().from(pendingReviewsTable).where(eq(pendingReviewsTable.id, reviewId));
+    assert.equal(r.status, "pending", "review must NOT be mutated when the planner throws");
+  });
+
+  it("feeds the moderator override through to the planner input (override-driven case)", async () => {
+    const adminId = await createTestUser({ isAdmin: true });
+    const submitterId = await createTestUser();
+    const sid = await bearerForUser(adminId, { isAdmin: true });
+    const [parent] = await db
+      .insert(factsTable)
+      .values({ text: "{NAME} parent fact", submittedById: adminId, isActive: true })
+      .returning();
+    const overrideEnrichment: FactEnrichment = {
+      ...VALID_APPROVAL_ENRICHMENT,
+      visualPromptStrategyOverride: {
+        version: 1,
+        enabled: true,
+        requiredVisualDetails: ["{NAME} wearing a glowing crown"],
+        forbiddenVisualDetails: [],
+        roleBindings: [],
+        compositionGuidance: [],
+        styleAgnosticPromptAdditions: [],
+        negativePromptAdditions: [],
+      },
+    };
+    const [review] = await db
+      .insert(pendingReviewsTable)
+      .values({
+        submittedText: "{NAME} bench-presses the Earth.",
+        submittedById: submitterId,
+        status: "pending",
+        enrichment: overrideEnrichment,
+        enrichmentStatus: "ok",
+      })
+      .returning();
+
+    let seenRenderPolicy: unknown;
+    __setPlanGeneratorForTest(async (input) => {
+      seenRenderPolicy = input.renderPolicy;
+      return makePlanOutput("strong") as never;
+    });
+
+    const res = await request(makeApp())
+      .post(`/admin/reviews/${review.id}/approve-variant`)
+      .set("authorization", `Bearer ${sid}`)
+      .send({ parentFactId: parent.id });
+
+    assert.equal(res.status, 200);
+    // resolveRenderPolicy folds the moderator override into the planner input —
+    // proving the override reaches the same runtime path as render time.
+    assert.ok(seenRenderPolicy, "render policy (with the override folded in) reached the planner");
   });
 });
 

@@ -8,12 +8,10 @@ import { Beaker, ChevronDown, ChevronRight, Copy, Check, RefreshCw, AlertTriangl
  * and shows the engine-neutral `visualPlan` + Nano Banana `compiledPrompt` an
  * image engine would actually receive under chosen render assumptions.
  *
- * This is deliberately separate from the Phase 2A "Visual Interpretation
- * Preview" (the `exampleI2iPrompt`/`exampleT2iPrompt` fields in the enrichment
- * editor), which are preview-only samples generated under default assumptions —
- * NOT the final engine prompt. This panel is read-only / non-mutating: it never
- * overwrites fact enrichment unless the admin explicitly opts into persisting an
- * image-prompt attempt row.
+ * This is the SINGLE source of truth for "what the image will be": the
+ * enrichment-time visual preview subsystem has been retired. This panel is
+ * read-only / non-mutating: it never overwrites fact enrichment unless the
+ * admin explicitly opts into persisting an image-prompt attempt row.
  */
 
 type SubjectRenderMode = "human_identity_i2i" | "nonhuman_subject_i2i" | "t2i_fallback";
@@ -130,13 +128,23 @@ const STATUS_META: Record<PromptSectionStatus, { label: string; cls: string }> =
   compressed: { label: "compressed", cls: "bg-amber-500/15 text-amber-600 dark:text-amber-400" },
   dropped: { label: "dropped (over budget)", cls: "bg-destructive/15 text-destructive" },
   deduped: { label: "deduped (already present)", cls: "bg-muted text-muted-foreground" },
-  empty: { label: "empty", cls: "bg-muted text-muted-foreground" },
+  empty: { label: "not used for this render", cls: "bg-muted text-muted-foreground" },
 };
 
 const PRIORITY_CLS: Record<PromptSection["priority"], string> = {
   required: "bg-primary/15 text-primary",
   high: "bg-blue-500/15 text-blue-600 dark:text-blue-400",
   medium: "bg-muted text-muted-foreground",
+};
+
+// Display labels for the section priority. This is a BUDGET-survival order (how a
+// section is kept/compressed/dropped against the engine char cap when it HAS
+// content) — NOT whether the section is mandatory. "required" → "always kept" so
+// an empty conditional section doesn't read as a missing-required-field bug.
+const PRIORITY_LABEL: Record<PromptSection["priority"], string> = {
+  required: "always kept",
+  high: "high",
+  medium: "medium",
 };
 
 // Human labels for the reasons a planner-prose clause was stripped.
@@ -644,7 +652,12 @@ export function RuntimePromptPreview({ factId, reviewId }: RuntimePromptPreviewP
                       <p className="text-[10px] text-muted-foreground italic leading-snug">
                         The deterministic compiler concatenates these components (in order) to build the
                         final prompt above. Each shows whether it was included, compressed to fit the
-                        engine budget, de-duplicated against earlier text, or empty for this render.
+                        engine budget, de-duplicated against earlier text, or not used for this render.
+                        The priority chip (“always kept” / “high” / “medium”) is the budget-survival
+                        order — how the section is kept vs compressed when content is present — not
+                        whether it is mandatory. Conditional sections (e.g. SUBJECT BINDING, SUBJECT
+                        REALIZATION, REFERENCE INTERPRETATION) are simply “not used for this render”
+                        when the fact doesn’t trigger them.
                       </p>
                       {result.compiledPrompt.promptBreakdown.map((s, i) => {
                         const meta = STATUS_META[s.status];
@@ -659,7 +672,7 @@ export function RuntimePromptPreview({ factId, reviewId }: RuntimePromptPreviewP
                             <div className="flex flex-wrap items-center gap-1.5 mb-1">
                               <span className="text-[11px] font-semibold text-foreground">{s.label}</span>
                               <span className={`text-[9px] font-semibold uppercase tracking-wide px-1 py-0.5 rounded-sm ${PRIORITY_CLS[s.priority]}`}>
-                                {s.priority}
+                                {PRIORITY_LABEL[s.priority]}
                               </span>
                               <span className={`text-[9px] font-semibold uppercase tracking-wide px-1 py-0.5 rounded-sm ${meta.cls}`}>
                                 {meta.label}

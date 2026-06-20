@@ -26,8 +26,8 @@ import { analyzeSourceImage, generationModeFromSubjectRenderMode, noImageAnalysi
 import { ImagePromptError } from "../lib/imagePrompt/generator";
 import {
   assembleImagePromptForPreview,
-  PREVIEW_SUBJECT_NAME,
-  PREVIEW_SUBJECT_PRONOUNS,
+  RUNTIME_PREVIEW_DEFAULT_NAME,
+  RUNTIME_PREVIEW_DEFAULT_PRONOUNS,
 } from "../lib/imagePrompt/preview";
 import { renderPersonalized } from "../lib/renderCanonical";
 
@@ -41,8 +41,8 @@ const router: IRouter = Router();
 // preview and the engine workbench feed identical rendered fact text to the
 // planner. The generator expects RENDERED fact text (tokens resolved), so we
 // personalize before prompt generation — not just for display.
-const PREVIEW_NAME = PREVIEW_SUBJECT_NAME;
-const PREVIEW_PRONOUNS = PREVIEW_SUBJECT_PRONOUNS;
+const PREVIEW_NAME = RUNTIME_PREVIEW_DEFAULT_NAME;
+const PREVIEW_PRONOUNS = RUNTIME_PREVIEW_DEFAULT_PRONOUNS;
 
 // ─── POST /admin/image-prompt/preview ────────────────────────────────────
 

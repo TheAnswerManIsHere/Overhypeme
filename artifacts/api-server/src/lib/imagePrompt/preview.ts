@@ -43,8 +43,8 @@ export function __setPlanGeneratorForTest(fn: PlanGenerator | null): void {
  * previews is the planner's own temperature (IMAGE_PROMPT_TEMPERATURE = 0.4) —
  * never a harness mismatch.
  */
-export const PREVIEW_SUBJECT_NAME = "David Franklin";
-export const PREVIEW_SUBJECT_PRONOUNS = "he/him";
+export const RUNTIME_PREVIEW_DEFAULT_NAME = "David Franklin";
+export const RUNTIME_PREVIEW_DEFAULT_PRONOUNS = "he/him";
 
 /** RenderControls plus the route-attached style/reference fields. */
 export type RenderControlsWithRefs = RenderControls & {

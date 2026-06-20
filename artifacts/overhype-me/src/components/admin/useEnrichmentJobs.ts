@@ -5,9 +5,14 @@
  * the ONE universal `useFormDraft` helper. This hook owns only the things that
  * are genuinely enrichment-specific and are NOT autosave:
  *
- *   • re-run classification        (POST /enrich)
- *   • regenerate the visual preview (POST /preview, after flushing the draft)
- *   • polling server-side job state and syncing it back into the form
+ *   • re-run classification   (POST /enrich)
+ *   • polling server-side classification job state and syncing it back into the
+ *     form
+ *
+ * The render-time visual is owned entirely by the runtime pipeline
+ * (RuntimePromptPreview at view time, a non-persistent render preflight at
+ * approval time), so there is no preview-regeneration action or preview-status
+ * polling here anymore.
  *
  * It deliberately does NOT own the enrichment form state. The page owns
  * `enrichment` + `enrichmentStatus` (so the universal `useFormDraft` can read
@@ -18,7 +23,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { CLASSIFICATION_PROMPT_VERSION, type FactEnrichment } from "@workspace/api-zod";
+import { type FactEnrichment } from "@workspace/api-zod";
 
 export type EnrichmentResource = "reviews" | "facts";
 
@@ -30,8 +35,6 @@ export interface UseEnrichmentJobsOptions {
    * "pending" the hook polls the server until the job resolves.
    */
   status: string | null;
-  /** Read the current form enrichment (used only for the preview null-guard). */
-  getEnrichment: () => FactEnrichment | null;
   /**
    * True while the admin has unsaved local edits. Polling is skipped whenever
    * this is true so a background sync can never clobber an in-progress edit.
@@ -43,27 +46,18 @@ export interface UseEnrichmentJobsOptions {
    * so the universal autosave stays quiet) and refresh its "last saved" snapshot.
    */
   applyServerState: (enrichment: FactEnrichment | null, status: string | null) => void;
-  /**
-   * Flush the autosave draft now, so a regenerated preview runs against the
-   * freshly-saved enrichment. Resolves false if the save failed.
-   */
-  saveNow: () => Promise<boolean>;
 }
 
 export interface UseEnrichmentJobsResult {
-  /** A re-run or preview request is in flight (the POST itself). */
+  /** A re-run request is in flight (the POST itself). */
   loading: boolean;
   /** A re-run classification job is running server-side. */
   rerunBusy: boolean;
-  /** A preview-regeneration job is running server-side. */
-  previewBusy: boolean;
   error: string;
   onRerun: () => Promise<void>;
-  onRegeneratePreview: () => Promise<void>;
 }
 
 const POLL_INTERVAL_MS = 2500;
-const PREVIEW_MAX_TICKS = 40; // ~100s ceiling so a stuck job never polls forever.
 
 function describeHttpError(status: number): string {
   if (status === 503) return "API unavailable — try again shortly.";
@@ -77,25 +71,15 @@ export function useEnrichmentJobs(opts: UseEnrichmentJobsOptions): UseEnrichment
 
   const [loading, setLoading] = useState(false);
   const [rerunBusy, setRerunBusy] = useState(false);
-  const [previewBusy, setPreviewBusy] = useState(false);
   const [error, setError] = useState("");
-  // Bumped to (re)start a bounded preview-polling loop after POST /preview.
-  const [previewPolls, setPreviewPolls] = useState(0);
 
-  // Latest callbacks/values, read through refs so the polling effects depend
-  // only on stable primitives (base/status) and never churn when the page
+  // Latest callbacks/values, read through refs so the polling effect depends
+  // only on stable primitives (base/status) and never churns when the page
   // re-creates inline callbacks.
-  const getEnrichmentRef = useRef(opts.getEnrichment);
-  getEnrichmentRef.current = opts.getEnrichment;
   const isDirtyRef = useRef(opts.isDirty);
   isDirtyRef.current = opts.isDirty;
   const applyRef = useRef(opts.applyServerState);
   applyRef.current = opts.applyServerState;
-  const saveNowRef = useRef(opts.saveNow);
-  saveNowRef.current = opts.saveNow;
-  // Tracks the server's previewStatus seen by the latest sync so preview polling
-  // knows when the job has left "pending".
-  const latestPreviewStatusRef = useRef<string | null | undefined>(undefined);
 
   /**
    * Pull fresh enrichment + status from the server and apply it — but only while
@@ -113,7 +97,6 @@ export function useEnrichmentJobs(opts: UseEnrichmentJobsOptions): UseEnrichment
         enrichmentStatus?: string | null;
       };
       if (isDirtyRef.current()) return null;
-      latestPreviewStatusRef.current = (fresh.enrichment as { previewStatus?: string } | null)?.previewStatus;
       applyRef.current(fresh.enrichment ?? null, fresh.enrichmentStatus ?? null);
       return fresh.enrichmentStatus ?? null;
     } catch {
@@ -145,30 +128,6 @@ export function useEnrichmentJobs(opts: UseEnrichmentJobsOptions): UseEnrichment
     };
   }, [status, syncFromServer]);
 
-  // Preview polling: bounded loop kicked off by onRegeneratePreview.
-  useEffect(() => {
-    if (previewPolls === 0) return;
-    setPreviewBusy(true);
-    latestPreviewStatusRef.current = "pending";
-    let cancelled = false;
-    let ticks = 0;
-    const handle = setInterval(() => {
-      void (async () => {
-        ticks += 1;
-        await syncFromServer();
-        if (cancelled) return;
-        if (latestPreviewStatusRef.current !== "pending" || ticks >= PREVIEW_MAX_TICKS) {
-          clearInterval(handle);
-          setPreviewBusy(false);
-        }
-      })();
-    }, POLL_INTERVAL_MS);
-    return () => {
-      cancelled = true;
-      clearInterval(handle);
-    };
-  }, [previewPolls, syncFromServer]);
-
   const onRerun = useCallback(async () => {
     setLoading(true);
     setError("");
@@ -179,7 +138,7 @@ export function useEnrichmentJobs(opts: UseEnrichmentJobsOptions): UseEnrichment
         // form as server-synced (clears dirty) and flip status to "pending",
         // which starts the re-run polling effect above.
         setRerunBusy(true);
-        applyRef.current(getEnrichmentRef.current(), "pending");
+        applyRef.current(null, "pending");
       } else {
         setError(describeHttpError(r.status));
       }
@@ -190,47 +149,5 @@ export function useEnrichmentJobs(opts: UseEnrichmentJobsOptions): UseEnrichment
     }
   }, [base]);
 
-  const onRegeneratePreview = useCallback(async () => {
-    const currentEnrichment = getEnrichmentRef.current();
-    if (!currentEnrichment) return;
-    // Guard: the visual plan operates in lockstep with the enrichment. Regenerating
-    // it when the enrichment is stale would produce a plan built from outdated data.
-    if (currentEnrichment.classificationPromptVersion !== CLASSIFICATION_PROMPT_VERSION) {
-      setError(
-        "Cannot regenerate visual plan — enrichment is outdated. Re-enrich this fact first, then regenerate the visual plan.",
-      );
-      return;
-    }
-    setLoading(true);
-    setError("");
-    // Persist the current enrichment first so the preview is generated from what
-    // the admin sees, not a stale server copy.
-    const saved = await saveNowRef.current();
-    if (!saved) {
-      setError("Could not save enrichment before regenerating the preview.");
-      setLoading(false);
-      return;
-    }
-    try {
-      const r = await fetch(`${base}/preview`, { method: "POST", credentials: "include" });
-      if (r.ok) {
-        setPreviewPolls((n) => n + 1);
-      } else {
-        let msg = describeHttpError(r.status);
-        try {
-          const b = (await r.json()) as { error?: string };
-          if (b?.error) msg = b.error;
-        } catch {
-          /* keep generic message */
-        }
-        setError(msg);
-      }
-    } catch {
-      setError("Network error — could not reach the server.");
-    } finally {
-      setLoading(false);
-    }
-  }, [base]);
-
-  return { loading, rerunBusy, previewBusy, error, onRerun, onRegeneratePreview };
+  return { loading, rerunBusy, error, onRerun };
 }

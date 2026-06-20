@@ -43,12 +43,6 @@ const REENRICH_ACTION: CardActionHelp = {
   safety: "costs_model_calls",
 };
 
-const VISUAL_PLAN_ACTION: CardActionHelp = {
-  label: "Regenerate Visual Plan",
-  help: "Rebuilds the stored visual plan (the image-prompt pipeline's visual strategy) from the current enrichment. Safe to run repeatedly; it does NOT reclassify the fact, but each run costs a model call.",
-  safety: "costs_model_calls",
-};
-
 const REPAIR_ACTION: CardActionHelp = {
   label: "Repair",
   help: "Rewrites the derived/promoted columns from the stored enrichment JSON. Safe to run repeatedly, instant, and makes no model calls.",
@@ -62,8 +56,8 @@ export const CARD_META: CardMeta[] = [
     filter: "healthy",
     tone: "green",
     description:
-      "Facts with no blocking taxonomy health problem — enrichment is valid, current, and has a visual plan. Some rows may still carry an informational hint and so also appear under another card.",
-    whatToDo: "Nothing required. Open a fact via its ID to inspect its enrichment or visual plan.",
+      "Facts with no blocking taxonomy health problem — enrichment is valid and current. Some rows may still carry an informational hint and so also appear under another card.",
+    whatToDo: "Nothing required. Open a fact via its ID to inspect its enrichment. The rendered prompt lives in the Runtime Compiled Prompt Preview on the fact editor.",
     actions: [],
   },
   {
@@ -95,17 +89,6 @@ export const CARD_META: CardMeta[] = [
       "A human judgement call is flagged — low confidence, questionable/reject fit, an adult-suitability review, a cultural reference, or a semantic entity needing review.",
     whatToDo: "Open the fact (its ID link) to review and edit the flagged fields.",
     actions: [],
-  },
-  {
-    key: "staleVisualPreview",
-    label: "Stale visual plan",
-    filter: "stale_visual_preview",
-    tone: "amber",
-    description:
-      "The visual plan is missing or outdated. This includes facts with no plan yet, plans generated under an older prompt version, and plans whose underlying enrichment has since changed. All three need regeneration — the visual plan is always tied to the enrichment that produced it.",
-    whatToDo:
-      "Regenerate the visual plan from the current enrichment. If the enrichment itself is also stale, re-enrich first — regenerating a visual plan from stale enrichment just locks in the outdated data.",
-    actions: [VISUAL_PLAN_ACTION],
   },
   {
     key: "staleEnrichmentVersion",

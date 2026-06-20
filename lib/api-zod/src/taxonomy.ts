@@ -377,69 +377,6 @@ export const semanticEntitySchema = z.object({
 });
 export type SemanticEntity = z.infer<typeof semanticEntitySchema>;
 
-/**
- * Per-fact supporting-text policy: what readable text the image model is
- * allowed vs forbidden to render for this specific joke. Centralized; the
- * default population (forbidden = full meme captions / full fact text /
- * hashtags / watermarks / real logos / brand marks / long paragraphs; allowed
- * = concise short labels / numbers / symbols / equations / UI fragments /
- * scoreboards / documents / keypad digits / signs when they directly support
- * the joke) is set in the prompt-strategy guardrails module.
- */
-export const supportingTextPolicySchema = z.object({
-  allowed: z.array(z.string().trim().min(1)).max(20).default([]),
-  forbidden: z.array(z.string().trim().min(1)).max(20).default([]),
-  notes: z.string().trim().max(800).default(""),
-});
-export type SupportingTextPolicy = z.infer<typeof supportingTextPolicySchema>;
-
-/**
- * Fixed preview assumptions. Modeled as literals so the model can't quietly
- * change them (preview mode, style, face-preserve, physique-preserve are
- * product-fixed for this bridge phase). `sampleName` defaults to "David" — the
- * canonical brand example — and is used by the guardrail's subject-label rule
- * (literal "David" only when sampleName is "David", else "the named subject").
- */
-export const PREVIEW_GENERATION_MODE = "i2i_and_t2i_preview" as const;
-export const PREVIEW_STYLE = "default_sfw_cinematic" as const;
-
-export const previewAssumptionsSchema = z.object({
-  sampleName: z.string().trim().min(1).max(80).default("David"),
-  generationMode: z.literal(PREVIEW_GENERATION_MODE).default(PREVIEW_GENERATION_MODE),
-  style: z.literal(PREVIEW_STYLE).default(PREVIEW_STYLE),
-  preserveFace: z.literal(true).default(true),
-  preservePhysique: z.literal(false).default(false),
-});
-
-/**
- * Admin-visible text preview of the system's intended visual interpretation.
- * Structurally close to the Phase 2 render-time visual plan so the strategy
- * module is reusable: `archetypeApplication`, `selectedFrame`, `keyVisualElements`,
- * `supportingTextPolicy`, and `culturalReferencesUsed` mirror what render-time
- * will consume. NOT a real render prompt and NOT an image.
- */
-export const visualPromptPreviewSchema = z.object({
-  archetypeApplication: z.string().trim().min(1).max(1200),
-  selectedFrame: z.string().trim().min(1).max(300),
-  sceneConcept: z.string().trim().min(1).max(1200),
-  visualGoal: z.string().trim().min(1).max(1200),
-  visualApproach: z.string().trim().min(1).max(1200),
-  keyVisualElements: z.array(z.string().trim().min(1)).max(30).default([]),
-  engineNeutralVisualPlan: z.string().trim().min(1).max(3000),
-  exampleI2iPrompt: z.string().trim().min(1).max(3000),
-  exampleT2iPrompt: z.string().trim().min(1).max(3000),
-  promptGuardrailsPreview: z.string().trim().max(2000).default(""),
-  supportingTextPolicy: supportingTextPolicySchema,
-  culturalReferencesUsed: z.array(z.string().trim().min(1)).max(20).default([]),
-  interpretationWarnings: z.array(z.string().trim().min(1)).max(20).default([]),
-  previewAssumptions: previewAssumptionsSchema,
-  // Provenance (stamped by the preview generator, mirrors enrichment provenance).
-  previewPromptVersion: z.string().optional(),
-  generatedAt: z.string().optional(),
-  generatedBy: z.string().optional(),
-});
-export type VisualPromptPreview = z.infer<typeof visualPromptPreviewSchema>;
-
 // ─── Classification-prompt provenance ──────────────────────────────────────
 
 /**
@@ -475,10 +412,12 @@ const subtypeEnum = z.enum(ALL_SUBTYPES as [FactSubtype, ...FactSubtype[]]);
  * downstream. Apply the subtype cross-field refine in `factEnrichmentSchema`.
  *
  * `culturalReferences` is REQUIRED but may be `[]` (`.default([])` keeps
- * Phase-1 / backfilled blobs valid). `visualPromptPreview` is optional — a
- * freshly-classified review may not have one yet; the approval gate checks its
- * presence separately. `previewStatus` tracks phase-2 status inside the blob
- * (keeps `enrichment_status` on `pending_reviews` semantic to phase-1 only).
+ * Phase-1 / backfilled blobs valid). The enrichment blob no longer carries a
+ * `visualPromptPreview`/`previewStatus`: the render-time visualPlan + Nano
+ * Banana compiler is the single source of truth for the visual, and approval
+ * runs a non-persistent renderability preflight instead. Any stale
+ * `visualPromptPreview`/`previewStatus` keys left in old stored JSONB are
+ * simply dropped on the next validate/save.
  */
 const factEnrichmentBase = z.object({
   primaryArchetype: archetypeEnum,
@@ -515,8 +454,6 @@ const factEnrichmentBase = z.object({
    * by an admin and preserved across re-classification.
    */
   visualPromptStrategyOverride: visualPromptStrategyOverrideSchema.optional(),
-  visualPromptPreview: visualPromptPreviewSchema.optional(),
-  previewStatus: z.enum(["pending", "ok", "failed", "stale"]).optional(),
   // Optional provenance — stamped by the enrichment service.
   taxonomyVersion: z.string().optional(),
   classificationPromptVersion: z.string().optional(),
@@ -569,41 +506,14 @@ export function validateEnrichment(raw: unknown): EnrichmentValidationResult {
   return { ok: false, error, subtypeMismatch };
 }
 
-export type VisualPreviewValidationResult =
-  | { ok: true; data: VisualPromptPreview }
-  | { ok: false; error: string };
-
-/** Safe-parse wrapper for a standalone visual-preview object. */
-export function validateVisualPreview(raw: unknown): VisualPreviewValidationResult {
-  const result = visualPromptPreviewSchema.safeParse(raw);
-  if (result.success) return { ok: true, data: result.data };
-  const error = result.error.issues
-    .map((i) => `${i.path.join(".") || "(root)"}: ${i.message}`)
-    .join("; ");
-  return { ok: false, error };
-}
-
-/**
- * Shared by the server approval gate (`/admin/reviews/:id/approve(/-variant)`)
- * and the client approve button so both stay in lockstep. True iff the
- * enrichment carries a valid, complete visualPromptPreview.
- */
-export function hasUsableVisualPreview(
-  enrichment: { visualPromptPreview?: unknown } | null | undefined,
-): boolean {
-  if (!enrichment || !enrichment.visualPromptPreview) return false;
-  return validateVisualPreview(enrichment.visualPromptPreview).ok;
-}
-
 // ─── Strict "wire" schemas for OpenAI Structured Outputs ───────────────────
 
 /**
  * OpenAI's strict json_schema response_format requires every property to be
  * required, no `default`/`transform`/refinements. So the wire mirrors below
  * are plain objects describing only the transport contract; once we receive
- * the parsed response we run it through `validateEnrichment` /
- * `validateVisualPreview` for normalization (hashtag transform) and business
- * rules (subtype ∈ archetype).
+ * the parsed response we run it through `validateEnrichment` for normalization
+ * (hashtag transform) and business rules (subtype ∈ archetype).
  */
 
 const culturalReferenceWireSchema = z.object({
@@ -642,35 +552,4 @@ export const factEnrichmentWireSchema = z.object({
   adminReviewNotes: z.string(),
   culturalReferences: z.array(culturalReferenceWireSchema),
   semanticEntities: z.array(semanticEntityWireSchema),
-});
-
-const supportingTextPolicyWireSchema = z.object({
-  allowed: z.array(z.string()),
-  forbidden: z.array(z.string()),
-  notes: z.string(),
-});
-
-const previewAssumptionsWireSchema = z.object({
-  sampleName: z.string(),
-  generationMode: z.literal(PREVIEW_GENERATION_MODE),
-  style: z.literal(PREVIEW_STYLE),
-  preserveFace: z.literal(true),
-  preservePhysique: z.literal(false),
-});
-
-export const visualPreviewWireSchema = z.object({
-  archetypeApplication: z.string(),
-  selectedFrame: z.string(),
-  sceneConcept: z.string(),
-  visualGoal: z.string(),
-  visualApproach: z.string(),
-  keyVisualElements: z.array(z.string()),
-  engineNeutralVisualPlan: z.string(),
-  exampleI2iPrompt: z.string(),
-  exampleT2iPrompt: z.string(),
-  promptGuardrailsPreview: z.string(),
-  supportingTextPolicy: supportingTextPolicyWireSchema,
-  culturalReferencesUsed: z.array(z.string()),
-  interpretationWarnings: z.array(z.string()),
-  previewAssumptions: previewAssumptionsWireSchema,
 });

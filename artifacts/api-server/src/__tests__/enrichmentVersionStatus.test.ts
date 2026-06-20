@@ -3,6 +3,9 @@
  * (`@workspace/api-zod`). Pure — no DB/IO. These back the per-fact "Visual
  * Taxonomy Enrichment" staleness badge and the Taxonomy Health version diff,
  * so both surfaces agree with the evaluator's stale-or-not decision.
+ *
+ * Only CLASSIFICATION (taxonomy enrichment) staleness participates — the
+ * enrichment-time visual preview subsystem was retired.
  */
 
 import { describe, it } from "node:test";
@@ -16,18 +19,16 @@ import {
 
 const CURRENT = {
   classificationPromptVersion: "v3",
-  previewPromptVersion: "v1",
   visualStrategyVersion: "v2",
 };
 
 describe("enrichmentVersionStatusFromStored", () => {
-  it("flags an older classification version as stale (enrichment), preview current", () => {
+  it("flags an older classification version as stale (enrichment)", () => {
     const s = enrichmentVersionStatusFromStored(
-      { classificationPromptVersion: "v2", previewPromptVersion: "v1" },
+      { classificationPromptVersion: "v2" },
       CURRENT,
     );
     assert.equal(s.enrichmentStale, true);
-    assert.equal(s.previewStale, false);
     assert.equal(s.isStale, true);
     const classification = s.fields.find((f) => f.field === "classification")!;
     assert.equal(classification.stored, "v2");
@@ -37,7 +38,7 @@ describe("enrichmentVersionStatusFromStored", () => {
 
   it("treats a missing (null) classification version as stale + missing", () => {
     const s = enrichmentVersionStatusFromStored(
-      { classificationPromptVersion: null, previewPromptVersion: "v1" },
+      { classificationPromptVersion: null },
       CURRENT,
     );
     assert.equal(s.enrichmentStale, true);
@@ -46,44 +47,31 @@ describe("enrichmentVersionStatusFromStored", () => {
     assert.equal(classification.stored, null);
   });
 
-  it("is not stale when both versions match current", () => {
+  it("is not stale when the classification version matches current", () => {
     const s = enrichmentVersionStatusFromStored(
-      { classificationPromptVersion: "v3", previewPromptVersion: "v1" },
+      { classificationPromptVersion: "v3" },
       CURRENT,
     );
     assert.equal(s.isStale, false);
     assert.equal(s.enrichmentStale, false);
-    assert.equal(s.previewStale, false);
-  });
-
-  it("flags an outdated visual-plan version as preview-stale only", () => {
-    const s = enrichmentVersionStatusFromStored(
-      { classificationPromptVersion: "v3", previewPromptVersion: "v0" },
-      CURRENT,
-    );
-    assert.equal(s.enrichmentStale, false);
-    assert.equal(s.previewStale, true);
-    assert.equal(s.isStale, true);
+    // No preview field participates anymore.
+    assert.equal(s.fields.length, 1);
+    assert.equal(s.fields[0]!.field, "classification");
   });
 });
 
 describe("computeEnrichmentVersionStatus", () => {
-  it("reads versions out of an enrichment blob (classification + nested preview)", () => {
+  it("reads the classification version out of an enrichment blob", () => {
     const s = computeEnrichmentVersionStatus(
-      {
-        classificationPromptVersion: "v2",
-        visualPromptPreview: { previewPromptVersion: "v1" },
-      },
+      { classificationPromptVersion: "v2" },
       CURRENT,
     );
     assert.equal(s.enrichmentStale, true);
-    assert.equal(s.previewStale, false);
   });
 
-  it("treats an absent enrichment / preview as fully stale", () => {
+  it("treats an absent enrichment as stale", () => {
     const s = computeEnrichmentVersionStatus(null, CURRENT);
     assert.equal(s.enrichmentStale, true);
-    assert.equal(s.previewStale, true);
     assert.equal(s.isStale, true);
   });
 
@@ -91,7 +79,6 @@ describe("computeEnrichmentVersionStatus", () => {
     const live = currentTaxonomyVersions();
     const s = computeEnrichmentVersionStatus({
       classificationPromptVersion: live.classificationPromptVersion,
-      visualPromptPreview: { previewPromptVersion: live.previewPromptVersion },
     });
     assert.equal(s.isStale, false);
   });

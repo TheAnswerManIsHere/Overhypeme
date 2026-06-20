@@ -15,7 +15,6 @@ export const TAXONOMY_HEALTH_STATUS_VALUES = [
   "invalid_enrichment",
   "needs_admin_review",
   "stale_enrichment_version",
-  "stale_visual_preview",
   "projection_mismatch",
   "incomplete_cultural_references",
   "semantic_entities_need_review",
@@ -36,7 +35,6 @@ export type TaxonomyOverallStatus = (typeof TAXONOMY_OVERALL_STATUS_VALUES)[numb
 export const TAXONOMY_HEALTH_RECOMMENDED_ACTION_VALUES = [
   "open_fact_editor",
   "rerun_enrichment",
-  "regenerate_visual_preview",
   "research_cultural_reference",
   "review_semantic_entity",
   "repair_projection_columns",
@@ -55,17 +53,15 @@ export type TaxonomyHealthSeverity = "info" | "warning" | "error";
 // "Visual Taxonomy Enrichment" panel and as an explicit stored→current diff on
 // the health page. This pure helper is the single source of that comparison so
 // both surfaces agree with the evaluator (which flags classification-version
-// mismatch/absence as stale, and a missing/old visual-plan version as stale).
+// mismatch/absence as stale). The retired enrichment-time visual preview no
+// longer participates — the render-time pipeline is the single source of truth
+// for the visual.
 
-import {
-  CLASSIFICATION_PROMPT_VERSION,
-  PREVIEW_PROMPT_VERSION,
-} from "./taxonomy";
+import { CLASSIFICATION_PROMPT_VERSION } from "./taxonomy";
 import { VISUAL_STRATEGY_VERSION } from "./visualPromptStrategies";
 
 export interface CurrentTaxonomyVersions {
   classificationPromptVersion: string;
-  previewPromptVersion: string;
   visualStrategyVersion: string;
 }
 
@@ -73,12 +69,11 @@ export interface CurrentTaxonomyVersions {
 export function currentTaxonomyVersions(): CurrentTaxonomyVersions {
   return {
     classificationPromptVersion: CLASSIFICATION_PROMPT_VERSION,
-    previewPromptVersion: PREVIEW_PROMPT_VERSION,
     visualStrategyVersion: VISUAL_STRATEGY_VERSION,
   };
 }
 
-export type EnrichmentVersionField = "classification" | "preview";
+export type EnrichmentVersionField = "classification";
 
 export interface EnrichmentVersionDiscrepancy {
   field: EnrichmentVersionField;
@@ -95,18 +90,16 @@ export interface EnrichmentVersionDiscrepancy {
 }
 
 export interface EnrichmentVersionStatus {
-  /** Either the enrichment or the visual plan is stale. */
+  /** The enrichment is stale. */
   isStale: boolean;
   /** Classification (taxonomy enrichment) is stale or unversioned. */
   enrichmentStale: boolean;
-  /** Visual plan is stale, unversioned, or not generated. */
-  previewStale: boolean;
   fields: EnrichmentVersionDiscrepancy[];
 }
 
 /** Compare already-extracted stored versions against the current ones. */
 export function enrichmentVersionStatusFromStored(
-  stored: { classificationPromptVersion: string | null; previewPromptVersion: string | null },
+  stored: { classificationPromptVersion: string | null },
   current: CurrentTaxonomyVersions = currentTaxonomyVersions(),
 ): EnrichmentVersionStatus {
   const classification: EnrichmentVersionDiscrepancy = {
@@ -119,21 +112,10 @@ export function enrichmentVersionStatusFromStored(
       stored.classificationPromptVersion == null ||
       stored.classificationPromptVersion !== current.classificationPromptVersion,
   };
-  const preview: EnrichmentVersionDiscrepancy = {
-    field: "preview",
-    label: "Visual plan",
-    stored: stored.previewPromptVersion,
-    current: current.previewPromptVersion,
-    missing: stored.previewPromptVersion == null,
-    stale:
-      stored.previewPromptVersion == null ||
-      stored.previewPromptVersion !== current.previewPromptVersion,
-  };
   return {
     enrichmentStale: classification.stale,
-    previewStale: preview.stale,
-    isStale: classification.stale || preview.stale,
-    fields: [classification, preview],
+    isStale: classification.stale,
+    fields: [classification],
   };
 }
 
@@ -142,7 +124,6 @@ export function computeEnrichmentVersionStatus(
   enrichment:
     | {
         classificationPromptVersion?: string | null;
-        visualPromptPreview?: { previewPromptVersion?: string | null } | null;
       }
     | null
     | undefined,
@@ -151,7 +132,6 @@ export function computeEnrichmentVersionStatus(
   return enrichmentVersionStatusFromStored(
     {
       classificationPromptVersion: enrichment?.classificationPromptVersion ?? null,
-      previewPromptVersion: enrichment?.visualPromptPreview?.previewPromptVersion ?? null,
     },
     current,
   );
@@ -172,7 +152,6 @@ export interface TaxonomyHealthReviewFlags {
   adultRequiresReview: boolean;
   culturalReferenceNeedsResearch: boolean;
   semanticEntityNeedsReview: boolean;
-  stalePreview: boolean;
   staleEnrichmentVersion: boolean;
   projectionMismatch: boolean;
   invalidEnrichment: boolean;
@@ -187,9 +166,7 @@ export interface TaxonomyHealthSummary {
   taxonomyVersion: string | null;
   classificationPromptVersion: string | null;
   visualStrategyVersion: string | null;
-  visualPreviewVersion: string | null;
   enrichedAt: string | null;
-  previewGeneratedAt: string | null;
   /** "openai" | "admin" | other tag stamped during enrichment. */
   enrichedBy: string | null;
 }
@@ -256,7 +233,6 @@ export interface TaxonomyHealthSummaryCounts {
   missingEnrichment: number;
   invalidEnrichment: number;
   needsAdminReview: number;
-  staleVisualPreview: number;
   staleEnrichmentVersion: number;
   projectionMismatch: number;
   incompleteCulturalReferences: number;
@@ -282,7 +258,6 @@ export const TAXONOMY_HEALTH_FILTER_VALUES = [
   "missing_enrichment",
   "invalid_enrichment",
   "needs_admin_review",
-  "stale_visual_preview",
   "stale_enrichment_version",
   "projection_mismatch",
   "incomplete_cultural_references",
@@ -313,8 +288,6 @@ export function matchesHealthFilter(
       return health.reviewFlags.invalidEnrichment;
     case "needs_admin_review":
       return health.statuses.includes("needs_admin_review");
-    case "stale_visual_preview":
-      return health.reviewFlags.stalePreview;
     case "stale_enrichment_version":
       return health.reviewFlags.staleEnrichmentVersion;
     case "projection_mismatch":
@@ -348,7 +321,6 @@ export const SUMMARY_COUNT_TO_FILTER: Record<
   missingEnrichment: "missing_enrichment",
   invalidEnrichment: "invalid_enrichment",
   needsAdminReview: "needs_admin_review",
-  staleVisualPreview: "stale_visual_preview",
   staleEnrichmentVersion: "stale_enrichment_version",
   projectionMismatch: "projection_mismatch",
   incompleteCulturalReferences: "incomplete_cultural_references",
@@ -365,7 +337,6 @@ export const SUMMARY_COUNT_TO_FILTER: Record<
 
 export const TAXONOMY_HEALTH_ACTION_VALUES = [
   "re_enrich",
-  "regenerate_visual_plan",
   "repair_projections",
 ] as const;
 export type TaxonomyHealthAction = (typeof TAXONOMY_HEALTH_ACTION_VALUES)[number];
@@ -375,7 +346,6 @@ export const TAXONOMY_HEALTH_SKIP_REASON_VALUES = [
   "not_applicable",
   "already_current",
   "missing_required_data",
-  "stale_enrichment",
 ] as const;
 export type TaxonomyHealthSkipReason =
   (typeof TAXONOMY_HEALTH_SKIP_REASON_VALUES)[number];

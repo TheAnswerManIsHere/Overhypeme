@@ -47,21 +47,17 @@ function mockFetch(getBody: unknown = { enrichment: ENRICHMENT, enrichmentStatus
 function makeOpts(over: Partial<UseEnrichmentJobsOptions> = {}): {
   opts: UseEnrichmentJobsOptions;
   applyServerState: ReturnType<typeof vi.fn>;
-  saveNow: ReturnType<typeof vi.fn>;
 } {
   const applyServerState = vi.fn();
-  const saveNow = vi.fn(async () => true);
   const opts: UseEnrichmentJobsOptions = {
     resource: "reviews",
     id: 7,
     status: "ok",
-    getEnrichment: () => ENRICHMENT,
     isDirty: () => false,
     applyServerState,
-    saveNow,
     ...over,
   };
-  return { opts, applyServerState, saveNow };
+  return { opts, applyServerState };
 }
 
 describe("useEnrichmentJobs", () => {
@@ -79,45 +75,7 @@ describe("useEnrichmentJobs", () => {
     await act(async () => { await result.current.onRerun(); });
 
     expect(calls.some((c) => c.method === "POST" && c.url === "/api/admin/reviews/7/enrich")).toBe(true);
-    expect(applyServerState).toHaveBeenCalledWith(ENRICHMENT, "pending");
-  });
-
-  it("onRegeneratePreview flushes the draft before POSTing /preview", async () => {
-    const { calls } = mockFetch();
-    const { opts, saveNow } = makeOpts();
-    const { result } = renderHook((p: UseEnrichmentJobsOptions) => useEnrichmentJobs(p), { initialProps: opts });
-
-    await act(async () => { await result.current.onRegeneratePreview(); });
-
-    expect(saveNow).toHaveBeenCalledTimes(1);
-    expect(calls.some((c) => c.method === "POST" && c.url === "/api/admin/reviews/7/preview")).toBe(true);
-  });
-
-  it("onRegeneratePreview is a no-op when there is no enrichment", async () => {
-    const { calls } = mockFetch();
-    const { opts, saveNow } = makeOpts({ getEnrichment: () => null });
-    const { result } = renderHook((p: UseEnrichmentJobsOptions) => useEnrichmentJobs(p), { initialProps: opts });
-
-    await act(async () => { await result.current.onRegeneratePreview(); });
-
-    expect(saveNow).not.toHaveBeenCalled();
-    expect(calls.length).toBe(0);
-  });
-
-  it("onRegeneratePreview is blocked when the enrichment is stale (lockstep guard)", async () => {
-    const { calls } = mockFetch();
-    const staleEnrichment: FactEnrichment = {
-      ...ENRICHMENT,
-      classificationPromptVersion: `${CLASSIFICATION_PROMPT_VERSION}-stale`,
-    };
-    const { opts, saveNow } = makeOpts({ getEnrichment: () => staleEnrichment });
-    const { result } = renderHook((p: UseEnrichmentJobsOptions) => useEnrichmentJobs(p), { initialProps: opts });
-
-    await act(async () => { await result.current.onRegeneratePreview(); });
-
-    expect(saveNow).not.toHaveBeenCalled();
-    expect(calls.some((c) => c.method === "POST" && c.url === "/api/admin/reviews/7/preview")).toBe(false);
-    expect(result.current.error).toMatch(/re-enrich/i);
+    expect(applyServerState).toHaveBeenCalledWith(null, "pending");
   });
 
   it("polls and syncs while status is pending, then stops once resolved", async () => {

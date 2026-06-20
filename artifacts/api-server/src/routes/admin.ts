@@ -8,7 +8,7 @@ import { requireRole } from "../middlewares/tierMiddleware";
 import { backfillEmbeddings, embedFactAsync } from "../lib/embeddings";
 import { enrichFact, buildFactEnrichmentColumns } from "../lib/factEnrichment";
 import { enqueueJob } from "../lib/asyncJobs";
-import { validateEnrichment, type FactEnrichment, CLASSIFICATION_PROMPT_VERSION } from "@workspace/api-zod";
+import { validateEnrichment, type FactEnrichment } from "@workspace/api-zod";
 import { type AuthenticatedRequest } from "../middlewares/authMiddleware";
 import { runFactImagePipeline } from "../lib/factImagePipeline";
 import { generateAiMemeBackgrounds } from "../lib/aiMemePipeline";
@@ -622,50 +622,88 @@ router.post("/admin/users", requireAdmin, async (req: Request, res: Response) =>
   }
 });
 
+// Column projection shared by the root + variant selects in the facts list.
+const FACT_LIST_COLUMNS = {
+  id: factsTable.id,
+  text: factsTable.text,
+  canonicalText: factsTable.canonicalText,
+  parentId: factsTable.parentId,
+  useCase: factsTable.useCase,
+  isActive: factsTable.isActive,
+  upvotes: factsTable.upvotes,
+  downvotes: factsTable.downvotes,
+  score: factsTable.score,
+  wilsonScore: factsTable.wilsonScore,
+  commentCount: factsTable.commentCount,
+  shareCount: factsTable.shareCount,
+  submittedById: factsTable.submittedById,
+  splitTokenIndex: factsTable.splitTokenIndex,
+  createdAt: factsTable.createdAt,
+  updatedAt: factsTable.updatedAt,
+  primaryArchetype: factsTable.primaryArchetype,
+  enrichmentStatus: factsTable.enrichmentStatus,
+  hasEmbedding: sql<boolean>`(${factsTable.embedding} IS NOT NULL)`,
+  hasPexelsImages: sql<boolean>`(${factsTable.pexelsImages} IS NOT NULL)`,
+  hasEnrichment: sql<boolean>`(${factsTable.enrichment} IS NOT NULL)`,
+} as const;
+
+// The Facts list is paginated by ROOT fact (parentId IS NULL); each root carries
+// its variants nested so the admin UI can show the hierarchy (variants indented +
+// collapsible under their parent). A root is included when it (or one of its
+// variants) matches the search. Variants attached to a page's roots are filtered
+// to the search too, so a search shows matches grouped under their parent.
 router.get("/admin/facts", requireAdmin, async (req: Request, res: Response) => {
   const page = Math.max(1, parseInt(String(req.query["page"] ?? "1"), 10));
   const limit = Math.min(100, Math.max(1, parseInt(String(req.query["limit"] ?? "50"), 10)));
   const offset = (page - 1) * limit;
   const search = String(req.query["search"] ?? "").trim();
   const showInactive = req.query["inactive"] === "true";
+  const like = `%${search}%`;
 
   const activeFilter = showInactive ? undefined : eq(factsTable.isActive, true);
-  const searchFilter = search ? ilike(factsTable.text, `%${search}%`) : undefined;
-  const where = activeFilter && searchFilter ? and(activeFilter, searchFilter) : activeFilter ?? searchFilter;
+  // A root matches when its own text matches OR it has a (visible) variant whose
+  // text matches — so searching by a variant's text still surfaces its parent.
+  const searchFilter = search
+    ? sql`(${factsTable.text} ILIKE ${like} OR EXISTS (SELECT 1 FROM facts v WHERE v.parent_id = ${factsTable.id} AND v.text ILIKE ${like}${showInactive ? sql`` : sql` AND v.is_active = true`}))`
+    : undefined;
+  const rootWhere = and(...[isNull(factsTable.parentId), activeFilter, searchFilter].filter(Boolean));
 
-  const [rows, [{ total }]] = await Promise.all([
-    db.select({
-      id: factsTable.id,
-      text: factsTable.text,
-      canonicalText: factsTable.canonicalText,
-      parentId: factsTable.parentId,
-      useCase: factsTable.useCase,
-      isActive: factsTable.isActive,
-      upvotes: factsTable.upvotes,
-      downvotes: factsTable.downvotes,
-      score: factsTable.score,
-      wilsonScore: factsTable.wilsonScore,
-      commentCount: factsTable.commentCount,
-      shareCount: factsTable.shareCount,
-      submittedById: factsTable.submittedById,
-      splitTokenIndex: factsTable.splitTokenIndex,
-      createdAt: factsTable.createdAt,
-      updatedAt: factsTable.updatedAt,
-      primaryArchetype: factsTable.primaryArchetype,
-      enrichmentStatus: factsTable.enrichmentStatus,
-      hasEmbedding: sql<boolean>`(${factsTable.embedding} IS NOT NULL)`,
-      hasPexelsImages: sql<boolean>`(${factsTable.pexelsImages} IS NOT NULL)`,
-      hasEnrichment: sql<boolean>`(${factsTable.enrichment} IS NOT NULL)`,
-    })
+  const [roots, [{ total }]] = await Promise.all([
+    db.select(FACT_LIST_COLUMNS)
       .from(factsTable)
-      .where(where)
+      .where(rootWhere)
       .orderBy(desc(factsTable.createdAt))
       .limit(limit)
       .offset(offset),
-    db.select({ total: count() }).from(factsTable).where(where),
+    db.select({ total: count() }).from(factsTable).where(rootWhere),
   ]);
 
-  res.json({ facts: rows, total, page, limit });
+  // Attach each page-root's variants (search-filtered when searching) so the UI
+  // can render them indented + collapsible under the parent.
+  const rootIds = roots.map((r) => r.id);
+  let variantsByParent = new Map<number, (typeof roots)>();
+  if (rootIds.length) {
+    const variantWhere = and(
+      ...[
+        inArray(factsTable.parentId, rootIds),
+        activeFilter,
+        search ? ilike(factsTable.text, like) : undefined,
+      ].filter(Boolean),
+    );
+    const variantRows = await db.select(FACT_LIST_COLUMNS)
+      .from(factsTable)
+      .where(variantWhere)
+      .orderBy(asc(factsTable.createdAt));
+    variantsByParent = variantRows.reduce((m, v) => {
+      const key = v.parentId as number;
+      (m.get(key) ?? m.set(key, []).get(key)!).push(v);
+      return m;
+    }, new Map<number, typeof variantRows>());
+  }
+
+  const facts = roots.map((r) => ({ ...r, variants: variantsByParent.get(r.id) ?? [] }));
+
+  res.json({ facts, total, page, limit });
 });
 
 router.delete("/admin/facts/:id", requireAdmin, async (req: Request, res: Response) => {
@@ -739,11 +777,11 @@ router.patch("/admin/facts/:id", requireAdmin, async (req: Request, res: Respons
 });
 
 // GET /admin/facts/:id — admin detail shape for the Facts editor. Intentionally
-// trimmed: includes the editable scalars + the enrichment blob, enrichmentStatus,
-// and the derived previewStatus, but omits the embedding vector and the large
-// generation blobs (aiScenePrompts, aiMemeImages, raw pexelsImages) the editor
-// never touches. `:id` must be a positive integer (a non-numeric segment is a
-// 400, never a silent match against a static subpath like /import).
+// trimmed: includes the editable scalars + the enrichment blob and
+// enrichmentStatus, but omits the embedding vector and the large generation
+// blobs (aiScenePrompts, aiMemeImages, raw pexelsImages) the editor never
+// touches. `:id` must be a positive integer (a non-numeric segment is a 400,
+// never a silent match against a static subpath like /import).
 router.get("/admin/facts/:id", requireAdmin, async (req: Request, res: Response) => {
   const id = Number(req.params["id"]);
   if (!Number.isInteger(id) || id <= 0) { res.status(400).json({ error: "Invalid fact id" }); return; }
@@ -776,8 +814,7 @@ router.get("/admin/facts/:id", requireAdmin, async (req: Request, res: Response)
     .limit(1);
   if (!row) { res.status(404).json({ error: "Fact not found" }); return; }
 
-  const previewStatus = (row.enrichment as { previewStatus?: string } | null)?.previewStatus ?? null;
-  res.json({ ...row, previewStatus });
+  res.json(row);
 });
 
 /**
@@ -851,17 +888,9 @@ router.patch("/admin/facts/:id/enrichment", requireAdmin, async (req: Request, r
   const stamped = stampOverrideProvenance(result.data, priorRow?.enrichment ?? null, adminId);
 
   const cols = buildFactEnrichmentColumns(stamped);
-  // Mark the visual plan stale: admin-edited enrichment may have changed the
-  // archetype, subtype, or other fields that the visual plan was derived from.
-  // The plan must be regenerated from the updated enrichment — but only after
-  // re-enriching if the classificationPromptVersion is also behind.
-  const enrichmentWithStalePlan = {
-    ...(stamped as Record<string, unknown>),
-    previewStatus: "stale",
-  };
   const [updated] = await db
     .update(factsTable)
-    .set({ ...cols, enrichment: enrichmentWithStalePlan as unknown as FactEnrichment, enrichmentStatus: "ok" })
+    .set({ ...cols, enrichment: stamped, enrichmentStatus: "ok" })
     .where(eq(factsTable.id, id))
     .returning({ id: factsTable.id });
   if (!updated) { res.status(404).json({ error: "Fact not found" }); return; }
@@ -870,7 +899,7 @@ router.patch("/admin/facts/:id/enrichment", requireAdmin, async (req: Request, r
   // list row without a refetch.
   res.json({
     success: true,
-    enrichment: enrichmentWithStalePlan as FactEnrichment,
+    enrichment: stamped,
     projection: {
       primaryArchetype: cols.primaryArchetype,
       subtype: cols.subtype,
@@ -1417,53 +1446,6 @@ router.post("/admin/facts/backfill-enrichment", requireAdminOrApiKey, async (req
     logger.error({ err }, "[admin] Backfill enrichment error");
     res.status(500).json({ error: "Backfill failed", details: String(err) });
   }
-});
-
-// On-demand visual prompt preview for an approved fact (Phase 2A). Backfilled
-// facts have enrichment but no preview by default; this endpoint enqueues a
-// "preview" job to generate one durably (the async-jobs worker retries on
-// transient failures and surfaces the result in `facts.enrichment.visualPromptPreview`).
-router.post("/admin/facts/:id/preview", requireAdmin, async (req: Request, res: Response) => {
-  const id = parseInt(String(req.params["id"] ?? ""), 10);
-  if (isNaN(id)) { res.status(400).json({ error: "Invalid fact id" }); return; }
-
-  const [fact] = await db
-    .select({ id: factsTable.id, enrichment: factsTable.enrichment })
-    .from(factsTable)
-    .where(eq(factsTable.id, id))
-    .limit(1);
-  if (!fact) { res.status(404).json({ error: "Fact not found" }); return; }
-
-  const validated = validateEnrichment(fact.enrichment);
-  if (!validated.ok) {
-    res.status(400).json({
-      error: "Cannot generate preview: fact has no enrichment. Run backfill-enrichment first.",
-    });
-    return;
-  }
-
-  // Guard: the visual plan operates in lockstep with the enrichment. Regenerating
-  // it when the enrichment is stale would embed outdated archetype/subtype data into
-  // the new plan. Re-enrich first to bring the classification current.
-  if (validated.data.classificationPromptVersion !== CLASSIFICATION_PROMPT_VERSION) {
-    res.status(400).json({
-      error: "Cannot regenerate visual plan — enrichment is outdated. Re-enrich this fact first, then regenerate the visual plan.",
-    });
-    return;
-  }
-
-  const merged = { ...validated.data, previewStatus: "pending" as const };
-  await db.update(factsTable)
-    .set({ enrichment: merged as unknown as FactEnrichment })
-    .where(eq(factsTable.id, id));
-
-  await enqueueJob({
-    queue: "preview",
-    payload: { targetType: "fact", targetId: id },
-    dedupeKey: `preview:fact:${id}`,
-  });
-
-  res.json({ success: true, previewStatus: "pending" });
 });
 
 // ─── Config ───────────────────────────────────────────────────────────────────
