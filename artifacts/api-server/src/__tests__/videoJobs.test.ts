@@ -20,6 +20,7 @@ import {
   memesTable,
   uploadImageMetadataTable,
   userGenerationCostsTable,
+  lookStylesTable,
 } from "@workspace/db/schema";
 import { eq, like, inArray } from "drizzle-orm";
 
@@ -41,6 +42,7 @@ function uid(): string {
 
 const insertedFactIds: number[] = [];
 const insertedUserIds: string[] = [];
+const seededLookStyleIds: string[] = [];
 
 async function createTestUser(opts: { tier?: "registered" | "legendary" | "unregistered"; isAdmin?: boolean } = {}): Promise<string> {
   const id = uid();
@@ -96,6 +98,31 @@ async function cleanup(): Promise<void> {
     .where(like(userGenerationCostsTable.userId, `${USER_PREFIX}%`));
   await db.delete(usersTable).where(like(usersTable.id, `${USER_PREFIX}%`));
   insertedUserIds.length = 0;
+  // Remove look styles that were seeded by this test suite
+  if (seededLookStyleIds.length > 0) {
+    await db.delete(lookStylesTable).where(inArray(lookStylesTable.id, seededLookStyleIds));
+    seededLookStyleIds.length = 0;
+  }
+}
+
+/**
+ * Seed the look styles needed by this test suite into the test DB.
+ * Uses onConflictDoNothing so it is idempotent; tracks only the rows that
+ * were actually inserted so cleanup never deletes pre-existing prod rows.
+ */
+async function seedLookStyles(): Promise<void> {
+  const needed = [
+    { id: "cinematic", label: "Cinematic", isActive: true as const },
+    { id: "anime", label: "Anime", isActive: true as const },
+  ];
+  for (const ls of needed) {
+    const [inserted] = await db
+      .insert(lookStylesTable)
+      .values(ls)
+      .onConflictDoNothing()
+      .returning({ id: lookStylesTable.id });
+    if (inserted) seededLookStyleIds.push(inserted.id);
+  }
 }
 
 async function waitForPhase(
@@ -112,7 +139,10 @@ async function waitForPhase(
   return null;
 }
 
-before(cleanup);
+before(async () => {
+  await cleanup();
+  await seedLookStyles();
+});
 after(cleanup);
 beforeEach(() => __resetPipelineState());
 afterEach(() => {
