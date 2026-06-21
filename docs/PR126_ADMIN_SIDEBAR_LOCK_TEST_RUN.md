@@ -25,18 +25,25 @@ so it scrolls independently when the viewport is too short for all items.
 
 ## Typecheck
 
+Run the **canonical workspace typecheck** from the repo root:
+
 ```bash
-pnpm --filter @workspace/overhype-me typecheck
+pnpm typecheck
 ```
 
-**Expected:** the workspace currently reports **48 pre-existing errors** —
-`TS6305` build-order errors for unbuilt sibling `lib/api-client-react/dist`, plus
-implicit-`any` in unrelated page files (`Home.tsx`, `Library.tsx`, `Search.tsx`,
-`TopFacts.tsx`, `Hashtags.tsx`, …). This was verified by running typecheck with
-and without the change — **identical 48 both ways**, and **none reference
-`AdminLayout.tsx`**. This change adds zero new errors. (Run
-`pnpm --filter @workspace/overhype-me typecheck 2>&1 | grep -i AdminLayout` →
-no output.)
+**Expected: clean (exit 0).** This builds the referenced composite libs first
+(`tsc --build`), then typechecks every artifact — verified green with this change
+applied.
+
+> Gotcha: do **not** judge this by the leaf command
+> `pnpm --filter @workspace/overhype-me typecheck` on its own. That project uses
+> TypeScript project references (`lib/api-client-react`, `lib/api-zod`,
+> `lib/replit-auth-web`), so without first running `pnpm run typecheck:libs`
+> (`tsc --build`) it reports `TS6305` "output not built" errors and a cascade of
+> implicit-`any` in pages that consume the untyped lib hooks. Those are a
+> build-order artifact, not real errors — `pnpm typecheck` (or building the libs
+> first) is clean. This change touches only `AdminLayout.tsx` and adds zero
+> errors either way.
 
 ## Manual checks (see UAT for the full click-through)
 
