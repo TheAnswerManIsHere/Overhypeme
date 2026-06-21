@@ -5,7 +5,8 @@ import { Button } from "@/components/ui/Button";
 import { Textarea, Input } from "@/components/ui/Input";
 import { Trash2, Upload, Search, AlertCircle, CheckCircle, Pencil, X, Save, GitBranch, Plus, Brain, EyeOff, Eye, RefreshCw, ImageIcon, Loader2, Sparkles, ChevronRight, ChevronDown } from "lucide-react";
 import type { FactEnrichment } from "@workspace/api-zod";
-import { EnrichmentEditor } from "@/components/admin/EnrichmentEditor";
+import { OVERRIDABLE_PATHS, type OverridablePath } from "@workspace/api-zod";
+import { EnrichmentEditor, type EnrichmentOverrideContext } from "@/components/admin/EnrichmentEditor";
 import { useEnrichmentJobs } from "@/components/admin/useEnrichmentJobs";
 import { useDraftForm } from "@/components/admin/useDraftForm";
 
@@ -52,6 +53,8 @@ interface Fact {
   primaryArchetype?: string | null;
   enrichmentStatus?: string | null;
   hasEnrichment?: boolean;
+  hasEnrichmentOverrides?: boolean;
+  enrichmentBaselineChanged?: boolean;
   // Root facts carry their variants nested (the list paginates by root). When
   // searching, this holds only the variants that matched. Absent on variant rows.
   variants?: Fact[];
@@ -195,16 +198,95 @@ function FactEnrichmentPanel({ fact, onSaved }: { fact: Fact; onSaved: (resp: En
     isDirty: () => draft.hasUncommittedChanges,
     // A background re-run rewrites the enrichment server-side; fold it into BOTH
     // value and baseline so it becomes the new source of truth.
-    applyServerState: (e, s) => { draft.adoptServerSlice(() => e); setEnrichmentStatus(s); },
+    applyServerState: (e, s) => { draft.adoptServerSlice(() => e); setEnrichmentStatus(s); void fetchResolved(); },
   });
 
-  // Re-running classification overwrites possibly admin-tuned metadata on a live
-  // fact, so confirm first when enrichment already exists.
+  // ── AI-derived vs. manual-override state ──────────────────────────────────
+  // Tracked taxonomy/notes fields are owned by PUT/DELETE override endpoints (not
+  // the whole-blob draft + PATCH). We hold the resolved baseline/override map
+  // alongside the draft and decorate diverged fields.
+  const [resolved, setResolved] = useState<{
+    aiDerived: FactEnrichment | null;
+    overrides: Record<string, { value: unknown; overriddenFrom: unknown }>;
+    summary: EnrichmentOverrideContext["summary"];
+  } | null>(null);
+  const [pending, setPending] = useState<Record<string, "saving" | "error">>({});
+
+  const fetchResolved = useCallback(async () => {
+    try {
+      const r = await fetch(`/api/admin/facts/${fact.id}/enrichment-resolved`, { credentials: "include" });
+      if (!r.ok) return;
+      const b = (await r.json()) as { aiDerived: FactEnrichment | null; overrides: Record<string, { value: unknown; overriddenFrom: unknown }>; overrideSummary: EnrichmentOverrideContext["summary"] };
+      setResolved({ aiDerived: b.aiDerived ?? null, overrides: b.overrides ?? {}, summary: b.overrideSummary });
+    } catch { /* best-effort; decoration just won't show */ }
+  }, [fact.id]);
+
+  useEffect(() => { void fetchResolved(); }, [fetchResolved]);
+
+  const TRACKED_FIELDS = useMemo(() => (Object.keys(OVERRIDABLE_PATHS) as OverridablePath[]).map((p) => p.slice(1)), []);
+
+  // Apply a PUT/DELETE response: refresh the override map + summary, and fold the
+  // new effective TRACKED fields into the draft (preserving unsaved non-tracked edits).
+  const applyResolved = useCallback((b: { aiDerived: FactEnrichment | null; overrides: Record<string, { value: unknown; overriddenFrom: unknown }>; effective: FactEnrichment | null; overrideSummary: EnrichmentOverrideContext["summary"] }) => {
+    setResolved({ aiDerived: b.aiDerived ?? null, overrides: b.overrides ?? {}, summary: b.overrideSummary });
+    if (b.effective) {
+      const eff = b.effective;
+      draft.adoptServerSlice((prev) => {
+        if (!prev) return eff;
+        const next = { ...prev } as FactEnrichment;
+        for (const f of TRACKED_FIELDS) (next as Record<string, unknown>)[f] = (eff as unknown as Record<string, unknown>)[f];
+        return next;
+      });
+      onSavedRef.current?.({
+        enrichment: eff,
+        projection: { primaryArchetype: eff.primaryArchetype, subtype: eff.subtype, overhypeFit: eff.overhypeFit, adultSuitability: eff.adultSuitability },
+      });
+    }
+  }, [draft, TRACKED_FIELDS]);
+
+  const writeOverride = useCallback(async (path: OverridablePath, run: () => Promise<Response>) => {
+    setPending((p) => ({ ...p, [path]: "saving" }));
+    try {
+      const r = await run();
+      if (!r.ok) throw new Error(`(${r.status})`);
+      applyResolved(await r.json());
+      setPending((p) => { const n = { ...p }; delete n[path]; return n; });
+    } catch {
+      setPending((p) => ({ ...p, [path]: "error" }));
+    }
+  }, [applyResolved]);
+
+  const putOverride = useCallback((path: OverridablePath, value: unknown, acknowledge = false) =>
+    writeOverride(path, () => fetch(`/api/admin/facts/${fact.id}/enrichment-overrides`, {
+      method: "PUT", headers: { "Content-Type": "application/json" }, credentials: "include",
+      body: JSON.stringify(acknowledge ? { path, value, acknowledgeCurrentAiBaseline: true } : { path, value }),
+    })), [writeOverride, fact.id]);
+
+  const resetOverride = useCallback((path: OverridablePath) =>
+    writeOverride(path, () => fetch(`/api/admin/facts/${fact.id}/enrichment-overrides?path=${encodeURIComponent(path)}`, {
+      method: "DELETE", credentials: "include",
+    })), [writeOverride, fact.id]);
+
+  const overrideContext: EnrichmentOverrideContext | undefined = resolved
+    ? {
+        aiDerived: resolved.aiDerived,
+        overrides: resolved.overrides,
+        summary: resolved.summary,
+        pending,
+        onOverride: (path, value) => putOverride(path, value),
+        onReset: (path) => resetOverride(path),
+        onAcknowledge: (path, value) => putOverride(path, value, true),
+      }
+    : undefined;
+
+  // Re-running classification regenerates the AI baseline. Manual overrides are
+  // PRESERVED (sticky); only the underlying AI value changes — fields whose new
+  // AI value diverges from the overridden value are flagged for review.
   async function handleRerun() {
     if (
       enrichment &&
       !window.confirm(
-        "Re-running classification will overwrite the current, possibly admin-tuned, enrichment for this fact. Continue?",
+        "Re-enrich this fact? The AI-derived baseline will be regenerated. Existing manual overrides are preserved and keep controlling the active value. If the new AI value differs from the originally-overridden value, the field is marked for review.",
       )
     ) {
       return;
@@ -260,6 +342,7 @@ function FactEnrichmentPanel({ fact, onSaved }: { fact: Fact; onSaved: (resp: En
         onRerun={handleRerun}
         busy={busy}
         rerunBusy={jobs.rerunBusy}
+        overrideContext={overrideContext}
       />
       <div className="flex items-center justify-end gap-3 min-h-[1.75rem]">
         <Button
@@ -353,6 +436,17 @@ function FactListRow({
               {fact.enrichmentStatus === "pending" ? "classifying…" : (fact.primaryArchetype ?? "enriched")}
             </span>
           )}
+          {fact.hasEnrichmentOverrides && (
+            fact.enrichmentBaselineChanged ? (
+              <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/30" title="A manual override's AI baseline has changed — needs review">
+                override needs review
+              </span>
+            ) : (
+              <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-primary/10 text-primary border border-primary/30" title="This fact has manual taxonomy overrides">
+                overridden
+              </span>
+            )
+          )}
           <span>{new Date(fact.createdAt).toLocaleDateString()}</span>
         </div>
       </div>
@@ -380,6 +474,8 @@ export default function AdminFacts() {
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [loading, setLoading] = useState(false);
   const [showInactive, setShowInactive] = useState(false);
+  const [onlyOverridden, setOnlyOverridden] = useState(false);
+  const [onlyBaselineChanged, setOnlyBaselineChanged] = useState(false);
 
   const [selectedFact, setSelectedFact] = useState<Fact | null>(null);
   const selectedFactRef = useRef<Fact | null>(null);
@@ -479,6 +575,8 @@ export default function AdminFacts() {
       limit: String(LIMIT),
       ...(debouncedSearch ? { search: debouncedSearch } : {}),
       ...(showInactive ? { inactive: "true" } : {}),
+      ...(onlyOverridden ? { hasOverrides: "true" } : {}),
+      ...(onlyBaselineChanged ? { baselineChanged: "true" } : {}),
     });
     fetch(`/api/admin/facts?${params}`, { credentials: "include" })
       .then(async (r) => {
@@ -498,7 +596,7 @@ export default function AdminFacts() {
       })
       .catch(() => {})
       .finally(() => setLoading(false));
-  }, [page, debouncedSearch, showInactive, refreshNonce]);
+  }, [page, debouncedSearch, showInactive, onlyOverridden, onlyBaselineChanged, refreshNonce]);
 
   function selectFact(fact: Fact) {
     setSelectedFact(fact);
@@ -807,6 +905,30 @@ export default function AdminFacts() {
             >
               {showInactive ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
               {showInactive ? "All" : "Active"}
+            </button>
+            <button
+              onClick={() => { setOnlyOverridden((v) => !v); setPage(1); }}
+              className={`flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium border rounded-sm transition-colors shrink-0 ${
+                onlyOverridden
+                  ? "bg-primary/10 text-primary border-primary/30"
+                  : "text-muted-foreground border-border hover:border-primary/40 hover:text-foreground"
+              }`}
+              title="Show only facts with manual taxonomy overrides"
+            >
+              <Sparkles className="w-3.5 h-3.5" />
+              Overridden
+            </button>
+            <button
+              onClick={() => { setOnlyBaselineChanged((v) => !v); setPage(1); }}
+              className={`flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium border rounded-sm transition-colors shrink-0 ${
+                onlyBaselineChanged
+                  ? "bg-amber-500/10 text-amber-600 border-amber-500/30"
+                  : "text-muted-foreground border-border hover:border-primary/40 hover:text-foreground"
+              }`}
+              title="Show only overrides whose AI baseline has changed (needs review)"
+            >
+              <AlertCircle className="w-3.5 h-3.5" />
+              Needs review
             </button>
             <span className="text-sm text-muted-foreground whitespace-nowrap">
               {total}

@@ -32,8 +32,33 @@ import {
   type VisualPromptStrategyOverride,
   type VisualStrategyRoleBinding,
   type SubjectRealizationMode,
+  OVERRIDABLE_PATHS,
+  type OverridablePath,
 } from "@workspace/api-zod";
 import { AlertTriangle, RefreshCw, Save, X, Plus, Trash2, Search, Loader2, Sparkles, ExternalLink, CheckCircle2 } from "lucide-react";
+import { OverrideMark } from "./OverrideMark";
+
+/**
+ * Optional override decoration context. Provided only on the live Facts page
+ * (where a fact has an AI baseline + a manual-override map); omitted in the
+ * review/approval flow (no fact exists yet) so the editor behaves as before.
+ * When present, tracked fields write through PUT/DELETE override endpoints
+ * instead of the whole-blob draft + PATCH save.
+ */
+export interface EnrichmentOverrideContext {
+  aiDerived: FactEnrichment | null;
+  overrides: Record<string, { value: unknown; overriddenFrom: unknown }>;
+  summary: {
+    overriddenPaths: string[];
+    baselineChangedPaths: string[];
+    hasVisualStrategyOverride: boolean;
+  };
+  /** Per-path live save status. */
+  pending: Record<string, "saving" | "error">;
+  onOverride: (path: OverridablePath, value: unknown) => void;
+  onReset: (path: OverridablePath) => void;
+  onAcknowledge: (path: OverridablePath, value: unknown) => void;
+}
 
 /** Blank scaffold used when an admin fills enrichment manually (AI failed). */
 export const EMPTY_ENRICHMENT: FactEnrichment = {
@@ -1151,6 +1176,25 @@ function VisualStrategyOverridePanel({
   );
 }
 
+/** Uncontrolled note textarea used in override mode: edits stay local while
+ * typing and commit (PUT/DELETE override) on blur — so a sticky human note is
+ * persisted without firing a write on every keystroke. */
+function NoteOverrideField({
+  initial, rows, maxLength, onCommit,
+}: { initial: string; rows: number; maxLength: number; onCommit: (v: string) => void }) {
+  const [v, setV] = useState(initial);
+  return (
+    <textarea
+      className={`${SELECT_CLASS} resize-none`}
+      rows={rows}
+      maxLength={maxLength}
+      value={v}
+      onChange={(ev) => setV(ev.target.value)}
+      onBlur={() => onCommit(v)}
+    />
+  );
+}
+
 export function EnrichmentEditor({
   value,
   status,
@@ -1161,6 +1205,7 @@ export function EnrichmentEditor({
   busy = false,
   rerunBusy = false,
   submittedHashtags = [],
+  overrideContext,
 }: {
   value: FactEnrichment | null;
   status: string | null;
@@ -1172,6 +1217,7 @@ export function EnrichmentEditor({
   busy?: boolean;
   rerunBusy?: boolean;
   submittedHashtags?: string[];
+  overrideContext?: EnrichmentOverrideContext;
 }) {
   const e = value ? { ...EMPTY_ENRICHMENT, ...value } : EMPTY_ENRICHMENT;
   const [modifierInput, setModifierInput] = useState("");
@@ -1179,15 +1225,51 @@ export function EnrichmentEditor({
 
   const update = (patch: Partial<FactEnrichment>) => onChange({ ...e, ...patch });
 
+  // Override mode is active only when a baseline is available (live Facts page).
+  const oc = overrideContext && overrideContext.aiDerived ? overrideContext : null;
+
+  /** Tracked-field write: optimistically reflect the change in the local draft
+   * for instant feedback, and (in override mode) persist it through the override
+   * endpoints. In the review/approval flow it is just a normal draft edit. */
+  const setTracked = (path: OverridablePath, value: unknown, patch: Partial<FactEnrichment>) => {
+    update(patch);
+    if (oc) oc.onOverride(path, value);
+  };
+
+  /** Render the per-field override decoration (nothing in review mode). */
+  const mark = (path: OverridablePath) => {
+    if (!oc) return null;
+    const field = path.slice(1) as keyof FactEnrichment;
+    return (
+      <OverrideMark
+        path={path}
+        aiNow={(oc.aiDerived as FactEnrichment)[field]}
+        override={oc.overrides[path]}
+        baselineChanged={oc.summary.baselineChangedPaths.includes(path)}
+        decoration={OVERRIDABLE_PATHS[path].decoration}
+        status={oc.pending[path]}
+        onReset={() => oc.onReset(path)}
+        onAcknowledge={() => oc.onAcknowledge(path, oc.overrides[path]?.value)}
+      />
+    );
+  };
+
   const setArchetype = (archetype: PrimaryArchetype) => {
     const allowed = SUBTYPES_BY_ARCHETYPE[archetype];
     const nextSubtype = (allowed as readonly string[]).includes(e.subtype) ? e.subtype : allowed[0];
+    // Optimistic local update; in override mode the server auto-links a
+    // compatible subtype and the reconciled effective is folded back in.
     onChange({ ...e, primaryArchetype: archetype, subtype: nextSubtype });
+    if (oc) oc.onOverride("/primaryArchetype", archetype);
   };
 
   const addModifier = () => {
     const m = modifierInput.trim();
-    if (m && !e.modifiers.includes(m)) update({ modifiers: [...e.modifiers, m] });
+    if (m && !e.modifiers.includes(m)) {
+      const next = [...e.modifiers, m];
+      update({ modifiers: next });
+      if (oc) oc.onOverride("/modifiers", next);
+    }
     setModifierInput("");
   };
   const addHashtag = () => {
@@ -1239,59 +1321,94 @@ export function EnrichmentEditor({
 
       <Warnings e={e} />
 
+      {oc && (oc.summary.overriddenPaths.length > 0 || oc.summary.hasVisualStrategyOverride) && (
+        <div className="rounded-sm border border-primary/30 bg-primary/5 px-3 py-2 text-xs text-foreground flex items-center gap-x-2 gap-y-1 flex-wrap">
+          <span className="font-semibold text-primary">Overridden:</span>
+          <span>
+            {[
+              ...oc.summary.overriddenPaths.map((p) => OVERRIDABLE_PATHS[p as OverridablePath]?.label ?? p),
+              ...(oc.summary.hasVisualStrategyOverride ? ["Visual Strategy"] : []),
+            ].join(", ")}
+          </span>
+          {oc.summary.baselineChangedPaths.length > 0 && (
+            <span className="inline-flex items-center gap-1 text-amber-600 dark:text-amber-400 font-semibold">
+              · {oc.summary.baselineChangedPaths.length} need{oc.summary.baselineChangedPaths.length === 1 ? "s" : ""} review
+            </span>
+          )}
+        </div>
+      )}
+
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <div>
           <label className={LABEL_CLASS}>Primary Archetype</label>
           <select className={SELECT_CLASS} value={e.primaryArchetype} onChange={(ev) => setArchetype(ev.target.value as PrimaryArchetype)}>
             {PRIMARY_ARCHETYPES.map((a) => <option key={a} value={a}>{a}</option>)}
           </select>
+          {mark("/primaryArchetype")}
         </div>
         <div>
           <label className={LABEL_CLASS}>Subtype</label>
-          <select className={SELECT_CLASS} value={e.subtype} onChange={(ev) => update({ subtype: ev.target.value as FactEnrichment["subtype"] })}>
+          <select className={SELECT_CLASS} value={e.subtype} onChange={(ev) => setTracked("/subtype", ev.target.value, { subtype: ev.target.value as FactEnrichment["subtype"] })}>
             {subtypeOptions.map((s) => <option key={s} value={s}>{s}</option>)}
           </select>
+          {mark("/subtype")}
         </div>
         <div>
           <label className={LABEL_CLASS}>Visual Literalness</label>
-          <select className={SELECT_CLASS} value={e.visualLiteralness} onChange={(ev) => update({ visualLiteralness: ev.target.value as FactEnrichment["visualLiteralness"] })}>
+          <select className={SELECT_CLASS} value={e.visualLiteralness} onChange={(ev) => setTracked("/visualLiteralness", ev.target.value, { visualLiteralness: ev.target.value as FactEnrichment["visualLiteralness"] })}>
             {VISUAL_LITERALNESS_VALUES.map((v) => <option key={v} value={v}>{v}</option>)}
           </select>
+          {mark("/visualLiteralness")}
         </div>
         <div>
           <label className={LABEL_CLASS}>Visual Complexity</label>
-          <select className={SELECT_CLASS} value={e.visualComplexity} onChange={(ev) => update({ visualComplexity: ev.target.value as FactEnrichment["visualComplexity"] })}>
+          <select className={SELECT_CLASS} value={e.visualComplexity} onChange={(ev) => setTracked("/visualComplexity", ev.target.value, { visualComplexity: ev.target.value as FactEnrichment["visualComplexity"] })}>
             {VISUAL_COMPLEXITY_VALUES.map((v) => <option key={v} value={v}>{v}</option>)}
           </select>
+          {mark("/visualComplexity")}
         </div>
         <div>
           <label className={LABEL_CLASS}>Overhype Fit</label>
-          <select className={SELECT_CLASS} value={e.overhypeFit} onChange={(ev) => update({ overhypeFit: ev.target.value as FactEnrichment["overhypeFit"] })}>
+          <select className={SELECT_CLASS} value={e.overhypeFit} onChange={(ev) => setTracked("/overhypeFit", ev.target.value, { overhypeFit: ev.target.value as FactEnrichment["overhypeFit"] })}>
             {OVERHYPE_FIT_VALUES.map((v) => <option key={v} value={v}>{v}</option>)}
           </select>
+          {mark("/overhypeFit")}
         </div>
         <div>
           <label className={LABEL_CLASS}>Adult Suitability</label>
-          <select className={SELECT_CLASS} value={e.adultSuitability} onChange={(ev) => update({ adultSuitability: ev.target.value as FactEnrichment["adultSuitability"] })}>
+          <select className={SELECT_CLASS} value={e.adultSuitability} onChange={(ev) => setTracked("/adultSuitability", ev.target.value, { adultSuitability: ev.target.value as FactEnrichment["adultSuitability"] })}>
             {ADULT_SUITABILITY_VALUES.map((v) => <option key={v} value={v}>{v}</option>)}
           </select>
+          {mark("/adultSuitability")}
         </div>
       </div>
 
       <div>
         <label className={LABEL_CLASS}>Adult Suitability Notes</label>
-        <textarea
-          className={`${SELECT_CLASS} resize-none`}
-          rows={2}
-          maxLength={500}
-          value={e.adultSuitabilityNotes}
-          onChange={(ev) => update({ adultSuitabilityNotes: ev.target.value })}
-        />
+        {oc ? (
+          <NoteOverrideField
+            key={`asn-${e.adultSuitabilityNotes}`}
+            initial={e.adultSuitabilityNotes}
+            rows={2}
+            maxLength={500}
+            onCommit={(v) => { if (v !== e.adultSuitabilityNotes) oc.onOverride("/adultSuitabilityNotes", v); }}
+          />
+        ) : (
+          <textarea
+            className={`${SELECT_CLASS} resize-none`}
+            rows={2}
+            maxLength={500}
+            value={e.adultSuitabilityNotes}
+            onChange={(ev) => update({ adultSuitabilityNotes: ev.target.value })}
+          />
+        )}
+        {mark("/adultSuitabilityNotes")}
       </div>
 
       <div>
         <label className={LABEL_CLASS}>Modifiers</label>
-        <Chips items={e.modifiers} known={isKnownModifier} onRemove={(m) => update({ modifiers: e.modifiers.filter((x) => x !== m) })} />
+        <Chips items={e.modifiers} known={isKnownModifier} onRemove={(m) => setTracked("/modifiers", e.modifiers.filter((x) => x !== m), { modifiers: e.modifiers.filter((x) => x !== m) })} />
+        {mark("/modifiers")}
         <div className="flex gap-2 mt-2">
           <input
             list="known-modifiers"
@@ -1377,13 +1494,24 @@ export function EnrichmentEditor({
 
       <div>
         <label className={LABEL_CLASS}>Admin Review Notes</label>
-        <textarea
-          className={`${SELECT_CLASS} resize-none`}
-          rows={2}
-          maxLength={800}
-          value={e.adminReviewNotes}
-          onChange={(ev) => update({ adminReviewNotes: ev.target.value })}
-        />
+        {oc ? (
+          <NoteOverrideField
+            key={`arn-${e.adminReviewNotes}`}
+            initial={e.adminReviewNotes}
+            rows={2}
+            maxLength={800}
+            onCommit={(v) => { if (v !== e.adminReviewNotes) oc.onOverride("/adminReviewNotes", v); }}
+          />
+        ) : (
+          <textarea
+            className={`${SELECT_CLASS} resize-none`}
+            rows={2}
+            maxLength={800}
+            value={e.adminReviewNotes}
+            onChange={(ev) => update({ adminReviewNotes: ev.target.value })}
+          />
+        )}
+        {mark("/adminReviewNotes")}
       </div>
 
       <VisualStrategyOverridePanel
@@ -1391,16 +1519,22 @@ export function EnrichmentEditor({
         onChange={(next) => update({ visualPromptStrategyOverride: next })}
       />
 
-      <CulturalReferencesEditor
-        refs={e.culturalReferences}
-        factText={factText ?? ""}
-        onChange={(next) => update({ culturalReferences: next })}
-      />
+      <div>
+        <CulturalReferencesEditor
+          refs={e.culturalReferences}
+          factText={factText ?? ""}
+          onChange={(next) => setTracked("/culturalReferences", next, { culturalReferences: next })}
+        />
+        {mark("/culturalReferences")}
+      </div>
 
-      <SemanticEntitiesEditor
-        entities={e.semanticEntities ?? []}
-        onChange={(next) => update({ semanticEntities: next })}
-      />
+      <div>
+        <SemanticEntitiesEditor
+          entities={e.semanticEntities ?? []}
+          onChange={(next) => setTracked("/semanticEntities", next, { semanticEntities: next })}
+        />
+        {mark("/semanticEntities")}
+      </div>
 
       <div className="rounded-sm border border-border bg-muted/20 p-3 text-xs text-muted-foreground leading-snug">
         This editor sets the <span className="font-semibold text-foreground">meaning</span> (taxonomy, cultural

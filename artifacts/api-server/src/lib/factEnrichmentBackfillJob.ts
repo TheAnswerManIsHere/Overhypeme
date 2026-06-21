@@ -14,7 +14,7 @@ import { eq } from "drizzle-orm";
 import { db, factsTable } from "@workspace/db";
 import { validateEnrichment, type FactEnrichment } from "@workspace/api-zod";
 import { registerJobHandler, type JobHandler, type HandlerResult } from "./asyncJobs";
-import { enrichFact, EnrichmentError, buildFactEnrichmentColumns } from "./factEnrichment";
+import { enrichFact, EnrichmentError, materializeFromBaseline } from "./factEnrichment";
 import { isEnrichmentAdminEdited } from "./taxonomyHealth";
 import { renderCanonical } from "./renderCanonical";
 import { logger } from "./logger";
@@ -72,16 +72,12 @@ export const factEnrichmentBackfillHandler: JobHandler = {
       return { ok: false, error: `enrichFact failed: ${msg}` };
     }
 
-    const projected = buildFactEnrichmentColumns(next);
+    // Materialize the full layer set (effective + AI baseline + empty overrides
+    // + projections) so backfilled facts have an override baseline from day one.
+    const { columns } = materializeFromBaseline(next);
     await db
       .update(factsTable)
-      .set({
-        enrichment: next,
-        primaryArchetype: projected.primaryArchetype,
-        subtype: projected.subtype,
-        overhypeFit: projected.overhypeFit,
-        adultSuitability: projected.adultSuitability,
-      })
+      .set(columns)
       .where(eq(factsTable.id, p.factId));
 
     return {
