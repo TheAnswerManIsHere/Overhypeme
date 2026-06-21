@@ -78,11 +78,50 @@ describe("visualPromptStrategyOverrideSchema", () => {
     );
     assert.equal(res.success, true);
   });
+
+  it("accepts {NAME_POSSESSIVE} across the token-capable field categories", () => {
+    const res = visualPromptStrategyOverrideSchema.safeParse(
+      makeOverride({
+        requiredVisualDetails: ["{NAME_POSSESSIVE} face on a TV"],
+        subjectRealizationOverride: { mode: "normal_human", description: "{NAME_POSSESSIVE} likeness" },
+        roleBindings: [{ entity: "{NAME_POSSESSIVE} dog", visualRole: "loyal companion" }],
+        supportingTextPolicyOverride: { mode: "require", guidance: 'a title reading "{NAME_POSSESSIVE} Week"' },
+      }),
+    );
+    assert.equal(res.success, true);
+  });
+
+  it("canonicalizes {name_possessive}/{Name_Possessive} → {NAME_POSSESSIVE} on parse", () => {
+    const res = visualPromptStrategyOverrideSchema.safeParse(
+      makeOverride({ requiredVisualDetails: ["{name_possessive} Week", "{Name_Possessive} crown"] }),
+    );
+    assert.equal(res.success, true);
+    if (res.success) {
+      assert.deepEqual(res.data.requiredVisualDetails, ["{NAME_POSSESSIVE} Week", "{NAME_POSSESSIVE} crown"]);
+    }
+  });
+
+  it("canonicalizes name-token aliases in roleBindings.entity (rendered + validated field)", () => {
+    const res = visualPromptStrategyOverrideSchema.safeParse(
+      makeOverride({ roleBindings: [{ entity: "{name_possessive} mother", visualRole: "{name} as a baby" }] }),
+    );
+    assert.equal(res.success, true);
+    if (res.success) {
+      assert.deepEqual(res.data.roleBindings, [{ entity: "{NAME_POSSESSIVE} mother", visualRole: "{NAME} as a baby" }]);
+    }
+  });
 });
 
 describe("token helpers", () => {
   it("canonicalizeNameToken only touches name-case variants", () => {
     assert.equal(canonicalizeNameToken("{name} {Name} {NAME} {POSS}"), "{NAME} {NAME} {NAME} {POSS}");
+  });
+
+  it("canonicalizeNameToken normalizes possessive aliases without disturbing pronoun tokens", () => {
+    assert.equal(
+      canonicalizeNameToken("{name_possessive} {Name_Possessive} {NAME_POSSESSIVE} {POSS}"),
+      "{NAME_POSSESSIVE} {NAME_POSSESSIVE} {NAME_POSSESSIVE} {POSS}",
+    );
   });
 
   it("firstOverrideTokenError skips empty entries and flags unknown tokens", () => {

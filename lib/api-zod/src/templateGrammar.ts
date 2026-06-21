@@ -1,5 +1,6 @@
 const ALLOWED_SIMPLE_TOKENS = new Set([
   "NAME",
+  "NAME_POSSESSIVE",
   "SUBJ", "Subj",
   "OBJ", "Obj",
   "POSS", "Poss",
