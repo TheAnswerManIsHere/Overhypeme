@@ -11,13 +11,13 @@ pnpm typecheck                                                # clean (libs + ar
 pnpm --filter @workspace/db check-snapshots                  # passes (0071/0072/0073 exempt)
 pnpm --filter @workspace/db migrate                          # applies 0073 idempotently
 
-# api-server suites (from artifacts/api-server)
-node --import tsx/esm --test src/__tests__/imagePromptUserMessage.test.ts          # generation-layer (incl. RENDER POLICY block)
-node --import tsx/esm --test src/__tests__/imagePromptSystemPrompt.test.ts         # admin-config-proof hard-rule append
-node --import tsx/esm --test src/__tests__/nanoBanana2Compiler.test.ts             # compiler allow/soften/suppress
-node --import tsx/esm --test src/__tests__/redundantMechanism.test.ts              # classifier prompt + repair
-node --import tsx/esm --test src/__tests__/modifierDirectives.test.ts              # retired modifiers inert
-node --import tsx/esm --test src/__tests__/migration.stripRetiredViolenceModifiers.test.ts  # data cleanup fixture
+# api-server suites (from artifacts/api-server) — DB suites need the env
+BCRYPT_SALT_ROUNDS=4 bash scripts/run-test.sh src/__tests__/imagePromptUserMessage.test.ts          # 13 pass (generation-layer incl. RENDER POLICY block)
+BCRYPT_SALT_ROUNDS=4 bash scripts/run-test.sh src/__tests__/imagePromptSystemPrompt.test.ts         # 3 pass (admin-config-proof hard-rule append)
+BCRYPT_SALT_ROUNDS=4 bash scripts/run-test.sh src/__tests__/nanoBanana2Compiler.test.ts             # 59 pass (compiler allow/soften/suppress)
+BCRYPT_SALT_ROUNDS=4 bash scripts/run-test.sh src/__tests__/redundantMechanism.test.ts              # 16 pass (classifier prompt + repair)
+BCRYPT_SALT_ROUNDS=4 bash scripts/run-test.sh src/__tests__/modifierDirectives.test.ts              # 7 pass (retired modifiers inert)
+BCRYPT_SALT_ROUNDS=4 bash scripts/run-test.sh src/__tests__/migration.stripRetiredViolenceModifiers.test.ts  # 1 pass (data cleanup fixture)
 ```
 
 ## Invariant
