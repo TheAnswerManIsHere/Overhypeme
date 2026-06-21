@@ -212,8 +212,6 @@ export function repairRedundantMechanismMisclassification(
         ...enrichment.modifiers,
         "projectile_impact_power",
         "normal_function_rendered_unnecessary",
-        "avoid_gore",
-        "non_graphic_action",
       ]),
     ),
     // Keep it flagged for review rather than presenting as confident.

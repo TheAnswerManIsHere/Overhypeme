@@ -307,8 +307,6 @@ Known modifier catalog:
 - no_readable_text
 - avoid_real_logos
 - avoid_readable_ui
-- avoid_gore
-- non_graphic_action
 - avoid_weapons_focus
 - avoid_gross_literalization
 - avoid_extra_faces

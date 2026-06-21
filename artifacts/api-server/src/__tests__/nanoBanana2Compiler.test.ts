@@ -548,17 +548,26 @@ describe("nanoBanana2 — render policy (supporting text + violence)", () => {
     assert.match(out.imagePrompt.toLowerCase(), /fifty bodies lie on the ground/);
   });
 
-  it("suppresses the permission line when a per-fact softening modifier is present (no contradiction)", () => {
+  it("a violent fact gets the allow line by default with no auto-sanitizer (softening modifiers retired)", () => {
     const out = compileNanoBanana2HumanI2I(makeArgs({
       subjectRenderMode: "human_identity_i2i",
       prompt: "David throws a grenade.",
       factText: "David threw a grenade and killed 50 people.",
-      modifiers: ["avoid_gore"],
+      modifiers: ["projectile_impact_power"],
     }));
-    // The softening modifier directive governs; the allow permission line is not
-    // also asserted (would read "show bodies" + "keep non-graphic").
-    assert.doesNotMatch(out.imagePrompt, /requires violence, death, weapons, or destruction/);
-    assert.match(out.imagePrompt.toLowerCase(), /clean and non-graphic/);
+    // The permission line is asserted, and NO self-censoring sanitizer leaks in.
+    assert.match(out.imagePrompt, /requires violence, death, weapons, or destruction/);
+    assert.doesNotMatch(out.imagePrompt.toLowerCase(), /clean and non-graphic|no gore or blood|no bodies\b|but no bodies or gore are depicted/);
+  });
+
+  it("avoid_gross_literalization no longer suppresses the violence allow line (Choice B)", () => {
+    const out = compileNanoBanana2HumanI2I(makeArgs({
+      subjectRenderMode: "human_identity_i2i",
+      prompt: "David throws a grenade.",
+      factText: "David threw a grenade and killed 50 people.",
+      modifiers: ["projectile_impact_power", "avoid_gross_literalization"],
+    }));
+    assert.match(out.imagePrompt, /requires violence, death, weapons, or destruction/);
   });
 
   it("soften / suppress modes emit their line only when explicitly selected", () => {
@@ -583,6 +592,8 @@ describe("nanoBanana2 — render policy (supporting text + violence)", () => {
       },
     }));
     assert.match(suppress.imagePrompt.toLowerCase(), /do not depict violence, injury, or death directly/);
+    // Coherence: a suppress override never also emits the allow permission line.
+    assert.doesNotMatch(suppress.imagePrompt, /requires violence, death, weapons, or destruction/);
   });
 });
 
@@ -714,12 +725,12 @@ describe("nanoBanana2 — moderator visual-strategy override (Phase 2)", () => {
     assert.match(out.imagePrompt, /ADDITIONAL DETAILS: dramatic rim lighting on the subject\./);
   });
 
-  it("a moderator violence override drops a conflicting avoid_gore softening directive (R5)", () => {
+  it("a moderator violence override's guidance governs the violence directive", () => {
     const out = compileNanoBanana2HumanI2I(makeArgs({
       subjectRenderMode: "human_identity_i2i",
       prompt: "David throws a grenade.",
       factText: "David threw a grenade and killed 50 people.",
-      modifiers: ["avoid_gore"],
+      modifiers: ["projectile_impact_power"],
       // resolveRenderPolicy runs upstream in production; simulate its result here.
       renderPolicy: {
         supportingText: { mode: "allow" },
@@ -730,7 +741,7 @@ describe("nanoBanana2 — moderator visual-strategy override (Phase 2)", () => {
       }),
     }));
     assert.match(out.imagePrompt, /Visible bodies and lethal aftermath are required/);
-    assert.doesNotMatch(out.imagePrompt.toLowerCase(), /clean and non-graphic/);
+    assert.doesNotMatch(out.imagePrompt.toLowerCase(), /clean and non-graphic|no gore or blood/);
   });
 
   it("renders {NAME} tokens in EVERY override-derived section and leaves no unresolved tokens", () => {

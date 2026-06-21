@@ -121,6 +121,35 @@ For each input image (provided as an image content block), determine:
 
 Return ONLY the JSON object. Do not include any explanation outside it.`;
 
+// ─── Non-configurable platform hard rules ──────────────────────────────────
+//
+// The image-prompt system prompt is admin-configurable (seeded ON CONFLICT DO
+// NOTHING), so editing the code default does NOT reach an environment whose
+// admin_config row already exists. These platform rules must hold regardless of
+// the configured prompt, so they are appended at the runtime call site rather
+// than baked into the editable default. Idempotent via the marker so they are
+// never duplicated even if an admin pastes them into the configured prompt.
+
+export const IMAGE_PROMPT_PLATFORM_HARD_RULES_MARKER =
+  "OVERHYPE PLATFORM HARD RULES (NON-CONFIGURABLE)";
+
+export const IMAGE_PROMPT_PLATFORM_HARD_RULES = `
+
+${IMAGE_PROMPT_PLATFORM_HARD_RULES_MARKER}:
+When a fact describes violence, death, weapons, injury, or casualties as part of the scene, depict the required action and consequences clearly — do not omit the bodies, casualties, or death the fact calls for, and do not add your own sanitizing or content-suppression language to the visual plan. How much to depict is governed ONLY by the RENDER POLICY block in the user message (allow / soften / suppress); follow that block. Gratuitous gore is the only inherent boundary.`;
+
+/**
+ * Append the non-configurable platform hard rules to whatever system prompt is
+ * configured. Idempotent: if the configured prompt already carries the marker
+ * (e.g. an admin pasted it), it is returned unchanged so the block never
+ * duplicates. This is the source-of-truth boundary for the no-self-censoring
+ * platform rule, independent of admin_config.
+ */
+export function composeImagePromptSystemPrompt(configured: string): string {
+  if (configured.includes(IMAGE_PROMPT_PLATFORM_HARD_RULES_MARKER)) return configured;
+  return `${configured.trimEnd()}${IMAGE_PROMPT_PLATFORM_HARD_RULES}`;
+}
+
 // ─── Getters ───────────────────────────────────────────────────────────────
 
 export async function getImagePromptSystem(): Promise<string> {

@@ -175,7 +175,7 @@ Use concrete visual evidence to prove the scale of the feat: cracked ground, sho
 Redundant-mechanism jokes (modifier normal_function_rendered_unnecessary): some facts mention a tool, weapon, or process whose normal mechanism (an explosion, a gunshot, a detonation) happens AFTER the subject's action. The joke is that the subject's physical force already accomplished the result, so the normal mechanism is comically redundant — it is NOT a time/causality inversion. For these:
 - Stage the subject's action as the impossible force (the throw, the punch, the kick), with cinematic shockwaves, motion trails, craters, or debris proving its power.
 - Keep the object's normal mechanism intact, unused, delayed, or secondary in the frame (e.g. an intact, unexploded grenade still in flight). Do NOT depict the normal mechanism as happening before the subject's action.
-- For weapon or destruction facts, prove the scale through non-graphic environmental impact — shockwaves, craters, debris, distant chaos, abstract knocked-over targets — and avoid bodies, blood, gore, visible casualties, or readable casualty numbers.
+- For weapon or destruction facts, prove the scale through environmental impact — shockwaves, craters, debris, distant chaos, knocked-over targets — and depict the bodies, casualties, or aftermath the fact calls for; content suppression is owned by the render-policy layer, not this strategy.
 
 Keep the composition clean, visually readable, and meme-ready, with the subject clearly connected to the impossible result.`,
   i2iDefault: `Use the reference image as the facial identity source. Preserve the reference person's face and recognizability strongly.
@@ -236,9 +236,9 @@ Unless preservePhysique is enabled, exaggerate the subject's body, physique, out
       fact: "David once threw a grenade and killed 50 people, then it exploded.",
       archetype: "superhuman_physical_feat",
       subtype: "force_scaled_action",
-      visualApproach: "Show David in a powerful throwing follow-through pose, calm and confident, as an intact, unexploded grenade rockets away from him like a meteor with a visible shockwave and motion trail. Prove the impossible force through shattered debris, a cracked-earth impact path, and distant non-graphic environmental chaos. The grenade has clearly NOT detonated yet; its eventual explosion is unnecessary because the throw alone is overwhelming.",
+      visualApproach: "Show David in a powerful throwing follow-through pose, calm and confident, as an intact, unexploded grenade rockets away from him like a meteor with a visible shockwave and motion trail. Prove the impossible force through shattered debris, a cracked-earth impact path, and distant environmental chaos. The grenade has clearly NOT detonated yet; its eventual explosion is unnecessary because the throw alone is overwhelming.",
       whyItWorks: "The humor is mechanism redundancy, not time travel: David's throw is so impossibly powerful that the grenade is already redundant. Keeping the grenade intact in flight makes the throw the cause and the later detonation an afterthought.",
-      avoid: "Do not stage a detonation happening before or instead of the throw — this is NOT a temporal/causality inversion. Do not depict bodies, gore, blood, visible casualties, or readable casualty numbers; prove the scale through environmental impact only. Do not let the explosion be the focus; the throw is.",
+      avoid: "Do not stage a detonation happening before or instead of the throw — this is NOT a temporal/causality inversion. Do not let the explosion be the focus; the throw is.",
     },
   ],
   promptGeneratorRequirements: {

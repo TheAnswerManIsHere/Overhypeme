@@ -11,11 +11,11 @@ import assert from "node:assert/strict";
 import { buildImagePromptUserMessage, expectationsFromInput, generateImagePromptPlanWithModel } from "../lib/imagePrompt/generator.js";
 import type { ImagePromptGenerationInput } from "@workspace/api-zod";
 
-function makeInput(overrides: { culturalReferences?: unknown[]; factText?: string; semanticEntities?: unknown[] } = {}): ImagePromptGenerationInput {
+function makeInput(overrides: { culturalReferences?: unknown[]; factText?: string; semanticEntities?: unknown[]; primaryArchetype?: string; subtype?: string; modifiers?: string[]; renderPolicy?: unknown } = {}): ImagePromptGenerationInput {
   const enrichment = {
-    primaryArchetype: "object_logic_impossibility",
-    subtype: "medium_contradiction",
-    modifiers: ["face_prominent"],
+    primaryArchetype: overrides.primaryArchetype ?? "object_logic_impossibility",
+    subtype: overrides.subtype ?? "medium_contradiction",
+    modifiers: overrides.modifiers ?? ["face_prominent"],
     visualLiteralness: "literal",
     visualComplexity: "moderate",
     overhypeFit: "high",
@@ -27,6 +27,7 @@ function makeInput(overrides: { culturalReferences?: unknown[]; factText?: strin
   return {
     factText: overrides.factText ?? "David focuses moonlight through a magnifying glass to set an ant on fire. At night.",
     enrichment,
+    renderPolicy: overrides.renderPolicy,
     sourceImageAnalysis: {
       subjectKind: "human_face",
       confidence: "high",
@@ -328,5 +329,47 @@ describe("generateImagePromptPlanWithModel — template-token entity filter", ()
     const mockModel = async () => JSON.stringify(VALID_PLAN);
     const result = await generateImagePromptPlanWithModel(input, mockModel);
     assert.ok(result.visualPlan, "should resolve without throwing");
+  });
+});
+
+describe("buildImagePromptUserMessage — no automatic violence/gore self-censoring", () => {
+  const GRENADE = {
+    primaryArchetype: "superhuman_physical_feat",
+    subtype: "force_scaled_action",
+    modifiers: ["projectile_impact_power", "normal_function_rendered_unnecessary"],
+    factText: "David threw a grenade and killed 50 people, then it exploded.",
+  };
+
+  it("the strategy prose fed to the generator no longer forbids bodies/gore/casualties", () => {
+    const msg = buildImagePromptUserMessage(makeInput(GRENADE));
+    assert.doesNotMatch(msg, /non-graphic/i);
+    assert.doesNotMatch(msg, /avoid bodies|no bodies/i);
+    assert.doesNotMatch(msg, /visible casualties|readable casualty numbers/i);
+    assert.doesNotMatch(msg, /environmental impact only/i);
+    assert.doesNotMatch(msg, /but no bodies or gore are depicted/i);
+    // ...but the real redundant-mechanism constraints survive.
+    assert.match(msg, /intact|unexploded/i);
+    assert.match(msg, /the throw is/i);
+  });
+
+  it("includes a RENDER POLICY block ahead of the visual-strategy scene-planning context", () => {
+    const msg = buildImagePromptUserMessage(makeInput(GRENADE));
+    const policyAt = msg.indexOf("RENDER POLICY");
+    const strategyAt = msg.indexOf("AUTHORED VISUAL STRATEGY");
+    assert.ok(policyAt >= 0, "RENDER POLICY block present");
+    assert.ok(policyAt < strategyAt, "RENDER POLICY appears before the strategy/scene-planning block");
+    // Default policy = allow + strong: depict required bodies/casualties.
+    assert.match(msg, /violence=ALLOW \(strong\)/);
+    assert.match(msg, /INCLUDING the bodies\/casualties the fact calls for, without gratuitous gore/);
+  });
+
+  it("surfaces a moderator suppress override in the RENDER POLICY block", () => {
+    const msg = buildImagePromptUserMessage(makeInput({
+      ...GRENADE,
+      renderPolicy: { supportingText: { mode: "allow" }, violence: { mode: "suppress", intensity: "nonviolent", guidance: "Keep it bloodless." } },
+    }));
+    assert.match(msg, /violence=SUPPRESS/);
+    assert.match(msg, /Moderator guidance: Keep it bloodless\./);
+    assert.doesNotMatch(msg, /violence=ALLOW/);
   });
 });
