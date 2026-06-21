@@ -190,6 +190,18 @@ echo "[run-tests-sharded] DB isolation active — tests use schema '${TEST_SCHEM
 # connection targets the test schema via the search_path startup parameter.
 export DATABASE_URL="${TEST_DATABASE_URL}"
 
+# Seed boot-time catalogue rows that are normally reconciled when the API server
+# starts. The isolated test schema is structure-only (no data copied from
+# public), so tests that assert reconciliation preserves admin-edited engine
+# fields need the baseline engine rows to exist before shard processes launch.
+echo "[run-tests-sharded] seeding boot-time engine catalogue rows in '${TEST_SCHEMA}'…"
+if ! TEST_DB_ALLOW_EXIT_ON_IDLE=1 RESEND_API_KEY_DEV="" RESEND_API_KEY_PROD="" RESEND_API_KEY="re_test_dummy" \
+  CRON_SECRET="${CRON_SECRET:-test-cron-secret}" \
+  node --import tsx/esm -e 'import { reconcileEngines } from "./src/lib/engines/index.ts"; import { closePool } from "@workspace/db"; try { await reconcileEngines(); } finally { await closePool(); }'; then
+  echo "[run-tests-sharded] ERROR: failed to seed boot-time engine catalogue rows" >&2
+  exit 1
+fi
+
 pids=()
 for ((k = 1; k <= shards; k++)); do
   # CRON_SECRET has no fallback in routes/jobs.ts — app.js throws at module load
