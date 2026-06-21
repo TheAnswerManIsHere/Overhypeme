@@ -12,3 +12,4 @@ export * from "./referenceResearch";
 export * from "./taxonomyHealth";
 export * from "./renderPolicyEnums";
 export * from "./visualStrategyOverride";
+export * from "./enrichmentOverrides";
