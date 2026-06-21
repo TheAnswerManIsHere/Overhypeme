@@ -207,13 +207,31 @@ default is "ship for review." The only exceptions: pure exploration
 with no commits, or David has explicitly said "don't open a PR for
 this."
 
-### Every PR ships with a Replit test plan + a UAT (do this BEFORE opening the PR)
+### Every PR ships with a Replit test plan + a UAT (opened with the PR, named after its number)
 
-For **every** PR that has product-visible or testable behavior, I write
-two docs in `docs/` and commit them on the branch *before* I open the PR,
-then reference both in the PR body:
+For **every** PR that has product-visible or testable behavior, I ship two
+docs in `docs/` named after the PR's number. Because the GitHub PR number
+doesn't exist until the PR is opened, the flow is **PR-first**:
 
-1. **`docs/<FEATURE>_TEST_RUN.md`** — the engineering/automated checklist
+1. Open the PR with the code (per the squash-merge workflow above), giving
+   the body a temporary placeholder note:
+   > **Docs pending:** PR number acquired. I will add
+   > `docs/PR<N>_<FEATURE>_TEST_RUN.md` and `docs/PR<N>_<FEATURE>_UAT.md` as
+   > a follow-up commit to this same PR before merge, then replace this note
+   > with links to both docs.
+2. Read the assigned PR number, write both docs, and commit them to the
+   **same PR** before merge.
+3. Replace the "Docs pending" note in the PR body with links to both docs.
+
+`<N>` is the GitHub PR number; `<FEATURE>` is a SCREAMING_SNAKE_CASE slug. A
+product-visible PR is **not** complete — and I don't present it to David as
+done — until both docs exist and the PR body links them (unless the rule-2
+exception below applies). The docs always land on the **same PR before
+merge**; they are **never** a separate later PR.
+
+The two docs:
+
+1. **`docs/PR<N>_<FEATURE>_TEST_RUN.md`** — the engineering/automated checklist
    for Replit (the technical safety net). Exact commands, expected
    pass/fail counts, schema/SQL checks, gotchas, and a "what's
    deliberately not shipped" section.
@@ -226,14 +244,15 @@ then reference both in the PR body:
    happen against the DB ("apply migrations", "run these test files",
    "confirm the new columns exist on `upload_image_metadata`") and let
    Replit handle the connection itself.
-2. **`docs/<FEATURE>_UAT.md`** — the in-app, click-through acceptance test
+2. **`docs/PR<N>_<FEATURE>_UAT.md`** — the in-app, click-through acceptance test
    for David. Written for the end user: where to click, what to expect vs.
    not expect, regression smoke table, a bug-report template, and known
    non-bug limitations.
 
-Match the established format/tone of the existing pair
-(`docs/FACT_ENRICHMENT_TEST_RUN.md` + `docs/FACT_ENRICHMENT_UAT.md`). The
-two docs cross-link each other; the PR body links to both. This is not
-optional and not a follow-up — the docs are part of the same PR as the
-code. (Pure infra/refactor with zero observable behavior can use a single
-short verification note instead, per rule 2's exception.)
+For **structure, depth, and tone** (not naming), match the existing pair
+(`docs/VIOLENCE_MODERATION_REMOVAL_TEST_RUN.md` +
+`docs/VIOLENCE_MODERATION_REMOVAL_UAT.md`). Those are **historical
+plain-named** files — use them as format/tone examples only; **do not copy
+their names**. New docs use the `PR<N>_…` names above and cross-link each
+other. (Pure infra/refactor with zero observable behavior can use a single
+short verification note in the PR body instead, per rule 2's exception.)
