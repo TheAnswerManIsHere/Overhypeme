@@ -6,7 +6,6 @@ export * from "./brandTokens";
 export * from "./memeAspectRatios";
 export * from "./templateGrammar";
 export * from "./taxonomy";
-export * from "./enrichmentOverrides";
 export * from "./visualPromptStrategies";
 export * from "./imagePromptGeneration";
 export * from "./referenceResearch";
