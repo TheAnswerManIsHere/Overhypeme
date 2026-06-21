@@ -53,6 +53,24 @@ export const factsTable = pgTable("facts", {
    */
   enrichment: jsonb("enrichment"),
   /**
+   * The immutable, pure AI baseline enrichment blob. `enrichment` above is the
+   * MATERIALIZED EFFECTIVE blob (baseline + manual overrides + preserved visual
+   * override) that runtime reads; this column preserves what the AI produced so
+   * manual overrides can win, stick across re-enrich, and detect baseline drift.
+   * Nullable: legacy/never-enriched rows. Backfilled = current `enrichment`.
+   */
+  enrichmentAiDerived: jsonb("enrichment_ai_derived"),
+  /**
+   * Path-keyed manual overrides: `{ "/primaryArchetype": ManualOverride, … }`
+   * for the allowlisted overridable paths only. `{}` = no manual intervention.
+   */
+  enrichmentOverrides: jsonb("enrichment_overrides").notNull().default({}),
+  /**
+   * Denormalized "an active override's AI baseline has since changed" flag,
+   * recomputed on every materialization, for cheap admin list filtering.
+   */
+  enrichmentBaselineChanged: boolean("enrichment_baseline_changed").notNull().default(false),
+  /**
    * Classification lifecycle for the admin Facts editor: "pending" | "ok" | "failed".
    * Tracks the re-run-classification job only. Null on facts that were never
    * (re)classified in-place. Mirrors `pending_reviews.enrichment_status`.

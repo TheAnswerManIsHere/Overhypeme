@@ -167,24 +167,33 @@ describe("GET /admin/facts — variant hierarchy", () => {
 });
 
 describe("PATCH /admin/facts/:id/enrichment", () => {
-  it("persists the blob, re-syncs projection columns, and sets status ok", async () => {
+  it("rejects a PATCH that changes a tracked field (use the override endpoints)", async () => {
     const id = await insertFact({ ...buildFactEnrichmentColumns(VALID), enrichmentStatus: null });
 
+    // OTHER changes primaryArchetype etc — tracked fields that PATCH may not mutate.
     const res = await request(adminApp)
       .patch(`/api/admin/facts/${id}/enrichment`)
       .send({ enrichment: OTHER });
+    assert.equal(res.status, 400);
+    assert.match(String(res.body.error), /override endpoints/i);
+    assert.ok(Array.isArray(res.body.trackedPaths) && res.body.trackedPaths.includes("/primaryArchetype"));
+
+    // The row is untouched.
+    const [row] = await db.select().from(factsTable).where(eq(factsTable.id, id));
+    assert.equal(row.primaryArchetype, "superhuman_physical_feat");
+  });
+
+  it("accepts a PATCH that leaves tracked fields unchanged (visual override / hashtags)", async () => {
+    const id = await insertFact({ ...buildFactEnrichmentColumns(VALID), enrichmentStatus: null });
+    const res = await request(adminApp)
+      .patch(`/api/admin/facts/${id}/enrichment`)
+      .send({ enrichment: { ...VALID, suggestedHashtags: ["alpha", "beta", "gamma"] } });
     assert.equal(res.status, 200);
     assert.equal(res.body.success, true);
-    assert.equal(res.body.projection.primaryArchetype, "object_logic_impossibility");
-    assert.equal(res.body.projection.adultSuitability, "requires_review");
-
     const [row] = await db.select().from(factsTable).where(eq(factsTable.id, id));
-    assert.equal(row.primaryArchetype, "object_logic_impossibility");
-    assert.equal(row.subtype, "mechanical_contradiction");
-    assert.equal(row.overhypeFit, "questionable");
-    assert.equal(row.adultSuitability, "requires_review");
-    assert.equal(row.enrichmentStatus, "ok");
-    assert.equal((row.enrichment as FactEnrichment).primaryArchetype, "object_logic_impossibility");
+    assert.deepEqual((row.enrichment as FactEnrichment).suggestedHashtags, ["alpha", "beta", "gamma"]);
+    // Tracked projection columns are unchanged.
+    assert.equal(row.primaryArchetype, "superhuman_physical_feat");
   });
 
   it("stamps server-owned override provenance on change and preserves it when unchanged", async () => {

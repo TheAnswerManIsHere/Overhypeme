@@ -16,6 +16,7 @@
  * the enrichment is marked failed — submission is never blocked.
  */
 
+import { randomUUID } from "node:crypto";
 import { eq } from "drizzle-orm";
 import { zodResponseFormat } from "openai/helpers/zod";
 import { db } from "@workspace/db";
@@ -23,6 +24,7 @@ import { pendingReviewsTable } from "@workspace/db/schema";
 import {
   factEnrichmentWireSchema,
   validateEnrichment,
+  resolveEnrichment,
   TAXONOMY_VERSION,
   CLASSIFICATION_PROMPT_VERSION,
   type FactEnrichment,
@@ -31,6 +33,8 @@ import {
   type OverhypeFit,
   type AdultSuitability,
   type ClassificationPromptDiagnostics,
+  type EnrichmentOverrides,
+  type OverrideSummary,
 } from "@workspace/api-zod";
 import {
   resolveFactEnrichmentSystemPrompt,
@@ -111,6 +115,7 @@ function stampProvenance(
 ): FactEnrichment {
   return {
     ...enrichment,
+    aiGenerationId: randomUUID(),
     taxonomyVersion: TAXONOMY_VERSION,
     classificationPromptVersion: CLASSIFICATION_PROMPT_VERSION,
     classificationPromptDiagnostics: promptDiagnostics,
@@ -318,6 +323,70 @@ export function buildFactEnrichmentColumns(enrichment: FactEnrichment): {
     overhypeFit: enrichment.overhypeFit,
     adultSuitability: enrichment.adultSuitability,
   };
+}
+
+/** The exact `facts` columns produced by materializing effective enrichment. */
+export interface MaterializedEnrichmentColumns {
+  enrichment: FactEnrichment;
+  enrichmentAiDerived: FactEnrichment;
+  enrichmentOverrides: EnrichmentOverrides;
+  enrichmentBaselineChanged: boolean;
+  primaryArchetype: PrimaryArchetype;
+  subtype: FactSubtype;
+  overhypeFit: OverhypeFit;
+  adultSuitability: AdultSuitability;
+}
+
+export interface MaterializeResult {
+  /** Spread directly into a `facts` update/insert `.set(...)`. */
+  columns: MaterializedEnrichmentColumns;
+  effective: FactEnrichment;
+  summary: OverrideSummary;
+}
+
+/**
+ * THE single write-shape for fact enrichment. Assembles the materialized
+ * effective blob from the immutable AI baseline + manual overrides + the
+ * preserved (not-refactored) visual-strategy override, and returns the exact
+ * `facts` columns to persist (effective + the three layer columns + the indexed
+ * projections). Every write site (PUT/DELETE overrides, PATCH notes/visual,
+ * re-enrich, projection repair) funnels through here so preserved fields are
+ * never lost and projection columns never drift.
+ */
+export function materializeEnrichment(input: {
+  aiDerived: FactEnrichment;
+  overrides: EnrichmentOverrides;
+  visualPromptStrategyOverride?: FactEnrichment["visualPromptStrategyOverride"];
+}): MaterializeResult {
+  const { effective, summary } = resolveEnrichment(input);
+  const projected = buildFactEnrichmentColumns(effective);
+  return {
+    columns: {
+      enrichment: effective,
+      enrichmentAiDerived: input.aiDerived,
+      enrichmentOverrides: input.overrides,
+      enrichmentBaselineChanged: summary.baselineChangedPaths.length > 0,
+      primaryArchetype: projected.primaryArchetype,
+      subtype: projected.subtype,
+      overhypeFit: projected.overhypeFit,
+      adultSuitability: projected.adultSuitability,
+    },
+    effective,
+    summary,
+  };
+}
+
+/**
+ * Materialize the facts columns for a freshly-AI-derived blob that has no manual
+ * overrides yet (review approval, backfill, first write). Splits the preserved
+ * moderator visual-strategy override out of the baseline so
+ * `enrichment_ai_derived` stays pure AI.
+ */
+export function materializeFromBaseline(enrichment: FactEnrichment): MaterializeResult {
+  const visualPromptStrategyOverride = enrichment.visualPromptStrategyOverride;
+  const aiDerived = { ...enrichment } as FactEnrichment;
+  delete (aiDerived as Record<string, unknown>)["visualPromptStrategyOverride"];
+  return materializeEnrichment({ aiDerived, overrides: {}, visualPromptStrategyOverride });
 }
 
 /**

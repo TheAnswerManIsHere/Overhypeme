@@ -20,9 +20,12 @@ import { db } from "@workspace/db";
 import { pendingReviewsTable, factsTable } from "@workspace/db/schema";
 import {
   validateEnrichment,
+  computeBaselineChangedPaths,
   type FactEnrichment,
+  type EnrichmentOverrides,
 } from "@workspace/api-zod";
-import { enrichFact, buildFactEnrichmentColumns } from "./factEnrichment";
+import { enrichFact, materializeEnrichment } from "./factEnrichment";
+import { recordOverrideHistory } from "./enrichmentOverrideHistory";
 import { renderCanonical } from "./renderCanonical";
 import {
   registerJobHandler,
@@ -118,9 +121,17 @@ export async function runEnrichmentForFact(
   deps: FactEnrichmentDeps = { classify: enrichFact },
 ): Promise<HandlerResult> {
   // Load the fact text + parentId so a variant is classified with its parent
-  // context (same shape the approve-variant path uses).
+  // context (same shape the approve-variant path uses), plus the override layers
+  // so re-classification stays STICKY: a fresh AI baseline is computed but the
+  // manual overrides (and the moderator visual override) are preserved.
   const [factRow] = await db
-    .select({ text: factsTable.text, parentId: factsTable.parentId, enrichment: factsTable.enrichment })
+    .select({
+      text: factsTable.text,
+      parentId: factsTable.parentId,
+      enrichment: factsTable.enrichment,
+      enrichmentAiDerived: factsTable.enrichmentAiDerived,
+      enrichmentOverrides: factsTable.enrichmentOverrides,
+    })
     .from(factsTable)
     .where(eq(factsTable.id, factId))
     .limit(1);
@@ -143,9 +154,9 @@ export async function runEnrichmentForFact(
   const renderedFactText = renderCanonical(factRow.text);
   const renderedParentText = parentText != null ? renderCanonical(parentText) : null;
 
-  let enrichment: FactEnrichment;
+  let freshAiDerived: FactEnrichment;
   try {
-    enrichment = await deps.classify({
+    freshAiDerived = await deps.classify({
       factText: renderedFactText,
       status: factRow.parentId != null ? "variant" : "new_fact",
       parentText: renderedParentText,
@@ -158,13 +169,45 @@ export async function runEnrichmentForFact(
       .where(eq(factsTable.id, factId));
     return { ok: false, error: `classify: ${msg}` };
   }
-  enrichment = withPreservedOverride(enrichment, factRow.enrichment);
 
-  // Write the enrichment + re-sync the indexed projection columns.
+  // STICKY re-enrich: keep the existing overrides untouched (never refresh their
+  // `overriddenFrom` — that is what lets us detect a baseline change), preserve
+  // the moderator visual override, and rematerialize against the fresh baseline.
+  const overrides = (factRow.enrichmentOverrides ?? {}) as EnrichmentOverrides;
+  const priorAiDerived = (factRow.enrichmentAiDerived ?? null) as FactEnrichment | null;
+  const visualPromptStrategyOverride = (factRow.enrichment as
+    | { visualPromptStrategyOverride?: FactEnrichment["visualPromptStrategyOverride"] }
+    | null
+    | undefined)?.visualPromptStrategyOverride;
+
+  // Audit only the not-changed → changed transitions (no per-re-enrich spam).
+  const before = priorAiDerived ? computeBaselineChangedPaths(priorAiDerived, overrides) : [];
+  const after = computeBaselineChangedPaths(freshAiDerived, overrides);
+  const newlyChanged = after.filter((p) => !before.includes(p));
+
+  const { columns } = materializeEnrichment({
+    aiDerived: freshAiDerived,
+    overrides,
+    visualPromptStrategyOverride,
+  });
+
   await db
     .update(factsTable)
-    .set({ ...buildFactEnrichmentColumns(enrichment), enrichmentStatus: "ok" })
+    .set({ ...columns, enrichmentStatus: "ok" })
     .where(eq(factsTable.id, factId));
+
+  if (newlyChanged.length > 0) {
+    await recordOverrideHistory(
+      newlyChanged.map((path) => ({
+        factId,
+        path,
+        action: "baseline_reenriched" as const,
+        oldValue: overrides[path]?.overriddenFrom ?? null,
+        newValue: (freshAiDerived as Record<string, unknown>)[path.slice(1)] ?? null,
+        aiGenerationId: freshAiDerived.aiGenerationId ?? null,
+      })),
+    );
+  }
 
   return { ok: true };
 }
