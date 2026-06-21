@@ -10,6 +10,16 @@
 export const CANONICAL_NAME = "Alex";
 
 /**
+ * Possessive form of a personalized name. Per the product decision we ALWAYS
+ * append "'s" — including for names already ending in "s" (Chris → Chris's,
+ * James → James's) — so the rule is unambiguous and viewer-independent. Empty
+ * input yields empty output (nothing to make possessive).
+ */
+export function possessive(name: string): string {
+  return name ? `${name}'s` : "";
+}
+
+/**
  * Canonical placeholder names the renderer injects for the personalized subject.
  * The subject-name semantic-entity guard matches against this list (exact,
  * case-insensitive). Only canonical placeholders the renderer produces belong
@@ -21,6 +31,7 @@ export const CANONICAL_SUBJECT_NAMES: readonly string[] = [CANONICAL_NAME];
 
 const TOKEN_MAP: Record<string, string> = {
   NAME: CANONICAL_NAME,
+  NAME_POSSESSIVE: possessive(CANONICAL_NAME),
   SUBJ: "they",
   Subj: "They",
   OBJ: "them",
@@ -61,6 +72,7 @@ function indefiniteArticle(original: string, nextWord: string): string {
 /**
  * Renders a template to canonical plain English.
  * - {NAME} → "Alex"
+ * - {NAME_POSSESSIVE} → "Alex's"
  * - {SUBJ}/{Subj} → "they"/"They"
  * - {OBJ}/{Obj} → "them"/"Them"
  * - {POSS}/{Poss} → "their"/"Their"
@@ -108,6 +120,7 @@ function parsePronounMap(name: string, pronouns: string | null | undefined): Rec
 
   return {
     NAME: name,
+    NAME_POSSESSIVE: possessive(name),
     SUBJ: subj,   Subj: subj.charAt(0).toUpperCase() + subj.slice(1),
     OBJ: obj,     Obj: obj.charAt(0).toUpperCase() + obj.slice(1),
     POSS: poss,   Poss: poss.charAt(0).toUpperCase() + poss.slice(1),
@@ -118,27 +131,29 @@ function parsePronounMap(name: string, pronouns: string | null | undefined): Rec
 
 /**
  * After personalization a fact string should carry no residual identity tokens
- * ({NAME}/{SUBJ}/…) and no leftover {singular|plural} pairs. We intentionally do
- * NOT flag every `{`/`}` — supporting text, math, or emoji shortcodes can carry
- * braces legitimately — only the recognized template-token shapes. Used to guard
- * render-time prompt inputs against leaking template syntax to the image model.
+ * ({NAME}/{NAME_POSSESSIVE}/{SUBJ}/…) and no leftover {singular|plural} pairs. We
+ * intentionally do NOT flag every `{`/`}` — supporting text, math, or emoji
+ * shortcodes can carry braces legitimately — only the recognized template-token
+ * shapes. Used to guard render-time prompt inputs against leaking template syntax
+ * to the image model.
  */
 const UNRESOLVED_FACT_TOKEN_RE =
-  /\{(?:NAME|SUBJ|Subj|OBJ|Obj|POSS|Poss|POSS_PRO|Poss_Pro|REFL|Refl)\}|\{[^{}|]+\|[^{}|]+\}/;
+  /\{(?:NAME_POSSESSIVE|NAME|SUBJ|Subj|OBJ|Obj|POSS_PRO|Poss_Pro|POSS|Poss|REFL|Refl)\}|\{[^{}|]+\|[^{}|]+\}/;
 
 export function hasUnresolvedFactTokens(text: string): boolean {
   return UNRESOLVED_FACT_TOKEN_RE.test(text);
 }
 
 /**
- * Narrow check for SUBJECT identity tokens only ({NAME}/{SUBJ}/{OBJ}/{POSS}/
- * {POSS_PRO}/{REFL} in either case). Deliberately excludes the {singular|plural}
- * pluralization pairs that `hasUnresolvedFactTokens` also matches — those are
- * not the subject, so a legitimate non-subject template referent that happens to
- * carry a pluralization pair must not be treated as the subject.
+ * Narrow check for SUBJECT identity tokens only ({NAME}/{NAME_POSSESSIVE}/{SUBJ}/
+ * {OBJ}/{POSS}/{POSS_PRO}/{REFL} in either case). Deliberately excludes the
+ * {singular|plural} pluralization pairs that `hasUnresolvedFactTokens` also
+ * matches — those are not the subject, so a legitimate non-subject template
+ * referent that happens to carry a pluralization pair must not be treated as the
+ * subject.
  */
 const SUBJECT_IDENTITY_TOKEN_RE =
-  /\{(?:NAME|SUBJ|Subj|OBJ|Obj|POSS|Poss|POSS_PRO|Poss_Pro|REFL|Refl)\}/;
+  /\{(?:NAME_POSSESSIVE|NAME|SUBJ|Subj|OBJ|Obj|POSS_PRO|Poss_Pro|POSS|Poss|REFL|Refl)\}/;
 
 export function hasSubjectIdentityToken(text: string): boolean {
   return SUBJECT_IDENTITY_TOKEN_RE.test(text);
@@ -146,8 +161,17 @@ export function hasSubjectIdentityToken(text: string): boolean {
 
 // ─── Subject-name semantic-entity guard ──────────────────────────────────────
 
-const CANONICAL_SUBJECT_NAMES_LC = new Set(
-  CANONICAL_SUBJECT_NAMES.map((n) => n.toLowerCase()),
+/**
+ * Exact surface forms that ARE the personalized subject: each canonical
+ * placeholder name plus its possessive ("alex", "alex's"). Lower-cased for
+ * case-insensitive exact matching. The possessive form is included because the
+ * renderer can emit `Alex's` (from {NAME_POSSESSIVE}); once rendered it is no
+ * longer a token, so the token regex alone would miss it. Kept to EXACT forms
+ * only — never substring — so multi-word referents that merely contain the name
+ * ("Alex Honnold", "Alex Honnold's climb") are preserved (PR #111).
+ */
+const CANONICAL_SUBJECT_NAME_FORMS_LC = new Set(
+  CANONICAL_SUBJECT_NAMES.flatMap((n) => [n.toLowerCase(), possessive(n).toLowerCase()]),
 );
 
 /**
@@ -157,19 +181,20 @@ const CANONICAL_SUBJECT_NAMES_LC = new Set(
  * visual prompt and the image-prompt validator forces it to be echoed).
  *
  * Matches when `surfaceText` or `normalizedText` EXACTLY equals a canonical
- * placeholder name (case-insensitive, trimmed) — so multi-word referents that
- * merely contain the name ("Alex Honnold") are preserved — or when either field
- * still carries a subject identity token ({NAME}/{SUBJ}/…). Structurally typed
- * and tolerant of missing/partial fields, since it also guards possibly-stale
- * stored enrichment blobs that may omit `normalizedText`.
+ * placeholder name or its possessive (case-insensitive, trimmed: "Alex" /
+ * "Alex's") — so multi-word referents that merely contain the name ("Alex
+ * Honnold", "Alex Honnold's climb") are preserved — or when either field still
+ * carries a subject identity token ({NAME}/{NAME_POSSESSIVE}/{SUBJ}/…).
+ * Structurally typed and tolerant of missing/partial fields, since it also
+ * guards possibly-stale stored enrichment blobs that may omit `normalizedText`.
  */
 export function isSubjectNameSemanticEntity(
   entity: { surfaceText?: string | null; normalizedText?: string | null },
 ): boolean {
   const surface = (entity.surfaceText ?? "").trim();
   const normalized = (entity.normalizedText ?? "").trim();
-  if (surface && CANONICAL_SUBJECT_NAMES_LC.has(surface.toLowerCase())) return true;
-  if (normalized && CANONICAL_SUBJECT_NAMES_LC.has(normalized.toLowerCase())) return true;
+  if (surface && CANONICAL_SUBJECT_NAME_FORMS_LC.has(surface.toLowerCase())) return true;
+  if (normalized && CANONICAL_SUBJECT_NAME_FORMS_LC.has(normalized.toLowerCase())) return true;
   return hasSubjectIdentityToken(surface) || hasSubjectIdentityToken(normalized);
 }
 

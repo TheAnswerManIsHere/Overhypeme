@@ -612,6 +612,26 @@ export function RuntimePromptPreview({ factId, reviewId }: RuntimePromptPreviewP
 
           {result && (
             <div className="space-y-3 border-t border-border pt-3">
+              {/* Rendered fact text — the source fact sentence personalized to the
+                  sample name/pronouns. Verifies FACT-TEMPLATE token substitution
+                  only; moderator override-field tokens are verified in the
+                  compiled prompt / breakdown below. */}
+              {result.renderedFactText && (
+                <div>
+                  <span className={labelCls}>Rendered fact text (sample subject)</span>
+                  <p
+                    className="text-[12px] text-foreground bg-background border border-border rounded-sm p-2"
+                    data-testid="rpp-rendered-fact"
+                  >
+                    {result.renderedFactText}
+                  </p>
+                  <p className="text-[10px] text-muted-foreground mt-1 italic">
+                    Fact-template tokens rendered for the sample name/pronouns. Tokens you put in
+                    override fields show up in the compiled prompt below, not here.
+                  </p>
+                </div>
+              )}
+
               {/* Compiled prompt */}
               <div>
                 <div className="flex items-center justify-between mb-1">

@@ -775,6 +775,25 @@ describe("nanoBanana2 — moderator visual-strategy override (Phase 2)", () => {
     assert.match(out.imagePrompt, /a TV title reading "David Franklin Week"/);       // SUPPORTING TEXT
     assert.match(out.imagePrompt, /David Franklin stands over the aftermath/);       // VIOLENCE
   });
+
+  it("renders {NAME_POSSESSIVE} in an override-derived section (always 's, no residual token)", () => {
+    const out = compileNanoBanana2HumanI2I(makeArgs({
+      subjectRenderMode: "human_identity_i2i",
+      prompt: "A scene.",
+      renderedSubject: { name: "Chris", pronouns: "he/him" },
+      renderPolicy: {
+        supportingText: { mode: "require", guidance: 'a TV title reading "{NAME_POSSESSIVE} Week"' },
+        violence: { mode: "suppress", intensity: "nonviolent" },
+      },
+      override: makeOverride({
+        requiredVisualDetails: ["{NAME_POSSESSIVE} recognizable face"],
+      }),
+    }));
+    assert.doesNotMatch(out.imagePrompt, /\{NAME_POSSESSIVE\}/);
+    // Possessive always appends 's, even for an s-ending name.
+    assert.match(out.imagePrompt, /Chris's recognizable face/);
+    assert.match(out.imagePrompt, /a TV title reading "Chris's Week"/);
+  });
 });
 
 describe("nanoBanana2 — prompt component breakdown", () => {
