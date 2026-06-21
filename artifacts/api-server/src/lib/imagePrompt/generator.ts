@@ -26,7 +26,7 @@ import {
   type FactSubtype,
 } from "@workspace/api-zod";
 import { callUtilityLLM } from "../utilityLLM";
-import { getImagePromptSystem } from "../imagePromptConfig";
+import { getImagePromptSystem, composeImagePromptSystemPrompt } from "../imagePromptConfig";
 import { logger } from "../logger";
 import { generationModeFromSubjectRenderMode } from "../sourceImageAnalysis";
 import { stripSubjectNameSemanticEntities } from "../renderCanonical";
@@ -194,6 +194,26 @@ export function buildImagePromptUserMessage(input: ImagePromptGenerationInput): 
 
   const fallbackGender = input.renderControls.fallbackSubjectGender ?? null;
 
+  // RENDER POLICY — the ONLY thing that governs how much of the fact's violence /
+  // consequences the CORE SCENE depicts. Placed next to the strategy context so
+  // it shapes scene planning. Default is allow + strong (depict what the fact
+  // requires); only an explicit moderator soften/suppress override reduces it.
+  const renderPolicyBlock = ((): string => {
+    const v = input.renderPolicy?.violence;
+    const mode = v?.mode ?? "allow";
+    const intensity = v?.intensity ?? "strong";
+    const guidance = v?.guidance?.trim();
+    let line: string;
+    if (mode === "suppress") {
+      line = "violence=SUPPRESS — deliberately avoid depicting violence, injury, death, or bodies; represent consequences symbolically or through environmental damage only.";
+    } else if (mode === "soften") {
+      line = "violence=SOFTEN — deliberately reduce explicit violent consequences; avoid graphic injury and visible death.";
+    } else {
+      line = `violence=ALLOW (${intensity}) — when the fact describes violence, death, weapons, casualties, or destructive aftermath, depict the required action and consequences clearly, INCLUDING the bodies/casualties the fact calls for, without gratuitous gore. Do NOT add your own sanitizing or content-suppression language.`;
+    }
+    return guidance ? `${line} Moderator guidance: ${guidance}` : line;
+  })();
+
   return [
     "Generate the engine-neutral visualPlan + Nano Banana 2 compiledPrompt + subjectFactCompatibility for this render.",
     "",
@@ -209,6 +229,9 @@ export function buildImagePromptUserMessage(input: ImagePromptGenerationInput): 
     `- overhypeFit: ${e.overhypeFit}`,
     `- adultSuitability: ${e.adultSuitability}`,
     `- taxonomyConfidence: ${e.taxonomyConfidence}`,
+    "",
+    "RENDER POLICY (governs how much of the fact's violence/consequences the CORE SCENE depicts — this is the ONLY layer that may suppress; do not self-censor beyond it):",
+    renderPolicyBlock,
     "",
     "AUTHORED VISUAL STRATEGY (apply this — do not improvise):",
     `Strategy block: ${strategy.strategyBlock}`,
@@ -362,7 +385,9 @@ export async function generateImagePromptPlanWithModel(
 // ─── Live wrapper ─────────────────────────────────────────────────────────
 
 async function callOpenAIImagePrompt(userMessages: UserMessage[]): Promise<string> {
-  const systemPrompt = await getImagePromptSystem();
+  // Append the non-configurable platform hard rules so the no-self-censoring rule
+  // holds even when admin_config carries a stale base prompt.
+  const systemPrompt = composeImagePromptSystemPrompt(await getImagePromptSystem());
   const response = await callUtilityLLM({
     temperature: IMAGE_PROMPT_TEMPERATURE,
     maxTokens: IMAGE_PROMPT_MAX_TOKENS,

@@ -60,9 +60,9 @@ export function modifierDirectives(modifiers: readonly string[]): string[] {
   add("avoid_real_logos", "Do not depict any real-world logos or brand marks; use generic stand-ins.");
   add("avoid_readable_ui", "Keep any on-screen UI abstract and non-readable.");
 
-  // Policy-adjacent → presentation only (NOT moderation).
-  add("avoid_gore", "Keep the scene clean and non-graphic — no gore or blood.");
-  add("non_graphic_action", "Keep any action stylized and non-graphic.");
+  // Presentation/composition knobs (NOT violence moderation — the retired
+  // avoid_gore / non_graphic_action auto-sanitizers were removed; only an
+  // explicit moderator render-policy override may suppress violent depiction).
   add("avoid_weapons_focus", "Do not make weapons the visual focus of the scene.");
   add("avoid_gross_literalization", "Render the idea tastefully rather than grossly literal.");
 

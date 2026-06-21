@@ -234,21 +234,6 @@ const VIOLENCE_RELEVANT_MODIFIERS = new Set([
   "cinematic_aftermath",
   "projectile_impact_power",
   "action_comedy",
-  // The softening flags themselves imply a violent fact (a moderator only adds
-  // them when there is violence to soften).
-  "avoid_gore",
-  "non_graphic_action",
-  "avoid_weapons_focus",
-  "avoid_gross_literalization",
-]);
-
-/** Per-fact softening modifiers that, under "allow", let the modifier directive
- *  govern instead of the permission line (so output never contradicts itself). */
-const VIOLENCE_SOFTENING_MODIFIERS = new Set([
-  "avoid_gore",
-  "non_graphic_action",
-  "avoid_weapons_focus",
-  "avoid_gross_literalization",
 ]);
 
 const VIOLENCE_LEXICON_RE =
@@ -276,15 +261,15 @@ const VIOLENCE_ALLOW_LINE =
   "When the fact explicitly requires violence, death, weapons, or destruction, depict the action and consequences clearly without gratuitous gore.";
 
 /**
- * The violence directive. Precedence (R5): an explicit "soften"/"suppress" mode
- * wins; otherwise, under the default "allow", a per-fact softening modifier wins
- * over the permission line (the modifier's own softening directive governs); and
- * the permission line is only emitted when the fact is violence-relevant or the
- * policy carries intentional guidance. Never emits "graphic"-flavored language.
+ * The violence directive. Precedence: an explicit moderator "soften"/"suppress"
+ * mode wins — that is now the ONLY thing that suppresses violent depiction (the
+ * retired auto-softening modifiers no longer exist). Otherwise, under the default
+ * "allow", the permission line is emitted when the fact is violence-relevant or
+ * the policy carries intentional guidance. Never emits "graphic"-flavored language.
  */
 function composeViolenceDirective(
   policy: RenderPolicy["violence"],
-  opts: { relevant: boolean; hasSofteningModifier: boolean },
+  opts: { relevant: boolean },
 ): string {
   const guidance = policy.guidance?.trim() ?? "";
   if (policy.mode === "suppress") {
@@ -295,9 +280,6 @@ function composeViolenceDirective(
   }
   // mode === "allow"
   if (guidance) return guidance;
-  // A per-fact softening modifier already emits its own softening directive — do
-  // not also assert the permission line (avoids "show bodies" + "non-graphic").
-  if (opts.hasSofteningModifier) return "";
   return opts.relevant ? VIOLENCE_ALLOW_LINE : "";
 }
 
@@ -367,18 +349,12 @@ function composeOverrideForbidden(ov: VisualPromptStrategyOverride): string {
  * kept on the visual plan for the validator + admin debug, but never compiled in.
  */
 
-/** High-impact fact modifiers the prose did not already cover. When a moderator
- *  violence override is active we drop the per-fact softening modifiers
- *  (avoid_gore, …) so the prompt never both demands and forbids violent
- *  consequences (precedence: moderator override > softening modifiers). */
+/** High-impact fact modifiers the prose did not already cover. */
 function composeModifierDirective(
   input: ImagePromptGenerationInput,
   haystack: string,
-  opts: { dropSoftening?: boolean } = {},
 ): string {
-  const modifiers = (input.enrichment.modifiers ?? []).filter(
-    (m) => !(opts.dropSoftening && VIOLENCE_SOFTENING_MODIFIERS.has(m)),
-  );
+  const modifiers = input.enrichment.modifiers ?? [];
   const directives = modifierDirectives(modifiers)
     .filter((d) => {
       // De-dupe on the directive's leading clause (before the first comma/dash).
@@ -842,10 +818,6 @@ function compile(args: CompileArgs, mode: ModeContext): CompiledImagePrompt {
 
   // Moderator visual-strategy override (Phase 2). null when absent/disabled.
   const ov = activeOverride(input);
-  // When the moderator set a violence override, it is authoritative: drop the
-  // per-fact softening-modifier directives so the prompt never both demands and
-  // forbids violent consequences (precedence: override > softening modifiers).
-  const moderatorViolenceOverride = Boolean(ov?.violencePolicyOverride);
 
   // 1. IMAGE-TO-IMAGE TASK (operational lead + required mode clauses).
   const clauses = mode.requiredClauses.filter(Boolean).join(" ");
@@ -906,9 +878,7 @@ function compile(args: CompileArgs, mode: ModeContext): CompiledImagePrompt {
   // age-transform + other modifier directives, and any key element gap-fill.
   const subjectListBody = composeListBody(vp.subjectDetails ?? [], haystack);
   const expressionPose = scrubIntentLanguage(vp.subjectTreatment?.expressionAndPose ?? "");
-  const modifierBody = composeModifierDirective(input, `${haystack} ${subjectListBody}`, {
-    dropSoftening: moderatorViolenceOverride,
-  });
+  const modifierBody = composeModifierDirective(input, `${haystack} ${subjectListBody}`);
   const keyElements = composeKeyElementsDirective(vp, `${haystack} ${subjectListBody} ${modifierBody}`);
   const subjectDetails = [
     subjectListBody,
@@ -955,7 +925,6 @@ function compile(args: CompileArgs, mode: ModeContext): CompiledImagePrompt {
   const supportingText = composeSupportingTextDirective(vp, renderPolicy.supportingText);
   const violence = composeViolenceDirective(renderPolicy.violence, {
     relevant: isViolenceRelevant(input, vp),
-    hasSofteningModifier: (input.enrichment.modifiers ?? []).some((m) => VIOLENCE_SOFTENING_MODIFIERS.has(m)),
   });
   const antiSplit = composeAntiSplitConstraints(bindingArgs);
   // Reusable failure-mode role/action constraints, keyed off normalized data

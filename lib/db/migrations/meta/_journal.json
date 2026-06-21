@@ -512,6 +512,13 @@
       "when": 1780500000001,
       "tag": "0072_enrichment_override_history",
       "breakpoints": true
+    },
+    {
+      "idx": 73,
+      "version": "7",
+      "when": 1780600000000,
+      "tag": "0073_strip_retired_violence_modifiers",
+      "breakpoints": true
     }
   ]
 }

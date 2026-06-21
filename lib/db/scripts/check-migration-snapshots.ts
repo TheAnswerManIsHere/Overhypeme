@@ -171,6 +171,23 @@ const SNAPSHOT_EXEMPT_TAGS = new Set<string>([
   // the upstream malformed 0063 snapshot, so snapshot is intentionally absent.
   // lib/db/src/schema/facts.ts is the source of truth.
   "0069_facts_enrichment_status",
+
+  // EXCEPTIONAL repo-health unblock (NOT a precedent for future DDL): this
+  // already-merged, hand-authored DDL migration adds the AI-derived/override
+  // columns + partial index to facts but shipped without a snapshot. Future
+  // schema-changing migrations should generate a snapshot. Source of truth:
+  // lib/db/src/schema/facts.ts.
+  "0071_facts_enrichment_overrides",
+
+  // EXCEPTIONAL repo-health unblock (NOT a precedent): already-merged,
+  // hand-authored DDL creating the enrichment_override_history audit table
+  // without a snapshot. Source of truth: lib/db/src/schema/enrichmentOverrideHistory.ts.
+  "0072_enrichment_override_history",
+
+  // DML-only sweep that strips the retired `avoid_gore` / `non_graphic_action`
+  // modifiers from stored enrichment blobs/overrides + scrubs the classifier
+  // prompt in admin_config. No DDL means no schema delta means no snapshot.
+  "0073_strip_retired_violence_modifiers",
 ]);
 
 interface JournalEntry {
