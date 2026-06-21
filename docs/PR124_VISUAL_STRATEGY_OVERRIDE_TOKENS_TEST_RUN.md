@@ -8,18 +8,14 @@ connection string from here.
 ## TL;DR
 
 ```
-# api-zod must be built so api-server picks up the allowlist/canonicalization change
-pnpm tsc -p lib/api-zod/tsconfig.json
-
 # api-server suites (from artifacts/api-server)
-node --import tsx/esm --test --test-concurrency=1 \
-  src/__tests__/renderCanonical.test.ts \
-  src/__tests__/visualStrategyOverride.test.ts \
-  src/__tests__/nanoBanana2Compiler.test.ts \
-  src/__tests__/templateGrammar.test.ts            # all green
+BCRYPT_SALT_ROUNDS=4 bash scripts/run-test.sh src/__tests__/renderCanonical.test.ts            # 48 pass
+BCRYPT_SALT_ROUNDS=4 bash scripts/run-test.sh src/__tests__/visualStrategyOverride.test.ts     # 16 pass
+BCRYPT_SALT_ROUNDS=4 bash scripts/run-test.sh src/__tests__/nanoBanana2Compiler.test.ts       # 60 pass
+BCRYPT_SALT_ROUNDS=4 bash scripts/run-test.sh src/__tests__/templateGrammar.test.ts           # 24 pass
 
 # frontend (from artifacts/overhype-me)
-npx vitest run src/components/admin                 # 18 tests, incl. the new token suite
+pnpm vitest run src/components/admin                 # 7 pass, incl. the new token suite
 ```
 
 ## What this is
