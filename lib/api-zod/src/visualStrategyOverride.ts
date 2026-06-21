@@ -10,8 +10,9 @@
  * Phase 1 render policy.
  *
  * Token model: moderator text fields may carry the same personalization tokens as
- * fact templates ({NAME}, {SUBJ}, …). On save we canonicalize the name-case
- * variants {name}/{Name} → {NAME} and reject any UNKNOWN token with a clear
+ * fact templates ({NAME}, {NAME_POSSESSIVE}, {SUBJ}, …). On save we canonicalize
+ * the name-token case/possessive variants ({name}/{Name} → {NAME},
+ * {name_possessive} → {NAME_POSSESSIVE}) and reject any UNKNOWN token with a clear
  * message; the compiler renders the rest per render via `renderPersonalized`.
  *
  * This module is dependency-light on purpose (only the leaf render-policy enums +
@@ -105,10 +106,15 @@ function collectRenderedTexts(ov: VisualPromptStrategyOverride): string[] {
   return out;
 }
 
-/** Canonicalize the name-case token variants {name}/{Name} → {NAME}. The other
- *  personalization tokens have meaningful case variants and are left alone. */
+/** Canonicalize the name-token case variants {name}/{Name} → {NAME} and the
+ *  possessive variants {name_possessive}/{Name_Possessive}/… → {NAME_POSSESSIVE}.
+ *  The other personalization (pronoun) tokens have meaningful case variants and
+ *  are left alone. Possessive is canonicalized first so the bare-{NAME} pass
+ *  can't partially touch it. */
 export function canonicalizeNameToken(text: string): string {
-  return text.replace(/\{(?:name|Name)\}/g, "{NAME}");
+  return text
+    .replace(/\{(?:name|Name|NAME)_(?:possessive|Possessive|POSSESSIVE)\}/g, "{NAME_POSSESSIVE}")
+    .replace(/\{(?:name|Name)\}/g, "{NAME}");
 }
 
 function mapText(text: string): string {
@@ -130,7 +136,7 @@ export function canonicalizeOverrideTokens(
     compositionGuidance: ov.compositionGuidance.map(mapText),
     styleAgnosticPromptAdditions: ov.styleAgnosticPromptAdditions.map(mapText),
     negativePromptAdditions: ov.negativePromptAdditions.map(mapText),
-    roleBindings: ov.roleBindings.map((rb) => ({ entity: rb.entity, visualRole: mapText(rb.visualRole) })),
+    roleBindings: ov.roleBindings.map((rb) => ({ entity: mapText(rb.entity), visualRole: mapText(rb.visualRole) })),
     supportingTextPolicyOverride: ov.supportingTextPolicyOverride?.guidance
       ? { ...ov.supportingTextPolicyOverride, guidance: mapText(ov.supportingTextPolicyOverride.guidance) }
       : ov.supportingTextPolicyOverride,
@@ -160,7 +166,7 @@ export const visualPromptStrategyOverrideSchema = visualPromptStrategyOverrideBa
     if (err) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        message: `visual strategy override has an invalid personalization token: ${err}. Use {NAME} and pronoun tokens only.`,
+        message: `visual strategy override has an invalid personalization token: ${err}. Use {NAME}, {NAME_POSSESSIVE}, and pronoun tokens only.`,
       });
     }
   });

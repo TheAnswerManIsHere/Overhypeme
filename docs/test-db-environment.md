@@ -1,7 +1,8 @@
 # Test database environment — Replit configuration
 
-This project's test docs (e.g. `docs/MBFO_*_TEST_RUN.md`) sometimes include
-commands like:
+This project's test docs (named like `docs/PR<N>_<FEATURE>_TEST_RUN.md` under
+the current convention — older ones use plain `docs/<FEATURE>_TEST_RUN.md`)
+sometimes include commands like:
 
 ```bash
 DATABASE_URL="postgres://overhype:overhype@localhost:5432/overhype_test" \

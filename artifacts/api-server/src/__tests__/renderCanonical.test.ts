@@ -35,6 +35,11 @@ describe("renderCanonical", () => {
     assert.equal(renderCanonical("{Refl}"), "Themselves");
   });
 
+  it("replaces {NAME_POSSESSIVE} with the canonical possessive 'Alex's'", () => {
+    assert.equal(renderCanonical("{NAME_POSSESSIVE}"), "Alex's");
+    assert.equal(renderCanonical("{NAME_POSSESSIVE} Week"), "Alex's Week");
+  });
+
   it("picks the plural (right) side of {singular|plural} alternations", () => {
     assert.equal(renderCanonical("{has|have}"), "have");
     assert.equal(renderCanonical("{doesn't|don't}"), "don't");
@@ -114,6 +119,23 @@ describe("renderPersonalized — he/him (singular)", () => {
       renderPersonalized("{NAME} {has|have} done {POSS} work {REFL}.", "Dave", "he/him"),
       "Dave has done his work himself.",
     );
+  });
+});
+
+describe("renderPersonalized — {NAME_POSSESSIVE} always appends 's", () => {
+  it("appends 's to a consonant-ending name", () => {
+    assert.equal(renderPersonalized("{NAME_POSSESSIVE}", "David", "he/him"), "David's");
+    assert.equal(renderPersonalized("{NAME_POSSESSIVE} Week", "David Franklin", "he/him"), "David Franklin's Week");
+  });
+
+  it("ALSO appends 's to names already ending in 's (no James'/Chris' branching)", () => {
+    assert.equal(renderPersonalized("{NAME_POSSESSIVE}", "Chris", "he/him"), "Chris's");
+    assert.equal(renderPersonalized("{NAME_POSSESSIVE}", "James", "they/them"), "James's");
+  });
+
+  it("is pronoun-independent (same possessive regardless of pronouns)", () => {
+    assert.equal(renderPersonalized("{NAME_POSSESSIVE}", "Alex", "she/her"), "Alex's");
+    assert.equal(renderPersonalized("{NAME_POSSESSIVE}", "Alex", "they/them"), "Alex's");
   });
 });
 
@@ -200,6 +222,10 @@ describe("hasUnresolvedFactTokens", () => {
     assert.equal(hasUnresolvedFactTokens("It belongs to {POSS} cat"), true);
   });
 
+  it("flags a leftover {NAME_POSSESSIVE} token", () => {
+    assert.equal(hasUnresolvedFactTokens("{NAME_POSSESSIVE} Week"), true);
+  });
+
   it("flags leftover {singular|plural} pairs", () => {
     assert.equal(hasUnresolvedFactTokens("Dave {run|runs} fast"), true);
   });
@@ -219,6 +245,7 @@ describe("hasUnresolvedFactTokens", () => {
 describe("hasSubjectIdentityToken", () => {
   it("flags subject identity tokens", () => {
     assert.equal(hasSubjectIdentityToken("{NAME}"), true);
+    assert.equal(hasSubjectIdentityToken("{NAME_POSSESSIVE}"), true);
     assert.equal(hasSubjectIdentityToken("{SUBJ}"), true);
     assert.equal(hasSubjectIdentityToken("belongs to {POSS} cat"), true);
     assert.equal(hasSubjectIdentityToken("{Refl}"), true);
@@ -246,13 +273,21 @@ describe("isSubjectNameSemanticEntity", () => {
     assert.equal(isSubjectNameSemanticEntity({ surfaceText: "ALEX", normalizedText: "alex" }), true);
   });
 
+  it("flags the canonical possessive subject form 'Alex's' (rendered, not a token)", () => {
+    assert.equal(isSubjectNameSemanticEntity(ent("Alex's")), true);
+    assert.equal(isSubjectNameSemanticEntity(ent("alex's")), true);
+    assert.equal(isSubjectNameSemanticEntity({ surfaceText: "ALEX'S", normalizedText: "alex's" }), true);
+  });
+
   it("flags residual subject identity tokens", () => {
     assert.equal(isSubjectNameSemanticEntity(ent("{NAME}")), true);
+    assert.equal(isSubjectNameSemanticEntity(ent("{NAME_POSSESSIVE}")), true);
     assert.equal(isSubjectNameSemanticEntity(ent("{SUBJ}")), true);
   });
 
   it("PRESERVES non-subject referents, including multi-word names containing the canonical name", () => {
     assert.equal(isSubjectNameSemanticEntity(ent("Alex Honnold")), false);
+    assert.equal(isSubjectNameSemanticEntity(ent("Alex Honnold's climb")), false);
     assert.equal(isSubjectNameSemanticEntity(ent("Earth")), false);
     assert.equal(isSubjectNameSemanticEntity(ent("Firearms")), false);
     // A legitimate non-subject referent that happens to carry a pluralization

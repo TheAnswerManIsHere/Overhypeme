@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useRef, type FocusEvent } from "react";
 import {
   PRIMARY_ARCHETYPES,
   SUBTYPES_BY_ARCHETYPE,
@@ -953,6 +953,55 @@ export function EnrichmentSummary({ e }: { e: FactEnrichment }) {
 // ─── Visual Strategy Override (Phase 2) ─────────────────────────────────────
 
 /** Small editable list of free-text rows (add / edit / remove). */
+/**
+ * Personalization tokens offered as one-click chips in the Visual Strategy
+ * Override panel. Kept in lock-step with the api-zod allowlist
+ * (`ALLOWED_SIMPLE_TOKENS` / `canonicalizeNameToken`); legend order = display
+ * order. A unit test (overrideTokenChips.test) pins this to the intended set so
+ * the duplicated list can't silently drift from the validator.
+ */
+export const OVERRIDE_TOKEN_CHIPS = [
+  "{NAME}",
+  "{NAME_POSSESSIVE}",
+  "{SUBJ}",
+  "{OBJ}",
+  "{POSS}",
+  "{POSS_PRO}",
+  "{REFL}",
+] as const;
+
+/**
+ * Insert `token` into a controlled <input>/<textarea> at the caret, replacing
+ * any selected range. Writes through the element's native value setter and
+ * dispatches a bubbling `input` event so React's controlled `onChange` fires
+ * (running the field's existing `canonicalizeNameToken`). Restores the caret to
+ * just after the inserted token on the next frame, so a re-render can't clobber
+ * it. Returns false if the element can't be written (no native setter).
+ */
+export function insertTokenIntoTextControl(
+  el: HTMLInputElement | HTMLTextAreaElement,
+  token: string,
+): boolean {
+  const proto = el instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+  const setValue = Object.getOwnPropertyDescriptor(proto, "value")?.set;
+  if (!setValue) return false;
+  const start = el.selectionStart ?? el.value.length;
+  const end = el.selectionEnd ?? el.value.length;
+  const next = el.value.slice(0, start) + token + el.value.slice(end);
+  setValue.call(el, next);
+  el.dispatchEvent(new Event("input", { bubbles: true }));
+  const caret = start + token.length;
+  requestAnimationFrame(() => {
+    try {
+      el.focus();
+      el.setSelectionRange(caret, caret);
+    } catch {
+      /* element unmounted between click and frame — nothing to restore */
+    }
+  });
+  return true;
+}
+
 function StringListEditor({
   label,
   items,
@@ -972,6 +1021,7 @@ function StringListEditor({
           <div key={i} className="flex gap-2">
             <input
               className={SELECT_CLASS}
+              data-token-insert-target="true"
               value={item}
               placeholder={placeholder}
               onChange={(ev) => {
@@ -1005,10 +1055,11 @@ function StringListEditor({
 /**
  * Moderator visual-strategy override editor (Phase 2). Reads/writes
  * `enrichment.visualPromptStrategyOverride` via `onChange`. Style-agnostic,
- * token-aware (use {NAME} and pronoun tokens); the runtime compiler merges these
- * fields into the labeled prompt sections and renders tokens per render.
+ * token-aware (use {NAME}, {NAME_POSSESSIVE}, and pronoun tokens — one-click
+ * chips insert at the caret of the focused field); the runtime compiler merges
+ * these fields into the labeled prompt sections and renders tokens per render.
  */
-function VisualStrategyOverridePanel({
+export function VisualStrategyOverridePanel({
   value,
   onChange,
 }: {
@@ -1018,11 +1069,42 @@ function VisualStrategyOverridePanel({
   const ov: VisualPromptStrategyOverride = value ?? EMPTY_VISUAL_STRATEGY_OVERRIDE;
   const set = (patch: Partial<VisualPromptStrategyOverride>) => onChange({ ...ov, ...patch });
 
+  // Token-chip insertion: track the last-focused token-capable field so a chip
+  // click inserts at its caret. Excludes admin-only/non-rendered fields (they
+  // never set data-token-insert-target).
+  const lastFieldRef = useRef<HTMLInputElement | HTMLTextAreaElement | null>(null);
+  const [chipNote, setChipNote] = useState<string | null>(null);
+  const onFieldFocusCapture = (e: FocusEvent<HTMLDivElement>) => {
+    const t = e.target;
+    if ((t instanceof HTMLInputElement || t instanceof HTMLTextAreaElement) && t.dataset.tokenInsertTarget === "true") {
+      lastFieldRef.current = t;
+      setChipNote(null);
+    }
+  };
+  const handleChip = (token: string) => {
+    const el = lastFieldRef.current;
+    if (el && el.isConnected && el.dataset.tokenInsertTarget === "true") {
+      insertTokenIntoTextControl(el, token);
+      return;
+    }
+    // No token-capable field focused — copy as a graceful fallback (never a
+    // silent no-op, never a thrown rejection).
+    const clip = typeof navigator !== "undefined" ? navigator.clipboard : undefined;
+    if (clip?.writeText) {
+      clip.writeText(token).then(
+        () => setChipNote(`Copied ${token} — click into a token-capable field to paste it.`),
+        () => setChipNote(`Click into a token-capable field first, then click ${token}.`),
+      );
+    } else {
+      setChipNote(`Click into a token-capable field first, then click ${token}.`);
+    }
+  };
+
   // Advisory client-side warnings (approval is the hard gate).
   const warnings: string[] = [];
   if (ov.enabled) {
     const tokenErr = firstOverrideTokenError(ov);
-    if (tokenErr) warnings.push(`Invalid token: ${tokenErr}. Use {NAME} and pronoun tokens only.`);
+    if (tokenErr) warnings.push(`Invalid token: ${tokenErr}. Use {NAME}, {NAME_POSSESSIVE}, and pronoun tokens only.`);
     if (ov.roleBindings.some((b) => !b.entity.trim() || !b.visualRole.trim())) {
       warnings.push("A role binding is missing an entity or a visual role.");
     }
@@ -1044,7 +1126,7 @@ function VisualStrategyOverridePanel({
       <div className="flex items-center justify-between gap-2">
         <div>
           <p className="text-sm font-bold text-foreground">Visual Strategy Override</p>
-          <p className="text-xs text-muted-foreground">Moderator art-direction merged into the runtime prompt. Use {"{NAME}"} / pronoun tokens — never a real name.</p>
+          <p className="text-xs text-muted-foreground">Moderator art-direction merged into the runtime prompt. Use {"{NAME}"}, {"{NAME_POSSESSIVE}"}, and pronoun tokens — never a real name.</p>
         </div>
         <button
           type="button"
@@ -1057,7 +1139,7 @@ function VisualStrategyOverridePanel({
       </div>
 
       {ov.enabled && (
-        <div className="space-y-3">
+        <div className="space-y-3" onFocusCapture={onFieldFocusCapture}>
           {warnings.length > 0 && (
             <div className="rounded-sm border border-amber-500/40 bg-amber-500/10 p-2 space-y-1">
               {warnings.map((w, i) => (
@@ -1067,6 +1149,26 @@ function VisualStrategyOverridePanel({
               ))}
             </div>
           )}
+
+          {/* Token legend — click a chip to insert at the caret of the
+              token-capable field you last focused (onMouseDown.preventDefault
+              keeps that field focused). Admin-only fields are not targets. */}
+          <div data-testid="vso-token-bar" className="flex flex-wrap items-center gap-1">
+            <span className="text-[10px] uppercase tracking-wide text-muted-foreground mr-1">Insert token:</span>
+            {OVERRIDE_TOKEN_CHIPS.map((token) => (
+              <button
+                key={token}
+                type="button"
+                data-testid="vso-token-chip"
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => handleChip(token)}
+                className="px-1.5 py-0.5 text-[11px] font-mono rounded-sm border border-border bg-background hover:bg-muted text-foreground"
+              >
+                {token}
+              </button>
+            ))}
+          </div>
+          {chipNote && <p className="text-[11px] text-muted-foreground" data-testid="vso-token-note">{chipNote}</p>}
 
           <div>
             <label className={LABEL_CLASS}>Moderator Intent (admin-only, not rendered)</label>
@@ -1098,6 +1200,7 @@ function VisualStrategyOverridePanel({
               <label className={LABEL_CLASS}>Subject Realization Description</label>
               <textarea
                 className={`${SELECT_CLASS} resize-none`}
+                data-token-insert-target="true"
                 rows={2}
                 value={ov.subjectRealizationOverride.description}
                 onChange={(ev) => set({ subjectRealizationOverride: { mode: ov.subjectRealizationOverride!.mode, description: canonicalizeNameToken(ev.target.value) } })}
@@ -1113,10 +1216,10 @@ function VisualStrategyOverridePanel({
             <div className="space-y-1.5">
               {ov.roleBindings.map((b, i) => (
                 <div key={i} className="flex gap-2">
-                  <input className={`${SELECT_CLASS} max-w-[8rem]`} value={b.entity} placeholder="entity (subject, mother…)" onChange={(ev) => {
-                    const next = ov.roleBindings.slice(); next[i] = { ...b, entity: ev.target.value }; set({ roleBindings: next });
+                  <input className={`${SELECT_CLASS} max-w-[8rem]`} data-token-insert-target="true" value={b.entity} placeholder="entity (subject, mother…)" onChange={(ev) => {
+                    const next = ov.roleBindings.slice(); next[i] = { ...b, entity: canonicalizeNameToken(ev.target.value) }; set({ roleBindings: next });
                   }} />
-                  <input className={SELECT_CLASS} value={b.visualRole} placeholder="concrete visible role" onChange={(ev) => {
+                  <input className={SELECT_CLASS} data-token-insert-target="true" value={b.visualRole} placeholder="concrete visible role" onChange={(ev) => {
                     const next = ov.roleBindings.slice(); next[i] = { ...b, visualRole: canonicalizeNameToken(ev.target.value) }; set({ roleBindings: next });
                   }} />
                   <button type="button" onClick={() => set({ roleBindings: ov.roleBindings.filter((_, idx) => idx !== i) })} className="px-2 border border-border rounded-sm hover:bg-muted text-muted-foreground" aria-label="Remove"><Trash2 className="w-4 h-4" /></button>
@@ -1141,7 +1244,7 @@ function VisualStrategyOverridePanel({
                 <select className={SELECT_CLASS} value={ov.supportingTextPolicyOverride.mode} onChange={(ev) => set({ supportingTextPolicyOverride: { ...ov.supportingTextPolicyOverride!, mode: ev.target.value as (typeof SUPPORTING_TEXT_MODE_VALUES)[number] } })}>
                   {SUPPORTING_TEXT_MODE_VALUES.map((m) => <option key={m} value={m}>{m}</option>)}
                 </select>
-                <input className={SELECT_CLASS} placeholder='guidance (e.g. a TV title reading "{NAME} Week")' value={ov.supportingTextPolicyOverride.guidance ?? ""} onChange={(ev) => set({ supportingTextPolicyOverride: { ...ov.supportingTextPolicyOverride!, guidance: canonicalizeNameToken(ev.target.value) } })} />
+                <input className={SELECT_CLASS} data-token-insert-target="true" placeholder='guidance (e.g. a TV title reading "{NAME} Week")' value={ov.supportingTextPolicyOverride.guidance ?? ""} onChange={(ev) => set({ supportingTextPolicyOverride: { ...ov.supportingTextPolicyOverride!, guidance: canonicalizeNameToken(ev.target.value) } })} />
               </div>
             )}
           </div>
@@ -1162,7 +1265,7 @@ function VisualStrategyOverridePanel({
                     {VIOLENCE_INTENSITY_VALUES.map((m) => <option key={m} value={m}>{m}</option>)}
                   </select>
                 </div>
-                <input className={SELECT_CLASS} placeholder="guidance (e.g. visible bodies, non-gratuitous)" value={ov.violencePolicyOverride.guidance ?? ""} onChange={(ev) => set({ violencePolicyOverride: { ...ov.violencePolicyOverride!, guidance: canonicalizeNameToken(ev.target.value) } })} />
+                <input className={SELECT_CLASS} data-token-insert-target="true" placeholder="guidance (e.g. visible bodies, non-gratuitous)" value={ov.violencePolicyOverride.guidance ?? ""} onChange={(ev) => set({ violencePolicyOverride: { ...ov.violencePolicyOverride!, guidance: canonicalizeNameToken(ev.target.value) } })} />
               </div>
             )}
           </div>
