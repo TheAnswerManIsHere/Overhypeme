@@ -14,10 +14,10 @@ pnpm typecheck                                                # clean (libs + ar
 pnpm --filter @workspace/db migrate                           # applies 0071 + 0072
 
 # api-server suites (from artifacts/api-server) — DB suites need the env
-node --import tsx/esm --test src/__tests__/enrichmentOverridesResolver.test.ts      # 11 pass (pure)
-node --import tsx/esm --test src/__tests__/routes.enrichmentOverrides.test.ts       # 12 pass (DB)
-node --import tsx/esm --test src/__tests__/routes.adminFactsEnrichment.test.ts      # 18 pass (DB)
-node --import tsx/esm --test src/__tests__/routes.admin.auth.test.ts                # 137 pass (drift-checked)
+BCRYPT_SALT_ROUNDS=4 bash scripts/run-test.sh src/__tests__/enrichmentOverridesResolver.test.ts  # 11 pass (pure)
+BCRYPT_SALT_ROUNDS=4 bash scripts/run-test.sh src/__tests__/routes.enrichmentOverrides.test.ts   # 12 pass (DB)
+BCRYPT_SALT_ROUNDS=4 bash scripts/run-test.sh src/__tests__/routes.adminFactsEnrichment.test.ts  # 17 pass (DB)
+BCRYPT_SALT_ROUNDS=4 bash scripts/run-test.sh src/__tests__/routes.admin.auth.test.ts             # 137 pass (drift-checked)
 ```
 
 ## Schema / migrations
