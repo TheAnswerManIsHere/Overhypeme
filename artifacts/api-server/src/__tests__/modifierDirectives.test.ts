@@ -21,10 +21,16 @@ describe("modifierDirectives", () => {
     assert.match(out.join(" ").toLowerCase(), /crowd reacting/);
   });
 
-  it("phrases policy-adjacent modifiers as presentation constraints", () => {
-    const out = modifierDirectives(["avoid_gore"]).join(" ").toLowerCase();
-    assert.match(out, /non-graphic/);
-    assert.doesNotMatch(out, /reject|moderation|block/);
+  it("emits no directive for the retired violence-softening modifiers", () => {
+    // avoid_gore / non_graphic_action were removed entirely; a stale stored value
+    // must now be inert (no auto-sanitizing directive).
+    assert.deepEqual(modifierDirectives(["avoid_gore", "non_graphic_action"]), []);
+  });
+
+  it("phrases the surviving presentation/composition knobs as constraints (not moderation)", () => {
+    const out = modifierDirectives(["avoid_weapons_focus", "avoid_gross_literalization"]).join(" ").toLowerCase();
+    assert.match(out, /weapons|tastefully/);
+    assert.doesNotMatch(out, /no gore or blood|non-graphic|reject|moderation|block/);
   });
 
   it("compiles every age-transform modifier into a loud de-aging directive (never dropped)", () => {

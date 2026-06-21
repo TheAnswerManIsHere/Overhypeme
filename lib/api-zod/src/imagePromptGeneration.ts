@@ -304,10 +304,9 @@ export const DEFAULT_RENDER_POLICY: RenderPolicy = {
 /**
  * Resolve the EFFECTIVE render policy for a render: the Phase 1 default, with the
  * moderator's per-fact override applied when its visual-strategy override is
- * enabled (Phase 2). Precedence: moderator override > default. Per-fact softening
- * MODIFIERS (avoid_gore, …) are handled separately by the compiler, which drops
- * them when a moderator violence override is set so the prompt never both demands
- * and forbids violent consequences.
+ * enabled (Phase 2). Precedence: moderator override > default. An explicit
+ * moderator `soften`/`suppress` mode is now the ONLY thing that reduces violent
+ * depiction — the old per-fact auto-softening modifiers were retired.
  */
 export function resolveRenderPolicy(
   enrichment: { visualPromptStrategyOverride?: VisualPromptStrategyOverride } | null | undefined,

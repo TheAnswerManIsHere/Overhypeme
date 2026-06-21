@@ -27,6 +27,7 @@ import {
 } from "@workspace/api-zod";
 import { evaluateFactTaxonomyHealth } from "../lib/taxonomyHealth";
 import { modifierDirectives } from "../lib/imagePrompt/modifierDirectives.js";
+import { repairRedundantMechanismMisclassification } from "../lib/factEnrichment.js";
 import { FACT_ENRICHMENT_SYSTEM_DEFAULT } from "../lib/factEnrichmentConfig.js";
 
 function buildEnrichment(over: {
@@ -95,7 +96,7 @@ describe("redundant-mechanism classification shape", () => {
     const raw = buildEnrichment({
       primaryArchetype: "superhuman_physical_feat",
       subtype: "force_scaled_action",
-      modifiers: ["projectile_impact_power", "normal_function_rendered_unnecessary", "avoid_gore"],
+      modifiers: ["projectile_impact_power", "normal_function_rendered_unnecessary"],
     });
 
     const result = validateEnrichment(raw);
@@ -187,22 +188,41 @@ describe("superhuman strategy steers the redundant-mechanism render", () => {
   });
 });
 
-// ─── Part 6 Test E: non-graphic rendering ──────────────────────────────────
+// ─── Part 6 Test E: no automatic violence/gore self-censoring ───────────────
 
-describe("redundant-mechanism render stays non-graphic", () => {
-  it("the grenade example does not ask the model to depict gore/bodies", () => {
+describe("redundant-mechanism strategy no longer self-censors violence", () => {
+  it("the grenade strategy + example no longer forbid bodies/gore/casualties", () => {
     const strategy = getVisualPromptStrategy("superhuman_physical_feat");
     const grenadeExample = strategy.visualizationExamples.find((e) =>
       e.fact.toLowerCase().includes("grenade"),
     )!;
-    // The "avoid" field may legitimately NAME gore to forbid it; the
-    // visualApproach (what to draw) must not request it.
-    assert.doesNotMatch(grenadeExample.visualApproach, /\b(blood|gore|corpses|dead bodies)\b/i);
+    const blob = [strategy.strategyBlock, grenadeExample.visualApproach, grenadeExample.avoid].join("\n");
+    assert.doesNotMatch(blob, /non-graphic/i);
+    assert.doesNotMatch(blob, /avoid bodies|no bodies/i);
+    assert.doesNotMatch(blob, /visible casualties|readable casualty/i);
+    // ...but the real (non-violence) redundant-mechanism guidance is preserved.
+    assert.match(grenadeExample.avoid, /detonation happening before|the throw is/i);
   });
 
-  it("the avoid-gore modifier directive carries no graphic request", () => {
-    const out = modifierDirectives(["avoid_gore"]).join(" ").toLowerCase();
-    assert.match(out, /non-graphic/);
+  it("the redundant-mechanism repair no longer forces the retired softening modifiers", () => {
+    const base = validateEnrichment(
+      buildEnrichment({
+        primaryArchetype: "temporal_causality_inversion",
+        subtype: "pre_cause_consequence",
+        modifiers: [],
+      }),
+    );
+    assert.ok(base.ok, base.ok ? "" : base.error);
+    // Confidence < 0.5 so the deterministic repair actually fires.
+    const out = repairRedundantMechanismMisclassification(
+      "David once threw a grenade and killed 50 people - then it exploded.",
+      { ...base.data, taxonomyConfidence: 0.3 },
+    );
+    assert.equal(out.primaryArchetype, "superhuman_physical_feat");
+    assert.equal(out.modifiers.includes("avoid_gore"), false);
+    assert.equal(out.modifiers.includes("non_graphic_action"), false);
+    assert.ok(out.modifiers.includes("projectile_impact_power"));
+    assert.ok(out.modifiers.includes("normal_function_rendered_unnecessary"));
   });
 });
 
@@ -237,5 +257,14 @@ describe("classifier system prompt encodes the redundant-mechanism rule", () => 
       FACT_ENRICHMENT_SYSTEM_DEFAULT,
       /grenade causing effects before exploding is temporal/i,
     );
+  });
+
+  it("no longer advertises the retired violence-softening modifiers", () => {
+    assert.doesNotMatch(FACT_ENRICHMENT_SYSTEM_DEFAULT, /avoid_gore/);
+    assert.doesNotMatch(FACT_ENRICHMENT_SYSTEM_DEFAULT, /non_graphic_action/);
+    assert.equal(isKnownModifier("avoid_gore"), false);
+    assert.equal(isKnownModifier("non_graphic_action"), false);
+    // The classifier-prompt contract changed → version bumped.
+    assert.equal(CLASSIFICATION_PROMPT_VERSION, "v5");
   });
 });
