@@ -174,7 +174,7 @@ export function AdminLayout({ children, title }: AdminLayoutProps) {
   }
 
   return (
-    <div className="h-screen bg-background flex overflow-hidden">
+    <div className="h-[100dvh] bg-background flex overflow-hidden">
       {/* Persistent sidebar — hidden on mobile */}
       <aside
         className={`hidden md:flex shrink-0 bg-card border-r border-border flex-col transition-all duration-200 ${
