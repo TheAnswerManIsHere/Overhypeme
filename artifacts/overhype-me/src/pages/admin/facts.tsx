@@ -881,9 +881,9 @@ export default function AdminFacts() {
         </div>
       )}
 
-      <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 xl:items-start">
         {/* Left — fact list */}
-        <div className="bg-card border border-border rounded-lg overflow-hidden flex flex-col">
+        <div className="bg-card border border-border rounded-lg overflow-hidden flex flex-col xl:h-[calc(100dvh-7rem)]">
           <div className="p-4 border-b border-border flex items-center gap-3">
             <div className="relative flex-1">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
@@ -993,9 +993,9 @@ export default function AdminFacts() {
 
         {/* Right — edit panel or bulk import */}
         {selectedFact && draft ? (
-          <div className="bg-card border border-border rounded-lg p-5 flex flex-col gap-4">
-            {/* Header */}
-            <div className="flex items-center justify-between">
+          <div className="bg-card border border-border rounded-lg flex flex-col xl:h-[calc(100dvh-7rem)] xl:overflow-y-auto">
+            {/* Header — sticky within the scrolling panel */}
+            <div className="flex items-center justify-between sticky top-0 bg-card z-10 px-5 pt-5 pb-4 border-b border-border shrink-0">
               <h2 className="font-display font-bold text-foreground uppercase tracking-wide flex items-center gap-2">
                 <Pencil className="w-4 h-4 text-primary" />
                 Edit Fact #{selectedFact.id}
@@ -1032,6 +1032,9 @@ export default function AdminFacts() {
                 </button>
               </div>
             </div>
+
+            {/* Scrollable body */}
+            <div className="p-5 flex flex-col gap-4">
 
             {/* Status badges */}
             <div className="flex flex-wrap gap-2 items-center">
@@ -1397,10 +1400,12 @@ export default function AdminFacts() {
                 <Trash2 className="w-4 h-4" /> Delete Fact
               </Button>
             </div>
+
+            </div>{/* end scrollable body */}
           </div>
         ) : (
           /* Bulk import (default right panel) */
-          <div className="bg-card border border-border rounded-lg p-5 flex flex-col gap-4">
+          <div className="bg-card border border-border rounded-lg p-5 flex flex-col gap-4 xl:h-[calc(100dvh-7rem)] xl:overflow-y-auto">
             <div className="flex items-center justify-between">
               <h2 className="font-display font-bold text-foreground uppercase tracking-wide">Bulk Import</h2>
               <label className="cursor-pointer">
