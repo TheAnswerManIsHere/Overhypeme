@@ -295,69 +295,85 @@ function FactEnrichmentPanel({ fact, onSaved }: { fact: Fact; onSaved: (resp: En
   }
 
   const busy = draft.loading || draft.committing || jobs.loading || jobs.rerunBusy;
+  const [expanded, setExpanded] = useState(false);
 
   return (
-    <div className="space-y-2">
-      {/* Pinned header bar with draft status */}
-      <div className="flex items-center justify-between gap-2">
-        <h3 className="font-display font-bold text-foreground uppercase tracking-wide text-sm flex items-center gap-2">
-          <Sparkles className="w-4 h-4 text-primary" />
-          Visual Taxonomy Enrichment
-        </h3>
-        <div className="flex items-center gap-3 shrink-0">
-          <div className="text-xs text-muted-foreground">
-            {draft.committing ? (
-              <span className="flex items-center gap-1"><Loader2 className="w-3 h-3 animate-spin" />Saving to server…</span>
-            ) : draft.commitError ? (
-              <span className="text-destructive">{draft.commitError}</span>
-            ) : draft.hasUncommittedChanges ? (
-              <span>{draft.draftLabel || "Unsaved changes"}</span>
-            ) : draft.committedAt ? (
-              <span className="text-green-600 dark:text-green-400">Saved to server</span>
-            ) : null}
+    <div className="rounded-sm border border-border bg-muted/20" data-testid="fact-enrichment-panel">
+      <button
+        type="button"
+        onClick={() => setExpanded((v) => !v)}
+        className="w-full flex items-center justify-between gap-2 p-3 text-left"
+      >
+        <span className="text-xs font-bold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
+          <Sparkles className="w-3.5 h-3.5 text-primary" /> Visual Taxonomy Enrichment
+        </span>
+        {expanded ? <ChevronDown className="w-4 h-4 text-muted-foreground" /> : <ChevronRight className="w-4 h-4 text-muted-foreground" />}
+      </button>
+
+      {expanded && (
+        <div className="px-3 pb-3 space-y-2">
+          {/* Pinned header bar with draft status */}
+          <div className="flex items-center justify-between gap-2">
+            <h3 className="font-display font-bold text-foreground uppercase tracking-wide text-sm flex items-center gap-2">
+              <Sparkles className="w-4 h-4 text-primary" />
+              Visual Taxonomy Enrichment
+            </h3>
+            <div className="flex items-center gap-3 shrink-0">
+              <div className="text-xs text-muted-foreground">
+                {draft.committing ? (
+                  <span className="flex items-center gap-1"><Loader2 className="w-3 h-3 animate-spin" />Saving to server…</span>
+                ) : draft.commitError ? (
+                  <span className="text-destructive">{draft.commitError}</span>
+                ) : draft.hasUncommittedChanges ? (
+                  <span>{draft.draftLabel || "Unsaved changes"}</span>
+                ) : draft.committedAt ? (
+                  <span className="text-green-600 dark:text-green-400">Saved to server</span>
+                ) : null}
+              </div>
+              {draft.hasUncommittedChanges && (
+                <button
+                  type="button"
+                  onClick={draft.discard}
+                  className="text-xs text-primary underline hover:opacity-80"
+                >
+                  Discard changes
+                </button>
+              )}
+            </div>
           </div>
-          {draft.hasUncommittedChanges && (
-            <button
-              type="button"
+
+          {draft.loading && !enrichment && (
+            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+              <Loader2 className="w-3 h-3 animate-spin" /> Loading enrichment…
+            </div>
+          )}
+          <EnrichmentEditor
+            value={enrichment}
+            status={enrichmentStatus}
+            factText={fact.text}
+            onChange={(next) => draft.setValue(next)}
+            onSave={draft.hasUncommittedChanges ? () => void draft.save() : undefined}
+            onRerun={handleRerun}
+            busy={busy}
+            rerunBusy={jobs.rerunBusy}
+            overrideContext={overrideContext}
+          />
+          <div className="flex items-center justify-end gap-3 min-h-[1.75rem]">
+            <Button
+              variant="outline"
+              size="sm"
               onClick={draft.discard}
-              className="text-xs text-primary underline hover:opacity-80"
+              disabled={!draft.hasUncommittedChanges || draft.committing}
             >
               Discard changes
-            </button>
+            </Button>
+          </div>
+          {jobs.error && (
+            <div className="flex items-start gap-2 rounded-sm border border-destructive/50 bg-destructive/10 px-3 py-2">
+              <AlertCircle className="w-4 h-4 text-destructive shrink-0 mt-0.5" />
+              <p className="text-sm text-destructive">{jobs.error}</p>
+            </div>
           )}
-        </div>
-      </div>
-
-      {draft.loading && !enrichment && (
-        <div className="flex items-center gap-2 text-xs text-muted-foreground">
-          <Loader2 className="w-3 h-3 animate-spin" /> Loading enrichment…
-        </div>
-      )}
-      <EnrichmentEditor
-        value={enrichment}
-        status={enrichmentStatus}
-        factText={fact.text}
-        onChange={(next) => draft.setValue(next)}
-        onSave={draft.hasUncommittedChanges ? () => void draft.save() : undefined}
-        onRerun={handleRerun}
-        busy={busy}
-        rerunBusy={jobs.rerunBusy}
-        overrideContext={overrideContext}
-      />
-      <div className="flex items-center justify-end gap-3 min-h-[1.75rem]">
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={draft.discard}
-          disabled={!draft.hasUncommittedChanges || draft.committing}
-        >
-          Discard changes
-        </Button>
-      </div>
-      {jobs.error && (
-        <div className="flex items-start gap-2 rounded-sm border border-destructive/50 bg-destructive/10 px-3 py-2">
-          <AlertCircle className="w-4 h-4 text-destructive shrink-0 mt-0.5" />
-          <p className="text-sm text-destructive">{jobs.error}</p>
         </div>
       )}
     </div>
@@ -1334,6 +1350,18 @@ export default function AdminFacts() {
               </div>
             )}
 
+            {/* Visual Taxonomy Enrichment — the shared editor (same as moderation).
+                Edit + autosave the metadata, regenerate the visual preview, or
+                re-run classification to tune a fact rendering bad images/videos.
+                Collapsible; starts closed. */}
+            <div className="border-t border-border pt-3">
+              <FactEnrichmentPanel
+                key={selectedFact.id}
+                fact={selectedFact}
+                onSaved={(resp) => applyEnrichmentSave(selectedFact.id, resp)}
+              />
+            </div>
+
             {/* Runtime Compiled Prompt Preview (Phase 2C) — the ACTUAL render-time
                 engine prompt for a chosen render context. Distinct from the
                 enrichment editor's preview-only example prompts below. Shown for
@@ -1341,17 +1369,6 @@ export default function AdminFacts() {
                 component renders its own collapsible bordered header. */}
             <div className="border-t border-border pt-3">
               <RuntimePromptPreview factId={selectedFact.id} />
-            </div>
-
-            {/* Visual Taxonomy Enrichment — the shared editor (same as moderation).
-                Edit + autosave the metadata, regenerate the visual preview, or
-                re-run classification to tune a fact rendering bad images/videos. */}
-            <div className="border-t border-border pt-3">
-              <FactEnrichmentPanel
-                key={selectedFact.id}
-                fact={selectedFact}
-                onSaved={(resp) => applyEnrichmentSave(selectedFact.id, resp)}
-              />
             </div>
 
             {/* Save result */}
