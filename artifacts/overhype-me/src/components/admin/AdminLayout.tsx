@@ -128,7 +128,7 @@ export function AdminLayout({ children, title }: AdminLayoutProps) {
 
   function renderNav(forMobile: boolean) {
     return (
-      <nav className={`flex-1 p-2 space-y-1 ${forMobile ? "overflow-y-auto" : ""}`}>
+      <nav className="flex-1 min-h-0 overflow-y-auto p-2 space-y-1">
         {NAV_ITEMS.map(({ href, label, icon: Icon, exact, badge }) => {
           const active = exact ? location === href : location.startsWith(href);
           const badgeCount = badge === "moderation" ? totalBadge : 0;
@@ -174,7 +174,7 @@ export function AdminLayout({ children, title }: AdminLayoutProps) {
   }
 
   return (
-    <div className="min-h-screen bg-background flex">
+    <div className="h-screen bg-background flex overflow-hidden">
       {/* Persistent sidebar — hidden on mobile */}
       <aside
         className={`hidden md:flex shrink-0 bg-card border-r border-border flex-col transition-all duration-200 ${
@@ -269,7 +269,7 @@ export function AdminLayout({ children, title }: AdminLayoutProps) {
             </button>
           </div>
         </header>
-        <div className="flex-1 p-3 sm:p-6 overflow-auto">{children}</div>
+        <div className="flex-1 min-h-0 p-3 sm:p-6 overflow-auto">{children}</div>
       </main>
     </div>
   );
