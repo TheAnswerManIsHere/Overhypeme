@@ -700,10 +700,19 @@ describe("POST /admin/reviews/:id/approve-variant", () => {
     const submitterId = await createTestUser();
     const sid = await bearerForUser(adminId, { isAdmin: true });
 
+    // A prepped review (production_review + staging fact) so the request reaches
+    // the parent-fact check rather than the stage gate.
+    const [staging] = await db.insert(factsTable).values({
+      text: "variant attempt", submittedById: submitterId, isActive: false, enrichment: VALID_APPROVAL_ENRICHMENT,
+    }).returning();
     const [r] = await db.insert(pendingReviewsTable).values({
       submittedText: "variant attempt",
       submittedById: submitterId,
       status: "pending",
+      workflowStage: "production_review",
+      stagingFactId: staging.id,
+      enrichment: VALID_APPROVAL_ENRICHMENT,
+      enrichmentStatus: "ok",
     }).returning();
 
     const res = await request(makeApp())
@@ -740,12 +749,26 @@ describe("POST /admin/reviews/:id/approve-variant", () => {
 // any state mutation. The planner is stubbed via __setPlanGeneratorForTest; the
 // real Nano Banana compiler still runs on the stubbed plan.
 describe("approval render preflight", () => {
-  async function seedPendingReviewWithParent(): Promise<{ reviewId: number; parentId: number }> {
+  // A review that has finished prep: it owns an inactive staging fact carrying
+  // the effective enrichment, and sits at production_review — the precondition
+  // for production approval.
+  async function seedPendingReviewWithParent(
+    enrichment: FactEnrichment = VALID_APPROVAL_ENRICHMENT,
+  ): Promise<{ reviewId: number; parentId: number; stagingFactId: number }> {
     const adminId = await createTestUser({ isAdmin: true });
     const submitterId = await createTestUser();
     const [parent] = await db
       .insert(factsTable)
       .values({ text: "{NAME} parent fact", submittedById: adminId, isActive: true })
+      .returning();
+    const [staging] = await db
+      .insert(factsTable)
+      .values({
+        text: "{NAME} bench-presses the Earth.",
+        submittedById: submitterId,
+        isActive: false,
+        enrichment,
+      })
       .returning();
     const [review] = await db
       .insert(pendingReviewsTable)
@@ -753,11 +776,13 @@ describe("approval render preflight", () => {
         submittedText: "{NAME} bench-presses the Earth.",
         submittedById: submitterId,
         status: "pending",
-        enrichment: VALID_APPROVAL_ENRICHMENT,
+        workflowStage: "production_review",
+        stagingFactId: staging.id,
+        enrichment,
         enrichmentStatus: "ok",
       })
       .returning();
-    return { reviewId: review.id, parentId: parent.id };
+    return { reviewId: review.id, parentId: parent.id, stagingFactId: staging.id };
   }
 
   it("passes on a non-poor rating and the canonical subject is Alex Jordan / they-them", async () => {
@@ -866,12 +891,23 @@ describe("approval render preflight", () => {
         negativePromptAdditions: [],
       },
     };
+    const [staging] = await db
+      .insert(factsTable)
+      .values({
+        text: "{NAME} bench-presses the Earth.",
+        submittedById: submitterId,
+        isActive: false,
+        enrichment: overrideEnrichment,
+      })
+      .returning();
     const [review] = await db
       .insert(pendingReviewsTable)
       .values({
         submittedText: "{NAME} bench-presses the Earth.",
         submittedById: submitterId,
         status: "pending",
+        workflowStage: "production_review",
+        stagingFactId: staging.id,
         enrichment: overrideEnrichment,
         enrichmentStatus: "ok",
       })
@@ -892,6 +928,124 @@ describe("approval render preflight", () => {
     // resolveRenderPolicy folds the moderator override into the planner input —
     // proving the override reaches the same runtime path as render time.
     assert.ok(seenRenderPolicy, "render policy (with the override folded in) reached the planner");
+  });
+});
+
+describe("POST /admin/reviews/:id/approve-for-production", () => {
+  async function seedProductionReview(): Promise<{ reviewId: number; stagingFactId: number; submitterId: string }> {
+    const submitterId = await createTestUser();
+    const [staging] = await db.insert(factsTable).values({
+      text: "{NAME} bench-presses the Earth.", submittedById: submitterId, isActive: false, enrichment: VALID_APPROVAL_ENRICHMENT,
+    }).returning();
+    const [review] = await db.insert(pendingReviewsTable).values({
+      submittedText: "{NAME} bench-presses the Earth.", submittedById: submitterId, status: "pending",
+      workflowStage: "production_review", stagingFactId: staging.id, enrichment: VALID_APPROVAL_ENRICHMENT, enrichmentStatus: "ok",
+    }).returning();
+    return { reviewId: review.id, stagingFactId: staging.id, submitterId };
+  }
+
+  it("activates the staging fact, marks production_approved, and is idempotent", async () => {
+    const { reviewId, stagingFactId } = await seedProductionReview();
+    const adminId = await createTestUser({ isAdmin: true });
+    const sid = await bearerForUser(adminId, { isAdmin: true });
+    __setPlanGeneratorForTest(async () => makePlanOutput("strong") as never);
+
+    const res = await request(makeApp())
+      .post(`/admin/reviews/${reviewId}/approve-for-production`)
+      .set("authorization", `Bearer ${sid}`)
+      .send({});
+    assert.equal(res.status, 200);
+    assert.equal(res.body.factId, stagingFactId);
+
+    const [fact] = await db.select().from(factsTable).where(eq(factsTable.id, stagingFactId));
+    assert.equal(fact.isActive, true, "staging fact must become active");
+    const [r] = await db.select().from(pendingReviewsTable).where(eq(pendingReviewsTable.id, reviewId));
+    assert.equal(r.workflowStage, "production_approved");
+    assert.equal(r.status, "approved");
+    assert.equal(r.approvedFactId, stagingFactId);
+
+    // Idempotent re-call: returns the existing fact, no re-activation.
+    const again = await request(makeApp())
+      .post(`/admin/reviews/${reviewId}/approve-for-production`)
+      .set("authorization", `Bearer ${sid}`)
+      .send({});
+    assert.equal(again.status, 200);
+    assert.equal(again.body.alreadyApproved, true);
+    assert.equal(again.body.factId, stagingFactId);
+  });
+
+  it("refuses to activate a triage_pending review (no shortcut to live)", async () => {
+    const submitterId = await createTestUser();
+    const [review] = await db.insert(pendingReviewsTable).values({
+      submittedText: "not prepped yet", submittedById: submitterId, status: "pending", workflowStage: "triage_pending",
+    }).returning();
+    const adminId = await createTestUser({ isAdmin: true });
+    const sid = await bearerForUser(adminId, { isAdmin: true });
+
+    const res = await request(makeApp())
+      .post(`/admin/reviews/${review.id}/approve-for-production`)
+      .set("authorization", `Bearer ${sid}`)
+      .send({});
+    assert.equal(res.status, 409);
+  });
+});
+
+describe("reject after prep → production_rejected", () => {
+  it("audits a production rejection and leaves the staging fact inactive", async () => {
+    const submitterId = await createTestUser();
+    const [staging] = await db.insert(factsTable).values({
+      text: "{NAME} does a thing", submittedById: submitterId, isActive: false, enrichment: VALID_APPROVAL_ENRICHMENT,
+    }).returning();
+    const [review] = await db.insert(pendingReviewsTable).values({
+      submittedText: "{NAME} does a thing", submittedById: submitterId, status: "pending",
+      workflowStage: "production_review", stagingFactId: staging.id, enrichment: VALID_APPROVAL_ENRICHMENT, enrichmentStatus: "ok",
+    }).returning();
+    const adminId = await createTestUser({ isAdmin: true });
+    const sid = await bearerForUser(adminId, { isAdmin: true });
+
+    const res = await request(makeApp())
+      .post(`/admin/reviews/${review.id}/reject`)
+      .set("authorization", `Bearer ${sid}`)
+      .send({ rejectionReason: "lame", adminNote: "not strong enough" });
+    assert.equal(res.status, 200);
+
+    const [r] = await db.select().from(pendingReviewsTable).where(eq(pendingReviewsTable.id, review.id));
+    assert.equal(r.workflowStage, "production_rejected");
+    assert.equal(r.status, "rejected");
+    assert.equal(r.productionRejectedById, adminId);
+    assert.ok(r.productionRejectedAt);
+    const [fact] = await db.select().from(factsTable).where(eq(factsTable.id, staging.id));
+    assert.equal(fact.isActive, false, "rejected staging fact stays inactive");
+  });
+
+  it("a triage-stage reject stays triage_rejected", async () => {
+    const submitterId = await createTestUser();
+    const [review] = await db.insert(pendingReviewsTable).values({
+      submittedText: "junk", submittedById: submitterId, status: "pending", workflowStage: "triage_pending",
+    }).returning();
+    const adminId = await createTestUser({ isAdmin: true });
+    const sid = await bearerForUser(adminId, { isAdmin: true });
+    const res = await request(makeApp())
+      .post(`/admin/reviews/${review.id}/reject`)
+      .set("authorization", `Bearer ${sid}`)
+      .send({ rejectionReason: "spam" });
+    assert.equal(res.status, 200);
+    const [r] = await db.select().from(pendingReviewsTable).where(eq(pendingReviewsTable.id, review.id));
+    assert.equal(r.workflowStage, "triage_rejected");
+    assert.equal(r.productionRejectedAt, null);
+  });
+});
+
+describe("POST /admin/reviews/:id/enrich (retired)", () => {
+  it("returns 410 Gone", async () => {
+    const adminId = await createTestUser({ isAdmin: true });
+    const sid = await bearerForUser(adminId, { isAdmin: true });
+    const res = await request(makeApp())
+      .post("/admin/reviews/123/enrich")
+      .set("authorization", `Bearer ${sid}`)
+      .send({});
+    assert.equal(res.status, 410);
+    assert.equal(res.body.code, "REVIEW_ENRICH_RETIRED");
   });
 });
 
