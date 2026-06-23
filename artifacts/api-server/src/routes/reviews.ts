@@ -193,8 +193,11 @@ router.get("/admin/reviews", requireAdmin, async (req: Request, res: Response) =
   // Hydrate with submitter info and matching fact text
   const submitterIds = [...new Set(reviews.map((r) => r.submittedById).filter(Boolean))] as string[];
   const matchingIds = [...new Set(reviews.map((r) => r.matchingFactId).filter(Boolean))] as number[];
+  // Staging facts carry the LIVE prep status (enrichment + Pexels image prep)
+  // that the two-gate moderation UI shows per row — pull a lightweight slice.
+  const stagingIds = [...new Set(reviews.map((r) => r.stagingFactId).filter(Boolean))] as number[];
 
-  const [submitters, matchingFacts] = await Promise.all([
+  const [submitters, matchingFacts, stagingFacts] = await Promise.all([
     submitterIds.length
       ? db.select({ id: usersTable.id, email: usersTable.email, displayName: usersTable.displayName })
           .from(usersTable).where(and(sql`id = ANY(ARRAY[${sql.join(submitterIds.map((id) => sql`${id}`), sql`, `)}]::varchar[])`, eq(usersTable.isActive, true)))
@@ -203,10 +206,15 @@ router.get("/admin/reviews", requireAdmin, async (req: Request, res: Response) =
       ? db.select({ id: factsTable.id, text: factsTable.text })
           .from(factsTable).where(and(sql`id = ANY(ARRAY[${sql.join(matchingIds.map((id) => sql`${id}`), sql`, `)}]::integer[])`, eq(factsTable.isActive, true)))
       : Promise.resolve([]),
+    stagingIds.length
+      ? db.select({ id: factsTable.id, enrichmentStatus: factsTable.enrichmentStatus, pexelsStatus: factsTable.pexelsStatus, isActive: factsTable.isActive })
+          .from(factsTable).where(inArray(factsTable.id, stagingIds))
+      : Promise.resolve([]),
   ]);
 
   const submitterMap = Object.fromEntries(submitters.map((u) => [u.id, u]));
   const factMap = Object.fromEntries(matchingFacts.map((f) => [f.id, f]));
+  const stagingMap = Object.fromEntries(stagingFacts.map((f) => [f.id, f]));
 
   const enriched = reviews.map((r) => ({
     ...r,
@@ -214,6 +222,7 @@ router.get("/admin/reviews", requireAdmin, async (req: Request, res: Response) =
     reviewedAt: r.reviewedAt?.toISOString() ?? null,
     submitter: r.submittedById ? submitterMap[r.submittedById] ?? null : null,
     matchingFact: r.matchingFactId ? factMap[r.matchingFactId] ?? null : null,
+    stagingFact: r.stagingFactId ? stagingMap[r.stagingFactId] ?? null : null,
   }));
 
   res.json({ reviews: enriched, total, page, limit });
@@ -228,7 +237,7 @@ router.get("/admin/reviews/:id", requireAdmin, async (req: Request, res: Respons
   const [review] = await db.select().from(pendingReviewsTable).where(eq(pendingReviewsTable.id, id));
   if (!review) { res.status(404).json({ error: "Review not found" }); return; }
 
-  const [submitter, matchingFact] = await Promise.all([
+  const [submitter, matchingFact, stagingFact] = await Promise.all([
     review.submittedById
       ? db.select({ id: usersTable.id, email: usersTable.email, displayName: usersTable.displayName })
           .from(usersTable).where(and(eq(usersTable.id, review.submittedById), eq(usersTable.isActive, true))).limit(1)
@@ -237,6 +246,19 @@ router.get("/admin/reviews/:id", requireAdmin, async (req: Request, res: Respons
     review.matchingFactId
       ? db.select({ id: factsTable.id, text: factsTable.text, score: factsTable.score, createdAt: factsTable.createdAt })
           .from(factsTable).where(and(eq(factsTable.id, review.matchingFactId), eq(factsTable.isActive, true))).limit(1)
+          .then((r) => r[0] ?? null)
+      : null,
+    // The staging fact holds the effective enrichment the moderator tunes during
+    // production review, plus the live enrichment + Pexels image prep statuses.
+    review.stagingFactId != null
+      ? db.select({
+          id: factsTable.id,
+          isActive: factsTable.isActive,
+          enrichment: factsTable.enrichment,
+          enrichmentStatus: factsTable.enrichmentStatus,
+          pexelsStatus: factsTable.pexelsStatus,
+        })
+          .from(factsTable).where(eq(factsTable.id, review.stagingFactId)).limit(1)
           .then((r) => r[0] ?? null)
       : null,
   ]);
@@ -249,6 +271,7 @@ router.get("/admin/reviews/:id", requireAdmin, async (req: Request, res: Respons
     matchingFact: matchingFact
       ? { ...matchingFact, createdAt: matchingFact.createdAt.toISOString() }
       : null,
+    stagingFact,
   });
 });
 
@@ -558,6 +581,10 @@ router.post("/admin/reviews/:id/provisional-approve", requireAdmin, async (req: 
       tx,
     );
     stagingFactId = factId;
+    // Mark enrichment prep "pending" up front so the moderation UI shows it
+    // "working" immediately (symmetric with pexels_status, set by enqueueFactPexels).
+    // A re-run from prep_failed / production_review also resets it here.
+    await tx.update(factsTable).set({ enrichmentStatus: "pending" }).where(eq(factsTable.id, factId));
     await tx.update(pendingReviewsTable).set({
       workflowStage: "prep_pending",
       stagingFactId: factId,

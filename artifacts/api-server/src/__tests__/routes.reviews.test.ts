@@ -697,6 +697,32 @@ describe("GET /admin/reviews/:id", () => {
     assert.equal(res.body.id, r.id);
     assert.equal(res.body.submittedText, "details please");
     assert.equal(res.body.submitter?.id, submitterId);
+    assert.equal(res.body.stagingFact, null, "no staging fact before provisional approval");
+  });
+
+  it("hydrates the staging fact's prep status (enrichment + pexels) once prep starts", async () => {
+    const adminId = await createTestUser({ isAdmin: true });
+    const submitterId = await createTestUser();
+    const sid = await bearerForUser(adminId, { isAdmin: true });
+    const [r] = await db.insert(pendingReviewsTable).values({
+      submittedText: "{NAME} prep status check", submittedById: submitterId, status: "pending", workflowStage: "triage_pending",
+    }).returning();
+
+    await request(makeApp()).post(`/admin/reviews/${r.id}/provisional-approve`).set("authorization", `Bearer ${sid}`).send({});
+
+    const detail = await request(makeApp()).get(`/admin/reviews/${r.id}`).set("authorization", `Bearer ${sid}`);
+    assert.equal(detail.status, 200);
+    assert.equal(detail.body.workflowStage, "prep_pending");
+    assert.ok(detail.body.stagingFact, "staging fact hydrated");
+    assert.equal(detail.body.stagingFact.enrichmentStatus, "pending");
+    assert.equal(detail.body.stagingFact.pexelsStatus, "pending");
+    assert.equal(detail.body.stagingFact.isActive, false);
+
+    // The list endpoint carries the same lightweight prep slice per row.
+    const list = await request(makeApp()).get(`/admin/reviews?status=pending`).set("authorization", `Bearer ${sid}`);
+    const row = (list.body.reviews as { id: number; stagingFact: { pexelsStatus: string } | null }[]).find((x) => x.id === r.id);
+    assert.ok(row?.stagingFact, "list row carries staging prep slice");
+    assert.equal(row!.stagingFact!.pexelsStatus, "pending");
   });
 });
 
