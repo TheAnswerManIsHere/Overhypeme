@@ -29,10 +29,11 @@ import {
   activityFeedTable,
   asyncJobsTable,
 } from "@workspace/db/schema";
-import { and, eq, gte, like, sql } from "drizzle-orm";
+import { and, eq, gte, like, sql, count, inArray } from "drizzle-orm";
 import type { FactEnrichment } from "@workspace/api-zod";
 
 import reviewsRouter, { __setPlanGeneratorForTest } from "../routes/reviews.js";
+import { FACT_SUBMIT_PENDING_CAP } from "../lib/rateLimit.js";
 import { authMiddleware } from "../middlewares/authMiddleware.js";
 import { createSession, type SessionData } from "../lib/auth.js";
 
@@ -260,7 +261,7 @@ describe("POST /facts/submit-review", () => {
     assert.match(res.body.error, /grammar validation failed/);
   });
 
-  it("happy path: inserts a pending_reviews row and returns 201", async () => {
+  it("happy path: inserts a triage_pending review with NO paid prep and returns 201", async () => {
     const userId = await createTestUser();
     const sid = await bearerForUser(userId);
     const res = await request(makeApp())
@@ -278,6 +279,82 @@ describe("POST /facts/submit-review", () => {
     assert.ok(row);
     assert.equal(row.status, "pending");
     assert.equal(row.submittedById, userId);
+    // COST GATE: the new submission must not trigger any paid prep.
+    assert.equal(row.workflowStage, "triage_pending");
+    assert.equal(row.enrichment, null);
+    assert.equal(row.enrichmentStatus, null);
+  });
+
+  it("COST GATE: submission enqueues no enrichment / pexels / embedding jobs", async () => {
+    const userId = await createTestUser();
+    const sid = await bearerForUser(userId);
+    const res = await request(makeApp())
+      .post("/facts/submit-review")
+      .set("authorization", `Bearer ${sid}`)
+      .send({ text: "another perfectly fine fact for the no-cost check." });
+    assert.equal(res.status, 201);
+    const reviewId: number = res.body.reviewId;
+
+    const paidJobs = await db
+      .select({ id: asyncJobsTable.id, queue: asyncJobsTable.queue })
+      .from(asyncJobsTable)
+      .where(
+        and(
+          inArray(asyncJobsTable.queue, ["enrichment", "fact_pexels"]),
+          sql`${asyncJobsTable.payload}->>'reviewId' = ${String(reviewId)}`,
+        ),
+      );
+    assert.equal(paidJobs.length, 0, "submission must not enqueue paid prep jobs");
+  });
+
+  it("PENDING CAP: returns 429 PENDING_CAP_REACHED when the user is at the unresolved cap", async () => {
+    const userId = await createTestUser();
+    const sid = await bearerForUser(userId);
+    // Seed exactly the cap's worth of unresolved (triage_pending) reviews.
+    await db.insert(pendingReviewsTable).values(
+      Array.from({ length: FACT_SUBMIT_PENDING_CAP }, () => ({
+        submittedText: `cap filler ${randomUUID()}`,
+        submittedById: userId,
+        status: "pending" as const,
+        workflowStage: "triage_pending" as const,
+      })),
+    );
+
+    const res = await request(makeApp())
+      .post("/facts/submit-review")
+      .set("authorization", `Bearer ${sid}`)
+      .send({ text: "this submission should be rejected by the cap." });
+    assert.equal(res.status, 429);
+    assert.equal(res.body.code, "PENDING_CAP_REACHED");
+
+    // No extra row was created past the cap.
+    const [{ value: total }] = await db
+      .select({ value: count() })
+      .from(pendingReviewsTable)
+      .where(eq(pendingReviewsTable.submittedById, userId));
+    assert.equal(total, FACT_SUBMIT_PENDING_CAP);
+  });
+
+  it("PENDING CAP: terminal-stage reviews do NOT count against the cap", async () => {
+    const userId = await createTestUser();
+    const sid = await bearerForUser(userId);
+    // Cap-1 unresolved + several terminal rows that must not count.
+    await db.insert(pendingReviewsTable).values([
+      ...Array.from({ length: FACT_SUBMIT_PENDING_CAP - 1 }, () => ({
+        submittedText: `unresolved ${randomUUID()}`,
+        submittedById: userId,
+        status: "pending" as const,
+        workflowStage: "triage_pending" as const,
+      })),
+      { submittedText: `done ${randomUUID()}`, submittedById: userId, status: "approved" as const, workflowStage: "production_approved" as const },
+      { submittedText: `rej ${randomUUID()}`, submittedById: userId, status: "rejected" as const, workflowStage: "triage_rejected" as const },
+    ]);
+
+    const res = await request(makeApp())
+      .post("/facts/submit-review")
+      .set("authorization", `Bearer ${sid}`)
+      .send({ text: "this should be allowed: only cap-1 are unresolved." });
+    assert.equal(res.status, 201);
   });
 });
 

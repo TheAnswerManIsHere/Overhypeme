@@ -6,7 +6,7 @@ import {
   pendingReviewsTable, factsTable, usersTable, activityFeedTable,
   hashtagsTable, factHashtagsTable,
 } from "@workspace/db/schema";
-import { eq, desc, sql, and, count } from "drizzle-orm";
+import { eq, desc, sql, and, count, inArray } from "drizzle-orm";
 import { requireAdmin } from "./admin";
 import { embedFactAsync } from "../lib/embeddings";
 import { renderCanonical } from "../lib/renderCanonical";
@@ -15,10 +15,14 @@ import { sendEmail, buildReviewApprovedEmail, buildReviewRejectedEmail } from ".
 import { getSiteBaseUrl } from "../lib/siteUrl";
 import { notifyAdmins } from "../lib/adminNotify";
 import { runFactImagePipeline } from "../lib/factImagePipeline";
-import { createRateLimiter } from "../lib/rateLimit";
+import { createFactSubmitRateLimiter, FACT_SUBMIT_PENDING_CAP } from "../lib/rateLimit";
 import { validateTemplate } from "../lib/templateGrammar";
 import { computeSplitTokenIndex } from "../lib/splitTokenIndex";
-import { validateEnrichment, type FactEnrichment } from "@workspace/api-zod";
+import {
+  validateEnrichment,
+  type FactEnrichment,
+  UNRESOLVED_SUBMISSION_STAGE_VALUES,
+} from "@workspace/api-zod";
 import { materializeFromBaseline } from "../lib/factEnrichment";
 import { enqueueJob } from "../lib/asyncJobs";
 import {
@@ -31,7 +35,7 @@ import { logger } from "../lib/logger";
 // so the approval render-preflight can be stubbed in tests that import it here.
 export { __setPlanGeneratorForTest } from "../lib/imagePrompt/preview";
 
-const requireRateLimit = createRateLimiter();
+const requireFactSubmitRateLimit = createFactSubmitRateLimiter();
 
 const router: IRouter = Router();
 
@@ -54,7 +58,7 @@ const SubmitReviewBody = z.object({
   reason: z.enum(["duplicate", "spam", "offensive"]).optional(),
 });
 
-router.post("/facts/submit-review", requireAuth, requireRateLimit, async (req: AuthenticatedRequest, res: Response) => {
+router.post("/facts/submit-review", requireAuth, requireFactSubmitRateLimit, async (req: AuthenticatedRequest, res: Response) => {
   // Bypass matrix — mirrors the tokenize-fact gate.
   // Admin and legendary members may skip captcha/onboarding; all others must have completed onboarding.
   // Membership/admin/captcha state on `req.user` is rebuilt fresh from the DB
@@ -86,30 +90,53 @@ router.post("/facts/submit-review", requireAuth, requireRateLimit, async (req: A
     return;
   }
 
-  const [review] = await db.insert(pendingReviewsTable).values({
-    submittedText: text,
-    submittedById: req.user.id,
-    matchingFactId,
-    matchingSimilarity,
-    hashtags,
-    status: "pending",
-    reason: reason ?? null,
-    enrichmentStatus: "pending",
-  }).returning();
-
-  // Classify the fact + generate the visual preview in the background so both
-  // are ready for the admin reviewer. Enqueued onto the durable async-jobs
-  // worker (queue "enrichment"); never blocks submission. Phase 1
-  // (classify + cultural refs) → phase 2 (visual preview) runs in the handler.
-  await db
-    .update(pendingReviewsTable)
-    .set({ enrichmentStatus: "pending" })
-    .where(eq(pendingReviewsTable.id, review.id));
-  await enqueueJob({
-    queue: "enrichment",
-    payload: { reviewId: review.id },
-    dedupeKey: `enrichment:${review.id}`,
+  // COST GATE: a new submission is cheap human-triage only. We do NOT enqueue
+  // enrichment, Pexels, embedding, or any other paid/external work here — those
+  // start only when a moderator provisionally approves the fact (which creates
+  // an inactive staging fact). So enrichment is left null and the row enters the
+  // lifecycle at `triage_pending`. (Pre-submit tokenize/duplicate-check on the
+  // form are a separate, deliberate product decision and are unaffected.)
+  //
+  // The unresolved-pending cap + insert run in one transaction guarded by a
+  // per-user advisory lock, so concurrent submits can't race past the cap.
+  let review: typeof pendingReviewsTable.$inferSelect | undefined;
+  let capExceeded = false;
+  await db.transaction(async (tx) => {
+    await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`fact_submit:${req.user.id}`}))`);
+    const [{ value: unresolved }] = await tx
+      .select({ value: count() })
+      .from(pendingReviewsTable)
+      .where(
+        and(
+          eq(pendingReviewsTable.submittedById, req.user.id),
+          inArray(pendingReviewsTable.workflowStage, [...UNRESOLVED_SUBMISSION_STAGE_VALUES]),
+        ),
+      );
+    if (unresolved >= FACT_SUBMIT_PENDING_CAP) {
+      capExceeded = true;
+      return;
+    }
+    [review] = await tx.insert(pendingReviewsTable).values({
+      submittedText: text,
+      submittedById: req.user.id,
+      matchingFactId,
+      matchingSimilarity,
+      hashtags,
+      status: "pending",
+      workflowStage: "triage_pending",
+      reason: reason ?? null,
+      enrichment: null,
+      enrichmentStatus: null,
+    }).returning();
   });
+
+  if (capExceeded || !review) {
+    res.status(429).json({
+      error: `You have too many submissions awaiting review (max ${FACT_SUBMIT_PENDING_CAP}). Please wait for some to be processed.`,
+      code: "PENDING_CAP_REACHED",
+    });
+    return;
+  }
 
   void notifyAdmins({
     type: "fact_review",

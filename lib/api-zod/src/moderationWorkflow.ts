@@ -45,13 +45,18 @@ const TERMINAL_STAGES: ReadonlySet<ReviewWorkflowStage> = new Set([
 /**
  * Stages that count against a user's unresolved-submission cap: the candidate
  * is still occupying moderator attention. Terminal stages do not count.
+ * Exported as an array for `IN (...)` DB queries.
  */
-const UNRESOLVED_SUBMISSION_STAGES: ReadonlySet<ReviewWorkflowStage> = new Set([
+export const UNRESOLVED_SUBMISSION_STAGE_VALUES = [
   "triage_pending",
   "prep_pending",
   "prep_failed",
   "production_review",
-]);
+] as const satisfies readonly ReviewWorkflowStage[];
+
+const UNRESOLVED_SUBMISSION_STAGES: ReadonlySet<ReviewWorkflowStage> = new Set(
+  UNRESOLVED_SUBMISSION_STAGE_VALUES,
+);
 
 export function isTerminalReviewStage(stage: ReviewWorkflowStage): boolean {
   return TERMINAL_STAGES.has(stage);
