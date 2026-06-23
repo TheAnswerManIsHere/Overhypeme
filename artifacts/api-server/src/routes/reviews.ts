@@ -6,7 +6,7 @@ import {
   pendingReviewsTable, factsTable, usersTable, activityFeedTable,
   hashtagsTable, factHashtagsTable,
 } from "@workspace/db/schema";
-import { eq, desc, sql, and, count } from "drizzle-orm";
+import { eq, desc, sql, and, count, inArray } from "drizzle-orm";
 import { requireAdmin } from "./admin";
 import { embedFactAsync } from "../lib/embeddings";
 import { renderCanonical } from "../lib/renderCanonical";
@@ -14,13 +14,20 @@ import { logActivity } from "../lib/activity";
 import { sendEmail, buildReviewApprovedEmail, buildReviewRejectedEmail } from "../lib/email";
 import { getSiteBaseUrl } from "../lib/siteUrl";
 import { notifyAdmins } from "../lib/adminNotify";
-import { runFactImagePipeline } from "../lib/factImagePipeline";
-import { createRateLimiter } from "../lib/rateLimit";
+import { createFactSubmitRateLimiter, FACT_SUBMIT_PENDING_CAP } from "../lib/rateLimit";
 import { validateTemplate } from "../lib/templateGrammar";
-import { computeSplitTokenIndex } from "../lib/splitTokenIndex";
-import { validateEnrichment, type FactEnrichment } from "@workspace/api-zod";
+import {
+  validateEnrichment,
+  type FactEnrichment,
+  type ReviewWorkflowStage,
+  UNRESOLVED_SUBMISSION_STAGE_VALUES,
+  canProvisionallyApprove,
+  canProductionApprove,
+} from "@workspace/api-zod";
 import { materializeFromBaseline } from "../lib/factEnrichment";
+import { ensureStagingFact } from "../lib/moderationStaging";
 import { enqueueJob } from "../lib/asyncJobs";
+import { enqueueFactPexels } from "../lib/factPexelsJobs";
 import {
   assertFactPassesCanonicalRenderPreflight,
   type RenderPreflightResult,
@@ -31,7 +38,7 @@ import { logger } from "../lib/logger";
 // so the approval render-preflight can be stubbed in tests that import it here.
 export { __setPlanGeneratorForTest } from "../lib/imagePrompt/preview";
 
-const requireRateLimit = createRateLimiter();
+const requireFactSubmitRateLimit = createFactSubmitRateLimiter();
 
 const router: IRouter = Router();
 
@@ -54,7 +61,7 @@ const SubmitReviewBody = z.object({
   reason: z.enum(["duplicate", "spam", "offensive"]).optional(),
 });
 
-router.post("/facts/submit-review", requireAuth, requireRateLimit, async (req: AuthenticatedRequest, res: Response) => {
+router.post("/facts/submit-review", requireAuth, requireFactSubmitRateLimit, async (req: AuthenticatedRequest, res: Response) => {
   // Bypass matrix — mirrors the tokenize-fact gate.
   // Admin and legendary members may skip captcha/onboarding; all others must have completed onboarding.
   // Membership/admin/captcha state on `req.user` is rebuilt fresh from the DB
@@ -86,30 +93,53 @@ router.post("/facts/submit-review", requireAuth, requireRateLimit, async (req: A
     return;
   }
 
-  const [review] = await db.insert(pendingReviewsTable).values({
-    submittedText: text,
-    submittedById: req.user.id,
-    matchingFactId,
-    matchingSimilarity,
-    hashtags,
-    status: "pending",
-    reason: reason ?? null,
-    enrichmentStatus: "pending",
-  }).returning();
-
-  // Classify the fact + generate the visual preview in the background so both
-  // are ready for the admin reviewer. Enqueued onto the durable async-jobs
-  // worker (queue "enrichment"); never blocks submission. Phase 1
-  // (classify + cultural refs) → phase 2 (visual preview) runs in the handler.
-  await db
-    .update(pendingReviewsTable)
-    .set({ enrichmentStatus: "pending" })
-    .where(eq(pendingReviewsTable.id, review.id));
-  await enqueueJob({
-    queue: "enrichment",
-    payload: { reviewId: review.id },
-    dedupeKey: `enrichment:${review.id}`,
+  // COST GATE: a new submission is cheap human-triage only. We do NOT enqueue
+  // enrichment, Pexels, embedding, or any other paid/external work here — those
+  // start only when a moderator provisionally approves the fact (which creates
+  // an inactive staging fact). So enrichment is left null and the row enters the
+  // lifecycle at `triage_pending`. (Pre-submit tokenize/duplicate-check on the
+  // form are a separate, deliberate product decision and are unaffected.)
+  //
+  // The unresolved-pending cap + insert run in one transaction guarded by a
+  // per-user advisory lock, so concurrent submits can't race past the cap.
+  let review: typeof pendingReviewsTable.$inferSelect | undefined;
+  let capExceeded = false;
+  await db.transaction(async (tx) => {
+    await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`fact_submit:${req.user.id}`}))`);
+    const [{ value: unresolved }] = await tx
+      .select({ value: count() })
+      .from(pendingReviewsTable)
+      .where(
+        and(
+          eq(pendingReviewsTable.submittedById, req.user.id),
+          inArray(pendingReviewsTable.workflowStage, [...UNRESOLVED_SUBMISSION_STAGE_VALUES]),
+        ),
+      );
+    if (unresolved >= FACT_SUBMIT_PENDING_CAP) {
+      capExceeded = true;
+      return;
+    }
+    [review] = await tx.insert(pendingReviewsTable).values({
+      submittedText: text,
+      submittedById: req.user.id,
+      matchingFactId,
+      matchingSimilarity,
+      hashtags,
+      status: "pending",
+      workflowStage: "triage_pending",
+      reason: reason ?? null,
+      enrichment: null,
+      enrichmentStatus: null,
+    }).returning();
   });
+
+  if (capExceeded || !review) {
+    res.status(429).json({
+      error: `You have too many submissions awaiting review (max ${FACT_SUBMIT_PENDING_CAP}). Please wait for some to be processed.`,
+      code: "PENDING_CAP_REACHED",
+    });
+    return;
+  }
 
   void notifyAdmins({
     type: "fact_review",
@@ -163,8 +193,11 @@ router.get("/admin/reviews", requireAdmin, async (req: Request, res: Response) =
   // Hydrate with submitter info and matching fact text
   const submitterIds = [...new Set(reviews.map((r) => r.submittedById).filter(Boolean))] as string[];
   const matchingIds = [...new Set(reviews.map((r) => r.matchingFactId).filter(Boolean))] as number[];
+  // Staging facts carry the LIVE prep status (enrichment + Pexels image prep)
+  // that the two-gate moderation UI shows per row — pull a lightweight slice.
+  const stagingIds = [...new Set(reviews.map((r) => r.stagingFactId).filter(Boolean))] as number[];
 
-  const [submitters, matchingFacts] = await Promise.all([
+  const [submitters, matchingFacts, stagingFacts] = await Promise.all([
     submitterIds.length
       ? db.select({ id: usersTable.id, email: usersTable.email, displayName: usersTable.displayName })
           .from(usersTable).where(and(sql`id = ANY(ARRAY[${sql.join(submitterIds.map((id) => sql`${id}`), sql`, `)}]::varchar[])`, eq(usersTable.isActive, true)))
@@ -173,10 +206,15 @@ router.get("/admin/reviews", requireAdmin, async (req: Request, res: Response) =
       ? db.select({ id: factsTable.id, text: factsTable.text })
           .from(factsTable).where(and(sql`id = ANY(ARRAY[${sql.join(matchingIds.map((id) => sql`${id}`), sql`, `)}]::integer[])`, eq(factsTable.isActive, true)))
       : Promise.resolve([]),
+    stagingIds.length
+      ? db.select({ id: factsTable.id, enrichmentStatus: factsTable.enrichmentStatus, pexelsStatus: factsTable.pexelsStatus, isActive: factsTable.isActive })
+          .from(factsTable).where(inArray(factsTable.id, stagingIds))
+      : Promise.resolve([]),
   ]);
 
   const submitterMap = Object.fromEntries(submitters.map((u) => [u.id, u]));
   const factMap = Object.fromEntries(matchingFacts.map((f) => [f.id, f]));
+  const stagingMap = Object.fromEntries(stagingFacts.map((f) => [f.id, f]));
 
   const enriched = reviews.map((r) => ({
     ...r,
@@ -184,6 +222,7 @@ router.get("/admin/reviews", requireAdmin, async (req: Request, res: Response) =
     reviewedAt: r.reviewedAt?.toISOString() ?? null,
     submitter: r.submittedById ? submitterMap[r.submittedById] ?? null : null,
     matchingFact: r.matchingFactId ? factMap[r.matchingFactId] ?? null : null,
+    stagingFact: r.stagingFactId ? stagingMap[r.stagingFactId] ?? null : null,
   }));
 
   res.json({ reviews: enriched, total, page, limit });
@@ -198,7 +237,7 @@ router.get("/admin/reviews/:id", requireAdmin, async (req: Request, res: Respons
   const [review] = await db.select().from(pendingReviewsTable).where(eq(pendingReviewsTable.id, id));
   if (!review) { res.status(404).json({ error: "Review not found" }); return; }
 
-  const [submitter, matchingFact] = await Promise.all([
+  const [submitter, matchingFact, stagingFact] = await Promise.all([
     review.submittedById
       ? db.select({ id: usersTable.id, email: usersTable.email, displayName: usersTable.displayName })
           .from(usersTable).where(and(eq(usersTable.id, review.submittedById), eq(usersTable.isActive, true))).limit(1)
@@ -207,6 +246,19 @@ router.get("/admin/reviews/:id", requireAdmin, async (req: Request, res: Respons
     review.matchingFactId
       ? db.select({ id: factsTable.id, text: factsTable.text, score: factsTable.score, createdAt: factsTable.createdAt })
           .from(factsTable).where(and(eq(factsTable.id, review.matchingFactId), eq(factsTable.isActive, true))).limit(1)
+          .then((r) => r[0] ?? null)
+      : null,
+    // The staging fact holds the effective enrichment the moderator tunes during
+    // production review, plus the live enrichment + Pexels image prep statuses.
+    review.stagingFactId != null
+      ? db.select({
+          id: factsTable.id,
+          isActive: factsTable.isActive,
+          enrichment: factsTable.enrichment,
+          enrichmentStatus: factsTable.enrichmentStatus,
+          pexelsStatus: factsTable.pexelsStatus,
+        })
+          .from(factsTable).where(eq(factsTable.id, review.stagingFactId)).limit(1)
           .then((r) => r[0] ?? null)
       : null,
   ]);
@@ -219,6 +271,7 @@ router.get("/admin/reviews/:id", requireAdmin, async (req: Request, res: Respons
     matchingFact: matchingFact
       ? { ...matchingFact, createdAt: matchingFact.createdAt.toISOString() }
       : null,
+    stagingFact,
   });
 });
 
@@ -322,186 +375,238 @@ async function attachHashtags(factId: number, tags: string[]): Promise<void> {
   }
 }
 
+/**
+ * Second moderation gate — activate a prepared staging fact for production.
+ *
+ * The staging fact already exists (created at provisional approval) and already
+ * carries its effective enrichment (written by the fact-backed enrichment job
+ * and any moderator overrides). This handler validates + render-preflights that
+ * enrichment, then transactionally flips the fact active and marks the review
+ * approved. Embedding + submitter notification happen once, after commit.
+ *
+ * Idempotent: a re-call on an already-approved review returns the existing fact
+ * without re-activating, re-embedding, or re-notifying. Hashtags are deferred to
+ * here (curated VTE tags when present, else the submitter's) and attached
+ * idempotently.
+ */
+async function approveForProduction(
+  req: AuthenticatedRequest,
+  res: Response,
+  opts: { reviewId: number; adminNote: string | null; parentFactIdOverride?: number },
+): Promise<void> {
+  const { reviewId, adminNote, parentFactIdOverride } = opts;
+
+  const [review] = await db.select().from(pendingReviewsTable).where(eq(pendingReviewsTable.id, reviewId));
+  if (!review) { res.status(404).json({ error: "Review not found" }); return; }
+
+  // Idempotency gate FIRST: already live → return the existing fact, no side effects.
+  if (review.workflowStage === "production_approved" && review.approvedFactId != null) {
+    res.json({ success: true, factId: review.approvedFactId, alreadyApproved: true });
+    return;
+  }
+  if (!canProductionApprove(review.workflowStage as ReviewWorkflowStage, review.status)) {
+    res.status(409).json({ error: `Cannot approve for production from stage ${review.workflowStage} (${review.status}). Provisionally approve and finish prep first.` });
+    return;
+  }
+  if (review.stagingFactId == null) {
+    res.status(409).json({ error: "No staging fact for this review — provisionally approve it first." });
+    return;
+  }
+
+  const [stagingFact] = await db.select().from(factsTable).where(eq(factsTable.id, review.stagingFactId)).limit(1);
+  if (!stagingFact) { res.status(409).json({ error: "Staging fact missing for this review." }); return; }
+
+  // Variant-at-approval (optional): set/confirm the parent when an override is given.
+  let parentId = stagingFact.parentId;
+  if (parentFactIdOverride != null && parentFactIdOverride !== parentId) {
+    const [parentFact] = await db.select({ id: factsTable.id })
+      .from(factsTable)
+      .where(and(eq(factsTable.id, parentFactIdOverride), eq(factsTable.isActive, true)))
+      .limit(1);
+    if (!parentFact) { res.status(404).json({ error: `Fact #${parentFactIdOverride} not found or inactive` }); return; }
+    parentId = parentFactIdOverride;
+  }
+
+  // Resolve the enrichment to ship: an edited blob in the body wins, else the
+  // staging fact's effective enrichment (the normal path).
+  const enrichmentResult = resolveApprovalEnrichment(req.body, stagingFact.enrichment);
+  if (!enrichmentResult.ok) { res.status(400).json({ error: enrichmentResult.error }); return; }
+  const enrichment = enrichmentResult.enrichment;
+
+  // Renderability gate — real runtime pipeline over a neutral canonical subject
+  // BEFORE any state mutation. Nothing is persisted on any failure path.
+  if (await runApprovalRenderPreflight(stagingFact.text, enrichment, res)) return;
+
+  // Only re-materialize enrichment columns when the body supplied an edited blob;
+  // otherwise the staging fact already holds the prepared enrichment.
+  const bodyEnrichmentProvided = (req.body as { enrichment?: unknown } | null | undefined)?.enrichment != null;
+  const enrichmentCols = bodyEnrichmentProvided ? materializeFromBaseline(enrichment).columns : {};
+  const canonicalText = stagingFact.canonicalText ?? renderCanonical(stagingFact.text);
+
+  // Activate the fact + mark the review approved in ONE transaction so a fact is
+  // never live with the review still pending (or vice versa).
+  await db.transaction(async (tx) => {
+    await tx.update(factsTable).set({
+      isActive: true,
+      parentId: parentId ?? null,
+      ...enrichmentCols,
+    }).where(eq(factsTable.id, stagingFact.id));
+    await tx.update(pendingReviewsTable).set({
+      status: "approved",
+      workflowStage: "production_approved",
+      reviewedById: req.user.id,
+      approvedFactId: stagingFact.id,
+      adminNote,
+      reviewedAt: new Date(),
+      enrichment,
+      enrichmentStatus: "ok",
+    }).where(eq(pendingReviewsTable.id, reviewId));
+  });
+
+  // Final hashtags (deferred to activation) — idempotent attach.
+  const tags = enrichment.suggestedHashtags ?? (review.hashtags as string[] | null) ?? [];
+  await attachHashtags(stagingFact.id, tags);
+
+  // Post-commit side effects, once. Embed for duplicate/related surfacing.
+  void embedFactAsync(stagingFact.id, stagingFact.text, canonicalText);
+
+  if (review.submittedById) {
+    const [submitter] = await db.select({ email: usersTable.email, displayName: usersTable.displayName })
+      .from(usersTable).where(and(eq(usersTable.id, review.submittedById), eq(usersTable.isActive, true))).limit(1);
+
+    await logActivity({
+      userId: review.submittedById,
+      actionType: "review_approved",
+      message: parentId != null
+        ? `Your submitted fact was approved as a variant of fact #${parentId} and added to the database!`
+        : `Your submitted fact was approved by an admin and added to the database!`,
+      metadata: { reviewId, factId: stagingFact.id, parentFactId: parentId, adminNote },
+    });
+
+    if (submitter?.email) {
+      const emailContent = buildReviewApprovedEmail({
+        username: submitter.displayName ?? "there",
+        submittedText: stagingFact.text,
+        factId: stagingFact.id,
+        adminNote,
+      });
+      void sendEmail({ to: submitter.email, ...emailContent });
+    }
+  }
+
+  res.json({ success: true, factId: stagingFact.id, ...(parentId != null ? { parentFactId: parentId } : {}) });
+}
+
+router.post("/admin/reviews/:id/approve-for-production", requireAdmin, async (req: AuthenticatedRequest, res: Response) => {
+  const id = parseInt(String(req.params["id"] ?? ""), 10);
+  if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
+  const bodyParsed = ReviewDecisionBody.safeParse(req.body);
+  const adminNote = bodyParsed.success ? (bodyParsed.data.adminNote ?? null) : null;
+  await approveForProduction(req, res, { reviewId: id, adminNote });
+});
+
+// Back-compat alias: the legacy "approve" now means "approve for production" and
+// can ONLY act on a fully-prepped review (production_review) — it can never
+// shortcut a triage_pending review straight to active.
+router.post("/admin/reviews/:id/approve", requireAdmin, async (req: AuthenticatedRequest, res: Response) => {
+  const id = parseInt(String(req.params["id"] ?? ""), 10);
+  if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
+  const bodyParsed = ReviewDecisionBody.safeParse(req.body);
+  const adminNote = bodyParsed.success ? (bodyParsed.data.adminNote ?? null) : null;
+  await approveForProduction(req, res, { reviewId: id, adminNote });
+});
+
+// Back-compat: variant approval. The variant link is normally chosen at
+// provisional approval; a parentFactId here re-confirms / sets it at activation.
 router.post("/admin/reviews/:id/approve-variant", requireAdmin, async (req: AuthenticatedRequest, res: Response) => {
   const id = parseInt(String(req.params["id"] ?? ""), 10);
   if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
-
   const bodyParsed = ApproveVariantBody.safeParse(req.body);
   if (!bodyParsed.success) { res.status(400).json({ error: "parentFactId is required" }); return; }
+  await approveForProduction(req, res, { reviewId: id, adminNote: bodyParsed.data.adminNote ?? null, parentFactIdOverride: bodyParsed.data.parentFactId });
+});
+
+// ─── Provisional approval (admin) — first gate ────────────────────────────────
+//
+// "This fact is worth implementing." Creates the inactive staging fact and
+// starts paid prep (enrichment now; Pexels once the durable queue lands). This
+// is the ONLY place enrichment spend begins. Optional `parentFactId` accepts the
+// candidate as a variant — the variant still gets its OWN enrichment + images.
+
+const ProvisionalApproveBody = z.object({
+  parentFactId: z.number().int().positive().optional(),
+  adminNote: z.string().max(500).optional(),
+});
+
+router.post("/admin/reviews/:id/provisional-approve", requireAdmin, async (req: AuthenticatedRequest, res: Response) => {
+  const id = parseInt(String(req.params["id"] ?? ""), 10);
+  if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
+
+  const bodyParsed = ProvisionalApproveBody.safeParse(req.body);
+  if (!bodyParsed.success) { res.status(400).json({ error: "Invalid input", details: bodyParsed.error.flatten() }); return; }
   const { parentFactId, adminNote = null } = bodyParsed.data;
 
   const [review] = await db.select().from(pendingReviewsTable).where(eq(pendingReviewsTable.id, id));
   if (!review) { res.status(404).json({ error: "Review not found" }); return; }
-  if (review.status !== "pending") { res.status(409).json({ error: `Review already ${review.status}` }); return; }
 
-  // Verify the parent fact exists and is active
-  const [parentFact] = await db.select({ id: factsTable.id })
-    .from(factsTable)
-    .where(and(eq(factsTable.id, parentFactId), eq(factsTable.isActive, true)))
-    .limit(1);
-  if (!parentFact) { res.status(404).json({ error: `Fact #${parentFactId} not found or inactive` }); return; }
-
-  const enrichmentResult = resolveApprovalEnrichment(req.body, review.enrichment);
-  if (!enrichmentResult.ok) {
-    res.status(400).json({ error: enrichmentResult.error });
+  // Idempotent re-click while prep is already running: return the existing
+  // staging fact without creating a second fact or re-enqueuing.
+  if (review.workflowStage === "prep_pending" && review.stagingFactId != null) {
+    res.json({ success: true, stagingFactId: review.stagingFactId, workflowStage: "prep_pending", alreadyPrepping: true });
     return;
   }
-  const enrichment = enrichmentResult.enrichment;
 
-  // Renderability gate — run the real runtime pipeline once over a neutral
-  // canonical subject BEFORE any state mutation. The review is untouched on
-  // every failure path (the preflight persists nothing).
-  if (await runApprovalRenderPreflight(review.submittedText, enrichment, res)) return;
-
-  // Populate the immutable AI baseline + (empty) override layers on the new fact
-  // so the override system has a baseline from day one; the visual override is
-  // split out of the baseline to keep enrichment_ai_derived pure.
-  const enrichmentCols = enrichment ? materializeFromBaseline(enrichment).columns : {};
-
-  const hasPronounsFlag = /\{(SUBJ|OBJ|POSS|POSS_PRO|REFL|Subj|Obj|Poss|Poss_Pro|Refl|[^|{}]+\|[^|{}]+)\}/.test(review.submittedText);
-  const canonicalText = renderCanonical(review.submittedText);
-  const [fact] = await db.insert(factsTable).values({
-    text: review.submittedText,
-    submittedById: review.submittedById ?? undefined,
-    hasPronouns: hasPronounsFlag,
-    canonicalText,
-    isActive: true,
-    parentId: parentFactId,
-    splitTokenIndex: computeSplitTokenIndex(review.submittedText),
-    ...enrichmentCols,
-  }).returning();
-
-  // Attach hashtags — the admin's curated enrichment tags when present,
-  // otherwise the submitter's manual custom tags.
-  const tags = enrichment?.suggestedHashtags ?? (review.hashtags as string[] | null) ?? [];
-  await attachHashtags(fact.id, tags);
-
-  await db.update(pendingReviewsTable).set({
-    status: "approved",
-    reviewedById: req.user.id,
-    approvedFactId: fact.id,
-    adminNote,
-    reviewedAt: new Date(),
-    ...(enrichment ? { enrichment, enrichmentStatus: "ok" } : {}),
-  }).where(eq(pendingReviewsTable.id, id));
-
-  void embedFactAsync(fact.id, fact.text, canonicalText);
-
-  if (review.submittedById) {
-    const [submitter] = await db.select({ email: usersTable.email, displayName: usersTable.displayName })
-      .from(usersTable).where(and(eq(usersTable.id, review.submittedById), eq(usersTable.isActive, true))).limit(1);
-
-    await logActivity({
-      userId: review.submittedById,
-      actionType: "review_approved",
-      message: `Your submitted fact was approved as a variant of fact #${parentFactId} and added to the database!`,
-      metadata: { reviewId: id, factId: fact.id, parentFactId, adminNote },
-    });
-
-    if (submitter?.email) {
-      const emailContent = buildReviewApprovedEmail({
-        username: submitter.displayName ?? "there",
-        submittedText: review.submittedText,
-        factId: fact.id,
-        adminNote,
-      });
-      void sendEmail({ to: submitter.email, ...emailContent });
-    }
-  }
-
-  res.json({ success: true, factId: fact.id, parentFactId });
-});
-
-router.post("/admin/reviews/:id/approve", requireAdmin, async (req: AuthenticatedRequest, res: Response) => {
-  const id = parseInt(String(req.params["id"] ?? ""), 10);
-  if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
-
-  const bodyParsed = ReviewDecisionBody.safeParse(req.body);
-  const adminNote = bodyParsed.success ? (bodyParsed.data.adminNote ?? null) : null;
-
-  const [review] = await db.select().from(pendingReviewsTable).where(eq(pendingReviewsTable.id, id));
-  if (!review) { res.status(404).json({ error: "Review not found" }); return; }
-  if (review.status !== "pending") { res.status(409).json({ error: `Review already ${review.status}` }); return; }
-
-  const enrichmentResult = resolveApprovalEnrichment(req.body, review.enrichment);
-  if (!enrichmentResult.ok) {
-    res.status(400).json({ error: enrichmentResult.error });
+  if (!canProvisionallyApprove(review.workflowStage as ReviewWorkflowStage, review.status)) {
+    res.status(409).json({ error: `Cannot provisionally approve a review in stage ${review.workflowStage} (${review.status}).` });
     return;
   }
-  const enrichment = enrichmentResult.enrichment;
 
-  // Renderability gate — run the real runtime pipeline once over a neutral
-  // canonical subject BEFORE any state mutation. The review is untouched on
-  // every failure path (the preflight persists nothing).
-  if (await runApprovalRenderPreflight(review.submittedText, enrichment, res)) return;
-
-  // Populate the immutable AI baseline + (empty) override layers on the new fact
-  // so the override system has a baseline from day one; the visual override is
-  // split out of the baseline to keep enrichment_ai_derived pure.
-  const enrichmentCols = enrichment ? materializeFromBaseline(enrichment).columns : {};
-
-  // Insert the fact into the main table, detecting pronoun tokens from the template
-  const hasPronounsFlag = /\{(SUBJ|OBJ|POSS|POSS_PRO|REFL|Subj|Obj|Poss|Poss_Pro|Refl|[^|{}]+\|[^|{}]+)\}/.test(review.submittedText);
-  const canonicalText = renderCanonical(review.submittedText);
-  const [fact] = await db.insert(factsTable).values({
-    text: review.submittedText,
-    submittedById: review.submittedById ?? undefined,
-    hasPronouns: hasPronounsFlag,
-    canonicalText,
-    isActive: true,
-    splitTokenIndex: computeSplitTokenIndex(review.submittedText),
-    ...enrichmentCols,
-  }).returning();
-
-  // Attach hashtags — the admin's curated enrichment tags when present,
-  // otherwise the submitter's manual custom tags.
-  const tags = enrichment?.suggestedHashtags ?? (review.hashtags as string[] | null) ?? [];
-  await attachHashtags(fact.id, tags);
-
-  // Mark review as approved
-  await db.update(pendingReviewsTable).set({
-    status: "approved",
-    reviewedById: req.user.id,
-    approvedFactId: fact.id,
-    adminNote,
-    reviewedAt: new Date(),
-    ...(enrichment ? { enrichment, enrichmentStatus: "ok" } : {}),
-  }).where(eq(pendingReviewsTable.id, id));
-
-  // Embed the new fact in the background using canonical text for cleaner duplicate matching
-  void embedFactAsync(fact.id, fact.text, canonicalText);
-
-  // Seed Pexels stock photos now that the fact is approved (the stock picker is
-  // live for every user tier). AI meme backgrounds are NOT pre-generated here:
-  // they're only reachable by Legendary users in the video surfaces and are
-  // generated on demand by POST /memes/ai/:factId/generate. Admins can still
-  // bulk-seed them via POST /admin/facts/backfill-ai-memes.
-  void runFactImagePipeline(fact.id, fact.text);
-
-  // Notify submitter
-  if (review.submittedById) {
-    const [submitter] = await db.select({ email: usersTable.email, displayName: usersTable.displayName })
-      .from(usersTable).where(and(eq(usersTable.id, review.submittedById), eq(usersTable.isActive, true))).limit(1);
-
-    await logActivity({
-      userId: review.submittedById,
-      actionType: "review_approved",
-      message: `Your submitted fact was approved by an admin and added to the database!`,
-      metadata: { reviewId: id, factId: fact.id, adminNote },
-    });
-
-    if (submitter?.email) {
-      const emailContent = buildReviewApprovedEmail({
-        username: submitter.displayName ?? "there",
-        submittedText: review.submittedText,
-        factId: fact.id,
-        adminNote,
-      });
-      void sendEmail({ to: submitter.email, ...emailContent });
-    }
+  // Verify the parent fact (variant case) exists and is active.
+  if (parentFactId != null) {
+    const [parentFact] = await db.select({ id: factsTable.id })
+      .from(factsTable)
+      .where(and(eq(factsTable.id, parentFactId), eq(factsTable.isActive, true)))
+      .limit(1);
+    if (!parentFact) { res.status(404).json({ error: `Fact #${parentFactId} not found or inactive` }); return; }
   }
 
-  res.json({ success: true, factId: fact.id });
+  // Create-or-reuse the staging fact and move the review into prep, in one
+  // transaction. If enqueue (below) fails the staging fact + prep_pending state
+  // remain, so a later re-click recovers without creating a duplicate fact.
+  let stagingFactId = 0;
+  await db.transaction(async (tx) => {
+    const { factId } = await ensureStagingFact(
+      { id: review.id, submittedText: review.submittedText, submittedById: review.submittedById, stagingFactId: review.stagingFactId },
+      parentFactId ?? null,
+      tx,
+    );
+    stagingFactId = factId;
+    // Mark enrichment prep "pending" up front so the moderation UI shows it
+    // "working" immediately (symmetric with pexels_status, set by enqueueFactPexels).
+    // A re-run from prep_failed / production_review also resets it here.
+    await tx.update(factsTable).set({ enrichmentStatus: "pending" }).where(eq(factsTable.id, factId));
+    await tx.update(pendingReviewsTable).set({
+      workflowStage: "prep_pending",
+      stagingFactId: factId,
+      reviewedById: req.user.id,
+      ...(adminNote != null ? { adminNote } : {}),
+    }).where(eq(pendingReviewsTable.id, id));
+  });
+
+  // Start fact-backed prep on the staging fact. Both queues are deduped so a
+  // re-click can't double-enqueue. Enrichment is the gate that advances the
+  // review to production_review; Pexels image prep runs alongside as tracked
+  // best-effort seeding (its status shows per-fact but never blocks the gate).
+  await enqueueJob({
+    queue: "enrichment",
+    payload: { factId: stagingFactId },
+    dedupeKey: `enrichment:fact:${stagingFactId}`,
+  });
+  await enqueueFactPexels(stagingFactId);
+
+  logger.info({ reviewId: id, stagingFactId, parentFactId, adminId: req.user.id }, "[moderation] provisional approval started prep");
+
+  res.json({ success: true, stagingFactId, workflowStage: "prep_pending" });
 });
 
 // ─── Reject Review (admin) ────────────────────────────────────────────────────
@@ -521,12 +626,25 @@ router.post("/admin/reviews/:id/reject", requireAdmin, async (req: Authenticated
   if (!review) { res.status(404).json({ error: "Review not found" }); return; }
   if (review.status !== "pending") { res.status(409).json({ error: `Review already ${review.status}` }); return; }
 
+  // Stage-aware: rejecting a candidate that already began prep is a
+  // production rejection (audited; its staging fact is left inactive so it
+  // never reaches users, and any in-flight prep job becomes a no-op via the
+  // stale-job guard). Rejecting before prep is a plain triage rejection.
+  const prepStarted = review.workflowStage === "prep_pending"
+    || review.workflowStage === "prep_failed"
+    || review.workflowStage === "production_review";
+  const targetStage: ReviewWorkflowStage = prepStarted ? "production_rejected" : "triage_rejected";
+
   await db.update(pendingReviewsTable).set({
     status: "rejected",
+    workflowStage: targetStage,
     reviewedById: req.user.id,
     adminNote,
     reason: rejectionReason,
     reviewedAt: new Date(),
+    ...(prepStarted
+      ? { productionRejectedAt: new Date(), productionRejectedById: req.user.id, productionRejectionNote: adminNote }
+      : {}),
   }).where(eq(pendingReviewsTable.id, id));
 
   if (review.submittedById) {
@@ -605,24 +723,19 @@ router.patch("/admin/reviews/:id", requireAdmin, async (req: AuthenticatedReques
   res.json({ success: true });
 });
 
-// ─── Enrichment: re-run classification (admin) ────────────────────────────────
+// ─── Enrichment: retired ──────────────────────────────────────────────────────
+//
+// Review-blob enrichment is retired. Production prep is fact-backed: enrichment
+// runs against the staging fact (created at provisional approval) and is re-run
+// via the fact enrichment endpoint (`/admin/facts/:id/enrich`) bound to
+// `review.stagingFactId`. This endpoint returns 410 so nothing re-introduces a
+// second, review-keyed source of enrichment truth.
 
-router.post("/admin/reviews/:id/enrich", requireAdmin, async (req: Request, res: Response) => {
-  const id = parseInt(String(req.params["id"] ?? ""), 10);
-  if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
-
-  const [review] = await db.select({ id: pendingReviewsTable.id, submittedText: pendingReviewsTable.submittedText })
-    .from(pendingReviewsTable).where(eq(pendingReviewsTable.id, id)).limit(1);
-  if (!review) { res.status(404).json({ error: "Review not found" }); return; }
-
-  await db.update(pendingReviewsTable).set({ enrichmentStatus: "pending" }).where(eq(pendingReviewsTable.id, id));
-  await enqueueJob({
-    queue: "enrichment",
-    payload: { reviewId: review.id },
-    dedupeKey: `enrichment:${review.id}`,
+router.post("/admin/reviews/:id/enrich", requireAdmin, (_req: Request, res: Response) => {
+  res.status(410).json({
+    error: "Review-blob enrichment is retired. Provisionally approve the review and re-run enrichment on its staging fact.",
+    code: "REVIEW_ENRICH_RETIRED",
   });
-
-  res.json({ success: true, enrichmentStatus: "pending" });
 });
 
 // ─── Activity Feed ────────────────────────────────────────────────────────────

@@ -17,7 +17,7 @@
 
 import { eq } from "drizzle-orm";
 import { db } from "@workspace/db";
-import { pendingReviewsTable, factsTable } from "@workspace/db/schema";
+import { pendingReviewsTable, factsTable, type AsyncJobRow } from "@workspace/db/schema";
 import {
   validateEnrichment,
   computeBaselineChangedPaths,
@@ -27,6 +27,10 @@ import {
 import { enrichFact, materializeEnrichment } from "./factEnrichment";
 import { recordOverrideHistory } from "./enrichmentOverrideHistory";
 import { renderCanonical } from "./renderCanonical";
+import {
+  advanceReviewForStagingFactEnrichment,
+  isStagingPrepActive,
+} from "./moderationStaging";
 import {
   registerJobHandler,
   type JobHandler,
@@ -139,6 +143,13 @@ export async function runEnrichmentForFact(
     return { ok: false, error: `fact ${factId} not found` };
   }
 
+  // COST GUARD: if this fact is a staging fact whose review has left
+  // prep_pending (e.g. the moderator rejected it while a retry was queued),
+  // skip all model calls. Treated as a successful no-op so the job retires.
+  if (!(await isStagingPrepActive(factId))) {
+    return { ok: true };
+  }
+
   let parentText: string | null = null;
   if (factRow.parentId != null) {
     const [parent] = await db
@@ -209,6 +220,10 @@ export async function runEnrichmentForFact(
     );
   }
 
+  // Advance a linked staging review prep_pending → production_review. No-op for
+  // live-fact re-enrich (no linked review).
+  await advanceReviewForStagingFactEnrichment({ factId, outcome: "success" });
+
   return { ok: true };
 }
 
@@ -222,6 +237,14 @@ export const enrichmentJobHandler: JobHandler = {
       return runEnrichmentForReview(reviewId);
     }
     return { ok: false, error: "enrichmentJob payload missing reviewId/factId" };
+  },
+  // Terminal failure (retries exhausted) for a fact-backed enrichment job marks
+  // the linked staging review prep_failed so the moderator can retry or reject.
+  async onAbandon(row: AsyncJobRow): Promise<void> {
+    const { factId } = (row.payload ?? {}) as EnrichmentJobPayload;
+    if (typeof factId === "number") {
+      await advanceReviewForStagingFactEnrichment({ factId, outcome: "terminal_failed" });
+    }
   },
 };
 

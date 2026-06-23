@@ -41,6 +41,16 @@ export const factsTable = pgTable("facts", {
   splitTokenIndex: integer("split_token_index"),
   /** LLM-extracted Pexels image IDs per gender variant. Populated by factImagePipeline. */
   pexelsImages: jsonb("pexels_images"),
+  /**
+   * Image-prep lifecycle for the durable `fact_pexels` queue:
+   * "pending" | "ok" | "failed". Set "pending" when the queue job is enqueued,
+   * "ok" when photos land, "failed" only after the queue abandons (retries
+   * exhausted) — so it stays distinct from "still running". Null on facts that
+   * never ran image prep through the queue (legacy rows; live-fact edits that
+   * fire-and-forget via runFactImagePipeline). Mirrors `enrichment_status`;
+   * surfaced per-fact in the moderation prep UI.
+   */
+  pexelsStatus: varchar("pexels_status", { length: 16 }),
   /** LLM-generated scene prompts for AI meme backgrounds (3 gender variants). */
   aiScenePrompts: jsonb("ai_scene_prompts"),
   /** Object storage paths for generated AI meme background images (9 total: 3 genders × 3 each). */
