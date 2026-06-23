@@ -193,6 +193,11 @@ const SNAPSHOT_EXEMPT_TAGS = new Set<string>([
   // staging-fact pointer + production-rejection audit columns to pending_reviews.
   // Source of truth: lib/db/src/schema/reviews.ts.
   "0074_review_workflow_stage",
+
+  // Hand-authored DDL adding facts.pexels_status (varchar) for the durable
+  // `fact_pexels` image-prep queue lifecycle. Source of truth:
+  // lib/db/src/schema/facts.ts.
+  "0075_facts_pexels_status",
 ]);
 
 interface JournalEntry {

@@ -27,6 +27,7 @@ import {
 import { materializeFromBaseline } from "../lib/factEnrichment";
 import { ensureStagingFact } from "../lib/moderationStaging";
 import { enqueueJob } from "../lib/asyncJobs";
+import { enqueueFactPexels } from "../lib/factPexelsJobs";
 import {
   assertFactPassesCanonicalRenderPreflight,
   type RenderPreflightResult,
@@ -565,13 +566,16 @@ router.post("/admin/reviews/:id/provisional-approve", requireAdmin, async (req: 
     }).where(eq(pendingReviewsTable.id, id));
   });
 
-  // Start fact-backed enrichment. Deduped so a re-run can't double-enqueue.
-  // (Durable Pexels prep is enqueued here too once that queue lands.)
+  // Start fact-backed prep on the staging fact. Both queues are deduped so a
+  // re-click can't double-enqueue. Enrichment is the gate that advances the
+  // review to production_review; Pexels image prep runs alongside as tracked
+  // best-effort seeding (its status shows per-fact but never blocks the gate).
   await enqueueJob({
     queue: "enrichment",
     payload: { factId: stagingFactId },
     dedupeKey: `enrichment:fact:${stagingFactId}`,
   });
+  await enqueueFactPexels(stagingFactId);
 
   logger.info({ reviewId: id, stagingFactId, parentFactId, adminId: req.user.id }, "[moderation] provisional approval started prep");
 

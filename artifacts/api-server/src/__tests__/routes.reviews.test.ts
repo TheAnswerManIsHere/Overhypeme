@@ -35,6 +35,7 @@ import type { FactEnrichment } from "@workspace/api-zod";
 import reviewsRouter, { __setPlanGeneratorForTest } from "../routes/reviews.js";
 import { FACT_SUBMIT_PENDING_CAP } from "../lib/rateLimit.js";
 import { runEnrichmentForFact } from "../lib/enrichmentJobs.js";
+import { runFactPexelsJob, factPexelsJobHandler } from "../lib/factPexelsJobs.js";
 import { authMiddleware } from "../middlewares/authMiddleware.js";
 import { createSession, type SessionData } from "../lib/auth.js";
 
@@ -377,6 +378,13 @@ describe("POST /admin/reviews/:id/provisional-approve", () => {
       .where(and(eq(asyncJobsTable.queue, "enrichment"), sql`${asyncJobsTable.payload}->>'factId' = ${String(factId)}`));
   }
 
+  async function pexelsJobsForFact(factId: number) {
+    return db
+      .select({ id: asyncJobsTable.id })
+      .from(asyncJobsTable)
+      .where(and(eq(asyncJobsTable.queue, "fact_pexels"), sql`${asyncJobsTable.payload}->>'factId' = ${String(factId)}`));
+  }
+
   it("creates exactly one inactive staging fact, enters prep_pending, enqueues one enrichment job", async () => {
     const adminId = await createTestUser({ isAdmin: true });
     const submitterId = await createTestUser();
@@ -395,6 +403,7 @@ describe("POST /admin/reviews/:id/provisional-approve", () => {
     const [fact] = await db.select().from(factsTable).where(eq(factsTable.id, stagingFactId));
     assert.equal(fact.isActive, false, "staging fact must be inactive");
     assert.equal(fact.parentId, null);
+    assert.equal(fact.pexelsStatus, "pending", "image prep marked pending so the UI shows working");
 
     const [r] = await db.select().from(pendingReviewsTable).where(eq(pendingReviewsTable.id, reviewId));
     assert.equal(r.workflowStage, "prep_pending");
@@ -402,6 +411,8 @@ describe("POST /admin/reviews/:id/provisional-approve", () => {
 
     const jobs = await enrichmentJobsForFact(stagingFactId);
     assert.equal(jobs.length, 1, "exactly one fact-backed enrichment job");
+    const pexels = await pexelsJobsForFact(stagingFactId);
+    assert.equal(pexels.length, 1, "exactly one fact-backed pexels job");
   });
 
   it("is idempotent on re-click: no second fact, no duplicate job", async () => {
@@ -422,6 +433,8 @@ describe("POST /admin/reviews/:id/provisional-approve", () => {
     assert.equal(facts.length, 1, "no second staging fact");
     const jobs = await enrichmentJobsForFact(stagingFactId);
     assert.equal(jobs.length, 1, "no duplicate enrichment job");
+    const pexels = await pexelsJobsForFact(stagingFactId);
+    assert.equal(pexels.length, 1, "no duplicate pexels job");
   });
 
   it("as variant: sets parentId and still enqueues fact-backed enrichment", async () => {
@@ -513,6 +526,80 @@ describe("staging-fact enrichment stage advancement", () => {
     });
     assert.equal(result.ok, true);
     assert.equal(classifyCalled, true);
+  });
+});
+
+describe("fact_pexels durable image-prep queue", () => {
+  it("success: seeds images, leaves the workflow stage untouched (Pexels never gates)", async () => {
+    const submitterId = await createTestUser();
+    const [fact] = await db.insert(factsTable).values({ text: "{NAME} surfs a tsunami", submittedById: submitterId, isActive: false, pexelsStatus: "pending" }).returning();
+    const [review] = await db.insert(pendingReviewsTable).values({
+      submittedText: "{NAME} surfs a tsunami", submittedById: submitterId, status: "pending",
+      workflowStage: "prep_pending", stagingFactId: fact.id,
+    }).returning();
+
+    let seedCalled = false;
+    const result = await runFactPexelsJob(fact.id, {
+      seed: async (id) => {
+        seedCalled = true;
+        // Mirror seedFactPexelsImagesOnce's terminal write so the assertion is real.
+        await db.update(factsTable).set({ pexelsStatus: "ok", pexelsImages: { fact_type: "action", male: [], female: [], neutral: [] } }).where(eq(factsTable.id, id));
+      },
+    });
+    assert.equal(result.ok, true);
+    assert.equal(seedCalled, true);
+
+    const [f] = await db.select().from(factsTable).where(eq(factsTable.id, fact.id));
+    assert.equal(f.pexelsStatus, "ok");
+    // Image prep does NOT advance the review — enrichment owns that gate.
+    const [r] = await db.select().from(pendingReviewsTable).where(eq(pendingReviewsTable.id, review.id));
+    assert.equal(r.workflowStage, "prep_pending");
+  });
+
+  it("COST GUARD: skips paid image seeding when the linked review left prep_pending", async () => {
+    const submitterId = await createTestUser();
+    const [fact] = await db.insert(factsTable).values({ text: "{NAME} tames a dragon", submittedById: submitterId, isActive: false, pexelsStatus: "pending" }).returning();
+    await db.insert(pendingReviewsTable).values({
+      submittedText: "{NAME} tames a dragon", submittedById: submitterId, status: "rejected",
+      workflowStage: "production_rejected", stagingFactId: fact.id,
+    });
+
+    let seedCalled = false;
+    const result = await runFactPexelsJob(fact.id, { seed: async () => { seedCalled = true; } });
+    assert.equal(result.ok, true);
+    assert.equal(seedCalled, false, "no paid Pexels/OpenAI work after the review left prep_pending");
+  });
+
+  it("retryable failure: returns error and leaves pexels_status pending (still running, not failed)", async () => {
+    const submitterId = await createTestUser();
+    const [fact] = await db.insert(factsTable).values({ text: "{NAME} outruns light", submittedById: submitterId, isActive: false, pexelsStatus: "pending" }).returning();
+    await db.insert(pendingReviewsTable).values({
+      submittedText: "{NAME} outruns light", submittedById: submitterId, status: "pending",
+      workflowStage: "prep_pending", stagingFactId: fact.id,
+    });
+
+    const result = await runFactPexelsJob(fact.id, { seed: async () => { throw new Error("pexels 503"); } });
+    assert.equal(result.ok, false);
+
+    const [f] = await db.select().from(factsTable).where(eq(factsTable.id, fact.id));
+    assert.equal(f.pexelsStatus, "pending", "a retryable failure must NOT mark failed — that's reserved for abandon");
+  });
+
+  it("onAbandon: marks pexels_status failed without touching the workflow stage", async () => {
+    const submitterId = await createTestUser();
+    const [fact] = await db.insert(factsTable).values({ text: "{NAME} bottles lightning", submittedById: submitterId, isActive: false, pexelsStatus: "pending" }).returning();
+    const [review] = await db.insert(pendingReviewsTable).values({
+      submittedText: "{NAME} bottles lightning", submittedById: submitterId, status: "pending",
+      workflowStage: "production_review", stagingFactId: fact.id,
+    }).returning();
+
+    await factPexelsJobHandler.onAbandon!({ payload: { factId: fact.id }, id: 999 } as never);
+
+    const [f] = await db.select().from(factsTable).where(eq(factsTable.id, fact.id));
+    assert.equal(f.pexelsStatus, "failed");
+    // Abandon must not regress/advance the moderation stage — moderator can still approve.
+    const [r] = await db.select().from(pendingReviewsTable).where(eq(pendingReviewsTable.id, review.id));
+    assert.equal(r.workflowStage, "production_review");
   });
 });
 
