@@ -24,7 +24,8 @@
 #
 # Before each test run the test schema is dropped and recreated (clean slate),
 # then the current schema structure is cloned from the public schema using
-# pg_dump --schema-only. This is required because the earliest migration files
+# pg_dump --schema-only. This copies DDL only; dev/prod rows are never copied
+# into heliumdb_test. This is required because the earliest migration files
 # contain only ALTER TABLE statements that assume the base tables already exist
 # — there is no "migration 0" that creates the initial schema. pg_dump gives
 # us the authoritative current schema without needing the migration history.
@@ -190,12 +191,13 @@ echo "[run-tests-sharded] DB isolation active — tests use schema '${TEST_SCHEM
 # connection targets the test schema via the search_path startup parameter.
 export DATABASE_URL="${TEST_DATABASE_URL}"
 
-# Seed boot-time catalogue rows that are normally reconciled when the API server
-# starts. The isolated test schema is structure-only (no data copied from
-# public), so tests that assert reconciliation preserves admin-edited engine
-# fields need the baseline engine rows to exist before shard processes launch.
+# Seed only global boot-time, code-owned catalogue rows that are normally
+# reconciled when the API server starts. The isolated test schema is
+# structure-only (no data copied from public); route/domain facts, reviews,
+# Pexels/image metadata, moderation rows, pricing rows, etc. must be created by
+# the individual tests or their helper factories.
 echo "[run-tests-sharded] seeding boot-time engine catalogue rows in '${TEST_SCHEMA}'…"
-if ! TEST_DB_ALLOW_EXIT_ON_IDLE=1 RESEND_API_KEY_DEV="" RESEND_API_KEY_PROD="" RESEND_API_KEY="re_test_dummy" \
+if ! TEST_DB_ALLOW_EXIT_ON_IDLE=1 TEST_SKIP_EMBEDDINGS=1 RESEND_API_KEY_DEV="" RESEND_API_KEY_PROD="" RESEND_API_KEY="re_test_dummy" \
   CRON_SECRET="${CRON_SECRET:-test-cron-secret}" \
   node --import tsx/esm -e 'import { reconcileEngines } from "./src/lib/engines/index.ts"; import { closePool } from "@workspace/db"; try { await reconcileEngines(); } finally { await closePool(); }'; then
   echo "[run-tests-sharded] ERROR: failed to seed boot-time engine catalogue rows" >&2
@@ -208,7 +210,7 @@ for ((k = 1; k <= shards; k++)); do
   # if it is unset, which fails every test that imports the full app (e.g.
   # csrf.integration). Stub it the same way RESEND_API_KEY is stubbed so the
   # suite is self-contained and does not depend on a real secret being present.
-  TEST_DB_ALLOW_EXIT_ON_IDLE=1 RESEND_API_KEY_DEV="" RESEND_API_KEY_PROD="" RESEND_API_KEY="re_test_dummy" \
+  TEST_DB_ALLOW_EXIT_ON_IDLE=1 TEST_SKIP_EMBEDDINGS=1 RESEND_API_KEY_DEV="" RESEND_API_KEY_PROD="" RESEND_API_KEY="re_test_dummy" \
     CRON_SECRET="${CRON_SECRET:-test-cron-secret}" \
     node "${common_args[@]}" --test-shard="${k}/${shards}" \
     'src/__tests__/**/*.test.ts' &
