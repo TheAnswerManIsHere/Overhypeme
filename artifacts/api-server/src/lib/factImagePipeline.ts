@@ -145,7 +145,8 @@ async function withRetry<T>(fn: () => Promise<T>, label: string): Promise<T> {
  * Fetches up to 10 photos per gender variant in one request each (Phase 3 cap;
  * was 80 prior — the new builder picker only ever surfaces 10, and storing more
  * costs space in facts.pexels_images jsonb without product benefit).
- * Only operates on root facts (parentId = null) — variants inherit parent images.
+ * Runs for any fact, root or variant: variants are first-class and get their
+ * own images (a variant's visuals can differ significantly from its root).
  * Safe to call fire-and-forget: catches all errors internally.
  *
  * Retries up to 4 times total (1 initial + 3 retries) with exponential backoff
