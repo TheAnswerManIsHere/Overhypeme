@@ -42,6 +42,14 @@ export async function storeEmbedding(factId: number, embedding: number[], canoni
  */
 export async function embedFactAsync(factId: number, text: string, canonicalText?: string): Promise<void> {
   try {
+    if (process.env.TEST_SKIP_EMBEDDINGS === "1") {
+      if (canonicalText !== undefined) {
+        await db.update(factsTable)
+          .set({ canonicalText })
+          .where(eq(factsTable.id, factId));
+      }
+      return;
+    }
     const textToEmbed = canonicalText ?? text;
     const embedding = await embedText(textToEmbed);
     await storeEmbedding(factId, embedding, canonicalText);
