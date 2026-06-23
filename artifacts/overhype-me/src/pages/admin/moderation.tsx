@@ -205,6 +205,7 @@ const REJECTION_REASONS = [
   { value: "duplicate", label: "Duplicate" },
   { value: "spam",      label: "Spam" },
   { value: "offensive", label: "Offensive" },
+  { value: "lame",      label: "Lame" },
 ] as const;
 
 type RejectionReason = typeof REJECTION_REASONS[number]["value"];
