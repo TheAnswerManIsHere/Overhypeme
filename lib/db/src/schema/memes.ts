@@ -1,4 +1,4 @@
-import { pgTable, text, serial, integer, varchar, timestamp, jsonb, boolean, index, numeric } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, integer, varchar, timestamp, jsonb, boolean, index, numeric, check } from "drizzle-orm/pg-core";
 import { isNull, sql } from "drizzle-orm";
 import { factsTable } from "./facts";
 import { usersTable } from "./auth";
@@ -74,6 +74,10 @@ export const memesTable = pgTable("memes", {
   index("IDX_memes_heart_count").on(table.heartCount),
   index("IDX_memes_status").on(table.status),
   index("IDX_memes_artifact_type").on(table.artifactType),
+  check(
+    "memes_image_transform_chk",
+    sql`${table.imageTransform} IS NULL OR ${table.imageTransform} IN ('pulid','pulid_fallback_text')`,
+  ),
 ]);
 
 export type Meme = typeof memesTable.$inferSelect;
@@ -134,6 +138,10 @@ export const uploadImageMetadataTable = pgTable("upload_image_metadata", {
   index("IDX_uim_pulid_dedup")
     .on(t.userId, t.factId, t.sourceObjectPath, t.transformParamsHash)
     .where(sql`${t.transform} = 'pulid'`),
+  check(
+    "uim_transform_chk",
+    sql`${t.transform} IS NULL OR ${t.transform} IN ('pulid','pulid_fallback_text')`,
+  ),
   // Self-FK source_object_path → object_path and fact_id → facts.id are
   // declared in the migration SQL only (drizzle's TS-side self-FK helper is
   // brittle and is not required for runtime queries).

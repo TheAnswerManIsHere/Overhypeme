@@ -141,52 +141,66 @@ async function withRetry<T>(fn: () => Promise<T>, label: string): Promise<T> {
 // ─── Pipeline orchestration ───────────────────────────────────────────────────
 
 /**
- * Runs the full LLM → Pexels pipeline for a single fact and persists the result.
- * Fetches up to 10 photos per gender variant in one request each (Phase 3 cap;
- * was 80 prior — the new builder picker only ever surfaces 10, and storing more
- * costs space in facts.pexels_images jsonb without product benefit).
- * Only operates on root facts (parentId = null) — variants inherit parent images.
- * Safe to call fire-and-forget: catches all errors internally.
+ * One full LLM → Pexels attempt for a single fact: extract keywords, fetch
+ * photos per gender variant, persist `pexels_images` + `pexels_status:"ok"`.
+ * Fetches up to 10 photos per variant in one request each (Phase 3 cap; was 80
+ * prior — the builder picker only ever surfaces 10).
  *
- * Retries up to 4 times total (1 initial + 3 retries) with exponential backoff
- * (1 s, 2 s, 4 s) so transient OpenAI / Pexels / network hiccups don't leave
- * a fact permanently without images.
+ * THROWS on any failure — it does NOT retry or swallow. This is the unit the
+ * durable `fact_pexels` queue runs (the queue owns retries/backoff/abandon) and
+ * that the legacy `runFactImagePipeline` wrapper retries in-process.
+ *
+ * Works for any fact, root or variant: variants are first-class and get their
+ * own images (a variant's visuals can differ significantly from its root).
+ */
+export async function seedFactPexelsImagesOnce(factId: number, factText: string): Promise<void> {
+  // 1. Extract keywords via OpenAI
+  const { fact_type, keywords } = await extractImageKeywords(factText);
+
+  // 2. Fetch photos per variant — count comes from admin config (default 10)
+  const { getConfigInt } = await import("./adminConfig");
+  const pexelsCount = await getConfigInt("pexels_photos_per_gender", 10);
+  const [male, female, neutral] = await Promise.all([
+    searchPhotos(keywords.male,    pexelsCount),
+    searchPhotos(keywords.female,  pexelsCount),
+    searchPhotos(keywords.neutral, pexelsCount),
+  ]);
+
+  const pexelsImages: FactPexelsImages = { fact_type, male, female, neutral, keywords };
+
+  // 3. Persist photos + flip the lifecycle column to "ok" in one write.
+  await db
+    .update(factsTable)
+    .set({ pexelsImages, pexelsStatus: "ok" })
+    .where(eq(factsTable.id, factId));
+
+  logger.info(
+    {
+      factId,
+      factType: fact_type,
+      maleCount: male.length,
+      femaleCount: female.length,
+      neutralCount: neutral.length,
+      keywords,
+    },
+    "[factImagePipeline] photos persisted",
+  );
+}
+
+/**
+ * Fire-and-forget LLM → Pexels pipeline for live-fact edits (admin Facts editor,
+ * fact create) that are NOT part of moderation prep. Retries up to 4 times total
+ * (1 initial + 3 retries) with exponential backoff (1 s, 2 s, 4 s) so transient
+ * OpenAI / Pexels / network hiccups don't leave a fact without images, then
+ * swallows the final error (callers `void` it).
+ *
+ * Moderation prep uses the durable `fact_pexels` queue instead (factPexelsJobs.ts)
+ * — that path survives a process restart and surfaces per-fact status; this one
+ * is best-effort and in-process.
  */
 export async function runFactImagePipeline(factId: number, factText: string): Promise<void> {
   try {
-    await withRetry(async () => {
-      // 1. Extract keywords via OpenAI
-      const { fact_type, keywords } = await extractImageKeywords(factText);
-
-      // 2. Fetch photos per variant — count comes from admin config (default 10)
-      const { getConfigInt } = await import("./adminConfig");
-      const pexelsCount = await getConfigInt("pexels_photos_per_gender", 10);
-      const [male, female, neutral] = await Promise.all([
-        searchPhotos(keywords.male,    pexelsCount),
-        searchPhotos(keywords.female,  pexelsCount),
-        searchPhotos(keywords.neutral, pexelsCount),
-      ]);
-
-      const pexelsImages: FactPexelsImages = { fact_type, male, female, neutral, keywords };
-
-      // 3. Persist to DB
-      await db
-        .update(factsTable)
-        .set({ pexelsImages })
-        .where(eq(factsTable.id, factId));
-
-      logger.info(
-        {
-          factId,
-          factType: fact_type,
-          maleCount: male.length,
-          femaleCount: female.length,
-          neutralCount: neutral.length,
-          keywords,
-        },
-        "[factImagePipeline] photos persisted",
-      );
-    }, `fact ${factId}`);
+    await withRetry(() => seedFactPexelsImagesOnce(factId, factText), `fact ${factId}`);
   } catch (err) {
     logger.error({ err, factId, attempts: MAX_PIPELINE_ATTEMPTS }, "[factImagePipeline] All attempts exhausted");
     Sentry.captureException(err, {

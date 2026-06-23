@@ -188,6 +188,16 @@ const SNAPSHOT_EXEMPT_TAGS = new Set<string>([
   // modifiers from stored enrichment blobs/overrides + scrubs the classifier
   // prompt in admin_config. No DDL means no schema delta means no snapshot.
   "0073_strip_retired_violence_modifiers",
+
+  // Hand-authored DDL adding the moderation `review_workflow_stage` enum +
+  // staging-fact pointer + production-rejection audit columns to pending_reviews.
+  // Source of truth: lib/db/src/schema/reviews.ts.
+  "0074_review_workflow_stage",
+
+  // Hand-authored DDL adding facts.pexels_status (varchar) for the durable
+  // `fact_pexels` image-prep queue lifecycle. Source of truth:
+  // lib/db/src/schema/facts.ts.
+  "0075_facts_pexels_status",
 ]);
 
 interface JournalEntry {

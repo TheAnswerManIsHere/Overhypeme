@@ -147,6 +147,19 @@ describe("/admin/taxonomy-health — actions & filters", () => {
     assert.ok(res.body.totalFacts > res.body.healthy, "an unhealthy fact exists");
   });
 
+  it("excludes inactive staging facts from the list (isActive filter)", async () => {
+    // An otherwise-healthy fact that is inactive (a staging fact mid-prep) must
+    // never surface in taxonomy health — it is not production data yet.
+    const [staging] = await db
+      .insert(factsTable)
+      .values({ text: TEXT("inactive staging fact"), submittedById: adminUserId, isActive: false, enrichment: validEnrichment(), ...MATCHING_COLS })
+      .returning({ id: factsTable.id });
+    factIds.push(staging!.id);
+
+    const healthy = await listIds("healthy");
+    assert.ok(!healthy.includes(staging!.id), "inactive staging fact must not appear in the health list");
+  });
+
   it("single-row Re-enrich skips admin-edited by default (first-class skipped outcome)", async () => {
     const res = await request(app)
       .post("/api/admin/taxonomy-health/actions/backfill-enrichment")

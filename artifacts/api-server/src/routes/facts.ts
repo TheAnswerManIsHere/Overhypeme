@@ -35,6 +35,17 @@ import {
 
 const router: IRouter = Router();
 
+/**
+ * True when an image blob (Pexels or AI-meme) holds at least one image. Both
+ * shapes are gender-bucketed objects whose image lists are arrays, so "has
+ * content" = any array-valued field is non-empty. Used to decide whether a
+ * variant needs to fall back to its parent's images.
+ */
+function hasImageContent(blob: unknown): boolean {
+  if (!blob || typeof blob !== "object") return false;
+  return Object.values(blob as Record<string, unknown>).some((v) => Array.isArray(v) && v.length > 0);
+}
+
 async function buildFactSummaries(facts: (typeof factsTable.$inferSelect)[], userId?: string) {
   if (!facts.length) return [];
   const ids = facts.map((f) => f.id);
@@ -221,17 +232,28 @@ router.get("/facts/:factId", async (req: Request, res: Response) => {
   const [{ rank }] = await db.select({ rank: sql<number>`(count(*) + 1)::int` }).from(factsTable).where(and(sql`${factsTable.wilsonScore} > ${fact.wilsonScore}`, eq(factsTable.isActive, true)));
   const [summary] = await buildFactSummaries([fact], req.user?.id);
 
-  // Variants never store their own images — inherit pexelsImages and aiMemeImages from the root fact.
+  // Variants are first-class: they get their OWN images (prepared independently,
+  // since a variant's visuals can differ significantly from the root). We fall
+  // back to the root fact's images ONLY for whichever image kind the variant has
+  // none of its own — never overwriting images the variant does have.
   if (fact.parentId !== null) {
-    const [parent] = await db
-      .select({ pexelsImages: factsTable.pexelsImages, aiMemeImages: factsTable.aiMemeImages })
-      .from(factsTable)
-      .where(eq(factsTable.id, fact.parentId))
-      .limit(1);
-    if (parent) {
-      const inheritCap = await getConfigInt("api_images_per_gender_cap", 5);
-      summary.pexelsImages = trimPexelsImages((parent.pexelsImages as import("../lib/factImagePipeline").FactPexelsImages | null) ?? null, inheritCap);
-      summary.aiMemeImages = trimAiMemeImages((parent.aiMemeImages as import("../lib/aiMemePipeline").AiMemeImages | null) ?? null, inheritCap);
+    const needPexels = !hasImageContent(summary.pexelsImages);
+    const needAiMeme = !hasImageContent(summary.aiMemeImages);
+    if (needPexels || needAiMeme) {
+      const [parent] = await db
+        .select({ pexelsImages: factsTable.pexelsImages, aiMemeImages: factsTable.aiMemeImages })
+        .from(factsTable)
+        .where(eq(factsTable.id, fact.parentId))
+        .limit(1);
+      if (parent) {
+        const inheritCap = await getConfigInt("api_images_per_gender_cap", 5);
+        if (needPexels) {
+          summary.pexelsImages = trimPexelsImages((parent.pexelsImages as import("../lib/factImagePipeline").FactPexelsImages | null) ?? null, inheritCap);
+        }
+        if (needAiMeme) {
+          summary.aiMemeImages = trimAiMemeImages((parent.aiMemeImages as import("../lib/aiMemePipeline").AiMemeImages | null) ?? null, inheritCap);
+        }
+      }
     }
   }
 

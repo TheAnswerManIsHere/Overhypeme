@@ -35,10 +35,14 @@ pnpm --filter @workspace/overhype-me exec vitest run <relevant test file if know
 For API database-backed tests, use the package test script:
 
 ```sh
+pnpm --filter @workspace/db push-force
+pnpm --filter @workspace/db run migrate
 pnpm --filter @workspace/api-server test
 ```
 
-Do not run these tests with raw `node --test`; the package test runner creates the isolated `heliumdb_test` schema and seeds required boot-time engine rows.
+Do not run these tests with raw `node --test`; the package test runner creates the isolated `heliumdb_test` schema and seeds only required boot-time, code-owned rows such as the engine catalogue reconciliation.
+
+The DB setup commands above must be run before api-server tests so the branch's current Drizzle schema and migration SQL have been applied to the local public schema that the test runner clones from. The sharded test runner must not copy development or production data into `heliumdb_test`; tests that need facts, pending reviews, Pexels image JSON, moderation state, pricing rows, or other domain data must create those rows explicitly in the test or in a focused helper/factory. External services such as Pexels, object storage, pricing APIs, embeddings, and image generation must be stubbed/mocked or disabled with test-mode helpers so Codex/local tests do not require real credentials or real network calls.
 
 ## Reporting failures
 

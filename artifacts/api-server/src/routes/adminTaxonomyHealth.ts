@@ -89,9 +89,9 @@ function toHealthInput(row: FactRowSelect): Parameters<typeof evaluateFactTaxono
 }
 
 async function loadAllApprovedFactsForHealth(): Promise<FactRowSelect[]> {
-  // Approved facts only — pending reviews live in pending_reviews and
-  // already have their own moderation UX. The facts table holds the
-  // post-approval rows.
+  // Active production facts only. Inactive rows include staging facts created at
+  // provisional approval (prep in progress / rejected after prep) and must never
+  // appear in taxonomy-health counts or lists — they are not yet production data.
   return db
     .select({
       id: factsTable.id,
@@ -103,7 +103,8 @@ async function loadAllApprovedFactsForHealth(): Promise<FactRowSelect[]> {
       adultSuitability: factsTable.adultSuitability,
       updatedAt: factsTable.updatedAt,
     })
-    .from(factsTable);
+    .from(factsTable)
+    .where(eq(factsTable.isActive, true));
 }
 
 // ─── GET /admin/taxonomy-health/summary ──────────────────────────────────
@@ -176,8 +177,9 @@ router.get("/admin/taxonomy-health/facts", requireAdmin, async (req: Request, re
 
     // SQL pre-filter for the promoted columns + search. The health-status
     // filter is applied in memory because it's derived from the enrichment
-    // blob and the version constants.
-    const whereParts = [];
+    // blob and the version constants. Active production facts only — inactive
+    // staging facts never belong in taxonomy health.
+    const whereParts = [eq(factsTable.isActive, true)];
     if (q.archetype) whereParts.push(eq(factsTable.primaryArchetype, q.archetype));
     if (q.subtype) whereParts.push(eq(factsTable.subtype, q.subtype));
     if (q.overhypeFit) whereParts.push(eq(factsTable.overhypeFit, q.overhypeFit));
