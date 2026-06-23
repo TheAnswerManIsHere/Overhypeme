@@ -34,6 +34,7 @@ import type { FactEnrichment } from "@workspace/api-zod";
 
 import reviewsRouter, { __setPlanGeneratorForTest } from "../routes/reviews.js";
 import { FACT_SUBMIT_PENDING_CAP } from "../lib/rateLimit.js";
+import { runEnrichmentForFact } from "../lib/enrichmentJobs.js";
 import { authMiddleware } from "../middlewares/authMiddleware.js";
 import { createSession, type SessionData } from "../lib/auth.js";
 
@@ -355,6 +356,163 @@ describe("POST /facts/submit-review", () => {
       .set("authorization", `Bearer ${sid}`)
       .send({ text: "this should be allowed: only cap-1 are unresolved." });
     assert.equal(res.status, 201);
+  });
+});
+
+describe("POST /admin/reviews/:id/provisional-approve", () => {
+  async function seedTriageReview(submitterId: string, text = "{NAME} bench-presses the Earth."): Promise<number> {
+    const [r] = await db.insert(pendingReviewsTable).values({
+      submittedText: text,
+      submittedById: submitterId,
+      status: "pending",
+      workflowStage: "triage_pending",
+    }).returning();
+    return r.id;
+  }
+
+  async function enrichmentJobsForFact(factId: number) {
+    return db
+      .select({ id: asyncJobsTable.id })
+      .from(asyncJobsTable)
+      .where(and(eq(asyncJobsTable.queue, "enrichment"), sql`${asyncJobsTable.payload}->>'factId' = ${String(factId)}`));
+  }
+
+  it("creates exactly one inactive staging fact, enters prep_pending, enqueues one enrichment job", async () => {
+    const adminId = await createTestUser({ isAdmin: true });
+    const submitterId = await createTestUser();
+    const sid = await bearerForUser(adminId, { isAdmin: true });
+    const reviewId = await seedTriageReview(submitterId);
+
+    const res = await request(makeApp())
+      .post(`/admin/reviews/${reviewId}/provisional-approve`)
+      .set("authorization", `Bearer ${sid}`)
+      .send({});
+    assert.equal(res.status, 200);
+    assert.equal(res.body.workflowStage, "prep_pending");
+    const stagingFactId: number = res.body.stagingFactId;
+    assert.equal(typeof stagingFactId, "number");
+
+    const [fact] = await db.select().from(factsTable).where(eq(factsTable.id, stagingFactId));
+    assert.equal(fact.isActive, false, "staging fact must be inactive");
+    assert.equal(fact.parentId, null);
+
+    const [r] = await db.select().from(pendingReviewsTable).where(eq(pendingReviewsTable.id, reviewId));
+    assert.equal(r.workflowStage, "prep_pending");
+    assert.equal(r.stagingFactId, stagingFactId);
+
+    const jobs = await enrichmentJobsForFact(stagingFactId);
+    assert.equal(jobs.length, 1, "exactly one fact-backed enrichment job");
+  });
+
+  it("is idempotent on re-click: no second fact, no duplicate job", async () => {
+    const adminId = await createTestUser({ isAdmin: true });
+    const submitterId = await createTestUser();
+    const sid = await bearerForUser(adminId, { isAdmin: true });
+    const reviewId = await seedTriageReview(submitterId);
+
+    const first = await request(makeApp()).post(`/admin/reviews/${reviewId}/provisional-approve`).set("authorization", `Bearer ${sid}`).send({});
+    const stagingFactId: number = first.body.stagingFactId;
+
+    const second = await request(makeApp()).post(`/admin/reviews/${reviewId}/provisional-approve`).set("authorization", `Bearer ${sid}`).send({});
+    assert.equal(second.status, 200);
+    assert.equal(second.body.stagingFactId, stagingFactId);
+    assert.equal(second.body.alreadyPrepping, true);
+
+    const facts = await db.select({ id: factsTable.id }).from(factsTable).where(eq(factsTable.submittedById, submitterId));
+    assert.equal(facts.length, 1, "no second staging fact");
+    const jobs = await enrichmentJobsForFact(stagingFactId);
+    assert.equal(jobs.length, 1, "no duplicate enrichment job");
+  });
+
+  it("as variant: sets parentId and still enqueues fact-backed enrichment", async () => {
+    const adminId = await createTestUser({ isAdmin: true });
+    const submitterId = await createTestUser();
+    const sid = await bearerForUser(adminId, { isAdmin: true });
+    const [parent] = await db.insert(factsTable).values({ text: "{NAME} parent", submittedById: adminId, isActive: true }).returning();
+    const reviewId = await seedTriageReview(submitterId);
+
+    const res = await request(makeApp())
+      .post(`/admin/reviews/${reviewId}/provisional-approve`)
+      .set("authorization", `Bearer ${sid}`)
+      .send({ parentFactId: parent.id });
+    assert.equal(res.status, 200);
+    const [fact] = await db.select().from(factsTable).where(eq(factsTable.id, res.body.stagingFactId));
+    assert.equal(fact.parentId, parent.id);
+    assert.equal(fact.isActive, false);
+    const jobs = await enrichmentJobsForFact(res.body.stagingFactId);
+    assert.equal(jobs.length, 1);
+  });
+
+  it("returns 404 when the variant parent is missing/inactive", async () => {
+    const adminId = await createTestUser({ isAdmin: true });
+    const submitterId = await createTestUser();
+    const sid = await bearerForUser(adminId, { isAdmin: true });
+    const reviewId = await seedTriageReview(submitterId);
+    const res = await request(makeApp())
+      .post(`/admin/reviews/${reviewId}/provisional-approve`)
+      .set("authorization", `Bearer ${sid}`)
+      .send({ parentFactId: 999999 });
+    assert.equal(res.status, 404);
+  });
+
+  it("returns 409 for a terminal (already-decided) review", async () => {
+    const adminId = await createTestUser({ isAdmin: true });
+    const submitterId = await createTestUser();
+    const sid = await bearerForUser(adminId, { isAdmin: true });
+    const [r] = await db.insert(pendingReviewsTable).values({
+      submittedText: "already live", submittedById: submitterId, status: "approved", workflowStage: "production_approved",
+    }).returning();
+    const res = await request(makeApp())
+      .post(`/admin/reviews/${r.id}/provisional-approve`)
+      .set("authorization", `Bearer ${sid}`)
+      .send({});
+    assert.equal(res.status, 409);
+  });
+});
+
+describe("staging-fact enrichment stage advancement", () => {
+  it("success advances the linked review prep_pending → production_review", async () => {
+    const submitterId = await createTestUser();
+    const [fact] = await db.insert(factsTable).values({ text: "{NAME} lifts a car", submittedById: submitterId, isActive: false }).returning();
+    const [review] = await db.insert(pendingReviewsTable).values({
+      submittedText: "{NAME} lifts a car", submittedById: submitterId, status: "pending",
+      workflowStage: "prep_pending", stagingFactId: fact.id,
+    }).returning();
+
+    const result = await runEnrichmentForFact(fact.id, { classify: async () => VALID_APPROVAL_ENRICHMENT });
+    assert.equal(result.ok, true);
+
+    const [f] = await db.select().from(factsTable).where(eq(factsTable.id, fact.id));
+    assert.equal(f.enrichmentStatus, "ok");
+    const [r] = await db.select().from(pendingReviewsTable).where(eq(pendingReviewsTable.id, review.id));
+    assert.equal(r.workflowStage, "production_review");
+  });
+
+  it("COST GUARD: skips classification when the linked review left prep_pending", async () => {
+    const submitterId = await createTestUser();
+    const [fact] = await db.insert(factsTable).values({ text: "{NAME} runs fast", submittedById: submitterId, isActive: false }).returning();
+    await db.insert(pendingReviewsTable).values({
+      submittedText: "{NAME} runs fast", submittedById: submitterId, status: "rejected",
+      workflowStage: "production_rejected", stagingFactId: fact.id,
+    });
+
+    let classifyCalled = false;
+    const result = await runEnrichmentForFact(fact.id, {
+      classify: async () => { classifyCalled = true; return VALID_APPROVAL_ENRICHMENT; },
+    });
+    assert.equal(result.ok, true);
+    assert.equal(classifyCalled, false, "no paid classification after the review left prep_pending");
+  });
+
+  it("live-fact re-enrich (no linked review) still classifies normally", async () => {
+    const submitterId = await createTestUser();
+    const [fact] = await db.insert(factsTable).values({ text: "{NAME} jumps high", submittedById: submitterId, isActive: true }).returning();
+    let classifyCalled = false;
+    const result = await runEnrichmentForFact(fact.id, {
+      classify: async () => { classifyCalled = true; return VALID_APPROVAL_ENRICHMENT; },
+    });
+    assert.equal(result.ok, true);
+    assert.equal(classifyCalled, true);
   });
 });
 

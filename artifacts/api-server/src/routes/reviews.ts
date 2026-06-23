@@ -21,9 +21,12 @@ import { computeSplitTokenIndex } from "../lib/splitTokenIndex";
 import {
   validateEnrichment,
   type FactEnrichment,
+  type ReviewWorkflowStage,
   UNRESOLVED_SUBMISSION_STAGE_VALUES,
+  canProvisionallyApprove,
 } from "@workspace/api-zod";
 import { materializeFromBaseline } from "../lib/factEnrichment";
+import { ensureStagingFact } from "../lib/moderationStaging";
 import { enqueueJob } from "../lib/asyncJobs";
 import {
   assertFactPassesCanonicalRenderPreflight,
@@ -529,6 +532,82 @@ router.post("/admin/reviews/:id/approve", requireAdmin, async (req: Authenticate
   }
 
   res.json({ success: true, factId: fact.id });
+});
+
+// ─── Provisional approval (admin) — first gate ────────────────────────────────
+//
+// "This fact is worth implementing." Creates the inactive staging fact and
+// starts paid prep (enrichment now; Pexels once the durable queue lands). This
+// is the ONLY place enrichment spend begins. Optional `parentFactId` accepts the
+// candidate as a variant — the variant still gets its OWN enrichment + images.
+
+const ProvisionalApproveBody = z.object({
+  parentFactId: z.number().int().positive().optional(),
+  adminNote: z.string().max(500).optional(),
+});
+
+router.post("/admin/reviews/:id/provisional-approve", requireAdmin, async (req: AuthenticatedRequest, res: Response) => {
+  const id = parseInt(String(req.params["id"] ?? ""), 10);
+  if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
+
+  const bodyParsed = ProvisionalApproveBody.safeParse(req.body);
+  if (!bodyParsed.success) { res.status(400).json({ error: "Invalid input", details: bodyParsed.error.flatten() }); return; }
+  const { parentFactId, adminNote = null } = bodyParsed.data;
+
+  const [review] = await db.select().from(pendingReviewsTable).where(eq(pendingReviewsTable.id, id));
+  if (!review) { res.status(404).json({ error: "Review not found" }); return; }
+
+  // Idempotent re-click while prep is already running: return the existing
+  // staging fact without creating a second fact or re-enqueuing.
+  if (review.workflowStage === "prep_pending" && review.stagingFactId != null) {
+    res.json({ success: true, stagingFactId: review.stagingFactId, workflowStage: "prep_pending", alreadyPrepping: true });
+    return;
+  }
+
+  if (!canProvisionallyApprove(review.workflowStage as ReviewWorkflowStage, review.status)) {
+    res.status(409).json({ error: `Cannot provisionally approve a review in stage ${review.workflowStage} (${review.status}).` });
+    return;
+  }
+
+  // Verify the parent fact (variant case) exists and is active.
+  if (parentFactId != null) {
+    const [parentFact] = await db.select({ id: factsTable.id })
+      .from(factsTable)
+      .where(and(eq(factsTable.id, parentFactId), eq(factsTable.isActive, true)))
+      .limit(1);
+    if (!parentFact) { res.status(404).json({ error: `Fact #${parentFactId} not found or inactive` }); return; }
+  }
+
+  // Create-or-reuse the staging fact and move the review into prep, in one
+  // transaction. If enqueue (below) fails the staging fact + prep_pending state
+  // remain, so a later re-click recovers without creating a duplicate fact.
+  let stagingFactId = 0;
+  await db.transaction(async (tx) => {
+    const { factId } = await ensureStagingFact(
+      { id: review.id, submittedText: review.submittedText, submittedById: review.submittedById, stagingFactId: review.stagingFactId },
+      parentFactId ?? null,
+      tx,
+    );
+    stagingFactId = factId;
+    await tx.update(pendingReviewsTable).set({
+      workflowStage: "prep_pending",
+      stagingFactId: factId,
+      reviewedById: req.user.id,
+      ...(adminNote != null ? { adminNote } : {}),
+    }).where(eq(pendingReviewsTable.id, id));
+  });
+
+  // Start fact-backed enrichment. Deduped so a re-run can't double-enqueue.
+  // (Durable Pexels prep is enqueued here too once that queue lands.)
+  await enqueueJob({
+    queue: "enrichment",
+    payload: { factId: stagingFactId },
+    dedupeKey: `enrichment:fact:${stagingFactId}`,
+  });
+
+  logger.info({ reviewId: id, stagingFactId, parentFactId, adminId: req.user.id }, "[moderation] provisional approval started prep");
+
+  res.json({ success: true, stagingFactId, workflowStage: "prep_pending" });
 });
 
 // ─── Reject Review (admin) ────────────────────────────────────────────────────
