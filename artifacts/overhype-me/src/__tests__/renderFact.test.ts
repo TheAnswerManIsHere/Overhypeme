@@ -117,6 +117,18 @@ describe("renderFact — verb conjugation {singular|plural}", () => {
   it("defaults to he/him when no pronouns argument given", () => {
     expect(renderFact("{has|have}", "Dave")).toBe("has");
   });
+
+  // Regression: the reported "They keeps" bug. Once the tokenizer wraps the verb
+  // as {keeps|keep}, the renderer must agree the verb with the pronoun's number.
+  it("renders the conjugated 'keeps' template correctly for both numbers", () => {
+    const template = "{NAME} caught the Corona virus. {Subj} {keeps|keep} it locked up in {POSS} back yard.";
+    expect(renderFact(template, "Alex Jordan", "they/them")).toBe(
+      "Alex Jordan caught the Corona virus. They keep it locked up in their back yard.",
+    );
+    expect(renderFact(template, "Alex Jordan", "he/him")).toBe(
+      "Alex Jordan caught the Corona virus. He keeps it locked up in his back yard.",
+    );
+  });
 });
 
 describe("renderFact — neopronouns (ze/zir)", () => {
