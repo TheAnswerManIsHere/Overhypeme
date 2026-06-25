@@ -32,6 +32,15 @@ export interface UtilityLLMRequest {
   temperature?: number;
   /** Per-call override of the engine's default max output tokens. */
   maxTokens?: number;
+  /**
+   * Per-call override of the model. When set, this call uses the given model
+   * instead of the default "llm" engine's model — letting a single call site
+   * (e.g. the tokenizer) move to a stronger model without changing the global
+   * utility model every other call shares.
+   */
+  model?: string;
+  /** Per-call override of the reasoning effort (reasoning models only). */
+  reasoningEffort?: string;
   /** Override the default per-call timeout (ms). */
   timeoutMs?: number;
 }
@@ -71,14 +80,15 @@ export async function callUtilityLLM(
   const openai = getOpenAIClient();
   const settings = await resolveLLMSettings();
   const timeoutMs = req.timeoutMs ?? UTILITY_LLM_TIMEOUT_MS;
+  const model = req.model ?? settings.model;
   return openai.chat.completions.create(
     {
-      model: settings.model,
+      model,
       ...chatModelTuningParams({
-        model: settings.model,
+        model,
         maxTokens: req.maxTokens ?? settings.maxTokens,
         temperature: req.temperature ?? settings.temperature,
-        reasoningEffort: settings.reasoningEffort,
+        reasoningEffort: req.reasoningEffort ?? settings.reasoningEffort,
       }),
       ...(req.responseFormat ? { response_format: req.responseFormat } : {}),
       messages: req.messages,
