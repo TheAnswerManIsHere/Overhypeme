@@ -9,6 +9,12 @@ import { createRateLimiter } from "../lib/rateLimit";
 import { verifyCaptcha } from "../lib/captcha";
 import { embedText, findSimilarFacts } from "../lib/embeddings";
 import { validateTemplate } from "../lib/templateGrammar";
+import {
+  TOKENIZE_SYSTEM_PROMPT,
+  TOKENIZER_MODEL,
+  TOKENIZER_REASONING_EFFORT,
+  postProcessTokenizedTemplate,
+} from "../lib/factTokenizer";
 import { renderCanonical } from "../lib/renderCanonical";
 import { completeGovernance, enforceGovernance } from "../lib/resourceGovernance";
 import { logger } from "../lib/logger";
@@ -231,78 +237,6 @@ router.post("/ai/check-duplicate", requireAuth, requireRateLimit, async (req: Re
   }
 });
 
-const TOKENIZE_SYSTEM_PROMPT = `You are a fact-template tokenizer for a personalized humor website called Overhype.me.
-Users write facts in plain English about a person. You convert them into a template using a closed token set.
-
-TOKEN RULES:
-1. Replace the person's name with {NAME}
-2. Replace subject pronouns (he, she) with {SUBJ}; capitalize to {Subj} when sentence-starting
-3. Replace object pronouns (him, her) with {OBJ}; capitalize to {Obj} when needed
-4. Replace possessive adjectives (his, her as adjective) with {POSS}; capitalize to {Poss} when needed
-5. Replace possessive pronouns (his, hers as standalone pronoun) with {POSS_PRO}; capitalize to {Poss_Pro} when needed
-6. Replace reflexive pronouns (himself, herself) with {REFL}; capitalize to {Refl} when needed
-7. Conjugation pairs are ONLY for verbs whose grammatical subject is the
-   personalized person — i.e. the subject is the name you replaced with {NAME},
-   or a {SUBJ}/{Subj} pronoun referring to that person. For such a verb or
-   auxiliary, use {singular_form|plural_form} syntax.
-   The LEFT form is used for he/she; the RIGHT form is used for they.
-   Examples (subject IS the person): {doesn't|don't}  {isn't|aren't}  {was|were}  {does|do}  {has|have}  {pushes|push}  {counts|count}
-   A verb whose subject is ANYTHING ELSE — a literal noun ("Sharks", "time", "the earth", "death", "people") or any noun phrase that is not the person — MUST stay plain text with NO braces, even if it is third-person singular. The person's pronouns never change another subject's number.
-8. Keep everything else exactly as written — no braces around any other word.
-
-IMPORTANT:
-- Capitalize tokens at the start of sentences: {Subj} not {SUBJ}, etc.
-- Verb conjugation is NARROW: only conjugate a verb whose subject is the person ({NAME}/{SUBJ}). Before adding a pair, ask "is the person the subject of THIS verb?" — if a different noun is the subject, leave the verb plain.
-- When the person is the subject, "they" triggers plural: "he sleeps" → "{SUBJ} {sleeps|sleep}", "he doesn't" → "{SUBJ} {doesn't|don't}", "he was" → "{SUBJ} {was|were}"
-- NEVER put braces around words that are not in the token list above. Conjunctions ("When", "But", "If", "Because"), articles ("The", "A", "An"), prepositions ("In", "On", "At"), and all other non-token words must be written as plain text without braces. Wrapping any such word in braces is ALWAYS wrong.
-- Return ONLY valid JSON: {"template": "...the tokenized template..."}
-- Do NOT explain, do NOT add any other keys.
-
-EXAMPLES (correct output):
-Input: "When David laughs, the earth cries."
-Output: {"template": "When {NAME} {laughs|laugh}, the earth cries."}
-
-Input: "Sarah doesn't age because time fears her."
-Output: {"template": "{NAME} {doesn't|don't} age because time fears {Obj}."}
-
-Input: "Sharks have a David Week."
-Output: {"template": "Sharks have a {NAME} Week."}`;
-
-// The complete list of tokens the grammar validator accepts. Duplicated here so
-// stripUnknownTokens stays self-contained without importing from api-zod.
-const ALLOWED_TEMPLATE_TOKENS = new Set([
-  "NAME",
-  "SUBJ", "Subj",
-  "OBJ",  "Obj",
-  "POSS", "Poss",
-  "POSS_PRO", "Poss_Pro",
-  "REFL", "Refl",
-]);
-
-/**
- * Remove braces from tokens the grammar validator does not recognise.
- *
- * When the model hallucinates `{When}` or `{The}` it violates rule 8 of the
- * system prompt ("keep everything else exactly as written"). Stripping the
- * braces from those tokens restores the original plain text — which is what
- * the prompt intended — rather than aborting with a 422.
- *
- * Valid tokens (NAME / SUBJ / OBJ etc.) and conjugation pairs ({is|are}) are
- * left untouched.
- */
-function stripUnknownTokens(template: string): string {
-  return template.replace(/\{([^{}]+)\}/g, (match, inner: string) => {
-    if (ALLOWED_TEMPLATE_TOKENS.has(inner)) return match;
-    // Conjugation pair: two non-empty alternatives separated by exactly one |
-    const pipeIdx = inner.indexOf("|");
-    if (pipeIdx > 0 && pipeIdx === inner.lastIndexOf("|") && pipeIdx < inner.length - 1) {
-      return match;
-    }
-    // Unknown token — strip the braces, leave the word as plain text
-    return inner;
-  });
-}
-
 router.post("/ai/tokenize-fact", requireRateLimit, async (req: Request, res: Response) => {
   const bodyParsed = TokenizeFactBody.safeParse(req.body);
   if (!bodyParsed.success) {
@@ -330,9 +264,15 @@ router.post("/ai/tokenize-fact", requireRateLimit, async (req: Request, res: Res
 
   try {
     const completion = await callUtilityLLM({
+      // Tokenization is a narrow structural transform — use the dedicated
+      // tokenizer model (a reasoning mini), not the global utility engine, so
+      // other utility calls are unaffected. The deterministic net below is the
+      // real correctness guarantee; the model just improves first-pass quality.
+      model: TOKENIZER_MODEL,
+      reasoningEffort: TOKENIZER_REASONING_EFFORT,
       maxTokens: 1024,
-      // Tokenization is a structural transform with one correct answer — keep it
-      // deterministic rather than using the engine's default creative temperature.
+      // Deterministic structural transform — no creative sampling. (Ignored for
+      // reasoning models, which reject an explicit temperature.)
       temperature: 0,
       responseFormat: { type: "json_object" },
       messages: [
@@ -342,20 +282,28 @@ router.post("/ai/tokenize-fact", requireRateLimit, async (req: Request, res: Res
     });
 
     const raw = completion.choices[0]?.message?.content ?? "{}";
-    let template = text;
+    let rawTemplate = text;
     try {
       const parsed = JSON.parse(raw) as Record<string, unknown>;
       if (typeof parsed.template === "string" && parsed.template.length > 0) {
-        template = parsed.template;
+        rawTemplate = parsed.template;
       }
     } catch {
-      template = text;
+      rawTemplate = text;
     }
 
-    // Strip braces from any word the model hallucinated as a token (e.g. {When},
-    // {The}) — rule 8 says those words must be kept as plain text, so removing
-    // the braces is the correct repair, not a silent corruption.
-    template = stripUnknownTokens(template);
+    // Post-process: strip any word the model hallucinated as a token (rule 8 —
+    // keep non-tokens as plain text), then apply the deterministic conjugation
+    // net. The net is the real guarantee: even with the hardened prompt the
+    // model intermittently leaves a person-subject verb un-conjugated
+    // ("{Subj} keeps" → "They keeps"), and this wraps it as {keeps|keep}.
+    const { template, conjugated } = postProcessTokenizedTemplate(rawTemplate);
+    if (conjugated) {
+      logger.info(
+        { before: rawTemplate.slice(0, 500), after: template.slice(0, 500) },
+        "[tokenize-fact] auto-conjugated person-subject verb",
+      );
+    }
 
     const grammarResult = validateTemplate(template);
     if (!grammarResult.valid) {
