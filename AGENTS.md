@@ -46,50 +46,46 @@ The DB setup commands above must be run before api-server tests so the branch's 
 
 ## Codex review-fix verification rules
 
-When fixing a Codex review comment, follow the repository verification commands in this AGENTS.md before reporting test status.
+When fixing a Codex review comment, run the repository's own verification commands before reporting test status. Never run raw `node --test` against api-server TypeScript test files — plain Node does not load this repo's `tsx/esm` setup, so it fails to even read a `.ts` file even when the code is correct. A command that fails that way is an invalid command, not a failing test.
 
-Never run raw `node --test` against api-server TypeScript test files. Raw Node cannot resolve this repo’s TypeScript/tsx import setup and may fail even when the code is correct.
+For a targeted api-server test file, use the existing isolated runner:
 
-Use this decision tree for api-server tests:
+```sh
+bash artifacts/api-server/scripts/run-test.sh src/__tests__/<file>.test.ts
+```
 
-1. For pure non-DB TypeScript tests, use:
+It loads the TypeScript loader, points `DATABASE_URL` at the isolated `heliumdb_test` schema (the live/public schema is never touched), stubs the test env vars, clones the schema when it is stale, and seeds the boot-time engine-catalogue rows — so a single-file run sets up the same baseline as the full suite. It is runnable from the repo root or from `artifacts/api-server`.
 
-   ```sh
-   pnpm --filter @workspace/api-server run test:unit -- src/__tests__/<test-file>.test.ts
-   ```
+After adding or changing a DB migration, apply it to the local public schema first, then force a fresh clone of that updated schema into the test schema:
 
-   A test is pure/non-DB only if it does not import `@workspace/db`, `@workspace/db/schema`, or route/app helpers that read or write DB state.
+```sh
+pnpm --filter @workspace/db push-force
+pnpm --filter @workspace/db run migrate
+bash artifacts/api-server/scripts/run-test.sh --setup src/__tests__/<file>.test.ts
+```
 
-2. For DB-backed route/integration tests, use:
+(`--setup` only re-clones the test schema from the already-updated public schema; it does not apply migrations itself.)
 
-   ```sh
-   pnpm --filter @workspace/api-server run test:db -- src/__tests__/<test-file>.test.ts
-   ```
+For the full api-server suite, use the package test runner, which sets up the isolated schema and boot-time seed rows for you:
 
-   This runs targeted tests through the same isolated-schema setup used by the package test runner.
+```sh
+pnpm --filter @workspace/api-server test
+```
 
-3. For the full api-server suite, use:
-
-   ```sh
-   pnpm --filter @workspace/api-server test
-   ```
-
-   The package test runner sets up the isolated `heliumdb_test` schema and required boot-time seed rows.
-
-If Codex accidentally runs an invalid command, such as raw `node --test` on a `.ts` test file, do not report that as a product failure if the correct repo command passes. Report it only as an ignored invalid-command attempt. In final testing summaries, separate valid repo-command failures, which may block merge, from invalid-command/environment failures, which should not block if the valid command passed.
+A command that was typed incorrectly and then corrected is not a product or test failure. Do not report a self-corrected invalid-command attempt as a failure. In final testing summaries, separate valid repo-command failures (which may block merge) from invalid-command/environment failures (which must not block if the valid command passed).
 
 Use PR #130 as a concrete example:
 
-Invalid:
+Invalid (raw Node cannot load the `.ts` file):
 
 ```sh
 pnpm --filter @workspace/api-server exec node --test src/__tests__/autoConjugatePersonSubjectVerbs.test.ts
 ```
 
-Valid pure unit test:
+Valid (the isolated targeted runner):
 
 ```sh
-pnpm --filter @workspace/api-server run test:unit -- src/__tests__/autoConjugatePersonSubjectVerbs.test.ts
+bash artifacts/api-server/scripts/run-test.sh src/__tests__/autoConjugatePersonSubjectVerbs.test.ts
 ```
 
 ## Reporting failures

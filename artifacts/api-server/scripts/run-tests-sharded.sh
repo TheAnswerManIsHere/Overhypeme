@@ -8,10 +8,9 @@
 # snapshots) is naturally isolated between shards.
 #
 # Usage:
-#   run-tests-sharded.sh [shard_count] [test_file_or_glob ...]
+#   run-tests-sharded.sh [shard_count]
 #
 # If shard_count is omitted, defaults to 2. Must be a positive integer >=1.
-# If no test files/globs are provided, defaults to src/__tests__/**/*.test.ts.
 #
 # Exit status is the bitwise-OR of the individual shard exit codes, so any
 # shard failure surfaces as a non-zero overall exit. Output from the shards
@@ -38,14 +37,6 @@
 set -u
 
 shards="${1:-2}"
-shift || true
-if [ "${1:-}" = "--" ]; then
-  shift
-fi
-test_targets=("$@")
-if [ "${#test_targets[@]}" -eq 0 ]; then
-  test_targets=('src/__tests__/**/*.test.ts')
-fi
 
 if ! [[ "$shards" =~ ^[0-9]+$ ]] || (( shards < 1 )); then
   echo "[run-tests-sharded] shard_count must be a positive integer, got: $shards" >&2
@@ -222,7 +213,7 @@ for ((k = 1; k <= shards; k++)); do
   TEST_DB_ALLOW_EXIT_ON_IDLE=1 TEST_SKIP_EMBEDDINGS=1 RESEND_API_KEY_DEV="" RESEND_API_KEY_PROD="" RESEND_API_KEY="re_test_dummy" \
     CRON_SECRET="${CRON_SECRET:-test-cron-secret}" \
     node "${common_args[@]}" --test-shard="${k}/${shards}" \
-    "${test_targets[@]}" &
+    'src/__tests__/**/*.test.ts' &
   pids+=("$!")
 done
 
