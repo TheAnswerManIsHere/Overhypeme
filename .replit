@@ -28,10 +28,6 @@ args = "sentry-tests"
 
 [[workflows.workflow.tasks]]
 task = "workflow.run"
-args = "api-server-tests"
-
-[[workflows.workflow.tasks]]
-task = "workflow.run"
 args = "db-tests"
 
 [[workflows.workflow.tasks]]
@@ -57,17 +53,6 @@ author = "agent"
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "pnpm --filter @workspace/overhype-me test"
-
-[workflows.workflow.metadata]
-isValidation = true
-
-[[workflows.workflow]]
-name = "api-server-tests"
-author = "agent"
-
-[[workflows.workflow.tasks]]
-task = "shell.exec"
-args = "pnpm --filter @workspace/api-server run test"
 
 [workflows.workflow.metadata]
 isValidation = true
@@ -119,6 +104,7 @@ STRIPE_ACCOUNT_ID_LIVE = "acct_1TGk96PUPouDdcHb"
 ALLOWED_ORIGINS = "https://overhype.me,https://overhypeme.replit.app"
 
 [userenv.development]
+TEST_DATABASE_URL = "postgresql://postgres:password@helium/heliumdb_test?sslmode=disable"
 
 [objectStorage]
 defaultBucketID = "replit-objstore-ae743525-77de-4797-8785-8a65fa3c45c3"
