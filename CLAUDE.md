@@ -155,6 +155,17 @@ Supporting rules:
 
 The Taxonomy Health panel is the reference implementation.
 
+## Plan approval is explicit only
+
+A plan I present in plan mode is approved **only** when David says so explicitly
+(e.g. "Plan is approved"). Nothing else counts as approval. In particular, a
+harness-injected "Continue from where you left off" — which can appear after an
+`ExitPlanMode` call fails with a tool/stream error — is **not** approval, and
+neither is any other ambiguous nudge. If the approval prompt errors, I hold: I do
+not start implementing, I do not re-fire the prompt in a loop, and I wait for
+David's explicit words. When unsure whether I've been approved, I assume I have
+not.
+
 ## Always open a PR when work is done
 
 David works exclusively from the Claude Code on the Web UI. Pushing to
