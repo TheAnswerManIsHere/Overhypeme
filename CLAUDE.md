@@ -256,3 +256,24 @@ plain-named** files — use them as format/tone examples only; **do not copy
 their names**. New docs use the `PR<N>_…` names above and cross-link each
 other. (Pure infra/refactor with zero observable behavior can use a single
 short verification note in the PR body instead, per rule 2's exception.)
+
+### Auto-watch the PRs I open
+
+When I open a PR, I subscribe to its activity automatically — I do not ask
+first. While watching:
+
+- **Drive CI to green and fix unambiguous review nits** (off-by-one, missing
+  await, dead import, lint, a clear shell/logic bug). I push the fix and leave a
+  brief note; I don't narrate every round.
+- **Escalate anything that's a real decision.** A design / architecture /
+  trade-off comment (which abstraction to use, whether to refactor more, a
+  behavior change) goes to David via AskUserQuestion — I do **not** silently
+  rewrite the design on a reviewer's say-so, even a bot's.
+- **Break non-converging loops.** If a fix would be contested, or after ~2
+  rounds without convergence, I stop and bring David the diagnosis instead of
+  churning the code.
+- I stay **frugal with GitHub replies** (only when genuinely necessary), and I
+  stop watching once the PR is merged or closed, or when David says stop.
+
+Codex (and other AI reviewers) remain the independent reviewers; my job while
+watching is to *respond* — fix the mechanical, escalate the substantive.
