@@ -33,6 +33,15 @@ set -u
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+# Normalize the working directory to the api-server package root. This script is
+# documented as runnable from the repo root or from artifacts/api-server, but the
+# test-file arguments (src/__tests__/...) and the relative engine-seed import
+# below both resolve relative to this directory. The full sharded runner gets this
+# for free because pnpm sets its CWD; run-test.sh is invoked directly, so it must
+# cd itself or the documented repo-root invocation breaks.
+API_SERVER_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
+cd "${API_SERVER_DIR}"
+
 if [ "$#" -eq 0 ]; then
   echo "Usage: bash scripts/run-test.sh [--setup] <test-file> [<test-file> ...]" >&2
   exit 2
@@ -153,6 +162,22 @@ common_args+=(--test-concurrency=1 --test)
 
 # ── Run ───────────────────────────────────────────────────────────────────────
 export DATABASE_URL="${TEST_DATABASE_URL}"
+
+# Seed the boot-time, code-owned catalogue rows that the API server normally
+# reconciles on startup (the engine catalogue). The isolated test schema is
+# structure-only — no data is cloned from public — so a targeted DB-backed test
+# that expects these rows to exist would otherwise fail for an environment reason
+# rather than a real product reason. This mirrors run-tests-sharded.sh so a
+# single-file run and the full suite set up the same baseline; the reconcile is
+# idempotent, so re-running it on an already-seeded schema is safe.
+echo "[run-test] seeding boot-time engine catalogue rows in '${TEST_SCHEMA}'…"
+if ! TEST_DB_ALLOW_EXIT_ON_IDLE=1 TEST_SKIP_EMBEDDINGS=1 RESEND_API_KEY_DEV="" RESEND_API_KEY_PROD="" RESEND_API_KEY="re_test_dummy" \
+  CRON_SECRET="${CRON_SECRET:-test-cron-secret}" \
+  node --import tsx/esm -e 'import { reconcileEngines } from "./src/lib/engines/index.ts"; import { closePool } from "@workspace/db"; try { await reconcileEngines(); } finally { await closePool(); }'; then
+  echo "[run-test] ERROR: failed to seed boot-time engine catalogue rows" >&2
+  exit 1
+fi
+
 TEST_DB_ALLOW_EXIT_ON_IDLE=1 \
   RESEND_API_KEY_DEV="" RESEND_API_KEY_PROD="" RESEND_API_KEY="re_test_dummy" \
   CRON_SECRET="${CRON_SECRET:-test-cron-secret}" \
