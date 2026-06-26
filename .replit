@@ -18,35 +18,6 @@ env = { "CI" = "true" }
 runButton = "Project"
 
 [[workflows.workflow]]
-name = "Project"
-mode = "parallel"
-author = "agent"
-
-[[workflows.workflow.tasks]]
-task = "workflow.run"
-args = "sentry-tests"
-
-[[workflows.workflow.tasks]]
-task = "workflow.run"
-args = "db-tests"
-
-[[workflows.workflow.tasks]]
-task = "workflow.run"
-args = "git-lock-cleaner-tests"
-
-[[workflows.workflow.tasks]]
-task = "workflow.run"
-args = "git-lock-watcher"
-
-[[workflows.workflow.tasks]]
-task = "workflow.run"
-args = "dev-supervisor-tests"
-
-[[workflows.workflow.tasks]]
-task = "workflow.run"
-args = "check-snapshots"
-
-[[workflows.workflow]]
 name = "sentry-tests"
 author = "agent"
 
@@ -78,6 +49,102 @@ args = "bash scripts/dev-supervisor.sh git-lock-watcher bash -c 'while true; do 
 
 [workflows.workflow.metadata]
 outputType = "console"
+
+[[workflows.workflow]]
+name = "git-lock-cleaner-tests"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "bash scripts/__tests__/clean-stale-git-locks.test.sh"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "dev-supervisor-tests"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "bash scripts/__tests__/dev-supervisor.test.sh"
+
+[workflows.workflow.metadata]
+outputType = "console"
+
+[[workflows.workflow]]
+name = "check-snapshots"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "pnpm --filter @workspace/db check-snapshots"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "artifacts/overhype-me: web"
+author = "agent"
+mode = "sequential"
+
+[workflows.workflow.metadata]
+outputType = "webview"
+artifactId = "artifacts/chuck-norris-facts"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "pnpm --filter @workspace/overhype-me run dev"
+cwd = "./artifacts/overhype-me"
+waitForPort = 26169
+ensurePreviewReachable = "/"
+router = "path"
+
+[workflows.workflow.tasks.env]
+PORT = "26169"
+BASE_PATH = "/"
+
+[[workflows.workflow]]
+name = "artifacts/api-server: API Server"
+author = "agent"
+mode = "sequential"
+
+[workflows.workflow.metadata]
+outputType = "webview"
+artifactId = "3B4_FFSkEVBkAeYMFRJ2e"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "pnpm --filter @workspace/api-server run dev"
+cwd = "./artifacts/api-server"
+waitForPort = 8080
+ensurePreviewReachable = "/"
+router = "path"
+
+[workflows.workflow.tasks.env]
+PORT = "8080"
+
+[[workflows.workflow]]
+name = "artifacts/mockup-sandbox: Component Preview Server"
+author = "agent"
+mode = "sequential"
+
+[workflows.workflow.metadata]
+outputType = "webview"
+artifactId = "XegfDyZt7HqfW2Bb8Ghoy"
+isCanvasWorkflow = true
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "pnpm --filter @workspace/mockup-sandbox run dev"
+cwd = "./artifacts/mockup-sandbox"
+waitForPort = 8081
+ensurePreviewReachable = "/"
+router = "path"
+
+[workflows.workflow.tasks.env]
+PORT = "8081"
+BASE_PATH = "/__mockup"
 
 [agent]
 stack = "PNPM_WORKSPACE"
@@ -120,37 +187,3 @@ externalPort = 8081
 [[ports]]
 localPort = 26169
 externalPort = 3000
-
-
-[[workflows.workflow]]
-name = "git-lock-cleaner-tests"
-author = "agent"
-
-[[workflows.workflow.tasks]]
-task = "shell.exec"
-args = "bash scripts/__tests__/clean-stale-git-locks.test.sh"
-
-[workflows.workflow.metadata]
-isValidation = true
-
-[[workflows.workflow]]
-name = "dev-supervisor-tests"
-author = "agent"
-
-[[workflows.workflow.tasks]]
-task = "shell.exec"
-args = "bash scripts/__tests__/dev-supervisor.test.sh"
-
-[workflows.workflow.metadata]
-outputType = "console"
-
-[[workflows.workflow]]
-name = "check-snapshots"
-author = "agent"
-
-[[workflows.workflow.tasks]]
-task = "shell.exec"
-args = "pnpm --filter @workspace/db check-snapshots"
-
-[workflows.workflow.metadata]
-isValidation = true
