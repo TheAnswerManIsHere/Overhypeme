@@ -283,6 +283,11 @@ first. While watching:
 - **Break non-converging loops.** If a fix would be contested, or after ~2
   rounds without convergence, I stop and bring David the diagnosis instead of
   churning the code.
+- **Never resolve review threads — that's David's.** When I act on (or decline) a
+  review comment I leave a brief reply saying what I did, but I do **not** mark
+  the thread resolved. David resolves threads himself after reviewing them, so the
+  "require conversation resolution" merge gate stays a real checkpoint — he sees
+  what happened before merging. I resolve a thread only if David explicitly asks.
 - I stay **frugal with GitHub replies** (only when genuinely necessary), and I
   stop watching once the PR is merged or closed, or when David says stop.
 
