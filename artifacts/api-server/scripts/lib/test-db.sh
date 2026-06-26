@@ -28,6 +28,8 @@ if [ -n "${_TEST_DB_LIB_LOADED:-}" ]; then return 0 2>/dev/null || true; fi
 _TEST_DB_LIB_LOADED=1
 _TEST_DB_LIB_VERSION=1
 
+if [ -n "${TEST_DATABASE_URL:-}" ]; then export DATABASE_URL="$TEST_DATABASE_URL"; fi
+
 # ── logging ───────────────────────────────────────────────────────────────────
 # All logs go to stderr so stdout stays clean for URL-returning helpers.
 _td_log()  { echo "[test-db] $*" >&2; }
