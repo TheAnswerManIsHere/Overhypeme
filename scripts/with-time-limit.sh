@@ -21,8 +21,11 @@
 # invocation site, so it is greppable from the command itself.
 #
 #   300000ms artifacts/api-server `test` script
-#            Sharded api-server test suite (2 shards) + DB schema reset.
-#            Baseline ~230s.
+#            Sharded api-server test suite: N=min(nproc,4) parallel workers, each
+#            against its OWN isolated database (per-DB template clone; per-schema
+#            fallback). Baseline ~64s at N=2; the 300s budget covers the slower
+#            per-schema fallback path and higher worker counts. Re-baseline if the
+#            model or default worker count changes.
 #
 #   120000ms artifacts/api-server `typecheck` script
 #            tsc --noEmit + check:cycles + check:no-console. Baseline ~90s.
