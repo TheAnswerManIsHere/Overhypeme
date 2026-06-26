@@ -39,3 +39,87 @@ jobs:
         env:
           PORT: "8081"
           BASE_PATH: "/__mockup"
+
+  # Authoritative test gate: runs the api-server integration suite against a real
+  # Postgres + pgvector. Phase 2's runner does all DB setup; CI just provides the
+  # database. Runs in parallel with `build` (no `needs:`) for fast feedback.
+  test:
+    name: Test
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+
+    permissions:
+      contents: read
+
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: overhype
+          POSTGRES_PASSWORD: overhype
+          POSTGRES_DB: overhype_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U overhype -d overhype_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      # overhype_test is a name the runner's production guard allows (it refuses
+      # `heliumdb`, the prod/dev DB name). The `overhype` role is a superuser
+      # (postgres image default), so the runner uses its fast per-worker-DB mode.
+      DATABASE_URL: postgres://overhype:overhype@localhost:5432/overhype_test
+
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      # Node 22 (not 20): the test runner passes a glob (src/__tests__/**/*.test.ts)
+      # to `node --test`, which only expands globs on Node 21+. Node 20 finds 0
+      # files (and lacks the test-isolation flag). 22 matches where these tests
+      # are verified to run (Replit is on Node 24).
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # pg_dump/psql must be >= the pg16 server the runner clones schemas from.
+      # Put the v16 bin dir first on PATH so they resolve to v16 even if an older
+      # client also exists on the runner.
+      - name: Install PostgreSQL client 16
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client-16
+          echo "/usr/lib/postgresql/16/bin" >> "$GITHUB_PATH"
+          /usr/lib/postgresql/16/bin/psql --version
+          /usr/lib/postgresql/16/bin/pg_dump --version
+
+      # Fail early and clearly if the service/credentials are wrong, and create the
+      # pgvector extension before push-force (the schema has vector columns).
+      - name: Prepare database
+        run: |
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c 'SELECT current_database(), current_user;'
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c 'CREATE EXTENSION IF NOT EXISTS vector;'
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c "SELECT extname FROM pg_extension WHERE extname = 'vector';"
+
+      - name: Show runner diagnostics
+        run: |
+          echo "nproc=$(nproc)"
+          node --version
+          pnpm --version
+
+      # `pretest` applies push-force + migrations + codegen; run-tests-sharded.sh
+      # then clones an isolated database per shard (auto-selected min(nproc,4)).
+      - name: Run api-server test suite
+        run: pnpm --filter @workspace/api-server test
