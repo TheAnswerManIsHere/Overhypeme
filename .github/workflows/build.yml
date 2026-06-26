@@ -81,10 +81,14 @@ jobs:
         with:
           version: 9
 
+      # Node 22 (not 20): the test runner passes a glob (src/__tests__/**/*.test.ts)
+      # to `node --test`, which only expands globs on Node 21+. Node 20 finds 0
+      # files (and lacks the test-isolation flag). 22 matches where these tests
+      # are verified to run (Replit is on Node 24).
       - name: Set up Node
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: pnpm
 
       - name: Install dependencies
