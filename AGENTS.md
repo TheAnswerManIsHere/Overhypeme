@@ -48,19 +48,33 @@ The DB setup commands above must be run before api-server tests so the branch's 
 
 When fixing a Codex review comment, follow the repository verification commands in this AGENTS.md before reporting test status.
 
-Do not run raw `node --test` against TypeScript test files in `artifacts/api-server/src/__tests__`. Raw Node cannot resolve this repo’s TypeScript/tsx import setup and may fail even when the code is correct. For targeted api-server TypeScript tests, use:
+Never run raw `node --test` against api-server TypeScript test files. Raw Node cannot resolve this repo’s TypeScript/tsx import setup and may fail even when the code is correct.
 
-```sh
-pnpm --filter @workspace/api-server run test:ts -- src/__tests__/<test-file>.test.ts
-```
+Use this decision tree for api-server tests:
 
-For api-server DB-backed route/integration tests, prefer the package test runner:
+1. For pure non-DB TypeScript tests, use:
 
-```sh
-pnpm --filter @workspace/api-server test
-```
+   ```sh
+   pnpm --filter @workspace/api-server run test:unit -- src/__tests__/<test-file>.test.ts
+   ```
 
-because it sets up the isolated `heliumdb_test` schema and required boot-time seed rows.
+   A test is pure/non-DB only if it does not import `@workspace/db`, `@workspace/db/schema`, or route/app helpers that read or write DB state.
+
+2. For DB-backed route/integration tests, use:
+
+   ```sh
+   pnpm --filter @workspace/api-server run test:db -- src/__tests__/<test-file>.test.ts
+   ```
+
+   This runs targeted tests through the same isolated-schema setup used by the package test runner.
+
+3. For the full api-server suite, use:
+
+   ```sh
+   pnpm --filter @workspace/api-server test
+   ```
+
+   The package test runner sets up the isolated `heliumdb_test` schema and required boot-time seed rows.
 
 If Codex accidentally runs an invalid command, such as raw `node --test` on a `.ts` test file, do not report that as a product failure if the correct repo command passes. Report it only as an ignored invalid-command attempt. In final testing summaries, separate valid repo-command failures, which may block merge, from invalid-command/environment failures, which should not block if the valid command passed.
 
@@ -72,10 +86,10 @@ Invalid:
 pnpm --filter @workspace/api-server exec node --test src/__tests__/autoConjugatePersonSubjectVerbs.test.ts
 ```
 
-Valid:
+Valid pure unit test:
 
 ```sh
-pnpm --filter @workspace/api-server run test:ts -- src/__tests__/autoConjugatePersonSubjectVerbs.test.ts
+pnpm --filter @workspace/api-server run test:unit -- src/__tests__/autoConjugatePersonSubjectVerbs.test.ts
 ```
 
 ## Reporting failures
