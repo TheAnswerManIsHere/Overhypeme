@@ -98,11 +98,21 @@ TEMPLATE_DB=""
 declare -a CREATED_DBS=()       # worker databases (per-DB mode)
 declare -a CREATED_SCHEMAS=()   # worker schemas (schema mode)
 declare -A FAILED_OBJ=()        # name -> 1 for objects whose worker failed
+declare -a WORKER_PIDS=()       # live worker node PIDs (for signal cleanup)
 cleanup_dropped=0
 cleanup_retained=0
 
-cleanup() {
-  local rc=$?
+_cleaned=0
+do_cleanup() {
+  [ "$_cleaned" = "1" ] && return 0
+  _cleaned=1
+  # Kill any still-running worker processes FIRST. On normal exit they have
+  # already finished (no-op); on a signal they may still be alive and would
+  # otherwise reconnect to their database and block the DROP below.
+  local p
+  for p in "${WORKER_PIDS[@]:-}"; do
+    [ -n "$p" ] && kill -KILL "$p" 2>/dev/null || true
+  done
   local keep="${KEEP_TEST_DBS:-}"
   local name
   for name in "${CREATED_DBS[@]:-}"; do
@@ -129,9 +139,17 @@ cleanup() {
     fi
   fi
   _td_log "cleanup dropped=${cleanup_dropped} retained=${cleanup_retained}"
-  exit "$rc"
 }
-trap cleanup EXIT INT TERM
+
+# Normal exit: preserve the real test exit code. Signals: report the canonical
+# 130 (SIGINT) / 143 (SIGTERM) so an interrupted/cancelled run can never be
+# reported as a pass. `trap -` before exiting prevents the EXIT trap from running
+# cleanup a second time (do_cleanup is also idempotent as a backstop).
+on_exit() { local rc=$?; do_cleanup; exit "$rc"; }
+on_signal() { trap - EXIT INT TERM; do_cleanup; exit "$1"; }
+trap on_exit EXIT
+trap 'on_signal 130' INT
+trap 'on_signal 143' TERM
 
 _ms() { date +%s%3N; }
 
@@ -145,6 +163,7 @@ launch_and_wait() {
     run_files "$url" "$iso" -- --test-shard="${k}/${shards}" "$GLOB" &
     pids+=("$!"); pid_obj[$!]="${WORKER_OBJS[$k]}"
   done
+  WORKER_PIDS=("${pids[@]}")
   local overall=0 pid
   for pid in "${pids[@]}"; do
     if ! wait "$pid"; then overall=1; FAILED_OBJ["${pid_obj[$pid]}"]=1; fi

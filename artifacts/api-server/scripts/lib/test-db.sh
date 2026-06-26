@@ -311,13 +311,17 @@ seed_catalogue() {
 
 # ── worker execution ──────────────────────────────────────────────────────────
 # run_files <url> <isolation_flag> -- <node-test-args...>
+# EXECs node so that, when this is backgrounded (`run_files ... &`), the captured
+# $! is node's own PID — not a wrapping subshell's. That lets the sharded runner's
+# signal cleanup kill the actual test process (otherwise an orphaned node would
+# reconnect and block its database DROP). Callers run this as their final action.
 run_files() {
   local url="$1" iso="$2"; shift 2
   [ "${1:-}" = "--" ] && shift
   local common=(--import tsx/esm)
   [ -n "$iso" ] && common+=("$iso")
   common+=(--test-concurrency=1 --test)
-  DATABASE_URL="$url" TEST_DB_ALLOW_EXIT_ON_IDLE=1 TEST_SKIP_EMBEDDINGS=1 \
+  exec env DATABASE_URL="$url" TEST_DB_ALLOW_EXIT_ON_IDLE=1 TEST_SKIP_EMBEDDINGS=1 \
     RESEND_API_KEY_DEV="" RESEND_API_KEY_PROD="" RESEND_API_KEY="re_test_dummy" \
     CRON_SECRET="${CRON_SECRET:-test-cron-secret}" \
     node "${common[@]}" "$@"
