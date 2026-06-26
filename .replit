@@ -172,6 +172,7 @@ ALLOWED_ORIGINS = "https://overhype.me,https://overhypeme.replit.app"
 
 [userenv.development]
 TEST_DATABASE_URL = "postgresql://postgres:password@helium/heliumdb_test?sslmode=disable"
+TEST_SHARDS = "4"
 
 [objectStorage]
 defaultBucketID = "replit-objstore-ae743525-77de-4797-8785-8a65fa3c45c3"
