@@ -2,6 +2,8 @@ import { Router, type IRouter, type Request, type Response, type NextFunction } 
 import { type AuthenticatedRequest } from "../middlewares/authMiddleware";
 import { z } from "zod";
 import { randomUUID } from "node:crypto";
+import { Readable } from "node:stream";
+import { ObjectStorageService, ObjectNotFoundError } from "../lib/objectStorage";
 import { db } from "@workspace/db";
 import {
   pendingReviewsTable, factsTable, usersTable, activityFeedTable,
@@ -49,6 +51,12 @@ export { __setPlanGeneratorForTest } from "../lib/imagePrompt/preview";
 const requireFactSubmitRateLimit = createFactSubmitRateLimiter();
 
 const router: IRouter = Router();
+
+// Streams ephemeral moderation render images to admins. These objects are
+// uploaded with no ACL (and are intentionally not mirrored anywhere), so the
+// user-facing /storage/objects route would 403 them — admins read them here,
+// authorized by requireAdmin + the attempt's reviewAudit.
+const reviewRenderObjectStorage = new ObjectStorageService();
 
 function requireAuth(req: Request, res: Response, next: () => void): void {
   if (!req.isAuthenticated()) {
@@ -951,6 +959,46 @@ router.get("/admin/reviews/:id/renders/:renderJobId", requireAdmin, async (req: 
   }
 
   res.json(buildRenderStatusPayload(attempt));
+});
+
+// GET /admin/reviews/:id/renders/:renderJobId/image — stream the ephemeral
+// render's image bytes for admins. The object has no ACL (and the user-facing
+// /storage/objects route would 403 it), so we authorize via requireAdmin + the
+// attempt's reviewAudit and stream it directly. Not cached/stored.
+router.get("/admin/reviews/:id/renders/:renderJobId/image", requireAdmin, async (req: Request, res: Response) => {
+  const id = parseInt(String(req.params["id"] ?? ""), 10);
+  if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
+  const renderJobId = String(req.params["renderJobId"] ?? "");
+  if (!renderJobId) { res.status(400).json({ error: "renderJobId required" }); return; }
+
+  const [attempt] = await db
+    .select({ renderControls: imagePromptAttemptsTable.renderControls, generatedImageObjectPath: imagePromptAttemptsTable.generatedImageObjectPath })
+    .from(imagePromptAttemptsTable)
+    .where(eq(imagePromptAttemptsTable.renderJobId, renderJobId))
+    .limit(1);
+  if (!attempt) { res.status(404).json({ error: "render_not_found" }); return; }
+  const reviewAudit = (attempt.renderControls as RenderControlsWithRefs | null)?.reviewAudit;
+  if (!reviewAudit || reviewAudit.reviewId !== id) { res.status(404).json({ error: "render_not_found" }); return; }
+  if (!attempt.generatedImageObjectPath) { res.status(404).json({ error: "image_not_ready" }); return; }
+
+  try {
+    const file = await reviewRenderObjectStorage.getObjectEntityFile(attempt.generatedImageObjectPath);
+    const response = await reviewRenderObjectStorage.downloadObject(file, 0);
+    res.status(response.status);
+    response.headers.forEach((value, key) => {
+      if (key.toLowerCase() !== "cache-control") res.setHeader(key, value);
+    });
+    res.setHeader("Cache-Control", "private, no-store");
+    if (response.body) {
+      Readable.fromWeb(response.body as ReadableStream<Uint8Array>).pipe(res);
+    } else {
+      res.end();
+    }
+  } catch (err) {
+    if (err instanceof ObjectNotFoundError) { res.status(404).json({ error: "image_not_found" }); return; }
+    logger.error({ err, reviewId: id, renderJobId }, "[moderation] render image stream failed");
+    res.status(500).json({ error: "image_stream_failed" });
+  }
 });
 
 // ─── Activity Feed ────────────────────────────────────────────────────────────

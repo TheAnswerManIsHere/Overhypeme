@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Beaker, ChevronDown, ChevronRight, Copy, Check, RefreshCw, AlertTriangle, Layers, ImageIcon, Loader2 } from "lucide-react";
-import { useModerationRender, isTerminalRenderStatus, objectPathToApiUrl, type RenderAttempt } from "./useModerationRender";
+import { useModerationRender, isTerminalRenderStatus, type RenderAttempt } from "./useModerationRender";
 
 /**
  * Runtime Compiled Prompt Preview (Phase 2C).
@@ -903,7 +903,7 @@ export function RuntimePromptPreview({ factId, reviewId, reviewIdForRender }: Ru
               {renderAttempts.length > 0 && (
                 <div className="space-y-2" data-testid="rpp-render-attempts">
                   {renderAttempts.map((a) => (
-                    <RenderAttemptRow key={a.renderJobId} attempt={a} />
+                    <RenderAttemptRow key={a.renderJobId} reviewId={reviewIdForRender!} attempt={a} />
                   ))}
                 </div>
               )}
@@ -917,7 +917,7 @@ export function RuntimePromptPreview({ factId, reviewId, reviewIdForRender }: Ru
 
 // ── One render attempt's live status row (rule 8: per-item state) ─────────────
 
-function RenderAttemptRow({ attempt: a }: { attempt: RenderAttempt }) {
+function RenderAttemptRow({ reviewId, attempt: a }: { reviewId: number; attempt: RenderAttempt }) {
   const meta = a.meta;
   const metaLine = `${meta.name} · ${meta.pronouns} · ${meta.aspectRatio} · ${meta.fallbackGender} · ${meta.style} · ${meta.contentMode}${a.attemptId != null ? ` · #${a.attemptId}` : ""}`;
   const active = !isTerminalRenderStatus(a.status);
@@ -943,7 +943,9 @@ function RenderAttemptRow({ attempt: a }: { attempt: RenderAttempt }) {
 
       {a.status === "image_ready" && a.generatedImageObjectPath && (
         <img
-          src={objectPathToApiUrl(a.generatedImageObjectPath)}
+          // Ephemeral render images have no ACL; the user-facing /storage/objects
+          // route would 403 them. Serve through the admin-gated review image route.
+          src={`/api/admin/reviews/${reviewId}/renders/${a.renderJobId}/image`}
           alt="Rendered AI background"
           loading="lazy"
           className="mt-2 w-full max-w-sm rounded-sm border border-border"

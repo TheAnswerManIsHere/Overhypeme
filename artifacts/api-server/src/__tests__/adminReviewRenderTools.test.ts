@@ -29,6 +29,7 @@ import { and, eq, gte, inArray, like } from "drizzle-orm";
 import type { FactEnrichment } from "@workspace/api-zod";
 
 import reviewsRouter from "../routes/reviews.js";
+import memesRouter from "../routes/memes.js";
 import { buildRenderStatusPayload } from "../lib/imagePromptAttempts.js";
 import { resolveRenderReviewInput } from "../lib/imagePrompt/resolveRenderReviewInput.js";
 import { authMiddleware } from "../middlewares/authMiddleware.js";
@@ -396,5 +397,55 @@ describe("GET /admin/reviews/:id/renders/:renderJobId", () => {
     const { reviewId } = await seedReview({ submittedById: plainId });
     const res = await request(makeApp()).get(`/admin/reviews/${reviewId}/renders/${randomUUID()}`).set("authorization", `Bearer ${adminSid}`);
     assert.equal(res.status, 404);
+  });
+
+  // ── Admin-gated image stream (ephemeral renders have no ACL) ──
+  it("image route: 403 non-admin; 404 cross-review; 404 when image not ready", async () => {
+    const { reviewId, stagingFactId } = await seedReview({ submittedById: plainId });
+    const other = await seedReview({ submittedById: plainId });
+    const renderJobId = await seedAttempt(reviewId, stagingFactId!); // visualPlan only, no image yet
+
+    const nonAdmin = await request(makeApp()).get(`/admin/reviews/${reviewId}/renders/${renderJobId}/image`).set("authorization", `Bearer ${plainSid}`);
+    assert.equal(nonAdmin.status, 403);
+
+    const crossReview = await request(makeApp()).get(`/admin/reviews/${other.reviewId}/renders/${renderJobId}/image`).set("authorization", `Bearer ${adminSid}`);
+    assert.equal(crossReview.status, 404);
+
+    const notReady = await request(makeApp()).get(`/admin/reviews/${reviewId}/renders/${renderJobId}/image`).set("authorization", `Bearer ${adminSid}`);
+    assert.equal(notReady.status, 404);
+    assert.equal(notReady.body.error, "image_not_ready");
+  });
+});
+
+// ── Security: the public poll route must NOT serve review renders ─────────────
+
+describe("public /memes/ai/renders/:renderJobId vs review attempts", () => {
+  function memesApp(): Express {
+    const app = express();
+    app.use(express.json());
+    app.use(authMiddleware);
+    app.use(memesRouter);
+    return app;
+  }
+
+  async function seedReviewAttempt(reviewId: number, factId: number): Promise<string> {
+    const renderJobId = randomUUID();
+    await db.insert(imagePromptAttemptsTable).values({
+      factId, userId: null, renderJobId, generationMode: "t2i", subjectRenderMode: "t2i_fallback",
+      targetEngine: "nano_banana_2", sourceImageAnalysis: {} as never, identityPolicy: {} as never,
+      renderControls: { aspectRatio: "portrait", reviewAudit: { reviewId, adminUserId: adminId } } as never,
+      factEnrichmentSnapshot: VALID_ENRICHMENT as never, renderedFactText: "x.", archetypeStrategyVersion: "v2",
+      visualPlan: { a: 1 } as never,
+    });
+    return renderJobId;
+  }
+
+  it("returns 404 for a userId:null attempt that carries reviewAudit (no leak)", async () => {
+    const { reviewId, stagingFactId } = await seedReview({ submittedById: plainId });
+    const renderJobId = await seedReviewAttempt(reviewId, stagingFactId!);
+    // Even anonymously (no ownership gate would fire on userId:null) it must 404.
+    const res = await request(memesApp()).get(`/memes/ai/renders/${renderJobId}`);
+    assert.equal(res.status, 404);
+    assert.equal(res.body.error, "render_not_found");
   });
 });

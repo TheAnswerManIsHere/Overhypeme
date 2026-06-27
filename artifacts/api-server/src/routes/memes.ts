@@ -1861,6 +1861,14 @@ router.get("/memes/ai/renders/:renderJobId", async (req: AuthenticatedRequest, r
       res.status(404).json({ error: "render_not_found" });
       return;
     }
+    // Admin moderation review renders are intentionally userId:null (so the
+    // ownership check below would NOT gate them). They carry unpublished
+    // staging-fact prompt/result data and MUST only be read through the
+    // admin-gated /admin/reviews/:id/renders/:renderJobId route — never here.
+    if ((attempt.renderControls as { reviewAudit?: unknown } | null)?.reviewAudit) {
+      res.status(404).json({ error: "render_not_found" });
+      return;
+    }
     // Ownership check.
     if (attempt.userId && attempt.userId !== req.user?.id) {
       res.status(403).json({ error: "render_not_owned" });
