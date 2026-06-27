@@ -124,15 +124,16 @@ _td_split() { printf '%s' "${1:-}" | tr ',' ' '; }
 #     TEST_DB_PROTECTED_NAMES (comma/space-separated) — or contains 'prod';
 #   * the source host matches any substring in TEST_DB_PROTECTED_HOSTS;
 #   * the URL won't parse.
-# The dedicated test database is named `heliumdb-test` (and the sandbox uses
-# `overhype_test`); those are allowed because the match is EXACT, not a substring,
-# which is also why the per-worker `heliumdb_t_*`/`heliumdb_w_*` clones are fine.
+# The dedicated test database is named `heliumdb_test` (Replit's TEST_DATABASE_URL
+# points here; the sandbox/CI uses `overhype_test`). Those are allowed because the
+# match is EXACT, not a substring — which is also why the per-worker
+# `heliumdb_t_*`/`heliumdb_w_*` clones are fine.
 assert_not_production() {
   local db host p node_env
   node_env="$(printf '%s' "${NODE_ENV:-}" | tr '[:upper:]' '[:lower:]')"
   if [ "$node_env" = "production" ]; then
     _td_err "refusing to run test-DB setup with NODE_ENV=production."
-    _td_err "Point DATABASE_URL at the test database 'heliumdb-test' (not the 'heliumdb' prod/dev DB)."
+    _td_err "Point DATABASE_URL at the test database 'heliumdb_test' (not the 'heliumdb' prod/dev DB)."
     return 1
   fi
   if ! db="$(source_db_name)" || [ -z "$db" ]; then
@@ -142,7 +143,7 @@ assert_not_production() {
   for p in heliumdb production $(_td_split "${TEST_DB_PROTECTED_NAMES:-}"); do
     if [ "$db" = "$p" ]; then
       _td_err "database '${db}' is the protected prod/dev database; refusing destructive test-DB setup."
-      _td_err "Point DATABASE_URL at the test database 'heliumdb-test' instead."
+      _td_err "Point DATABASE_URL at the test database 'heliumdb_test' instead."
       return 1
     fi
   done
@@ -420,7 +421,7 @@ _td_self_check() {
   ( NODE_ENV=Production assert_not_production ) 2>/dev/null && { echo "FAIL guard NODE_ENV=Production (case)"; fail=1; }
   ( export DATABASE_URL="postgres://u:p@h/heliumdb"; assert_not_production ) 2>/dev/null && { echo "FAIL guard heliumdb (prod/dev)"; fail=1; }
   ( export DATABASE_URL="postgres://u:p@h/overhype_prod"; assert_not_production ) 2>/dev/null && { echo "FAIL guard prod dbname"; fail=1; }
-  ( export DATABASE_URL="postgres://u:p@h/heliumdb-test"; assert_not_production ) 2>/dev/null || { echo "FAIL guard blocked heliumdb-test"; fail=1; }
+  ( export DATABASE_URL="postgres://u:p@h/heliumdb_test"; assert_not_production ) 2>/dev/null || { echo "FAIL guard blocked heliumdb_test"; fail=1; }
   assert_not_production 2>/dev/null || { echo "FAIL guard blocked a legit test db"; fail=1; }
 
   if [ "$fail" -eq 0 ]; then echo "[test-db] self-check: PASS"; else echo "[test-db] self-check: FAIL"; fi
