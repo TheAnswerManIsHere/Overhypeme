@@ -177,10 +177,27 @@ interface PersistedControls {
   previewPronouns: string;
   lookStyleId: string;
   fallbackSubjectGender: FallbackGender;
+  // True once the moderator manually picks a gender; until then it auto-derives
+  // from the sample pronouns (see genderFromPronouns).
+  genderTouched: boolean;
   preservePhysique: boolean;
   aspectRatio: AspectRatio;
   negativeSpacePreference: NegativeSpacePreference;
   contentMode: ContentMode;
+}
+
+/**
+ * Default t2i fallback gender from the sample pronouns. t2i_fallback needs a
+ * CONCRETE protagonist gender, and the prompt validator wants the gender word in
+ * the prompt — "neutral" is awkward for the model to emit and often fails. Deriving
+ * from the pronouns the moderator already chose (he/him→male, she/her→female,
+ * else neutral) keeps the preview self-consistent and renders reliably.
+ */
+function genderFromPronouns(pronouns: string): FallbackGender {
+  const subj = pronouns.trim().toLowerCase().split("/")[0];
+  if (subj === "he") return "male";
+  if (subj === "she") return "female";
+  return "neutral";
 }
 
 interface PersistedState {
@@ -221,6 +238,7 @@ export function RuntimePromptPreview({ factId, reviewId, reviewIdForRender }: Ru
   const [previewPronouns, setPreviewPronouns] = useState("");
   const [lookStyleId, setLookStyleId] = useState("");
   const [fallbackSubjectGender, setFallbackSubjectGender] = useState<FallbackGender>("neutral");
+  const [genderTouched, setGenderTouched] = useState(false);
   const [preservePhysique, setPreservePhysique] = useState(false);
   const [aspectRatio, setAspectRatio] = useState<AspectRatio>("portrait");
   const [negativeSpacePreference, setNegativeSpacePreference] = useState<NegativeSpacePreference>("auto");
@@ -259,6 +277,7 @@ export function RuntimePromptPreview({ factId, reviewId, reviewIdForRender }: Ru
     setPreviewPronouns(c?.previewPronouns ?? "");
     setLookStyleId(c?.lookStyleId ?? "");
     setFallbackSubjectGender(c?.fallbackSubjectGender ?? "neutral");
+    setGenderTouched(c?.genderTouched ?? false);
     setPreservePhysique(c?.preservePhysique ?? false);
     setAspectRatio(c?.aspectRatio ?? "portrait");
     setNegativeSpacePreference(c?.negativeSpacePreference ?? "auto");
@@ -268,6 +287,16 @@ export function RuntimePromptPreview({ factId, reviewId, reviewIdForRender }: Ru
     skipNextSaveRef.current = true;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [factId, reviewId, reviewIdForRender]);
+
+  // In review-render mode, keep the t2i fallback gender synced to the sample
+  // pronouns until the moderator manually overrides it. Fixes the common case
+  // where a he/him sample left the gender on "neutral" (which the prompt
+  // generator frequently rejects).
+  useEffect(() => {
+    if (canRender && !genderTouched) {
+      setFallbackSubjectGender(genderFromPronouns(previewPronouns));
+    }
+  }, [canRender, genderTouched, previewPronouns]);
 
   // Persist controls + the last result per fact.
   useEffect(() => {
@@ -286,6 +315,7 @@ export function RuntimePromptPreview({ factId, reviewId, reviewIdForRender }: Ru
           previewPronouns,
           lookStyleId,
           fallbackSubjectGender,
+          genderTouched,
           preservePhysique,
           aspectRatio,
           negativeSpacePreference,
@@ -308,6 +338,7 @@ export function RuntimePromptPreview({ factId, reviewId, reviewIdForRender }: Ru
     previewPronouns,
     lookStyleId,
     fallbackSubjectGender,
+    genderTouched,
     preservePhysique,
     aspectRatio,
     negativeSpacePreference,
@@ -541,7 +572,7 @@ export function RuntimePromptPreview({ factId, reviewId, reviewIdForRender }: Ru
                 <select
                   className={inputCls}
                   value={fallbackSubjectGender}
-                  onChange={(e) => setFallbackSubjectGender(e.target.value as FallbackGender)}
+                  onChange={(e) => { setGenderTouched(true); setFallbackSubjectGender(e.target.value as FallbackGender); }}
                   data-testid="rpp-fallback-gender"
                 >
                   <option value="male">male</option>

@@ -127,6 +127,32 @@ describe("RuntimePromptPreview", () => {
     expect(rc.aspectRatio).toBe("landscape");
   });
 
+  it("review-render mode: derives t2i fallback gender from sample pronouns until overridden", async () => {
+    localStorage.clear();
+    render(<RuntimePromptPreview factId={7} reviewIdForRender={6309} />);
+    expand();
+
+    // Review-render mode defaults to t2i_fallback, so the gender control shows.
+    const genderSel = screen.getByTestId("rpp-fallback-gender") as HTMLSelectElement;
+
+    // he/him → male; she/her → female; they/them → neutral — all derived live.
+    fireEvent.change(screen.getByTestId("rpp-preview-pronouns"), { target: { value: "he/him" } });
+    await waitFor(() => expect(genderSel.value).toBe("male"));
+    fireEvent.change(screen.getByTestId("rpp-preview-pronouns"), { target: { value: "she/her" } });
+    await waitFor(() => expect(genderSel.value).toBe("female"));
+
+    // Generate sends the derived gender.
+    fireEvent.click(screen.getByTestId("rpp-generate"));
+    await waitFor(() => expect(calls.some((c) => c.url.includes("/preview"))).toBe(true));
+    expect((calls.find((c) => c.url.includes("/preview"))!.body!.renderControls as Record<string, unknown>).fallbackSubjectGender).toBe("female");
+
+    // Once the moderator manually picks a gender, pronouns no longer override it.
+    fireEvent.change(genderSel, { target: { value: "neutral" } });
+    fireEvent.change(screen.getByTestId("rpp-preview-pronouns"), { target: { value: "he/him" } });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(genderSel.value).toBe("neutral");
+  });
+
   it("shows a friendly message when the fact has no usable enrichment", async () => {
     installFetch({ previewStatus: 400, previewBody: { error: "fact_enrichment_invalid", details: "bad" } });
     render(<RuntimePromptPreview factId={42} />);
