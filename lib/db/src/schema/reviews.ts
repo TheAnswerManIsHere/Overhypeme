@@ -50,6 +50,15 @@ export const pendingReviewsTable = pgTable("pending_reviews", {
   productionRejectedAt: timestamp("production_rejected_at", { withTimezone: true }),
   productionRejectedById: varchar("production_rejected_by_id").references(() => usersTable.id),
   productionRejectionNote: text("production_rejection_note"),
+  /**
+   * Audit record written when a moderator approves for production despite one or
+   * more required visual-render scenarios being missing/running/failed/blocked/
+   * stale (admin-waivable gate). Null = no waiver was needed. Shape
+   * (VisualRenderApprovalWaiver) is validated server-side before write; see
+   * factRenderScenarios.ts. Kept here (not on the attempt) so the approval
+   * decision and its waiver live together.
+   */
+  visualRenderApprovalWaiver: jsonb("visual_render_approval_waiver"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   reviewedAt: timestamp("reviewed_at", { withTimezone: true }),
 }, (table) => [
