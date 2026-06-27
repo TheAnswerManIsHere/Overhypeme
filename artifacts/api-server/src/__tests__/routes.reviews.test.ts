@@ -556,7 +556,7 @@ describe("fact_pexels durable image-prep queue", () => {
     assert.equal(r.workflowStage, "prep_pending");
   });
 
-  it("COST GUARD: skips paid image seeding when the linked review left prep_pending", async () => {
+  it("COST GUARD: skips paid image seeding when the linked review is resolved (rejected/approved)", async () => {
     const submitterId = await createTestUser();
     const [fact] = await db.insert(factsTable).values({ text: "{NAME} tames a dragon", submittedById: submitterId, isActive: false, pexelsStatus: "pending" }).returning();
     await db.insert(pendingReviewsTable).values({
@@ -567,7 +567,31 @@ describe("fact_pexels durable image-prep queue", () => {
     let seedCalled = false;
     const result = await runFactPexelsJob(fact.id, { seed: async () => { seedCalled = true; } });
     assert.equal(result.ok, true);
-    assert.equal(seedCalled, false, "no paid Pexels/OpenAI work after the review left prep_pending");
+    assert.equal(seedCalled, false, "no paid Pexels/OpenAI work after the review is resolved");
+  });
+
+  it("image prep continues running while the review is in production_review (unresolved)", async () => {
+    const submitterId = await createTestUser();
+    const [fact] = await db.insert(factsTable).values({ text: "{NAME} tames a dragon", submittedById: submitterId, isActive: false, pexelsStatus: "pending" }).returning();
+    const [review] = await db.insert(pendingReviewsTable).values({
+      submittedText: "{NAME} tames a dragon", submittedById: submitterId, status: "pending",
+      workflowStage: "production_review", stagingFactId: fact.id,
+    }).returning();
+
+    let seedCalled = false;
+    const result = await runFactPexelsJob(fact.id, {
+      seed: async (id) => {
+        seedCalled = true;
+        await db.update(factsTable).set({ pexelsStatus: "ok", pexelsImages: { fact_type: "action", male: [], female: [], neutral: [] } }).where(eq(factsTable.id, id));
+      },
+    });
+    assert.equal(result.ok, true);
+    assert.equal(seedCalled, true, "Pexels seed should run while review is in production_review");
+
+    const [f] = await db.select().from(factsTable).where(eq(factsTable.id, fact.id));
+    assert.equal(f.pexelsStatus, "ok");
+    const [r] = await db.select().from(pendingReviewsTable).where(eq(pendingReviewsTable.id, review.id));
+    assert.equal(r.workflowStage, "production_review");
   });
 
   it("retryable failure: returns error and leaves pexels_status pending (still running, not failed)", async () => {
