@@ -12,7 +12,7 @@
 import { eq } from "drizzle-orm";
 import { db } from "@workspace/db";
 import { pendingReviewsTable, factsTable } from "@workspace/db/schema";
-import type { ReviewWorkflowStage } from "@workspace/api-zod";
+import { isUnresolvedSubmissionStage, type ReviewWorkflowStage } from "@workspace/api-zod";
 import { renderCanonical } from "./renderCanonical";
 import { computeSplitTokenIndex } from "./splitTokenIndex";
 import { logger } from "./logger";
@@ -74,15 +74,31 @@ export async function findReviewForStagingFact(
 }
 
 /**
- * Cost guard for prep jobs. Returns false when the fact is a staging fact whose
- * review has LEFT `prep_pending` (e.g. the moderator rejected it mid-flight) —
- * the caller must then skip all paid work. Live facts with no linked review (an
- * admin re-enriching an active fact) always return true.
+ * Cost guard for enrichment prep jobs. Returns false when the fact is a staging
+ * fact whose review has LEFT `prep_pending` (e.g. the moderator rejected it
+ * mid-flight) — the caller must then skip all paid work. Live facts with no
+ * linked review (an admin re-enriching an active fact) always return true.
  */
 export async function isStagingPrepActive(factId: number): Promise<boolean> {
   const review = await findReviewForStagingFact(factId);
   if (!review) return true; // not a staged prep target — normal live-fact path
   return review.workflowStage === "prep_pending";
+}
+
+/**
+ * Cost guard for image prep jobs. Returns false when the fact is a staging fact
+ * whose review has been resolved (approved or rejected) — paid Pexels work is no
+ * longer needed. Live facts with no linked review (an admin re-enriching an active
+ * fact) always return true.
+ *
+ * Unlike `isStagingPrepActive`, this allows the Pexels job to continue running
+ * while the review is in `production_review` (the moderator is still deciding),
+ * so images can land before the final approval click.
+ */
+export async function isStagingImagePrepActive(factId: number): Promise<boolean> {
+  const review = await findReviewForStagingFact(factId);
+  if (!review) return true; // not a staged prep target — normal live-fact path
+  return isUnresolvedSubmissionStage(review.workflowStage);
 }
 
 /**

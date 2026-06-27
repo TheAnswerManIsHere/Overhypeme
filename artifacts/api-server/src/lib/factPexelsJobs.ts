@@ -27,7 +27,7 @@ import { eq } from "drizzle-orm";
 import { db } from "@workspace/db";
 import { factsTable, type AsyncJobRow } from "@workspace/db/schema";
 import { seedFactPexelsImagesOnce } from "./factImagePipeline";
-import { isStagingPrepActive } from "./moderationStaging";
+import { isStagingImagePrepActive } from "./moderationStaging";
 import {
   registerJobHandler,
   enqueueJob,
@@ -89,10 +89,11 @@ export async function runFactPexelsJob(
     return { ok: false, error: `fact ${factId} not found` };
   }
 
-  // COST GUARD: skip paid work if this staging fact's review left prep_pending
-  // (e.g. rejected while a retry was queued). Successful no-op so the job
-  // retires; leave pexels_status as-is (the moderator already moved on).
-  if (!(await isStagingPrepActive(factId))) {
+  // COST GUARD: skip paid work if this staging fact's review has been resolved
+  // (approved or rejected). Still run when the review is in production_review
+  // (moderator still deciding) so images can land before the approval click.
+  // Successful no-op so the job retires; leave pexels_status as-is.
+  if (!(await isStagingImagePrepActive(factId))) {
     return { ok: true };
   }
 
