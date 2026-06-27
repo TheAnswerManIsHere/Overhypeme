@@ -6,14 +6,3 @@ uri = "file://attached_assets/generated_images/og_default_bg.png"
 type = "image"
 title = "generated_image"
 
-[[outputs]]
-id = "dhqJVA44f1Ghx6RevY9S0"
-uri = "file://docs/test-db-environment.md"
-type = "text"
-title = "Test DB Environment — Claude Code prompt"
-
-[[outputs]]
-id = "Fw9xbKglRK2jQgFiq2iX2"
-uri = "file://docs/CLAUDE_TEST_GUIDE.md"
-type = "text"
-title = "Claude Test Guide"

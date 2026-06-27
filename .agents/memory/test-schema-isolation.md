@@ -1,36 +1,46 @@
 ---
-name: Test schema isolation (heliumdb_test)
-description: How api-server tests are isolated from the dev DB via a cloned test schema
+name: Api-server test database isolation
+description: Full-suite api-server tests use per-worker throwaway databases; targeted tests use the cached heliumdb_test schema. The dev/prod public schema is never touched.
 ---
 
+> Canonical reference: **`docs/TESTING.md`**. This memory captures the gotchas an
+> agent most often trips on; read `docs/TESTING.md` for the full picture
+> (isolation modes, production guard, DB-name glossary, CI gate).
+
 ## Rule
-api-server tests run against `heliumdb_test` schema, not `public`. The dev DB public schema is **never touched** during test runs.
+api-server tests never touch the live `public` schema. There are **two** runners,
+which isolate differently:
 
-**Why:** Prevents test data from polluting dev data, and dev data from affecting test results.
+- **Full suite** (`pnpm --filter @workspace/api-server test` →
+  `run-tests-sharded.sh`): each parallel worker gets its **own** throwaway
+  database — per-worker databases cloned from a structure-only template by
+  default (`CREATE DATABASE … TEMPLATE`), or per-worker schemas
+  (`heliumdb_s_*`) as a fallback when `CREATE DATABASE` is denied. It does **not**
+  drop/recreate a single shared `heliumdb_test` schema.
+- **Targeted** (`bash artifacts/api-server/scripts/run-test.sh <file>`): uses a
+  single **cached** `heliumdb_test` schema, re-cloned from `public` only when
+  stale or when `--setup` is passed. This is the inner-loop runner, not the gate.
 
-## How it works
-`run-tests-sharded.sh` at the start of each run:
-1. `DROP SCHEMA heliumdb_test CASCADE` + `CREATE SCHEMA heliumdb_test` — clean slate
-2. `pg_dump --schema=public --schema-only` piped through sed to clone structure:
-   - Protects `public.vector` (pgvector extension type) with `__PGVECTOR__` placeholder
-   - Rewrites all other `public.` → `heliumdb_test.`
-   - Restores `__PGVECTOR__` → `public.vector`
-3. Verifies ≥5 tables exist in heliumdb_test before running tests
+Only structure is cloned — **no data**. Tests create the rows they need.
 
-`TEST_DATABASE_URL` uses `options=-c search_path=heliumdb_test,public`
-- heliumdb_test first (all application tables)
-- public as fallback (extension types like `vector`)
+## Production guard
+Both runners refuse to run against `heliumdb` (Overhype's prod *and* dev DB) or
+with `NODE_ENV=production`. Point `DATABASE_URL` at the test DB (`heliumdb_test`
+on Replit via `TEST_DATABASE_URL`, `overhype_test` in CI/sandbox).
 
-## Critical sed gotcha
-`pg_dump` uses empty `search_path` + fully-qualified `public.tablename` names (NOT the old `SET search_path = public` + unqualified names format). The `public.vector` type MUST stay as `public.vector` — it cannot be moved to heliumdb_test.
+## Gotcha: information_schema / pg_indexes queries
+Any test querying `information_schema.columns` or `pg_indexes` must filter by
+`table_schema = current_schema()` (or `schemaname = current_schema()` for
+`pg_indexes`). Without the filter, both `public` and the test schema rows come
+back, doubling counts — this matters in the per-schema fallback and the targeted
+`heliumdb_test` schema, where `public` is still on the search_path.
 
-## No seed data
-Only schema structure is cloned — no data. Tests that need config rows (e.g. `admin_config`) must use `INSERT ... ON CONFLICT DO UPDATE` instead of plain `UPDATE`, so the row is created if absent.
-
-## information_schema queries in tests
-Any test querying `information_schema.columns` or `pg_indexes` must filter by `table_schema = current_schema()` (or `schemaname = current_schema()` for pg_indexes). Without this filter, both `public` and `heliumdb_test` rows are returned, doubling counts.
+## Gotcha: seed data must upsert
+Only structure is cloned, so any test that relies on config rows (e.g.
+`admin_config`) must use `INSERT … ON CONFLICT DO UPDATE`, not a plain `UPDATE`,
+so the row is created if absent.
 
 ## How to apply
-- Adding a new test that reads system catalog tables: always add schema filter
-- Adding a test that relies on admin_config seed data: use upsert pattern
-- Adding a new table to public schema: it will be automatically cloned on next test run (pg_dump picks it up)
+- New test reading system catalogs → add the `current_schema()` filter.
+- New test relying on seed data → use the upsert pattern.
+- New table in `public` → it's cloned automatically on the next test run.
