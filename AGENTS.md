@@ -40,9 +40,13 @@ pnpm --filter @workspace/db run migrate
 pnpm --filter @workspace/api-server test
 ```
 
-Do not run these tests with raw `node --test`; the package test runner creates the isolated `heliumdb_test` schema and seeds only required boot-time, code-owned rows such as the engine catalogue reconciliation.
+Do not run these tests with raw `node --test`. The full-suite runner isolates each parallel worker in its **own** throwaway database (per-worker databases cloned from a structure-only template, by default; per-worker schemas as a fallback when `CREATE DATABASE` is denied), and seeds only required boot-time, code-owned rows such as the engine catalogue reconciliation. (The targeted `run-test.sh` runner uses a single cached `heliumdb_test` schema instead — see below.) `docs/TESTING.md` is the canonical reference for all of this: isolation modes, the production guard, the DB-name glossary, and the CI gate.
 
-The DB setup commands above must be run before api-server tests so the branch's current Drizzle schema and migration SQL have been applied to the local public schema that the test runner clones from. The sharded test runner must not copy development or production data into `heliumdb_test`; tests that need facts, pending reviews, Pexels image JSON, moderation state, pricing rows, or other domain data must create those rows explicitly in the test or in a focused helper/factory. External services such as Pexels, object storage, pricing APIs, embeddings, and image generation must be stubbed/mocked or disabled with test-mode helpers so Codex/local tests do not require real credentials or real network calls.
+The DB setup commands above must be run before api-server tests so the branch's current Drizzle schema and migration SQL have been applied to the local public schema that the runner clones from. The runner must not copy development or production data into the test databases; tests that need facts, pending reviews, Pexels image JSON, moderation state, pricing rows, or other domain data must create those rows explicitly in the test or in a focused helper/factory. External services such as Pexels, object storage, pricing APIs, embeddings, and image generation must be stubbed/mocked or disabled with test-mode helpers so Codex/local tests do not require real credentials or real network calls.
+
+**Production guard:** the runner refuses to run when `DATABASE_URL` points at `heliumdb` (Overhype's prod *and* dev share that exact name) or when `NODE_ENV=production`. Point `DATABASE_URL` at the test database — `heliumdb_test` on Replit (via `TEST_DATABASE_URL`), `overhype_test` in CI/sandbox — never at `heliumdb`.
+
+**GitHub CI is the authoritative gate.** Every PR to `main` runs required `Build` (typecheck + build + migration-snapshot validation) and `Test` (the api-server suite against Postgres + pgvector) checks; both must pass before merge. If a sandbox cannot run a DB-backed test (no Postgres, or only an invalid raw-`node` command is available), report it as an environment/command failure **deferred-to-CI** — not as a product or test failure. See "Reporting failures" below.
 
 ## Codex review-fix verification rules
 
@@ -90,4 +94,4 @@ bash artifacts/api-server/scripts/run-test.sh src/__tests__/autoConjugatePersonS
 
 ## Reporting failures
 
-When reporting verification results, separate known full-suite fixture or environment failures from the focused checks relevant to the pull request. Do not treat known fixture/environment issues as failures of unrelated PR-focused checks.
+When reporting verification results, separate known full-suite fixture or environment failures from the focused checks relevant to the pull request. Do not treat known fixture/environment issues as failures of unrelated PR-focused checks. See `docs/TESTING.md` ("How to report test failures") for the valid-failure vs invalid-command/environment-failure distinction and the deferred-to-CI rule.

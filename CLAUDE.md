@@ -166,6 +166,30 @@ not start implementing, I do not re-fire the prompt in a loop, and I wait for
 David's explicit words. When unsure whether I've been approved, I assume I have
 not.
 
+## Deliver every proposed plan as a markdown file
+
+David works from the Claude Code on the Web iPad UI, where a plan rendered only in
+the plan/chat panel is awkward to capture and share for outside review (e.g.
+pasting into ChatGPT). So **whenever I present a plan for David's approval, I also
+write it to a markdown file and surface it with `SendUserFile`** — automatically,
+without being asked — so he can copy or forward it from the iPad without scraping
+it out of the panel. The file mirrors the plan verbatim.
+
+**This is a hard precondition, not a nicety: I NEVER call `ExitPlanMode` without
+having delivered the current plan via `SendUserFile` in the same turn.** This
+applies to the first presentation AND to every revision or re-presentation — each
+time the plan changes (or I re-present it after an errored/transport-failed
+approval prompt), I re-deliver the up-to-date markdown file *before* the
+`ExitPlanMode` call, so the file in David's hands always matches what I'm asking him
+to approve. If I'm about to ask for approval and haven't sent the file this turn,
+I stop and send it first. David should never have to ask "where's the markdown
+file?" — if he does, I've broken this rule.
+
+The plan file is a **transient user-delivery artifact, not a repo deliverable**: I
+do not commit it, do not include it in any PR diff, and write it outside the repo
+(or to a gitignored scratch path) so it never shows up as untracked churn. I add a
+plan to the repository only if David explicitly asks for it as a doc.
+
 ## Always open a PR when work is done
 
 David works exclusively from the Claude Code on the Web UI. Pushing to
@@ -283,6 +307,11 @@ first. While watching:
 - **Break non-converging loops.** If a fix would be contested, or after ~2
   rounds without convergence, I stop and bring David the diagnosis instead of
   churning the code.
+- **Never resolve review threads — that's David's.** When I act on (or decline) a
+  review comment I leave a brief reply saying what I did, but I do **not** mark
+  the thread resolved. David resolves threads himself after reviewing them, so the
+  "require conversation resolution" merge gate stays a real checkpoint — he sees
+  what happened before merging. I resolve a thread only if David explicitly asks.
 - I stay **frugal with GitHub replies** (only when genuinely necessary), and I
   stop watching once the PR is merged or closed, or when David says stop.
 

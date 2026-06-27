@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import { Beaker, ChevronDown, ChevronRight, Copy, Check, RefreshCw, AlertTriangle, Layers } from "lucide-react";
+import { Beaker, ChevronDown, ChevronRight, Copy, Check, RefreshCw, AlertTriangle, Layers, ImageIcon, Loader2 } from "lucide-react";
+import { useModerationRender, isTerminalRenderStatus, type RenderAttempt } from "./useModerationRender";
 
 /**
  * Runtime Compiled Prompt Preview (Phase 2C).
@@ -159,8 +160,14 @@ const REMOVAL_REASON_LABEL: Record<string, string> = {
 // ── localStorage persistence (survives page reload without recomputing) ──────
 
 const STORAGE_PREFIX = "overhype:rpp:v1:";
-const storageKey = (factId: number | null, reviewId: number | null) =>
-  reviewId !== null ? `${STORAGE_PREFIX}review:${reviewId}` : `${STORAGE_PREFIX}${factId}`;
+// Review-render mode gets its OWN key so moderation render controls/results never
+// collide with the fact-editor preview state for the same staging factId.
+const storageKey = (factId: number | null, reviewId: number | null, reviewIdForRender?: number) =>
+  reviewIdForRender !== undefined
+    ? `${STORAGE_PREFIX}review-render:${reviewIdForRender}`
+    : reviewId !== null
+      ? `${STORAGE_PREFIX}review:${reviewId}`
+      : `${STORAGE_PREFIX}${factId}`;
 
 interface PersistedControls {
   subjectRenderMode: SubjectRenderMode;
@@ -181,9 +188,9 @@ interface PersistedState {
   controls: PersistedControls;
 }
 
-function loadPersisted(factId: number | null, reviewId: number | null): PersistedState | null {
+function loadPersisted(factId: number | null, reviewId: number | null, reviewIdForRender?: number): PersistedState | null {
   try {
-    const raw = localStorage.getItem(storageKey(factId, reviewId));
+    const raw = localStorage.getItem(storageKey(factId, reviewId, reviewIdForRender));
     return raw ? (JSON.parse(raw) as PersistedState) : null;
   } catch {
     return null;
@@ -191,15 +198,23 @@ function loadPersisted(factId: number | null, reviewId: number | null): Persiste
 }
 
 type RuntimePromptPreviewProps =
-  | { factId: number; reviewId?: undefined }
-  | { reviewId: number; factId?: undefined };
+  // Fact path (also used by the moderation modal: factId = stagingFactId). When
+  // `reviewIdForRender` is set, the "Render AI background" action is enabled and
+  // targets that review's render endpoint while the preview still reads the fact.
+  | { factId: number; reviewId?: undefined; reviewIdForRender?: number }
+  | { reviewId: number; factId?: undefined; reviewIdForRender?: undefined };
 
-export function RuntimePromptPreview({ factId, reviewId }: RuntimePromptPreviewProps) {
+export function RuntimePromptPreview({ factId, reviewId, reviewIdForRender }: RuntimePromptPreviewProps) {
   const isReviewMode = reviewId !== undefined;
+  // Moderation render mode: preview reads the staging fact; render posts to the
+  // review endpoint. Defaults to t2i (review facts have no source image).
+  const canRender = reviewIdForRender !== undefined;
+  const defaultMode: SubjectRenderMode = canRender ? "t2i_fallback" : "human_identity_i2i";
+  const moderationRender = useModerationRender(reviewIdForRender);
   const [expanded, setExpanded] = useState(false);
   const [lookStyles, setLookStyles] = useState<LookStyle[]>([]);
 
-  const [subjectRenderMode, setSubjectRenderMode] = useState<SubjectRenderMode>("human_identity_i2i");
+  const [subjectRenderMode, setSubjectRenderMode] = useState<SubjectRenderMode>(defaultMode);
   const [sourceSubjectKind, setSourceSubjectKind] = useState<SourceSubjectKind>("human_face");
   const [subjectDescription, setSubjectDescription] = useState("");
   const [previewName, setPreviewName] = useState("");
@@ -235,9 +250,9 @@ export function RuntimePromptPreview({ factId, reviewId }: RuntimePromptPreviewP
   // page reload — or switching back to a fact — shows the last preview without
   // recomputing it.
   useEffect(() => {
-    const saved = loadPersisted(factId ?? null, reviewId ?? null);
+    const saved = loadPersisted(factId ?? null, reviewId ?? null, reviewIdForRender);
     const c = saved?.controls;
-    setSubjectRenderMode(c?.subjectRenderMode ?? "human_identity_i2i");
+    setSubjectRenderMode(c?.subjectRenderMode ?? defaultMode);
     setSourceSubjectKind(c?.sourceSubjectKind ?? "human_face");
     setSubjectDescription(c?.subjectDescription ?? "");
     setPreviewName(c?.previewName ?? "");
@@ -252,7 +267,7 @@ export function RuntimePromptPreview({ factId, reviewId }: RuntimePromptPreviewP
     setError(null);
     skipNextSaveRef.current = true;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [factId, reviewId]);
+  }, [factId, reviewId, reviewIdForRender]);
 
   // Persist controls + the last result per fact.
   useEffect(() => {
@@ -277,13 +292,14 @@ export function RuntimePromptPreview({ factId, reviewId }: RuntimePromptPreviewP
           contentMode,
         },
       };
-      localStorage.setItem(storageKey(factId ?? null, reviewId ?? null), JSON.stringify(payload));
+      localStorage.setItem(storageKey(factId ?? null, reviewId ?? null, reviewIdForRender), JSON.stringify(payload));
     } catch {
       /* storage full / unavailable — ignore */
     }
   }, [
     factId,
     reviewId,
+    reviewIdForRender,
     result,
     subjectRenderMode,
     sourceSubjectKind,
@@ -383,6 +399,32 @@ export function RuntimePromptPreview({ factId, reviewId }: RuntimePromptPreviewP
       /* clipboard unavailable — ignore */
     }
   }
+
+  // ── Moderation "Render AI background" (review-render mode only) ──────────────
+  const validRenderPronouns = /^[a-z]+\/[a-z]+$/i.test(previewPronouns.trim());
+  function doRender() {
+    moderationRender.render({
+      lookStyleId: lookStyleId || null,
+      ...(previewName.trim() ? { previewName: previewName.trim() } : {}),
+      ...(validRenderPronouns ? { previewPronouns: previewPronouns.trim() } : {}),
+      renderControls: { aspectRatio, contentMode, negativeSpacePreference, fallbackSubjectGender },
+      identityPolicyOverrides: { preservePhysique },
+      meta: {
+        name: previewName.trim() || "David Franklin",
+        pronouns: validRenderPronouns ? previewPronouns.trim() : "he/him",
+        aspectRatio,
+        fallbackGender: fallbackSubjectGender,
+        style: lookStyleId || "(none)",
+        contentMode,
+      },
+    });
+  }
+
+  // Aggregate tally across the render attempts (rule 8).
+  const renderAttempts = moderationRender.attempts;
+  const renderDone = renderAttempts.filter((a) => a.status === "image_ready").length;
+  const renderFailed = renderAttempts.filter((a) => a.status === "failed" || a.status === "blocked").length;
+  const renderActive = renderAttempts.filter((a) => !isTerminalRenderStatus(a.status)).length;
 
   return (
     <div className="rounded-sm border border-border bg-muted/20" data-testid="runtime-prompt-preview">
@@ -812,7 +854,112 @@ export function RuntimePromptPreview({ factId, reviewId }: RuntimePromptPreviewP
               </div>
             </div>
           )}
+
+          {/* ── Render AI background (moderation review only) ── */}
+          {canRender && (
+            <div className="space-y-2 border-t border-border pt-3" data-testid="rpp-render-section">
+              <div className="flex items-center justify-between gap-2">
+                <span className={labelCls}>Render AI background</span>
+                {renderAttempts.length > 0 && (
+                  <span className="text-[10px] text-muted-foreground" data-testid="rpp-render-tally">
+                    Rendered {renderDone} · {renderActive} rendering · {renderFailed} failed
+                  </span>
+                )}
+              </div>
+              <p className="text-[10px] text-muted-foreground italic leading-snug">
+                Runs the real Nano Banana 2 pipeline on the compiled prompt and shows the raw AI
+                background — the same artifact the Engines test bed produces. Text overlay / layout is
+                not validated here. Renders are review-only and never touch the fact’s production images.
+              </p>
+
+              {isI2i ? (
+                <div className="flex items-start gap-2 rounded-sm border border-amber-500/40 bg-amber-500/10 px-3 py-2">
+                  <AlertTriangle className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+                  <p className="text-xs text-amber-700 dark:text-amber-300">
+                    Moderation renders are text-to-image only — review facts have no source image. Switch
+                    subject render mode to <span className="font-mono">t2i_fallback</span> to render.
+                  </p>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={doRender}
+                  disabled={moderationRender.busy || missingFallbackGender}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-sm bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-50"
+                  data-testid="rpp-render"
+                >
+                  <ImageIcon className={`w-3.5 h-3.5 ${moderationRender.busy ? "animate-pulse" : ""}`} />
+                  {moderationRender.busy ? "Starting render…" : "Render AI background"}
+                </button>
+              )}
+
+              {moderationRender.error && (
+                <div className="flex items-start gap-2 rounded-sm border border-destructive/50 bg-destructive/10 px-3 py-2" data-testid="rpp-render-error">
+                  <AlertTriangle className="w-4 h-4 text-destructive shrink-0 mt-0.5" />
+                  <p className="text-xs text-destructive">{moderationRender.error}</p>
+                </div>
+              )}
+
+              {renderAttempts.length > 0 && (
+                <div className="space-y-2" data-testid="rpp-render-attempts">
+                  {renderAttempts.map((a) => (
+                    <RenderAttemptRow key={a.renderJobId} reviewId={reviewIdForRender!} attempt={a} />
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
         </div>
+      )}
+    </div>
+  );
+}
+
+// ── One render attempt's live status row (rule 8: per-item state) ─────────────
+
+function RenderAttemptRow({ reviewId, attempt: a }: { reviewId: number; attempt: RenderAttempt }) {
+  const meta = a.meta;
+  const metaLine = `${meta.name} · ${meta.pronouns} · ${meta.aspectRatio} · ${meta.fallbackGender} · ${meta.style} · ${meta.contentMode}${a.attemptId != null ? ` · #${a.attemptId}` : ""}`;
+  const active = !isTerminalRenderStatus(a.status);
+
+  return (
+    <div className="rounded-sm border border-border bg-background p-2" data-testid="rpp-render-attempt" data-status={a.status}>
+      <div className="flex items-center gap-1.5 mb-1">
+        {active && <Loader2 className="w-3.5 h-3.5 animate-spin text-primary shrink-0" />}
+        {a.status === "image_ready" && <Check className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />}
+        {(a.status === "failed" || a.status === "blocked") && (
+          <AlertTriangle className="w-3.5 h-3.5 text-destructive shrink-0" />
+        )}
+        <span className="text-[11px] font-semibold text-foreground">
+          {a.status === "queued" && "Queued…"}
+          {a.status === "pending" && "Queued…"}
+          {a.status === "prompt_ready" && "Rendering image…"}
+          {a.status === "image_ready" && "Rendered"}
+          {a.status === "failed" && "Render failed"}
+          {a.status === "blocked" && "Blocked"}
+        </span>
+      </div>
+      <p className="text-[10px] text-muted-foreground font-mono break-all">{metaLine}</p>
+
+      {a.status === "image_ready" && a.generatedImageObjectPath && (
+        <img
+          // Ephemeral render images have no ACL; the user-facing /storage/objects
+          // route would 403 them. Serve through the admin-gated review image route.
+          src={`/api/admin/reviews/${reviewId}/renders/${a.renderJobId}/image`}
+          alt="Rendered AI background"
+          loading="lazy"
+          className="mt-2 w-full max-w-sm rounded-sm border border-border"
+          data-testid="rpp-render-image"
+        />
+      )}
+      {a.status === "blocked" && (
+        <p className="mt-1 text-[10px] text-amber-700 dark:text-amber-300">
+          Subject↔fact compatibility is poor — the prompt won’t render well.
+          {a.recommendedFallback ? ` Recommended: ${a.recommendedFallback}.` : ""}
+        </p>
+      )}
+      {a.status === "failed" && a.error && (
+        <p className="mt-1 text-[10px] text-destructive break-all">{a.error}</p>
       )}
     </div>
   );

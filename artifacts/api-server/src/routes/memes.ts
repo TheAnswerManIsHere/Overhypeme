@@ -1624,7 +1624,7 @@ import {
   uploadImageMetadataTable as uploadImageMetadataTable_v2,
 } from "@workspace/db";
 import { enqueueJob as enqueueJob_v2 } from "../lib/asyncJobs";
-import { buildAndEnqueueImagePromptAttempt, parseAspectRatio, normalizeStyleId } from "../lib/imagePromptAttempts";
+import { buildAndEnqueueImagePromptAttempt, parseAspectRatio, normalizeStyleId, buildRenderStatusPayload } from "../lib/imagePromptAttempts";
 
 const PUBLIC_OBJECT_PREFIX_v2 = "/objects/";
 
@@ -1861,36 +1861,22 @@ router.get("/memes/ai/renders/:renderJobId", async (req: AuthenticatedRequest, r
       res.status(404).json({ error: "render_not_found" });
       return;
     }
+    // Admin moderation review renders are intentionally userId:null (so the
+    // ownership check below would NOT gate them). They carry unpublished
+    // staging-fact prompt/result data and MUST only be read through the
+    // admin-gated /admin/reviews/:id/renders/:renderJobId route — never here.
+    if ((attempt.renderControls as { reviewAudit?: unknown } | null)?.reviewAudit) {
+      res.status(404).json({ error: "render_not_found" });
+      return;
+    }
     // Ownership check.
     if (attempt.userId && attempt.userId !== req.user?.id) {
       res.status(403).json({ error: "render_not_owned" });
       return;
     }
-    // Compute status. A "poor" subject↔fact compatibility is a deliberate
-    // product block (not an engine failure): the prompt job recorded the reason
-    // and skipped image generation. Surface it as its own `blocked` state so the
-    // UI can offer the recommended fallback instead of a generic error.
-    const blockedPoor = attempt.error === "subject_fact_compatibility_poor";
-    let status: "pending" | "prompt_ready" | "image_ready" | "failed" | "blocked";
-    if (blockedPoor) status = "blocked";
-    else if (attempt.error) status = "failed";
-    else if (attempt.generatedImageObjectPath) status = "image_ready";
-    else if (attempt.visualPlan) status = "prompt_ready";
-    else status = "pending";
-
-    res.json({
-      status,
-      attemptId: attempt.id,
-      subjectRenderMode: attempt.subjectRenderMode,
-      generationMode: attempt.generationMode,
-      visualPlan: attempt.visualPlan ?? null,
-      compiledPrompt: attempt.compiledPrompt ?? null,
-      subjectFactCompatibility: attempt.subjectFactCompatibility ?? null,
-      generatedImageObjectPath: attempt.generatedImageObjectPath ?? null,
-      blocked: blockedPoor,
-      blockReason: blockedPoor ? "subject_fact_compatibility_poor" : null,
-      error: blockedPoor ? null : (attempt.error ?? null),
-    });
+    // Status mapping (incl. the deliberate `blocked` product state for a poor
+    // subject↔fact compatibility) is shared with the admin moderation poll route.
+    res.json(buildRenderStatusPayload(attempt));
   } catch (err) {
     logger.warn({ err }, "[memes.v2/renders] failed");
     res.status(500).json({ error: "render_status_failed" });

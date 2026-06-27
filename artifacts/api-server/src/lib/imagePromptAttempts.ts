@@ -12,7 +12,7 @@
  * storage — so callers MUST set those two extension fields on `renderControls`.
  */
 import { randomUUID } from "node:crypto";
-import { db, imagePromptAttemptsTable } from "@workspace/db";
+import { db, imagePromptAttemptsTable, type ImagePromptAttempt } from "@workspace/db";
 import type {
   FactEnrichment,
   IdentityPolicy,
@@ -23,10 +23,27 @@ import type {
 import { generationModeFromSubjectRenderMode } from "./sourceImageAnalysis";
 import { enqueueJob } from "./asyncJobs";
 
-/** RenderControls plus the two route-attached fields `imagePromptJobs` reads. */
+/** RenderControls plus the route-attached fields `imagePromptJobs` reads. */
 export type RenderControlsWithRefs = RenderControls & {
   styleId?: string | null;
   referenceImageUrl?: string | null;
+  /**
+   * Moderation-only ephemeral render: when explicitly `false`, the image
+   * pipeline stores the generated image on the attempt (so the poll route can
+   * surface it) but SKIPS mirroring it into the fact's shared production set
+   * (`facts.aiMemeImages` / `user_ai_images` / `upload_image_metadata`). Omitted
+   * ⇒ treated as `true` (normal user-facing renders mirror as before).
+   */
+  mirrorToLegacyStorage?: boolean;
+  /**
+   * Sampled subject (name + pronouns) frozen on a moderation review render so
+   * the async pipeline resolves compiler-level identity tokens to the SAME
+   * subject the prompt preview used — instead of falling back to the canonical
+   * "Alex" for a null-user attempt. See `resolveAttemptIdentity`.
+   */
+  reviewRenderSubject?: { name: string; pronouns: string | null };
+  /** Provenance for an admin-triggered moderation render (review + admin actor). */
+  reviewAudit?: { reviewId: number; adminUserId: string };
 };
 
 export interface BuildImagePromptAttemptArgs {
@@ -41,6 +58,12 @@ export interface BuildImagePromptAttemptArgs {
   userSelectedSubjectRenderMode?: SubjectRenderMode | null;
   identityPolicy: IdentityPolicy;
   renderControls: RenderControlsWithRefs;
+  /**
+   * Optional provenance tag persisted on the attempt's `requestId` column.
+   * Admin moderation renders pass `admin-review:{reviewId}:{adminUserId}:{uuid}`
+   * so prompt-gen logs and attempt rows correlate. Omitted ⇒ null.
+   */
+  requestId?: string | null;
 }
 
 /**
@@ -59,6 +82,7 @@ export async function buildAndEnqueueImagePromptAttempt(
       factId: args.factId,
       userId: args.userId,
       renderJobId,
+      requestId: args.requestId ?? null,
       generationMode,
       subjectRenderMode: args.subjectRenderMode,
       userSelectedSubjectRenderMode: args.userSelectedSubjectRenderMode ?? null,
@@ -80,6 +104,53 @@ export async function buildAndEnqueueImagePromptAttempt(
   });
 
   return { renderJobId, attemptId: attempt!.id };
+}
+
+export type RenderStatus = "pending" | "prompt_ready" | "image_ready" | "failed" | "blocked";
+
+/**
+ * Map an `image_prompt_attempts` row to the render-poll payload. Shared by the
+ * user-facing `GET /memes/ai/renders/:renderJobId` and the admin moderation poll
+ * `GET /admin/reviews/:id/renders/:renderJobId` so the two routes can't drift.
+ *
+ * A "poor" subject↔fact compatibility is a deliberate product block (not an
+ * engine failure): the prompt job recorded the reason and skipped image
+ * generation, surfaced here as its own `blocked` state.
+ */
+export function buildRenderStatusPayload(attempt: ImagePromptAttempt): {
+  status: RenderStatus;
+  attemptId: number;
+  subjectRenderMode: string;
+  generationMode: string;
+  visualPlan: unknown;
+  compiledPrompt: unknown;
+  subjectFactCompatibility: unknown;
+  generatedImageObjectPath: string | null;
+  blocked: boolean;
+  blockReason: string | null;
+  error: string | null;
+} {
+  const blockedPoor = attempt.error === "subject_fact_compatibility_poor";
+  let status: RenderStatus;
+  if (blockedPoor) status = "blocked";
+  else if (attempt.error) status = "failed";
+  else if (attempt.generatedImageObjectPath) status = "image_ready";
+  else if (attempt.visualPlan) status = "prompt_ready";
+  else status = "pending";
+
+  return {
+    status,
+    attemptId: attempt.id,
+    subjectRenderMode: attempt.subjectRenderMode,
+    generationMode: attempt.generationMode,
+    visualPlan: attempt.visualPlan ?? null,
+    compiledPrompt: attempt.compiledPrompt ?? null,
+    subjectFactCompatibility: attempt.subjectFactCompatibility ?? null,
+    generatedImageObjectPath: attempt.generatedImageObjectPath ?? null,
+    blocked: blockedPoor,
+    blockReason: blockedPoor ? "subject_fact_compatibility_poor" : null,
+    error: blockedPoor ? null : (attempt.error ?? null),
+  };
 }
 
 const ASPECT_RATIOS = new Set(["landscape", "square", "portrait"]);
