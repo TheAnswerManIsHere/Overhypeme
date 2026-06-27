@@ -11,9 +11,8 @@
 
 import { Router, type IRouter, type Request, type Response } from "express";
 import { and, desc, eq, sql } from "drizzle-orm";
-import { db, imagePromptAttemptsTable, factsTable, lookStylesTable, pendingReviewsTable } from "@workspace/db";
+import { db, imagePromptAttemptsTable, factsTable, pendingReviewsTable } from "@workspace/db";
 import {
-  defaultIdentityPolicyForRenderMode,
   validateEnrichment,
   type RenderControls,
   type SubjectRenderMode,
@@ -22,27 +21,16 @@ import {
   type IdentityPolicy,
 } from "@workspace/api-zod";
 import { requireAdmin } from "./admin";
-import { analyzeSourceImage, generationModeFromSubjectRenderMode, noImageAnalysis } from "../lib/sourceImageAnalysis";
+import { analyzeSourceImage } from "../lib/sourceImageAnalysis";
 import { ImagePromptError } from "../lib/imagePrompt/generator";
-import {
-  assembleImagePromptForPreview,
-  RUNTIME_PREVIEW_DEFAULT_NAME,
-  RUNTIME_PREVIEW_DEFAULT_PRONOUNS,
-} from "../lib/imagePrompt/preview";
-import { renderPersonalized } from "../lib/renderCanonical";
+import { assembleImagePromptForPreview } from "../lib/imagePrompt/preview";
+import { resolveRenderReviewInput } from "../lib/imagePrompt/resolveRenderReviewInput";
 
 // Re-export the plan-generator test seam (now owned by the shared preview helper)
 // so existing tests importing it from this route keep working.
 export { __setPlanGeneratorForTest } from "../lib/imagePrompt/preview";
 
 const router: IRouter = Router();
-
-// Admin runtime-prompt-preview uses the shared canonical test identity so this
-// preview and the engine workbench feed identical rendered fact text to the
-// planner. The generator expects RENDERED fact text (tokens resolved), so we
-// personalize before prompt generation — not just for display.
-const PREVIEW_NAME = RUNTIME_PREVIEW_DEFAULT_NAME;
-const PREVIEW_PRONOUNS = RUNTIME_PREVIEW_DEFAULT_PRONOUNS;
 
 // ─── POST /admin/image-prompt/preview ────────────────────────────────────
 
@@ -119,68 +107,34 @@ router.post("/admin/image-prompt/preview", requireAdmin, async (req: Request, re
     resolvedFactId = factId;
   }
 
-  // Resolve source-image analysis: caller can supply a synthetic blob, OR
-  // pass uploadedObjectPath to run the real analyzer, OR omit both (= no
-  // reference image; t2i_fallback).
-  let analysis: SourceImageAnalysis;
-  if (body.sourceImageAnalysis) {
-    analysis = body.sourceImageAnalysis;
-  } else if (body.uploadedObjectPath) {
-    analysis = await analyzeSourceImage(
-      { uploadedObjectPath: body.uploadedObjectPath, imageUrl: body.referenceImageUrl ?? "" },
-      { skipAiFallback: false },
-    );
-  } else {
-    analysis = noImageAnalysis();
-  }
-
-  const subjectRenderMode: SubjectRenderMode = body.subjectRenderMode ?? analysis.suggestedRenderMode;
-  const identityPolicy = {
-    ...defaultIdentityPolicyForRenderMode(subjectRenderMode),
-    ...(body.identityPolicyOverrides ?? {}),
-  };
-
-  const renderControls: RenderControls & { styleId?: string | null; referenceImageUrl?: string | null } = {
-    aspectRatio: body.renderControls?.aspectRatio ?? "portrait",
-    contentMode: body.renderControls?.contentMode ?? "sfw",
-    negativeSpacePreference: body.renderControls?.negativeSpacePreference,
-    fallbackSubjectGender: body.renderControls?.fallbackSubjectGender,
-    styleId: body.lookStyleId ?? null,
+  // Deterministic input assembly — SHARED with the moderation render route so a
+  // previewed prompt and the render that follows can never drift (analysis,
+  // subject render mode, identity policy, render controls, style suffix, sample
+  // subject, rendered fact text). See lib/imagePrompt/resolveRenderReviewInput.
+  const resolved = await resolveRenderReviewInput(sourceText, enrichment, {
+    subjectRenderMode: body.subjectRenderMode,
+    userSelectedSubjectRenderMode: body.userSelectedSubjectRenderMode ?? null,
+    sourceImageAnalysis: body.sourceImageAnalysis,
+    uploadedObjectPath: body.uploadedObjectPath,
     referenceImageUrl: body.referenceImageUrl ?? null,
-  };
-
-  // Resolve style suffix from look_styles (if any).
-  const generationMode = generationModeFromSubjectRenderMode(subjectRenderMode);
-  let stylePrompt = "";
-  if (body.lookStyleId) {
-    const [ls] = await db
-      .select({
-        promptSuffix: lookStylesTable.promptSuffix,
-        promptSuffixReference: lookStylesTable.promptSuffixReference,
-      })
-      .from(lookStylesTable)
-      .where(eq(lookStylesTable.id, body.lookStyleId))
-      .limit(1);
-    if (ls) {
-      stylePrompt = generationMode === "i2i" ? ls.promptSuffixReference : ls.promptSuffix;
-    }
-  }
-  const styleSource: "selected_look_style" | "none" =
-    body.lookStyleId && stylePrompt ? "selected_look_style" : "none";
-
-  // Sample subject for the preview: the moderator-chosen name/pronouns when
-  // provided (so they can confirm tokenized overrides render dynamically), else
-  // the brand protagonist. Pronouns must look like "subj/obj"; otherwise default.
-  const previewName = typeof body.previewName === "string" && body.previewName.trim() ? body.previewName.trim() : PREVIEW_NAME;
-  const previewPronouns =
-    typeof body.previewPronouns === "string" && /^\s*[a-z]+\/[a-z]+\s*$/i.test(body.previewPronouns)
-      ? body.previewPronouns.trim().toLowerCase()
-      : PREVIEW_PRONOUNS;
-
-  // The generator expects rendered fact text (tokens resolved). Fact templates
-  // store {NAME}/{SUBJ}/… — personalize with the sample subject for the preview
-  // so the generated plan matches what a real render would see.
-  const renderedFactText = renderPersonalized(sourceText, previewName, previewPronouns);
+    lookStyleId: body.lookStyleId ?? null,
+    renderControls: body.renderControls,
+    identityPolicyOverrides: body.identityPolicyOverrides,
+    previewName: body.previewName,
+    previewPronouns: body.previewPronouns,
+  });
+  const {
+    analysis,
+    subjectRenderMode,
+    identityPolicy,
+    renderControls,
+    generationMode,
+    stylePrompt,
+    styleSource,
+    previewName,
+    previewPronouns,
+    renderedFactText,
+  } = resolved;
 
   const requestId = `admin-preview-${crypto.randomUUID()}`;
   let output;
