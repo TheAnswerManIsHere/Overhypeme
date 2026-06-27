@@ -23,10 +23,19 @@ pnpm --filter @workspace/overhype-me run test    # frontend vitest (no DB)
 pnpm --filter @workspace/db run test             # lib/db migration tests
 ```
 
-Never run `node --import tsx/esm --test <file>` directly. Plain Node does not load
-this repo's `tsx/esm` loader, so it fails to even read a `.ts` file — and it would
-point at the ambient `DATABASE_URL`, which the production guard refuses. Always go
-through `run-test.sh` (targeted) or `pnpm … test` (full suite).
+Never run `node … --test <file>` directly. The wrapper scripts are what call the
+production guard (`assert_not_production`) **and** redirect `DATABASE_URL` to a
+test database — a bare `node` invocation bypasses both. So a direct run is *not*
+caught by the guard (the guard never executes); it runs against whatever
+`DATABASE_URL` already points at, which on Replit is the live `heliumdb` public
+schema. That's the danger, and it's why you always go through `run-test.sh`
+(targeted) or `pnpm … test` (full suite), which set up isolation and the guard for
+you.
+
+(Two separate failure modes, often confused: `node --test <file>` *without*
+`--import tsx/esm` can't even read a `.ts` file — plain Node has no TypeScript
+loader. Adding `--import tsx/esm` fixes the loader but still bypasses the
+wrappers, which is the dangerous case above.)
 
 The full-suite command runs its own `pretest`, which applies the DB schema setup
 (`push-force` + `migrate`), codegen, and the api-zod build for you — so you don't
