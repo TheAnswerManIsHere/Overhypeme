@@ -15,6 +15,7 @@ import {
 import { EnrichmentEditor, EnrichmentSummary, isApprovable } from "@/components/admin/EnrichmentEditor";
 import { useEnrichmentJobs } from "@/components/admin/useEnrichmentJobs";
 import { RuntimePromptPreview } from "@/components/admin/RuntimePromptPreview";
+import { ModerationPexelsPanel } from "@/components/admin/ModerationPexelsPanel";
 
 // ─── Shared ───────────────────────────────────────────────────────────────────
 
@@ -427,7 +428,10 @@ function ReviewModal({
                   <p className="text-sm text-destructive">{jobs.error}</p>
                 </div>
               )}
-              {stagingFactId > 0 && <RuntimePromptPreview factId={stagingFactId} />}
+              {stagingFactId > 0 && (
+                <RuntimePromptPreview factId={stagingFactId} reviewIdForRender={review.id} />
+              )}
+              <ModerationPexelsPanel reviewId={review.id} />
             </div>
           )}
 

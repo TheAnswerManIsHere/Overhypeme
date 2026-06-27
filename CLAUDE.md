@@ -175,6 +175,16 @@ write it to a markdown file and surface it with `SendUserFile`** — automatical
 without being asked — so he can copy or forward it from the iPad without scraping
 it out of the panel. The file mirrors the plan verbatim.
 
+**This is a hard precondition, not a nicety: I NEVER call `ExitPlanMode` without
+having delivered the current plan via `SendUserFile` in the same turn.** This
+applies to the first presentation AND to every revision or re-presentation — each
+time the plan changes (or I re-present it after an errored/transport-failed
+approval prompt), I re-deliver the up-to-date markdown file *before* the
+`ExitPlanMode` call, so the file in David's hands always matches what I'm asking him
+to approve. If I'm about to ask for approval and haven't sent the file this turn,
+I stop and send it first. David should never have to ask "where's the markdown
+file?" — if he does, I've broken this rule.
+
 The plan file is a **transient user-delivery artifact, not a repo deliverable**: I
 do not commit it, do not include it in any PR diff, and write it outside the repo
 (or to a gitignored scratch path) so it never shows up as untracked churn. I add a

@@ -312,8 +312,21 @@ export const imageGenerationHandler: JobHandler = {
       .where(eq(imagePromptAttemptsTable.id, p.attemptId));
 
     // Mirror to facts.aiMemeImages + user_ai_images for read compatibility
-    // with the legacy GET /memes/ai/:factId/image endpoint.
-    await mirrorToLegacyStorage(attempt, storedPath, outputDimensions);
+    // with the legacy GET /memes/ai/:factId/image endpoint — UNLESS this is an
+    // ephemeral moderation review render (mirrorToLegacyStorage === false), which
+    // must verify the pipeline without polluting the staging fact's shared set.
+    // The generatedImageObjectPath write above already happened, so the poll
+    // route can still surface the image either way.
+    const skipMirror =
+      (renderControls as RenderControls & { mirrorToLegacyStorage?: boolean }).mirrorToLegacyStorage === false;
+    if (!skipMirror) {
+      await mirrorToLegacyStorage(attempt, storedPath, outputDimensions);
+    } else {
+      logger.info(
+        { attemptId: p.attemptId, factId: attempt.factId },
+        "[imagePromptJobs] ephemeral review render — skipping legacy mirror",
+      );
+    }
 
     return { ok: true, result: { attemptId: p.attemptId, generatedImageObjectPath: storedPath } };
   },
@@ -336,14 +349,28 @@ async function loadAttempt(attemptId: number): Promise<ImagePromptAttempt | null
 }
 
 /**
- * Resolve the identity (display name + pronouns) for an attempt from its user,
- * falling back to the canonical "Alex / they-them" when there is no user (e.g.
- * an anonymous/admin render). Used both to render legacy fact templates and as
- * the compiler's final token gate.
+ * Resolve the identity (display name + pronouns) for an attempt.
+ *
+ * Order of preference:
+ *  1. A `reviewRenderSubject` frozen on the attempt's renderControls — set by an
+ *     admin moderation render so the compiler's final token gate resolves the
+ *     SAME sampled subject the prompt preview used (a moderation attempt is
+ *     intentionally `userId:null`, which would otherwise fall through to "Alex"
+ *     and silently diverge from the preview for identity-tokened overrides).
+ *  2. The attempt's user (display name + pronouns).
+ *  3. The canonical "Alex / they-them" fallback (anonymous/admin render).
+ *
+ * Used both to render legacy fact templates and as the compiler's final token gate.
  */
 async function resolveAttemptIdentity(
   attempt: ImagePromptAttempt,
 ): Promise<{ name: string; pronouns: string | null }> {
+  const reviewSubject = (attempt.renderControls as RenderControls & {
+    reviewRenderSubject?: { name: string; pronouns: string | null };
+  }).reviewRenderSubject;
+  if (reviewSubject && typeof reviewSubject.name === "string" && reviewSubject.name.trim()) {
+    return { name: reviewSubject.name, pronouns: reviewSubject.pronouns ?? null };
+  }
   let name = "Alex";
   let pronouns: string | null = null;
   if (attempt.userId) {

@@ -1,10 +1,13 @@
 import { Router, type IRouter, type Request, type Response, type NextFunction } from "express";
 import { type AuthenticatedRequest } from "../middlewares/authMiddleware";
 import { z } from "zod";
+import { randomUUID } from "node:crypto";
+import { Readable } from "node:stream";
+import { ObjectStorageService, ObjectNotFoundError } from "../lib/objectStorage";
 import { db } from "@workspace/db";
 import {
   pendingReviewsTable, factsTable, usersTable, activityFeedTable,
-  hashtagsTable, factHashtagsTable,
+  hashtagsTable, factHashtagsTable, imagePromptAttemptsTable,
 } from "@workspace/db/schema";
 import { eq, desc, sql, and, count, inArray } from "drizzle-orm";
 import { requireAdmin } from "./admin";
@@ -29,6 +32,13 @@ import { ensureStagingFact } from "../lib/moderationStaging";
 import { enqueueJob } from "../lib/asyncJobs";
 import { enqueueFactPexels } from "../lib/factPexelsJobs";
 import {
+  buildAndEnqueueImagePromptAttempt,
+  buildRenderStatusPayload,
+  type RenderControlsWithRefs,
+} from "../lib/imagePromptAttempts";
+import { resolveRenderReviewInput } from "../lib/imagePrompt/resolveRenderReviewInput";
+import type { FactPexelsImages, PexelsPhotoEntry } from "../lib/factImagePipeline";
+import {
   assertFactPassesCanonicalRenderPreflight,
   type RenderPreflightResult,
 } from "../lib/imagePrompt/renderPreflight";
@@ -41,6 +51,12 @@ export { __setPlanGeneratorForTest } from "../lib/imagePrompt/preview";
 const requireFactSubmitRateLimit = createFactSubmitRateLimiter();
 
 const router: IRouter = Router();
+
+// Streams ephemeral moderation render images to admins. These objects are
+// uploaded with no ACL (and are intentionally not mirrored anywhere), so the
+// user-facing /storage/objects route would 403 them — admins read them here,
+// authorized by requireAdmin + the attempt's reviewAudit.
+const reviewRenderObjectStorage = new ObjectStorageService();
 
 function requireAuth(req: Request, res: Response, next: () => void): void {
   if (!req.isAuthenticated()) {
@@ -736,6 +752,253 @@ router.post("/admin/reviews/:id/enrich", requireAdmin, (_req: Request, res: Resp
     error: "Review-blob enrichment is retired. Provisionally approve the review and re-run enrichment on its staging fact.",
     code: "REVIEW_ENRICH_RETIRED",
   });
+});
+
+// ─── Moderation render-review tools (production_review) ────────────────────────
+//
+// Two surfaces a moderator uses to vet a fact's imagery before approval:
+//   GET  /admin/reviews/:id/pexels-images        the staging fact's pulled stock
+//   POST /admin/reviews/:id/render               render the AI background (t2i)
+//   GET  /admin/reviews/:id/renders/:renderJobId admin-gated poll for that render
+//
+// Renders go through the SAME Nano-Banana-2 attempt pipeline production uses, but
+// are EPHEMERAL: the attempt row is kept for audit while the image is NOT mirrored
+// into the fact's shared production set (renderControls.mirrorToLegacyStorage:false).
+
+/** Map a stored Pexels entry to the thumbnail shape the moderation panel needs. */
+function toPexelsThumb(entry: PexelsPhotoEntry): {
+  id: number;
+  url: string;
+  photographer?: string;
+  photographer_url?: string;
+} {
+  return {
+    id: entry.id,
+    // Prefer the higher-fidelity src URLs; fall back to the legacy `url` field
+    // for older entries seeded before `src` was stored.
+    url: entry.src?.large2x ?? entry.src?.large ?? entry.url,
+    ...(entry.photographer !== undefined ? { photographer: entry.photographer } : {}),
+    ...(entry.photographer_url !== undefined ? { photographer_url: entry.photographer_url } : {}),
+  };
+}
+
+// GET /admin/reviews/:id/pexels-images — all genders, no isActive gate (staging
+// facts are inactive, so the public /facts/:id/pexels-images endpoint can't serve
+// them). Returns the live pexelsStatus so the panel can poll while seeding.
+router.get("/admin/reviews/:id/pexels-images", requireAdmin, async (req: Request, res: Response) => {
+  const id = parseInt(String(req.params["id"] ?? ""), 10);
+  if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
+
+  const [review] = await db
+    .select({ stagingFactId: pendingReviewsTable.stagingFactId })
+    .from(pendingReviewsTable)
+    .where(eq(pendingReviewsTable.id, id))
+    .limit(1);
+  if (!review) { res.status(404).json({ error: "Review not found" }); return; }
+
+  const emptyImages = { male: [], female: [], neutral: [] };
+  if (review.stagingFactId == null) {
+    res.json({ pexelsStatus: null, factType: null, keywords: null, images: emptyImages });
+    return;
+  }
+
+  const [fact] = await db
+    .select({ pexelsImages: factsTable.pexelsImages, pexelsStatus: factsTable.pexelsStatus })
+    .from(factsTable)
+    .where(eq(factsTable.id, review.stagingFactId))
+    .limit(1);
+  if (!fact) { res.status(404).json({ error: "Staging fact not found" }); return; }
+
+  const raw = fact.pexelsImages as FactPexelsImages | null;
+  res.json({
+    pexelsStatus: fact.pexelsStatus ?? null,
+    factType: raw?.fact_type ?? null,
+    keywords: raw?.keywords ?? null,
+    images: {
+      male: (raw?.male ?? []).map(toPexelsThumb),
+      female: (raw?.female ?? []).map(toPexelsThumb),
+      neutral: (raw?.neutral ?? []).map(toPexelsThumb),
+    },
+  });
+});
+
+const T2I_MODE = "t2i_fallback" as const;
+const RenderReviewBody = z.object({
+  subjectRenderMode: z.enum(["human_identity_i2i", "nonhuman_subject_i2i", "t2i_fallback"]).optional(),
+  userSelectedSubjectRenderMode: z
+    .enum(["human_identity_i2i", "nonhuman_subject_i2i", "t2i_fallback"])
+    .nullish(),
+  lookStyleId: z.string().max(200).nullish(),
+  renderControls: z
+    .object({
+      aspectRatio: z.enum(["landscape", "square", "portrait"]).optional(),
+      contentMode: z.enum(["sfw", "suggestive", "spicy"]).optional(),
+      negativeSpacePreference: z.enum(["top", "bottom", "left", "right", "auto", "none"]).optional(),
+      fallbackSubjectGender: z.enum(["male", "female", "neutral"]).optional(),
+    })
+    .strict()
+    .optional(),
+  identityPolicyOverrides: z.object({ preservePhysique: z.boolean() }).partial().strict().optional(),
+  previewName: z.string().max(120).optional(),
+  previewPronouns: z.string().max(40).optional(),
+});
+
+// POST /admin/reviews/:id/render — kick a t2i AI-background render for the staging
+// fact using the SAME assembly the prompt preview uses, then return a renderJobId
+// the admin poll route tracks. Ephemeral: nothing mirrors onto the fact.
+router.post("/admin/reviews/:id/render", requireAdmin, async (req: AuthenticatedRequest, res: Response) => {
+  const id = parseInt(String(req.params["id"] ?? ""), 10);
+  if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
+
+  const parsed = RenderReviewBody.safeParse(req.body ?? {});
+  if (!parsed.success) {
+    res.status(400).json({ error: "Invalid render controls", details: parsed.error.flatten() });
+    return;
+  }
+  const body = parsed.data;
+
+  // t2i-only: review facts have no source image, so i2i would fail downstream
+  // with i2i_missing_reference_url. Reject BEFORE enqueueing any paid work.
+  if (body.subjectRenderMode && body.subjectRenderMode !== T2I_MODE) {
+    res.status(400).json({
+      error: "i2i_unavailable_in_moderation",
+      message: "Moderation renders are text-to-image only — review facts have no source image.",
+    });
+    return;
+  }
+
+  const [review] = await db.select().from(pendingReviewsTable).where(eq(pendingReviewsTable.id, id)).limit(1);
+  if (!review) { res.status(404).json({ error: "Review not found" }); return; }
+  if (review.workflowStage !== "production_review") {
+    res.status(409).json({ error: `Cannot render from stage ${review.workflowStage}. Finish prep first.` });
+    return;
+  }
+  if (review.stagingFactId == null) {
+    res.status(409).json({ error: "No staging fact for this review." });
+    return;
+  }
+
+  const [stagingFact] = await db
+    .select({ text: factsTable.text, enrichment: factsTable.enrichment })
+    .from(factsTable)
+    .where(eq(factsTable.id, review.stagingFactId))
+    .limit(1);
+  if (!stagingFact) { res.status(409).json({ error: "Staging fact missing for this review." }); return; }
+
+  const ev = validateEnrichment(stagingFact.enrichment);
+  if (!ev.ok) { res.status(400).json({ error: "fact_enrichment_invalid", details: ev.error }); return; }
+
+  // Shared deterministic assembly — identical to the prompt-preview factId path,
+  // forced to t2i with a fallback gender so the generator can build a protagonist.
+  const resolved = await resolveRenderReviewInput(stagingFact.text, ev.data, {
+    subjectRenderMode: T2I_MODE,
+    userSelectedSubjectRenderMode: body.userSelectedSubjectRenderMode ?? body.subjectRenderMode ?? null,
+    lookStyleId: body.lookStyleId ?? null,
+    renderControls: {
+      aspectRatio: body.renderControls?.aspectRatio,
+      contentMode: body.renderControls?.contentMode,
+      negativeSpacePreference: body.renderControls?.negativeSpacePreference,
+      fallbackSubjectGender: body.renderControls?.fallbackSubjectGender ?? "neutral",
+    },
+    identityPolicyOverrides: body.identityPolicyOverrides,
+    previewName: body.previewName,
+    previewPronouns: body.previewPronouns,
+  });
+
+  // Only server-written internal fields reach renderControls — the client cannot
+  // inject arbitrary keys (the resolver rebuilt renderControls from validated input).
+  const renderControls: RenderControlsWithRefs = {
+    ...resolved.renderControls,
+    mirrorToLegacyStorage: false,
+    reviewRenderSubject: { name: resolved.renderedSubject.name, pronouns: resolved.renderedSubject.pronouns },
+    reviewAudit: { reviewId: id, adminUserId: req.user.id },
+  };
+
+  const { renderJobId, attemptId } = await buildAndEnqueueImagePromptAttempt({
+    factId: review.stagingFactId,
+    userId: null, // not user-owned — provenance lives in reviewAudit / requestId
+    enrichment: ev.data,
+    renderedFactText: resolved.renderedFactText,
+    analysis: resolved.analysis,
+    subjectRenderMode: resolved.subjectRenderMode,
+    userSelectedSubjectRenderMode: resolved.userSelectedSubjectRenderMode,
+    identityPolicy: resolved.identityPolicy,
+    renderControls,
+    requestId: `admin-review:${id}:${req.user.id}:${randomUUID()}`,
+  });
+
+  logger.info(
+    { reviewId: id, stagingFactId: review.stagingFactId, adminId: req.user.id, attemptId, renderJobId },
+    "[moderation] review render enqueued",
+  );
+  res.status(202).json({ renderJobId, attemptId });
+});
+
+// GET /admin/reviews/:id/renders/:renderJobId — admin-gated poll for a review
+// render. A review attempt is userId:null, so the public /memes/ai/renders route
+// would expose its unpublished prompt/result to anyone holding the UUID; this
+// route requires admin AND that the attempt's reviewAudit matches :id.
+router.get("/admin/reviews/:id/renders/:renderJobId", requireAdmin, async (req: Request, res: Response) => {
+  const id = parseInt(String(req.params["id"] ?? ""), 10);
+  if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
+  const renderJobId = String(req.params["renderJobId"] ?? "");
+  if (!renderJobId) { res.status(400).json({ error: "renderJobId required" }); return; }
+
+  const [attempt] = await db
+    .select()
+    .from(imagePromptAttemptsTable)
+    .where(eq(imagePromptAttemptsTable.renderJobId, renderJobId))
+    .limit(1);
+  if (!attempt) { res.status(404).json({ error: "render_not_found" }); return; }
+
+  const reviewAudit = (attempt.renderControls as RenderControlsWithRefs | null)?.reviewAudit;
+  if (!reviewAudit || reviewAudit.reviewId !== id) {
+    // Not a render belonging to this review — 404 rather than leak its existence.
+    res.status(404).json({ error: "render_not_found" });
+    return;
+  }
+
+  res.json(buildRenderStatusPayload(attempt));
+});
+
+// GET /admin/reviews/:id/renders/:renderJobId/image — stream the ephemeral
+// render's image bytes for admins. The object has no ACL (and the user-facing
+// /storage/objects route would 403 it), so we authorize via requireAdmin + the
+// attempt's reviewAudit and stream it directly. Not cached/stored.
+router.get("/admin/reviews/:id/renders/:renderJobId/image", requireAdmin, async (req: Request, res: Response) => {
+  const id = parseInt(String(req.params["id"] ?? ""), 10);
+  if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
+  const renderJobId = String(req.params["renderJobId"] ?? "");
+  if (!renderJobId) { res.status(400).json({ error: "renderJobId required" }); return; }
+
+  const [attempt] = await db
+    .select({ renderControls: imagePromptAttemptsTable.renderControls, generatedImageObjectPath: imagePromptAttemptsTable.generatedImageObjectPath })
+    .from(imagePromptAttemptsTable)
+    .where(eq(imagePromptAttemptsTable.renderJobId, renderJobId))
+    .limit(1);
+  if (!attempt) { res.status(404).json({ error: "render_not_found" }); return; }
+  const reviewAudit = (attempt.renderControls as RenderControlsWithRefs | null)?.reviewAudit;
+  if (!reviewAudit || reviewAudit.reviewId !== id) { res.status(404).json({ error: "render_not_found" }); return; }
+  if (!attempt.generatedImageObjectPath) { res.status(404).json({ error: "image_not_ready" }); return; }
+
+  try {
+    const file = await reviewRenderObjectStorage.getObjectEntityFile(attempt.generatedImageObjectPath);
+    const response = await reviewRenderObjectStorage.downloadObject(file, 0);
+    res.status(response.status);
+    response.headers.forEach((value, key) => {
+      if (key.toLowerCase() !== "cache-control") res.setHeader(key, value);
+    });
+    res.setHeader("Cache-Control", "private, no-store");
+    if (response.body) {
+      Readable.fromWeb(response.body as ReadableStream<Uint8Array>).pipe(res);
+    } else {
+      res.end();
+    }
+  } catch (err) {
+    if (err instanceof ObjectNotFoundError) { res.status(404).json({ error: "image_not_found" }); return; }
+    logger.error({ err, reviewId: id, renderJobId }, "[moderation] render image stream failed");
+    res.status(500).json({ error: "image_stream_failed" });
+  }
 });
 
 // ─── Activity Feed ────────────────────────────────────────────────────────────
