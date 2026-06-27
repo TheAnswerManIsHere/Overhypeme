@@ -166,6 +166,20 @@ not start implementing, I do not re-fire the prompt in a loop, and I wait for
 David's explicit words. When unsure whether I've been approved, I assume I have
 not.
 
+## Deliver every proposed plan as a markdown file
+
+David works from the Claude Code on the Web iPad UI, where a plan rendered only in
+the plan/chat panel is awkward to capture and share for outside review (e.g.
+pasting into ChatGPT). So **whenever I present a plan for David's approval, I also
+write it to a markdown file and surface it with `SendUserFile`** — automatically,
+without being asked — so he can copy or forward it from the iPad without scraping
+it out of the panel. The file mirrors the plan verbatim.
+
+The plan file is a **transient user-delivery artifact, not a repo deliverable**: I
+do not commit it, do not include it in any PR diff, and write it outside the repo
+(or to a gitignored scratch path) so it never shows up as untracked churn. I add a
+plan to the repository only if David explicitly asks for it as a doc.
+
 ## Always open a PR when work is done
 
 David works exclusively from the Claude Code on the Web UI. Pushing to
