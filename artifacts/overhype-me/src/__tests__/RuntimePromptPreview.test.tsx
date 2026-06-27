@@ -135,9 +135,13 @@ describe("RuntimePromptPreview", () => {
     // Review-render mode defaults to t2i_fallback, so the gender control shows.
     const genderSel = screen.getByTestId("rpp-fallback-gender") as HTMLSelectElement;
 
-    // he/him → male; she/her → female; they/them → neutral — all derived live.
-    fireEvent.change(screen.getByTestId("rpp-preview-pronouns"), { target: { value: "he/him" } });
+    // Blank pronouns ⇒ the brand-default he/him sample ⇒ male (NOT neutral), so the
+    // default "just click Generate" path doesn't hit the t2i validator failure.
     await waitFor(() => expect(genderSel.value).toBe("male"));
+
+    // he/him → male; she/her → female; they/them → neutral — all derived live.
+    fireEvent.change(screen.getByTestId("rpp-preview-pronouns"), { target: { value: "they/them" } });
+    await waitFor(() => expect(genderSel.value).toBe("neutral"));
     fireEvent.change(screen.getByTestId("rpp-preview-pronouns"), { target: { value: "she/her" } });
     await waitFor(() => expect(genderSel.value).toBe("female"));
 

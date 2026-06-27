@@ -194,7 +194,12 @@ interface PersistedControls {
  * else neutral) keeps the preview self-consistent and renders reliably.
  */
 function genderFromPronouns(pronouns: string): FallbackGender {
-  const subj = pronouns.trim().toLowerCase().split("/")[0];
+  const trimmed = pronouns.trim();
+  // Match the backend: a blank/invalid sample resolves to the brand default
+  // (he/him), so the default "just click Generate" path derives "male" rather than
+  // the validator-fragile "neutral". Only a valid "subj/obj" string overrides it.
+  const effective = /^[a-z]+\/[a-z]+$/i.test(trimmed) ? trimmed.toLowerCase() : "he/him";
+  const subj = effective.split("/")[0];
   if (subj === "he") return "male";
   if (subj === "she") return "female";
   return "neutral";
