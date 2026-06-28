@@ -307,11 +307,17 @@ first. While watching:
 - **Break non-converging loops.** If a fix would be contested, or after ~2
   rounds without convergence, I stop and bring David the diagnosis instead of
   churning the code.
-- **Never resolve review threads — that's David's.** When I act on (or decline) a
-  review comment I leave a brief reply saying what I did, but I do **not** mark
-  the thread resolved. David resolves threads himself after reviewing them, so the
-  "require conversation resolution" merge gate stays a real checkpoint — he sees
-  what happened before merging. I resolve a thread only if David explicitly asks.
+- **Reply inline on each comment's own thread — never a standalone summary.**
+  When I act on (or decline) a reviewer comment (Codex or otherwise), I reply
+  **directly on that specific comment's thread**, one reply per comment, saying
+  what I did. I do **NOT** post a single new top-level PR comment summarizing
+  several fixes — David tracks "is every issue addressed?" by seeing a reply on
+  each thread, and a catch-all comment defeats that.
+- **Never resolve review threads — that's David's.** I leave the reply but do
+  **not** mark the thread resolved. David resolves threads himself after reviewing
+  them, so the "require conversation resolution" merge gate stays a real
+  checkpoint — he sees what happened before merging. I resolve a thread only if
+  David explicitly asks.
 - I stay **frugal with GitHub replies** (only when genuinely necessary), and I
   stop watching once the PR is merged or closed, or when David says stop.
 
