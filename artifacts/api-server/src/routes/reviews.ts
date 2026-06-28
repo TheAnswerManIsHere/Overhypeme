@@ -784,6 +784,69 @@ router.patch("/admin/reviews/:id", requireAdmin, async (req: AuthenticatedReques
   res.json({ success: true });
 });
 
+// ─── Save Advanced-Options enrichment edits to the staging fact ───────────────
+//
+// Step-2 "Advanced Options" lets a moderator tune the taxonomy enrichment + the
+// visual-strategy override before approving. Those edits must land on the
+// STAGING FACT (`facts.enrichment`) — that is the single source of truth the
+// Step-2 test renders and the approval gate both read. Without an explicit save,
+// edits lived only in the browser and were flushed on approve, so re-running a
+// render tile rendered against the OLD enrichment and the tile stayed stale.
+//
+// This is the review-flow "plain whole-blob draft" save (NOT the live-fact
+// override-tracking model): we materialize the edited blob straight onto the
+// staging fact, exactly as `approve-for-production` does. It is the moderation
+// twin of the Facts page's `PATCH /admin/facts/:id/enrichment`, minus the
+// tracked-field guard a live fact needs (a staging fact has no protected
+// AI-baseline / live overrides to defend). Returns the persisted enrichment so
+// the client can clear its dirty flag and re-derive scenario staleness.
+router.patch("/admin/reviews/:id/staging-enrichment", requireAdmin, async (req: AuthenticatedRequest, res: Response) => {
+  const id = parseInt(String(req.params["id"] ?? ""), 10);
+  if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
+
+  const result = validateEnrichment((req.body as { enrichment?: unknown } | null | undefined)?.enrichment);
+  if (!result.ok) { res.status(400).json({ error: `Invalid enrichment: ${result.error}` }); return; }
+  const enrichment = result.data;
+
+  // Stage recheck + staging-fact write happen in ONE transaction with the review
+  // row locked (SELECT … FOR UPDATE). Otherwise a concurrent approve-for-production
+  // committing between a separate read and the write would let us rewrite a fact
+  // that is already LIVE — bypassing the approval render gate / hashtag attach. The
+  // lock serializes against approval (which also writes the review row), so we
+  // either win the lock and approval sees our saved enrichment, or approval wins
+  // and our recheck sees a non-production_review stage and bails.
+  const outcome = await db.transaction(async (tx): Promise<{ status: number; body: Record<string, unknown> }> => {
+    const [review] = await tx
+      .select({ stagingFactId: pendingReviewsTable.stagingFactId, workflowStage: pendingReviewsTable.workflowStage })
+      .from(pendingReviewsTable)
+      .where(eq(pendingReviewsTable.id, id))
+      .for("update")
+      .limit(1);
+    if (!review) return { status: 404, body: { error: "Review not found" } };
+    if (review.stagingFactId == null) {
+      return { status: 409, body: { error: "This review has no staging fact yet. Provisionally approve it first." } };
+    }
+    // Advanced Options (and its renders) only exist in production_review. Refuse to
+    // mutate enrichment in any other stage so a stale client can't write to a fact
+    // that has already been approved/rejected.
+    if (review.workflowStage !== "production_review") {
+      return { status: 409, body: { error: `Enrichment can only be saved during production review (stage is ${review.workflowStage}).` } };
+    }
+
+    const { columns } = materializeFromBaseline(enrichment);
+    const [updated] = await tx
+      .update(factsTable)
+      .set({ ...columns, enrichmentStatus: "ok" })
+      .where(eq(factsTable.id, review.stagingFactId))
+      .returning({ id: factsTable.id });
+    if (!updated) return { status: 409, body: { error: "Staging fact missing for this review." } };
+
+    return { status: 200, body: { success: true, enrichment: columns.enrichment } };
+  });
+
+  res.status(outcome.status).json(outcome.body);
+});
+
 // ─── Enrichment: retired ──────────────────────────────────────────────────────
 //
 // Review-blob enrichment is retired. Production prep is fact-backed: enrichment
