@@ -49,14 +49,24 @@ While in bug-fixing mode, the following CLAUDE.md feature-ceremony steps are
 David always squash-merges, so each batch gets a **fresh branch off current
 `origin/main`** (avoids phantom conflicts from prior squash-merges):
 
+Pick a short date slug, then **check for an existing branch of that name
+before creating** — and create with a **non-resetting** `-b`, never `-B`.
+`-B` *resets* the ref to `origin/main`, which would silently wipe an existing
+same-day batch's unpushed commits:
+
 ```
 git fetch origin main
-git checkout -B claude/bugfix-<shortdate> origin/main   # e.g. claude/bugfix-jun28
+# Choose the slug, e.g. claude/bugfix-jun28. If a branch with that name
+# already exists for an unrelated open batch, pick a disambiguated slug FIRST
+# (claude/bugfix-jun28-2, or a topic word) — do this before any checkout.
+git checkout -b <chosen-slug> origin/main   # -b (not -B): fails if it exists, so it can't wipe unpushed work
 ```
 
-Use a short date slug; if a branch with that name already exists for an
-unrelated open batch, append a disambiguator (`-2`, a topic word). Confirm to
-David: branch name + "bug-fixing mode is on, send me bugs."
+If the `-b` create fails because the branch already exists, that's the signal
+to pick a new slug and retry — **never** fall back to `-B`, `--force`, or any
+reset onto `origin/main` to "fix" it, since that's exactly what could destroy
+unpushed fixes. Then confirm to David: branch name + "bug-fixing mode is on,
+send me bugs."
 
 > Note: if I was already invoked on a designated working branch for this task,
 > stay on it rather than creating a new one — the fresh-branch step is for the
