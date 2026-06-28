@@ -16,7 +16,7 @@ near-empty placeholder is rejected by the health check.
 | `male`                    | `male.jpg`                    | ✅ Provided (upright-normalized male portrait).    |
 | `female`                  | `female.jpg`                  | ✅ Provided (upright-normalized female portrait).  |
 | `nonhuman_animal`         | `nonhuman-animal.jpg`         | ✅ Provided (upright-normalized cat).              |
-| `nonhuman_object_vehicle` | `nonhuman-object-vehicle.jpg` | ⏳ Pending — a clear object/vehicle (e.g. a car).  |
+| `nonhuman_object_vehicle` | `nonhuman-object-vehicle.jpg` | ✅ Provided (upright-normalized car).             |
 
 All provided assets are EXIF-orientation-normalized to upright (pixels baked, tag
 stripped) so i2i gets a correctly-oriented subject regardless of how the engine
