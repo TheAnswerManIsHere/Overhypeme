@@ -11,12 +11,16 @@ clear subject work best (a portrait for the human types; a clear single subject
 for the non-human types). Minimum useful size is well above 4 KB — a 1×1 or
 near-empty placeholder is rejected by the health check.
 
-| Identity type             | File                          | What it should depict                     |
-| ------------------------- | ----------------------------- | ----------------------------------------- |
-| `male`                    | *(reuses `../test-face.jpg`)* | Already provided — bundled male portrait. |
-| `female`                  | `female.jpg`                  | A clear female portrait.                  |
-| `nonhuman_animal`         | `nonhuman-animal.jpg`         | A clear single animal (e.g. a cat).       |
-| `nonhuman_object_vehicle` | `nonhuman-object-vehicle.jpg` | A clear object/vehicle (e.g. a car).      |
+| Identity type             | File                          | Status                                            |
+| ------------------------- | ----------------------------- | ------------------------------------------------- |
+| `male`                    | `male.jpg`                    | ✅ Provided (upright-normalized male portrait).    |
+| `female`                  | `female.jpg`                  | ✅ Provided (upright-normalized female portrait).  |
+| `nonhuman_animal`         | `nonhuman-animal.jpg`         | ✅ Provided (upright-normalized cat).              |
+| `nonhuman_object_vehicle` | `nonhuman-object-vehicle.jpg` | ⏳ Pending — a clear object/vehicle (e.g. a car).  |
+
+All provided assets are EXIF-orientation-normalized to upright (pixels baked, tag
+stripped) so i2i gets a correctly-oriented subject regardless of how the engine
+handles EXIF.
 
 ## Rules
 

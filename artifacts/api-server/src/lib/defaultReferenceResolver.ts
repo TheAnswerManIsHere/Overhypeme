@@ -48,10 +48,10 @@ export interface ReferenceAssetMeta {
 const REFERENCE_ASSETS: Record<ReferenceIdentityType, Omit<ReferenceAssetMeta, "version">> = {
   male: {
     identityType: "male",
-    filePath: path.join(ASSETS_DIR, "test-face.jpg"),
+    filePath: path.join(REFERENCES_DIR, "male.jpg"),
     contentType: "image/jpeg",
-    license: "Project-owned (bundled Engine-workbench reference photo).",
-    source: "src/assets/test-face.jpg",
+    license: "Project-owned (provided by David). Upright-normalized copy of the bundled Engine-workbench photo.",
+    source: "src/assets/render-references/male.jpg",
   },
   female: {
     identityType: "female",
