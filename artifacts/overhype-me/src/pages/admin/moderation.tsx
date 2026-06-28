@@ -13,6 +13,7 @@ import {
   REVIEW_WORKFLOW_STAGE_DISPLAY,
   type ReviewWorkflowStage,
   type RenderScenarioKey,
+  RENDER_SCENARIO_DESCRIPTORS,
 } from "@workspace/api-zod";
 import { EnrichmentEditor, EnrichmentSummary, isApprovable } from "@/components/admin/EnrichmentEditor";
 import { useEnrichmentJobs } from "@/components/admin/useEnrichmentJobs";
@@ -218,16 +219,67 @@ interface ReviewDetail extends Review {
   stagingFact: StagingFactDetail | null;
 }
 
+/** A single visual-render problem returned by approve-for-production's 409. */
+interface VisualRenderProblem {
+  scenarioKey: RenderScenarioKey;
+  status: string;
+}
+
+/** Two-step wizard steps for a non-terminal review. */
+type WizardStep = "triage" | "visual";
+
+const WIZARD_STEPS: { id: WizardStep; label: string }[] = [
+  { id: "triage", label: "Triage" },
+  { id: "visual", label: "Visual review" },
+];
+
+/** SubmitFact-style two-step indicator (numbered steps + connector). */
+function StepIndicator({ step }: { step: WizardStep }) {
+  const stepIndex = WIZARD_STEPS.findIndex((s) => s.id === step);
+  return (
+    <div className="flex items-center justify-center" data-testid="moderation-step-indicator">
+      {WIZARD_STEPS.map((s, i) => (
+        <div key={s.id} className="flex items-center">
+          <div
+            className={`flex items-center gap-2 px-4 py-1.5 rounded-full text-sm font-bold tracking-wide transition-all ${
+              step === s.id
+                ? "bg-primary text-primary-foreground"
+                : stepIndex > i
+                  ? "text-green-500"
+                  : "text-muted-foreground"
+            }`}
+          >
+            {stepIndex > i ? (
+              <CheckCheck className="w-4 h-4" />
+            ) : (
+              <span className="w-5 h-5 rounded-full border-2 flex items-center justify-center text-xs border-current">
+                {i + 1}
+              </span>
+            )}
+            {s.label}
+          </div>
+          {i < WIZARD_STEPS.length - 1 && (
+            <div className={`w-10 h-px mx-1 ${stepIndex > i ? "bg-green-500/40" : "bg-border"}`} />
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 /**
- * Stage-aware review modal for the two-gate moderation lifecycle:
+ * Stage-aware review modal for the two-gate moderation lifecycle, presented as a
+ * two-step wizard for non-terminal reviews:
  *
- *  - triage_pending     → Provisional approve (start prep) / as variant / reject.
- *  - prep_pending        → LIVE prep status (enrichment + Pexels), polled until
- *                          terminal (rule 8); reject-after-prep available.
- *  - prep_failed         → Retry prep / reject.
- *  - production_review   → tune enrichment on the staging fact + runtime preview,
- *                          then Approve for production (soft-warn when images
- *                          aren't ready) / reject.
+ *  - Step 1 "Triage": keep/reject decision + duplicate context + submitter info.
+ *  - Step 2 "Visual review": output-first scenario grid + collapsed Advanced
+ *    Options (enrichment / references / strategy / prompt diagnostics).
+ *
+ * Stage mapping:
+ *  - triage_pending     → Step 1 only (provisional approve / variant / reject).
+ *  - prep_pending        → Step 1 + LIVE prep status, polled until terminal (rule 8).
+ *  - prep_failed         → Step 1 + retry prep / reject.
+ *  - production_review   → both steps; Step 2 is the default; approve from Step 2.
  *  - resolved            → read-only summary + link to the live fact.
  */
 function ReviewModal({
@@ -252,6 +304,9 @@ function ReviewModal({
   const [reason, setReason] = useState<RejectionReason | "">("");
   const [confirmApprove, setConfirmApprove] = useState(false);
 
+  // Visual-render approval waiver (set when approve-for-production returns 409).
+  const [renderProblems, setRenderProblems] = useState<VisualRenderProblem[] | null>(null);
+
   // Production-review enrichment — tuned on the staging fact, sent on approve.
   const [enrichment, setEnrichment] = useState<FactEnrichment | null>(null);
   const [enrichmentStatus, setEnrichmentStatus] = useState<PrepStatus>(null);
@@ -262,6 +317,17 @@ function ReviewModal({
   const isResolved = review.status !== "pending";
   const pexelsStatus: PrepStatus = detail?.stagingFact?.pexelsStatus ?? review.stagingFact?.pexelsStatus ?? null;
   const liveEnrichmentStatus: PrepStatus = detail?.stagingFact?.enrichmentStatus ?? review.stagingFact?.enrichmentStatus ?? null;
+
+  // Wizard step. Production review opens on Visual review (Step 2); everything
+  // else lives on Triage (Step 1). Re-sync the default when the stage advances.
+  const [step, setStep] = useState<WizardStep>(review.workflowStage === "production_review" ? "visual" : "triage");
+  const sawProductionRef = useRef(review.workflowStage === "production_review");
+  useEffect(() => {
+    if (stage === "production_review" && !sawProductionRef.current) {
+      sawProductionRef.current = true;
+      setStep("visual");
+    }
+  }, [stage]);
 
   const loadDetail = useCallback(async () => {
     const r = await fetch(`/api/admin/reviews/${review.id}`, { credentials: "include" });
@@ -306,7 +372,17 @@ function ReviewModal({
         body: JSON.stringify(body),
       });
       if (r.ok) { onActionDone(); onClose(); return; }
-      const d = (await r.json().catch(() => ({}))) as { error?: string };
+      const d = (await r.json().catch(() => ({}))) as {
+        error?: string;
+        problems?: VisualRenderProblem[];
+      };
+      // 409 visual_render_incomplete: surface the named problem scenarios and
+      // offer "Approve anyway (waive)" rather than a generic error.
+      if (r.status === 409 && d.error === "visual_render_incomplete" && Array.isArray(d.problems)) {
+        setRenderProblems(d.problems);
+        setError("");
+        return;
+      }
       setError(d.error ?? `Request failed (${r.status})`);
     } catch {
       setError("Network error — could not reach the server.");
@@ -324,13 +400,100 @@ function ReviewModal({
     if (!reason) { setError("Please select a rejection reason before rejecting."); return; }
     void runAction("reject", { rejectionReason: reason, adminNote: note || undefined });
   };
-  const onApproveProduction = () => {
-    if (pexelsStatus !== "ok" && !confirmApprove) { setConfirmApprove(true); return; }
-    void runAction("approve-for-production", { adminNote: note || undefined, enrichment: enrichment ?? undefined });
+  const onApproveProduction = (waive?: boolean) => {
+    if (pexelsStatus !== "ok" && !confirmApprove && !waive) { setConfirmApprove(true); return; }
+    const body: Record<string, unknown> = {
+      adminNote: note || undefined,
+      enrichment: enrichment ?? undefined,
+    };
+    if (waive && renderProblems) {
+      body.waiveVisualRenderIssues = true;
+      body.waivedScenarioKeys = renderProblems.map((p) => p.scenarioKey);
+    }
+    void runAction("approve-for-production", body);
   };
 
   const canApproveProduction = isApprovable(enrichment);
   const matchVisible = review.matchingSimilarity >= duplicateThreshold || showDuplicate;
+
+  // ── Sub-renders ────────────────────────────────────────────────────────────
+
+  const SubmitterContext = (
+    <>
+      <div className="flex flex-wrap gap-4 text-sm text-muted-foreground">
+        <span>Submitted by: <strong className="text-foreground">{review.submitter?.displayName ?? review.submitter?.email ?? "Unknown"}</strong></span>
+        {review.submitter?.email && <span>Email: <strong className="text-foreground">{review.submitter.email}</strong></span>}
+        <span className="flex items-center gap-2">
+          Duplicate Likelihood: <strong className="text-foreground">{review.matchingSimilarity}%</strong>
+          {review.matchingSimilarity > 0 && review.matchingSimilarity < duplicateThreshold && !showDuplicate && (
+            <button onClick={() => setShowDuplicate(true)} className="text-xs text-primary underline hover:opacity-80 font-normal">
+              Show potential duplicate
+            </button>
+          )}
+        </span>
+        <span>Date: <strong className="text-foreground">{new Date(review.createdAt).toLocaleDateString()}</strong></span>
+      </div>
+
+      <div className={`grid gap-4 ${matchVisible ? "grid-cols-1 sm:grid-cols-2" : "grid-cols-1"}`}>
+        <div className="bg-background border-2 border-border rounded-sm p-4">
+          <p className="text-xs font-bold text-muted-foreground uppercase tracking-wide mb-3">Submitted Fact</p>
+          <p className="text-base italic text-foreground leading-relaxed">"{review.submittedText}"</p>
+        </div>
+        {matchVisible && (
+          <div className="bg-background border-2 border-primary/40 rounded-sm p-4">
+            <div className="flex items-center justify-between mb-3">
+              <p className="text-xs font-bold text-primary uppercase tracking-wide">Flagged Duplicate</p>
+              {review.matchingFact && (
+                <a href={`/facts/${review.matchingFact.id}`} target="_blank" rel="noreferrer"
+                  className="text-xs text-primary hover:underline flex items-center gap-1">
+                  View <ExternalLink className="w-3 h-3" />
+                </a>
+              )}
+            </div>
+            {review.matchingFact ? (
+              <p className="text-base italic text-foreground leading-relaxed">"{review.matchingFact.text}"</p>
+            ) : review.matchingFactId != null ? (
+              <p className="text-muted-foreground text-sm italic">Original fact no longer available</p>
+            ) : (
+              <p className="text-muted-foreground text-sm italic">Duplicate found in pending submissions — no approved original yet</p>
+            )}
+          </div>
+        )}
+      </div>
+    </>
+  );
+
+  const DecisionInputs = (
+    <div className="space-y-4">
+      <div>
+        <label className="block text-sm font-semibold text-foreground mb-2">
+          Rejection Reason <span className="text-muted-foreground font-normal">(required to reject)</span>
+        </label>
+        <select
+          value={reason}
+          onChange={(e) => { setReason(e.target.value as RejectionReason | ""); setError(""); }}
+          className="w-full px-3 py-2 bg-background border border-border rounded-sm text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+        >
+          <option value="">— Select a reason —</option>
+          {REJECTION_REASONS.map((r) => (
+            <option key={r.value} value={r.value}>{r.label}</option>
+          ))}
+        </select>
+      </div>
+      <div>
+        <label className="block text-sm font-semibold text-foreground mb-2">Admin Note <span className="text-muted-foreground font-normal">(optional, sent to user)</span></label>
+        <textarea
+          value={note}
+          onChange={(e) => setNote(e.target.value)}
+          rows={3}
+          maxLength={500}
+          placeholder="Add a personal message to explain your decision…"
+          className="w-full px-3 py-2 bg-background border border-border rounded-sm text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary resize-none"
+        />
+        <span className="text-xs text-muted-foreground">{note.length}/500</span>
+      </div>
+    </div>
+  );
 
   return (
     <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4" onClick={onClose}>
@@ -349,54 +512,19 @@ function ReviewModal({
         </div>
 
         <div className="p-6 space-y-6 overflow-y-auto">
-          <div className="flex flex-wrap gap-4 text-sm text-muted-foreground">
-            <span>Submitted by: <strong className="text-foreground">{review.submitter?.displayName ?? review.submitter?.email ?? "Unknown"}</strong></span>
-            {review.submitter?.email && <span>Email: <strong className="text-foreground">{review.submitter.email}</strong></span>}
-            <span className="flex items-center gap-2">
-              Duplicate Likelihood: <strong className="text-foreground">{review.matchingSimilarity}%</strong>
-              {review.matchingSimilarity > 0 && review.matchingSimilarity < duplicateThreshold && !showDuplicate && (
-                <button onClick={() => setShowDuplicate(true)} className="text-xs text-primary underline hover:opacity-80 font-normal">
-                  Show potential duplicate
-                </button>
-              )}
-            </span>
-            <span>Date: <strong className="text-foreground">{new Date(review.createdAt).toLocaleDateString()}</strong></span>
-          </div>
+          {/* Step indicator — only for the non-terminal wizard. */}
+          {!isResolved && <StepIndicator step={step} />}
 
-          <div className={`grid gap-4 ${matchVisible ? "grid-cols-1 sm:grid-cols-2" : "grid-cols-1"}`}>
-            <div className="bg-background border-2 border-border rounded-sm p-4">
-              <p className="text-xs font-bold text-muted-foreground uppercase tracking-wide mb-3">Submitted Fact</p>
-              <p className="text-base italic text-foreground leading-relaxed">"{review.submittedText}"</p>
-            </div>
-            {matchVisible && (
-              <div className="bg-background border-2 border-primary/40 rounded-sm p-4">
-                <div className="flex items-center justify-between mb-3">
-                  <p className="text-xs font-bold text-primary uppercase tracking-wide">Flagged Duplicate</p>
-                  {review.matchingFact && (
-                    <a href={`/facts/${review.matchingFact.id}`} target="_blank" rel="noreferrer"
-                      className="text-xs text-primary hover:underline flex items-center gap-1">
-                      View <ExternalLink className="w-3 h-3" />
-                    </a>
-                  )}
-                </div>
-                {review.matchingFact ? (
-                  <p className="text-base italic text-foreground leading-relaxed">"{review.matchingFact.text}"</p>
-                ) : review.matchingFactId != null ? (
-                  <p className="text-muted-foreground text-sm italic">Original fact no longer available</p>
-                ) : (
-                  <p className="text-muted-foreground text-sm italic">Duplicate found in pending submissions — no approved original yet</p>
-                )}
-              </div>
-            )}
-          </div>
+          {/* Submitter + fact + duplicate context: Triage step, and always when resolved. */}
+          {(isResolved || step === "triage") && SubmitterContext}
 
-          {/* ── Stage helper line ── */}
-          {!isResolved && (
+          {/* ── Stage helper line (Triage step) ── */}
+          {!isResolved && step === "triage" && (
             <p className="text-sm text-muted-foreground">{REVIEW_WORKFLOW_STAGE_DISPLAY[stage].hint}</p>
           )}
 
-          {/* ── Live prep status (prep + production review) ── */}
-          {(stage === "prep_pending" || stage === "prep_failed" || isProductionReview) && (
+          {/* ── Live prep status (prep + production review), on Triage step ── */}
+          {step === "triage" && (stage === "prep_pending" || stage === "prep_failed" || isProductionReview) && (
             <div className="bg-background border-2 border-border rounded-sm p-4">
               <PrepStatusPanel enrichmentStatus={isProductionReview ? "ok" : liveEnrichmentStatus} pexelsStatus={pexelsStatus} />
               {stage === "prep_pending" && (
@@ -409,32 +537,46 @@ function ReviewModal({
                   <AlertTriangle className="w-3.5 h-3.5" /> Enrichment failed after retries. Retry prep, or reject.
                 </p>
               )}
+              {isProductionReview && (
+                <p className="text-xs text-muted-foreground mt-2">
+                  Prep is complete. Go to <strong>Visual review</strong> to check the test renders and approve.
+                </p>
+              )}
             </div>
           )}
 
-          {/* ── Production review: tune enrichment on the staging fact ── */}
-          {isProductionReview && (
-            <div className="space-y-2">
-              <EnrichmentEditor
-                value={enrichment}
-                status={enrichmentStatus}
-                factText={review.submittedText}
-                onChange={(next) => { dirtyRef.current = true; setEnrichment(next); }}
-                onRerun={jobs.onRerun}
-                busy={loading || jobs.loading || jobs.rerunBusy}
-                rerunBusy={jobs.rerunBusy}
-                submittedHashtags={review.hashtags ?? []}
-              />
-              {jobs.error && (
-                <div className="flex items-start gap-2 rounded-sm border border-destructive/50 bg-destructive/10 px-3 py-2">
-                  <AlertTriangle className="w-4 h-4 text-destructive shrink-0 mt-0.5" />
-                  <p className="text-sm text-destructive">{jobs.error}</p>
-                </div>
-              )}
-              {stagingFactId > 0 && (
-                <RuntimePromptPreview factId={stagingFactId} reviewIdForRender={review.id} />
-              )}
-              <ModerationPexelsPanel reviewId={review.id} />
+          {/* ── STEP 2: VISUAL REVIEW (production review only) ── */}
+          {!isResolved && step === "visual" && isProductionReview && (
+            <div className="space-y-4">
+              <FactVisualReviewGrid reviewId={review.id} enrichment={enrichment} />
+
+              {/* Advanced Options — the technical machinery, collapsed by default. */}
+              <CollapsibleSection
+                title="Advanced Options"
+                icon={<SlidersHorizontal className="w-4 h-4 text-muted-foreground" />}
+                description="Enrichment, references, visual-strategy overrides, and prompt diagnostics."
+                storageKey={`overhype:moderation:advanced:${review.id}`}
+              >
+                <EnrichmentEditor
+                  value={enrichment}
+                  status={enrichmentStatus}
+                  factText={review.submittedText}
+                  onChange={(next) => { dirtyRef.current = true; setEnrichment(next); }}
+                  onRerun={jobs.onRerun}
+                  busy={loading || jobs.loading || jobs.rerunBusy}
+                  rerunBusy={jobs.rerunBusy}
+                  submittedHashtags={review.hashtags ?? []}
+                />
+                {jobs.error && (
+                  <div className="flex items-start gap-2 rounded-sm border border-destructive/50 bg-destructive/10 px-3 py-2">
+                    <AlertTriangle className="w-4 h-4 text-destructive shrink-0 mt-0.5" />
+                    <p className="text-sm text-destructive">{jobs.error}</p>
+                  </div>
+                )}
+                {stagingFactId > 0 && (
+                  <RuntimePromptPreview factId={stagingFactId} reviewIdForRender={review.id} />
+                )}
+              </CollapsibleSection>
             </div>
           )}
 
@@ -443,38 +585,8 @@ function ReviewModal({
             <EnrichmentSummary e={(detail?.stagingFact?.enrichment ?? review.enrichment) as FactEnrichment} />
           )}
 
-          {/* ── Decision inputs (any pending stage) ── */}
-          {!isResolved && (
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-semibold text-foreground mb-2">
-                  Rejection Reason <span className="text-muted-foreground font-normal">(required to reject)</span>
-                </label>
-                <select
-                  value={reason}
-                  onChange={(e) => { setReason(e.target.value as RejectionReason | ""); setError(""); }}
-                  className="w-full px-3 py-2 bg-background border border-border rounded-sm text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
-                >
-                  <option value="">— Select a reason —</option>
-                  {REJECTION_REASONS.map((r) => (
-                    <option key={r.value} value={r.value}>{r.label}</option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label className="block text-sm font-semibold text-foreground mb-2">Admin Note <span className="text-muted-foreground font-normal">(optional, sent to user)</span></label>
-                <textarea
-                  value={note}
-                  onChange={(e) => setNote(e.target.value)}
-                  rows={3}
-                  maxLength={500}
-                  placeholder="Add a personal message to explain your decision…"
-                  className="w-full px-3 py-2 bg-background border border-border rounded-sm text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary resize-none"
-                />
-                <span className="text-xs text-muted-foreground">{note.length}/500</span>
-              </div>
-            </div>
-          )}
+          {/* ── Decision inputs (Triage step only) ── */}
+          {!isResolved && step === "triage" && DecisionInputs}
 
           {/* ── Resolved: stored reason / note ── */}
           {isResolved && (review.reason || review.adminNote) && (
@@ -501,9 +613,33 @@ function ReviewModal({
             </div>
           )}
 
+          {/* ── Visual-render incomplete (409): named problems + waive option ── */}
+          {renderProblems && (
+            <div
+              className="rounded-sm border border-amber-500/50 bg-amber-500/10 px-3 py-3 space-y-2"
+              data-testid="visual-render-incomplete"
+            >
+              <p className="text-sm font-semibold text-amber-700 dark:text-amber-300 flex items-center gap-1.5">
+                <AlertTriangle className="w-4 h-4 shrink-0" /> Visual review is incomplete
+              </p>
+              <p className="text-xs text-amber-700 dark:text-amber-300">
+                These required test renders still have problems. Run or rerun them in Visual review, or approve
+                anyway to publish with the issues waived.
+              </p>
+              <ul className="space-y-1">
+                {renderProblems.map((p) => (
+                  <li key={p.scenarioKey} className="text-xs text-amber-700 dark:text-amber-300 font-mono">
+                    {RENDER_SCENARIO_DESCRIPTORS[p.scenarioKey]?.label ?? p.scenarioKey} — {p.status}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
           {/* ── Stage-specific actions ── */}
           <div className="pt-2 border-t border-border space-y-3">
-            {stage === "triage_pending" && (
+            {/* Triage-step decisions: provisional approve / variant / reject. */}
+            {!isResolved && step === "triage" && stage === "triage_pending" && (
               <div className="flex flex-wrap gap-3">
                 <Button onClick={() => onProvisionalApprove(false)} isLoading={loading} disabled={loading}
                   className="bg-green-600 hover:bg-green-700 text-white gap-2">
@@ -523,7 +659,7 @@ function ReviewModal({
               </div>
             )}
 
-            {stage === "prep_pending" && (
+            {!isResolved && step === "triage" && stage === "prep_pending" && (
               <div className="flex flex-wrap gap-3">
                 <Button variant="outline" onClick={onReject} isLoading={loading}
                   className="border-destructive text-destructive hover:bg-destructive/10 gap-2">
@@ -533,7 +669,7 @@ function ReviewModal({
               </div>
             )}
 
-            {stage === "prep_failed" && (
+            {!isResolved && step === "triage" && stage === "prep_failed" && (
               <div className="flex flex-wrap gap-3">
                 <Button onClick={() => onProvisionalApprove(false)} isLoading={loading} disabled={loading}
                   className="bg-primary hover:bg-primary/90 text-primary-foreground gap-2">
@@ -547,9 +683,25 @@ function ReviewModal({
               </div>
             )}
 
-            {isProductionReview && (
+            {/* Production review on Triage step: a "next" affordance to Step 2. */}
+            {!isResolved && step === "triage" && isProductionReview && (
+              <div className="flex flex-wrap gap-3">
+                <Button onClick={() => setStep("visual")} disabled={loading}
+                  className="bg-primary hover:bg-primary/90 text-primary-foreground gap-2">
+                  Continue to Visual Review <ChevronRight className="w-4 h-4" />
+                </Button>
+                <Button variant="outline" onClick={onReject} isLoading={loading}
+                  className="border-destructive text-destructive hover:bg-destructive/10 gap-2">
+                  <XCircle className="w-4 h-4" /> Reject
+                </Button>
+                <Button variant="outline" onClick={onClose} disabled={loading}>Cancel</Button>
+              </div>
+            )}
+
+            {/* Visual-review step: approve for production (with waiver path). */}
+            {!isResolved && step === "visual" && isProductionReview && (
               <div className="space-y-3">
-                {confirmApprove && pexelsStatus !== "ok" && (
+                {confirmApprove && pexelsStatus !== "ok" && !renderProblems && (
                   <div className="flex items-start gap-2 rounded-sm border border-amber-500/50 bg-amber-500/10 px-3 py-2">
                     <AlertTriangle className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
                     <p className="text-sm text-amber-700 dark:text-amber-300">
@@ -560,11 +712,23 @@ function ReviewModal({
                   </div>
                 )}
                 <div className="flex flex-wrap gap-3">
-                  <Button onClick={onApproveProduction} isLoading={loading} disabled={!canApproveProduction || loading}
-                    title={canApproveProduction ? undefined : "Approve is disabled until the enrichment is valid"}
-                    className="bg-green-600 hover:bg-green-700 text-white gap-2 disabled:opacity-50">
-                    <Rocket className="w-4 h-4" /> {confirmApprove && pexelsStatus !== "ok" ? "Approve Anyway" : "Approve for Production"}
+                  <Button variant="outline" onClick={() => setStep("triage")} disabled={loading} className="gap-2">
+                    <ChevronLeft className="w-4 h-4" /> Back to Triage
                   </Button>
+                  {renderProblems ? (
+                    <Button onClick={() => onApproveProduction(true)} isLoading={loading} disabled={!canApproveProduction || loading}
+                      title={canApproveProduction ? undefined : "Approve is disabled until the enrichment is valid"}
+                      className="bg-amber-600 hover:bg-amber-700 text-white gap-2 disabled:opacity-50"
+                      data-testid="approve-anyway-waive">
+                      <Rocket className="w-4 h-4" /> Approve Anyway (Waive {renderProblems.length})
+                    </Button>
+                  ) : (
+                    <Button onClick={() => onApproveProduction()} isLoading={loading} disabled={!canApproveProduction || loading}
+                      title={canApproveProduction ? undefined : "Approve is disabled until the enrichment is valid"}
+                      className="bg-green-600 hover:bg-green-700 text-white gap-2 disabled:opacity-50">
+                      <Rocket className="w-4 h-4" /> {confirmApprove && pexelsStatus !== "ok" ? "Approve Anyway" : "Approve for Production"}
+                    </Button>
+                  )}
                   <Button variant="outline" onClick={onReject} isLoading={loading}
                     className="border-destructive text-destructive hover:bg-destructive/10 gap-2">
                     <XCircle className="w-4 h-4" /> Reject
