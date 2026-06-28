@@ -127,14 +127,21 @@ while). **Expected result for an already-applied backfill: `0`.**
 ### 8. `migrate-storage-keys.ts` — add a hash-prefix to every storage key
 - **Command:** `pnpm --filter @workspace/api-server run migrate:storage-keys`
 - **Cost/speed:** GCS copy/delete across `ai-backgrounds/`, `memes/`, `uploads/` + multiple DB tables. **Idempotent** (skips keys already under a `{folder}/{2-hex}/` prefix).
-- **Verify:** the "already hashed?" test is a 2-hex-char path segment, which is awkward
-  in SQL. Best signal is the obviously-unmigrated upload paths (expect 0):
+- **Verify (expect 0):** count upload URLs that are **not yet hashed**. A migrated
+  upload becomes `/api/storage/objects/uploads/{2-hex}/{filename}`, so we must
+  *exclude* the hashed form — otherwise already-migrated rows match the prefix and
+  the audit falsely reports unfinished work:
   ```sql
   SELECT
-    (SELECT count(*) FROM users      WHERE profile_image_url LIKE '/api/storage/objects/uploads/%') AS users_old,
-    (SELECT count(*) FROM video_jobs WHERE image_url         LIKE '/api/storage/objects/uploads/%') AS videos_old;
+    (SELECT count(*) FROM users
+       WHERE profile_image_url LIKE '/api/storage/objects/uploads/%'
+         AND profile_image_url !~ '/api/storage/objects/uploads/[0-9a-f]{2}/') AS users_old,
+    (SELECT count(*) FROM video_jobs
+       WHERE image_url LIKE '/api/storage/objects/uploads/%'
+         AND image_url !~ '/api/storage/objects/uploads/[0-9a-f]{2}/') AS videos_old;
   ```
-  > For full certainty across all three folders, **re-run the script** — it lists GCS
+  > This covers the `uploads/` folder. For full certainty across all three folders
+  > (`ai-backgrounds/`, `memes/`, `uploads/`), **re-run the script** — it lists GCS
   > and skips already-hashed keys, so a clean run that copies/deletes nothing = done.
 
 ### 9. `retokenize-facts.ts` — LLM re-tokenize legacy plain-English facts ⚠️
