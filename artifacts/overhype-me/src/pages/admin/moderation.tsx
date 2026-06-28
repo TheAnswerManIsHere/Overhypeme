@@ -307,10 +307,19 @@ function ReviewModal({
   // Visual-render approval waiver (set when approve-for-production returns 409).
   const [renderProblems, setRenderProblems] = useState<VisualRenderProblem[] | null>(null);
 
-  // Production-review enrichment — tuned on the staging fact, sent on approve.
+  // Production-review enrichment — tuned in Advanced Options, saved to the staging
+  // fact (so Step-2 renders + approval read the edits). `dirtyRef` keeps the live
+  // edit from being clobbered by polling; `dirty` mirrors it as state so the Save
+  // button + "unsaved changes" hint react. `gridReloadKey` bumps after a save so
+  // the scenario grid re-fetches and the now-outdated tiles recompute as stale.
   const [enrichment, setEnrichment] = useState<FactEnrichment | null>(null);
   const [enrichmentStatus, setEnrichmentStatus] = useState<PrepStatus>(null);
   const dirtyRef = useRef(false);
+  const [dirty, setDirty] = useState(false);
+  const [savingEnrichment, setSavingEnrichment] = useState(false);
+  const [saveError, setSaveError] = useState("");
+  const [justSaved, setJustSaved] = useState(false);
+  const [gridReloadKey, setGridReloadKey] = useState(0);
 
   const stagingFactId = detail?.stagingFact?.id ?? review.stagingFactId ?? 0;
   const isProductionReview = stage === "production_review";
@@ -359,7 +368,7 @@ function ReviewModal({
     id: stagingFactId,
     status: isProductionReview ? enrichmentStatus : null,
     isDirty: () => dirtyRef.current,
-    applyServerState: (e, s) => { setEnrichment(e); setEnrichmentStatus(s as PrepStatus); dirtyRef.current = false; },
+    applyServerState: (e, s) => { setEnrichment(e); setEnrichmentStatus(s as PrepStatus); dirtyRef.current = false; setDirty(false); setJustSaved(false); },
   });
 
   const runAction = useCallback(async (path: string, body: Record<string, unknown>): Promise<void> => {
@@ -390,6 +399,39 @@ function ReviewModal({
       setLoading(false);
     }
   }, [review.id, onActionDone, onClose]);
+
+  // Persist the Advanced-Options enrichment edits to the staging fact. This is
+  // the single source of truth the Step-2 test renders and the approval gate
+  // read, so after a save the moderator's tweaks flow into reruns; the existing
+  // tiles (rendered from the pre-save enrichment) recompute as stale once the
+  // grid refreshes (gridReloadKey bump), prompting a rerun.
+  const saveEnrichment = useCallback(async () => {
+    if (!enrichment) return;
+    setSavingEnrichment(true); setSaveError(""); setJustSaved(false);
+    try {
+      const r = await fetch(`/api/admin/reviews/${review.id}/staging-enrichment`, {
+        method: "PATCH",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ enrichment }),
+      });
+      if (!r.ok) {
+        const d = (await r.json().catch(() => ({}))) as { error?: string };
+        setSaveError(d.error ?? `Save failed (${r.status})`);
+        return;
+      }
+      const d = (await r.json()) as { enrichment?: FactEnrichment };
+      if (d.enrichment) setEnrichment(d.enrichment);
+      dirtyRef.current = false; setDirty(false); setJustSaved(true);
+      // Re-fetch the grid so tiles rendered against the old enrichment flip stale.
+      setGridReloadKey((k) => k + 1);
+      void loadDetail();
+    } catch {
+      setSaveError("Network error — could not save enrichment.");
+    } finally {
+      setSavingEnrichment(false);
+    }
+  }, [enrichment, review.id, loadDetail]);
 
   const onProvisionalApprove = (variant: boolean) => {
     const body: Record<string, unknown> = { adminNote: note || undefined };
@@ -548,7 +590,7 @@ function ReviewModal({
           {/* ── STEP 2: VISUAL REVIEW (production review only) ── */}
           {!isResolved && step === "visual" && isProductionReview && (
             <div className="space-y-4">
-              <FactVisualReviewGrid reviewId={review.id} enrichment={enrichment} />
+              <FactVisualReviewGrid reviewId={review.id} enrichment={enrichment} reloadKey={gridReloadKey} />
 
               {/* Advanced Options — the technical machinery, collapsed by default. */}
               <CollapsibleSection
@@ -561,12 +603,32 @@ function ReviewModal({
                   value={enrichment}
                   status={enrichmentStatus}
                   factText={review.submittedText}
-                  onChange={(next) => { dirtyRef.current = true; setEnrichment(next); }}
+                  onChange={(next) => { dirtyRef.current = true; setDirty(true); setJustSaved(false); setEnrichment(next); }}
+                  onSave={saveEnrichment}
                   onRerun={jobs.onRerun}
-                  busy={loading || jobs.loading || jobs.rerunBusy}
+                  busy={loading || jobs.loading || jobs.rerunBusy || savingEnrichment}
                   rerunBusy={jobs.rerunBusy}
                   submittedHashtags={review.hashtags ?? []}
                 />
+                {/* Save status — unsaved edits don't reach the test renders until saved. */}
+                {dirty && !saveError && (
+                  <p className="text-xs text-amber-700 dark:text-amber-300 flex items-center gap-1.5" data-testid="enrichment-unsaved">
+                    <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+                    Unsaved changes — Save to update the test renders below, then re-run them.
+                  </p>
+                )}
+                {justSaved && !dirty && (
+                  <p className="text-xs text-emerald-700 dark:text-emerald-300 flex items-center gap-1.5" data-testid="enrichment-saved">
+                    <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
+                    Saved. Re-run any stale test renders to see the change.
+                  </p>
+                )}
+                {saveError && (
+                  <div className="flex items-start gap-2 rounded-sm border border-destructive/50 bg-destructive/10 px-3 py-2">
+                    <AlertTriangle className="w-4 h-4 text-destructive shrink-0 mt-0.5" />
+                    <p className="text-sm text-destructive">{saveError}</p>
+                  </div>
+                )}
                 {jobs.error && (
                   <div className="flex items-start gap-2 rounded-sm border border-destructive/50 bg-destructive/10 px-3 py-2">
                     <AlertTriangle className="w-4 h-4 text-destructive shrink-0 mt-0.5" />

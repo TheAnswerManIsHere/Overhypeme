@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Loader2, AlertTriangle, ImageIcon, Sparkles, Play } from "lucide-react";
 import {
   type FactEnrichment,
@@ -125,13 +125,23 @@ export function FactVisualReviewGrid({
   reviewId,
   enrichment,
   enabled = true,
+  reloadKey = 0,
 }: {
   reviewId: number;
   enrichment: FactEnrichment | null;
   enabled?: boolean;
+  /** Bumped by the parent (e.g. after saving enrichment) to force a grid re-fetch
+   *  so tiles recompute staleness against the newly-saved staging-fact enrichment. */
+  reloadKey?: number;
 }) {
-  const { grid, loading, error, runScenarios } = useFactRenderScenarios(reviewId, { enabled });
+  const { grid, loading, error, runScenarios, refresh } = useFactRenderScenarios(reviewId, { enabled });
   const [selected, setSelected] = useState<Set<RunGroup>>(new Set());
+
+  // Re-fetch when the parent signals a saved enrichment. The hook's poll loop is
+  // idle once every tile is terminal, so a stale-recompute needs this nudge.
+  useEffect(() => {
+    if (reloadKey > 0) void refresh();
+  }, [reloadKey, refresh]);
 
   const cards = grid?.cards ?? [];
   const nhCard = nonHumanCard(cards);

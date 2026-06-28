@@ -193,6 +193,78 @@ describe("POST /admin/reviews/:id/render-scenarios", () => {
   });
 });
 
+describe("PATCH /admin/reviews/:id/staging-enrichment", () => {
+  it("saves edited enrichment to the staging fact and flips prior renders stale", async () => {
+    const reviewId = await seedReview(plainId);
+    const [{ stagingFactId }] = await db
+      .select({ stagingFactId: pendingReviewsTable.stagingFactId })
+      .from(pendingReviewsTable).where(eq(pendingReviewsTable.id, reviewId)).limit(1);
+
+    // Enqueue a render against the ORIGINAL enrichment so there's a tile to stale.
+    await request(makeApp())
+      .post(`/admin/reviews/${reviewId}/render-scenarios`)
+      .set("authorization", `Bearer ${adminSid}`)
+      .send({ scenarios: ["generic_t2i"] });
+
+    // Save a render-affecting edit (visualComplexity medium → high).
+    const edited: FactEnrichment = { ...ENRICHMENT, visualComplexity: "high" };
+    const save = await request(makeApp())
+      .patch(`/admin/reviews/${reviewId}/staging-enrichment`)
+      .set("authorization", `Bearer ${adminSid}`)
+      .send({ enrichment: edited });
+    assert.equal(save.status, 200);
+    assert.equal(save.body.success, true);
+    assert.equal(save.body.enrichment.visualComplexity, "high");
+
+    // The staging fact now holds the edit (single source of truth for renders).
+    const [fact] = await db.select({ enrichment: factsTable.enrichment })
+      .from(factsTable).where(eq(factsTable.id, stagingFactId as number)).limit(1);
+    assert.equal((fact!.enrichment as FactEnrichment).visualComplexity, "high");
+
+    // The earlier render now reads as stale against the saved enrichment.
+    const grid = await request(makeApp())
+      .get(`/admin/reviews/${reviewId}/render-scenarios`)
+      .set("authorization", `Bearer ${adminSid}`);
+    const t2i = grid.body.cards.find((c: { key: string }) => c.key === "generic_t2i");
+    assert.equal(t2i.stale, true, "the pre-save render is stale after the enrichment edit");
+  });
+
+  it("rejects an invalid enrichment blob (400)", async () => {
+    const reviewId = await seedReview(plainId);
+    const res = await request(makeApp())
+      .patch(`/admin/reviews/${reviewId}/staging-enrichment`)
+      .set("authorization", `Bearer ${adminSid}`)
+      .send({ enrichment: { primaryArchetype: "not_a_real_archetype" } });
+    assert.equal(res.status, 400);
+  });
+
+  it("refuses to save outside production_review (409)", async () => {
+    const reviewId = await seedReview(plainId, "prep_pending");
+    const res = await request(makeApp())
+      .patch(`/admin/reviews/${reviewId}/staging-enrichment`)
+      .set("authorization", `Bearer ${adminSid}`)
+      .send({ enrichment: ENRICHMENT });
+    assert.equal(res.status, 409);
+  });
+
+  it("rejects non-admins (403)", async () => {
+    const reviewId = await seedReview(plainId);
+    const res = await request(makeApp())
+      .patch(`/admin/reviews/${reviewId}/staging-enrichment`)
+      .set("authorization", `Bearer ${plainSid}`)
+      .send({ enrichment: ENRICHMENT });
+    assert.equal(res.status, 403);
+  });
+
+  it("404s for an unknown review", async () => {
+    const res = await request(makeApp())
+      .patch(`/admin/reviews/99999999/staging-enrichment`)
+      .set("authorization", `Bearer ${adminSid}`)
+      .send({ enrichment: ENRICHMENT });
+    assert.equal(res.status, 404);
+  });
+});
+
 describe("ensureDefaultReviewRenders idempotency", () => {
   it("enqueues the default batch once per input hash", async () => {
     const reviewId = await seedReview(plainId);
