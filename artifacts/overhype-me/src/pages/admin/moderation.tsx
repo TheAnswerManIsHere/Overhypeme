@@ -6,16 +6,19 @@ import {
   CheckCircle, CheckCircle2, XCircle, Clock, ChevronLeft, ChevronRight,
   ExternalLink, ClipboardList, Loader2, AlertTriangle, GitBranch,
   MessageSquare, Trash2, User, Image as ImageIcon, Sparkles, RefreshCw, Rocket,
+  CheckCheck, SlidersHorizontal,
 } from "lucide-react";
 import {
   type FactEnrichment,
   REVIEW_WORKFLOW_STAGE_DISPLAY,
   type ReviewWorkflowStage,
+  type RenderScenarioKey,
 } from "@workspace/api-zod";
 import { EnrichmentEditor, EnrichmentSummary, isApprovable } from "@/components/admin/EnrichmentEditor";
 import { useEnrichmentJobs } from "@/components/admin/useEnrichmentJobs";
 import { RuntimePromptPreview } from "@/components/admin/RuntimePromptPreview";
-import { ModerationPexelsPanel } from "@/components/admin/ModerationPexelsPanel";
+import { CollapsibleSection } from "@/components/CollapsibleSection";
+import { FactVisualReviewGrid } from "@/components/admin/FactVisualReviewGrid";
 
 // ─── Shared ───────────────────────────────────────────────────────────────────
 

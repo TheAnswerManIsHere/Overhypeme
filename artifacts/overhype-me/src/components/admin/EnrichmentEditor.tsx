@@ -1387,7 +1387,7 @@ export function EnrichmentEditor({
   return (
     <div className="rounded-sm border-2 border-border bg-background p-4 space-y-4">
       <div className="flex items-center justify-between gap-2 flex-wrap">
-        <p className="text-sm font-bold text-foreground uppercase tracking-wide">Visual Taxonomy Enrichment</p>
+        <p className="text-sm font-bold text-foreground uppercase tracking-wide">AI Visual Classification</p>
         <div className="flex items-center gap-2 flex-wrap">
           {value && <EnrichmentStalenessBadge e={value} />}
           {status === "pending" || rerunBusy ? (
@@ -1617,11 +1617,17 @@ export function EnrichmentEditor({
         {mark("/adminReviewNotes")}
       </div>
 
-      <VisualStrategyOverridePanel
-        value={e.visualPromptStrategyOverride}
-        onChange={(next) => update({ visualPromptStrategyOverride: next })}
-      />
+      <div className="border-t border-border pt-4 space-y-3">
+        <p className="text-sm font-bold text-foreground uppercase tracking-wide">Visual Strategy Overrides</p>
+        <VisualStrategyOverridePanel
+          value={e.visualPromptStrategyOverride}
+          onChange={(next) => update({ visualPromptStrategyOverride: next })}
+        />
+      </div>
 
+      <p className="text-sm font-bold text-foreground uppercase tracking-wide border-t border-border pt-4">
+        References &amp; Scene Entities
+      </p>
       <div>
         <CulturalReferencesEditor
           refs={e.culturalReferences}
@@ -1643,7 +1649,7 @@ export function EnrichmentEditor({
         This editor sets the <span className="font-semibold text-foreground">meaning</span> (taxonomy, cultural
         references, semantic entities) and optional <span className="font-semibold text-foreground">art direction</span>{" "}
         (Visual Strategy Override). To see what the image will actually be, use the{" "}
-        <span className="font-semibold text-foreground">Runtime Compiled Prompt Preview</span> on the Facts admin page —
+        <span className="font-semibold text-foreground">Prompt Diagnostics</span> panel and the visual-review test renders —
         it is the single source of truth for the rendered prompt and reflects this enrichment and any override. Approval
         runs the same runtime pipeline as a renderability check before publishing.
       </div>
