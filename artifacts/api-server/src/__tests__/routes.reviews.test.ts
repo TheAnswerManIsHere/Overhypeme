@@ -134,6 +134,13 @@ const VALID_APPROVAL_ENRICHMENT: FactEnrichment = {
   semanticEntities: [],
 };
 
+// These fixtures seed a production_review WITHOUT any Step-2 render scenarios, so
+// the (new) admin-waivable visual-render gate would 409 on approval. Tests that
+// exercise the *approval* path (not the gate itself) waive all required scenarios.
+const WAIVE_ALL_REQUIRED = {
+  waiveVisualRenderIssues: true,
+  waivedScenarioKeys: ["generic_t2i", "i2i_male_default", "i2i_female_default"],
+};
 
 const USER_PREFIX = "t_routes_rv_";
 
@@ -447,7 +454,7 @@ describe("POST /admin/reviews/:id/provisional-approve", () => {
     const res = await request(makeApp())
       .post(`/admin/reviews/${reviewId}/provisional-approve`)
       .set("authorization", `Bearer ${sid}`)
-      .send({ parentFactId: parent.id });
+      .send({ parentFactId: parent.id, ...WAIVE_ALL_REQUIRED });
     assert.equal(res.status, 200);
     const [fact] = await db.select().from(factsTable).where(eq(factsTable.id, res.body.stagingFactId));
     assert.equal(fact.parentId, parent.id);
@@ -936,7 +943,7 @@ describe("approval render preflight", () => {
     const res = await request(makeApp())
       .post(`/admin/reviews/${reviewId}/approve-variant`)
       .set("authorization", `Bearer ${sid}`)
-      .send({ parentFactId: parentId });
+      .send({ parentFactId: parentId, ...WAIVE_ALL_REQUIRED });
 
     assert.equal(res.status, 200);
     assert.equal(res.body.success, true);
@@ -959,7 +966,7 @@ describe("approval render preflight", () => {
     const res = await request(makeApp())
       .post(`/admin/reviews/${reviewId}/approve-variant`)
       .set("authorization", `Bearer ${sid}`)
-      .send({ parentFactId: parentId });
+      .send({ parentFactId: parentId, ...WAIVE_ALL_REQUIRED });
 
     assert.equal(res.status, 400);
     assert.match(String(res.body.error), /render coherently|achievable/i);
@@ -980,7 +987,7 @@ describe("approval render preflight", () => {
     const res = await request(makeApp())
       .post(`/admin/reviews/${reviewId}/approve-variant`)
       .set("authorization", `Bearer ${sid}`)
-      .send({ parentFactId: parentId });
+      .send({ parentFactId: parentId, ...WAIVE_ALL_REQUIRED });
 
     assert.equal(res.status, 503);
     assert.match(String(res.body.error), /retry/i);
@@ -999,7 +1006,7 @@ describe("approval render preflight", () => {
     const res = await request(makeApp())
       .post(`/admin/reviews/${reviewId}/approve-variant`)
       .set("authorization", `Bearer ${sid}`)
-      .send({ parentFactId: parentId });
+      .send({ parentFactId: parentId, ...WAIVE_ALL_REQUIRED });
 
     assert.equal(res.status, 422);
 
@@ -1059,7 +1066,7 @@ describe("approval render preflight", () => {
     const res = await request(makeApp())
       .post(`/admin/reviews/${review.id}/approve-variant`)
       .set("authorization", `Bearer ${sid}`)
-      .send({ parentFactId: parent.id });
+      .send({ parentFactId: parent.id, ...WAIVE_ALL_REQUIRED });
 
     assert.equal(res.status, 200);
     // resolveRenderPolicy folds the moderator override into the planner input —
@@ -1090,7 +1097,7 @@ describe("POST /admin/reviews/:id/approve-for-production", () => {
     const res = await request(makeApp())
       .post(`/admin/reviews/${reviewId}/approve-for-production`)
       .set("authorization", `Bearer ${sid}`)
-      .send({});
+      .send({ ...WAIVE_ALL_REQUIRED });
     assert.equal(res.status, 200);
     assert.equal(res.body.factId, stagingFactId);
 
@@ -1105,7 +1112,7 @@ describe("POST /admin/reviews/:id/approve-for-production", () => {
     const again = await request(makeApp())
       .post(`/admin/reviews/${reviewId}/approve-for-production`)
       .set("authorization", `Bearer ${sid}`)
-      .send({});
+      .send({ ...WAIVE_ALL_REQUIRED });
     assert.equal(again.status, 200);
     assert.equal(again.body.alreadyApproved, true);
     assert.equal(again.body.factId, stagingFactId);

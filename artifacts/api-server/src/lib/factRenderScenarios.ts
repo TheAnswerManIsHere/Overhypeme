@@ -93,6 +93,27 @@ export interface ScenarioHashInputs {
   actualImageEngineId: string;
 }
 
+/**
+ * The RENDER-AFFECTING projection of an enrichment blob. Excludes admin-only /
+ * non-visual fields (adminReviewNotes, taxonomyConfidence, suggestedHashtags,
+ * adultSuitabilityNotes) so editing an admin note never marks a render stale,
+ * while editing a modifier / override / reference / entity does.
+ */
+function renderAffectingEnrichment(e: FactEnrichment): Record<string, unknown> {
+  return {
+    primaryArchetype: e.primaryArchetype,
+    subtype: e.subtype,
+    modifiers: [...e.modifiers].sort(),
+    visualLiteralness: e.visualLiteralness,
+    visualComplexity: e.visualComplexity,
+    overhypeFit: e.overhypeFit,
+    adultSuitability: e.adultSuitability,
+    culturalReferences: e.culturalReferences,
+    semanticEntities: e.semanticEntities,
+    visualPromptStrategyOverride: e.visualPromptStrategyOverride ?? null,
+  };
+}
+
 /** Deterministic JSON: object keys sorted recursively so key order can't churn the hash. */
 function stableStringify(value: unknown): string {
   if (value === null || typeof value !== "object") return JSON.stringify(value) ?? "null";
@@ -116,7 +137,7 @@ export function buildScenarioInputHash(inputs: ScenarioHashInputs): string {
     scenarioKey: inputs.scenarioKey,
     subjectRenderMode: inputs.subjectRenderMode,
     renderedFactText: inputs.renderedFactText,
-    enrichment: inputs.enrichment,
+    enrichment: renderAffectingEnrichment(inputs.enrichment),
     referenceIdentityType: inputs.referenceIdentityType,
     referenceAssetVersion: inputs.referenceAssetVersion,
     renderControls: {

@@ -461,14 +461,11 @@ async function approveForProduction(
   if (!enrichmentResult.ok) { res.status(400).json({ error: enrichmentResult.error }); return; }
   const enrichment = enrichmentResult.enrichment;
 
-  // Renderability gate — real runtime pipeline over a neutral canonical subject
-  // BEFORE any state mutation. Nothing is persisted on any failure path.
-  if (await runApprovalRenderPreflight(stagingFact.text, enrichment, res)) return;
-
-  // Visual-render gate (admin-waivable). Required Step-2 scenarios must each be a
-  // fresh successful render; otherwise the moderator must explicitly waive the
-  // EXACT named problems. The problem set is recomputed server-side so a stale
-  // client can't sneak an approval past missing/failed/blocked/stale renders.
+  // Visual-render gate (admin-waivable), checked BEFORE the expensive preflight.
+  // Required Step-2 scenarios must each be a fresh successful render; otherwise
+  // the moderator must explicitly waive the EXACT named problems. The problem set
+  // is recomputed server-side so a stale client can't sneak an approval past
+  // missing/failed/blocked/stale renders.
   const scenarioGrid = await buildReviewScenarioGrid(reviewId);
   const renderProblems = requiredScenarioProblems(
     scenarioGrid.cards.map((c) => ({ scenarioKey: c.key, status: c.status, stale: c.stale })),
@@ -494,6 +491,10 @@ async function approveForProduction(
       requiredScenarioPolicyVersion: REQUIRED_SCENARIO_POLICY_VERSION,
     };
   }
+
+  // Renderability gate — real runtime pipeline over a neutral canonical subject
+  // BEFORE any state mutation. Nothing is persisted on any failure path.
+  if (await runApprovalRenderPreflight(stagingFact.text, enrichment, res)) return;
 
   // Only re-materialize enrichment columns when the body supplied an edited blob;
   // otherwise the staging fact already holds the prepared enrichment.
