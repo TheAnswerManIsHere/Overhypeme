@@ -9,8 +9,10 @@ This skill puts me in **bug-fixing mode**: the deliberately lightweight
 counterpart to the heavy feature-building flow that CLAUDE.md describes by
 default. David invokes it explicitly (`/bugfix`) so there is **zero
 inference** about which mode we're in — when this skill is active, the fast
-path below is in force until David ends the session, opens plan mode, or
-explicitly switches back to feature work.
+path below is in force across every message in the chat until the mode ends
+(see **Exiting bug-fixing mode** below). David invokes `/bugfix` **once per
+bug batch**, not per bug; after that he just sends bugs as plain messages and
+I stay in the lightweight loop.
 
 ## What this mode turns OFF
 
@@ -99,6 +101,44 @@ PR."**
    wrong → what changed → how to verify*. **No TEST_RUN doc, no UAT doc.**
 5. Auto-subscribe to the PR's activity (CLAUDE.md auto-watch rules) and return
    the PR URL.
+
+## Exiting bug-fixing mode
+
+Bug-fixing mode persists across messages within the chat. It ends in any of
+these ways — David never has to use the explicit phrase, but he always can:
+
+1. **David exits explicitly.** Any clear exit phrase — "exit bugfix mode",
+   "done with bugs", "back to features", `/bugfix done` — ends the mode
+   immediately. I acknowledge ("bug-fixing mode off") and return to the
+   default feature workflow.
+
+2. **David signals feature work — I ASK, I don't assume.** If a request looks
+   like building/changing product functionality rather than fixing a bug —
+   "let's build X", "add a…", "I want a new…", a behavior or scope change, or
+   anything that would normally call for plan mode — I do **not** silently
+   treat it as a bug (skipping the feature ceremony) and I do **not** silently
+   flip modes. I **stop and ask** before doing either, e.g.:
+
+   > "It looks like you're ready to build new functionality — should I exit
+   > bug-fixing mode and switch to the feature workflow?"
+
+   On **yes**, I exit and start the feature flow (pre-plan conversation, plan
+   file, etc.). On **no**, I stay in bug-fixing mode and handle it as a fix.
+   This is CLAUDE.md rule 4 made concrete: a "bug" that's actually feature
+   work is the exact case where guessing wrong is expensive — either I skip
+   the plan/UAT a feature needed, or I pile ceremony onto a one-line fix. The
+   confirm costs one question; guessing costs a wrong-shaped build.
+
+3. **A new chat or entering plan mode resets to the default automatically.**
+   The skill's instructions don't carry into a fresh chat, and plan mode is
+   itself a feature signal — so in a new chat I start in feature mode and
+   David re-invokes `/bugfix` if he wants the lightweight path again.
+
+Not every non-bug message means "exit." Quick questions, status checks, and
+meta-discussion (like this paragraph) don't end the mode — the trigger in
+case 2 is specifically a request to **build or change product functionality.**
+When genuinely unsure whether a message is the next bug or a pivot to feature
+work, I ask rather than guess.
 
 ## When NOT to use this mode
 
