@@ -705,8 +705,12 @@ export function validateImagePromptPlan(
         correctableHint: `t2i_fallback generates without a reference image. Remove any face/likeness preservation language.`,
       };
     }
-    // Require fallbackSubjectGender language when caller provided one
-    if (expectations.fallbackSubjectGender) {
+    // Require explicit gender language for male/female so the generated
+    // protagonist visibly matches the caller's choice. "neutral" is exempt:
+    // it means NO specified gender, so there is no literal word to assert — the
+    // model correctly writes "a person", never "a neutral person", and demanding
+    // the word "neutral" would (and did) fail every generic t2i render.
+    if (expectations.fallbackSubjectGender && expectations.fallbackSubjectGender !== "neutral") {
       const gender = expectations.fallbackSubjectGender;
       const re = new RegExp(`\\b${gender}\\b`, "i");
       if (!re.test(cp.prompt)) {
