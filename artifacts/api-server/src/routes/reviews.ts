@@ -808,33 +808,43 @@ router.patch("/admin/reviews/:id/staging-enrichment", requireAdmin, async (req: 
   if (!result.ok) { res.status(400).json({ error: `Invalid enrichment: ${result.error}` }); return; }
   const enrichment = result.data;
 
-  const [review] = await db
-    .select({ stagingFactId: pendingReviewsTable.stagingFactId, workflowStage: pendingReviewsTable.workflowStage })
-    .from(pendingReviewsTable)
-    .where(eq(pendingReviewsTable.id, id))
-    .limit(1);
-  if (!review) { res.status(404).json({ error: "Review not found" }); return; }
-  if (review.stagingFactId == null) {
-    res.status(409).json({ error: "This review has no staging fact yet. Provisionally approve it first." });
-    return;
-  }
-  // Advanced Options (and its renders) only exist in production_review. Refuse to
-  // mutate enrichment in any other stage so a stale client can't write to a fact
-  // that has already been approved/rejected.
-  if (review.workflowStage !== "production_review") {
-    res.status(409).json({ error: `Enrichment can only be saved during production review (stage is ${review.workflowStage}).` });
-    return;
-  }
+  // Stage recheck + staging-fact write happen in ONE transaction with the review
+  // row locked (SELECT … FOR UPDATE). Otherwise a concurrent approve-for-production
+  // committing between a separate read and the write would let us rewrite a fact
+  // that is already LIVE — bypassing the approval render gate / hashtag attach. The
+  // lock serializes against approval (which also writes the review row), so we
+  // either win the lock and approval sees our saved enrichment, or approval wins
+  // and our recheck sees a non-production_review stage and bails.
+  const outcome = await db.transaction(async (tx): Promise<{ status: number; body: Record<string, unknown> }> => {
+    const [review] = await tx
+      .select({ stagingFactId: pendingReviewsTable.stagingFactId, workflowStage: pendingReviewsTable.workflowStage })
+      .from(pendingReviewsTable)
+      .where(eq(pendingReviewsTable.id, id))
+      .for("update")
+      .limit(1);
+    if (!review) return { status: 404, body: { error: "Review not found" } };
+    if (review.stagingFactId == null) {
+      return { status: 409, body: { error: "This review has no staging fact yet. Provisionally approve it first." } };
+    }
+    // Advanced Options (and its renders) only exist in production_review. Refuse to
+    // mutate enrichment in any other stage so a stale client can't write to a fact
+    // that has already been approved/rejected.
+    if (review.workflowStage !== "production_review") {
+      return { status: 409, body: { error: `Enrichment can only be saved during production review (stage is ${review.workflowStage}).` } };
+    }
 
-  const { columns } = materializeFromBaseline(enrichment);
-  const [updated] = await db
-    .update(factsTable)
-    .set({ ...columns, enrichmentStatus: "ok" })
-    .where(eq(factsTable.id, review.stagingFactId))
-    .returning({ id: factsTable.id });
-  if (!updated) { res.status(409).json({ error: "Staging fact missing for this review." }); return; }
+    const { columns } = materializeFromBaseline(enrichment);
+    const [updated] = await tx
+      .update(factsTable)
+      .set({ ...columns, enrichmentStatus: "ok" })
+      .where(eq(factsTable.id, review.stagingFactId))
+      .returning({ id: factsTable.id });
+    if (!updated) return { status: 409, body: { error: "Staging fact missing for this review." } };
 
-  res.json({ success: true, enrichment: columns.enrichment });
+    return { status: 200, body: { success: true, enrichment: columns.enrichment } };
+  });
+
+  res.status(outcome.status).json(outcome.body);
 });
 
 // ─── Enrichment: retired ──────────────────────────────────────────────────────
