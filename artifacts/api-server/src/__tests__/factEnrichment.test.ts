@@ -322,6 +322,23 @@ describe("enrichFactWithModel — orchestration", () => {
     assert.deepEqual(result.suggestedHashtags, ["strength", "legendary", "earth"]);
   });
 
+  it("recovers when the first response has BOTH a bad subtype and a hashtag shortfall", async () => {
+    // subtypeMismatch selects the subtype corrective; it must ALSO carry the
+    // hashtag reminder so the single retry fixes the subtype AND supplies real
+    // tags (otherwise the one surviving tag would still fail min-3).
+    let calls = 0;
+    const result = await enrichFactWithModel(INPUT, async () => {
+      calls++;
+      if (calls === 1) {
+        return JSON.stringify({ ...SUBTYPE_MISMATCH, suggestedHashtags: ["electriccar", "alex", "overhype"] });
+      }
+      return JSON.stringify({ ...VALID, suggestedHashtags: ["electriccar", "innovation", "engineering"] });
+    });
+    assert.equal(calls, 2);
+    assert.equal(result.subtype, "force_scaled_action");
+    assert.deepEqual(result.suggestedHashtags, ["electriccar", "innovation", "engineering"]);
+  });
+
   it("re-runs the model when stripping denied hashtags drops below the minimum of 3", async () => {
     let calls = 0;
     const result = await enrichFactWithModel(INPUT, async () => {
@@ -342,6 +359,10 @@ describe("stripDeniedHashtags", () => {
       stripDeniedHashtags(["Alex", "alex", "Overhype", "overhype.me", "OverhypeMe", "strength", "earth"]),
       ["strength", "earth"],
     );
+  });
+  it("removes the POSSESSIVE subject form (Alex's → alexs)", () => {
+    // {NAME_POSSESSIVE} renders "Alex's"; normalizeHashtag drops the apostrophe → "alexs".
+    assert.deepEqual(stripDeniedHashtags(["Alex's", "alexs", "strength", "earth"]), ["strength", "earth"]);
   });
   it("is a no-op when nothing is denied", () => {
     assert.deepEqual(stripDeniedHashtags(["strength", "legendary", "earth"]), ["strength", "legendary", "earth"]);

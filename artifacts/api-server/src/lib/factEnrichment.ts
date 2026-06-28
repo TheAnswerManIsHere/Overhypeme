@@ -44,7 +44,7 @@ import {
 } from "./factEnrichmentConfig";
 import { callUtilityLLM } from "./utilityLLM";
 import { logger } from "./logger";
-import { CANONICAL_SUBJECT_NAMES, stripSubjectNameSemanticEntities } from "./renderCanonical";
+import { CANONICAL_SUBJECT_NAMES, possessive, stripSubjectNameSemanticEntities } from "./renderCanonical";
 
 export class EnrichmentError extends Error {
   constructor(message: string) {
@@ -84,8 +84,11 @@ type UserMessage = { role: "user"; content: string };
 // validate→retry loop re-asks the model for more allowed tags.
 const APP_NAME_HASHTAGS: readonly string[] = ["overhype", "overhypeme"];
 
+// Include the POSSESSIVE form of each subject name: canonical rendering can feed
+// the classifier "{NAME_POSSESSIVE}" → "Alex's", and normalizeHashtag("Alex's")
+// is "alexs" — distinct from "alex", so it would otherwise slip the filter.
 const DENIED_HASHTAGS: ReadonlySet<string> = new Set<string>(
-  [...CANONICAL_SUBJECT_NAMES, ...APP_NAME_HASHTAGS]
+  [...CANONICAL_SUBJECT_NAMES, ...CANONICAL_SUBJECT_NAMES.map((n) => possessive(n)), ...APP_NAME_HASHTAGS]
     .map((t) => normalizeHashtag(t))
     .filter((t) => t.length > 0),
 );
@@ -137,12 +140,21 @@ export function buildEnrichmentUserMessage(input: EnrichInput): string {
   ].join("\n");
 }
 
+// Both correctives carry the hashtag exclusion reminder. A first response can
+// fail with BOTH an invalid subtype AND denied tags that, once stripped, leave
+// fewer than 3 — and subtypeMismatch wins the corrective selection. If the
+// subtype message said nothing about hashtags, the single retry could fix the
+// subtype but keep too few tags and still fail. Reminding in both paths lets the
+// one retry recover the full blob.
+const HASHTAG_CORRECTIVE_REMINDER =
+  `For hashtags: never use the subject's name ("alex", "alex's") or the app name ("overhype"/"overhypeme") — those are removed automatically, so always provide 3-8 genuine discovery tags that are neither.`;
+
 function buildSubtypeCorrective(archetype: string, subtype: string): string {
-  return `The previous response failed validation because subtype "${subtype}" is not valid for primaryArchetype "${archetype}". Reclassify the fact using only valid subtypes for that primary archetype. Return the full JSON object again.`;
+  return `The previous response failed validation because subtype "${subtype}" is not valid for primaryArchetype "${archetype}". Reclassify the fact using only valid subtypes for that primary archetype. Return the full JSON object again. ${HASHTAG_CORRECTIVE_REMINDER}`;
 }
 
 function buildGenericCorrective(error: string): string {
-  return `The previous response failed validation: ${error}. Return the full JSON object again with every required field, using only the allowed enum values, 3-8 lowercase alphanumeric hashtags, and taxonomyConfidence between 0 and 1. For hashtags: never use the subject's name ("alex") or the app name ("overhype"/"overhypeme") — those are removed automatically, so provide 3-8 genuine discovery tags that are neither.`;
+  return `The previous response failed validation: ${error}. Return the full JSON object again with every required field, using only the allowed enum values, 3-8 lowercase alphanumeric hashtags, and taxonomyConfidence between 0 and 1. ${HASHTAG_CORRECTIVE_REMINDER}`;
 }
 
 function safeJsonParse(raw: string): unknown {
