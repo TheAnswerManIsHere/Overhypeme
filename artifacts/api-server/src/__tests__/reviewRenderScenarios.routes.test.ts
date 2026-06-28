@@ -197,8 +197,10 @@ describe("ensureDefaultReviewRenders idempotency", () => {
   it("enqueues the default batch once per input hash", async () => {
     const reviewId = await seedReview(plainId);
     const first = await ensureDefaultReviewRenders(reviewId);
-    // 3 required scenarios attempted (generic_t2i + male succeed; female has no
-    // asset -> a failed attempt before paid work). Non-human does not auto-run.
+    // 3 required scenarios attempted (generic_t2i + i2i male + i2i female). All
+    // default references now ship, so each enqueues a real attempt (the stubbed
+    // fal upload keeps the i2i reference resolution off-network). Non-human does
+    // not auto-run.
     assert.equal(first.enqueued.length, 3);
     const afterFirst = await db.select().from(imagePromptAttemptsTable).where(eq(imagePromptAttemptsTable.reviewId, reviewId));
     assert.equal(afterFirst.length, 3);
@@ -208,9 +210,14 @@ describe("ensureDefaultReviewRenders idempotency", () => {
     const afterSecond = await db.select().from(imagePromptAttemptsTable).where(eq(imagePromptAttemptsTable.reviewId, reviewId));
     assert.equal(afterSecond.length, 3, "no duplicate attempts");
 
-    // The female scenario failed honestly before paid work (no reference asset).
-    const female = afterSecond.find((a) => a.reviewRenderScenarioKey === "i2i_female_default");
-    assert.ok(female?.error?.includes("reference_asset_unavailable"));
+    // Every required scenario resolved its reference and enqueued cleanly — none
+    // failed with reference_asset_unavailable now that all assets are present.
+    for (const a of afterSecond) {
+      assert.ok(
+        !a.error?.includes("reference_asset_unavailable"),
+        `scenario ${a.reviewRenderScenarioKey} unexpectedly missing its reference: ${a.error}`,
+      );
+    }
   });
 
   it("does NOT enqueue paid renders once the review has left production_review", async () => {
