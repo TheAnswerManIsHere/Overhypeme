@@ -21,6 +21,7 @@ import {
 import {
   enrichFactWithModel,
   buildFactEnrichmentColumns,
+  stripDeniedHashtags,
   EnrichmentError,
   type EnrichInput,
 } from "../lib/factEnrichment.js";
@@ -307,6 +308,43 @@ describe("enrichFactWithModel — orchestration", () => {
     const result = await enrichFactWithModel(INPUT, async () => JSON.stringify(polluted));
     const surfaces = result.semanticEntities.map((e) => e.surfaceText);
     assert.deepEqual(surfaces, ["Earth"], JSON.stringify(result.semanticEntities));
+  });
+
+  it("strips subject-name / app-name hashtags without a retry when enough real tags remain", async () => {
+    let calls = 0;
+    // Model returns the subject name + the app name (various forms) plus real tags.
+    const withDenied = {
+      ...VALID,
+      suggestedHashtags: ["Alex", "#Overhype.me", "overhype", "strength", "legendary", "earth"],
+    };
+    const result = await enrichFactWithModel(INPUT, async () => { calls++; return JSON.stringify(withDenied); });
+    assert.equal(calls, 1, "no retry needed — 3+ real tags survived");
+    assert.deepEqual(result.suggestedHashtags, ["strength", "legendary", "earth"]);
+  });
+
+  it("re-runs the model when stripping denied hashtags drops below the minimum of 3", async () => {
+    let calls = 0;
+    const result = await enrichFactWithModel(INPUT, async () => {
+      calls++;
+      // First call: only one real tag survives the strip → forces a retry.
+      if (calls === 1) return JSON.stringify({ ...VALID, suggestedHashtags: ["electriccar", "alex", "overhype"] });
+      // Retry: the model now supplies enough allowed discovery tags.
+      return JSON.stringify({ ...VALID, suggestedHashtags: ["electriccar", "innovation", "engineering"] });
+    });
+    assert.equal(calls, 2, "stripping below 3 triggered exactly one corrective retry");
+    assert.deepEqual(result.suggestedHashtags, ["electriccar", "innovation", "engineering"]);
+  });
+});
+
+describe("stripDeniedHashtags", () => {
+  it("removes the subject name and the app name in any casing/punctuation, keeps real tags", () => {
+    assert.deepEqual(
+      stripDeniedHashtags(["Alex", "alex", "Overhype", "overhype.me", "OverhypeMe", "strength", "earth"]),
+      ["strength", "earth"],
+    );
+  });
+  it("is a no-op when nothing is denied", () => {
+    assert.deepEqual(stripDeniedHashtags(["strength", "legendary", "earth"]), ["strength", "legendary", "earth"]);
   });
 });
 
