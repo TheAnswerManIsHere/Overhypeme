@@ -71,7 +71,7 @@ beforeEach(() => installFetch());
 afterEach(() => vi.unstubAllGlobals());
 
 function expand() {
-  fireEvent.click(screen.getByText(/Runtime Compiled Prompt Preview/i));
+  fireEvent.click(screen.getByText(/Prompt Diagnostics/i));
 }
 
 // ── RuntimePromptPreview ──────────────────────────────────────────────────────
@@ -247,7 +247,7 @@ describe("RuntimePromptPreview", () => {
     calls = [];
     // Fresh mount: the prior result is restored WITHOUT calling /preview again.
     render(<RuntimePromptPreview factId={99} />);
-    fireEvent.click(screen.getByText(/Runtime Compiled Prompt Preview/i));
+    fireEvent.click(screen.getByText(/Prompt Diagnostics/i));
     await waitFor(() => expect(screen.getByTestId("rpp-compiled-prompt")).toBeTruthy());
     expect(screen.getByTestId("rpp-compiled-prompt").textContent).toContain("COMPILED IMAGE PROMPT TEXT");
     expect(calls.some((c) => c.url.includes("/api/admin/image-prompt/preview"))).toBe(false);

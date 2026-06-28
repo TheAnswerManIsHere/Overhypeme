@@ -15,7 +15,12 @@ import { pendingReviewsTable, factsTable } from "@workspace/db/schema";
 import { isUnresolvedSubmissionStage, type ReviewWorkflowStage } from "@workspace/api-zod";
 import { renderCanonical } from "./renderCanonical";
 import { computeSplitTokenIndex } from "./splitTokenIndex";
+import { enqueueJob } from "./asyncJobs";
 import { logger } from "./logger";
+
+// Queue name owned by reviewRenderScenarios.ts (kept as a literal here to avoid
+// pulling that heavy orchestration module into this widely-imported helper).
+const REVIEW_RENDER_PREPARE_QUEUE = "review_render_scenarios_prepare";
 
 // Matches any pronoun / gendered template token (same detection the approve
 // path uses) so the staging fact records whether it needs pronoun handling.
@@ -129,4 +134,24 @@ export async function advanceReviewForStagingFactEnrichment(args: {
     { factId: args.factId, reviewId: review.id, nextStage },
     "[moderation] staging enrichment advanced review stage",
   );
+
+  // Success path ONLY: enrichment is now valid + the review is in
+  // production_review, so the Step-2 default render scenarios can be prepared.
+  // A separate durable job does the (expensive, multi-scenario) enqueue so this
+  // transition stays cheap; the dedupeKey makes re-entry a no-op. Best-effort —
+  // a failure here must not roll back the stage advance.
+  if (nextStage === "production_review") {
+    try {
+      await enqueueJob({
+        queue: REVIEW_RENDER_PREPARE_QUEUE,
+        payload: { reviewId: review.id },
+        dedupeKey: `review_render_prep:${review.id}`,
+      });
+    } catch (err) {
+      logger.error(
+        { err, reviewId: review.id },
+        "[moderation] failed to enqueue review render prepare (stage advance kept)",
+      );
+    }
+  }
 }

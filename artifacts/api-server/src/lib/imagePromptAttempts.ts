@@ -64,6 +64,19 @@ export interface BuildImagePromptAttemptArgs {
    * so prompt-gen logs and attempt rows correlate. Omitted ⇒ null.
    */
   requestId?: string | null;
+  /**
+   * Moderation render-scenario metadata. Set ONLY for Step-2 visual-review
+   * attempts; makes `image_prompt_attempts` the durable source of truth for the
+   * scenario grid (see factRenderScenarios.ts / reviewRenderScenarios.ts).
+   */
+  scenario?: {
+    reviewId: number;
+    scenarioKey: string;
+    inputHash: string;
+    referenceAssetVersion?: string | null;
+    referenceIdentityType?: string | null;
+    batchId?: string | null;
+  };
 }
 
 /**
@@ -94,6 +107,12 @@ export async function buildAndEnqueueImagePromptAttempt(
       factEnrichmentSnapshot: args.enrichment,
       renderedFactText: args.renderedFactText,
       archetypeStrategyVersion: "v2",
+      reviewId: args.scenario?.reviewId ?? null,
+      reviewRenderScenarioKey: args.scenario?.scenarioKey ?? null,
+      reviewRenderInputHash: args.scenario?.inputHash ?? null,
+      reviewReferenceAssetVersion: args.scenario?.referenceAssetVersion ?? null,
+      reviewReferenceIdentityType: args.scenario?.referenceIdentityType ?? null,
+      reviewRenderBatchId: args.scenario?.batchId ?? null,
     })
     .returning({ id: imagePromptAttemptsTable.id });
 

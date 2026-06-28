@@ -85,10 +85,12 @@ export function __setVideoStylePromptGeneratorForTest(
   videoStylePromptGenerator = fn ?? generateVideoDirection;
 }
 
-// Lazily upload the bundled 1×1 test face to fal so OpenAI's vision call has a
+// Lazily upload the bundled test face to fal so OpenAI's vision call has a
 // fetchable URL when the bench has no real sample image. Memoized per process
-// (the placeholder never changes); the falUploadOverride seam keeps tests off
-// the network.
+// (the asset never changes); the falUploadOverride seam keeps tests off the
+// network. NOTE: `test-face.jpg` is a real ~3088×2316 photo, not a 1×1
+// placeholder — it doubles as the default MALE i2i reference (see
+// defaultReferenceResolver.ts).
 let bundledFaceUrlPromise: Promise<string> | null = null;
 async function getBundledTestFaceUrl(): Promise<string> {
   if (!bundledFaceUrlPromise) {
@@ -153,9 +155,10 @@ const VALID_REASONING_EFFORTS = new Set(["none", "low", "medium", "high"]);
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 /**
- * 1×1 placeholder JPEG shipped with the api-server. Used by the synthetic
- * test endpoint when no `sampleImageUrl` is supplied. The test is about
- * verifying the param shape fal expects — output quality is irrelevant.
+ * Bundled reference face shipped with the api-server (a real ~3088×2316 photo,
+ * NOT a 1×1 placeholder). Used by the synthetic test endpoint when no
+ * `sampleImageUrl` is supplied, and reused as the default MALE i2i reference for
+ * moderation render scenarios (see defaultReferenceResolver.ts).
  */
 const TEST_FACE_ASSET = path.resolve(__dirname, "../assets/test-face.jpg");
 

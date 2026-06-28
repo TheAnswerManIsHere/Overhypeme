@@ -1,0 +1,34 @@
+# Default reference images for moderation i2i test renders
+
+The Step-2 visual-review grid renders image-to-image scenarios against these
+canonical default reference images, one per identity type. They are uploaded to
+fal.storage on first use (see `src/lib/defaultReferenceResolver.ts`).
+
+## Required files
+
+Drop a real, licensed/synthetic image at each path below. Real photographs of a
+clear subject work best (a portrait for the human types; a clear single subject
+for the non-human types). Minimum useful size is well above 4 KB — a 1×1 or
+near-empty placeholder is rejected by the health check.
+
+| Identity type             | File                          | Status                                            |
+| ------------------------- | ----------------------------- | ------------------------------------------------- |
+| `male`                    | `male.jpg`                    | ✅ Provided (upright-normalized male portrait).    |
+| `female`                  | `female.jpg`                  | ✅ Provided (upright-normalized female portrait).  |
+| `nonhuman_animal`         | `nonhuman-animal.jpg`         | ✅ Provided (upright-normalized cat).              |
+| `nonhuman_object_vehicle` | `nonhuman-object-vehicle.jpg` | ✅ Provided (upright-normalized car).             |
+
+All provided assets are EXIF-orientation-normalized to upright (pixels baked, tag
+stripped) so i2i gets a correctly-oriented subject regardless of how the engine
+handles EXIF.
+
+## Rules
+
+- **Licensing:** only commit explicitly-licensed or synthetic images. Do not
+  commit real third-party people's photos without rights/consent.
+- **Versioning:** when you swap an asset, bump its entry in
+  `DEFAULT_REFERENCE_ASSET_VERSION` (`src/lib/factRenderScenarios.ts`) so prior
+  i2i attempts that used the old asset correctly go stale.
+- Until a file is present, its scenario fails with a clear "reference not
+  configured" message and `GET /api/admin/render-references/health` reports it
+  missing. The generic (t2i) scenario needs no reference and works immediately.

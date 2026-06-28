@@ -1,18 +1,19 @@
 import { useEffect, useRef, useState } from "react";
-import { Beaker, ChevronDown, ChevronRight, Copy, Check, RefreshCw, AlertTriangle, Layers, ImageIcon, Loader2 } from "lucide-react";
-import { useModerationRender, isTerminalRenderStatus, type RenderAttempt } from "./useModerationRender";
+import { Beaker, ChevronDown, ChevronRight, Copy, Check, RefreshCw, AlertTriangle, Layers } from "lucide-react";
 
 /**
- * Runtime Compiled Prompt Preview (Phase 2C).
+ * Prompt Diagnostics (Phase 2C).
  *
  * Calls the REAL Phase 2 image-prompt service via POST /api/admin/image-prompt/preview
  * and shows the engine-neutral `visualPlan` + Nano Banana `compiledPrompt` an
- * image engine would actually receive under chosen render assumptions.
+ * image engine would actually receive under the chosen test assumptions — a
+ * RECOMPUTE-under-current-assumptions diagnostic, distinct from the frozen
+ * per-render prompt shown on each visual-review tile.
  *
- * This is the SINGLE source of truth for "what the image will be": the
- * enrichment-time visual preview subsystem has been retired. This panel is
- * read-only / non-mutating: it never overwrites fact enrichment unless the
- * admin explicitly opts into persisting an image-prompt attempt row.
+ * Diagnostics-only: this panel no longer triggers renders (the Step-2 visual-
+ * review scenario grid owns rendering now). It is read-only / non-mutating: it
+ * never overwrites fact enrichment unless the admin explicitly opts into
+ * persisting an image-prompt attempt row.
  */
 
 type SubjectRenderMode = "human_identity_i2i" | "nonhuman_subject_i2i" | "t2i_fallback";
@@ -220,19 +221,17 @@ function loadPersisted(factId: number | null, reviewId: number | null, reviewIdF
 }
 
 type RuntimePromptPreviewProps =
-  // Fact path (also used by the moderation modal: factId = stagingFactId). When
-  // `reviewIdForRender` is set, the "Render AI background" action is enabled and
-  // targets that review's render endpoint while the preview still reads the fact.
+  // Fact path (also used by the moderation modal: factId = stagingFactId).
+  // `reviewIdForRender` only scopes the persisted controls to a review so the
+  // moderation diagnostics state never collides with the fact-editor preview;
+  // it no longer enables any render action (the scenario grid owns rendering).
   | { factId: number; reviewId?: undefined; reviewIdForRender?: number }
   | { reviewId: number; factId?: undefined; reviewIdForRender?: undefined };
 
 export function RuntimePromptPreview({ factId, reviewId, reviewIdForRender }: RuntimePromptPreviewProps) {
   const isReviewMode = reviewId !== undefined;
-  // Moderation render mode: preview reads the staging fact; render posts to the
-  // review endpoint. Defaults to t2i (review facts have no source image).
-  const canRender = reviewIdForRender !== undefined;
-  const defaultMode: SubjectRenderMode = canRender ? "t2i_fallback" : "human_identity_i2i";
-  const moderationRender = useModerationRender(reviewIdForRender);
+  // Moderation diagnostics default to t2i (review facts have no source image).
+  const defaultMode: SubjectRenderMode = reviewIdForRender !== undefined ? "t2i_fallback" : "human_identity_i2i";
   const [expanded, setExpanded] = useState(false);
   const [lookStyles, setLookStyles] = useState<LookStyle[]>([]);
 
@@ -293,15 +292,16 @@ export function RuntimePromptPreview({ factId, reviewId, reviewIdForRender }: Ru
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [factId, reviewId, reviewIdForRender]);
 
-  // In review-render mode, keep the t2i fallback gender synced to the sample
+  // In moderation diagnostics, keep the t2i fallback gender synced to the sample
   // pronouns until the moderator manually overrides it. Fixes the common case
   // where a he/him sample left the gender on "neutral" (which the prompt
   // generator frequently rejects).
+  const isModeration = reviewIdForRender !== undefined;
   useEffect(() => {
-    if (canRender && !genderTouched) {
+    if (isModeration && !genderTouched) {
       setFallbackSubjectGender(genderFromPronouns(previewPronouns));
     }
-  }, [canRender, genderTouched, previewPronouns]);
+  }, [isModeration, genderTouched, previewPronouns]);
 
   // Persist controls + the last result per fact.
   useEffect(() => {
@@ -436,32 +436,6 @@ export function RuntimePromptPreview({ factId, reviewId, reviewIdForRender }: Ru
     }
   }
 
-  // ── Moderation "Render AI background" (review-render mode only) ──────────────
-  const validRenderPronouns = /^[a-z]+\/[a-z]+$/i.test(previewPronouns.trim());
-  function doRender() {
-    moderationRender.render({
-      lookStyleId: lookStyleId || null,
-      ...(previewName.trim() ? { previewName: previewName.trim() } : {}),
-      ...(validRenderPronouns ? { previewPronouns: previewPronouns.trim() } : {}),
-      renderControls: { aspectRatio, contentMode, negativeSpacePreference, fallbackSubjectGender },
-      identityPolicyOverrides: { preservePhysique },
-      meta: {
-        name: previewName.trim() || "David Franklin",
-        pronouns: validRenderPronouns ? previewPronouns.trim() : "he/him",
-        aspectRatio,
-        fallbackGender: fallbackSubjectGender,
-        style: lookStyleId || "(none)",
-        contentMode,
-      },
-    });
-  }
-
-  // Aggregate tally across the render attempts (rule 8).
-  const renderAttempts = moderationRender.attempts;
-  const renderDone = renderAttempts.filter((a) => a.status === "image_ready").length;
-  const renderFailed = renderAttempts.filter((a) => a.status === "failed" || a.status === "blocked").length;
-  const renderActive = renderAttempts.filter((a) => !isTerminalRenderStatus(a.status)).length;
-
   return (
     <div className="rounded-sm border border-border bg-muted/20" data-testid="runtime-prompt-preview">
       <button
@@ -470,7 +444,7 @@ export function RuntimePromptPreview({ factId, reviewId, reviewIdForRender }: Ru
         className="w-full flex items-center justify-between gap-2 p-3 text-left"
       >
         <span className="text-xs font-bold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
-          <Beaker className="w-3.5 h-3.5" /> Runtime Compiled Prompt Preview
+          <Beaker className="w-3.5 h-3.5" /> Prompt Diagnostics
         </span>
         {expanded ? <ChevronDown className="w-4 h-4 text-muted-foreground" /> : <ChevronRight className="w-4 h-4 text-muted-foreground" />}
       </button>
@@ -478,8 +452,9 @@ export function RuntimePromptPreview({ factId, reviewId, reviewIdForRender }: Ru
       {expanded && (
         <div className="px-3 pb-3 space-y-3">
           <p className="text-[11px] text-muted-foreground leading-snug">
-            This calls the actual Phase 2 runtime prompt service for the selected test assumptions. It is the prompt the
-            image engine would receive — and may differ from the preview-only example prompt in the enrichment editor.
+            Recomputes the Phase 2 runtime prompt under the test assumptions you choose below — the prompt an image
+            engine would receive right now. This is a live diagnostic; the frozen prompt that produced a specific
+            test render is shown on each visual-review tile's "Scenario diagnostics".
           </p>
 
           {/* Controls */}
@@ -890,112 +865,7 @@ export function RuntimePromptPreview({ factId, reviewId, reviewIdForRender }: Ru
               </div>
             </div>
           )}
-
-          {/* ── Render AI background (moderation review only) ── */}
-          {canRender && (
-            <div className="space-y-2 border-t border-border pt-3" data-testid="rpp-render-section">
-              <div className="flex items-center justify-between gap-2">
-                <span className={labelCls}>Render AI background</span>
-                {renderAttempts.length > 0 && (
-                  <span className="text-[10px] text-muted-foreground" data-testid="rpp-render-tally">
-                    Rendered {renderDone} · {renderActive} rendering · {renderFailed} failed
-                  </span>
-                )}
-              </div>
-              <p className="text-[10px] text-muted-foreground italic leading-snug">
-                Runs the real Nano Banana 2 pipeline on the compiled prompt and shows the raw AI
-                background — the same artifact the Engines test bed produces. Text overlay / layout is
-                not validated here. Renders are review-only and never touch the fact’s production images.
-              </p>
-
-              {isI2i ? (
-                <div className="flex items-start gap-2 rounded-sm border border-amber-500/40 bg-amber-500/10 px-3 py-2">
-                  <AlertTriangle className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
-                  <p className="text-xs text-amber-700 dark:text-amber-300">
-                    Moderation renders are text-to-image only — review facts have no source image. Switch
-                    subject render mode to <span className="font-mono">t2i_fallback</span> to render.
-                  </p>
-                </div>
-              ) : (
-                <button
-                  type="button"
-                  onClick={doRender}
-                  disabled={moderationRender.busy || missingFallbackGender}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-sm bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-50"
-                  data-testid="rpp-render"
-                >
-                  <ImageIcon className={`w-3.5 h-3.5 ${moderationRender.busy ? "animate-pulse" : ""}`} />
-                  {moderationRender.busy ? "Starting render…" : "Render AI background"}
-                </button>
-              )}
-
-              {moderationRender.error && (
-                <div className="flex items-start gap-2 rounded-sm border border-destructive/50 bg-destructive/10 px-3 py-2" data-testid="rpp-render-error">
-                  <AlertTriangle className="w-4 h-4 text-destructive shrink-0 mt-0.5" />
-                  <p className="text-xs text-destructive">{moderationRender.error}</p>
-                </div>
-              )}
-
-              {renderAttempts.length > 0 && (
-                <div className="space-y-2" data-testid="rpp-render-attempts">
-                  {renderAttempts.map((a) => (
-                    <RenderAttemptRow key={a.renderJobId} reviewId={reviewIdForRender!} attempt={a} />
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
         </div>
-      )}
-    </div>
-  );
-}
-
-// ── One render attempt's live status row (rule 8: per-item state) ─────────────
-
-function RenderAttemptRow({ reviewId, attempt: a }: { reviewId: number; attempt: RenderAttempt }) {
-  const meta = a.meta;
-  const metaLine = `${meta.name} · ${meta.pronouns} · ${meta.aspectRatio} · ${meta.fallbackGender} · ${meta.style} · ${meta.contentMode}${a.attemptId != null ? ` · #${a.attemptId}` : ""}`;
-  const active = !isTerminalRenderStatus(a.status);
-
-  return (
-    <div className="rounded-sm border border-border bg-background p-2" data-testid="rpp-render-attempt" data-status={a.status}>
-      <div className="flex items-center gap-1.5 mb-1">
-        {active && <Loader2 className="w-3.5 h-3.5 animate-spin text-primary shrink-0" />}
-        {a.status === "image_ready" && <Check className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />}
-        {(a.status === "failed" || a.status === "blocked") && (
-          <AlertTriangle className="w-3.5 h-3.5 text-destructive shrink-0" />
-        )}
-        <span className="text-[11px] font-semibold text-foreground">
-          {a.status === "queued" && "Queued…"}
-          {a.status === "pending" && "Queued…"}
-          {a.status === "prompt_ready" && "Rendering image…"}
-          {a.status === "image_ready" && "Rendered"}
-          {a.status === "failed" && "Render failed"}
-          {a.status === "blocked" && "Blocked"}
-        </span>
-      </div>
-      <p className="text-[10px] text-muted-foreground font-mono break-all">{metaLine}</p>
-
-      {a.status === "image_ready" && a.generatedImageObjectPath && (
-        <img
-          // Ephemeral render images have no ACL; the user-facing /storage/objects
-          // route would 403 them. Serve through the admin-gated review image route.
-          src={`/api/admin/reviews/${reviewId}/renders/${a.renderJobId}/image`}
-          alt="Rendered AI background"
-          loading="lazy"
-          className="mt-2 w-full max-w-sm rounded-sm border border-border"
-          data-testid="rpp-render-image"
-        />
-      )}
-      {a.status === "blocked" && (
-        <p className="mt-1 text-[10px] text-amber-700 dark:text-amber-300">
-          Subject↔fact compatibility is poor — the prompt won’t render well.
-          {a.recommendedFallback ? ` Recommended: ${a.recommendedFallback}.` : ""}
-        </p>
-      )}
-      {a.status === "failed" && a.error && (
-        <p className="mt-1 text-[10px] text-destructive break-all">{a.error}</p>
       )}
     </div>
   );

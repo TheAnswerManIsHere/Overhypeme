@@ -3,6 +3,7 @@ import {
 } from "drizzle-orm/pg-core";
 import { factsTable } from "./facts";
 import { usersTable } from "./auth";
+import { pendingReviewsTable } from "./reviews";
 
 /**
  * Phase 2 — per-attempt image prompt generation metadata.
@@ -66,6 +67,24 @@ export const imagePromptAttemptsTable = pgTable("image_prompt_attempts", {
   error: text("error"),
   /** Populated by the image_generation handler when fal returns. */
   generatedImageObjectPath: text("generated_image_object_path"),
+  // ── Moderation render-scenario metadata (migration 0076) ──────────────────
+  // Non-null ONLY on moderation test-render attempts (the durable, server-side
+  // source of truth for the Step-2 visual-review scenario grid). User-facing
+  // render attempts leave all of these NULL. Presentation state (status, stale,
+  // latest-for-scenario) is DERIVED at read time — never persisted — so it
+  // can't drift from the current enrichment/config (see factRenderScenarios.ts).
+  /** Links the attempt to the moderation review whose Step-2 grid owns it. */
+  reviewId: integer("review_id").references(() => pendingReviewsTable.id, { onDelete: "set null" }),
+  /** Scenario this attempt fulfils, e.g. "generic_t2i" | "i2i_male_default" | … (ScenarioKey). */
+  reviewRenderScenarioKey: varchar("review_render_scenario_key", { length: 40 }),
+  /** sha256 hex of the canonical render-affecting inputs — drives idempotency + staleness. */
+  reviewRenderInputHash: varchar("review_render_input_hash", { length: 64 }),
+  /** Version of the default reference asset used (for i2i scenarios), for stale detection. */
+  reviewReferenceAssetVersion: varchar("review_reference_asset_version", { length: 32 }),
+  /** Reference identity class used: "male" | "female" | "nonhuman_animal" | "nonhuman_object_vehicle". */
+  reviewReferenceIdentityType: varchar("review_reference_identity_type", { length: 32 }),
+  /** Groups the scenarios auto-enqueued in one default batch (debugging/audit). */
+  reviewRenderBatchId: varchar("review_render_batch_id", { length: 64 }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => [
@@ -73,8 +92,13 @@ export const imagePromptAttemptsTable = pgTable("image_prompt_attempts", {
   index("IDX_ipa_user_id").on(t.userId),
   index("IDX_ipa_created_at").on(t.createdAt.desc()),
   index("IDX_ipa_subject_render_mode").on(t.subjectRenderMode),
-  // Partial indexes for request_id / render_job_id are declared in the
-  // migration SQL only — drizzle-kit's partial-index detection is brittle.
+  // Latest-attempt-per-scenario lookup for the moderation Step-2 grid.
+  index("IDX_ipa_review_scenario_created").on(t.reviewId, t.reviewRenderScenarioKey, t.createdAt.desc()),
+  // Idempotency lookup (has this exact input already been rendered for this review?).
+  index("IDX_ipa_review_input_hash").on(t.reviewId, t.reviewRenderInputHash),
+  // Partial indexes for request_id / render_job_id (and the moderation-only
+  // `WHERE review_id IS NOT NULL` partial) are declared in the migration SQL
+  // only — drizzle-kit's partial-index detection is brittle.
 ]);
 
 export type ImagePromptAttempt = typeof imagePromptAttemptsTable.$inferSelect;
