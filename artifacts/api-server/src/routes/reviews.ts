@@ -465,8 +465,9 @@ async function approveForProduction(
   // Required Step-2 scenarios must each be a fresh successful render; otherwise
   // the moderator must explicitly waive the EXACT named problems. The problem set
   // is recomputed server-side so a stale client can't sneak an approval past
-  // missing/failed/blocked/stale renders.
-  const scenarioGrid = await buildReviewScenarioGrid(reviewId);
+  // missing/failed/blocked/stale renders. Pass the enrichment being PUBLISHED
+  // (body override wins) so renders made with a pre-edit enrichment read as stale.
+  const scenarioGrid = await buildReviewScenarioGrid(reviewId, enrichment);
   const renderProblems = requiredScenarioProblems(
     scenarioGrid.cards.map((c) => ({ scenarioKey: c.key, status: c.status, stale: c.stale })),
   );

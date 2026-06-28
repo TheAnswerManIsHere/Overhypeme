@@ -212,6 +212,14 @@ describe("ensureDefaultReviewRenders idempotency", () => {
     const female = afterSecond.find((a) => a.reviewRenderScenarioKey === "i2i_female_default");
     assert.ok(female?.error?.includes("reference_asset_unavailable"));
   });
+
+  it("does NOT enqueue paid renders once the review has left production_review", async () => {
+    const reviewId = await seedReview(plainId, "production_rejected");
+    const { enqueued } = await ensureDefaultReviewRenders(reviewId);
+    assert.equal(enqueued.length, 0, "a resolved/rejected review must not auto-render");
+    const attempts = await db.select().from(imagePromptAttemptsTable).where(eq(imagePromptAttemptsTable.reviewId, reviewId));
+    assert.equal(attempts.length, 0);
+  });
 });
 
 describe("approval visual-render gate (admin-waivable)", () => {

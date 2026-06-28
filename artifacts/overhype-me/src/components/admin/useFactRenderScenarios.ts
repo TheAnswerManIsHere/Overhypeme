@@ -10,9 +10,13 @@ import {
  *
  * Mirrors the rule-8 polling style of `useModerationRender` / `ModerationPexelsPanel`:
  * fetches `GET /api/admin/reviews/:id/render-scenarios`, then polls at ~1s with
- * **NO timeout** while ANY card is non-terminal (queued/rendering). It stops once
- * every card is terminal (done/failed/blocked/skipped/missing) and resumes
- * automatically when a fresh run is triggered (which pushes a card back to queued).
+ * **NO timeout** while any card is working. "Working" includes a REQUIRED card
+ * still `missing`: when a review first enters production_review the backend only
+ * enqueues the prepare job, so the first GET can win the race and see required
+ * cards as `missing` before their attempts exist. We keep polling through that
+ * so the auto-enqueued renders appear without a manual refresh. Stops once every
+ * required card is terminal (done/failed/blocked) and no card is queued/rendering;
+ * resumes automatically when a run pushes a card back to queued.
  *
  * Entity-agnostic name (`fact*`, not `review*`) so PR3 can reuse it; it currently
  * takes a `reviewId` because that's the only render-scenario surface that exists.
@@ -26,7 +30,12 @@ const NON_TERMINAL_STATUSES: ReadonlySet<RenderScenarioStatus> = new Set<RenderS
 /** True while at least one card is still working — the signal to keep polling. */
 function gridIsActive(grid: RenderScenarioGrid | null): boolean {
   if (!grid) return false;
-  return grid.cards.some((c) => NON_TERMINAL_STATUSES.has(c.status));
+  return grid.cards.some(
+    (c) =>
+      NON_TERMINAL_STATUSES.has(c.status) ||
+      // Required-but-missing = auto-render enqueued, attempt not created yet.
+      (c.required && c.status === "missing"),
+  );
 }
 
 interface UseFactRenderScenariosResult {

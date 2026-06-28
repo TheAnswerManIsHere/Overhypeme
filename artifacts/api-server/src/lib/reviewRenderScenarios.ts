@@ -293,9 +293,20 @@ interface ReviewRenderContext {
   stagingFactId: number;
   factText: string;
   enrichment: FactEnrichment;
+  stage: string;
 }
 
-async function loadReviewRenderContext(reviewId: number): Promise<
+/**
+ * Load the renderable context for a review. `enrichmentOverride` lets a caller
+ * (e.g. the approval gate, when the request body carries edited Advanced-Options
+ * enrichment) compute the grid/staleness against the enrichment that will be
+ * PUBLISHED — not the older blob the staging fact still holds — so stale renders
+ * can't pass the gate.
+ */
+async function loadReviewRenderContext(
+  reviewId: number,
+  enrichmentOverride?: FactEnrichment,
+): Promise<
   | { ok: true; ctx: ReviewRenderContext }
   | { ok: false; reason: string; stage?: string }
 > {
@@ -312,11 +323,15 @@ async function loadReviewRenderContext(reviewId: number): Promise<
     .where(eq(factsTable.id, review.stagingFactId))
     .limit(1);
   if (!stagingFact) return { ok: false, reason: "staging_fact_missing", stage: review.workflowStage };
-  const ev = validateEnrichment(stagingFact.enrichment);
-  if (!ev.ok) return { ok: false, reason: `enrichment_invalid: ${ev.error}`, stage: review.workflowStage };
+  let enrichment = enrichmentOverride;
+  if (!enrichment) {
+    const ev = validateEnrichment(stagingFact.enrichment);
+    if (!ev.ok) return { ok: false, reason: `enrichment_invalid: ${ev.error}`, stage: review.workflowStage };
+    enrichment = ev.data;
+  }
   return {
     ok: true,
-    ctx: { reviewId, stagingFactId: review.stagingFactId, factText: stagingFact.text, enrichment: ev.data },
+    ctx: { reviewId, stagingFactId: review.stagingFactId, factText: stagingFact.text, enrichment, stage: review.workflowStage },
   };
 }
 
@@ -334,6 +349,13 @@ export async function ensureDefaultReviewRenders(reviewId: number): Promise<{ en
     return { enqueued: [] };
   }
   const { ctx } = loaded;
+  // Stage guard: a delayed/retried prepare job (or any re-entry) must NOT enqueue
+  // paid renders once the review has left production_review (e.g. rejected). The
+  // manual route guards at the HTTP layer; this guards the async/auto path.
+  if (ctx.stage !== "production_review") {
+    logger.info({ reviewId, stage: ctx.stage }, "[moderation] ensureDefaultReviewRenders skipped (not production_review)");
+    return { enqueued: [] };
+  }
   const applicability = resolveNonHumanScenarioApplicability(ctx.enrichment, ctx.factText);
   const keys: RenderScenarioKey[] = [...REQUIRED_RENDER_SCENARIO_KEYS];
   if (applicability.autoRun) keys.push(nonHumanScenarioKeyForApplicability(applicability));
@@ -440,8 +462,11 @@ async function buildCard(
   };
 }
 
-export async function buildReviewScenarioGrid(reviewId: number): Promise<RenderScenarioGrid> {
-  const loaded = await loadReviewRenderContext(reviewId);
+export async function buildReviewScenarioGrid(
+  reviewId: number,
+  enrichmentOverride?: FactEnrichment,
+): Promise<RenderScenarioGrid> {
+  const loaded = await loadReviewRenderContext(reviewId, enrichmentOverride);
   const empty: RenderScenarioGrid = {
     reviewId,
     cards: [],
