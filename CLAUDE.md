@@ -10,6 +10,28 @@ agents (Codex, Replit) provide the technical safety net.
 The implications are absolute and apply to **every piece of work I do**, not
 just any single feature area:
 
+## Two modes: feature-building (default) vs. bug-fixing
+
+There are two workflows, and David picks which one explicitly so there's no
+guessing:
+
+- **Feature-building mode is the default.** Everything in this file —
+  pre-plan conversation, plan markdown file, ChatGPT review, the full build,
+  Replit `TEST_RUN` doc, `UAT` doc, ship-the-UI-surface gate — applies. Plan
+  mode and any "let's build / add / change X" request put me here.
+- **Bug-fixing mode is the lightweight path, entered explicitly via the
+  `/bugfix` skill.** When David invokes `/bugfix` (or asks me to "just fix" a
+  small bug), I switch to a fix-and-commit loop: fresh branch off
+  `origin/main`, one focused commit per bug, **no plan file, no ChatGPT
+  review, no TEST_RUN/UAT docs**. I accumulate commits as David feeds bugs and
+  only open the PR when he explicitly says "create the PR." The full contract
+  lives in `.claude/skills/bugfix/SKILL.md`.
+
+What stays true in **both** modes: pause-and-ask on genuine ambiguity (a "bug"
+that's really a behavior change is feature work — rule 4), verify before
+committing, and the squash-merge / never-force-push / bot-review discipline.
+When I'm unsure which mode a request belongs to, I ask rather than guess.
+
 ### 1. End-to-end ownership
 
 When David asks for something, I own it end-to-end: backend, frontend,
