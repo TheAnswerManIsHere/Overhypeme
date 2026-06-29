@@ -25,7 +25,6 @@ import {
   factEnrichmentWireSchema,
   validateEnrichment,
   resolveEnrichment,
-  normalizeHashtag,
   TAXONOMY_VERSION,
   CLASSIFICATION_PROMPT_VERSION,
   type FactEnrichment,
@@ -44,7 +43,11 @@ import {
 } from "./factEnrichmentConfig";
 import { callUtilityLLM } from "./utilityLLM";
 import { logger } from "./logger";
-import { CANONICAL_SUBJECT_NAMES, possessive, stripSubjectNameSemanticEntities } from "./renderCanonical";
+import { stripSubjectNameSemanticEntities } from "./renderCanonical";
+// The subject/app-name hashtag denylist now lives in the shared hashtag module
+// (it is a general hashtag concern, not enrichment-only). Re-exported below so
+// existing `import { stripDeniedHashtags } from "./factEnrichment"` keeps working.
+import { stripDeniedHashtags } from "./hashtags";
 
 export class EnrichmentError extends Error {
   constructor(message: string) {
@@ -66,37 +69,10 @@ export interface EnrichInput {
 
 type UserMessage = { role: "user"; content: string };
 
-// ─── Suggested-hashtag denylist (subject name + app name) ────────────────────
-//
-// Two kinds of tag must never reach a fact's suggestedHashtags, no matter what
-// the classifier returns:
-//   1. The SUBJECT'S name. The classifier is fed the fact rendered to the
-//      canonical placeholder "Alex" (they/them), so it naturally proposes
-//      "alex" — but that is a stand-in for whoever the meme is personalized to,
-//      not a real topic. (Same reason the subject is never a semanticEntity.)
-//   2. The APP'S own name. The system prompt is steeped in "Overhype.me"
-//      branding, so the model leaks "overhype" / "overhypeme" as a discovery
-//      tag even though it isn't in the fact.
-//
-// The system prompt now tells the model to avoid both (the cheap, probabilistic
-// guard), and this deterministic filter guarantees it (the reliable one). When
-// stripping drops the list below the schema minimum of 3, the enrichment
-// validate→retry loop re-asks the model for more allowed tags.
-const APP_NAME_HASHTAGS: readonly string[] = ["overhype", "overhypeme"];
-
-// Include the POSSESSIVE form of each subject name: canonical rendering can feed
-// the classifier "{NAME_POSSESSIVE}" → "Alex's", and normalizeHashtag("Alex's")
-// is "alexs" — distinct from "alex", so it would otherwise slip the filter.
-const DENIED_HASHTAGS: ReadonlySet<string> = new Set<string>(
-  [...CANONICAL_SUBJECT_NAMES, ...CANONICAL_SUBJECT_NAMES.map((n) => possessive(n)), ...APP_NAME_HASHTAGS]
-    .map((t) => normalizeHashtag(t))
-    .filter((t) => t.length > 0),
-);
-
-/** Drop subject-name / app-name tags (matched on normalized form). */
-export function stripDeniedHashtags(tags: readonly string[]): string[] {
-  return tags.filter((t) => typeof t === "string" && !DENIED_HASHTAGS.has(normalizeHashtag(t)));
-}
+// The subject/app-name hashtag denylist + `stripDeniedHashtags` moved to
+// `./hashtags` (shared by enrichment, the submit-time suggester, and approval).
+// Re-export so existing importers of it from this module are unaffected.
+export { stripDeniedHashtags } from "./hashtags";
 
 /**
  * Apply the hashtag denylist to a freshly-parsed (pre-validation) enrichment

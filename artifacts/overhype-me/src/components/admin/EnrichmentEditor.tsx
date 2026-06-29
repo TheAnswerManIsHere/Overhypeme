@@ -1530,6 +1530,13 @@ export function EnrichmentEditor({
 
       <div>
         <label className={LABEL_CLASS}>Suggested Hashtags (3–8)</label>
+        {submittedHashtags.length > 0 && (
+          <p className="text-xs text-muted-foreground mb-2">
+            Fallback only — attached to the fact on approval{" "}
+            <span className="font-semibold">only if the submitter left no tags</span>.
+            When the submitter provided tags (below), those ship instead.
+          </p>
+        )}
         <Chips items={e.suggestedHashtags} onRemove={(h) => update({ suggestedHashtags: e.suggestedHashtags.filter((x) => x !== h) })} />
         <div className="flex gap-2 mt-2">
           <input
@@ -1551,7 +1558,7 @@ export function EnrichmentEditor({
       {submittedHashtags.length > 0 && (
         <div>
           <div className="flex items-center justify-between mb-1">
-            <label className={LABEL_CLASS} style={{ marginBottom: 0 }}>User-Submitted Hashtags</label>
+            <label className={LABEL_CLASS} style={{ marginBottom: 0 }}>User-Submitted Hashtags — these ship</label>
             {submittedHashtags.some((tag) => !e.suggestedHashtags.includes(tag)) && (
               <button
                 type="button"

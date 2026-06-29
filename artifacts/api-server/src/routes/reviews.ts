@@ -33,6 +33,7 @@ import {
   type VisualRenderApprovalWaiver,
 } from "@workspace/api-zod";
 import { materializeFromBaseline } from "../lib/factEnrichment";
+import { sanitizeHashtagsForPersistence, resolveTagsForApproval } from "../lib/hashtags";
 import { ensureStagingFact } from "../lib/moderationStaging";
 import { enqueueJob } from "../lib/asyncJobs";
 import { enqueueFactPexels } from "../lib/factPexelsJobs";
@@ -111,7 +112,11 @@ router.post("/facts/submit-review", requireAuth, requireFactSubmitRateLimit, asy
     res.status(400).json({ error: "Invalid input", details: parsed.error.flatten() });
     return;
   }
-  const { text, matchingFactId, matchingSimilarity = 0, isDuplicate = false, hashtags = [], reason } = parsed.data;
+  const { text, matchingFactId, matchingSimilarity = 0, isDuplicate = false, hashtags: rawHashtags = [], reason } = parsed.data;
+  // Normalize submitter tags at ingress so `pending_reviews.hashtags` always
+  // holds clean values (the Zod schema only caps count; API clients can send
+  // arbitrary strings). Same sanitizer used at approval, so storage never drifts.
+  const hashtags = sanitizeHashtagsForPersistence(rawHashtags, { limit: 10 });
 
   const grammarResult = validateTemplate(text);
   if (!grammarResult.valid) {
@@ -389,11 +394,14 @@ async function runApprovalRenderPreflight(
   return true;
 }
 
-/** Attach hashtags to a fact, upserting into the hashtags master + join table. */
+/**
+ * Attach hashtags to a fact, upserting into the hashtags master + join table.
+ * Routes its input through the shared sanitizer so it can never drift from the
+ * canonical normalization (callers already sanitize; the high cap here only
+ * re-asserts and de-dupes — it won't drop valid upstream choices).
+ */
 async function attachHashtags(factId: number, tags: string[]): Promise<void> {
-  for (const tag of tags) {
-    const name = tag.toLowerCase().replace(/[^a-z0-9_]/g, "");
-    if (!name) continue;
+  for (const name of sanitizeHashtagsForPersistence(tags, { limit: 50 })) {
     let [ht] = await db.select().from(hashtagsTable).where(eq(hashtagsTable.name, name)).limit(1);
     if (!ht) { [ht] = await db.insert(hashtagsTable).values({ name }).returning(); }
     const [joined] = await db.insert(factHashtagsTable).values({ factId, hashtagId: ht.id }).onConflictDoNothing().returning();
@@ -525,7 +533,14 @@ async function approveForProduction(
   });
 
   // Final hashtags (deferred to activation) — idempotent attach.
-  const tags = enrichment.suggestedHashtags ?? (review.hashtags as string[] | null) ?? [];
+  // Source of truth is the SUBMITTER's tags; enrichment's suggestedHashtags are
+  // the FALLBACK used only when the submitter left no valid tags (so a fact is
+  // never left untagged). Both sources are sanitized before the choice, so a
+  // submission of only denied/invalid tags falls through to enrichment rather
+  // than producing zero tags. (A moderator who edits suggestedHashtags on an
+  // already-tagged submission therefore does not override the submitter — that's
+  // the intended "user tags win" behavior, not a bug.)
+  const tags = resolveTagsForApproval(review.hashtags as unknown[] | null, enrichment.suggestedHashtags);
   await attachHashtags(stagingFact.id, tags);
 
   // Post-commit side effects, once. Embed for duplicate/related surfacing.
