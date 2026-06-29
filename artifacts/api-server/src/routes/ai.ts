@@ -297,11 +297,17 @@ router.post("/ai/tokenize-fact", requireRateLimit, async (req: Request, res: Res
     // net. The net is the real guarantee: even with the hardened prompt the
     // model intermittently leaves a person-subject verb un-conjugated
     // ("{Subj} keeps" → "They keeps"), and this wraps it as {keeps|keep}.
-    const { template, conjugated } = postProcessTokenizedTemplate(rawTemplate);
+    const { template, conjugated, collapsed } = postProcessTokenizedTemplate(rawTemplate);
     if (conjugated) {
       logger.info(
         { before: rawTemplate.slice(0, 500), after: template.slice(0, 500) },
         "[tokenize-fact] auto-conjugated person-subject verb",
+      );
+    }
+    if (collapsed) {
+      logger.info(
+        { before: rawTemplate.slice(0, 500), after: template.slice(0, 500) },
+        "[tokenize-fact] collapsed identical conjugation branch ({x|x} → x)",
       );
     }
 
