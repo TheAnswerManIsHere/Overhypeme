@@ -172,6 +172,8 @@ router.post("/facts/submit-review", requireAuth, requireFactSubmitRateLimit, asy
   void notifyAdmins({
     type: "fact_review",
     submitterName: req.user.displayName ?? req.user.email ?? "Unknown",
+    submitterId: req.user.id,
+    submitterEmail: req.user.email,
     itemText: text,
     reviewUrl: `${getSiteBaseUrl()}/admin/reviews`,
   });

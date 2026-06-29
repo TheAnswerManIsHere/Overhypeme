@@ -15,6 +15,7 @@ import assert from "node:assert/strict";
 
 import {
   buildNotificationEmail,
+  isTestAccount,
   type AdminNotifyType,
   type AdminNotifyOpts,
 } from "../lib/adminNotify.js";
@@ -99,4 +100,30 @@ describe("buildNotificationEmail – review URL", () => {
       );
     });
   }
+});
+
+describe("isTestAccount – synthetic-account suppression", () => {
+  it("flags @test.local emails", () => {
+    assert.equal(isTestAccount({ email: "alice@test.local" }), true);
+    assert.equal(isTestAccount({ email: "ALICE@TEST.LOCAL" }), true);
+  });
+
+  it("flags t_-prefixed ids", () => {
+    assert.equal(isTestAccount({ id: "t_routes_rv_abc123" }), true);
+    assert.equal(isTestAccount({ id: "t_routes_rv_abc", email: "x@gmail.com" }), true);
+  });
+
+  it("does not flag real submitters", () => {
+    assert.equal(isTestAccount({ id: "google_12345", email: "real@gmail.com" }), false);
+    assert.equal(isTestAccount({ id: "user_99", email: "person@overhype.me" }), false);
+  });
+
+  it("treats missing id/email as not a test account", () => {
+    assert.equal(isTestAccount({}), false);
+    assert.equal(isTestAccount({ id: null, email: null }), false);
+  });
+
+  it("does not match emails that merely contain (not end with) test.local", () => {
+    assert.equal(isTestAccount({ email: "test.local@gmail.com" }), false);
+  });
 });
