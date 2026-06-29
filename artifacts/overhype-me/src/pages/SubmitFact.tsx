@@ -124,7 +124,8 @@ export default function SubmitFact() {
     onRestore: (d) => {
       if (d.rawText) setRawText(d.rawText);
       if (d.template) { setTemplate(d.template); setStep("preview"); }
-      if (d.hashtagsStr) setHashtagsStr(d.hashtagsStr);
+      // Restored tags are user-owned content — protect them from auto-fill overwrite.
+      if (d.hashtagsStr) { setHashtagsStr(d.hashtagsStr); hashtagsEditedRef.current = true; }
       toast({
         title: "Draft restored",
         description: "Your saved draft has been loaded — pick up right where you left off.",
@@ -213,6 +214,10 @@ export default function SubmitFact() {
   const fetchHashtagSuggestions = useCallback(async (templateText: string) => {
     const myId = ++suggestReqIdRef.current;
     setSuggestingHashtags(true);
+    // Clear any PRIOR auto-filled tags so a re-preview of a *different* fact
+    // replaces them instead of keeping stale ones — but never touch tags the user
+    // owns (typed, or restored from a draft), which set hashtagsEditedRef.
+    if (!hashtagsEditedRef.current) setHashtagsStr("");
     try {
       const r = await fetch("/api/ai/suggest-hashtags", {
         method: "POST",
@@ -225,9 +230,9 @@ export default function SubmitFact() {
       const data = await r.json() as { hashtags?: string[] };
       if (suggestReqIdRef.current !== myId) return;
       const tags = Array.isArray(data.hashtags) ? data.hashtags : [];
+      // Bail if the user took over the field while the request was in flight.
       if (!tags.length || hashtagsEditedRef.current) return;
-      // Functional update reads the CURRENT field value — never overwrite content.
-      setHashtagsStr((prev) => (prev.trim() ? prev : tags.join(", ")));
+      setHashtagsStr(tags.join(", "));
     } catch {
       // silent — suggestions are a convenience, never a gate
     } finally {
@@ -352,6 +357,8 @@ export default function SubmitFact() {
               setRawText(""); setTemplate(""); setSubmitted(false);
               setDuplicate(null); setHashtagsStr(""); setStep("write");
               setOnboardingRequired(false); setError("");
+              hashtagsEditedRef.current = false;   // fresh fact → allow auto-fill again
+              suggestReqIdRef.current++;            // invalidate any in-flight suggestion
             }}>
               Submit Another
             </Button>
