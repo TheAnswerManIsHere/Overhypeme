@@ -33,9 +33,31 @@ export type AdminNotifyType = "fact_review" | "comment";
 export interface AdminNotifyOpts {
   type: AdminNotifyType;
   submitterName: string;
+  /** Submitter user id — used to suppress notifications for synthetic test accounts. */
+  submitterId?: string | null;
+  /** Submitter email — used to suppress notifications for synthetic test accounts. */
+  submitterEmail?: string | null;
   itemText: string;
   /** Deep-link into the admin panel where the item can be reviewed */
   reviewUrl: string;
+}
+
+/**
+ * Synthetic test accounts use either an `@test.local` email or a `t_`-prefixed
+ * id. This is the same discriminator the production cleanup job uses
+ * (`scripts/one-shot-cleanup-test-data.ts`:
+ * `email ILIKE '%@test.local' OR id ILIKE 't_%'`).
+ *
+ * Submissions from these accounts must never generate real admin notification
+ * emails: when the test suite runs against a database shared with a worker that
+ * has live email credentials, the async email worker would otherwise deliver
+ * the queued notification to a real inbox before the test's cleanup hook can
+ * delete the row. Suppressing the enqueue here removes that race entirely.
+ */
+export function isTestAccount(opts: { id?: string | null; email?: string | null }): boolean {
+  const email = (opts.email ?? "").toLowerCase();
+  const id = opts.id ?? "";
+  return email.endsWith("@test.local") || id.startsWith("t_");
 }
 
 /**
@@ -72,6 +94,14 @@ export interface AdminDisputeNotifyOpts {
  */
 export async function notifyAdmins(opts: AdminNotifyOpts): Promise<void> {
   try {
+    if (isTestAccount({ id: opts.submitterId, email: opts.submitterEmail })) {
+      logger.info(
+        { type: opts.type },
+        "[notifyAdmins] Suppressed — submission from a synthetic test account",
+      );
+      return;
+    }
+
     const admins = await db
       .select({ email: usersTable.email })
       .from(usersTable)

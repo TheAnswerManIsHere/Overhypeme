@@ -595,6 +595,8 @@ router.post("/facts/:factId/comments", async (req: AuthenticatedRequest, res: Re
   void notifyAdmins({
     type: "comment",
     submitterName: req.user.displayName ?? req.user.email ?? "Unknown",
+    submitterId: req.user.id,
+    submitterEmail: req.user.email,
     itemText: text,
     reviewUrl: `${getSiteBaseUrl()}/admin/facts/${factId}`,
   });
