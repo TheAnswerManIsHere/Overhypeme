@@ -82,6 +82,13 @@ export default function SubmitFact() {
   const [duplicateThreshold, setDuplicateThreshold] = useState(80);
   const [showDiscardDialog, setShowDiscardDialog] = useState(false);
 
+  // AI hashtag suggestions — a non-blocking pre-fill of the (editable) Hashtags
+  // field when we reach the Preview step. Race-safe: a slow/stale response must
+  // never clobber what the user typed.
+  const [suggestingHashtags, setSuggestingHashtags] = useState(false);
+  const suggestReqIdRef = useRef(0);          // latest-request guard
+  const hashtagsEditedRef = useRef(false);    // true once the user touches the field
+
   useEffect(() => {
     fetch("/api/config", { credentials: "include" })
       .then((r) => r.ok ? r.json() as Promise<Record<string, unknown>> : Promise.reject())
@@ -117,7 +124,8 @@ export default function SubmitFact() {
     onRestore: (d) => {
       if (d.rawText) setRawText(d.rawText);
       if (d.template) { setTemplate(d.template); setStep("preview"); }
-      if (d.hashtagsStr) setHashtagsStr(d.hashtagsStr);
+      // Restored tags are user-owned content — protect them from auto-fill overwrite.
+      if (d.hashtagsStr) { setHashtagsStr(d.hashtagsStr); hashtagsEditedRef.current = true; }
       toast({
         title: "Draft restored",
         description: "Your saved draft has been loaded — pick up right where you left off.",
@@ -186,6 +194,7 @@ export default function SubmitFact() {
       setStep("preview");
       window.scrollTo({ top: 0, behavior: "smooth" });
       void checkDuplicate(data.template);
+      void fetchHashtagSuggestions(data.template);
     } catch (err) {
       if (err instanceof Error && err.name === "AbortError") {
         setTokenizeError("The request took too long — please try again.");
@@ -197,6 +206,39 @@ export default function SubmitFact() {
       setTokenizing(false);
     }
   }
+
+  // Fetch AI-suggested tags for the generated template and pre-fill the field —
+  // but ONLY when the field is still empty and the user hasn't edited it, and
+  // only for the most recent request (older responses are ignored). Best-effort:
+  // any failure leaves the field empty for manual entry.
+  const fetchHashtagSuggestions = useCallback(async (templateText: string) => {
+    const myId = ++suggestReqIdRef.current;
+    setSuggestingHashtags(true);
+    // Clear any PRIOR auto-filled tags so a re-preview of a *different* fact
+    // replaces them instead of keeping stale ones — but never touch tags the user
+    // owns (typed, or restored from a draft), which set hashtagsEditedRef.
+    if (!hashtagsEditedRef.current) setHashtagsStr("");
+    try {
+      const r = await fetch("/api/ai/suggest-hashtags", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ text: templateText }),
+      });
+      if (suggestReqIdRef.current !== myId) return;   // superseded by a newer request
+      if (!r.ok) return;
+      const data = await r.json() as { hashtags?: string[] };
+      if (suggestReqIdRef.current !== myId) return;
+      const tags = Array.isArray(data.hashtags) ? data.hashtags : [];
+      // Bail if the user took over the field while the request was in flight.
+      if (!tags.length || hashtagsEditedRef.current) return;
+      setHashtagsStr(tags.join(", "));
+    } catch {
+      // silent — suggestions are a convenience, never a gate
+    } finally {
+      if (suggestReqIdRef.current === myId) setSuggestingHashtags(false);
+    }
+  }, []);
 
   const getTags = () => {
     const manual = hashtagsStr.split(",").map((t) => t.trim().replace(/^#/, "")).filter(Boolean);
@@ -247,6 +289,7 @@ export default function SubmitFact() {
   }
 
   const handleHashtagsChange = (value: string) => {
+    hashtagsEditedRef.current = true;   // user has taken over — suppress auto-fill
     setHashtagsStr(value);
   };
 
@@ -255,6 +298,9 @@ export default function SubmitFact() {
     setRawText("");
     setTemplate("");
     setHashtagsStr("");
+    hashtagsEditedRef.current = false;   // allow auto-fill again on the next preview
+    suggestReqIdRef.current++;           // invalidate any in-flight suggestion
+    setSuggestingHashtags(false);
     setDuplicate(null);
     setStep("write");
     setTokenizeError("");
@@ -311,6 +357,8 @@ export default function SubmitFact() {
               setRawText(""); setTemplate(""); setSubmitted(false);
               setDuplicate(null); setHashtagsStr(""); setStep("write");
               setOnboardingRequired(false); setError("");
+              hashtagsEditedRef.current = false;   // fresh fact → allow auto-fill again
+              suggestReqIdRef.current++;            // invalidate any in-flight suggestion
             }}>
               Submit Another
             </Button>
@@ -632,7 +680,8 @@ export default function SubmitFact() {
                   Hashtags
                 </label>
                 <p className="text-muted-foreground mb-4">
-                  Add tags to help people find your fact — comma-separated, optional.
+                  We suggest a few automatically to help people find your fact —
+                  edit, add, or remove freely. Comma-separated, optional.
                 </p>
                 <Input
                   value={hashtagsStr}
@@ -640,6 +689,12 @@ export default function SubmitFact() {
                   placeholder="e.g. strength, legendary, coffee"
                   className="text-base"
                 />
+                {suggestingHashtags && (
+                  <p className="mt-2 text-xs text-muted-foreground flex items-center gap-1.5 animate-in fade-in duration-300">
+                    <Loader2 className="w-3 h-3 animate-spin shrink-0" />
+                    Suggesting tags…
+                  </p>
+                )}
               </div>
 
               {onboardingRequired && (

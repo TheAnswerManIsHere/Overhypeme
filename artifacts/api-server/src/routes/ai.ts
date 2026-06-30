@@ -5,7 +5,8 @@ import { eq, sql, and } from "drizzle-orm";
 import { callUtilityLLM } from "../lib/utilityLLM";
 import { z } from "zod";
 import { getSessionId, getSession } from "../lib/auth";
-import { createRateLimiter } from "../lib/rateLimit";
+import { createRateLimiter, RATE_WINDOW_MS } from "../lib/rateLimit";
+import { sanitizeHashtagsForPersistence } from "../lib/hashtags";
 import { verifyCaptcha } from "../lib/captcha";
 import { embedText, findSimilarFacts } from "../lib/embeddings";
 import { validateTemplate } from "../lib/templateGrammar";
@@ -25,6 +26,70 @@ const requireRateLimit = createRateLimiter();
 const CheckDuplicateBody    = z.object({ text: z.string().min(10).max(1000) });
 const TokenizeFactBody      = z.object({ text: z.string().min(5).max(2000), captchaToken: z.string().optional() });
 const SuggestPronounsBody   = z.object({ name: z.string().min(1).max(200) });
+const SuggestHashtagsBody   = z.object({ text: z.string().min(5).max(2000) });
+
+// Dedicated limiter so the suggestion affordance is throttled independently of
+// the global AI limiter (it fires once per Preview, not per keystroke).
+const requireSuggestHashtagsRateLimit = createRateLimiter("ai_suggest_hashtags", 20, RATE_WINDOW_MS);
+
+const SUGGEST_HASHTAGS_LIMIT = 6;
+
+const SUGGEST_HASHTAGS_SYSTEM_PROMPT =
+  "You generate discovery hashtags for a short humorous \"fact\" about a person. " +
+  "Return ONLY valid JSON of the form {\"hashtags\": [\"tag1\", \"tag2\", ...]}. " +
+  "Provide 3-6 lowercase, single-word, alphanumeric tags that describe the fact's " +
+  "TOPIC or THEME so people can find it (e.g. strength, coffee, legendary). " +
+  "The person's name shown in the fact is a placeholder for whoever the meme is " +
+  "about — never tag the name. Never use the app name (overhype/overhypeme). " +
+  "No '#', no spaces, no punctuation, no duplicates.";
+
+/**
+ * Pure, model-injectable core of the suggest-hashtags endpoint (mirrors the
+ * `enrichFactWithModel` seam so it's unit-testable without a live OpenAI key).
+ *
+ * The frontend passes the tokenized TEMPLATE; we render it to canonical plain
+ * English before prompting so the model reasons over a readable sentence instead
+ * of `{NAME}`/`{SUBJ}` tokens (same principle the enrichment pipeline uses). The
+ * deterministic sanitizer — not the prompt — is the real guarantee that subject/
+ * app-name tags never leak. Always returns an array; never throws.
+ */
+export async function suggestHashtagsForText(
+  text: string,
+  callModel: typeof callUtilityLLM = callUtilityLLM,
+): Promise<string[]> {
+  try {
+    const canonical = renderCanonical(text);
+    const completion = await callModel({
+      maxTokens: 128,
+      temperature: 0.3,
+      responseFormat: { type: "json_object" },
+      messages: [
+        { role: "system", content: SUGGEST_HASHTAGS_SYSTEM_PROMPT },
+        { role: "user", content: `Fact:\n\n"${canonical}"` },
+      ],
+    });
+    const raw = completion.choices[0]?.message?.content ?? "{}";
+    let candidates: unknown[] = [];
+    try {
+      const parsed = JSON.parse(raw) as Record<string, unknown>;
+      if (Array.isArray(parsed.hashtags)) candidates = parsed.hashtags;
+    } catch {
+      return [];
+    }
+    return sanitizeHashtagsForPersistence(candidates, { limit: SUGGEST_HASHTAGS_LIMIT });
+  } catch (err) {
+    logger.warn({ errType: err instanceof Error ? err.name : typeof err, textLength: text.length }, "[AI] suggest-hashtags model error");
+    return [];
+  }
+}
+
+// Test seam: lets route-level tests force success/failure without a live model.
+// Mirrors `__setPlanGeneratorForTest` in the image-prompt pipeline. Always reset
+// in an afterEach so a fake can't leak into the next test.
+let suggestHashtagsImpl: typeof suggestHashtagsForText = suggestHashtagsForText;
+export function __setSuggestHashtagsForTest(fn: typeof suggestHashtagsForText | null): void {
+  suggestHashtagsImpl = fn ?? suggestHashtagsForText;
+}
 
 async function requireAuth(req: Request, res: Response, next: NextFunction): Promise<void> {
   const sid = getSessionId(req);
@@ -367,6 +432,27 @@ router.post("/ai/suggest-pronouns", requireRateLimit, async (req: Request, res: 
   } catch (err) {
     logger.error({ err }, "[AI] suggest-pronouns error");
     res.status(500).json({ error: "Suggestion failed" });
+  }
+});
+
+// POST /ai/suggest-hashtags → { hashtags: string[] }
+// A deliberate, non-blocking pre-submit affordance (like tokenize / duplicate-
+// check) — NOT moderation prep. Auth is the real boundary (it's only used from
+// the authenticated submit page). Model/parse failures degrade to an empty list
+// so the form is never blocked; only bad bodies (400) and missing auth (401) are
+// hard failures.
+router.post("/ai/suggest-hashtags", requireAuth, requireSuggestHashtagsRateLimit, async (req: Request, res: Response) => {
+  const bodyParsed = SuggestHashtagsBody.safeParse(req.body);
+  if (!bodyParsed.success) {
+    res.status(400).json({ error: "Invalid input" });
+    return;
+  }
+  try {
+    const hashtags = await suggestHashtagsImpl(bodyParsed.data.text);
+    res.json({ hashtags });
+  } catch (err) {
+    logger.warn({ errType: err instanceof Error ? err.name : typeof err }, "[AI] suggest-hashtags route error");
+    res.json({ hashtags: [] });
   }
 });
 
