@@ -12,7 +12,7 @@
  * require live OPENAI_API_KEY and are out of scope.
  */
 
-import { describe, it, before, after } from "node:test";
+import { describe, it, before, after, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 
@@ -23,7 +23,8 @@ import { db } from "@workspace/db";
 import { usersTable } from "@workspace/db/schema";
 import { like } from "drizzle-orm";
 
-import aiRouter from "../routes/ai.js";
+import aiRouter, { suggestHashtagsForText, __setSuggestHashtagsForTest } from "../routes/ai.js";
+import type { callUtilityLLM } from "../lib/utilityLLM.js";
 import { authMiddleware } from "../middlewares/authMiddleware.js";
 import { createSession, type SessionData } from "../lib/auth.js";
 
@@ -154,5 +155,85 @@ describe("POST /ai/suggest-pronouns — body validation", () => {
       .post("/ai/suggest-pronouns")
       .send({ name: "x".repeat(201) });
     assert.equal(res.status, 400);
+  });
+});
+
+// A fake callUtilityLLM that returns a fixed completion body — lets the pure
+// helper be tested without a live OpenAI key.
+function modelReturning(content: string): typeof callUtilityLLM {
+  return (async () => ({ choices: [{ message: { content } }] })) as unknown as typeof callUtilityLLM;
+}
+
+describe("suggestHashtagsForText — pure helper (no live model)", () => {
+  it("parses, normalizes, dedupes, and caps to 6", async () => {
+    const tags = await suggestHashtagsForText(
+      "this person bench-presses the Earth",
+      modelReturning(JSON.stringify({ hashtags: ["#Strength", "strength", "Earth", "a", "b", "c", "d", "e"] })),
+    );
+    assert.deepEqual(tags, ["strength", "earth", "a", "b", "c", "d"]);
+  });
+
+  it("strips denied subject/app-name tags", async () => {
+    const tags = await suggestHashtagsForText(
+      "x",
+      modelReturning(JSON.stringify({ hashtags: ["alex", "overhype", "overhypeme", "legendary"] })),
+    );
+    assert.deepEqual(tags, ["legendary"]);
+  });
+
+  it("returns [] on malformed JSON", async () => {
+    const tags = await suggestHashtagsForText("x", modelReturning("definitely not json"));
+    assert.deepEqual(tags, []);
+  });
+
+  it("returns [] when the model throws", async () => {
+    const throwing = (async () => { throw new Error("model boom"); }) as unknown as typeof callUtilityLLM;
+    const tags = await suggestHashtagsForText("x", throwing);
+    assert.deepEqual(tags, []);
+  });
+});
+
+describe("POST /ai/suggest-hashtags — route", () => {
+  afterEach(() => { __setSuggestHashtagsForTest(null); });
+
+  it("returns 401 when no session is presented", async () => {
+    const res = await request(makeApp())
+      .post("/ai/suggest-hashtags")
+      .send({ text: "a perfectly good fact about coffee" });
+    assert.equal(res.status, 401);
+  });
+
+  it("returns 400 on an invalid body (Zod min(5))", async () => {
+    const userId = await createTestUser();
+    const sid = await bearerForUser(userId);
+    const res = await request(makeApp())
+      .post("/ai/suggest-hashtags")
+      .set("authorization", `Bearer ${sid}`)
+      .send({ text: "abc" });
+    assert.equal(res.status, 400);
+  });
+
+  it("happy path: returns the (faked) sanitized tags", async () => {
+    __setSuggestHashtagsForTest(async () => ["coffee", "strength"]);
+    const userId = await createTestUser();
+    const sid = await bearerForUser(userId);
+    const res = await request(makeApp())
+      .post("/ai/suggest-hashtags")
+      .set("authorization", `Bearer ${sid}`)
+      .send({ text: "this person drinks unreasonable amounts of coffee" });
+    assert.equal(res.status, 200);
+    assert.deepEqual(res.body, { hashtags: ["coffee", "strength"] });
+  });
+
+  it("degrades to 200 { hashtags: [] } when the suggester throws", async () => {
+    __setSuggestHashtagsForTest(async () => { throw new Error("boom"); });
+    const userId = await createTestUser();
+    const sid = await bearerForUser(userId);
+    const res = await request(makeApp())
+      .post("/ai/suggest-hashtags")
+      .set("authorization", `Bearer ${sid}`)
+      .send({ text: "this person drinks unreasonable amounts of coffee" });
+    assert.equal(res.status, 200);
+    assert.deepEqual(res.body, { hashtags: [] });
   });
 });

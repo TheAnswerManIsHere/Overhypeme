@@ -1307,7 +1307,8 @@ export function EnrichmentEditor({
   onRerun,
   busy = false,
   rerunBusy = false,
-  submittedHashtags = [],
+  finalHashtags,
+  onFinalHashtagsChange,
   overrideContext,
 }: {
   value: FactEnrichment | null;
@@ -1319,12 +1320,31 @@ export function EnrichmentEditor({
   onRerun?: () => void;
   busy?: boolean;
   rerunBusy?: boolean;
-  submittedHashtags?: string[];
+  /** Review mode only: the moderator's curated FINAL discovery-tag list (what
+   * ships on approval), seeded by the caller from the submitter's tags. When
+   * `onFinalHashtagsChange` is provided the hashtag UI becomes the final-list
+   * editor + AI source chips; otherwise the editable AI suggestedHashtags editor
+   * is shown (the live Facts page). */
+  finalHashtags?: string[];
+  onFinalHashtagsChange?: (tags: string[]) => void;
   overrideContext?: EnrichmentOverrideContext;
 }) {
   const e = value ? { ...EMPTY_ENRICHMENT, ...value } : EMPTY_ENRICHMENT;
   const [modifierInput, setModifierInput] = useState("");
   const [hashtagInput, setHashtagInput] = useState("");
+  const [finalHashtagInput, setFinalHashtagInput] = useState("");
+
+  // Review mode = the moderator curates the final list; the AI suggestedHashtags
+  // become a source to pull from, not the thing that ships.
+  const reviewMode = !!onFinalHashtagsChange;
+  const finalTags = finalHashtags ?? [];
+  const addFinalHashtag = (raw: string) => {
+    const h = normalizeHashtag(raw);
+    if (h && !finalTags.includes(h)) onFinalHashtagsChange?.([...finalTags, h]);
+    setFinalHashtagInput("");
+  };
+  const removeFinalHashtag = (h: string) => onFinalHashtagsChange?.(finalTags.filter((x) => x !== h));
+  const aiSuggestionsNotInFinal = e.suggestedHashtags.filter((t) => !finalTags.includes(t));
 
   const update = (patch: Partial<FactEnrichment>) => onChange({ ...e, ...patch });
 
@@ -1528,63 +1548,87 @@ export function EnrichmentEditor({
         </div>
       </div>
 
-      <div>
-        <label className={LABEL_CLASS}>Suggested Hashtags (3–8)</label>
-        <Chips items={e.suggestedHashtags} onRemove={(h) => update({ suggestedHashtags: e.suggestedHashtags.filter((x) => x !== h) })} />
-        <div className="flex gap-2 mt-2">
-          <input
-            className={SELECT_CLASS}
-            placeholder="Add hashtag…"
-            value={hashtagInput}
-            onChange={(ev) => setHashtagInput(ev.target.value)}
-            onKeyDown={(ev) => { if (ev.key === "Enter") { ev.preventDefault(); addHashtag(); } }}
-          />
-          <button type="button" onClick={addHashtag} className="px-3 py-1.5 text-sm border border-border rounded-sm hover:bg-muted text-foreground">Add</button>
-        </div>
-        {!validity.ok && validity.error.split("; ").filter((err) => err.startsWith("suggestedHashtags:")).map((err) => (
-          <p key={err} className="text-xs text-destructive flex items-center gap-1.5 mt-2">
-            <AlertTriangle className="w-3.5 h-3.5 shrink-0" /> {err.replace(/^suggestedHashtags: /, "")}
-          </p>
-        ))}
-      </div>
-
-      {submittedHashtags.length > 0 && (
-        <div>
-          <div className="flex items-center justify-between mb-1">
-            <label className={LABEL_CLASS} style={{ marginBottom: 0 }}>User-Submitted Hashtags</label>
-            {submittedHashtags.some((tag) => !e.suggestedHashtags.includes(tag)) && (
-              <button
-                type="button"
-                onClick={() => {
-                  const toAdd = submittedHashtags.filter((tag) => !e.suggestedHashtags.includes(tag));
-                  update({ suggestedHashtags: [...e.suggestedHashtags, ...toAdd] });
-                }}
-                className="text-xs text-primary hover:underline"
-              >
-                Add all
-              </button>
+      {reviewMode ? (
+        <div className="space-y-3">
+          {/* Final hashtags — the moderator-curated list that ships on approval. */}
+          <div>
+            <label className={LABEL_CLASS}>Final hashtags — these ship on approval</label>
+            {finalTags.length === 0 ? (
+              <p className="text-xs text-destructive flex items-center gap-1.5 mb-2" data-testid="final-hashtags-empty-warning">
+                <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+                Add at least one hashtag — a fact can't be approved without tags. Clearing them all is usually a mistake.
+              </p>
+            ) : (
+              <p className="text-xs text-muted-foreground mb-2">
+                The submitter's edited tags, ready for review. Remove or add as you see fit.
+              </p>
             )}
+            <Chips items={finalTags} onRemove={removeFinalHashtag} />
+            <div className="flex gap-2 mt-2">
+              <input
+                className={SELECT_CLASS}
+                placeholder="Add hashtag…"
+                value={finalHashtagInput}
+                onChange={(ev) => setFinalHashtagInput(ev.target.value)}
+                onKeyDown={(ev) => { if (ev.key === "Enter") { ev.preventDefault(); addFinalHashtag(finalHashtagInput); } }}
+              />
+              <button type="button" onClick={() => addFinalHashtag(finalHashtagInput)} className="px-3 py-1.5 text-sm border border-border rounded-sm hover:bg-muted text-foreground">Add</button>
+            </div>
+            <p className="text-[11px] text-muted-foreground/70 mt-1.5">
+              Subject names and the app's own tag are removed automatically on approval. At least one tag is required.
+            </p>
           </div>
-          <div className="flex flex-wrap gap-1.5">
-            {submittedHashtags.map((tag) => {
-              const already = e.suggestedHashtags.includes(tag);
-              return (
-                <span key={tag} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold border bg-muted/60 border-border text-muted-foreground">
-                  {tag}
-                  {!already && (
+
+          {/* AI suggested — a source the moderator can pull from (not what ships). */}
+          {aiSuggestionsNotInFinal.length > 0 && (
+            <div>
+              <div className="flex items-center justify-between mb-1">
+                <label className={LABEL_CLASS} style={{ marginBottom: 0 }}>AI suggested</label>
+                <button
+                  type="button"
+                  onClick={() => onFinalHashtagsChange?.(Array.from(new Set([...finalTags, ...aiSuggestionsNotInFinal])))}
+                  className="text-xs text-primary hover:underline"
+                >
+                  Add all
+                </button>
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {aiSuggestionsNotInFinal.map((tag) => (
+                  <span key={tag} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold border bg-muted/60 border-border text-muted-foreground">
+                    {tag}
                     <button
                       type="button"
-                      title="Copy to suggested hashtags"
-                      onClick={() => update({ suggestedHashtags: [...e.suggestedHashtags, tag] })}
+                      title="Add to final hashtags"
+                      onClick={() => addFinalHashtag(tag)}
                       className="hover:text-primary transition-colors"
                     >
                       +
                     </button>
-                  )}
-                </span>
-              );
-            })}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      ) : (
+        <div>
+          <label className={LABEL_CLASS}>Suggested Hashtags (3–8)</label>
+          <Chips items={e.suggestedHashtags} onRemove={(h) => update({ suggestedHashtags: e.suggestedHashtags.filter((x) => x !== h) })} />
+          <div className="flex gap-2 mt-2">
+            <input
+              className={SELECT_CLASS}
+              placeholder="Add hashtag…"
+              value={hashtagInput}
+              onChange={(ev) => setHashtagInput(ev.target.value)}
+              onKeyDown={(ev) => { if (ev.key === "Enter") { ev.preventDefault(); addHashtag(); } }}
+            />
+            <button type="button" onClick={addHashtag} className="px-3 py-1.5 text-sm border border-border rounded-sm hover:bg-muted text-foreground">Add</button>
           </div>
+          {!validity.ok && validity.error.split("; ").filter((err) => err.startsWith("suggestedHashtags:")).map((err) => (
+            <p key={err} className="text-xs text-destructive flex items-center gap-1.5 mt-2">
+              <AlertTriangle className="w-3.5 h-3.5 shrink-0" /> {err.replace(/^suggestedHashtags: /, "")}
+            </p>
+          ))}
         </div>
       )}
 

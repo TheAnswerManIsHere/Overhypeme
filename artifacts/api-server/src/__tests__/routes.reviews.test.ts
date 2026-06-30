@@ -294,6 +294,27 @@ describe("POST /facts/submit-review", () => {
     assert.equal(row.enrichmentStatus, null);
   });
 
+  it("sanitizes submitted hashtags before storing them on the review", async () => {
+    const userId = await createTestUser();
+    const sid = await bearerForUser(userId);
+    const res = await request(makeApp())
+      .post("/facts/submit-review")
+      .set("authorization", `Bearer ${sid}`)
+      .send({
+        text: "this fact is about strong coffee drinkers everywhere.",
+        // mixed case, '#', whitespace, a dup, denied (alex/overhype), and an empty
+        hashtags: ["#Coffee!", "coffee", "  Strength  ", "alex", "overhype", ""],
+      });
+    assert.equal(res.status, 201);
+    const [row] = await db
+      .select()
+      .from(pendingReviewsTable)
+      .where(eq(pendingReviewsTable.id, res.body.reviewId));
+    assert.ok(row);
+    // normalized + deduped, denied tags + empties dropped
+    assert.deepEqual(row.hashtags, ["coffee", "strength"]);
+  });
+
   it("COST GATE: submission enqueues no enrichment / pexels / embedding jobs", async () => {
     const userId = await createTestUser();
     const sid = await bearerForUser(userId);
