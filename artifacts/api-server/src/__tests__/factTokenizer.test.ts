@@ -7,7 +7,7 @@ import {
   TOKENIZER_REASONING_EFFORT,
   TOKENIZER_ALLOWED_MODELS,
 } from "../lib/factTokenizer.js";
-import { validateTemplate } from "../lib/templateGrammar.js";
+import { validateTemplate, collapseIdenticalConjugationBranches } from "../lib/templateGrammar.js";
 
 describe("factTokenizer — tokenizer model policy", () => {
   it("defaults to gpt-5.4-mini with low reasoning", () => {
@@ -61,5 +61,49 @@ describe("factTokenizer — postProcessTokenizedTemplate", () => {
     const { template, conjugated } = postProcessTokenizedTemplate("{Subj} {keeps|keep} it");
     assert.equal(template, "{Subj} {keeps|keep} it");
     assert.equal(conjugated, false);
+  });
+
+  it("collapses an identical conjugation branch and flags it WITHOUT touching `conjugated`", () => {
+    const { template, conjugated, collapsed } = postProcessTokenizedTemplate(
+      "{NAME} {can|can} fill up an electric car at a gas station.",
+    );
+    assert.equal(template, "{NAME} can fill up an electric car at a gas station.");
+    // The collapse is its own pass — the auto-conjugation net did nothing here.
+    assert.equal(conjugated, false);
+    assert.equal(collapsed, true);
+    assert.deepEqual(validateTemplate(template), { valid: true });
+  });
+
+  it("leaves a legitimate conjugation pair untouched (collapsed=false)", () => {
+    const { template, collapsed } = postProcessTokenizedTemplate("{Subj} {is|are} unstoppable");
+    assert.equal(template, "{Subj} {is|are} unstoppable");
+    assert.equal(collapsed, false);
+  });
+});
+
+describe("templateGrammar — collapseIdenticalConjugationBranches", () => {
+  it("collapses identical branches to plain text", () => {
+    assert.equal(collapseIdenticalConjugationBranches("{NAME} {can|can} fly"), "{NAME} can fly");
+    assert.equal(collapseIdenticalConjugationBranches("{Subj} {won't|won't} stop"), "{Subj} won't stop");
+  });
+
+  it("collapses multiple duplicates in one template", () => {
+    assert.equal(
+      collapseIdenticalConjugationBranches("{NAME} {can|can} and {will|will} win"),
+      "{NAME} can and will win",
+    );
+  });
+
+  it("leaves legitimate (non-identical) pairs untouched", () => {
+    for (const t of ["{Subj} {is|are} here", "{Subj} {has|have} it", "{NAME} {keeps|keep} going"]) {
+      assert.equal(collapseIdenticalConjugationBranches(t), t);
+    }
+  });
+
+  it("is idempotent and a no-op on empty/plain input", () => {
+    const once = collapseIdenticalConjugationBranches("{NAME} {can|can} fly");
+    assert.equal(collapseIdenticalConjugationBranches(once), once);
+    assert.equal(collapseIdenticalConjugationBranches(""), "");
+    assert.equal(collapseIdenticalConjugationBranches("plain text only"), "plain text only");
   });
 });

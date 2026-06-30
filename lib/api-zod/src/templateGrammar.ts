@@ -171,3 +171,21 @@ export function autoConjugatePersonSubjectVerbs(template: string): string {
     return `${prefix}{${word}|${base}}`;
   });
 }
+
+// A conjugation pair whose two branches are byte-for-byte identical, e.g.
+// {can|can}. The backreference \1 is what enforces "identical" — a real pair
+// like {is|are} can never match. Matching is exact (no whitespace trimming): a
+// weird `{can | can}` stays untouched until such input is actually observed.
+const IDENTICAL_CONJUGATION_PAIR_RE = /\{([^|{}]+)\|\1\}/g;
+
+/**
+ * Collapse a conjugation token whose singular and plural branches are identical:
+ * `{can|can}` → `can`. Non-conjugating verbs (modals like can/will/should/must)
+ * have the same he/she and they form, so the LLM tokenizer sometimes wraps them
+ * into a useless duplicate pair. Both branches render identically, so dropping the
+ * braces is output-preserving. Pure and idempotent; legitimate pairs are untouched.
+ */
+export function collapseIdenticalConjugationBranches(template: string): string {
+  if (!template) return template;
+  return template.replace(IDENTICAL_CONJUGATION_PAIR_RE, "$1");
+}
