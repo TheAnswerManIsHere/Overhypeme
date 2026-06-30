@@ -36,14 +36,26 @@ and a submitter's chosen tags survive onto the live fact.
     `400` bad body · `401` unauthed · `200 { hashtags: [] }` on model failure.
 - `artifacts/api-server/src/routes/reviews.ts` —
   - submit-review ingress sanitizes `hashtags` before storing on the review.
-  - `attachHashtags` routes its input through the shared sanitizer (kills the old
-    underscore-keeping regex drift).
-  - approval attaches `resolveTagsForApproval(review.hashtags, enrichment.suggestedHashtags)`.
+  - approve bodies (`approve-for-production` / `approve` / `approve-variant`) gain
+    an optional `hashtags` (the moderator's curated FINAL list).
+  - approval resolves the final list via `resolveFinalApprovalTags` (approve-body
+    wins when present, else `resolveTagsForApproval` fallback), **rejects with
+    `400 / HASHTAGS_REQUIRED` before any mutation** when it's empty, and
+    `attachHashtags` runs **inside the activation transaction** (executor param) so
+    a fact is never live-but-untagged. The approve response returns the attached
+    tags.
 - `artifacts/overhype-me/src/pages/SubmitFact.tsx` — race-safe pre-fill of the
   Hashtags field (latest-request ref + field-edited ref; functional update so it
   only fills an empty field), "Suggesting tags…" status, updated helper copy.
-- `artifacts/overhype-me/src/components/admin/EnrichmentEditor.tsx` — review-context
-  copy: `suggestedHashtags` labeled fallback-only; user-submitted tags labeled "these ship".
+- `artifacts/overhype-me/src/components/admin/EnrichmentEditor.tsx` — **review
+  mode** (when `onFinalHashtagsChange` is passed) renders an editable
+  **"Final hashtags — these ship"** list + read-only **"AI suggested"** source
+  chips (`+ add` / Add all); the editable `suggestedHashtags` editor shows only on
+  the live Facts page.
+- `artifacts/overhype-me/src/pages/admin/moderation.tsx` — `finalHashtags` state
+  (separate `finalHashtagsDirtyRef`) seeded from the submitter's tags, else the AI
+  suggestions (re-seeds when enrichment arrives late, until edited); sent in every
+  approve body; Approve is **disabled with a warning when the final list is empty**.
 
 ## Commands
 
@@ -52,7 +64,7 @@ pnpm --filter @workspace/api-server run typecheck     # tsc -b + cycles + no-con
 pnpm --filter @workspace/overhype-me run typecheck    # tsc -b
 
 # Touched test files (run against the test DB):
-#   src/__tests__/hashtags.test.ts            — sanitizer + resolveTagsForApproval (pure)
+#   src/__tests__/hashtags.test.ts            — sanitizer + resolveTagsForApproval + resolveFinalApprovalTags (pure)
 #   src/__tests__/routes.ai.test.ts           — suggestHashtagsForText helper + /ai/suggest-hashtags route (test seam, no live OpenAI)
 #   src/__tests__/routes.reviews.test.ts      — submit-review ingress sanitization (+ existing approval suite)
 #   src/__tests__/factEnrichment.test.ts      — existing stripDeniedHashtags suite (via the re-export)
@@ -60,20 +72,29 @@ pnpm --filter @workspace/api-server test      # full sharded suite
 ```
 
 Local results at authoring time: typecheck clean (both packages); `hashtags.test.ts`
-**12 pass / 0 fail** (new); `routes.ai.test.ts` **18 pass** (8 new: 4 helper, 4 route);
-`routes.reviews.test.ts` + `factEnrichment.test.ts` together **84 pass** (1 new
-ingress test; existing denylist tests still pass via the re-export).
+**18 pass / 0 fail** (12 sanitizer/precedence + 6 `resolveFinalApprovalTags`);
+`routes.ai.test.ts` **18 pass** (8 new: 4 helper, 4 route); `routes.reviews.test.ts`
++ `routes.ai.test.ts` together **70 pass** (incl. the new ingress test).
+
+The approve-time required-hashtags gate is covered by `resolveFinalApprovalTags`
+unit tests (present-empty → empty → caller 400; present-denied-only → empty;
+absent → fallback; absent-with-nothing → empty). The full approve **route** path
+(production_review + staging fact + render waiver) is not unit-covered — the
+existing suite deliberately omits it — so the gate + in-transaction attach are
+verified via these unit tests + the UAT click-through.
 
 ## DB / schema checks
 
 - **No migration, no schema change.** `pending_reviews.hashtags`,
   `hashtags`, and `fact_hashtags` are unchanged; only the *values* written change
   (now normalized at ingress, and submitter-sourced at approval).
-- Confirm a submitted-with-tags fact, once approved, has `fact_hashtags` rows
-  matching the submitter's normalized tags — **not** the enrichment's
-  `suggestedHashtags` — by joining `fact_hashtags` → `hashtags` for the approved fact.
-- Confirm a submitted-with-NO-tags fact, once approved, falls back to the
-  enrichment's suggested tags (so it is never untagged).
+- Confirm an approved fact's `fact_hashtags` rows match the **moderator's final
+  list** sent in the approve body (join `fact_hashtags` → `hashtags`).
+- Confirm a fact **cannot be approved with an empty final list** — the approve
+  request returns `400 / HASHTAGS_REQUIRED` and the staging fact stays inactive
+  (`facts.is_active = false`, review still `production_review`).
+- Confirm a submitted-with-NO-tags fact seeds the moderator's list from the AI
+  suggestions (so the moderator can approve immediately).
 
 ## Gotchas
 
@@ -88,11 +109,11 @@ ingress test; existing denylist tests still pass via the re-export).
 
 ## Deliberately not shipped
 
-- **No moderator override of the final tags** beyond fallback. With submitter
-  tags winning, a moderator can't strip an individual user tag at approval (only
-  approve/decline the whole fact). A real moderator final-tag editor (pre-seeded
-  from the submitter) is a flagged follow-up, pending David's call.
+- No per-chip AI-vs-user provenance badges (provenance doesn't matter to the
+  outcome; the two-list layout already shows the sources).
 - No suggestions for admin direct-insert (`POST /facts`) or bulk import — those
   keep their current normalization (future consistency follow-up).
+- The final-hashtags editor lives inside Advanced Options for now (not a
+  top-level production-review field — future polish).
 - No suggestion-on-restore for a restored draft landing on Preview, and no
   historical backfill of already-approved facts.

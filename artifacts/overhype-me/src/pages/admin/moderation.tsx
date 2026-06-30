@@ -321,6 +321,23 @@ function ReviewModal({
   const [justSaved, setJustSaved] = useState(false);
   const [gridReloadKey, setGridReloadKey] = useState(0);
 
+  // Moderator-curated FINAL discovery tags — what actually ships on approval.
+  // Seeded from the submitter's tags, or the AI suggestions when the submitter
+  // left none, so the editor opens on what would ship. `finalHashtagsDirtyRef`
+  // keeps the moderator's edits from being reseeded by polling / enrichment
+  // reloads. Sent in the approve body; a fact can't be approved with none.
+  const [finalHashtags, setFinalHashtags] = useState<string[]>([]);
+  const finalHashtagsDirtyRef = useRef(false);
+  useEffect(() => {
+    if (finalHashtagsDirtyRef.current) return;
+    const submitter = review.hashtags ?? [];
+    setFinalHashtags(submitter.length > 0 ? submitter : (enrichment?.suggestedHashtags ?? []));
+  }, [review.hashtags, enrichment]);
+  const onFinalHashtagsChange = (tags: string[]) => {
+    finalHashtagsDirtyRef.current = true;
+    setFinalHashtags(tags);
+  };
+
   const stagingFactId = detail?.stagingFact?.id ?? review.stagingFactId ?? 0;
   const isProductionReview = stage === "production_review";
   const isResolved = review.status !== "pending";
@@ -447,6 +464,7 @@ function ReviewModal({
     const body: Record<string, unknown> = {
       adminNote: note || undefined,
       enrichment: enrichment ?? undefined,
+      hashtags: finalHashtags,
     };
     if (waive && renderProblems) {
       body.waiveVisualRenderIssues = true;
@@ -455,7 +473,9 @@ function ReviewModal({
     void runAction("approve-for-production", body);
   };
 
-  const canApproveProduction = isApprovable(enrichment);
+  // A fact can't ship without discovery tags — the curated final list must be
+  // non-empty (in addition to the enrichment being valid).
+  const canApproveProduction = isApprovable(enrichment) && finalHashtags.length > 0;
   const matchVisible = review.matchingSimilarity >= duplicateThreshold || showDuplicate;
 
   // ── Sub-renders ────────────────────────────────────────────────────────────
@@ -608,7 +628,8 @@ function ReviewModal({
                   onRerun={jobs.onRerun}
                   busy={loading || jobs.loading || jobs.rerunBusy || savingEnrichment}
                   rerunBusy={jobs.rerunBusy}
-                  submittedHashtags={review.hashtags ?? []}
+                  finalHashtags={finalHashtags}
+                  onFinalHashtagsChange={onFinalHashtagsChange}
                 />
                 {/* Save status — unsaved edits don't reach the test renders until saved. */}
                 {dirty && !saveError && (
@@ -779,14 +800,14 @@ function ReviewModal({
                   </Button>
                   {renderProblems ? (
                     <Button onClick={() => onApproveProduction(true)} isLoading={loading} disabled={!canApproveProduction || loading}
-                      title={canApproveProduction ? undefined : "Approve is disabled until the enrichment is valid"}
+                      title={canApproveProduction ? undefined : "Approve is disabled — see the note below"}
                       className="bg-amber-600 hover:bg-amber-700 text-white gap-2 disabled:opacity-50"
                       data-testid="approve-anyway-waive">
                       <Rocket className="w-4 h-4" /> Approve Anyway (Waive {renderProblems.length})
                     </Button>
                   ) : (
                     <Button onClick={() => onApproveProduction()} isLoading={loading} disabled={!canApproveProduction || loading}
-                      title={canApproveProduction ? undefined : "Approve is disabled until the enrichment is valid"}
+                      title={canApproveProduction ? undefined : "Approve is disabled — see the note below"}
                       className="bg-green-600 hover:bg-green-700 text-white gap-2 disabled:opacity-50">
                       <Rocket className="w-4 h-4" /> {confirmApprove && pexelsStatus !== "ok" ? "Approve Anyway" : "Approve for Production"}
                     </Button>
@@ -800,8 +821,9 @@ function ReviewModal({
                 {!canApproveProduction && (
                   <p className="text-xs text-amber-600 dark:text-amber-400 flex items-center gap-1.5">
                     <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
-                    Approve is locked until the enrichment is valid. Re-run classification or fill it in manually. On approve, the
-                    server runs a renderability check — if the fact can't be rendered coherently, approval is blocked with a reason.
+                    {!isApprovable(enrichment)
+                      ? "Approve is locked until the enrichment is valid. Re-run classification or fill it in manually. On approve, the server runs a renderability check — if the fact can't be rendered coherently, approval is blocked with a reason."
+                      : "Approve is locked until there's at least one hashtag. Add a tag under Advanced Options → Final hashtags — clearing them all is usually a mistake."}
                   </p>
                 )}
               </div>

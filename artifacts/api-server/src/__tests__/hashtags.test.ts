@@ -9,6 +9,7 @@ import assert from "node:assert/strict";
 import {
   sanitizeHashtagsForPersistence,
   resolveTagsForApproval,
+  resolveFinalApprovalTags,
 } from "../lib/hashtags.js";
 
 describe("sanitizeHashtagsForPersistence", () => {
@@ -74,5 +75,37 @@ describe("resolveTagsForApproval", () => {
   it("handles null / undefined sources", () => {
     assert.deepEqual(resolveTagsForApproval(null, null), []);
     assert.deepEqual(resolveTagsForApproval(undefined, ["earth"]), ["earth"]);
+  });
+});
+
+describe("resolveFinalApprovalTags (approve-body authoritative)", () => {
+  // Present body wins over review + enrichment, sanitized verbatim.
+  it("uses the approve-body list when present, normalized/deduped", () => {
+    assert.deepEqual(
+      resolveFinalApprovalTags(["Coffee", "strength!"], ["ignored"], ["alsoIgnored"]),
+      ["coffee", "strength"],
+    );
+  });
+
+  // Present-but-empty is a deliberate "no tags" — does NOT fall back (caller then
+  // rejects with HASHTAGS_REQUIRED).
+  it("present empty array does NOT fall back (stays empty)", () => {
+    assert.deepEqual(resolveFinalApprovalTags([], ["coffee"], ["strength"]), []);
+  });
+
+  // Present but only denied/invalid → empty (caller rejects).
+  it("present denied/invalid-only sanitizes to empty (no fallback)", () => {
+    assert.deepEqual(resolveFinalApprovalTags(["alex", "overhype", "!!!"], ["coffee"], ["strength"]), []);
+  });
+
+  // Absent body → legacy fallback: submitter tags, else AI suggestions.
+  it("absent body falls back to submitter tags", () => {
+    assert.deepEqual(resolveFinalApprovalTags(undefined, ["coffee"], ["strength"]), ["coffee"]);
+  });
+  it("absent body with no submitter tags falls back to AI suggestions", () => {
+    assert.deepEqual(resolveFinalApprovalTags(undefined, [], ["strength", "legendary"]), ["strength", "legendary"]);
+  });
+  it("absent body with no valid tags anywhere → empty (caller rejects)", () => {
+    assert.deepEqual(resolveFinalApprovalTags(undefined, ["alex"], []), []);
   });
 });

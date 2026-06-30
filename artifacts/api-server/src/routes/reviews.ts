@@ -33,7 +33,7 @@ import {
   type VisualRenderApprovalWaiver,
 } from "@workspace/api-zod";
 import { materializeFromBaseline } from "../lib/factEnrichment";
-import { sanitizeHashtagsForPersistence, resolveTagsForApproval } from "../lib/hashtags";
+import { sanitizeHashtagsForPersistence, resolveFinalApprovalTags } from "../lib/hashtags";
 import { ensureStagingFact } from "../lib/moderationStaging";
 import { enqueueJob } from "../lib/asyncJobs";
 import { enqueueFactPexels } from "../lib/factPexelsJobs";
@@ -310,7 +310,14 @@ router.get("/admin/reviews/:id", requireAdmin, async (req: Request, res: Respons
 
 // ─── Approve Review (admin) ───────────────────────────────────────────────────
 
-const ReviewDecisionBody = z.object({ adminNote: z.string().max(500).optional() });
+// `hashtags` carries the moderator's curated FINAL discovery-tag list. When
+// present it is authoritative for the approved fact (sanitized server-side);
+// when absent we fall back to the submitter's tags. Either way a fact can't be
+// approved with an empty final list (see approveForProduction).
+const ReviewDecisionBody = z.object({
+  adminNote: z.string().max(500).optional(),
+  hashtags: z.array(z.string()).max(50).optional(),
+});
 const RejectBody = z.object({
   adminNote: z.string().max(500).optional(),
   rejectionReason: z.enum(["duplicate", "spam", "offensive", "lame"]),
@@ -318,6 +325,7 @@ const RejectBody = z.object({
 const ApproveVariantBody = z.object({
   parentFactId: z.number().int().positive(),
   adminNote: z.string().max(500).optional(),
+  hashtags: z.array(z.string()).max(50).optional(),
 });
 
 /**
@@ -394,19 +402,24 @@ async function runApprovalRenderPreflight(
   return true;
 }
 
+/** A drizzle executor — either the root `db` or an open transaction `tx`. */
+type DbExecutor = typeof db | Parameters<Parameters<typeof db.transaction>[0]>[0];
+
 /**
  * Attach hashtags to a fact, upserting into the hashtags master + join table.
- * Routes its input through the shared sanitizer so it can never drift from the
- * canonical normalization (callers already sanitize; the high cap here only
- * re-asserts and de-dupes — it won't drop valid upstream choices).
+ * Takes the executor so the caller can run it INSIDE the approval transaction —
+ * a fact is required to have tags, so activation + tag attachment must succeed or
+ * fail together (never a live, untagged fact). Routes its input through the shared
+ * sanitizer so it can never drift from the canonical normalization (callers
+ * already sanitize; the high cap here only re-asserts and de-dupes).
  */
-async function attachHashtags(factId: number, tags: string[]): Promise<void> {
+async function attachHashtags(tx: DbExecutor, factId: number, tags: string[]): Promise<void> {
   for (const name of sanitizeHashtagsForPersistence(tags, { limit: 50 })) {
-    let [ht] = await db.select().from(hashtagsTable).where(eq(hashtagsTable.name, name)).limit(1);
-    if (!ht) { [ht] = await db.insert(hashtagsTable).values({ name }).returning(); }
-    const [joined] = await db.insert(factHashtagsTable).values({ factId, hashtagId: ht.id }).onConflictDoNothing().returning();
+    let [ht] = await tx.select().from(hashtagsTable).where(eq(hashtagsTable.name, name)).limit(1);
+    if (!ht) { [ht] = await tx.insert(hashtagsTable).values({ name }).returning(); }
+    const [joined] = await tx.insert(factHashtagsTable).values({ factId, hashtagId: ht.id }).onConflictDoNothing().returning();
     if (joined) {
-      await db.update(hashtagsTable).set({ factCount: sql`${hashtagsTable.factCount} + 1` }).where(eq(hashtagsTable.id, ht.id));
+      await tx.update(hashtagsTable).set({ factCount: sql`${hashtagsTable.factCount} + 1` }).where(eq(hashtagsTable.id, ht.id));
     }
   }
 }
@@ -428,7 +441,7 @@ async function attachHashtags(factId: number, tags: string[]): Promise<void> {
 async function approveForProduction(
   req: AuthenticatedRequest,
   res: Response,
-  opts: { reviewId: number; adminNote: string | null; parentFactIdOverride?: number },
+  opts: { reviewId: number; adminNote: string | null; parentFactIdOverride?: number; hashtags?: string[] },
 ): Promise<void> {
   const { reviewId, adminNote, parentFactIdOverride } = opts;
 
@@ -468,6 +481,20 @@ async function approveForProduction(
   const enrichmentResult = resolveApprovalEnrichment(req.body, stagingFact.enrichment);
   if (!enrichmentResult.ok) { res.status(400).json({ error: enrichmentResult.error }); return; }
   const enrichment = enrichmentResult.enrichment;
+
+  // Final discovery tags. The moderator's curated list from the approve body is
+  // authoritative; absent that, fall back to the submitter's tags (else AI
+  // suggestions). Computed BEFORE any mutation so the required-hashtags gate can
+  // reject cleanly: a fact is never approved with an empty tag list — clearing
+  // them all is treated as a mistake, not a "ship zero" choice.
+  const finalTags = resolveFinalApprovalTags(opts.hashtags, review.hashtags as unknown[] | null, enrichment.suggestedHashtags);
+  if (finalTags.length === 0) {
+    res.status(400).json({
+      error: "A fact can't be approved without at least one hashtag. Add a hashtag and try again.",
+      code: "HASHTAGS_REQUIRED",
+    });
+    return;
+  }
 
   // Visual-render gate (admin-waivable), checked BEFORE the expensive preflight.
   // Required Step-2 scenarios must each be a fresh successful render; otherwise
@@ -511,8 +538,9 @@ async function approveForProduction(
   const enrichmentCols = bodyEnrichmentProvided ? materializeFromBaseline(enrichment).columns : {};
   const canonicalText = stagingFact.canonicalText ?? renderCanonical(stagingFact.text);
 
-  // Activate the fact + mark the review approved in ONE transaction so a fact is
-  // never live with the review still pending (or vice versa).
+  // Activate the fact, mark the review approved, AND attach the final hashtags in
+  // ONE transaction so a fact is never live with the review still pending (or vice
+  // versa) — and, since a fact can't ship without tags, never live-but-untagged.
   await db.transaction(async (tx) => {
     await tx.update(factsTable).set({
       isActive: true,
@@ -530,18 +558,9 @@ async function approveForProduction(
       enrichmentStatus: "ok",
       ...(visualRenderWaiver ? { visualRenderApprovalWaiver: visualRenderWaiver } : {}),
     }).where(eq(pendingReviewsTable.id, reviewId));
+    // The moderator-curated list resolved + gated (non-empty) above.
+    await attachHashtags(tx, stagingFact.id, finalTags);
   });
-
-  // Final hashtags (deferred to activation) — idempotent attach.
-  // Source of truth is the SUBMITTER's tags; enrichment's suggestedHashtags are
-  // the FALLBACK used only when the submitter left no valid tags (so a fact is
-  // never left untagged). Both sources are sanitized before the choice, so a
-  // submission of only denied/invalid tags falls through to enrichment rather
-  // than producing zero tags. (A moderator who edits suggestedHashtags on an
-  // already-tagged submission therefore does not override the submitter — that's
-  // the intended "user tags win" behavior, not a bug.)
-  const tags = resolveTagsForApproval(review.hashtags as unknown[] | null, enrichment.suggestedHashtags);
-  await attachHashtags(stagingFact.id, tags);
 
   // Post-commit side effects, once. Embed for duplicate/related surfacing.
   void embedFactAsync(stagingFact.id, stagingFact.text, canonicalText);
@@ -570,7 +589,7 @@ async function approveForProduction(
     }
   }
 
-  res.json({ success: true, factId: stagingFact.id, ...(parentId != null ? { parentFactId: parentId } : {}) });
+  res.json({ success: true, factId: stagingFact.id, hashtags: finalTags, ...(parentId != null ? { parentFactId: parentId } : {}) });
 }
 
 router.post("/admin/reviews/:id/approve-for-production", requireAdmin, async (req: AuthenticatedRequest, res: Response) => {
@@ -578,7 +597,8 @@ router.post("/admin/reviews/:id/approve-for-production", requireAdmin, async (re
   if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
   const bodyParsed = ReviewDecisionBody.safeParse(req.body);
   const adminNote = bodyParsed.success ? (bodyParsed.data.adminNote ?? null) : null;
-  await approveForProduction(req, res, { reviewId: id, adminNote });
+  const hashtags = bodyParsed.success ? bodyParsed.data.hashtags : undefined;
+  await approveForProduction(req, res, { reviewId: id, adminNote, hashtags });
 });
 
 // Back-compat alias: the legacy "approve" now means "approve for production" and
@@ -589,7 +609,8 @@ router.post("/admin/reviews/:id/approve", requireAdmin, async (req: Authenticate
   if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
   const bodyParsed = ReviewDecisionBody.safeParse(req.body);
   const adminNote = bodyParsed.success ? (bodyParsed.data.adminNote ?? null) : null;
-  await approveForProduction(req, res, { reviewId: id, adminNote });
+  const hashtags = bodyParsed.success ? bodyParsed.data.hashtags : undefined;
+  await approveForProduction(req, res, { reviewId: id, adminNote, hashtags });
 });
 
 // Back-compat: variant approval. The variant link is normally chosen at
@@ -599,7 +620,7 @@ router.post("/admin/reviews/:id/approve-variant", requireAdmin, async (req: Auth
   if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
   const bodyParsed = ApproveVariantBody.safeParse(req.body);
   if (!bodyParsed.success) { res.status(400).json({ error: "parentFactId is required" }); return; }
-  await approveForProduction(req, res, { reviewId: id, adminNote: bodyParsed.data.adminNote ?? null, parentFactIdOverride: bodyParsed.data.parentFactId });
+  await approveForProduction(req, res, { reviewId: id, adminNote: bodyParsed.data.adminNote ?? null, parentFactIdOverride: bodyParsed.data.parentFactId, hashtags: bodyParsed.data.hashtags });
 });
 
 // ─── Provisional approval (admin) — first gate ────────────────────────────────

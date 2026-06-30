@@ -26,19 +26,22 @@ screen. It does **not** retroactively re-tag facts already in the database.
 3. **Typing immediately doesn't get clobbered.** Hit Preview and *immediately*
    start typing your own tag. The AI's suggestion must **not** replace what you
    typed.
-4. **Your tags survive approval.** Submit the fact, then (as admin) approve it
-   through moderation. Open the live fact and confirm it carries **exactly the
-   tags you submitted** (lowercased/cleaned), not a different AI set.
-5. **Empty field → AI fallback.** Submit another fact but **clear all tags**
-   before submitting. Approve it. Confirm the live fact still has **sensible AI
-   tags** (the fallback) rather than no tags.
-6. **Junk-only → still gets tags.** Submit a fact whose only tags are junk/banned
-   (e.g. just the person's name + `overhype`). Approve it. Confirm it falls back
-   to AI tags instead of ending up with **zero** tags.
-7. **Moderation editor reads honestly.** In moderation **Advanced → enrichment**,
-   the "Suggested Hashtags" section now says it's **fallback only** (used only if
-   the submitter left no tags), and the user's submitted tags are labeled as the
-   ones that **ship**.
+4. **Moderator curates the final list.** Submit the fact, then (as admin) open it
+   in moderation → **Visual review → Advanced Options → enrichment**. The
+   **"Final hashtags — these ship on approval"** list starts with **your submitted
+   tags**. Remove one, add one manually, and **+ add** an **"AI suggested"** chip
+   from the source list below. Approve. Open the live fact and confirm it carries
+   **exactly the moderator's final list**.
+5. **No tags → seeded from AI.** Submit a fact with **all tags cleared**. In
+   moderation, the Final hashtags list should be **pre-seeded with the AI
+   suggestions** (ready to approve), not empty.
+6. **Can't approve with zero tags.** In moderation, **remove every tag** from the
+   Final hashtags list. The **Approve button is disabled** with a warning ("Add at
+   least one hashtag…"). Add one back — Approve re-enables. (If you bypass the UI
+   and approve with no tags, the server rejects with "add at least one hashtag".)
+7. **Junk-only is treated as empty.** Put only a name / `overhype` in the Final
+   list and approve — the server strips them and blocks approval (no zero-tag fact
+   can ship).
 
 ## Expect vs. don't-expect
 
@@ -46,8 +49,9 @@ screen. It does **not** retroactively re-tag facts already in the database.
 | --- | --- |
 | Hashtags field auto-fills with 3–6 topic tags on Preview | The name or `overhype`/`overhypeme` suggested |
 | You can freely edit/add/remove the suggestions | Your edits being overwritten by a late AI response |
-| Submitted tags survive onto the approved fact | Enrichment silently replacing your tags |
-| Empty/junk-only submission still gets AI fallback tags | A fact ending up with zero tags |
+| Moderator's final list ships exactly as approved | Enrichment silently replacing the curated tags |
+| Approve disabled / blocked when the final list is empty | A fact going live with zero hashtags |
+| No-tag submissions seed the moderator list from AI | An empty, un-approvable final list with no help |
 | Submission works even if suggestions are slow/fail | The Submit button blocked waiting on suggestions |
 
 ## Regression smoke
@@ -62,10 +66,12 @@ screen. It does **not** retroactively re-tag facts already in the database.
 
 ## Known non-bugs (this version)
 
-- **Moderators can't strip a single user tag at approval.** Because user tags
-  win, the moderator's enrichment hashtag editor is now fallback-only. To remove
-  a bad-but-valid user tag, a moderator declines the fact (or we add a dedicated
-  final-tag editor — a flagged follow-up; tell me if you want it).
+- **The final-hashtags editor lives in Advanced Options.** It's inside the
+  enrichment panel for now, even though tags aren't a "visual" control. Moving it
+  to a top-level production-review field is future polish.
+- **Manually-typed name/app tags vanish on approval.** If you type `alex` or
+  `overhype` into the Final list, the server strips them — if they were the only
+  tags, approval is blocked (a fact can't ship tagless).
 - **A restored draft doesn't auto-suggest.** If you come back to a saved draft
   that's already on Preview with an empty Hashtags field, suggestions don't
   re-fire automatically — type or re-Preview to get them. (Deferred on purpose.)

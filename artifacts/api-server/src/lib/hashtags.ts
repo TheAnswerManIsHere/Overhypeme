@@ -93,3 +93,25 @@ export function resolveTagsForApproval(
   if (submitted.length > 0) return submitted;
   return sanitizeHashtagsForPersistence(enrichmentHashtags ?? [], { limit: 8 });
 }
+
+/**
+ * The FINAL discovery-tag list attached at production approval.
+ *
+ * - `bodyHashtags` **present** (the moderation UI always sends the curated list,
+ *   even when empty) → it is authoritative; sanitized and used verbatim.
+ * - `bodyHashtags` **absent** (`undefined` — legacy / non-UI callers) → fall back
+ *   to the submitter's tags, else the AI suggestions.
+ *
+ * Presence is `!== undefined`, NOT truthiness: an empty array is a deliberate
+ * "no tags" signal and must not silently fall back. The caller (approval) then
+ * rejects an empty result, since a fact can't ship without tags.
+ */
+export function resolveFinalApprovalTags(
+  bodyHashtags: readonly unknown[] | undefined,
+  reviewHashtags: readonly unknown[] | null | undefined,
+  enrichmentHashtags: readonly unknown[] | null | undefined,
+): string[] {
+  return bodyHashtags !== undefined
+    ? sanitizeHashtagsForPersistence(bodyHashtags, { limit: 10 })
+    : resolveTagsForApproval(reviewHashtags, enrichmentHashtags);
+}
