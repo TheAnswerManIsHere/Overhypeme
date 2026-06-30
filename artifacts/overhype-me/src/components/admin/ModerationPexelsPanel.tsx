@@ -146,7 +146,12 @@ export function ModerationPexelsPanel({ reviewId }: { reviewId: number }) {
                     href={p.photographer_url ?? p.url}
                     target="_blank"
                     rel="noreferrer"
-                    className="group relative block aspect-square overflow-hidden rounded-sm border border-border"
+                    // Fixed-height tiles (NOT aspect-square): inside a
+                    // `max-h-* overflow-auto` grid, aspect-ratio items get their
+                    // rows compressed to fit the max-height instead of scrolling,
+                    // which crushes every row into a thin strip. A definite height
+                    // makes the grid scroll normally.
+                    className="group relative block h-20 overflow-hidden rounded-sm border border-border"
                     title={p.photographer ? `Photo by ${p.photographer}` : undefined}
                   >
                     <img src={p.url} alt="" loading="lazy" className="h-full w-full object-cover" />

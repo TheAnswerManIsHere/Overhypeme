@@ -25,6 +25,7 @@ import {
   factEnrichmentWireSchema,
   validateEnrichment,
   resolveEnrichment,
+  normalizeHashtag,
   TAXONOMY_VERSION,
   CLASSIFICATION_PROMPT_VERSION,
   type FactEnrichment,
@@ -43,7 +44,7 @@ import {
 } from "./factEnrichmentConfig";
 import { callUtilityLLM } from "./utilityLLM";
 import { logger } from "./logger";
-import { stripSubjectNameSemanticEntities } from "./renderCanonical";
+import { CANONICAL_SUBJECT_NAMES, possessive, stripSubjectNameSemanticEntities } from "./renderCanonical";
 
 export class EnrichmentError extends Error {
   constructor(message: string) {
@@ -64,6 +65,52 @@ export interface EnrichInput {
 }
 
 type UserMessage = { role: "user"; content: string };
+
+// ─── Suggested-hashtag denylist (subject name + app name) ────────────────────
+//
+// Two kinds of tag must never reach a fact's suggestedHashtags, no matter what
+// the classifier returns:
+//   1. The SUBJECT'S name. The classifier is fed the fact rendered to the
+//      canonical placeholder "Alex" (they/them), so it naturally proposes
+//      "alex" — but that is a stand-in for whoever the meme is personalized to,
+//      not a real topic. (Same reason the subject is never a semanticEntity.)
+//   2. The APP'S own name. The system prompt is steeped in "Overhype.me"
+//      branding, so the model leaks "overhype" / "overhypeme" as a discovery
+//      tag even though it isn't in the fact.
+//
+// The system prompt now tells the model to avoid both (the cheap, probabilistic
+// guard), and this deterministic filter guarantees it (the reliable one). When
+// stripping drops the list below the schema minimum of 3, the enrichment
+// validate→retry loop re-asks the model for more allowed tags.
+const APP_NAME_HASHTAGS: readonly string[] = ["overhype", "overhypeme"];
+
+// Include the POSSESSIVE form of each subject name: canonical rendering can feed
+// the classifier "{NAME_POSSESSIVE}" → "Alex's", and normalizeHashtag("Alex's")
+// is "alexs" — distinct from "alex", so it would otherwise slip the filter.
+const DENIED_HASHTAGS: ReadonlySet<string> = new Set<string>(
+  [...CANONICAL_SUBJECT_NAMES, ...CANONICAL_SUBJECT_NAMES.map((n) => possessive(n)), ...APP_NAME_HASHTAGS]
+    .map((t) => normalizeHashtag(t))
+    .filter((t) => t.length > 0),
+);
+
+/** Drop subject-name / app-name tags (matched on normalized form). */
+export function stripDeniedHashtags(tags: readonly string[]): string[] {
+  return tags.filter((t) => typeof t === "string" && !DENIED_HASHTAGS.has(normalizeHashtag(t)));
+}
+
+/**
+ * Apply the hashtag denylist to a freshly-parsed (pre-validation) enrichment
+ * blob so the stripped tags never count toward the schema's min-3 check. If
+ * stripping leaves fewer than 3, validation fails on suggestedHashtags and the
+ * existing corrective-retry loop re-asks the model — exactly the "run the LLM
+ * again" path we want when a fact's only ideas were the subject/app name.
+ */
+function filterParsedHashtags(parsed: unknown): unknown {
+  if (!parsed || typeof parsed !== "object") return parsed;
+  const obj = parsed as Record<string, unknown>;
+  if (!Array.isArray(obj.suggestedHashtags)) return parsed;
+  return { ...obj, suggestedHashtags: stripDeniedHashtags(obj.suggestedHashtags as unknown[] as string[]) };
+}
 
 // ─── Prompt assembly ────────────────────────────────────────────────────────
 
@@ -93,12 +140,21 @@ export function buildEnrichmentUserMessage(input: EnrichInput): string {
   ].join("\n");
 }
 
+// Both correctives carry the hashtag exclusion reminder. A first response can
+// fail with BOTH an invalid subtype AND denied tags that, once stripped, leave
+// fewer than 3 — and subtypeMismatch wins the corrective selection. If the
+// subtype message said nothing about hashtags, the single retry could fix the
+// subtype but keep too few tags and still fail. Reminding in both paths lets the
+// one retry recover the full blob.
+const HASHTAG_CORRECTIVE_REMINDER =
+  `For hashtags: never use the subject's name ("alex", "alex's") or the app name ("overhype"/"overhypeme") — those are removed automatically, so always provide 3-8 genuine discovery tags that are neither.`;
+
 function buildSubtypeCorrective(archetype: string, subtype: string): string {
-  return `The previous response failed validation because subtype "${subtype}" is not valid for primaryArchetype "${archetype}". Reclassify the fact using only valid subtypes for that primary archetype. Return the full JSON object again.`;
+  return `The previous response failed validation because subtype "${subtype}" is not valid for primaryArchetype "${archetype}". Reclassify the fact using only valid subtypes for that primary archetype. Return the full JSON object again. ${HASHTAG_CORRECTIVE_REMINDER}`;
 }
 
 function buildGenericCorrective(error: string): string {
-  return `The previous response failed validation: ${error}. Return the full JSON object again with every required field, using only the allowed enum values, 3-8 lowercase alphanumeric hashtags, and taxonomyConfidence between 0 and 1.`;
+  return `The previous response failed validation: ${error}. Return the full JSON object again with every required field, using only the allowed enum values, 3-8 lowercase alphanumeric hashtags, and taxonomyConfidence between 0 and 1. ${HASHTAG_CORRECTIVE_REMINDER}`;
 }
 
 function safeJsonParse(raw: string): unknown {
@@ -239,7 +295,10 @@ export async function enrichFactWithModel(
   const firstUser: UserMessage = { role: "user", content: buildEnrichmentUserMessage(input) };
 
   let raw = await callModel([firstUser]);
-  let parsed = safeJsonParse(raw);
+  // Strip denied (subject/app name) hashtags BEFORE validation so they can't
+  // satisfy the min-3 count: if removing them drops the list below 3, validation
+  // fails and the corrective retry re-asks the model for real discovery tags.
+  let parsed = filterParsedHashtags(safeJsonParse(raw));
   let result = validateEnrichment(parsed);
 
   if (!result.ok) {
@@ -250,7 +309,7 @@ export async function enrichFactWithModel(
       ? buildSubtypeCorrective(archetype, subtype)
       : buildGenericCorrective(result.error);
     raw = await callModel([firstUser, { role: "user", content: corrective }]);
-    parsed = safeJsonParse(raw);
+    parsed = filterParsedHashtags(safeJsonParse(raw));
     result = validateEnrichment(parsed);
   }
 

@@ -260,6 +260,28 @@ describe("validateImagePromptPlan", () => {
     if (!result.ok) assert.match(result.error, /fallbackSubjectGender/);
   });
 
+  it('accepts a neutral t2i prompt that does NOT contain the literal word "neutral"', () => {
+    // "neutral" = no specified gender. The model writes "a person", never "a
+    // neutral person", so the literal-word requirement is exempt for neutral —
+    // otherwise the generic (no-upload) t2i scenario fails every render.
+    const t2iExpectations: PlanExpectations = {
+      ...baseExpectations,
+      subjectRenderMode: "t2i_fallback",
+      generationMode: "t2i",
+      preserveHumanFace: false,
+      fallbackSubjectGender: "neutral",
+    };
+    const plan = basePlan({
+      subjectRenderMode: "t2i_fallback",
+      generationMode: "t2i",
+      identityPreservation: "none",
+      fallbackSubjectGender: "neutral",
+      promptText: "Generate a protagonist in a cinematic scene about an ant and a magnifying glass.",
+    });
+    const result = validateImagePromptPlan(plan, t2iExpectations);
+    assert.equal(result.ok, true, result.ok ? "" : result.error);
+  });
+
   it("accepts nonhuman_subject_i2i with applicable=true + traits + doNotTransformIntoHuman", () => {
     const nonhumanExpectations: PlanExpectations = {
       ...baseExpectations,

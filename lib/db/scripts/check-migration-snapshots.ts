@@ -198,6 +198,14 @@ const SNAPSHOT_EXEMPT_TAGS = new Set<string>([
   // `fact_pexels` image-prep queue lifecycle. Source of truth:
   // lib/db/src/schema/facts.ts.
   "0075_facts_pexels_status",
+
+  // Hand-authored DDL for the moderation render-scenario redesign: adds nullable
+  // scenario-metadata columns + indexes (incl. a partial WHERE review_id IS NOT
+  // NULL) to image_prompt_attempts and a visual_render_approval_waiver jsonb to
+  // pending_reviews. Authored by hand (drizzle-kit generate can't read the
+  // diverged recent snapshot chain). Source of truth: lib/db/src/schema/
+  // imagePromptAttempts.ts + reviews.ts.
+  "0076_moderation_render_scenarios",
 ]);
 
 interface JournalEntry {

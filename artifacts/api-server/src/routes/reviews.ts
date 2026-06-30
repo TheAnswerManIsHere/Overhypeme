@@ -26,6 +26,11 @@ import {
   UNRESOLVED_SUBMISSION_STAGE_VALUES,
   canProvisionallyApprove,
   canProductionApprove,
+  RENDER_SCENARIO_KEYS,
+  renderScenarioKeySchema,
+  visualRenderWaiverRequestSchema,
+  type ProblematicScenarioStatus,
+  type VisualRenderApprovalWaiver,
 } from "@workspace/api-zod";
 import { materializeFromBaseline } from "../lib/factEnrichment";
 import { ensureStagingFact } from "../lib/moderationStaging";
@@ -37,6 +42,13 @@ import {
   type RenderControlsWithRefs,
 } from "../lib/imagePromptAttempts";
 import { resolveRenderReviewInput } from "../lib/imagePrompt/resolveRenderReviewInput";
+import {
+  buildReviewScenarioGrid,
+  runReviewScenarios,
+  getScenarioAttemptDiagnostics,
+} from "../lib/reviewRenderScenarios";
+import { requiredScenarioProblems, REQUIRED_SCENARIO_POLICY_VERSION } from "../lib/factRenderScenarios";
+import { referenceAssetHealth } from "../lib/defaultReferenceResolver";
 import type { FactPexelsImages, PexelsPhotoEntry } from "../lib/factImagePipeline";
 import {
   assertFactPassesCanonicalRenderPreflight,
@@ -449,6 +461,38 @@ async function approveForProduction(
   if (!enrichmentResult.ok) { res.status(400).json({ error: enrichmentResult.error }); return; }
   const enrichment = enrichmentResult.enrichment;
 
+  // Visual-render gate (admin-waivable), checked BEFORE the expensive preflight.
+  // Required Step-2 scenarios must each be a fresh successful render; otherwise
+  // the moderator must explicitly waive the EXACT named problems. The problem set
+  // is recomputed server-side so a stale client can't sneak an approval past
+  // missing/failed/blocked/stale renders. Pass the enrichment being PUBLISHED
+  // (body override wins) so renders made with a pre-edit enrichment read as stale.
+  const scenarioGrid = await buildReviewScenarioGrid(reviewId, enrichment);
+  const renderProblems = requiredScenarioProblems(
+    scenarioGrid.cards.map((c) => ({ scenarioKey: c.key, status: c.status, stale: c.stale })),
+  );
+  let visualRenderWaiver: VisualRenderApprovalWaiver | null = null;
+  if (renderProblems.length > 0) {
+    const waiverReq = visualRenderWaiverRequestSchema.safeParse(req.body ?? {});
+    const wantsWaive = waiverReq.success && waiverReq.data.waiveVisualRenderIssues === true;
+    const named = new Set(waiverReq.success ? (waiverReq.data.waivedScenarioKeys ?? []) : []);
+    const allNamed = renderProblems.every((p) => named.has(p.scenarioKey));
+    if (!wantsWaive || !allNamed) {
+      res.status(409).json({ error: "visual_render_incomplete", problems: renderProblems });
+      return;
+    }
+    visualRenderWaiver = {
+      waivedAt: new Date().toISOString(),
+      waivedByAdminUserId: req.user.id,
+      waivedScenarios: renderProblems.map((p) => ({
+        scenarioKey: p.scenarioKey,
+        statusAtWaiver: p.status as ProblematicScenarioStatus,
+        latestAttemptId: scenarioGrid.cards.find((c) => c.key === p.scenarioKey)?.latestAttemptId ?? null,
+      })),
+      requiredScenarioPolicyVersion: REQUIRED_SCENARIO_POLICY_VERSION,
+    };
+  }
+
   // Renderability gate — real runtime pipeline over a neutral canonical subject
   // BEFORE any state mutation. Nothing is persisted on any failure path.
   if (await runApprovalRenderPreflight(stagingFact.text, enrichment, res)) return;
@@ -476,6 +520,7 @@ async function approveForProduction(
       reviewedAt: new Date(),
       enrichment,
       enrichmentStatus: "ok",
+      ...(visualRenderWaiver ? { visualRenderApprovalWaiver: visualRenderWaiver } : {}),
     }).where(eq(pendingReviewsTable.id, reviewId));
   });
 
@@ -739,6 +784,69 @@ router.patch("/admin/reviews/:id", requireAdmin, async (req: AuthenticatedReques
   res.json({ success: true });
 });
 
+// ─── Save Advanced-Options enrichment edits to the staging fact ───────────────
+//
+// Step-2 "Advanced Options" lets a moderator tune the taxonomy enrichment + the
+// visual-strategy override before approving. Those edits must land on the
+// STAGING FACT (`facts.enrichment`) — that is the single source of truth the
+// Step-2 test renders and the approval gate both read. Without an explicit save,
+// edits lived only in the browser and were flushed on approve, so re-running a
+// render tile rendered against the OLD enrichment and the tile stayed stale.
+//
+// This is the review-flow "plain whole-blob draft" save (NOT the live-fact
+// override-tracking model): we materialize the edited blob straight onto the
+// staging fact, exactly as `approve-for-production` does. It is the moderation
+// twin of the Facts page's `PATCH /admin/facts/:id/enrichment`, minus the
+// tracked-field guard a live fact needs (a staging fact has no protected
+// AI-baseline / live overrides to defend). Returns the persisted enrichment so
+// the client can clear its dirty flag and re-derive scenario staleness.
+router.patch("/admin/reviews/:id/staging-enrichment", requireAdmin, async (req: AuthenticatedRequest, res: Response) => {
+  const id = parseInt(String(req.params["id"] ?? ""), 10);
+  if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
+
+  const result = validateEnrichment((req.body as { enrichment?: unknown } | null | undefined)?.enrichment);
+  if (!result.ok) { res.status(400).json({ error: `Invalid enrichment: ${result.error}` }); return; }
+  const enrichment = result.data;
+
+  // Stage recheck + staging-fact write happen in ONE transaction with the review
+  // row locked (SELECT … FOR UPDATE). Otherwise a concurrent approve-for-production
+  // committing between a separate read and the write would let us rewrite a fact
+  // that is already LIVE — bypassing the approval render gate / hashtag attach. The
+  // lock serializes against approval (which also writes the review row), so we
+  // either win the lock and approval sees our saved enrichment, or approval wins
+  // and our recheck sees a non-production_review stage and bails.
+  const outcome = await db.transaction(async (tx): Promise<{ status: number; body: Record<string, unknown> }> => {
+    const [review] = await tx
+      .select({ stagingFactId: pendingReviewsTable.stagingFactId, workflowStage: pendingReviewsTable.workflowStage })
+      .from(pendingReviewsTable)
+      .where(eq(pendingReviewsTable.id, id))
+      .for("update")
+      .limit(1);
+    if (!review) return { status: 404, body: { error: "Review not found" } };
+    if (review.stagingFactId == null) {
+      return { status: 409, body: { error: "This review has no staging fact yet. Provisionally approve it first." } };
+    }
+    // Advanced Options (and its renders) only exist in production_review. Refuse to
+    // mutate enrichment in any other stage so a stale client can't write to a fact
+    // that has already been approved/rejected.
+    if (review.workflowStage !== "production_review") {
+      return { status: 409, body: { error: `Enrichment can only be saved during production review (stage is ${review.workflowStage}).` } };
+    }
+
+    const { columns } = materializeFromBaseline(enrichment);
+    const [updated] = await tx
+      .update(factsTable)
+      .set({ ...columns, enrichmentStatus: "ok" })
+      .where(eq(factsTable.id, review.stagingFactId))
+      .returning({ id: factsTable.id });
+    if (!updated) return { status: 409, body: { error: "Staging fact missing for this review." } };
+
+    return { status: 200, body: { success: true, enrichment: columns.enrichment } };
+  });
+
+  res.status(outcome.status).json(outcome.body);
+});
+
 // ─── Enrichment: retired ──────────────────────────────────────────────────────
 //
 // Review-blob enrichment is retired. Production prep is fact-backed: enrichment
@@ -999,6 +1107,63 @@ router.get("/admin/reviews/:id/renders/:renderJobId/image", requireAdmin, async 
     logger.error({ err, reviewId: id, renderJobId }, "[moderation] render image stream failed");
     res.status(500).json({ error: "image_stream_failed" });
   }
+});
+
+// ─── Step-2 render scenarios (durable, server-side multi-scenario grid) ────────
+
+// GET the scenario grid (derived status/stale/tally; cards carry admin-gated
+// thumbnail URLs reusing the existing render-image route).
+router.get("/admin/reviews/:id/render-scenarios", requireAdmin, async (req: Request, res: Response) => {
+  const id = parseInt(String(req.params["id"] ?? ""), 10);
+  if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
+  res.json(await buildReviewScenarioGrid(id));
+});
+
+const RunScenariosBody = z.object({
+  scenarios: z.array(renderScenarioKeySchema).min(1).max(RENDER_SCENARIO_KEYS.length),
+  force: z.boolean().optional(),
+});
+
+// POST a selective rerun (checkbox "Run" + per-tile rerun). Always creates fresh
+// attempts; `force` lets a moderator run a non-applicable non-human scenario.
+router.post("/admin/reviews/:id/render-scenarios", requireAdmin, async (req: AuthenticatedRequest, res: Response) => {
+  const id = parseInt(String(req.params["id"] ?? ""), 10);
+  if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
+  const parsed = RunScenariosBody.safeParse(req.body ?? {});
+  if (!parsed.success) { res.status(400).json({ error: "Invalid scenarios", details: parsed.error.flatten() }); return; }
+
+  const [review] = await db
+    .select({ workflowStage: pendingReviewsTable.workflowStage })
+    .from(pendingReviewsTable).where(eq(pendingReviewsTable.id, id)).limit(1);
+  if (!review) { res.status(404).json({ error: "Review not found" }); return; }
+  if (review.workflowStage !== "production_review") {
+    res.status(409).json({ error: `Cannot render from stage ${review.workflowStage}. Finish prep first.` });
+    return;
+  }
+
+  const result = await runReviewScenarios(id, parsed.data.scenarios, req.user.id);
+  if ("error" in result) { res.status(409).json(result); return; }
+  logger.info({ reviewId: id, scenarios: parsed.data.scenarios, adminId: req.user.id }, "[moderation] manual scenario rerun");
+  res.status(202).json(result);
+});
+
+// GET frozen diagnostics for ONE attempt (the prompt/plan that produced THIS
+// image — distinct from RuntimePromptPreview's recompute-under-current-assumptions).
+router.get("/admin/reviews/:id/render-scenarios/:scenarioKey/attempts/:attemptId", requireAdmin, async (req: Request, res: Response) => {
+  const id = parseInt(String(req.params["id"] ?? ""), 10);
+  const attemptId = parseInt(String(req.params["attemptId"] ?? ""), 10);
+  if (isNaN(id) || isNaN(attemptId)) { res.status(400).json({ error: "Invalid id" }); return; }
+  const keyParsed = renderScenarioKeySchema.safeParse(req.params["scenarioKey"]);
+  if (!keyParsed.success) { res.status(400).json({ error: "Invalid scenario key" }); return; }
+
+  const diag = await getScenarioAttemptDiagnostics(id, keyParsed.data, attemptId);
+  if (!diag) { res.status(404).json({ error: "attempt_not_found" }); return; }
+  res.json(diag);
+});
+
+// GET default-reference-asset readiness (which i2i scenarios can render).
+router.get("/admin/render-references/health", requireAdmin, async (_req: Request, res: Response) => {
+  res.json({ assets: await referenceAssetHealth() });
 });
 
 // ─── Activity Feed ────────────────────────────────────────────────────────────

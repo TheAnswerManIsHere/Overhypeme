@@ -24,8 +24,17 @@
  *
  * Test isolation: auth tests create a test user via the `t_routes_hero_`
  * prefix.  The before/after hooks delete those users; user_fact_preferences
- * cascades on user delete.  No facts are inserted — the tests rely on real
- * data already present in the shared dev DB.
+ * cascades on user delete.
+ *
+ * Hero-pool seeding: this suite seeds a small set of its OWN active root facts
+ * (submitter NULL, so they pass the route's test-user filter and count as
+ * "real") in the outer `before`, and deletes them in the outer `after`. The
+ * pool the hero endpoint draws from must be non-empty for these assertions, and
+ * under the sharded runner (`--test-isolation=none`, schema-only DB clones) a
+ * shard has no real facts unless a sibling test happens to leave some — which is
+ * a fragile cross-file dependency that breaks whenever the test-file count
+ * shifts the shard distribution. Seeding our own facts makes the suite
+ * self-contained; any real facts that also exist simply add to the pool.
  */
 
 import { describe, it, before, after } from "node:test";
@@ -40,7 +49,7 @@ import {
   factsTable,
   userFactPreferencesTable,
 } from "@workspace/db/schema";
-import { and, desc, eq, isNull, like, not, or, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, like, not, or, sql } from "drizzle-orm";
 
 import factsRouter from "../routes/facts.js";
 import { buildTestApp } from "./helpers/buildTestApp.js";
@@ -94,6 +103,33 @@ async function cleanup() {
   await db.delete(usersTable).where(like(usersTable.id, `${USER_PREFIX}%`));
 }
 
+// Self-seeded hero-pool facts (submitter NULL ⇒ "real" by the route's filter).
+// Five facts with distinct wilson scores: enough that the exclude test (which
+// excludes the top 2) still has a remainder to return, and that the suite never
+// depends on facts left behind by a sibling test in the same shard.
+const seededFactIds: number[] = [];
+
+async function seedHeroFacts() {
+  const rows = await db
+    .insert(factsTable)
+    .values(
+      [0.95, 0.94, 0.93, 0.92, 0.91].map((wilsonScore, i) => ({
+        text: `Hero pool seed fact ${i + 1} — {NAME} does something legendary.`,
+        submittedById: null,
+        isActive: true,
+        wilsonScore,
+      })),
+    )
+    .returning({ id: factsTable.id });
+  seededFactIds.push(...rows.map((r) => r.id));
+}
+
+async function unseedHeroFacts() {
+  if (seededFactIds.length === 0) return;
+  await db.delete(factsTable).where(inArray(factsTable.id, seededFactIds));
+  seededFactIds.length = 0;
+}
+
 // Wrap every describe in this file in a single outer suite so the cleanup
 // hooks scope correctly under `--test-isolation=none`. Top-level `before`/
 // `after` register on the implicit root, which means when multiple files
@@ -103,8 +139,14 @@ async function cleanup() {
 // inside a describe run scoped to that suite, between files. See
 // routes.facts.test.ts for the regression that prompted this.
 describe("routes.facts.hero", () => {
-  before(cleanup);
-  after(cleanup);
+  before(async () => {
+    await cleanup();
+    await seedHeroFacts();
+  });
+  after(async () => {
+    await unseedHeroFacts();
+    await cleanup();
+  });
 
 describe("GET /facts/hero — ranking sanity", () => {
   it("returns a fact drawn from the top-50 wilson-ranked pool", async () => {

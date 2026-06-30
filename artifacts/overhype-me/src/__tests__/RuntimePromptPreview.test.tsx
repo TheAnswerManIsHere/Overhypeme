@@ -71,7 +71,7 @@ beforeEach(() => installFetch());
 afterEach(() => vi.unstubAllGlobals());
 
 function expand() {
-  fireEvent.click(screen.getByText(/Runtime Compiled Prompt Preview/i));
+  fireEvent.click(screen.getByText(/Prompt Diagnostics/i));
 }
 
 // ── RuntimePromptPreview ──────────────────────────────────────────────────────
@@ -125,6 +125,36 @@ describe("RuntimePromptPreview", () => {
     const rc = body.renderControls as Record<string, unknown>;
     expect(rc.fallbackSubjectGender).toBe("female");
     expect(rc.aspectRatio).toBe("landscape");
+  });
+
+  it("review-render mode: derives t2i fallback gender from sample pronouns until overridden", async () => {
+    localStorage.clear();
+    render(<RuntimePromptPreview factId={7} reviewIdForRender={6309} />);
+    expand();
+
+    // Review-render mode defaults to t2i_fallback, so the gender control shows.
+    const genderSel = screen.getByTestId("rpp-fallback-gender") as HTMLSelectElement;
+
+    // Blank pronouns ⇒ the brand-default he/him sample ⇒ male (NOT neutral), so the
+    // default "just click Generate" path doesn't hit the t2i validator failure.
+    await waitFor(() => expect(genderSel.value).toBe("male"));
+
+    // he/him → male; she/her → female; they/them → neutral — all derived live.
+    fireEvent.change(screen.getByTestId("rpp-preview-pronouns"), { target: { value: "they/them" } });
+    await waitFor(() => expect(genderSel.value).toBe("neutral"));
+    fireEvent.change(screen.getByTestId("rpp-preview-pronouns"), { target: { value: "she/her" } });
+    await waitFor(() => expect(genderSel.value).toBe("female"));
+
+    // Generate sends the derived gender.
+    fireEvent.click(screen.getByTestId("rpp-generate"));
+    await waitFor(() => expect(calls.some((c) => c.url.includes("/preview"))).toBe(true));
+    expect((calls.find((c) => c.url.includes("/preview"))!.body!.renderControls as Record<string, unknown>).fallbackSubjectGender).toBe("female");
+
+    // Once the moderator manually picks a gender, pronouns no longer override it.
+    fireEvent.change(genderSel, { target: { value: "neutral" } });
+    fireEvent.change(screen.getByTestId("rpp-preview-pronouns"), { target: { value: "he/him" } });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(genderSel.value).toBe("neutral");
   });
 
   it("shows a friendly message when the fact has no usable enrichment", async () => {
@@ -217,7 +247,7 @@ describe("RuntimePromptPreview", () => {
     calls = [];
     // Fresh mount: the prior result is restored WITHOUT calling /preview again.
     render(<RuntimePromptPreview factId={99} />);
-    fireEvent.click(screen.getByText(/Runtime Compiled Prompt Preview/i));
+    fireEvent.click(screen.getByText(/Prompt Diagnostics/i));
     await waitFor(() => expect(screen.getByTestId("rpp-compiled-prompt")).toBeTruthy());
     expect(screen.getByTestId("rpp-compiled-prompt").textContent).toContain("COMPILED IMAGE PROMPT TEXT");
     expect(calls.some((c) => c.url.includes("/api/admin/image-prompt/preview"))).toBe(false);
