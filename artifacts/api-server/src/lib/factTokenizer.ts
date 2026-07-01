@@ -10,7 +10,11 @@
  * stay in api-zod.
  */
 
-import { ALLOWED_SIMPLE_TOKENS, autoConjugatePersonSubjectVerbs } from "./templateGrammar";
+import {
+  ALLOWED_SIMPLE_TOKENS,
+  autoConjugatePersonSubjectVerbs,
+  collapseIdenticalConjugationBranches,
+} from "./templateGrammar";
 
 // Deliberately code-owned tokenizer models — NOT governed by adminEngines'
 // ALLOWED_LLM_MODELS (that list only gates the admin-editable engine row). Keep
@@ -54,6 +58,7 @@ IMPORTANT:
 - Capitalize tokens at the start of sentences: {Subj} not {SUBJ}, etc.
 - Verb conjugation is NARROW: only conjugate a verb whose subject is the person ({NAME}/{SUBJ}). Before adding a pair, ask "is the person the subject of THIS verb?" — if a different noun is the subject, leave the verb plain.
 - When the person is the subject, "they" triggers plural: "he sleeps" → "{SUBJ} {sleeps|sleep}", "he doesn't" → "{SUBJ} {doesn't|don't}", "he was" → "{SUBJ} {was|were}"
+- If the he/she and they forms are IDENTICAL, leave the verb plain — do NOT wrap it. Modal verbs are the common case: can, will, would, should, could, must, might, may. Output "{NAME} can fly" not "{NAME} {can|can} fly".
 - SELF-CHECK before returning: re-read every present-tense verb that directly follows {SUBJ}/{Subj}/{NAME}. Each one MUST be a {singular|plural} pair. A bare "-s" verb in that position (keeps, runs, is, has, does) is a bug — wrap it.
 - NEVER put braces around words that are not in the token list above. Conjunctions ("When", "But", "If", "Because"), articles ("The", "A", "An"), prepositions ("In", "On", "At"), and all other non-token words must be written as plain text without braces. Wrapping any such word in braces is ALWAYS wrong.
 - Return ONLY valid JSON: {"template": "...the tokenized template..."}
@@ -98,14 +103,28 @@ export function stripUnknownTokens(template: string): string {
 }
 
 /**
- * Clean up a raw model-produced template into its final form: strip hallucinated
- * tokens, then apply the deterministic person-subject verb-conjugation net (the
- * actual guarantee that "{Subj} keeps" becomes "{Subj} {keeps|keep}"). Returns
- * the final template and whether the net changed anything (so callers can log
- * how often the model missed a conjugation).
+ * Clean up a raw model-produced template into its final form, in three passes:
+ *   1. strip hallucinated tokens ({When} → When),
+ *   2. apply the deterministic person-subject verb-conjugation net (the actual
+ *      guarantee that "{Subj} keeps" becomes "{Subj} {keeps|keep}"),
+ *   3. collapse identical conjugation branches ({can|can} → can) — modals and
+ *      other non-conjugating verbs whose he/she and they forms match, which the
+ *      model sometimes wraps into a useless duplicate pair.
+ *
+ * Returns the final template plus two scoped flags so callers can log each pass
+ * independently: `conjugated` (the net wrapped a missed verb) and `collapsed` (a
+ * duplicate pair was dropped). `conjugated` is NOT overloaded to mean "anything
+ * changed" — a raw `{can|can}` collapses with `conjugated: false, collapsed: true`.
  */
-export function postProcessTokenizedTemplate(raw: string): { template: string; conjugated: boolean } {
+export function postProcessTokenizedTemplate(
+  raw: string,
+): { template: string; conjugated: boolean; collapsed: boolean } {
   const stripped = stripUnknownTokens(raw);
   const conjugatedTemplate = autoConjugatePersonSubjectVerbs(stripped);
-  return { template: conjugatedTemplate, conjugated: conjugatedTemplate !== stripped };
+  const collapsedTemplate = collapseIdenticalConjugationBranches(conjugatedTemplate);
+  return {
+    template: collapsedTemplate,
+    conjugated: conjugatedTemplate !== stripped,
+    collapsed: collapsedTemplate !== conjugatedTemplate,
+  };
 }

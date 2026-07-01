@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   Loader2,
   Check,
@@ -10,6 +10,8 @@ import {
   ChevronRight,
   Play,
   MinusCircle,
+  X,
+  ZoomIn,
 } from "lucide-react";
 import {
   type RenderScenarioCard,
@@ -193,6 +195,50 @@ function ScenarioDiagnostics({
   );
 }
 
+// ── Full-resolution image lightbox ──────────────────────────────────────────
+//
+// The grid thumbnail is downscaled (w-full inside a narrow cell), so tapping it
+// opens the render at full resolution. Layered above the review modal (z-50);
+// backdrop click, the × button, or Escape all close it. object-contain keeps the
+// portrait render whole within the viewport instead of cropping it.
+
+function ImageLightbox({ src, alt, onClose }: { src: string; alt: string; onClose: () => void }) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  return (
+    <div
+      className="fixed inset-0 z-[60] flex items-center justify-center bg-black/80 p-4"
+      onClick={onClose}
+      role="dialog"
+      aria-modal="true"
+      aria-label={alt}
+      data-testid="render-scenario-lightbox"
+    >
+      <button
+        type="button"
+        onClick={onClose}
+        className="absolute top-3 right-3 text-white/80 hover:text-white"
+        aria-label="Close full-resolution image"
+        data-testid="render-scenario-lightbox-close"
+      >
+        <X className="w-6 h-6" />
+      </button>
+      <img
+        src={src}
+        alt={alt}
+        className="max-h-[90vh] max-w-[90vw] w-auto object-contain rounded-sm shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      />
+    </div>
+  );
+}
+
 // ── Status presentation ──────────────────────────────────────────────────────
 
 function StatusBadge({ status, stale }: { status: RenderScenarioStatus; stale: boolean }) {
@@ -254,6 +300,7 @@ export function FactRenderScenarioTile({
 }) {
   const active = card.status === "queued" || card.status === "rendering";
   const chip = card.referenceIdentityType ? REFERENCE_CHIP_LABEL[card.referenceIdentityType] : "Text-to-image";
+  const [lightboxOpen, setLightboxOpen] = useState(false);
 
   return (
     <div
@@ -282,25 +329,43 @@ export function FactRenderScenarioTile({
       {/* Live status */}
       <StatusBadge status={card.status} stale={card.stale} />
 
-      {/* Image (done) with a stale overlay when applicable */}
+      {/* Image (done) with a stale overlay when applicable. Tap → full-resolution lightbox. */}
       {card.status === "done" && card.imageUrl && (
         <div className="relative">
-          <img
-            src={card.imageUrl}
-            alt={`${card.label} test render`}
-            loading="lazy"
-            className={`w-full rounded-sm border border-border ${card.stale ? "opacity-75" : ""}`}
-            data-testid="render-scenario-image"
-          />
+          <button
+            type="button"
+            onClick={() => setLightboxOpen(true)}
+            className="group block w-full cursor-zoom-in"
+            aria-label={`View ${card.label} test render at full resolution`}
+            data-testid="render-scenario-image-button"
+          >
+            <img
+              src={card.imageUrl}
+              alt={`${card.label} test render`}
+              loading="lazy"
+              className={`w-full rounded-sm border border-border ${card.stale ? "opacity-75" : ""}`}
+              data-testid="render-scenario-image"
+            />
+            <span className="pointer-events-none absolute bottom-1 right-1 inline-flex items-center gap-1 rounded-sm bg-black/55 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-white opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100">
+              <ZoomIn className="w-3 h-3" /> Full size
+            </span>
+          </button>
           {card.stale && (
             <span
-              className="absolute top-1 left-1 inline-flex items-center gap-1 rounded-sm bg-amber-500/90 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-white"
+              className="pointer-events-none absolute top-1 left-1 inline-flex items-center gap-1 rounded-sm bg-amber-500/90 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-white"
               data-testid="render-scenario-stale-badge"
             >
               <AlertTriangle className="w-3 h-3" /> Stale
             </span>
           )}
         </div>
+      )}
+      {lightboxOpen && card.imageUrl && (
+        <ImageLightbox
+          src={card.imageUrl}
+          alt={`${card.label} test render (full resolution)`}
+          onClose={() => setLightboxOpen(false)}
+        />
       )}
       {card.status === "done" && card.stale && (
         <p className="text-[10px] text-amber-700 dark:text-amber-300 leading-snug">

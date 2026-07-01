@@ -301,6 +301,13 @@ The two docs:
    happen against the DB ("apply migrations", "run these test files",
    "confirm the new columns exist on `upload_image_metadata`") and let
    Replit handle the connection itself.
+
+   **The TEST_RUN doc is transient — David deletes it once Replit has run
+   it.** It only needs to exist long enough for Replit to execute the checklist
+   and confirm it passes; after that David removes it. So a `*_TEST_RUN.md`
+   that is missing from `main` (even one whose UAT sibling is still present) is
+   **expected, not a bug** — I do NOT flag its absence, try to "restore" it, or
+   re-add it. The UAT doc is the durable half of the pair.
 2. **`docs/PR<N>_<FEATURE>_UAT.md`** — the in-app, click-through acceptance test
    for David. Written for the end user: where to click, what to expect vs.
    not expect, regression smoke table, a bug-report template, and known

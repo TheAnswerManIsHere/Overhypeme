@@ -15,6 +15,25 @@ function ent(surfaceText: string, normalizedText = surfaceText.toLowerCase()) {
   return { surfaceText, normalizedText };
 }
 
+// ── {can|can} collapse is output-preserving ──────────────────────────────────
+// Locks in the safety claim behind collapseIdenticalConjugationBranches: a
+// duplicate conjugation pair and its collapsed plain form render identically, so
+// dropping the braces can never change output.
+
+describe("identical conjugation branch renders the same collapsed or not", () => {
+  const dup = "{NAME} {can|can} fill up an electric car at a gas station.";
+  const flat = "{NAME} can fill up an electric car at a gas station.";
+
+  it("renderCanonical: {can|can} === can", () => {
+    assert.equal(renderCanonical(dup), renderCanonical(flat));
+  });
+
+  it("renderPersonalized: {can|can} === can for he/him AND they/them", () => {
+    assert.equal(renderPersonalized(dup, "Dave", "he/him"), renderPersonalized(flat, "Dave", "he/him"));
+    assert.equal(renderPersonalized(dup, "Sam", "they/them"), renderPersonalized(flat, "Sam", "they/them"));
+  });
+});
+
 // ── renderCanonical ───────────────────────────────────────────────────────────
 
 describe("renderCanonical", () => {

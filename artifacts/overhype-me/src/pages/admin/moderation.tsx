@@ -610,6 +610,14 @@ function ReviewModal({
           {/* ── STEP 2: VISUAL REVIEW (production review only) ── */}
           {!isResolved && step === "visual" && isProductionReview && (
             <div className="space-y-4">
+              {/* Submitted fact, repeated at the top of Step 2 — triage and visual
+                  review may be done in separate passes, so the moderator needs the
+                  fact in view here without flipping back to Step 1. */}
+              <div className="bg-background border-2 border-border rounded-sm p-4">
+                <p className="text-xs font-bold text-muted-foreground uppercase tracking-wide mb-3">Submitted Fact</p>
+                <p className="text-base italic text-foreground leading-relaxed">"{review.submittedText}"</p>
+              </div>
+
               <FactVisualReviewGrid reviewId={review.id} enrichment={enrichment} reloadKey={gridReloadKey} />
 
               {/* Advanced Options — the technical machinery, collapsed by default. */}
