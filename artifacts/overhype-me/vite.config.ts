@@ -130,15 +130,19 @@ export default defineConfig({
     // Disable automatic dependency scanning in the dev server.
     // The full esbuild dep scan spawns thousands of goroutines which exhausts
     // the container's OS thread limit (~1024 total) and panics. With noDiscovery
-    // and an empty include list, Vite skips the pre-bundling phase entirely and
-    // transforms deps on-demand instead.
+    // set, Vite skips the dep-graph scan and only pre-bundles the packages
+    // listed explicitly in `include` below, then transforms everything else
+    // on-demand.
     //
     // On-demand transform cannot expose named exports from CJS-only packages.
-    // The one such package in our graph (use-sync-external-store, via wouter
-    // and @radix-ui/react-use-is-hydrated) is handled by the resolve.alias
-    // entry above instead of pre-bundling — keep this list empty.
+    // CJS packages that export named bindings must be pre-bundled here so
+    // esbuild can convert them to ESM. `use-sync-external-store` (used by
+    // wouter/Radix) is handled via resolve.alias to a local ESM shim instead
+    // because its subpath specifiers (`/shim/index.js`) aren't pre-bundleable
+    // without also bundling the CJS caller. react and react-dom/client are
+    // pure CJS with no subpath complications — pre-bundle them directly.
     noDiscovery: true,
-    include: [],
+    include: ["react", "react-dom", "react-dom/client"],
   },
   server: {
     port,
