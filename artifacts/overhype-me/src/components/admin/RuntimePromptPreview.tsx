@@ -47,6 +47,8 @@ interface PromptSection {
   status: PromptSectionStatus;
   text: string;
   rawText: string;
+  /** Content authored by a human moderator (visual-concept core scene). */
+  moderatorAuthored?: boolean;
 }
 
 interface RemovedProseSentence {
@@ -60,9 +62,19 @@ interface PromptWarning {
   severity: "info" | "warning";
 }
 
+interface PlannerProvenance {
+  configuredEngineId: string;
+  resolvedEngineId: string | null;
+  model: string | null;
+  reasoningEffort: string | null;
+  timeoutMs: number;
+  fallbackReason: string | null;
+}
+
 interface CompiledPromptDiagnostics {
   removedPlannerProseSentences?: RemovedProseSentence[];
   warnings?: PromptWarning[];
+  plannerProvenance?: PlannerProvenance;
 }
 
 interface CompiledPrompt {
@@ -750,6 +762,15 @@ export function RuntimePromptPreview({ factId, reviewId, reviewIdForRender }: Ru
                               <span className={`text-[9px] font-semibold uppercase tracking-wide px-1 py-0.5 rounded-sm ${meta.cls}`}>
                                 {meta.label}
                               </span>
+                              {s.moderatorAuthored && (
+                                <span
+                                  className="text-[9px] font-semibold uppercase tracking-wide px-1 py-0.5 rounded-sm bg-purple-500/15 text-purple-700 dark:text-purple-300"
+                                  data-testid="rpp-moderator-chip"
+                                  title="This section's content was authored by a moderator (Visual concept), not the planner LLM."
+                                >
+                                  Moderator
+                                </span>
+                              )}
                             </div>
                             {body ? (
                               <p className={`whitespace-pre-wrap font-mono text-[10px] leading-snug ${muted ? "text-muted-foreground line-through decoration-muted-foreground/40" : "text-foreground"}`}>
@@ -764,6 +785,31 @@ export function RuntimePromptPreview({ factId, reviewId, reviewIdForRender }: Ru
                     </div>
                   )}
                 </div>
+              )}
+
+              {/* Planner provenance — which LLM engine planned this prompt. */}
+              {result.compiledPrompt.diagnostics?.plannerProvenance && (
+                result.compiledPrompt.diagnostics.plannerProvenance.fallbackReason ? (
+                  <div
+                    className="flex items-start gap-2 rounded-sm border border-amber-500/40 bg-amber-500/10 px-3 py-2"
+                    data-testid="rpp-planner-fallback"
+                  >
+                    <AlertTriangle className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+                    <p className="text-[11px] text-amber-700 dark:text-amber-300 leading-snug">
+                      FALLBACK: planned by the default utility LLM — the configured visual-planner engine
+                      ({result.compiledPrompt.diagnostics.plannerProvenance.configuredEngineId}) was not used
+                      ({result.compiledPrompt.diagnostics.plannerProvenance.fallbackReason}).
+                    </p>
+                  </div>
+                ) : (
+                  <p className="text-[10px] text-muted-foreground" data-testid="rpp-planner-provenance">
+                    Planned by {result.compiledPrompt.diagnostics.plannerProvenance.model}
+                    {" "}({result.compiledPrompt.diagnostics.plannerProvenance.resolvedEngineId}
+                    {result.compiledPrompt.diagnostics.plannerProvenance.reasoningEffort
+                      ? `, effort ${result.compiledPrompt.diagnostics.plannerProvenance.reasoningEffort}`
+                      : ""})
+                  </p>
+                )
               )}
 
               {/* Compiler diagnostics — stripped prose clauses + tone warnings */}
@@ -785,12 +831,12 @@ export function RuntimePromptPreview({ factId, reviewId, reviewIdForRender }: Ru
                     {(result.compiledPrompt.diagnostics.removedPlannerProseSentences?.length ?? 0) > 0 && (
                       <div className="rounded-sm border border-border bg-background p-2" data-testid="rpp-removed-clauses">
                         <span className={labelCls}>
-                          Prompt guard removed {result.compiledPrompt.diagnostics.removedPlannerProseSentences!.length} planner-prose
+                          Prompt guard removed {result.compiledPrompt.diagnostics.removedPlannerProseSentences!.length} planner/moderator
                           clause(s)
                         </span>
                         <p className="text-[10px] text-muted-foreground italic mb-1.5 leading-snug">
-                          These were dropped from the LLM prose because the compiler emits them itself — so the engine prompt
-                          can&apos;t carry a competing or duplicate instruction. Check here for false positives.
+                          These were dropped from the planner/moderator prose because the compiler emits them itself — so the
+                          engine prompt can&apos;t carry a competing or duplicate instruction. Check here for false positives.
                         </p>
                         <ul className="space-y-1">
                           {result.compiledPrompt.diagnostics.removedPlannerProseSentences!.map((r, i) => (

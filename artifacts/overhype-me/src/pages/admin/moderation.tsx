@@ -20,6 +20,7 @@ import { useFactEnrichmentEditing } from "@/components/admin/useFactEnrichmentEd
 import { RuntimePromptPreview } from "@/components/admin/RuntimePromptPreview";
 import { CollapsibleSection } from "@/components/CollapsibleSection";
 import { FactVisualReviewGrid } from "@/components/admin/FactVisualReviewGrid";
+import { VisualConceptCard } from "@/components/admin/VisualConceptCard";
 
 // ─── Shared ───────────────────────────────────────────────────────────────────
 
@@ -586,6 +587,18 @@ function ReviewModal({
               </div>
 
               <FactVisualReviewGrid reviewId={review.id} enrichment={enrichment} reloadKey={gridReloadKey} />
+
+              {/* Visual concept — the moderator's primary lever: describe the
+                  picture in plain language and the planner/compiler realize it.
+                  Edits the same override blob (and rides the same draft) as the
+                  panel inside Advanced Options. */}
+              <VisualConceptCard
+                value={enrichment?.visualPromptStrategyOverride}
+                disabled={!enrichment || loading || enrichmentDraft.committing}
+                onChange={(next) => {
+                  if (enrichment) enrichmentDraft.setValue({ ...enrichment, visualPromptStrategyOverride: next });
+                }}
+              />
 
               {/* Advanced Options — the technical machinery, collapsed by default. */}
               <CollapsibleSection
