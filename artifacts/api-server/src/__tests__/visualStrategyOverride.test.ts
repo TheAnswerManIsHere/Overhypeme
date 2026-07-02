@@ -10,6 +10,7 @@ import {
   visualPromptStrategyOverrideSchema,
   canonicalizeNameToken,
   firstOverrideTokenError,
+  hasRenderableVisualStrategyOverrideContent,
   resolveRenderPolicy,
   DEFAULT_RENDER_POLICY,
   type VisualPromptStrategyOverride,
@@ -101,6 +102,35 @@ describe("visualPromptStrategyOverrideSchema", () => {
     }
   });
 
+  it("coreSceneOverride is optional and canonicalizes name tokens on parse", () => {
+    const absent = visualPromptStrategyOverrideSchema.safeParse(makeOverride());
+    assert.equal(absent.success, true);
+    if (absent.success) assert.equal(absent.data.coreSceneOverride, undefined);
+
+    const res = visualPromptStrategyOverrideSchema.safeParse(
+      makeOverride({ coreSceneOverride: "{name} rides a T-Rex through {name_possessive} office" }),
+    );
+    assert.equal(res.success, true);
+    if (res.success) {
+      assert.equal(res.data.coreSceneOverride, "{NAME} rides a T-Rex through {NAME_POSSESSIVE} office");
+    }
+  });
+
+  it("rejects an unknown token inside coreSceneOverride", () => {
+    const res = visualPromptStrategyOverrideSchema.safeParse(
+      makeOverride({ coreSceneOverride: "a scene starring {BOGUS}" }),
+    );
+    assert.equal(res.success, false);
+    if (!res.success) assert.match(res.error.issues.map((i) => i.message).join(" "), /token/i);
+  });
+
+  it("rejects a coreSceneOverride over the 1500-char cap", () => {
+    const res = visualPromptStrategyOverrideSchema.safeParse(
+      makeOverride({ coreSceneOverride: "x".repeat(1501) }),
+    );
+    assert.equal(res.success, false);
+  });
+
   it("canonicalizes name-token aliases in roleBindings.entity (rendered + validated field)", () => {
     const res = visualPromptStrategyOverrideSchema.safeParse(
       makeOverride({ roleBindings: [{ entity: "{name_possessive} mother", visualRole: "{name} as a baby" }] }),
@@ -129,6 +159,38 @@ describe("token helpers", () => {
     assert.equal(firstOverrideTokenError(ok), null);
     const bad = makeOverride({ compositionGuidance: ["{NOPE}"] }) as unknown as VisualPromptStrategyOverride;
     assert.ok(firstOverrideTokenError(bad));
+  });
+});
+
+describe("hasRenderableVisualStrategyOverrideContent", () => {
+  const asOv = (partial: Record<string, unknown>) => makeOverride(partial) as unknown as VisualPromptStrategyOverride;
+
+  it("counts coreSceneOverride as renderable content", () => {
+    assert.equal(hasRenderableVisualStrategyOverrideContent(asOv({})), false);
+    assert.equal(hasRenderableVisualStrategyOverrideContent(asOv({ coreSceneOverride: "  " })), false);
+    assert.equal(hasRenderableVisualStrategyOverrideContent(asOv({ coreSceneOverride: "{NAME} on a throne" })), true);
+  });
+
+  it("ignores admin-only fields (moderatorIntent, notesForModerator)", () => {
+    assert.equal(
+      hasRenderableVisualStrategyOverrideContent(asOv({ moderatorIntent: "why I overrode", notesForModerator: "note" })),
+      false,
+    );
+  });
+
+  it("counts policy overrides and non-default subject realization", () => {
+    assert.equal(
+      hasRenderableVisualStrategyOverrideContent(asOv({ violencePolicyOverride: { mode: "soften", intensity: "mild" } })),
+      true,
+    );
+    assert.equal(
+      hasRenderableVisualStrategyOverrideContent(asOv({ subjectRealizationOverride: { mode: "use_ai_plan", description: "" } })),
+      false,
+    );
+    assert.equal(
+      hasRenderableVisualStrategyOverrideContent(asOv({ subjectRealizationOverride: { mode: "subject_as_object", description: "" } })),
+      true,
+    );
   });
 });
 

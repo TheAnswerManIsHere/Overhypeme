@@ -73,6 +73,14 @@ export interface EngineDefinition {
   sortOrder: number;
   /** Feature flag gate for visibility in the wizard. Null = always visible. */
   featureFlagRequired: string | null;
+  /**
+   * False blocks the engine from becoming the default for its kind via
+   * POST /admin/engines/:id/set-default (per-purpose config-key routing
+   * only). Omitted/true = eligible. Read from the in-process catalogue —
+   * DB-only rows with no catalogue definition stay eligible (current
+   * behavior preserved).
+   */
+  eligibleAsKindDefault?: boolean;
 
   // ── Allowed option sets (drive the wizard's advanced sheet radios) ──────
   /** In seconds. Null for engines without a duration knob (utilities). */

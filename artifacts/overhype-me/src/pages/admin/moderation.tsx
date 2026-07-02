@@ -20,6 +20,7 @@ import { useFactEnrichmentEditing } from "@/components/admin/useFactEnrichmentEd
 import { RuntimePromptPreview } from "@/components/admin/RuntimePromptPreview";
 import { CollapsibleSection } from "@/components/CollapsibleSection";
 import { FactVisualReviewGrid } from "@/components/admin/FactVisualReviewGrid";
+import { VisualConceptCard } from "@/components/admin/VisualConceptCard";
 
 // ─── Shared ───────────────────────────────────────────────────────────────────
 
@@ -587,6 +588,60 @@ function ReviewModal({
 
               <FactVisualReviewGrid reviewId={review.id} enrichment={enrichment} reloadKey={gridReloadKey} />
 
+              {/* Visual concept — the moderator's primary lever: describe the
+                  picture in plain language and the planner/compiler realize it.
+                  Edits the same override blob (and rides the same draft) as the
+                  panel inside Advanced Options. */}
+              <VisualConceptCard
+                value={enrichment?.visualPromptStrategyOverride}
+                disabled={!enrichment || loading || enrichmentDraft.committing}
+                onChange={(next) => {
+                  if (enrichment) enrichmentDraft.setValue({ ...enrichment, visualPromptStrategyOverride: next });
+                }}
+              />
+
+              {/* Draft status + Save/Discard — kept OUTSIDE (above) the collapsed
+                  Advanced Options so a Visual concept edit made with the section
+                  collapsed always has a visible way to persist it. Tracked fields
+                  save instantly per-field; only Visual Strategy / Visual concept
+                  edits ride the localStorage draft until Saved. */}
+              {enrichmentDraft.hasUncommittedChanges && !enrichmentDraft.commitError && (
+                <div className="flex items-center justify-between gap-2 rounded-sm border border-amber-500/40 bg-amber-500/10 px-3 py-2" data-testid="enrichment-unsaved">
+                  <p className="text-xs text-amber-700 dark:text-amber-300 flex items-center gap-1.5">
+                    <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+                    {enrichmentDraft.committing
+                      ? "Saving to server…"
+                      : `Unsaved changes (${enrichmentDraft.draftLabel || "draft kept locally"}) — Save to update the test renders, then re-run them.`}
+                  </p>
+                  <div className="flex items-center gap-3 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => void enrichmentDraft.save()}
+                      disabled={enrichmentDraft.committing}
+                      className="text-xs font-bold px-2 py-1 rounded-sm border border-amber-500/50 text-amber-700 dark:text-amber-300 hover:bg-amber-500/10 disabled:opacity-50"
+                      data-testid="enrichment-save"
+                    >
+                      Save
+                    </button>
+                    <button type="button" onClick={enrichmentDraft.discard} className="text-xs text-primary underline hover:opacity-80">
+                      Discard
+                    </button>
+                  </div>
+                </div>
+              )}
+              {!enrichmentDraft.hasUncommittedChanges && enrichmentDraft.committedAt != null && (
+                <p className="text-xs text-emerald-700 dark:text-emerald-300 flex items-center gap-1.5" data-testid="enrichment-saved">
+                  <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
+                  Saved. Re-run any stale test renders to see the change.
+                </p>
+              )}
+              {enrichmentDraft.commitError && (
+                <div className="flex items-start gap-2 rounded-sm border border-destructive/50 bg-destructive/10 px-3 py-2">
+                  <AlertTriangle className="w-4 h-4 text-destructive shrink-0 mt-0.5" />
+                  <p className="text-sm text-destructive">{enrichmentDraft.commitError}</p>
+                </div>
+              )}
+
               {/* Advanced Options — the technical machinery, collapsed by default. */}
               <CollapsibleSection
                 title="Advanced Options"
@@ -607,34 +662,6 @@ function ReviewModal({
                   onFinalHashtagsChange={onFinalHashtagsChange}
                   overrideContext={enrichEditing.overrideContext}
                 />
-                {/* Draft status — same model as Edit Fact: tracked fields save
-                    instantly per-field (chips above); only Visual Strategy
-                    Override edits ride the localStorage draft until Saved. */}
-                {enrichmentDraft.hasUncommittedChanges && !enrichmentDraft.commitError && (
-                  <div className="flex items-center justify-between gap-2" data-testid="enrichment-unsaved">
-                    <p className="text-xs text-amber-700 dark:text-amber-300 flex items-center gap-1.5">
-                      <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
-                      {enrichmentDraft.committing
-                        ? "Saving to server…"
-                        : `Unsaved Visual Strategy edits (${enrichmentDraft.draftLabel || "draft kept locally"}) — Save to update the test renders, then re-run them.`}
-                    </p>
-                    <button type="button" onClick={enrichmentDraft.discard} className="text-xs text-primary underline hover:opacity-80 shrink-0">
-                      Discard changes
-                    </button>
-                  </div>
-                )}
-                {!enrichmentDraft.hasUncommittedChanges && enrichmentDraft.committedAt != null && (
-                  <p className="text-xs text-emerald-700 dark:text-emerald-300 flex items-center gap-1.5" data-testid="enrichment-saved">
-                    <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
-                    Saved. Re-run any stale test renders to see the change.
-                  </p>
-                )}
-                {enrichmentDraft.commitError && (
-                  <div className="flex items-start gap-2 rounded-sm border border-destructive/50 bg-destructive/10 px-3 py-2">
-                    <AlertTriangle className="w-4 h-4 text-destructive shrink-0 mt-0.5" />
-                    <p className="text-sm text-destructive">{enrichmentDraft.commitError}</p>
-                  </div>
-                )}
                 {jobs.error && (
                   <div className="flex items-start gap-2 rounded-sm border border-destructive/50 bg-destructive/10 px-3 py-2">
                     <AlertTriangle className="w-4 h-4 text-destructive shrink-0 mt-0.5" />

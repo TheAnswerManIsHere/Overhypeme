@@ -233,6 +233,96 @@ describe("RuntimePromptPreview", () => {
     expect(screen.getByTestId("rpp-removed-clauses").textContent).toMatch(/identity preservation/i);
   });
 
+  it("marks a moderator-authored section with the MODERATOR chip", async () => {
+    const body = previewResponse({
+      compiledPrompt: {
+        prompt: "PROMPT TEXT",
+        imagePrompt: "COMPILED IMAGE PROMPT TEXT",
+        negativePrompt: "",
+        promptBreakdown: [
+          { id: "core_scene", label: "CORE SCENE", priority: "required", status: "included", text: "David rides a giant rubber duck.", rawText: "David rides a giant rubber duck.", moderatorAuthored: true },
+          { id: "subject_details", label: "SUBJECT DETAILS", priority: "high", status: "included", text: "confident grin.", rawText: "confident grin." },
+        ],
+      },
+    });
+    installFetch({ previewBody: body });
+    render(<RuntimePromptPreview factId={42} />);
+    expand();
+    fireEvent.click(screen.getByTestId("rpp-generate"));
+    await waitFor(() => expect(screen.getByTestId("rpp-breakdown")).toBeTruthy());
+
+    const core = screen.getByTestId("rpp-breakdown-section-core_scene");
+    expect(within(core).getByTestId("rpp-moderator-chip").textContent).toMatch(/moderator/i);
+    // Non-moderator sections carry no chip.
+    expect(within(screen.getByTestId("rpp-breakdown-section-subject_details")).queryByTestId("rpp-moderator-chip")).toBeNull();
+  });
+
+  it("shows planner provenance for a dedicated-engine plan and a loud banner on fallback", async () => {
+    const provenance = (fallbackReason: string | null) => ({
+      compiledPrompt: {
+        prompt: "PROMPT TEXT",
+        imagePrompt: "COMPILED IMAGE PROMPT TEXT",
+        negativePrompt: "",
+        diagnostics: {
+          removedPlannerProseSentences: [],
+          warnings: [],
+          plannerProvenance: {
+            configuredEngineId: "openai-visual-planner",
+            resolvedEngineId: fallbackReason ? null : "openai-visual-planner",
+            model: fallbackReason ? null : "gpt-5.5",
+            reasoningEffort: fallbackReason ? null : "xhigh",
+            timeoutMs: 180000,
+            fallbackReason,
+          },
+        },
+      },
+    });
+
+    installFetch({ previewBody: previewResponse(provenance(null)) });
+    const { unmount } = render(<RuntimePromptPreview factId={42} />);
+    expand();
+    fireEvent.click(screen.getByTestId("rpp-generate"));
+    await waitFor(() => expect(screen.getByTestId("rpp-planner-provenance")).toBeTruthy());
+    expect(screen.getByTestId("rpp-planner-provenance").textContent).toContain("gpt-5.5");
+    expect(screen.getByTestId("rpp-planner-provenance").textContent).toContain("xhigh");
+    unmount();
+    localStorage.clear();
+
+    installFetch({ previewBody: previewResponse(provenance("engine_inactive")) });
+    render(<RuntimePromptPreview factId={43} />);
+    expand();
+    fireEvent.click(screen.getByTestId("rpp-generate"));
+    await waitFor(() => expect(screen.getByTestId("rpp-planner-fallback")).toBeTruthy());
+    expect(screen.getByTestId("rpp-planner-fallback").textContent).toMatch(/FALLBACK/);
+    expect(screen.getByTestId("rpp-planner-fallback").textContent).toContain("engine_inactive");
+  });
+
+  it("renders the moderator core-scene warnings as amber diagnostics", async () => {
+    const body = previewResponse({
+      compiledPrompt: {
+        prompt: "PROMPT TEXT",
+        imagePrompt: "COMPILED IMAGE PROMPT TEXT",
+        negativePrompt: "",
+        diagnostics: {
+          removedPlannerProseSentences: [],
+          warnings: [
+            { code: "moderator_core_scene_stripped", severity: "warning", message: "Some Visual concept text was stripped because the compiler owns identity/reference/text-policy instructions. Rewrite this field as visible scene description only." },
+            { code: "moderator_core_scene_empty_after_sanitize", severity: "warning", message: "The Visual concept became empty after stripping compiler-owned instructions, so the AI scene was used instead." },
+          ],
+        },
+      },
+    });
+    installFetch({ previewBody: body });
+    render(<RuntimePromptPreview factId={42} />);
+    expand();
+    fireEvent.click(screen.getByTestId("rpp-generate"));
+    await waitFor(() => expect(screen.getByTestId("rpp-diagnostics")).toBeTruthy());
+
+    const warnings = screen.getAllByTestId("rpp-tone-warning").map((el) => el.textContent ?? "");
+    expect(warnings.join(" ")).toMatch(/Visual concept text was stripped/);
+    expect(warnings.join(" ")).toMatch(/AI scene was used instead/);
+  });
+
   it("persists the result to localStorage and restores it on remount (no recompute)", async () => {
     localStorage.clear();
     const { unmount } = render(<RuntimePromptPreview factId={99} />);

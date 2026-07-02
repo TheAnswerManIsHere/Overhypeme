@@ -88,6 +88,36 @@ describe("buildScenarioInputHash", () => {
     assert.equal(buildScenarioInputHash(inputs), a);
   });
 
+  it("changes when ONLY visualPromptStrategyOverride.coreSceneOverride changes (visual-concept staleness)", () => {
+    // The Visual concept UX depends on this: typing a scene must flip scenario
+    // tiles stale without any other enrichment change.
+    const override = (coreSceneOverride?: string) => ({
+      version: 1 as const,
+      enabled: true,
+      requiredVisualDetails: [],
+      forbiddenVisualDetails: [],
+      roleBindings: [],
+      compositionGuidance: [],
+      styleAgnosticPromptAdditions: [],
+      negativePromptAdditions: [],
+      ...(coreSceneOverride !== undefined ? { coreSceneOverride } : {}),
+    });
+    const withScene = baseHashInputs();
+    withScene.enrichment = { ...ENRICHMENT, visualPromptStrategyOverride: override("David rides a giant rubber duck.") };
+    const withoutScene = baseHashInputs();
+    withoutScene.enrichment = { ...ENRICHMENT, visualPromptStrategyOverride: override() };
+    const editedScene = baseHashInputs();
+    editedScene.enrichment = { ...ENRICHMENT, visualPromptStrategyOverride: override("David rides a T-Rex.") };
+
+    const a = buildScenarioInputHash(withScene);
+    assert.notEqual(a, buildScenarioInputHash(withoutScene));
+    assert.notEqual(a, buildScenarioInputHash(editedScene));
+    // Deterministic for the identical scene.
+    const again = baseHashInputs();
+    again.enrichment = { ...ENRICHMENT, visualPromptStrategyOverride: override("David rides a giant rubber duck.") };
+    assert.equal(a, buildScenarioInputHash(again));
+  });
+
   it("changes when the reference asset version changes", () => {
     const a = buildScenarioInputHash(baseHashInputs());
     const inputs = baseHashInputs();

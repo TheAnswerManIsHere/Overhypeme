@@ -22,7 +22,7 @@ const FALLBACK_TEMPERATURE = 0.7;
 const FALLBACK_MAX_TOKENS = 512;
 
 /** Milliseconds before a utility LLM call is aborted. */
-const UTILITY_LLM_TIMEOUT_MS = 30_000;
+export const UTILITY_LLM_TIMEOUT_MS = 30_000;
 
 export interface UtilityLLMRequest {
   messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[];

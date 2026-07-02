@@ -1041,3 +1041,157 @@ describe("nanoBanana2 — advisory density warnings + no per-fact hardcoding", (
     assert.doesNotMatch(sources, /drove his mom home|david franklin was born|car seat|steering wheel/);
   });
 });
+
+// ── Moderator-authored core scene ("Visual concept") — slice 1 ──────────────
+
+describe("nanoBanana2 — moderator-authored core scene (visual concept)", () => {
+  function makeOverride(partial: Record<string, unknown> = {}): Record<string, unknown> {
+    return {
+      version: 1,
+      enabled: true,
+      requiredVisualDetails: [],
+      forbiddenVisualDetails: [],
+      roleBindings: [],
+      compositionGuidance: [],
+      styleAgnosticPromptAdditions: [],
+      negativePromptAdditions: [],
+      ...partial,
+    };
+  }
+
+  it("wins over the AI plan's coreScene and is marked required + moderator-authored", () => {
+    const out = compileNanoBanana2HumanI2I(makeArgs({
+      subjectRenderMode: "human_identity_i2i",
+      prompt: "legacy fallback prose about golf.",
+      renderedSubject: { name: "David", pronouns: "he/him" },
+      visualPlan: { coreScene: "David calmly putts a golf ball on a quiet green." },
+      override: makeOverride({ coreSceneOverride: "David rides a giant rubber duck across a packed stadium." }),
+    }));
+    assert.match(out.imagePrompt, /CORE SCENE: David rides a giant rubber duck across a packed stadium\./);
+    assert.doesNotMatch(out.imagePrompt, /quiet green/);
+    const core = out.promptBreakdown?.find((s) => s.id === "core_scene");
+    assert.equal(core?.priority, "required");
+    assert.equal(core?.status, "included");
+    assert.equal(core?.moderatorAuthored, true);
+  });
+
+  it("keeps the AI path unchanged when the override is disabled or the field is empty", () => {
+    for (const override of [
+      makeOverride({ enabled: false, coreSceneOverride: "David rides a rubber duck." }),
+      makeOverride({ coreSceneOverride: "   " }),
+      undefined,
+    ]) {
+      const out = compileNanoBanana2HumanI2I(makeArgs({
+        subjectRenderMode: "human_identity_i2i",
+        prompt: "fallback",
+        visualPlan: { coreScene: "David calmly putts a golf ball on a quiet green." },
+        ...(override ? { override } : {}),
+      }));
+      assert.match(out.imagePrompt, /CORE SCENE: David calmly putts a golf ball on a quiet green\./);
+      const core = out.promptBreakdown?.find((s) => s.id === "core_scene");
+      assert.equal(core?.priority, "high");
+      assert.equal(core?.moderatorAuthored, undefined);
+    }
+  });
+
+  it("token-renders {NAME} BEFORE sanitation so the sentence survives", () => {
+    const out = compileNanoBanana2HumanI2I(makeArgs({
+      subjectRenderMode: "human_identity_i2i",
+      prompt: "fallback",
+      renderedSubject: { name: "David", pronouns: "he/him" },
+      override: makeOverride({ coreSceneOverride: "{NAME} rides a T-Rex through {NAME_POSSESSIVE} open-plan office." }),
+    }));
+    assert.match(out.imagePrompt, /CORE SCENE: David rides a T-Rex through David's open-plan office\./);
+    assert.doesNotMatch(out.imagePrompt, /\{NAME\}/);
+    const codes = (out.diagnostics?.warnings ?? []).map((w) => w.code);
+    assert.ok(!codes.includes("moderator_core_scene_empty_after_sanitize"), codes.join(","));
+  });
+
+  it("strips compiler-owned clauses from the moderator scene and warns", () => {
+    const out = compileNanoBanana2HumanI2I(makeArgs({
+      subjectRenderMode: "human_identity_i2i",
+      prompt: "fallback",
+      renderedSubject: { name: "David", pronouns: "he/him" },
+      override: makeOverride({
+        coreSceneOverride:
+          "David rides a T-Rex through the office. Ensure David's recognizable face is preserved.",
+      }),
+    }));
+    assert.match(out.imagePrompt, /David rides a T-Rex through the office\./);
+    assert.doesNotMatch(out.imagePrompt, /recognizable face is preserved/);
+    const removed = out.diagnostics?.removedPlannerProseSentences ?? [];
+    assert.ok(removed.some((r) => r.reason === "identity-preservation-owned-by-compiler"), JSON.stringify(removed));
+    const codes = (out.diagnostics?.warnings ?? []).map((w) => w.code);
+    assert.ok(codes.includes("moderator_core_scene_stripped"), codes.join(","));
+    const core = out.promptBreakdown?.find((s) => s.id === "core_scene");
+    assert.equal(core?.moderatorAuthored, true);
+  });
+
+  it("falls back to the AI scene (with a loud warning) when the moderator scene sanitizes to empty", () => {
+    const out = compileNanoBanana2HumanI2I(makeArgs({
+      subjectRenderMode: "human_identity_i2i",
+      prompt: "fallback",
+      renderedSubject: { name: "David", pronouns: "he/him" },
+      visualPlan: { coreScene: "David calmly putts a golf ball on a quiet green." },
+      override: makeOverride({
+        coreSceneOverride:
+          "Ensure David's recognizable face is preserved. Keep all surfaces free of readable text, watermarks, and logos.",
+      }),
+    }));
+    // Both moderator sentences are compiler-owned → AI scene used instead.
+    assert.match(out.imagePrompt, /CORE SCENE: David calmly putts a golf ball on a quiet green\./);
+    const codes = (out.diagnostics?.warnings ?? []).map((w) => w.code);
+    assert.ok(codes.includes("moderator_core_scene_empty_after_sanitize"), codes.join(","));
+    const core = out.promptBreakdown?.find((s) => s.id === "core_scene");
+    assert.equal(core?.priority, "high");
+    assert.equal(core?.moderatorAuthored, undefined);
+  });
+
+  it("coexists with requiredVisualDetails — both land in the compiled prompt", () => {
+    const out = compileNanoBanana2HumanI2I(makeArgs({
+      subjectRenderMode: "human_identity_i2i",
+      prompt: "fallback",
+      renderedSubject: { name: "David", pronouns: "he/him" },
+      override: makeOverride({
+        coreSceneOverride: "David rides a giant rubber duck across a packed stadium.",
+        requiredVisualDetails: ["a scoreboard reading 9999", "confetti mid-air"],
+      }),
+    }));
+    assert.match(out.imagePrompt, /David rides a giant rubber duck across a packed stadium\./);
+    assert.match(out.imagePrompt, /REQUIRED VISUAL DETAILS: a scoreboard reading 9999; confetti mid-air\./);
+  });
+
+  it("survives the char budget verbatim while later compressible sections give way", () => {
+    const moderatorScene =
+      "David rides a giant rubber duck across a packed stadium while fireworks trace a heart in the sky.";
+    const filler = Array.from({ length: 80 }, (_, i) => `an elaborate background detail number ${i} with ornate texture`);
+    const out = compileNanoBanana2HumanI2I(makeArgs({
+      subjectRenderMode: "human_identity_i2i",
+      prompt: "fallback",
+      renderedSubject: { name: "David", pronouns: "he/him" },
+      visualPlan: { subjectDetails: filler, environment: filler },
+      override: makeOverride({ coreSceneOverride: moderatorScene }),
+    }));
+    assert.equal(out.imagePrompt.length <= 4000, true, `prompt length ${out.imagePrompt.length}`);
+    assert.ok(out.imagePrompt.includes(moderatorScene), "moderator scene present verbatim");
+    const core = out.promptBreakdown?.find((s) => s.id === "core_scene");
+    assert.equal(core?.status, "included");
+    // Budget pressure landed on later sections, not the moderator scene.
+    assert.match(String(out.engineNotes ?? ""), /budget/i);
+  });
+
+  it("still records the hard-truncation note when required content alone overflows", () => {
+    const hugeRequired = Array.from({ length: 120 }, (_, i) => `a mandatory prop number ${i} rendered in full detail`);
+    const out = compileNanoBanana2HumanI2I(makeArgs({
+      subjectRenderMode: "human_identity_i2i",
+      prompt: "fallback",
+      renderedSubject: { name: "David", pronouns: "he/him" },
+      override: makeOverride({
+        coreSceneOverride: "David rides a giant rubber duck across a packed stadium.",
+        requiredVisualDetails: hugeRequired,
+      }),
+    }));
+    assert.equal(out.imagePrompt.length <= 4000, true, `prompt length ${out.imagePrompt.length}`);
+    assert.match(String(out.engineNotes ?? ""), /Hard-truncated required content/);
+  });
+});

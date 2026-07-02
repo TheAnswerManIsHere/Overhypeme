@@ -93,6 +93,9 @@ export async function assembleImagePromptForPreview(
     referenceImageUrl: args.referenceImageUrl ?? null,
     targetEngine: "nano_banana_2",
     requestId: args.requestId,
+    // Token-renders moderator-authored override text (visual concept) before
+    // the planner sees it — the planner never receives raw {NAME} tokens.
+    renderedSubject: args.renderedSubject,
   };
 
   const output = await planGenerator(input);
@@ -102,6 +105,11 @@ export async function assembleImagePromptForPreview(
     input,
     renderedSubject: args.renderedSubject,
   });
+  // Surface which planner engine produced this plan (or that fallback fired)
+  // in the preview diagnostics.
+  if (output.plannerProvenance && compiled.diagnostics) {
+    compiled.diagnostics.plannerProvenance = output.plannerProvenance;
+  }
 
   return { input, output, compiled, generationMode };
 }

@@ -134,6 +134,9 @@ export const imagePromptGenerationHandler: JobHandler = {
       referenceImageUrl: extractReferenceImageUrl(attempt),
       targetEngine: "nano_banana_2",
       requestId: attempt.requestId ?? undefined,
+      // Token-renders moderator-authored override text (visual concept) before
+      // the planner sees it — the planner never receives raw {NAME} tokens.
+      renderedSubject,
     };
 
     let output;
@@ -141,8 +144,14 @@ export const imagePromptGenerationHandler: JobHandler = {
       output = await generateImagePromptPlan(input);
     } catch (err) {
       const msg = err instanceof ImagePromptError ? err.message : err instanceof Error ? err.message : String(err);
-      await markAttemptError(p.attemptId, `prompt-gen failed: ${msg}`);
-      return { ok: false, error: `prompt-gen failed: ${msg}` };
+      // Attribute the failure to the planner engine vs. fallback — a gpt-5.5
+      // timeout and a fallback-path failure are different diagnoses.
+      const prov = err instanceof ImagePromptError ? err.plannerProvenance : undefined;
+      const provNote = prov
+        ? ` [planner: ${prov.fallbackReason ? `fallback (${prov.fallbackReason})` : `${prov.model ?? "?"} via ${prov.resolvedEngineId ?? "?"}`}]`
+        : "";
+      await markAttemptError(p.attemptId, `prompt-gen failed: ${msg}${provNote}`);
+      return { ok: false, error: `prompt-gen failed: ${msg}${provNote}` };
     }
 
     const compiled = compileForSubjectRenderMode({
@@ -151,6 +160,11 @@ export const imagePromptGenerationHandler: JobHandler = {
       input,
       renderedSubject,
     });
+    // Persist which planner engine produced this plan alongside the compiled
+    // prompt so attempts (and the admin preview) can attribute render quality.
+    if (output.plannerProvenance && compiled.diagnostics) {
+      compiled.diagnostics.plannerProvenance = output.plannerProvenance;
+    }
 
     // A "poor" subject↔fact compatibility means the uploaded subject can't
     // carry this fact — rendering anyway wastes a paid generation and produces

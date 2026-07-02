@@ -218,8 +218,9 @@ export const OPENAI_CHAT_MODEL_OPTIONS: { value: string; label: string }[] = [
   { value: "gpt-4.1-mini", label: "GPT-4.1 mini" },
   { value: "gpt-4.1",      label: "GPT-4.1" },
   { value: "gpt-5.1",      label: "GPT-5.1 (reasoning — value)" },
-  { value: "gpt-5.2",      label: "GPT-5.2 (reasoning — frontier)" },
+  { value: "gpt-5.2",      label: "GPT-5.2 (reasoning)" },
   { value: "gpt-5.4-mini", label: "GPT-5.4 mini (reasoning — cheap)" },
+  { value: "gpt-5.5",      label: "GPT-5.5 (reasoning — frontier)" },
 ];
 
 // Reasoning effort for GPT-5 / o-series models. Ignored by GPT-4.x models.
@@ -227,7 +228,8 @@ export const REASONING_EFFORT_OPTIONS: { value: string; label: string }[] = [
   { value: "none",   label: "None (fastest, cheapest)" },
   { value: "low",    label: "Low (default)" },
   { value: "medium", label: "Medium" },
-  { value: "high",   label: "High (most capable, priciest)" },
+  { value: "high",   label: "High" },
+  { value: "xhigh",  label: "Extra high (most capable, priciest)" },
 ];
 
 // Model + sampling + reasoning effort for all LLM calls now live on the shared

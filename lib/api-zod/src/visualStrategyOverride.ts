@@ -72,6 +72,15 @@ const visualPromptStrategyOverrideBase = z.object({
   version: z.literal(VISUAL_STRATEGY_OVERRIDE_VERSION),
   enabled: z.boolean(),
   moderatorIntent: z.string().optional(),
+  /**
+   * Moderator-authored CORE SCENE ("describe the picture"). When non-empty it
+   * is the AUTHORITATIVE scene: the planner LLM is directed to realize it and
+   * the compiler emits it as the required, non-compressible CORE SCENE section
+   * (winning over the AI plan's coreScene). Carries {NAME}/pronoun tokens.
+   * Capped: the engine prompt budget is 4000 chars and this section is never
+   * compressed — it is a scene brief, not a full prompt.
+   */
+  coreSceneOverride: z.string().max(1500).optional(),
   subjectRealizationOverride: subjectRealizationOverrideSchema.optional(),
   requiredVisualDetails: z.array(z.string()).max(40).default([]),
   forbiddenVisualDetails: z.array(z.string()).max(40).default([]),
@@ -97,6 +106,7 @@ export type VisualStrategyRoleBinding = z.infer<typeof roleBindingSchema>;
  *  `moderatorIntent` / `notesForModerator` are admin-only and never emitted. */
 function collectRenderedTexts(ov: VisualPromptStrategyOverride): string[] {
   const out: string[] = [];
+  if (ov.coreSceneOverride) out.push(ov.coreSceneOverride);
   if (ov.subjectRealizationOverride?.description) out.push(ov.subjectRealizationOverride.description);
   out.push(...ov.requiredVisualDetails, ...ov.forbiddenVisualDetails, ...ov.compositionGuidance);
   out.push(...ov.styleAgnosticPromptAdditions, ...ov.negativePromptAdditions);
@@ -128,6 +138,7 @@ export function canonicalizeOverrideTokens(
 ): VisualPromptStrategyOverride {
   return {
     ...ov,
+    coreSceneOverride: ov.coreSceneOverride != null ? mapText(ov.coreSceneOverride) : ov.coreSceneOverride,
     subjectRealizationOverride: ov.subjectRealizationOverride
       ? { ...ov.subjectRealizationOverride, description: mapText(ov.subjectRealizationOverride.description) }
       : ov.subjectRealizationOverride,
@@ -170,6 +181,20 @@ export const visualPromptStrategyOverrideSchema = visualPromptStrategyOverrideBa
       });
     }
   });
+
+/**
+ * True when the override carries any content that is RENDERED into the engine
+ * prompt. The single source of truth for "enabled but empty" style checks so
+ * UI surfaces can't drift on what counts as content. Admin-only fields
+ * (moderatorIntent, notesForModerator) deliberately do NOT count.
+ */
+export function hasRenderableVisualStrategyOverrideContent(
+  ov: VisualPromptStrategyOverride,
+): boolean {
+  if (ov.supportingTextPolicyOverride || ov.violencePolicyOverride) return true;
+  if (ov.subjectRealizationOverride && ov.subjectRealizationOverride.mode !== "use_ai_plan") return true;
+  return collectRenderedTexts(ov).some((t) => t.trim().length > 0);
+}
 
 /** A disabled-but-present override scaffold (all lists empty). */
 export const EMPTY_VISUAL_STRATEGY_OVERRIDE: VisualPromptStrategyOverride = {

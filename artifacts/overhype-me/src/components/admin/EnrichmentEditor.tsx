@@ -29,6 +29,7 @@ import {
   EMPTY_VISUAL_STRATEGY_OVERRIDE,
   canonicalizeNameToken,
   firstOverrideTokenError,
+  hasRenderableVisualStrategyOverrideContent,
   type VisualPromptStrategyOverride,
   type VisualStrategyRoleBinding,
   type SubjectRealizationMode,
@@ -1056,6 +1057,30 @@ function StringListEditor({
   );
 }
 
+/** Max chars for the moderator-authored core scene (mirrors the zod cap). */
+export const CORE_SCENE_MAX_CHARS = 1500;
+
+/**
+ * Apply a moderator-typed visual concept (core scene) to the override blob.
+ * Canonicalizes name tokens and AUTO-ENABLES the override when the scene is
+ * non-empty (typing a picture description must take effect without hunting for
+ * the toggle) — but never auto-disables on clear, since other override fields
+ * may be in use. Shared by the prominent VisualConceptCard and the panel so
+ * the two surfaces can't drift.
+ */
+export function withCoreSceneOverride(
+  ov: VisualPromptStrategyOverride | undefined,
+  text: string,
+): VisualPromptStrategyOverride {
+  const base = ov ?? EMPTY_VISUAL_STRATEGY_OVERRIDE;
+  const canonical = canonicalizeNameToken(text);
+  return {
+    ...base,
+    coreSceneOverride: canonical,
+    enabled: base.enabled || canonical.trim().length > 0,
+  };
+}
+
 /**
  * Moderator visual-strategy override editor (Phase 2). Reads/writes
  * `enrichment.visualPromptStrategyOverride` via `onChange`. Style-agnostic,
@@ -1118,11 +1143,9 @@ export function VisualStrategyOverridePanel({
     if (ov.supportingTextPolicyOverride?.mode === "require" && !ov.supportingTextPolicyOverride.guidance?.trim()) {
       warnings.push('Supporting-text "require" needs guidance describing the required text.');
     }
-    const empty =
-      !ov.subjectRealizationOverride &&
-      ![ov.requiredVisualDetails, ov.forbiddenVisualDetails, ov.roleBindings, ov.compositionGuidance, ov.styleAgnosticPromptAdditions, ov.negativePromptAdditions].some((a) => a.length) &&
-      !ov.supportingTextPolicyOverride && !ov.violencePolicyOverride && !ov.moderatorIntent?.trim();
-    if (empty) warnings.push("Override is enabled but empty — it will have no effect.");
+    if (!hasRenderableVisualStrategyOverrideContent(ov)) {
+      warnings.push("Override is enabled but has no renderable content — it will have no effect on the prompt.");
+    }
   }
 
   return (
@@ -1176,6 +1199,22 @@ export function VisualStrategyOverridePanel({
             ))}
           </div>
           {chipNote && <p className="text-[11px] text-muted-foreground" data-testid="vso-token-note">{chipNote}</p>}
+
+          <div>
+            <FieldLabel docKey="vso.coreSceneOverride" />
+            <textarea
+              className={`${SELECT_CLASS} resize-none`}
+              rows={3}
+              data-token-insert-target="true"
+              data-testid="vso-core-scene"
+              maxLength={CORE_SCENE_MAX_CHARS}
+              value={ov.coreSceneOverride ?? ""}
+              onChange={(ev) => set({ coreSceneOverride: canonicalizeNameToken(ev.target.value) })}
+            />
+            <p className="text-[10px] text-muted-foreground text-right">
+              {(ov.coreSceneOverride ?? "").length}/{CORE_SCENE_MAX_CHARS}
+            </p>
+          </div>
 
           <div>
             <FieldLabel docKey="vso.moderatorIntent" />

@@ -31,11 +31,14 @@ export const IMAGE_PROMPT_CONFIG_KEYS = {
   imagePromptSystem: "fact_image_prompt_system",
   sourceClassifierSystem: "fact_source_classifier_system",
   sourceClassifierEngineId: "fact_source_classifier_engine_id",
+  imagePromptEngineId: "fact_image_prompt_engine_id",
 } as const;
 
 // ─── Defaults ──────────────────────────────────────────────────────────────
 
 export const DEFAULT_IMAGE_CLASSIFIER_ENGINE_ID = "fal-yolo-world";
+
+export const DEFAULT_IMAGE_PROMPT_ENGINE_ID = "openai-visual-planner";
 
 export const FACT_IMAGE_PROMPT_SYSTEM_DEFAULT = `You are the Overhype.me render-time image-prompt generator.
 
@@ -173,6 +176,13 @@ export async function getImageClassifierEngineId(): Promise<string> {
   );
 }
 
+export async function getImagePromptEngineId(): Promise<string> {
+  return getConfigString(
+    IMAGE_PROMPT_CONFIG_KEYS.imagePromptEngineId,
+    DEFAULT_IMAGE_PROMPT_ENGINE_ID,
+  );
+}
+
 // ─── Seeding ───────────────────────────────────────────────────────────────
 
 interface ConfigDef {
@@ -207,6 +217,14 @@ export const IMAGE_PROMPT_CONFIG_DEFS: ConfigDef[] = [
     label: "Source Classifier — Active Engine ID",
     description:
       "Engine id (from the engines table) used as the Tier-1 source-image detector. Swap to a different catalogued detector to change which fal model classifies uploads.",
+  },
+  {
+    key: IMAGE_PROMPT_CONFIG_KEYS.imagePromptEngineId,
+    value: DEFAULT_IMAGE_PROMPT_ENGINE_ID,
+    dataType: "string",
+    label: "Image Prompt — Visual Planner Engine",
+    description:
+      "Engine id for the LLM that plans the visual gag before the deterministic compiler assembles the final prompt. Defaults to openai-visual-planner. Invalid or inactive values fall back to the default utility LLM and surface fallback provenance in Runtime Prompt Preview.",
   },
 ];
 

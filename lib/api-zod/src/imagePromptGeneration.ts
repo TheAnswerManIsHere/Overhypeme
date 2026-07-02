@@ -348,6 +348,14 @@ export interface ImagePromptGenerationInput {
   referenceImageUrl?: string | null;
   targetEngine: ImagePromptTargetEngine;
   requestId?: string;
+  /**
+   * The rendered subject identity ({NAME}/pronoun tokens already resolved
+   * upstream into `factText`). Used to token-render moderator-authored
+   * override text (e.g. the visual-concept core scene) before it reaches the
+   * planner LLM — the planner's contract is that it never sees raw template
+   * tokens. Optional: when absent, moderator text is injected as-is.
+   */
+  renderedSubject?: { name: string; pronouns: string | null };
 }
 
 // ─── Wire schemas (strict — for OpenAI json_schema) ──────────────────────
