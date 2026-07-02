@@ -32,12 +32,17 @@ export const ADMIN_LABEL_CLASS = `${ADMIN_LABEL_CLASS_NO_MB} mb-1`;
  * review modal's dark backdrop, close ONLY the popover — the backdrop's own
  * onClick={onClose} would otherwise also close the whole modal. We can't stop
  * the pointerdown (the closing click is a separate later event), so we install
- * a one-shot capture-phase click swallow. No-op when the dismiss didn't land on
- * a modal overlay. Exported so the behavior is unit-testable without relying on
- * Radix's (jsdom-unsupported) synthetic outside-pointerdown detection.
+ * a one-shot capture-phase click swallow.
+ *
+ * The check is `matches`, NOT `closest`: the modal card (and every control in
+ * it) is a DESCENDANT of the overlay div, so `closest` would also swallow the
+ * click of any in-modal control tapped to dismiss the popover — forcing a
+ * double-tap. Only a tap on the backdrop element itself (the dark area around
+ * the card) arms the swallow. Exported so the behavior is unit-testable without
+ * relying on Radix's (jsdom-unsupported) synthetic outside-pointerdown detection.
  */
 export function guardModalOverlayDismiss(target: Element | null | undefined): void {
-  if (target?.closest?.("[data-modal-overlay]")) {
+  if (target?.matches?.("[data-modal-overlay]")) {
     window.addEventListener("click", (ce) => ce.stopPropagation(), { capture: true, once: true });
   }
 }

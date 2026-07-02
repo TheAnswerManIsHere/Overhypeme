@@ -53,14 +53,15 @@ describe("FieldInfo", () => {
 });
 
 describe("guardModalOverlayDismiss (modal-backdrop close guard)", () => {
-  it("swallows the next click when the dismiss landed on a modal overlay (one-shot)", () => {
-    document.body.innerHTML = `<div data-modal-overlay><div data-testid="inner"></div></div>`;
+  it("swallows the next click ONLY for a direct backdrop hit (one-shot)", () => {
+    document.body.innerHTML = `<div data-modal-overlay><div data-testid="card"></div></div>`;
     const overlay = document.querySelector("[data-modal-overlay]") as HTMLElement;
     const onClose = vi.fn();
     overlay.addEventListener("click", onClose);
 
-    // Simulate what onPointerDownOutside does when the tap is on the backdrop.
-    guardModalOverlayDismiss(document.querySelector('[data-testid="inner"]'));
+    // Simulate what onPointerDownOutside does when the tap lands on the dark
+    // backdrop itself (the overlay element, not a descendant).
+    guardModalOverlayDismiss(overlay);
 
     overlay.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     expect(onClose).not.toHaveBeenCalled(); // popover closed; modal stayed open
@@ -68,6 +69,20 @@ describe("guardModalOverlayDismiss (modal-backdrop close guard)", () => {
     // One-shot: the next backdrop click closes the modal as normal.
     overlay.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("does NOT swallow clicks on controls INSIDE the modal card (Codex P2)", () => {
+    // The card and all its controls are DESCENDANTS of the overlay — dismissing
+    // the popover by tapping one of them must not eat that control's click
+    // (which would force admins to tap twice).
+    document.body.innerHTML = `<div data-modal-overlay><div data-testid="card"><button data-testid="btn"></button></div></div>`;
+    const btn = document.querySelector('[data-testid="btn"]') as HTMLElement;
+    const onBtnClick = vi.fn();
+    btn.addEventListener("click", onBtnClick);
+
+    guardModalOverlayDismiss(btn); // pointerdown landed on an in-modal control
+    btn.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    expect(onBtnClick).toHaveBeenCalledTimes(1); // not swallowed
   });
 
   it("does nothing when the dismiss did not land on a modal overlay", () => {
