@@ -63,10 +63,21 @@ export default defineConfig({
       : []),
   ],
   resolve: {
-    alias: {
-      "@": path.resolve(import.meta.dirname, "src"),
-      "@assets": path.resolve(import.meta.dirname, "..", "..", "attached_assets"),
-    },
+    alias: [
+      { find: "@", replacement: path.resolve(import.meta.dirname, "src") },
+      { find: "@assets", replacement: path.resolve(import.meta.dirname, "..", "..", "attached_assets") },
+      // use-sync-external-store is CJS-only; with noDiscovery (below) it is
+      // never pre-bundled, and its named exports break in the dev server
+      // ("Indirectly exported binding name 'useSyncExternalStore' is not
+      // found"). React 19 has the hook built in — route both shim specifiers
+      // (wouter uses ".../shim/index.js", Radix uses ".../shim") to a local
+      // ESM re-export instead. The regex must cover the full subpaths: a
+      // bare-name alias would break their resolution.
+      {
+        find: /^use-sync-external-store\/shim(\/index\.js)?$/,
+        replacement: path.resolve(import.meta.dirname, "src/lib/use-sync-external-store-shim.ts"),
+      },
+    ],
     dedupe: ["react", "react-dom"],
   },
   root: path.resolve(import.meta.dirname),
@@ -119,14 +130,19 @@ export default defineConfig({
     // Disable automatic dependency scanning in the dev server.
     // The full esbuild dep scan spawns thousands of goroutines which exhausts
     // the container's OS thread limit (~1024 total) and panics. With noDiscovery
-    // and a targeted include list, Vite only pre-bundles the specific CJS deps
-    // that fail on-demand transform.
+    // set, Vite skips the dep-graph scan and only pre-bundles the packages
+    // listed explicitly in `include` below, then transforms everything else
+    // on-demand.
     //
-    // wouter 3.9.0 imports `use-sync-external-store/shim/index.js` (CJS, not ESM).
-    // Vite can't convert `module.exports = require(...)` to named ESM exports,
-    // so this subpath must be pre-bundled by esbuild.
+    // On-demand transform cannot expose named exports from CJS-only packages.
+    // CJS packages that export named bindings must be pre-bundled here so
+    // esbuild can convert them to ESM. `use-sync-external-store` (used by
+    // wouter/Radix) is handled via resolve.alias to a local ESM shim instead
+    // because its subpath specifiers (`/shim/index.js`) aren't pre-bundleable
+    // without also bundling the CJS caller. react and react-dom/client are
+    // pure CJS with no subpath complications — pre-bundle them directly.
     noDiscovery: true,
-    include: ["use-sync-external-store/shim"],
+    include: ["react", "react-dom", "react-dom/client"],
   },
   server: {
     port,
