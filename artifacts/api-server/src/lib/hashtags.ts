@@ -35,11 +35,35 @@ import { CANONICAL_SUBJECT_NAMES, possessive } from "./renderCanonical";
 // general hashtag concern, not enrichment-only.)
 const APP_NAME_HASHTAGS: readonly string[] = ["overhype", "overhypeme"];
 
+//   3. GENERIC-HUMOR descriptors. Every fact on Overhype.me is meant to be
+//      funny, so tags that just assert "this is humor" ("humor", "joke",
+//      "funny", "comedy", "lol", …) carry zero discovery signal — they'd apply
+//      to the entire database. The classifier leaks these constantly because
+//      the prompt frames facts as jokes. Listed as normalized (alphanumeric,
+//      lowercased) forms; keep to pure funniness-descriptors, NOT words that
+//      could be a real subject (e.g. a fact ABOUT a specific meme).
+const GENERIC_HUMOR_HASHTAGS: readonly string[] = [
+  "humor", "humour", "humorous",
+  "funny", "funnier", "funniest", "funnyfacts",
+  "joke", "jokes", "joking",
+  "comedy", "comedic", "comedian",
+  "hilarious", "hilarity",
+  "lol", "lmao", "rofl", "haha", "hahaha",
+  "laugh", "laughs", "laughing", "laughter",
+  "amusing", "amusement", "funnies",
+  "witty", "humorists",
+];
+
 // Include the POSSESSIVE form of each subject name: canonical rendering can feed
 // "{NAME_POSSESSIVE}" → "Alex's", and normalizeHashtag("Alex's") is "alexs" —
 // distinct from "alex", so it would otherwise slip the filter.
 const DENIED_HASHTAGS: ReadonlySet<string> = new Set<string>(
-  [...CANONICAL_SUBJECT_NAMES, ...CANONICAL_SUBJECT_NAMES.map((n) => possessive(n)), ...APP_NAME_HASHTAGS]
+  [
+    ...CANONICAL_SUBJECT_NAMES,
+    ...CANONICAL_SUBJECT_NAMES.map((n) => possessive(n)),
+    ...APP_NAME_HASHTAGS,
+    ...GENERIC_HUMOR_HASHTAGS,
+  ]
     .map((t) => normalizeHashtag(t))
     .filter((t) => t.length > 0),
 );
