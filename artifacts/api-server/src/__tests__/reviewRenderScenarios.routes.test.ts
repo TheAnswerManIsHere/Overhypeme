@@ -18,11 +18,12 @@ import express, { type Express } from "express";
 import request from "supertest";
 
 import { db } from "@workspace/db";
-import { usersTable, factsTable, pendingReviewsTable, imagePromptAttemptsTable, asyncJobsTable } from "@workspace/db/schema";
+import { usersTable, factsTable, pendingReviewsTable, imagePromptAttemptsTable, asyncJobsTable, enrichmentOverrideHistoryTable } from "@workspace/db/schema";
 import { and, eq, gte, inArray, like } from "drizzle-orm";
 import type { FactEnrichment } from "@workspace/api-zod";
 
 import reviewsRouter, { __setPlanGeneratorForTest } from "../routes/reviews.js";
+import adminRouter from "../routes/admin.js";
 import { ensureDefaultReviewRenders } from "../lib/reviewRenderScenarios.js";
 import { __setReferenceFalUploadForTest } from "../lib/defaultReferenceResolver.js";
 import { authMiddleware } from "../middlewares/authMiddleware.js";
@@ -52,6 +53,10 @@ function makeApp(): Express {
   app.use(express.json());
   app.use(authMiddleware);
   app.use(reviewsRouter);
+  // The moderation modal edits the staging fact through the SAME fact override
+  // endpoints as the Edit Fact screen — mount them so the lockstep write path
+  // is exercised end-to-end against review render staleness.
+  app.use(adminRouter);
   return app;
 }
 
@@ -92,6 +97,7 @@ async function cleanup() {
   const users = await db.select({ id: usersTable.id }).from(usersTable).where(like(usersTable.id, `${USER_PREFIX}%`));
   if (insertedFactIds.length) {
     await db.delete(imagePromptAttemptsTable).where(inArray(imagePromptAttemptsTable.factId, insertedFactIds));
+    await db.delete(enrichmentOverrideHistoryTable).where(inArray(enrichmentOverrideHistoryTable.factId, insertedFactIds));
   }
   for (const u of users) {
     await db.delete(pendingReviewsTable).where(eq(pendingReviewsTable.submittedById, u.id));
@@ -193,8 +199,8 @@ describe("POST /admin/reviews/:id/render-scenarios", () => {
   });
 });
 
-describe("PATCH /admin/reviews/:id/staging-enrichment", () => {
-  it("saves edited enrichment to the staging fact and flips prior renders stale", async () => {
+describe("moderation enrichment edits via fact override endpoints", () => {
+  it("a per-field override PUT persists to the staging fact and flips prior renders stale", async () => {
     const reviewId = await seedReview(plainId);
     const [{ stagingFactId }] = await db
       .select({ stagingFactId: pendingReviewsTable.stagingFactId })
@@ -206,62 +212,58 @@ describe("PATCH /admin/reviews/:id/staging-enrichment", () => {
       .set("authorization", `Bearer ${adminSid}`)
       .send({ scenarios: ["generic_t2i"] });
 
-    // Save a render-affecting edit (visualComplexity medium → high).
-    const edited: FactEnrichment = { ...ENRICHMENT, visualComplexity: "high" };
+    // Per-field override (visualComplexity medium → high) — the moderation
+    // modal's tracked-field write path, identical to Edit Fact. The seed is a
+    // LEGACY-shaped row (enrichment only, no enrichmentAiDerived), which also
+    // pins loadFactOverrideState's derive-baseline-from-effective fallback.
     const save = await request(makeApp())
-      .patch(`/admin/reviews/${reviewId}/staging-enrichment`)
+      .put(`/admin/facts/${stagingFactId}/enrichment-overrides`)
       .set("authorization", `Bearer ${adminSid}`)
-      .send({ enrichment: edited });
+      .send({ path: "/visualComplexity", value: "high" });
     assert.equal(save.status, 200);
     assert.equal(save.body.success, true);
-    assert.equal(save.body.enrichment.visualComplexity, "high");
+    assert.equal((save.body.effective as FactEnrichment).visualComplexity, "high");
+    assert.equal(save.body.overrideSummary.overriddenPaths.includes("/visualComplexity"), true);
 
-    // The staging fact now holds the edit (single source of truth for renders).
-    const [fact] = await db.select({ enrichment: factsTable.enrichment })
+    // The staging fact now holds the edit in full override-tracking shape:
+    // effective updated, baseline preserved, override recorded — nothing wiped.
+    const [fact] = await db
+      .select({ enrichment: factsTable.enrichment, enrichmentAiDerived: factsTable.enrichmentAiDerived, enrichmentOverrides: factsTable.enrichmentOverrides })
       .from(factsTable).where(eq(factsTable.id, stagingFactId as number)).limit(1);
     assert.equal((fact!.enrichment as FactEnrichment).visualComplexity, "high");
+    assert.equal((fact!.enrichmentAiDerived as FactEnrichment).visualComplexity, "medium");
+    const ov = (fact!.enrichmentOverrides as Record<string, { value: unknown; overriddenFrom: unknown }>)["/visualComplexity"];
+    assert.equal(ov.value, "high");
+    assert.equal(ov.overriddenFrom, "medium");
 
-    // The earlier render now reads as stale against the saved enrichment.
+    // The earlier render now reads as stale against the saved effective enrichment.
     const grid = await request(makeApp())
       .get(`/admin/reviews/${reviewId}/render-scenarios`)
       .set("authorization", `Bearer ${adminSid}`);
     const t2i = grid.body.cards.find((c: { key: string }) => c.key === "generic_t2i");
-    assert.equal(t2i.stale, true, "the pre-save render is stale after the enrichment edit");
+    assert.equal(t2i.stale, true, "the pre-override render is stale after the enrichment edit");
   });
 
-  it("rejects an invalid enrichment blob (400)", async () => {
+  it("rejects non-admins (403) on the staging-fact override PUT", async () => {
     const reviewId = await seedReview(plainId);
+    const [{ stagingFactId }] = await db
+      .select({ stagingFactId: pendingReviewsTable.stagingFactId })
+      .from(pendingReviewsTable).where(eq(pendingReviewsTable.id, reviewId)).limit(1);
     const res = await request(makeApp())
-      .patch(`/admin/reviews/${reviewId}/staging-enrichment`)
-      .set("authorization", `Bearer ${adminSid}`)
-      .send({ enrichment: { primaryArchetype: "not_a_real_archetype" } });
-    assert.equal(res.status, 400);
-  });
-
-  it("refuses to save outside production_review (409)", async () => {
-    const reviewId = await seedReview(plainId, "prep_pending");
-    const res = await request(makeApp())
-      .patch(`/admin/reviews/${reviewId}/staging-enrichment`)
-      .set("authorization", `Bearer ${adminSid}`)
-      .send({ enrichment: ENRICHMENT });
-    assert.equal(res.status, 409);
-  });
-
-  it("rejects non-admins (403)", async () => {
-    const reviewId = await seedReview(plainId);
-    const res = await request(makeApp())
-      .patch(`/admin/reviews/${reviewId}/staging-enrichment`)
+      .put(`/admin/facts/${stagingFactId}/enrichment-overrides`)
       .set("authorization", `Bearer ${plainSid}`)
-      .send({ enrichment: ENRICHMENT });
+      .send({ path: "/visualComplexity", value: "high" });
     assert.equal(res.status, 403);
   });
 
-  it("404s for an unknown review", async () => {
+  it("the retired whole-blob save returns 410 with a stable code", async () => {
+    const reviewId = await seedReview(plainId);
     const res = await request(makeApp())
-      .patch(`/admin/reviews/99999999/staging-enrichment`)
+      .patch(`/admin/reviews/${reviewId}/staging-enrichment`)
       .set("authorization", `Bearer ${adminSid}`)
-      .send({ enrichment: ENRICHMENT });
-    assert.equal(res.status, 404);
+      .send({ enrichment: { ...ENRICHMENT, visualComplexity: "high" } });
+    assert.equal(res.status, 410);
+    assert.equal(res.body.code, "STAGING_ENRICHMENT_RETIRED");
   });
 });
 
