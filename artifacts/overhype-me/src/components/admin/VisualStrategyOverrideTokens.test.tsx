@@ -105,8 +105,11 @@ describe("VisualStrategyOverridePanel — token chips", () => {
   it("inserts a token into the last-focused token-capable field (Required Visual Details)", () => {
     const seen = renderPanel(enabledOverride({ requiredVisualDetails: [""] }));
     const targets = screen.getAllByDisplayValue("");
-    // The first empty token-capable input is the Required Visual Details row.
-    const rvd = targets.find((el) => (el as HTMLInputElement).dataset.tokenInsertTarget === "true") as HTMLInputElement;
+    // The first empty token-capable INPUT is the Required Visual Details row
+    // (the Visual concept core-scene field above it is a textarea).
+    const rvd = targets.find(
+      (el) => el.tagName === "INPUT" && (el as HTMLInputElement).dataset.tokenInsertTarget === "true",
+    ) as HTMLInputElement;
     act(() => {
       fireEvent.focus(rvd);
     });
