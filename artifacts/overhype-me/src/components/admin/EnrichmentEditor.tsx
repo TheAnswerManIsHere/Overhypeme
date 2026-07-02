@@ -37,6 +37,8 @@ import {
 } from "@workspace/api-zod";
 import { AlertTriangle, RefreshCw, Save, X, Plus, Trash2, Search, Loader2, Sparkles, ExternalLink, CheckCircle2 } from "lucide-react";
 import { OverrideMark } from "./OverrideMark";
+import { FieldInfo, FieldLabel, ADMIN_LABEL_CLASS } from "./FieldInfo";
+import { fieldLabel, PATH_TO_DOC_KEY, type FieldDocKey } from "./fieldDocs";
 
 /**
  * Optional override decoration context. Provided only on the live Facts page
@@ -79,7 +81,9 @@ export const EMPTY_ENRICHMENT: FactEnrichment = {
 
 const SELECT_CLASS =
   "w-full px-3 py-2 bg-background border border-border rounded-sm text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary";
-const LABEL_CLASS = "block text-xs font-bold text-muted-foreground uppercase tracking-wide mb-1";
+// Label styling now lives in FieldInfo (shared with FieldLabel); this alias
+// covers the remaining plain repeater-row labels that have no adjacent icon.
+const LABEL_CLASS = ADMIN_LABEL_CLASS;
 
 function Warnings({ e }: { e: FactEnrichment }) {
   const warnings: string[] = [];
@@ -499,7 +503,7 @@ function CulturalReferencesEditor({
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
-        <label className={LABEL_CLASS}>Cultural / Inside References</label>
+        <FieldLabel docKey="culturalReferences" className="mb-0" />
         <button
           type="button"
           onClick={add}
@@ -525,7 +529,7 @@ function CulturalReferencesEditor({
                     />
                   </div>
                   <div>
-                    <label className={LABEL_CLASS}>Reference type</label>
+                    <FieldLabel docKey="ref.referenceType" />
                     <select
                       className={SELECT_CLASS}
                       value={r.referenceType}
@@ -647,7 +651,7 @@ function SemanticEntitiesEditor({
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
-        <label className={LABEL_CLASS}>Semantic Entities / Visual Referents</label>
+        <FieldLabel docKey="semanticEntities" className="mb-0" />
         <button
           type="button"
           onClick={add}
@@ -683,7 +687,7 @@ function SemanticEntitiesEditor({
                     />
                   </div>
                   <div>
-                    <label className={LABEL_CLASS}>Entity kind</label>
+                    <FieldLabel docKey="ent.entityKind" />
                     <select
                       className={SELECT_CLASS}
                       value={s.entityKind}
@@ -693,7 +697,7 @@ function SemanticEntitiesEditor({
                     </select>
                   </div>
                   <div>
-                    <label className={LABEL_CLASS}>Capitalization signal</label>
+                    <FieldLabel docKey="ent.capitalizationSignal" />
                     <select
                       className={SELECT_CLASS}
                       value={s.capitalizationSignal}
@@ -1003,19 +1007,19 @@ export function insertTokenIntoTextControl(
 }
 
 function StringListEditor({
-  label,
+  docKey,
   items,
   placeholder,
   onChange,
 }: {
-  label: string;
+  docKey: FieldDocKey;
   items: string[];
   placeholder?: string;
   onChange: (next: string[]) => void;
 }) {
   return (
     <div>
-      <label className={LABEL_CLASS}>{label}</label>
+      <FieldLabel docKey={docKey} />
       <div className="space-y-1.5">
         {items.map((item, i) => (
           <div key={i} className="flex gap-2">
@@ -1125,7 +1129,10 @@ export function VisualStrategyOverridePanel({
     <div className="rounded-sm border border-border bg-muted/30 p-3 space-y-3">
       <div className="flex items-center justify-between gap-2">
         <div>
-          <p className="text-sm font-bold text-foreground">Visual Strategy Override</p>
+          <p className="text-sm font-bold text-foreground flex items-center gap-1">
+            Visual Strategy Override
+            <FieldInfo docKey="vso.panel" />
+          </p>
           <p className="text-xs text-muted-foreground">Moderator art-direction merged into the runtime prompt. Use {"{NAME}"}, {"{NAME_POSSESSIVE}"}, and pronoun tokens — never a real name.</p>
         </div>
         <button
@@ -1171,7 +1178,7 @@ export function VisualStrategyOverridePanel({
           {chipNote && <p className="text-[11px] text-muted-foreground" data-testid="vso-token-note">{chipNote}</p>}
 
           <div>
-            <label className={LABEL_CLASS}>Moderator Intent (admin-only, not rendered)</label>
+            <FieldLabel docKey="vso.moderatorIntent" />
             <textarea
               className={`${SELECT_CLASS} resize-none`}
               rows={2}
@@ -1182,7 +1189,7 @@ export function VisualStrategyOverridePanel({
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
             <div>
-              <label className={LABEL_CLASS}>Subject Realization</label>
+              <FieldLabel docKey="vso.subjectRealization" />
               <select
                 className={SELECT_CLASS}
                 value={ov.subjectRealizationOverride?.mode ?? "use_ai_plan"}
@@ -1197,7 +1204,7 @@ export function VisualStrategyOverridePanel({
           </div>
           {ov.subjectRealizationOverride && ov.subjectRealizationOverride.mode !== "use_ai_plan" && (
             <div>
-              <label className={LABEL_CLASS}>Subject Realization Description</label>
+              <FieldLabel docKey="vso.subjectRealizationDescription" />
               <textarea
                 className={`${SELECT_CLASS} resize-none`}
                 data-token-insert-target="true"
@@ -1208,11 +1215,11 @@ export function VisualStrategyOverridePanel({
             </div>
           )}
 
-          <StringListEditor label="Required Visual Details" items={ov.requiredVisualDetails} placeholder="e.g. {NAME}'s recognizable face on a newborn body" onChange={(next) => set({ requiredVisualDetails: next })} />
-          <StringListEditor label="Forbidden Visual Details" items={ov.forbiddenVisualDetails} placeholder="e.g. a separate adult version of the subject" onChange={(next) => set({ forbiddenVisualDetails: next })} />
+          <StringListEditor docKey="vso.requiredVisualDetails" items={ov.requiredVisualDetails} placeholder="e.g. {NAME}'s recognizable face on a newborn body" onChange={(next) => set({ requiredVisualDetails: next })} />
+          <StringListEditor docKey="vso.forbiddenVisualDetails" items={ov.forbiddenVisualDetails} placeholder="e.g. a separate adult version of the subject" onChange={(next) => set({ forbiddenVisualDetails: next })} />
 
           <div>
-            <label className={LABEL_CLASS}>Role Bindings</label>
+            <FieldLabel docKey="vso.roleBindings" />
             <div className="space-y-1.5">
               {ov.roleBindings.map((b, i) => (
                 <div key={i} className="flex gap-2">
@@ -1229,16 +1236,19 @@ export function VisualStrategyOverridePanel({
             </div>
           </div>
 
-          <StringListEditor label="Composition Guidance" items={ov.compositionGuidance} onChange={(next) => set({ compositionGuidance: next })} />
-          <StringListEditor label="Style-Agnostic Prompt Additions" items={ov.styleAgnosticPromptAdditions} onChange={(next) => set({ styleAgnosticPromptAdditions: next })} />
-          <StringListEditor label="Negative Prompt Additions" items={ov.negativePromptAdditions} placeholder='becomes a "Do not …" constraint' onChange={(next) => set({ negativePromptAdditions: next })} />
+          <StringListEditor docKey="vso.compositionGuidance" items={ov.compositionGuidance} onChange={(next) => set({ compositionGuidance: next })} />
+          <StringListEditor docKey="vso.styleAgnosticPromptAdditions" items={ov.styleAgnosticPromptAdditions} onChange={(next) => set({ styleAgnosticPromptAdditions: next })} />
+          <StringListEditor docKey="vso.negativePromptAdditions" items={ov.negativePromptAdditions} placeholder='becomes a "Do not …" constraint' onChange={(next) => set({ negativePromptAdditions: next })} />
 
           {/* Supporting-text policy override */}
           <div className="rounded-sm border border-border p-2 space-y-2">
-            <label className="text-xs font-semibold inline-flex items-center gap-1.5">
-              <input type="checkbox" checked={!!ov.supportingTextPolicyOverride} onChange={(ev) => set({ supportingTextPolicyOverride: ev.target.checked ? { mode: "allow" } : undefined })} />
-              Override supporting-text policy
-            </label>
+            <div className="flex items-center gap-1">
+              <label className="text-xs font-semibold inline-flex items-center gap-1.5">
+                <input type="checkbox" checked={!!ov.supportingTextPolicyOverride} onChange={(ev) => set({ supportingTextPolicyOverride: ev.target.checked ? { mode: "allow" } : undefined })} />
+                Override supporting-text policy
+              </label>
+              <FieldInfo docKey="vso.supportingTextPolicy" />
+            </div>
             {ov.supportingTextPolicyOverride && (
               <div className="space-y-2">
                 <select className={SELECT_CLASS} value={ov.supportingTextPolicyOverride.mode} onChange={(ev) => set({ supportingTextPolicyOverride: { ...ov.supportingTextPolicyOverride!, mode: ev.target.value as (typeof SUPPORTING_TEXT_MODE_VALUES)[number] } })}>
@@ -1251,10 +1261,13 @@ export function VisualStrategyOverridePanel({
 
           {/* Violence policy override */}
           <div className="rounded-sm border border-border p-2 space-y-2">
-            <label className="text-xs font-semibold inline-flex items-center gap-1.5">
-              <input type="checkbox" checked={!!ov.violencePolicyOverride} onChange={(ev) => set({ violencePolicyOverride: ev.target.checked ? { mode: "allow", intensity: "strong" } : undefined })} />
-              Override violence policy
-            </label>
+            <div className="flex items-center gap-1">
+              <label className="text-xs font-semibold inline-flex items-center gap-1.5">
+                <input type="checkbox" checked={!!ov.violencePolicyOverride} onChange={(ev) => set({ violencePolicyOverride: ev.target.checked ? { mode: "allow", intensity: "strong" } : undefined })} />
+                Override violence policy
+              </label>
+              <FieldInfo docKey="vso.violencePolicy" />
+            </div>
             {ov.violencePolicyOverride && (
               <div className="space-y-2">
                 <div className="grid grid-cols-2 gap-2">
@@ -1449,7 +1462,10 @@ export function EnrichmentEditor({
           <span className="font-semibold text-primary">Overridden:</span>
           <span>
             {[
-              ...oc.summary.overriddenPaths.map((p) => OVERRIDABLE_PATHS[p as OverridablePath]?.label ?? p),
+              ...oc.summary.overriddenPaths.map((p) => {
+                const key = PATH_TO_DOC_KEY[p as OverridablePath];
+                return key ? fieldLabel(key) : p;
+              }),
               ...(oc.summary.hasVisualStrategyOverride ? ["Visual Strategy"] : []),
             ].join(", ")}
           </span>
@@ -1463,42 +1479,42 @@ export function EnrichmentEditor({
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <div>
-          <label className={LABEL_CLASS}>Primary Archetype</label>
+          <FieldLabel docKey="primaryArchetype" />
           <select className={SELECT_CLASS} value={e.primaryArchetype} onChange={(ev) => setArchetype(ev.target.value as PrimaryArchetype)}>
             {PRIMARY_ARCHETYPES.map((a) => <option key={a} value={a}>{a}</option>)}
           </select>
           {mark("/primaryArchetype")}
         </div>
         <div>
-          <label className={LABEL_CLASS}>Subtype</label>
+          <FieldLabel docKey="subtype" />
           <select className={SELECT_CLASS} value={e.subtype} onChange={(ev) => setTracked("/subtype", ev.target.value, { subtype: ev.target.value as FactEnrichment["subtype"] })}>
             {subtypeOptions.map((s) => <option key={s} value={s}>{s}</option>)}
           </select>
           {mark("/subtype")}
         </div>
         <div>
-          <label className={LABEL_CLASS}>Visual Literalness</label>
+          <FieldLabel docKey="visualLiteralness" />
           <select className={SELECT_CLASS} value={e.visualLiteralness} onChange={(ev) => setTracked("/visualLiteralness", ev.target.value, { visualLiteralness: ev.target.value as FactEnrichment["visualLiteralness"] })}>
             {VISUAL_LITERALNESS_VALUES.map((v) => <option key={v} value={v}>{v}</option>)}
           </select>
           {mark("/visualLiteralness")}
         </div>
         <div>
-          <label className={LABEL_CLASS}>Visual Complexity</label>
+          <FieldLabel docKey="visualComplexity" />
           <select className={SELECT_CLASS} value={e.visualComplexity} onChange={(ev) => setTracked("/visualComplexity", ev.target.value, { visualComplexity: ev.target.value as FactEnrichment["visualComplexity"] })}>
             {VISUAL_COMPLEXITY_VALUES.map((v) => <option key={v} value={v}>{v}</option>)}
           </select>
           {mark("/visualComplexity")}
         </div>
         <div>
-          <label className={LABEL_CLASS}>Overhype Fit</label>
+          <FieldLabel docKey="overhypeFit" />
           <select className={SELECT_CLASS} value={e.overhypeFit} onChange={(ev) => setTracked("/overhypeFit", ev.target.value, { overhypeFit: ev.target.value as FactEnrichment["overhypeFit"] })}>
             {OVERHYPE_FIT_VALUES.map((v) => <option key={v} value={v}>{v}</option>)}
           </select>
           {mark("/overhypeFit")}
         </div>
         <div>
-          <label className={LABEL_CLASS}>Adult Suitability</label>
+          <FieldLabel docKey="adultSuitability" />
           <select className={SELECT_CLASS} value={e.adultSuitability} onChange={(ev) => setTracked("/adultSuitability", ev.target.value, { adultSuitability: ev.target.value as FactEnrichment["adultSuitability"] })}>
             {ADULT_SUITABILITY_VALUES.map((v) => <option key={v} value={v}>{v}</option>)}
           </select>
@@ -1507,7 +1523,7 @@ export function EnrichmentEditor({
       </div>
 
       <div>
-        <label className={LABEL_CLASS}>Adult Suitability Notes</label>
+        <FieldLabel docKey="adultSuitabilityNotes" />
         {oc ? (
           <NoteOverrideField
             key={`asn-${e.adultSuitabilityNotes}`}
@@ -1529,7 +1545,7 @@ export function EnrichmentEditor({
       </div>
 
       <div>
-        <label className={LABEL_CLASS}>Modifiers</label>
+        <FieldLabel docKey="modifiers" />
         <Chips items={e.modifiers} known={isKnownModifier} onRemove={(m) => setTracked("/modifiers", e.modifiers.filter((x) => x !== m), { modifiers: e.modifiers.filter((x) => x !== m) })} />
         {mark("/modifiers")}
         <div className="flex gap-2 mt-2">
@@ -1552,7 +1568,7 @@ export function EnrichmentEditor({
         <div className="space-y-3">
           {/* Final hashtags — the moderator-curated list that ships on approval. */}
           <div>
-            <label className={LABEL_CLASS}>Final hashtags — these ship on approval</label>
+            <FieldLabel docKey="finalHashtags" />
             {finalTags.length === 0 ? (
               <p className="text-xs text-destructive flex items-center gap-1.5 mb-2" data-testid="final-hashtags-empty-warning">
                 <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
@@ -1583,7 +1599,7 @@ export function EnrichmentEditor({
           {aiSuggestionsNotInFinal.length > 0 && (
             <div>
               <div className="flex items-center justify-between mb-1">
-                <label className={LABEL_CLASS} style={{ marginBottom: 0 }}>AI suggested</label>
+                <FieldLabel docKey="aiSuggestedHashtags" className="mb-0" />
                 <button
                   type="button"
                   onClick={() => onFinalHashtagsChange?.(Array.from(new Set([...finalTags, ...aiSuggestionsNotInFinal])))}
@@ -1612,7 +1628,7 @@ export function EnrichmentEditor({
         </div>
       ) : (
         <div>
-          <label className={LABEL_CLASS}>Suggested Hashtags (3–8)</label>
+          <FieldLabel docKey="suggestedHashtags" />
           <Chips items={e.suggestedHashtags} onRemove={(h) => update({ suggestedHashtags: e.suggestedHashtags.filter((x) => x !== h) })} />
           <div className="flex gap-2 mt-2">
             <input
@@ -1634,13 +1650,13 @@ export function EnrichmentEditor({
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <div>
-          <label className={LABEL_CLASS}>Taxonomy Confidence</label>
+          <FieldLabel docKey="taxonomyConfidence" />
           <p className="text-sm text-foreground">{e.taxonomyConfidence.toFixed(2)}</p>
         </div>
       </div>
 
       <div>
-        <label className={LABEL_CLASS}>Admin Review Notes</label>
+        <FieldLabel docKey="adminReviewNotes" />
         {oc ? (
           <NoteOverrideField
             key={`arn-${e.adminReviewNotes}`}

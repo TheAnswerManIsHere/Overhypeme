@@ -557,8 +557,10 @@ function ReviewModal({
     </div>
   );
 
+  // data-modal-overlay: FieldInfo's popover uses this to close ONLY itself
+  // (not the whole modal) when an outside-tap lands on this backdrop.
   return (
-    <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4" onClick={onClose}>
+    <div data-modal-overlay className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4" onClick={onClose}>
       <div
         className="bg-card border-2 border-border rounded-sm w-full max-w-3xl shadow-2xl flex flex-col max-h-[90vh]"
         onClick={(e) => e.stopPropagation()}
