@@ -14,30 +14,30 @@ behavior; David's spot-check is requested.
 ## Contents
 
 - [AI Visual Classification](#ai-visual-classification)
-  - [Primary Archetype](#primary-archetype)
-  - [Subtype](#subtype)
-  - [Visual Literalness](#visual-literalness)
-  - [Visual Complexity](#visual-complexity)
+  - [Joke Mechanism (Archetype)](#joke-mechanism-archetype)
+  - [Mechanism Subtype](#mechanism-subtype)
+  - [Depiction Style](#depiction-style)
+  - [Visualization Difficulty](#visualization-difficulty)
   - [Overhype Fit](#overhype-fit)
-  - [Adult Suitability](#adult-suitability)
-  - [Adult Suitability Notes](#adult-suitability-notes)
-  - [Modifiers](#modifiers)
+  - [Adult-Mode Compatibility](#adult-mode-compatibility)
+  - [Adult-Mode Notes](#adult-mode-notes)
+  - [Render Modifiers](#render-modifiers)
   - [Final hashtags — these ship on approval](#final-hashtags-these-ship-on-approval)
   - [AI suggested](#ai-suggested)
   - [Suggested Hashtags (3–8)](#suggested-hashtags-38)
-  - [Taxonomy Confidence](#taxonomy-confidence)
+  - [AI Classification Confidence](#ai-classification-confidence)
   - [Admin Review Notes](#admin-review-notes)
 - [Visual Strategy Override](#visual-strategy-override)
   - [Visual Strategy Override](#visual-strategy-override)
   - [Moderator Intent (admin-only, not rendered)](#moderator-intent-admin-only-not-rendered)
-  - [Subject Realization](#subject-realization)
-  - [Subject Realization Description](#subject-realization-description)
+  - [Subject Depiction Mode](#subject-depiction-mode)
+  - [Subject Depiction Description](#subject-depiction-description)
   - [Required Visual Details](#required-visual-details)
   - [Forbidden Visual Details](#forbidden-visual-details)
-  - [Role Bindings](#role-bindings)
+  - [Scene Role Assignments](#scene-role-assignments)
   - [Composition Guidance](#composition-guidance)
-  - [Style-Agnostic Prompt Additions](#style-agnostic-prompt-additions)
-  - [Negative Prompt Additions](#negative-prompt-additions)
+  - [Extra Prompt Details (any style)](#extra-prompt-details-any-style)
+  - [Do-Not-Render Additions](#do-not-render-additions)
   - [Override supporting-text policy](#override-supporting-text-policy)
   - [Override violence policy](#override-violence-policy)
 - [References & Scene Entities](#references-scene-entities)
@@ -62,7 +62,7 @@ behavior; David's spot-check is requested.
 
 ## AI Visual Classification
 
-### Primary Archetype
+### Joke Mechanism (Archetype)
 
 *The joke's MECHANISM — the single most important classification on this form.*
 
@@ -145,7 +145,7 @@ Editing it flips existing test renders stale — rerun them to see the new strat
 - `lib/api-zod/src/visualPromptStrategies.ts` `getVisualPromptStrategy` — The 11 authored per-archetype strategy templates the archetype selects between.
 - `artifacts/api-server/src/lib/factRenderScenarios.ts` `renderAffectingEnrichment` — The render-input hash projection — fields listed here flip render-scenario tiles stale when edited.
 
-### Subtype
+### Mechanism Subtype
 
 *The archetype's refinement — picks the one-sentence visual principle the planner must apply.*
 
@@ -365,7 +365,7 @@ Echoed in the planner's FIXED taxonomy block; editing flips test renders stale.
 - `lib/api-zod/src/visualPromptStrategies.ts` `getSubtypeGuidance` — The per-subtype principle sentences injected into the planner.
 - `artifacts/api-server/src/lib/factRenderScenarios.ts` `renderAffectingEnrichment` — The render-input hash projection — fields listed here flip render-scenario tiles stale when edited.
 
-### Visual Literalness
+### Depiction Style
 
 *How literally vs. symbolically the fact should be depicted.*
 
@@ -420,7 +420,7 @@ Despite being advisory, it IS part of the render-input hash — editing it flips
 - `artifacts/api-server/src/lib/imagePrompt/generator.ts` `buildImagePromptUserMessage` — Where the enrichment is injected into the image-prompt planner message (the TAXONOMY block is marked FIXED — DO NOT reclassify).
 - `artifacts/api-server/src/lib/factRenderScenarios.ts` `renderAffectingEnrichment` — The render-input hash projection — fields listed here flip render-scenario tiles stale when edited.
 
-### Visual Complexity
+### Visualization Difficulty
 
 *The AI's rating of how hard this fact is to visualize.*
 
@@ -512,7 +512,7 @@ It is included in the render-input hash, so editing it does flip test renders st
 - `artifacts/api-server/src/lib/taxonomyHealth/index.ts` `computeTaxonomyHealth` — The questionable/reject health flags and needs_admin_review gating.
 - `artifacts/api-server/src/lib/factRenderScenarios.ts` `renderAffectingEnrichment` — The render-input hash projection — fields listed here flip render-scenario tiles stale when edited.
 
-### Adult Suitability
+### Adult-Mode Compatibility
 
 *Whether this FACT could support adult/spicy rendering — NOT the render's SFW control.*
 
@@ -562,7 +562,7 @@ Included in the render-input hash, so edits flip test renders stale.
 - `artifacts/api-server/src/lib/factEnrichmentConfig.ts` `FACT_ENRICHMENT_SYSTEM_DEFAULT` — The classifier system prompt — the authoritative definition of what the AI is told this field means.
 - `artifacts/api-server/src/lib/factRenderScenarios.ts` `renderAffectingEnrichment` — The render-input hash projection — fields listed here flip render-scenario tiles stale when edited.
 
-### Adult Suitability Notes
+### Adult-Mode Notes
 
 *The classifier's free-text reasoning behind the adult-suitability rating.*
 
@@ -593,7 +593,7 @@ None — human-only. Never enters the planner message or the compiled prompt, an
 - `artifacts/api-server/src/lib/factEnrichmentConfig.ts` `FACT_ENRICHMENT_SYSTEM_DEFAULT` — The classifier system prompt — the authoritative definition of what the AI is told this field means.
 - `artifacts/api-server/src/lib/factRenderScenarios.ts` `renderAffectingEnrichment` — The render-input hash projection — fields listed here flip render-scenario tiles stale when edited.
 
-### Modifiers
+### Render Modifiers
 
 *Flags that inject specific directives into the engine prompt — the most direct lever on the image.*
 
@@ -883,7 +883,7 @@ None — never enters the render pipeline, and explicitly excluded from the rend
 - `artifacts/api-server/src/lib/factEnrichmentConfig.ts` `FACT_ENRICHMENT_SYSTEM_DEFAULT` — The classifier system prompt — the authoritative definition of what the AI is told this field means.
 - `artifacts/api-server/src/lib/factRenderScenarios.ts` `renderAffectingEnrichment` — The render-input hash projection — fields listed here flip render-scenario tiles stale when edited.
 
-### Taxonomy Confidence
+### AI Classification Confidence
 
 *The classifier's 0–1 confidence in its own archetype/subtype call. Read-only.*
 
@@ -1031,7 +1031,7 @@ HONEST CAVEAT: the render-input hash includes the override object WHOLESALE, so 
 - `lib/api-zod/src/visualStrategyOverride.ts` `visualPromptStrategyOverrideSchema` — The override's schema: field shapes, list caps, token canonicalization/validation on save, and the admin-only fields excluded from rendering.
 - `artifacts/api-server/src/lib/factRenderScenarios.ts` `renderAffectingEnrichment` — The render-input hash projection — it includes visualPromptStrategyOverride WHOLESALE, so editing any part of the override flips render-scenario tiles stale.
 
-### Subject Realization
+### Subject Depiction Mode
 
 *Pin HOW the subject is physically realized in the image — human, transformed, object, symbolic — when the AI keeps getting it wrong.*
 
@@ -1095,7 +1095,7 @@ It ADDS to (never replaces) the compiler-owned SUBJECT BINDING / anti-split guar
 - `artifacts/api-server/src/lib/imagePrompt/compilers/nanoBanana2.ts` `compile` — The deterministic Nano Banana 2 compiler — where each override sub-field is merged into a labeled prompt section.
 - `artifacts/api-server/src/lib/factRenderScenarios.ts` `renderAffectingEnrichment` — The render-input hash projection — it includes visualPromptStrategyOverride WHOLESALE, so editing any part of the override flips render-scenario tiles stale.
 
-### Subject Realization Description
+### Subject Depiction Description
 
 *The actual compiled text of the SUBJECT REALIZATION section — write it as a complete instruction.*
 
@@ -1198,7 +1198,7 @@ Normalized entries join the required-priority STRICT CONSTRAINTS section (after 
 - `artifacts/api-server/src/lib/imagePrompt/compilers/nanoBanana2.ts` `compile` — The deterministic Nano Banana 2 compiler — where each override sub-field is merged into a labeled prompt section.
 - `artifacts/api-server/src/lib/factRenderScenarios.ts` `renderAffectingEnrichment` — The render-input hash projection — it includes visualPromptStrategyOverride WHOLESALE, so editing any part of the override flips render-scenario tiles stale.
 
-### Role Bindings
+### Scene Role Assignments
 
 *Who is who in the scene — your bindings REPLACE the AI's secondary-character casting.*
 
@@ -1266,7 +1266,7 @@ Entries are appended to the COMPOSITION section (high priority — included whil
 - `artifacts/api-server/src/lib/imagePrompt/compilers/nanoBanana2.ts` `compile` — The deterministic Nano Banana 2 compiler — where each override sub-field is merged into a labeled prompt section.
 - `artifacts/api-server/src/lib/factRenderScenarios.ts` `renderAffectingEnrichment` — The render-input hash projection — it includes visualPromptStrategyOverride WHOLESALE, so editing any part of the override flips render-scenario tiles stale.
 
-### Style-Agnostic Prompt Additions
+### Extra Prompt Details (any style)
 
 *Extra scene text that must work under EVERY visual style — compiled as ADDITIONAL DETAILS.*
 
@@ -1298,7 +1298,7 @@ Compiled into the "ADDITIONAL DETAILS" section, placed after ENVIRONMENT at high
 - `artifacts/api-server/src/lib/imagePrompt/compilers/nanoBanana2.ts` `compile` — The deterministic Nano Banana 2 compiler — where each override sub-field is merged into a labeled prompt section.
 - `artifacts/api-server/src/lib/factRenderScenarios.ts` `renderAffectingEnrichment` — The render-input hash projection — it includes visualPromptStrategyOverride WHOLESALE, so editing any part of the override flips render-scenario tiles stale.
 
-### Negative Prompt Additions
+### Do-Not-Render Additions
 
 *Exclusions — but Nano Banana 2 has NO negative-prompt parameter, so these become prose "Do not …" constraints.*
 
