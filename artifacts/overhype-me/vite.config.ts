@@ -63,10 +63,21 @@ export default defineConfig({
       : []),
   ],
   resolve: {
-    alias: {
-      "@": path.resolve(import.meta.dirname, "src"),
-      "@assets": path.resolve(import.meta.dirname, "..", "..", "attached_assets"),
-    },
+    alias: [
+      { find: "@", replacement: path.resolve(import.meta.dirname, "src") },
+      { find: "@assets", replacement: path.resolve(import.meta.dirname, "..", "..", "attached_assets") },
+      // use-sync-external-store is CJS-only; with noDiscovery (below) it is
+      // never pre-bundled, and its named exports break in the dev server
+      // ("Indirectly exported binding name 'useSyncExternalStore' is not
+      // found"). React 19 has the hook built in — route both shim specifiers
+      // (wouter uses ".../shim/index.js", Radix uses ".../shim") to a local
+      // ESM re-export instead. The regex must cover the full subpaths: a
+      // bare-name alias would break their resolution.
+      {
+        find: /^use-sync-external-store\/shim(\/index\.js)?$/,
+        replacement: path.resolve(import.meta.dirname, "src/lib/use-sync-external-store-shim.ts"),
+      },
+    ],
     dedupe: ["react", "react-dom"],
   },
   root: path.resolve(import.meta.dirname),
@@ -119,14 +130,15 @@ export default defineConfig({
     // Disable automatic dependency scanning in the dev server.
     // The full esbuild dep scan spawns thousands of goroutines which exhausts
     // the container's OS thread limit (~1024 total) and panics. With noDiscovery
-    // and a targeted include list, Vite only pre-bundles the specific CJS deps
-    // that fail on-demand transform.
+    // and an empty include list, Vite skips the pre-bundling phase entirely and
+    // transforms deps on-demand instead.
     //
-    // wouter 3.9.0 imports `use-sync-external-store/shim/index.js` (CJS, not ESM).
-    // Vite can't convert `module.exports = require(...)` to named ESM exports,
-    // so this subpath must be pre-bundled by esbuild.
+    // On-demand transform cannot expose named exports from CJS-only packages.
+    // The one such package in our graph (use-sync-external-store, via wouter
+    // and @radix-ui/react-use-is-hydrated) is handled by the resolve.alias
+    // entry above instead of pre-bundling — keep this list empty.
     noDiscovery: true,
-    include: ["use-sync-external-store/shim"],
+    include: [],
   },
   server: {
     port,
