@@ -32,7 +32,6 @@ import {
   type ProblematicScenarioStatus,
   type VisualRenderApprovalWaiver,
 } from "@workspace/api-zod";
-import { materializeFromBaseline } from "../lib/factEnrichment";
 import { sanitizeHashtagsForPersistence, resolveFinalApprovalTags } from "../lib/hashtags";
 import { ensureStagingFact } from "../lib/moderationStaging";
 import { enqueueJob } from "../lib/asyncJobs";
@@ -331,9 +330,8 @@ const ApproveVariantBody = z.object({
 });
 
 /**
- * Resolve the enrichment to persist on approval. Prefers the admin's edited
- * `enrichment` from the request body (validated); falls back to the stored
- * pending-review enrichment.
+ * Resolve the enrichment to ship on approval: the staging fact's stored
+ * effective blob, validated. Client bodies are never consulted.
  *
  * **Hard approval gate:** approval requires a valid enrichment. The
  * renderability check (a NON-PERSISTENT render preflight over the real
@@ -341,26 +339,21 @@ const ApproveVariantBody = z.object({
  * state mutation — see `runApprovalRenderPreflight`.
  */
 function resolveApprovalEnrichment(
-  body: unknown,
   storedEnrichment: unknown,
 ): { ok: true; enrichment: FactEnrichment } | { ok: false; error: string } {
-  const provided = (body as { enrichment?: unknown } | null | undefined)?.enrichment;
-  let resolved: FactEnrichment | null = null;
-  if (provided !== undefined && provided !== null) {
-    const result = validateEnrichment(provided);
-    if (!result.ok) return { ok: false, error: `Invalid enrichment: ${result.error}` };
-    resolved = result.data;
-  } else if (storedEnrichment) {
+  // The STAGING FACT's stored effective enrichment (AI baseline + tracked
+  // per-field overrides + saved visual-strategy override, all materialized by
+  // the override-model write paths) is the ONLY approval source. Client blobs
+  // are never accepted — a whole-blob re-baseline here would wipe the override
+  // map at the most dangerous moment (see the legacy-blob warn in the handler).
+  if (storedEnrichment) {
     const result = validateEnrichment(storedEnrichment);
-    if (result.ok) resolved = result.data;
+    if (result.ok) return { ok: true, enrichment: result.data };
   }
-  if (!resolved) {
-    return {
-      ok: false,
-      error: "A valid enrichment is required before approval. Re-run classification or fill it in manually.",
-    };
-  }
-  return { ok: true, enrichment: resolved };
+  return {
+    ok: false,
+    error: "A valid enrichment is required before approval. Re-run classification or fill it in manually.",
+  };
 }
 
 /**
@@ -478,9 +471,19 @@ async function approveForProduction(
     parentId = parentFactIdOverride;
   }
 
-  // Resolve the enrichment to ship: an edited blob in the body wins, else the
-  // staging fact's effective enrichment (the normal path).
-  const enrichmentResult = resolveApprovalEnrichment(req.body, stagingFact.enrichment);
+  // Legacy clients (pre-override-model bundles) sent their flattened enrichment
+  // blob on every approve. It is IGNORED — accepting it would re-baseline the
+  // staging fact and wipe the tracked override map. Warn (without the blob; it
+  // is large and can carry admin-authored notes) so stragglers are visible.
+  if ((req.body as { enrichment?: unknown } | null | undefined)?.enrichment != null) {
+    logger.warn(
+      { reviewId, adminUserId: req.user.id, stagingFactId: review.stagingFactId, ignoredLegacyEnrichmentBody: true },
+      "[moderation] client sent legacy enrichment body on approval — ignored (staging fact is authoritative)",
+    );
+  }
+
+  // The enrichment to ship is ALWAYS the staging fact's stored effective blob.
+  const enrichmentResult = resolveApprovalEnrichment(stagingFact.enrichment);
   if (!enrichmentResult.ok) { res.status(400).json({ error: enrichmentResult.error }); return; }
   const enrichment = enrichmentResult.enrichment;
 
@@ -502,9 +505,10 @@ async function approveForProduction(
   // Required Step-2 scenarios must each be a fresh successful render; otherwise
   // the moderator must explicitly waive the EXACT named problems. The problem set
   // is recomputed server-side so a stale client can't sneak an approval past
-  // missing/failed/blocked/stale renders. Pass the enrichment being PUBLISHED
-  // (body override wins) so renders made with a pre-edit enrichment read as stale.
-  const scenarioGrid = await buildReviewScenarioGrid(reviewId, enrichment);
+  // missing/failed/blocked/stale renders. Staleness reads the staging fact's
+  // stored effective enrichment — the same blob being published — because the
+  // override-model write paths keep facts.enrichment current on every edit.
+  const scenarioGrid = await buildReviewScenarioGrid(reviewId);
   const renderProblems = requiredScenarioProblems(
     scenarioGrid.cards.map((c) => ({ scenarioKey: c.key, status: c.status, stale: c.stale })),
   );
@@ -534,10 +538,10 @@ async function approveForProduction(
   // BEFORE any state mutation. Nothing is persisted on any failure path.
   if (await runApprovalRenderPreflight(stagingFact.text, enrichment, res)) return;
 
-  // Only re-materialize enrichment columns when the body supplied an edited blob;
-  // otherwise the staging fact already holds the prepared enrichment.
-  const bodyEnrichmentProvided = (req.body as { enrichment?: unknown } | null | undefined)?.enrichment != null;
-  const enrichmentCols = bodyEnrichmentProvided ? materializeFromBaseline(enrichment).columns : {};
+  // Approval never rewrites enrichment columns: the staging fact already holds
+  // the materialized layers (AI baseline + override map + effective) written by
+  // the enrichment job and the override endpoints. Re-baselining here was the
+  // old override-wipe bug.
   const canonicalText = stagingFact.canonicalText ?? renderCanonical(stagingFact.text);
 
   // Activate the fact, mark the review approved, AND attach the final hashtags in
@@ -547,7 +551,6 @@ async function approveForProduction(
     await tx.update(factsTable).set({
       isActive: true,
       parentId: parentId ?? null,
-      ...enrichmentCols,
     }).where(eq(factsTable.id, stagingFact.id));
     await tx.update(pendingReviewsTable).set({
       status: "approved",
@@ -556,6 +559,9 @@ async function approveForProduction(
       approvedFactId: stagingFact.id,
       adminNote,
       reviewedAt: new Date(),
+      // AUDIT SNAPSHOT ONLY: what shipped at approval time. Runtime/render/edit
+      // truth lives on facts.enrichment and its baseline/override layers — never
+      // read this back as editable state.
       enrichment,
       enrichmentStatus: "ok",
       ...(visualRenderWaiver ? { visualRenderApprovalWaiver: visualRenderWaiver } : {}),
@@ -771,15 +777,15 @@ router.post("/admin/reviews/:id/reject", requireAdmin, async (req: Authenticated
   res.json({ success: true });
 });
 
-// ─── Consolidated draft autosave: note / rejection reason / enrichment (admin) ─
+// ─── Consolidated draft autosave: note / rejection reason (admin) ─────────────
 //
 // One endpoint, any subset of fields. The review form autosaves through the
 // universal `useFormDraft` helper and sends only the fields the admin actually
-// changed. Each field is validated independently; the enrichment blob is stored
-// AS-IS — a partial or invalid draft is allowed here. Validity is enforced later
-// at approval (see resolveApprovalEnrichment), not on every keystroke. This is a
-// pending review (a draft), so there are no projection columns to protect, unlike
-// a live fact.
+// changed. Enrichment is NOT a review-draft field: after provisional approval
+// the staging fact (facts.enrichment + its baseline/override layers) is the only
+// enrichment truth, edited via the fact override endpoints. A legacy client
+// still sending `enrichment` is tolerated (schema accepts it, handler ignores it
+// with a warn) so mid-deploy autosaves don't 400 — the field is never written.
 const ReviewDraftBody = z.object({
   note: z.string().max(500).optional(),
   reason: z.enum(["duplicate", "spam", "offensive", "lame", ""]).optional(),
@@ -800,19 +806,21 @@ router.patch("/admin/reviews/:id", requireAdmin, async (req: AuthenticatedReques
   const updates: {
     adminNote?: string | null;
     reason?: "duplicate" | "spam" | "offensive" | "lame" | null;
-    enrichment?: FactEnrichment | null;
-    enrichmentStatus?: string | null;
   } = {};
   if (body.data.note !== undefined) updates.adminNote = body.data.note || null;
   if (body.data.reason !== undefined) {
     updates.reason = (body.data.reason || null) as "duplicate" | "spam" | "offensive" | "lame" | null;
   }
+  // Review-blob enrichment drafts are RETIRED: after provisional approval the
+  // staging fact (facts.enrichment + its baseline/override layers) is the only
+  // enrichment truth, edited via the fact override endpoints. A legacy client
+  // still sending `enrichment` here gets note/reason saved and the field
+  // ignored — never written to pending_reviews.
   if ("enrichment" in raw) {
-    const e = body.data.enrichment;
-    updates.enrichment = (e ?? null) as FactEnrichment | null;
-    // "ok" just means "a stored blob exists" (not pending/failed) — it is NOT a
-    // validity claim; the approval gate validates the blob independently.
-    updates.enrichmentStatus = e ? "ok" : null;
+    logger.warn(
+      { reviewId: id, ignoredLegacyEnrichmentDraft: true },
+      "[moderation] client sent legacy enrichment on the review draft autosave — ignored (staging fact is authoritative)",
+    );
   }
 
   if (Object.keys(updates).length > 0) {
@@ -822,67 +830,25 @@ router.patch("/admin/reviews/:id", requireAdmin, async (req: AuthenticatedReques
   res.json({ success: true });
 });
 
-// ─── Save Advanced-Options enrichment edits to the staging fact ───────────────
+// ─── Staging-enrichment whole-blob save: RETIRED ──────────────────────────────
 //
-// Step-2 "Advanced Options" lets a moderator tune the taxonomy enrichment + the
-// visual-strategy override before approving. Those edits must land on the
-// STAGING FACT (`facts.enrichment`) — that is the single source of truth the
-// Step-2 test renders and the approval gate both read. Without an explicit save,
-// edits lived only in the browser and were flushed on approve, so re-running a
-// render tile rendered against the OLD enrichment and the tile stayed stale.
-//
-// This is the review-flow "plain whole-blob draft" save (NOT the live-fact
-// override-tracking model): we materialize the edited blob straight onto the
-// staging fact, exactly as `approve-for-production` does. It is the moderation
-// twin of the Facts page's `PATCH /admin/facts/:id/enrichment`, minus the
-// tracked-field guard a live fact needs (a staging fact has no protected
-// AI-baseline / live overrides to defend). Returns the persisted enrichment so
-// the client can clear its dirty flag and re-derive scenario staleness.
-router.patch("/admin/reviews/:id/staging-enrichment", requireAdmin, async (req: AuthenticatedRequest, res: Response) => {
-  const id = parseInt(String(req.params["id"] ?? ""), 10);
-  if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
-
-  const result = validateEnrichment((req.body as { enrichment?: unknown } | null | undefined)?.enrichment);
-  if (!result.ok) { res.status(400).json({ error: `Invalid enrichment: ${result.error}` }); return; }
-  const enrichment = result.data;
-
-  // Stage recheck + staging-fact write happen in ONE transaction with the review
-  // row locked (SELECT … FOR UPDATE). Otherwise a concurrent approve-for-production
-  // committing between a separate read and the write would let us rewrite a fact
-  // that is already LIVE — bypassing the approval render gate / hashtag attach. The
-  // lock serializes against approval (which also writes the review row), so we
-  // either win the lock and approval sees our saved enrichment, or approval wins
-  // and our recheck sees a non-production_review stage and bails.
-  const outcome = await db.transaction(async (tx): Promise<{ status: number; body: Record<string, unknown> }> => {
-    const [review] = await tx
-      .select({ stagingFactId: pendingReviewsTable.stagingFactId, workflowStage: pendingReviewsTable.workflowStage })
-      .from(pendingReviewsTable)
-      .where(eq(pendingReviewsTable.id, id))
-      .for("update")
-      .limit(1);
-    if (!review) return { status: 404, body: { error: "Review not found" } };
-    if (review.stagingFactId == null) {
-      return { status: 409, body: { error: "This review has no staging fact yet. Provisionally approve it first." } };
-    }
-    // Advanced Options (and its renders) only exist in production_review. Refuse to
-    // mutate enrichment in any other stage so a stale client can't write to a fact
-    // that has already been approved/rejected.
-    if (review.workflowStage !== "production_review") {
-      return { status: 409, body: { error: `Enrichment can only be saved during production review (stage is ${review.workflowStage}).` } };
-    }
-
-    const { columns } = materializeFromBaseline(enrichment);
-    const [updated] = await tx
-      .update(factsTable)
-      .set({ ...columns, enrichmentStatus: "ok" })
-      .where(eq(factsTable.id, review.stagingFactId))
-      .returning({ id: factsTable.id });
-    if (!updated) return { status: 409, body: { error: "Staging fact missing for this review." } };
-
-    return { status: 200, body: { success: true, enrichment: columns.enrichment } };
+// This endpoint used to accept the moderator's whole edited blob and
+// materialize it as a FRESH AI baseline (`materializeFromBaseline` → override
+// map wiped) — the override-history wipe the lockstep model eliminates. The
+// moderation modal now edits the staging fact through the SAME machinery as the
+// Edit Fact screen: tracked fields via PUT/DELETE
+// `/admin/facts/:stagingFactId/enrichment-overrides` (instant, per-field,
+// audited), untracked fields (visual-strategy override) via
+// `PATCH /admin/facts/:stagingFactId/enrichment` (tracked-field-guarded,
+// baseline-preserving). Kept registered (in this position, ahead of broader
+// review routes) for at least one release so stale clients fail with a clear
+// code instead of a 404.
+router.patch("/admin/reviews/:id/staging-enrichment", requireAdmin, (_req: Request, res: Response) => {
+  res.status(410).json({
+    error:
+      "Whole-blob staging enrichment saves are retired. The moderation editor persists edits through the fact override endpoints (/admin/facts/:stagingFactId/enrichment-overrides and /enrichment) automatically — reload the admin app.",
+    code: "STAGING_ENRICHMENT_RETIRED",
   });
-
-  res.status(outcome.status).json(outcome.body);
 });
 
 // ─── Enrichment: retired ──────────────────────────────────────────────────────

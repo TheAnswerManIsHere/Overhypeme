@@ -33,6 +33,7 @@ import { and, eq, gte, like, sql, count, inArray } from "drizzle-orm";
 import type { FactEnrichment } from "@workspace/api-zod";
 
 import reviewsRouter, { __setPlanGeneratorForTest } from "../routes/reviews.js";
+import { materializeEnrichment } from "../lib/factEnrichment.js";
 import { FACT_SUBMIT_PENDING_CAP } from "../lib/rateLimit.js";
 import { runEnrichmentForFact } from "../lib/enrichmentJobs.js";
 import { runFactPexelsJob, factPexelsJobHandler } from "../lib/factPexelsJobs.js";
@@ -1152,6 +1153,95 @@ describe("POST /admin/reviews/:id/approve-for-production", () => {
       .set("authorization", `Bearer ${sid}`)
       .send({});
     assert.equal(res.status, 409);
+  });
+
+  it("preserves the staging fact's AI baseline + override map through approval", async () => {
+    // A staging fact in full override-tracking shape: materialized baseline plus
+    // one moderator override — exactly what the moderation modal now produces.
+    const submitterId = await createTestUser();
+    const overrides = {
+      "/visualComplexity": { value: "high", overriddenFrom: "medium", createdAt: new Date("2026-01-01T00:00:00Z").toISOString(), createdBy: "admin", reason: "test" },
+    };
+    const { columns } = materializeEnrichment({ aiDerived: VALID_APPROVAL_ENRICHMENT, overrides });
+    const [staging] = await db.insert(factsTable).values({
+      text: "{NAME} bench-presses the Earth.", submittedById: submitterId, isActive: false,
+      ...columns, enrichmentStatus: "ok",
+    } as typeof factsTable.$inferInsert).returning();
+    const [review] = await db.insert(pendingReviewsTable).values({
+      submittedText: "{NAME} bench-presses the Earth.", submittedById: submitterId, status: "pending",
+      workflowStage: "production_review", stagingFactId: staging.id, enrichment: VALID_APPROVAL_ENRICHMENT, enrichmentStatus: "ok",
+    }).returning();
+    const adminId = await createTestUser({ isAdmin: true });
+    const sid = await bearerForUser(adminId, { isAdmin: true });
+    __setPlanGeneratorForTest(async () => makePlanOutput("strong") as never);
+
+    const res = await request(makeApp())
+      .post(`/admin/reviews/${review.id}/approve-for-production`)
+      .set("authorization", `Bearer ${sid}`)
+      .send({ ...WAIVE_ALL_REQUIRED });
+    assert.equal(res.status, 200);
+
+    const [fact] = await db.select().from(factsTable).where(eq(factsTable.id, staging.id));
+    assert.equal(fact.isActive, true);
+    // Approval must not rewrite ANY enrichment layer: the effective keeps the
+    // override, the baseline keeps the AI value, the override map survives.
+    assert.equal((fact.enrichment as FactEnrichment).visualComplexity, "high");
+    assert.equal((fact.enrichmentAiDerived as FactEnrichment).visualComplexity, "medium");
+    const ov = (fact.enrichmentOverrides as Record<string, { value: unknown; overriddenFrom: unknown }>)["/visualComplexity"];
+    assert.equal(ov.value, "high");
+    assert.equal(ov.overriddenFrom, "medium");
+  });
+
+  it("ignores a legacy client enrichment body — the staging fact's stored blob is authoritative", async () => {
+    const { reviewId, stagingFactId } = await seedProductionReview();
+    const adminId = await createTestUser({ isAdmin: true });
+    const sid = await bearerForUser(adminId, { isAdmin: true });
+    __setPlanGeneratorForTest(async () => makePlanOutput("strong") as never);
+
+    // A stale pre-override-model client ships its flattened edited blob on
+    // approve. The edit (visualComplexity medium → high) must NOT take effect.
+    const res = await request(makeApp())
+      .post(`/admin/reviews/${reviewId}/approve-for-production`)
+      .set("authorization", `Bearer ${sid}`)
+      .send({ enrichment: { ...VALID_APPROVAL_ENRICHMENT, visualComplexity: "high" }, ...WAIVE_ALL_REQUIRED });
+    assert.equal(res.status, 200, JSON.stringify(res.body));
+
+    const [fact] = await db.select().from(factsTable).where(eq(factsTable.id, stagingFactId));
+    assert.equal(fact.isActive, true);
+    assert.equal((fact.enrichment as FactEnrichment).visualComplexity, "medium", "the body blob must not overwrite the staging fact");
+    // The review-row snapshot records what actually shipped (the stored blob).
+    const [r] = await db.select().from(pendingReviewsTable).where(eq(pendingReviewsTable.id, reviewId));
+    assert.equal((r.enrichment as FactEnrichment).visualComplexity, "medium");
+  });
+});
+
+describe("PATCH /admin/reviews/:id (draft autosave)", () => {
+  it("saves note/reason but ignores a legacy enrichment field (staging fact untouched)", async () => {
+    const submitterId = await createTestUser();
+    const [staging] = await db.insert(factsTable).values({
+      text: "{NAME} does a thing", submittedById: submitterId, isActive: false, enrichment: VALID_APPROVAL_ENRICHMENT,
+    }).returning();
+    const [review] = await db.insert(pendingReviewsTable).values({
+      submittedText: "{NAME} does a thing", submittedById: submitterId, status: "pending",
+      workflowStage: "production_review", stagingFactId: staging.id, enrichment: VALID_APPROVAL_ENRICHMENT, enrichmentStatus: "ok",
+    }).returning();
+    const adminId = await createTestUser({ isAdmin: true });
+    const sid = await bearerForUser(adminId, { isAdmin: true });
+
+    const res = await request(makeApp())
+      .patch(`/admin/reviews/${review.id}`)
+      .set("authorization", `Bearer ${sid}`)
+      .send({ note: "looks good", reason: "lame", enrichment: { ...VALID_APPROVAL_ENRICHMENT, visualComplexity: "high" } });
+    assert.equal(res.status, 200);
+
+    const [r] = await db.select().from(pendingReviewsTable).where(eq(pendingReviewsTable.id, review.id));
+    assert.equal(r.adminNote, "looks good");
+    assert.equal(r.reason, "lame");
+    // The legacy enrichment draft is ignored — never written to the review row…
+    assert.equal((r.enrichment as FactEnrichment).visualComplexity, "medium");
+    // …and the staging fact (the only enrichment truth) is untouched.
+    const [fact] = await db.select().from(factsTable).where(eq(factsTable.id, staging.id));
+    assert.equal((fact.enrichment as FactEnrichment).visualComplexity, "medium");
   });
 });
 

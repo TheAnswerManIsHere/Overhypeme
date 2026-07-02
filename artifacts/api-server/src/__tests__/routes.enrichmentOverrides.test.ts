@@ -271,6 +271,35 @@ describe("human-field survival (visual override + sticky notes)", () => {
   });
 });
 
+describe("override endpoints on inactive (staging) facts", () => {
+  // The moderation modal edits STAGING facts — real `facts` rows with
+  // isActive: false — through these same endpoints. This pins the
+  // no-isActive-guard property that lockstep editing depends on: if a future
+  // refactor adds an active-only filter, this fails loudly instead of
+  // silently breaking moderation.
+  it("PUT and GET-resolved work on an isActive:false fact", async () => {
+    const { columns } = materializeFromBaseline(AI);
+    const [row] = await db.insert(factsTable)
+      .values({ text: `${TEXT_PREFIX}${randomUUID()}`, isActive: false, ...columns, enrichmentStatus: "ok" } as typeof factsTable.$inferInsert)
+      .returning({ id: factsTable.id });
+    insertedFactIds.push(row.id);
+
+    const put = await request(adminApp)
+      .put(`/api/admin/facts/${row.id}/enrichment-overrides`)
+      .send({ path: "/overhypeFit", value: "questionable" });
+    assert.equal(put.status, 200);
+    assert.equal((put.body.effective as FactEnrichment).overhypeFit, "questionable");
+
+    const resolved = await request(adminApp).get(`/api/admin/facts/${row.id}/enrichment-resolved`);
+    assert.equal(resolved.status, 200);
+    assert.equal(resolved.body.overrideSummary.overriddenPaths.includes("/overhypeFit"), true);
+
+    const [fact] = await db.select().from(factsTable).where(eq(factsTable.id, row.id));
+    assert.equal(fact.isActive, false, "editing must not activate the fact");
+    assert.equal((fact.enrichment as FactEnrichment).overhypeFit, "questionable");
+  });
+});
+
 describe("GET /admin/facts list — override filters", () => {
   it("filters by hasOverrides and baselineChanged", async () => {
     const plainId = await seedFact();
