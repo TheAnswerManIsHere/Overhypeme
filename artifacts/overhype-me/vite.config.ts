@@ -119,11 +119,14 @@ export default defineConfig({
     // Disable automatic dependency scanning in the dev server.
     // The full esbuild dep scan spawns thousands of goroutines which exhausts
     // the container's OS thread limit (~1024 total) and panics. With noDiscovery
-    // and a minimal include list, Vite only pre-bundles the specific CJS deps
-    // that fail on-demand transformation (use-sync-external-store is CJS and
-    // imported by wouter + @radix-ui/react-use-is-hydrated).
+    // and a targeted include list, Vite only pre-bundles the specific CJS deps
+    // that fail on-demand transform.
+    //
+    // wouter 3.9.0 imports `use-sync-external-store/shim/index.js` (CJS, not ESM).
+    // Vite can't convert `module.exports = require(...)` to named ESM exports,
+    // so this subpath must be pre-bundled by esbuild.
     noDiscovery: true,
-    include: ["use-sync-external-store"],
+    include: ["use-sync-external-store/shim"],
   },
   server: {
     port,
