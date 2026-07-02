@@ -21,7 +21,9 @@
   --color-ring: hsl(var(--ring));
   --color-card: hsl(var(--card));
   --color-card-foreground: hsl(var(--card-foreground));
-  
+  --color-popover: hsl(var(--popover));
+  --color-popover-foreground: hsl(var(--popover-foreground));
+
   --animate-fade-in: fadeIn 0.3s ease-out;
   --animate-slide-up: slideUp 0.4s cubic-bezier(0.16, 1, 0.3, 1);
   --animate-punch: punch 0.2s cubic-bezier(0.17, 0.89, 0.32, 1.49);
@@ -54,6 +56,13 @@
 
   --card: 280 5% 11%;
   --card-foreground: 0 0% 98%;
+
+  /* Floating panels (Radix Popover/HoverCard content). These tokens were
+     previously undefined, making bg-popover TRANSPARENT — the ui/popover
+     primitive rendered see-through (surfaced by the FieldInfo docs popovers).
+     Match the card surface. */
+  --popover: 280 5% 11%;
+  --popover-foreground: 0 0% 98%;
 }
 
 @keyframes fadeIn {
