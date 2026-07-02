@@ -472,7 +472,7 @@ In the render-input hash: editing it flips test renders stale.
 *Does this fact fit the positive Overhype.me product rule?*
 
 - **Effect:** Gating only — approval/health gate, never compiled into the prompt
-- **Staleness:** Editing re-flags render scenarios as stale.
+- **Staleness:** Editing does not re-flag render scenarios.
 - **Editor surface:** field-label
 
 **What it is**
@@ -487,7 +487,7 @@ The classifier applies the core product rule from its system prompt: strong = cl
 
 NOT compiled into the prompt — this is a quality/approval gate. Taxonomy Health raises a warning for 'questionable' and an error for 'reject' (both mark the fact needs_admin_review), and the value is a filterable projected column in the admin fact list.
 
-It is included in the render-input hash, so editing it does flip test renders stale even though the compiled prompt doesn't change because of it.
+It is NOT in the render-input hash, so editing it does not flip test renders stale (the compiled prompt doesn't depend on it).
 
 **Values (3)**
 
@@ -511,14 +511,13 @@ It is included in the render-input hash, so editing it does flip test renders st
 
 - `artifacts/api-server/src/lib/factEnrichmentConfig.ts` `FACT_ENRICHMENT_SYSTEM_DEFAULT` — The classifier system prompt — the authoritative definition of what the AI is told this field means.
 - `artifacts/api-server/src/lib/taxonomyHealth/index.ts` `computeTaxonomyHealth` — The questionable/reject health flags and needs_admin_review gating.
-- `artifacts/api-server/src/lib/factRenderScenarios.ts` `renderAffectingEnrichment` — The render-input hash projection — fields listed here flip render-scenario tiles stale when edited.
 
 ### Adult-Mode Compatibility
 
 *Whether this FACT could support adult/spicy rendering — NOT the render's SFW control.*
 
 - **Effect:** Gating only — approval/health gate, never compiled into the prompt
-- **Staleness:** Editing re-flags render scenarios as stale.
+- **Staleness:** Editing does not re-flag render scenarios.
 - **Editor surface:** field-label
 
 **What it is**
@@ -535,7 +534,7 @@ The classifier applies the definitions in its system prompt — notably the 'inc
 
 None on the compiled prompt. 'requires_review' raises a Taxonomy Health flag for a human decision; the value is a projected, filterable column.
 
-Included in the render-input hash, so edits flip test renders stale.
+NOT in the render-input hash, so editing it does not flip test renders stale — the render's actual SFW/spicy level is the separate contentMode render control, not this field.
 
 **Values (4)**
 
@@ -561,7 +560,6 @@ Included in the render-input hash, so edits flip test renders stale.
 **Sources**
 
 - `artifacts/api-server/src/lib/factEnrichmentConfig.ts` `FACT_ENRICHMENT_SYSTEM_DEFAULT` — The classifier system prompt — the authoritative definition of what the AI is told this field means.
-- `artifacts/api-server/src/lib/factRenderScenarios.ts` `renderAffectingEnrichment` — The render-input hash projection — fields listed here flip render-scenario tiles stale when edited.
 
 ### Adult-Mode Notes
 
